@@ -4,12 +4,13 @@
 // Command preview-tester observes a Preview's approved http acceptance
 // criteria from inside its slot. preview-controller runs it as a one-shot
 // Job beside the Preview's components, with the criteria, the run tokens
-// and each component's Service address in the literal environment variable
-// MAUL_VERIFY_SPEC. It first waits, bounded, for every Service to accept a
-// TCP connection (the slot policy may not be programmed for a new Pod yet);
-// a Service still unreachable ends the run with a summary naming it and no
-// criterion observed. It then sends each step's request to that Service by name,
-// writes one MAUL-VERIFY v1 line per criterion to stdout and a summary
+// and each component's Service ClusterIP in the literal environment
+// variable MAUL_VERIFY_SPEC; it resolves no name. It first waits, bounded,
+// for every Service to accept a TCP connection (the slot policy may not be
+// programmed for a new Pod yet); a Service still unreachable ends the run
+// with a summary naming it and no criterion observed. It then sends each
+// step's request to that Service's ClusterIP, writes one MAUL-VERIFY line
+// per criterion to stdout and a summary
 // after them, and repeats the summary as its termination message.
 // preview-controller reads both back; intent-controller judges.
 //

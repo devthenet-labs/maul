@@ -10,8 +10,8 @@ const (
 	// EnvOK: no part shows a failure.
 	EnvOK EnvClass = "OK"
 	// EnvAppFailure: a part the change under test runs (a component, or a
-	// command Job in a component's image) crashed (or, a component,
-	// restarted or was replaced during the attempt), never became Ready, was evicted, ran
+	// command Job in a component's image) crashed (or, a component, exited
+	// or was evicted by the kubelet during the attempt), never became Ready, was evicted, ran
 	// out of memory, could not pull its PR-head image, or, a component,
 	// accepted no connection from the tester for its whole readiness window
 	// while Ready. It is
@@ -19,8 +19,8 @@ const (
 	// verify-fix round (critique fix 13).
 	EnvAppFailure EnvClass = "AppFailure"
 	// EnvInfra: trouble the change cannot cause (the tester, a backing
-	// service, the seed, a part no node would take, a role maul does not
-	// know). It gets maul's free retries, then Unavailable.
+	// service, the seed, a part no node would take, a component the
+	// cluster disrupted, a role maul does not know). It gets maul's free retries, then Unavailable.
 	EnvInfra EnvClass = "Infra"
 )
 
@@ -62,15 +62,7 @@ func partClass(p PartFact) EnvClass {
 	crashed := p.Waiting != "" || p.Evicted || oom
 	switch p.Role {
 	case RoleComponent:
-		// A Ready component the tester could not connect to for its whole
-		// readiness window refused it: the window absorbs maul's slot policy
-		// being programmed (about a second on k3s), and past it only the
-		// application can be the cause (a capability-less process can drop
-		// SYNs from every source but the node with a classic BPF socket
-		// filter and keep passing its probe). Never maul's Infra.
-		if crashed || !p.Ready || p.RestartedDuring || p.Replaced || p.UnreachableForMs > 0 {
-			return EnvAppFailure
-		}
+		return componentClass(p)
 	case RoleCommand:
 		if crashed {
 			return EnvAppFailure
@@ -85,6 +77,25 @@ func partClass(p PartFact) EnvClass {
 		}
 	default:
 		return EnvInfra
+	}
+	return EnvOK
+}
+
+// componentClass is a component's class, judged by what happened during the
+// attempt: its last termination is evidence, an OOM included, unless it is
+// CrashedDuring. The cluster disrupting it is maul's.
+func componentClass(p PartFact) EnvClass {
+	switch {
+	case p.Disrupted:
+		return EnvInfra
+	// A Ready component the tester could not connect to for its whole
+	// readiness window refused it: the window absorbs maul's slot policy
+	// being programmed (about a second on k3s), and past it only the
+	// application can be the cause (a capability-less process can drop SYNs
+	// from every source but the node with a classic BPF socket filter and
+	// keep passing its probe). Never maul's Infra.
+	case p.Waiting != "" || p.Evicted || !p.Ready || p.CrashedDuring || p.UnreachableForMs > 0:
+		return EnvAppFailure
 	}
 	return EnvOK
 }

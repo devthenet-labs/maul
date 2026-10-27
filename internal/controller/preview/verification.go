@@ -12,8 +12,10 @@ import (
 	"log/slog"
 	"maps"
 	"math"
+	"net"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -299,10 +301,15 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 		}
 		return v.wait(), nil
 	}
-	job, err := v.renderTester(pv, s)
-	if err != nil {
+	job, reason, err := v.renderTester(ctx, pv, s)
+	switch {
+	case reason == v1alpha1.VerificationReasonServiceNoClusterIP:
+		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra, reason)
+	case reason != "":
 		v.logRefusal(ctx, pv, "tester not rendered", err)
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria)
+		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, reason)
+	case err != nil:
+		return ctrl.Result{}, err
 	}
 	if err := v.Create(ctx, job); err != nil && !kerrors.IsAlreadyExists(err) {
 		if quotaExceeded(err) {
@@ -325,104 +332,33 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 	return v.wait(), v.Status().Update(ctx, pv)
 }
 
-// clockSkew is the tolerance between the kubelet's clock, which stamps a
-// container's start and termination, and the API server's, which stamps a
-// Pod's creation, when either is compared with the tester Pod's start.
-const clockSkew = 2 * time.Second
+// errNoClusterIP is a component Service with no ClusterIP to render the
+// tester's target from: maul's render error.
+var errNoClusterIP = errors.New("component Service has no ClusterIP")
 
-// attemptStart is when the attempt began, the reference a component's
-// restart or replacement is judged against: the tester Pod's start as its
-// kubelet reported it (the same clock domain as the components'
-// timestamps), else its container's, else when the tester was rendered. It
-// needs no state: an attempt already running when the controller was
-// upgraded, or a start pass re-entered, judges the same.
-func attemptStart(tester *corev1.Pod, pv *v1alpha1.PreviewVerification) time.Time {
-	if tester != nil {
-		if tester.Status.StartTime != nil && !tester.Status.StartTime.IsZero() {
-			return tester.Status.StartTime.Time
-		}
-		for _, s := range tester.Status.ContainerStatuses {
-			switch {
-			case s.Name != testerContainer:
-			case s.State.Running != nil && !s.State.Running.StartedAt.IsZero():
-				return s.State.Running.StartedAt.Time
-			case s.State.Terminated != nil && !s.State.Terminated.StartedAt.IsZero():
-				return s.State.Terminated.StartedAt.Time
-			}
-		}
-	}
-	return startedAt(pv)
-}
-
-// during reports whether t, a kubelet timestamp of a container exiting or
-// starting again, falls in the attempt that began at start, less the clock
-// skew: an exit around the tester's start is counted, never missed.
-func during(t metav1.Time, start time.Time) bool {
-	return !t.IsZero() && !t.Time.Before(start.Add(-clockSkew))
-}
-
-// createdDuring reports whether a Pod was created during the attempt that
-// began at start: after the tester started, by more than the clock skew. A
-// Pod created a moment before the tester (a fast cluster serves one within
-// seconds) is the one the tester ran against, never a replacement.
-func createdDuring(created metav1.Time, start time.Time) bool {
-	return !created.IsZero() && created.After(start.Add(clockSkew))
-}
-
-// restartedDuring reports whether a component's container exited, or ran
-// again after exiting, during the attempt: its last termination finished,
-// or its current run (of a container that has restarted) began, after the
-// attempt started.
-func restartedDuring(pod *corev1.Pod, container string, start time.Time) bool {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name != container {
-			continue
-		}
-		if t := s.LastTerminationState.Terminated; t != nil && during(t.FinishedAt, start) {
-			return true
-		}
-		if r := s.State.Running; r != nil && s.RestartCount > 0 && during(r.StartedAt, start) {
-			return true
-		}
-	}
-	return false
-}
-
-// failedDuring reports whether a component Pod that is not the current one
-// was created before the attempt and failed or began deleting during it:
-// an eviction during the attempt shows up through it.
-func failedDuring(pod *corev1.Pod, start time.Time) bool {
-	if createdDuring(pod.CreationTimestamp, start) {
-		return false
-	}
-	if pod.DeletionTimestamp != nil && during(*pod.DeletionTimestamp, start) {
-		return true
-	}
-	if pod.Status.Phase != corev1.PodFailed {
-		return false
-	}
-	for _, c := range pod.Status.Conditions {
-		if during(c.LastTransitionTime, start) {
-			return true
-		}
-	}
-	for _, s := range pod.Status.ContainerStatuses {
-		if t := s.State.Terminated; t != nil && during(t.FinishedAt, start) {
-			return true
-		}
-	}
-	return false
-}
-
-// testerTargets maps each component to the Service address its requests
-// go to: the derivation the Preview's Services are named with, on the
-// Service port.
-func testerTargets(p *v1alpha1.Preview) map[string]string {
+// serviceTargets maps each component to its Service's ClusterIP on the
+// Service port, read live: the tester dials it and resolves no name, so
+// cluster DNS, which every Pod on the node shares, cannot keep it from a
+// component. A Service that is missing, headless or not yet allocated is
+// errNoClusterIP.
+func (v *VerificationReconciler) serviceTargets(ctx context.Context, p *v1alpha1.Preview,
+	slot int32) (map[string]string, error) {
 	targets := make(map[string]string, len(p.Spec.Components))
 	for i, c := range p.Spec.Components {
-		targets[c.Name] = fmt.Sprintf("%s:%d", v1alpha1.PreviewComponentServiceName(p, i), v1alpha1.PreviewServicePort)
+		var svc corev1.Service
+		key := types.NamespacedName{Namespace: v.Settings.slotName(slot), Name: v1alpha1.PreviewComponentServiceName(p, i)}
+		if err := v.Get(ctx, key, &svc); kerrors.IsNotFound(err) {
+			return nil, fmt.Errorf("%w: %s", errNoClusterIP, key.Name)
+		} else if err != nil {
+			return nil, err
+		}
+		ip := svc.Spec.ClusterIP
+		if ip == "" || ip == corev1.ClusterIPNone || net.ParseIP(ip) == nil {
+			return nil, fmt.Errorf("%w: %s", errNoClusterIP, key.Name)
+		}
+		targets[c.Name] = net.JoinHostPort(ip, strconv.Itoa(int(v1alpha1.PreviewServicePort)))
 	}
-	return targets
+	return targets, nil
 }
 
 // renderedSpec is the spec a tester Job was rendered with, read back from
@@ -442,13 +378,20 @@ func renderedSpec(job *batchv1.Job) (previewtester.Spec, error) {
 }
 
 // renderTester renders the request's tester Job: the spec the tester reads
-// (its criteria, run tokens and, per component, the Service its requests go
-// to, by the derivation the Preview's Services are named with, on the
-// Service port) and its budget below the Job's deadline, under a deadline
-// clamped to DeadlineMax.
-func (v *VerificationReconciler) renderTester(pv *v1alpha1.PreviewVerification,
-	s *verifySubject) (*batchv1.Job, error) {
-	targets := testerTargets(s.preview)
+// (its criteria, run tokens and, per component, its Service's ClusterIP on
+// the Service port, serviceTargets) and its budget below the Job's
+// deadline, under a deadline clamped to DeadlineMax. A component Service
+// with no ClusterIP is the reason service-no-cluster-ip, no Job.
+func (v *VerificationReconciler) renderTester(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	s *verifySubject) (*batchv1.Job, v1alpha1.PreviewVerificationReason, error) {
+	targets, err := v.serviceTargets(ctx, s.preview, s.slot)
+	if errors.Is(err, errNoClusterIP) {
+		v.logRefusal(ctx, pv, "tester not rendered", err)
+		return nil, v1alpha1.VerificationReasonServiceNoClusterIP, nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
 	clamped := pv.DeepCopy()
 	if limit := cmp.Or(v.DeadlineMax, testerTimeoutMax); clamped.Spec.Timeout.Duration > limit {
 		clamped.Spec.Timeout.Duration = limit
@@ -457,9 +400,13 @@ func (v *VerificationReconciler) renderTester(pv *v1alpha1.PreviewVerification,
 		BudgetSeconds: previewtester.BudgetFor(clamped.Spec.Timeout.Duration),
 		Criteria:      s.criteria, Targets: targets}.Encode()
 	if err != nil {
-		return nil, err
+		return nil, v1alpha1.VerificationReasonStaleCriteria, err
 	}
-	return v.Settings.testerJob(s.preview, clamped, s.slot, input)
+	job, err := v.Settings.testerJob(s.preview, clamped, s.slot, input)
+	if err != nil {
+		return nil, v1alpha1.VerificationReasonStaleCriteria, err
+	}
+	return job, "", nil
 }
 
 // rolloutSettled reports whether every live Pod of each component runs it as
@@ -565,7 +512,11 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 		v.logRefusal(ctx, pv, "tester Job spec unreadable", err)
 		return v.settle(ctx, pv, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
-	if !maps.Equal(spec.Targets, testerTargets(s.preview)) {
+	live, err := v.serviceTargets(ctx, s.preview, s.slot)
+	if err != nil && !errors.Is(err, errNoClusterIP) {
+		return err
+	}
+	if err != nil || !maps.Equal(spec.Targets, live) {
 		return v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview)
 	}
 	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
@@ -580,8 +531,8 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 		return err
 	}
 	held := out.reason == ""
-	if held && markUnreachable(facts, out.sum.Waits) {
-		out.reason = v1alpha1.VerificationReasonDNSUnavailable
+	if held {
+		markUnreachable(facts, out.sum.Waits)
 	}
 	phase, reason := route(facts, out.reason)
 	v.logOutcome(ctx, pv, out, phase, reason)
@@ -612,18 +563,11 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 // tester could not connect to for the whole window refused it: the window
 // absorbs maul's slot policy being programmed, and past it only the
 // application can be the cause (internal/previewtester/readiness.go), so
-// the environment classifies it as the application's failure. A target
-// whose every failed attempt was a DNS failure is the exception: its
-// Service name and the cluster's DNS are maul's, never the application's,
-// so it is not marked, and markUnreachable reports it (dns-unavailable,
-// Infra). One refused, timed-out or reset attempt means the name resolved.
-func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) (dnsOnly bool) {
+// the environment classifies it as the application's failure, however its
+// attempts failed: the tester dials a ClusterIP and resolves no name.
+func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) {
 	for _, w := range waits {
 		if w.Reached() {
-			continue
-		}
-		if w.DNS == w.Attempts {
-			dnsOnly = true
 			continue
 		}
 		for i := range facts {
@@ -632,7 +576,6 @@ func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) (
 			}
 		}
 	}
-	return dnsOnly
 }
 
 // logOutcome logs what an operator needs from a tester's output that the
@@ -890,20 +833,18 @@ func appFailureReason(facts []v1alpha1.PartFact, failing []string) v1alpha1.Prev
 	}
 	f := facts[i]
 	switch {
-	case f.LastTermination != nil && f.LastTermination.Reason == "OOMKilled":
+	case f.CrashedDuring && f.LastTermination != nil && f.LastTermination.Reason == "OOMKilled":
 		return v1alpha1.VerificationReasonComponentOOM
 	case imagePullReason(f.Waiting):
 		return v1alpha1.VerificationReasonComponentImagePull
 	case f.Waiting != "":
 		return v1alpha1.VerificationReasonComponentCrashLoop
-	case f.Replaced:
-		return v1alpha1.VerificationReasonComponentReplaced
 	case f.Evicted:
 		return v1alpha1.VerificationReasonComponentEvicted
 	case !f.Ready:
 		return v1alpha1.VerificationReasonComponentNotReady
-	case f.RestartedDuring:
-		return v1alpha1.VerificationReasonComponentRestarted
+	case f.CrashedDuring:
+		return v1alpha1.VerificationReasonComponentCrashed
 	case f.UnreachableForMs > 0:
 		return v1alpha1.VerificationReasonComponentUnreachable
 	}
@@ -926,6 +867,11 @@ func infraReason(facts []v1alpha1.PartFact,
 			return v1alpha1.VerificationReasonTesterImagePull
 		}
 	}
+	for _, f := range facts {
+		if f.Disrupted && f.Role == v1alpha1.PreviewRoleComponent {
+			return v1alpha1.VerificationReasonComponentDisrupted
+		}
+	}
 	if outReason != "" {
 		return outReason
 	}
@@ -940,22 +886,21 @@ func infraReason(facts []v1alpha1.PartFact,
 // environment captures each part of the slot: every component, from its
 // current Pod (the one running it as the spec renders it, else its newest),
 // with its log tail since the attempt started, and the tester when it has a
-// Pod. Whether a component restarted or was replaced during the attempt is
-// read from the kubelet's and API server's timestamps against the tester
-// Pod's start (attemptStart), from Pods read live, the component's finished
-// and deleting Pods included, so an eviction during the attempt shows. A
-// Pod list that fails is an error, never a part without a Pod: that would
-// charge the intent for the API server's trouble.
+// Pod. What happened to each component during the tester's run (crashed,
+// evicted, disrupted: componentCause, disruption.go) is read from Pods read
+// live, its finished and deleting ones included. A Pod list that fails is
+// an error, never a part without a Pod: that would charge the intent for
+// the API server's trouble.
 func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
 	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
-	start := attemptStart(tester, pv)
+	w := attemptWindow{start: attemptStart(tester, pv), end: attemptEnd(tester, v.now())}
 	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
 	for i, c := range p.Spec.Components {
 		all, err := v.allComponentPods(ctx, p, i, slot)
 		if err != nil {
 			return nil, err
 		}
-		facts = append(facts, v.componentFact(ctx, p, c, all, start, startedAt(pv)))
+		facts = append(facts, v.componentFact(ctx, p, c, all, w, startedAt(pv)))
 	}
 	if tester != nil {
 		facts = append(facts, podFact(tester, v1alpha1.PreviewPartTester, testerContainer, v1alpha1.PreviewRoleTester))
@@ -963,30 +908,22 @@ func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Pr
 	return facts, nil
 }
 
-// componentFact is component c's fact from all its Pods: its current one's
-// container facts, whether that Pod restarted or replaced an earlier one
-// during the attempt, and whether a Pod from before the attempt was
-// evicted during it.
+// componentFact is component c's fact from all its Pods: its current
+// one's container facts, and what happened to it during the attempt w
+// (componentCause), which alone sets crashedDuring, evicted and disrupted.
 func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.Preview,
-	c v1alpha1.PreviewComponent, all []corev1.Pod, start, since time.Time) v1alpha1.PartFact {
+	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time) v1alpha1.PartFact {
 	fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
 	live := slices.DeleteFunc(slices.Clone(all), func(pod corev1.Pod) bool { return !livePod(&pod) })
 	pod := currentPod(live, p, c)
 	if pod != nil {
 		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
-		fact.RestartedDuring = restartedDuring(pod, c.Name, start)
-		fact.Replaced = createdDuring(pod.CreationTimestamp, start)
 		fact.LogTail = v.logTail(ctx, pod, c.Name, since)
 	}
-	for i := range all {
-		old := &all[i]
-		if (pod != nil && old.UID == pod.UID && old.Name == pod.Name) || !failedDuring(old, start) {
-			continue
-		}
-		if old.Status.Reason == "Evicted" {
-			fact.Evicted = true
-		}
-	}
+	cause := componentCause(all, pod, c.Name, w)
+	fact.CrashedDuring = cause == causeCrashed
+	fact.Evicted = cause == causeEvicted
+	fact.Disrupted = cause == causeDisrupted
 	return fact
 }
 

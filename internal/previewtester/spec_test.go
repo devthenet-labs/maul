@@ -21,7 +21,7 @@ const validSpec = `{
     {"id": "home", "kind": "http", "statement": "the home page renders", "target": "web",
      "request": {"path": "/"}, "expect": {"bodyContains": "Beat Battle"}}
   ],
-  "targets": {"api": "preview-bb-api:80", "web": "preview-bb:80"}
+  "targets": {"api": "10.96.0.10:80", "web": "10.96.0.11:80"}
 }`
 
 func TestParseSpec(t *testing.T) {
@@ -104,16 +104,24 @@ func TestParseSpecRefusals(t *testing.T) {
 		"target not in targets": edit(func(m map[string]any) {
 			delete(m["targets"].(map[string]any), "web")
 		}),
-		"target an ip literal": edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "10.0.0.1:80" }),
-		"target ipv6 literal":  edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "[::1]:80" }),
-		"target a url":         edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "http://svc:80" }),
-		"target with a path":   edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "svc:80/x" }),
-		"target with userinfo": edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "u@svc:80" }),
-		"target no port":       edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "svc" }),
-		"target port zero":     edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "svc:0" }),
-		"target port too big":  edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "svc:65536" }),
-		"target uppercase":     edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "Svc:80" }),
-		"target bad key":       edit(func(m map[string]any) { m["targets"].(map[string]any)["Bad_Key"] = "svc:80" }),
+		// The tester never resolves a name: a target is a Service's
+		// ClusterIP, which preview-controller reads and renders.
+		"target a Service name": edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "svc:80" }),
+		"target a qualified name": edit(func(m map[string]any) {
+			m["targets"].(map[string]any)["api"] = "preview-bb-api.maul-preview-0.svc:80"
+		}),
+		"target unspecified":   edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "0.0.0.0:80" }),
+		"target link-local":    edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "169.254.169.254:80" }),
+		"target multicast":     edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "224.0.0.1:80" }),
+		"target a zone":        edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "[fe80::1%eth0]:80" }),
+		"target a url":         edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "http://10.0.0.1:80" }),
+		"target with a path":   edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "10.0.0.1:80/x" }),
+		"target with userinfo": edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "u@10.0.0.1:80" }),
+		"target no port":       edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "10.0.0.1" }),
+		"target port zero":     edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "10.0.0.1:0" }),
+		"target port too big":  edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "10.0.0.1:65536" }),
+		"target port padded":   edit(func(m map[string]any) { m["targets"].(map[string]any)["api"] = "10.0.0.1:080" }),
+		"target bad key":       edit(func(m map[string]any) { m["targets"].(map[string]any)["Bad_Key"] = "10.0.0.1:80" }),
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -130,9 +138,9 @@ func TestEncodeRefusesInvalidSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Targets = map[string]string{"api": "10.0.0.1:80", "web": "preview-bb:80"}
+	s.Targets = map[string]string{"api": "preview-bb-api:80", "web": "10.96.0.11:80"}
 	if _, err := s.Encode(); err == nil {
-		t.Error("Encode accepted an IP literal target")
+		t.Error("Encode accepted a name the tester would resolve")
 	}
 }
 
@@ -157,6 +165,20 @@ func TestBudgetFor(t *testing.T) {
 		b := BudgetFor(d)
 		if b < 1 || b > maxBudgetSeconds || time.Duration(b)*time.Second > d-15*time.Second {
 			t.Fatalf("BudgetFor(%s) = %ds leaves too little room", d, b)
+		}
+	}
+}
+
+// TestSpecTargetsAreClusterIPs: IPv4 and IPv6 ClusterIPs are targets.
+func TestSpecTargetsAreClusterIPs(t *testing.T) {
+	s, err := ParseSpec([]byte(validSpec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, addr := range []string{"10.96.0.10:80", "[fd00:10:96::a]:80", "172.20.4.7:8080"} {
+		s.Targets["api"] = addr
+		if err := s.Validate(); err != nil {
+			t.Errorf("%s refused: %v", addr, err)
 		}
 	}
 }

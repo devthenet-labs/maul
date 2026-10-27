@@ -56,9 +56,10 @@ const maxTargets = acceptance.MaxWaitTargets
 
 // Spec is what one tester run observes: a PreviewVerification's criteria,
 // the tokens their {{run}} placeholders take, and, per previewed
-// repository key, the Service address its requests go to. preview-controller
-// derives every target from the Preview (PreviewComponentServiceName, port
-// 80); no criterion can name a host.
+// repository key, the Service ClusterIP its requests go to.
+// preview-controller reads every target live from the Preview's component
+// Services (PreviewComponentServiceName, port 80); no criterion can name a
+// host.
 type Spec struct {
 	Round   int32 `json:"round"`
 	Attempt int32 `json:"attempt"`
@@ -71,16 +72,16 @@ type Spec struct {
 	BudgetSeconds int32 `json:"budgetSeconds"`
 	// Criteria are the automatable http criteria, in plan order.
 	Criteria []acceptance.Criterion `json:"criteria"`
-	// Targets maps a criterion's target (a repository key) to "<host>:<port>",
-	// the host a Service name, never an IP literal.
+	// Targets maps a criterion's target (a repository key) to "<ip>:<port>",
+	// the component Service's ClusterIP, which preview-controller reads
+	// live and renders. Never a name: the tester resolves nothing, so
+	// cluster DNS, shared with every Pod on the node, cannot keep it from
+	// a component.
 	Targets map[string]string `json:"targets"`
 }
 
 var (
 	runPattern = regexp.MustCompile(`^[0-9a-f]{6}$`)
-	// hostPattern is a lowercase DNS name: a Service name, optionally
-	// qualified by namespace and cluster domain.
-	hostPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$`)
 )
 
 // RunTokens are the tokens the spec's {{run}} placeholders take.
@@ -161,8 +162,9 @@ func (s Spec) Validate() error {
 	return nil
 }
 
-// checkTarget admits "<DNS name>:<port>" and nothing else: no scheme,
-// userinfo, path or IP literal, so the address can only name a Service.
+// checkTarget admits "<ip>:<port>" and nothing else: no name to resolve,
+// no scheme, userinfo, path or zone, and no address a ClusterIP never is
+// (unspecified, link-local, multicast).
 func checkTarget(key, addr string) error {
 	if len(key) > acceptance.MaxKeyLength || !acceptance.KeyPattern.MatchString(key) {
 		return fmt.Errorf("spec: target key %q is not a repository key", key)
@@ -173,10 +175,18 @@ func checkTarget(key, addr string) error {
 	}
 	n, err := strconv.Atoi(port)
 	switch {
-	case len(host) > 253 || !hostPattern.MatchString(host) || net.ParseIP(host) != nil:
-		return fmt.Errorf("spec: target %q host %q is not a Service name", key, host)
+	case !clusterIP(host):
+		return fmt.Errorf("spec: target %q host %q is not a ClusterIP", key, host)
 	case err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port:
 		return fmt.Errorf("spec: target %q port %q is not a port", key, port)
 	}
 	return nil
+}
+
+// clusterIP reports whether host is an IP literal a Service's ClusterIP can
+// be: no zone, not unspecified, link-local or multicast.
+func clusterIP(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && !ip.IsUnspecified() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() &&
+		!ip.IsMulticast() && !ip.IsInterfaceLocalMulticast()
 }

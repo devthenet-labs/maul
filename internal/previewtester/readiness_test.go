@@ -125,7 +125,7 @@ func TestRunWaitsForTargets(t *testing.T) {
 	// Every readiness dial came before the criteria's requests, and no
 	// HTTP request was sent before every target was reached.
 	asked := r.asked()
-	if len(asked) != 10 || asked[8] != "preview-bb-api:80" || asked[9] != "preview-bb:80" {
+	if len(asked) != 10 || asked[8] != "10.96.0.10:80" || asked[9] != "10.96.0.11:80" {
 		t.Errorf("dials = %v, want 8 readiness attempts then each criterion's request", asked)
 	}
 	if len(api.requests()) != 1 || len(web.requests()) != 1 {
@@ -158,7 +158,7 @@ func TestRunUnreachable(t *testing.T) {
 	s, d := specFor(t, api, web)
 	s.BudgetSeconds = 1 // a 250ms window
 	r := newRefusing(0, d.dial)
-	r.never["preview-bb-api:80"] = true
+	r.never["10.96.0.10:80"] = true
 	start := time.Now()
 	obs, sum := runParsed(t, s, fast(r.dial))
 	if took := time.Since(start); took > 2*time.Second {

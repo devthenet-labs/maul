@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -340,7 +341,17 @@ func (e *verifyEnv) checkOneTesterRun(t *testing.T, name string) {
 	if err := json.Unmarshal([]byte(tr.Spec), &spec); err != nil {
 		t.Fatalf("tester spec: %v", err)
 	}
-	wantTarget := v1alpha1.PreviewComponentServiceName(&preview, 0) + ":80"
+	// The tester is handed the component Service's ClusterIP, as the API
+	// server allocated it, never a name it would have to resolve.
+	var svc corev1.Service
+	if err := e.cl.client.Get(ctx, types.NamespacedName{Namespace: "maul-preview-0",
+		Name: v1alpha1.PreviewComponentServiceName(&preview, 0)}, &svc); err != nil {
+		t.Fatal(err)
+	}
+	if net.ParseIP(svc.Spec.ClusterIP) == nil {
+		t.Fatalf("component Service ClusterIP %q", svc.Spec.ClusterIP)
+	}
+	wantTarget := net.JoinHostPort(svc.Spec.ClusterIP, "80")
 	if spec.Targets[appRepo] != wantTarget || len(spec.Criteria) != 1 || spec.Criteria[0].ID != "version-served" {
 		t.Errorf("tester spec targets %v criteria %+v, want %s at %s and only the http criterion", spec.Targets,
 			spec.Criteria, appRepo, wantTarget)

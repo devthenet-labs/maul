@@ -32,23 +32,32 @@ func TestClassifyEnvironment(t *testing.T) {
 		{"head image pull", []PartFact{waiting("web", RoleComponent, "ImagePullBackOff")}, app, []string{"web"}},
 		{"err image pull", []PartFact{waiting("web", RoleComponent, "ErrImagePull")}, app, []string{"web"}},
 		{"evicted", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Evicted: true}}, app, []string{"api"}},
-		{"oom", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,
+		// Only what happened during the attempt counts: running out of
+		// memory then is the application's; a recovered OOM from before it
+		// is evidence, not a failure.
+		{"oom during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true,
 			LastTermination: &Termination{Reason: "OOMKilled", ExitCode: 137}}}, EnvAppFailure, []string{"api"}},
+		{"oom before", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,
+			LastTermination: &Termination{Reason: "OOMKilled", ExitCode: 137}}}, EnvOK, nil},
 		// A crash from before the attempt that the component recovered from
-		// is evidence, not a failure; running out of memory is charged even
-		// once recovered.
+		// is evidence, not a failure.
 		{"crashed before and back", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 3,
 			LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, EnvOK, nil},
 		// A component that exited during the attempt and came back Ready
 		// crashed: the application's failure, however it exited.
 		{"crashed during and back", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 4,
-			RestartedDuring: true, LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, app, []string{"api"}},
+			CrashedDuring: true, LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, app, []string{"api"}},
 		{"exited cleanly during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 1,
-			RestartedDuring: true, LastTermination: &Termination{Reason: "Completed"}}}, app, []string{"api"}},
-		// A component whose Pod was replaced during the attempt (a fresh
-		// Pod, restart count 0, Ready) is the application's failure too.
-		{"replaced during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Replaced: true}}, app,
-			[]string{"api"}},
+			CrashedDuring: true, LastTermination: &Termination{Reason: "Completed"}}}, app, []string{"api"}},
+		// A component disrupted during the attempt by the cluster (an
+		// Eviction API call, a drain, preemption, node loss, a replacement
+		// with no cause of the application's) is maul's: the application
+		// holds no API credential to cause it. It wins over an application
+		// failure it may explain.
+		{"disrupted during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Disrupted: true}}, EnvInfra,
+			nil},
+		{"disrupted and crashed", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Disrupted: true,
+			CrashedDuring: true}}, EnvInfra, nil},
 		// A Ready component the tester could not connect to for its whole
 		// readiness window is the application's failure, never maul's Infra.
 		{"unreachable while ready", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,

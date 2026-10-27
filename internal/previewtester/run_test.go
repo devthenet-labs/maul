@@ -24,8 +24,8 @@ func specFor(t *testing.T, api, web *component) (Spec, *dialer) {
 		t.Fatal(err)
 	}
 	return s, &dialer{routes: map[string]string{
-		"preview-bb-api:80": listenerAddr(api),
-		"preview-bb:80":     listenerAddr(web),
+		"10.96.0.10:80": listenerAddr(api),
+		"10.96.0.11:80": listenerAddr(web),
 	}}
 }
 
@@ -113,7 +113,7 @@ func TestRunRefusesInvalidSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Targets = map[string]string{"api": "preview-bb-api:80"}
+	s.Targets = map[string]string{"api": "10.96.0.10:80"}
 	var out bytes.Buffer
 	if _, err := Run(context.Background(), s, NewClient(Options{}), &out); err == nil {
 		t.Error("Run accepted a criterion with no target")

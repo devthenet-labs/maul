@@ -126,8 +126,26 @@ func newVerifyEnv(t *testing.T, funcs interceptor.Funcs) *verifyEnv {
 	if e.p.Status.Phase != v1alpha1.PreviewReady {
 		t.Fatalf("preview %s, want Ready", e.p.Status.Phase)
 	}
+	for i := range e.p.Spec.Components {
+		e.setClusterIP(i, fmt.Sprintf("10.96.0.%d", 10+i))
+	}
 	e.pv = e.verification(1, criteria)
 	return e
+}
+
+// setClusterIP plays the API server allocating component i's Service its
+// ClusterIP.
+func (e *verifyEnv) setClusterIP(i int, ip string) {
+	e.t.Helper()
+	var svc corev1.Service
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: v1alpha1.PreviewComponentServiceName(e.p, i)}
+	if err := e.c.Get(context.Background(), key, &svc); err != nil {
+		e.t.Fatalf("component %d Service: %v", i, err)
+	}
+	svc.Spec.ClusterIP = ip
+	if err := e.c.Update(context.Background(), &svc); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // verification creates attempt `attempt` of round 1 of the Preview's
@@ -231,7 +249,7 @@ func (e *verifyEnv) finishTester(job *batchv1.Job, pod *corev1.Pod, log []byte, 
 	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: testerContainer,
 		ImageID: "ghcr.io/devthenet-labs/maul-preview-tester@sha256:" + strings.Repeat("ab", 32),
 		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: exit, Reason: reason,
-			Message: msg}}}}
+			Message: msg, StartedAt: metav1.NewTime(e.now), FinishedAt: metav1.NewTime(e.now.Add(5 * time.Minute))}}}}
 	if err := e.c.Status().Update(ctx, pod); err != nil {
 		e.t.Fatal(err)
 	}
@@ -329,7 +347,7 @@ func TestVerificationRendersTheTester(t *testing.T) {
 		t.Errorf("job %s labels %v", job.Name, job.Labels)
 	}
 	spec := testerSpec(t, job)
-	wantTargets := map[string]string{"web": "preview-shop-1:80", "api": "preview-shop-1-api:80"}
+	wantTargets := map[string]string{"web": "10.96.0.10:80", "api": "10.96.0.11:80"}
 	if !maps.Equal(spec.Targets, wantTargets) || spec.Run != "a1b2c3" || spec.Round != 1 || spec.Attempt != 1 {
 		t.Errorf("spec = %+v", spec)
 	}
@@ -761,14 +779,115 @@ func (e *verifyEnv) restartAt(i int, restarts int32, finished, started time.Time
 	}
 }
 
-// TestVerificationRestartDuringTheAttempt: whether a component restarted
-// during the attempt is decided from the kubelet's own timestamps against
-// the tester Pod's start, never from a stored baseline. A container that
-// exited, or started again, after the tester started (less a small
-// tolerance for clock skew) crashed during the attempt and came back:
-// EnvFailed component-restarted, the change's. A restart from before the
-// attempt, however many and however recent the count, is not charged,
-// including on an attempt already running when the controller was upgraded.
+// at is a timestamp offset from the attempt's start (the tester Pod's).
+func at(start time.Time, d time.Duration) metav1.Time { return metav1.NewTime(start.Add(d)) }
+
+// TestPodCause pins the one table that attributes what happened to a
+// component Pod during the attempt, reason by reason. Only events placed
+// in [tester start - skew, tester end] count, each placed by a condition's
+// transition or a container's own timestamps, never by deletionTimestamp.
+// The application's: its process exiting (OOM included) or the kubelet
+// evicting its Pod (memory or ephemeral storage it used). maul's: anything
+// done through the API (the Eviction API, a drain, preemption, the taint
+// manager, Pod GC, a deletion) and node loss; the application holds no API
+// credential.
+func TestPodCause(t *testing.T) {
+	start := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	w := attemptWindow{start: start, end: start.Add(5 * time.Minute)}
+	in, before, after := at(start, time.Minute), at(start, -time.Hour), at(start, 10*time.Minute)
+	running := func(mod func(*corev1.Pod)) *corev1.Pod {
+		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-pod", CreationTimestamp: at(start, -time.Hour)},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning,
+				Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+				ContainerStatuses: []corev1.ContainerStatus{{Name: "api", Ready: true}}}}
+		mod(p)
+		return p
+	}
+	exited := func(reason string, when metav1.Time) func(*corev1.Pod) {
+		return func(p *corev1.Pod) {
+			p.Status.ContainerStatuses[0].RestartCount = 1
+			p.Status.ContainerStatuses[0].LastTerminationState = corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{Reason: reason, ExitCode: 137, FinishedAt: when}}
+		}
+	}
+	disruption := func(reason string, when metav1.Time) func(*corev1.Pod) {
+		return func(p *corev1.Pod) {
+			p.Status.Conditions = append(p.Status.Conditions, corev1.PodCondition{Type: corev1.DisruptionTarget,
+				Status: corev1.ConditionTrue, Reason: reason, LastTransitionTime: when})
+		}
+	}
+	notReady := func(status corev1.ConditionStatus, when metav1.Time) func(*corev1.Pod) {
+		return func(p *corev1.Pod) {
+			p.Status.Conditions[0] = corev1.PodCondition{Type: corev1.PodReady, Status: status, LastTransitionTime: when}
+		}
+	}
+	both := func(fs ...func(*corev1.Pod)) func(*corev1.Pod) {
+		return func(p *corev1.Pod) {
+			for _, f := range fs {
+				f(p)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		pod  *corev1.Pod
+		want podCauseKind
+	}{
+		{"healthy", running(func(*corev1.Pod) {}), causeNone},
+		{"exited during", running(exited("Error", in)), causeCrashed},
+		{"oom killed during", running(exited("OOMKilled", in)), causeCrashed},
+		{"exited within the skew before", running(exited("Error", at(start, -time.Second))), causeCrashed},
+		{"exited before", running(exited("Error", before)), causeNone},
+		{"exited after the tester ended", running(exited("Error", after)), causeNone},
+		{"running again since during", running(func(p *corev1.Pod) {
+			p.Status.ContainerStatuses[0].RestartCount = 2
+			p.Status.ContainerStatuses[0].State = corev1.ContainerState{
+				Running: &corev1.ContainerStateRunning{StartedAt: in}}
+		}), causeCrashed},
+		{"first run started during", running(func(p *corev1.Pod) {
+			p.Status.ContainerStatuses[0].State = corev1.ContainerState{
+				Running: &corev1.ContainerStateRunning{StartedAt: in}}
+		}), causeNone},
+		{"evicted by the kubelet", running(both(func(p *corev1.Pod) {
+			p.Status.Phase, p.Status.Reason = corev1.PodFailed, "Evicted"
+		}, notReady(corev1.ConditionFalse, in))), causeEvicted},
+		{"evicted by the kubelet before", running(both(func(p *corev1.Pod) {
+			p.Status.Phase, p.Status.Reason = corev1.PodFailed, "Evicted"
+		}, notReady(corev1.ConditionFalse, before))), causeNone},
+		{"TerminationByKubelet", running(disruption("TerminationByKubelet", in)), causeEvicted},
+		{"EvictionByEvictionAPI", running(disruption("EvictionByEvictionAPI", in)), causeDisrupted},
+		{"PreemptionByScheduler", running(disruption("PreemptionByScheduler", in)), causeDisrupted},
+		{"DeletionByTaintManager", running(disruption("DeletionByTaintManager", in)), causeDisrupted},
+		{"DeletionByPodGC", running(disruption("DeletionByPodGC", in)), causeDisrupted},
+		{"an unknown disruption", running(disruption("SomethingNew", in)), causeDisrupted},
+		{"a drain before", running(disruption("EvictionByEvictionAPI", before)), causeNone},
+		{"drained, the container exiting", running(both(disruption("EvictionByEvictionAPI", in),
+			exited("Error", in))), causeDisrupted},
+		{"node lost", running(notReady(corev1.ConditionUnknown, in)), causeDisrupted},
+		{"node lost, the old reason", running(both(func(p *corev1.Pod) { p.Status.Reason = "NodeLost" },
+			notReady(corev1.ConditionFalse, in))), causeDisrupted},
+		{"deleted through the API", running(both(func(p *corev1.Pod) {
+			p.DeletionTimestamp = &metav1.Time{Time: start.Add(time.Hour)}
+		}, notReady(corev1.ConditionFalse, in), exited("Error", in))), causeDisrupted},
+		// deletionTimestamp is the request time plus the grace period, never
+		// when anything happened: it places nothing in time.
+		{"deleting, nothing placed in the window", running(func(p *corev1.Pod) {
+			p.DeletionTimestamp = &in
+		}), causeNone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := podCause(tc.pod, "api", w); got != tc.want {
+				t.Errorf("podCause = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestVerificationRestartDuringTheAttempt: a component that exited during
+// the attempt, by the kubelet's timestamps against the tester Pod's start
+// and end, and came back Ready crashed: EnvFailed component-crashed, the
+// change's. A restart from before the attempt, or after the tester ended,
+// is not charged.
 func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 	ref := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC) // the tester Pod's start (e.now)
 	for _, tc := range []struct {
@@ -778,14 +897,14 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 		reason            v1alpha1.PreviewVerificationReason
 	}{
 		{"crash and recovery during the attempt", 1, ref.Add(30 * time.Second), ref.Add(31 * time.Second),
-			v1alpha1.VerificationReasonComponentRestarted},
+			v1alpha1.VerificationReasonComponentCrashed},
 		{"exited during, not yet seen running", 1, ref.Add(30 * time.Second), time.Time{},
-			v1alpha1.VerificationReasonComponentRestarted},
+			v1alpha1.VerificationReasonComponentCrashed},
 		{"within the skew tolerance", 1, ref.Add(-time.Second), ref.Add(-time.Second),
-			v1alpha1.VerificationReasonComponentRestarted},
+			v1alpha1.VerificationReasonComponentCrashed},
 		{"restart before the attempt", 3, ref.Add(-10 * time.Minute), ref.Add(-10 * time.Minute),
 			v1alpha1.VerificationReasonOK},
-		{"running across the upgrade, an old restart", 7, ref.Add(-time.Hour), ref.Add(-time.Hour),
+		{"restart after the tester ended", 1, ref.Add(time.Hour), ref.Add(time.Hour),
 			v1alpha1.VerificationReasonOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -801,7 +920,7 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 				t.Fatalf("phase %s %s, want %s", pv.Status.Phase, pv.Status.Reason, tc.reason)
 			}
 			for _, f := range pv.Status.Environment {
-				if f.Name == "api" && f.RestartedDuring != (tc.reason != v1alpha1.VerificationReasonOK) {
+				if f.Name == "api" && f.CrashedDuring != (tc.reason != v1alpha1.VerificationReasonOK) {
 					t.Errorf("api fact %+v", f)
 				}
 			}
@@ -809,105 +928,92 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 	}
 }
 
-// TestVerificationReplacedDuringTheAttempt: a component Pod evicted during
-// the attempt and replaced by a fresh one (restart count 0, Ready) is
-// charged to the change as replaced: the replacement was created after the
-// tester started, and the evicted Pod, created before it, still shows the
-// eviction.
-func TestVerificationReplacedDuringTheAttempt(t *testing.T) {
-	e := newVerifyEnv(t, interceptor.Funcs{})
-	e.verify()
-	job := e.testerJob()
-	log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
+// replace plays component 1's Pod being replaced during the attempt by a
+// fresh, Ready one created `created` after the tester started, the old
+// Pod left as old (nil: gone).
+func (e *verifyEnv) replace(created time.Duration, old func(*corev1.Pod)) {
+	e.t.Helper()
 	ctx := context.Background()
-	var old corev1.Pod
-	if err := e.slotObject(componentName(e.p, 1)+"-pod", &old); err != nil {
-		t.Fatal(err)
+	var cur corev1.Pod
+	if err := e.slotObject(componentName(e.p, 1)+"-pod", &cur); err != nil {
+		e.t.Fatal(err)
 	}
-	fresh := old.DeepCopy()
-	fresh.ObjectMeta = metav1.ObjectMeta{Name: old.Name + "-2", Namespace: old.Namespace, Labels: old.Labels,
-		Annotations: old.Annotations, CreationTimestamp: metav1.NewTime(e.now.Add(40 * time.Second))}
-	old.Status.Phase, old.Status.Reason = corev1.PodFailed, "Evicted"
-	old.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse,
-		LastTransitionTime: metav1.NewTime(e.now.Add(35 * time.Second))}}
-	if err := e.c.Status().Update(ctx, &old); err != nil {
-		t.Fatal(err)
+	fresh := cur.DeepCopy()
+	fresh.ObjectMeta = metav1.ObjectMeta{Name: cur.Name + "-2", Namespace: cur.Namespace, Labels: cur.Labels,
+		Annotations: cur.Annotations, CreationTimestamp: metav1.NewTime(e.now.Add(created))}
+	if old == nil {
+		if err := e.c.Delete(ctx, &cur); err != nil {
+			e.t.Fatal(err)
+		}
+	} else {
+		old(&cur)
+		if err := e.c.Status().Update(ctx, &cur); err != nil {
+			e.t.Fatal(err)
+		}
 	}
 	if err := e.c.Create(ctx, fresh); err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
 	fresh.Status = corev1.PodStatus{Phase: corev1.PodRunning,
-		Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
-		ContainerStatuses: []corev1.ContainerStatus{{Name: "api", Ready: true,
-			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{
-				StartedAt: metav1.NewTime(e.now.Add(45 * time.Second))}}}}}
+		Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+		ContainerStatuses: []corev1.ContainerStatus{{Name: "api", Ready: true}}}
 	if err := e.c.Status().Update(ctx, fresh); err != nil {
-		t.Fatal(err)
-	}
-	pod := e.startTester(job)
-	e.finishTester(job, pod, log, msg, 0)
-	pv, _ := e.verify()
-	if pv.Status.Phase != v1alpha1.VerificationEnvFailed ||
-		pv.Status.Reason != v1alpha1.VerificationReasonComponentReplaced {
-		t.Fatalf("phase %s %s, want EnvFailed component-replaced", pv.Status.Phase, pv.Status.Reason)
-	}
-	for _, f := range pv.Status.Environment {
-		if f.Name == "api" && (!f.Replaced || !f.Evicted || f.Restarts != 0) {
-			t.Errorf("api fact %+v, want the fresh Pod, replaced, the eviction shown", f)
-		}
+		e.t.Fatal(err)
 	}
 }
 
-// TestVerificationServedJustBeforeTheTesterIsNotReplaced: a component Pod
-// created a moment before the tester started (a fast cluster, or the e2e
-// suite) is the Pod the tester ran against, not a replacement: a Pod is
-// replaced only when created after the tester started, by more than the
-// clock skew.
-func TestVerificationServedJustBeforeTheTesterIsNotReplaced(t *testing.T) {
+// TestVerificationReplacedDuringTheAttempt: a component Pod replaced during
+// the attempt is attributed by the old Pod's cause. The kubelet evicting it
+// (memory, ephemeral storage) is the application's: EnvFailed
+// component-evicted. The Eviction API, a drain, or a replacement whose old
+// Pod is gone or shows no cause of the application's is maul's: Infra
+// component-disrupted, retried. A Pod served a moment before the tester
+// started is the one it ran against, never a replacement.
+func TestVerificationReplacedDuringTheAttempt(t *testing.T) {
+	failed := func(reason string, cond *corev1.PodCondition) func(*corev1.Pod) {
+		return func(p *corev1.Pod) {
+			p.Status.Phase, p.Status.Reason = corev1.PodFailed, reason
+			p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse,
+				LastTransitionTime: metav1.NewTime(time.Date(2026, 10, 1, 12, 0, 35, 0, time.UTC))}}
+			if cond != nil {
+				p.Status.Conditions = append(p.Status.Conditions, *cond)
+			}
+		}
+	}
+	during := metav1.NewTime(time.Date(2026, 10, 1, 12, 0, 35, 0, time.UTC))
 	for _, tc := range []struct {
-		name     string
-		created  time.Duration
-		replaced bool
+		name    string
+		created time.Duration
+		old     func(*corev1.Pod)
+		phase   v1alpha1.PreviewVerificationPhase
+		reason  v1alpha1.PreviewVerificationReason
 	}{
-		{"a second before", -time.Second, false},
-		{"at the start", 0, false},
-		{"within the skew after", time.Second, false},
-		{"well after", 10 * time.Second, true},
+		{"evicted by the kubelet", 40 * time.Second, failed("Evicted", nil),
+			v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentEvicted},
+		{"TerminationByKubelet", 40 * time.Second, failed("", &corev1.PodCondition{Type: corev1.DisruptionTarget,
+			Status: corev1.ConditionTrue, Reason: "TerminationByKubelet", LastTransitionTime: during}),
+			v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentEvicted},
+		{"drained", 40 * time.Second, failed("", &corev1.PodCondition{Type: corev1.DisruptionTarget,
+			Status: corev1.ConditionTrue, Reason: "EvictionByEvictionAPI", LastTransitionTime: during}),
+			v1alpha1.VerificationInfra, v1alpha1.VerificationReasonComponentDisrupted},
+		{"old Pod gone", 40 * time.Second, nil,
+			v1alpha1.VerificationInfra, v1alpha1.VerificationReasonComponentDisrupted},
+		{"served a second before the tester", -time.Second, nil,
+			v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK},
+		{"served within the skew after", time.Second, nil,
+			v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newVerifyEnv(t, interceptor.Funcs{})
 			e.verify()
 			job := e.testerJob()
 			log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
-			ctx := context.Background()
-			var old corev1.Pod
-			if err := e.slotObject(componentName(e.p, 1)+"-pod", &old); err != nil {
-				t.Fatal(err)
-			}
-			fresh := old.DeepCopy()
-			fresh.ObjectMeta = metav1.ObjectMeta{Name: old.Name + "-2", Namespace: old.Namespace, Labels: old.Labels,
-				Annotations: old.Annotations, CreationTimestamp: metav1.NewTime(e.now.Add(tc.created))}
-			if err := e.c.Delete(ctx, &old); err != nil {
-				t.Fatal(err)
-			}
-			if err := e.c.Create(ctx, fresh); err != nil {
-				t.Fatal(err)
-			}
-			fresh.Status = corev1.PodStatus{Phase: corev1.PodRunning,
-				Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
-				ContainerStatuses: []corev1.ContainerStatus{{Name: "api", Ready: true}}}
-			if err := e.c.Status().Update(ctx, fresh); err != nil {
-				t.Fatal(err)
-			}
+			e.replace(tc.created, tc.old)
 			pod := e.startTester(job)
 			e.finishTester(job, pod, log, msg, 0)
 			pv, _ := e.verify()
-			want := v1alpha1.VerificationReasonOK
-			if tc.replaced {
-				want = v1alpha1.VerificationReasonComponentReplaced
-			}
-			if pv.Status.Reason != want {
-				t.Fatalf("phase %s %s, want %s", pv.Status.Phase, pv.Status.Reason, want)
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
 			}
 		})
 	}
@@ -948,7 +1054,7 @@ func TestVerificationEvictedBeforeTheAttemptIsNotCharged(t *testing.T) {
 
 // TestVerificationStartReenteredHasNoEffect: a second start pass once the
 // tester Job exists (its create answered AlreadyExists) changes nothing
-// about how the attempt settles: there is no baseline to recapture.
+// about how the attempt settles.
 func TestVerificationStartReenteredHasNoEffect(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
 	e.verify()
@@ -971,59 +1077,94 @@ func TestVerificationStartReenteredHasNoEffect(t *testing.T) {
 	}
 }
 
-// waitsOutput is the tester's output when its readiness waits were waits:
-// the summary alone when one was never reached.
-func waitsOutput(t *testing.T, waits []acceptance.TargetWait) ([]byte, string) {
-	t.Helper()
+// TestVerificationRunningAcrossTheUpgrade: an attempt an older
+// preview-controller started (its tester Job created, the verification
+// Running with only startedAt in its status) is settled by this one on its
+// first pass. A component restart from before startedAt is not charged:
+// nothing the older controller did not write is needed.
+func TestVerificationRunningAcrossTheUpgrade(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	ctx := context.Background()
+	pv := e.currentPV()
+	s, reason, err := e.v.check(ctx, pv)
+	if err != nil || reason != "" {
+		t.Fatalf("check = %q, %v", reason, err)
+	}
+	job, reason, err := e.v.renderTester(ctx, pv, s)
+	if err != nil || reason != "" {
+		t.Fatalf("renderTester = %q, %v", reason, err)
+	}
+	if err := e.c.Create(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	started := metav1.NewTime(e.now)
+	pv.Status = v1alpha1.PreviewVerificationStatus{Phase: v1alpha1.VerificationRunning, StartedAt: &started}
+	if err := e.c.Status().Update(ctx, pv); err != nil {
+		t.Fatal(err)
+	}
+	e.restartAt(1, 5, e.now.Add(-time.Hour), e.now.Add(-time.Hour))
+	job = e.testerJob()
+	log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
+	pod := e.startTester(job)
+	e.finishTester(job, pod, log, msg, 0)
+	pv, _ = e.verify() // the reconciler's first pass
+	if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
+		t.Fatalf("phase %s %s, want Observed ok", pv.Status.Phase, pv.Status.Reason)
+	}
+	for _, f := range pv.Status.Environment {
+		if f.Name == "api" && (f.Restarts != 5 || f.CrashedDuring) {
+			t.Errorf("api fact %+v, want 5 old restarts, none during", f)
+		}
+	}
+}
+
+// TestVerificationTargetsAreClusterIPs: the tester is rendered each
+// component Service's ClusterIP, read live, never a name it would have to
+// resolve; a Service with none is maul's render error, settled Infra
+// before any tester starts.
+func TestVerificationTargetsAreClusterIPs(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	spec := testerSpec(t, e.testerJob())
+	if want := map[string]string{"web": "10.96.0.10:80", "api": "10.96.0.11:80"}; !maps.Equal(spec.Targets, want) {
+		t.Errorf("targets = %v, want %v", spec.Targets, want)
+	}
+	for _, ip := range []string{"", corev1.ClusterIPNone} {
+		t.Run("clusterIP "+ip, func(t *testing.T) {
+			e := newVerifyEnv(t, interceptor.Funcs{})
+			e.setClusterIP(1, ip)
+			pv, _ := e.verify()
+			if pv.Status.Phase != v1alpha1.VerificationInfra ||
+				pv.Status.Reason != v1alpha1.VerificationReasonServiceNoClusterIP {
+				t.Fatalf("phase %s %s, want Infra service-no-cluster-ip", pv.Status.Phase, pv.Status.Reason)
+			}
+			if len(e.jobs()) != 0 {
+				t.Error("a tester was rendered with no address for a component")
+			}
+		})
+	}
+}
+
+// TestVerificationUnreachableWithDNSFailures: the tester resolves nothing,
+// so a recorded DNS failure is no excuse: a target never reached, however
+// its attempts failed, is the application's component-unreachable.
+func TestVerificationUnreachableWithDNSFailures(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	job := e.testerJob()
 	var out bytes.Buffer
-	sum, err := newTesterWriter(t, &out, waits).Close()
+	sum, err := newTesterWriter(t, &out, []acceptance.TargetWait{
+		{Target: "api", WaitMs: 60000, Attempts: 66, DNS: 66},
+		{Target: "web", WaitMs: 3, Attempts: 1}}).Close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return out.Bytes(), sum.TerminationMessage()
-}
-
-// TestVerificationUnreachableByDNS: a target whose every failed attempt was
-// a DNS failure was kept out by maul's own Service name and cluster DNS,
-// which the application cannot touch: Infra dns-unavailable, retried, never
-// the change's. A target with any refused, timed-out or reset attempt
-// resolved and was refused: the application's, component-unreachable.
-func TestVerificationUnreachableByDNS(t *testing.T) {
-	reached := acceptance.TargetWait{Target: "web", WaitMs: 3, Attempts: 1}
-	for _, tc := range []struct {
-		name   string
-		api    acceptance.TargetWait
-		phase  v1alpha1.PreviewVerificationPhase
-		reason v1alpha1.PreviewVerificationReason
-		marked bool
-	}{
-		{"every failure DNS", acceptance.TargetWait{Target: "api", WaitMs: 60000, Attempts: 66, DNS: 66},
-			v1alpha1.VerificationInfra, v1alpha1.VerificationReasonDNSUnavailable, false},
-		{"DNS and refused", acceptance.TargetWait{Target: "api", WaitMs: 60000, Attempts: 66, DNS: 3, Refused: 63},
-			v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentUnreachable, true},
-		{"DNS and timed out", acceptance.TargetWait{Target: "api", WaitMs: 60000, Attempts: 20, DNS: 19, Timeout: 1},
-			v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentUnreachable, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newVerifyEnv(t, interceptor.Funcs{})
-			e.verify()
-			job := e.testerJob()
-			log, msg := waitsOutput(t, []acceptance.TargetWait{tc.api, reached})
-			pod := e.startTester(job)
-			e.finishTester(job, pod, log, msg, 0)
-			pv, _ := e.verify()
-			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
-				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
-			}
-			for _, f := range pv.Status.Environment {
-				if f.Name == "api" && (f.UnreachableForMs > 0) != tc.marked {
-					t.Errorf("api fact %+v, marked unreachable %t", f, f.UnreachableForMs > 0)
-				}
-			}
-			if len(pv.Status.Readiness) != 2 {
-				t.Errorf("readiness %+v", pv.Status.Readiness)
-			}
-		})
+	pod := e.startTester(job)
+	e.finishTester(job, pod, out.Bytes(), sum.TerminationMessage(), 0)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationEnvFailed ||
+		pv.Status.Reason != v1alpha1.VerificationReasonComponentUnreachable {
+		t.Fatalf("phase %s %s, want EnvFailed component-unreachable", pv.Status.Phase, pv.Status.Reason)
 	}
 }
 
@@ -1064,7 +1205,7 @@ func TestVerificationTargetsFromTheRenderedSpec(t *testing.T) {
 	log, msg := testerOutput(t, spec, 200, `{"items":[]}`)
 	// The Job as rendered names another Service for web than the Preview
 	// would now.
-	spec.Targets["web"] = "preview-shop-9:80"
+	spec.Targets["web"] = "10.96.0.99:80"
 	raw, err := spec.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -1073,6 +1214,23 @@ func TestVerificationTargetsFromTheRenderedSpec(t *testing.T) {
 	if err := e.c.Update(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
+	pod := e.startTester(job)
+	e.finishTester(job, pod, log, msg, 0)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStalePreview {
+		t.Fatalf("phase %s %s, want Stale stale-preview", pv.Status.Phase, pv.Status.Reason)
+	}
+}
+
+// TestVerificationServiceReaddressedIsStale: a component Service whose
+// ClusterIP changed after the tester was rendered (recreated) means the
+// tester spoke to another address than the Service has: stale-preview.
+func TestVerificationServiceReaddressedIsStale(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	job := e.testerJob()
+	log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
+	e.setClusterIP(0, "10.96.0.77")
 	pod := e.startTester(job)
 	e.finishTester(job, pod, log, msg, 0)
 	pv, _ := e.verify()

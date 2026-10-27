@@ -478,6 +478,16 @@ spec:
                     PartFact is the environment evidence about one part of the slot while
                     the verification ran, captured from the kubelet's container facts.
                   properties:
+                    crashedDuring:
+                      description: |-
+                        CrashedDuring reports that the component's process exited (OOM
+                        included) during the tester's run: the application's failure.
+                      type: boolean
+                    disrupted:
+                      description: |-
+                        Disrupted reports that the cluster took the component's Pod away
+                        during the tester's run: maul's, never the application's.
+                      type: boolean
                     evicted:
                       description: Evicted reports that the part's pod was evicted.
                       type: boolean
@@ -512,16 +522,6 @@ spec:
                       type: string
                     ready:
                       description: Ready reports whether the part's pod was Ready.
-                      type: boolean
-                    replaced:
-                      description: |-
-                        Replaced reports that the component's Pod was created during the
-                        attempt, replacing the one the tester started against.
-                      type: boolean
-                    restartedDuring:
-                      description: |-
-                        RestartedDuring reports that the container exited, or started again,
-                        during the attempt: a component that did crashed.
                       type: boolean
                     restarts:
                       description: Restarts counts the part's container restarts.
@@ -738,8 +738,8 @@ spec:
                   its first criterion, in component-name order, as its summary
                   declared it. A component never reached ends the attempt with no
                   observations: EnvFailed component-unreachable (its fact's
-                  unreachableForMs), the application's, unless every failed attempt
-                  was DNS, which is maul's (Infra dns-unavailable).
+                  unreachableForMs), the application's. The tester dials each
+                  Service's ClusterIP and resolves no name.
                 items:
                   description: |-
                     TargetWait is how the tester waited, before its first criterion, for one
@@ -820,9 +820,9 @@ spec:
                 - preview-failed
                 - service-restarted
                 - component-unreachable
-                - component-restarted
-                - component-replaced
-                - dns-unavailable
+                - component-crashed
+                - component-disrupted
+                - service-no-cluster-ip
                 - tester-version-mismatch
                 type: string
               startedAt:

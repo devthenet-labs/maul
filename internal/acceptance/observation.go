@@ -146,13 +146,15 @@ type PartFact struct {
 	LastTermination *Termination `json:"lastTermination,omitempty"`
 	Evicted         bool         `json:"evicted,omitempty"`
 	Unschedulable   bool         `json:"unschedulable,omitempty"`
-	// RestartedDuring reports that the container exited, or started again,
-	// during the attempt (by the kubelet's timestamps against the tester
-	// Pod's start): a component that did, however it exited, crashed.
-	RestartedDuring bool `json:"restartedDuring,omitempty"`
-	// Replaced reports that the component's Pod was created during the
-	// attempt, replacing the one the tester was started against.
-	Replaced bool `json:"replaced,omitempty"`
+	// CrashedDuring reports that the component's process exited (OOM
+	// included) during the attempt, by the kubelet's timestamps within the
+	// tester's run: the application's failure, however it exited.
+	CrashedDuring bool `json:"crashedDuring,omitempty"`
+	// Disrupted reports that the cluster, not the application, took the
+	// component's Pod away during the attempt: the Eviction API, a drain,
+	// preemption, the taint manager, Pod GC, a deletion, node loss, or a
+	// replacement whose old Pod shows no cause of the application's.
+	Disrupted bool `json:"disrupted,omitempty"`
 	// UnreachableForMs is how long the tester tried, and failed, to connect
 	// to the component's Service before its first criterion: its whole
 	// readiness window. Zero when it was reached.

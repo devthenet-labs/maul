@@ -99,7 +99,7 @@ func criterion(t *testing.T, raw string) acceptance.Criterion {
 var tokens = acceptance.RunTokens{Round: 1, Attempt: 1, Run: "abcdef"}
 
 // apiTarget is the Service address every client test's criteria go to.
-const apiTarget = "preview-bb-api:80"
+const apiTarget = "10.96.0.10:80"
 
 // observe runs c against apiTarget, routed to comp.
 func observe(t *testing.T, c acceptance.Criterion, comp *component) (acceptance.CriterionObservation, *dialer) {

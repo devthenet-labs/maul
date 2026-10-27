@@ -37,7 +37,7 @@ type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 // Options configure a Client. The zero value is the released tester's.
 type Options struct {
 	// Dial replaces the network dialer (tests and the e2e build map
-	// Service names to local listeners). nil dials the address itself.
+	// Service addresses to local listeners). nil dials the address itself.
 	Dial DialFunc
 	// Timeout replaces RequestTimeout when positive.
 	Timeout time.Duration

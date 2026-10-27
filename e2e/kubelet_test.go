@@ -1354,7 +1354,7 @@ func TestKubeletTester(t *testing.T) {
 			Statement: "GET /version answers", Target: "shop",
 			Steps: []acceptance.Step{{Request: acceptance.Request{Method: "GET", Path: "/version"},
 				Expect: acceptance.Expect{Status: acceptance.StatusList{200}}}}}}),
-		Targets: map[string]string{"shop": "preview-shop-1:80"}}.Encode()
+		Targets: map[string]string{"shop": "10.0.0.50:80"}}.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}

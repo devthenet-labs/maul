@@ -12,7 +12,8 @@
 // criteria, the round, attempt and random run token their {{run}}
 // placeholders take, and per previewed repository key the Service address
 // its requests go to. ParseSpec refuses unknown fields, any criterion but
-// http, and a target that is not "<DNS name>:<port>": a criterion never
+// http, and a target that is not "<ClusterIP>:<port>" (the tester resolves
+// no name): a criterion never
 // chooses a host.
 //
 // Client (client.go) sends each request acceptance.BuildRequest built, as

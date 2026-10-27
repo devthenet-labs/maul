@@ -8,7 +8,7 @@ package main
 import "github.com/devthenet-labs/maul/internal/previewtester"
 
 // testDial is the network dialer's: nil. Only a binary built with the
-// e2edial tag (the e2e suite's) can map Service names to other addresses
+// e2edial tag (the e2e suite's) can map Service addresses to other addresses
 // (dial_e2e.go); a released tester always dials the name it was given.
 func testDial(func(string) string) (previewtester.DialFunc, error) { return nil, nil }
 
