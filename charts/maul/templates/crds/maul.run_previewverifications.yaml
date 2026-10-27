@@ -482,6 +482,16 @@ spec:
                     PartFact is the environment evidence about one part of the slot while
                     the verification ran, captured from the kubelet's container facts.
                   properties:
+                    crashedDuring:
+                      description: |-
+                        CrashedDuring reports that the component's process exited (OOM
+                        included) during the tester's run: the application's failure.
+                      type: boolean
+                    disrupted:
+                      description: |-
+                        Disrupted reports that the cluster took the component's Pod away
+                        during the tester's run: maul's, never the application's.
+                      type: boolean
                     evicted:
                       description: Evicted reports that the part's pod was evicted.
                       type: boolean
@@ -531,6 +541,15 @@ spec:
                       - command
                       - seed
                       type: string
+                    unreachableForMs:
+                      description: |-
+                        UnreachableForMs is how long the tester tried, and failed, to connect
+                        to the component's Service before its first criterion (its whole
+                        readiness window); zero when reached.
+                      format: int32
+                      maximum: 120000
+                      minimum: 0
+                      type: integer
                     unschedulable:
                       description: Unschedulable reports that no node could take the
                         part's pod.
@@ -717,6 +736,73 @@ spec:
                 - Infra
                 - Stale
                 type: string
+              readiness:
+                description: |-
+                  Readiness is the tester's wait for each component's Service before
+                  its first criterion, in component-name order, as its summary
+                  declared it. A component never reached ends the attempt with no
+                  observations: EnvFailed component-unreachable (its fact's
+                  unreachableForMs), the application's. The tester dials each
+                  Service's ClusterIP and resolves no name.
+                items:
+                  description: |-
+                    TargetWait is how the tester waited, before its first criterion, for one
+                    component's Service to accept a TCP connection: how long, in how many
+                    attempts, and how the failed ones failed. Every attempt but a last
+                    successful one failed, so the Service was reached exactly when attempts
+                    is one more than the failures.
+                  properties:
+                    attempts:
+                      description: Attempts is how many connections were attempted.
+                      format: int32
+                      maximum: 256
+                      minimum: 1
+                      type: integer
+                    dns:
+                      description: DNS counts attempts whose Service name did not
+                        resolve.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    refused:
+                      description: Refused counts attempts refused.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    reset:
+                      description: Reset counts attempts that failed otherwise.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    target:
+                      description: Target is the component (its Project repository's
+                        key).
+                      maxLength: 16
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    timeout:
+                      description: Timeout counts attempts that timed out.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    waitMs:
+                      description: WaitMs is how long the wait took, in milliseconds.
+                      format: int32
+                      maximum: 120000
+                      minimum: 0
+                      type: integer
+                  required:
+                  - attempts
+                  - target
+                  - waitMs
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-type: atomic
               reason:
                 description: Reason is the phase's reason, from a fixed vocabulary.
                 enum:
@@ -737,6 +823,11 @@ spec:
                 - component-oom
                 - preview-failed
                 - service-restarted
+                - component-unreachable
+                - component-crashed
+                - component-disrupted
+                - service-no-cluster-ip
+                - tester-version-mismatch
                 type: string
               startedAt:
                 description: |-
@@ -755,6 +846,14 @@ spec:
                   ran.
                 maxLength: 512
                 type: string
+              testerWireVersion:
+                description: |-
+                  TesterWireVersion is the MAUL-VERIFY version the tester wrote, set
+                  when it was not the one preview-controller reads
+                  (tester-version-mismatch).
+                format: int32
+                minimum: 0
+                type: integer
             type: object
         required:
         - spec

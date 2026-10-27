@@ -38,6 +38,11 @@ type fingerprintPart struct {
 	ExitCode      int32  `json:"x"`
 	Evicted       bool   `json:"e"`
 	Unschedulable bool   `json:"u"`
+	// Crashed, Disrupted and Unreachable are omitted when false, so a
+	// fingerprint taken before they existed is unchanged.
+	Crashed     bool `json:"cr,omitempty"`
+	Disrupted   bool `json:"dis,omitempty"`
+	Unreachable bool `json:"unr,omitempty"`
 }
 
 // Fingerprint names a verification's failure for RepeatedFailure detection
@@ -45,7 +50,8 @@ type fingerprintPart struct {
 // outcome, reason and, per step, the index, status, transport class and the
 // matched bit of every declared expectation; and over the failing parts, by
 // name, each with its readiness, waiting reason, termination reason and exit
-// code, eviction and schedulability. Passing and quarantined criteria and
+// code, eviction and schedulability, and whether it restarted during the
+// attempt, was disrupted during it or was unreachable from the tester. Passing and quarantined criteria and
 // healthy parts are left out; so is every actual value, body, latency, run
 // token, restart count and log line, which change from run to run or are
 // the application's to choose.
@@ -72,7 +78,8 @@ func Fingerprint(vs []Verdict, env []PartFact) string {
 			continue
 		}
 		fp := fingerprintPart{Name: p.Name, Role: p.Role, Ready: p.Ready, Waiting: p.Waiting,
-			Evicted: p.Evicted, Unschedulable: p.Unschedulable}
+			Evicted: p.Evicted, Unschedulable: p.Unschedulable, Crashed: p.CrashedDuring,
+			Disrupted: p.Disrupted, Unreachable: p.UnreachableForMs > 0}
 		if t := p.LastTermination; t != nil {
 			fp.Terminated, fp.Reason, fp.ExitCode = true, t.Reason, t.ExitCode
 		}

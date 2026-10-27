@@ -29,7 +29,7 @@ func TestWireRoundTrip(t *testing.T) {
 	prop := func(g genScenario) bool {
 		obs := observationsOf(t, g)
 		var out bytes.Buffer
-		w := NewWireWriter(&out)
+		w := mustWireWriter(t, &out)
 		for _, o := range obs {
 			if err := w.Write(o); err != nil {
 				return false
@@ -48,7 +48,7 @@ func TestWireRoundTrip(t *testing.T) {
 			return false
 		}
 		term, err := ParseSummary(sum.TerminationMessage())
-		return reflect.DeepEqual(got, obs) && gotSum == sum && err == nil && term == sum
+		return reflect.DeepEqual(got, obs) && gotSum.Equal(sum) && err == nil && term.Equal(sum)
 	}
 	if err := quick.Check(prop, quickConfig(100)); err != nil {
 		t.Error(err)
@@ -65,7 +65,7 @@ func TestWireLineDoesNotEscapeHTML(t *testing.T) {
 		Pointers: map[string]string{"/a": value},
 	}}}}}
 	var out bytes.Buffer
-	w := NewWireWriter(&out)
+	w := mustWireWriter(t, &out)
 	if err := w.Write(o); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestWireRefusals(t *testing.T) {
 	}}}}}
 	write := func(obs ...CriterionObservation) string {
 		var b bytes.Buffer
-		w := NewWireWriter(&b)
+		w := mustWireWriter(t, &b)
 		for _, o := range obs {
 			if err := w.Write(o); err != nil {
 				t.Fatal(err)
@@ -112,13 +112,13 @@ func TestWireRefusals(t *testing.T) {
 		"edited line":   {strings.Replace(good, `"a"`, `"c"`, 1), ErrSummaryMismatch},
 		"after summary": {good + lines[0], ErrWireInvalid},
 		"two summaries": {good + lines[2], ErrWireInvalid},
-		"other version": {strings.Replace(good, `{"v":1,`, `{"v":2,`, 1), ErrWireInvalid},
-		"unknown field": {WirePrefix + `{"v":1,"observation":{"id":"a","colour":1}}` + "\n", ErrWireInvalid},
+		"other version": {strings.Replace(good, `{"v":2,`, `{"v":3,`, 1), ErrWireVersion},
+		"unknown field": {WirePrefix + `{"v":2,"observation":{"id":"a","colour":1}}` + "\n", ErrWireInvalid},
 		"not json":      {WirePrefix + "{\n", ErrWireInvalid},
 		"both": {
-			WirePrefix + `{"v":1,"observation":{"id":"a"},"summary":{"count":0,"sha256":""}}` + "\n", ErrWireInvalid,
+			WirePrefix + `{"v":2,"observation":{"id":"a"},"summary":{"count":0,"sha256":""}}` + "\n", ErrWireInvalid,
 		},
-		"neither": {WirePrefix + `{"v":1}` + "\n", ErrWireInvalid},
+		"neither": {WirePrefix + `{"v":2}` + "\n", ErrWireInvalid},
 		"marked too large": {
 			strings.Replace(good, `{"id":"a",`, `{"id":"a","tooLarge":true,`, 1), ErrWireInvalid,
 		},
@@ -134,7 +134,7 @@ func TestWireRefusals(t *testing.T) {
 			}
 		})
 	}
-	if err := NewWireWriter(&bytes.Buffer{}).Write(CriterionObservation{ID: "a", TooLarge: true}); err == nil {
+	if err := mustWireWriter(t, &bytes.Buffer{}).Write(CriterionObservation{ID: "a", TooLarge: true}); err == nil {
 		t.Error("the wire writer wrote an observation marked too large")
 	}
 	for _, bad := range []string{"", "count=1", `{"count":1}`, `{"count":-1,"sha256":"` + strings.Repeat("0", 64) + `"}`} {

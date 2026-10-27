@@ -12,7 +12,8 @@
 // criteria, the round, attempt and random run token their {{run}}
 // placeholders take, and per previewed repository key the Service address
 // its requests go to. ParseSpec refuses unknown fields, any criterion but
-// http, and a target that is not "<DNS name>:<port>": a criterion never
+// http, and a target that is not "<ClusterIP>:<port>" (the tester resolves
+// no name): a criterion never
 // chooses a host.
 //
 // Client (client.go) sends each request acceptance.BuildRequest built, as
@@ -23,11 +24,15 @@
 // body read to at most acceptance.MaxResponseBytes (too-large past it). A
 // request that gets no response is a transport class, never an error.
 //
-// Run (run.go) drives acceptance.Observe (which retries a failing
-// criterion once under a fresh {{run}}) over the criteria in plan order and
-// writes the MAUL-VERIFY v1 wire format; WriteTermination repeats the
-// summary as the container's termination message, so a truncated log is
-// detected.
+// Run (run.go) first waits, within ReadinessWindow, for every target to
+// accept a TCP connection (readiness.go: a new Pod's slot NetworkPolicy may
+// not be programmed yet, and on k3s it is refused until it is); a target
+// still unreachable ends the run with a summary naming it and no criterion
+// observed. It then drives acceptance.Observe (which retries a failing
+// criterion once under a fresh {{run}}, RetryDelay later) over the criteria
+// in plan order and writes the MAUL-VERIFY v1 wire format, the readiness
+// waits in its summary; WriteTermination repeats the summary as the
+// container's termination message, so a truncated log is detected.
 //
 // The package imports only the standard library and internal/acceptance
 // (a test pins that).

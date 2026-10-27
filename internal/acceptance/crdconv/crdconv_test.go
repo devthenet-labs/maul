@@ -78,6 +78,7 @@ func TestEvidenceMirrorsMatch(t *testing.T) {
 			reflect.TypeFor[v1alpha1.StepObservation]()},
 		{"PartFact", reflect.TypeFor[acceptance.PartFact](), reflect.TypeFor[v1alpha1.PartFact]()},
 		{"Termination", reflect.TypeFor[acceptance.Termination](), reflect.TypeFor[v1alpha1.Termination]()},
+		{"TargetWait", reflect.TypeFor[acceptance.TargetWait](), reflect.TypeFor[v1alpha1.TargetWait]()},
 	}
 	for _, m := range mirrors {
 		acc, crd := jsonFields(m.acc), jsonFields(m.crd)
@@ -149,6 +150,25 @@ func TestObservationsRoundTrip(t *testing.T) {
 	marker := v1alpha1.CriterionObservation{ID: "health", TooLarge: true}
 	if got, err := ObservationFromCRD(marker); err != nil || !got.TooLarge || got.ID != "health" || got.Tries != nil {
 		t.Fatalf("marker converted to %+v, %v", got, err)
+	}
+}
+
+// TestWaitsToCRD: every field of the tester's readiness waits is stored; an
+// empty list is nil.
+func TestWaitsToCRD(t *testing.T) {
+	in := []acceptance.TargetWait{{Target: "api", WaitMs: 1203, Attempts: 9, Refused: 5, Timeout: 1, Reset: 1,
+		DNS: 1}, {Target: "web", Attempts: 1}}
+	got, err := WaitsToCRD(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []v1alpha1.TargetWait{{Target: "api", WaitMs: 1203, Attempts: 9, Refused: 5, Timeout: 1, Reset: 1,
+		DNS: 1}, {Target: "web", Attempts: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WaitsToCRD = %+v, want %+v", got, want)
+	}
+	if got, err := WaitsToCRD(nil); got != nil || err != nil {
+		t.Errorf("WaitsToCRD(nil) = %+v, %v", got, err)
 	}
 }
 

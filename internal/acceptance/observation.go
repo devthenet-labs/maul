@@ -14,6 +14,7 @@ import (
 	"hash"
 	"io"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -145,6 +146,19 @@ type PartFact struct {
 	LastTermination *Termination `json:"lastTermination,omitempty"`
 	Evicted         bool         `json:"evicted,omitempty"`
 	Unschedulable   bool         `json:"unschedulable,omitempty"`
+	// CrashedDuring reports that the component's process exited (OOM
+	// included) during the attempt, by the kubelet's timestamps within the
+	// tester's run: the application's failure, however it exited.
+	CrashedDuring bool `json:"crashedDuring,omitempty"`
+	// Disrupted reports that the cluster, not the application, took the
+	// component's Pod away during the attempt: the Eviction API, a drain,
+	// preemption, the taint manager, Pod GC, a deletion, node loss, or a
+	// replacement whose old Pod shows no cause of the application's.
+	Disrupted bool `json:"disrupted,omitempty"`
+	// UnreachableForMs is how long the tester tried, and failed, to connect
+	// to the component's Service before its first criterion: its whole
+	// readiness window. Zero when it was reached.
+	UnreachableForMs int32 `json:"unreachableForMs,omitempty"`
 	// LogTail is opaque display text: never judged, never fingerprinted.
 	LogTail string `json:"logTail,omitempty"`
 }
@@ -504,28 +518,58 @@ func (s StepObservation) checkValues() error {
 	return nil
 }
 
-// Wire format v1: the tester's stdout.
+// Wire format (WireVersion): the tester's stdout.
 
 // WirePrefix starts every wire line; any other log line means nothing.
 const WirePrefix = "MAUL-VERIFY: "
 
-// WireVersion is the wire format's version.
-const WireVersion = 1
+// WireVersion is the wire format's version. 2 added the summary's required
+// readiness waits; a tester and a controller of different versions refuse
+// each other's output (WireVersionError), since the tester image is pinned
+// apart from the controllers and may be mirrored or overridden.
+const WireVersion = 2
 
 // Wire errors. preview-controller maps ErrNoSummary to
 // deadline-no-summary, ErrSummaryMismatch to summary-mismatch and
 // ErrWireInvalid to tester-output-invalid.
 var (
-	ErrWireInvalid     = errors.New("tester output is not valid MAUL-VERIFY v1")
+	ErrWireInvalid     = errors.New("tester output is not valid MAUL-VERIFY")
 	ErrNoSummary       = errors.New("tester output has no summary")
 	ErrSummaryMismatch = errors.New("tester output does not match its summary")
+	// ErrWireVersion is a tester writing another wire version than this
+	// controller reads: the tester image and the controller disagree.
+	ErrWireVersion = errors.New("tester output is another MAUL-VERIFY version")
 )
 
+// WireVersionError is a wire line of another version than WireVersion. It
+// is ErrWireVersion, never ErrWireInvalid.
+type WireVersionError struct {
+	// Got is the version the line declared.
+	Got int
+}
+
+func (e *WireVersionError) Error() string {
+	return fmt.Sprintf("tester wrote MAUL-VERIFY v%d; this controller reads v%d", e.Got, WireVersion)
+}
+
+// Is makes a WireVersionError ErrWireVersion.
+func (e *WireVersionError) Is(target error) bool { return target == ErrWireVersion }
+
 // Summary closes the wire output: how many observation lines came before
-// it and the sha256 of those lines, each with its "\n".
+// it and the sha256 of those lines, each with its "\n"; the readiness wait
+// of every target the spec names, in target order; and the targets never
+// reached, after which no criterion is observed.
 type Summary struct {
 	Count  int    `json:"count"`
 	SHA256 string `json:"sha256"`
+	// Waits are the tester's readiness waits, made before its first
+	// criterion: always one per target.
+	Waits []TargetWait `json:"waits"`
+	// Unreachable names the targets whose every connection attempt failed
+	// within the tester's window, exactly those of Waits never reached.
+	// Non-empty, the run observed nothing (Count is zero): preview-controller
+	// marks each component unreachable, the application's failure.
+	Unreachable []string `json:"unreachable,omitempty"`
 }
 
 type wireLine struct {
@@ -536,19 +580,32 @@ type wireLine struct {
 
 // WireWriter writes observation lines and then the summary.
 type WireWriter struct {
-	w   io.Writer
-	h   hash.Hash
-	n   int
-	end bool
+	w     io.Writer
+	h     hash.Hash
+	n     int
+	end   bool
+	waits []TargetWait
 }
 
-// NewWireWriter writes the wire format to w.
-func NewWireWriter(w io.Writer) *WireWriter { return &WireWriter{w: w, h: sha256.New()} }
+// NewWireWriter writes the wire format to w for a run whose readiness waits
+// were waits, one per target in ascending target order. There is no writer
+// without them, so no summary is ever written without the wait; and once
+// a target was never reached, the writer writes no observation, only the
+// summary naming it.
+func NewWireWriter(w io.Writer, waits []TargetWait) (*WireWriter, error) {
+	if err := checkWaits(waits); err != nil {
+		return nil, fmt.Errorf("wire: %w", err)
+	}
+	return &WireWriter{w: w, h: sha256.New(), waits: slices.Clone(waits)}, nil
+}
 
 // Write writes one observation line.
 func (w *WireWriter) Write(o CriterionObservation) error {
-	if w.end {
+	switch {
+	case w.end:
 		return errors.New("wire: write after close")
+	case len(Unreached(w.waits)) > 0:
+		return errors.New("wire: no observation after an unreachable target")
 	}
 	if err := o.Check(); err != nil {
 		return err
@@ -570,7 +627,11 @@ func (w *WireWriter) Close() (Summary, error) {
 		return Summary{}, errors.New("wire: closed twice")
 	}
 	w.end = true
-	s := Summary{Count: w.n, SHA256: hex.EncodeToString(w.h.Sum(nil))}
+	s := Summary{Count: w.n, SHA256: hex.EncodeToString(w.h.Sum(nil)), Waits: w.waits,
+		Unreachable: Unreached(w.waits)}
+	if err := s.check(); err != nil {
+		return Summary{}, fmt.Errorf("wire: summary: %w", err)
+	}
 	line, err := encodeLine(wireLine{V: WireVersion, Summary: &s})
 	if err != nil {
 		return Summary{}, err
@@ -607,18 +668,19 @@ func sha256Hex(s string) bool {
 // ParseSummary reads a termination message.
 func ParseSummary(msg string) (Summary, error) {
 	var s Summary
-	err := decodeStrictJSON([]byte(msg), &s)
-	if err != nil || s.Count < 0 || s.Count > MaxCriteria || !sha256Hex(s.SHA256) {
+	if err := decodeStrictJSON([]byte(msg), &s); err != nil || s.check() != nil {
 		return Summary{}, ErrWireInvalid
 	}
 	return s, nil
 }
 
 // ParseWire reads a tester's log: only lines starting with WirePrefix, each
-// one v1 line, at most MaxCriteria observations each within its bounds,
-// then exactly one summary whose count and hash match the lines before it,
-// and nothing after. It returns the observations and the summary, to be
-// compared with the termination message.
+// one line of WireVersion (another version is a WireVersionError), at most
+// MaxCriteria observations each within its bounds, then exactly one
+// summary, its readiness waits within their bounds and consistent, whose
+// count and hash match the lines before it, and nothing after. It returns
+// the observations and the summary, to be compared with the termination
+// message.
 func ParseWire(log []byte) ([]CriterionObservation, Summary, error) {
 	var obs []CriterionObservation
 	var sum *Summary
@@ -631,12 +693,24 @@ func ParseWire(log []byte) ([]CriterionObservation, Summary, error) {
 		if sum != nil {
 			return nil, Summary{}, fmt.Errorf("%w: a line after the summary", ErrWireInvalid)
 		}
+		var version struct {
+			V int `json:"v"`
+		}
+		if err := json.Unmarshal(body, &version); err != nil {
+			return nil, Summary{}, ErrWireInvalid
+		}
+		if version.V != WireVersion {
+			return nil, Summary{}, &WireVersionError{Got: version.V}
+		}
 		var l wireLine
 		if err := decodeStrictJSON(body, &l); err != nil || l.V != WireVersion ||
 			(l.Observation == nil) == (l.Summary == nil) {
 			return nil, Summary{}, ErrWireInvalid
 		}
 		if l.Summary != nil {
+			if l.Summary.check() != nil {
+				return nil, Summary{}, ErrWireInvalid
+			}
 			sum = l.Summary
 			continue
 		}

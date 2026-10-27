@@ -54,7 +54,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -76,6 +76,34 @@ const (
 	VerificationReasonComponentOOM        PreviewVerificationReason = "component-oom"
 	VerificationReasonPreviewFailed       PreviewVerificationReason = "preview-failed"
 	VerificationReasonServiceRestarted    PreviewVerificationReason = "service-restarted"
+	// VerificationReasonComponentUnreachable: a component's Service
+	// accepted no connection from the tester for its whole readiness window
+	// while the component was Ready (its environment fact's
+	// unreachableForMs, status.readiness). EnvFailed, the application's: the
+	// window absorbs the slot policy being programmed.
+	VerificationReasonComponentUnreachable PreviewVerificationReason = "component-unreachable"
+	// VerificationReasonComponentCrashed: a component's process exited (OOM
+	// included) during the tester's run, by the kubelet's timestamps (its
+	// fact's crashedDuring), and came back. EnvFailed, the application's.
+	VerificationReasonComponentCrashed PreviewVerificationReason = "component-crashed"
+	// VerificationReasonComponentDisrupted: during the tester's run a Pod of
+	// a component's current revision was taken away by the cluster (the
+	// Eviction API, a drain, preemption, the taint manager, Pod GC, a
+	// deletion, node loss, a graceful node shutdown or kubelet preemption,
+	// or a replacement with no evidence), exited cleanly, or went not-Ready
+	// with no evidence of the application's (its fact's disrupted). Infra,
+	// retried and bounded: the application holds no API credential, and
+	// the most it can do without crashing is make itself not-Ready.
+	VerificationReasonComponentDisrupted PreviewVerificationReason = "component-disrupted"
+	// VerificationReasonServiceNoClusterIP: a component's Service had no
+	// ClusterIP to render the tester's target from (the tester never
+	// resolves a name). Infra, settled before any tester starts.
+	VerificationReasonServiceNoClusterIP PreviewVerificationReason = "service-no-cluster-ip"
+	// VerificationReasonTesterVersionMismatch: the tester wrote another
+	// MAUL-VERIFY wire version than preview-controller reads
+	// (status.testerWireVersion beside acceptance.WireVersion): the tester
+	// image and the controller disagree. Infra.
+	VerificationReasonTesterVersionMismatch PreviewVerificationReason = "tester-version-mismatch"
 )
 
 // PreviewVerificationSpec is one request to run an Intent's automatable
@@ -294,11 +322,66 @@ type PartFact struct {
 	// Unschedulable reports that no node could take the part's pod.
 	// +optional
 	Unschedulable bool `json:"unschedulable,omitempty"`
+	// CrashedDuring reports that the component's process exited (OOM
+	// included) during the tester's run: the application's failure.
+	// +optional
+	CrashedDuring bool `json:"crashedDuring,omitempty"`
+	// Disrupted reports that the cluster took the component's Pod away
+	// during the tester's run: maul's, never the application's.
+	// +optional
+	Disrupted bool `json:"disrupted,omitempty"`
+	// UnreachableForMs is how long the tester tried, and failed, to connect
+	// to the component's Service before its first criterion (its whole
+	// readiness window); zero when reached.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=120000
+	UnreachableForMs int32 `json:"unreachableForMs,omitempty"`
 	// LogTail is the end of the part's log since the verification started,
 	// redacted (slice 2). Untrusted and opaque.
 	// +optional
 	// +kubebuilder:validation:MaxLength=4096
 	LogTail string `json:"logTail,omitempty"`
+}
+
+// TargetWait is how the tester waited, before its first criterion, for one
+// component's Service to accept a TCP connection: how long, in how many
+// attempts, and how the failed ones failed. Every attempt but a last
+// successful one failed, so the Service was reached exactly when attempts
+// is one more than the failures.
+type TargetWait struct {
+	// Target is the component (its Project repository's key).
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=16
+	Target string `json:"target"`
+	// WaitMs is how long the wait took, in milliseconds.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=120000
+	WaitMs int32 `json:"waitMs"`
+	// Attempts is how many connections were attempted.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=256
+	Attempts int32 `json:"attempts"`
+	// Refused counts attempts refused.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
+	Refused int32 `json:"refused,omitempty"`
+	// Timeout counts attempts that timed out.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
+	Timeout int32 `json:"timeout,omitempty"`
+	// Reset counts attempts that failed otherwise.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
+	Reset int32 `json:"reset,omitempty"`
+	// DNS counts attempts whose Service name did not resolve.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
+	DNS int32 `json:"dns,omitempty"`
 }
 
 // PreviewVerificationStatus is written only by preview-controller: what the
@@ -336,6 +419,22 @@ type PreviewVerificationStatus struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
 	SummarySHA256 string `json:"summarySHA256,omitempty"`
+	// Readiness is the tester's wait for each component's Service before
+	// its first criterion, in component-name order, as its summary
+	// declared it. A component never reached ends the attempt with no
+	// observations: EnvFailed component-unreachable (its fact's
+	// unreachableForMs), the application's. The tester dials each
+	// Service's ClusterIP and resolves no name.
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=atomic
+	Readiness []TargetWait `json:"readiness,omitempty"`
+	// TesterWireVersion is the MAUL-VERIFY version the tester wrote, set
+	// when it was not the one preview-controller reads
+	// (tester-version-mismatch).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	TesterWireVersion int32 `json:"testerWireVersion,omitempty"`
 }
 
 // +kubebuilder:object:root=true

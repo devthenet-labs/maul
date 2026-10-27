@@ -105,10 +105,28 @@ func longestTransport() Transport {
 
 // summaryWireBytes is the summary line's length at its longest.
 func summaryWireBytes() int {
-	line, err := encodeLine(wireLine{V: WireVersion,
-		Summary: &Summary{Count: MaxCriteria, SHA256: strings.Repeat("f", 64)}})
+	line, err := encodeLine(wireLine{V: WireVersion, Summary: worstSummary()})
 	if err != nil {
 		return MaxWireBytes + 1
 	}
 	return len(line)
 }
+
+// worstSummary is a summary at every bound at once, which no tester writes
+// (an unreachable target means no observation) but which bounds every one
+// it can: MaxWaitTargets waits of the longest keys, every number at its
+// largest, each named unreachable.
+func worstSummary() *Summary {
+	s := &Summary{Count: MaxCriteria, SHA256: strings.Repeat("f", 64)}
+	for i := range MaxWaitTargets {
+		key := strings.Repeat("k", MaxKeyLength-1) + string(rune('a'+i))
+		s.Waits = append(s.Waits, TargetWait{Target: key, WaitMs: MaxWaitMs, Attempts: MaxWaitAttempts,
+			Refused: MaxWaitAttempts, Timeout: MaxWaitAttempts, Reset: MaxWaitAttempts, DNS: MaxWaitAttempts})
+		s.Unreachable = append(s.Unreachable, key)
+	}
+	return s
+}
+
+// MaxSummaryBytes is the longest summary's termination message
+// (Summary.TerminationMessage), which the tester's container must hold.
+func MaxSummaryBytes() int { return len(worstSummary().TerminationMessage()) }

@@ -129,7 +129,43 @@ Two rules shape good criteria, and the plan prompt states both:
    without that explicit conclusion is still a failed round, retried like any other.
 
 A criterion that fails on its first try and passes on a retry is **quarantined**: shown to the human, never counted as
-passed, and the status stays pending until a person runs `/maul accept <id>` or a clean re-run passes.
+passed, and the status stays pending until a person runs `/maul accept <id>` or a clean re-run passes. A retry starts a
+second and a half after the failed try, so one blip does not fail both.
+
+### Before the first check: the tester waits for the slot network
+
+The tester is a new Pod on every run, and the slot's NetworkPolicy admits it only once the cluster's policy controller
+has programmed the policy for that Pod. On k3s and k3d, kube-router does that about a second after the Pod starts and
+rejects its connections until then, which looks exactly like an application that is not listening. So before its first
+criterion the tester waits for every component's Service to accept a TCP connection (it sends nothing), at the Service's
+ClusterIP, which preview-controller reads and hands it: the tester resolves no name, so cluster DNS, which every Pod on
+the node shares, cannot keep it from a component. It retries from 100 ms backing off to 1 s, for at most a minute and
+never more than a quarter of the tester's budget. The wait per component, how long and how many attempts were refused,
+is recorded in the `PreviewVerification`'s `status.readiness`.
+
+Once every component is reached, the checks run as before, and a connection error during a check is the application's
+failure. The window absorbs the policy being programmed; a component still unreachable at its end is the change's
+failure too, reason `component-unreachable` ("unreachable from the tester for 60s while Ready"): it counts as a
+verification and can start a fix round, whose handoff names the component and how long it was unreachable. Readiness
+alone does not prove the tester can connect: an application can pass the kubelet's probe while refusing every other
+source, so maul never reports such a run as "could not run the checks". A component Service with no ClusterIP is maul's
+render error, `service-no-cluster-ip`, before any tester starts.
+
+What happens to a component while the tester runs is attributed by its cause. Only Pods of the component's current
+revision count (a previous revision's Pods are ignored), and only events between the tester Pod's start (less two
+seconds of clock skew) and its end. The change is charged only on unambiguous evidence:
+
+| What happened                                                                                                                                                                  | Reason                  | Whose                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | --------------------- |
+| Its process exited non-zero or was OOM-killed                                                                                                                                  | `component-crashed`     | The change's (counts) |
+| The kubelet evicted its Pod (`status.reason: Evicted`: memory or ephemeral storage pressure)                                                                                   | `component-evicted`     | The change's (counts) |
+| It was Ready, nothing above happened, and it accepted no connection from the tester for the whole readiness window                                                             | `component-unreachable` | The change's (counts) |
+| Anything else: not Ready with no such evidence (a node going NotReady), node loss, a drain, preemption, a deletion, a graceful node shutdown, a clean exit, a bare replacement | `component-disrupted`   | maul's (retried)      |
+
+The application holds no API credential, so it cannot drain, delete or preempt anything. The most it can do without
+crashing is make itself not-Ready, which is reported as `component-disrupted`, retried and then `Unavailable`, never a
+pass, while its preview goes not-live and shows the error. A restart or eviction from before the tester started, or
+after it ended, is not counted.
 
 ### Bounds
 
@@ -237,16 +273,16 @@ command is applied once: if maul's reply to it is deleted, maul answers it again
 
 ## When something is not what you expect
 
-| You see                                                    | Meaning                                                                                                                                                                                                                                                |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| No `maul/acceptance` status at all                         | Verification is off (chart, controller or Project) and maul never verified the intent, the App lacks Commit statuses write (the Project's `AcceptanceStatusUnavailable`), or the intent has ended                                                      |
-| `pending`, "to accept by hand" or "accept all"             | Everything maul runs passed; what only a person can close waits for an approver's `/maul accept <id>`, or `/maul accept all` for a plan with no criteria                                                                                               |
-| `error`, "verification switched off"                       | Verification was turned off for this intent after maul posted a status; nothing more is verified or reported                                                                                                                                           |
-| `pending`, "waiting for the preview"                       | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                                                                                                                                                     |
-| `error`, "the preview was not live within 60 minutes"      | The preview stayed Failed, expired, queued or never served (no preview-controller) for an hour, so nothing ran. The Intent's verification is `Unavailable` (`PreviewNotLive`); it verifies as soon as the preview is live. Check `kubectl get preview` |
-| `error`, "maul could not run the checks"                   | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline). Not a verdict on the change                                                                                                                         |
-| `error`, "the approved acceptance criteria cannot be read" | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; `/maul replan`  |
-| A failing criterion that passes by hand                    | Checks run against a preview that is never reset; one that depends on empty data should be replanned, or use `--reset`                                                                                                                                 |
+| You see                                                    | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No `maul/acceptance` status at all                         | Verification is off (chart, controller or Project) and maul never verified the intent, the App lacks Commit statuses write (the Project's `AcceptanceStatusUnavailable`), or the intent has ended                                                                                                                                                                                                                              |
+| `pending`, "to accept by hand" or "accept all"             | Everything maul runs passed; what only a person can close waits for an approver's `/maul accept <id>`, or `/maul accept all` for a plan with no criteria                                                                                                                                                                                                                                                                       |
+| `error`, "verification switched off"                       | Verification was turned off for this intent after maul posted a status; nothing more is verified or reported                                                                                                                                                                                                                                                                                                                   |
+| `pending`, "waiting for the preview"                       | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                                                                                                                                                                                                                                                                                                                             |
+| `error`, "the preview was not live within 60 minutes"      | The preview stayed Failed, expired, queued or never served (no preview-controller) for an hour, so nothing ran. The Intent's verification is `Unavailable` (`PreviewNotLive`); it verifies as soon as the preview is live. Check `kubectl get preview`                                                                                                                                                                         |
+| `error`, "maul could not run the checks"                   | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline, a component disrupted by the cluster: `component-disrupted`, a component Service without a ClusterIP: `service-no-cluster-ip`, or a tester image whose output format does not match the controllers: `tester-version-mismatch`; keep `preview.verification.testerImage` at the chart's release). Not a verdict on the change |
+| `error`, "the approved acceptance criteria cannot be read" | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; `/maul replan`                                                                                                                                                                          |
+| A failing criterion that passes by hand                    | Checks run against a preview that is never reset; one that depends on empty data should be replanned, or use `--reset`                                                                                                                                                                                                                                                                                                         |
 
 This release verifies `http` criteria against a Preview's components. Backing services, seeded data, edges between
 components and `command` criteria arrive in a later release; until then a component's data lives in its own pod, and

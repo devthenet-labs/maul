@@ -29,7 +29,7 @@ func specFor(t *testing.T, srv *httptest.Server) string {
 	port := srv.URL[strings.LastIndex(srv.URL, ":")+1:]
 	return fmt.Sprintf(`{"round":1,"attempt":1,"run":"abcdef","budgetSeconds":30,
 	  "criteria":[{"id":"health","kind":"http","statement":"healthy","target":"api","request":{"path":"/healthz"}}],
-	  "targets":{"api":"localhost:%s"}}`, port)
+	  "targets":{"api":"127.0.0.1:%s"}}`, port)
 }
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -53,7 +53,7 @@ func TestRunObserves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := acceptance.ParseSummary(string(msg)); err != nil || got != sum {
+	if got, err := acceptance.ParseSummary(string(msg)); err != nil || !got.Equal(sum) {
 		t.Errorf("termination message %q, want %+v", msg, sum)
 	}
 }
