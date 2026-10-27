@@ -426,8 +426,8 @@ Choose what the App is for. It asks for the least each chosen feature uses, and 
 | Flag                               | Permissions                                                         | Webhook events                                                   |
 | ---------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `--security`                       | Code scanning alerts, Issues, Contents, Pull requests: read & write | `code_scanning_alert`, `issues`, `issue_comment`, `pull_request` |
-| `--intents`                        | Issues, Contents, Pull requests: read & write                       | none: intent-controller polls GitHub                             |
-| `--checks` (with `--intents`)      | Checks, Commit statuses, Actions: read                              | none                                                             |
+| `--intents`                        | Issues, Contents, Pull requests, Commit statuses: read & write      | none: intent-controller polls GitHub                             |
+| `--checks` (with `--intents`)      | Checks, Actions: read                                               | none                                                             |
 | `--rerun-failed` (with `--checks`) | Actions: read & write                                               | none                                                             |
 
 Metadata read comes with every App. The table is `internal/intentperm`, the one intent-controller proves a `Project`'s

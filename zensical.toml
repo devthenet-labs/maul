@@ -52,6 +52,7 @@ nav = [
   { "Intents & previews" = [
     { "Deploying intents and previews" = "intents/deploying.md" },
     { "Set up previews" = "intents/set-up-previews.md" },
+    { "Acceptance verification" = "intents/acceptance.md" },
     { "Sizing limits for large features" = "intents/sizing.md" },
     { "Onboarding an application" = "intents/onboarding-app.md" },
     { "The Terraform module" = "intents/terraform-module.md" },
