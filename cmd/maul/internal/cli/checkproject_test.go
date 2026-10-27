@@ -38,6 +38,10 @@ func (noGitHub) File(context.Context, string, string, string, int64) ([]byte, in
 	return nil, 0, false, errors.New("unreachable")
 }
 
+func (noGitHub) BranchRules(context.Context, string, string) ([]projectcheck.RequiredCheck, error) {
+	return nil, errors.New("unreachable")
+}
+
 // noDNS resolves nothing.
 type noDNS struct{}
 

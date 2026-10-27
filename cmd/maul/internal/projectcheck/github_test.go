@@ -65,8 +65,14 @@ func githubRoutes() map[string]route {
 		trees + sha("b") + ":.devcontainer": {status: http.StatusUnprocessableEntity,
 			body: `{"message": "Invalid object requested. SHA must identify a commit or a tree."}`},
 		trees + sha("b") + ":big": {accept: acceptJSON, body: `{"truncated": true, "tree": []}`},
-		blobs + "blob-agent":      {accept: acceptRaw, body: agentYAML},
-		blobs + "blob-run":        {accept: acceptRaw, body: "true\n"},
+		"/repos/acme/web/rules/branches/trunk": {accept: acceptJSON, body: `[
+			{"type": "pull_request", "parameters": {}},
+			{"type": "required_status_checks", "parameters": {"required_status_checks": [
+				{"context": "ci", "integration_id": null},
+				{"context": "maul/acceptance", "integration_id": 15368}]}}]`},
+		"/repos/acme/web/rules/branches/locked": {status: http.StatusForbidden, body: `{"message": "no"}`},
+		blobs + "blob-agent":                    {accept: acceptRaw, body: agentYAML},
+		blobs + "blob-run":                      {accept: acceptRaw, body: "true\n"},
 		// What a symlink's blob holds: its target's path.
 		blobs + "blob-link": {accept: acceptRaw, body: "agent.yaml"},
 	}

@@ -39,6 +39,11 @@
 //     repository sits under preview-controller's prefix and that
 //     sha-<default-branch head> is published there (a FAIL only with more
 //     than one previewed repository, since only then does a preview run it);
+//   - acceptance-rules: only while spec.verification.enabled, per app
+//     repository, whether the rulesets on its default branch require the
+//     maul/acceptance status from a named App: a WARN when not (or from any
+//     source), a SKIP when the rules cannot be read; classic branch
+//     protection is not read;
 //   - preview-dns, preview-tls, preview-auth, preview-auth-dex,
 //     preview-auth-host and preview-gateway-allowlist: previewcheck's
 //     checks of the preview path (the probe host <project>-0.<host suffix>,
