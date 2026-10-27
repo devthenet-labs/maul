@@ -253,6 +253,10 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 		}
 		a.Accepted = append(slices.DeleteFunc(slices.Clone(a.Accepted),
 			func(r v1alpha1.AcceptanceRecord) bool { return r.ID == id }), rec)
+		// The counts maul/acceptance reads follow the acceptance at once.
+		if v := in.Status.Verification; v != nil {
+			countManual(v, a)
+		}
 		return nil
 	}); err != nil {
 		return n, err
