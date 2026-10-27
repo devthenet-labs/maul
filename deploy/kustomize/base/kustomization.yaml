@@ -20,6 +20,7 @@ resources:
     - crds/maul.run_modelcredentials.yaml
     - crds/maul.run_projects.yaml
     - crds/maul.run_previews.yaml
+    - crds/maul.run_previewverifications.yaml
     - crds/maul.run_remediations.yaml
     - crds/maul.run_repositories.yaml
     - crds/maul.run_usagerollups.yaml

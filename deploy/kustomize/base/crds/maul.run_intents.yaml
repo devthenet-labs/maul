@@ -181,6 +181,349 @@ spec:
               IntentStatus is the intent's observed state. Written only by
               intent-controller's intent reconciler.
             properties:
+              acceptance:
+                description: |-
+                  Acceptance is the approved plan's acceptance criteria, re-parsed from
+                  the digest-checked plan bytes once review begins, and the manual
+                  criteria approvers accepted since.
+                properties:
+                  accepted:
+                    description: Accepted are the approvers' /maul accept records,
+                      oldest first.
+                    items:
+                      description: |-
+                        AcceptanceRecord is one approver's /maul accept of a manual, quarantined
+                        or changed-tests criterion. It holds only at the combined change it was
+                        given at: once the heads move it is shown as not re-checked.
+                      properties:
+                        at:
+                          description: At is the command comment's created_at.
+                          format: date-time
+                          type: string
+                        by:
+                          description: By is the approver's login, for display.
+                          maxLength: 64
+                          minLength: 1
+                          pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                          type: string
+                        byID:
+                          description: 'ByID is GitHub''s numeric id of the approver:
+                            the identity.'
+                          format: int64
+                          minimum: 1
+                          type: integer
+                        commentID:
+                          description: CommentID is GitHub's id of the comment carrying
+                            the command.
+                          format: int64
+                          minimum: 1
+                          type: integer
+                        headSetDigest:
+                          description: HeadSetDigest is the combined change the acceptance
+                            was given at.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        heads:
+                          description: Heads are that combined change's short commit
+                            SHAs, for display.
+                          items:
+                            pattern: ^[0-9a-f]{7,40}$
+                            type: string
+                          maxItems: 4
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        id:
+                          description: ID of the accepted criterion.
+                          pattern: ^[a-z][a-z0-9-]{0,31}$
+                          type: string
+                      required:
+                      - at
+                      - by
+                      - byID
+                      - commentID
+                      - headSetDigest
+                      - id
+                      type: object
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  criteria:
+                    description: |-
+                      Criteria are the approved criteria in plan order; empty when the plan
+                      declared none.
+                    items:
+                      description: AcceptanceCriterion is one acceptance criterion
+                        of an approved plan.
+                      properties:
+                        argv:
+                          description: Argv is a command criterion's argument vector,
+                            run without a shell.
+                          items:
+                            maxLength: 200
+                            type: string
+                          maxItems: 16
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        expect:
+                          description: Expect is what a command criterion's run must
+                            show.
+                          properties:
+                            bodyContains:
+                              description: BodyContains is a string the response body
+                                must contain.
+                              maxLength: 200
+                              type: string
+                            exit:
+                              description: Exit is a command's expected exit code.
+                              format: int32
+                              type: integer
+                            headers:
+                              additionalProperties:
+                                x-kubernetes-preserve-unknown-fields: true
+                              description: Headers maps response header names to what
+                                each must hold.
+                              maxProperties: 4
+                              type: object
+                            json:
+                              additionalProperties:
+                                x-kubernetes-preserve-unknown-fields: true
+                              description: |-
+                                JSON maps RFC 6901 pointers into the response body to what each must
+                                hold.
+                              maxProperties: 8
+                              type: object
+                            status:
+                              description: 'Status is the expected HTTP status: one
+                                code or a list of codes.'
+                              x-kubernetes-preserve-unknown-fields: true
+                            stdoutContains:
+                              description: StdoutContains is a string a command's
+                                stdout must contain.
+                              maxLength: 200
+                              type: string
+                            stdoutJSON:
+                              additionalProperties:
+                                x-kubernetes-preserve-unknown-fields: true
+                              description: |-
+                                StdoutJSON maps RFC 6901 pointers into a command's JSON stdout to what
+                                each must hold.
+                              maxProperties: 8
+                              type: object
+                          type: object
+                        id:
+                          description: ID names the criterion, unique within its plan.
+                          pattern: ^[a-z][a-z0-9-]{0,31}$
+                          type: string
+                        in:
+                          description: In is where a command criterion runs.
+                          properties:
+                            component:
+                              description: |-
+                                Component is a previewed repository key: the command runs in that
+                                component's runtime image inside the slot.
+                              maxLength: 16
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                              type: string
+                            repository:
+                              description: |-
+                                Repository is a Project repository key: the command runs in that
+                                repository's accepted agent image, without a model.
+                              maxLength: 16
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                              type: string
+                          type: object
+                          x-kubernetes-validations:
+                          - message: in names exactly one of component and repository
+                            rule: has(self.component) != has(self.repository)
+                        kind:
+                          description: Kind is how the criterion is checked.
+                          enum:
+                          - http
+                          - command
+                          - manual
+                          type: string
+                        reason:
+                          description: Reason says why a manual criterion needs a
+                            human.
+                          maxLength: 120
+                          pattern: ^[^\r\n]*$
+                          type: string
+                        statement:
+                          description: Statement is the approved one-line statement
+                            of what must hold.
+                          maxLength: 200
+                          minLength: 1
+                          pattern: ^[^\r\n]*$
+                          type: string
+                        steps:
+                          description: |-
+                            Steps are an http criterion's requests, in order (the shorthand of a
+                            bare request and expect is normalised into one step).
+                          items:
+                            description: |-
+                              AcceptanceStep is one request of an http criterion and what its response
+                              must show.
+                            properties:
+                              capture:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  Capture names values of the response (RFC 6901 pointers into its JSON
+                                  body) that later steps reference by name (the capture placeholder).
+                                maxProperties: 4
+                                type: object
+                                x-kubernetes-validations:
+                                - message: capture names are ^[a-z][a-z0-9]{0,15}$
+                                    and their pointers at most 256 characters
+                                  rule: self.all(k, k.matches('^[a-z][a-z0-9]{0,15}$')
+                                    && size(self[k]) <= 256)
+                              expect:
+                                description: Expect is what the response must show.
+                                properties:
+                                  bodyContains:
+                                    description: BodyContains is a string the response
+                                      body must contain.
+                                    maxLength: 200
+                                    type: string
+                                  exit:
+                                    description: Exit is a command's expected exit
+                                      code.
+                                    format: int32
+                                    type: integer
+                                  headers:
+                                    additionalProperties:
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    description: Headers maps response header names
+                                      to what each must hold.
+                                    maxProperties: 4
+                                    type: object
+                                  json:
+                                    additionalProperties:
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    description: |-
+                                      JSON maps RFC 6901 pointers into the response body to what each must
+                                      hold.
+                                    maxProperties: 8
+                                    type: object
+                                  status:
+                                    description: 'Status is the expected HTTP status:
+                                      one code or a list of codes.'
+                                    x-kubernetes-preserve-unknown-fields: true
+                                  stdoutContains:
+                                    description: StdoutContains is a string a command's
+                                      stdout must contain.
+                                    maxLength: 200
+                                    type: string
+                                  stdoutJSON:
+                                    additionalProperties:
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    description: |-
+                                      StdoutJSON maps RFC 6901 pointers into a command's JSON stdout to what
+                                      each must hold.
+                                    maxProperties: 8
+                                    type: object
+                                type: object
+                              name:
+                                description: Name labels the step for display.
+                                maxLength: 32
+                                pattern: ^[a-z][a-z0-9-]*$
+                                type: string
+                              request:
+                                description: Request is what the tester sends.
+                                properties:
+                                  body:
+                                    description: Body is a literal request body.
+                                    maxLength: 2048
+                                    type: string
+                                  headers:
+                                    additionalProperties:
+                                      type: string
+                                    description: Headers sent with the request.
+                                    maxProperties: 8
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: header names are ^[A-Za-z0-9-]{1,64}$
+                                        and their values at most 256 characters
+                                      rule: self.all(k, k.matches('^[A-Za-z0-9-]{1,64}$')
+                                        && size(self[k]) <= 256)
+                                  json:
+                                    description: JSON is a JSON request body.
+                                    x-kubernetes-preserve-unknown-fields: true
+                                  method:
+                                    description: Method of the request.
+                                    enum:
+                                    - GET
+                                    - HEAD
+                                    - POST
+                                    - PUT
+                                    - PATCH
+                                    - DELETE
+                                    type: string
+                                  path:
+                                    description: Path, with its query, starting with
+                                      exactly one slash.
+                                    maxLength: 512
+                                    minLength: 1
+                                    pattern: ^/([^/].*)?$
+                                    type: string
+                                required:
+                                - method
+                                - path
+                                type: object
+                            required:
+                            - request
+                            type: object
+                          maxItems: 8
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        target:
+                          description: Target is the previewed repository key an http
+                            criterion is sent to.
+                          maxLength: 16
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        timeout:
+                          description: Timeout bounds a command criterion's run (a
+                            Go duration, at most 10m).
+                          maxLength: 16
+                          type: string
+                      required:
+                      - id
+                      - kind
+                      - statement
+                      type: object
+                      x-kubernetes-validations:
+                      - message: an http criterion names its target and its steps
+                        rule: self.kind != 'http' || (has(self.target) && has(self.steps))
+                      - message: a command criterion names where it runs (in) and
+                          its argv
+                        rule: self.kind != 'command' || (has(self.__in__) && has(self.argv))
+                      - message: 'a manual criterion is checked by a human: no steps
+                          and no argv'
+                        rule: self.kind != 'manual' || (!has(self.steps) && !has(self.argv))
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  digest:
+                    description: |-
+                      Digest is the digest of the full criteria list, manual criteria
+                      included (acceptance.Digest): what every PreviewVerification's
+                      criteriaDigest must equal.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
+                  planRevision:
+                    description: PlanRevision is the approved plan revision the criteria
+                      are from.
+                    format: int32
+                    maximum: 999
+                    minimum: 1
+                    type: integer
+                required:
+                - digest
+                - planRevision
+                type: object
               activeRun:
                 description: |-
                   ActiveRun points at the IntentRun currently holding the run lease
@@ -752,6 +1095,28 @@ spec:
                     requests are correlated only by the (repository, number, nodeID) recorded
                     here when maul opened them — never by head ref, and never a fork's.
                   properties:
+                    acceptanceDigest:
+                      description: |-
+                        AcceptanceDigest is the sha256 over the head, the head-set digest, the
+                        state and the description last posted as maul/acceptance, so an
+                        unchanged status is never posted again and a moved sibling re-posts it.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    acceptanceHead:
+                      description: |-
+                        AcceptanceHead is the head commit maul's latest maul/acceptance was
+                        posted on.
+                      pattern: ^([0-9a-f]{40}|[0-9a-f]{64})$
+                      type: string
+                    acceptanceStatusID:
+                      description: |-
+                        AcceptanceStatusID is GitHub's id of maul's latest maul/acceptance
+                        commit status on AcceptanceHead: a later maul/acceptance with another
+                        id is someone else's, and maul re-asserts its own. Written by the
+                        intent reconciler only; 0 while none was posted.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     checksObservedHeadSHA:
                       description: |-
                         ChecksObservedHeadSHA is a pushed head of this pull request whose
@@ -884,6 +1249,12 @@ spec:
                       description: URL is the pull request's html URL.
                       maxLength: 512
                       type: string
+                    verifyDigest:
+                      description: |-
+                        VerifyDigest is the sha256 of the verification section last written
+                        into the sticky preview comment.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
                   required:
                   - number
                   - repository
@@ -975,6 +1346,333 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+              verification:
+                description: |-
+                  Verification is the state of the acceptance verification of the
+                  intent's combined change.
+                properties:
+                  attempt:
+                    description: Attempt is the latest attempt within it.
+                    format: int32
+                    maximum: 3
+                    minimum: 0
+                    type: integer
+                  autoFix:
+                    description: AutoFix is the automatic verify-fix latch.
+                    properties:
+                      rearm:
+                        description: Rearm is the approver's /maul verify fix that
+                          last re-armed it.
+                        properties:
+                          at:
+                            description: At is the command comment's created_at.
+                            format: date-time
+                            type: string
+                          by:
+                            description: By is the approver's login, for display.
+                            maxLength: 64
+                            minLength: 1
+                            pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                            type: string
+                          byID:
+                            description: ByID is GitHub's numeric id of the approver.
+                            format: int64
+                            minimum: 1
+                            type: integer
+                          round:
+                            description: |-
+                              Round is status.rounds when re-armed: only a human round after it
+                              halts the latch again.
+                            format: int32
+                            maximum: 999
+                            minimum: 0
+                            type: integer
+                        required:
+                        - at
+                        - by
+                        - byID
+                        - round
+                        type: object
+                      reason:
+                        description: Reason the latch halted.
+                        enum:
+                        - HumanReview
+                        - HumanCommand
+                        - HumanPush
+                        - MaxVerifyFixes
+                        - RepeatedFailure
+                        - CostCeiling
+                        - CriterionError
+                        - NoOpenPR
+                        type: string
+                      since:
+                        description: Since is when the latch took its state.
+                        format: date-time
+                        type: string
+                      state:
+                        description: State of the latch; unset is Armed.
+                        enum:
+                        - Armed
+                        - Halted
+                        type: string
+                    type: object
+                  automatic:
+                    description: |-
+                      Automatic counts the verifications started without a request in the
+                      current plan revision, against the Project's maxVerifications.
+                    format: int32
+                    maximum: 999
+                    minimum: 0
+                    type: integer
+                  cancelRun:
+                    description: |-
+                      CancelRun names a Pending verify-fix IntentRun a human round
+                      overtook: the run scheduler settles it unlaunched instead of creating
+                      its Job.
+                    maxLength: 63
+                    type: string
+                  failed:
+                    description: Failed counts the automatable criteria that failed.
+                    format: int32
+                    maximum: 16
+                    minimum: 0
+                    type: integer
+                  failing:
+                    description: Failing are the criteria that did not pass, in plan
+                      order.
+                    items:
+                      description: CriterionState is the judged state of one criterion
+                        that did not pass.
+                      properties:
+                        fingerprint:
+                          description: |-
+                            Fingerprint is the failure's signature over status codes, transport
+                            error classes and matched-expectation bits only, never a value.
+                          maxLength: 128
+                          pattern: ^maul-verify-fingerprint/[0-9]+:[0-9a-f]{64}$
+                          type: string
+                        id:
+                          description: ID of the criterion.
+                          pattern: ^[a-z][a-z0-9-]{0,31}$
+                          type: string
+                        outcome:
+                          description: Outcome judged.
+                          enum:
+                          - pass
+                          - quarantined
+                          - fail
+                          type: string
+                      required:
+                      - id
+                      - outcome
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  headSetDigest:
+                    description: HeadSetDigest is the combined change the state is
+                      about.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
+                  heads:
+                    description: Heads are that combined change's components and revisions.
+                    items:
+                      description: |-
+                        VerificationHead is one previewed component's revision in the combined
+                        change a verification ran against: what the Preview spec runs.
+                      properties:
+                        component:
+                          description: Component is the previewed repository key.
+                          maxLength: 16
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        repository:
+                          description: Repository is the repository's https URL.
+                          maxLength: 256
+                          minLength: 1
+                          pattern: ^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
+                          type: string
+                        revision:
+                          description: Revision is the full commit SHA the component
+                            runs.
+                          pattern: ^[0-9a-f]{40}$
+                          type: string
+                      required:
+                      - component
+                      - repository
+                      - revision
+                      type: object
+                    maxItems: 4
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - component
+                    x-kubernetes-list-type: map
+                  infraRetries:
+                    description: |-
+                      InfraRetries counts the attempts maul's own machinery failed in the
+                      current round.
+                    format: int32
+                    maximum: 999
+                    minimum: 0
+                    type: integer
+                  lastAutomaticAt:
+                    description: LastAutomaticAt is when the latest of them started.
+                    format: date-time
+                    type: string
+                  manualAccepted:
+                    description: |-
+                      ManualAccepted counts the manual criteria accepted at the current
+                      heads.
+                    format: int32
+                    maximum: 16
+                    minimum: 0
+                    type: integer
+                  manualOpen:
+                    description: |-
+                      ManualOpen counts the manual criteria not accepted at the current
+                      heads.
+                    format: int32
+                    maximum: 16
+                    minimum: 0
+                    type: integer
+                  notRun:
+                    description: NotRun counts the criteria this slice cannot run
+                      yet.
+                    format: int32
+                    maximum: 16
+                    minimum: 0
+                    type: integer
+                  passed:
+                    description: Passed counts the automatable criteria that passed.
+                    format: int32
+                    maximum: 16
+                    minimum: 0
+                    type: integer
+                  quarantined:
+                    description: Quarantined counts the criteria that passed only
+                      on retry.
+                    format: int32
+                    maximum: 16
+                    minimum: 0
+                    type: integer
+                  quarantinedIDs:
+                    description: QuarantinedIDs are the criteria that passed only
+                      on retry.
+                    items:
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: set
+                  ref:
+                    description: Ref is the latest PreviewVerification, pinned by
+                      UID.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        minLength: 1
+                        type: string
+                      uid:
+                        description: UID of the referent at the time the reference
+                          was written.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  requested:
+                    description: Requested is an approver's pending /maul verify.
+                    properties:
+                      at:
+                        description: At is the command comment's created_at.
+                        format: date-time
+                        type: string
+                      by:
+                        description: By is the approver's login, for display.
+                        maxLength: 64
+                        minLength: 1
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                        type: string
+                      byID:
+                        description: ByID is GitHub's numeric id of the approver.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      commentID:
+                        description: CommentID is GitHub's id of the comment carrying
+                          the command.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      fix:
+                        description: Fix also re-arms automatic fixes (/maul verify
+                          fix).
+                        type: boolean
+                      reset:
+                        description: Reset also restarts the Preview's parts first
+                          (/maul verify --reset).
+                        type: boolean
+                    required:
+                    - at
+                    - by
+                    - byID
+                    - commentID
+                    type: object
+                  reset:
+                    description: Reset is the last /maul verify --reset.
+                    properties:
+                      at:
+                        description: At is the command comment's created_at.
+                        format: date-time
+                        type: string
+                      by:
+                        description: By is the approver's login, for display.
+                        maxLength: 64
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                        type: string
+                      byID:
+                        description: ByID is GitHub's numeric id of the approver.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      generation:
+                        description: Generation counts resets; it never decreases.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                    type: object
+                  round:
+                    description: Round is the latest verification round.
+                    format: int32
+                    maximum: 999
+                    minimum: 0
+                    type: integer
+                  state:
+                    description: State of the verification.
+                    enum:
+                    - NotDeclared
+                    - "Off"
+                    - WaitingForCI
+                    - WaitingForPreview
+                    - Verifying
+                    - Passed
+                    - Failing
+                    - Fixing
+                    - Exhausted
+                    - NeedsReplan
+                    - Unavailable
+                    type: string
+                type: object
+              verifyFixes:
+                description: |-
+                  VerifyFixes counts completed verify-fix rounds, for display. The
+                  count held against the Project's maxVerifyFixes is derived from the
+                  Intent's runs (the current plan revision's verify rounds), never read
+                  from here.
+                format: int32
+                maximum: 999
+                minimum: 0
+                type: integer
             type: object
         required:
         - spec

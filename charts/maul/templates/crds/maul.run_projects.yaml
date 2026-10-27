@@ -157,6 +157,10 @@ spec:
                       rule: duration(self) >= duration('1m') && duration(self) <=
                         duration('6h')
                 type: object
+                x-kubernetes-validations:
+                - message: 'checks.fix cannot name maul/acceptance: maul never fixes
+                    its own status'
+                  rule: '!has(self.fix) || !self.fix.exists(c, c.lowerAscii() == ''maul/acceptance'')'
               harness:
                 description: |-
                   Harness is the coding agent the Project's plan, build, revise and
@@ -318,6 +322,26 @@ spec:
                       is a pointer: nil means the default.
                     format: int32
                     maximum: 20
+                    minimum: 0
+                    type: integer
+                  maxVerifications:
+                    description: |-
+                      MaxVerifications is how many automatic verifications one approved
+                      plan revision may run; an approver's /maul verify does not raise it.
+                      Nil means DefaultMaxVerifications (MaxVerificationsLimit).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  maxVerifyFixes:
+                    description: |-
+                      MaxVerifyFixes is how many automatic verify-fix rounds one approved
+                      plan revision may run when its acceptance verification fails, counted
+                      apart from MaxRevisions and MaxCheckFixes. Zero is meaningful (report
+                      failures, never fix them automatically), so the field is a pointer:
+                      nil means DefaultMaxVerifyFixes (MaxVerifyFixesLimit).
+                    format: int32
+                    maximum: 10
                     minimum: 0
                     type: integer
                   plan:
@@ -608,6 +632,40 @@ spec:
                   Suspend stops the Project: no new intents are discovered and no run
                   of its intents is launched. Running Jobs finish.
                 type: boolean
+              verification:
+                description: |-
+                  Verification configures acceptance verification of the Project's
+                  intents (ProjectVerification). Unset means off.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled turns verification on for the Project's intents: the plan
+                      prompt asks for acceptance criteria, and each Preview is created
+                      verification-capable.
+                    type: boolean
+                  manualGatesStatus:
+                    description: |-
+                      ManualGatesStatus keeps maul/acceptance pending until every manual
+                      criterion is accepted (/maul accept) at the current heads. Off, the
+                      status reports the automated part only and names what is still open.
+                    type: boolean
+                  postLogs:
+                    description: |-
+                      PostLogs also puts component log tails in the pull request comments,
+                      not only on the intent issue. Log tails are redacted but are
+                      published data.
+                    type: boolean
+                  timeout:
+                    description: |-
+                      Timeout is the tester Job's wall clock, between 1m and 1h;
+                      DefaultVerificationTimeout when unset, and clamped by
+                      intent-controller's --intent-verify-timeout-max.
+                    type: string
+                    x-kubernetes-validations:
+                    - message: verification.timeout must be between 1m and 1h
+                      rule: duration(self) >= duration('1m') && duration(self) <=
+                        duration('1h')
+                type: object
             required:
             - approvers
             - intentRepository
@@ -625,6 +683,11 @@ spec:
                 one repository and no repositories[].preview'
               rule: '!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r,
                 has(r.preview)))'
+            - message: 'a repository key cannot be tester while verification is enabled:
+                it names the verification tester''s part of the preview slot'
+              rule: '!has(self.verification) || !has(self.verification.enabled) ||
+                !self.verification.enabled || !self.repositories.exists(r, r.name
+                == ''tester'')'
           status:
             description: |-
               ProjectStatus is the Project's observed state. Written only by
