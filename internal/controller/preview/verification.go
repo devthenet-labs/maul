@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -928,8 +930,10 @@ func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.Pr
 
 // fitStatus holds the object to maxVerificationObject: body prefixes go
 // first, from the last step back (a step whose body prefix was dropped still
-// records its body's length), then log tails; pointer values never. An
-// object that still does not fit keeps no observations and is maul's
+// records its body's length), then log tails, then the pointer and header
+// values whose judgement cannot change (shrinkValues), so an application
+// cannot turn its own failure into maul's by answering with large values.
+// An object that still does not fit keeps no observations and is maul's
 // trouble.
 func fitStatus(pv *v1alpha1.PreviewVerification) {
 	excess := objectSize(pv) - maxVerificationObject
@@ -949,12 +953,89 @@ func fitStatus(pv *v1alpha1.PreviewVerification) {
 	for i := len(pv.Status.Environment) - 1; i >= 0 && objectSize(pv) > maxVerificationObject; i-- {
 		pv.Status.Environment[i].LogTail = ""
 	}
+	if excess := objectSize(pv) - maxVerificationObject; excess > 0 {
+		shrinkValues(pv, excess)
+	}
 	if objectSize(pv) > maxVerificationObject {
 		pv.Status.Observations = nil
 		pv.Status.SummarySHA256 = ""
 		pv.Status.Phase = v1alpha1.VerificationInfra
 		pv.Status.Reason = v1alpha1.VerificationReasonTesterOutputInvalid
 	}
+}
+
+// shrinkValues saves up to excess bytes by replacing recorded pointer and
+// header values with acceptance.TooLarge, from the last criterion, try and
+// step back, keeping each replacement only when the criterion's judgement
+// (acceptance.Judge, as intent-controller judges it) stays exactly what it
+// was: a $present value, or one that did not match anyway. A value the
+// verdict depends on is never touched, and an observation whose criterion
+// is not in the request is left as it is.
+func shrinkValues(pv *v1alpha1.PreviewVerification, excess int) {
+	cs, err := toCriteria(pv.Spec.Criteria)
+	if err != nil {
+		return
+	}
+	byID := make(map[string]acceptance.Criterion, len(cs))
+	for _, c := range cs {
+		byID[c.ID] = c
+	}
+	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
+	obs := pv.Status.Observations
+	for i := len(obs) - 1; i >= 0 && excess > 0; i-- {
+		if c, ok := byID[obs[i].ID]; ok {
+			excess -= shrinkObservation(c, &obs[i], rt, excess)
+		}
+	}
+}
+
+// shrinkObservation replaces o's values with TooLarge where c's verdict
+// over o does not change, until excess bytes are saved; it returns the
+// bytes saved.
+func shrinkObservation(c acceptance.Criterion, o *v1alpha1.CriterionObservation, rt acceptance.RunTokens,
+	excess int) int {
+	b, err := json.Marshal(o)
+	if err != nil {
+		return 0
+	}
+	var judged acceptance.CriterionObservation
+	if err := json.Unmarshal(b, &judged); err != nil || len(judged.Tries) != len(o.Tries) {
+		return 0
+	}
+	want := acceptance.Judge(c, judged, rt)
+	saved := 0
+	for j := len(o.Tries) - 1; j >= 0; j-- {
+		for k := len(o.Tries[j].Steps) - 1; k >= 0; k-- {
+			step, mirror := &o.Tries[j].Steps[k], &judged.Tries[j].Steps[k]
+			for _, m := range [][2]map[string]string{{step.Pointers, mirror.Pointers}, {step.Headers, mirror.Headers}} {
+				for _, key := range slices.Sorted(maps.Keys(m[0])) {
+					gain := encodedLen(m[0][key]) - encodedLen(acceptance.TooLarge)
+					if gain <= 0 {
+						continue
+					}
+					m[1][key] = acceptance.TooLarge
+					if !reflect.DeepEqual(acceptance.Judge(c, judged, rt), want) {
+						m[1][key] = m[0][key]
+						continue
+					}
+					m[0][key] = acceptance.TooLarge
+					if saved += gain; saved >= excess {
+						return saved
+					}
+				}
+			}
+		}
+	}
+	return saved
+}
+
+// encodedLen is s's length as a JSON string, as objectSize counts it.
+func encodedLen(s string) int {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return 0
+	}
+	return len(b)
 }
 
 // objectSize is the object's size as JSON.
