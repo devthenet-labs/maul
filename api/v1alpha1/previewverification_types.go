@@ -86,11 +86,14 @@ const (
 	// included) during the tester's run, by the kubelet's timestamps (its
 	// fact's crashedDuring), and came back. EnvFailed, the application's.
 	VerificationReasonComponentCrashed PreviewVerificationReason = "component-crashed"
-	// VerificationReasonComponentDisrupted: the cluster took a component's
-	// Pod away during the tester's run (the Eviction API, a drain,
-	// preemption, the taint manager, Pod GC, a deletion, node loss, or a
-	// replacement with no cause of the application's; its fact's
-	// disrupted). Infra: the application holds no API credential.
+	// VerificationReasonComponentDisrupted: during the tester's run a Pod of
+	// a component's current revision was taken away by the cluster (the
+	// Eviction API, a drain, preemption, the taint manager, Pod GC, a
+	// deletion, node loss, a graceful node shutdown or kubelet preemption,
+	// or a replacement with no evidence), exited cleanly, or went not-Ready
+	// with no evidence of the application's (its fact's disrupted). Infra,
+	// retried and bounded: the application holds no API credential, and
+	// the most it can do without crashing is make itself not-Ready.
 	VerificationReasonComponentDisrupted PreviewVerificationReason = "component-disrupted"
 	// VerificationReasonServiceNoClusterIP: a component's Service had no
 	// ClusterIP to render the tester's target from (the tester never

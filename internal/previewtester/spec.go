@@ -175,6 +175,8 @@ func checkTarget(key, addr string) error {
 	}
 	n, err := strconv.Atoi(port)
 	switch {
+	case net.ParseIP(host) == nil && legacyName.MatchString(host):
+		return fmt.Errorf("%w: target %q host %q", ErrNameTarget, key, host)
 	case !clusterIP(host):
 		return fmt.Errorf("spec: target %q host %q is not a ClusterIP", key, host)
 	case err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port:
@@ -182,6 +184,17 @@ func checkTarget(key, addr string) error {
 	}
 	return nil
 }
+
+// ErrNameTarget is a spec whose target names a Service rather than giving
+// its ClusterIP: the format preview-controller rendered before 0.14 (0.13.2
+// and 0.13.3). The tester refuses it like any other invalid spec; a
+// controller reading such a spec back from a tester Job it did not render
+// knows the attempt began under the old format and runs it again.
+var ErrNameTarget = errors.New("spec: a target names a Service (the format before ClusterIP targets)")
+
+// legacyName is the old format's target host: a lowercase DNS name, a
+// Service name optionally qualified by namespace and cluster domain.
+var legacyName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$`)
 
 // clusterIP reports whether host is an IP literal a Service's ClusterIP can
 // be: no zone, not unspecified, link-local or multicast.

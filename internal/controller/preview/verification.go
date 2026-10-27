@@ -508,6 +508,12 @@ func (v *VerificationReconciler) observe(ctx context.Context, pv *v1alpha1.Previ
 func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject, job *batchv1.Job, pod *corev1.Pod, log []byte) error {
 	spec, err := renderedSpec(job)
+	if errors.Is(err, previewtester.ErrNameTarget) {
+		// A tester Job an older preview-controller rendered, its targets
+		// Service names: run the attempt again under this one.
+		v.logRefusal(ctx, pv, "tester Job rendered in the format before ClusterIP targets", err)
+		return v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview)
+	}
 	if err != nil {
 		v.logRefusal(ctx, pv, "tester Job spec unreadable", err)
 		return v.settle(ctx, pv, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid)
@@ -911,6 +917,8 @@ func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Pr
 // componentFact is component c's fact from all its Pods: its current
 // one's container facts, and what happened to it during the attempt w
 // (componentCause), which alone sets crashedDuring, evicted and disrupted.
+// A component not Ready with no evidence of the application's is disrupted
+// (disruption.go has why that is safe).
 func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.Preview,
 	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time) v1alpha1.PartFact {
 	fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
@@ -920,7 +928,11 @@ func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.
 		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
 		fact.LogTail = v.logTail(ctx, pod, c.Name, since)
 	}
-	cause := componentCause(all, pod, c.Name, w)
+	cause := componentCause(all, pod, p, c, w)
+	if cause == causeNone && !fact.Ready {
+		// Not Ready with no evidence of the application's.
+		cause = causeDisrupted
+	}
 	fact.CrashedDuring = cause == causeCrashed
 	fact.Evicted = cause == causeEvicted
 	fact.Disrupted = cause == causeDisrupted

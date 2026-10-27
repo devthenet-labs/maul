@@ -18,15 +18,27 @@ import (
 // Nothing outside that window is charged, and nothing is placed in time by
 // deletionTimestamp, which is a deletion's request time plus its grace
 // period: an event is placed by a condition's transition or a container's
-// own timestamps.
+// own timestamps. Only Pods of the component's current revision (its
+// spec's image and reset generation: runsComponent) count; a previous
+// revision's Pods, which a rollout is free to evict, delete or let fail,
+// are ignored entirely, so they can neither charge the change nor mask its
+// crash.
 //
-// The application's (EnvFailed): its process exiting, OOM included, and
-// the kubelet evicting its Pod, since the memory or ephemeral storage it
-// used is its own doing. maul's (Infra, retried): anything done through
-// the API (the Eviction API, a drain, preemption, the taint manager, Pod
-// GC, a deletion), node loss, and a replacement whose old Pod shows no
-// cause of the application's. The application holds no API credential, so
-// it can cause none of these.
+// The application is charged (EnvFailed) only on unambiguous evidence in
+// such a Pod: its container terminating non-zero or OOM-killed
+// (component-crashed), or the kubelet evicting it, status.reason Evicted
+// (component-evicted: the memory or ephemeral storage it used). Everything
+// else is maul's (Infra component-disrupted, retried, bounded by the
+// attempts): a Pod going not-Ready with no such evidence (a node going
+// NotReady sets Ready False with no reason), node loss, a deletion, a
+// drain, preemption, the taint manager, Pod GC, a graceful node shutdown or
+// kubelet preemption (DisruptionTarget TerminationByKubelet without
+// status.reason Evicted), an unknown disruption, a clean exit, or a
+// replacement with no evidence. The application holds no API credential, so
+// it causes none of these; the most it can do without crashing is make
+// itself not-Ready, which earns an honest, bounded Infra and then
+// Unavailable, never a pass, while its preview goes not-live and shows the
+// error.
 
 // clockSkew is the tolerance between the kubelet's clock, which stamps a
 // container's start and termination, and the API server's, which stamps a
@@ -88,108 +100,91 @@ func testerStatus(tester *corev1.Pod) *corev1.ContainerStatus {
 	return nil
 }
 
-// podCauseKind is what happened to a component Pod during the attempt,
-// in rising precedence: the cluster disrupting a Pod may explain the rest.
+// podCauseKind is what happened to a component Pod during the attempt, in
+// rising precedence: the application's unambiguous evidence wins over a
+// disruption, which explains nothing it shows.
 type podCauseKind int
 
 const (
 	causeNone podCauseKind = iota
-	// causeCrashed: the component's process exited (OOM included). The
-	// application's: component-crashed.
-	causeCrashed
-	// causeEvicted: the kubelet evicted the Pod. The application's:
-	// component-evicted.
-	causeEvicted
-	// causeDisrupted: the cluster took the Pod away. maul's:
-	// component-disrupted.
+	// causeDisrupted: the cluster took the Pod away, or it went not-Ready
+	// with no evidence of the application's. maul's: component-disrupted.
 	causeDisrupted
+	// causeCrashed: the component's process exited non-zero or was
+	// OOM-killed. The application's: component-crashed.
+	causeCrashed
+	// causeEvicted: the kubelet evicted the Pod (status.reason Evicted).
+	// The application's: component-evicted.
+	causeEvicted
 )
 
 func (k podCauseKind) String() string {
-	return [...]string{"none", "crashed", "evicted", "disrupted"}[k]
+	return [...]string{"none", "disrupted", "crashed", "evicted"}[k]
 }
 
-// Kubelet and controller reasons the table reads.
-const (
-	podReasonEvicted  = "Evicted"
-	podReasonNodeLost = "NodeLost"
-)
+// podReasonEvicted is the status.reason of a Pod the kubelet evicted.
+const podReasonEvicted = "Evicted"
 
-// podCause is the one table of what happened to a component Pod during
-// the attempt w, for its container `container`:
+// podCause is the one table of what happened to a Pod of a component's
+// current revision during the attempt w, for its container `container`:
 //
-//   - a DisruptionTarget condition placed in w: TerminationByKubelet is the
-//     kubelet's eviction (evicted, the application's); EvictionByEvictionAPI,
-//     PreemptionByScheduler, DeletionByTaintManager, DeletionByPodGC and any
-//     reason not known yet were done through the API (disrupted, maul's);
-//   - status.reason Evicted, the Pod's Ready transition in w: the kubelet's
-//     eviction (evicted);
-//   - status.reason NodeLost, or Ready Unknown, placed in w: node loss
-//     (disrupted);
+//   - status.reason Evicted, placed in w by its Ready or DisruptionTarget
+//     transition or its container's end: the kubelet's eviction (evicted,
+//     the application's);
+//   - a DisruptionTarget condition placed in w, whatever its reason
+//     (EvictionByEvictionAPI, PreemptionByScheduler, DeletionByTaintManager,
+//     DeletionByPodGC, TerminationByKubelet without Evicted, as a graceful
+//     node shutdown or kubelet preemption sets it, or one not known yet):
+//     disrupted;
 //   - a Pod being deleted, its Ready transition or its container's end in
-//     w: a deletion through the API (disrupted), whatever its container did
-//     while it was stopped;
-//   - the container's last termination, its current termination, or the
-//     current run of a container that has restarted, placed in w: its
-//     process exited (crashed);
+//     w: a deletion through the API (disrupted), whatever exit code its
+//     stopped container gave;
+//   - its container terminated in w non-zero or OOM-killed: crashed, the
+//     application's;
+//   - its container terminated in w otherwise (a clean exit), or its Ready
+//     condition moved off True in w (node NotReady or lost, or the
+//     application making itself not-Ready): disrupted;
 //   - else nothing.
 func podCause(pod *corev1.Pod, container string, w attemptWindow) podCauseKind {
-	if c := podConditionOf(pod, corev1.DisruptionTarget); c != nil && c.Status == corev1.ConditionTrue &&
-		w.holds(c.LastTransitionTime) {
-		return disruptionCause(c.Reason)
-	}
 	ready := podConditionOf(pod, corev1.PodReady)
 	readyMoved := ready != nil && w.holds(ready.LastTransitionTime)
-	ended := containerEnded(pod, container, w)
+	dt := podConditionOf(pod, corev1.DisruptionTarget)
+	dtMoved := dt != nil && dt.Status == corev1.ConditionTrue && w.holds(dt.LastTransitionTime)
+	crashed, ended := containerTerminated(pod, container, w)
 	switch {
-	case pod.Status.Reason == podReasonEvicted && readyMoved:
+	case pod.Status.Reason == podReasonEvicted && (readyMoved || dtMoved || ended):
 		return causeEvicted
-	case (pod.Status.Reason == podReasonNodeLost || ready != nil && ready.Status == corev1.ConditionUnknown) &&
-		readyMoved:
+	case dtMoved:
 		return causeDisrupted
 	case pod.DeletionTimestamp != nil && (readyMoved || ended):
 		return causeDisrupted
-	case ended:
+	case crashed:
 		return causeCrashed
+	case ended, readyMoved && ready.Status != corev1.ConditionTrue:
+		return causeDisrupted
 	}
 	return causeNone
 }
 
-// disruptionCause attributes a DisruptionTarget condition by its reason.
-func disruptionCause(reason string) podCauseKind {
-	switch reason {
-	case "TerminationByKubelet":
-		// The kubelet's own eviction: node pressure from memory or
-		// ephemeral storage, the application's own use.
-		return causeEvicted
-	case "EvictionByEvictionAPI", "PreemptionByScheduler", "DeletionByTaintManager", "DeletionByPodGC":
-		return causeDisrupted
-	default:
-		// A reason not known yet: set by a control-plane component, never
-		// by the application, which holds no API credential.
-		return causeDisrupted
-	}
-}
-
-// containerEnded reports whether the Pod's container ended a run in w: its
-// last termination, its current termination, or the current run of a
-// container that has restarted began in w.
-func containerEnded(pod *corev1.Pod, container string, w attemptWindow) bool {
+// containerTerminated reports whether the Pod's container terminated in w,
+// and whether it did so non-zero or OOM-killed: its last termination, or
+// its current one.
+func containerTerminated(pod *corev1.Pod, container string, w attemptWindow) (crashed, ended bool) {
 	for _, s := range pod.Status.ContainerStatuses {
 		if s.Name != container {
 			continue
 		}
-		if t := s.LastTerminationState.Terminated; t != nil && w.holds(t.FinishedAt) {
-			return true
-		}
-		if t := s.State.Terminated; t != nil && w.holds(t.FinishedAt) {
-			return true
-		}
-		if r := s.State.Running; r != nil && s.RestartCount > 0 && w.holds(r.StartedAt) {
-			return true
+		for _, t := range []*corev1.ContainerStateTerminated{s.LastTerminationState.Terminated, s.State.Terminated} {
+			if t == nil || !w.holds(t.FinishedAt) {
+				continue
+			}
+			ended = true
+			if t.ExitCode != 0 || t.Reason == "OOMKilled" {
+				crashed = true
+			}
 		}
 	}
-	return false
+	return crashed, ended
 }
 
 // podConditionOf is the Pod's condition of type t, nil when it has none.
@@ -202,20 +197,27 @@ func podConditionOf(pod *corev1.Pod, t corev1.PodConditionType) *corev1.PodCondi
 	return nil
 }
 
-// componentCause is what happened to a component during the attempt, over
-// all its Pods: the gravest of each Pod's podCause, and, when its current
-// Pod was created during the attempt and no Pod shows a cause, a
-// replacement by the cluster (disrupted). A Pod created a moment before
-// the tester (a fast cluster serves one within seconds) is the one it ran
-// against, never a replacement.
-func componentCause(all []corev1.Pod, current *corev1.Pod, container string, w attemptWindow) podCauseKind {
+// componentCause is what happened to component c during the attempt: the
+// gravest podCause over the Pods of its current revision (runsComponent),
+// every other Pod ignored; and, when none shows anything, the cluster's
+// (disrupted) if its current Pod was created during the attempt, a
+// replacement, or is missing. A Pod created a moment before the tester (a
+// fast cluster serves one within seconds) is the one it ran against, never
+// a replacement.
+func componentCause(all []corev1.Pod, current *corev1.Pod, p *v1alpha1.Preview, c v1alpha1.PreviewComponent,
+	w attemptWindow) podCauseKind {
 	cause := causeNone
 	for i := range all {
-		cause = max(cause, podCause(&all[i], container, w))
+		if runsComponent(&all[i], p, c) {
+			cause = max(cause, podCause(&all[i], c.Name, w))
+		}
 	}
-	if cause == causeNone && current != nil && current.CreationTimestamp.After(w.start.Add(clockSkew)) &&
+	if cause != causeNone {
+		return cause
+	}
+	if current == nil || current.CreationTimestamp.After(w.start.Add(clockSkew)) &&
 		!current.CreationTimestamp.After(w.end) {
 		return causeDisrupted
 	}
-	return cause
+	return causeNone
 }

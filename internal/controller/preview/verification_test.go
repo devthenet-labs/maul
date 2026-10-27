@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -758,13 +759,13 @@ func TestVerificationUnreachableCrashedIsEnvFailed(t *testing.T) {
 	}
 }
 
-// restartAt plays component i's container having exited at finished and
-// run again since started, coming back Ready, restarts times in all. Zero
-// times are left unset.
-func (e *verifyEnv) restartAt(i int, restarts int32, finished, started time.Time) {
+// restartAt plays the api component's container having exited at finished
+// and run again since started, coming back Ready, restarts times in all.
+// Zero times are left unset.
+func (e *verifyEnv) restartAt(restarts int32, finished, started time.Time) {
 	e.t.Helper()
 	var pod corev1.Pod
-	if err := e.slotObject(componentName(e.p, i)+"-pod", &pod); err != nil {
+	if err := e.slotObject(componentName(e.p, 1)+"-pod", &pod); err != nil {
 		e.t.Fatal(err)
 	}
 	st := &pod.Status.ContainerStatuses[0]
@@ -782,15 +783,16 @@ func (e *verifyEnv) restartAt(i int, restarts int32, finished, started time.Time
 // at is a timestamp offset from the attempt's start (the tester Pod's).
 func at(start time.Time, d time.Duration) metav1.Time { return metav1.NewTime(start.Add(d)) }
 
-// TestPodCause pins the one table that attributes what happened to a
-// component Pod during the attempt, reason by reason. Only events placed
-// in [tester start - skew, tester end] count, each placed by a condition's
-// transition or a container's own timestamps, never by deletionTimestamp.
-// The application's: its process exiting (OOM included) or the kubelet
-// evicting its Pod (memory or ephemeral storage it used). maul's: anything
-// done through the API (the Eviction API, a drain, preemption, the taint
-// manager, Pod GC, a deletion) and node loss; the application holds no API
-// credential.
+// TestPodCause pins the one table that attributes what happened to a Pod of
+// a component's current revision during the attempt, reason by reason.
+// Only events placed in [tester start - skew, tester end] count, each by a
+// condition's transition or a container's own timestamps, never by
+// deletionTimestamp. The application is charged only on unambiguous
+// evidence: its container terminating non-zero or OOM-killed (crashed), or
+// status.reason Evicted (the kubelet's eviction for the memory or storage it
+// used). Everything else is the cluster's (disrupted): a drain, preemption,
+// the taint manager, Pod GC, a deletion, node loss or NotReady, a graceful
+// node shutdown or kubelet preemption, an unknown disruption, a clean exit.
 func TestPodCause(t *testing.T) {
 	start := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	w := attemptWindow{start: start, end: start.Add(5 * time.Minute)}
@@ -803,11 +805,11 @@ func TestPodCause(t *testing.T) {
 		mod(p)
 		return p
 	}
-	exited := func(reason string, when metav1.Time) func(*corev1.Pod) {
+	exited := func(reason string, code int32, when metav1.Time) func(*corev1.Pod) {
 		return func(p *corev1.Pod) {
 			p.Status.ContainerStatuses[0].RestartCount = 1
 			p.Status.ContainerStatuses[0].LastTerminationState = corev1.ContainerState{
-				Terminated: &corev1.ContainerStateTerminated{Reason: reason, ExitCode: 137, FinishedAt: when}}
+				Terminated: &corev1.ContainerStateTerminated{Reason: reason, ExitCode: code, FinishedAt: when}}
 		}
 	}
 	disruption := func(reason string, when metav1.Time) func(*corev1.Pod) {
@@ -820,6 +822,9 @@ func TestPodCause(t *testing.T) {
 		return func(p *corev1.Pod) {
 			p.Status.Conditions[0] = corev1.PodCondition{Type: corev1.PodReady, Status: status, LastTransitionTime: when}
 		}
+	}
+	reason := func(r string) func(*corev1.Pod) {
+		return func(p *corev1.Pod) { p.Status.Phase, p.Status.Reason = corev1.PodFailed, r }
 	}
 	both := func(fs ...func(*corev1.Pod)) func(*corev1.Pod) {
 		return func(p *corev1.Pod) {
@@ -834,41 +839,40 @@ func TestPodCause(t *testing.T) {
 		want podCauseKind
 	}{
 		{"healthy", running(func(*corev1.Pod) {}), causeNone},
-		{"exited during", running(exited("Error", in)), causeCrashed},
-		{"oom killed during", running(exited("OOMKilled", in)), causeCrashed},
-		{"exited within the skew before", running(exited("Error", at(start, -time.Second))), causeCrashed},
-		{"exited before", running(exited("Error", before)), causeNone},
-		{"exited after the tester ended", running(exited("Error", after)), causeNone},
-		{"running again since during", running(func(p *corev1.Pod) {
-			p.Status.ContainerStatuses[0].RestartCount = 2
-			p.Status.ContainerStatuses[0].State = corev1.ContainerState{
-				Running: &corev1.ContainerStateRunning{StartedAt: in}}
-		}), causeCrashed},
-		{"first run started during", running(func(p *corev1.Pod) {
-			p.Status.ContainerStatuses[0].State = corev1.ContainerState{
-				Running: &corev1.ContainerStateRunning{StartedAt: in}}
-		}), causeNone},
-		{"evicted by the kubelet", running(both(func(p *corev1.Pod) {
-			p.Status.Phase, p.Status.Reason = corev1.PodFailed, "Evicted"
-		}, notReady(corev1.ConditionFalse, in))), causeEvicted},
-		{"evicted by the kubelet before", running(both(func(p *corev1.Pod) {
-			p.Status.Phase, p.Status.Reason = corev1.PodFailed, "Evicted"
-		}, notReady(corev1.ConditionFalse, before))), causeNone},
-		{"TerminationByKubelet", running(disruption("TerminationByKubelet", in)), causeEvicted},
+		// The application's: unambiguous evidence only.
+		{"exited non-zero during", running(exited("Error", 2, in)), causeCrashed},
+		{"oom killed during", running(exited("OOMKilled", 137, in)), causeCrashed},
+		{"exited within the skew before", running(exited("Error", 2, at(start, -time.Second))), causeCrashed},
+		{"evicted by the kubelet", running(both(reason("Evicted"), notReady(corev1.ConditionFalse, in))),
+			causeEvicted},
+		{"evicted, the kubelet's disruption condition too", running(both(reason("Evicted"),
+			disruption("TerminationByKubelet", in))), causeEvicted},
+		// Outside the window: nothing.
+		{"exited before", running(exited("Error", 2, before)), causeNone},
+		{"exited after the tester ended", running(exited("Error", 2, after)), causeNone},
+		{"evicted before", running(both(reason("Evicted"), notReady(corev1.ConditionFalse, before))), causeNone},
+		{"a drain before", running(disruption("EvictionByEvictionAPI", before)), causeNone},
+		// The cluster's.
+		{"a clean exit", running(exited("Completed", 0, in)), causeDisrupted},
+		{"node NotReady, no reason", running(notReady(corev1.ConditionFalse, in)), causeDisrupted},
+		{"node lost", running(notReady(corev1.ConditionUnknown, in)), causeDisrupted},
+		{"node lost, the old reason", running(both(reason("NodeLost"), notReady(corev1.ConditionFalse, in))),
+			causeDisrupted},
+		{"graceful node shutdown", running(both(reason("Terminated"),
+			disruption("TerminationByKubelet", in))), causeDisrupted},
+		{"kubelet preemption", running(both(reason("Preempting"), disruption("TerminationByKubelet", in))),
+			causeDisrupted},
+		{"TerminationByKubelet alone", running(disruption("TerminationByKubelet", in)), causeDisrupted},
 		{"EvictionByEvictionAPI", running(disruption("EvictionByEvictionAPI", in)), causeDisrupted},
 		{"PreemptionByScheduler", running(disruption("PreemptionByScheduler", in)), causeDisrupted},
 		{"DeletionByTaintManager", running(disruption("DeletionByTaintManager", in)), causeDisrupted},
 		{"DeletionByPodGC", running(disruption("DeletionByPodGC", in)), causeDisrupted},
 		{"an unknown disruption", running(disruption("SomethingNew", in)), causeDisrupted},
-		{"a drain before", running(disruption("EvictionByEvictionAPI", before)), causeNone},
-		{"drained, the container exiting", running(both(disruption("EvictionByEvictionAPI", in),
-			exited("Error", in))), causeDisrupted},
-		{"node lost", running(notReady(corev1.ConditionUnknown, in)), causeDisrupted},
-		{"node lost, the old reason", running(both(func(p *corev1.Pod) { p.Status.Reason = "NodeLost" },
-			notReady(corev1.ConditionFalse, in))), causeDisrupted},
-		{"deleted through the API", running(both(func(p *corev1.Pod) {
+		{"drained, the container exiting non-zero", running(both(disruption("EvictionByEvictionAPI", in),
+			exited("Error", 143, in))), causeDisrupted},
+		{"deleted through the API, exiting non-zero", running(both(func(p *corev1.Pod) {
 			p.DeletionTimestamp = &metav1.Time{Time: start.Add(time.Hour)}
-		}, notReady(corev1.ConditionFalse, in), exited("Error", in))), causeDisrupted},
+		}, notReady(corev1.ConditionFalse, in), exited("Error", 143, in))), causeDisrupted},
 		// deletionTimestamp is the request time plus the grace period, never
 		// when anything happened: it places nothing in time.
 		{"deleting, nothing placed in the window", running(func(p *corev1.Pod) {
@@ -912,7 +916,7 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 			e.verify()
 			job := e.testerJob()
 			log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
-			e.restartAt(1, tc.restarts, tc.finished, tc.started)
+			e.restartAt(tc.restarts, tc.finished, tc.started)
 			pod := e.startTester(job)
 			e.finishTester(job, pod, log, msg, 0)
 			pv, _ := e.verify()
@@ -963,24 +967,26 @@ func (e *verifyEnv) replace(created time.Duration, old func(*corev1.Pod)) {
 }
 
 // TestVerificationReplacedDuringTheAttempt: a component Pod replaced during
-// the attempt is attributed by the old Pod's cause. The kubelet evicting it
-// (memory, ephemeral storage) is the application's: EnvFailed
-// component-evicted. The Eviction API, a drain, or a replacement whose old
-// Pod is gone or shows no cause of the application's is maul's: Infra
-// component-disrupted, retried. A Pod served a moment before the tester
-// started is the one it ran against, never a replacement.
+// the attempt is attributed by the replaced Pod's evidence. status.reason
+// Evicted is the kubelet's eviction, the application's: EnvFailed
+// component-evicted. A kubelet disruption without it (graceful node
+// shutdown), a drain, or a replacement whose old Pod is gone is the
+// cluster's: Infra component-disrupted, retried. A Pod served a moment
+// before the tester started is the one it ran against, never a replacement.
 func TestVerificationReplacedDuringTheAttempt(t *testing.T) {
+	during := metav1.NewTime(time.Date(2026, 10, 1, 12, 0, 35, 0, time.UTC))
 	failed := func(reason string, cond *corev1.PodCondition) func(*corev1.Pod) {
 		return func(p *corev1.Pod) {
 			p.Status.Phase, p.Status.Reason = corev1.PodFailed, reason
 			p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse,
-				LastTransitionTime: metav1.NewTime(time.Date(2026, 10, 1, 12, 0, 35, 0, time.UTC))}}
+				LastTransitionTime: during}}
 			if cond != nil {
 				p.Status.Conditions = append(p.Status.Conditions, *cond)
 			}
 		}
 	}
-	during := metav1.NewTime(time.Date(2026, 10, 1, 12, 0, 35, 0, time.UTC))
+	kubelet := &corev1.PodCondition{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue,
+		Reason: "TerminationByKubelet", LastTransitionTime: during}
 	for _, tc := range []struct {
 		name    string
 		created time.Duration
@@ -990,9 +996,10 @@ func TestVerificationReplacedDuringTheAttempt(t *testing.T) {
 	}{
 		{"evicted by the kubelet", 40 * time.Second, failed("Evicted", nil),
 			v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentEvicted},
-		{"TerminationByKubelet", 40 * time.Second, failed("", &corev1.PodCondition{Type: corev1.DisruptionTarget,
-			Status: corev1.ConditionTrue, Reason: "TerminationByKubelet", LastTransitionTime: during}),
+		{"evicted, with the kubelet's condition", 40 * time.Second, failed("Evicted", kubelet),
 			v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentEvicted},
+		{"graceful node shutdown", 40 * time.Second, failed("Terminated", kubelet),
+			v1alpha1.VerificationInfra, v1alpha1.VerificationReasonComponentDisrupted},
 		{"drained", 40 * time.Second, failed("", &corev1.PodCondition{Type: corev1.DisruptionTarget,
 			Status: corev1.ConditionTrue, Reason: "EvictionByEvictionAPI", LastTransitionTime: during}),
 			v1alpha1.VerificationInfra, v1alpha1.VerificationReasonComponentDisrupted},
@@ -1014,6 +1021,111 @@ func TestVerificationReplacedDuringTheAttempt(t *testing.T) {
 			pv, _ := e.verify()
 			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
 				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
+			}
+		})
+	}
+}
+
+// oldRevisionPod plays a Pod of component 1's previous revision (another
+// image) still in the slot, mod setting its state.
+func (e *verifyEnv) oldRevisionPod(mod func(*corev1.Pod)) {
+	e.t.Helper()
+	ctx := context.Background()
+	var cur corev1.Pod
+	if err := e.slotObject(componentName(e.p, 1)+"-pod", &cur); err != nil {
+		e.t.Fatal(err)
+	}
+	old := cur.DeepCopy()
+	old.ObjectMeta = metav1.ObjectMeta{Name: cur.Name + "-prev", Namespace: cur.Namespace, Labels: cur.Labels,
+		Annotations: cur.Annotations, CreationTimestamp: metav1.NewTime(e.now.Add(-time.Hour))}
+	old.Spec.Containers[0].Image += "-previous"
+	if err := e.c.Create(ctx, old); err != nil {
+		e.t.Fatal(err)
+	}
+	mod(old)
+	if err := e.c.Status().Update(ctx, old); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// TestVerificationOnlyTheCurrentRevisionCounts: only Pods of the
+// component's current revision (its spec's image) are judged. A previous
+// revision's Pod being evicted or terminating during the attempt is
+// ignored, so it can neither charge the change nor mask a crash: a crash
+// of the current Pod while an old one terminates is the application's.
+func TestVerificationOnlyTheCurrentRevisionCounts(t *testing.T) {
+	during := metav1.NewTime(time.Date(2026, 10, 1, 12, 0, 35, 0, time.UTC))
+	terminating := func(p *corev1.Pod) {
+		p.Status.Phase, p.Status.Reason = corev1.PodFailed, "Evicted"
+		p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse,
+			LastTransitionTime: during}, {Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue,
+			Reason: "EvictionByEvictionAPI", LastTransitionTime: during}}
+	}
+	for _, tc := range []struct {
+		name   string
+		crash  bool
+		phase  v1alpha1.PreviewVerificationPhase
+		reason v1alpha1.PreviewVerificationReason
+	}{
+		{"an old revision's events are ignored", false, v1alpha1.VerificationObserved,
+			v1alpha1.VerificationReasonOK},
+		{"a crash while an old revision terminates", true, v1alpha1.VerificationEnvFailed,
+			v1alpha1.VerificationReasonComponentCrashed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, interceptor.Funcs{})
+			e.verify()
+			job := e.testerJob()
+			log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
+			e.oldRevisionPod(terminating)
+			if tc.crash {
+				e.restartAt(1, e.now.Add(30*time.Second), e.now.Add(31*time.Second))
+			}
+			pod := e.startTester(job)
+			e.finishTester(job, pod, log, msg, 0)
+			pv, _ := e.verify()
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
+			}
+		})
+	}
+}
+
+// TestVerificationNotReadyWithoutEvidenceIsInfra: a component that went
+// not-Ready during the attempt with no evidence of the application's (a
+// node going NotReady sets Ready False with no reason) is the cluster's:
+// Infra component-disrupted, retried and bounded by the attempts, never a
+// verdict. The application can at most make itself not-Ready without
+// crashing, which earns it an honest Infra and then Unavailable, never a
+// pass; and it is unreachable then too, but the not-Ready cause wins over
+// component-unreachable.
+func TestVerificationNotReadyWithoutEvidenceIsInfra(t *testing.T) {
+	for _, unreachable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("unreachable %t", unreachable), func(t *testing.T) {
+			e := newVerifyEnv(t, interceptor.Funcs{})
+			e.verify()
+			job := e.testerJob()
+			spec := testerSpec(t, job)
+			log, msg := testerOutput(t, spec, 200, `{"items":[]}`)
+			if unreachable {
+				log, msg = unreachableOutput(t, spec, "api")
+			}
+			var pod corev1.Pod
+			if err := e.slotObject(componentName(e.p, 1)+"-pod", &pod); err != nil {
+				t.Fatal(err)
+			}
+			pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse,
+				LastTransitionTime: metav1.NewTime(e.now.Add(20 * time.Second))}}
+			pod.Status.ContainerStatuses[0].Ready = false
+			if err := e.c.Status().Update(context.Background(), &pod); err != nil {
+				t.Fatal(err)
+			}
+			tester := e.startTester(job)
+			e.finishTester(job, tester, log, msg, 0)
+			pv, _ := e.verify()
+			if pv.Status.Phase != v1alpha1.VerificationInfra ||
+				pv.Status.Reason != v1alpha1.VerificationReasonComponentDisrupted {
+				t.Fatalf("phase %s %s, want Infra component-disrupted", pv.Status.Phase, pv.Status.Reason)
 			}
 		})
 	}
@@ -1060,7 +1172,7 @@ func TestVerificationStartReenteredHasNoEffect(t *testing.T) {
 	e.verify()
 	job := e.testerJob()
 	log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
-	e.restartAt(1, 2, e.now.Add(-time.Hour), e.now.Add(-time.Hour))
+	e.restartAt(2, e.now.Add(-time.Hour), e.now.Add(-time.Hour))
 	pv := e.currentPV()
 	pv.Status.Phase = v1alpha1.VerificationPending
 	if err := e.c.Status().Update(context.Background(), pv); err != nil {
@@ -1078,10 +1190,12 @@ func TestVerificationStartReenteredHasNoEffect(t *testing.T) {
 }
 
 // TestVerificationRunningAcrossTheUpgrade: an attempt an older
-// preview-controller started (its tester Job created, the verification
-// Running with only startedAt in its status) is settled by this one on its
-// first pass. A component restart from before startedAt is not charged:
-// nothing the older controller did not write is needed.
+// preview-controller started (0.13.2 and 0.13.3 rendered the tester's
+// targets as Service names) is found by this one on its first pass: its
+// tester Job exists, the verification is Running with only startedAt in its
+// status. A spec of Service-name targets is recognised as the old format
+// and the attempt settles stale-preview, to be run again, never
+// tester-output-invalid.
 func TestVerificationRunningAcrossTheUpgrade(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
 	ctx := context.Background()
@@ -1094,6 +1208,17 @@ func TestVerificationRunningAcrossTheUpgrade(t *testing.T) {
 	if err != nil || reason != "" {
 		t.Fatalf("renderTester = %q, %v", reason, err)
 	}
+	// The spec as 0.13.3 rendered it: each target the Service's name.
+	spec := testerSpec(t, job)
+	spec.Targets = map[string]string{}
+	for i, c := range e.p.Spec.Components {
+		spec.Targets[c.Name] = v1alpha1.PreviewComponentServiceName(e.p, i) + ":80"
+	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Spec.Template.Spec.Containers[0].Env[0].Value = string(raw)
 	if err := e.c.Create(ctx, job); err != nil {
 		t.Fatal(err)
 	}
@@ -1102,19 +1227,18 @@ func TestVerificationRunningAcrossTheUpgrade(t *testing.T) {
 	if err := e.c.Status().Update(ctx, pv); err != nil {
 		t.Fatal(err)
 	}
-	e.restartAt(1, 5, e.now.Add(-time.Hour), e.now.Add(-time.Hour))
+	e.restartAt(5, e.now.Add(-time.Hour), e.now.Add(-time.Hour))
 	job = e.testerJob()
-	log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
+	sha := strings.Repeat("0", 64)
+	log := []byte(acceptance.WirePrefix + `{"v":1,"summary":{"count":0,"sha256":"` + sha + `"}}` + "\n")
 	pod := e.startTester(job)
-	e.finishTester(job, pod, log, msg, 0)
+	e.finishTester(job, pod, log, `{"count":0,"sha256":"`+sha+`"}`, 0)
 	pv, _ = e.verify() // the reconciler's first pass
-	if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
-		t.Fatalf("phase %s %s, want Observed ok", pv.Status.Phase, pv.Status.Reason)
+	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStalePreview {
+		t.Fatalf("phase %s %s, want Stale stale-preview", pv.Status.Phase, pv.Status.Reason)
 	}
-	for _, f := range pv.Status.Environment {
-		if f.Name == "api" && (f.Restarts != 5 || f.CrashedDuring) {
-			t.Errorf("api fact %+v, want 5 old restarts, none during", f)
-		}
+	if _, err := previewtester.ParseSpec(raw); !errors.Is(err, previewtester.ErrNameTarget) {
+		t.Errorf("ParseSpec(0.13.3 spec) = %v, want ErrNameTarget", err)
 	}
 }
 

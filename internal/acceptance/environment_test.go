@@ -28,7 +28,11 @@ func TestClassifyEnvironment(t *testing.T) {
 		{"crashloop", []PartFact{
 			{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff"}, ready("web", RoleComponent),
 		}, EnvAppFailure, []string{"api"}},
-		{"never ready", []PartFact{{Name: "api", Role: RoleComponent}}, EnvAppFailure, []string{"api"}},
+		// Not Ready with no evidence of the application's (a node going
+		// NotReady, a component missing) is the cluster's: the application
+		// can at most make itself not-Ready, which earns an honest Infra and
+		// then Unavailable, never a pass.
+		{"not ready, no evidence", []PartFact{{Name: "api", Role: RoleComponent}}, EnvInfra, nil},
 		{"head image pull", []PartFact{waiting("web", RoleComponent, "ImagePullBackOff")}, app, []string{"web"}},
 		{"err image pull", []PartFact{waiting("web", RoleComponent, "ErrImagePull")}, app, []string{"web"}},
 		{"evicted", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Evicted: true}}, app, []string{"api"}},
@@ -52,21 +56,28 @@ func TestClassifyEnvironment(t *testing.T) {
 		// A component disrupted during the attempt by the cluster (an
 		// Eviction API call, a drain, preemption, node loss, a replacement
 		// with no cause of the application's) is maul's: the application
-		// holds no API credential to cause it. It wins over an application
-		// failure it may explain.
+		// holds no API credential to cause it.
 		{"disrupted during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Disrupted: true}}, EnvInfra,
 			nil},
+		// The facts never carry both (componentCause picks one), but if
+		// they did, the application's unambiguous evidence wins.
 		{"disrupted and crashed", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Disrupted: true,
-			CrashedDuring: true}}, EnvInfra, nil},
+			CrashedDuring: true}}, app, []string{"api"}},
 		// A Ready component the tester could not connect to for its whole
 		// readiness window is the application's failure, never maul's Infra.
 		{"unreachable while ready", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,
 			UnreachableForMs: 60000}, ready("web", RoleComponent)}, app, []string{"api"}},
+		// Unreachable is the application's only while Ready and undisrupted:
+		// otherwise the not-Ready or disruption cause wins.
+		{"unreachable, not ready", []PartFact{{Name: "api", Role: RoleComponent, UnreachableForMs: 60000}},
+			EnvInfra, nil},
+		{"unreachable, disrupted", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Disrupted: true,
+			UnreachableForMs: 60000}}, EnvInfra, nil},
 		{"tester crashed", []PartFact{ready("api", RoleComponent), {Name: "tester", Role: RoleTester,
 			LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, EnvInfra, nil},
 		{"two failing in order", []PartFact{
 			{Name: "web", Role: RoleComponent, Waiting: "CrashLoopBackOff"},
-			{Name: "api", Role: RoleComponent},
+			{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true},
 		}, EnvAppFailure, []string{"web", "api"}},
 		{"command image pull", []PartFact{waiting("api-cmd", RoleCommand, "ErrImagePull")}, app, []string{"api-cmd"}},
 		{"component unschedulable", []PartFact{{Name: "api", Role: RoleComponent, Unschedulable: true}}, EnvInfra, nil},

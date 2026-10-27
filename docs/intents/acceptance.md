@@ -151,18 +151,21 @@ alone does not prove the tester can connect: an application can pass the kubelet
 source, so maul never reports such a run as "could not run the checks". A component Service with no ClusterIP is maul's
 render error, `service-no-cluster-ip`, before any tester starts.
 
-What happens to a component while the tester runs is attributed by its cause, counting only events between the tester
-Pod's start (less two seconds of clock skew) and its end:
+What happens to a component while the tester runs is attributed by its cause. Only Pods of the component's current
+revision count (a previous revision's Pods are ignored), and only events between the tester Pod's start (less two
+seconds of clock skew) and its end. The change is charged only on unambiguous evidence:
 
-| What happened                                                                                     | Reason                | Whose                 |
-| ------------------------------------------------------------------------------------------------- | --------------------- | --------------------- |
-| Its process exited or was OOM-killed, and came back                                               | `component-crashed`   | The change's (counts) |
-| The kubelet evicted its Pod (memory or ephemeral storage pressure)                                | `component-evicted`   | The change's (counts) |
-| Its Pod was evicted through the API or drained, preempted, removed by the taint manager or Pod GC | `component-disrupted` | maul's (retried)      |
-| Its node was lost, or its Pod was replaced with no cause of the application's                     | `component-disrupted` | maul's (retried)      |
+| What happened                                                                                                                                                                  | Reason                  | Whose                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | --------------------- |
+| Its process exited non-zero or was OOM-killed                                                                                                                                  | `component-crashed`     | The change's (counts) |
+| The kubelet evicted its Pod (`status.reason: Evicted`: memory or ephemeral storage pressure)                                                                                   | `component-evicted`     | The change's (counts) |
+| It was Ready, nothing above happened, and it accepted no connection from the tester for the whole readiness window                                                             | `component-unreachable` | The change's (counts) |
+| Anything else: not Ready with no such evidence (a node going NotReady), node loss, a drain, preemption, a deletion, a graceful node shutdown, a clean exit, a bare replacement | `component-disrupted`   | maul's (retried)      |
 
-The application holds no API credential, so it cannot cause anything in the last two rows. A restart or eviction from
-before the tester started, or after it ended, is not counted.
+The application holds no API credential, so it cannot drain, delete or preempt anything. The most it can do without
+crashing is make itself not-Ready, which is reported as `component-disrupted`, retried and then `Unavailable`, never a
+pass, while its preview goes not-live and shows the error. A restart or eviction from before the tester started, or
+after it ended, is not counted.
 
 ### Bounds
 
