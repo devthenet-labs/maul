@@ -122,19 +122,24 @@ var (
 )
 
 // repairFreeText double-quotes the unquoted values of the named free-text
-// keys, and of every sequence item, in a frontmatter block. It is the intent
-// reports' counterpart of repairSummaries: models write these values as
-// plain prose, and prose holding a colon ("Question: which store?") is not
-// a valid plain scalar — in a list it even parses as a mapping. Quoting a
-// plain scalar that was already valid keeps its string value, and every
-// list in these schemas is a list of strings, so callers only attempt this
-// after a strict parse has failed and surface the original error if the
-// repaired block fails too. A null (yamlNull) is the exception: quoting it
-// would turn "no value" into the string "null", so it is left as it is.
-func repairFreeText(block []byte, keys map[string]bool) ([]byte, bool) {
+// keys, and of every sequence item, in a frontmatter block, on the lines
+// only names (every line when only is nil). It is the intent reports'
+// counterpart of repairSummaries: models write these values as plain prose,
+// and prose holding a colon ("Question: which store?") is not a valid plain
+// scalar — in a list it even parses as a mapping. Quoting a plain scalar
+// that was already valid keeps its string value, so this is safe only over
+// prose and lists of it: decodeRepairing confines it to the top-level keys
+// a report declares so (repairWithin), attempts it only after a strict
+// parse has failed, and surfaces the original error if the repaired block
+// fails too. A null (yamlNull) is the exception: quoting it would turn "no
+// value" into the string "null", so it is left as it is.
+func repairFreeText(block []byte, keys map[string]bool, only map[int]bool) ([]byte, bool) {
 	lines := strings.Split(string(block), "\n")
 	changed := false
 	for i, line := range lines {
+		if only != nil && !only[i] {
+			continue
+		}
 		var prefix, val string
 		if m := listItemLine.FindStringSubmatch(line); m != nil {
 			prefix, val = m[1], m[2]
@@ -167,6 +172,107 @@ func repairFreeText(block []byte, keys map[string]bool) ([]byte, bool) {
 	return []byte(strings.Join(lines, "\n")), true
 }
 
+// repairWithin is repairFreeText confined to the top-level keys in scope:
+// those whose whole value is prose or a list of it. Every other value — a
+// plan's acceptance criteria, whose lists hold numbers, booleans and
+// literals the approver read as written — keeps its exact bytes, so the
+// repair never retypes what was approved; a document it cannot confine so
+// is not repaired at all, and its strict error stands.
+//
+// The block, which does not parse, is quoted on the lines its layout puts
+// under a key in scope (candidateLines), and the result is parsed to prove
+// every line that changed belongs to a key in scope there: which key a line
+// belongs to is the parser's call, never the layout's alone. A document
+// with an anchor or alias is refused, since one lets text in scope be read
+// out of it; so is one whose top level is not a block mapping of one key
+// per line.
+func repairWithin(block []byte, keys, scope map[string]bool) ([]byte, bool) {
+	repaired, changed := repairFreeText(block, keys, candidateLines(block, scope))
+	if !changed {
+		return nil, false
+	}
+	final, ok := scopeLines(repaired, scope)
+	if !ok {
+		return nil, false
+	}
+	before, after := strings.Split(string(block), "\n"), strings.Split(string(repaired), "\n")
+	for i := range after {
+		if after[i] != before[i] && !final[i] {
+			return nil, false
+		}
+	}
+	return repaired, true
+}
+
+// topKeyLine matches a top-level mapping key as a frontmatter lays it out:
+// at the start of its line.
+var topKeyLine = regexp.MustCompile(`^([A-Za-z_]+):(?:[ \t]|$)`)
+
+// candidateLines returns the indexes (from zero) of the lines block's
+// layout puts under a top-level key in scope: from a key's line to the next
+// top-level key's. It only proposes; repairWithin proves by parsing.
+func candidateLines(block []byte, scope map[string]bool) map[int]bool {
+	lines := map[int]bool{}
+	in := false
+	for i, line := range strings.Split(string(block), "\n") {
+		if m := topKeyLine.FindStringSubmatch(line); m != nil {
+			in = scope[m[1]]
+		}
+		if in {
+			lines[i] = true
+		}
+	}
+	return lines
+}
+
+// scopeLines parses block and returns the indexes (from zero) of its lines
+// that belong to a top-level key in scope: from the key's line to the line
+// before the next key, or to the block's end. It reports false when that
+// cannot be said safely: the block does not parse as one block mapping, two
+// keys share a line, or any node carries an anchor or is an alias.
+func scopeLines(block []byte, scope map[string]bool) (map[int]bool, bool) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(block, &doc); err != nil || len(doc.Content) != 1 {
+		return nil, false
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode || root.Style&yaml.FlowStyle != 0 || referential(root) {
+		return nil, false
+	}
+	total := strings.Count(string(block), "\n") + 1
+	lines := map[int]bool{}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		start, end := root.Content[i].Line-1, total
+		if i+2 < len(root.Content) {
+			end = root.Content[i+2].Line - 1
+		}
+		if end <= start {
+			return nil, false
+		}
+		if !scope[root.Content[i].Value] {
+			continue
+		}
+		for l := start; l < end; l++ {
+			lines[l] = true
+		}
+	}
+	return lines, true
+}
+
+// referential reports whether any node of the tree under n carries an
+// anchor or is an alias.
+func referential(n *yaml.Node) bool {
+	if n.Anchor != "" || n.Kind == yaml.AliasNode {
+		return true
+	}
+	for _, c := range n.Content {
+		if referential(c) {
+			return true
+		}
+	}
+	return false
+}
+
 // yamlNull reports whether a plain value is one of YAML's null spellings,
 // alone or before a comment.
 func yamlNull(val string) bool {
@@ -184,16 +290,17 @@ func yamlNull(val string) bool {
 }
 
 // decodeRepairing decodes an intent report's frontmatter block into out
-// (decodeFrontmatter), retrying once over repairFreeText's quoting when the
-// decode fails. reset zeroes out before the retry. The original error is
-// the one reported.
-func decodeRepairing(block []byte, out any, keys map[string]bool, reset func()) error {
+// (decodeFrontmatter), retrying once when the decode fails over
+// repairWithin's quoting of the free-text keys and list items under the
+// top-level keys in scope. reset zeroes out before the retry. The original
+// error is the one reported.
+func decodeRepairing(block []byte, out any, keys, scope map[string]bool, reset func()) error {
 	err := decodeFrontmatter(block, out)
 	if err == nil {
 		return nil
 	}
-	repaired, changed := repairFreeText(block, keys)
-	if !changed {
+	repaired, ok := repairWithin(block, keys, scope)
+	if !ok {
 		return err
 	}
 	reset()
