@@ -77,7 +77,10 @@ func (f Feature) Needs() (Needs, bool) {
 			Events: []string{EventCodeScanningAlert, EventIssueComment, EventIssues, EventPullRequest},
 		}, true
 	case FeatureIntents:
-		return Needs{Grants: Merge(Intent(), App(false))}, true
+		// CommitStatus beside the rows: For lists it only as Optional, for
+		// a Project that verifies, but a new App holds it so that the
+		// maul/acceptance status is posted from the start.
+		return Needs{Grants: Merge(Intent(), App(false), CommitStatus())}, true
 	case FeatureChecks:
 		return Needs{Grants: Merge(CheckFix())}, true
 	case FeatureRerunFailed:

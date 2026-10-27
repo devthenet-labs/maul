@@ -12,6 +12,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,7 +30,8 @@ import (
 //     approval's digest, normalised, digested as approved; and re-arms
 //     automatic fixes and the per-revision bounds;
 //  2. reports Off for a Project (or Preview) that does not verify and
-//     NotDeclared for a plan with nothing to run, consuming any request;
+//     NotDeclared for a plan with nothing to run, consuming any request
+//     (the latter still records the head set an acceptance binds to);
 //  3. halts automatic fixes once a human round of the approved revision
 //     started after the latest /maul verify fix re-armed them;
 //  4. supersedes (syncHeadSet): when the combined change moved, the
@@ -47,6 +49,11 @@ import (
 // the commit statuses and comments, and the verify-fix rounds, read the
 // state this writes.
 
+// reasonCriteriaUnreadable is the VerifyFailing reason of an Intent whose
+// approved plan revision's acceptance criteria cannot be read: nothing is
+// verified until they can, or a replan is approved.
+const reasonCriteriaUnreadable = "CriteriaUnreadable"
+
 // syncVerification is the per-pass part of the loop: steps 1 to 5 above.
 // It reports whether it wrote the Intent's status, which ends the pass.
 // Failures to read what it judges from are logged and verify nothing this
@@ -59,13 +66,22 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 		return changed, err
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	if acc == nil || v == nil {
+	if !p.acceptanceCurrent() || v == nil {
+		// Criteria on record from another plan revision are never run
+		// against the approved one's code.
 		return false, nil
 	}
 	if !p.verifies() {
 		return p.settleState(ctx, v1alpha1.VerificationOff)
 	}
 	if len(automatable(acc.Criteria)) == 0 {
+		// Nothing runs, but an approver's acceptance binds to the head set,
+		// so it is tracked all the same.
+		if hs, ok := previewHeadSet(p.proj, p.in); ok {
+			if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationNotDeclared); changed || err != nil {
+				return changed, err
+			}
+		}
 		return p.settleState(ctx, v1alpha1.VerificationNotDeclared)
 	}
 	if reason := p.humanRoundHalt(); reason != "" {
@@ -78,7 +94,7 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	if changed, err := p.syncHeadSet(ctx, hs); changed || err != nil {
+	if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationWaitingForCI); changed || err != nil {
 		return changed, err
 	}
 	return p.settleVerification(ctx)
@@ -90,22 +106,27 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 // per-revision bounds and the head set cleared, its in-flight request
 // deleted; the round numbering, the reset generation and an approver's
 // pending request carry over. A plan that cannot be read or no longer
-// matches its digest records nothing (logged): nothing is verified.
+// matches its digest records nothing (logged) and stops verification
+// (stopUnreadable): the criteria on record, if any, are another revision's.
 func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 	ap := p.in.Status.Approval
-	if acc := p.in.Status.Acceptance; acc != nil && acc.PlanRevision == ap.PlanRevision {
+	if p.acceptanceCurrent() {
 		return false, nil
 	}
 	rec, err := p.approvedAcceptance(ctx, ap)
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the approved plan's acceptance criteria; nothing is verified",
 			slog.String("intent", p.in.Name), slog.Int("plan_revision", int(ap.PlanRevision)), slog.Any("error", err))
-		return false, nil
+		return p.stopUnreadable(ctx, ap)
 	}
 	if v := p.in.Status.Verification; v != nil && v.Ref != nil {
 		p.dropInFlight(ctx, *v.Ref)
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		if c := meta.FindStatusCondition(cur.Status.Conditions, v1alpha1.ConditionVerifyFailing); c != nil &&
+			c.Reason == reasonCriteriaUnreadable {
+			meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionVerifyFailing)
+		}
 		cur.Status.Acceptance = rec
 		next := &v1alpha1.IntentVerification{}
 		if prev := cur.Status.Verification; prev != nil {
@@ -115,6 +136,53 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 		since := metav1.NewTime(p.now)
 		next.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixArmed, Since: &since}
 		cur.Status.Verification = next
+		return nil
+	})
+}
+
+// acceptanceCurrent reports that the criteria on record are the approved
+// plan revision's: the only ones anything is verified or accepted against.
+func (p *pass) acceptanceCurrent() bool {
+	acc, ap := p.in.Status.Acceptance, p.in.Status.Approval
+	return acc != nil && ap != nil && acc.PlanRevision == ap.PlanRevision
+}
+
+// criteriaUnreadable reports an Intent stopUnreadable stopped: the approved
+// plan revision's criteria are not on record, and the verification says
+// why.
+func (p *pass) criteriaUnreadable() bool {
+	v := p.in.Status.Verification
+	if p.acceptanceCurrent() || v == nil || v.State != v1alpha1.VerificationUnavailable {
+		return false
+	}
+	c := meta.FindStatusCondition(p.in.Status.Conditions, v1alpha1.ConditionVerifyFailing)
+	return c != nil && c.Status == metav1.ConditionTrue && c.Reason == reasonCriteriaUnreadable
+}
+
+// stopUnreadable stops verification of an approved plan revision whose
+// criteria cannot be read: the in-flight request is deleted, any waiting
+// request consumed, automatic fixes halted, the state Unavailable, and the
+// Intent's VerifyFailing condition says why, once. Nothing is verified,
+// judged or accepted against the criteria of another revision; the status
+// and the comments report it (criteriaUnreadable). A later pass that reads
+// the criteria records them and starts afresh.
+func (p *pass) stopUnreadable(ctx context.Context, ap *v1alpha1.IntentApproval) (bool, error) {
+	if v := p.in.Status.Verification; p.criteriaUnreadable() && v.Ref == nil && v.Requested == nil {
+		return false, nil
+	}
+	if v := p.in.Status.Verification; v != nil && v.Ref != nil {
+		p.dropInFlight(ctx, *v.Ref)
+	}
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		next := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnavailable}
+		if prev := cur.Status.Verification; prev != nil {
+			next.Round, next.Reset, next.CancelRun = prev.Round, prev.Reset, prev.CancelRun
+		}
+		halt(next, v1alpha1.AutoFixCriterionError, metav1.NewTime(p.now))
+		cur.Status.Verification = next
+		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, reasonCriteriaUnreadable,
+			fmt.Sprintf("the acceptance criteria of the approved plan r%d cannot be read, so nothing is verified; "+
+				"/maul replan to approve a plan again", ap.PlanRevision))
 		return nil
 	})
 }
@@ -209,11 +277,12 @@ func (p *pass) humanRoundHalt() v1alpha1.AutoFixReason {
 
 // syncHeadSet supersedes the recorded verification when the combined
 // change moved to hs (§4.7): the in-flight PreviewVerification is deleted,
-// the state starts over at hs (waiting for its checks), and a component
+// the state starts over at hs in state (waiting for its checks, or
+// NotDeclared for a plan with nothing to run), and a component
 // whose revision changed to a head maul did not push halts automatic fixes
 // (HumanPush). The commit statuses are re-posted on every head from the new
 // head-set digest.
-func (p *pass) syncHeadSet(ctx context.Context, hs headSet) (bool, error) {
+func (p *pass) syncHeadSet(ctx context.Context, hs headSet, state v1alpha1.IntentVerificationState) (bool, error) {
 	v := p.in.Status.Verification
 	if v.HeadSetDigest == hs.digest {
 		return false, nil
@@ -224,7 +293,7 @@ func (p *pass) syncHeadSet(ctx context.Context, hs headSet) (bool, error) {
 	pushed := p.humanPushed(v.Heads, hs.heads)
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State = v1alpha1.VerificationWaitingForCI
+		nv.State = state
 		nv.HeadSetDigest, nv.Heads = hs.digest, slices.Clone(hs.heads)
 		nv.Ref, nv.Attempt, nv.InfraRetries = nil, 0, 0
 		clearJudgement(nv)
@@ -498,7 +567,7 @@ func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullR
 		return false, nil
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	if acc == nil || v == nil {
+	if !p.acceptanceCurrent() || v == nil {
 		return false, nil
 	}
 	criteria := automatable(acc.Criteria)

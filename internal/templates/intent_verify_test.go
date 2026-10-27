@@ -336,6 +336,8 @@ func TestVerifyLineStates(t *testing.T) {
 				"`/maul replan` can change it."},
 		{VerifyProgress{State: VerifyNotDeclared}, "No acceptance criteria were declared."},
 		{VerifyProgress{State: VerifyNotChecked, ManualOpen: 2}, "Nothing is checked automatically, 2 for a human."},
+		{VerifyProgress{State: VerifyUnreadable}, "Verification stopped: maul cannot read the approved plan's " +
+			"acceptance criteria, so nothing is verified. `/maul replan` to approve a plan again."},
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)

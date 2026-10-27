@@ -30,6 +30,8 @@ func TestAcceptanceRules(t *testing.T) {
 		{"not required", true, map[string][]RequiredCheck{web: {{Context: "ci", IntegrationID: 1}}}, nil,
 			checkreport.Warn, "no ruleset on main requires the maul/acceptance status"},
 		{"no rules at all", true, nil, nil, checkreport.Warn, "no ruleset"},
+		{"what requiring it asks of approvers", true, nil, nil, checkreport.Warn,
+			"turn it green only through an approver's /maul accept"},
 		{"any source", true, map[string][]RequiredCheck{web: {{Context: "maul/acceptance"}}}, nil,
 			checkreport.Warn, "from any source"},
 		{"unreadable", true, nil, errors.New("GitHub answered 403 Forbidden"), checkreport.Skip,

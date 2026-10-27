@@ -258,11 +258,15 @@ The Project reports `Ready` once:
   intent-controller may read (`ForgeSecretUnreadable` otherwise); the message names the repository;
 - the App is installed on the intent repository and every app repository, with the permissions intents use: issues write
   on the intent repository; contents and pull requests write and issues read (a reviewer's permission and the rate
-  budget are read with it) and statuses write (maul's commit status, minted alone) on each app repository; when
-  `spec.checks.fix` names a check, checks and actions read on each app repository too; and when
-  `spec.checks.rerunFailed` is set beside it, actions write there as well (`AppNotInstalled` otherwise, naming the
-  repository and the permission);
+  budget are read with it) on each app repository; when `spec.checks.fix` names a check, checks, statuses and actions
+  read on each app repository too; and when `spec.checks.rerunFailed` is set beside it, actions write there as well
+  (`AppNotInstalled` otherwise, naming the repository and the permission);
 - no other Project shares its intent repository and trigger label (`AmbiguousIntentRepository`).
+
+Statuses write on each app repository (the `maul/acceptance` commit status, minted alone) is never part of `Ready`. A
+Project with `spec.verification.enabled` proves it after `Ready` into its `AcceptanceStatusUnavailable` condition: True
+(reason `StatusesNotGranted`, naming the repository) when the App lacks it, in which case its intents are verified and
+reported in comments but no status is posted; False once proven. A Project that does not verify never asks for it.
 
 It creates the trigger and approve labels when they are missing. An issue whose Intent name is held by another
 repository's issue is reported as `IntentNameConflict`, never skipped silently.
@@ -560,10 +564,11 @@ intent-controller is the second code path that writes to a forge (remediation-co
 - **Network:** egress to DNS, the Kubernetes API server and GitHub on 443. It never dials the artifact server or an
   agent pod.
 - **GitHub App:** intents need no event subscription. They use issues, contents and pull requests (write) and metadata
-  (read), issues read and statuses write on the app repository too (the `maul/acceptance` commit status, minted alone);
-  a Project with `spec.checks.fix` also needs checks and actions (read) on its app repository, for the check-fix rounds,
-  and one with `spec.checks.rerunFailed` actions write there, the one write on a repository's CI, minted alone for each
-  re-run request. See [Create the GitHub App](../getting-started/github-app.md#intents).
+  (read), and issues read on the app repository too; a verifying Project posts the `maul/acceptance` commit status with
+  statuses write there (minted alone, never required for `Ready`); a Project with `spec.checks.fix` also needs checks,
+  statuses and actions (read) on its app repository, for the check-fix rounds, and one with `spec.checks.rerunFailed`
+  actions write there, the one write on a repository's CI, minted alone for each re-run request. See
+  [Create the GitHub App](../getting-started/github-app.md#intents).
 
 It writes no Finding spec, so it is not exempt from the finding admission policy.
 

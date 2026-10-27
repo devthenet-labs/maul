@@ -126,8 +126,11 @@ var (
 	pullsRead     = ghclient.TokenPerms{PullRequests: ghclient.PermRead}
 	pullsWrite    = ghclient.TokenPerms{PullRequests: ghclient.PermWrite}
 	checksRead    = ghclient.TokenPerms{Checks: ghclient.PermRead}
-	// statusesWrite posts maul's commit status and also lists the statuses
-	// at a head (write includes read), so the one cached token serves both.
+	// statusesRead lists the statuses at a head: a check-fix round's and
+	// the impostor check's (a verifying Project's statuses write includes
+	// it). statusesWrite posts maul's commit status, on a Project that
+	// verifies only (intentperm.CommitStatus, Optional).
+	statusesRead  = ghclient.TokenPerms{Statuses: ghclient.PermRead}
 	statusesWrite = ghclient.TokenPerms{Statuses: ghclient.PermWrite}
 	actionsRead   = ghclient.TokenPerms{Actions: ghclient.PermRead}
 	// actionsWrite re-runs failed jobs, on a Project with
@@ -643,7 +646,7 @@ func (g *forgeGitHub) ListCheckAnnotations(ctx context.Context, repoURL string, 
 
 func (g *forgeGitHub) ListCommitStatuses(ctx context.Context, repoURL, sha string) (
 	[]ghclient.CommitStatus, error) {
-	c, repo, err := g.client(ctx, repoURL, statusesWrite)
+	c, repo, err := g.client(ctx, repoURL, statusesRead)
 	if err != nil {
 		return nil, err
 	}

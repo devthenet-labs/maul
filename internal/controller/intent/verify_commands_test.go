@@ -557,6 +557,28 @@ func TestVerifyCommandAppliedOnce(t *testing.T) {
 	}
 }
 
+// TestVerifyCommandAtTheCap: an approver's /maul verify once the approved
+// plan revision has used the Project's maxVerifications records nothing and
+// says so, naming the limit and how to raise it, rather than answering
+// "recorded" for a request the loop then drops unrun.
+func TestVerifyCommandAtTheCap(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithCriteria()
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.Automatic = v1alpha1.DefaultMaxVerifications
+	})
+	id := e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	if r := e.verification(name).Requested; r != nil {
+		t.Fatalf("a request past the cap was recorded: %+v", r)
+	}
+	body := e.onlyReply(id)
+	if strings.Contains(body, "is recorded") || !strings.Contains(body, "spec.limits.maxVerifications") ||
+		!strings.Contains(body, fmt.Sprintf("all %d", v1alpha1.DefaultMaxVerifications)) {
+		t.Errorf("reply = %s", body)
+	}
+}
+
 // TestPRVerifyCommandsNeverReplay: deleting maul's replies on the pull
 // request never makes an approver's old /maul verify fix re-arm automatic
 // fixes a human round halted since, nor a superseded /maul accept replace
@@ -699,5 +721,53 @@ func TestPRCommentsListedOncePerPass(t *testing.T) {
 	e.gh.mu.Unlock()
 	if got != 1 {
 		t.Errorf("listed the pull request's comments %d times in one pass, want once", got)
+	}
+}
+
+// TestAcceptAll: /maul accept all accepts a plan that declares no acceptance
+// criteria at the current commits, and nothing else: on a plan with
+// criteria it names no criterion and records nothing.
+func TestAcceptAll(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithCriteria()
+	e.acceptReady(name)
+	refused := e.gh.comment(approver, "/maul accept all")
+	e.settleActions(name)
+	if got := e.get(name).Status.Acceptance.Accepted; len(got) != 0 {
+		t.Fatalf("accept all on a plan with criteria recorded %+v", got)
+	}
+	if body := e.onlyReply(refused); !strings.Contains(body, "names no criterion") {
+		t.Errorf("reply = %s", body)
+	}
+
+	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Acceptance.Criteria = nil })
+	all := e.gh.comment(approver, "/maul accept all")
+	e.settleActions(name)
+	got := e.get(name).Status.Acceptance.Accepted
+	digest, _ := e.headSet(name)
+	if len(got) != 1 || got[0].ID != acceptAll || got[0].HeadSetDigest != digest || got[0].CommentID != all {
+		t.Fatalf("accepted = %+v", got)
+	}
+	if body := e.onlyReply(all); !strings.Contains(body, "declares no acceptance criteria") {
+		t.Errorf("reply = %s", body)
+	}
+}
+
+// TestAcceptCommandCriterion: a command criterion, which maul does not run
+// in this slice, is closed by an approver's acceptance like a manual one,
+// so a plan carrying one can still reach a green maul/acceptance.
+func TestAcceptCommandCriterion(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithCriteria()
+	e.acceptReady(name)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Criteria = append(in.Status.Acceptance.Criteria, v1alpha1.AcceptanceCriterion{
+			ID: "kick-onsets", Kind: v1alpha1.AcceptanceCommand, Statement: "kicks land on the beat", Target: "app"})
+	})
+	id := e.gh.comment(approver, "/maul accept kick-onsets")
+	e.settleActions(name)
+	got := e.get(name).Status.Acceptance.Accepted
+	if len(got) != 1 || got[0].ID != "kick-onsets" || got[0].CommentID != id {
+		t.Fatalf("accepted = %+v", got)
 	}
 }

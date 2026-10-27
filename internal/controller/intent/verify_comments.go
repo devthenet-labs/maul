@@ -55,10 +55,11 @@ type impostorNote struct {
 
 // verifyReported reports whether this pass reports the verification: the
 // controller verifies, the intent is in review (or a round of it), and the
-// loop has recorded the approved criteria and a state.
+// loop has recorded the approved plan revision's criteria and a state, or
+// stopped because they cannot be read (criteriaUnreadable).
 func (p *pass) verifyReported() bool {
-	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Acceptance != nil &&
-		p.in.Status.Verification != nil
+	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Verification != nil &&
+		(p.acceptanceCurrent() || p.criteriaUnreadable())
 }
 
 // verifyJudged reports a state holding a round's judged (or given up)
@@ -113,6 +114,9 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 	if !p.verifyReported() {
 		return nil
 	}
+	if p.criteriaUnreadable() {
+		return &templates.VerifyProgress{State: templates.VerifyUnreadable}
+	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	round, most := p.verifyFixRound()
 	out := &templates.VerifyProgress{Round: round, MaxRounds: most, ManualOpen: v.ManualOpen}
@@ -122,11 +126,7 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 		out = &templates.VerifyProgress{State: templates.VerifyNotDeclared}
 		if len(acc.Criteria) > 0 {
 			out.State = templates.VerifyNotChecked
-			for _, c := range acc.Criteria {
-				if c.Kind == v1alpha1.AcceptanceManual {
-					out.ManualOpen++
-				}
-			}
+			out.ManualOpen = handClosed(acc, v).open
 		}
 	case v1alpha1.VerificationWaitingForCI:
 		out.State = templates.VerifyWaitingForCI
@@ -194,8 +194,12 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 	if prog == nil {
 		return nil
 	}
+	s := &templates.VerifySection{Progress: *prog, StatusNotPosted: p.statusesUnavailable()}
+	if p.criteriaUnreadable() {
+		// The criteria on record, if any, are not the approved ones.
+		return s
+	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	s := &templates.VerifySection{Progress: *prog}
 	pv := p.judgedVerification(ctx)
 	judged := verifyJudged(v.State) && v.Passed+v.Failed+v.Quarantined > 0
 	for _, c := range acc.Criteria {
@@ -238,7 +242,10 @@ func criterionView(c v1alpha1.AcceptanceCriterion, acc *v1alpha1.IntentAcceptanc
 			out.Outcome = templates.VerifyOutcomePass
 		}
 	case v1alpha1.AcceptanceCommand:
-		// Not run until command checks ship.
+		// Not run until command checks ship: open until a human accepts it.
+		if acceptedAt(acc, c.ID, v.HeadSetDigest) != nil {
+			out.Outcome = templates.VerifyOutcomeAccepted
+		}
 	}
 	return out
 }
@@ -456,14 +463,14 @@ func (p *pass) verifyTargetURL() string {
 	return url
 }
 
-// syncVerifyReports writes the verification's issue comment and its
-// maul/acceptance statuses, while it is reported. changed reports a status
-// write; only errConflict is returned.
+// syncVerifyReports writes the verification's issue comment while it is
+// reported, and its maul/acceptance statuses (acceptanceStatus decides).
+// changed reports a status write; only errConflict is returned.
 func (p *pass) syncVerifyReports(ctx context.Context) (bool, error) {
-	if !p.verifyReported() {
-		return false, nil
+	if p.verifyReported() {
+		p.syncVerifyComment(ctx)
 	}
-	p.syncVerifyComment(ctx)
+	// Also when verification was switched off: its final status.
 	return p.syncAcceptanceStatuses(ctx)
 }
 

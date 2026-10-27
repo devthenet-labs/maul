@@ -641,9 +641,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   side judges them. A failure starts a verify-fix round (a `revise` run, trigger `verify`, own `verifyFixRounds()`
   counter, `maxVerifyFixes`, `RepeatedFailure` stop by fingerprint, never a block); the human always wins (`humanPending`
   halts auto-fix; a Pending fix is cancelled through `status.verification.cancelRun`). It posts the `maul/acceptance`
-  commit status (statuses write, always: `intentperm.CommitStatus`; digest-deduped, impostor-checked once per poll), a
-  verification comment, a sticky-comment section, and settles `/maul verify [fix|--reset]` and `/maul accept <id>` from
-  both surfaces (`verify_commands.go`). `VerifyFailing` is a condition, never in `blockingConditions`.
+  commit status on every open head of a verifying Project (statuses write: `intentperm.CommitStatus`, an Optional grant,
+  never part of Ready; without it the Project's `AcceptanceStatusUnavailable` and no status; success only when every
+  criterion passed or an approver accepted it, a final error once verification is switched off; digest-deduped,
+  impostor-checked once per poll), a verification comment, a sticky-comment section, and settles
+  `/maul verify [fix|--reset]` and `/maul accept <id>|all` from both surfaces (`verify_commands.go`). `VerifyFailing` is a condition, never in `blockingConditions`.
 - `intentview` — the pure public projection of intents for the status page: board columns, fixed public wording
   for outcomes and block reasons (never a run's detail or a condition's message), limits with schema defaults, cost
   parsing, and `Text` (templates.VisibleText plus a cap) for every shown string. Copies of intent-controller facts

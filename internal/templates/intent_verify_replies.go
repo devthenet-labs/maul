@@ -39,6 +39,10 @@ const (
 	VerifyApplied VerifyOutcome = "applied"
 	// VerifyUsage: the command's arguments are not its grammar.
 	VerifyUsage VerifyOutcome = "usage"
+	// VerifyCapReached: the approved plan revision has used every
+	// verification its Project allows (spec.limits.maxVerifications), so a
+	// request would never run.
+	VerifyCapReached VerifyOutcome = "cap-reached"
 )
 
 // VerifyCommandNotice answers a /maul verify or /maul accept on the intent
@@ -68,10 +72,14 @@ type VerifyCommandNotice struct {
 	Criterion string
 	// Heads are the short commits an acceptance was given at.
 	Heads []string
+	// NoCriteria: the accepted plan declares no criteria (/maul accept all).
+	NoCriteria bool
 	// Acceptable are the criteria an approver can accept now.
 	Acceptable []string
 	// ResetWait is how long resets are spaced, for VerifyResetTooSoon.
 	ResetWait string
+	// MaxVerifications is the Project's limit, for VerifyCapReached.
+	MaxVerifications int32
 }
 
 // RenderVerifyCommandNotice renders a VerifyCommandNotice.
@@ -134,13 +142,18 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return fmt.Sprintf("%s does nothing: the preview was reset less than %s ago. Use %s to verify without a "+
 			"reset, or try again later.", cmd, n.ResetWait, slashCommand(action.VerbVerify)), "", nil
 	case VerifyAccepted:
+		if n.NoCriteria {
+			return fmt.Sprintf("%s from %s is done: the change, whose approved plan declares no acceptance criteria, "+
+				"is accepted at %s. If the commits change, it must be accepted again.", cmd, actor,
+				joinCode(n.Heads)), "", nil
+		}
 		return fmt.Sprintf("%s from %s is done: the criterion is accepted at %s. If the commits change, it is shown "+
 			"as accepted earlier and not re-checked.", cmd, actor, joinCode(n.Heads)), "", nil
 	case VerifyAcceptUnknown:
 		return cmd + " names no criterion of the approved plan." + acceptable(n.Acceptable), "", nil
 	case VerifyAcceptAutomatic:
-		return cmd + " does nothing: that criterion is checked automatically, and only a manual one or one that " +
-			"passed only on retry is accepted by hand." + acceptable(n.Acceptable), "", nil
+		return cmd + " does nothing: that criterion is checked automatically, and only a manual one, one maul does " +
+			"not run yet or one that passed only on retry is accepted by hand." + acceptable(n.Acceptable), "", nil
 	case VerifyAcceptNotYet:
 		return cmd + " must wait: maul has not yet recorded the commits it verifies, and an acceptance holds only " +
 			"at those. Try again once verification has started.", "", nil
@@ -152,6 +165,10 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return fmt.Sprintf("%s from %s was applied already, and is not applied again.", cmd, actor), "", nil
 	case VerifyUsage:
 		return cmd + " was not understood.", command.HelpFor(surface, []string{n.Verb}), nil
+	case VerifyCapReached:
+		return fmt.Sprintf("%s does nothing: this approved plan has used all %d verifications its Project allows, "+
+			"so no verification can run. Raise the Project's `spec.limits.maxVerifications` to allow more, or %s "+
+			"for a new plan, whose count starts afresh.", cmd, n.MaxVerifications, slashCommand("replan")), "", nil
 	}
 	return "", "", fmt.Errorf("render verify notice: no text for outcome %q", n.Outcome)
 }

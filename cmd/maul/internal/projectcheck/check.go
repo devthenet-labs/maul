@@ -393,7 +393,9 @@ func (r *run) acceptanceRule(ctx context.Context, repo v1alpha1.ProjectRepositor
 	case i < 0:
 		r.add(CheckAcceptanceRules, key, checkreport.Warn, "no ruleset on %s requires the %s status, so a pull "+
 			"request merges whatever maul reports; add a ruleset requiring it with the maul App as expected source "+
-			"(classic branch protection is not read here)", head.Branch, acceptanceContext)
+			"(classic branch protection is not read here). maul posts it on every open pull request of this "+
+			"Project; manual items, and a plan with no criteria, turn it green only through an approver's "+
+			"/maul accept", head.Branch, acceptanceContext)
 	case checks[i].IntegrationID == 0:
 		r.add(CheckAcceptanceRules, key, checkreport.Warn, "a ruleset on %s requires %s but accepts it from any "+
 			"source, so anyone who can write statuses can satisfy it; set the maul App as the expected source",

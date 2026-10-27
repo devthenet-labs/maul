@@ -54,6 +54,9 @@ const (
 	// VerifyNotChecked: the approved plan declares criteria, none of which
 	// maul checks automatically.
 	VerifyNotChecked = "not-checked"
+	// VerifyUnreadable: the approved plan's acceptance criteria cannot be
+	// read, so nothing is verified until a plan is approved again.
+	VerifyUnreadable = "unreadable"
 )
 
 // Automatic fix states.
@@ -131,6 +134,9 @@ func verifyRestingLine(state string) (line string, whole bool) {
 			slashCommand("replan") + " can change it.", true
 	case VerifyNotDeclared:
 		return "No acceptance criteria were declared.", true
+	case VerifyUnreadable:
+		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
+			"verified. " + slashCommand("replan") + " to approve a plan again.", true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
 	}
@@ -232,6 +238,9 @@ type VerifySection struct {
 	// Impostor is the login that posted a maul/acceptance status other than
 	// maul's, which maul re-posted over; "" for none.
 	Impostor string
+	// StatusNotPosted: the maul App may not post commit statuses, so no
+	// maul/acceptance status is posted.
+	StatusNotPosted bool
 }
 
 func (s *VerifySection) empty() bool {
@@ -293,6 +302,11 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 	if s.ServicesRestarted {
 		v.Notes = append(v.Notes, "Services restarted: a service pod restarted and lost its data, "+
 			"so the checks ran against fresh services.")
+	}
+	if s.StatusNotPosted {
+		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
+			"posted: an administrator sets Commit statuses to Read and write in the App's settings and accepts the "+
+			"change on the installation. The Project's `AcceptanceStatusUnavailable` condition names the repository.")
 	}
 	if who := shown(s.Impostor); who != "" {
 		v.Notes = append(v.Notes, "Another actor, "+code(who)+", posted a `maul/acceptance` status. "+

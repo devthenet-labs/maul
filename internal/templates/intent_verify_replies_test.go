@@ -67,6 +67,16 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.Surface = command.IntentPR
 			return n
 		}()},
+		{"intent_notice_verify_accepted_all.md", func() VerifyCommandNotice {
+			n := base(VerifyAccepted, "accept")
+			n.Criterion, n.Heads, n.NoCriteria = "all", []string{"0123abc"}, true
+			return n
+		}()},
+		{"intent_notice_verify_cap_reached.md", func() VerifyCommandNotice {
+			n := base(VerifyCapReached, "verify")
+			n.MaxVerifications = 20
+			return n
+		}()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

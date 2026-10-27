@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -617,5 +618,47 @@ func TestVerifyTimeoutIsClamped(t *testing.T) {
 	}
 	if got := (Settings{}).verifyTimeout(p); got != DefaultVerifyTimeoutMax {
 		t.Errorf("unset maximum = %s", got)
+	}
+}
+
+// TestVerificationStopsWhenTheApprovedCriteriaCannotBeRead: when the
+// approved plan revision's criteria cannot be read (its plan no longer
+// matches the approval's digest) and those on record are another
+// revision's, nothing is verified against criteria the approver no longer
+// approved: the state is Unavailable, the Intent says why, and
+// maul/acceptance is an error, never a verdict from the old criteria.
+func TestVerificationStopsWhenTheApprovedCriteriaCannotBeRead(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	name := e.reviewing()
+	e.review(name, 2)
+	in := e.get(name)
+	var cm corev1.ConfigMap
+	key := client.ObjectKey{Namespace: testNS, Name: planConfigMapName(name, in.Status.Approval.PlanRevision)}
+	if err := e.c.Get(context.Background(), key, &cm); err != nil {
+		t.Fatal(err)
+	}
+	cm.Data[keyPlan] += "\n"
+	if err := e.c.Update(context.Background(), &cm); err != nil {
+		t.Fatal(err)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.PlanRevision = in.Status.Approval.PlanRevision + 1
+	})
+	e.readyPreview(name)
+	e.review(name, 6)
+	if n := len(e.verifications(name)); n != 0 {
+		t.Fatalf("verified %d times against criteria the approver no longer approved", n)
+	}
+	in = e.get(name)
+	if v := in.Status.Verification; v == nil || v.State != v1alpha1.VerificationUnavailable {
+		t.Fatalf("verification = %+v, want Unavailable", v)
+	}
+	c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionVerifyFailing)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != reasonCriteriaUnreadable {
+		t.Fatalf("condition = %+v", c)
+	}
+	s := e.latestAcceptance(in.Status.PullRequests[0].HeadSHA)
+	if s.State != "error" || !strings.Contains(s.Description, "cannot be read") {
+		t.Fatalf("status = %+v", s)
 	}
 }
