@@ -122,6 +122,22 @@ func TestCopilotPromptSpecDeniesURLs(t *testing.T) {
 	}
 }
 
+// TestCopilotEvaluateFailsClosed: copilot cannot express the evaluate
+// posture (CheckPosture refuses it), and a caller that renders it anyway gets
+// a run with no shell, no writes and no URLs, never the CLI's defaults.
+func TestCopilotEvaluateFailsClosed(t *testing.T) {
+	spec := NewCopilot().PromptSpec("/work/scratch", PromptRequest{Prompt: "p", Model: "m", Sandbox: SandboxEvaluate})
+	var denied []string
+	for i := 0; i+1 < len(spec.Argv); i++ {
+		if spec.Argv[i] == "--deny-tool" {
+			denied = append(denied, spec.Argv[i+1])
+		}
+	}
+	if want := []string{"url()", "shell", "write"}; !slices.Equal(denied, want) {
+		t.Errorf("denied = %q, want %q", denied, want)
+	}
+}
+
 func TestCopilotPromptSpecSystemPromptAppend(t *testing.T) {
 	spec := NewCopilot().PromptSpec("/ws", PromptRequest{
 		Prompt:             "fix it",

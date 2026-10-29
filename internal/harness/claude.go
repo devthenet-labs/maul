@@ -79,9 +79,31 @@ func NewClaude() *Claude {
 // A multi-repository intent's planner reads its other repositories' trees
 // with the same read-only tools: they sit under the workspace the stage adds
 // as a directory.
+//
+// The evaluate posture (spike SP-4, probed on 2.1.263) has no tree. Its
+// tools are Bash, Read and Write, and its allow list holds the shell to a
+// bare `maul-tool <args>` (no &&, ;, newline, $(...), pipe, redirection, env
+// prefix or absolute path matches it) and scopes Read and Write to the
+// workspace, the scratch directory, by absolute rules (claudeAllow): the
+// write scope is an Edit rule, since a Write rule grants nothing on the
+// pinned CLI and an Edit rule covers every file-editing tool. Edit itself,
+// Glob and Grep are absent from --tools; the other edit, search, subagent
+// and network tools are denied by name.
+//
+// The evaluate run is started IN the scratch directory and adds none
+// (scratchOnly): neither its own directory, whose CLAUDE.md the other
+// postures load (scratch holds none), nor the request's AddDirs, since under
+// --restricted every added directory is one more the file tools reach, and
+// the CLI reads inside its working directories without asking whatever the
+// allow rules say. With /work as its directory it would read the parent's
+// handoff, the HOME settings and its own session transcripts (probed). The
+// request's WriteDirs are not rendered either: the write scope is the
+// scratch directory itself. Auto memory is off, as for a read-only run
+// (claudeNoAutoMemory), though HOME is outside the file tools' reach.
 var claudeTools = map[Sandbox]struct {
 	tools, allow, deny []string
 	restricted         bool // render --restricted; see claudeRestricted
+	scratchOnly        bool // run confined to its own directory; see above
 }{
 	SandboxReadOnly: {
 		tools:      []string{"Read", "Glob", "Grep", "Edit", "Write"},
@@ -93,10 +115,17 @@ var claudeTools = map[Sandbox]struct {
 		allow: []string{"Read", "Glob", "Grep", "Edit", "Write", "NotebookEdit", "Bash"},
 		deny:  []string{"WebFetch", "WebSearch"},
 	},
+	SandboxEvaluate: {
+		tools:       []string{"Bash", "Read", "Write"},
+		allow:       []string{"Bash(maul-tool:*)", "Read", "Write"},
+		deny:        []string{"WebFetch", "WebSearch", "Task", "NotebookEdit", "Glob", "Grep"},
+		restricted:  true,
+		scratchOnly: true,
+	},
 }
 
-// claudeRestricted documents why only the read-only posture runs with
-// --restricted. On the pinned CLI (2.1.263) the flag removes the built-in
+// claudeRestricted documents why only the read-only and evaluate postures
+// run with --restricted. On the pinned CLI (2.1.263) the flag removes the built-in
 // tools that run commands or code (Bash among them) and WebFetch unless
 // --tools names them, ignores the user, project and local settings files
 // (managed settings still apply), confines the file tools to the working
@@ -111,7 +140,12 @@ var claudeTools = map[Sandbox]struct {
 // directories it adds. What it gains is the read confinement: without the
 // flag Read, Glob and Grep reach the whole filesystem (/etc, /proc, the
 // projected token), and with it they are refused outside the workspace
-// (probed). The writable posture does not take it: it renders no --tools,
+// (probed). The evaluate posture keeps its shell by naming Bash in --tools,
+// and gains the same confinement, to the scratch directory alone: the token,
+// /proc/self/root and the parent /work are refused (probed, SP-4). Its
+// dontAsk mode would refuse those reads without the flag as well, since no
+// allow rule covers them; the flag is what still refuses them should an
+// allow rule ever be widened. The writable posture does not take it: it renders no --tools,
 // so the flag would take its shell, and a remediation or a build may have
 // to change a tool-configuration file or a CI definition the flag would
 // refuse.
@@ -216,14 +250,20 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 			argv = append(argv, claudeRestricted)
 		}
 		argv = append(argv, "--setting-sources", claudeSettingSources, "--permission-mode", claudePermissionMode,
-			"--strict-mcp-config", "--add-dir", ws)
-		env = append(slices.Clip(req.Env), claudeMDFromAddDirs)
-		if req.Sandbox == SandboxReadOnly {
+			"--strict-mcp-config")
+		env = slices.Clip(req.Env)
+		if !t.scratchOnly {
+			argv = append(argv, "--add-dir", ws)
+			env = append(env, claudeMDFromAddDirs)
+		}
+		if req.Sandbox == SandboxReadOnly || req.Sandbox == SandboxEvaluate {
 			env = append(env, claudeNoAutoMemory)
 		}
 	}
-	for _, dir := range req.AddDirs {
-		argv = append(argv, "--add-dir", dir)
+	if !claudeTools[req.Sandbox].scratchOnly {
+		for _, dir := range req.AddDirs {
+			argv = append(argv, "--add-dir", dir)
+		}
 	}
 	if req.SessionID != "" {
 		argv = append(argv, "--session-id", req.SessionID)
@@ -263,8 +303,13 @@ func (c *Claude) ResumeSpec(ws, sessionID string, req PromptRequest) runner.Comm
 // in those directories and is refused everywhere else. The scope has to be an
 // allow rule: a deny overrides any allow, so a deny on the tree would stop
 // the report as well. A relative directory is resolved against ws, the
-// directory the CLI runs in. Every other request keeps the posture's list.
+// directory the CLI runs in. A SandboxEvaluate request scopes its Read and
+// Write to ws itself, the scratch directory, the same way: Read(//ws/**) and
+// Edit(//ws/**). Every other request keeps the posture's list.
 func claudeAllow(ws string, req PromptRequest, allow []string) []string {
+	if req.Sandbox == SandboxEvaluate {
+		return claudeEvaluateAllow(ws, allow)
+	}
 	if req.Sandbox != SandboxReadOnly || len(req.WriteDirs) == 0 {
 		return allow
 	}
@@ -279,6 +324,30 @@ func claudeAllow(ws string, req PromptRequest, allow []string) []string {
 				dir = filepath.Join(ws, dir)
 			}
 			scoped = append(scoped, "Edit(/"+filepath.Clean(dir)+"/**)")
+		}
+	}
+	return scoped
+}
+
+// claudeEvaluateAllow scopes the evaluate posture's bare Read and Write, at
+// their places in allow, to ws: Read(//ws/**) and Edit(//ws/**), the latter
+// because a Write rule grants nothing on the pinned CLI (SP-4). ws is made
+// absolute against the process's directory, which is what the CLI started
+// in ws resolves it against too; every other rule is kept.
+func claudeEvaluateAllow(ws string, allow []string) []string {
+	dir, err := filepath.Abs(ws)
+	if err != nil {
+		dir = filepath.Clean(ws)
+	}
+	scoped := make([]string, 0, len(allow))
+	for _, tool := range allow {
+		switch tool {
+		case "Read":
+			scoped = append(scoped, "Read(/"+dir+"/**)")
+		case "Write":
+			scoped = append(scoped, "Edit(/"+dir+"/**)")
+		default:
+			scoped = append(scoped, tool)
 		}
 	}
 	return scoped

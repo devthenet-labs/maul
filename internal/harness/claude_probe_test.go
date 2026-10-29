@@ -9,6 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,6 +58,14 @@ const claudeProbeCLIEnv = "MAUL_CLAUDE_PROBE_CLI"
 // --restricted taken out and asserts the reads outside the workspace succeed
 // there, so the read-only run's refusal of them is the flag's doing and not,
 // say, the pinned mode's.
+//
+// The evaluate posture is probed on a layout of its own (evalProbe, spike
+// SP-4): reads and writes confined to scratch, the shell to a bare
+// maul-tool, a PNG read as an image, and neither the projected token's nor
+// an environment variable's content ever shown to the model. Two controls
+// keep its choices justified: with a Write rule in place of its Edit rule
+// Write is refused (a CLI that starts honouring Write rules is noticed), and
+// run in /work rather than scratch the parent's handoff is readable.
 func TestClaudePostureProbe(t *testing.T) {
 	cli := os.Getenv(claudeProbeCLIEnv)
 	if cli == "" {
@@ -100,6 +111,8 @@ func TestClaudePostureProbe(t *testing.T) {
 		}
 	})
 
+	probeEvaluate(t, cli)
+
 	for _, sandbox := range []Sandbox{SandboxReadOnly, SandboxWorkspaceWrite} {
 		name := map[Sandbox]string{SandboxReadOnly: "read-only", SandboxWorkspaceWrite: "workspace-write"}[sandbox]
 		t.Run(name, func(t *testing.T) {
@@ -134,6 +147,56 @@ func TestClaudePostureProbe(t *testing.T) {
 	}
 }
 
+// probeEvaluate is TestClaudePostureProbe's evaluate posture and its two
+// controls.
+func probeEvaluate(t *testing.T, cli string) {
+	t.Run("evaluate", func(t *testing.T) {
+		p := newEvalProbe(t, cli)
+		script := evaluateScript(p)
+		got := p.run(t, NewClaude().PromptSpec(p.scratch, p.request()), script)
+		got.assertPinned(t, script)
+		if want := []string{"Bash", "Read", "Write"}; !slices.Equal(slices.Sorted(slices.Values(got.init.Tools)), want) {
+			t.Errorf("tools = %v, want exactly %v", got.init.Tools, want)
+		}
+		if res := got.results["r_png"]; !slices.Contains(res.Kinds, "image") {
+			t.Errorf("Read of a PNG under scratch returned %v, want an image block", res.Kinds)
+		}
+		p.assertContained(t)
+	})
+
+	t.Run("control: a Write rule grants nothing", func(t *testing.T) {
+		p := newEvalProbe(t, cli)
+		spec := NewClaude().PromptSpec(p.scratch, p.request())
+		i := slices.Index(spec.Argv, "--allowedTools")
+		if i < 0 || !strings.Contains(spec.Argv[i+1], "Edit(/") {
+			t.Fatalf("argv %q: the evaluate posture no longer scopes writes with an Edit rule", spec.Argv)
+		}
+		spec.Argv[i+1] = strings.ReplaceAll(spec.Argv[i+1], "Edit(/", "Write(/")
+		script := evalWriteScript(p, false)
+		got := p.run(t, spec, script)
+		got.assertPinned(t, script)
+		if t.Failed() {
+			t.Log("a Write rule now grants Write on this CLI; the evaluate posture's Edit rule may be revisited")
+		}
+	})
+
+	t.Run("control: run in /work, the parent is readable", func(t *testing.T) {
+		p := newEvalProbe(t, cli)
+		spec := NewClaude().PromptSpec(p.scratch, p.request())
+		spec.Dir = p.ws
+		script := probeScript{
+			steps:  [][]toolCall{{{"r_handoff", "Read", map[string]any{"file_path": p.handoff}}}},
+			expect: map[string]bool{"r_handoff": true},
+			noTree: true,
+		}
+		got := p.run(t, spec, script)
+		got.assertPinned(t, script)
+		if t.Failed() {
+			t.Log("run in /work, the parent is no longer readable on this CLI; the scratch cwd may be revisited")
+		}
+	})
+}
+
 // assertPinned checks what every postured run must show: no trap fired, the
 // mode is the pinned one, no MCP server, the tree's CLAUDE.md reached the
 // model, and every scripted call met the outcome the script expects.
@@ -151,8 +214,11 @@ func (o probeOutcome) assertPinned(t *testing.T, script probeScript) {
 	if len(o.init.MCPServers) > 0 {
 		t.Errorf("mcp_servers = %s, want none", o.init.MCPServers)
 	}
-	if !script.resumed && !o.guidance {
+	if !script.resumed && !script.noTree && !o.guidance {
 		t.Error("the tree's CLAUDE.md did not reach the model's first request")
+	}
+	if len(o.leaked) > 0 {
+		t.Errorf("the model was shown %q", o.leaked)
 	}
 	for id, want := range script.expect {
 		res, ok := o.results[id]
@@ -189,6 +255,9 @@ const probeCodeword = "PROBE-CODEWORD"
 type postureProbe struct {
 	cli, ws, tree, reports, report, marks string
 	upstream                              *fakeUpstream
+	// binDir, when set, is put first on the run's PATH (the evaluate probe's
+	// stand-in maul-tool).
+	binDir string
 }
 
 func newPostureProbe(t *testing.T, cli string) *postureProbe {
@@ -337,11 +406,15 @@ type probeOutcome struct {
 		MCPServers     []json.RawMessage `json:"mcp_servers"`
 	}
 	results map[string]toolResult
+	// leaked are the upstream's canaries that appeared in a request to the
+	// model.
+	leaked []string
 }
 
 type toolResult struct {
 	IsError bool
 	Text    string
+	Kinds   []string // the result's content block types: text, image
 }
 
 func (o probeOutcome) marker(line string) bool { return slices.Contains(o.markers, line) }
@@ -358,9 +431,14 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 	argv[0] = p.cli
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = spec.Dir
+	path := os.Getenv("PATH")
+	if p.binDir != "" {
+		path = p.binDir + string(os.PathListSeparator) + path
+	}
 	cmd.Env = append([]string{
 		"HOME=" + p.ws,
-		"PATH=" + os.Getenv("PATH"),
+		"PATH=" + path,
+		probeSecretEnv + "=" + probeEnvCanary,
 		"ANTHROPIC_API_KEY=sk-ant-probe-not-a-key",
 		"ANTHROPIC_BASE_URL=" + p.upstream.url(),
 		"DISABLE_AUTOUPDATER=1",
@@ -380,7 +458,7 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 	time.Sleep(500 * time.Millisecond)
 
 	out := probeOutcome{results: map[string]toolResult{}}
-	out.headerSeen, out.guidance = p.upstream.seen()
+	out.headerSeen, out.guidance, out.leaked = p.upstream.seen()
 	for _, name := range []string{"hooks", "mcp"} {
 		b, _ := os.ReadFile(filepath.Join(p.marks, name))
 		for line := range strings.Lines(string(b)) {
@@ -414,7 +492,9 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 		case ev.Type == "user":
 			for _, c := range ev.Message.Content {
 				if c.Type == "tool_result" {
-					out.results[c.ToolUseID] = toolResult{IsError: c.IsError, Text: string(c.Content)}
+					out.results[c.ToolUseID] = toolResult{
+						IsError: c.IsError, Text: string(c.Content), Kinds: contentKinds(c.Content),
+					}
 				}
 			}
 		}
@@ -425,12 +505,31 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 	return out
 }
 
+// contentKinds is the block types of a tool result's content: a bare string
+// is one text block.
+func contentKinds(raw json.RawMessage) []string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return []string{"text"}
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(raw, &blocks)
+	kinds := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		kinds = append(kinds, b.Type)
+	}
+	return kinds
+}
+
 // probeScript is the fake model's side of one run: the tool calls of each
 // step, and for each call whether it must succeed (true) or be refused.
 type probeScript struct {
 	steps   [][]toolCall
 	expect  map[string]bool
 	resumed bool // a resume: the first-request guidance is not judged
+	noTree  bool // no tree, so no CLAUDE.md to reach the model (evaluate)
 }
 
 type toolCall struct {
@@ -540,7 +639,17 @@ type fakeUpstream struct {
 	steps    [][]toolCall
 	header   bool // a request carried the tree's env block's header
 	guidance bool // a first request (no tool result yet) carried CLAUDE.md
+	leaked   []string
 }
+
+// probeSecretEnv is a variable every probe run carries, holding
+// probeEnvCanary; probeTokenCanary is the content of the evaluate probe's
+// stand-in projected token. Neither may ever reach the model.
+const (
+	probeSecretEnv   = "MAUL_PROBE_SECRET"
+	probeEnvCanary   = "PROBE-ENV-CANARY-7f3a"
+	probeTokenCanary = "PROBE-TOKEN-CANARY-91c2"
+)
 
 func newFakeUpstream(t *testing.T) *fakeUpstream {
 	f := &fakeUpstream{}
@@ -555,14 +664,14 @@ func (f *fakeUpstream) url() string { return f.srv.URL }
 func (f *fakeUpstream) reset(steps [][]toolCall) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.steps, f.header, f.guidance = steps, false, false
+	f.steps, f.header, f.guidance, f.leaked = steps, false, false, nil
 }
 
 // seen reports what the run's requests carried.
-func (f *fakeUpstream) seen() (header, guidance bool) {
+func (f *fakeUpstream) seen() (header, guidance bool, leaked []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.header, f.guidance
+	return f.header, f.guidance, slices.Clone(f.leaked)
 }
 
 func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
@@ -584,6 +693,13 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	f.mu.Lock()
+	for _, canary := range []string{probeEnvCanary, probeTokenCanary} {
+		if bytes.Contains(body, []byte(canary)) && !slices.Contains(f.leaked, canary) {
+			f.leaked = append(f.leaked, canary)
+		}
+	}
+	f.mu.Unlock()
 	var req struct {
 		Stream bool              `json:"stream"`
 		Tools  []json.RawMessage `json:"tools"`
@@ -681,4 +797,193 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b) + "\n"
+}
+
+// evalProbe is one scratch layout as the evaluator pod lays it out (spike
+// SP-4): /work is HOME and holds the handoff and the user settings source,
+// /work/scratch is the run's directory with a note, a JSON file, a
+// screenshot and a symlink to the projected token, the token sits under
+// /var/run/secrets, and a stand-in maul-tool is on PATH and records each
+// call. Every path is under a fresh temporary root.
+type evalProbe struct {
+	*postureProbe
+	root, scratch, handoff, token string
+}
+
+func newEvalProbe(t *testing.T, cli string) *evalProbe {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(root, "work")
+	p := &evalProbe{
+		postureProbe: &postureProbe{
+			cli:    cli,
+			ws:     work,
+			marks:  filepath.Join(root, "marks"),
+			binDir: filepath.Join(root, "bin"),
+		},
+		root:    root,
+		scratch: filepath.Join(work, "scratch"),
+		handoff: filepath.Join(work, "handoff.json"),
+		token:   filepath.Join(root, "var", "run", "secrets", "maul.run", "broker", "token"),
+	}
+	for _, dir := range []string{
+		filepath.Join(p.scratch, "shots"), filepath.Join(work, ".claude"), filepath.Dir(p.token), p.marks, p.binDir,
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	user := mustJSON(t, map[string]any{"permissions": map[string]any{"defaultMode": "acceptEdits"}})
+	for name, body := range map[string]string{
+		p.token:   probeTokenCanary + "\n",
+		p.handoff: "{\"h\":1}\n",
+		filepath.Join(work, ".claude", "settings.json"): user,
+		filepath.Join(p.scratch, "note.txt"):            "note\n",
+		filepath.Join(p.scratch, "existing.json"):       "{}\n",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	maulTool := "#!/bin/sh\necho \"$@\" >> " + filepath.Join(p.marks, "maul-tool") + "\necho maul-tool-ok \"$@\"\n"
+	tool := filepath.Join(p.binDir, "maul-tool")
+	if err := os.WriteFile(tool, []byte(maulTool), 0o755); err != nil { //nolint:gosec // an executable stand-in
+		t.Fatal(err)
+	}
+	if err := os.Symlink(p.token, filepath.Join(p.scratch, "link-token")); err != nil {
+		t.Fatal(err)
+	}
+	writeProbePNG(t, filepath.Join(p.scratch, "shots", "s1.png"))
+	p.upstream = newFakeUpstream(t)
+	return p
+}
+
+// request is the evaluate stage's request. AddDirs and WriteDirs name /work,
+// which the posture must not render: either would widen the confinement.
+func (p *evalProbe) request() PromptRequest {
+	return PromptRequest{
+		Prompt:    "evaluate",
+		Model:     "claude-probe",
+		MaxTurns:  10,
+		Sandbox:   SandboxEvaluate,
+		AddDirs:   []string{p.ws},
+		WriteDirs: []string{p.ws},
+	}
+}
+
+// evaluateScript is SP-4's table: reads outside scratch (the token directly,
+// through /proc/self/root, through .. and through a symlink,
+// /proc/self/environ, /etc, the parent's handoff) refused and reads inside
+// allowed, the PNG as an image; writes inside allowed (a new file in a new
+// directory, an overwrite without a prior read, a second overwrite) and
+// outside or into scratch/.claude refused; Edit absent; maul-tool alone
+// runs, every other Bash form (a command, chaining, substitution,
+// redirection, a pipe, an env prefix, an absolute path, a newline) refused.
+func evaluateScript(p *evalProbe) probeScript {
+	read := func(id, path string) toolCall { return toolCall{id, "Read", map[string]any{"file_path": path}} }
+	bash := func(id, command string) toolCall { return toolCall{id, "Bash", map[string]any{"command": command}} }
+	check := filepath.Join(p.scratch, "checks", "c1.json")
+	steps := [][]toolCall{
+		{
+			read("r_environ", "/proc/self/environ"),
+			read("r_token", p.token),
+			read("r_proc_root_token", "/proc/self/root"+p.token),
+			read("r_dotdot", p.scratch+"/../.."+strings.TrimPrefix(p.token, p.root)),
+			read("r_link", filepath.Join(p.scratch, "link-token")),
+			read("r_etc", "/etc/hosts"),
+			read("r_handoff", p.handoff),
+			read("r_note", filepath.Join(p.scratch, "note.txt")),
+			read("r_png", filepath.Join(p.scratch, "shots", "s1.png")),
+		},
+		{
+			writeCall("w_check_newdir", check, "{\"id\":\"c1\"}\n"),
+			writeCall("w_existing_unread", filepath.Join(p.scratch, "existing.json"), "{\"x\":1}\n"),
+			writeCall("w_work", filepath.Join(p.ws, "evil.txt"), "x\n"),
+			writeCall("w_settings", filepath.Join(p.ws, ".claude", "settings.json"), "{}\n"),
+			writeCall("w_root", filepath.Join(p.root, "outside.txt"), "x\n"),
+			writeCall("w_dotdot", p.scratch+"/../evil2.txt", "x\n"),
+			writeCall("w_scratch_claude", filepath.Join(p.scratch, ".claude", "settings.json"), "{}\n"),
+			editCall("e_note", filepath.Join(p.scratch, "note.txt"), "note", "edited"),
+		},
+		{
+			writeCall("w_check_overwrite", check, "{\"id\":\"c1b\"}\n"),
+			bash("b_tool", "maul-tool status"),
+			bash("b_curl", "curl -s http://127.0.0.1:1/"),
+			bash("b_cat_env", "cat /proc/self/environ"),
+			bash("b_and", "maul-tool status && cat /proc/self/environ"),
+			bash("b_semi", "maul-tool status; touch "+filepath.Join(p.marks, "semi")),
+			bash("b_subst", "maul-tool $(touch "+filepath.Join(p.marks, "subst")+")"),
+			bash("b_redirect", "maul-tool status > "+filepath.Join(p.ws, "redir.txt")),
+			bash("b_pipe", "maul-tool status | sh"),
+			bash("b_env", "FOO=1 maul-tool status"),
+			bash("b_path", filepath.Join(p.binDir, "maul-tool")+" status"),
+			bash("b_newline", "maul-tool status\ntouch "+filepath.Join(p.marks, "newline")),
+		},
+	}
+	allowed := []string{"r_note", "r_png", "w_check_newdir", "w_existing_unread", "w_check_overwrite", "b_tool"}
+	expect := map[string]bool{}
+	for _, step := range steps {
+		for _, c := range step {
+			expect[c.ID] = slices.Contains(allowed, c.ID)
+		}
+	}
+	return probeScript{steps: steps, expect: expect, noTree: true}
+}
+
+// evalWriteScript writes one new file under scratch, expected allowed or
+// refused.
+func evalWriteScript(p *evalProbe, allowed bool) probeScript {
+	return probeScript{
+		steps:  [][]toolCall{{writeCall("w_scratch", filepath.Join(p.scratch, "new.json"), "{}\n")}},
+		expect: map[string]bool{"w_scratch": allowed},
+		noTree: true,
+	}
+}
+
+// assertContained checks what the evaluate run left behind: the writes it
+// was allowed and nothing else, maul-tool run once, the token unchanged.
+func (p *evalProbe) assertContained(t *testing.T) {
+	t.Helper()
+	if b, _ := os.ReadFile(filepath.Join(p.scratch, "checks", "c1.json")); string(b) != "{\"id\":\"c1b\"}\n" {
+		t.Errorf("checks/c1.json = %q, want it written and then overwritten", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(p.marks, "maul-tool")); string(b) != "status\n" {
+		t.Errorf("maul-tool calls = %q, want exactly one bare `maul-tool status`", b)
+	}
+	if b, _ := os.ReadFile(p.token); string(b) != probeTokenCanary+"\n" {
+		t.Errorf("the token was changed: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(p.scratch, "note.txt")); string(b) != "note\n" {
+		t.Errorf("note.txt = %q, want it unedited (Edit is absent)", b)
+	}
+	for _, path := range []string{
+		filepath.Join(p.ws, "evil.txt"), filepath.Join(p.ws, "evil2.txt"), filepath.Join(p.ws, "redir.txt"),
+		filepath.Join(p.root, "outside.txt"), filepath.Join(p.scratch, ".claude", "settings.json"),
+		filepath.Join(p.marks, "semi"), filepath.Join(p.marks, "subst"), filepath.Join(p.marks, "newline"),
+	} {
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("%s exists: the evaluate posture let a write or a command through", path)
+		}
+	}
+}
+
+// writeProbePNG writes a small gradient PNG, the stand-in screenshot.
+func writeProbePNG(t *testing.T, path string) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 64, 32))
+	for x := range 64 {
+		for y := range 32 {
+			img.Set(x, y, color.RGBA{R: uint8(x * 4), G: 40, B: 200, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
