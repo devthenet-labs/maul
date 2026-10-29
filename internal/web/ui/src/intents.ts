@@ -261,4 +261,57 @@ export const INTENTS_VIEW_FILES = [
   "src/components/LiveOutput.tsx",
   "src/components/PlainText.tsx",
   "src/components/IntentsArea.tsx",
+  "src/components/EvaluationEvidence.tsx",
 ];
+
+// evidenceImageURL is where an evaluate run's stored evidence image is
+// served. image is the server's own key (<seq>-<sha256>.png); anything else
+// yields "" so a crafted value can never point the <img> elsewhere.
+export function evidenceImageURL(intent: string, run: string, image: string): string {
+  if (!/^[1-9][0-9]{0,2}-[0-9a-f]{64}\.png$/.test(image)) return "";
+  return `/api/intents/${encodeURIComponent(intent)}/runs/${encodeURIComponent(run)}/evidence/${image}`;
+}
+
+// OutcomeTone is the pill colour a decided outcome or a check run shows.
+export type OutcomeTone = "green" | "red" | "amber" | "neutral";
+
+// resultTone colours a decided outcome result (passed, failed, unsure,
+// quarantined, accepted) or a check run result (pass, fail, quarantined,
+// error, refused). Anything unknown is neutral.
+export function resultTone(result?: string): OutcomeTone {
+  switch (result) {
+    case "passed":
+    case "pass":
+    case "accepted":
+      return "green";
+    case "failed":
+    case "fail":
+    case "refused":
+      return "red";
+    case "unsure":
+    case "quarantined":
+    case "error":
+      return "amber";
+    default:
+      return "neutral";
+  }
+}
+
+// HANDOFF_REASONS says, in plain English, why the preview link was handed
+// over (api/v1alpha1 HandoffReason).
+export const HANDOFF_REASONS: Record<string, string> = {
+  ready: "maul checked the approved outcomes",
+  unconfirmed: "maul could not confirm every outcome",
+  "out-of-time": "the evaluation ran out of time",
+  human: "a human acted on the pull request",
+  command: "an approver asked for the preview",
+  early: "the project hands the preview over before evaluation",
+  "evaluator-unverified": "the project's evaluator is not verified",
+};
+
+// shortDigest is a sha256 digest's first 12 hex characters, with or without
+// its "sha256:" prefix.
+export function shortDigest(digest?: string): string {
+  if (!digest) return "";
+  return digest.replace(/^sha256:/, "").slice(0, 12);
+}

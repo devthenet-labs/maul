@@ -293,3 +293,151 @@ type RunOutput struct {
 type StreamNotice struct {
 	Reason string `json:"reason,omitempty"`
 }
+
+// RunEvaluation is GET /api/intents/{name}/runs/{run}/evaluation: the
+// evidence of one evaluate run's round, read from its PreviewVerification
+// (pinned by the run's UID) and, when that verification is the Intent's
+// current one, the Intent's decided results. Every tier sees the outcomes,
+// the checks and the ledger index; the ledger's outputs and arguments, the
+// evidence images and the evaluator's claims (its verdicts, notes and
+// dispute reasons) are tier 2 only. Agent and application text is plain
+// text, never markup.
+type RunEvaluation struct {
+	Intent string `json:"intent"`
+	Run    string `json:"run"`
+	Tier   string `json:"tier"`
+	// Verification is the PreviewVerification's name.
+	Verification string `json:"verification"`
+	Round        int32  `json:"round"`
+	Attempt      int32  `json:"attempt"`
+	Rung         string `json:"rung,omitempty"`
+	// Phase and Reason are the verification's, from fixed vocabularies.
+	Phase  string `json:"phase,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// Current: the verification is the Intent's latest, so the decided
+	// results, anomalies, disputes and hand-off below are this round's.
+	Current   bool                `json:"current,omitempty"`
+	Handoff   *EvaluationHandoff  `json:"handoff,omitempty"`
+	Outcomes  []EvaluationOutcome `json:"outcomes"`
+	Checks    []EvaluationCheck   `json:"checks"`
+	Anomalies []EvaluationAnomaly `json:"anomalies,omitempty"`
+	Disputes  []EvaluationDispute `json:"disputes,omitempty"`
+	Ledger    *EvaluationLedger   `json:"ledger,omitempty"`
+	Capture   *EvaluationCapture  `json:"capture,omitempty"`
+}
+
+// EvaluationHandoff is the hand-off of the preview link to humans.
+type EvaluationHandoff struct {
+	Mode       string `json:"mode"`
+	Released   bool   `json:"released,omitempty"`
+	ReleasedAt string `json:"releasedAt,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// EvaluationOutcome is one approved outcome: its text, maul's decided
+// result while the round is current, and (tier 2) the evaluator's claim.
+type EvaluationOutcome struct {
+	ID      string `json:"id"`
+	Outcome string `json:"outcome"`
+	Kind    string `json:"kind"`
+	Manual  bool   `json:"manual,omitempty"`
+	// Result, Basis, Line and Reason are maul's decision (current only).
+	Result string `json:"result,omitempty"`
+	Basis  string `json:"basis,omitempty"`
+	Line   string `json:"line,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// Verdict, Note and Cited are the evaluator's claims, tier 2 only.
+	Verdict string  `json:"verdict,omitempty"`
+	Note    string  `json:"note,omitempty"`
+	Cited   []int32 `json:"cited,omitempty"`
+}
+
+// EvaluationCheck is one check of the round: a saved check replayed, or a
+// proposed one confirmed. Steps is its canonical body, indented; Compiled
+// the Playwright spec maul compiled from a browser check, with the run
+// token it was compiled with.
+type EvaluationCheck struct {
+	ID            string              `json:"id"`
+	Outcome       string              `json:"outcome"`
+	Form          string              `json:"form"`
+	Digest        string              `json:"digest"`
+	Source        string              `json:"source"`
+	Steps         string              `json:"steps"`
+	Compiled      string              `json:"compiled,omitempty"`
+	CompiledToken string              `json:"compiledToken,omitempty"`
+	Replay        *EvaluationCheckRun `json:"replay,omitempty"`
+	Confirmation  *EvaluationCheckRun `json:"confirmation,omitempty"`
+	Disputed      bool                `json:"disputed,omitempty"`
+}
+
+// EvaluationCheckRun is one run of a check as the ledger recorded it.
+type EvaluationCheckRun struct {
+	Result    string `json:"result"`
+	Token     string `json:"token"`
+	Seq       int32  `json:"seq"`
+	DryRunSeq int32  `json:"dryRunSeq,omitempty"`
+}
+
+// EvaluationAnomaly is one look-around anomaly (current round only). Its
+// summary and route are the evaluator's, shown as plain text.
+type EvaluationAnomaly struct {
+	Summary string  `json:"summary"`
+	Route   string  `json:"route,omitempty"`
+	Ledger  []int32 `json:"ledger,omitempty"`
+}
+
+// EvaluationDispute is a saved check the evaluator disputed. Reason,
+// Replacement and Ledger are the evaluator's, tier 2 only.
+type EvaluationDispute struct {
+	CheckDigest string  `json:"checkDigest"`
+	Reason      string  `json:"reason,omitempty"`
+	Replacement string  `json:"replacement,omitempty"`
+	Ledger      []int32 `json:"ledger,omitempty"`
+}
+
+// EvaluationLedger is the tools container's verified ledger: the index on
+// the verification's status, every entry, and (tier 2, Outputs) each
+// entry's arguments and output read from its ledger ConfigMap.
+type EvaluationLedger struct {
+	Count   int32                   `json:"count"`
+	SHA256  string                  `json:"sha256"`
+	Outputs bool                    `json:"outputs,omitempty"`
+	Entries []EvaluationLedgerEntry `json:"entries"`
+}
+
+// EvaluationLedgerEntry is one ledger entry. Output is shown only where its
+// sha256 is the index's; OutputDropped marks one that is not (cut to fit
+// the ConfigMap, or missing).
+type EvaluationLedgerEntry struct {
+	Seq           int32                `json:"seq"`
+	Kind          string               `json:"kind"`
+	Verb          string               `json:"verb"`
+	Exit          int32                `json:"exit,omitempty"`
+	Refused       bool                 `json:"refused,omitempty"`
+	ResultSHA256  string               `json:"resultSHA256"`
+	Artifacts     []EvaluationArtifact `json:"artifacts,omitempty"`
+	Args          string               `json:"args,omitempty"`
+	Output        string               `json:"output,omitempty"`
+	OutputDropped bool                 `json:"outputDropped,omitempty"`
+}
+
+// EvaluationArtifact is one artifact an entry recorded. Image names its
+// stored evidence image (tier 2), served by
+// /api/intents/{name}/runs/{run}/evidence/{image}.
+type EvaluationArtifact struct {
+	SHA256 string `json:"sha256"`
+	Image  string `json:"image,omitempty"`
+}
+
+// EvaluationCapture is what was captured from the slot for the evaluator.
+type EvaluationCapture struct {
+	Components []EvaluationComponentCapture `json:"components,omitempty"`
+	Events     int32                        `json:"events,omitempty"`
+}
+
+// EvaluationComponentCapture is one component's captured log tail's size.
+type EvaluationComponentCapture struct {
+	Name      string `json:"name"`
+	Bytes     int32  `json:"bytes"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
