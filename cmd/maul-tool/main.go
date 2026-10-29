@@ -26,7 +26,7 @@ func main() {
 		Getenv:  os.Getenv,
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
-		Scratch: maultool.ScratchDir,
+		Scratch: scratchDir(os.Getenv),
 	})
 	stop()
 	os.Exit(code)

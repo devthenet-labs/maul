@@ -226,6 +226,9 @@ func (e *verifyEnv) serve(t *testing.T, name, head string) {
 		Name:      fmt.Sprintf("%s-%s-g%d", key.Name, c.Revision[len(c.Revision)-8:], len(pods.Items)),
 		Namespace: key.Namespace, Labels: tmpl.Labels, Annotations: tmpl.Annotations,
 	}, Spec: tmpl.Spec}
+	// Bound to the fake kubelet's Node, so its log (setContainerLog) is what
+	// pods/log serves preview-controller's capture.
+	pod.Spec.NodeName = kubeletNode
 	if err := e.cl.client.Create(ctx, pod); err != nil {
 		t.Fatal(err)
 	}

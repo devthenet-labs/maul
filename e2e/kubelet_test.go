@@ -102,6 +102,14 @@ type kubelet struct {
 	// testers is the preview tester side (runTesters), nil until a test
 	// turns it on.
 	testers *testerSide
+	// tools is the slot tool pod side (runTools), nil until a test turns
+	// it on; maulTool is maul-tool built with e2edial, on an evaluator's
+	// PATH (useAgentRunner with the evaluate phase).
+	tools    *toolSide
+	maulTool string
+	// containerLogs are logs served for any pod of a namespace's container
+	// with no log of its own (setContainerLog): "<namespace>/<container>".
+	containerLogs map[string][]byte
 	// holds are the agent phases whose Jobs wait (hold), each until its
 	// channel is closed; waiting are the Jobs waiting on one now.
 	holds   map[string]chan struct{}
@@ -228,9 +236,16 @@ func (k *kubelet) brokerToken(ctx context.Context, pod *corev1.Pod) (string, err
 func (k *kubelet) useAgentRunner(t *testing.T, phases ...string) {
 	t.Helper()
 	bin := build(t, "agent-runner")
+	tool := ""
+	if slices.Contains(phases, "evaluate") {
+		tool = buildTagged(t, "maul-tool", "e2edial")
+	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.runner = bin
+	if tool != "" {
+		k.maulTool = tool
+	}
 	if k.runnerPhases == nil {
 		k.runnerPhases = map[string]bool{}
 	}
@@ -358,12 +373,28 @@ func (k *kubelet) serveLogs(w http.ResponseWriter, r *http.Request) {
 	ns, pod, container := parts[1], parts[2], parts[3]
 	k.mu.Lock()
 	body, ok := k.logs[ns+"/"+pod+"/"+container]
+	if !ok {
+		body, ok = k.containerLogs[ns+"/"+container]
+	}
 	k.mu.Unlock()
 	if !ok {
 		http.Error(w, "container "+container+" of "+pod+" has no log", http.StatusNotFound)
 		return
 	}
 	_, _ = w.Write(body)
+}
+
+// setContainerLog makes body the log of container in any pod of namespace
+// that has no log of its own: a preview component's, which the test's fake
+// component stands in for and which preview-controller's capture reads
+// through pods/log.
+func (k *kubelet) setContainerLog(namespace, container string, body []byte) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.containerLogs == nil {
+		k.containerLogs = map[string][]byte{}
+	}
+	k.containerLogs[namespace+"/"+container] = body
 }
 
 // splitPath splits a URL path into its non-empty segments.
@@ -447,7 +478,11 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 	}
 	rec.Workspace = workspace
 	prepareExit := int32(0)
-	if err := prepareWorkspace(ctx, workspace, literalEnv(prepare.Env), &secret); err != nil {
+	prep := func() error { return prepareWorkspace(ctx, workspace, literalEnv(prepare.Env), &secret) }
+	if isRoleJob(job) {
+		prep = func() error { return prepareRole(workspace, &secret) }
+	}
+	if err := prep(); err != nil {
 		k.t.Errorf("kubelet: job %s: prepare: %v", job.Name, err)
 		prepareExit = 1
 	}
@@ -466,7 +501,7 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 					return err
 				}
 			}
-			rec.Stdout, rec.ExitCode, err = k.runAgentRunner(ctx, bin, workspace, rec.Env, token)
+			rec.Stdout, rec.ExitCode, err = k.runAgentRunner(ctx, bin, workspace, rec.Env, token, job)
 		} else {
 			rec.Stdout, rec.ExitCode, err = k.runAgent(ctx, workspace, rec.Env)
 		}
@@ -722,16 +757,20 @@ func runContainer(cmd *exec.Cmd, what string) ([]byte, int, error) {
 // paths outside the workspace — the injected binaries' directory and the
 // projected caller token — are stood in for by a directory beside it.
 func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env map[string]string,
-	callerToken string) ([]byte, int, error) {
+	callerToken string, job *batchv1.Job) ([]byte, int, error) {
 	repo := filepath.Join(workspace, "repo")
 	gitEnv := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + workspace, "GIT_CONFIG_NOSYSTEM=1"}
-	for _, args := range [][]string{
+	baseCommit := [][]string{
 		{"init", "-q"},
 		{"add", "-A"},
 		{"-c", "user.name=maul", "-c", "user.email=maul@invalid", "-c", "commit.gpgsign=false",
 			"commit", "-qm", "base " + env["MAUL_BASE_SHA"]},
 		{"checkout", "-q", "--detach", "HEAD"},
-	} {
+	}
+	if isRoleJob(job) {
+		baseCommit = nil // a role Job reads no tree
+	}
+	for _, args := range baseCommit {
 		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir, cmd.Env = repo, gitEnv
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -752,6 +791,18 @@ func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env
 		if err := os.WriteFile(filepath.Join(binDir, name), script, 0o755); err != nil {
 			return nil, 0, err
 		}
+	}
+	k.mu.Lock()
+	tool := k.maulTool
+	k.mu.Unlock()
+	if tool != "" {
+		if err := os.Symlink(tool, filepath.Join(binDir, "maul-tool")); err != nil {
+			return nil, 0, err
+		}
+	}
+	roleEnv, err := k.roleEnv(job, workspace)
+	if err != nil {
+		return nil, 0, err
 	}
 	if callerToken == "" {
 		callerToken = "e2e-projected-caller-token"
@@ -781,6 +832,7 @@ func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env
 		cmd.Env = append(cmd.Env, name+"="+value)
 	}
 	k.mu.Unlock()
+	cmd.Env = append(cmd.Env, roleEnv...) // later wins: the tool pod's relay
 	cmd.Env = append(cmd.Env, "HOME="+workspace, "MAUL_WORKSPACE="+workspace)
 	return runContainer(cmd, "agent-runner")
 }
@@ -1046,6 +1098,9 @@ func (k *kubelet) testerLoop(ctx context.Context, done chan<- struct{}) {
 			}
 			for i := range list.Items {
 				job := &list.Items[i]
+				if isToolJob(job) {
+					continue // the tool side's (runTools)
+				}
 				k.mu.Lock()
 				seen := k.ran[ns+"/"+job.Name]
 				k.mu.Unlock()

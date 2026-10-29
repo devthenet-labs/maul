@@ -636,7 +636,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	set.Codex = codex
 	harnessID := claude.ID
-	probeDNS, err := evaluatorProbeDNS(set, runnercfg.ResolvConf)
+	probeDNS, err := evaluatorProbeDNS(set, resolvConf(os.Getenv))
 	if err != nil {
 		return err
 	}

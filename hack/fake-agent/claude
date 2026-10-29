@@ -61,8 +61,11 @@
 #                              containing MAUL_FAKE_CLAUDE_CHECK_TEXT, default
 #                              "ok"), dry-runs it, and passes the outcome on
 #                              that run, proposing the check when it ran
-#                              green; "fail" dry-runs the same check and fails
-#                              the outcome on it, proposing nothing; "dispute"
+#                              green; "fail" dry-runs the same check, reads
+#                              the component's captured log after it
+#                              (`maul-tool logs <component>`, the excerpt a
+#                              fix round's reproduction quotes) and fails
+#                              the outcome on that run, proposing nothing; "dispute"
 #                              disputes the first saved check `check results`
 #                              shows failing its replay, proposing a green
 #                              replacement (<outcome>.r), the outcome unsure;
@@ -72,6 +75,9 @@
 #                              own digest and passes every outcome; and
 #                              "nochecks" passes every outcome on one
 #                              `maul-tool http GET` and proposes nothing.
+#   MAUL_FAKE_CLAUDE_ANOMALY   set: the report also carries one look-around
+#                              anomaly with this summary, on the first
+#                              component's path, citing `check results`.
 #   MAUL_FAKE_CLAUDE_REVIEW    the check reviewer's answer for every check:
 #                              "proves" (default), "does_not_prove" or
 #                              "unclear".
@@ -259,6 +265,9 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     fail)
       http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
       tool check run "checks/$o.json"
+      run=$seq
+      tool logs "$key"
+      seq=$run
       verdicts="$verdicts
   - id: $o
     verdict: fail
@@ -316,8 +325,14 @@ if [ "$MAUL_PHASE" = evaluate ]; then
 verdicts:' "$verdicts"
     if [ -n "$disputes" ]; then printf '\n%s%s' 'disputes:' "$disputes"; else printf '\n%s' 'disputes: []'; fi
     if [ -n "$proposed" ]; then printf '\n%s%s' 'proposed:' "$proposed"; else printf '\n%s' 'proposed: []'; fi
-    printf '\n%s\n' 'retire: []' 'anomalies: []' '---' '' \
-      "Scripted evaluation (${MAUL_FAKE_CLAUDE_EVALUATE:-pass}) from hack/fake-agent/claude."
+    printf '\n%s' 'retire: []'
+    if [ -n "${MAUL_FAKE_CLAUDE_ANOMALY:-}" ]; then
+      printf '\n%s\n' 'anomalies:' "  - summary: \"$MAUL_FAKE_CLAUDE_ANOMALY\"" "    route: \"$path\"" \
+        "    ledger: [$results]"
+    else
+      printf '\n%s\n' 'anomalies: []'
+    fi
+    printf '%s\n' '---' '' "Scripted evaluation (${MAUL_FAKE_CLAUDE_EVALUATE:-pass}) from hack/fake-agent/claude."
   } >"$out_report"
   echo 800 >"$state/sessions/$session"
   emit "$session" 6 2000 300 4000 600 0.0800 "Evaluated: ${MAUL_FAKE_CLAUDE_EVALUATE:-pass}."
