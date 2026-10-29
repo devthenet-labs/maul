@@ -604,11 +604,23 @@ Each Project reports a `DependenciesUnavailable` condition, absent until one of 
 | `True`  | `DependenciesUnanswered`  | GitHub failed for 30 minutes from an intent's first failed read; it started without  |
 | `True`  | `DependenciesOff`         | intent-controller runs with `--intent-dependencies=false`                            |
 
-It follows the newest start decided in the Project, so it clears once a read succeeds again.
+It follows the newest start decided by a read of an intent's dependencies, so it clears once a read succeeds again. An
+approver's `/maul start` reads nothing and does not change it.
 
-**Rollback.** Set `intentController.dependencies.enabled: false` and upgrade: every waiting intent starts on its next
-pass, on the old code path, which ignores `status.dependencies`, and every Project says `DependenciesOff`. Nothing else
-reads the new fields, so turning it on again later is safe. An older controller ignores them too.
+An intent waiting on its blockers holds no active slot. Once released it starts only when the Project is under
+`limits.maxActiveIntents`; until then it waits with `NoActiveSlot`, and a later read GitHub fails to answer does not
+send it back. The trigger that created it is authorised again at that start, so an approver who lost write access while
+it waited cannot start it. When an intent ends, maul re-reads at once only the waiting intents it blocked and those
+waiting for the slot it freed; the others keep their slower poll (five poll intervals). A started intent reads its
+blockers again, for the one late-blocker notice, only when its issue's dependency summary changes, and never after it
+started because GitHub would not answer or refused the read.
+
+**Rollback.** Set `intentController.dependencies.enabled: false` and upgrade: the intents that waited start as the
+Project has active slots for them, oldest first, on the old code path, which ignores the rest of `status.dependencies`;
+every Project says `DependenciesOff`. Nothing else reads the new fields, so turning it on again later is safe. An older
+controller ignores them too, but counts every waiting intent as active and starts them all on its next pass, past
+`limits.maxActiveIntents`: turn the flag off and let the waiting intents drain before rolling back to a release without
+intent dependencies.
 
 ## Polling cost
 

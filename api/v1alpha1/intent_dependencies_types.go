@@ -109,6 +109,13 @@ type IntentDependencies struct {
 	// ReleasedAt is when the wait ended, for any reason.
 	// +optional
 	ReleasedAt *metav1.Time `json:"releasedAt,omitempty"`
+	// ReleaseReason is the release reason the start was decided by (a
+	// WaitingOnDependencies False reason): recorded while the intent waits
+	// for an active slot (NoActiveSlot), so a later read that decides
+	// nothing leaves it standing, and kept once it starts.
+	// +optional
+	// +kubebuilder:validation:Enum=NoBlockers;BlockersClosed;StartedByApprover;DependenciesUnsupported;DependenciesForbidden;DependenciesUnanswered
+	ReleaseReason string `json:"releaseReason,omitempty"`
 	// LateNotice is when maul posted the one notice that the issue became
 	// blocked after its work started.
 	// +optional

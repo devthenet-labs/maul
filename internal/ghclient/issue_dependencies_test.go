@@ -81,23 +81,47 @@ func TestListBlockedByConditional(t *testing.T) {
 // TestListBlockedByErrors keeps GitHub's answer classifiable by the error
 // predicates the intent controller decides on.
 func TestListBlockedByErrors(t *testing.T) {
+	unclassified := func(err error) bool {
+		return err != nil && !IsNotFound(err) && !IsGone(err) && !IsForbidden(err)
+	}
 	for _, tc := range []struct {
-		status int
-		check  func(error) bool
-		name   string
+		label   string
+		status  int
+		headers map[string]string
+		body    string
+		check   func(error) bool
+		name    string
 	}{
-		{http.StatusNotFound, IsNotFound, "IsNotFound"},
-		{http.StatusGone, IsGone, "IsGone"},
-		{http.StatusForbidden, IsForbidden, "IsForbidden"},
-		{http.StatusInternalServerError, func(err error) bool {
-			return err != nil && !IsNotFound(err) && !IsGone(err) && !IsForbidden(err)
-		}, "unclassified"},
+		{"404", http.StatusNotFound, nil, "", IsNotFound, "IsNotFound"},
+		{"410", http.StatusGone, nil, "", IsGone, "IsGone"},
+		{"403", http.StatusForbidden, nil, "", IsForbidden, "IsForbidden"},
+		{"500", http.StatusInternalServerError, nil, "", unclassified, "unclassified"},
+		// A rate limit is no refusal: a waiting intent must keep waiting
+		// (transient), never start as DependenciesForbidden. The waits are
+		// zero so the client's own retries do not slow the test.
+		{"403 primary rate limit", http.StatusForbidden, map[string]string{
+			"X-RateLimit-Limit": "5000", "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1",
+		}, `{"message":"API rate limit exceeded for installation."}`, unclassified, "unclassified"},
+		{"403 secondary rate limit", http.StatusForbidden, map[string]string{"Retry-After": "0"},
+			`{"message":"You have exceeded a secondary rate limit.",` +
+				`"documentation_url":"https://docs.github.com/rest/overview/rate-limits-for-the-rest-api` +
+				`#about-secondary-rate-limits"}`,
+			unclassified, "unclassified"},
+		{"429", http.StatusTooManyRequests, map[string]string{"Retry-After": "0"},
+			`{"message":"You have exceeded a secondary rate limit."}`, unclassified, "unclassified"},
 	} {
-		t.Run(fmt.Sprint(tc.status), func(t *testing.T) {
+		t.Run(tc.label, func(t *testing.T) {
 			mux, c := newFakeClient(t)
 			mux.HandleFunc("GET /repos/o/r/issues/7/dependencies/blocked_by", func(w http.ResponseWriter, _ *http.Request) {
+				for k, v := range tc.headers {
+					w.Header().Set(k, v)
+				}
 				w.WriteHeader(tc.status)
-				_, _ = w.Write([]byte(`{"message":"no"}`))
+				body := tc.body
+				if body == "" {
+					body = `{"message":"no"}`
+				}
+				_, _ = w.Write([]byte(body))
 			})
 			_, err := c.ListBlockedBy(context.Background(), testRepo, 7, "")
 			if !tc.check(err) {

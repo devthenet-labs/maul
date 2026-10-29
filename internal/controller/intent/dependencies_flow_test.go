@@ -347,7 +347,7 @@ func TestDependencySlot(t *testing.T) {
 	if err := e.c.List(context.Background(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if got := activeIntents(&list, "target"); got != 1 {
+	if got := activeIntents(&list, "target", false); got != 1 {
 		t.Fatalf("activeIntents = %d with one waiting on blockers, want 1", got)
 	}
 
@@ -357,7 +357,7 @@ func TestDependencySlot(t *testing.T) {
 	if err := e.c.List(context.Background(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if got := activeIntents(&list, "target"); got != 2 {
+	if got := activeIntents(&list, "target", false); got != 2 {
 		t.Fatalf("activeIntents = %d with one queued for a slot, want 2", got)
 	}
 	e.mustIntent(name)

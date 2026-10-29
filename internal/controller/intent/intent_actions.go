@@ -93,6 +93,11 @@ func (p *pass) lastTrigger() v1alpha1.IntentAction {
 	if lt := p.in.Status.LastTrigger; lt != nil {
 		return *lt
 	}
+	return p.requested()
+}
+
+// requested is the trigger that created the Intent, as an action.
+func (p *pass) requested() v1alpha1.IntentAction {
 	rb := p.in.Spec.RequestedBy
 	return v1alpha1.IntentAction{Source: v1alpha1.IntentActionLabel, EventID: rb.EventID, Login: rb.Login,
 		UserID: rb.UserID, At: rb.At}

@@ -134,12 +134,10 @@ func (e *intentEnv) projectCondition(t *testing.T, status metav1.ConditionStatus
 	})
 }
 
-// TestIntentDependenciesWaitReleaseAndChain: an intent blocked by an open
-// issue waits visibly and plans once the blocker is closed as completed; a
-// chain of three intents plans in order, each released by the merge of the
-// one before (its issue closed as completed, the end of an intent nudging
-// its Project's waiters).
-func TestIntentDependenciesWaitReleaseAndChain(t *testing.T) {
+// TestIntentDependenciesWaitRelease: an intent blocked by an open issue
+// waits visibly and plans once the blocker is closed as completed, within
+// one waiting poll.
+func TestIntentDependenciesWaitRelease(t *testing.T) {
 	e := startIntents(t)
 
 	// 1. Wait: D is blocked by X, an open issue that is no intent.
@@ -153,18 +151,31 @@ func TestIntentDependenciesWaitReleaseAndChain(t *testing.T) {
 		fmt.Sprintf("[#%d](%s/issues/%d): open", x, intentRepoURL, x),
 		"`/maul start`, `/maul cancel`")
 
+	// 2. Release: X closed as completed; D plans within one waiting poll.
+	e.gh.CloseIssueAs(x, "completed", approver)
+	e.waitReleased(t, dName, v1alpha1.ReasonBlockersClosed)
+	e.waitStatusSays(t, d, dName, fmt.Sprintf("**Dependencies:** waited for [#%d](", x))
+	e.projectCondition(t, metav1.ConditionFalse, v1alpha1.ReasonDependenciesRead)
+}
+
+// chainPollInterval is the issue poll of the chain test: its waiting poll
+// (five of them, 40s) is far longer than the release bound it asserts, so
+// only the end-of-intent nudge can meet that bound.
+const chainPollInterval = 8 * time.Second
+
+// TestIntentDependenciesChain: a chain of three intents plans in order,
+// each released by the merge of the one before: its issue closed as
+// completed, and the end of an intent nudging the waiters it blocked within
+// seconds, long before their slow waiting poll would.
+func TestIntentDependenciesChain(t *testing.T) {
+	e := startIntents(t, "--intent-poll-interval", chainPollInterval.String())
+
 	// 3. The chain: C blocked by B, B blocked by A, all intents.
 	a, aName := e.fileBlocked(t, "A")
 	b, bName := e.fileBlocked(t, "B", a)
 	_, cName := e.fileBlocked(t, "C", b)
 	e.waitWaiting(t, bName, v1alpha1.ReasonOpenBlockers)
 	e.waitWaiting(t, cName, v1alpha1.ReasonOpenBlockers)
-
-	// 2. Release: X closed as completed; D plans within one waiting poll.
-	e.gh.CloseIssueAs(x, "completed", approver)
-	e.waitReleased(t, dName, v1alpha1.ReasonBlockersClosed)
-	e.waitStatusSays(t, d, dName, fmt.Sprintf("**Dependencies:** waited for [#%d](", x))
-	e.projectCondition(t, metav1.ConditionFalse, v1alpha1.ReasonDependenciesRead)
 
 	aDone := e.driveToMerge(t, a, aName)
 	e.waitReleased(t, bName, v1alpha1.ReasonBlockersClosed)
@@ -173,7 +184,8 @@ func TestIntentDependenciesWaitReleaseAndChain(t *testing.T) {
 	e.waitReleased(t, cName, v1alpha1.ReasonBlockersClosed)
 
 	// The order: each plan was made only after its blocker merged, and the
-	// merge's nudge released it at once, inside one waiting poll (5s).
+	// merge's nudge released it at once: well inside the 40s waiting poll,
+	// which alone would almost never meet the bound.
 	for _, step := range []struct {
 		blocker *v1alpha1.Intent
 		waiter  string

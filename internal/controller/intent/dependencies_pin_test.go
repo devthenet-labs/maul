@@ -4,6 +4,9 @@
 package intent
 
 import (
+	"os"
+	"slices"
+	"strings"
 	"testing"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -33,6 +36,32 @@ func TestIntentviewWaitingTextPinned(t *testing.T) {
 	}
 }
 
+// TestReleaseReasonEnumPinned: the API admits as status.dependencies.
+// releaseReason exactly the release reasons this package records.
+func TestReleaseReasonEnumPinned(t *testing.T) {
+	src, err := os.ReadFile("../../../api/v1alpha1/intent_dependencies_types.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, after, ok := strings.Cut(string(src), "ReleaseReason is")
+	marker := "+kubebuilder:validation:Enum="
+	_, enum, ok2 := strings.Cut(after, marker)
+	if !ok || !ok2 {
+		t.Fatal("no Enum marker on ReleaseReason")
+	}
+	enum, _, _ = strings.Cut(enum, "\n")
+	got := strings.Split(strings.TrimSpace(enum), ";")
+	want := make([]string, 0, len(releaseMessages))
+	for r := range releaseMessages {
+		want = append(want, r)
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("ReleaseReason enum = %v, want the release reasons %v", got, want)
+	}
+}
+
 // TestDegradedReasonsWorded: every release reason that started an intent
 // without its dependencies is worded for the Project condition and the
 // status comment, and no other is.
@@ -40,7 +69,7 @@ func TestDegradedReasonsWorded(t *testing.T) {
 	degraded := map[string]bool{v1alpha1.ReasonDependenciesUnsupported: true,
 		v1alpha1.ReasonDependenciesForbidden: true, v1alpha1.ReasonDependenciesUnanswered: true}
 	for r := range releaseMessages {
-		if got := templates.DependencyReasonWords(r) != ""; got != degraded[r] {
+		if got := templates.DependencyReasonWords(r, DefaultDependencyGiveUp) != ""; got != degraded[r] {
 			t.Errorf("DependencyReasonWords(%s) worded = %v, want %v", r, got, degraded[r])
 		}
 	}

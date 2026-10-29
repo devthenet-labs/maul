@@ -91,6 +91,30 @@ type depVerdict struct {
 	unavailableSince *time.Time
 	// failed reports a transient read: what was last recorded still stands.
 	failed bool
+	// queuedBy is, for a NoActiveSlot wait, the release reason that queued
+	// the intent for a slot.
+	queuedBy string
+}
+
+// degradedRelease reports a release reason that started the intent without
+// reading its dependencies.
+func degradedRelease(reason string) bool {
+	switch reason {
+	case v1alpha1.ReasonDependenciesUnsupported, v1alpha1.ReasonDependenciesForbidden,
+		v1alpha1.ReasonDependenciesUnanswered:
+		return true
+	}
+	return false
+}
+
+// queuedRelease is the release reason a Pending intent waiting for an
+// active slot was queued by, "" for any other (or one queued by a build
+// that did not record it).
+func queuedRelease(in *v1alpha1.Intent) string {
+	if waitReason(in) != v1alpha1.ReasonNoActiveSlot || in.Status.Dependencies == nil {
+		return ""
+	}
+	return in.Status.Dependencies.ReleaseReason
 }
 
 // completedBlocker reports a blocker that no longer holds the start: closed
@@ -215,13 +239,16 @@ func waitReason(in *v1alpha1.Intent) string {
 // holdsActiveSlot reports an Intent counted against its Project's
 // maxActiveIntents: not ended, not being deleted, and not waiting on its
 // blockers. One released but waiting for a slot (NoActiveSlot) holds one,
-// so discovery cannot create new intents ahead of it.
-func holdsActiveSlot(in *v1alpha1.Intent) bool {
+// so discovery cannot create new intents ahead of it. With dependencies
+// off (ignoreDeps, a rollback) every one not ended holds one, as before
+// dependencies: the intents that waited start as slots free, never all at
+// once past the limit.
+func holdsActiveSlot(in *v1alpha1.Intent, ignoreDeps bool) bool {
 	if !in.DeletionTimestamp.IsZero() || terminal(in.Status.Phase) {
 		return false
 	}
 	r := waitReason(in)
-	return in.Status.Phase != v1alpha1.IntentPending || r == "" || r == v1alpha1.ReasonNoActiveSlot
+	return ignoreDeps || in.Status.Phase != v1alpha1.IntentPending || r == "" || r == v1alpha1.ReasonNoActiveSlot
 }
 
 // olderRequest orders two Intents by their trigger, then their name.
@@ -236,8 +263,10 @@ func olderRequest(a, b *v1alpha1.Intent) bool {
 // (its Project's, read uncached): the others that started and have not ended,
 // plus the released waiters older than self, which go first, number fewer
 // than limit. An intent still to decide its own start is not counted: it
-// counts the others when it does, and decisions are made one at a time. Pure.
-func slotFree(self *v1alpha1.Intent, intents []v1alpha1.Intent, limit int32) bool {
+// counts the others when it does, and decisions are made one at a time.
+// With dependencies off (ignoreDeps) every older intent that waited goes
+// first, whatever it waited on. Pure.
+func slotFree(self *v1alpha1.Intent, intents []v1alpha1.Intent, limit int32, ignoreDeps bool) bool {
 	var ahead int32
 	for i := range intents {
 		in := &intents[i]
@@ -245,10 +274,11 @@ func slotFree(self *v1alpha1.Intent, intents []v1alpha1.Intent, limit int32) boo
 			terminal(in.Status.Phase) {
 			continue
 		}
+		r := waitReason(in)
 		switch {
 		case in.Status.Phase != v1alpha1.IntentPending:
 			ahead++
-		case waitReason(in) == v1alpha1.ReasonNoActiveSlot && olderRequest(in, self):
+		case (r == v1alpha1.ReasonNoActiveSlot || ignoreDeps && r != "") && olderRequest(in, self):
 			ahead++
 		}
 	}
@@ -256,11 +286,14 @@ func slotFree(self *v1alpha1.Intent, intents []v1alpha1.Intent, limit int32) boo
 }
 
 // depMemo is what the reconciler keeps in memory of an intent's last
-// blocker listing: its tag and blockers, for a conditional read. A restart
-// lists once more, which costs a request and nothing else.
+// blocker listing: its tag and blockers, for a conditional read; and the
+// issue's dependency summary the late-blocker check last read the blockers
+// at, so it reads them again only once the summary changes. A restart lists
+// once more, which costs a request and nothing else.
 type depMemo struct {
-	etag     string
-	blockers []v1alpha1.IntentBlocker
+	etag        string
+	blockers    []v1alpha1.IntentBlocker
+	lateChecked *ghclient.DependencySummary
 }
 
 // waitingPoll reports a Pending intent that waits on its dependencies: its
@@ -272,7 +305,9 @@ func (p *pass) waitingPoll() bool {
 // pendingOnDependencies is pending with dependencies honoured (the default):
 // the trigger's authority first, as without them (a refused trigger never
 // waits); then, on a poll, an approver's /maul start or the blockers decide,
-// and a released intent starts once its Project has a slot for it.
+// and a released intent starts once its Project has a slot for it. A
+// released intent queued for a slot keeps its release through a read that
+// decides nothing.
 func (p *pass) pendingOnDependencies(ctx context.Context) (bool, error) {
 	deps := p.in.Status.Dependencies
 	first := deps == nil || deps.Since == nil
@@ -297,7 +332,7 @@ func (p *pass) pendingOnDependencies(ctx context.Context) (bool, error) {
 		p.issue = issue
 	}
 	if deps != nil && deps.StartedBy != nil {
-		return p.releaseDependencies(ctx, depVerdict{release: true, reason: v1alpha1.ReasonStartedByApprover})
+		return p.releaseDependencies(ctx, depVerdict{release: true, reason: v1alpha1.ReasonStartedByApprover}, first)
 	}
 	var since *time.Time
 	if deps != nil && deps.UnavailableSince != nil {
@@ -308,13 +343,18 @@ func (p *pass) pendingOnDependencies(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	pending, _ := pendingBlockers(read.blockers)
-	cycle := read.kind == depReadOK && len(p.dependencyCycle(ctx, pending)) > 0
-	v := judgeDependencies(read, since, p.now, p.set.DependencyGiveUp, cycle)
+	var v depVerdict
+	if q := queuedRelease(p.in); q != "" && read.kind == depReadTransient {
+		v = depVerdict{release: true, reason: q}
+	} else {
+		pending, _ := pendingBlockers(read.blockers)
+		cycle := read.kind == depReadOK && len(p.dependencyCycle(ctx, pending)) > 0
+		v = judgeDependencies(read, since, p.now, p.set.DependencyGiveUp, cycle)
+	}
 	if !v.release {
 		return p.recordWait(ctx, v)
 	}
-	return p.releaseDependencies(ctx, v)
+	return p.releaseDependencies(ctx, v, first)
 }
 
 // readBlockers reads the intent issue's blockers, conditional on the last
@@ -348,14 +388,19 @@ func (p *pass) readBlockers(ctx context.Context) (depRead, error) {
 		// What GitHub counts open but would not list: a blocker in a
 		// repository this token may not read (or one too malformed to
 		// record). Open ones only: a hidden blocker closed since cannot
-		// hold the intent for ever, though maul cannot tell its reason.
+		// hold the intent for ever, though maul cannot tell its reason. It
+		// is bounded by the blockers GitHub counts in all and did not list,
+		// so a summary whose open count lags a listed blocker's close (or
+		// counts closed ones) never holds an intent whose every blocker is
+		// listed.
 		listedOpen := 0
 		for _, b := range blockers {
 			if b.State == "open" {
 				listedOpen++
 			}
 		}
-		read.unreadable = int32(min(max(is.Dependencies.BlockedBy-listedOpen, 0), 999))
+		hidden := max(is.Dependencies.TotalBlockedBy-len(blockers), 0)
+		read.unreadable = int32(min(hidden, max(is.Dependencies.BlockedBy-listedOpen, 0), 999))
 	}
 	return read, nil
 }
@@ -402,8 +447,10 @@ func validRepoPart(s string) bool {
 
 // dependencyCycle is the cycle pending's open blockers in the intent
 // repository close through the Project's other waiting intents, by their
-// recorded blockers: the issues in order, this one last; nil when none. It
-// reads the Intents from the cache: a wording, never a decision.
+// recorded blockers: the issues in order, this one last; nil when none. A
+// peer that no longer waits on its blockers (an approver started it, or it
+// waits only for a slot) breaks the cycle. It reads the Intents from the
+// cache: a wording, never a decision.
 func (p *pass) dependencyCycle(ctx context.Context, pending []v1alpha1.IntentBlocker) []int64 {
 	edges := map[int64][]int64{p.number(): openIntentRepoBlockers(p.repo(), pending)}
 	if len(edges[p.number()]) == 0 {
@@ -416,7 +463,8 @@ func (p *pass) dependencyCycle(ctx context.Context, pending []v1alpha1.IntentBlo
 	for i := range intents.Items {
 		in := &intents.Items[i]
 		if in.Name == p.in.Name || in.Spec.Project != p.in.Spec.Project || !sameRepo(in.Spec.Issue.Repository, p.repo()) ||
-			in.Status.Phase != v1alpha1.IntentPending || in.Status.Dependencies == nil {
+			!in.Waiting() || waitReason(in) == v1alpha1.ReasonNoActiveSlot || in.Status.Dependencies == nil ||
+			in.Status.Dependencies.StartedBy != nil {
 			continue
 		}
 		edges[in.Spec.Issue.Number] = openIntentRepoBlockers(p.repo(), in.Status.Dependencies.Blockers)
@@ -450,6 +498,7 @@ func (p *pass) recordWait(ctx context.Context, v depVerdict) (bool, error) {
 	if !v.failed && v.reason != v1alpha1.ReasonNoActiveSlot {
 		next.Blockers, next.More, next.Unreadable = v.pending, v.more, v.unreadable
 	}
+	next.ReleaseReason = v.queuedBy
 	next.UnavailableSince = nil
 	if v.unavailableSince != nil {
 		at := metav1.NewTime(*v.unavailableSince)
@@ -527,21 +576,42 @@ var releaseMessages = map[string]string{
 		"bound; started without them",
 }
 
-// releaseDependencies starts a released intent once the Project has a slot
-// for it (slotFree, over an uncached list), and otherwise records it waiting
-// for one (NoActiveSlot). The start is one status write with the release.
-func (p *pass) releaseDependencies(ctx context.Context, v depVerdict) (bool, error) {
+// haveSlot reports whether the Project has an active slot for this intent
+// now (slotFree, over an uncached list of its Intents).
+func (p *pass) haveSlot(ctx context.Context) (bool, error) {
 	var intents v1alpha1.IntentList
 	if err := p.r.APIReader.List(ctx, &intents, client.InNamespace(p.in.Namespace)); err != nil {
 		return false, err
 	}
-	if !slotFree(p.in, intents.Items, maxActiveIntents(p.proj)) {
-		return p.recordWait(ctx, depVerdict{reason: v1alpha1.ReasonNoActiveSlot})
+	return slotFree(p.in, intents.Items, maxActiveIntents(p.proj), p.set.IgnoreDependencies), nil
+}
+
+// releaseDependencies starts a released intent once the Project has a slot
+// for it, and otherwise records it waiting for one (NoActiveSlot, with the
+// release reason). authorized reports the trigger was decided in this very
+// pass; otherwise it was decided when the wait began, perhaps weeks ago,
+// and is decided again before the start, so an approver who lost the right
+// to start work cannot start it by an old trigger. The start is one status
+// write with the release.
+func (p *pass) releaseDependencies(ctx context.Context, v depVerdict, authorized bool) (bool, error) {
+	free, err := p.haveSlot(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !free {
+		return p.recordWait(ctx, depVerdict{reason: v1alpha1.ReasonNoActiveSlot, queuedBy: v.reason})
+	}
+	if !authorized {
+		accepted, err := p.decideTrigger(ctx)
+		if err != nil || !accepted {
+			return true, err
+		}
 	}
 	reason := v.reason
-	if waitReason(p.in) == v1alpha1.ReasonNoActiveSlot && reason != v1alpha1.ReasonStartedByApprover {
-		// The verdict that put it in the queue stands: the read now is the
-		// same release, and a NoBlockers wording would hide the wait.
+	if waitReason(p.in) == v1alpha1.ReasonNoActiveSlot && reason == v1alpha1.ReasonNoBlockers {
+		// A queued intent waited on blockers before: a NoBlockers wording
+		// would hide that wait. Any other verdict is the read's own (a
+		// refused read is never worded as blockers closed).
 		if c := p.releasedBy(); c != "" {
 			reason = c
 		}
@@ -557,7 +627,7 @@ func (p *pass) releaseDependencies(ctx context.Context, v depVerdict) (bool, err
 		if next.Since == nil {
 			next.Since = &now
 		}
-		next.ReleasedAt, next.UnavailableSince = &now, nil
+		next.ReleasedAt, next.UnavailableSince, next.ReleaseReason = &now, nil, reason
 		cur.Status.Dependencies = &next
 		p.setWaitCondition(cur, metav1.ConditionFalse, reason, releaseMessages[reason])
 	})
@@ -572,23 +642,50 @@ func (p *pass) releasedBy() string {
 	return ""
 }
 
-// noticeLateBlockers tells the issue, once, that it became blocked after the
-// intent started: the start is never undone (design D8), so its plan and
-// pull requests will not hold the blocker's work. It runs only for an
-// intent whose start was decided with dependencies honoured, only on a poll
-// whose issue summary shows an open blocker, and never fails the pass: a
-// read GitHub refuses is advice lost, nothing more. changed reports a
-// status write.
-func (p *pass) noticeLateBlockers(ctx context.Context) (bool, error) {
+// lateCheckDue reports whether this poll looks for blockers added after the
+// start (noticeLateBlockers says when).
+func (p *pass) lateCheckDue() bool {
 	deps := p.in.Status.Dependencies
 	if p.set.IgnoreDependencies || deps == nil || deps.ReleasedAt == nil || deps.LateNotice != nil ||
 		p.issue == nil || p.issue.Dependencies == nil || p.issue.Dependencies.BlockedBy < 1 ||
 		p.in.Status.Phase == v1alpha1.IntentPending || terminal(p.in.Status.Phase) {
+		return false
+	}
+	if c := meta.FindStatusCondition(p.in.Status.Conditions, v1alpha1.ConditionWaitingOnDependencies); c == nil ||
+		degradedRelease(c.Reason) || degradedRelease(deps.ReleaseReason) {
+		return false
+	}
+	var checked *ghclient.DependencySummary
+	p.r.memo(func() { checked = p.r.deps[p.in.Name].lateChecked })
+	return checked == nil || *checked != *p.issue.Dependencies
+}
+
+// noticeLateBlockers tells the issue, once, that it became blocked after the
+// intent started: the start is never undone (design D8), so its plan and
+// pull requests will not hold the blocker's work. It runs only for an
+// intent whose start was decided with its dependencies read (never one that
+// started because they could not be: the blockers it would find were not
+// added late, and a refused read would be refused again), only on a poll
+// whose issue summary shows an open blocker and differs from the one it
+// last read the blockers at, and never fails the pass: a read GitHub
+// refuses is advice lost, nothing more. changed reports a status write.
+func (p *pass) noticeLateBlockers(ctx context.Context) (bool, error) {
+	if !p.lateCheckDue() {
 		return false, nil
 	}
+	deps := p.in.Status.Dependencies
+	summary := *p.issue.Dependencies
 	read, err := p.readBlockers(ctx)
-	if err != nil || read.kind != depReadOK {
+	if err != nil {
 		return false, err
+	}
+	p.r.memo(func() {
+		m := p.r.deps[p.in.Name]
+		m.lateChecked = &summary
+		p.r.deps[p.in.Name] = m
+	})
+	if read.kind != depReadOK {
+		return false, nil
 	}
 	// Open blockers the wait did not know of: one an approver's start
 	// overrode is no news.
@@ -662,7 +759,7 @@ func (p *pass) statusDependencies(ctx context.Context) *templates.IntentDependen
 	cond := meta.FindStatusCondition(p.in.Status.Conditions, v1alpha1.ConditionWaitingOnDependencies)
 	s := &templates.IntentDependencyStatus{
 		Blockers: p.blockerRefs(d.Blockers), More: d.More, Unreadable: d.Unreadable,
-		MaxActiveIntents: maxActiveIntents(p.proj), Late: p.blockerRefs(d.Late),
+		MaxActiveIntents: maxActiveIntents(p.proj), Late: p.blockerRefs(d.Late), GiveUp: p.set.DependencyGiveUp,
 	}
 	if cond != nil {
 		s.Reason = cond.Reason
@@ -704,9 +801,10 @@ func (p *pass) availableVerbs(phase v1alpha1.IntentPhase) []string {
 // setDependenciesUnavailable sets cur's DependenciesUnavailable condition
 // from the Project's Intents, which the project reconciler lists every pass
 // anyway: True with DependenciesOff while the flag is off; else the newest
-// start decided with dependencies honoured says whether they were read (by
-// its WaitingOnDependencies condition's transition time). A Project none of
-// whose intents decided a start keeps its last word.
+// start decided by a read of the dependencies says whether they were read
+// (by its WaitingOnDependencies condition's transition time). An approver's
+// /maul start reads nothing, so it says nothing. A Project none of whose
+// intents decided a start that way keeps its last word.
 func setDependenciesUnavailable(cur *v1alpha1.Project, intents *v1alpha1.IntentList, s Settings) {
 	cond := metav1.Condition{Type: v1alpha1.ConditionDependenciesUnavailable, ObservedGeneration: cur.Generation}
 	if s.IgnoreDependencies {
@@ -724,7 +822,7 @@ func setDependenciesUnavailable(cur *v1alpha1.Project, intents *v1alpha1.IntentL
 			continue
 		}
 		c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionWaitingOnDependencies)
-		if c == nil || c.Status != metav1.ConditionFalse {
+		if c == nil || c.Status != metav1.ConditionFalse || c.Reason == v1alpha1.ReasonStartedByApprover {
 			continue
 		}
 		if newest == nil || newest.LastTransitionTime.Before(&c.LastTransitionTime) ||
@@ -735,7 +833,7 @@ func setDependenciesUnavailable(cur *v1alpha1.Project, intents *v1alpha1.IntentL
 	if newest == nil {
 		return
 	}
-	if words := templates.DependencyReasonWords(newest.Reason); words != "" {
+	if words := templates.DependencyReasonWords(newest.Reason, s.DependencyGiveUp); words != "" {
 		cond.Status, cond.Reason = metav1.ConditionTrue, newest.Reason
 		cond.Message = fmt.Sprintf("issue dependencies could not be read for intent %s (%s): intents start "+
 			"without waiting for them", from, words)
@@ -746,10 +844,12 @@ func setDependenciesUnavailable(cur *v1alpha1.Project, intents *v1alpha1.IntentL
 	meta.SetStatusCondition(&cur.Status.Conditions, cond)
 }
 
-// nudgeWaiting re-polls, at once, every Pending intent of an ended intent's
-// Project: an intent that blocked them may just have closed its issue, and
-// it freed a slot either way. Its poll memo is cleared, so the next pass
-// reads GitHub, and each is enqueued.
+// nudgeWaiting re-polls, at once, the waiting intents of an ended intent's
+// Project its ending concerns (nudged): those it blocked, which its merge
+// may just have released, and those waiting for the slot it freed. Each
+// one's poll memo is cleared, so its next pass reads GitHub, and it is
+// enqueued. Every other waiter keeps its slow poll: a burst of endings
+// costs requests only for the intents they can release.
 func (r *IntentReconciler) nudgeWaiting(ctx context.Context, c client.Reader, ended client.Object) []ctrl.Request {
 	in, ok := ended.(*v1alpha1.Intent)
 	if !ok {
@@ -763,13 +863,33 @@ func (r *IntentReconciler) nudgeWaiting(ctx context.Context, c client.Reader, en
 	var out []ctrl.Request
 	for i := range intents.Items {
 		w := &intents.Items[i]
-		if w.Name == in.Name || w.Status.Phase != v1alpha1.IntentPending {
+		if w.Name == in.Name || !nudged(w, in, r.Settings.IgnoreDependencies) {
 			continue
 		}
 		r.memo(func() { delete(r.polled, w.Name) })
 		out = append(out, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(w)})
 	}
 	return out
+}
+
+// nudged reports a waiting intent w an ending of intent ended concerns:
+// waiting for an active slot (with dependencies off, every one that
+// waited), or waiting on blockers among which ended's issue is recorded,
+// or may be (more blockers than are recorded). Pure.
+func nudged(w, ended *v1alpha1.Intent, ignoreDeps bool) bool {
+	if !w.Waiting() {
+		return false
+	}
+	if ignoreDeps || waitReason(w) == v1alpha1.ReasonNoActiveSlot {
+		return true
+	}
+	d := w.Status.Dependencies
+	if d == nil {
+		return false
+	}
+	return d.More > 0 || slices.ContainsFunc(d.Blockers, func(b v1alpha1.IntentBlocker) bool {
+		return b.Number == ended.Spec.Issue.Number && sameRepo(b.Repository, ended.Spec.Issue.Repository)
+	})
 }
 
 // endedIntentHandler maps an Intent's ending (a non-terminal phase becoming

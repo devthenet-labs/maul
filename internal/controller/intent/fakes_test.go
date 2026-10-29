@@ -253,6 +253,10 @@ type fakeGitHub struct {
 	// noSummary leaves issue_dependencies_summary off every issue, as a
 	// GitHub without issue dependencies does.
 	noSummary bool
+	// summaryCountsClosed counts closed blockers in the summary's
+	// blocked_by too, as a GitHub whose summary lags or counts every
+	// blocker would.
+	summaryCountsClosed bool
 	// blockedByErr answers every ListBlockedBy with it.
 	blockedByErr error
 	// sinces are the since of every comment listing, in order.
@@ -653,7 +657,7 @@ func (f *fakeGitHub) view(is *fakeIssue) *ghclient.Issue {
 		v.Dependencies = &ghclient.DependencySummary{}
 		for _, b := range is.blockedBy {
 			v.Dependencies.TotalBlockedBy++
-			if f.blockerState(b).State == "open" {
+			if f.blockerState(b).State == "open" || f.summaryCountsClosed {
 				v.Dependencies.BlockedBy++
 			}
 		}

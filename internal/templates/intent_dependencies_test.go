@@ -174,3 +174,31 @@ func TestHiddenBlockersNeverNamed(t *testing.T) {
 		}
 	}
 }
+
+// TestUnansweredWordsTheBound: the give-up bound is a flag, so the wording
+// names the bound the intent waited, never a fixed 30 minutes.
+func TestUnansweredWordsTheBound(t *testing.T) {
+	for _, tc := range []struct {
+		giveUp time.Duration
+		want   string
+	}{
+		{30 * time.Minute, "GitHub did not answer for 30 minutes"},
+		{5 * time.Minute, "GitHub did not answer for 5 minutes"},
+		{time.Hour, "GitHub did not answer for 1 hour"},
+		{12 * time.Second, "GitHub did not answer for 12 seconds"},
+		{90 * time.Second, "GitHub did not answer for 90 seconds"},
+		{1500 * time.Millisecond, "GitHub did not answer for 1.5s"},
+	} {
+		if got := DependencyReasonWords(v1alpha1.ReasonDependenciesUnanswered, tc.giveUp); got != tc.want {
+			t.Errorf("DependencyReasonWords(Unanswered, %s) = %q, want %q", tc.giveUp, got, tc.want)
+		}
+	}
+	got, err := startedComment(IntentDependencyStatus{Reason: v1alpha1.ReasonDependenciesUnanswered,
+		GiveUp: 5 * time.Minute})()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "(GitHub did not answer for 5 minutes)") || strings.Contains(got, "30 minutes") {
+		t.Errorf("status comment does not word the configured bound:\n%s", got)
+	}
+}

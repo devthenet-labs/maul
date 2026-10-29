@@ -217,15 +217,21 @@
 // first start is gated (a replan or a revival is not), and an approver's
 // /maul start ends the wait. A waiting intent holds no maxActiveIntents
 // slot; a released one starts only when the Project has a slot for it,
-// oldest first (NoActiveSlot meanwhile, which discovery counts), and an
-// intent of the Project ending nudges every Pending one at once. A waiting
+// oldest first (NoActiveSlot meanwhile, which discovery counts, its release
+// reason recorded in status.dependencies.releaseReason so a read that
+// decides nothing never sends it back), its trigger authorised again at that
+// start, and an intent of the Project ending nudges at once the waiters it
+// blocked and those waiting for a slot. With the flag off (a rollback) an
+// intent that waited holds a slot again and starts as one frees. A waiting
 // intent polls its issue every waitingPollFactor poll intervals. If GitHub
 // answers 404, 410 or 403, the intent starts without its dependencies at
 // once; any other failure waits up to DependencyGiveUp (30m), timed from
 // status.dependencies.unavailableSince so a restart does not reset it; the
 // Project's DependenciesUnavailable condition (ProjectReconciler) says so. A
 // blocker added after the start never stops the intent: one notice, keyed
-// dependencies-late, and a line in the status comment.
+// dependencies-late, and a line in the status comment; it is looked for
+// only when the issue's dependency summary changes, and never after a start
+// without the dependencies read.
 //
 // # Authority
 //

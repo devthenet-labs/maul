@@ -899,6 +899,20 @@ spec:
                     maximum: 999
                     minimum: 0
                     type: integer
+                  releaseReason:
+                    description: |-
+                      ReleaseReason is the release reason the start was decided by (a
+                      WaitingOnDependencies False reason): recorded while the intent waits
+                      for an active slot (NoActiveSlot), so a later read that decides
+                      nothing leaves it standing, and kept once it starts.
+                    enum:
+                    - NoBlockers
+                    - BlockersClosed
+                    - StartedByApprover
+                    - DependenciesUnsupported
+                    - DependenciesForbidden
+                    - DependenciesUnanswered
+                    type: string
                   releasedAt:
                     description: ReleasedAt is when the wait ended, for any reason.
                     format: date-time

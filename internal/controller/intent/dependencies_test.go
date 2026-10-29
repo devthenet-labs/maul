@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -198,12 +199,12 @@ func TestSlotRules(t *testing.T) {
 		in   v1alpha1.Intent
 		want bool
 	}{{active, true}, {waiting, false}, {queuedOld, true}, {undecided, true}, {merged, false}} {
-		if got := holdsActiveSlot(&tc.in); got != tc.want {
+		if got := holdsActiveSlot(&tc.in, false); got != tc.want {
 			t.Errorf("holdsActiveSlot(%s) = %v, want %v", tc.in.Name, got, tc.want)
 		}
 	}
 	list := &v1alpha1.IntentList{Items: []v1alpha1.Intent{active, waiting, queuedOld, queuedNew, undecided, merged}}
-	if got := activeIntents(list, "target"); got != 4 {
+	if got := activeIntents(list, "target", false); got != 4 {
 		t.Errorf("activeIntents = %d, want 4: the started, the two queued and the undecided", got)
 	}
 
@@ -223,8 +224,67 @@ func TestSlotRules(t *testing.T) {
 		{undecided, 2, false},
 		{undecided, 3, true},
 	} {
-		if got := slotFree(&tc.self, all, tc.limit); got != tc.want {
+		if got := slotFree(&tc.self, all, tc.limit, false); got != tc.want {
 			t.Errorf("slotFree(%s, limit %d) = %v, want %v", tc.self.Name, tc.limit, got, tc.want)
 		}
+	}
+}
+
+// TestSlotRulesDependenciesOff: with dependencies off (a rollback) an
+// intent that waited holds a slot for discovery again, as every Pending
+// intent did before, and starts behind the older ones that waited.
+func TestSlotRulesDependenciesOff(t *testing.T) {
+	active := slotIntent("a", 0, v1alpha1.IntentPlanning, "")
+	waiting := slotIntent("w", 1, v1alpha1.IntentPending, v1alpha1.ReasonOpenBlockers)
+	queued := slotIntent("q", 2, v1alpha1.IntentPending, v1alpha1.ReasonNoActiveSlot)
+	younger := slotIntent("y", 4, v1alpha1.IntentPending, v1alpha1.ReasonCheckingDependencies)
+	if !holdsActiveSlot(&waiting, true) {
+		t.Errorf("holdsActiveSlot(%s, off) = false, want true", waiting.Name)
+	}
+	list := &v1alpha1.IntentList{Items: []v1alpha1.Intent{active, waiting, queued, younger}}
+	if got := activeIntents(list, "target", true); got != 4 {
+		t.Errorf("activeIntents(off) = %d, want 4", got)
+	}
+	for _, tc := range []struct {
+		self  v1alpha1.Intent
+		limit int32
+		want  bool
+	}{
+		{waiting, 1, false},
+		{waiting, 2, true},
+		// y has the started one and both older waiters ahead.
+		{younger, 3, false},
+		{younger, 4, true},
+	} {
+		if got := slotFree(&tc.self, list.Items, tc.limit, true); got != tc.want {
+			t.Errorf("slotFree(%s, limit %d, off) = %v, want %v", tc.self.Name, tc.limit, got, tc.want)
+		}
+	}
+}
+
+// TestProjectConditionIgnoresStarts: an approver's /maul start reads
+// nothing, so it never tells the Project the dependencies were read.
+func TestProjectConditionIgnoresStarts(t *testing.T) {
+	at := func(m int) metav1.Time { return metav1.NewTime(time.Date(2026, 10, 28, 12, m, 0, 0, time.UTC)) }
+	released := func(name, reason string, m int) v1alpha1.Intent {
+		return v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: v1alpha1.IntentSpec{Project: "target"},
+			Status: v1alpha1.IntentStatus{Conditions: []metav1.Condition{{Type: v1alpha1.ConditionWaitingOnDependencies,
+				Status: metav1.ConditionFalse, Reason: reason, LastTransitionTime: at(m)}}}}
+	}
+	cur := testProject()
+	list := &v1alpha1.IntentList{Items: []v1alpha1.Intent{
+		released("x", v1alpha1.ReasonDependenciesUnanswered, 1),
+		released("y", v1alpha1.ReasonStartedByApprover, 2),
+	}}
+	setDependenciesUnavailable(cur, list, Settings{DependencyGiveUp: DefaultDependencyGiveUp})
+	c := meta.FindStatusCondition(cur.Status.Conditions, v1alpha1.ConditionDependenciesUnavailable)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != v1alpha1.ReasonDependenciesUnanswered {
+		t.Fatalf("Project condition = %+v, want True DependenciesUnanswered", c)
+	}
+	// Only starts so far: nothing was read, so nothing is said.
+	cur = testProject()
+	setDependenciesUnavailable(cur, &v1alpha1.IntentList{Items: list.Items[1:]}, Settings{})
+	if c := meta.FindStatusCondition(cur.Status.Conditions, v1alpha1.ConditionDependenciesUnavailable); c != nil {
+		t.Fatalf("Project condition = %+v after starts alone, want none", c)
 	}
 }

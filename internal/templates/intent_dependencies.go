@@ -49,8 +49,10 @@ type IntentDependencyStatus struct {
 	// this issue's blocker back to this issue (exclusive), in order.
 	Cycle []IntentBlockerRef
 	// GiveUpAt is when a read GitHub keeps failing gives up and the intent
-	// starts without its dependencies (CheckingDependencies).
+	// starts without its dependencies (CheckingDependencies); GiveUp is
+	// that bound, which DependenciesUnanswered words.
 	GiveUpAt time.Time
+	GiveUp   time.Duration
 	// MaxActiveIntents is the Project's limit (NoActiveSlot).
 	MaxActiveIntents int32
 	// ReleasedAt is when the wait ended; StartedBy the approver whose
@@ -62,16 +64,42 @@ type IntentDependencyStatus struct {
 	Late []IntentBlockerRef
 }
 
-// dependencyReasonWords say, in a clause, why a read was degraded.
-var dependencyReasonWords = map[string]string{
-	v1alpha1.ReasonDependenciesUnsupported: "this GitHub does not offer issue dependencies",
-	v1alpha1.ReasonDependenciesForbidden:   "the GitHub App may not read them",
-	v1alpha1.ReasonDependenciesUnanswered:  "GitHub did not answer for 30 minutes",
+// DependencyReasonWords is the clause naming why a degraded read could not
+// honour the dependencies, "" for any other reason. giveUp is how long a
+// failing read held the intent (DependenciesUnanswered).
+func DependencyReasonWords(reason string, giveUp time.Duration) string {
+	switch reason {
+	case v1alpha1.ReasonDependenciesUnsupported:
+		return "this GitHub does not offer issue dependencies"
+	case v1alpha1.ReasonDependenciesForbidden:
+		return "the GitHub App may not read them"
+	case v1alpha1.ReasonDependenciesUnanswered:
+		return "GitHub did not answer for " + spanWords(giveUp)
+	}
+	return ""
 }
 
-// DependencyReasonWords is the clause naming why a degraded read could not
-// honour the dependencies, "" for any other reason.
-func DependencyReasonWords(reason string) string { return dependencyReasonWords[reason] }
+// spanWords is a duration in words: whole hours, minutes or seconds where
+// it is one ("30 minutes", "1 hour"), else Go's form.
+func spanWords(d time.Duration) string {
+	unit := func(n time.Duration, one string) string {
+		if n == 1 {
+			return "1 " + one
+		}
+		return fmt.Sprintf("%d %ss", n, one)
+	}
+	switch {
+	case d <= 0:
+		return d.String()
+	case d%time.Hour == 0:
+		return unit(d/time.Hour, "hour")
+	case d%time.Minute == 0:
+		return unit(d/time.Minute, "minute")
+	case d%time.Second == 0:
+		return unit(d/time.Second, "second")
+	}
+	return d.String()
+}
 
 // waitingSentence is the Pending phase's sentence while the intent waits,
 // slotSentence while it waits only for an active slot.
@@ -169,9 +197,9 @@ func renderStarted(d *IntentDependencyStatus) string {
 			line += " while " + refList(refs) + " " + wasWere(len(d.Blockers)) + " still not closed as completed"
 		}
 		return line + "."
-	case dependencyReasonWords[d.Reason] != "":
-		return "**Dependencies:** maul could not read this issue's dependencies (" + dependencyReasonWords[d.Reason] +
-			"), so it started without waiting for them."
+	case DependencyReasonWords(d.Reason, d.GiveUp) != "":
+		return "**Dependencies:** maul could not read this issue's dependencies (" +
+			DependencyReasonWords(d.Reason, d.GiveUp) + "), so it started without waiting for them."
 	case d.Reason == v1alpha1.ReasonBlockersClosed && len(refs) > 0:
 		return "**Dependencies:** waited for " + refList(refs) + at + "."
 	}

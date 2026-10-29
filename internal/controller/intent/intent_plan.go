@@ -32,10 +32,16 @@ var errNotOwned = errors.New("exists and belongs to another owner")
 // planning; anyone else's closes the Intent with one notice, the label
 // removed first. With dependencies honoured (the default) an accepted
 // trigger first waits for the issues its issue is blocked by
-// (pendingOnDependencies).
+// (pendingOnDependencies). With them off, an intent that waited on them
+// before (a rollback) starts only once its Project has a slot for it.
 func (p *pass) pending(ctx context.Context) (bool, error) {
 	if !p.set.IgnoreDependencies {
 		return p.pendingOnDependencies(ctx)
+	}
+	if waitReason(p.in) != "" {
+		if free, err := p.haveSlot(ctx); err != nil || !free {
+			return false, err
+		}
 	}
 	accepted, err := p.decideTrigger(ctx)
 	if err != nil || !accepted {
@@ -131,8 +137,9 @@ func (p *pass) startPlanning(ctx context.Context, issue *ghclient.Issue, trigger
 		input.ContextDigest = digest([]byte(c))
 	}
 	// The revision's plan runs are attributed to the action that opened it,
-	// whatever is consumed after it.
-	opened := p.lastTrigger()
+	// whatever is consumed after it: the first start's is the trigger that
+	// created the Intent, never a replan consumed while it waited.
+	opened := p.requested()
 	if trigger != nil {
 		opened = *trigger
 	}

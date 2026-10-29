@@ -79,7 +79,8 @@ comment `/maul start` on one of the issues: it plans, and once it merges the oth
 
 maul never waits forever on an error. The 30 minutes are counted from the first failure, recorded on the Intent, so a
 restart of the controller does not start the count again. In every one of these cases the intent's status comment says
-it started without its dependencies, and the Project's `DependenciesUnavailable` condition says why.
+it started without its dependencies, and the Project's `DependenciesUnavailable` condition says why. An intent that
+started this way gets no "added later" notice: maul cannot tell which of its blockers were there all along.
 
 ## Turning it off
 
