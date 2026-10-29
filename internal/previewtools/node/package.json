@@ -1,0 +1,20 @@
+{
+    "name": "maul-preview-tools",
+    "version": "0.0.0",
+    "private": true,
+    "description": "The Node side of the preview-tools image: the Playwright CLI the browser relay drives and the test runner that runs compiled browser checks. Every version is exact; TestPlaywrightCLIFormat re-checks the snapshot grammar on every bump.",
+    "license": "MIT",
+    "engines": {
+        "node": ">=24"
+    },
+    "dependencies": {
+        "@playwright/cli": "0.1.22",
+        "@playwright/test": "1.64.1",
+        "playwright": "1.64.1",
+        "playwright-core": "1.64.1"
+    },
+    "devDependencies": {
+        "@types/node": "24.19.2",
+        "typescript": "5.9.3"
+    }
+}

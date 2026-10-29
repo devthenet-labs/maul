@@ -23,7 +23,13 @@
 //     host (v1alpha1.PreviewRoute), sent with the gateway's header set
 //     (previewauth.CleanRequest, Host the preview host); the exchange is
 //     untrusted, the status and latency observed;
-//   - browser: "unavailable" until the browser relay (S1-12);
+//   - browser: one Playwright CLI call in the relay's session (browser.go):
+//     the allowlisted verbs only, no flags, navigation confined to the
+//     preview front, the post-action snapshot inline (capped), ANSI
+//     stripped, favicon noise filtered, every artifact hashed and kept
+//     (served to maul-tool at GET /v1/artifacts/<sha256>), and
+//     generate-locator recorded for each ref acted on; "unavailable" in a
+//     pod with no browser;
 //   - exec: argv run in the sandbox through the exec shim (exec.go);
 //   - logs, events: the captured files;
 //   - check run: internal/checks validates the check, then a dry run;
@@ -33,6 +39,17 @@
 //     a relay entry each;
 //   - finish (agent-runner's): the cited images as evidence lines, the
 //     summary to stdout and the termination message, and the relay ends.
+//
+// The browser relay owns the CLI session: opened against the browser
+// container's keyed CDP shim before the agent starts (the key only in a
+// 0600 session config), its viewport set to 1280x800, reopened once if
+// lost; each open a relay session entry. The preview front (NewFront, on
+// loopback FrontAddr) gives the browser one origin, the components
+// path-routed behind it as the gateway routes them. A browser check
+// (browsercheck.go) is compiled by internal/checks/playwright, written
+// into a fresh directory beside maul's fixture (node/maul-fixture.ts) and
+// config, and run by the pinned Playwright test runner in its own process
+// against a fresh Chromium; the JSON reporter's report is judged here.
 //
 // Every check run (checkrun.go) is the check alone, under a fresh run
 // token drawn from crypto/rand, re-run once under another after a
@@ -52,6 +69,6 @@
 //
 // dial.go and, under the e2edial tag only, dial_e2e.go are the e2e
 // suite's seams. The package imports only the standard library,
-// api/v1alpha1 and internal/acceptance, checks, previewauth, toolexec and
-// toolwire (a test pins that): no Kubernetes client, no credential.
+// api/v1alpha1 and internal/acceptance, checks, checks/playwright,
+// previewauth, toolexec and toolwire (a test pins that): no Kubernetes client, no credential.
 package previewtools

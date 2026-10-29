@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- Copyright 2026 Bitwise Media Group Ltd. -->
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The browser trial's Beat Battle head-to-head page, cut down to what the
+  browser relay's live tests need (internal/previewtools browser_live_test.go):
+  two cards side by side, each with Play and Vote and a score. The server
+  serves /variant.css as one of correct (empty), overlap.css or
+  invisible.css, the trial's two planted defects.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Beat Battle — Battle</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/variant.css" />
+    <script src="/battle.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Beat Battle</h1>
+    </header>
+    <main>
+      <section aria-label="Battle">
+        <p id="error" class="error" role="alert" hidden></p>
+        <div class="versus">
+          <article class="side" data-side="a">
+            <h2 id="name-a" data-testid="name-a"></h2>
+            <button id="play-a" data-testid="play-a" class="btn" type="button">Play</button>
+            <button id="vote-a" data-testid="vote-a" class="btn" type="button">Vote</button>
+            <p id="score-a" data-testid="score-a" class="score"></p>
+          </article>
+          <article class="side" data-side="b">
+            <h2 id="name-b" data-testid="name-b"></h2>
+            <button id="play-b" data-testid="play-b" class="btn" type="button">Play</button>
+            <button id="vote-b" data-testid="vote-b" class="btn" type="button">Vote</button>
+            <p id="score-b" data-testid="score-b" class="score"></p>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -47,8 +47,12 @@ type Options struct {
 	Client *Client
 	// Exec runs programs in the sandbox; nil when the pod has none.
 	Exec Execer
-	// Artifacts holds the bytes of recorded artifacts; nil has none.
+	// Artifacts holds the bytes of recorded artifacts; nil has none. The
+	// browser relay keeps its artifacts in it when it is an ArtifactKeeper.
 	Artifacts ArtifactStore
+	// Browser is the browser relay (browser.go); nil when the pod has no
+	// browser, which answers every browser call "unavailable".
+	Browser *BrowserOptions
 	// Token draws a fresh run token; nil draws 16 random hex characters.
 	Token func() string
 	// Now is the clock; nil is time.Now.
@@ -66,6 +70,7 @@ type Relay struct {
 	client   *Client
 	execer   Execer
 	store    ArtifactStore
+	br       *BrowserOptions
 	token    func() string
 	now      func() time.Time
 	termPath string
@@ -79,6 +84,7 @@ type Relay struct {
 	replays   []toolwire.CheckRunRecord
 	dryOrder  []string
 	finished  bool
+	reopened  bool // the browser session was reopened once
 	summary   toolwire.Summary
 	done      chan struct{}
 }
@@ -99,7 +105,7 @@ func NewRelay(o Options) (*Relay, error) {
 		return nil, errors.New("previewtools: a relay needs an output and a client")
 	}
 	r := &Relay{
-		cfg: o.Config, dir: o.Dir, client: o.Client, execer: o.Exec, store: o.Artifacts, token: o.Token,
+		cfg: o.Config, dir: o.Dir, client: o.Client, execer: o.Exec, store: o.Artifacts, br: o.Browser, token: o.Token,
 		now: o.Now, termPath: o.TerminationPath, ledger: toolwire.NewWriter(o.Out),
 		artifacts: map[int64]map[string]bool{}, dryRuns: map[string]dryRun{}, done: make(chan struct{}),
 	}
@@ -127,6 +133,7 @@ type result struct {
 	refused, reason string
 	output, inline  string
 	exit            int
+	locators        []string
 	observed        *toolwire.Observed
 	artifacts       []toolwire.Artifact
 	checkRun        *toolwire.CheckRunRecord
@@ -160,8 +167,8 @@ var endpoints = []endpoint{
 			return r.http(ctx, req)
 		})},
 	{toolwire.VerbBrowser, toolwire.KindAgent, func() toolwire.Request { return &toolwire.BrowserRequest{} },
-		agentCall(toolwire.VerbBrowser, func(context.Context, *Relay, *toolwire.BrowserRequest) result {
-			return refusal(toolwire.RefusedUnavailable, reasonNoBrowser)
+		agentCall(toolwire.VerbBrowser, func(ctx context.Context, r *Relay, req *toolwire.BrowserRequest) result {
+			return r.browser(ctx, req)
 		})},
 	{toolwire.VerbExec, toolwire.KindAgent, func() toolwire.Request { return &toolwire.ExecRequest{} },
 		agentCall(toolwire.VerbExec, func(ctx context.Context, r *Relay, req *toolwire.ExecRequest) result {
@@ -197,6 +204,7 @@ func (r *Relay) Handler() http.Handler {
 	mux.HandleFunc("GET "+ReadyPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("GET /v1/artifacts/{digest}", r.serveArtifact)
 	for _, ep := range endpoints {
 		mux.HandleFunc(toolwire.Path(ep.verb), func(w http.ResponseWriter, req *http.Request) { r.serve(w, req, ep) })
 	}
@@ -261,7 +269,8 @@ func (r *Relay) recordResult(kind toolwire.Kind, verb toolwire.Verb, args any, r
 		raw = b
 	}
 	e := toolwire.LedgerEntry{Kind: kind, Verb: verb, Args: raw, Exit: res.exit, Refused: res.refused,
-		Output: res.output, Inline: res.inline, Artifacts: res.artifacts, CheckRun: res.checkRun}
+		Output: res.output, Inline: res.inline, Artifacts: res.artifacts, Locators: res.locators,
+		CheckRun: res.checkRun}
 	seq, err := r.record(e)
 	if err != nil {
 		reason := "the ledger has no room for this call"
@@ -365,7 +374,7 @@ func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) res
 	if err != nil {
 		return refusal(toolwire.RefusedCheck, err.Error())
 	}
-	if c.Form == checks.FormBrowser {
+	if c.Form == checks.FormBrowser && (r.br == nil || r.br.Runner == nil) {
 		return refusal(toolwire.RefusedUnavailable, reasonNoBrowser)
 	}
 	if c.Form == checks.FormExec && r.execer == nil {

@@ -224,6 +224,25 @@ builds:
       goarch:
           - amd64
           - arm64
+    - id: preview-tools
+      main: ./cmd/preview-tools
+      binary: preview-tools
+      flags:
+          - -trimpath
+      # The relay links only the standard library and the internal packages
+      # its imports test pins, so these stamps name a package it does not
+      # link and the linker drops them; they stay so every build carries the
+      # same contract (internal/version's TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
     - id: tool-exec
       main: ./cmd/tool-exec
       binary: tool-exec
@@ -386,6 +405,7 @@ archives:
           - egress-proxy
           - preview-auth
           - preview-tester
+          - preview-tools
           - tool-exec
           - cdp-shim
           - maul-tool
@@ -629,6 +649,29 @@ dockers_v2:
       dockerfile: Dockerfile.preview-tester
       images:
           - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-tester"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
+    # The preview tools (cmd/preview-tools plus the pinned Playwright CLI
+    # and test runner, installed from internal/previewtools/node's lockfile):
+    # the tools container of a slot tool pod. The chart takes it only by
+    # digest.
+    - id: preview-tools
+      ids: [preview-tools]
+      dockerfile: Dockerfile.preview-tools
+      extra_files:
+          - internal/previewtools/node/package.json
+          - internal/previewtools/node/package-lock.json
+      images:
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-tools"
       tags:
           - v{{ .Version }}
           - latest

@@ -9,7 +9,10 @@
 // components, replays every saved check alone under fresh run tokens, then
 // serves the evaluator's maul-tool calls on :8090, refusing callers on
 // loopback or the pod's own addresses, until agent-runner's finish or its
-// own deadline. Every call and run is a MAUL-TOOLS ledger line on stdout;
+// own deadline. With a browser in the pod it first opens the Playwright
+// CLI session against the browser container's keyed CDP shim (the key from
+// the mounted /etc/maul-cdp/key, written only into a 0600 session config)
+// and serves the preview front on 127.0.0.1:8091. Every call and run is a MAUL-TOOLS ledger line on stdout;
 // the summary closes the ledger and is repeated as the termination
 // message, which preview-controller checks the log against.
 //
@@ -63,19 +66,44 @@ func run(ctx context.Context, s previewtools.Seams, stdout, stderr io.Writer) in
 	if cfg.Sandbox {
 		ex = toolexec.NewClient(toolexec.SocketPath)
 	}
-	sum, err := previewtools.Run(ctx, previewtools.RunOptions{
+	opts := previewtools.RunOptions{
 		Options: previewtools.Options{
 			Config: cfg, Dir: s.ConfigDir, Out: stdout, Exec: ex, TerminationPath: s.TerminationPath,
 			Client: previewtools.NewClient(previewtools.ClientOptions{Dial: s.Dial}),
 		},
 		Listener: ln,
-	})
+	}
+	if cfg.Browser {
+		front, err := withBrowser(&opts)
+		if err != nil {
+			// The ledger still closes: every browser call is "unavailable".
+			log.Error("the browser relay is unavailable", "err", err)
+		} else {
+			defer func() { _ = front.Close() }()
+		}
+	}
+	sum, err := previewtools.Run(ctx, opts)
 	if err != nil {
 		log.Error("the ledger did not close cleanly", "err", err)
 		return 1
 	}
 	log.Info("ledger closed", "entries", sum.Count, "sha256", sum.SHA256)
 	return 0
+}
+
+// withBrowser sets up the image's browser relay and its preview front's
+// loopback listener.
+func withBrowser(o *previewtools.RunOptions) (net.Listener, error) {
+	br, store, err := previewtools.ImageBrowser()
+	if err != nil {
+		return nil, err
+	}
+	front, err := net.Listen("tcp", previewtools.FrontAddr)
+	if err != nil {
+		return nil, err
+	}
+	o.Browser, o.Artifacts, o.Front = br, store, front
+	return front, nil
 }
 
 // listen opens the relay's listener, guarded against local callers unless
