@@ -924,13 +924,18 @@ func infraReason(facts []v1alpha1.PartFact,
 func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
 	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
 	w := attemptWindow{start: attemptStart(tester, pv), end: attemptEnd(tester, v.now())}
+	keys, keyUnknown := v.captureKeys(pv)
 	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
 	for i, c := range p.Spec.Components {
 		all, err := v.allComponentPods(ctx, p, i, slot)
 		if err != nil {
 			return nil, err
 		}
-		facts = append(facts, v.componentFact(ctx, p, c, all, w, startedAt(pv)))
+		fact := v.componentFact(ctx, p, c, all, w, startedAt(pv), keys)
+		if keyUnknown {
+			fact.LogTail = ""
+		}
+		facts = append(facts, fact)
 	}
 	switch {
 	case tester != nil && len(pv.Spec.Outcomes) > 0:
@@ -947,13 +952,13 @@ func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Pr
 // A component not Ready with no evidence of the application's is disrupted
 // (disruption.go has why that is safe).
 func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.Preview,
-	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time) v1alpha1.PartFact {
+	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time, keys []string) v1alpha1.PartFact {
 	fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
 	live := slices.DeleteFunc(slices.Clone(all), func(pod corev1.Pod) bool { return !livePod(&pod) })
 	pod := currentPod(live, p, c)
 	if pod != nil {
 		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
-		fact.LogTail = v.logTail(ctx, pod, c.Name, since)
+		fact.LogTail = v.logTail(ctx, pod, c.Name, since, keys)
 	}
 	cause := componentCause(all, pod, p, c, w)
 	if cause == causeNone && !fact.Ready {
@@ -1028,7 +1033,7 @@ func kubeletWord(s string) string {
 // maxLogTail bytes of it kept, as valid UTF-8. Untrusted and opaque; a log
 // that cannot be read leaves none.
 func (v *VerificationReconciler) logTail(ctx context.Context, pod *corev1.Pod, container string,
-	since time.Time) string {
+	since time.Time, keys []string) string {
 	if v.Logs == nil {
 		return ""
 	}
@@ -1041,7 +1046,20 @@ func (v *VerificationReconciler) logTail(ctx context.Context, pod *corev1.Pod, c
 	if err != nil {
 		return ""
 	}
-	return lastValidUTF8(b, maxLogTail)
+	return lastValidUTF8([]byte(redact(strings.ToValidUTF8(string(b), "�"), keys)), maxLogTail)
+}
+
+// captureKeys are the secrets pv's tool pod holds, to redact from a log tail
+// kept in status, and whether a browser tool pod's CDP key is unknown to this
+// process (restarted since writing it), in which case no tail may be kept.
+func (v *VerificationReconciler) captureKeys(pv *v1alpha1.PreviewVerification) (keys []string, unknown bool) {
+	v.toolsMu.Lock()
+	st := v.toolStates[pv.UID]
+	v.toolsMu.Unlock()
+	if st == nil {
+		st = &toolState{}
+	}
+	return st.redactions(), st.keyUnknown(pv)
 }
 
 // lastValidUTF8 is the last at most n bytes of b, cut on a rune boundary,
