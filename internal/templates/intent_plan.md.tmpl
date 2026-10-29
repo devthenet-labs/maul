@@ -1,9 +1,10 @@
 {{- /* A plan posted for approval. The plan is the report exactly as stored —
 the bytes the approval's digest binds and the build agent reads — shown
 verbatim in a code block whose fence no line of it can close, and last, so
-nothing follows it. Of the agent's text, only the summary and the new
-dependencies are rendered outside the block, sanitised; the rest outside it
-is maul's, including the notes on what the block cannot show at a glance.
+nothing follows it. Of the agent's text, only the summary, the new
+dependencies and the acceptance outcomes are rendered outside the block,
+sanitised, beside the issue lines no outcome answers (issue text, made
+visible and sanitised); the rest outside it is maul's, including the notes on what the block cannot show at a glance.
 One line per paragraph: GitHub renders a line break inside an issue comment
 as a hard break. */ -}}
 {{ .Marker }}
@@ -19,6 +20,24 @@ as a hard break. */ -}}
 {{- with .Acceptance }}
 
 **Acceptance:** {{ . }}
+{{- end }}
+{{- with .OutcomesLead }}
+
+### Acceptance outcomes
+
+{{ . }}
+{{- with $.Outcomes }}
+{{ range . }}
+- {{ . }}
+{{- end }}
+{{- end }}
+{{- with $.NotCovered }}
+
+No outcome answers these lines of the issue, so nothing checks them. If one should be checked, ask for a new plan:
+{{ range . }}
+- {{ . }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- if or .Invisible .Wide .BlankRun .NewDependencies .Questions .BuilderNotes }}
 

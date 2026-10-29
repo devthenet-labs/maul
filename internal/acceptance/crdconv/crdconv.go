@@ -32,6 +32,21 @@ func CriteriaToCRD(cs []acceptance.Criterion) ([]v1alpha1.AcceptanceCriterion, e
 	return out, nil
 }
 
+// OutcomesToCRD converts an approved plan's outcomes to the CRD mirror, as
+// strictly as CriteriaToCRD: a field the mirror lacks is refused. The
+// caller normalises first (acceptance.NormalizeOutcomes), so every stored
+// outcome states its kind. An empty list is nil.
+func OutcomesToCRD(os []acceptance.PlanOutcome) ([]v1alpha1.AcceptanceOutcome, error) {
+	if len(os) == 0 {
+		return nil, nil
+	}
+	var out []v1alpha1.AcceptanceOutcome
+	if err := convert(os, &out); err != nil {
+		return nil, fmt.Errorf("acceptance outcomes: %w", err)
+	}
+	return out, nil
+}
+
 // CriteriaFromCRD converts stored criteria back to the grammar's form, as
 // strictly. An empty list is nil.
 func CriteriaFromCRD(cs []v1alpha1.AcceptanceCriterion) ([]acceptance.Criterion, error) {

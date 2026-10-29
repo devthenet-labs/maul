@@ -283,8 +283,12 @@ func (p *pass) planning(ctx context.Context) (bool, error) {
 	return p.launchPlan(ctx, round, rs.next(), p.previousAttempt(latest))
 }
 
-// planComment is the approval comment's input for a plan report.
-func (p *pass) planComment(revision int32, raw []byte) (templates.PlanComment, error) {
+// planComment is the approval comment's input for a plan report. issue is
+// the request the plan answers, whose list items no outcome answers the
+// comment lists under the agent evaluator; nil lists none, which only
+// shortens the comment: whether a plan is refused never depends on that
+// list (templates.PlanComment.Outcomes), so planRefusal passes nil.
+func (p *pass) planComment(revision int32, raw []byte, issue *snapshot) (templates.PlanComment, error) {
 	parsed, err := report.ParsePlan(raw)
 	if err != nil {
 		return templates.PlanComment{}, err
@@ -296,12 +300,18 @@ func (p *pass) planComment(revision int32, raw []byte) (templates.PlanComment, e
 		profiles[i] = buildProfile(p.r.Images, r.URL)
 		routes[i] = profileRoutes(p.r.Images, profiles[i])
 	}
+	ask := p.set.planAsk(p.proj)
+	var body string
+	if issue != nil {
+		body = issue.Body
+	}
 	return templates.PlanComment{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Revision: revision, Report: raw,
 		Summary: parsed.Summary, NewDependencies: parsed.NewDependencies, Questions: parsed.Questions,
 		ApproveLabel: approveLabel(p.proj), TriggerLabel: p.trigger(),
 		Repositories: repositorySlugs(repos), NetworkProfiles: profiles, NetworkRoutes: routes,
-		Acceptance: planAcceptance(p.set.planAsk(p.proj), parsed.Acceptance),
+		Acceptance: planAcceptance(ask, parsed.Acceptance),
+		Outcomes:   planOutcomes(ask, parsed.Outcomes, body, issue != nil),
 	}, nil
 }
 
@@ -329,7 +339,7 @@ func (p *pass) planRepositories(named []string) []v1alpha1.ProjectRepository {
 // The render is deterministic, so every pass reaches the same answer, and an
 // unshowable plan counts as a failed attempt without a record of its own.
 func (p *pass) planRefusal(run *v1alpha1.IntentRun) (reason, notice string) {
-	pc, err := p.planComment(run.Spec.Round, []byte(run.Status.Report))
+	pc, err := p.planComment(run.Spec.Round, []byte(run.Status.Report), nil)
 	if err != nil {
 		return fmt.Sprintf("the plan report does not parse: %v", err), ""
 	}
@@ -395,7 +405,11 @@ func (p *pass) writeBack(ctx context.Context, run *v1alpha1.IntentRun) (bool, er
 	if err != nil {
 		return false, err
 	}
-	pc, err := p.planComment(round, raw)
+	issue, err := p.planIssue(ctx)
+	if err != nil {
+		return false, err
+	}
+	pc, err := p.planComment(round, raw, issue)
 	if err != nil {
 		return false, err
 	}
@@ -452,6 +466,17 @@ func (p *pass) writeBack(ctx context.Context, run *v1alpha1.IntentRun) (bool, er
 		cur.Status.Plan.PostedAt = &posted
 		cur.Status.ActiveRun = nil
 	})
+}
+
+// planIssue is the request the current plan answers, as its input
+// snapshot holds it, for the plan comment's list of issue lines no outcome
+// answers: read only when the plan was asked for outcomes, nil otherwise or
+// when the snapshot is gone.
+func (p *pass) planIssue(ctx context.Context) (*snapshot, error) {
+	if in := p.in.Status.Input; in != nil && p.set.planAsk(p.proj).outcomes {
+		return p.inputSnapshot(ctx, in)
+	}
+	return nil, nil
 }
 
 // planBytes reads the recorded plan's bytes from its ConfigMap and checks

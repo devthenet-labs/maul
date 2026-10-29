@@ -326,6 +326,13 @@ type PlanComment struct {
 	// verification). nil omits the line, and the comment is exactly the
 	// comment before the field existed.
 	Acceptance *PlanAcceptance
+	// Outcomes are the plan's acceptance outcomes under the agent
+	// evaluator, listed in a section of their own beside the issue lines
+	// none answers. A list that would take the comment past GitHub's limit
+	// is replaced by a pointer to the plan, so it never decides a refusal.
+	// nil omits the section, and the comment is exactly the comment before
+	// the field existed.
+	Outcomes *PlanOutcomes
 }
 
 // RenderPlanComment renders a plan for approval: headed by PlanMarker over
@@ -349,7 +356,7 @@ func RenderPlanComment(p PlanComment) (string, error) {
 	if view.unshowable > 0 {
 		return refusePlan(p, digest, planRefusal{unshowable: view.unshowable})
 	}
-	out, err := planComment(p, digest, view, "")
+	_, out, err := fitOutcomes(p, digest, view)
 	if err != nil {
 		return "", err
 	}
@@ -357,6 +364,22 @@ func RenderPlanComment(p PlanComment) (string, error) {
 		return refusePlan(p, digest, planRefusal{size: len(out)})
 	}
 	return out, nil
+}
+
+// fitOutcomes renders the plan comment, and returns the PlanComment it
+// rendered: p, or, when p lists outcomes and its comment would run past
+// MaxCommentBytes, p with the list replaced by a pointer to the plan
+// (outcomesOmitted). The outcomes are in the plan the comment shows, so
+// the list is a convenience: whether a plan is refused never depends on it,
+// nor on the issue lines it shows.
+func fitOutcomes(p PlanComment, digest string, view planView) (PlanComment, string, error) {
+	out, err := planComment(p, digest, view, "")
+	if err != nil || len(out) <= MaxCommentBytes || p.Outcomes == nil || p.Outcomes.omitted {
+		return p, out, err
+	}
+	p.Outcomes = &PlanOutcomes{omitted: true}
+	out, err = planComment(p, digest, view, "")
+	return p, out, err
 }
 
 // adviceStandIn marks where the dependency advice goes in SamePlanComment's
@@ -380,7 +403,13 @@ func SamePlanComment(p PlanComment, body string) (bool, error) {
 	if body == want {
 		return true, nil
 	}
-	shape, err := planComment(p, PlanDigest(p.Report), viewPlan(string(p.Report)), adviceStandIn)
+	digest, view := PlanDigest(p.Report), viewPlan(string(p.Report))
+	// The outcome list as the render fitted it.
+	p, _, err = fitOutcomes(p, digest, view)
+	if err != nil {
+		return false, err
+	}
+	shape, err := planComment(p, digest, view, adviceStandIn)
 	if err != nil {
 		return false, err
 	}
@@ -411,6 +440,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 			questions++
 		}
 	}
+	outcomesLead, outcomes, notCovered := planOutcomesView(p.Outcomes)
 	return render("intent_plan.md.tmpl", struct {
 		Marker          string
 		Revision        int32
@@ -436,6 +466,9 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		Advice          string
 		RouteAdvice     string
 		Acceptance      string
+		OutcomesLead    string
+		Outcomes        []string
+		NotCovered      []string
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -462,6 +495,9 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		Advice:          advice,
 		RouteAdvice:     routeAdvice,
 		Acceptance:      planAcceptanceLine(p.Acceptance),
+		OutcomesLead:    outcomesLead,
+		Outcomes:        outcomes,
+		NotCovered:      notCovered,
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
 }

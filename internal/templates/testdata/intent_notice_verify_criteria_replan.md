@@ -1,0 +1,2 @@
+<!-- maul:notice maul/beatbattle-44 verify-replan-r3 -->
+maul now verifies this Project's changes with its agent evaluator, which checks acceptance outcomes stated in plain words and writes its own checks. The approved plan r3 states acceptance criteria instead, which the evaluator does not run, so nothing is verified for this intent until a new plan is approved. To ask for one, comment `/maul replan` or re-apply the `maul:intent` label, then approve the plan that follows.

@@ -21,6 +21,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The verification loop (acceptance verification, slice 1), with
@@ -29,7 +30,11 @@ import (
 //  1. records the approved plan's acceptance criteria once per approved
 //     plan revision (syncAcceptance), from the plan bytes re-read under the
 //     approval's digest, normalised, digested as approved; and re-arms
-//     automatic fixes and the per-revision bounds;
+//     automatic fixes and the per-revision bounds. Under the agent
+//     evaluator (Settings.evaluates) it records the plan's outcomes
+//     instead, and a plan stating slice-1 criteria is not verified: the
+//     intent gets one notice asking for a replan (stopForReplan, DESIGN
+//     7.6), the one GitHub write here;
 //  2. reports Off for a Project (or Preview) that does not verify and
 //     NotDeclared for a plan with nothing to run, consuming any request
 //     (the latter still records the head set an acceptance binds to);
@@ -46,7 +51,7 @@ import (
 // In review with no round started (startRound's last step) the gate
 // (startVerification) creates the next PreviewVerification when one is due
 // (verifyDue): the Preview live at exactly the heads, every named check
-// green, within the bounds. Nothing here writes to GitHub or starts a round:
+// green, within the bounds. Nothing else here writes to GitHub or starts a round:
 // the commit statuses and comments, and the verify-fix rounds, read the
 // state this writes.
 
@@ -54,6 +59,12 @@ import (
 // approved plan revision's acceptance criteria cannot be read: nothing is
 // verified until they can, or a replan is approved.
 const reasonCriteriaUnreadable = "CriteriaUnreadable"
+
+// reasonCriteriaReplan is the VerifyFailing reason of an Intent whose
+// approved plan states slice-1 criteria while the agent evaluator verifies
+// its Project: nothing is verified until a plan stating outcomes is
+// approved (DESIGN 7.6).
+const reasonCriteriaReplan = "CriteriaReplan"
 
 // syncVerification is the per-pass part of the loop: steps 1 to 5 above.
 // It reports whether it wrote the Intent's status, which ends the pass.
@@ -115,6 +126,9 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	rec, err := p.approvedAcceptance(ctx, ap)
+	if errors.Is(err, report.ErrSliceOneCriteria) {
+		return p.stopForReplan(ctx, ap)
+	}
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the approved plan's acceptance criteria; nothing is verified",
 			slog.String("intent", p.in.Name), slog.Int("plan_revision", int(ap.PlanRevision)), slog.Any("error", err))
@@ -125,7 +139,7 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		if c := meta.FindStatusCondition(cur.Status.Conditions, v1alpha1.ConditionVerifyFailing); c != nil &&
-			c.Reason == reasonCriteriaUnreadable {
+			(c.Reason == reasonCriteriaUnreadable || c.Reason == reasonCriteriaReplan) {
 			meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionVerifyFailing)
 		}
 		cur.Status.Acceptance = rec
@@ -143,22 +157,37 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 
 // acceptanceCurrent reports that the criteria on record are the approved
 // plan revision's: the only ones anything is verified or accepted against.
+// Under the agent evaluator, criteria slice 1 recorded are not: they are
+// read again (syncAcceptance), so an open intent approved before the
+// evaluator was switched on is asked for a replan.
 func (p *pass) acceptanceCurrent() bool {
 	acc, ap := p.in.Status.Acceptance, p.in.Status.Approval
-	return acc != nil && ap != nil && acc.PlanRevision == ap.PlanRevision
+	return acc != nil && ap != nil && acc.PlanRevision == ap.PlanRevision &&
+		(len(acc.Criteria) == 0 || !p.set.evaluates(p.proj))
+}
+
+// verifyStopped is why verification of the approved plan revision is
+// stopped with nothing on record ("" when it is not): its criteria cannot
+// be read (stopUnreadable, reasonCriteriaUnreadable), or they are slice-1
+// criteria the agent evaluator does not run (stopForReplan,
+// reasonCriteriaReplan). The verification and the condition say which.
+func (p *pass) verifyStopped() string {
+	v := p.in.Status.Verification
+	if p.acceptanceCurrent() || v == nil || v.State != v1alpha1.VerificationUnavailable {
+		return ""
+	}
+	c := meta.FindStatusCondition(p.in.Status.Conditions, v1alpha1.ConditionVerifyFailing)
+	if c == nil || c.Status != metav1.ConditionTrue ||
+		(c.Reason != reasonCriteriaUnreadable && c.Reason != reasonCriteriaReplan) {
+		return ""
+	}
+	return c.Reason
 }
 
 // criteriaUnreadable reports an Intent stopUnreadable stopped: the approved
 // plan revision's criteria are not on record, and the verification says
 // why.
-func (p *pass) criteriaUnreadable() bool {
-	v := p.in.Status.Verification
-	if p.acceptanceCurrent() || v == nil || v.State != v1alpha1.VerificationUnavailable {
-		return false
-	}
-	c := meta.FindStatusCondition(p.in.Status.Conditions, v1alpha1.ConditionVerifyFailing)
-	return c != nil && c.Status == metav1.ConditionTrue && c.Reason == reasonCriteriaUnreadable
-}
+func (p *pass) criteriaUnreadable() bool { return p.verifyStopped() == reasonCriteriaUnreadable }
 
 // stopUnreadable stops verification of an approved plan revision whose
 // criteria cannot be read: the in-flight request is deleted, any waiting
@@ -191,7 +220,9 @@ func (p *pass) stopUnreadable(ctx context.Context, ap *v1alpha1.IntentApproval) 
 // approvedAcceptance reads the approved plan's bytes from its ConfigMap,
 // holds them to the approval's digest, and returns its acceptance criteria
 // as the Intent records them: normalised, with the digest of the list as
-// the plan declared it.
+// the plan declared it. Under the agent evaluator it returns the plan's
+// outcomes the same way (normalised, OutcomesDigest), or, for a plan
+// stating slice-1 criteria, report.ErrSliceOneCriteria.
 func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApproval) (*v1alpha1.IntentAcceptance,
 	error) {
 	var cm corev1.ConfigMap
@@ -208,12 +239,61 @@ func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApprov
 	if err != nil {
 		return nil, fmt.Errorf("parse plan r%d: %w", ap.PlanRevision, err)
 	}
+	if p.set.evaluates(p.proj) {
+		if err := parsed.CheckEvaluator(); err != nil {
+			return nil, fmt.Errorf("plan r%d: %w", ap.PlanRevision, err)
+		}
+		outcomes, err := crdconv.OutcomesToCRD(acceptance.NormalizeOutcomes(parsed.Outcomes))
+		if err != nil {
+			return nil, err
+		}
+		return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision, Digest: acceptance.Digest(nil),
+			Outcomes: outcomes, OutcomesDigest: acceptance.OutcomesDigest(parsed.Outcomes)}, nil
+	}
 	criteria, err := crdconv.CriteriaToCRD(acceptance.Normalize(parsed.Acceptance))
 	if err != nil {
 		return nil, err
 	}
 	return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision, Digest: acceptance.Digest(parsed.Acceptance),
 		Criteria: criteria}, nil
+}
+
+// stopForReplan stops verification of an approved plan revision that
+// states slice-1 criteria while the agent evaluator verifies the Project
+// (DESIGN 7.6): it posts, once, the notice asking for a replan (keyed by the
+// revision, so a retry or a restart finds the one it posted), then deletes
+// the in-flight request, consumes any waiting one, drops the criteria on
+// record (the evaluator never runs them; off again, slice 1 reads them
+// afresh), halts automatic fixes and reports Unavailable with the Intent's
+// VerifyFailing condition saying why. Nothing is verified until a new plan
+// is approved, whose outcomes syncAcceptance then records.
+func (p *pass) stopForReplan(ctx context.Context, ap *v1alpha1.IntentApproval) (bool, error) {
+	if v := p.in.Status.Verification; p.verifyStopped() == reasonCriteriaReplan && v.Ref == nil &&
+		v.Requested == nil {
+		return false, nil
+	}
+	key := templates.CriteriaReplanKey(ap.PlanRevision)
+	body, err := templates.RenderCriteriaReplanNotice(templates.CriteriaReplanNotice{Namespace: p.in.Namespace,
+		Intent: p.in.Name, Key: key, PlanRevision: ap.PlanRevision, TriggerLabel: p.trigger()})
+	if err := p.notice(ctx, key, ap.At.Time, body, err); err != nil {
+		return false, err
+	}
+	if v := p.in.Status.Verification; v != nil && v.Ref != nil {
+		p.dropInFlight(ctx, *v.Ref)
+	}
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		next := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnavailable}
+		if prev := cur.Status.Verification; prev != nil {
+			next.Round, next.Reset, next.CancelRun = prev.Round, prev.Reset, prev.CancelRun
+		}
+		halt(next, v1alpha1.AutoFixCriterionError, metav1.NewTime(p.now))
+		cur.Status.Acceptance = nil
+		cur.Status.Verification = next
+		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, reasonCriteriaReplan,
+			fmt.Sprintf("the approved plan r%d states acceptance criteria, which the agent evaluator does not "+
+				"run, so nothing is verified; /maul replan to approve a plan stating outcomes", ap.PlanRevision))
+		return nil
+	})
 }
 
 // settleState records a state nothing runs in (Off, NotDeclared), consuming
