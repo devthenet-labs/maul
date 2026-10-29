@@ -37,7 +37,8 @@ func NewFake() *Fake {
 
 // PromptSpec ignores the request's prompt and flags and replays the fixture
 // named by FakeFixtureEnv; ws and Env still land on the spec so runner-side
-// behavior (workspace, environment) stays faithful.
+// behavior (workspace, environment) stays faithful. It accepts every posture,
+// SandboxEvaluate included, since it runs no agent to hold to one.
 func (f *Fake) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 	return runner.CommandSpec{
 		Argv: []string{"cat", os.Getenv(FakeFixtureEnv)},

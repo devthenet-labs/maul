@@ -55,7 +55,10 @@ func NewCodex() *Codex {
 // RuntimeDefault, works under Unconfined). That is not a trade worth making to
 // prevent writes in a pod that already has no egress, no credentials, a
 // read-only rootfs, and a workspace discarded after the run — so --sandbox
-// stays danger-full-access for every posture. AddDirs is likewise unmapped
+// stays danger-full-access for every posture. SandboxEvaluate renders as the
+// build posture does: there is no tree, only the scratch directory the run is
+// started in, and the network is the pod's policy (the evaluator's pod
+// reaches the broker and the tool host alone). AddDirs is likewise unmapped
 // (codex 0.145 gained --add-dir; wiring it is a follow-up). SystemPromptAppend
 // has no system-prompt channel either and is folded into the prompt so its
 // instructions still reach the agent.

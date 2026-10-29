@@ -4,6 +4,8 @@
 package harness
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,8 +30,10 @@ type Usage struct {
 // harness-neutrally so agentrun states intent once and each harness renders it
 // in its own vocabulary: claude as an allow/deny tool grammar, codex (once the
 // pod's kernel sandbox is confirmed) as a --sandbox mode backed by mounted
-// execpolicy rules. A harness that has no way to express a posture renders it
-// as its default — the request is advisory, not a guarantee every CLI can keep.
+// execpolicy rules. A harness that has no way to express a read-only or
+// writable posture renders it as its default — the request is advisory, not
+// a guarantee every CLI can keep. SandboxEvaluate is the exception: a harness
+// that cannot keep it refuses it (CheckPosture).
 type Sandbox int
 
 const (
@@ -42,7 +46,40 @@ const (
 	// SandboxWorkspaceWrite is the remediation posture: edit the workspace
 	// freely; network tools stay denied.
 	SandboxWorkspaceWrite
+	// SandboxEvaluate is the agent evaluator's posture: no tree, only the
+	// scratch directory the run is started in (its workspace), which it may
+	// read and write, and a shell that runs maul-tool alone. A harness that
+	// cannot hold a run to it refuses it (CheckPosture) rather than render
+	// its default.
+	SandboxEvaluate
 )
+
+// ErrPostureUnsupported is CheckPosture's refusal: the harness cannot render
+// the posture, and a run under it must not start.
+var ErrPostureUnsupported = errors.New("harness: sandbox posture unsupported")
+
+// PostureChecker is the optional capability of refusing a posture the
+// harness renders only as something weaker. A harness without it renders
+// every known posture.
+type PostureChecker interface {
+	// CheckPosture returns an error wrapping ErrPostureUnsupported when the
+	// harness cannot render s.
+	CheckPosture(s Sandbox) error
+}
+
+// CheckPosture reports whether h can run a request under s: nil, or an error
+// wrapping ErrPostureUnsupported. A posture no harness knows is refused by
+// all of them. A caller asks before rendering a posture its harness may not
+// hold (agentrun, for SandboxEvaluate); PromptSpec itself cannot refuse.
+func CheckPosture(h Harness, s Sandbox) error {
+	if s < SandboxDefault || s > SandboxEvaluate {
+		return fmt.Errorf("%w: %s has no posture %d", ErrPostureUnsupported, h.ID(), s)
+	}
+	if pc, ok := h.(PostureChecker); ok {
+		return pc.CheckPosture(s)
+	}
+	return nil
+}
 
 // PromptRequest describes one prompted agent run, harness-agnostically; the
 // harness maps it onto its CLI's flags.

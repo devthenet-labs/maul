@@ -256,6 +256,38 @@ func TestCodexPromptSpecGateway(t *testing.T) {
 	}
 }
 
+// TestCodexPromptSpecEvaluate: the evaluate posture is the build posture's
+// argv exactly, the argv TestCodexPromptSpecGateway pins from the recorded
+// rust-v0.153.4 run: codex renders no posture of its own (the pod is the
+// boundary, network included), and there is no tree, only the scratch
+// directory the run is started in. AddDirs and WriteDirs stay unrendered.
+func TestCodexPromptSpecEvaluate(t *testing.T) {
+	gw := &Gateway{
+		BaseURL:   "http://broker.maul.svc:8080/openai/v1",
+		KeyEnv:    "MAUL_CODEX_PLACEHOLDER_KEY",
+		HeaderEnv: map[string]string{"X-Maul-Broker-Token": "MAUL_BROKER_TOKEN"},
+	}
+	req := PromptRequest{Prompt: "p", Model: "gpt-5.3-codex", Gateway: gw, Env: []string{"E=1"}}
+	build := NewCodex().PromptSpec("/ws", withSandbox(req, SandboxWorkspaceWrite))
+	eval := withSandbox(req, SandboxEvaluate)
+	eval.AddDirs, eval.WriteDirs = []string{"/work"}, []string{"/work"}
+	spec := NewCodex().PromptSpec("/work/scratch", eval)
+	if !slices.Equal(spec.Argv, build.Argv) {
+		t.Errorf("evaluate Argv =\n%q\nwant the build posture's\n%q", spec.Argv, build.Argv)
+	}
+	if spec.Dir != "/work/scratch" {
+		t.Errorf("Dir = %q, want the scratch directory", spec.Dir)
+	}
+	if !slices.Equal(spec.Env, []string{"E=1"}) {
+		t.Errorf("Env = %q, want the request env", spec.Env)
+	}
+}
+
+func withSandbox(req PromptRequest, s Sandbox) PromptRequest {
+	req.Sandbox = s
+	return req
+}
+
 // TestCodexProviderNameIsNotOpenAI: codex treats a provider named OpenAI as
 // OpenAI itself and compresses its request bodies, which the broker's
 // inspection could not read.
