@@ -48,7 +48,7 @@ var (
 // renders without it.
 var toolConfigKeys = map[string][]string{
 	"maul-preview-controller-config": {"MAUL_PREVIEW_EVALUATOR", "MAUL_PREVIEW_TOOLS_IMAGE",
-		"MAUL_PREVIEW_BROWSER_IMAGE", "MAUL_PREVIEW_TOOLBOX_IMAGE"},
+		"MAUL_PREVIEW_BROWSER_IMAGE", "MAUL_PREVIEW_TOOLBOX_IMAGE", "MAUL_PREVIEW_AGENTS_NAMESPACE"},
 	"maul-intent-controller-config": {"MAUL_INTENT_EVALUATOR", "MAUL_INTENT_EVALUATE_MODEL",
 		"MAUL_INTENT_CHECKREVIEW_MODEL", "MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF",
 		"MAUL_INTENT_HANDOFF_MAX", "MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX",
@@ -227,7 +227,8 @@ func checkToolConfig(t *testing.T, cms map[string]map[string]string) {
 	t.Helper()
 	want := map[string]map[string]string{
 		"maul-preview-controller-config": {"MAUL_PREVIEW_EVALUATOR": "true", "MAUL_PREVIEW_TOOLS_IMAGE": toolsImage,
-			"MAUL_PREVIEW_BROWSER_IMAGE": browserImage, "MAUL_PREVIEW_TOOLBOX_IMAGE": toolboxImage},
+			"MAUL_PREVIEW_BROWSER_IMAGE": browserImage, "MAUL_PREVIEW_TOOLBOX_IMAGE": toolboxImage,
+			"MAUL_PREVIEW_AGENTS_NAMESPACE": "maul-agents"},
 		"maul-intent-controller-config": {"MAUL_INTENT_EVALUATOR": "true",
 			"MAUL_INTENT_EVALUATE_MODEL":    "anthropic/claude-sonnet-5",
 			"MAUL_INTENT_CHECKREVIEW_MODEL": "anthropic/claude-sonnet-5",
