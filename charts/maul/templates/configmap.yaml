@@ -261,6 +261,23 @@ key renders and the ConfigMap is as it was.
 */}}
 {{- $_ := set $data "MAUL_INTENT_VERIFICATION" "true" }}
 {{- $_ := set $data "MAUL_INTENT_VERIFY_TIMEOUT_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
+{{- if include "maul.previewTools" $root }}
+{{- /*
+The agent evaluator (intentController.verification.evaluator, with
+verification on): rounds, their stages and the hand-off. The cost ceiling is
+in micro-USD, as every cost flag takes it. Off, no key renders.
+*/}}
+{{- $ev := $root.Values.intentController.verification }}
+{{- $_ := set $data "MAUL_INTENT_EVALUATOR" "true" }}
+{{- $_ := set $data "MAUL_INTENT_EVALUATE_MODEL" $ev.evaluateModel }}
+{{- $_ := set $data "MAUL_INTENT_CHECKREVIEW_MODEL" $ev.checkReviewModel }}
+{{- $_ := set $data "MAUL_INTENT_EVALUATE_TIMEOUT" $ev.evaluateTimeout }}
+{{- $_ := set $data "MAUL_INTENT_DEFAULT_HANDOFF" $ev.defaultHandoff }}
+{{- $_ := set $data "MAUL_INTENT_HANDOFF_MAX" $ev.handoffMax }}
+{{- $_ := set $data "MAUL_INTENT_EVALUATE_CODEX" $ev.codexEvaluator }}
+{{- $_ := set $data "MAUL_INTENT_EVALUATION_COST_MAX" (int64 (round (mulf $ev.maxEvaluateCostUSD 1000000) 0)) }}
+{{- $_ := set $data "MAUL_INTENT_MAX_TOOL_CALLS" $ev.maxToolCalls }}
+{{- end }}
 {{- end }}
 {{- $_ := set $data "MAUL_INTENT_MULTI_REPO" $own.multiRepo }}
 {{- $_ := set $data "MAUL_INTENT_MAX_CONCURRENT_RUNS" $own.maxConcurrentRuns }}
@@ -342,6 +359,15 @@ blocks on ImageRequired. The changeset entry cap is remediation's value.
        Off, neither key renders. */}}
 {{- $_ := set $data "MAUL_PREVIEW_TESTER_IMAGE" (include "maul.previewTesterImage" $root) }}
 {{- $_ := set $data "MAUL_PREVIEW_VERIFY_DEADLINE_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
+{{- if include "maul.previewTools" $root }}
+{{- /* The agent evaluator's slot tool pod: its three images, by digest,
+       exactly those the slot policies admit. Off, no key renders. */}}
+{{- $img := include "maul.previewToolImages" $root | fromJson }}
+{{- $_ := set $data "MAUL_PREVIEW_EVALUATOR" "true" }}
+{{- $_ := set $data "MAUL_PREVIEW_TOOLS_IMAGE" $img.tools }}
+{{- $_ := set $data "MAUL_PREVIEW_BROWSER_IMAGE" $img.browser }}
+{{- $_ := set $data "MAUL_PREVIEW_TOOLBOX_IMAGE" $img.toolbox }}
+{{- end }}
 {{- end }}
 {{- /*
 Preview sign-in required (previewAuth.stage require): the pinned annotation

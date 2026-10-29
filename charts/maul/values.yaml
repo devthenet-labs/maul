@@ -287,14 +287,34 @@ preview:
         # verification.timeout), so no request can ask for a tester Job the
         # slot policy refuses.
         deadlineMaxSeconds: 1800
+        # The slot tool pod an agent evaluator drives
+        # (intentController.verification.evaluator): a Job whose main
+        # container `tools` runs maul's relay, beside optional native
+        # sidecars `browser` (headless Chromium behind the keyed CDP shim)
+        # and `sandbox` (the toolbox). Used only with verification and the
+        # evaluator both on, and then each is required, pinned by digest
+        # like testerImage and held to the same placement rules. The slot
+        # policies admit a pod labelled maul.run/preview-role tools only
+        # from preview-controller's Job, running exactly these three images
+        # (each in its own container), mounting one preview- ConfigMap
+        # (tools only) and one preview- Secret (tools and browser only)
+        # beside emptyDirs. The release workflow stamps all three.
+        tools:
+            image: "" # x-maul-preview-tools-image
+            browserImage: "" # x-maul-preview-browser-image
+            toolboxImage: "" # x-maul-preview-toolbox-image
     # The slot ResourceQuota, per slot. Unset keys take the defaults: today's
     # (pods 8, services 5, requests 1 CPU/1Gi, limits 2 CPU/2Gi) with
     # verification off, and with it on room for the tester beside a Preview
     # of four components (pods 10, requests 1250m/1280Mi, limits
     # 2500m/2560Mi, jobs 1, networkPolicies 6: one edge policy per part plus
-    # preview-isolation). jobs and networkPolicies render only with
-    # verification on or when set. Load balancers and node ports are always
-    # 0, and ingresses 4.
+    # preview-isolation). With the agent evaluator on as well, room for the
+    # tool pod beside a full Preview (SP-2: pods 11, requests 3750m/3328Mi,
+    # limits 5/4608Mi, jobs 2 since a finished Job counts until deleted,
+    # networkPolicies 9: the tool pod's edge policy, its per-verification
+    # ingress policy and preview-tools-isolation). jobs and networkPolicies
+    # render only with verification on or when set. Load balancers and node
+    # ports are always 0, and ingresses 4.
     quota: {}
     #   pods: 10
     #   services: 5
@@ -1250,9 +1270,32 @@ intentController:
     # the evaluator also 8090 on a preview slot's tool pod; no DNS) and
     # leaves both roles out of every other agent egress policy, in every
     # network mode: it needs agent.networkPolicy.create and is refused under
-    # mode istio.
+    # mode istio. With preview.verification on as well (and only then, so
+    # intent-controller is never told to evaluate without previews to
+    # evaluate) it adds the slot tool pod (preview.verification.tools) and
+    # switches both controllers on with the settings below.
     verification:
         evaluator: false
+        # The hand-off for a Project that does not choose: gated holds the
+        # preview link until the evaluator passes or gives up (bounded by
+        # handoffMax, from CI green at the first PR heads), early posts it at
+        # once.
+        defaultHandoff: gated
+        handoffMax: 60m
+        # Evaluate a codex Project's previews on brokered codex. Off, such a
+        # Project gets the early hand-off (EvaluatorUnverified).
+        codexEvaluator: false
+        # The evaluator's and check reviewer's models (claude Projects).
+        evaluateModel: anthropic/claude-sonnet-5
+        checkReviewModel: anthropic/claude-sonnet-5
+        # One evaluation round's wall clock. Its slot tool Job must fit under
+        # preview.verification.deadlineMaxSeconds, so this must be shorter.
+        evaluateTimeout: 20m
+        # The most an intent's evaluation runs may spend, in USD (rendered
+        # in micro-USD).
+        maxEvaluateCostUSD: 6
+        # The evaluator's tool calls per round, 50 to 300.
+        maxToolCalls: 300
     # The Secrets your Forges reference (spec.secretRef): intent-controller's
     # `secrets get` is restricted to exactly these names. Required and
     # non-empty — RBAC reads an empty resourceNames list as every Secret.
