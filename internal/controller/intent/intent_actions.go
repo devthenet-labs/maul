@@ -382,7 +382,7 @@ func (p *pass) stillToAnswer(a *humanAction) bool {
 			return true
 		}
 		return after(a.at, a.source, a.id, p.lastTrigger()) // else superseded by a newer trigger action
-	case action.VerbVerify, action.VerbAccept:
+	case action.VerbVerify, action.VerbAccept, action.VerbPreview:
 		a.recorded = p.verifyRecorded(a.id)
 	}
 	return true
@@ -533,7 +533,7 @@ func (p *pass) decide(ctx context.Context, a humanAction, issue *ghclient.Issue)
 		return p.settleApprove(ctx, a, issue)
 	case action.VerbReplan:
 		return p.settleReplan(ctx, a, issue)
-	case action.VerbVerify, action.VerbAccept:
+	case action.VerbVerify, action.VerbAccept, action.VerbPreview:
 		return p.settleVerifyIssue(ctx, a)
 	}
 	return nil

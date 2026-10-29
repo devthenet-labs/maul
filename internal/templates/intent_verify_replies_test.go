@@ -87,6 +87,41 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.MaxVerifications = 20
 			return n
 		}()},
+		{"intent_notice_verify_accepted_outcome.md", func() VerifyCommandNotice {
+			n := base(VerifyAccepted, "accept")
+			n.Criterion, n.Heads, n.Outcomes = "deep-link", []string{"0123abc"}, true
+			n.Accepted = []string{"deep-link"}
+			return n
+		}()},
+		{"intent_notice_verify_accepted_all_outcomes.md", func() VerifyCommandNotice {
+			n := base(VerifyAccepted, "accept")
+			n.Criterion, n.Heads, n.Outcomes = "all", []string{"0123abc", "4567def"}, true
+			n.Accepted = []string{"deep-link", "sounds-good"}
+			return n
+		}()},
+		{"intent_notice_verify_accept_unknown_outcome.md", func() VerifyCommandNotice {
+			n := base(VerifyAcceptUnknown, "accept")
+			n.Criterion, n.Outcomes, n.Acceptable = "nope", true, []string{"deep-link"}
+			return n
+		}()},
+		{"intent_notice_verify_accept_automatic_outcome.md", func() VerifyCommandNotice {
+			n := base(VerifyAcceptAutomatic, "accept")
+			n.Criterion, n.Outcomes, n.Acceptable = "render", true, []string{"deep-link"}
+			return n
+		}()},
+		{"intent_notice_verify_accept_none_outcome.md", func() VerifyCommandNotice {
+			n := base(VerifyAcceptAutomatic, "accept")
+			n.Criterion, n.Outcomes = "all", true
+			return n
+		}()},
+		{"intent_notice_verify_preview_released.md", base(VerifyPreviewReleased, "preview")},
+		{"intent_notice_verify_preview_not_held.md", func() VerifyCommandNotice {
+			n := base(VerifyPreviewNotHeld, "preview")
+			n.Surface = command.IntentPR
+			return n
+		}()},
+		{"intent_notice_verify_preview_already.md", base(VerifyPreviewAlready, "preview")},
+		{"intent_notice_verify_preview_usage.md", base(VerifyUsage, "preview")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
