@@ -1,0 +1,74 @@
+$ open --config=<config>
+[exit 0]
+### Browser `maul-format` opened with pid <pid>.
+### Ran Playwright code
+```js
+await page.goto('about:blank');
+```
+### Page
+- Page URL: about:blank
+### Snapshot
+- [Snapshot](.playwright-cli/page-<ts>.yml)
+
+$ resize 1280 800
+[exit 0]
+### Ran Playwright code
+```js
+await page.setViewportSize({ width: 1280, height: 800 });
+```
+
+$ goto http://<front>/battles/1
+[exit 0]
+### Ran Playwright code
+```js
+await page.goto('http://<front>/battles/1');
+```
+### Page
+- Page URL: http://<front>/battles/1
+- Page Title: Beat Battle — Battle
+- Console: 1 errors, 0 warnings
+### Snapshot
+- [Snapshot](.playwright-cli/page-<ts>.yml)
+### Events
+- New console entries: .playwright-cli/console-<ts>.log#L1
+
+$ snapshot
+[exit 0]
+### Page
+- Page URL: http://<front>/battles/1
+- Page Title: Beat Battle — Battle
+- Console: 1 errors, 0 warnings
+### Snapshot
+```yaml
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - heading "Beat Battle" [level=1] [ref=e3]
+  - main [ref=e4]:
+    - region "Battle" [ref=e5]:
+      - generic [ref=e6]:
+        - article [ref=e7]:
+          - heading "Four on the floor" [level=2] [ref=e8]
+          - button "Play" [ref=e9] [cursor=pointer]
+          - button "Vote" [ref=e10] [cursor=pointer]
+          - paragraph [ref=e11]: "0"
+        - article [ref=e12]:
+          - heading "Broken beat" [level=2] [ref=e13]
+          - button "Play" [ref=e14] [cursor=pointer]
+          - button "Vote" [ref=e15] [cursor=pointer]
+          - paragraph [ref=e16]: "0"
+```
+
+$ generate-locator e10
+[exit 0]
+### Result
+getByTestId('vote-a')
+
+$ eval () => [window.innerWidth, window.innerHeight].join('x')
+[exit 0]
+### Result
+"1280x800"
+### Ran Playwright code
+```js
+await page.evaluate('() => [window.innerWidth, window.innerHeight].join(\'x\')');
+```
+

@@ -1,0 +1,6 @@
+/* Copyright 2026 Bitwise Media Group Ltd. */
+/* SPDX-License-Identifier: MIT */
+/* The trial's second planted defect: the second card's score is the colour of its card. */
+.side[data-side="b"] .score {
+  color: #140c2b;
+}

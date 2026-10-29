@@ -165,7 +165,7 @@ func TestExecCheckWithoutASandbox(t *testing.T) {
 	}
 }
 
-func TestBrowserCheckIsAnErrorUntilTheBrowserRelay(t *testing.T) {
+func TestBrowserCheckWithoutABrowserIsAnError(t *testing.T) {
 	const browser = `{"id":"row","outcome":"row","form":"browser","browser":{"steps":[{"goto":"/"},` +
 		`{"click":{"role":"button","name":"Add"}},` +
 		`{"expect":{"assert":"text","locator":{"role":"row","hasText":"{{run}}"},"text":{"contains":"{{run}}"}}}]}}`

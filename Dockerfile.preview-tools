@@ -1,0 +1,69 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+
+# Preview tools image: the tools container of a slot tool pod (DESIGN 2.1,
+# 2.7, 4.2; SPEC S1-06, S1-12), the main container whose log is the ledger.
+# Its entrypoint is cmd/preview-tools, maul's relay: the agent's tool
+# endpoints on :8090, the replay and confirmation runs, and, when the pod
+# has a browser, the browser relay in front of the pinned Playwright CLI
+# and the Playwright test runner that runs compiled browser checks, both
+# attached over CDP to the browser container's keyed shim. No browser is
+# installed here and none is ever launched from here.
+#
+# The Node side is internal/previewtools/node: package.json and its
+# lockfile, every version exact (@playwright/cli, @playwright/test,
+# playwright, playwright-core). `npm ci --ignore-scripts --omit=dev`
+# installs exactly the lockfile with no install script run and no
+# development dependency; npm itself stays in the build stage. Renovate
+# bumps the pins, and CI's browser-tools job runs TestPlaywrightCLIFormat on
+# every bump.
+#
+# Built by GoReleaser (`dockers_v2` id preview-tools in .goreleaser.yaml),
+# which compiles preview-tools first and hands this file a build context
+# holding it, laid out as $TARGETPLATFORM/preview-tools, and the two Node
+# files (extra_files); one buildx invocation produces the linux/amd64 +
+# linux/arm64 manifest. The chart admits this image into a preview slot only
+# by digest.
+
+# The same pinned wolfi-base as the agent images; node is pinned to its
+# exact version in that index (as in Dockerfile.preview-toolbox), npm only
+# in the build stage.
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:1d95114038f76513a9ace6fca107d5582b08c65981f81f61cb56bf7fd2ef216d AS node-deps
+
+RUN apk add --no-cache nodejs-24=24.22.1-r2 npm-12=12.2.1-r1
+
+WORKDIR /opt/maul-tools/node
+COPY internal/previewtools/node/package.json internal/previewtools/node/package-lock.json ./
+RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund \
+  && rm -rf /root/.npm \
+  && test -f node_modules/@playwright/cli/playwright-cli.js \
+  && test -f node_modules/@playwright/test/cli.js
+
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:1d95114038f76513a9ace6fca107d5582b08c65981f81f61cb56bf7fd2ef216d
+
+ARG TARGETPLATFORM
+
+RUN apk add --no-cache nodejs-24=24.22.1-r2 \
+  && test -x /usr/bin/node
+
+COPY --from=node-deps /opt/maul-tools/node /opt/maul-tools/node
+COPY ${TARGETPLATFORM}/preview-tools /usr/local/bin/preview-tools
+
+# Everything writable is under /tmp, an emptyDir in the pod: the CLI's
+# session and artifacts, each check run's directory, the session config
+# holding the CDP key (0600).
+ENV HOME=/tmp \
+    TMPDIR=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache \
+    NO_UPDATE_NOTIFIER=1 \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    LANG=C.UTF-8
+
+LABEL org.opencontainers.image.title="maul preview-tools" \
+      org.opencontainers.image.description="The tools container of a maul slot tool pod: the preview-tools relay with the pinned Playwright CLI and test runner." \
+      org.opencontainers.image.source="https://github.com/devthenet-labs/maul" \
+      org.opencontainers.image.licenses="MIT"
+
+# Runs as uid 65532 under PSA restricted and a read-only root filesystem.
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/preview-tools"]

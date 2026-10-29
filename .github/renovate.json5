@@ -17,4 +17,20 @@
             ],
         },
     ],
+    packageRules: [
+        // The preview-tools image's Node project (internal/previewtools/node, Dockerfile.preview-tools): every
+        // version pinned exactly, and the Playwright CLI moved together with both playwright-core trees it
+        // installs (its own alpha and @playwright/test's release), so the snapshot and ref grammar the browser
+        // relay parses is re-checked as one change: CI's browser-tools job runs TestPlaywrightCLIFormat on the
+        // bump, and a changed grammar fails until the relay handles it.
+        {
+            matchFileNames: ["internal/previewtools/node/package.json"],
+            rangeStrategy: "pin",
+        },
+        {
+            matchFileNames: ["internal/previewtools/node/package.json"],
+            matchPackageNames: ["@playwright/cli", "@playwright/test", "playwright", "playwright-core"],
+            groupName: "playwright (preview-tools)",
+        },
+    ],
 }

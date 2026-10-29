@@ -75,7 +75,7 @@ func TestHandlerRefusals(t *testing.T) {
 			http.StatusOK, toolwire.RefusedInvalid, true},
 		{"not JSON", http.MethodPost, toolwire.Path(toolwire.VerbHTTP), `nope`, http.StatusOK,
 			toolwire.RefusedInvalid, true},
-		{"browser until S1-12", http.MethodPost, toolwire.Path(toolwire.VerbBrowser), `{"verb":"snapshot"}`,
+		{"browser in a pod without one", http.MethodPost, toolwire.Path(toolwire.VerbBrowser), `{"verb":"snapshot"}`,
 			http.StatusOK, toolwire.RefusedUnavailable, true},
 		{"exec without a sandbox", http.MethodPost, toolwire.Path(toolwire.VerbExec), `{"argv":["curl"]}`,
 			http.StatusOK, toolwire.RefusedUnavailable, true},
@@ -86,7 +86,7 @@ func TestHandlerRefusals(t *testing.T) {
 		{"a refused check", http.MethodPost, toolwire.Path(toolwire.VerbCheckRun),
 			`{"check":{"id":"x","outcome":"x","form":"exec","exec":{"argv":["true"],"expect":{"exit":0}}}}`,
 			http.StatusOK, toolwire.RefusedCheck, true},
-		{"a browser check until S1-12", http.MethodPost, toolwire.Path(toolwire.VerbCheckRun),
+		{"a browser check in a pod without a browser", http.MethodPost, toolwire.Path(toolwire.VerbCheckRun),
 			`{"check":{"id":"row","outcome":"row","form":"browser","browser":{"steps":[{"goto":"/api"},` +
 				`{"click":{"role":"button","name":"Add"}},` +
 				`{"expect":{"assert":"text","locator":{"role":"row","hasText":"{{run}}"},"text":{"contains":"{{run}}"}}}]}}}`,

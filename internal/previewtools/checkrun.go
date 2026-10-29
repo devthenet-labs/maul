@@ -24,8 +24,8 @@ import (
 // Every assertion is judged here, in the tools container: the sandbox can
 // lie about what its program printed, never about what was asserted.
 
-// reasonNoBrowser is maul's words for a browser check before the browser
-// relay (S1-12).
+// reasonNoBrowser is maul's words for a browser call or check in a pod
+// with no browser.
 const reasonNoBrowser = "the browser is unavailable in this tool pod"
 
 // runCheck runs c and returns its record; mode says why it ran.
@@ -51,6 +51,8 @@ func (r *Relay) attempt(ctx context.Context, c checks.Check) toolwire.Attempt {
 		a.Steps = r.httpAttempt(ctx, *c.HTTP, a.Run)
 	case checks.FormExec:
 		a.Steps = r.execAttempt(ctx, *c.Exec, a.Run)
+	case checks.FormBrowser:
+		a.Steps = r.browserAttempt(ctx, *c.Browser, a.Run)
 	default:
 		a.Steps = []toolwire.StepRecord{{Index: 0, Result: toolwire.ResultError, Detail: reasonNoBrowser}}
 	}

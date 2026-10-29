@@ -1,0 +1,7 @@
+/* Copyright 2026 Bitwise Media Group Ltd. */
+/* SPDX-License-Identifier: MIT */
+/* The trial's first planted defect: the second card covers the first card's buttons. */
+.side[data-side="b"] {
+  position: relative;
+  left: -55%;
+}

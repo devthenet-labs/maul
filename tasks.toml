@@ -112,17 +112,21 @@ dir = "{{cwd}}"
 env = { MAUL_LIVE_TUNNEL = "1" }
 run = "go test -count=1 -v -timeout 30m -run '^TestLiveTunnel$' ./internal/egressproxy"
 
-# The keyed CDP shim against a real Chromium (MAUL_LIVE_CHROMIUM, default
-# /usr/bin/chromium): the keyed WebSocket, a page evaluating script, the key
-# and Origin refusals, and every Chromium process gone on disconnect.
-# Opt-in (it needs Chromium), never in CI; run it before a cdpshim change or
-# a Chromium bump in Dockerfile.preview-browser merges, for a bump inside
-# the new image (its read-only root, uid 65532, no capabilities).
+# The browser tool against a real Chromium (hack/live-browser.sh): npm ci of
+# internal/previewtools/node, then the keyed CDP shim (TestLiveCDPShim), the
+# pinned Playwright CLI's output grammar against its golden
+# (TestPlaywrightCLIFormat), maul's fixture under tsc (TestFixtureTypechecks)
+# and the browser trial's matrix through the relay with no model
+# (TestLiveBrowser); MAUL_LIVE_PAGE_FUNCTIONS=1 adds S1-04's
+# TestLivePageFunctions. Chromium from MAUL_LIVE_CHROMIUM or PATH. CI's
+# browser-tools job runs it when the browser tool changed (renovate's pin
+# bumps included); run it before a Chromium bump in Dockerfile.preview-browser
+# merges, for a bump inside the new image (its read-only root, uid 65532, no
+# capabilities).
 [live-browser]
-description = "run the CDP shim against a real headless Chromium"
+description = "run the browser relay, the pinned Playwright CLI and the CDP shim against a real headless Chromium"
 dir = "{{cwd}}"
-env = { MAUL_LIVE_BROWSER = "1" }
-run = "go test -count=1 -v -run '^TestLiveCDPShim$' ./internal/cdpshim"
+run = "./hack/live-browser.sh"
 
 # Tests that need a real API server (CRD schema validation, controller
 # integration): setup-envtest provisions kube-apiserver/etcd, then the suites

@@ -1,0 +1,57 @@
+/* Copyright 2026 Bitwise Media Group Ltd. */
+/* SPDX-License-Identifier: MIT */
+/*
+ * The battle page's style (the browser trial's style.css, cut down). The
+ * score has no glow here: a text-shadow makes visible and legible
+ * indeterminate (SP-5), and the correct build must pass every check.
+ */
+body {
+  margin: 0;
+  background: #0b0618;
+  color: #f2eefc;
+  font-family: system-ui, sans-serif;
+}
+.top {
+  padding: 12px;
+  text-align: center;
+}
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 12px;
+}
+.versus {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.side {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px;
+  background: #140c2b;
+  border: 1px solid #3a2a6b;
+  border-radius: 10px;
+}
+.side h2 {
+  margin: 0;
+}
+.btn {
+  padding: 6px 10px;
+  font-size: 1rem;
+  color: #ffffff;
+  background: #24164a;
+  border: 1px solid #6a4cff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.score {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #39ff88;
+}
+.error[hidden] {
+  display: none;
+}

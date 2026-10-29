@@ -259,3 +259,52 @@ jobs:
                   else
                     ./hack/claude-posture-probe.sh
                   fi
+
+    # The browser tool against a real headless Chromium (hack/live-browser.sh,
+    # `mise run live-browser`): npm ci of internal/previewtools/node from its
+    # exact lockfile, the keyed CDP shim, TestPlaywrightCLIFormat (the pinned
+    # Playwright CLI's snapshot and ref grammar against its golden), maul's
+    # fixture and a compiled check under tsc --strict, and TestLiveBrowser
+    # (the browser trial's matrix through the relay with no model), plus
+    # S1-04's page functions on the same pins. It runs only when the browser
+    # tool changed against the base, so every renovate bump of the Playwright
+    # pins runs it. Chromium is the runner image's google-chrome; node comes
+    # from mise, set up as in the preview-pins job.
+    browser-tools:
+        runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+        permissions:
+            # check out the repository
+            contents: read
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false # read-only checkout; don't leave the token in .git/config
+                  submodules: true # the shared toolchain (pinned node) at .mise/
+                  fetch-depth: 0
+
+            - name: Setup go
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+                  cache-dependency-path: go.sum
+
+            - name: Setup mise
+              uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+              with:
+                  version: v2026.9.1
+                  # sha256 of the linux-x64 mise binary for the version above, from the release's
+                  # SHASUMS256.txt -- the action verifies the extracted binary, not the archive
+                  sha256: c98423c8470d6dc416d9f7036d0646d8ef5ae92ad9186907f8fcc84cbe7db4ea
+
+            - name: Run the browser tool's live tests if it changed
+              env:
+                  BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+                  MAUL_LIVE_PAGE_FUNCTIONS: "1"
+              run: |
+                  if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ]; then
+                    mise exec -- ./hack/live-browser.sh --if-changed "$BASE"
+                  else
+                    mise exec -- ./hack/live-browser.sh
+                  fi

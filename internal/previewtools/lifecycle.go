@@ -35,6 +35,9 @@ type RunOptions struct {
 	// ReadinessWindow replaces ReadinessWindow(timeout) when positive
 	// (tests).
 	ReadinessWindow time.Duration
+	// Front, when set, serves the preview front (NewFront) for the
+	// browser from the start: a loopback listener (FrontAddr).
+	Front net.Listener
 }
 
 // Run is the tools container's life (DESIGN 2.2 steps 5 to 8; SPEC Q18):
@@ -47,9 +50,13 @@ type RunOptions struct {
 //  2. replay every stored check, each alone with fresh run tokens, one
 //     relay check-run entry each;
 //  3. a replay round finishes there (FinishReplayOnly);
-//  4. otherwise serve the agent until the runner's finish, or finish on
-//     its own at the wall clock (FinishDeadline) or when ctx ends
-//     (FinishStopped).
+//  4. otherwise open the browser session, when the pod has a browser (a
+//     relay session entry), and serve the agent until the runner's
+//     finish, or finish on its own at the wall clock (FinishDeadline) or
+//     when ctx ends (FinishStopped).
+//
+// The preview front (o.Front) serves the browser throughout, replays
+// included.
 //
 // Every way out closes the ledger with its summary and writes the
 // termination message, so a crashed evaluator still leaves a ledger.
@@ -68,6 +75,11 @@ func Run(ctx context.Context, o RunOptions) (toolwire.Summary, error) {
 	}
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if o.Front != nil {
+		front := &http.Server{Handler: NewFront(o.Config, o.Client.dial), ReadHeaderTimeout: 10 * time.Second}
+		go func() { _ = front.Serve(o.Front) }()
+		defer func() { _ = front.Close() }()
+	}
 
 	if !r.awaitComponents(dctx, window) {
 		r.finishRelay(stopReason(ctx, dctx, FinishUnreachable))
@@ -82,6 +94,7 @@ func Run(ctx context.Context, o RunOptions) (toolwire.Summary, error) {
 		r.finishRelay(FinishStopped)
 		return r.result()
 	}
+	r.openBrowser(dctx)
 	srv := &http.Server{Handler: r.Handler(), ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return dctx }}
 	served := make(chan error, 1)
