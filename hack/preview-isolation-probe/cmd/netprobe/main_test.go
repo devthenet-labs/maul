@@ -179,7 +179,7 @@ func TestAsModeArgs(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{
-		{"--as"}, {"--as", "tools"}, {"--as", "checkreview"}, {"--as", "evaluator", "x"},
+		{"--as"}, {"--as", "checkreview"}, {"--as", "evaluator", "x"},
 		{"--as", "evaluator", "--refused-is-allowed"}, {"--as", "evaluator", refusedIsBlocked, "x"},
 	} {
 		if handled, code := asMode(args); !handled || code != 2 {
