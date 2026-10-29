@@ -21,6 +21,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/command"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
 // The acceptance commands, /maul verify [fix|stop|--reset], /maul accept
@@ -471,10 +472,11 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 		n.Outcome, n.Heads = templates.VerifyAcceptMoved, heads
 		return n, err
 	}
+	note := acceptNote(c.body)
 	recs := make([]v1alpha1.AcceptanceRecord, 0, len(ids))
 	for _, id := range ids {
 		recs = append(recs, v1alpha1.AcceptanceRecord{ID: id, By: c.actor.Login, ByID: c.actor.ID,
-			At: metav1.NewTime(c.at), CommentID: c.id, HeadSetDigest: v.HeadSetDigest, Heads: heads})
+			At: metav1.NewTime(c.at), CommentID: c.id, HeadSetDigest: v.HeadSetDigest, Heads: heads, Note: note})
 	}
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		a := in.Status.Acceptance
@@ -494,6 +496,23 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 	}
 	n.Outcome, n.Heads = templates.VerifyAccepted, heads
 	return n, nil
+}
+
+// acceptNote is the note of a /maul accept comment: its text below the
+// command line, as command.Note makes every note, without the id the
+// command line names; "" when there is none. It is the approver's text,
+// untrusted, at most v1alpha1.MaxAcceptanceNoteBytes, and shown only
+// through untrusted.Visible.
+func acceptNote(body string) string {
+	cmd, ok := command.Parse(body)
+	if !ok {
+		return ""
+	}
+	note := cmd.Note
+	if id, ok := command.ParseAccept(body); ok {
+		note = strings.TrimPrefix(note, id)
+	}
+	return untrusted.Cap(strings.TrimSpace(note), v1alpha1.MaxAcceptanceNoteBytes)
 }
 
 // liveWhenGiven reports that the Preview ran the recorded head set v when an

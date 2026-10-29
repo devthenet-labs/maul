@@ -48,3 +48,28 @@ func TestOutcomesToCRD(t *testing.T) {
 		})
 	}
 }
+
+// TestOutcomesFromCRD: stored outcomes convert back to the plan grammar's
+// form field for field (a round trip through OutcomesToCRD is the identity),
+// and an empty list is nil.
+func TestOutcomesFromCRD(t *testing.T) {
+	plan := acceptance.NormalizeOutcomes([]acceptance.PlanOutcome{
+		{ID: "rows-scroll", Outcome: "the two rows scroll together", From: "- rows scroll together"},
+		{ID: "still-loads", Outcome: "the leaderboard still loads", Kind: acceptance.OutcomeKindKeep},
+		{ID: "sounds-good", Outcome: "it sounds good", Manual: true, Reason: "only a human hears it"},
+	})
+	stored, err := OutcomesToCRD(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := OutcomesFromCRD(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, plan) {
+		t.Errorf("OutcomesFromCRD = %+v, want %+v", got, plan)
+	}
+	if got, err := OutcomesFromCRD(nil); got != nil || err != nil {
+		t.Errorf("OutcomesFromCRD(nil) = %v, %v; want nil", got, err)
+	}
+}

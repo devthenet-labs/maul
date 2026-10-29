@@ -167,6 +167,15 @@ func testProjectVerificationSchema(ctx context.Context, t *testing.T, c client.C
 			s.Repositories[0].Name = "tester"
 			s.Verification = &maulv1.ProjectVerification{}
 		}, false},
+		// So is the evaluator's tool pod's (the slot's tools part).
+		{"a repository keyed tools under verification", func(s *maulv1.ProjectSpec) {
+			s.Repositories[0].Name = "tools"
+			s.Verification = &maulv1.ProjectVerification{Enabled: true}
+		}, true},
+		{"a repository keyed tools without verification", func(s *maulv1.ProjectSpec) {
+			s.Repositories[0].Name = "tools"
+			s.Verification = &maulv1.ProjectVerification{}
+		}, false},
 	} {
 		t.Run("create with "+tt.name, func(t *testing.T) {
 			p := schemaProject("pv-" + shortHash(tt.name))

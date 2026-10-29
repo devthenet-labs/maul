@@ -153,6 +153,19 @@
 // RunReconciler only reads (uncached) and answers by settling that run
 // unlaunched, keeping IntentRun status its own.
 //
+// With --intent-evaluator too, a Project the evaluator verifies has its
+// approved outcomes evaluated instead (evaluate_round.go), on the same
+// writers: the IntentReconciler creates the outcome PreviewVerification and,
+// only once preview-controller's status names the slot tool pod's address,
+// the evaluate IntentRun pinning it (createRoleRun, the lease, under the
+// evaluation ceiling, which only evaluate and checkreview spend counts
+// against); the RunReconciler launches it only while that verification is
+// still the Intent's at its heads (evaluationCurrent, read uncached) and
+// keeps its report, the evaluator's claims, on run status; the
+// IntentReconciler collects the round from the run's status and the
+// verification's (the facts) and judges it. No role run (evaluate,
+// checkreview) owns a Repository or reads a tree, and none pushes.
+//
 // Repositories (spec, at creation) and the input, plan and run-input
 // ConfigMaps are created by the IntentReconciler and never changed; the
 // transcript ConfigMap by the RunReconciler. source-controller alone writes

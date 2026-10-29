@@ -280,7 +280,7 @@ func (p *pass) haltFixAtCeiling(ctx context.Context) error {
 // ceilingMessage is the VerifyFailing message of a CostCeiling halt.
 func (p *pass) ceilingMessage() string {
 	return fmt.Sprintf("the intent spent %d of its %d micro-USD ceiling",
-		p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj))
+		p.sharedSpend(), maxCostMicroUSD(p.proj))
 }
 
 // haltFix halts automatic fixes for reason, moving the verification to

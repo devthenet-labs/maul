@@ -496,11 +496,17 @@ func (p *pass) syncUsage(ctx context.Context) (bool, error) {
 		u.CacheReadTokens = addUsage(u.CacheReadTokens, s.CacheReadTokens)
 		u.CacheCreationTokens = addUsage(u.CacheCreationTokens, s.CacheCreationTokens)
 	}
-	if u == p.in.Status.Usage {
+	// The evaluations' share, which only the evaluation ceiling counts, is
+	// recorded beside the verification it was spent on.
+	v, evaluated := p.in.Status.Verification, p.evaluationSpend()
+	if u == p.in.Status.Usage && (v == nil || v.EvaluationCostMicroUSD == evaluated) {
 		return false, nil
 	}
 	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
 		cur.Status.Usage = u
+		if cur.Status.Verification != nil {
+			cur.Status.Verification.EvaluationCostMicroUSD = evaluated
+		}
 		return nil
 	})
 	switch {

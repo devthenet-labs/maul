@@ -109,8 +109,8 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 				return errClass(err)
 			}
 			return env["MAUL_INVESTIGATE_MAX_TURNS"] + "/" + env["MAUL_REMEDIATE_MANUAL_MAX_TURNS"]
-		}, map[v1alpha1.IntentStage]any{sPlan: "1/0", sBuild: "/2", sRevise: "/3", sEvaluate: "not enabled",
-			sCheckReview: "not enabled"}, "unknown"},
+		}, map[v1alpha1.IntentStage]any{sPlan: "1/0", sBuild: "/2", sRevise: "/3", sEvaluate: "4/",
+			sCheckReview: "5/"}, "unknown"},
 		{"jobs stageTimeoutKey", func(s v1alpha1.IntentStage) any {
 			key, err := stageTimeoutKey(s)
 			if err != nil {
@@ -118,10 +118,21 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 			}
 			return key
 		}, map[v1alpha1.IntentStage]any{sPlan: "MAUL_INVESTIGATE_TIMEOUT", sBuild: "MAUL_REMEDIATE_TIMEOUT",
-			sRevise: "MAUL_REMEDIATE_TIMEOUT", sEvaluate: "not enabled", sCheckReview: "not enabled"}, "unknown"},
+			sRevise: "MAUL_REMEDIATE_TIMEOUT", sEvaluate: "MAUL_INVESTIGATE_TIMEOUT",
+			sCheckReview: "MAUL_INVESTIGATE_TIMEOUT"}, "unknown"},
 		{"run_controller launchEnabled", func(s v1alpha1.IntentStage) any { return errClass(launchEnabled(s)) },
-			map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "not enabled",
-				sCheckReview: "not enabled"}, "unknown"},
+			map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "ok",
+				sCheckReview: "ok"}, "unknown"},
+		{"run_controller stageEnabled, evaluator off", func(s v1alpha1.IntentStage) any {
+			return errClass(set.stageEnabled(s))
+		}, map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "not enabled",
+			sCheckReview: "not enabled"}, "unknown"},
+		{"run_controller stageEnabled, evaluator on", func(s v1alpha1.IntentStage) any {
+			on := set
+			on.Evaluator = true
+			return errClass(on.stageEnabled(s))
+		}, map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "ok",
+			sCheckReview: "ok"}, "unknown"},
 		{"attribute attributeRun", func(s v1alpha1.IntentStage) any { return attributing.attributeRun(s) },
 			map[v1alpha1.IntentStage]any{sPlan: requester, sBuild: approverOf, sRevise: approverOf,
 				sEvaluate: approverOf, sCheckReview: approverOf}, attribution.Org()},
@@ -143,8 +154,8 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 			return "checked: " + refusal.outcome
 		}, map[v1alpha1.IntentStage]any{sPlan: "checked: " + OutcomeAborted, sBuild: "checked: " + OutcomeAborted,
 			sRevise:      "checked: " + OutcomeAborted,
-			sEvaluate:    "not enabled: " + OutcomeLaunchRefused,
-			sCheckReview: "not enabled: " + OutcomeLaunchRefused}, "unknown: " + OutcomeAborted},
+			sEvaluate:    "checked: " + OutcomeAborted,
+			sCheckReview: "checked: " + OutcomeAborted}, "unknown: " + OutcomeAborted},
 	}
 	stages := v1alpha1.IntentStages()
 	for _, site := range sites {
@@ -171,7 +182,7 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 	}
 }
 
-// Neither new stage's run is created before its round exists (S1-17):
+// Neither role stage's run is created while the agent evaluator is off:
 // createRun refuses it before it reads or writes anything.
 func TestCreateRunRefusesStagesNotEnabled(t *testing.T) {
 	for _, s := range []v1alpha1.IntentStage{sEvaluate, sCheckReview, sUnknown} {
@@ -186,8 +197,9 @@ func TestCreateRunRefusesStagesNotEnabled(t *testing.T) {
 	}
 }
 
-// A granted run of a stage not enabled (one made by hand) launches no Job:
-// it ends launch_refused, saying why.
+// A granted run of a stage not enabled (one made by hand, or left from
+// before the evaluator was switched off) launches no Job: it ends
+// launch_refused, saying why.
 func TestLaunchRefusesStagesNotEnabled(t *testing.T) {
 	for _, s := range []v1alpha1.IntentStage{sEvaluate, sCheckReview} {
 		t.Run(string(s), func(t *testing.T) {

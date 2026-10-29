@@ -794,7 +794,7 @@ func (p *pass) replyAtCeiling(ctx context.Context, pr v1alpha1.IntentPullRequest
 	return p.replyToCommand(ctx, pr, c, fmt.Sprintf("<!-- maul:intent-pr-command-ceiling:%s:%d -->", p.in.Name, c.ID),
 		fmt.Sprintf("This command waits: the intent has spent %d micro-USD, at or over its project's cost ceiling "+
 			"of %d, so no revision round starts. Raising the project's limits.maxCostMicroUSD past the spend "+
-			"starts this command's round.", p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj)), false)
+			"starts this command's round.", p.sharedSpend(), maxCostMicroUSD(p.proj)), false)
 }
 
 // replyToCommand writes one marker reply to command c on pr (and, with

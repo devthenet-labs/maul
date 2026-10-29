@@ -58,7 +58,7 @@ type planAsk struct {
 
 // planAsk is the plan-time decision for Project p: verified, and the
 // components of every Preview of it (v1alpha1.EffectivePreviews). A
-// component named like the tester part gives none, as
+// component named like the tester or the tool pod part gives none, as
 // v1alpha1.DesiredPreviewEnvironment fails closed on it.
 func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 	if !s.verifiesProject(p) {
@@ -67,7 +67,7 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 	outcomes := s.evaluates(p)
 	v := &templates.PlanVerification{Outcomes: outcomes}
 	for _, rp := range v1alpha1.EffectivePreviews(p) {
-		if rp.Name == v1alpha1.PreviewPartTester {
+		if rp.Name == v1alpha1.PreviewPartTester || rp.Name == v1alpha1.PreviewRoleTools {
 			return planAsk{verified: true, outcomes: outcomes}
 		}
 		v.Components = append(v.Components, templates.PlanVerifyComponent{

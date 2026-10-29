@@ -63,12 +63,22 @@ func (l *jobLauncher) Create(ctx context.Context, spec jobs.Spec, env map[string
 // agent-runner requires. A build run reads the remediate stage's keys: its
 // wall clock, its idle limit, and its manual ceiling (the automated budget,
 // which applies only to a Job with no grant, no higher); every intent run is
-// granted. The evaluate and checkreview stages have none yet
-// (errStageNotEnabled), and an unknown stage none at all (errUnknownStage).
+// granted. An evaluate or checkreview run (a role run) reads the investigate
+// stage's keys, as agent-runner runs both role stages on the investigate
+// stage's configuration: its wall clock, idle limit and ceilings, and
+// nothing of a build's. An unknown stage has none at all (errUnknownStage).
 func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGrant) (map[string]string, error) {
 	n := func(v int64) string { return strconv.FormatInt(v, 10) }
 	var ceiling StageCeiling
 	switch stage {
+	case v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
+		role := s.ceiling(stage)
+		return map[string]string{
+			"MAUL_INVESTIGATE_TIMEOUT":      role.Timeout.String(),
+			"MAUL_INVESTIGATE_IDLE_TIMEOUT": role.IdleTimeout.String(),
+			"MAUL_INVESTIGATE_MAX_TURNS":    n(int64(role.MaxTurns)),
+			"MAUL_INVESTIGATE_TOKEN_BUDGET": n(role.TokenBudget),
+		}, nil
 	case v1alpha1.IntentStagePlan:
 		return map[string]string{
 			"MAUL_INVESTIGATE_TIMEOUT":           s.Plan.Timeout.String(),
@@ -98,12 +108,12 @@ func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGr
 }
 
 // stageTimeoutKey is the MAUL_* key carrying stage's wall clock to
-// agent-runner: a plan reads the investigate stage's, a build or revise run
-// the remediate stage's; the evaluate and checkreview stages have none yet
-// (errStageNotEnabled), an unknown stage none at all (errUnknownStage).
+// agent-runner: a plan, evaluate or checkreview run reads the investigate
+// stage's, a build or revise run the remediate stage's; an unknown stage
+// none at all (errUnknownStage).
 func stageTimeoutKey(stage v1alpha1.IntentStage) (string, error) {
 	switch stage {
-	case v1alpha1.IntentStagePlan:
+	case v1alpha1.IntentStagePlan, v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
 		return "MAUL_INVESTIGATE_TIMEOUT", nil
 	case v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise:
 		return "MAUL_REMEDIATE_TIMEOUT", nil

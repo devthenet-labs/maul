@@ -844,11 +844,12 @@ spec:
                 one repository and no repositories[].preview'
               rule: '!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r,
                 has(r.preview)))'
-            - message: 'a repository key cannot be tester while verification is enabled:
-                it names the verification tester''s part of the preview slot'
+            - message: 'a repository key cannot be tester or tools while verification
+                is enabled: they name the verification tester''s and the evaluator''s
+                tool pod''s parts of the preview slot'
               rule: '!has(self.verification) || !has(self.verification.enabled) ||
                 !self.verification.enabled || !self.repositories.exists(r, r.name
-                == ''tester'')'
+                == ''tester'' || r.name == ''tools'')'
           status:
             description: |-
               ProjectStatus is the Project's observed state. Written only by

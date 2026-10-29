@@ -779,7 +779,16 @@ type AcceptanceRecord struct {
 	// +listType=atomic
 	// +kubebuilder:validation:items:Pattern=`^[0-9a-f]{7,40}$`
 	Heads []string `json:"heads,omitempty"`
+	// Note is the text the approver wrote after the command, if any. It
+	// is untrusted and shown only through untrusted.Visible.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Note string `json:"note,omitempty"`
 }
+
+// MaxAcceptanceNoteBytes bounds AcceptanceRecord.Note. The schema marker
+// repeats it as a literal; keep them in lockstep.
+const MaxAcceptanceNoteBytes = 1024
 
 // IntentVerificationState is where an intent's acceptance verification
 // stands. It is a sub-state of review: no Intent phase depends on it.

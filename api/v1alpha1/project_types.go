@@ -512,7 +512,7 @@ const MaxPreviewComponents = 4
 // +kubebuilder:validation:XValidation:rule="self.repositories.filter(r, has(r.preview)).size() <= 4",message="at most 4 repositories are previewed (repositories[].preview)"
 // +kubebuilder:validation:XValidation:rule="self.repositories.all(r, !has(r.preview) || self.repositories.exists_one(s, has(s.preview) && (has(s.preview.path) ? s.preview.path : '/') == (has(r.preview.path) ? r.preview.path : '/')))",message="two previewed repositories have the same path (repositories[].preview.path, default /)"
 // +kubebuilder:validation:XValidation:rule="!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r, has(r.preview)))",message="spec.preview is the one-repository shorthand: it needs exactly one repository and no repositories[].preview"
-// +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester')",message="a repository key cannot be tester while verification is enabled: it names the verification tester's part of the preview slot"
+// +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester' || r.name == 'tools')",message="a repository key cannot be tester or tools while verification is enabled: they name the verification tester's and the evaluator's tool pod's parts of the preview slot"
 type ProjectSpec struct {
 	// IntentRepository is the https URL of the repository whose issues are
 	// this Project's intents (e.g. https://github.com/acme/intents). Several

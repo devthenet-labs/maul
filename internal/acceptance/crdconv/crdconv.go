@@ -47,6 +47,19 @@ func OutcomesToCRD(os []acceptance.PlanOutcome) ([]v1alpha1.AcceptanceOutcome, e
 	return out, nil
 }
 
+// OutcomesFromCRD converts stored outcomes back to the plan grammar's form,
+// as strictly. An empty list is nil.
+func OutcomesFromCRD(os []v1alpha1.AcceptanceOutcome) ([]acceptance.PlanOutcome, error) {
+	if len(os) == 0 {
+		return nil, nil
+	}
+	var out []acceptance.PlanOutcome
+	if err := convert(os, &out); err != nil {
+		return nil, fmt.Errorf("stored acceptance outcomes: %w", err)
+	}
+	return out, nil
+}
+
 // CriteriaFromCRD converts stored criteria back to the grammar's form, as
 // strictly. An empty list is nil.
 func CriteriaFromCRD(cs []v1alpha1.AcceptanceCriterion) ([]acceptance.Criterion, error) {

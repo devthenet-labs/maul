@@ -151,8 +151,8 @@ func readRootFile(root *os.Root, name string, limit int) ([]byte, error) {
 
 // closeTools ends the evaluator's use of its tool pod (SPEC Q18). With an
 // accepted report that proposes checks it first asks the tools container to
-// confirm them (POST /v1/confirm): each run alone, under a fresh run token,
-// recorded in the ledger. Then it finishes (POST /v1/finish), naming as
+// confirm them (POST /v1/confirm, one call per check): each run alone, under
+// a fresh run token, recorded in the ledger. Then it finishes (POST /v1/finish), naming as
 // evidence the screenshots of at most toolwire.MaxEvidence ledger entries
 // the report cites (evidence). It returns the seqs it named in a finish the
 // tools container accepted, nil otherwise.
@@ -167,8 +167,11 @@ func (a *Agent) closeTools(ctx context.Context, tools *maultool.Client, accepted
 	}
 	var refs []int32
 	if accepted != nil {
-		if digests := proposedDigests(accepted.Proposed); len(digests) > 0 {
-			a.toolsCall(ctx, tools, toolwire.VerbConfirm, &toolwire.ConfirmRequest{Digests: digests})
+		// One call per check: the tools container refuses a whole confirm
+		// when any digest it names has no green dry run, so a batch would
+		// let one unconfirmable proposal cost every other its confirmation.
+		for _, d := range proposedDigests(accepted.Proposed) {
+			a.toolsCall(ctx, tools, toolwire.VerbConfirm, &toolwire.ConfirmRequest{Digests: []string{d}})
 		}
 		refs = accepted.LedgerRefs()
 	}

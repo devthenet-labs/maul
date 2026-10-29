@@ -428,6 +428,49 @@ func TestEvaluateToolsRefusalKeepsTheClaims(t *testing.T) {
 	}
 }
 
+// TestEvaluateConfirmsEachCheckAlone: two proposals are confirmed in two
+// calls, one digest each, in report order, so the tools container's refusal
+// of one (it refuses a whole confirm when any digest it names has no green
+// dry run) never costs the other its confirmation; a refused confirm still
+// leads to the finish.
+func TestEvaluateConfirmsEachCheckAlone(t *testing.T) {
+	var out bytes.Buffer
+	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
+	tools := useTools(t, &cfg)
+	tools.refuse[toolwire.VerbConfirm] = toolwire.RefusedNoDryRun
+	second := mustCheck(strings.Replace(string(checks.Canonical(rateBattleCheck)), `"rate-battle.api"`,
+		`"rate-battle.again"`, 1))
+	first, again := checks.Digest(rateBattleCheck), checks.Digest(second)
+	report := strings.Replace(goodEvaluation, "anomalies:", "proposed:\n"+
+		"  - id: \"rate-battle.api\"\n    outcome: rate-battle\n    digest: \""+first+"\"\n"+
+		"  - id: \"rate-battle.again\"\n    outcome: rate-battle\n    digest: \""+again+"\"\nanomalies:", 1)
+	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
+		"scratch/report.md":                     report,
+		"scratch/checks/rate-battle-api.json":   string(checks.Canonical(rateBattleCheck)),
+		"scratch/checks/rate-battle-again.json": string(checks.Canonical(second)),
+	}}}}
+	e := onlyEvent(t, cfg, fx, &out).Evaluation
+	if e.Outcome != envelope.OutcomeOK || len(e.Proposed) != 2 {
+		t.Fatalf("evaluation = %+v, want both proposals claimed", e)
+	}
+	want := []toolwire.Verb{toolwire.VerbConfirm, toolwire.VerbConfirm, toolwire.VerbFinish}
+	if got := tools.verbs(); !slices.Equal(got, want) {
+		t.Fatalf("tool calls = %v, want %v", got, want)
+	}
+	tools.mu.Lock()
+	calls := slices.Clone(tools.calls[:2])
+	tools.mu.Unlock()
+	for i, d := range []string{first, again} {
+		var confirm toolwire.ConfirmRequest
+		if err := toolwire.DecodeRequest(bytes.NewReader(calls[i].body), &confirm); err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{strings.TrimPrefix(d, "sha256:")}; !slices.Equal(confirm.Digests, want) {
+			t.Errorf("confirm %d digests = %v, want %v alone", i, confirm.Digests, want)
+		}
+	}
+}
+
 // TestEvaluateFinishesAFailedStage: a stage that does not end OK still
 // finishes its tool pod, naming no evidence and confirming nothing.
 func TestEvaluateFinishesAFailedStage(t *testing.T) {

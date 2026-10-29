@@ -202,6 +202,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// builds of its repository alone, so discovery and plans go on.
 	setResourceClasses(cur, r.Classes)
 	setVerificationOff(cur, settings)
+	setEvaluatorUnverified(cur, settings)
 	cur.Status.ObservedGeneration = p.Generation
 
 	var intents v1alpha1.IntentList

@@ -160,8 +160,10 @@ type Settings struct {
 	// clamped to them, and the Job's stage configuration carries them.
 	Plan, Build, Revise StageCeiling
 	// Evaluate and CheckReview are the evaluator's and the check reviewer's
-	// ceilings. No flag sets them yet, and no run of either stage is created
-	// (errStageNotEnabled) until their round lands.
+	// ceilings, set under --intent-evaluator (the evaluate timeout from
+	// --intent-evaluate-timeout, the rest maul's defaults); no run of either
+	// stage is created or launched while the evaluator is off
+	// (errStageNotEnabled, stageEnabled).
 	Evaluate, CheckReview StageCeiling
 	// MultiRepo runs intents of Projects that list more than one repository
 	// (--intent-multi-repo). Off, such a Project is not Ready, and every
@@ -217,14 +219,40 @@ type Settings struct {
 	// the intent reconciler writes no acceptance or verification state and
 	// creates no PreviewVerification, whatever the Project says.
 	Verification bool
-	// Evaluator is --intent-evaluator (SPEC Q11; the flag lands with S1-17):
-	// a verifying Project's plans are asked for acceptance outcomes, which
-	// the agent evaluator checks, and an approved plan's outcomes are
-	// recorded (status.acceptance.outcomes); an open intent whose approved
+	// Evaluator is --intent-evaluator (SPEC Q11): a verifying Project's
+	// plans are asked for acceptance outcomes, which the agent evaluator
+	// checks, and an approved plan's outcomes are recorded
+	// (status.acceptance.outcomes) and evaluated against the Preview, one
+	// round at a time (evaluate_round.go); an open intent whose approved
 	// plan states slice-1 criteria gets one replan notice and is not
 	// verified until a new plan is approved (DESIGN 7.6). Off (the default)
-	// slice 1 runs unchanged.
+	// slice 1 runs unchanged. serve refuses it without Verification and
+	// Previews.
 	Evaluator bool
+	// EvaluateModel and CheckReviewModel are the canonical models a claude
+	// Project's evaluate and checkreview runs run on
+	// (--intent-evaluate-model, --intent-checkreview-model); a codex
+	// Project's run on Codex.BuildModel.
+	EvaluateModel, CheckReviewModel string
+	// DefaultHandoff is --intent-default-handoff, the hand-off mode of a
+	// Project that sets none (spec.verification.handoff), and HandoffMax
+	// --intent-handoff-max, the gated hand-off's bound when it sets none.
+	DefaultHandoff v1alpha1.HandoffMode
+	HandoffMax     time.Duration
+	// EvaluateCodex is --intent-evaluate-codex (SPEC Q16): a codex Project's
+	// intents are evaluated on codex. Off (the default), they are not
+	// evaluated at all: their hand-off is early, and the Project says so
+	// (ConditionEvaluatorUnverified).
+	EvaluateCodex bool
+	// EvaluationCostMax is --intent-evaluation-cost-max in micro-USD: the
+	// most one intent's evaluate and checkreview runs may spend, whatever
+	// its Project's limits.maxEvaluateCostMicroUSD says; zero leaves the
+	// Project's alone (evaluationCeiling).
+	EvaluationCostMax int64
+	// MaxToolCalls is --intent-max-tool-calls: the most tool calls an
+	// evaluation's tool pod allows, whatever its Project's
+	// verification.maxToolCalls says; zero leaves the Project's alone.
+	MaxToolCalls int32
 	// VerifyTimeoutMax is --intent-verify-timeout-max: the most a Project's
 	// verification.timeout gives a tester Job (verifyTimeout). Zero is
 	// DefaultVerifyTimeoutMax.
@@ -369,6 +397,27 @@ const (
 	// chart's preview.verification.deadlineMaxSeconds, which preview-controller
 	// holds a tester Job's deadline to.
 	DefaultVerifyTimeoutMax = 30 * time.Minute
+	// DefaultEvaluateTimeout is --intent-evaluate-timeout's default, an
+	// evaluate run's wall clock (DESIGN 5); MaxEvaluateTimeout its most, so
+	// the round's tool pod (the evaluate timeout plus
+	// EvaluationToolsMargin) fits a PreviewVerification's one-hour bound.
+	DefaultEvaluateTimeout = 20 * time.Minute
+	MaxEvaluateTimeout     = time.Hour - EvaluationToolsMargin
+	// EvaluationToolsMargin is what a round's tool pod lives past its
+	// evaluate run's timeout (DESIGN 5: the evaluator's start-up and the
+	// confirmation runs after it).
+	EvaluationToolsMargin = 5 * time.Minute
+	// DefaultEvaluateMaxTurns and DefaultEvaluateTokenBudget bound an
+	// evaluate run (DESIGN 5: 60 turns); a Project's limits.evaluate may
+	// lower them.
+	DefaultEvaluateMaxTurns    int32 = 60
+	DefaultEvaluateTokenBudget int64 = 400000
+	// DefaultCheckReviewMaxTurns, DefaultCheckReviewTokenBudget and
+	// DefaultCheckReviewTimeout bound a checkreview run: its turns bound
+	// each review session (DESIGN 5: 3), the rest the whole run.
+	DefaultCheckReviewMaxTurns    int32 = 3
+	DefaultCheckReviewTokenBudget int64 = 100000
+	DefaultCheckReviewTimeout           = 15 * time.Minute
 )
 
 // withDefaults fills unset settings.

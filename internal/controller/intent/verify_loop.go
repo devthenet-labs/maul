@@ -86,6 +86,10 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 	if !p.verifies() {
 		return p.settleState(ctx, v1alpha1.VerificationOff)
 	}
+	if p.set.evaluates(p.proj) {
+		// The agent evaluator's outcomes: its own rounds (evaluate_round.go).
+		return p.syncEvaluation(ctx)
+	}
 	if len(automatable(acc.Criteria)) == 0 {
 		// Nothing runs, but an approver's acceptance binds to the head set,
 		// so it is tracked all the same.
@@ -632,6 +636,9 @@ func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullR
 	if !p.acceptanceCurrent() || v == nil {
 		return false, nil
 	}
+	if p.set.evaluates(p.proj) {
+		return p.startEvaluation(ctx, prs)
+	}
 	criteria := automatable(acc.Criteria)
 	hs, ok := previewHeadSet(p.proj, p.in)
 	if len(criteria) == 0 || !ok || hs.digest != v.HeadSetDigest {
@@ -663,7 +670,12 @@ func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullR
 		}
 		return p.waitVerification(ctx, v1alpha1.VerificationWaitingForCI)
 	}
-	return true, p.createVerification(ctx, kind, preview, hs, criteria)
+	return true, p.createVerification(ctx, kind, preview, hs, v1alpha1.VerificationVerifying,
+		func(spec *v1alpha1.PreviewVerificationSpec) error {
+			spec.Criteria, spec.CriteriaDigest = criteria, p.in.Status.Acceptance.Digest
+			spec.Timeout = metav1.Duration{Duration: p.set.verifyTimeout(p.proj)}
+			return nil
+		})
 }
 
 // waitVerification records what a due verification waits for, unless a
@@ -735,11 +747,14 @@ func (p *pass) needsReplan(ctx context.Context, id string) error {
 }
 
 // createVerification creates the next PreviewVerification against preview
-// at hs and records it: a retry is its round's next attempt, anything else
-// a new round's first. One that already exists under the name (a status
-// write lost after its create) is adopted when it is this Intent's at hs.
+// at hs and records it in state (Verifying for slice 1's criteria,
+// Evaluating for the evaluator's outcomes): a retry is its round's next
+// attempt, anything else a new round's first. fill completes the spec with
+// what it runs and its timeout; an error from it creates nothing. One that
+// already exists under the name (a status write lost after its create) is
+// adopted when it is this Intent's at hs.
 func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview *v1alpha1.Preview, hs headSet,
-	criteria []v1alpha1.AcceptanceCriterion) error {
+	state v1alpha1.IntentVerificationState, fill func(*v1alpha1.PreviewVerificationSpec) error) error {
 	v := p.in.Status.Verification
 	round, attempt := v.Round+1, int32(1)
 	if kind == verifyRetry {
@@ -771,10 +786,11 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 			IntentRef:         v1alpha1.ObjectReference{Name: p.in.Name, UID: p.in.UID},
 			PreviewRef:        v1alpha1.ObjectReference{Name: preview.Name, UID: preview.UID},
 			PreviewGeneration: preview.Generation, HeadSetDigest: hs.digest, Heads: slices.Clone(hs.heads),
-			Round: round, Attempt: attempt, Run: run, Criteria: criteria,
-			CriteriaDigest: p.in.Status.Acceptance.Digest,
-			Timeout:        metav1.Duration{Duration: p.set.verifyTimeout(p.proj)},
+			Round: round, Attempt: attempt, Run: run,
 		},
+	}
+	if err := fill(&pv.Spec); err != nil {
+		return err
 	}
 	if err := p.r.Create(ctx, pv); err != nil {
 		if !kerrors.IsAlreadyExists(err) {
@@ -790,7 +806,7 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 	p.pruneVerifications(ctx)
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason = v1alpha1.VerificationVerifying, ""
+		nv.State, nv.UnavailableReason = state, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}
 		clearJudgement(nv)

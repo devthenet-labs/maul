@@ -6,6 +6,7 @@ package intent
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -69,25 +70,48 @@ var jobPhase = map[v1alpha1.IntentStage]string{
 }
 
 // errStageNotEnabled: a stage the schema admits that this controller does
-// not run yet (the evaluator's and the check reviewer's, until their round
-// lands): no run of it is created, and a granted one launches nothing.
-var errStageNotEnabled = errors.New("this controller does not run the stage yet")
+// not run as configured (the evaluator's and the check reviewer's while
+// --intent-evaluator is off): no run of it is created, and a granted one
+// launches nothing.
+var errStageNotEnabled = errors.New("this controller does not run the stage: the agent evaluator is off")
 
 // errUnknownStage: a stage no switch of this controller knows (the schema's
 // enum refuses one); nothing is created or launched for it.
 var errUnknownStage = errors.New("the stage is unknown to this controller")
 
-// launchEnabled reports whether runs of stage may be created and launched:
-// nil for the plan, build and revise stages, errStageNotEnabled for the
-// evaluate and checkreview stages, errUnknownStage for any other.
+// launchEnabled reports whether this controller knows how to create and
+// launch runs of stage: nil for every stage the schema admits,
+// errUnknownStage for any other. Whether it does so as configured is
+// Settings.stageEnabled.
 func launchEnabled(stage v1alpha1.IntentStage) error {
 	switch stage {
-	case v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise:
+	case v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise,
+		v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
 		return nil
-	case v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
-		return fmt.Errorf("stage %q: %w", stage, errStageNotEnabled)
 	}
 	return fmt.Errorf("stage %q: %w", stage, errUnknownStage)
+}
+
+// stageEnabled reports whether runs of stage may be created and launched
+// under these settings: launchEnabled, and for the evaluate and checkreview
+// stages the agent evaluator on (errStageNotEnabled otherwise), so a run of
+// either made by hand, or left over from before the evaluator was switched
+// off, launches nothing.
+func (s Settings) stageEnabled(stage v1alpha1.IntentStage) error {
+	if err := launchEnabled(stage); err != nil {
+		return err
+	}
+	if roleStage(stage) && !s.Evaluator {
+		return fmt.Errorf("stage %q: %w", stage, errStageNotEnabled)
+	}
+	return nil
+}
+
+// roleStage reports the evaluator's and the check reviewer's stages, whose
+// Jobs run in a role (jobs.Spec.Role): no tree, no Repository, maul's own
+// runner image, and a JSON handoff the run's input carries.
+func roleStage(stage v1alpha1.IntentStage) bool {
+	return stage == v1alpha1.IntentStageEvaluate || stage == v1alpha1.IntentStageCheckReview
 }
 
 // irunGVK is the owner TypeMeta a run's transcript carries.
@@ -317,8 +341,12 @@ func (r *RunReconciler) launchable(ctx context.Context, run *v1alpha1.IntentRun)
 }
 
 // runRepositoryNames are the Repositories a run works from: its own, then,
-// for a plan run of a multi-repository Project, each tree's.
+// for a plan run of a multi-repository Project, each tree's. A role run
+// (evaluate, checkreview) works from none: it reads no tree.
 func runRepositoryNames(run *v1alpha1.IntentRun) []string {
+	if roleStage(run.Spec.Stage) {
+		return nil
+	}
 	names := make([]string, 0, 1+len(run.Spec.Trees))
 	names = append(names, run.Spec.Repository.RepositoryRef.Name)
 	for _, tree := range run.Spec.Trees {
@@ -583,7 +611,7 @@ func repositoryLeftDetail(run *v1alpha1.IntentRun) string {
 func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) error {
 	// A run of a stage this controller does not run (one made by hand) ends
 	// before anything is read for it.
-	if err := launchEnabled(run.Spec.Stage); err != nil {
+	if err := r.Settings.stageEnabled(run.Spec.Stage); err != nil {
 		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused, detail: err.Error() + "; nothing was launched"})
 	}
 	proj, wait, err := r.launchProject(ctx, run)
@@ -593,6 +621,16 @@ func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) err
 	case wait:
 		return r.requeuePending(ctx, run)
 	}
+	if roleStage(run.Spec.Stage) {
+		return r.launchRole(ctx, run, proj)
+	}
+	return r.launchTree(ctx, run, proj)
+}
+
+// launchTree is launch for a run that works on a tree (plan, build,
+// revise), its Project read: its Repository pinned and stored, its input,
+// its stage's spec.
+func (r *RunReconciler) launchTree(ctx context.Context, run *v1alpha1.IntentRun, proj *v1alpha1.Project) error {
 	// Before anything is read for the launch (a revise round's head, from
 	// GitHub): a run granted a moment before its class became unknown hands
 	// the slot back and waits, launchable keeping it ungranted, its attempt
@@ -682,6 +720,59 @@ func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) err
 		return r.settle(ctx, run, *refusal)
 	}
 	return r.launchVerified(ctx, run, proj, spec, requireImage)
+}
+
+// launchRole launches an evaluate or checkreview run (a role run): no tree
+// and no Repository, maul's own runner image, the run's JSON handoff as the
+// Job's issue.md, and the role its egress policy selects. An evaluate run is
+// launched only while the verification it pins is current
+// (evaluationCurrent), pinned to its tool pod's address by a hostAlias and
+// labelled with the verification's UID, the one value that pod's ingress
+// policy admits.
+func (r *RunReconciler) launchRole(ctx context.Context, run *v1alpha1.IntentRun, proj *v1alpha1.Project) error {
+	var cm corev1.ConfigMap
+	if err := r.Get(ctx, runInputKey(run), &cm); err != nil {
+		return err
+	}
+	if !controlledBy(cm.OwnerReferences, run.UID) {
+		return r.settle(ctx, run, result{outcome: OutcomeAborted,
+			detail: fmt.Sprintf("input ConfigMap %s is not this run's own; nothing was launched", cm.Name)})
+	}
+	stage := run.Spec.Stage
+	spec := jobs.Spec{
+		Repo:          repoSlug(run.Spec.Repository.URL),
+		Attempt:       int(run.Spec.Attempt),
+		Phase:         jobPhase[stage],
+		Harness:       r.runHarness(run).ID,
+		IssueMarkdown: cm.Data[keyIssue],
+		Kind:          KindIntent,
+		Owner:         run.Name,
+		Finding:       run.Name,
+		MaxTurns:      run.Spec.Grant.MaxTurns,
+		TokenBudget:   run.Spec.Grant.TokenBudget,
+		AttributedTo:  r.Settings.Attribution.Annotation(run.Spec.AttributedTo),
+		// The run's cost budget, under the broker's cost unit only, and a
+		// deadline that follows its stage timeout.
+		BudgetMicroUSD: r.Settings.runBudgetFor(run, proj),
+		Deadline:       r.Settings.jobDeadline(r.Settings.runTimeout(run)),
+		Role:           v1alpha1.RoleCheckReview,
+	}
+	if stage == v1alpha1.IntentStageEvaluate {
+		refusal, err := r.evaluationCurrent(ctx, run)
+		switch {
+		case err != nil:
+			return err
+		case refusal != nil:
+			return r.settle(ctx, run, *refusal)
+		}
+		ev := run.Spec.Evaluation
+		spec.Role, spec.Evaluation = v1alpha1.RoleEvaluator, string(ev.UID)
+		spec.ToolHost = &jobs.HostAlias{Name: jobs.ToolsHostName, IP: ev.ToolIP}
+	}
+	if _, refusal := r.stageSpec(run, &spec, &cm, proj, nil); refusal != nil {
+		return r.settle(ctx, run, *refusal)
+	}
+	return r.launchJob(ctx, run, proj, spec, false)
 }
 
 // unlaunchable settles a pending run that will never launch: its Intent
@@ -861,6 +952,11 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 		// Likewise a network profile the Job may not carry.
 		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused,
 			detail: "the agent Job's network profile was refused: " + err.Error()})
+	case errors.Is(err, jobs.ErrRoleRefused):
+		// Likewise a role the Job cannot be built in (an evaluator with no
+		// resolver to probe, say): the same launch would be refused again.
+		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused,
+			detail: "the agent Job's role was refused: " + err.Error()})
 	case err != nil:
 		return fmt.Errorf("launch run %s: %w", run.Name, err)
 	}
@@ -1005,11 +1101,30 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		r.networkProfile(run, spec)
 		return true, nil
 	case v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
-		return false, &result{outcome: OutcomeLaunchRefused,
-			detail: launchEnabled(run.Spec.Stage).Error() + "; nothing was launched"}
+		// A role run is handed its JSON handoff alone (launchRole): no
+		// plan, no tree, maul's own image.
+		if strings.TrimSpace(spec.IssueMarkdown) == "" {
+			return false, &result{outcome: OutcomeAborted,
+				detail: fmt.Sprintf("the %s handoff is empty; nothing was launched", run.Spec.Stage)}
+		}
+		spec.Model = r.roleModel(run)
+		return false, nil
 	}
 	return false, &result{outcome: OutcomeAborted,
 		detail: launchEnabled(run.Spec.Stage).Error() + "; nothing was launched"}
+}
+
+// roleModel is the canonical model an evaluate or checkreview run runs: a
+// codex run's codex build model (codex has no evaluator models of its own),
+// otherwise the stage's own.
+func (r *RunReconciler) roleModel(run *v1alpha1.IntentRun) string {
+	switch {
+	case run.Spec.Harness.IsCodex():
+		return r.Settings.Codex.BuildModel
+	case run.Spec.Stage == v1alpha1.IntentStageCheckReview:
+		return r.Settings.CheckReviewModel
+	}
+	return r.Settings.EvaluateModel
 }
 
 // planSpec is stageSpec for a plan run: its refusal, nil to launch.
@@ -1210,8 +1325,14 @@ func (r *RunReconciler) collect(ctx context.Context, run *v1alpha1.IntentRun) (c
 		r.log().LogAttrs(ctx, slog.LevelError, "persist transcript",
 			slog.String("run", run.Name), slog.Any("error", err))
 	}
-	if run.Spec.Stage == v1alpha1.IntentStagePlan {
+	switch run.Spec.Stage {
+	case v1alpha1.IntentStagePlan:
 		return ctrl.Result{}, r.collectPlan(ctx, run, out.Events, transcript, st)
+	case v1alpha1.IntentStageEvaluate:
+		return ctrl.Result{}, r.collectEvaluate(ctx, run, out.Events, transcript, st)
+	case v1alpha1.IntentStageCheckReview:
+		return ctrl.Result{}, r.collectCheckReview(ctx, run, out.Events, transcript, st)
+	case v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise:
 	}
 	return r.heldOr(r.collectBuild(ctx, run, out.Events, transcript, st))
 }
@@ -1634,6 +1755,80 @@ func (r *RunReconciler) collectPlan(ctx context.Context, run *v1alpha1.IntentRun
 			break
 		}
 		res.outcome, res.complete, res.report = string(envelope.OutcomeOK), true, plan.Report
+	}
+	return r.settle(ctx, run, res)
+}
+
+// collectEvaluate settles an evaluate run from its evaluation event: the
+// evaluator's report, its claims and nothing more (DESIGN 4.4), kept as
+// the run's report when the stage ended ok and the report holds to its
+// schema and its cited seqs (agentresult.FromEvaluation); what was checked
+// and confirmed is the tools ledger's, which preview-controller reads. It
+// never pushes and never validates a changeset: the evaluator writes no
+// code. A run with no evaluation event says why its agent stopped when the
+// Job does.
+func (r *RunReconciler) collectEvaluate(ctx context.Context, run *v1alpha1.IntentRun, events []envelope.Event,
+	transcript *v1alpha1.TranscriptRef, st jobs.Status) error {
+	var ev *envelope.Evaluation
+	for _, e := range events {
+		switch e.Type {
+		case envelope.TypeEvaluation:
+			ev = e.Evaluation
+		case envelope.TypeFatal:
+			return r.settle(ctx, run, result{outcome: OutcomeAborted, detail: e.Error, transcript: transcript})
+		}
+	}
+	if ev == nil {
+		return r.settle(ctx, run, result{outcome: noResultOutcome(st),
+			detail: noResultDetail("agent job produced no evaluation event", st), transcript: transcript})
+	}
+	res := result{stage: &ev.Stage, transcript: transcript}
+	claims, err := agentresult.FromEvaluation(ev)
+	switch {
+	case err != nil:
+		res.outcome, res.detail = string(envelope.OutcomeReportInvalid), err.Error()
+	case ev.Outcome != envelope.OutcomeOK:
+		res.outcome, res.detail = podOutcome(ev.Outcome, ev.Detail)
+	default:
+		res.outcome, res.complete, res.report = string(envelope.OutcomeOK), true, claims.Report
+	}
+	return r.settle(ctx, run, res)
+}
+
+// collectCheckReview settles a checkreview run from its checkreview event:
+// its answers, each keyed by the digests it was handed and held to the
+// report's rules (agentresult.FromCheckReview), kept as the run's report in
+// their JSON form (agentresult.ReviewAnswer, in order) for the check store
+// to read (S1-19). It never pushes.
+func (r *RunReconciler) collectCheckReview(ctx context.Context, run *v1alpha1.IntentRun, events []envelope.Event,
+	transcript *v1alpha1.TranscriptRef, st jobs.Status) error {
+	var ev *envelope.CheckReview
+	for _, e := range events {
+		switch e.Type {
+		case envelope.TypeCheckReview:
+			ev = e.CheckReview
+		case envelope.TypeFatal:
+			return r.settle(ctx, run, result{outcome: OutcomeAborted, detail: e.Error, transcript: transcript})
+		}
+	}
+	if ev == nil {
+		return r.settle(ctx, run, result{outcome: noResultOutcome(st),
+			detail: noResultDetail("agent job produced no checkreview event", st), transcript: transcript})
+	}
+	res := result{stage: &ev.Stage, transcript: transcript}
+	review, err := agentresult.FromCheckReview(ev)
+	switch {
+	case err != nil:
+		res.outcome, res.detail = string(envelope.OutcomeReportInvalid), err.Error()
+	case ev.Outcome != envelope.OutcomeOK:
+		res.outcome, res.detail = podOutcome(ev.Outcome, ev.Detail)
+	default:
+		answers, err := json.Marshal(review.Answers)
+		if err != nil {
+			res.outcome, res.detail = string(envelope.OutcomeReportInvalid), err.Error()
+			break
+		}
+		res.outcome, res.complete, res.report = string(envelope.OutcomeOK), true, string(answers)
 	}
 	return r.settle(ctx, run, res)
 }

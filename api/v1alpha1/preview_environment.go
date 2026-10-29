@@ -17,9 +17,9 @@ package v1alpha1
 // Preview verification-capable and admits one edge from the tester to each
 // component, on the component's own port, in component order. Nothing calls
 // the tester, and no component calls another. A component named like the
-// tester part, which the Project schema refuses while verification is on,
-// gives no environment, so a Project the API server never validated fails
-// closed.
+// tester part or the evaluator's tool pod part (PreviewRoleTools), which the
+// Project schema refuses while verification is on, gives no environment, so
+// a Project the API server never validated fails closed.
 func DesiredPreviewEnvironment(p *Project, in *Intent) (*PreviewEnvironment, bool) {
 	if !p.Spec.VerificationEnabled() {
 		return nil, false
@@ -29,7 +29,7 @@ func DesiredPreviewEnvironment(p *Project, in *Intent) (*PreviewEnvironment, boo
 		return nil, false
 	}
 	for _, c := range components {
-		if c.Name == PreviewPartTester {
+		if c.Name == PreviewPartTester || c.Name == PreviewRoleTools {
 			return nil, false
 		}
 	}

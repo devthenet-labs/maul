@@ -298,6 +298,7 @@ func TestAcceptCommand(t *testing.T) {
 			t.Errorf("accepted[%d] = %+v", i, r)
 		}
 	}
+	checkAcceptNotes(t, acc.Accepted, "checked it on my phone", "")
 	if body := e.onlyReply(manual); !strings.Contains(body, "accepted at `"+heads[0]+"`") {
 		t.Errorf("reply = %s", body)
 	}
@@ -325,6 +326,20 @@ func TestAcceptCommand(t *testing.T) {
 	}
 	if body := e.onlyReply(early); !strings.Contains(body, "must wait") {
 		t.Errorf("reply = %s", body)
+	}
+}
+
+// checkAcceptNotes: the note below each command is kept with its record,
+// in order (as text, never the id); a command with none records none.
+func checkAcceptNotes(t *testing.T, recs []v1alpha1.AcceptanceRecord, notes ...string) {
+	t.Helper()
+	if len(recs) != len(notes) {
+		t.Fatalf("records = %d, want %d", len(recs), len(notes))
+	}
+	for i, want := range notes {
+		if recs[i].Note != want {
+			t.Errorf("accepted[%d].Note = %q, want %q", i, recs[i].Note, want)
+		}
 	}
 }
 

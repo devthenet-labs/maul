@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/changeset"
 	"github.com/devthenet-labs/maul/internal/cli"
 	"github.com/devthenet-labs/maul/internal/controller/intent"
@@ -66,6 +67,33 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("intent-verify-timeout-max", intent.DefaultVerifyTimeoutMax,
 		"the most a Project's verification.timeout gives a tester Job, between 1m and 1h; keep it at or under "+
 			"preview-controller's tester deadline maximum (chart preview.verification.deadlineMaxSeconds)")
+	f.Bool("intent-evaluator", false,
+		"verify the approved plan's acceptance outcomes with the agent evaluator, which explores each intent's "+
+			"Preview through a slot tool pod and writes its own checks (needs --intent-verification and "+
+			"--intent-previews-enabled). Off, slice 1's acceptance criteria run unchanged")
+	f.String("intent-evaluate-model", "anthropic/claude-sonnet-5",
+		"canonical model a claude Project's evaluate runs run (--intent-evaluator)")
+	f.String("intent-checkreview-model", "anthropic/claude-sonnet-5",
+		"canonical model a claude Project's checkreview runs run (--intent-evaluator)")
+	f.Duration("intent-evaluate-timeout", intent.DefaultEvaluateTimeout,
+		"wall-clock limit of an evaluate run, between 1m and 55m (its tool pod lives 5m longer, within the "+
+			"hour a verification may take)")
+	f.String("intent-default-handoff", string(v1alpha1.HandoffGated),
+		"when a Project that sets no verification.handoff hands its preview to humans under the evaluator: "+
+			"gated (once the evaluation passes or gives up) or early (at once)")
+	f.Duration("intent-handoff-max", v1alpha1.DefaultHandoffMax,
+		"the most a gated hand-off waits, from CI green at the first pull request heads, for a Project that "+
+			"sets no verification.handoffMax; between 10m and 4h")
+	f.Bool("intent-evaluate-codex", false,
+		"also evaluate the intents of codex Projects on codex (needs --intent-codex); off, they are not "+
+			"evaluated, their hand-off is early, and each such Project says so (EvaluatorUnverified)")
+	f.Int("intent-evaluation-cost-max", int(v1alpha1.DefaultMaxEvaluateCostMicroUSD),
+		"the most one intent's evaluate and checkreview runs may spend, in micro-USD, whatever its Project's "+
+			"limits.maxEvaluateCostMicroUSD says; counted apart from the per-intent ceiling, so evaluation never "+
+			"spends what fix rounds need")
+	f.Int("intent-max-tool-calls", int(v1alpha1.DefaultMaxToolCalls),
+		"the most tool calls one evaluation may make, between 50 and 300, whatever its Project's "+
+			"verification.maxToolCalls says")
 	f.Bool("intent-multi-repo", false,
 		"run intents of Projects that list more than one repository; off, such a Project is not Ready and its "+
 			"intents are held Blocked (UnsupportedRepositories) where they stand: no run is launched and nothing "+
@@ -205,6 +233,9 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 	if err := verification(opts, &s); err != nil {
 		return intent.Settings{}, err
 	}
+	if err := evaluator(opts, &s); err != nil {
+		return intent.Settings{}, err
+	}
 	if err := jobDeadlines(opts, &s); err != nil {
 		return intent.Settings{}, err
 	}
@@ -237,6 +268,67 @@ func verification(opts *cli.Options, s *intent.Settings) error {
 	return nil
 }
 
+// evaluator reads the agent evaluator's switch and, when it is on, its
+// settings, each held to its bounds. It is refused without verification and
+// previews: the evaluator judges each intent's Preview. Off, nothing of it
+// reaches the settings, so slice 1 runs exactly as before.
+func evaluator(opts *cli.Options, s *intent.Settings) error {
+	if !opts.Bool("intent-evaluator") {
+		return nil
+	}
+	if !s.Verification || !s.Previews {
+		return errors.New("--intent-evaluator needs --intent-verification and --intent-previews-enabled: the " +
+			"evaluator judges each intent's Preview")
+	}
+	timeout := opts.Duration("intent-evaluate-timeout")
+	if timeout < time.Minute || timeout > intent.MaxEvaluateTimeout {
+		return fmt.Errorf("--intent-evaluate-timeout %s must be between 1m and %s", timeout, intent.MaxEvaluateTimeout)
+	}
+	handoff := v1alpha1.HandoffMode(opts.String("intent-default-handoff"))
+	if handoff != v1alpha1.HandoffGated && handoff != v1alpha1.HandoffEarly {
+		return fmt.Errorf("--intent-default-handoff %q: want gated or early", handoff)
+	}
+	handoffMax := opts.Duration("intent-handoff-max")
+	if handoffMax < 10*time.Minute || handoffMax > 4*time.Hour {
+		return fmt.Errorf("--intent-handoff-max %s must be between 10m and 4h", handoffMax)
+	}
+	cost := int64(opts.Int("intent-evaluation-cost-max"))
+	if cost <= 0 {
+		return errors.New("--intent-evaluation-cost-max must be positive")
+	}
+	calls := opts.Int("intent-max-tool-calls")
+	if calls < v1alpha1.MinToolCalls || calls > v1alpha1.MaxToolCallsLimit {
+		return fmt.Errorf("--intent-max-tool-calls %d must be between %d and %d", calls, v1alpha1.MinToolCalls,
+			v1alpha1.MaxToolCallsLimit)
+	}
+	s.Evaluator = true
+	s.EvaluateModel, s.CheckReviewModel = opts.String("intent-evaluate-model"), opts.String("intent-checkreview-model")
+	s.DefaultHandoff, s.HandoffMax = handoff, handoffMax
+	s.EvaluateCodex = opts.Bool("intent-evaluate-codex")
+	s.EvaluationCostMax, s.MaxToolCalls = cost, int32(calls)
+	s.Evaluate = intent.StageCeiling{MaxTurns: intent.DefaultEvaluateMaxTurns,
+		TokenBudget: intent.DefaultEvaluateTokenBudget, Timeout: timeout}
+	s.CheckReview = intent.StageCeiling{MaxTurns: intent.DefaultCheckReviewMaxTurns,
+		TokenBudget: intent.DefaultCheckReviewTokenBudget, Timeout: intent.DefaultCheckReviewTimeout}
+	return nil
+}
+
+// evaluatorProbeDNS is the resolver an evaluator Job's strict probe must
+// find closed: under dnsPolicy None the pod names none, so the controller's
+// own, read once from resolvConf (SPEC Q14). Without it every evaluator Job
+// would be refused, so the evaluator does not start without it. "" while
+// the evaluator is off.
+func evaluatorProbeDNS(s intent.Settings, resolvConf string) (string, error) {
+	if !s.Evaluator {
+		return "", nil
+	}
+	addr, err := runnercfg.ProbeDNS(resolvConf)
+	if err != nil {
+		return "", fmt.Errorf("--intent-evaluator: %w", err)
+	}
+	return addr, nil
+}
+
 // jobDeadlines reads the intent Job deadline floor and ceiling. Each run's
 // Job deadline is derived from its own stage timeout (intent.JobDeadlineMargin
 // past it, capped by --intent-job-deadline-max), so the floor is not tied to
@@ -258,6 +350,9 @@ func jobDeadlines(opts *cli.Options, s *intent.Settings) error {
 		{"--intent-plan-timeout", s.Plan.Timeout},
 		{"--intent-build-timeout", s.Build.Timeout},
 		{"--intent-revise-timeout", s.Revise.Timeout},
+		// Zero while the evaluator is off.
+		{"--intent-evaluate-timeout", s.Evaluate.Timeout},
+		{"the checkreview timeout", s.CheckReview.Timeout},
 	} {
 		if c.timeout+intent.JobDeadlineMargin > s.JobDeadlineMax {
 			return fmt.Errorf("%s %s plus %s is longer than --intent-job-deadline-max %s: its Jobs could end "+
@@ -341,8 +436,11 @@ func readJobSizes(opts *cli.Options) (jobSizes, error) {
 
 // readRunConfig reads what the run reconciler takes from the flags beside
 // its settings: the jobSizes and the usage meter (nil while
-// --usage-measurement is off).
+// --usage-measurement is off), and holds --changeset-max-entries positive.
 func readRunConfig(opts *cli.Options, log *slog.Logger) (jobSizes, *usagemeter.Meter, error) {
+	if opts.Int("changeset-max-entries") <= 0 {
+		return jobSizes{}, nil, errors.New("--changeset-max-entries must be positive")
+	}
 	sizes, err := readJobSizes(opts)
 	if err != nil {
 		return jobSizes{}, nil, err
@@ -364,6 +462,13 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 	runners map[string]jobs.Runner) (claude, codex intent.RunHarness, err error) {
 	claude = intent.RunHarness{PlanModel: opts.String("intent-plan-model"), BuildModel: opts.String("intent-build-model")}
 	models := []string{claude.PlanModel, claude.BuildModel}
+	var roleModels []string
+	if opts.Bool("intent-evaluator") {
+		// The evaluator's and the check reviewer's models run on the claude
+		// harness too: allowlisted and resolved with the others.
+		roleModels = []string{opts.String("intent-evaluate-model"), opts.String("intent-checkreview-model")}
+		models = append(models, roleModels...)
+	}
 	codexOn := opts.Bool("intent-codex")
 	if codexOn {
 		codex = intent.RunHarness{ID: model.HarnessCodex, PlanModel: opts.String("intent-codex-plan-model"),
@@ -386,6 +491,17 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 	if r := runners[claude.ID]; claude.ID == model.HarnessClaude && !r.Brokered {
 		return intent.RunHarness{}, intent.RunHarness{}, errors.New(
 			"intents run on brokered claude only, and the claude runner is not brokered")
+	}
+	for _, m := range roleModels {
+		id, _, err := runnercfg.ResolveHarness(m, enabled)
+		if err != nil {
+			return intent.RunHarness{}, intent.RunHarness{}, err
+		}
+		if id != claude.ID {
+			return intent.RunHarness{}, intent.RunHarness{}, fmt.Errorf("--intent-evaluate-model and "+
+				"--intent-checkreview-model must resolve to the harness intents plan and build on (%s), and %s "+
+				"resolves to %s", claude.ID, m, id)
+		}
 	}
 	if !codexOn {
 		return claude, intent.RunHarness{}, nil
@@ -489,9 +605,6 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := sizes.defaults.Strings()
-	if opts.Int("changeset-max-entries") <= 0 {
-		return errors.New("--changeset-max-entries must be positive")
-	}
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
@@ -523,6 +636,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	set.Codex = codex
 	harnessID := claude.ID
+	probeDNS, err := evaluatorProbeDNS(set, runnercfg.ResolvConf)
+	if err != nil {
+		return err
+	}
 
 	runner := intent.NewJobRunner(cs, jobs.Config{
 		Namespace:      agentNS,
@@ -541,6 +658,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		AllowRepositoryImages: sizes.repositoryImages,
 		DNS:                   agentDNS,
 		NetworkProfiles:       sizes.profilesOn,
+		SandboxProbeDNS:       probeDNS,
 	}, log)
 	// Forges come from the cache; their Secrets are never cached, so the
 	// manager's client reads each one live.
@@ -614,6 +732,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
 		slog.Bool("verification", set.Verification),
+		slog.Bool("evaluator", set.Evaluator),
+		slog.Bool("evaluate_codex", set.EvaluateCodex),
 		slog.String("attribution_mode", string(set.Attribution)),
 		slog.String("user_credentials", string(set.UserCredentials)),
 		slog.Bool("usage_measurement", meter.On()),
