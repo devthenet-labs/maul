@@ -177,6 +177,12 @@ Fifteen binaries, one module. "Not monolithic" means separate binaries/deploymen
   facts its phase waits on. It plans in a read-only agent Job on the default image, posts the plan verbatim for an
   approver, builds only the approved plan in the repository's accepted image (`runnerguard.PinFor`), pushes it
   two-phase to `maul-intent/<intent>` (create-only, never forced) and opens the PR. It closes the issue on merge.
+  An intent whose issue GitHub records as blocked by other issues waits in Pending (`WaitingOnDependencies`, a
+  condition, never a phase; `status.dependencies`; `dependencies.go`) until every blocker is closed as completed,
+  holding no `maxActiveIntents` slot; only the first start waits, `/maul start` (approver) overrides, an intent ending
+  nudges its Project's waiters, a 404/410/403 starts it at once and any other failure after 30 minutes (Project
+  `DependenciesUnavailable`); `--intent-dependencies` (default true, chart `intentController.dependencies.enabled`)
+  off runs the old path. People's guide docs/intents/dependencies.md.
   With `--intent-multi-repo` (slice 3; off, a multi-repository Project is not Ready and its intents are held Blocked)
   a Project lists up to eight repositories: one plan Job reads them all (the others as digest-pinned `Trees`, recorded
   on the run), each repository the plan names gets its own build run (`<intent>-bld-r<rev>-<key>-a<n>`, its own image)
