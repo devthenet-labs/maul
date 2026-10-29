@@ -112,6 +112,18 @@ dir = "{{cwd}}"
 env = { MAUL_LIVE_TUNNEL = "1" }
 run = "go test -count=1 -v -timeout 30m -run '^TestLiveTunnel$' ./internal/egressproxy"
 
+# The keyed CDP shim against a real Chromium (MAUL_LIVE_CHROMIUM, default
+# /usr/bin/chromium): the keyed WebSocket, a page evaluating script, the key
+# and Origin refusals, and every Chromium process gone on disconnect.
+# Opt-in (it needs Chromium), never in CI; run it before a cdpshim change or
+# a Chromium bump in Dockerfile.preview-browser merges, for a bump inside
+# the new image (its read-only root, uid 65532, no capabilities).
+[live-browser]
+description = "run the CDP shim against a real headless Chromium"
+dir = "{{cwd}}"
+env = { MAUL_LIVE_BROWSER = "1" }
+run = "go test -count=1 -v -run '^TestLiveCDPShim$' ./internal/cdpshim"
+
 # Tests that need a real API server (CRD schema validation, controller
 # integration): setup-envtest provisions kube-apiserver/etcd, then the suites
 # that skip without KUBEBUILDER_ASSETS run for real.

@@ -243,6 +243,25 @@ builds:
       goarch:
           - amd64
           - arm64
+    - id: cdp-shim
+      main: ./cmd/cdp-shim
+      binary: cdp-shim
+      flags:
+          - -trimpath
+      # The CDP shim links only the standard library, internal/cdpshim and
+      # x/net/websocket, so these stamps name a package it does not link and
+      # the linker drops them; they stay so every build carries the same
+      # contract (internal/version's TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
     - id: agent-runner
       main: ./cmd/agent-runner
       binary: agent-runner
@@ -348,6 +367,7 @@ archives:
           - preview-auth
           - preview-tester
           - tool-exec
+          - cdp-shim
           - agent-runner
           - status-server
       formats: [tar.gz]
@@ -607,6 +627,25 @@ dockers_v2:
       dockerfile: Dockerfile.preview-toolbox
       images:
           - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-toolbox"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
+    # The preview browser (cmd/cdp-shim plus a pinned headless Chromium):
+    # the optional browser container of a slot tool pod. The chart takes it
+    # only by digest.
+    - id: preview-browser
+      ids: [cdp-shim]
+      dockerfile: Dockerfile.preview-browser
+      images:
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-browser"
       tags:
           - v{{ .Version }}
           - latest
