@@ -209,6 +209,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 	cur.Status.ActiveIntents = activeIntents(&intents, p.Name)
+	setDependenciesUnavailable(cur, &intents, settings)
 
 	due := poll.attemptedAt.IsZero() || now.Sub(poll.attemptedAt) >= settings.PollInterval
 	if due {
@@ -737,12 +738,14 @@ func triggerSinceClose(events []*ghclient.IssueEvent, trigger string) *ghclient.
 	return labeled
 }
 
-// activeIntents counts the Project's non-terminal Intents.
+// activeIntents counts the Project's Intents that hold one of its active
+// slots: every one not ended, but one waiting on its dependencies
+// (holdsActiveSlot).
 func activeIntents(intents *v1alpha1.IntentList, project string) int32 {
 	var n int32
 	for i := range intents.Items {
 		in := &intents.Items[i]
-		if in.Spec.Project == project && in.DeletionTimestamp.IsZero() && !terminal(in.Status.Phase) {
+		if in.Spec.Project == project && holdsActiveSlot(in) {
 			n++
 		}
 	}

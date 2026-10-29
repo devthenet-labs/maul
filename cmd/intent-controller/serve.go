@@ -66,6 +66,10 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("intent-verify-timeout-max", intent.DefaultVerifyTimeoutMax,
 		"the most a Project's verification.timeout gives a tester Job, between 1m and 1h; keep it at or under "+
 			"preview-controller's tester deadline maximum (chart preview.verification.deadlineMaxSeconds)")
+	f.Bool("intent-dependencies", true,
+		"hold an intent whose issue GitHub records as blocked by other issues in Pending until every blocker is "+
+			"closed as completed (an approver's /maul start overrides); off, intents start as soon as their "+
+			"trigger is accepted and every Project says DependenciesUnavailable (DependenciesOff)")
 	f.Bool("intent-multi-repo", false,
 		"run intents of Projects that list more than one repository; off, such a Project is not Ready and its "+
 			"intents are held Blocked (UnsupportedRepositories) where they stand: no run is launched and nothing "+
@@ -149,6 +153,7 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		MaxAttempts:          intent.DefaultMaxAttempts,
 		MultiRepo:            opts.Bool("intent-multi-repo"),
 		Previews:             opts.Bool("intent-previews-enabled"),
+		IgnoreDependencies:   !opts.Bool("intent-dependencies"),
 		Plan: intent.StageCeiling{
 			MaxTurns:    int32(opts.Int("intent-plan-max-turns")),
 			TokenBudget: int64(opts.Int("intent-plan-token-budget")),
@@ -613,6 +618,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent_runs", opts.Int("intent-max-concurrent-runs")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
+		slog.Bool("dependencies", !set.IgnoreDependencies),
 		slog.Bool("verification", set.Verification),
 		slog.String("attribution_mode", string(set.Attribution)),
 		slog.String("user_credentials", string(set.UserCredentials)),

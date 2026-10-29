@@ -430,3 +430,27 @@ func TestUsageMeasurementReachesMeter(t *testing.T) {
 		t.Fatalf("meter = %v, %v; want on", m, err)
 	}
 }
+
+// TestDependenciesFlagReachesSettings: intent dependencies are honoured by
+// default, and MAUL_INTENT_DEPENDENCIES=false (the chart's
+// intentController.dependencies.enabled) turns them off.
+func TestDependenciesFlagReachesSettings(t *testing.T) {
+	for key, value := range componentData(t) {
+		t.Setenv(key, value)
+	}
+	for _, tc := range []struct {
+		value      string
+		wantIgnore bool
+	}{{"true", false}, {"false", true}} {
+		t.Setenv("MAUL_INTENT_DEPENDENCIES", tc.value)
+		opts, root, _ := command(t)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		s, err := settings(opts, "maul", "maul-agents")
+		if err != nil || s.IgnoreDependencies != tc.wantIgnore {
+			t.Errorf("MAUL_INTENT_DEPENDENCIES=%s: IgnoreDependencies = %v, %v; want %v", tc.value,
+				s.IgnoreDependencies, err, tc.wantIgnore)
+		}
+	}
+}

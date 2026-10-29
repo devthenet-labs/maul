@@ -192,6 +192,7 @@ func (p *pass) poll(ctx context.Context) (stop bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("read the issue: %w", err)
 	}
+	p.issue = issue
 	events, err := p.r.GitHub.ListIssueEvents(ctx, p.repo(), p.number())
 	if err != nil {
 		return false, fmt.Errorf("list the issue's events: %w", err)
@@ -384,6 +385,11 @@ func (p *pass) stillToAnswer(a *humanAction) bool {
 		return after(a.at, a.source, a.id, p.lastTrigger()) // else superseded by a newer trigger action
 	case action.VerbVerify, action.VerbAccept:
 		a.recorded = p.verifyRecorded(a.id)
+	case action.VerbStart:
+		if d := p.in.Status.Dependencies; d != nil && d.StartedBy != nil && d.StartedBy.Source == a.source &&
+			d.StartedBy.EventID == a.id {
+			a.recorded = true
+		}
 	}
 	return true
 }
@@ -517,10 +523,10 @@ func (p *pass) settle(ctx context.Context, a humanAction, issue *ghclient.Issue)
 }
 
 // acts reports a verb that takes effect on the intent (approve, replan,
-// cancel, verify, accept), as against one only answered with help.
+// cancel, start, verify, accept), as against one only answered with help.
 func acts(verb string) bool {
 	return verb == action.VerbApprove || verb == action.VerbReplan || verb == action.VerbCancel ||
-		isVerifyVerb(verb)
+		verb == action.VerbStart || isVerifyVerb(verb)
 }
 
 // decide applies or refuses an intent verb, a label's or an approver's
@@ -535,6 +541,8 @@ func (p *pass) decide(ctx context.Context, a humanAction, issue *ghclient.Issue)
 		return p.settleReplan(ctx, a, issue)
 	case action.VerbVerify, action.VerbAccept:
 		return p.settleVerifyIssue(ctx, a)
+	case action.VerbStart:
+		return p.settleStart(ctx, a)
 	}
 	return nil
 }
@@ -642,7 +650,7 @@ func (p *pass) notAllowed(ctx context.Context, a humanAction, bot, labelRemoved,
 func (p *pass) notAvailable(ctx context.Context, a humanAction, phase v1alpha1.IntentPhase, labelRemoved bool) error {
 	n := templates.NotAvailableNotice{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Key: a.key(), Phase: string(phase),
-		LabelRemoved: labelRemoved, Available: verbs(phase, p.set.Verification),
+		LabelRemoved: labelRemoved, Available: p.availableVerbs(phase),
 	}
 	if a.source == v1alpha1.IntentActionLabel {
 		n.Label = a.label
@@ -675,6 +683,36 @@ func (p *pass) settleCancel(ctx context.Context, a humanAction) error {
 		return err
 	}
 	return p.setPhase(ctx, v1alpha1.IntentClosed, func(cur *v1alpha1.Intent) { cur.Status.ActiveRun = nil })
+}
+
+// settleStart answers /maul start: an approver's, while the intent is
+// Pending with dependencies honoured, ends its wait on its blockers
+// (status.dependencies.startedBy); it still starts only once the Project has
+// a slot for it, and only once its trigger is accepted (a /maul start
+// cannot rescue a non-approver's trigger). It moves no attribution: a plan
+// run is attributed from the trigger that opened its input revision.
+func (p *pass) settleStart(ctx context.Context, a humanAction) error {
+	if p.in.Status.Phase != v1alpha1.IntentPending || p.set.IgnoreDependencies {
+		return p.notAvailable(ctx, a, p.in.Status.Phase, false)
+	}
+	ok, bot, err := p.authorize(ctx, a.actor)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return p.notAllowed(ctx, a, bot, false, false)
+	}
+	rec := a.record()
+	if err := p.update(ctx, func(cur *v1alpha1.Intent) error {
+		if cur.Status.Dependencies == nil {
+			cur.Status.Dependencies = &v1alpha1.IntentDependencies{}
+		}
+		cur.Status.Dependencies.StartedBy = &rec
+		return nil
+	}); err != nil {
+		return err
+	}
+	return p.replyDone(ctx, a)
 }
 
 // settleReplan answers a replan: the trigger label re-applied, or /maul

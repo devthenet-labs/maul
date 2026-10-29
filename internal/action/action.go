@@ -66,6 +66,9 @@ const (
 	// criterion (a manual one, or one that passed only on retry) at the
 	// current combined change.
 	VerbAccept = "accept"
+	// VerbStart starts an intent whose issue is blocked by other issues
+	// without waiting for them to close.
+	VerbStart = "start"
 )
 
 // ActionVerbs lists the per-finding verbs in the order clients present them.

@@ -48,6 +48,18 @@ function Card({ card, project, now }: { card: IntentCard; project?: BoardProject
         {card.phase === "Revising" ? <Pill tone="seedling">revising</Pill> : null}
         {card.column === "done" ? <Pill tone={card.phase === "Merged" ? "green" : "soil"}>{card.phase.toLowerCase()}</Pill> : null}
       </div>
+      {card.waiting ? (
+        <p class="m-0 flex flex-wrap items-center gap-1.5 text-[11.5px] text-muted">
+          <Pill tone="amber" title="Pending: maul starts it once the issues it is blocked by are closed as completed">
+            waiting
+          </Pill>
+          <span>
+            {card.waiting.reason}
+            {card.waiting.refs?.length ? `: ${card.waiting.refs.join(", ")}` : ""}
+            {card.waiting.others ? ` (+${card.waiting.others} more)` : ""}
+          </span>
+        </p>
+      ) : null}
       {card.blockedReasons?.length ? (
         <ul class="m-0 list-none p-0 text-[11.5px] text-red">
           {card.blockedReasons.map((r) => (
