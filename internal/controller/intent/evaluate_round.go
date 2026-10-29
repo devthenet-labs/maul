@@ -384,9 +384,10 @@ func (p *pass) evaluationRunning(ctx context.Context, pv *v1alpha1.PreviewVerifi
 }
 
 // evaluationObserved is settleEvaluation once preview-controller collected
-// pv: the round is judged once its evaluator's run settled complete (a
-// replay round has none); with no run, or a failed one, the round's next
-// attempt is due.
+// pv: once its evaluator's run settled complete, its new checks are
+// reviewed and stored (reviewChecks), then the round is judged (a replay
+// round has no run, and nothing new to store); with no run, or a failed
+// one, the round's next attempt is due.
 func (p *pass) evaluationObserved(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	run *v1alpha1.IntentRun) (bool, error) {
 	switch {
@@ -396,6 +397,10 @@ func (p *pass) evaluationObserved(ctx context.Context, pv *v1alpha1.PreviewVerif
 		return true, p.unjudged(ctx)
 	case !runSettled(run):
 		return false, nil
+	}
+	// Its new checks reviewed and the proven ones stored (S1-19) first.
+	if changed, wait, err := p.reviewChecks(ctx, pv); changed || wait || err != nil {
+		return changed, err
 	}
 	return true, p.judgeEvaluation(ctx, pv, run)
 }
@@ -460,7 +465,7 @@ func (p *pass) launchEvaluator(ctx context.Context, pv *v1alpha1.PreviewVerifica
 // spec.repository names the Project's first, for display, and no
 // Repository is ever created under it. It pins the approved plan, as every
 // run after approval does, and an evaluate run its PreviewVerification
-// (evaluation). S1-19's check review creates its runs here too.
+// (evaluation). The reviewer round creates its checkreview runs here too.
 func (p *pass) createRoleRun(ctx context.Context, stage v1alpha1.IntentStage, round, attempt int32,
 	evaluation *v1alpha1.IntentRunEvaluation, data map[string]string) (*v1alpha1.IntentRun, error) {
 	if err := p.set.stageEnabled(stage); err != nil {

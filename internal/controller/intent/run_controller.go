@@ -768,6 +768,14 @@ func (r *RunReconciler) launchRole(ctx context.Context, run *v1alpha1.IntentRun,
 		ev := run.Spec.Evaluation
 		spec.Role, spec.Evaluation = v1alpha1.RoleEvaluator, string(ev.UID)
 		spec.ToolHost = &jobs.HostAlias{Name: jobs.ToolsHostName, IP: ev.ToolIP}
+	} else {
+		refusal, err := r.checkReviewCurrent(ctx, run)
+		switch {
+		case err != nil:
+			return err
+		case refusal != nil:
+			return r.settle(ctx, run, *refusal)
+		}
 	}
 	if _, refusal := r.stageSpec(run, &spec, &cm, proj, nil); refusal != nil {
 		return r.settle(ctx, run, *refusal)

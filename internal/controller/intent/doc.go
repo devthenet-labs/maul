@@ -163,8 +163,16 @@
 // still the Intent's at its heads (evaluationCurrent, read uncached) and
 // keeps its report, the evaluator's claims, on run status; the
 // IntentReconciler collects the round from the run's status and the
-// verification's (the facts) and judges it. No role run (evaluate,
-// checkreview) owns a Repository or reads a tree, and none pushes.
+// verification's (the facts) and judges it. Before judging, the
+// IntentReconciler creates one checkreview IntentRun per round for the
+// confirmed checks with no cached review (checkreview_round.go), which the
+// RunReconciler launches only while that round is still the Intent's in
+// flight (checkReviewCurrent), caches its answers in
+// status.acceptance.reviews, and stores the proven checks in the check
+// store (checkstore.go): an immutable Intent-owned ConfigMap, replaced
+// under the next number and never updated, status.acceptance.checks naming
+// it. No role run (evaluate, checkreview) owns a Repository or reads a
+// tree, and none pushes.
 //
 // Repositories (spec, at creation) and the input, plan and run-input
 // ConfigMaps are created by the IntentReconciler and never changed; the
