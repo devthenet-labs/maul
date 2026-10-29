@@ -12,6 +12,7 @@ import { streamRun } from "../api";
 import { formatDate, formatMicroUSD, formatTokens } from "../format";
 import { formatDuration, mergeRunOutput, secondsSince, stopConditions, type RunOutputState } from "../intents";
 import { hrefForIntent } from "../router";
+import { EvaluationEvidence } from "./EvaluationEvidence";
 import { Icon } from "./icons";
 import { LiveOutput } from "./LiveOutput";
 import { PlainText } from "./PlainText";
@@ -164,6 +165,8 @@ export function RunPanel({ run, now }: { run: IntentRunDetail; now: number }) {
           ))}
         </ul>
       </section>
+
+      {run.stage === "evaluate" ? <EvaluationEvidence intent={run.intent} run={run.name} /> : null}
 
       {run.tier === "transcripts" ? (
         <>

@@ -9,16 +9,19 @@ import {
   OUTPUT_KEEP,
   OUTPUT_LIMIT_NOTE,
   costShare,
+  evidenceImageURL,
   formatDuration,
   groupByColumn,
   mergeRunOutput,
   outputSegments,
   outputStatus,
+  resultTone,
   runLinkLabel,
   secondsSince,
+  shortDigest,
   stopConditions,
 } from "../src/intents.ts";
-import { mockIntentDetail } from "../src/mock/intents.ts";
+import { mockIntentDetail, mockRunEvaluation } from "../src/mock/intents.ts";
 import { hrefForIntent, hrefForIntentRun, isIntentsRoute, parseRoute } from "../src/router.ts";
 
 const card = (name, column, phaseSince) => ({
@@ -397,4 +400,44 @@ test("no intents view imports Markdown or sets inner HTML", () => {
     assert.doesNotMatch(src, /from\s+["']\.\/Markdown["']/, `${file} imports Markdown`);
     assert.doesNotMatch(src, /dangerouslySetInnerHTML|innerHTML/, `${file} sets inner HTML`);
   }
+});
+
+test("evidenceImageURL builds only the server's own image keys", () => {
+  const key = `2-${"a".repeat(64)}.png`;
+  assert.equal(
+    evidenceImageURL("alpha-7", "alpha-7-ev-r1-a1", key),
+    `/api/intents/alpha-7/runs/alpha-7-ev-r1-a1/evidence/${key}`,
+  );
+  for (const bad of [
+    "../plan.md",
+    `0-${"a".repeat(64)}.png`,
+    `2-${"A".repeat(64)}.png`,
+    "https://evil.example/x.png",
+    `2-${"a".repeat(64)}.svg`,
+  ]) {
+    assert.equal(evidenceImageURL("alpha-7", "r", bad), "", bad);
+  }
+});
+
+test("resultTone colours outcome and check run results", () => {
+  assert.equal(resultTone("passed"), "green");
+  assert.equal(resultTone("accepted"), "green");
+  assert.equal(resultTone("fail"), "red");
+  assert.equal(resultTone("refused"), "red");
+  assert.equal(resultTone("unsure"), "amber");
+  assert.equal(resultTone("error"), "amber");
+  assert.equal(resultTone(undefined), "neutral");
+  assert.equal(resultTone("<img>"), "neutral");
+});
+
+test("shortDigest cuts a digest to 12 hex characters", () => {
+  assert.equal(shortDigest(`sha256:${"ab".repeat(32)}`), "abababababab");
+  assert.equal(shortDigest("c".repeat(64)), "cccccccccccc");
+  assert.equal(shortDigest(undefined), "");
+});
+
+test("the demo evaluate run has an evaluation, other runs none", () => {
+  const ev = mockRunEvaluation("storefront-7", "storefront-7-ev-r1-a1");
+  assert.ok(ev && ev.outcomes.length > 0 && ev.checks.length > 0);
+  assert.equal(mockRunEvaluation("storefront-7", "storefront-7-plan-r1-a1"), null);
 });

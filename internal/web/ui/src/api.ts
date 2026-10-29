@@ -17,6 +17,7 @@ import type {
   IntentRunDetail,
   Me,
   OfflineDataset,
+  RunEvaluation,
   RunActivity,
   RunOutput,
   StreamNotice,
@@ -36,6 +37,7 @@ import {
   mockIntentPlan,
   mockIntentRun,
   mockMe,
+  mockRunEvaluation,
   mockRunOutput,
   mockRunTurns,
 } from "./mock/intents";
@@ -345,6 +347,15 @@ export async function fetchIntentRun(intent: string, run: string): Promise<Inten
   if (dataMode() !== "live") return mockIntentRun(intent, run);
   return getOrNull<IntentRunDetail>(
     `/api/intents/${encodeURIComponent(intent)}/runs/${encodeURIComponent(run)}`,
+  );
+}
+
+// fetchRunEvaluation is an evaluate run's evidence view; null when the run
+// has none (not an evaluate run, or its verification is gone).
+export async function fetchRunEvaluation(intent: string, run: string): Promise<RunEvaluation | null> {
+  if (dataMode() !== "live") return mockRunEvaluation(intent, run);
+  return getOrNull<RunEvaluation>(
+    `/api/intents/${encodeURIComponent(intent)}/runs/${encodeURIComponent(run)}/evaluation`,
   );
 }
 

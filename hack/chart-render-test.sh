@@ -2453,7 +2453,8 @@ cm default status-server MAUL_INTENTS_ENABLED null
 cm status-intents status-server MAUL_INTENTS_ENABLED true
 # Exactly the grants the views need, and none of them while off.
 intentrole='select(.kind == "Role" and .metadata.name == "maul-status-server-intents") | .rules[] | (.resources | join(",")) + " " + (.verbs | join(","))'
-expect status-intents "$intentrole" "projects,intents,intentruns,previews get,list,watch"
+expect status-intents "$intentrole" "projects,intents,intentruns,previews get,list,watch
+previewverifications get"
 expect status-intents 'select(.kind == "Role" and .metadata.name == "maul-status-server-intents") | .metadata.namespace' maul
 jobsrole='select(.kind == "Role" and .metadata.name == "maul-status-server-agent-jobs")'
 expect status-intents "$jobsrole | .metadata.namespace" maul-agents

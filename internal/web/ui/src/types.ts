@@ -520,7 +520,7 @@ export type IntentColumn = "planning" | "approval" | "building" | "review" | "bl
 // IntentTier is how much of a Project the caller may read.
 export type IntentTier = "intents" | "transcripts";
 
-export type IntentStage = "plan" | "build" | "revise";
+export type IntentStage = "plan" | "build" | "revise" | "evaluate" | "checkreview";
 
 export interface Me {
   name: string;
@@ -746,6 +746,127 @@ export interface RunOutput {
 
 export interface StreamNotice {
   reason?: string;
+}
+
+// RunEvaluation is an evaluate run's evidence view
+// (GET /api/intents/{name}/runs/{run}/evaluation). Every tier gets the
+// outcomes, checks and ledger index; ledger arguments and outputs, evidence
+// images and the evaluator's claims (verdict, note, cited, dispute reasons)
+// only a transcripts-tier reader. Agent and app text is plain text.
+export interface RunEvaluation {
+  intent: string;
+  run: string;
+  tier: IntentTier;
+  verification: string;
+  round: number;
+  attempt: number;
+  rung?: string;
+  phase?: string;
+  reason?: string;
+  // current: the Intent's latest verification, so results, anomalies,
+  // disputes and the hand-off are this round's.
+  current?: boolean;
+  handoff?: EvaluationHandoff;
+  outcomes: EvaluationOutcome[];
+  checks: EvaluationCheck[];
+  anomalies?: EvaluationAnomaly[];
+  disputes?: EvaluationDispute[];
+  ledger?: EvaluationLedger;
+  capture?: EvaluationCapture;
+}
+
+export interface EvaluationHandoff {
+  mode: string;
+  released?: boolean;
+  releasedAt?: string;
+  reason?: string;
+}
+
+export interface EvaluationOutcome {
+  id: string;
+  outcome: string;
+  kind: string;
+  manual?: boolean;
+  result?: string;
+  basis?: string;
+  line?: string;
+  reason?: string;
+  verdict?: string;
+  note?: string;
+  cited?: number[];
+}
+
+export interface EvaluationCheck {
+  id: string;
+  outcome: string;
+  form: string;
+  digest: string;
+  source: "saved" | "proposed";
+  steps: string;
+  compiled?: string;
+  compiledToken?: string;
+  replay?: EvaluationCheckRun;
+  confirmation?: EvaluationCheckRun;
+  disputed?: boolean;
+}
+
+export interface EvaluationCheckRun {
+  result: string;
+  token: string;
+  seq: number;
+  dryRunSeq?: number;
+}
+
+export interface EvaluationAnomaly {
+  summary: string;
+  route?: string;
+  ledger?: number[];
+}
+
+export interface EvaluationDispute {
+  checkDigest: string;
+  reason?: string;
+  replacement?: string;
+  ledger?: number[];
+}
+
+export interface EvaluationLedger {
+  count: number;
+  sha256: string;
+  // outputs: the ledger ConfigMap was read (transcripts tier).
+  outputs?: boolean;
+  entries: EvaluationLedgerEntry[];
+}
+
+export interface EvaluationLedgerEntry {
+  seq: number;
+  kind: string;
+  verb: string;
+  exit?: number;
+  refused?: boolean;
+  resultSHA256: string;
+  artifacts?: EvaluationArtifact[];
+  args?: string;
+  output?: string;
+  outputDropped?: boolean;
+}
+
+// EvaluationArtifact: image names the stored evidence image, served by
+// /api/intents/{name}/runs/{run}/evidence/{image}.
+export interface EvaluationArtifact {
+  sha256: string;
+  image?: string;
+}
+
+export interface EvaluationCapture {
+  components?: EvaluationComponentCapture[];
+  events?: number;
+}
+
+export interface EvaluationComponentCapture {
+  name: string;
+  bytes: number;
+  truncated?: boolean;
 }
 
 // ---- usage views ----------------------------------------------------------

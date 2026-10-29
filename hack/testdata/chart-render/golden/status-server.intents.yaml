@@ -346,7 +346,10 @@ rules:
 # (hence list and watch). Never */status, never a write, never Secrets. The
 # plan and transcript ConfigMaps are read with the configmaps get above, and
 # the server serves one only when it carries the intent's label and a
-# controller reference to its very owner.
+# controller reference to its very owner. An evaluate run's evidence view
+# gets its one PreviewVerification by name through the uncached reader (get
+# only, never cached: its spec carries the saved checks), and that
+# verification's ledger and evidence ConfigMaps the same guarded way.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -364,6 +367,9 @@ rules:
     - apiGroups: [maul.run]
       resources: [projects, intents, intentruns, previews]
       verbs: [get, list, watch]
+    - apiGroups: [maul.run]
+      resources: [previewverifications]
+      verbs: [get]
 ---
 # Source: maul/templates/status-server.yaml
 # A live intent run's Job clock (creation, start, activeDeadlineSeconds, the
