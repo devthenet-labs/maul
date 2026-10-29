@@ -3,7 +3,8 @@
 
 // Package report defines the agent-written report contracts — the
 // investigation and remediation reports of the security Finding flow, and
-// the plan and build reports of the intent flow — as YAML frontmatter
+// the plan and build reports of the intent flow and its evaluator's
+// evaluation and check review reports — as YAML frontmatter
 // schemas with strict, validated parsing. The prompts promise these exact
 // shapes; unknown keys, missing required fields, and out-of-range values are
 // errors, because everything downstream (routing, priority, budgets, what a
