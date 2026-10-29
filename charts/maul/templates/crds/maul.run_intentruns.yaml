@@ -454,6 +454,8 @@ spec:
                 - plan
                 - build
                 - revise
+                - evaluate
+                - checkreview
                 type: string
               trees:
                 description: |-

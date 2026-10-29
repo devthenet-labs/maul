@@ -770,6 +770,70 @@
                             "type": "object",
                             "additionalProperties": false
                         },
+                        "checkReview": {
+                            "description": "CheckReview bounds each check reviewer run (read-only, judging the\nround's new saved checks).",
+                            "properties": {
+                                "maxCostMicroUSD": {
+                                    "description": "MaxCostMicroUSD is the spend budget of one run of the stage in\nmicro-USD (60000000 = $60), at most the Project's per-intent\nlimits.maxCostMicroUSD. It is enforced only while the egress broker\ncounts cost (egressBroker.limits.unit cost): intent-controller then\nstamps every run's agent pod with it, the per-intent ceiling standing\nin when this is unset, and the broker ends the run's model traffic at\nthe smaller of it and the broker's own per-pod cost limit. Under the\ntoken unit (the default) it has no effect.",
+                                    "format": "int64",
+                                    "maximum": 1000000000,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "maxTurns": {
+                                    "description": "MaxTurns the agent may take in one run of the stage.",
+                                    "format": "int32",
+                                    "maximum": 1000,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "timeout": {
+                                    "description": "Timeout is the wall-clock limit of one run of the stage, between 1m\nand 4h. Like the other limits it is clamped to the controller's stage\ntimeout (--intent-<stage>-timeout), so a Project can shorten a stage\nbut never lengthen it past what the operator runs. The run's Job\ndeadline is derived from it (see --intent-job-deadline-max). Unset\nmeans the controller's stage timeout.",
+                                    "type": "string"
+                                },
+                                "tokenBudget": {
+                                    "description": "TokenBudget is the output-token budget of one run of the stage (the\nrunner's kill switch).",
+                                    "format": "int64",
+                                    "maximum": 100000000,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                }
+                            },
+                            "type": "object",
+                            "additionalProperties": false
+                        },
+                        "evaluate": {
+                            "description": "Evaluate bounds each evaluator run (read-only, judging the live\npreview through its slot tool pod).",
+                            "properties": {
+                                "maxCostMicroUSD": {
+                                    "description": "MaxCostMicroUSD is the spend budget of one run of the stage in\nmicro-USD (60000000 = $60), at most the Project's per-intent\nlimits.maxCostMicroUSD. It is enforced only while the egress broker\ncounts cost (egressBroker.limits.unit cost): intent-controller then\nstamps every run's agent pod with it, the per-intent ceiling standing\nin when this is unset, and the broker ends the run's model traffic at\nthe smaller of it and the broker's own per-pod cost limit. Under the\ntoken unit (the default) it has no effect.",
+                                    "format": "int64",
+                                    "maximum": 1000000000,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "maxTurns": {
+                                    "description": "MaxTurns the agent may take in one run of the stage.",
+                                    "format": "int32",
+                                    "maximum": 1000,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "timeout": {
+                                    "description": "Timeout is the wall-clock limit of one run of the stage, between 1m\nand 4h. Like the other limits it is clamped to the controller's stage\ntimeout (--intent-<stage>-timeout), so a Project can shorten a stage\nbut never lengthen it past what the operator runs. The run's Job\ndeadline is derived from it (see --intent-job-deadline-max). Unset\nmeans the controller's stage timeout.",
+                                    "type": "string"
+                                },
+                                "tokenBudget": {
+                                    "description": "TokenBudget is the output-token budget of one run of the stage (the\nrunner's kill switch).",
+                                    "format": "int64",
+                                    "maximum": 100000000,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                }
+                            },
+                            "type": "object",
+                            "additionalProperties": false
+                        },
                         "maxActiveIntents": {
                             "default": 2,
                             "description": "MaxActiveIntents is how many of this Project's intents may be\nnon-terminal at once; a newly triggered issue past it waits.",

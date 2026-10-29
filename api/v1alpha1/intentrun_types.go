@@ -15,9 +15,13 @@ import (
 //   - plan:   <intent>-plan-r<round>-a<attempt>
 //   - build:  <intent>-bld-r<round>-<repoKey>-a<attempt>
 //   - revise: <intent>-rev<round>-<repoKey>-a<attempt>
+//   - evaluate: <intent>-ev-r<round>-a<attempt>
+//   - checkreview: <intent>-cr-r<round>-a<attempt>
 //
 // repoKey is the Project repository's key; a plan run plans from the first
-// repository and its name carries none. Within one Intent, distinct (stage,
+// repository and its name carries none, and neither does an evaluate or check
+// review run, which judges the Intent's whole preview rather than one
+// repository. Within one Intent, distinct (stage,
 // round, attempt, and for build and revise runs repoKey) give distinct names,
 // and inside the name budget
 // every name is at most 63 characters, a valid label value. A name can still
@@ -35,13 +39,30 @@ func IntentRunName(intent string, stage IntentStage, round int32, repoKey string
 		return fmt.Sprintf("%s-bld-r%d-%s-a%d", intent, round, repoKey, attempt)
 	case IntentStageRevise:
 		return fmt.Sprintf("%s-rev%d-%s-a%d", intent, round, repoKey, attempt)
+	case IntentStageEvaluate:
+		return fmt.Sprintf("%s-ev-r%d-a%d", intent, round, attempt)
+	case IntentStageCheckReview:
+		return fmt.Sprintf("%s-cr-r%d-a%d", intent, round, attempt)
 	default:
 		return ""
 	}
 }
 
+// IntentStages returns every IntentStage, in declaration order, as a fresh
+// slice. Every switch over a stage is tested against it, so a stage added
+// here cannot fall through to a default branch unnoticed.
+func IntentStages() []IntentStage {
+	return []IntentStage{
+		IntentStagePlan,
+		IntentStageBuild,
+		IntentStageRevise,
+		IntentStageEvaluate,
+		IntentStageCheckReview,
+	}
+}
+
 // IntentStage is the agent stage one IntentRun executes.
-// +kubebuilder:validation:Enum=plan;build;revise
+// +kubebuilder:validation:Enum=plan;build;revise;evaluate;checkreview
 type IntentStage string
 
 // Intent stages.
@@ -57,6 +78,14 @@ const (
 	// request head and run in the build round's image; its changeset is
 	// pushed fast-forward only.
 	IntentStageRevise IntentStage = "revise"
+	// IntentStageEvaluate: the evaluator's round, which judges the
+	// approved plan's outcomes against the live preview through its slot
+	// tool pod and changes nothing in any repository.
+	IntentStageEvaluate IntentStage = "evaluate"
+	// IntentStageCheckReview: the check reviewer's round, which judges
+	// whether each new saved check tests the outcome it claims; it reads
+	// quoted checks only and changes nothing.
+	IntentStageCheckReview IntentStage = "checkreview"
 )
 
 // IntentRunTrigger names what started a revise round (slice 1b).

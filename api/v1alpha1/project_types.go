@@ -257,6 +257,8 @@ type StageLimits struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.plan) || !has(self.plan.maxCostMicroUSD) || self.plan.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.plan.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 // +kubebuilder:validation:XValidation:rule="!has(self.build) || !has(self.build.maxCostMicroUSD) || self.build.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.build.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 // +kubebuilder:validation:XValidation:rule="!has(self.revise) || !has(self.revise.maxCostMicroUSD) || self.revise.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.revise.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
+// +kubebuilder:validation:XValidation:rule="!has(self.evaluate) || !has(self.evaluate.maxCostMicroUSD) || self.evaluate.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.evaluate.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
+// +kubebuilder:validation:XValidation:rule="!has(self.checkReview) || !has(self.checkReview.maxCostMicroUSD) || self.checkReview.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.checkReview.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 type ProjectLimits struct {
 	// MaxActiveIntents is how many of this Project's intents may be
 	// non-terminal at once; a newly triggered issue past it waits.
@@ -320,6 +322,14 @@ type ProjectLimits struct {
 	// Revise bounds each revise or check-fix run.
 	// +optional
 	Revise StageLimits `json:"revise,omitempty"`
+	// Evaluate bounds each evaluator run (read-only, judging the live
+	// preview through its slot tool pod).
+	// +optional
+	Evaluate StageLimits `json:"evaluate,omitempty"`
+	// CheckReview bounds each check reviewer run (read-only, judging the
+	// round's new saved checks).
+	// +optional
+	CheckReview StageLimits `json:"checkReview,omitempty"`
 }
 
 // ProjectChecks configures automatic fix rounds on failed CI checks of the
