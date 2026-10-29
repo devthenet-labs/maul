@@ -1245,7 +1245,12 @@ intentController:
     # intent-controller, maul.run/preview-role tools and maul.run/preview-verification
     # on a preview-slot Job only from preview-controller, on the Job and its
     # pod template alike, on a Pod only from the Job controller for its Job,
-    # and never changed afterwards. Needs Kubernetes 1.30+.
+    # and never changed afterwards. Needs Kubernetes 1.30+. It also renders
+    # the evaluator's and check reviewer's own egress policies (the broker;
+    # the evaluator also 8090 on a preview slot's tool pod; no DNS) and
+    # leaves both roles out of every other agent egress policy, in every
+    # network mode: it needs agent.networkPolicy.create and is refused under
+    # mode istio.
     verification:
         evaluator: false
     # The Secrets your Forges reference (spec.secretRef): intent-controller's
