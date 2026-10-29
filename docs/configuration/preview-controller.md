@@ -327,3 +327,79 @@ namespace, cluster-scope, GitHub or cloud access, and the slot quota gains room 
 (`preview.quota`). To check a cluster's NetworkPolicy enforcement for the edges, run
 `hack/preview-isolation-probe/run.sh edges` (see its README); `ingress.sh --check-policies` judges the rendered policies
 without creating a pod.
+
+## The agent evaluator's tool pod
+
+With the [agent evaluator](../intents/evaluator.md) on as well (chart `intentController.verification.evaluator: true`
+beside `preview.verification.enabled`), an outcome verification does not run the tester. preview-controller runs the
+slot **tool pod** instead: the hands of the evaluator, which itself runs in the agents namespace with no route to the
+application. Off, an outcome verification is `Infra` and renders nothing.
+
+- **Flags**, all set by the chart under the evaluator. `--preview-evaluator` (`MAUL_PREVIEW_EVALUATOR`, default `false`)
+  needs `--preview-tester-image`, the three images and `--preview-agents-namespace`. `--preview-tools-image`,
+  `--preview-browser-image` and `--preview-toolbox-image` (`MAUL_PREVIEW_TOOLS_IMAGE`, `MAUL_PREVIEW_BROWSER_IMAGE`,
+  `MAUL_PREVIEW_TOOLBOX_IMAGE`) are the digest-pinned `preview-tools` (maul's relay, Node and the pinned Playwright
+  CLI), `preview-browser` (Chromium behind maul's keyed CDP shim) and `preview-toolbox` (the sandbox: curl, grpcurl,
+  websocat, node, python, go, and maul's exec shim) images, never under the preview image prefix; the chart takes them
+  from `preview.verification.tools.image`, `.browserImage` and `.toolboxImage`, which the release workflow stamps.
+  `--preview-agents-namespace` (`MAUL_PREVIEW_AGENTS_NAMESPACE`, the chart's `agent.namespace`) is the one namespace a
+  tool pod admits its evaluator from. `--preview-max-evaluations` (`MAUL_PREVIEW_MAX_EVALUATIONS`, default `0`, meaning
+  the slot count) bounds the tool pods running at once; a verification waiting past its own timeout for room is `Infra`
+  (`tools-not-ready`).
+- **Re-checks.** As for criteria, plus: the outcomes must equal the Intent's approved outcomes under their digest, and
+  the saved checks the check store's, each valid and bound to an approved outcome.
+- **The pod.** A Job named as a tester Job is (so the cleanup and the sweep cover it), whose main container `tools` runs
+  the relay, with `browser` (only when the Project declares `surfaces.browser`) and `sandbox` as native sidecars. Each
+  container runs as its own user, read-only, with no capability, no service-account token and no host namespace. Only
+  `tools` mounts the tool ConfigMap (its configuration, the outcomes and saved checks, the captured logs and events);
+  only `tools` and `browser` mount the per-verification CDP key Secret; `tools` and `sandbox` share only the exec shim's
+  socket. The Secret and ConfigMap are owned by the Job and never read back. Requests equal limits: 500m/384Mi for
+  `tools` and `sandbox`, 1500m/1280Mi for `browser`, about **2.5 CPU and 2 GiB** in all.
+- **Network.** The pod is the slot's tester part with role `tools` (`maul.run/preview-role`), so the Preview's edge
+  policies give it exactly the tester's edges to the components. The chart's `preview-tools-isolation` (kept, Helm's)
+  isolates role `tools` both ways with no rule of its own, and `preview-isolation` no longer selects it, so it has no
+  DNS and no gateway. preview-controller adds one ingress policy per verification, admitting on port 8090 only pods of
+  role `evaluator` carrying this verification's UID in `maul.run/preview-verification`, from the agents namespace;
+  `maul-preview-networkpolicies` admits no other shape.
+- **`status.tools`.** Once `tools` is Ready, the controller writes the pod's address and port to the request's
+  `status.tools`; intent-controller creates the evaluator only then, because the evaluator reaches it through a host
+  entry fixed when its pod starts.
+- **Logs and events.** While the pod runs, each poll refreshes the tool ConfigMap with a bounded log tail of each
+  component since the round began, redacted (JWT-shaped strings, `Bearer` and `Authorization` values, the round's keys),
+  and the slot's pod events and container states. That is how `maul-tool logs` and `maul-tool events` see them: the
+  evaluator and the tool pod hold no Kubernetes access.
+- **The result.** Once the Job finishes, the controller reads the `tools` container's log (that container only) and its
+  termination message, holds the ledger to the count and sha256 both carry, and writes an index of every entry to
+  `status.ledger`, with the replay and confirmation runs and the confirmed checks' bodies taken from the ledger's own
+  dry-run records, never from the evaluator's report. The full ledger goes to the ConfigMap `<verification>-ledger` and
+  the cited screenshots (kept only on a sha256 match with their ledger entry, checked as PNG and re-encoded, at most
+  1280 pixels wide) to `<verification>-evidence`, both in the release namespace and owned by the request. A ledger that
+  does not hold is `Infra` (`ledger-mismatch`), never a verdict. A pod that is never created, scheduled or pulled is
+  `Infra` past its bound (`tools-not-ready`, `tools-unscheduled`, `tools-image-pull`; a quota refusal `quota-refused`).
+  Settling deletes the Job, its Secret and ConfigMap, and the ingress policy.
+- **Timing.** A round's request asks for the evaluate timeout plus five minutes. The chart refuses
+  `intentController.verification.evaluateTimeout` unless it is shorter than `preview.verification.deadlineMaxSeconds`,
+  so the slot Job policy never refuses the tool pod.
+- **Capacity.** With the evaluator on, the chart sizes each slot for a tool pod beside a full Preview: the slot quota
+  becomes pods 11, requests 3750m/3328Mi, limits 5 CPU/4608Mi, jobs 2 (a finished Job counts until deleted) and
+  networkPolicies 9, and the LimitRange's per-container maximum 1500m/1536Mi. Preview nodes need room for one tool pod
+  per concurrently evaluated slot; lower `--preview-max-evaluations` (`previewController.config.extra`) where they do
+  not have it.
+
+### Grants under the evaluator
+
+Rendered only with the evaluator and verification both on, beside the grants above, and each fenced by an admission
+policy (`maul-preview-tool-objects` in the slots, `maul-preview-ledgers` in the release namespace):
+
+| Where                 | Resource     | Verbs                  | For                                                             |
+| --------------------- | ------------ | ---------------------- | --------------------------------------------------------------- |
+| Each slot (Role)      | `events`     | get, list, watch       | the pod events a tool pod reports                               |
+| Each slot (Role)      | `secrets`    | create, delete         | the per-verification CDP key (never read)                       |
+| Each slot (Role)      | `configmaps` | create, update, delete | the tool ConfigMap (never read; each refresh replaces it whole) |
+| The release namespace | `configmaps` | create, delete         | each verification's ledger and evidence (never read)            |
+
+In a slot, `maul-preview-tool-objects` holds the Secret and ConfigMap writes to preview-controller's own objects (a
+`preview-` name and its managed-by label), since a slot also holds Secrets that are not its own. The evaluator labels
+are fenced too: `maul-evaluator-labels` lets only preview-controller set role `tools` and
+`maul.run/preview-verification` on a slot Job, and only the Job controller on its Pod. `hack/preview-isolation-probe`
+probes the evaluator's rows of the isolation matrix live.

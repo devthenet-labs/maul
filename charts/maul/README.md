@@ -217,6 +217,45 @@ The chart renders the placeholder only when both `preview.enabled` and `preview.
 separate ALB and the wildcard DNS record are staged with the infrastructure, in order:
 [Deploying intents and previews](../../docs/intents/deploying.md) walks through the stages and their rollback points.
 
+## Agent evaluator (opt-in, off by default)
+
+`intentController.verification.evaluator: true` switches acceptance verification from slice 1's criteria to the agent
+evaluator: plans state outcomes in plain words, and an agent run explores each intent's live preview through a slot tool
+pod, writes its own checks, and holds the preview link until it has confirmed them (see
+[The agent evaluator](../../docs/intents/evaluator.md)). Off, nothing of it renders. On, the chart renders:
+
+- the `maul-evaluator-labels` admission policies: `maul.run/role` (`evaluator`, `checkreview`) and
+  `maul.run/preview-verification` on an agents-namespace Job only from intent-controller, role `tools` on a preview-slot
+  Job only from preview-controller, on the Job and its pod template alike, on a Pod only from the Job controller for its
+  Job, and never changed afterwards. Needs Kubernetes 1.30+;
+- the evaluator's and check reviewer's own egress policies (the broker; the evaluator also port 8090 on its own slot
+  tool pod; no DNS), with both roles left out of every other agent egress policy in every network mode. It therefore
+  needs `agent.networkPolicy.create` and is refused under `agent.networkPolicy.mode: istio`;
+- with `preview.verification.enabled` as well, and only then: the slot tool pod's images, admission, isolation policy,
+  grants and larger slot quota, and both controllers switched on with the settings below.
+
+| Value                                              | Default                     | Meaning                                                                                                                                                            |
+| -------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `intentController.verification.evaluator`          | `false`                     | The switch                                                                                                                                                         |
+| `intentController.verification.defaultHandoff`     | `gated`                     | For a Project that does not choose: `gated` holds the preview link until the evaluator passes or gives up, `early` posts it at once. One value flips every Project |
+| `intentController.verification.handoffMax`         | `60m`                       | The most a gated hand-off waits, from CI green at the first pull request heads (10m to 4h)                                                                         |
+| `intentController.verification.codexEvaluator`     | `false`                     | Evaluate codex Projects on brokered codex (not yet verified live). Off, such a Project gets the early hand-off and the condition `EvaluatorUnverified`             |
+| `intentController.verification.evaluateModel`      | `anthropic/claude-sonnet-5` | The evaluator's model (claude Projects)                                                                                                                            |
+| `intentController.verification.checkReviewModel`   | `anthropic/claude-sonnet-5` | The check reviewer's model (claude Projects)                                                                                                                       |
+| `intentController.verification.evaluateTimeout`    | `20m`                       | One evaluate run's wall clock. Must be shorter than `preview.verification.deadlineMaxSeconds`, since the round's tool Job runs for it plus five minutes            |
+| `intentController.verification.maxEvaluateCostUSD` | `6`                         | The most one intent's evaluation runs may spend, in USD (rendered in micro-USD); caps every Project's `limits.maxEvaluateCostMicroUSD`                             |
+| `intentController.verification.maxToolCalls`       | `300`                       | The evaluator's tool calls per round, 50 to 300; caps every Project's `verification.maxToolCalls`                                                                  |
+| `preview.verification.tools.image`                 | stamped                     | The digest-pinned `preview-tools` image (the tool pod's relay)                                                                                                     |
+| `preview.verification.tools.browserImage`          | stamped                     | The digest-pinned `preview-browser` image (Chromium behind the keyed CDP shim)                                                                                     |
+| `preview.verification.tools.toolboxImage`          | stamped                     | The digest-pinned `preview-toolbox` image (the sandbox)                                                                                                            |
+
+The three `preview.verification.tools` images are required with the evaluator and verification on, pinned by digest like
+`testerImage`; the release workflow stamps them. The slot quota then grows by one tool pod (about 2.5 CPU and 2 GiB)
+beside a full Preview, so preview nodes need that room per concurrently evaluated slot. Roll back by setting
+`intentController.verification.evaluator: false`: verification returns to criteria. See the
+[preview-controller](../../docs/configuration/preview-controller.md#the-agent-evaluators-tool-pod) for the tool pod's
+grants and policies.
+
 ## Preview sign-in (opt-in, off by default)
 
 `previewAuth.enabled` deploys the sign-in relay (`cmd/preview-auth`, two replicas behind a PodDisruptionBudget, on the
