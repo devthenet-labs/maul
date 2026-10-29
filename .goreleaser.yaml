@@ -243,6 +243,26 @@ builds:
       goarch:
           - amd64
           - arm64
+    - id: maul-tool
+      main: ./cmd/maul-tool
+      binary: maul-tool
+      flags:
+          - -trimpath
+      # The agent evaluator's CLI links only the standard library and
+      # internal/maultool (with its toolwire), so these stamps name a package
+      # it does not link and the linker drops them; they stay so every build
+      # carries the same contract (internal/version's
+      # TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
     - id: agent-runner
       main: ./cmd/agent-runner
       binary: agent-runner
@@ -348,6 +368,7 @@ archives:
           - preview-auth
           - preview-tester
           - tool-exec
+          - maul-tool
           - agent-runner
           - status-server
       formats: [tar.gz]
@@ -619,7 +640,7 @@ dockers_v2:
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
     - id: claude-agent-runner
-      ids: [agent-runner]
+      ids: [agent-runner, maul-tool]
       dockerfile: Dockerfile.claude-agent-runner
       images:
           - "{{ .Env.MAUL_IMAGE_REGISTRY }}/claude-agent-runner"
@@ -635,7 +656,7 @@ dockers_v2:
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
     - id: codex-agent-runner
-      ids: [agent-runner]
+      ids: [agent-runner, maul-tool]
       dockerfile: Dockerfile.codex-agent-runner
       images:
           - "{{ .Env.MAUL_IMAGE_REGISTRY }}/codex-agent-runner"

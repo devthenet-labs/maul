@@ -61,7 +61,12 @@ done
 # toolchain, matching Dockerfile.controller). See docs/deployment/colima.md.
 overlay="${MAUL_OVERLAY:-dev}"
 if [ "$overlay" = dev-fake ]; then
-  docker build -t maul/fake-agent:dev hack/fake-agent
+  # the scripted agent drives the real maul-tool: stage both in one context
+  ctx=$(mktemp -d)
+  cp hack/fake-agent/* "$ctx"/
+  CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "$ctx/maul-tool" ./cmd/maul-tool
+  docker build -t maul/fake-agent:dev "$ctx"
+  rm -rf "$ctx"
   mkdir -p bin
   (cd e2e && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
     go build -trimpath -o ../bin/fakegithub ./fakegithub/cmd)
