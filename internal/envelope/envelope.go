@@ -23,7 +23,8 @@ const Prefix = "MAUL-EVENT: "
 // New event types are additive within a version: Decode accepts any
 // non-empty type at Version and every collector switches on the type,
 // ignoring the ones it does not own, so the intent plan event joined
-// version 4 without a bump.
+// version 4 without a bump, and the evaluator's evaluation and checkreview
+// events after it.
 const Version = 4
 
 // Type discriminates events.
@@ -32,11 +33,14 @@ type Type string
 // The event types: one per completed stage, plus fatal for a runner that
 // could not produce a stage result at all. An intent's build stage reports
 // with TypeRemediation — it produces the same changeset payload — and its
-// plan stage with TypePlan.
+// plan stage with TypePlan; the evaluator's evaluate stage reports with
+// TypeEvaluation and its check reviewer with TypeCheckReview.
 const (
 	TypeInvestigation Type = "investigation"
 	TypeRemediation   Type = "remediation"
 	TypePlan          Type = "plan"
+	TypeEvaluation    Type = "evaluation"
+	TypeCheckReview   Type = "checkreview"
 	TypeFatal         Type = "fatal"
 )
 
@@ -226,6 +230,87 @@ type Plan struct {
 	EstimatedTokenBudget int `json:"estimated_token_budget,omitempty"`
 }
 
+// Evaluation is an intent evaluate stage's event payload: the evaluation
+// report exactly as the agent wrote it, its frontmatter parsed, and the
+// ledger entries agent-runner chose to have the tools container emit as
+// evidence. Every field is the model's claim: a controller re-derives the
+// claims from the report (agentresult.FromEvaluation) and takes every fact
+// (what ran, what passed, which bytes are evidence) from the tools ledger,
+// never from this event, which a codex pod can write itself.
+type Evaluation struct {
+	Stage
+	ReportMarkdown string           `json:"report_markdown,omitempty"`
+	Verdicts       []OutcomeVerdict `json:"verdicts,omitempty"`
+	Disputes       []Dispute        `json:"disputes,omitempty"`
+	// Proposed names the checks the agent asks maul to save: an id, the
+	// outcome it is bound to and the digest of its body. Bodies never
+	// travel here; the tools ledger holds the one that was dry-run.
+	Proposed  []ProposedCheck `json:"proposed,omitempty"`
+	Retire    []Retire        `json:"retire,omitempty"`
+	Anomalies []Anomaly       `json:"anomalies,omitempty"`
+	// Cited are the ledger seqs, among those the report cites, whose
+	// screenshots agent-runner asked the tools container to emit.
+	Cited []int32 `json:"cited,omitempty"`
+}
+
+// OutcomeVerdict is the evaluator's verdict on one approved outcome (pass,
+// fail or unsure) with the ledger entries it rests on.
+type OutcomeVerdict struct {
+	ID      string  `json:"id"`
+	Verdict string  `json:"verdict"`
+	Ledger  []int32 `json:"ledger,omitempty"`
+	Note    string  `json:"note,omitempty"`
+}
+
+// Dispute is the evaluator's claim that a failing saved check is not a
+// defect, naming the proposed check that should replace it.
+type Dispute struct {
+	CheckDigest string  `json:"check_digest"`
+	Reason      string  `json:"reason"`
+	Replacement string  `json:"replacement,omitempty"`
+	Ledger      []int32 `json:"ledger,omitempty"`
+}
+
+// ProposedCheck names one check the evaluator proposes to save.
+type ProposedCheck struct {
+	ID      string `json:"id"`
+	Outcome string `json:"outcome"`
+	Digest  string `json:"digest"`
+}
+
+// Retire is the evaluator's request to retire a saved check.
+type Retire struct {
+	CheckDigest string `json:"check_digest"`
+	Reason      string `json:"reason"`
+}
+
+// Anomaly is something the look-around found outside the outcomes, with
+// the ledger entries that show it.
+type Anomaly struct {
+	Summary string  `json:"summary"`
+	Route   string  `json:"route"`
+	Ledger  []int32 `json:"ledger,omitempty"`
+}
+
+// CheckReview is an intent checkreview stage's event payload: one answer
+// per new check, each from its own fresh session, keyed by the check's and
+// its outcome's digests (agent-runner's, from its handoff; the agent never
+// writes them). The answers are the reviewer's claims, held to their
+// grammar by agentresult.FromCheckReview.
+type CheckReview struct {
+	Stage
+	Answers []ReviewAnswer `json:"answers,omitempty"`
+}
+
+// ReviewAnswer is the reviewer's answer on whether one check proves one
+// outcome: proves, does_not_prove or unclear.
+type ReviewAnswer struct {
+	CheckDigest   string `json:"check_digest"`
+	OutcomeDigest string `json:"outcome_digest"`
+	Answer        string `json:"answer"`
+	Reason        string `json:"reason"`
+}
+
 // Event is one envelope line.
 type Event struct {
 	V    int  `json:"v"`
@@ -239,6 +324,8 @@ type Event struct {
 	Investigation *Investigation `json:"investigation,omitempty"`
 	Remediation   *Remediation   `json:"remediation,omitempty"`
 	Plan          *Plan          `json:"plan,omitempty"`
+	Evaluation    *Evaluation    `json:"evaluation,omitempty"`
+	CheckReview   *CheckReview   `json:"checkreview,omitempty"`
 	// Error is set on fatal events.
 	Error string `json:"error,omitempty"`
 }
