@@ -377,6 +377,10 @@ func (p *pass) blockOnBranch(ctx context.Context, round int32, repo v1alpha1.Pro
 // Repository of its own the run will own.
 func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v1alpha1.ProjectRepository,
 	round, attempt int32, prev *v1alpha1.PreviousAttempt) (*v1alpha1.IntentRun, error) {
+	// No run of a stage this controller does not run is ever created.
+	if err := launchEnabled(stage); err != nil {
+		return nil, fmt.Errorf("create run: %w", err)
+	}
 	name := v1alpha1.IntentRunName(p.in.Name, stage, round, repo.Name, attempt)
 	inputs := v1alpha1.IntentRunInputs{ConfigMap: runInputName(name), InputDigest: p.in.Status.Input.Digest}
 	if stage == v1alpha1.IntentStagePlan {

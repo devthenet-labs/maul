@@ -159,6 +159,10 @@ type Settings struct {
 	// Plan, Build and Revise are the per-stage ceilings: a Project's limits are
 	// clamped to them, and the Job's stage configuration carries them.
 	Plan, Build, Revise StageCeiling
+	// Evaluate and CheckReview are the evaluator's and the check reviewer's
+	// ceilings. No flag sets them yet, and no run of either stage is created
+	// (errStageNotEnabled) until their round lands.
+	Evaluate, CheckReview StageCeiling
 	// MultiRepo runs intents of Projects that list more than one repository
 	// (--intent-multi-repo). Off, such a Project is not Ready, and every
 	// Intent of one is held Blocked (UnsupportedRepositories): nothing is
@@ -263,15 +267,22 @@ func (s Settings) jobDeadline(timeout time.Duration) time.Duration {
 	return max(s.JobDeadline, derived)
 }
 
-// ceiling is stage's controller ceiling.
+// ceiling is stage's controller ceiling; an unknown stage's is zero, never
+// another stage's.
 func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
 	switch stage {
+	case v1alpha1.IntentStagePlan:
+		return s.Plan
 	case v1alpha1.IntentStageBuild:
 		return s.Build
 	case v1alpha1.IntentStageRevise:
 		return s.Revise
+	case v1alpha1.IntentStageEvaluate:
+		return s.Evaluate
+	case v1alpha1.IntentStageCheckReview:
+		return s.CheckReview
 	}
-	return s.Plan
+	return StageCeiling{}
 }
 
 // VerificationWithoutPreviews reports --intent-verification without
@@ -293,15 +304,22 @@ func (s Settings) verifyTimeout(p *v1alpha1.Project) time.Duration {
 	return min(p.Spec.VerificationTimeout(), limit)
 }
 
-// stageLimits are the Project's limits for stage.
+// stageLimits are the Project's limits for stage; an unknown stage's are
+// zero, never another stage's.
 func stageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.StageLimits {
 	switch stage {
+	case v1alpha1.IntentStagePlan:
+		return p.Spec.Limits.Plan
 	case v1alpha1.IntentStageBuild:
 		return p.Spec.Limits.Build
 	case v1alpha1.IntentStageRevise:
 		return p.Spec.Limits.Revise
+	case v1alpha1.IntentStageEvaluate:
+		return p.Spec.Limits.Evaluate
+	case v1alpha1.IntentStageCheckReview:
+		return p.Spec.Limits.CheckReview
 	}
-	return p.Spec.Limits.Plan
+	return v1alpha1.StageLimits{}
 }
 
 // runBudget is the cost budget of one run of stage in micro-USD: the
