@@ -217,6 +217,14 @@ type Settings struct {
 	// the intent reconciler writes no acceptance or verification state and
 	// creates no PreviewVerification, whatever the Project says.
 	Verification bool
+	// Evaluator is --intent-evaluator (SPEC Q11; the flag lands with S1-17):
+	// a verifying Project's plans are asked for acceptance outcomes, which
+	// the agent evaluator checks, and an approved plan's outcomes are
+	// recorded (status.acceptance.outcomes); an open intent whose approved
+	// plan states slice-1 criteria gets one replan notice and is not
+	// verified until a new plan is approved (DESIGN 7.6). Off (the default)
+	// slice 1 runs unchanged.
+	Evaluator bool
 	// VerifyTimeoutMax is --intent-verify-timeout-max: the most a Project's
 	// verification.timeout gives a tester Job (verifyTimeout). Zero is
 	// DefaultVerifyTimeoutMax.

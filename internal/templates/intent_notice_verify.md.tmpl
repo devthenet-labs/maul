@@ -1,6 +1,8 @@
-{{- /* The one reply to /maul verify or /maul accept. Every word is maul's:
-the actor is code, a criterion id or a commit is code and was checked against
-its grammar first, and the help is command.HelpFor's. */ -}}
+{{- /* The one reply to /maul verify or /maul accept, and the one notice
+that an approved plan's slice-1 criteria need a replan under the evaluator
+(RenderCriteriaReplanNotice). Every word is maul's: the actor is code, a
+criterion id or a commit is code and was checked against its grammar first,
+and the help is command.HelpFor's. */ -}}
 {{ .Marker }}
 {{ .Text }}
 {{- if .Help }}

@@ -61,7 +61,7 @@ type impostorNote struct {
 // stopped because they cannot be read (criteriaUnreadable).
 func (p *pass) verifyReported() bool {
 	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Verification != nil &&
-		(p.acceptanceCurrent() || p.criteriaUnreadable())
+		(p.acceptanceCurrent() || p.verifyStopped() != "")
 }
 
 // verifyJudged reports a state holding a round's judged (or given up)
@@ -116,8 +116,11 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 	if !p.verifyReported() {
 		return nil
 	}
-	if p.criteriaUnreadable() {
+	switch p.verifyStopped() {
+	case reasonCriteriaUnreadable:
 		return &templates.VerifyProgress{State: templates.VerifyUnreadable}
+	case reasonCriteriaReplan:
+		return &templates.VerifyProgress{State: templates.VerifyCriteriaReplan}
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	used, most := p.verifyFixesUsed()
@@ -200,7 +203,7 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 		return nil
 	}
 	s := &templates.VerifySection{Progress: *prog, StatusNotPosted: p.statusesUnavailable()}
-	if p.criteriaUnreadable() {
+	if p.verifyStopped() != "" {
 		// The criteria on record, if any, are not the approved ones.
 		return s
 	}

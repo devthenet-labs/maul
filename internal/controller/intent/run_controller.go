@@ -1624,6 +1624,10 @@ func (r *RunReconciler) collectPlan(ctx context.Context, run *v1alpha1.IntentRun
 			res.detail = "the plan names a repository outside the project: " + gone + bad
 			break
 		}
+		if bad := criteriaUnderEvaluator(r.Settings.planAsk(proj), plan.Acceptance); bad != "" {
+			res.outcome, res.detail = string(envelope.OutcomeReportInvalid), bad
+			break
+		}
 		if bad := unpreviewedTarget(r.Settings.planAsk(proj), proj, plan.Acceptance); bad != "" {
 			res.outcome = string(envelope.OutcomeReportInvalid)
 			res.detail = "the plan's acceptance " + bad

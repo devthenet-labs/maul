@@ -82,8 +82,12 @@ func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
 	if !p.verifyReported() {
 		return acceptanceState{}, false, false
 	}
-	if p.criteriaUnreadable() {
+	switch p.verifyStopped() {
+	case reasonCriteriaUnreadable:
 		return acceptanceState{statusError, "the approved acceptance criteria cannot be read: replan needed"}, false,
+			true
+	case reasonCriteriaReplan:
+		return acceptanceState{statusError, "the approved plan states criteria, not outcomes: replan needed"}, false,
 			true
 	}
 	st, ok = p.verifyingStatus()

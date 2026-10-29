@@ -63,6 +63,10 @@ const (
 	// VerifyUnreadable: the approved plan's acceptance criteria cannot be
 	// read, so nothing is verified until a plan is approved again.
 	VerifyUnreadable = "unreadable"
+	// VerifyCriteriaReplan: the approved plan states slice-1 criteria,
+	// which the agent evaluator does not run, so nothing is verified until
+	// a plan stating outcomes is approved.
+	VerifyCriteriaReplan = "criteria-replan"
 )
 
 // Automatic fix states.
@@ -144,6 +148,9 @@ func verifyRestingLine(state string) (line string, whole bool) {
 	case VerifyUnreadable:
 		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
 			"verified. " + slashCommand("replan") + " to approve a plan again.", true
+	case VerifyCriteriaReplan:
+		return "Verification waits for a new plan: the approved plan states acceptance criteria, which maul's " +
+			"evaluator does not run. " + slashCommand("replan") + ", then approve a plan stating outcomes.", true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
 	case VerifyPreviewNotLive:
@@ -622,6 +629,12 @@ func planAcceptanceLine(a *PlanAcceptance) string {
 type PlanVerification struct {
 	// Components are the previewed repositories criteria can target.
 	Components []PlanVerifyComponent `json:"components"`
+	// Outcomes: the Project is verified by the agent evaluator, so the
+	// plan is asked for acceptance outcomes, plain statements of what must
+	// hold, rather than slice-1 criteria (intent-controller's planAsk;
+	// SPEC S1-11). false omits it from the JSON, which is then exactly the
+	// JSON before the field existed.
+	Outcomes bool `json:"outcomes,omitempty"`
 }
 
 // PlanVerifyComponent is one previewed repository: the key a criterion's
@@ -635,8 +648,8 @@ type PlanVerifyComponent struct {
 // Normalize is what of v a plan can be told, the one normaliser behind both
 // the handoff (EncodePlanVerification) and the prompt (RenderPlanPrompt):
 // each field on one line, only the components with a key and a path, at
-// most planVerificationMaxComponents, in order; nil when none is left, and
-// the prompt then has no acceptance section.
+// most planVerificationMaxComponents, in order, and Outcomes as set; nil
+// when no component is left, and the prompt then has no acceptance section.
 func (v *PlanVerification) Normalize() *PlanVerification {
 	if v == nil {
 		return nil
@@ -648,7 +661,7 @@ func (v *PlanVerification) Normalize() *PlanVerification {
 			continue
 		}
 		if out == nil {
-			out = &PlanVerification{}
+			out = &PlanVerification{Outcomes: v.Outcomes}
 		}
 		if len(out.Components) < planVerificationMaxComponents {
 			out.Components = append(out.Components, c)
