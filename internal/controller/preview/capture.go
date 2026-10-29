@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // The evaluator's view of the slot (DESIGN 2.9): per component, a redacted
@@ -29,14 +30,14 @@ import (
 // `maul-tool events` read them.
 const (
 	// captureLogPrefix keys a component's tail in the tool ConfigMap:
-	// logs.<component>.
-	captureLogPrefix = "logs."
+	// logs.<component> (toolwire, the key the tools container reads).
+	captureLogPrefix = toolwire.CaptureLogPrefix
 	// captureEventsKey keys the events and container states, a JSON array
 	// of capturedEvent, oldest first.
-	captureEventsKey = "events.json"
+	captureEventsKey = toolwire.CaptureEventsKey
 	// captureObserved marks what the kubelet or the API server wrote (an
 	// event, a container state), as against the application's own output.
-	captureObserved = "observed"
+	captureObserved = toolwire.CaptureObserved
 
 	// captureTailBytes is the most of a component's log kept per round,
 	// the newest (ComponentCapture.Bytes' maximum).
@@ -61,25 +62,9 @@ const (
 	minRedactedKey = 16
 )
 
-// capturedEvent is one slot event (kind "event") or container state (kind
-// "state"), as tools serves it. Everything in it is observed; Message is
-// the kubelet's or the API server's text, redacted and bounded, which can
-// still quote the application (a probe's output), so tools frames it as
-// data.
-type capturedEvent struct {
-	Time      time.Time `json:"time"`
-	Kind      string    `json:"kind"`
-	Source    string    `json:"source"`
-	Component string    `json:"component,omitempty"`
-	Object    string    `json:"object"`
-	Container string    `json:"container,omitempty"`
-	Type      string    `json:"type,omitempty"`
-	Reason    string    `json:"reason"`
-	Message   string    `json:"message,omitempty"`
-	Count     int32     `json:"count,omitempty"`
-	ExitCode  *int32    `json:"exitCode,omitempty"`
-	Restarts  int32     `json:"restarts,omitempty"`
-}
+// capturedEvent is one slot event or container state, in the shape the
+// tools container reads (toolwire.CapturedEvent).
+type capturedEvent = toolwire.CapturedEvent
 
 // componentLog is one component's captured tail; read is false when this
 // poll could not read it (the last poll's tail then stands).
@@ -96,7 +81,7 @@ type slotCapture struct {
 	events []capturedEvent
 }
 
-func captureLogKey(component string) string { return captureLogPrefix + component }
+func captureLogKey(component string) string { return toolwire.CaptureLogKey(component) }
 
 // refreshCapture captures the slot for pv and writes it into cm, the PV's
 // slot tool ConfigMap (updated only when it changed), and its summary into

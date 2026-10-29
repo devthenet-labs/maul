@@ -129,6 +129,9 @@ const (
 	RoleTester    = "tester"
 	RoleCommand   = "command"
 	RoleSeed      = "seed"
+	// RoleTools is the agent evaluator's slot tool pod, judged like the
+	// tester: by how it ran.
+	RoleTools = "tools"
 )
 
 // PartFact is the environment evidence of one part of a Preview's slot,
