@@ -108,15 +108,21 @@ func endpointURLs(runner Runner, artifactURLs ...string) []string {
 	return urls
 }
 
-// isolateDNS applies Config.DNS to a pod that dials urls. Under DNSCluster
-// it changes nothing. Under DNSNone it resolves every host the URLs name
+// isolateDNS applies Config.DNS to a pod that dials urls (isolateDNSAs).
+func (c *Client) isolateDNS(ctx context.Context, pod *corev1.PodSpec, harnessID string, runner Runner,
+	urls []string) error {
+	return c.isolateDNSAs(ctx, pod, c.cfg.DNS, harnessID, runner, urls)
+}
+
+// isolateDNSAs applies mode (Config.DNS, or DNSNone for a role Job) to a pod
+// that dials urls. Under DNSCluster it changes nothing. Under DNSNone it resolves every host the URLs name
 // with the controller's resolver and gives the pod dnsPolicy None, the dead
 // nameserver and a hostAliases entry per address, or returns an error, and
 // the Job is not created, when the runner needs a resolver, a URL names no
 // host the hosts file can hold, or a host does not resolve.
-func (c *Client) isolateDNS(ctx context.Context, pod *corev1.PodSpec, harnessID string, runner Runner,
-	urls []string) error {
-	if c.cfg.DNS != DNSNone {
+func (c *Client) isolateDNSAs(ctx context.Context, pod *corev1.PodSpec, mode DNSMode, harnessID string,
+	runner Runner, urls []string) error {
+	if mode != DNSNone {
 		return nil
 	}
 	if NeedsResolver(runner) {
