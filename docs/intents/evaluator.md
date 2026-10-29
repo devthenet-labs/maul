@@ -226,6 +226,14 @@ Ready (`RunBudgetOverHourlyLimit`).
   screenshots in `<verification>-evidence`, both deleted with the request. The intent's stored checks are in the
   immutable ConfigMap `<intent>-checks-<n>` that `status.acceptance.checks` names, and the reviewer's answers are cached
   in `status.acceptance.reviews`.
+- **On the status page.** With the [intents dashboard](dashboard.md#the-evaluation-evidence) on, an evaluate run's panel
+  shows the same round: outcomes with maul's decided result, the checks and their compiled specs, anomalies, the
+  hand-off and the ledger. A reader with the transcripts tier also sees each call's request and output, the evaluator's
+  own verdicts and notes, and the cited screenshots.
+- **Trust order.** Read maul's result first (`confirmed`, `failed`, `unsure`, `quarantined`), then **maul's check**
+  beside it, which maul rendered itself. The evaluator's verdict and note are claims: they can disagree with the result,
+  and an outcome is green only when maul's own checks support it. A ledger output is shown only where it hashes to the
+  index, so an output marked dropped was cut to fit or is missing; treat it as unknown rather than as empty.
 - **The runs.** The evaluator and the reviewer are ordinary IntentRuns of stages `evaluate` and `checkreview`, metered
   like every run; their reports are on the run's status.
 
@@ -263,4 +271,19 @@ A tool pod lives as long as its evaluate run plus five minutes, under the slot's
 - **No replan once the pull requests are open.** An approved plan cannot be replanned while its intent is in review:
   `/maul replan` and a re-applied trigger label are answered as not available there, and no notice offers them. To start
   over with a new plan, an approver comments `/maul cancel` (the pull requests are left as they are) and opens a new
-  issue. Replanning from review is deferred to a later release.
+  issue. Replanning from review is an owner decision, deferred to a later release; until then the options in review are
+  `/maul revise`, a verify fix and `/maul cancel`.
+- **A model judging a screenshot is never support.** The evaluate model (`claude-sonnet-5`) was calibrated on
+  screenshots of known defects and failed: it called 5 of 15 defect runs a pass, with confident evidence it invented,
+  and failed 3 of 18 correct builds. It was right on gross structure (steps 14.8 px against 32 px, rows visibly offset
+  after a swipe) and a coin flip below about 3 px (30 against 32 px, a label overlapping by 1.3 px). So a screenshot
+  judged by the model alone never turns an outcome green: the answer is `unsure`. Pixel facts belong to the
+  deterministic browser assertions (`size`, `aligned`, `above`), which measure exactly. Citing evidence does not fix
+  this, because the citations themselves were invented. The rule would be reopened only with a gate per question class
+  and a fresh run of the calibration set per model; a higher screenshot scale factor is untried.
+- **codex is unverified and uncalibrated.** See [codex: built, not verified](#codex-built-not-verified). The calibration
+  above was not run on codex or on a larger model.
+- **After a preview-controller restart,** a browser round's captured logs and events stop refreshing and stay as last
+  written, because the key that redacts them is not recoverable from memory. Status keeps updating.
+- **The evaluation ceiling counts toward the hourly limit.** With the evaluator on, the default \$6 ceiling counts
+  toward `RunBudgetOverHourlyLimit`: a broker `costPerHour` below \$12 keeps such a Project from Ready.
