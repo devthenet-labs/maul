@@ -55,15 +55,33 @@ import (
 const maxToolVerificationObject = 5 << 18
 
 // toolState is what preview-controller keeps of a running tool pod: its CDP
-// key, redacted from the capture (it cannot read the Secret back), and the
-// tool ConfigMap's data as last written (it never reads the ConfigMap
-// either: each refresh is a whole, unconditional update).
+// key, redacted from the capture, and the tool ConfigMap's data as last
+// written (it never reads the ConfigMap either: each refresh is a whole,
+// unconditional update). The key is known only to the process that wrote
+// its Secret, and it never reads the Secret back: after a restart the key
+// is "" (unknown), and a browser tool pod's capture is then refused rather
+// than refreshed unredacted (keyUnknown).
 type toolState struct {
 	key  string
 	data map[string]string
 }
 
-// toolStateOf is pv's tool state, made with a fresh key when there is none.
+// keyUnknown reports a browser tool pod whose CDP key this process does
+// not hold, so cannot redact.
+func (st *toolState) keyUnknown(pv *v1alpha1.PreviewVerification) bool {
+	return pv.Spec.Tools.Browser && st.key == ""
+}
+
+// redactions are the keys the capture redacts: the CDP key, when there is
+// one.
+func (st *toolState) redactions() []string {
+	if st.key == "" {
+		return nil
+	}
+	return []string{st.key}
+}
+
+// toolStateOf is pv's tool state, made empty (no key) when there is none.
 func (v *VerificationReconciler) toolStateOf(uid types.UID) *toolState {
 	v.toolsMu.Lock()
 	defer v.toolsMu.Unlock()
@@ -72,7 +90,7 @@ func (v *VerificationReconciler) toolStateOf(uid types.UID) *toolState {
 	}
 	st := v.toolStates[uid]
 	if st == nil {
-		st = &toolState{key: newCDPKey()}
+		st = &toolState{}
 		v.toolStates[uid] = st
 	}
 	return st
@@ -276,8 +294,14 @@ func (v *VerificationReconciler) createTools(ctx context.Context, pv *v1alpha1.P
 	}
 	st := v.toolStateOf(pv.UID)
 	if pv.Spec.Tools.Browser {
-		err := v.Create(ctx, v.Settings.toolKeySecret(s.preview, pv, job, st.key))
-		if err != nil && !kerrors.IsAlreadyExists(err) {
+		// A Secret already there with no key in memory is an earlier
+		// process's: its key stays unknown.
+		key := cmp.Or(st.key, newCDPKey())
+		err := v.Create(ctx, v.Settings.toolKeySecret(s.preview, pv, job, key))
+		switch {
+		case err == nil:
+			st.key = key
+		case !kerrors.IsAlreadyExists(err):
 			return refused("tool key Secret", err)
 		}
 	}
@@ -372,26 +396,13 @@ func anyImagePullWaiting(pod *corev1.Pod) bool {
 // followTools refreshes the capture in the tool ConfigMap and, once the
 // tools container is Ready, records where the evaluator reaches it; it
 // writes status only when either changed. The capture is best effort: a
-// failed refresh is logged and the last one stands.
+// failed refresh is logged and the last one stands, as it does for a
+// browser tool pod whose CDP key this process does not hold (it restarted
+// since writing the Secret), which is never captured.
 func (v *VerificationReconciler) followTools(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject, job *batchv1.Job, pod *corev1.Pod) error {
 	before := pv.Status.DeepCopy()
-	st := v.toolStateOf(pv.UID)
-	if st.data == nil {
-		data, _, err := v.toolData(ctx, pv, s)
-		if err != nil || data == nil {
-			v.logRefusal(ctx, pv, "tool config not re-derived for the capture", err)
-		}
-		st.data = data
-	}
-	if st.data != nil {
-		cm := v.Settings.toolConfigMap(s.preview, pv, job, maps.Clone(st.data))
-		if err := v.refreshCapture(ctx, pv, s.preview, s.slot, cm, []string{st.key}); err != nil {
-			v.logRefusal(ctx, pv, "capture not refreshed", err)
-		} else {
-			st.data = cm.Data
-		}
-	}
+	v.followCapture(ctx, pv, s, job)
 	if pv.Status.Tools == nil && pod != nil && toolsReady(pod) {
 		pv.Status.Tools = &v1alpha1.ToolsStatus{PodIP: pod.Status.PodIP, Port: previewtools.Port, Ready: true}
 	}
@@ -399,6 +410,35 @@ func (v *VerificationReconciler) followTools(ctx context.Context, pv *v1alpha1.P
 		return nil
 	}
 	return v.Status().Update(ctx, pv)
+}
+
+// errCDPKeyUnknown is a browser tool pod's capture refused: this process
+// did not write its CDP key Secret, so cannot redact the key.
+var errCDPKeyUnknown = errors.New("CDP key not held by this process (restarted since its Secret was written)")
+
+// followCapture refreshes the capture in the tool ConfigMap, best effort,
+// never with a CDP key unknown.
+func (v *VerificationReconciler) followCapture(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	s *verifySubject, job *batchv1.Job) {
+	st := v.toolStateOf(pv.UID)
+	if st.keyUnknown(pv) {
+		v.logRefusal(ctx, pv, "capture not refreshed", errCDPKeyUnknown)
+		return
+	}
+	if st.data == nil {
+		data, _, err := v.toolData(ctx, pv, s)
+		if err != nil || data == nil {
+			v.logRefusal(ctx, pv, "tool config not re-derived for the capture", err)
+			return
+		}
+		st.data = data
+	}
+	cm := v.Settings.toolConfigMap(s.preview, pv, job, maps.Clone(st.data))
+	if err := v.refreshCapture(ctx, pv, s.preview, s.slot, cm, st.redactions()); err != nil {
+		v.logRefusal(ctx, pv, "capture not refreshed", err)
+		return
+	}
+	st.data = cm.Data
 }
 
 // toolsReady reports the tools container Ready on a pod with an address.

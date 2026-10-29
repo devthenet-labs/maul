@@ -367,7 +367,9 @@ application. Off, an outcome verification is `Infra` and renders nothing.
 - **Logs and events.** While the pod runs, each poll refreshes the tool ConfigMap with a bounded log tail of each
   component since the round began, redacted (JWT-shaped strings, `Bearer` and `Authorization` values, the round's keys),
   and the slot's pod events and container states. That is how `maul-tool logs` and `maul-tool events` see them: the
-  evaluator and the tool pod hold no Kubernetes access.
+  evaluator and the tool pod hold no Kubernetes access. The CDP key lives only in the memory of the controller process
+  that wrote its Secret (it never reads a Secret back), so after a controller restart a running browser round's capture
+  is no longer refreshed: the last one written stands, and the key is never captured unredacted.
 - **The result.** Once the Job finishes, the controller reads the `tools` container's log (that container only) and its
   termination message, holds the ledger to the count and sha256 both carry, and writes an index of every entry to
   `status.ledger`, with the replay and confirmation runs and the confirmed checks' bodies taken from the ledger's own
