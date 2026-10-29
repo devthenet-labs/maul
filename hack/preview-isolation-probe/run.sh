@@ -14,7 +14,9 @@
 # acceptance verification's edge policies admit a Preview's declared edges
 # and nothing else (see edges_main below and README.md). `run.sh evaluator`
 # is another: a Pod labelled as an agent evaluator reaches the egress broker
-# and nothing else (see evaluator_main below).
+# and nothing else (see evaluator_main below). `run.sh tools` is another: the
+# whole evaluator and tool-pod matrix against a live evaluation (see
+# tools_main below).
 set -euo pipefail
 
 usage() {
@@ -22,6 +24,7 @@ usage() {
 usage: $0 [options] <open disposable PR number>
        $0 edges [options]   (the edges run; $0 edges --help)
        $0 evaluator [options]   (the evaluator run; $0 evaluator --help)
+       $0 tools [options]   (the tool-pod matrix on a live evaluation; $0 tools --help)
 
 Re-run the preview cold-start isolation gate against the image the trusted
 publisher pushed for a disposable test/preview-* PR's head. See README.md.
@@ -904,6 +907,297 @@ evaluator_run() {
     evaluator_cleanup
 }
 
+# The tools run (agent evaluator, DESIGN 4.2; spec S1-25): the whole
+# evaluator and tool-pod matrix on a LIVE evaluation, the live half of the
+# S1-28 demo. Unlike the other runs it creates no stand-ins: it takes the
+# real pods of one running evaluation and, in each, adds an EPHEMERAL
+# container running the netprobe image. An ephemeral container shares its
+# pod's network namespace and nothing else, so its traffic is that pod's, to
+# the NetworkPolicy and to the application gates on localhost alike, and the
+# pods' own images need no shell or tools. Each row runs one netprobe mode
+# (README.md has the REACHED/BLOCKED matrix):
+#
+#   evaluator  --as evaluator  reaches the broker and its own tool pod :8090
+#   component  --as peers      reaches the resolver; refused the tool pod,
+#                              the evaluator and the broker
+#   tools      --as tools      refused DNS, the API server, IMDS, the internet
+#   sandbox    --as sandbox    refused :8090 and the CDP shim, without the key
+#   page       --as page       the browser container's Chromium loads a page
+#                              whose JS fetches :8090 and the shim: refused
+#   agents     --as tools      (with --agents-tool-pod) reaches only the
+#                              artifact server
+#
+# Needs the right to create pods/ephemeralcontainers in those namespaces.
+
+tools_usage() {
+    cat <<EOF
+usage: $0 tools [options]
+
+Run the evaluator and tool-pod isolation matrix against one live evaluation:
+the evaluator reaches the broker and its own tool pod and nothing else; a slot
+component reaches neither the tool pod, the evaluator nor the broker; the tool
+pod has no DNS and no API server; page JS and the sandbox container cannot use
+:8090 or the CDP shim. Each pod is probed through an ephemeral container of the
+netprobe image, which shares that pod's network and nothing else. Calls neither
+gh nor aws. See README.md.
+
+Each option falls back to the environment variable named beside it.
+  --image <ref>                 PROBE_IMAGE (required): the netprobe image,
+                                <registry>/<path>:sha-<40 hex>
+  --tool-pod <ns/name>          PROBE_TOOL_POD (required): the evaluation's
+                                tool pod, in its slot
+  --evaluator-pod <ns/name>     PROBE_EVALUATOR_POD (required): its evaluator
+                                pod, in the agents namespace
+  --component-pod <ns/name>     PROBE_COMPONENT_POD (required): a component
+                                pod of the same Preview, in the same slot
+  --other-tool-pod <ns/name>    PROBE_OTHER_TOOL_POD (required): another
+                                evaluation's tool pod
+  --other-slot-pod <ns/name>    PROBE_OTHER_SLOT_POD (required): a pod in
+                                another slot
+  --agents-tool-pod <ns/name>   PROBE_AGENTS_TOOL_POD: a tool pod in the
+                                agents namespace (no Preview); adds its row
+  --component-port <port>       PROBE_COMPONENT_PORT: the component's and the
+                                other slot pod's listening port (default 8080)
+  --release-namespace <ns>      PROBE_RELEASE_NAMESPACE: maul's namespace
+                                (release maul; default maul)
+  --chromium <path>             PROBE_CHROMIUM: Chromium in the browser
+                                container (default /usr/lib/chromium/chrome)
+  --refused-is-blocked          count a refused connection as blocked, for a
+                                policy controller that REJECTs (k3s, k3d); the
+                                evaluator listens on nothing, so a cluster that
+                                REJECTs needs it
+  --timeout <seconds>           PROBE_TIMEOUT: how long each row may take
+                                (default 120)
+  --dry-run                     check every value and print what each row
+                                would run, then exit before kubectl is called
+  -h, --help                    print this help
+EOF
+}
+
+tools_fail() {
+    echo "$1" >&2
+    tools_usage >&2
+    exit 2
+}
+
+# tools_check_pod FLAG VALUE: VALUE must be <namespace>/<pod>.
+tools_check_pod() {
+    [[ $2 =~ ^$dns_label/$dns_name$ ]] || tools_fail "$1 must be <namespace>/<pod>, not $2"
+}
+
+tools_main() {
+    image=${PROBE_IMAGE:-}
+    local tool_pod=${PROBE_TOOL_POD:-} evaluator_pod=${PROBE_EVALUATOR_POD:-} component_pod=${PROBE_COMPONENT_POD:-}
+    local other_tool=${PROBE_OTHER_TOOL_POD:-} other_slot=${PROBE_OTHER_SLOT_POD:-}
+    local agents_tool=${PROBE_AGENTS_TOOL_POD:-} port=${PROBE_COMPONENT_PORT:-8080}
+    local release_ns=${PROBE_RELEASE_NAMESPACE:-maul} chromium=${PROBE_CHROMIUM:-/usr/lib/chromium/chrome} dry_run=0
+    timeout=${PROBE_TIMEOUT:-120}
+    refused_blocks=0
+    dns_label='[a-z0-9]([-a-z0-9]*[a-z0-9])?'
+    dns_name="$dns_label(\\.$dns_label)*"
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+        -h | --help)
+            tools_usage
+            exit 0
+            ;;
+        --dry-run) dry_run=1 ;;
+        --refused-is-blocked) refused_blocks=1 ;;
+        --image | --tool-pod | --evaluator-pod | --component-pod | --other-tool-pod | --other-slot-pod | \
+            --agents-tool-pod | --component-port | --release-namespace | --chromium | --timeout)
+            [[ $# -ge 2 ]] || tools_fail "$1 needs a value"
+            case $1 in
+            --image) image=$2 ;;
+            --tool-pod) tool_pod=$2 ;;
+            --evaluator-pod) evaluator_pod=$2 ;;
+            --component-pod) component_pod=$2 ;;
+            --other-tool-pod) other_tool=$2 ;;
+            --other-slot-pod) other_slot=$2 ;;
+            --agents-tool-pod) agents_tool=$2 ;;
+            --component-port) port=$2 ;;
+            --release-namespace) release_ns=$2 ;;
+            --chromium) chromium=$2 ;;
+            --timeout) timeout=$2 ;;
+            esac
+            shift
+            ;;
+        *) tools_fail "unknown argument $1" ;;
+        esac
+        shift
+    done
+
+    # Every value lands in a kubectl argument, so each must be exactly the
+    # shape it names.
+    [[ -n $image ]] || tools_fail "--image (PROBE_IMAGE) is required"
+    if [[ ! $image =~ ^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+:sha-[0-9a-f]{40}$ ]]; then
+        tools_fail "--image must be <registry>/<path>:sha-<40 hex>, not $image"
+    fi
+    local pair flag value
+    for pair in "--tool-pod:$tool_pod" "--evaluator-pod:$evaluator_pod" "--component-pod:$component_pod" \
+        "--other-tool-pod:$other_tool" "--other-slot-pod:$other_slot"; do
+        flag=${pair%%:*}
+        value=${pair#*:}
+        [[ -n $value ]] || tools_fail "$flag is required"
+        tools_check_pod "$flag" "$value"
+    done
+    [[ -z $agents_tool ]] || tools_check_pod --agents-tool-pod "$agents_tool"
+    [[ $port =~ ^[1-9][0-9]{0,4}$ && $port -le 65535 ]] || tools_fail "--component-port must be a port, not $port"
+    [[ $release_ns =~ ^$dns_label$ ]] || tools_fail "--release-namespace must be a DNS label, not $release_ns"
+    [[ $chromium =~ ^/[A-Za-z0-9._/-]+$ ]] || tools_fail "--chromium must be an absolute path, not $chromium"
+    [[ $timeout =~ ^[1-9][0-9]*$ ]] || tools_fail "--timeout must be a positive number of seconds, not $timeout"
+    [[ $tool_pod != "$other_tool" ]] || tools_fail "--other-tool-pod must be another evaluation's, not $tool_pod"
+
+    if [[ $dry_run -eq 1 ]]; then
+        cat <<EOF
+image:       $image
+tool pod:    $tool_pod (its tools, sandbox and browser containers share one network)
+evaluator:   $evaluator_pod
+component:   $component_pod (port $port)
+other:       tool pod $other_tool, slot pod $other_slot (port $port)
+agents pod:  ${agents_tool:-none (no agents-namespace row)}
+rows, each an ephemeral container of the image in the pod named:
+  evaluator  netprobe --as evaluator in $evaluator_pod
+             REACHED: broker :8080, its own tool pod :8090
+             BLOCKED: internet, IMDS, DNS :53, API server, artifact server :9790, the component, the other tool pod, the other slot pod
+  component  netprobe --as peers in $component_pod
+             REACHED: cluster DNS :53 (control)
+             BLOCKED: tool pod :8090, evaluator :8080, broker :8080
+  tools      netprobe --as tools in $tool_pod
+             BLOCKED: DNS :53, API server, IMDS, internet
+  sandbox    netprobe --as sandbox in $tool_pod
+             BLOCKED: :8090 on loopback and on the pod IP, the CDP shim :9222 without the key and with a wrong one
+  page       netprobe --as page in $tool_pod, loaded by $chromium in its browser container
+             BLOCKED: page JS fetching :8090 and the CDP shim
+EOF
+        if [[ -n $agents_tool ]]; then
+            cat <<EOF
+  agents     netprobe --as tools in $agents_tool
+             REACHED: artifact server :9790
+             BLOCKED: broker :8080, DNS :53, API server, IMDS, internet
+EOF
+        fi
+        cat <<EOF
+refusal:     $(if [[ $refused_blocks -eq 1 ]]; then echo "blocked, once the row's control is reached"; else echo "inconclusive"; fi)
+assumed:     release maul in namespace $release_ns; ephemeral containers allowed in each pod's namespace
+dry run: nothing was called
+EOF
+        exit 0
+    fi
+    tools_run "$release_ns" "$port" "$chromium" "$tool_pod" "$evaluator_pod" "$component_pod" "$other_tool" \
+        "$other_slot" "$agents_tool"
+}
+
+# tools_ip KIND NS NAME: the IPv4 address of a Service (KIND service) or of
+# a Pod, else stop.
+tools_ip() {
+    local ip
+    if [[ $1 == service ]]; then
+        ip=$(ekube get service "$3" -n "$2" -o jsonpath='{.spec.clusterIP}')
+    else
+        ip=$(ekube get pod "$3" -n "$2" -o jsonpath='{.status.podIP}')
+    fi
+    edges_ipv4 "$ip" "the $1 $2/$3"
+}
+
+tools_failed=0
+
+# tools_debug ROW POD_REF CONTAINER ENVS ROLE: add the ephemeral netprobe
+# container CONTAINER to POD_REF, running --as ROLE with the newline-separated
+# KEY=VALUE ENVS.
+tools_debug() {
+    local row=$1 ref=$2 container=$3 envs=() kv flag=()
+    while IFS= read -r kv; do [[ -z $kv ]] || envs+=("--env=$kv"); done <<<"$4"
+    [[ $refused_blocks -eq 0 || $5 == sandbox || $5 == page ]] || flag=(--refused-is-blocked)
+    echo "Row $row: netprobe --as $5 in $ref ($container)" >&2
+    ekube debug "${ref#*/}" -n "${ref%/*}" --image "$image" -c "$container" --profile=restricted -q \
+        "${envs[@]}" -- /probe --as "$5" "${flag[@]}" >&2
+}
+
+# tools_collect ROW POD_REF CONTAINER: wait for the container's summary,
+# print the matrix lines its log holds, and fail the run unless PASS.
+tools_collect() {
+    local row=$1 ref=$2 container=$3 out got deadline=$((SECONDS + timeout))
+    while :; do
+        out=$(ekube logs "${ref#*/}" -n "${ref%/*}" -c "$container" 2>/dev/null) || out=
+        got=$(jq -Rr 'fromjson? | select(type == "object" and .name == "summary") | .outcome // empty' <<<"$out" |
+            tail -1) || got=
+        [[ -z $got ]] || break
+        if [[ $SECONDS -ge $deadline ]]; then
+            got=NO_SUMMARY
+            break
+        fi
+        sleep 1
+    done
+    jq -Rr 'fromjson? | select(type == "object" and .name != "summary") | "\(.name) \(.outcome)"' <<<"$out" |
+        sed 's/ REACHABLE$/ REACHED/; s/ blocked$/ BLOCKED/; s/ refused$/ BLOCKED/' | sort -u | sed 's/^/  /' >&2 || true
+    if [[ $got == PASS ]]; then
+        echo "PASS $row" >&2
+    else
+        echo "FAIL $row: $got; the probe's log:" >&2
+        printf '%s\n' "$out" >&2
+        tools_failed=1
+    fi
+}
+
+# tools_row ROW POD_REF ROLE ENVS: tools_debug then tools_collect.
+tools_row() {
+    local container="probe-$1-$tools_stamp"
+    tools_debug "$1" "$2" "$container" "$4" "$3"
+    tools_collect "$1" "$2" "$container"
+}
+
+tools_run() {
+    local rel=$1 port=$2 chromium=$3 tool=$4 evaluator=$5 component=$6 other_tool=$7 other_slot=$8 agents_tool=$9
+    local broker api dns artifact tool_ip eval_ip comp_ip other_tool_ip other_slot_ip
+    tools_stamp=$(date +%s)
+    broker=$(tools_ip service "$rel" maul-egress-broker)
+    api=$(tools_ip service default kubernetes)
+    dns=$(tools_ip service kube-system kube-dns)
+    artifact=$(tools_ip service "$rel" maul-source-controller)
+    tool_ip=$(tools_ip pod "${tool%/*}" "${tool#*/}")
+    eval_ip=$(tools_ip pod "${evaluator%/*}" "${evaluator#*/}")
+    comp_ip=$(tools_ip pod "${component%/*}" "${component#*/}")
+    other_tool_ip=$(tools_ip pod "${other_tool%/*}" "${other_tool#*/}")
+    other_slot_ip=$(tools_ip pod "${other_slot%/*}" "${other_slot#*/}")
+
+    tools_row evaluator "$evaluator" evaluator "PROBE_EGRESS_BROKER=$broker
+PROBE_KUBERNETES_API=$api
+PROBE_CLUSTER_DNS=$dns
+PROBE_SOURCE_CONTROLLER=$artifact
+PROBE_SLOT_COMPONENT=$comp_ip
+PROBE_REACH=own-tool-pod=$tool_ip:8090
+PROBE_DENY=other-tool-pod=$other_tool_ip:8090,other-slot-pod=$other_slot_ip:$port"
+    tools_row component "$component" peers "PROBE_REACH=cluster-dns=$dns:53
+PROBE_DENY=tool-pod=$tool_ip:8090,evaluator=$eval_ip:8080,maul-egress-broker=$broker:8080"
+    tools_row tools "$tool" tools "PROBE_CLUSTER_DNS=$dns
+PROBE_KUBERNETES_API=$api"
+    tools_row sandbox "$tool" sandbox "PROBE_POD_IP=$tool_ip"
+
+    # The page row: the page is served from an ephemeral container (the
+    # pod's network) and the browser container's own Chromium, an engine
+    # that sends an Origin and holds no key, loads it.
+    local page="probe-page-$tools_stamp"
+    tools_debug page "$tool" "$page" "PROBE_POD_IP=$tool_ip
+PROBE_PAGE_WAIT_SECONDS=$timeout" page
+    ekube exec "${tool#*/}" -n "${tool%/*}" -c browser -- "$chromium" --headless --no-sandbox --disable-gpu \
+        --user-data-dir=/tmp/probe-page --virtual-time-budget=15000 --dump-dom http://127.0.0.1:8099/ \
+        >/dev/null 2>&1 </dev/null || true
+    tools_collect page "$tool" "$page"
+
+    if [[ -n $agents_tool ]]; then
+        tools_row agents "$agents_tool" tools "PROBE_CLUSTER_DNS=$dns
+PROBE_KUBERNETES_API=$api
+PROBE_REACH=artifact-server=$artifact:9790
+PROBE_DENY=maul-egress-broker=$broker:8080"
+    fi
+    if [[ $tools_failed -ne 0 ]]; then
+        echo "The evaluator and tool-pod isolation matrix does not hold; keep" \
+            "intentController.verification.evaluator off and investigate." >&2
+        exit 1
+    fi
+    echo "Tool-pod isolation passed: every REACHED row connected and every BLOCKED row was refused." >&2
+}
+
 if [[ ${1:-} == edges ]]; then
     shift
     edges_main "$@"
@@ -912,6 +1206,11 @@ fi
 if [[ ${1:-} == evaluator ]]; then
     shift
     evaluator_main "$@"
+    exit 0
+fi
+if [[ ${1:-} == tools ]]; then
+    shift
+    tools_main "$@"
     exit 0
 fi
 

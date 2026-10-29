@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -165,28 +164,50 @@ func evaluatorTargetsFrom(getenv func(string) string) (reach, deny []target, ok 
 		}
 		deny = append(deny, t)
 	}
-	return reach, deny, true
+	// Its own tool pod (reach) and another evaluation's, another slot's
+	// (deny): the matrix run's addresses (roles.go).
+	extraReach, extraDeny, ok := extraTargets(getenv)
+	if !ok {
+		return nil, nil, false
+	}
+	return append(reach, extraReach...), append(deny, extraDeny...), true
 }
 
-// asMode runs `--as evaluator [--refused-is-blocked]`; false when args do
-// not start with --as, so main runs another mode.
+// asMode runs `--as <role> [--refused-is-blocked]`; false when args do not
+// start with --as, so main runs another mode.
 func asMode(args []string) (handled bool, code int) {
 	if len(args) == 0 || args[0] != "--as" {
 		return false, 0
 	}
 	rest := args[1:]
-	refusedBlocks := len(rest) == 2 && rest[1] == refusedIsBlocked
-	if len(rest) == 0 || rest[0] != evaluatorRole || (len(rest) == 2 && !refusedBlocks) || len(rest) > 2 {
-		fmt.Fprintln(os.Stderr, "usage: probe --as "+evaluatorRole+" ["+refusedIsBlocked+"]")
-		return true, 2
+	if len(rest) == 0 {
+		return true, usageAs()
 	}
-	reach, deny, ok := evaluatorTargetsFrom(os.Getenv)
-	if !ok {
-		emit(result{Name: "summary", Outcome: outcomeInconclusive})
-		return true, 3
+	role, flags := rest[0], rest[1:]
+	switch role {
+	case evaluatorRole, toolsRole, peersRole:
+		if len(flags) > 1 || (len(flags) == 1 && flags[0] != refusedIsBlocked) {
+			return true, usageAs()
+		}
+		return true, runRole(role, len(flags) == 1)
+	case sandboxRole:
+		if len(flags) != 0 {
+			return true, usageAs()
+		}
+		specs, ok := sandboxSpecsFrom(os.Getenv)
+		if !ok {
+			emit(result{Name: "summary", Outcome: outcomeInconclusive})
+			return true, 3
+		}
+		_, code = runSandbox(specs, httpWithin, emit)
+		return true, code
+	case pageRole:
+		if len(flags) != 0 {
+			return true, usageAs()
+		}
+		return true, pageMode()
 	}
-	_, code = runEvaluator(reach, deny, refusedBlocks, evaluatorReachWithin, emit)
-	return true, code
+	return true, usageAs()
 }
 
 // runEvaluator waits up to within for every reach target to connect, and

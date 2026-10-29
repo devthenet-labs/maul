@@ -285,11 +285,10 @@ Each run, in a free slot:
    every one of which must be `BLOCKED`. Its summary is `PASS`, `SECURITY_FAILURE`, `INCONCLUSIVE` or `NOT_REACHED`;
 5. deletes the Job and the component.
 
-The evaluator's own tool pod on 8090, and the matrix's other rows (DESIGN 4.2), are probed once slice 1 creates tool
-pods. By default a refused connection is `INCONCLUSIVE` and fails the run; on k3s and k3d pass `--refused-is-blocked`: a
-refusal then counts as blocked, sound because the broker has answered first (the Pod's policy is in force), the slot
-component answers on its loopback, and the release's Services, the API server, kube-dns and the internet are assumed to
-answer.
+The evaluator's own tool pod on 8090 and the matrix's other rows (DESIGN 4.2) are the tools run below. By default a
+refused connection is `INCONCLUSIVE` and fails the run; on k3s and k3d pass `--refused-is-blocked`: a refusal then
+counts as blocked, sound because the broker has answered first (the Pod's policy is in force), the slot component
+answers on its loopback, and the release's Services, the API server, kube-dns and the internet are assumed to answer.
 
 ```sh
 bash hack/preview-isolation-probe/run.sh evaluator \
@@ -316,3 +315,78 @@ bash hack/preview-isolation-probe/run.sh evaluator \
 probe Job (its addresses as `192.0.2.x`). Neither calls `kubectl`. A failed run prints the probe's log, deletes what it
 created and stops: keep the evaluator off and investigate. Rebuild the netprobe image from the same commit as the
 script: an older netprobe has no `--as evaluator` and prints no summary (`NO_SUMMARY`).
+
+## The tools run: the evaluator and tool-pod matrix, live
+
+`run.sh tools` is the whole of DESIGN 4.2's matrix on **one running evaluation**, on any cluster with no cloud API. It
+is the isolation half of the S1-28 live demo; nothing runs it automatically, and no test runs it against a cluster. Run
+it from a workstation whose kubeconfig can create `pods/ephemeralcontainers` in the slot and the agents namespace, while
+an evaluation's evaluator and tool pods are alive.
+
+It creates no stand-ins. It adds an **ephemeral container** of the netprobe image to each real pod
+(`kubectl debug --profile=restricted`). An ephemeral container shares only the pod's network namespace, so its traffic
+is that pod's: to the NetworkPolicies, and to the application gates on localhost, alike. A pod's own image needs no
+shell and no tools. The containers stay until the pod is deleted (Kubernetes cannot remove one); they are named
+`probe-<row>-<unix time>`. The netprobe image is the one `Dockerfile` here builds, tagged `sha-<40 hex>`, and must be
+pullable on the preview and agent nodes.
+
+| Row         | netprobe mode    | Runs in                                                     | REACHED                                             | BLOCKED                                                                                                                                            |
+| ----------- | ---------------- | ----------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `evaluator` | `--as evaluator` | the evaluator pod (agents namespace)                        | the egress broker `:8080`, its own tool pod `:8090` | the internet, IMDS, DNS `:53`, the API server, the artifact server `:9790`, a slot component, another evaluation's tool pod, a pod in another slot |
+| `component` | `--as peers`     | a component pod of the same Preview                         | the cluster resolver `:53` (the control)            | the tool pod `:8090`, the evaluator, the broker `:8080`                                                                                            |
+| `tools`     | `--as tools`     | the tool pod                                                |                                                     | DNS `:53`, the API server, IMDS, the internet                                                                                                      |
+| `sandbox`   | `--as sandbox`   | the tool pod                                                |                                                     | `:8090` on loopback and on the pod IP; the CDP shim `:9222` with no key and with a wrong one                                                       |
+| `page`      | `--as page`      | the tool pod, loaded by Chromium in its `browser` container |                                                     | page JS fetching `:8090` and the CDP shim                                                                                                          |
+| `agents`    | `--as tools`     | an agents-namespace tool pod (`--agents-tool-pod`)          | the artifact server `:9790`                         | the broker, DNS `:53`, the API server, IMDS, the internet                                                                                          |
+
+The `tools`, `sandbox` and `browser` containers share one network namespace, which is the point of the `sandbox` and
+`page` rows: the policy cannot separate containers of one pod, so the application gates do.
+
+How each mode judges:
+
+- **`--as evaluator`, `--as tools`, `--as peers`** share one engine. Every REACHED target is dialled first, for up to a
+  minute, and only if all connect is the BLOCKED burst made (four workers, four attempts per target, the egress run's).
+  A refusal is inconclusive unless `--refused-is-blocked`, which is sound because the control answered first.
+  `PROBE_REACH` and `PROBE_DENY` (`name=<ipv4>:<port>` lists) carry the run's own addresses, and `peers` refuses to run
+  without a control and a target to deny. The summary is `PASS`, `SECURITY_FAILURE`, `INCONCLUSIVE` or `NOT_REACHED`.
+- **`--as sandbox`** makes plain HTTP requests, with no `Origin`, to `tools`' `:8090` (loopback and the pod's address,
+  `PROBE_POD_IP`) and to the shim's `/json/version` with no key and with a wrong `X-Maul-Cdp-Key`. A 4xx status, a
+  connection closed at accept (how `tools` refuses local callers) or a timeout is `blocked`; a 2xx or 3xx is `REACHED`;
+  a refused connection or a 5xx is inconclusive, because nothing proves a gate there. The `evaluator` row reaching the
+  same `:8090` is what shows the listener is up.
+- **`--as page`** serves a page on `127.0.0.1:8099` whose script fetches the same targets, and Chromium loads it. Page
+  JS sends an `Origin` and cannot set the key, so each fetch must fail or be unreadable; only a readable answer is
+  `REACHED`. The page posts what it saw back to the server that served it, which prints it. A page that never reports is
+  inconclusive. It cannot see a side effect a gate allowed that the page could not read; the gates' refusals are covered
+  by their own unit tests (`internal/cdpshim`, `internal/previewtools`).
+
+```sh
+bash hack/preview-isolation-probe/run.sh tools \
+  --image registry.example/maul/previews/netprobe:sha-0123456789abcdef0123456789abcdef01234567 \
+  --tool-pod maul-preview-0/preview-ev-0123456789-tools \
+  --evaluator-pod maul-agents/evaluator-0123 \
+  --component-pod maul-preview-0/preview-pr-12-web-5d9f7 \
+  --other-tool-pod maul-preview-1/preview-ev-abcdef0123-tools \
+  --other-slot-pod maul-preview-1/preview-pr-13-web-77c8d \
+  --refused-is-blocked
+```
+
+| Flag                   | Environment               | Default                    | Meaning                                                                                                                                |
+| ---------------------- | ------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `--image`              | `PROBE_IMAGE`             | required                   | The netprobe image, `<registry>/<path>:sha-<40 hex>`                                                                                   |
+| `--tool-pod`           | `PROBE_TOOL_POD`          | required                   | `<namespace>/<pod>`: the evaluation's tool pod                                                                                         |
+| `--evaluator-pod`      | `PROBE_EVALUATOR_POD`     | required                   | The evaluator pod of the same evaluation                                                                                               |
+| `--component-pod`      | `PROBE_COMPONENT_POD`     | required                   | A component pod of the same Preview                                                                                                    |
+| `--other-tool-pod`     | `PROBE_OTHER_TOOL_POD`    | required                   | Another evaluation's tool pod (not `--tool-pod`)                                                                                       |
+| `--other-slot-pod`     | `PROBE_OTHER_SLOT_POD`    | required                   | A pod in another slot                                                                                                                  |
+| `--agents-tool-pod`    | `PROBE_AGENTS_TOOL_POD`   |                            | A tool pod in the agents namespace; adds the `agents` row                                                                              |
+| `--component-port`     | `PROBE_COMPONENT_PORT`    | `8080`                     | The port the component and the other slot pod listen on                                                                                |
+| `--release-namespace`  | `PROBE_RELEASE_NAMESPACE` | `maul`                     | Where the broker's and source-controller's Services run                                                                                |
+| `--chromium`           | `PROBE_CHROMIUM`          | `/usr/lib/chromium/chrome` | Chromium in the browser image (`Dockerfile.preview-browser`)                                                                           |
+| `--refused-is-blocked` |                           |                            | Count a refusal as blocked once the row's control is reached (k3s, k3d); the evaluator listens on nothing, so a REJECTing CNI needs it |
+| `--timeout`            | `PROBE_TIMEOUT`           | `120`                      | Seconds each row may take                                                                                                              |
+
+`--dry-run` checks every value and prints exactly what each row would run in which pod and what it must find REACHED and
+BLOCKED, then exits before `kubectl` is called. A row that does not hold is printed with the probe's log, the remaining
+rows still run so the matrix is whole, and the script exits 1: keep `intentController.verification.evaluator` off and
+investigate.
