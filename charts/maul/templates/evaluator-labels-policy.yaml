@@ -1,0 +1,213 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+{{- if (dig "verification" "evaluator" false .Values.intentController) }}
+#
+# The agent evaluator's label fence (maul-evaluator-labels), rendered only
+# while intentController.verification.evaluator is on.
+#
+# WHY THIS EXISTS
+#
+# The evaluator's network reach is keyed on labels: the chart's egress
+# policies for maul.run/role evaluator and checkreview, and the per-Preview
+# ingress policy on a slot tool pod, which admits exactly the agents-namespace
+# pod labelled {maul.run/role: evaluator, maul.run/evaluation: <the
+# Preview's UID>}. Anyone who could set those labels could step out of the
+# ordinary agent egress policy or reach another evaluation's tool pod, and a
+# forged maul.run/preview-role tools pod in a slot could receive an
+# evaluator's traffic. So, as attribution-policy.yaml does for its
+# annotation:
+#
+# - a Job in the agents namespace may carry maul.run/role (evaluator, tools
+#   or checkreview) or maul.run/evaluation only when intent-controller
+#   creates it; a Job in a preview slot may carry maul.run/preview-role tools
+#   or maul.run/evaluation only when preview-controller creates it. Each on
+#   the Job and its pod template alike, and never maul.run/role in a slot nor
+#   maul.run/preview-role tools in the agents namespace;
+# - a Pod carrying any of them is admitted only from the Kubernetes Job
+#   controller (admissionPolicy.jobControllerUsernames), with a single
+#   controlling owner reference to a batch/v1 Job, so it is stamped from a
+#   template the Job policy already judged;
+# - no update (pods/status included, which keeps the metadata it is sent)
+#   may set, change or remove any of them, on a Job or a Pod.
+{{- if not (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
+{{- fail (printf "intentController.verification.evaluator is on but this cluster is %s; its admission policies need Kubernetes 1.30+. Upgrade, or keep the evaluator off." .Capabilities.KubeVersion.Version) }}
+{{- end }}
+{{- $ns := .Release.Namespace }}
+{{- $agents := .Values.agent.namespace }}
+{{- $icSA := printf "system:serviceaccount:%s:%s" $ns (include "maul.serviceAccountName" (dict "root" . "name" "intent-controller" "vals" .Values.intentController)) }}
+{{- $pcSA := printf "system:serviceaccount:%s:%s" $ns (include "maul.serviceAccountName" (dict "root" . "name" "preview-controller" "vals" .Values.previewController)) }}
+{{- /* The same four guarded slot names preview-admission.yaml matches. */}}
+{{- $slots := list }}
+{{- if .Values.preview.enabled }}
+{{- range $i := until 4 }}{{ $slots = append $slots (printf "maul-preview-%d" $i) }}{{ end }}
+{{- end }}
+{{- $role := "maul.run/role" }}
+{{- $eval := "maul.run/evaluation" }}
+{{- $prole := "maul.run/preview-role" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-evaluator-labels-jobs
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [batch]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [jobs]
+    variables:
+        - name: inAgents
+          expression: "request.namespace == '{{ $agents }}'"
+        - name: role
+          expression: "object.metadata.?labels[?'{{ $role }}']"
+        - name: podRole
+          expression: "object.spec.?template.?metadata.?labels[?'{{ $role }}']"
+        - name: eval
+          expression: "object.metadata.?labels[?'{{ $eval }}']"
+        - name: podEval
+          expression: "object.spec.?template.?metadata.?labels[?'{{ $eval }}']"
+        - name: tools
+          expression: "object.metadata.?labels[?'{{ $prole }}'].orValue('') == 'tools'"
+        - name: podTools
+          expression: "object.spec.?template.?metadata.?labels[?'{{ $prole }}'].orValue('') == 'tools'"
+        - name: fenced
+          expression: >-
+              variables.role.hasValue() || variables.podRole.hasValue() ||
+              variables.eval.hasValue() || variables.podEval.hasValue() ||
+              variables.tools || variables.podTools
+        - name: writer
+          expression: >-
+              variables.inAgents ? request.userInfo.username == '{{ $icSA }}'
+              {{- if $slots }}
+              : request.userInfo.username == '{{ $pcSA }}'
+              {{- else }}
+              : false
+              {{- end }}
+    validations:
+        - expression: "oldObject != null || !variables.fenced || variables.writer"
+          messageExpression: >-
+              "job " + object.metadata.name + " carries {{ $role }}, {{ $eval }} or {{ $prole }}: tools; " +
+              "only intent-controller sets them in the agents namespace, and only preview-controller in a preview slot"
+          reason: Forbidden
+        - expression: >-
+              oldObject != null || !variables.fenced || (
+                variables.role == variables.podRole && variables.eval == variables.podEval &&
+                variables.tools == variables.podTools && (variables.inAgents
+                  ? (!variables.tools && variables.role.orValue('') in ['evaluator', 'tools', 'checkreview'])
+                  : (!variables.role.hasValue() && variables.tools))
+              )
+          messageExpression: >-
+              "job " + object.metadata.name + " must carry its evaluator labels on the Job and its pod template " +
+              "alike: in the agents namespace {{ $role }} evaluator, tools or checkreview, in a preview slot " +
+              "{{ $prole }} tools, each with an optional {{ $eval }}"
+          reason: Forbidden
+        - expression: >-
+              oldObject == null || (
+                variables.role == oldObject.metadata.?labels[?'{{ $role }}'] &&
+                variables.podRole == oldObject.spec.?template.?metadata.?labels[?'{{ $role }}'] &&
+                variables.eval == oldObject.metadata.?labels[?'{{ $eval }}'] &&
+                variables.podEval == oldObject.spec.?template.?metadata.?labels[?'{{ $eval }}'] &&
+                variables.tools == (oldObject.metadata.?labels[?'{{ $prole }}'].orValue('') == 'tools') &&
+                variables.podTools == (oldObject.spec.?template.?metadata.?labels[?'{{ $prole }}'].orValue('') == 'tools')
+              )
+          messageExpression: >-
+              "the evaluator labels on job " + object.metadata.name + " may not be set, changed or removed"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-evaluator-labels-jobs
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "maul.fullname" . }}-evaluator-labels-jobs
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: In
+                  values: {{ prepend $slots $agents | toJson }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-evaluator-labels-pods
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [""]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [pods, pods/status]
+    variables:
+        - name: role
+          expression: "object.metadata.?labels[?'{{ $role }}']"
+        - name: eval
+          expression: "object.metadata.?labels[?'{{ $eval }}']"
+        - name: tools
+          expression: "object.metadata.?labels[?'{{ $prole }}'].orValue('') == 'tools'"
+        # Exactly one controlling owner reference, and it is a batch/v1 Job.
+        - name: jobControlled
+          expression: >-
+              object.metadata.?ownerReferences.orValue([])
+                .filter(r, r.?controller.orValue(false))
+                .all(r, r.apiVersion == 'batch/v1' && r.kind == 'Job')
+              && size(object.metadata.?ownerReferences.orValue([])
+                .filter(r, r.?controller.orValue(false))) == 1
+    validations:
+        - expression: >-
+              oldObject != null || !(variables.role.hasValue() || variables.eval.hasValue() || variables.tools) || (
+                request.userInfo.username in [{{ range $i, $u := .Values.admissionPolicy.jobControllerUsernames }}{{ if $i }}, {{ end }}{{ $u | toJson }}{{ end }}]
+                && variables.jobControlled
+              )
+          messageExpression: >-
+              "pod " + object.metadata.name + " carries {{ $role }}, {{ $eval }} or {{ $prole }}: tools; only the " +
+              "Kubernetes Job controller may create a pod carrying them, for the batch/v1 Job that controls it"
+          reason: Forbidden
+        - expression: >-
+              oldObject == null || (
+                variables.role == oldObject.metadata.?labels[?'{{ $role }}'] &&
+                variables.eval == oldObject.metadata.?labels[?'{{ $eval }}'] &&
+                variables.tools == (oldObject.metadata.?labels[?'{{ $prole }}'].orValue('') == 'tools')
+              )
+          messageExpression: >-
+              "the evaluator labels on pod " + object.metadata.name + " may not be set, changed or removed"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-evaluator-labels-pods
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "maul.fullname" . }}-evaluator-labels-pods
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: In
+                  values: {{ prepend $slots $agents | toJson }}
+{{- end }}

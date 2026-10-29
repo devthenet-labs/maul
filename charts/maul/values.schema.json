@@ -2079,6 +2079,17 @@
                         }
                     }
                 },
+                "verification": {
+                    "type": "object",
+                    "description": "The agent evaluator. Off by default; on, it renders the maul-evaluator-labels admission policies (Kubernetes 1.30+).",
+                    "additionalProperties": false,
+                    "properties": {
+                        "evaluator": {
+                            "type": "boolean",
+                            "description": "Turn the agent evaluator on"
+                        }
+                    }
+                },
                 "config": {
                     "type": "object",
                     "additionalProperties": false,

@@ -1238,6 +1238,16 @@ intentController:
         enabled: false
         planModel: openai/gpt-5.3-codex
         buildModel: openai/gpt-5.3-codex
+    # The agent evaluator, which checks a live Preview in a sandbox. Off by
+    # default, and off nothing renders. On, it renders the
+    # maul-evaluator-labels admission policies: maul.run/role and
+    # maul.run/evaluation on an agents-namespace Job only from
+    # intent-controller, maul.run/preview-role tools and maul.run/evaluation
+    # on a preview-slot Job only from preview-controller, on the Job and its
+    # pod template alike, on a Pod only from the Job controller for its Job,
+    # and never changed afterwards. Needs Kubernetes 1.30+.
+    verification:
+        evaluator: false
     # The Secrets your Forges reference (spec.secretRef): intent-controller's
     # `secrets get` is restricted to exactly these names. Required and
     # non-empty — RBAC reads an empty resourceNames list as every Secret.
