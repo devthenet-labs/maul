@@ -87,6 +87,7 @@ func testVerificationSchema(ctx context.Context, t *testing.T, c client.Client) 
 	testPreviewEnvironmentSchema(ctx, t, c)
 	testVerifyTriggerSchema(ctx, t, c)
 	testPreviewVerificationSchema(ctx, t, c)
+	testEvaluatorSchema(ctx, t, c)
 }
 
 // testProjectVerificationSchema: the verification settings are optional and

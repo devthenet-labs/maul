@@ -164,6 +164,44 @@ spec:
                     a person
                   rule: has(self.user) == (self.reason in ['requester', 'approver',
                     'commenter', 'reviewer', 'submitter'])
+              evaluation:
+                description: |-
+                  Evaluation is the PreviewVerification an evaluate run judges through,
+                  pinned by UID, with its tool pod's address. Set on every evaluate run
+                  and on no other (CEL-enforced); immutable with the rest of the spec.
+                properties:
+                  rung:
+                    description: Rung is the verification's rung.
+                    enum:
+                    - full
+                    - replay
+                    type: string
+                  toolIP:
+                    description: ToolIP is the tool pod's address (status.tools.podIP).
+                    maxLength: 45
+                    minLength: 2
+                    pattern: ^[0-9a-fA-F:.]+$
+                    type: string
+                  uid:
+                    description: |-
+                      UID is the PreviewVerification's UID: its tool pod's ingress policy
+                      admits only the evaluator labelled with it.
+                    type: string
+                  verification:
+                    description: Verification names the PreviewVerification.
+                    maxLength: 63
+                    minLength: 1
+                    type: string
+                required:
+                - rung
+                - toolIP
+                - uid
+                - verification
+                type: object
+                x-kubernetes-validations:
+                - message: 'spec.evaluation.uid is required: the verification is pinned
+                    by UID'
+                  rule: size(self.uid) > 0 && size(self.uid) <= 64
               grant:
                 description: Grant bounds the run.
                 properties:
@@ -576,6 +614,8 @@ spec:
             - message: 'spec.trees is set on plan runs only: a build or revise run
                 works on its one repository'
               rule: '!has(self.trees) || self.stage == ''plan'''
+            - message: spec.evaluation is set on evaluate runs, and only on them
+              rule: (self.stage == 'evaluate') == has(self.evaluation)
             - message: every tree is a different repository from the others and from
                 spec.repository (compared case-insensitively, ignoring a .git suffix)
               rule: '!has(self.trees) || self.trees.all(t, (t.url.endsWith(''.git'')

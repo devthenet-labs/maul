@@ -211,6 +211,20 @@ const (
 	// expires. Set by intent-controller's project reconciler.
 	ConditionIntentNameConflict = "IntentNameConflict"
 
+	// ConditionEvaluatorUnverified marks a Project, True while its harness
+	// has no evaluator maul has verified live (codex without
+	// --intent-evaluate-codex, SPEC Q16): its intents get the early
+	// hand-off, never a gated one. Advisory, never part of Ready. Set by
+	// intent-controller's project reconciler.
+	ConditionEvaluatorUnverified = "EvaluatorUnverified"
+
+	// ConditionEvaluatorUnavailable marks a Project, True while the
+	// evaluator cannot run for it (not enabled on intent-controller, or no
+	// evaluator image for the Project's harness): the hand-off is released
+	// at once, "not checked", slice 1's verification-off path. Advisory,
+	// never part of Ready. Set by intent-controller's project reconciler.
+	ConditionEvaluatorUnavailable = "EvaluatorUnavailable"
+
 	// Per-scope rollup markers. A scope's finalizer is removed only when its
 	// condition is True and deletion is underway — remaining finalizers show
 	// exactly which scopes still owe aggregation.

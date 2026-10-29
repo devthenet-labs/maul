@@ -54,7 +54,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-not-ready;ledger-mismatch;evidence-mismatch
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -104,14 +104,94 @@ const (
 	// (status.testerWireVersion beside acceptance.WireVersion): the tester
 	// image and the controller disagree. Infra.
 	VerificationReasonTesterVersionMismatch PreviewVerificationReason = "tester-version-mismatch"
+	// VerificationReasonToolsUnscheduled: no node took the slot tool pod.
+	// Infra.
+	VerificationReasonToolsUnscheduled PreviewVerificationReason = "tools-unscheduled"
+	// VerificationReasonToolsImagePull: one of the tool pod's three images
+	// could not be pulled. Infra.
+	VerificationReasonToolsImagePull PreviewVerificationReason = "tools-image-pull"
+	// VerificationReasonToolsNotReady: the tool pod did not become Ready
+	// within its readiness bound (a quota or LimitRange refusal leaves the
+	// Job Running with no pod, so this comes from the bound, never from Job
+	// status). Infra.
+	VerificationReasonToolsNotReady PreviewVerificationReason = "tools-not-ready"
+	// VerificationReasonLedgerMismatch: the tools container's ledger lines
+	// did not match its summary (count and sha256) or its termination
+	// message. Infra, never a verdict.
+	VerificationReasonLedgerMismatch PreviewVerificationReason = "ledger-mismatch"
+	// VerificationReasonEvidenceMismatch: an evidence image did not match
+	// the sha256 its ledger entry recorded, or was not a PNG. Infra.
+	VerificationReasonEvidenceMismatch PreviewVerificationReason = "evidence-mismatch"
 )
 
+// VerificationRung is how much of an evaluation a round runs: full (the
+// saved checks replayed, then the evaluator) or replay (the saved checks
+// only, no model: the one round after a dispute, SPEC Q17).
+// +kubebuilder:validation:Enum=full;replay
+type VerificationRung string
+
+// Rungs.
+const (
+	RungFull   VerificationRung = "full"
+	RungReplay VerificationRung = "replay"
+)
+
+// The evaluator's tool bounds. The schema markers repeat them as literals;
+// keep them in lockstep.
+const (
+	// MinToolCalls and MaxToolCallsLimit bound maxToolCalls, on a Project
+	// and on a PreviewVerification. The upper bound is what the tools
+	// ledger has room for beside its replay, confirmation and relay entries
+	// (internal/toolwire.MaxEntries).
+	MinToolCalls      = 50
+	MaxToolCallsLimit = 300
+	// MaxLookAroundRoutes bounds the routes the look-around visits.
+	MaxLookAroundRoutes = 8
+	// MaxLedgerIndexEntries bounds a ledger's index on status: every entry
+	// a ledger can hold (internal/toolwire.MaxEntries), so the index is
+	// never truncated.
+	MaxLedgerIndexEntries = 512
+)
+
+// ToolsSpec is what an outcome verification's slot tool pod offers the
+// evaluator, beside http, logs and events, which it always offers.
+type ToolsSpec struct {
+	// Browser runs the browser sidecar.
+	// +optional
+	Browser bool `json:"browser,omitempty"`
+	// Sandbox runs the sandbox sidecar (exec checks and agent-written
+	// clients).
+	// +optional
+	Sandbox bool `json:"sandbox,omitempty"`
+	// MaxToolCalls bounds the evaluator's tool calls; a call past it is
+	// refused, and the refusal is a ledger entry.
+	// +kubebuilder:validation:Minimum=50
+	// +kubebuilder:validation:Maximum=300
+	MaxToolCalls int32 `json:"maxToolCalls"`
+	// LookAroundRoutes bounds the routes the look-around visits; zero
+	// skips it.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=8
+	LookAroundRoutes int32 `json:"lookAroundRoutes,omitempty"`
+}
+
 // PreviewVerificationSpec is one request to run an Intent's automatable
-// acceptance criteria against its Preview at exactly the recorded heads.
+// acceptance criteria (slice 1's tester), or to evaluate its approved
+// outcomes (the evaluator), against its Preview at exactly the recorded
+// heads: exactly one of criteria and outcomes, each with its digest; an
+// outcome verification also names its rung and its tool pod's tools.
 // intent-controller writes it once, at creation, and it is immutable: a new
 // attempt or round is a new PreviewVerification. preview-controller re-checks
 // every field against the Intent and the Preview before it renders anything.
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable; create a new PreviewVerification for a new attempt"
+// +kubebuilder:validation:XValidation:rule="has(self.criteria) != has(self.outcomes)",message="a verification runs exactly one of criteria and outcomes"
+// +kubebuilder:validation:XValidation:rule="has(self.criteria) == has(self.criteriaDigest)",message="criteria and criteriaDigest are set together"
+// +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.outcomesDigest)",message="outcomes and outcomesDigest are set together"
+// +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.rung) && has(self.outcomes) == has(self.tools)",message="an outcome verification, and only one, names its rung and its tools"
+// +kubebuilder:validation:XValidation:rule="!has(self.checks) || has(self.outcomes)",message="saved checks belong to an outcome verification"
+// +kubebuilder:validation:XValidation:rule="has(self.checks) == has(self.checksDigest)",message="checks and checksDigest are set together"
+// +kubebuilder:validation:XValidation:rule="!has(self.rung) || self.rung != 'replay' || has(self.checks)",message="a replay round replays saved checks: it needs at least one"
 // +kubebuilder:validation:XValidation:rule="has(self.intentRef.uid) && size(self.intentRef.uid) > 0",message="spec.intentRef.uid is required"
 // +kubebuilder:validation:XValidation:rule="has(self.previewRef.uid) && size(self.previewRef.uid) > 0",message="spec.previewRef.uid is required"
 // +kubebuilder:validation:XValidation:rule="duration(self.timeout) >= duration('1m') && duration(self.timeout) <= duration('1h')",message="spec.timeout must be between 1m and 1h"
@@ -147,17 +227,55 @@ type PreviewVerificationSpec struct {
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{6}$`
 	Run string `json:"run"`
 	// Criteria are the automatable criteria of the Intent's approved
-	// acceptance list, in plan order.
+	// acceptance list, in plan order (slice 1's tester).
+	// +optional
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=atomic
-	Criteria []AcceptanceCriterion `json:"criteria"`
+	Criteria []AcceptanceCriterion `json:"criteria,omitempty"`
 	// CriteriaDigest is the digest of the Intent's full approved list
 	// (status.acceptance.digest), of which Criteria is the automatable
-	// subset.
+	// subset. Set with Criteria, and only with it.
+	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
-	CriteriaDigest string `json:"criteriaDigest"`
-	// Timeout is the tester Job's wall clock.
+	CriteriaDigest string `json:"criteriaDigest,omitempty"`
+	// Outcomes are the Intent's approved outcomes (status.acceptance.outcomes),
+	// in plan order, manual ones included: the evaluator judges them.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=map
+	// +listMapKey=id
+	Outcomes []AcceptanceOutcome `json:"outcomes,omitempty"`
+	// OutcomesDigest is the Intent's status.acceptance.outcomesDigest. Set
+	// with Outcomes, and only with it.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	OutcomesDigest string `json:"outcomesDigest,omitempty"`
+	// Checks are the Intent's saved checks, copied inline from its check
+	// store (status.acceptance.checks), which preview-controller copies
+	// into the slot tool pod's ConfigMap: it never reads the store, so it
+	// needs no read of the release namespace's ConfigMaps (SPEC Q1). Empty
+	// on a first round, before any check is saved.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=atomic
+	Checks []SavedCheck `json:"checks,omitempty"`
+	// ChecksDigest is the check store's digest
+	// (status.acceptance.checks.digest). Set with Checks, and only with it.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	ChecksDigest string `json:"checksDigest,omitempty"`
+	// Rung is how much of an evaluation the round runs. Set on an outcome
+	// verification, and only on one.
+	// +optional
+	Rung VerificationRung `json:"rung,omitempty"`
+	// Tools is what the slot tool pod offers. Set on an outcome
+	// verification, and only on one.
+	// +optional
+	Tools *ToolsSpec `json:"tools,omitempty"`
+	// Timeout is the tester Job's, or the tool pod's, wall clock.
 	Timeout metav1.Duration `json:"timeout"`
 }
 
@@ -267,7 +385,7 @@ type CriterionObservation struct {
 }
 
 // PreviewPartRole is the role of one part of a Preview's slot.
-// +kubebuilder:validation:Enum=component;service;tester;command;seed
+// +kubebuilder:validation:Enum=component;service;tester;command;seed;tools
 type PreviewPartRole string
 
 // Preview part roles.
@@ -277,6 +395,9 @@ const (
 	PreviewRoleTester    PreviewPartRole = "tester"
 	PreviewRoleCommand   PreviewPartRole = "command"
 	PreviewRoleSeed      PreviewPartRole = "seed"
+	// PreviewRoleToolPod is the slot tool pod's part role: the same value
+	// as its maul.run/preview-role label (PreviewRoleTools).
+	PreviewRoleToolPod PreviewPartRole = PreviewRoleTools
 )
 
 // Termination is a container's last termination.
@@ -435,6 +556,210 @@ type PreviewVerificationStatus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	TesterWireVersion int32 `json:"testerWireVersion,omitempty"`
+	// Tools is the slot tool pod, once scheduled: where the evaluator
+	// reaches it (a hostAlias, since the evaluator has no DNS).
+	// +optional
+	Tools *ToolsStatus `json:"tools,omitempty"`
+	// Ledger summarises the tools container's verified ledger.
+	// +optional
+	Ledger *LedgerSummary `json:"ledger,omitempty"`
+	// Replay is each saved check's replay at the start of the round, in
+	// spec order.
+	// +optional
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=atomic
+	Replay []CheckRun `json:"replay,omitempty"`
+	// Confirmations is each proposed check's confirmation run, alone with
+	// a fresh run token, after the evaluator finished.
+	// +optional
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=atomic
+	Confirmations []CheckRun `json:"confirmations,omitempty"`
+	// Confirmed are the proposed checks that passed their confirmation,
+	// their bodies read from the verified ledger (never from the
+	// evaluator's report): what intent-controller may store once reviewed.
+	// +optional
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=atomic
+	Confirmed []SavedCheck `json:"confirmed,omitempty"`
+	// Capture summarises the component log tails and slot events captured
+	// for the evaluator.
+	// +optional
+	Capture *CaptureSummary `json:"capture,omitempty"`
+}
+
+// ToolsStatus is the slot tool pod as preview-controller observed it.
+type ToolsStatus struct {
+	// PodIP is the tool pod's address.
+	// +kubebuilder:validation:MinLength=2
+	// +kubebuilder:validation:MaxLength=45
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F:.]+$`
+	PodIP string `json:"podIP"`
+	// Port is the tools container's listener.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
+	// Ready reports whether the tools container was Ready.
+	// +optional
+	Ready bool `json:"ready,omitempty"`
+}
+
+// LedgerKind is who caused a ledger entry (internal/toolwire.Kind).
+// +kubebuilder:validation:Enum=agent;runner;relay
+type LedgerKind string
+
+// Ledger kinds.
+const (
+	LedgerKindAgent  LedgerKind = "agent"
+	LedgerKindRunner LedgerKind = "runner"
+	LedgerKindRelay  LedgerKind = "relay"
+)
+
+// LedgerVerb is the tool a ledger entry records (internal/toolwire.Verb).
+// +kubebuilder:validation:Enum=http;browser;exec;logs;events;check-run;check-results;confirm;finish;session
+type LedgerVerb string
+
+// Ledger verbs.
+const (
+	LedgerVerbHTTP         LedgerVerb = "http"
+	LedgerVerbBrowser      LedgerVerb = "browser"
+	LedgerVerbExec         LedgerVerb = "exec"
+	LedgerVerbLogs         LedgerVerb = "logs"
+	LedgerVerbEvents       LedgerVerb = "events"
+	LedgerVerbCheckRun     LedgerVerb = "check-run"
+	LedgerVerbCheckResults LedgerVerb = "check-results"
+	LedgerVerbConfirm      LedgerVerb = "confirm"
+	LedgerVerbFinish       LedgerVerb = "finish"
+	LedgerVerbSession      LedgerVerb = "session"
+)
+
+// LedgerSummary is the tools container's ledger as preview-controller
+// verified it: the count and sha256 its summary declared, where the full
+// ledger and the evidence images are kept, and an index of every entry.
+type LedgerSummary struct {
+	// Count is the number of entries.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=512
+	Count int32 `json:"count"`
+	// SHA256 is the hex sha256 over the entry lines in order.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	SHA256 string `json:"sha256"`
+	// ConfigMap names the full ledger: <pv>-ledger, owned by the
+	// PreviewVerification, oldest outputs truncated with a marker past its
+	// size bound.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	ConfigMap string `json:"configMap,omitempty"`
+	// Evidence names the cited screenshots, re-encoded: <pv>-evidence,
+	// owned by the PreviewVerification.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	Evidence string `json:"evidence,omitempty"`
+	// Entries index every entry, in order; never truncated.
+	// +optional
+	// +kubebuilder:validation:MaxItems=512
+	// +listType=atomic
+	Entries []LedgerIndexEntry `json:"entries,omitempty"`
+}
+
+// LedgerIndexEntry is one ledger entry's facts, without its output.
+type LedgerIndexEntry struct {
+	// Seq is the entry's sequence number.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=512
+	Seq int32 `json:"seq"`
+	// Kind is who caused it.
+	Kind LedgerKind `json:"kind"`
+	// Verb is the tool it records.
+	Verb LedgerVerb `json:"verb"`
+	// Exit is the exit code of the process it ran; 0 when it ran none.
+	// +optional
+	Exit int32 `json:"exit,omitempty"`
+	// ResultSHA256 is the hex sha256 of its full output.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	ResultSHA256 string `json:"resultSHA256"`
+	// Artifacts are the hex sha256s of its artifacts (screenshots), in
+	// order.
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=atomic
+	// +kubebuilder:validation:items:Pattern=`^[0-9a-f]{64}$`
+	Artifacts []string `json:"artifacts,omitempty"`
+	// Refused reports that nothing ran: the call was refused.
+	// +optional
+	Refused bool `json:"refused,omitempty"`
+}
+
+// CheckRunResult is what one deterministic run of a saved or proposed
+// check showed. error is the check's own failure to run (an indeterminate
+// assertion included), refused a check the grammar refused.
+// +kubebuilder:validation:Enum=pass;fail;quarantined;error;refused
+type CheckRunResult string
+
+// Check run results.
+const (
+	CheckRunPass        CheckRunResult = "pass"
+	CheckRunFail        CheckRunResult = "fail"
+	CheckRunQuarantined CheckRunResult = "quarantined"
+	CheckRunError       CheckRunResult = "error"
+	CheckRunRefused     CheckRunResult = "refused"
+)
+
+// CheckRun is one run of one check, as the ledger recorded it.
+type CheckRun struct {
+	// CheckDigest is the check's digest.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	CheckDigest string `json:"checkDigest"`
+	// Result of the run.
+	Result CheckRunResult `json:"result"`
+	// Token is the fresh run token the run substituted for the check's
+	// run placeholder.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=40
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9-]+$`
+	Token string `json:"token"`
+	// Seq is the ledger entry of the run.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=512
+	Seq int32 `json:"seq"`
+	// DryRunSeq is the ledger entry of the green dry run a confirmation
+	// required; unset on a replay.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=512
+	DryRunSeq int32 `json:"dryRunSeq,omitempty"`
+}
+
+// CaptureSummary is what was captured from the slot for the evaluator: per
+// component, how many log bytes (a tail since the verification started,
+// redacted) and whether older ones were dropped; and how many slot events.
+type CaptureSummary struct {
+	// Components are the per-component log tails.
+	// +optional
+	// +kubebuilder:validation:MaxItems=12
+	// +listType=atomic
+	Components []ComponentCapture `json:"components,omitempty"`
+	// Events counts the slot events and container states captured.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100000
+	Events int32 `json:"events,omitempty"`
+}
+
+// ComponentCapture is one component's captured log tail.
+type ComponentCapture struct {
+	// Name of the part.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=20
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Name string `json:"name"`
+	// Bytes held, at most 64 KiB.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65536
+	Bytes int32 `json:"bytes"`
+	// Truncated reports that older output was dropped to keep the newest.
+	// +optional
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // +kubebuilder:object:root=true

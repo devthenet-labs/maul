@@ -858,6 +858,13 @@
                             "minimum": 1,
                             "type": "integer"
                         },
+                        "maxEvaluateCostMicroUSD": {
+                            "description": "MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in\nmicro-USD: what the intent's evaluate and checkreview runs may spend\ntogether, apart from the build ceiling (maxCostMicroUSD). Past it the\nevaluation ends and the hand-off is released as unconfirmed, never a\nblock. Nil means DefaultMaxEvaluateCostMicroUSD\n(MaxEvaluateCostLimit).",
+                            "format": "int64",
+                            "maximum": 1000000000,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
                         "maxRevisions": {
                             "default": 3,
                             "description": "MaxRevisions is how many review-driven revise rounds one intent may\nrun; the next is refused and the Intent goes Blocked with\nRevisionLimitReached until the limit is raised. A head_moved re-run\ndoes not count. Zero is meaningful (no revise rounds), so the field\nis a pointer: nil means the default.",
@@ -1053,6 +1060,28 @@
                     "description": "RequireRepositoryImage, true by default, launches build and revise\nruns only on an accepted repository-declared runner image (the\nRepository's pinned, not-rejected image) and blocks the Intent with\nImageRequired otherwise. False lets them fall back to the default\nrunner image, which carries no toolchain.",
                     "type": "boolean"
                 },
+                "surfaces": {
+                    "description": "Surfaces names how the evaluator reaches the application beyond http\n(ProjectSurfaces). Unset means http only.",
+                    "properties": {
+                        "browser": {
+                            "description": "Browser lets the evaluator drive a browser against the preview.",
+                            "properties": {
+                                "entry": {
+                                    "description": "Entry is the path on the preview host the browser opens first.",
+                                    "maxLength": 256,
+                                    "minLength": 1,
+                                    "pattern": "^/([^/].*)?$",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["entry"],
+                            "type": "object",
+                            "additionalProperties": false
+                        }
+                    },
+                    "type": "object",
+                    "additionalProperties": false
+                },
                 "suspend": {
                     "description": "Suspend stops the Project: no new intents are discovered and no run\nof its intents is launched. Running Jobs finish.",
                     "type": "boolean"
@@ -1064,9 +1093,25 @@
                             "description": "Enabled turns verification on for the Project's intents: the plan\nprompt asks for acceptance criteria, and each Preview is created\nverification-capable.",
                             "type": "boolean"
                         },
+                        "handoff": {
+                            "description": "Handoff is when the preview link is handed to humans under the\nevaluator: gated (held until the evaluation passes or gives up) or\nearly (at once, labelled). Unset means the chart-wide default\n(intent-controller's), so one value flips every Project.",
+                            "enum": ["gated", "early"],
+                            "type": "string"
+                        },
+                        "handoffMax": {
+                            "description": "HandoffMax bounds a gated hand-off's wait, counted from CI green at\nthe first PR heads, between 10m and 4h; DefaultHandoffMax when unset.\nPast it the hand-off is released as \"couldn't confirm: out of time\".",
+                            "type": "string"
+                        },
                         "manualGatesStatus": {
                             "description": "ManualGatesStatus keeps maul/acceptance pending until every manual\ncriterion is accepted (/maul accept) at the current heads. Off, the\nstatus reports the automated part only and names what is still open.",
                             "type": "boolean"
+                        },
+                        "maxToolCalls": {
+                            "description": "MaxToolCalls bounds the evaluator's tool calls per evaluation,\nbetween 50 and 300 (what the tools ledger has room for);\nDefaultMaxToolCalls when unset.",
+                            "format": "int32",
+                            "maximum": 300,
+                            "minimum": 50,
+                            "type": "integer"
                         },
                         "postLogs": {
                             "description": "PostLogs also puts component log tails in the pull request comments,\nnot only on the intent issue. Log tails are redacted but are\npublished data.",

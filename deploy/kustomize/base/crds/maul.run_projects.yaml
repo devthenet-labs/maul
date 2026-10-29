@@ -404,6 +404,18 @@ spec:
                     maximum: 1000000000
                     minimum: 1
                     type: integer
+                  maxEvaluateCostMicroUSD:
+                    description: |-
+                      MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
+                      micro-USD: what the intent's evaluate and checkreview runs may spend
+                      together, apart from the build ceiling (maxCostMicroUSD). Past it the
+                      evaluation ends and the hand-off is released as unconfirmed, never a
+                      block. Nil means DefaultMaxEvaluateCostMicroUSD
+                      (MaxEvaluateCostLimit).
+                    format: int64
+                    maximum: 1000000000
+                    minimum: 1
+                    type: integer
                   maxRevisions:
                     default: 3
                     description: |-
@@ -727,6 +739,26 @@ spec:
                   ImageRequired otherwise. False lets them fall back to the default
                   runner image, which carries no toolchain.
                 type: boolean
+              surfaces:
+                description: |-
+                  Surfaces names how the evaluator reaches the application beyond http
+                  (ProjectSurfaces). Unset means http only.
+                properties:
+                  browser:
+                    description: Browser lets the evaluator drive a browser against
+                      the preview.
+                    properties:
+                      entry:
+                        description: Entry is the path on the preview host the browser
+                          opens first.
+                        maxLength: 256
+                        minLength: 1
+                        pattern: ^/([^/].*)?$
+                        type: string
+                    required:
+                    - entry
+                    type: object
+                type: object
               suspend:
                 description: |-
                   Suspend stops the Project: no new intents are discovered and no run
@@ -743,12 +775,41 @@ spec:
                       prompt asks for acceptance criteria, and each Preview is created
                       verification-capable.
                     type: boolean
+                  handoff:
+                    description: |-
+                      Handoff is when the preview link is handed to humans under the
+                      evaluator: gated (held until the evaluation passes or gives up) or
+                      early (at once, labelled). Unset means the chart-wide default
+                      (intent-controller's), so one value flips every Project.
+                    enum:
+                    - gated
+                    - early
+                    type: string
+                  handoffMax:
+                    description: |-
+                      HandoffMax bounds a gated hand-off's wait, counted from CI green at
+                      the first PR heads, between 10m and 4h; DefaultHandoffMax when unset.
+                      Past it the hand-off is released as "couldn't confirm: out of time".
+                    type: string
+                    x-kubernetes-validations:
+                    - message: verification.handoffMax must be between 10m and 4h
+                      rule: duration(self) >= duration('10m') && duration(self) <=
+                        duration('4h')
                   manualGatesStatus:
                     description: |-
                       ManualGatesStatus keeps maul/acceptance pending until every manual
                       criterion is accepted (/maul accept) at the current heads. Off, the
                       status reports the automated part only and names what is still open.
                     type: boolean
+                  maxToolCalls:
+                    description: |-
+                      MaxToolCalls bounds the evaluator's tool calls per evaluation,
+                      between 50 and 300 (what the tools ledger has room for);
+                      DefaultMaxToolCalls when unset.
+                    format: int32
+                    maximum: 300
+                    minimum: 50
+                    type: integer
                   postLogs:
                     description: |-
                       PostLogs also puts component log tails in the pull request comments,

@@ -84,7 +84,49 @@ const (
 	DefaultMaxVerifications int32 = 20
 	// DefaultVerificationTimeout is verification.timeout when unset.
 	DefaultVerificationTimeout = 10 * time.Minute
+	// DefaultHandoffMax is verification.handoffMax when unset (DESIGN 7.11).
+	DefaultHandoffMax = 60 * time.Minute
+	// DefaultMaxToolCalls is verification.maxToolCalls when unset.
+	DefaultMaxToolCalls int32 = 300
+	// DefaultMaxEvaluateCostMicroUSD is limits.maxEvaluateCostMicroUSD when
+	// unset ($6, DESIGN 7.11).
+	DefaultMaxEvaluateCostMicroUSD int64 = 6000000
 )
+
+// MaxEvaluateCostLimit is limits.maxEvaluateCostMicroUSD, or its default
+// when unset.
+func (l ProjectLimits) MaxEvaluateCostLimit() int64 {
+	if l.MaxEvaluateCostMicroUSD == nil {
+		return DefaultMaxEvaluateCostMicroUSD
+	}
+	return *l.MaxEvaluateCostMicroUSD
+}
+
+// HandoffMode is spec.verification.handoff, or def (the controller's
+// chart-wide default) when unset.
+func (s *ProjectSpec) HandoffMode(def HandoffMode) HandoffMode {
+	if s.Verification == nil || s.Verification.Handoff == "" {
+		return def
+	}
+	return s.Verification.Handoff
+}
+
+// HandoffMax is spec.verification.handoffMax, or its default when unset.
+func (s *ProjectSpec) HandoffMax() time.Duration {
+	if s.Verification == nil || s.Verification.HandoffMax == nil {
+		return DefaultHandoffMax
+	}
+	return s.Verification.HandoffMax.Duration
+}
+
+// MaxToolCalls is spec.verification.maxToolCalls, or its default when
+// unset.
+func (s *ProjectSpec) MaxToolCalls() int32 {
+	if s.Verification == nil || s.Verification.MaxToolCalls == nil {
+		return DefaultMaxToolCalls
+	}
+	return *s.Verification.MaxToolCalls
+}
 
 // MaxVerifyFixesLimit is limits.maxVerifyFixes, or its default when unset.
 func (l ProjectLimits) MaxVerifyFixesLimit() int32 {
@@ -330,6 +372,16 @@ type ProjectLimits struct {
 	// round's new saved checks).
 	// +optional
 	CheckReview StageLimits `json:"checkReview,omitempty"`
+	// MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
+	// micro-USD: what the intent's evaluate and checkreview runs may spend
+	// together, apart from the build ceiling (maxCostMicroUSD). Past it the
+	// evaluation ends and the hand-off is released as unconfirmed, never a
+	// block. Nil means DefaultMaxEvaluateCostMicroUSD
+	// (MaxEvaluateCostLimit).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1000000000
+	MaxEvaluateCostMicroUSD *int64 `json:"maxEvaluateCostMicroUSD,omitempty"`
 }
 
 // ProjectChecks configures automatic fix rounds on failed CI checks of the
@@ -401,6 +453,43 @@ type ProjectVerification struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('1h')",message="verification.timeout must be between 1m and 1h"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	// Handoff is when the preview link is handed to humans under the
+	// evaluator: gated (held until the evaluation passes or gives up) or
+	// early (at once, labelled). Unset means the chart-wide default
+	// (intent-controller's), so one value flips every Project.
+	// +optional
+	Handoff HandoffMode `json:"handoff,omitempty"`
+	// HandoffMax bounds a gated hand-off's wait, counted from CI green at
+	// the first PR heads, between 10m and 4h; DefaultHandoffMax when unset.
+	// Past it the hand-off is released as "couldn't confirm: out of time".
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('10m') && duration(self) <= duration('4h')",message="verification.handoffMax must be between 10m and 4h"
+	HandoffMax *metav1.Duration `json:"handoffMax,omitempty"`
+	// MaxToolCalls bounds the evaluator's tool calls per evaluation,
+	// between 50 and 300 (what the tools ledger has room for);
+	// DefaultMaxToolCalls when unset.
+	// +optional
+	// +kubebuilder:validation:Minimum=50
+	// +kubebuilder:validation:Maximum=300
+	MaxToolCalls *int32 `json:"maxToolCalls,omitempty"`
+}
+
+// ProjectSurfaces names how the evaluator reaches the application beyond
+// http, which it always has. The cli and library surfaces are reserved for
+// slice 2.
+type ProjectSurfaces struct {
+	// Browser lets the evaluator drive a browser against the preview.
+	// +optional
+	Browser *BrowserSurface `json:"browser,omitempty"`
+}
+
+// BrowserSurface is the browser surface of a previewed application.
+type BrowserSurface struct {
+	// Entry is the path on the preview host the browser opens first.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:Pattern=`^/([^/].*)?$`
+	Entry string `json:"entry"`
 }
 
 // MaxPreviewComponents bounds how many of a Project's repositories are
@@ -506,6 +595,10 @@ type ProjectSpec struct {
 	// intents (ProjectVerification). Unset means off.
 	// +optional
 	Verification *ProjectVerification `json:"verification,omitempty"`
+	// Surfaces names how the evaluator reaches the application beyond http
+	// (ProjectSurfaces). Unset means http only.
+	// +optional
+	Surfaces *ProjectSurfaces `json:"surfaces,omitempty"`
 }
 
 // ProjectHarness is the coding agent an intent's runs use.
