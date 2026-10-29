@@ -89,3 +89,31 @@ func TestRunRejectsBadPhase(t *testing.T) {
 		t.Errorf("stdout = %q, want no envelope event for a configuration error", out)
 	}
 }
+
+// TestRunRoleStages: the evaluate and checkreview phases are configured
+// stages. Their workspace holds no repository clone, so a Job whose prepare
+// staged no handoff fails on the missing handoff (a fatal event, exit 2),
+// never on a missing clone.
+func TestRunRoleStages(t *testing.T) {
+	for _, phase := range []string{"evaluate", "checkreview"} {
+		t.Run(phase, func(t *testing.T) {
+			stdout := captureStdout(t)
+			env := map[string]string{
+				"MAUL_WORKSPACE": t.TempDir(),
+				"MAUL_REPO":      "acme/api",
+				"MAUL_FINDING":   "target-1-ev-r1-a1",
+				"MAUL_PHASE":     phase,
+			}
+			var stderr bytes.Buffer
+			code := run(context.Background(), []string{"agent-runner"}, func(k string) string { return env[k] },
+				io.Discard, &stderr)
+			if code != 2 || strings.Contains(stderr.String(), "invalid configuration") {
+				t.Fatalf("run = %d, stderr %q; want a stage failure, not a configuration error", code, stderr.String())
+			}
+			out := stdout()
+			if !strings.Contains(out, "handoff missing") || strings.Contains(out, "clone") {
+				t.Errorf("stdout = %q, want a fatal naming the missing handoff", out)
+			}
+		})
+	}
+}

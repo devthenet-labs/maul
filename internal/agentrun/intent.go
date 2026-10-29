@@ -26,20 +26,24 @@ const (
 	fakeHarness   = "fake"
 )
 
-// runIntent runs an intent stage, PhasePlan or PhaseBuild. Like Run it
-// returns an error only for a fatal, before-the-stage failure — a harness
-// intents may not run on, a plan whose repositories manifest is broken or
-// whose trees are missing (repositories), or a build handed no parseable
-// approved plan, a request beside it, or a multi-repository plan it cannot
-// find its own repository in (buildInput) — which it has already emitted as
-// a fatal event. Stage outcomes, failed ones included, are events with a
-// nil return.
+// runIntent runs an intent stage: PhasePlan, PhaseBuild, PhaseEvaluate or
+// PhaseCheckReview. Like Run it returns an error only for a fatal,
+// before-the-stage failure — a harness intents may not run on (or, for a
+// role stage, one that cannot hold the evaluate posture), a plan whose
+// repositories manifest is broken or whose trees are missing
+// (repositories), a build handed no parseable approved plan, a request
+// beside it, or a multi-repository plan it cannot find its own repository
+// in (buildInput), a role stage's handoff it cannot read (evaluateInput,
+// checkReviewInput), or a phase that is none of these — which it has
+// already emitted as a fatal event. Stage outcomes, failed ones included,
+// are events with a nil return.
 func (a *Agent) runIntent(ctx context.Context) error {
 	fatal := func(err error) error {
 		a.emit(envelope.Event{Type: envelope.TypeFatal, Error: err.Error()})
 		return err
 	}
-	if a.cfg.Phase == PhasePlan {
+	switch a.cfg.Phase {
+	case PhasePlan:
 		if err := a.intentHarness(a.cfg.InvestigateHarness); err != nil {
 			return fatal(err)
 		}
@@ -49,16 +53,57 @@ func (a *Agent) runIntent(ctx context.Context) error {
 		}
 		a.emit(envelope.Event{Type: envelope.TypePlan, Plan: a.plan(ctx, repos)})
 		return nil
+	case PhaseBuild:
+		if err := a.intentHarness(a.cfg.RemediateHarness); err != nil {
+			return fatal(err)
+		}
+		params, scope, err := a.buildInput()
+		if err != nil {
+			return fatal(err)
+		}
+		a.emit(envelope.Event{Type: envelope.TypeRemediation, Remediation: a.build(ctx, params, scope)})
+		return nil
+	case PhaseEvaluate:
+		if err := a.roleHarness(); err != nil {
+			return fatal(err)
+		}
+		in, err := a.evaluateInput()
+		if err != nil {
+			return fatal(err)
+		}
+		a.emit(envelope.Event{Type: envelope.TypeEvaluation, Evaluation: a.evaluate(ctx, in)})
+		return nil
+	case PhaseCheckReview:
+		if err := a.roleHarness(); err != nil {
+			return fatal(err)
+		}
+		in, err := a.checkReviewInput()
+		if err != nil {
+			return fatal(err)
+		}
+		a.emit(envelope.Event{Type: envelope.TypeCheckReview, CheckReview: a.checkReview(ctx, in)})
+		return nil
 	}
-	if err := a.intentHarness(a.cfg.RemediateHarness); err != nil {
-		return fatal(err)
+	return fatal(fmt.Errorf("phase %q is not an intent stage", a.cfg.Phase))
+}
+
+// stageLimits resolves the running intent stage's turns and output tokens,
+// each stage by its own rule. A phase that is not an intent stage has no
+// limits here: it is an error, never another stage's ceiling.
+func (a *Agent) stageLimits() (maxTurns, budget int, err error) {
+	switch a.cfg.Phase {
+	case PhasePlan:
+		maxTurns, budget = a.planLimits()
+	case PhaseBuild:
+		maxTurns, budget = a.buildLimits()
+	case PhaseEvaluate:
+		maxTurns, budget = a.evaluateLimits()
+	case PhaseCheckReview:
+		maxTurns, budget = a.checkReviewLimits()
+	default:
+		return 0, 0, fmt.Errorf("phase %q is not an intent stage and has no stage limits", a.cfg.Phase)
 	}
-	params, scope, err := a.buildInput()
-	if err != nil {
-		return fatal(err)
-	}
-	a.emit(envelope.Event{Type: envelope.TypeRemediation, Remediation: a.build(ctx, params, scope)})
-	return nil
+	return maxTurns, budget, nil
 }
 
 // intentHarness refuses every harness an intent stage may not run on.
@@ -102,6 +147,21 @@ func (a *Agent) planLimits() (maxTurns, budget int) {
 	return a.lowered("max_turns", a.cfg.GrantedMaxTurns, a.cfg.InvestigateMaxTurns, a.cfg.InvestigateMaxTurns),
 		a.lowered("token_budget", a.cfg.GrantedTokenBudget, a.cfg.InvestigateTokenBudget, a.cfg.InvestigateTokenBudget)
 }
+
+// evaluateLimits resolves the evaluate stage's turns and output tokens from
+// its grant, as a plan's are: the investigate stage's configured limits,
+// which the intent controller sets on the evaluate Job to the stage's
+// ceiling, and which the grant may lower but never raise.
+func (a *Agent) evaluateLimits() (maxTurns, budget int) {
+	return a.lowered("max_turns", a.cfg.GrantedMaxTurns, a.cfg.InvestigateMaxTurns, a.cfg.InvestigateMaxTurns),
+		a.lowered("token_budget", a.cfg.GrantedTokenBudget, a.cfg.InvestigateTokenBudget, a.cfg.InvestigateTokenBudget)
+}
+
+// checkReviewLimits resolves the checkreview stage's turns and output
+// tokens with the evaluate stage's rule. The turns bound each review
+// session; the output tokens are the whole run's, every session's spend
+// counted against them (checkReview).
+func (a *Agent) checkReviewLimits() (maxTurns, budget int) { return a.evaluateLimits() }
 
 // buildLimits resolves the build stage's turns and output tokens with the
 // plan stage's semantics, not a remediation's grant(): the remediate
@@ -176,7 +236,10 @@ func (a *Agent) buildInput() (remediationParams, buildScope, error) {
 	if err != nil {
 		return remediationParams{}, buildScope{}, fmt.Errorf("input plan: %w", err)
 	}
-	maxTurns, budget := a.buildLimits()
+	maxTurns, budget, err := a.stageLimits()
+	if err != nil {
+		return remediationParams{}, buildScope{}, err
+	}
 	return remediationParams{maxTurns: maxTurns, budget: budget}, scope, nil
 }
 
@@ -251,7 +314,12 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		ev.Detail = err.Error()
 		return ev
 	}
-	maxTurns, budget := a.planLimits()
+	maxTurns, budget, err := a.stageLimits()
+	if err != nil {
+		ev.Outcome = envelope.OutcomeRuntimeError
+		ev.Detail = err.Error()
+		return ev
+	}
 	prompt, err := templates.RenderPlanPrompt(templates.PlanPrompt{
 		IssuePath:   a.cfg.issuePath(),
 		ReportPath:  a.cfg.planPath(),

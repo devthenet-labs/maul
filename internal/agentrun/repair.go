@@ -57,7 +57,7 @@ func (a *Agent) newStage(h harness.Harness, cli string, req harness.PromptReques
 // start runs the stage's first run.
 func (a *Agent) start(ctx context.Context, sr *stageRun) (runner.Result, string, error) {
 	sr.started = time.Now()
-	return a.run(ctx, sr, pinCLI(sr.h.PromptSpec(a.cfg.repoDir(), sr.req), sr.cli), sr.timeout, sr.budget)
+	return a.run(ctx, sr, pinCLI(sr.h.PromptSpec(a.workDir(), sr.req), sr.cli), sr.timeout, sr.budget)
 }
 
 // writable reports whether the stage may write the working tree, so a
@@ -247,7 +247,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	}
 	a.cfg.Log.Info("asking the agent to repair its report", "phase", a.cfg.Phase, "round", round,
 		"outcome", outcome, "session", session)
-	res, idle, runErr := a.run(ctx, sr, pinCLI(resumer.ResumeSpec(a.cfg.repoDir(), session, req), sr.cli),
+	res, idle, runErr := a.run(ctx, sr, pinCLI(resumer.ResumeSpec(a.workDir(), session, req), sr.cli),
 		timeout, budget)
 	var spent envelope.Stage
 	a.fillStage(&spent, sr.h, res)

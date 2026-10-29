@@ -3,8 +3,10 @@
 
 // Command agent-runner is the coding-agent runtime that executes inside the
 // ephemeral Job pod: it drives the classification and remediation harness
-// stages against a pre-cloned repository and reports results as an event
-// stream on stdout. It never talks to GitHub.
+// stages against a pre-cloned repository (an intent's plan and build stages
+// likewise; its evaluate and checkreview stages against no tree, in the
+// scratch directory) and reports results as an event stream on stdout. It
+// never talks to GitHub.
 //
 // Invoked as `agent-runner sandbox-probe` (sandboxprobe.Command) it instead
 // runs the negative-connectivity check the trusted prepare init container
