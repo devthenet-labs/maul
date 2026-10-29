@@ -59,6 +59,9 @@ spec:
         matchLabels:
             {{- include "maul.agentPodSelector" $root | nindent 12 }}
             maul.run/harness: {{ $id | quote }}
+        {{- with include "maul.agentRoleExclusion" $root }}
+        {{- . | nindent 8 }}
+        {{- end }}
     egress:
         # This runner's model API and nothing else; no forge host appears in
         # any of them beyond what the runner authenticates with, because the
