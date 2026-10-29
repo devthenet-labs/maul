@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -69,7 +70,7 @@ var repositoryURL = regexp.MustCompile(`^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
 //	confidence: <0.0-1.0>                          # required
 //	estimated_max_turns: <integer>                 # required, positive
 //	estimated_token_budget: <integer>              # required, positive
-//	acceptance: []                                 # optional: criteria, see internal/acceptance
+//	acceptance: []                                 # optional: outcomes or criteria, see below
 //	---
 //
 // followed by the plan itself in markdown — approach, per-repository steps,
@@ -84,6 +85,13 @@ var repositoryURL = regexp.MustCompile(`^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
 // that none of its text sits out of view (checkLayout), with no run of more
 // than PlanMaxBacktickRun backticks: the approver reads it verbatim, and the
 // digest the approval binds the build to covers every byte of it.
+//
+// The acceptance list holds one of two grammars, never both: outcomes
+// (acceptance.PlanOutcome: id, outcome, from, kind, manual, reason), what
+// the agent evaluator verifies, or slice 1's criteria (acceptance.Criterion,
+// steps and all), which the evaluator never runs: CheckEvaluator refuses a
+// plan carrying them, for a replan. A list holding any outcome key is
+// outcomes, and an item of it carrying a criterion key is refused.
 type Plan struct {
 	// Summary is the change in one line.
 	Summary string `yaml:"summary"`
@@ -109,9 +117,83 @@ type Plan struct {
 	// one-step shorthand is not folded into Steps (acceptance.Normalize does
 	// that), and a list that failed acceptance.Validate never leaves the
 	// parser. Absent means none declared.
-	Acceptance []acceptance.Criterion `yaml:"acceptance"`
+	Acceptance []acceptance.Criterion `yaml:"-"`
+	// Outcomes are the plan's acceptance outcomes, as written: absent
+	// means none declared, and a list that failed
+	// acceptance.ValidateOutcomes never leaves the parser.
+	Outcomes []acceptance.PlanOutcome `yaml:"-"`
 	// Body is the markdown plan following the frontmatter.
 	Body string `yaml:"-"`
+}
+
+// planWire is the plan frontmatter as decoded: the plan's own keys, and
+// its acceptance list, whichever grammar it holds.
+type planWire struct {
+	Plan       `yaml:",inline"`
+	Acceptance acceptanceList `yaml:"acceptance"`
+}
+
+// acceptanceList is a plan's acceptance list: criteria or outcomes.
+type acceptanceList struct {
+	criteria []acceptance.Criterion
+	outcomes []acceptance.PlanOutcome
+}
+
+// outcomeKeys are the keys only an outcome has; criterionKeys those only a
+// slice-1 criterion has, in the order a refusal names them.
+var (
+	outcomeKeys   = []string{"outcome", "from", "manual"}
+	criterionKeys = []string{"statement", "steps", "request", "expect", "capture", "target", "in", "argv", "timeout"}
+)
+
+// UnmarshalYAML decodes the list as outcomes when any item carries an
+// outcome key, refusing an item of it that carries a criterion key, and as
+// criteria otherwise; either way strictly, through the function-taking form
+// that keeps the decoder's known-fields check.
+func (a *acceptanceList) UnmarshalYAML(unmarshal func(any) error) error {
+	var items []map[string]any
+	if err := unmarshal(&items); err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(items, func(it map[string]any) bool { return hasAny(it, outcomeKeys) != nil }) {
+		return unmarshal(&a.criteria)
+	}
+	for i, it := range items {
+		if found := hasAny(it, criterionKeys); found != nil {
+			return fmt.Errorf("acceptance[%d] carries %s, the slice-1 criterion grammar: list outcomes only, "+
+				"each what must hold in plain words (id, outcome, from, kind, manual, reason); "+
+				"the evaluator writes the checks", i, strings.Join(found, ", "))
+		}
+	}
+	return unmarshal(&a.outcomes)
+}
+
+// hasAny returns the keys of the list item has, in keys' order.
+func hasAny(item map[string]any, keys []string) []string {
+	var found []string
+	for _, k := range keys {
+		if _, ok := item[k]; ok {
+			found = append(found, k)
+		}
+	}
+	return found
+}
+
+// ErrSliceOneCriteria is CheckEvaluator's refusal: the plan states slice-1
+// criteria, which the agent evaluator never runs (DESIGN 7.6).
+var ErrSliceOneCriteria = errors.New("report: plan: acceptance holds slice-1 criteria")
+
+// CheckEvaluator refuses a plan the agent evaluator cannot verify: one
+// whose acceptance list is slice-1 criteria (steps, request, expect,
+// target, argv, or a manual criterion's statement). Such a plan needs a
+// replan stating outcomes; its steps are never converted into checks. A
+// plan with outcomes or no acceptance list passes.
+func (p *Plan) CheckEvaluator() error {
+	if len(p.Acceptance) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: the agent evaluator verifies outcomes (id, outcome, from, kind, manual, reason) "+
+		"and writes its own checks, so this plan needs a replan stating outcomes", ErrSliceOneCriteria)
 }
 
 // planFreeText are the plan keys whose values are prose, and planProse the
@@ -187,10 +269,12 @@ func parsePlanFrontmatter(data []byte) (*Plan, error) {
 		return nil, fmt.Errorf("report: plan: frontmatter is %d bytes, over the %d-byte bound",
 			len(block), ReportMaxBytes)
 	}
-	var p Plan
-	if err := decodeRepairing(block, &p, planFreeText, planProse, func() { p = Plan{} }); err != nil {
+	var w planWire
+	if err := decodeRepairing(block, &w, planFreeText, planProse, func() { w = planWire{} }); err != nil {
 		return nil, err
 	}
+	p := w.Plan
+	p.Acceptance, p.Outcomes = w.Acceptance.criteria, w.Acceptance.outcomes
 	p.Body = body
 	if err := p.validate(); err != nil {
 		return nil, fmt.Errorf("report: plan: %w", err)
@@ -229,6 +313,9 @@ func (p *Plan) validate() error {
 		errs = append(errs, errors.New("estimated_token_budget must be a positive integer"))
 	}
 	if err := acceptance.Validate(p.Acceptance); err != nil {
+		errs = append(errs, fmt.Errorf("acceptance: %w", err))
+	}
+	if err := acceptance.ValidateOutcomes(p.Outcomes); err != nil {
 		errs = append(errs, fmt.Errorf("acceptance: %w", err))
 	}
 	return errors.Join(errs...)
