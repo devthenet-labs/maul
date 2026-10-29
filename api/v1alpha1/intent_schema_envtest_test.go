@@ -1044,10 +1044,20 @@ func schemaIntentRun(name string, stage maulv1.IntentStage) *maulv1.IntentRun {
 		r.Spec.Trigger = maulv1.IntentRunTriggerReview
 		r.Spec.Inputs.ReviewIDs = []int64{5001}
 		r.Spec.ImageFrom = &maulv1.ObjectReference{Name: "target-1-bld-r1-shop-a1", UID: "u-r0"}
-	case maulv1.IntentStageEvaluate, maulv1.IntentStageCheckReview:
+	case maulv1.IntentStageEvaluate:
+		r.Spec.Inputs.PlanRevision, r.Spec.Inputs.PlanDigest = 1, schemaDigest
+		r.Spec.Evaluation = schemaRunEvaluation()
+	case maulv1.IntentStageCheckReview:
 		r.Spec.Inputs.PlanRevision, r.Spec.Inputs.PlanDigest = 1, schemaDigest
 	}
 	return r
+}
+
+// schemaRunEvaluation is an evaluate run's record of the verification it
+// judges.
+func schemaRunEvaluation() *maulv1.IntentRunEvaluation {
+	return &maulv1.IntentRunEvaluation{Verification: "target-1-v1-a1", UID: "u-pv", ToolIP: "10.42.0.17",
+		Rung: maulv1.RungFull}
 }
 
 // testIntentRunSchema exercises the IntentRun schema: spec immutability, the
