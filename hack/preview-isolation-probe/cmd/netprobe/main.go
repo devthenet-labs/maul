@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -69,13 +70,7 @@ func targetsFrom(getenv func(string) string) ([]target, bool) {
 		{name: "pod-identity-agent", addr: "169.254.170.23:80"},
 		{name: "internet", addr: "1.1.1.1:443"},
 	}
-	ipv4 := func(item envTarget) (target, bool) {
-		ip := net.ParseIP(getenv(item.key))
-		if ip == nil || ip.To4() == nil {
-			return target{}, false
-		}
-		return target{name: item.name, addr: net.JoinHostPort(ip.String(), item.port)}, true
-	}
+	ipv4 := func(item envTarget) (target, bool) { return envIPv4(getenv, item) }
 	for _, item := range requiredTargets {
 		t, ok := ipv4(item)
 		if !ok {
@@ -105,6 +100,143 @@ func targetsFrom(getenv func(string) string) ([]target, bool) {
 		out = append(out, t)
 	}
 	return out, true
+}
+
+// envIPv4 is item's target at the IPv4 address its variable holds; false
+// when it holds anything else, a name included.
+func envIPv4(getenv func(string) string, item envTarget) (target, bool) {
+	ip := net.ParseIP(getenv(item.key))
+	if ip == nil || ip.To4() == nil {
+		return target{}, false
+	}
+	return target{name: item.name, addr: net.JoinHostPort(ip.String(), item.port)}, true
+}
+
+// The evaluator run (`--as evaluator`, run.sh evaluator): the agent
+// evaluator's row of the security model (DESIGN 4.2), probed from a Pod
+// labelled as an evaluator is. It must reach the egress broker, and nothing
+// else: not the internet, the cluster's resolver (it runs with no DNS, and
+// kube-dns :53 must be closed as well), the API server, the instance
+// metadata service, the artifact server or a slot component. Its own tool
+// pod on :8090 is S1's to probe.
+const (
+	evaluatorRole = "evaluator"
+
+	outcomePass            = "PASS"
+	outcomeSecurityFailure = "SECURITY_FAILURE"
+	outcomeNotReached      = "NOT_REACHED"
+
+	// evaluatorReachWithin bounds the wait for the broker: a policy
+	// controller programs a new Pod's policy a moment after it starts.
+	evaluatorReachWithin = time.Minute
+)
+
+var (
+	evaluatorReach = []envTarget{
+		{"maul-egress-broker", "PROBE_EGRESS_BROKER", "8080"},
+	}
+	evaluatorDeny = []envTarget{
+		{"kubernetes-api", "PROBE_KUBERNETES_API", "443"},
+		{"cluster-dns", "PROBE_CLUSTER_DNS", "53"},
+		{"maul-source-controller", "PROBE_SOURCE_CONTROLLER", "9790"}, // the artifact server
+		{"slot-component", "PROBE_SLOT_COMPONENT", "8080"},
+	}
+)
+
+// evaluatorTargetsFrom is the evaluator run's targets: those it must reach
+// and those it must not. Every address is required; one missing makes the
+// run inconclusive, never a pass without that target.
+func evaluatorTargetsFrom(getenv func(string) string) (reach, deny []target, ok bool) {
+	deny = []target{
+		{name: "imds-v2-token-put", addr: "169.254.169.254:80", imds: true},
+		{name: "internet", addr: "1.1.1.1:443"},
+	}
+	for _, item := range evaluatorReach {
+		t, ok := envIPv4(getenv, item)
+		if !ok {
+			return nil, nil, false
+		}
+		reach = append(reach, t)
+	}
+	for _, item := range evaluatorDeny {
+		t, ok := envIPv4(getenv, item)
+		if !ok {
+			return nil, nil, false
+		}
+		deny = append(deny, t)
+	}
+	return reach, deny, true
+}
+
+// asMode runs `--as evaluator [--refused-is-blocked]`; false when args do
+// not start with --as, so main runs another mode.
+func asMode(args []string) (handled bool, code int) {
+	if len(args) == 0 || args[0] != "--as" {
+		return false, 0
+	}
+	rest := args[1:]
+	refusedBlocks := len(rest) == 2 && rest[1] == refusedIsBlocked
+	if len(rest) == 0 || rest[0] != evaluatorRole || (len(rest) == 2 && !refusedBlocks) || len(rest) > 2 {
+		fmt.Fprintln(os.Stderr, "usage: probe --as "+evaluatorRole+" ["+refusedIsBlocked+"]")
+		return true, 2
+	}
+	reach, deny, ok := evaluatorTargetsFrom(os.Getenv)
+	if !ok {
+		emit(result{Name: "summary", Outcome: outcomeInconclusive})
+		return true, 3
+	}
+	_, code = runEvaluator(reach, deny, refusedBlocks, evaluatorReachWithin, emit)
+	return true, code
+}
+
+// runEvaluator waits up to within for every reach target to connect, and
+// only then bursts at the deny targets: before its policy is programmed a
+// Pod's connections may be refused for no reason of policy (kube-router
+// REJECTs them), so a refusal then would prove nothing. refusedBlocks counts
+// a refusal as blocked (k3s, k3d), sound once the reached broker shows the
+// policy is in force and the targets are known to answer.
+func runEvaluator(reach, deny []target, refusedBlocks bool, within time.Duration,
+	emit func(result)) (string, int) {
+	start := time.Now()
+	finish := func(outcome string, code int) (string, int) {
+		emit(result{Name: "summary", Outcome: outcome, ElapsedMS: time.Since(start).Milliseconds()})
+		return outcome, code
+	}
+	for _, t := range reach {
+		outcome := awaitReach(t, start.Add(within))
+		emit(result{Name: t.name, Outcome: outcome, ElapsedMS: time.Since(start).Milliseconds()})
+		if outcome != outcomeReached {
+			return finish(outcomeNotReached, 4)
+		}
+	}
+	for i := range deny {
+		deny[i].refusedBlocks = refusedBlocks
+	}
+	reachable, inconclusive := burst(start, deny, emit)
+	switch {
+	case reachable:
+		return finish(outcomeSecurityFailure, 2)
+	case inconclusive:
+		return finish(outcomeInconclusive, 3)
+	}
+	return finish(outcomePass, 0)
+}
+
+// awaitReach dials t until it connects or deadline passes.
+func awaitReach(t target, deadline time.Time) string {
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", t.addr)
+		cancel()
+		if err == nil {
+			_ = conn.Close()
+			return outcomeReached
+		}
+		if !time.Now().Add(250 * time.Millisecond).Before(deadline) {
+			return outcomeNotReached
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 func classify(err error) string {
@@ -202,6 +334,9 @@ func emit(r result) { _ = json.NewEncoder(os.Stdout).Encode(r) }
 
 func main() {
 	if handled, code := ingressMode(os.Args[1:]); handled {
+		os.Exit(code)
+	}
+	if handled, code := asMode(os.Args[1:]); handled {
 		os.Exit(code)
 	}
 	start := time.Now()

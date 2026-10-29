@@ -257,3 +257,62 @@ the first slot creates. Neither calls `kubectl`. The chart's preview probe envte
 and the fixture with a server-side dry run against the rendered slot policies with verification on, so they stay
 admissible. A failed run names each pair that connected or did not, deletes what it created, and stops: keep
 verification off and investigate.
+
+## The evaluator run: the broker and nothing else
+
+`run.sh evaluator` checks the agent evaluator's row of the security model (`intentController.verification.evaluator`) on
+**any cluster, with no cloud API**: that a Pod labelled as an evaluator Job's Pod is reaches the egress broker and
+nothing else. It is part of the S0 live gate; run it on the desktop (with `--refused-is-blocked`) and wherever the
+evaluator is to be turned on, after any CNI or policy-controller upgrade, and in every network mode the cluster runs.
+
+Each run, in a free slot:
+
+1. requires the evaluator's egress policy (`maul-agents-evaluator` in the agents namespace: the value is on) and the
+   slot policy, a slot holding no Deployment, and no probe Job left over;
+2. creates a netprobe listener (`listen`) in the slot as a slot component, and requires it to answer on its own loopback
+   before and after the run, the same Pod throughout, so its refusal is never a dead listener's;
+3. creates, **as intent-controller's ServiceAccount** (`kubectl create --as`), a Job in the agents namespace labelled as
+   an evaluator Job is: the agent selector, `maul.run/kind: intent`, `maul.run/harness: claude`,
+   `maul.run/role: evaluator` and a `maul.run/preview-verification` UID of the probe's own, on the Job and its Pod
+   alike, with no resolver (`dnsPolicy: None`). The `maul-evaluator-labels` admission policy admits those labels from
+   intent-controller alone, and the Pod only from the Job controller, so the caller needs the right to impersonate that
+   ServiceAccount (cluster-admin has it); nothing else is created as it;
+4. the Job runs `netprobe --as evaluator`, which first waits up to a minute to reach the broker on 8080 (`REACHED`;
+   otherwise `NOT_REACHED`, a failure: a policy not yet programmed proves nothing) and only then makes the egress run's
+   burst (four workers, four attempts) at the internet (`1.1.1.1:443`), the cluster resolver (the `kube-dns` Service on
+   TCP 53, the address the evaluator's strict sandbox probe also finds closed), the API server, the instance metadata
+   service (a token PUT, as above), the artifact server (source-controller on 9790) and the slot component on 8080,
+   every one of which must be `BLOCKED`. Its summary is `PASS`, `SECURITY_FAILURE`, `INCONCLUSIVE` or `NOT_REACHED`;
+5. deletes the Job and the component.
+
+The evaluator's own tool pod on 8090, and the matrix's other rows (DESIGN 4.2), are probed once slice 1 creates tool
+pods. By default a refused connection is `INCONCLUSIVE` and fails the run; on k3s and k3d pass `--refused-is-blocked`: a
+refusal then counts as blocked, sound because the broker has answered first (the Pod's policy is in force), the slot
+component answers on its loopback, and the release's Services, the API server, kube-dns and the internet are assumed to
+answer.
+
+```sh
+bash hack/preview-isolation-probe/run.sh evaluator \
+  --image registry.example/maul/previews/netprobe:sha-0123456789abcdef0123456789abcdef01234567 \
+  --node-selector maul.example.com/previews=true \
+  --taint-key maul.example.com/preview-only \
+  --refused-is-blocked
+```
+
+| Flag                     | Environment                  | Default                  | Meaning                                                                                  |
+| ------------------------ | ---------------------------- | ------------------------ | ---------------------------------------------------------------------------------------- |
+| `--image`                | `PROBE_IMAGE`                | required                 | The netprobe image under the preview image prefix, tagged `sha-<40 hex>` (see above)     |
+| `--node-selector`        | `PROBE_NODE_SELECTOR`        | required                 | `label=value[,label=value]`, the chart's `preview.nodeIsolation.selector`                |
+| `--taint-key`            | `PROBE_TAINT_KEY`            | required                 | The preview nodes' `NoExecute` taint key                                                 |
+| `--no-node-isolation`    |                              |                          | The install runs `preview.nodeIsolation.mode: none`                                      |
+| `--refused-is-blocked`   |                              |                          | Count a refused connection as blocked, once the broker is reached: k3s and k3d           |
+| `--slot`                 | `PROBE_SLOT`                 | `0`                      | The free slot the component runs in                                                      |
+| `--release-namespace`    | `PROBE_RELEASE_NAMESPACE`    | `maul`                   | Where release `maul`'s Services run                                                      |
+| `--agents-namespace`     | `PROBE_AGENTS_NAMESPACE`     | `maul-agents`            | The agents' namespace, where the probe Job runs                                          |
+| `--intent-controller-sa` | `PROBE_INTENT_CONTROLLER_SA` | `maul-intent-controller` | intent-controller's ServiceAccount in the release namespace, which the Job is created as |
+| `--timeout`              | `PROBE_TIMEOUT`              | `300`                    | Seconds the component may take to start, and the probe Job to finish                     |
+
+`--dry-run` validates the values and prints the site; `--print-manifests` prints the component's Deployment and the
+probe Job (its addresses as `192.0.2.x`). Neither calls `kubectl`. A failed run prints the probe's log, deletes what it
+created and stops: keep the evaluator off and investigate. Rebuild the netprobe image from the same commit as the
+script: an older netprobe has no `--as evaluator` and prints no summary (`NO_SUMMARY`).
