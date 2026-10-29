@@ -39,6 +39,8 @@ func TestIntentNames(t *testing.T) {
 		{"plan run", IntentRunName("target-1", IntentStagePlan, 2, "ignored", 1), "target-1-plan-r2-a1"},
 		{"build run", IntentRunName("target-1", IntentStageBuild, 2, "shop", 1), "target-1-bld-r2-shop-a1"},
 		{"revise run", IntentRunName("target-1", IntentStageRevise, 3, "shop", 2), "target-1-rev3-shop-a2"},
+		{"evaluate run", IntentRunName("target-1", IntentStageEvaluate, 2, "ignored", 1), "target-1-ev-r2-a1"},
+		{"check review run", IntentRunName("target-1", IntentStageCheckReview, 4, "ignored", 3), "target-1-cr-r4-a3"},
 		{"unknown stage", IntentRunName("target-1", "deploy", 1, "shop", 1), ""},
 	}
 	for _, c := range cases {
@@ -60,10 +62,13 @@ func TestIntentNameBudget(t *testing.T) {
 		t.Errorf("longest intent name is %d characters, want 33", len(intent))
 	}
 	names := map[string]string{
-		"intent": intent,
-		"plan":   IntentRunName(intent, IntentStagePlan, MaxIntentRound, "", MaxIntentRunAttempt),
-		"build":  IntentRunName(intent, IntentStageBuild, MaxIntentRound, key, MaxIntentRunAttempt),
-		"revise": IntentRunName(intent, IntentStageRevise, MaxIntentRound, key, MaxIntentRunAttempt),
+		"intent":   intent,
+		"plan":     IntentRunName(intent, IntentStagePlan, MaxIntentRound, "", MaxIntentRunAttempt),
+		"build":    IntentRunName(intent, IntentStageBuild, MaxIntentRound, key, MaxIntentRunAttempt),
+		"revise":   IntentRunName(intent, IntentStageRevise, MaxIntentRound, key, MaxIntentRunAttempt),
+		"evaluate": IntentRunName(intent, IntentStageEvaluate, MaxIntentRound, key, MaxIntentRunAttempt),
+		"check review": IntentRunName(intent, IntentStageCheckReview, MaxIntentRound, key,
+			MaxIntentRunAttempt),
 	}
 	if got := len(names["build"]); got != validation.LabelValueMaxLength {
 		t.Errorf("longest build run name is %d characters, want exactly the label limit %d (the budget is spent)",
@@ -131,7 +136,7 @@ func genName(r *rand.Rand, maxLen int, inside string, valid func(string) bool) s
 // subdomains, dots allowed); repository keys are DNS labels. Small values are
 // favoured so collisions between two generated runs are actually tried.
 func (runParts) Generate(r *rand.Rand, _ int) reflect.Value {
-	stages := []IntentStage{IntentStagePlan, IntentStageBuild, IntentStageRevise}
+	stages := IntentStages()
 	small := func(limit int) int { // 1..limit, a third of the time 1..3
 		if r.Intn(3) == 0 {
 			return 1 + r.Intn(min(3, limit))
@@ -158,11 +163,12 @@ func (p runParts) name() string {
 	return IntentRunName(IntentName(p.Project, p.Issue), p.Stage, p.Round, p.Key, p.Attempt)
 }
 
-// identity is what the name must distinguish within one Intent: a plan run's
-// name carries no repository key.
+// identity is what the name must distinguish within one Intent: a plan,
+// evaluate or check review run's name carries no repository key.
 func (p runParts) identity() string {
 	key := p.Key
-	if p.Stage == IntentStagePlan {
+	switch p.Stage {
+	case IntentStagePlan, IntentStageEvaluate, IntentStageCheckReview:
 		key = ""
 	}
 	return strings.Join([]string{

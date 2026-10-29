@@ -492,6 +492,25 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 			p.Spec.Limits.MaxCostMicroUSD, p.Spec.Limits.Build.MaxCostMicroUSD = 1000000000, 1000000001
 		}, true},
 		{"negative stage cost", func(p *maulv1.Project) { p.Spec.Limits.Build.MaxCostMicroUSD = -1 }, true},
+		// The evaluate and check review stages are bounded like the others.
+		{"evaluate limits", func(p *maulv1.Project) {
+			p.Spec.Limits.Evaluate = maulv1.StageLimits{MaxTurns: 80, TokenBudget: 400000,
+				MaxCostMicroUSD: maulv1.DefaultMaxCostMicroUSD, Timeout: &metav1.Duration{Duration: time.Hour}}
+		}, false},
+		{"check review limits", func(p *maulv1.Project) {
+			p.Spec.Limits.CheckReview = maulv1.StageLimits{MaxTurns: 20, TokenBudget: 100000,
+				MaxCostMicroUSD: maulv1.DefaultMaxCostMicroUSD, Timeout: &metav1.Duration{Duration: time.Minute}}
+		}, false},
+		{"evaluate cost past the intent ceiling", func(p *maulv1.Project) {
+			p.Spec.Limits.Evaluate.MaxCostMicroUSD = maulv1.DefaultMaxCostMicroUSD + 1
+		}, true},
+		{"check review cost past the intent ceiling", func(p *maulv1.Project) {
+			p.Spec.Limits.CheckReview.MaxCostMicroUSD = maulv1.DefaultMaxCostMicroUSD + 1
+		}, true},
+		{"evaluate turns past the bound", func(p *maulv1.Project) { p.Spec.Limits.Evaluate.MaxTurns = 1001 }, true},
+		{"check review timeout over four hours", func(p *maulv1.Project) {
+			p.Spec.Limits.CheckReview.Timeout = &metav1.Duration{Duration: 4*time.Hour + time.Second}
+		}, true},
 		{"stage timeout of a minute", func(p *maulv1.Project) {
 			p.Spec.Limits.Plan.Timeout = &metav1.Duration{Duration: time.Minute}
 		}, false},
@@ -999,7 +1018,8 @@ func testIntentSchema(ctx context.Context, t *testing.T, c client.Client) {
 
 // schemaIntentRun is a valid run of the given stage, each at round 1: a plan
 // run at input revision 1, a build run of approved plan revision 1, a revise
-// run pinning that plan and taking its image from the build round.
+// run pinning that plan and taking its image from the build round, and an
+// evaluate or check review run pinning that plan.
 func schemaIntentRun(name string, stage maulv1.IntentStage) *maulv1.IntentRun {
 	r := &maulv1.IntentRun{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
@@ -1024,6 +1044,8 @@ func schemaIntentRun(name string, stage maulv1.IntentStage) *maulv1.IntentRun {
 		r.Spec.Trigger = maulv1.IntentRunTriggerReview
 		r.Spec.Inputs.ReviewIDs = []int64{5001}
 		r.Spec.ImageFrom = &maulv1.ObjectReference{Name: "target-1-bld-r1-shop-a1", UID: "u-r0"}
+	case maulv1.IntentStageEvaluate, maulv1.IntentStageCheckReview:
+		r.Spec.Inputs.PlanRevision, r.Spec.Inputs.PlanDigest = 1, schemaDigest
 	}
 	return r
 }
@@ -1034,8 +1056,7 @@ func schemaIntentRun(name string, stage maulv1.IntentStage) *maulv1.IntentRun {
 // round) and their bounds, the name backstop, and a full status round-trip.
 func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	stages := []maulv1.IntentStage{maulv1.IntentStagePlan, maulv1.IntentStageBuild, maulv1.IntentStageRevise}
-	for _, stage := range stages {
+	for _, stage := range maulv1.IntentStages() {
 		if err := c.Create(ctx, schemaIntentRun("target-1-"+string(stage), stage)); err != nil {
 			t.Fatalf("Create(valid %s run) = %v, want nil", stage, err)
 		}
