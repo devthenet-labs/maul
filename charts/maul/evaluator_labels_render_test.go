@@ -75,7 +75,7 @@ func TestEvaluatorLabelsPolicyRenders(t *testing.T) {
 					t.Errorf("binding %s namespaces %v, want %v", name, got, tc.namespaces)
 				}
 				text := policyText(policy)
-				for _, key := range []string{"maul.run/role", "maul.run/evaluation", "maul.run/preview-role"} {
+				for _, key := range []string{"maul.run/role", "maul.run/preview-verification", "maul.run/preview-role"} {
 					if !strings.Contains(text, key) {
 						t.Errorf("%s never judges %s", name, key)
 					}

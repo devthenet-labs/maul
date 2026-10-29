@@ -29,7 +29,7 @@ import (
 // out: the fence pins strings, not a Go constant.
 const (
 	evRole        = "maul.run/role"
-	evEvaluation  = "maul.run/evaluation"
+	evEvaluation  = "maul.run/preview-verification"
 	evPreviewRole = "maul.run/preview-role"
 	evUID         = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 	evSlot        = "maul-preview-0"
@@ -151,6 +151,11 @@ func checkEvaluatorJobs(t *testing.T, admin client.Client, as func(string) clien
 		{"cluster-admin, the evaluation on the template only", "", egressAgents,
 			evLabels("example.com/note", "x"), evLabels(evEvaluation, evUID), evWriterDenied},
 		{"cluster-admin, an unlabelled Job", "", egressAgents, nil, nil, ""},
+		// evaluation-controller's evolve Jobs carry maul.run/evaluation; the
+		// fence must never judge that label (as the admin it would refuse a
+		// fenced one, see "cluster-admin, an evaluator").
+		{"cluster-admin, an evolve evaluation Job", "", egressAgents,
+			evLabels("maul.run/evaluation", "eval-1"), evLabels("maul.run/evaluation", "eval-1"), ""},
 
 		{"preview-controller, a slot tool Job", saPreview, evSlot, tools, tools, ""},
 		{"preview-controller, a tester Job", saPreview, evSlot,

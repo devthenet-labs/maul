@@ -46,13 +46,15 @@ const (
 	// LabelUsageScope carries the scope type on UsageRollup objects.
 	LabelUsageScope = "maul.run/usage-scope"
 	// LabelEvaluation names the owning Evaluation on EvaluationUnit children
-	// and evaluation agent Jobs. On an evaluator Job (LabelRole
-	// RoleEvaluator) and on its slot tool pod (preview role
-	// PreviewRoleTools) it instead carries the PreviewVerification's UID,
-	// the value the tool pod's per-verification ingress policy admits; that
-	// policy always selects on LabelRole too, so an evolve evaluation Job,
-	// which carries no role, is never admitted by it.
+	// and evaluation agent Jobs.
 	LabelEvaluation = "maul.run/evaluation"
+	// LabelPreviewVerification carries the PreviewVerification's UID on an
+	// evaluator Job (LabelRole RoleEvaluator) and on its slot tool pod
+	// (preview role PreviewRoleTools): the value the tool pod's
+	// per-verification ingress policy admits. It is deliberately not
+	// LabelEvaluation, which evaluation-controller's Jobs already carry and
+	// which the maul-evaluator-labels policy must therefore never fence.
+	LabelPreviewVerification = "maul.run/preview-verification"
 	// LabelUnitIndex carries the unit's 0-based index within its Evaluation.
 	LabelUnitIndex = "maul.run/unit-index"
 	// LabelIntent names the owning Intent on IntentRuns and on the

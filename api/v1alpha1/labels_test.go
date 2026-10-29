@@ -15,7 +15,7 @@ import (
 func TestEvaluatorRoleLabels(t *testing.T) {
 	keys := []struct{ got, want string }{
 		{LabelRole, "maul.run/role"},
-		{LabelEvaluation, "maul.run/evaluation"},
+		{LabelPreviewVerification, "maul.run/preview-verification"},
 	}
 	for _, k := range keys {
 		if k.got != k.want {

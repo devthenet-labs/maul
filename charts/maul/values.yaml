@@ -1241,8 +1241,8 @@ intentController:
     # The agent evaluator, which checks a live Preview in a sandbox. Off by
     # default, and off nothing renders. On, it renders the
     # maul-evaluator-labels admission policies: maul.run/role and
-    # maul.run/evaluation on an agents-namespace Job only from
-    # intent-controller, maul.run/preview-role tools and maul.run/evaluation
+    # maul.run/preview-verification on an agents-namespace Job only from
+    # intent-controller, maul.run/preview-role tools and maul.run/preview-verification
     # on a preview-slot Job only from preview-controller, on the Job and its
     # pod template alike, on a Pod only from the Job controller for its Job,
     # and never changed afterwards. Needs Kubernetes 1.30+.

@@ -10,7 +10,7 @@
 # The evaluator's network reach is keyed on labels: the chart's egress
 # policies for maul.run/role evaluator and checkreview, and the per-Preview
 # ingress policy on a slot tool pod, which admits exactly the agents-namespace
-# pod labelled {maul.run/role: evaluator, maul.run/evaluation: <the
+# pod labelled {maul.run/role: evaluator, maul.run/preview-verification: <the
 # Preview's UID>}. Anyone who could set those labels could step out of the
 # ordinary agent egress policy or reach another evaluation's tool pod, and a
 # forged maul.run/preview-role tools pod in a slot could receive an
@@ -18,9 +18,9 @@
 # annotation:
 #
 # - a Job in the agents namespace may carry maul.run/role (evaluator, tools
-#   or checkreview) or maul.run/evaluation only when intent-controller
+#   or checkreview) or maul.run/preview-verification only when intent-controller
 #   creates it; a Job in a preview slot may carry maul.run/preview-role tools
-#   or maul.run/evaluation only when preview-controller creates it. Each on
+#   or maul.run/preview-verification only when preview-controller creates it. Each on
 #   the Job and its pod template alike, and never maul.run/role in a slot nor
 #   maul.run/preview-role tools in the agents namespace;
 # - a Pod carrying any of them is admitted only from the Kubernetes Job
@@ -42,7 +42,7 @@
 {{- range $i := until 4 }}{{ $slots = append $slots (printf "maul-preview-%d" $i) }}{{ end }}
 {{- end }}
 {{- $role := "maul.run/role" }}
-{{- $eval := "maul.run/evaluation" }}
+{{- $eval := "maul.run/preview-verification" }}
 {{- $prole := "maul.run/preview-role" }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
