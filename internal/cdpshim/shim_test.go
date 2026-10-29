@@ -360,7 +360,9 @@ func TestMaxLive(t *testing.T) {
 	if _, err := dial(t, srv, testKey, false); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "two live", func() bool { return s.Live() == 2 })
+	// A slot is taken before its browser launches, so wait for both
+	// launches before asking whether the refused third added one.
+	eventually(t, "two live", func() bool { return s.Live() == 2 && f.launched.Load() == 2 })
 	if _, err := dial(t, srv, testKey, false); err == nil {
 		t.Fatal("third connection admitted")
 	}
