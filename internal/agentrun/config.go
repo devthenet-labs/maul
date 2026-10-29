@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/transcript"
@@ -161,6 +162,15 @@ type Config struct {
 	// section.
 	PlanVerification *templates.PlanVerification
 
+	// ToolsURL is the evaluator's tool pod (MAUL_TOOLS_URL, which
+	// internal/jobs sets on an evaluator Job only): the origin maul-tool
+	// reaches it at, and agent-runner's own confirm and finish go to. Any
+	// other Job has none, and only the evaluate stage reads it. FromEnv
+	// never sets it: cmd/agent-runner reads it through the same getenv, as
+	// it does NetworkProfile, so it is no configuration key a
+	// repository-image Job blanks (an evaluator never runs one).
+	ToolsURL string
+
 	// AcceptanceFix marks an intent build Job that is an acceptance-fix
 	// round (MAUL_ACCEPTANCE_FIX, "true" or unset): its prompt tells the
 	// agent it may conclude, with evidence, that the code has no defect,
@@ -245,6 +255,12 @@ func (c Config) scratchDir() string { return filepath.Join(c.Workspace, "scratch
 
 // evaluationPath is the evaluate stage's report.
 func (c Config) evaluationPath() string { return filepath.Join(c.scratchDir(), "report.md") }
+
+// checksDir is where the evaluator writes the check files it proposes,
+// under scratch; shotsDir is where maul-tool writes screenshots
+// (maultool.ShotsDir).
+func (c Config) checksDir() string { return filepath.Join(c.scratchDir(), "checks") }
+func (c Config) shotsDir() string  { return filepath.Join(c.scratchDir(), maultool.ShotsDir) }
 
 // reviewPath is the checkreview stage's report for its n-th review
 // (1-based), one per session.

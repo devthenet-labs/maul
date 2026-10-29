@@ -260,7 +260,10 @@ func writeCheckRun(b *strings.Builder, r toolwire.CheckRunRecord) {
 	for _, a := range r.Attempts {
 		results = append(results, oneLine(string(a.Result)))
 	}
-	fmt.Fprintf(b, "[observed] check %s digest %s %s: %s (attempts: %s)\n", oneLine(r.CheckID), oneLine(r.Digest),
+	// The ledger keys a check by its bare hex; the agent's report names it
+	// as checks.Digest does ("sha256:<hex>"), so it is printed that way.
+	fmt.Fprintf(b, "[observed] check %s digest sha256:%s %s: %s (attempts: %s)\n", oneLine(r.CheckID),
+		oneLine(strings.TrimPrefix(r.Digest, "sha256:")),
 		oneLine(string(r.Mode)), oneLine(string(r.Result)), strings.Join(results, ", "))
 	for i, a := range r.Attempts {
 		for _, s := range a.Steps {

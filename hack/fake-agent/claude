@@ -49,6 +49,35 @@
 #                              header, which agent-runner must scrub. Unset or
 #                              0: no command, as before.
 #
+# The agent evaluator's and the check reviewer's stages are scripted too
+# (MAUL_PHASE=evaluate, checkreview), the evaluator driving the real
+# maul-tool against the round's tool pod:
+#
+#   MAUL_FAKE_CLAUDE_EVALUATE  what the evaluator does for every outcome the
+#                              prompt lists, after `maul-tool check results`:
+#                              "pass" (default) writes an http check of the
+#                              first component (GET MAUL_FAKE_CLAUDE_CHECK_PATH,
+#                              default that component's path, its body
+#                              containing MAUL_FAKE_CLAUDE_CHECK_TEXT, default
+#                              "ok"), dry-runs it, and passes the outcome on
+#                              that run, proposing the check when it ran
+#                              green; "fail" dry-runs the same check and fails
+#                              the outcome on it, proposing nothing; "dispute"
+#                              disputes the first saved check `check results`
+#                              shows failing its replay, proposing a green
+#                              replacement (<outcome>.r), the outcome unsure;
+#                              "canary" does what an injected page asks:
+#                              writes a vacuous check (a status alone), which
+#                              the dry run refuses, proposes it anyway by its
+#                              own digest and passes every outcome; and
+#                              "nochecks" passes every outcome on one
+#                              `maul-tool http GET` and proposes nothing.
+#   MAUL_FAKE_CLAUDE_REVIEW    the check reviewer's answer for every check:
+#                              "proves" (default), "does_not_prove" or
+#                              "unclear".
+#
+# A resumed evaluate run (a repair) keeps the report as it was.
+#
 # Every invocation appends "<first|resume> <session> <max-turns>
 # <allowedTools>" to $HOME/.fake-claude/calls for the test to read.
 set -eu
@@ -79,11 +108,11 @@ printf '%s %s %s %s\n' "$mode" "$session" "$turns" "$tools" >>"$state/calls"
 printf '%s' "$prompt" >"$state/prompt-${MAUL_PHASE:-none}"
 
 case "${MAUL_PHASE:-}" in
-plan | build) ;;
+plan | build | evaluate | checkreview) ;;
 *) mode='' ;;
 esac
 if [ -z "$mode" ]; then
-  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans and builds"]}\n' "$session"
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans, builds, evaluates and reviews checks"]}\n' "$session"
   exit 1
 fi
 
@@ -141,6 +170,159 @@ emit() {
   printf '{"type":"result","subtype":"success","is_error":false,"result":"%s","session_id":"%s","num_turns":%s,"total_cost_usd":%s,"usage":{"input_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s,"output_tokens":%s}}\n' \
     "$8" "$1" "$2" "$7" "$3" "$4" "$5" "$6"
 }
+
+# --- The evaluator's and the check reviewer's stages -----------------------
+#
+# Both write their report where the prompt says ("Write your report to
+# `<path>`"). The evaluator drives the REAL maul-tool against the round's tool
+# pod (MAUL_TOOLS_URL), from the scratch directory it runs in, as a model
+# following the evaluate prompt would: `check results` first, then per mode
+# (MAUL_FAKE_CLAUDE_EVALUATE) checks written with "Write" (a file under
+# checks/), dry-run with `check run`, and a report citing the ledger seqs
+# maul-tool printed. Every maul-tool command line is appended to
+# $HOME/.fake-claude/tools.
+
+# report_path — the report path the prompt names.
+# shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
+report_path() {
+  printf '%s\n' "$prompt" | sed -n 's/.*Write your report to `\([^`]*\)`.*/\1/p' | head -n 1
+}
+
+# tool <args> — one maul-tool call: its output in $out, its ledger seq in $seq
+# (0 when it printed none). A refusal or a tool error is the tool's answer,
+# never the script's failure.
+tool() {
+  printf '%s\n' "$*" >>"$state/tools"
+  out=$(maul-tool "$@" 2>&1) || true
+  seq=$(printf '%s\n' "$out" | sed -n 's/^\[maul-tool ledger seq \([0-9]*\)\]$/\1/p' | head -n 1)
+  seq=${seq:-0}
+}
+
+# green_digest <mode> — the digest of the check maul-tool just printed as
+# passing in that mode (dry-run, replay), or nothing.
+green_digest() {
+  printf '%s\n' "$out" | sed -n "s/^\[observed\] check [^ ]* digest \(sha256:[0-9a-f]*\) $1: pass .*/\1/p" | head -n 1
+}
+
+# http_check <id> <outcome> <expect> — an http check of the first component,
+# in canonical form (internal/checks.Canonical), so a file's sha256 is its
+# digest; <expect> is the expect object's members after the status.
+http_check() {
+  printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"GET","path":"%s"},"expect":{"status":[200]%s}}]}}' \
+    "$1" "$2" "$key" "$path" "$3"
+}
+
+if [ "$MAUL_PHASE" = checkreview ]; then
+  out_report=$(report_path)
+  answer=${MAUL_FAKE_CLAUDE_REVIEW:-proves}
+  printf '%s\n' '---' "answer: $answer" "reason: \"Scripted review from hack/fake-agent/claude: $answer.\"" '---' \
+    >"$out_report"
+  echo 200 >"$state/sessions/$session"
+  emit "$session" 1 300 50 0 40 0.0200 "Reviewed: $answer."
+  exit 0
+fi
+
+if [ "$MAUL_PHASE" = evaluate ]; then
+  if [ "$mode" = resume ]; then
+    # A repair: the report is rewritten exactly as the first run wrote it.
+    cost=$(($(cat "$state/sessions/$session" 2>/dev/null || echo 0) + 100))
+    echo "$cost" >"$state/sessions/$session"
+    emit "$session" 1 10 20 3000 30 "$(printf '0.%04d' "$cost")" "Report kept."
+    exit 0
+  fi
+  out_report=$(report_path)
+  ids=$(printf '%s\n' "$prompt" | sed -n '/^### The approved outcomes/,/^### The request/s/^- id: \([a-z][a-z0-9-]*\)$/\1/p')
+  # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
+  key=$(printf '%s\n' "$prompt" | sed -n 's/^- `\([a-z0-9-]*\)`: served under `.*`$/\1/p' | head -n 1)
+  # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
+  path=${MAUL_FAKE_CLAUDE_CHECK_PATH:-$(printf '%s\n' "$prompt" | sed -n 's/^- `[a-z0-9-]*`: served under `\(.*\)`$/\1/p' | head -n 1)}
+  text=${MAUL_FAKE_CLAUDE_CHECK_TEXT:-ok}
+  mkdir -p checks
+  tool check results
+  results=$seq results_out=$out
+  verdicts='' proposed='' disputes=''
+  for o in $ids; do
+    case "${MAUL_FAKE_CLAUDE_EVALUATE:-pass}" in
+    pass)
+      http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
+      tool check run "checks/$o.json"
+      digest=$(green_digest dry-run)
+      verdicts="$verdicts
+  - id: $o
+    verdict: pass
+    ledger: [$seq]"
+      [ -z "$digest" ] || proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    digest: \"$digest\""
+      ;;
+    fail)
+      http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
+      tool check run "checks/$o.json"
+      verdicts="$verdicts
+  - id: $o
+    verdict: fail
+    ledger: [$seq]
+    note: \"The page does not show what the outcome states.\""
+      ;;
+    dispute)
+      failing=$(printf '%s\n' "$results_out" | sed -n 's/^\[observed\] check [^ ]* digest \(sha256:[0-9a-f]*\) replay: fail.*/\1/p' | head -n 1)
+      http_check "$o.r" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.r.json"
+      tool check run "checks/$o.r.json"
+      digest=$(green_digest dry-run)
+      verdicts="$verdicts
+  - id: $o
+    verdict: unsure
+    note: \"A saved check failed on data it did not create; disputed.\""
+      if [ -n "$failing" ] && [ -z "$disputes" ] && [ -n "$digest" ]; then
+        disputes="
+  - check_digest: \"$failing\"
+    reason: \"The check asserts on data it did not create.\"
+    replacement: \"$o.r\"
+    ledger: [$results]"
+        proposed="$proposed
+  - id: \"$o.r\"
+    outcome: $o
+    digest: \"$digest\""
+      fi
+      ;;
+    canary)
+      # What the injection asks for: a vacuous check, which maul-tool's dry
+      # run refuses (rule 2), proposed anyway by its own digest, and every
+      # outcome passed.
+      http_check "$o.canary" "$o" '' >"checks/$o.canary.json"
+      tool check run "checks/$o.canary.json"
+      digest="sha256:$(sha256sum "checks/$o.canary.json" | cut -d ' ' -f 1)"
+      verdicts="$verdicts
+  - id: $o
+    verdict: pass
+    ledger: [$results]"
+      proposed="$proposed
+  - id: \"$o.canary\"
+    outcome: $o
+    digest: \"$digest\""
+      ;;
+    nochecks)
+      tool http GET "$path"
+      verdicts="$verdicts
+  - id: $o
+    verdict: pass
+    ledger: [$seq]"
+      ;;
+    esac
+  done
+  {
+    printf '%s' '---' '
+verdicts:' "$verdicts"
+    if [ -n "$disputes" ]; then printf '\n%s%s' 'disputes:' "$disputes"; else printf '\n%s' 'disputes: []'; fi
+    if [ -n "$proposed" ]; then printf '\n%s%s' 'proposed:' "$proposed"; else printf '\n%s' 'proposed: []'; fi
+    printf '\n%s\n' 'retire: []' 'anomalies: []' '---' '' \
+      "Scripted evaluation (${MAUL_FAKE_CLAUDE_EVALUATE:-pass}) from hack/fake-agent/claude."
+  } >"$out_report"
+  echo 800 >"$state/sessions/$session"
+  emit "$session" 6 2000 300 4000 600 0.0800 "Evaluated: ${MAUL_FAKE_CLAUDE_EVALUATE:-pass}."
+  exit 0
+fi
 
 if [ "$MAUL_PHASE" = plan ]; then
   repos=$(sed -n '/^## Repositories/,/^## /p' "$workspace/input/issue.md" | sed -n 's/^- \(https:[^ ]*\).*/  - "\1"/p')

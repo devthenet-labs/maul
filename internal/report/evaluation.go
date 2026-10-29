@@ -48,10 +48,14 @@ const (
 )
 
 var (
-	// outcomeID is an outcome's and a proposed check's id: the grammar of
-	// an acceptance criterion's id (internal/acceptance's idPattern, which
-	// it does not export), which slice 1's outcomes keep.
+	// outcomeID is an outcome's id: the grammar of an acceptance
+	// criterion's id (internal/acceptance's idPattern, which it does not
+	// export), which slice 1's outcomes keep.
 	outcomeID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	// checkID is a proposed check's id: the saved-check grammar's
+	// (internal/checks' checkIDPattern, the authority), an outcome-style id
+	// with an optional ".<name>" suffix. A test pins the two together.
+	checkID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$`)
 	// checkDigest is a saved check's, or an outcome's, digest.
 	checkDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
@@ -260,7 +264,7 @@ func (e *Evaluation) validateProposed(outcomes map[string]bool) (map[string]bool
 	digests := make(map[string]bool, len(e.Proposed))
 	for i, p := range e.Proposed {
 		field := fmt.Sprintf("proposed[%d]", i)
-		errs = append(errs, uniqueID(field+".id", p.ID, ids))
+		errs = append(errs, uniqueCheckID(field+".id", p.ID, ids))
 		if outcomes != nil && !outcomes[p.Outcome] {
 			errs = append(errs, fmt.Errorf("%s.outcome %q names no verdict's outcome", field, p.Outcome))
 		}
@@ -338,6 +342,20 @@ func (e *Evaluation) validateAnomalies() []error {
 		errs = append(errs, ledgerRefs(field+".ledger", a.Ledger))
 	}
 	return errs
+}
+
+// uniqueCheckID checks a proposed check's id against the saved-check
+// grammar and that seen does not hold it yet, then records it.
+func uniqueCheckID(field, id string, seen map[string]bool) error {
+	if !checkID.MatchString(id) {
+		return fmt.Errorf("%s %q is not a check id: a lowercase id of at most 32 characters ([a-z][a-z0-9-]*), "+
+			"optionally followed by \".<name>\"", field, id)
+	}
+	if seen[id] {
+		return fmt.Errorf("%s %q is listed twice", field, id)
+	}
+	seen[id] = true
+	return nil
 }
 
 // uniqueID checks an id's grammar and that seen does not hold it yet, then

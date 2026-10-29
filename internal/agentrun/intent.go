@@ -348,6 +348,9 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		// The Project's verification, when it verifies: the prompt then asks
 		// for acceptance criteria against its previewed components.
 		Verification: a.cfg.PlanVerification,
+		// Under the agent evaluator the Project's plan states outcomes
+		// rather than criteria: the handoff says so (SPEC S1-11).
+		Outcomes: a.cfg.PlanVerification != nil && a.cfg.PlanVerification.Outcomes,
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError

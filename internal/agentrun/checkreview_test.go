@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
@@ -25,16 +26,26 @@ func reviewDigest(k string, i int) string {
 	return "sha256:" + hex
 }
 
+// reviewCheck is test item i's check: an http check, as the controller
+// hands it over (checks.Canonical).
+func reviewCheck(i int) string {
+	return string(checks.Canonical(mustCheck(fmt.Sprintf(`{"id":"rate-battle.n%d","outcome":"rate-battle",`+
+		`"form":"http","http":{"target":"api","steps":[{"name":"rate-it","request":{"method":"POST",`+
+		`"path":"/battles/%d","json":{"winner":"{{run}}-a"}},"expect":{"status":201,"bodyContains":"{{run}}-a"}}]}}`,
+		i, i))))
+}
+
 // reviewHandoff is a checkreview handoff of n items, as the controller
 // stages it in input/issue.md.
 func reviewHandoff(n int) string {
-	h := checkReviewHandoff{}
+	h := CheckReviewHandoff{}
 	for i := range n {
-		h.Reviews = append(h.Reviews, checkReviewItem{
-			CheckDigest:   reviewDigest("c", i),
+		check := reviewCheck(i)
+		h.Reviews = append(h.Reviews, CheckReviewItem{
+			CheckDigest:   checks.Digest(mustCheck(check)),
 			OutcomeDigest: reviewDigest("o", i),
 			Outcome:       fmt.Sprintf("Outcome %d: a rated battle moves the rating.", i),
-			Check:         fmt.Sprintf(`{"steps":[{"goto":"/battles/%d"}]}`, i),
+			Check:         check,
 		})
 	}
 	raw, err := json.Marshal(h)
@@ -77,9 +88,9 @@ func TestCheckReviewEvent(t *testing.T) {
 		t.Fatalf("checkreview = %+v, want ok", c)
 	}
 	want := []envelope.ReviewAnswer{
-		{CheckDigest: reviewDigest("c", 0), OutcomeDigest: reviewDigest("o", 0), Answer: "proves",
+		{CheckDigest: checks.Digest(mustCheck(reviewCheck(0))), OutcomeDigest: reviewDigest("o", 0), Answer: "proves",
 			Reason: "It rates a battle and reads the score."},
-		{CheckDigest: reviewDigest("c", 1), OutcomeDigest: reviewDigest("o", 1), Answer: "unclear",
+		{CheckDigest: checks.Digest(mustCheck(reviewCheck(1))), OutcomeDigest: reviewDigest("o", 1), Answer: "unclear",
 			Reason: "It rates a battle and reads the score."},
 	}
 	if fmt.Sprint(c.Answers) != fmt.Sprint(want) {
@@ -99,20 +110,37 @@ func TestCheckReviewEvent(t *testing.T) {
 		if got := argvFlag(t, spec.Argv, "--session-id"); got != wantID {
 			t.Errorf("session %d id = %s, want a fresh one, %s", i, got, wantID)
 		}
-		prompt := argvFlag(t, spec.Argv, "-p")
-		if !strings.Contains(prompt, fmt.Sprintf("Outcome %d:", i)) ||
-			!strings.Contains(prompt, fmt.Sprintf("/battles/%d", i)) {
-			t.Errorf("session %d prompt lacks its own outcome and check:\n%s", i, prompt)
+		checkReviewPrompt(t, i, argvFlag(t, spec.Argv, "-p"), ws)
+	}
+}
+
+// checkReviewPrompt: review i's session is the check review template over
+// its own outcome and check, as maul renders the check, naming its own
+// report and neither digest.
+func checkReviewPrompt(t *testing.T, i int, prompt, ws string) {
+	t.Helper()
+	if !strings.Contains(prompt, fmt.Sprintf("Outcome %d:", i)) ||
+		!strings.Contains(prompt, fmt.Sprintf("/battles/%d", i)) {
+		t.Errorf("session %d prompt lacks its own outcome and check:\n%s", i, prompt)
+	}
+	if other := fmt.Sprintf("Outcome %d:", 1-i); strings.Contains(prompt, other) {
+		t.Errorf("session %d prompt carries another item's outcome", i)
+	}
+	digest := checks.Digest(mustCheck(reviewCheck(i)))
+	if strings.Contains(prompt, digest) || strings.Contains(prompt, strings.TrimPrefix(digest, "sha256:")) {
+		t.Errorf("session %d prompt carries the check's digest; the session never names it", i)
+	}
+	// The template's, as maul renders the check: no id, no step name.
+	for _, banned := range []string{fmt.Sprintf("rate-battle.n%d", i), "rate-it"} {
+		if strings.Contains(prompt, banned) {
+			t.Errorf("session %d prompt shows %q; a reviewer never sees a check's names", i, banned)
 		}
-		if other := fmt.Sprintf("Outcome %d:", 1-i); strings.Contains(prompt, other) {
-			t.Errorf("session %d prompt carries another item's outcome", i)
-		}
-		if strings.Contains(prompt, reviewDigest("c", i)) {
-			t.Errorf("session %d prompt carries the check's digest; the session never names it", i)
-		}
-		if !strings.Contains(prompt, filepath.Join(ws, "scratch", fmt.Sprintf("review-%d.md", i+1))) {
-			t.Errorf("session %d prompt does not name its report path", i)
-		}
+	}
+	if !strings.Contains(prompt, "You are maul's check reviewer.") {
+		t.Errorf("session %d prompt is not the check review template:\n%s", i, prompt)
+	}
+	if !strings.Contains(prompt, filepath.Join(ws, "scratch", fmt.Sprintf("review-%d.md", i+1))) {
+		t.Errorf("session %d prompt does not name its report path", i)
 	}
 }
 
@@ -139,8 +167,8 @@ func TestCheckReviewSessionRefused(t *testing.T) {
 // TestCheckReviewHandoffRefused: a handoff that is not the controller's
 // encoding is a fatal before any session runs.
 func TestCheckReviewHandoffRefused(t *testing.T) {
-	item := func(edit func(*checkReviewItem)) string {
-		var h checkReviewHandoff
+	item := func(edit func(*CheckReviewItem)) string {
+		var h CheckReviewHandoff
 		if err := json.Unmarshal([]byte(reviewHandoff(1)), &h); err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +176,7 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 		raw, _ := json.Marshal(h)
 		return string(raw)
 	}
-	var h checkReviewHandoff
+	var h CheckReviewHandoff
 	if err := json.Unmarshal([]byte(reviewHandoff(1)), &h); err != nil {
 		t.Fatal(err)
 	}
@@ -156,17 +184,21 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 	dupRaw, _ := json.Marshal(h)
 
 	tests := []struct{ name, handoff, want string }{
-		{"empty", "", "no reviews"},
+		{"empty", "", "empty"},
 		{"not json", "outcome: x", "not valid"},
 		{"no items", `{"reviews":[]}`, "no reviews"},
 		{"unknown field", `{"reviews":[],"extra":1}`, "not valid"},
 		{"too many", reviewHandoff(41), "over 40"},
-		{"bad check digest", item(func(i *checkReviewItem) { i.CheckDigest = "sha256:xyz" }), "check_digest"},
-		{"bad outcome digest", item(func(i *checkReviewItem) { i.OutcomeDigest = "" }), "outcome_digest"},
-		{"no outcome text", item(func(i *checkReviewItem) { i.Outcome = "" }), "outcome is empty"},
-		{"no check", item(func(i *checkReviewItem) { i.Check = "" }), "check is empty"},
-		{"check over cap", item(func(i *checkReviewItem) { i.Check = strings.Repeat("x", 8<<10+1) }), "check is"},
+		{"bad check digest", item(func(i *CheckReviewItem) { i.CheckDigest = "sha256:xyz" }), "check_digest"},
+		{"bad outcome digest", item(func(i *CheckReviewItem) { i.OutcomeDigest = "" }), "outcome_digest"},
+		{"no outcome text", item(func(i *CheckReviewItem) { i.Outcome = "" }), "outcome is empty"},
+		{"no check", item(func(i *CheckReviewItem) { i.Check = "" }), "check is empty"},
+		{"check over cap", item(func(i *CheckReviewItem) { i.Check = strings.Repeat("x", 8<<10+1) }), "check is"},
 		{"repeated pair", string(dupRaw), "repeats"},
+		{"check not json", item(func(i *CheckReviewItem) { i.Check = "goto /battles" }), "check: check is not valid JSON"},
+		{"check of another digest", item(func(i *CheckReviewItem) { i.CheckDigest = reviewDigest("c", 9) }),
+			"not its check_digest"},
+		{"check off the grammar", item(func(i *CheckReviewItem) { i.Check = `{"steps":[]}` }), "check: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

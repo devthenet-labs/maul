@@ -22,9 +22,17 @@
 # what the broker attached upstream. A refused request is a turn.failed event
 # and exit status 1, as codex reports one.
 #
-# Both intent stages are scripted. A plan (MAUL_PHASE=plan) writes a plan
+# The intent stages are scripted. A plan (MAUL_PHASE=plan) writes a plan
 # naming the repositories the request lists under "## Repositories"; a build
-# adds VERSION, commit.sh and its report.
+# adds VERSION, commit.sh and its report. The agent evaluator
+# (MAUL_PHASE=evaluate) drives the REAL maul-tool from the scratch directory
+# it runs in, as hack/fake-agent/claude's does, for every outcome the prompt
+# lists: MAUL_FAKE_CODEX_EVALUATE "pass" (default) writes an http check of
+# the first component (GET MAUL_FAKE_CLAUDE_CHECK_PATH, default its path, the
+# body containing MAUL_FAKE_CLAUDE_CHECK_TEXT, default "ok"), dry-runs it and
+# passes the outcome, proposing the check when it ran green; "fail" dry-runs
+# it and fails the outcome. The check reviewer (MAUL_PHASE=checkreview)
+# answers MAUL_FAKE_CODEX_REVIEW, "proves" by default.
 #
 # Every invocation appends "<phase> <model> <status>" to $HOME/.fake-codex/calls.
 set -eu
@@ -34,7 +42,11 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 
-model='' base_url='' env_key='' headers=''
+model='' base_url='' env_key='' headers='' prompt=''
+if [ "${1:-}" = exec ] && [ $# -ge 2 ]; then
+  prompt=$2
+  shift 2
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
   --model) model=$2; shift 2 ;;
@@ -74,6 +86,21 @@ if [ "$status" != 200 ]; then
   exit 1
 fi
 
+# report_path — the report path the prompt names.
+# shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
+report_path() {
+  printf '%s\n' "$prompt" | sed -n 's/.*Write your report to `\([^`]*\)`.*/\1/p' | head -n 1
+}
+
+# tool <args> — one maul-tool call: its output in $out, its ledger seq in $seq
+# (0 when it printed none). Every command line is appended to $state/tools.
+tool() {
+  printf '%s\n' "$*" >>"$state/tools"
+  out=$(maul-tool "$@" 2>&1) || true
+  seq=$(printf '%s\n' "$out" | sed -n 's/^\[maul-tool ledger seq \([0-9]*\)\]$/\1/p' | head -n 1)
+  seq=${seq:-0}
+}
+
 case "${MAUL_PHASE:-}" in
 plan)
   repos=$(sed -n '/^## Repositories/,/^## /p' "$workspace/input/issue.md" | sed -n 's/^- \(https:[^ ]*\).*/  - "\1"/p')
@@ -94,8 +121,50 @@ build)
     'Scripted build from hack/fake-agent/codex: VERSION names the current version.' \
     >"$workspace/reports/build.md"
   ;;
+checkreview)
+  out_report=$(report_path)
+  answer=${MAUL_FAKE_CODEX_REVIEW:-proves}
+  printf '%s\n' '---' "answer: $answer" "reason: \"Scripted review from hack/fake-agent/codex: $answer.\"" '---' \
+    >"$out_report"
+  ;;
+evaluate)
+  out_report=$(report_path)
+  ids=$(printf '%s\n' "$prompt" | sed -n '/^### The approved outcomes/,/^### The request/s/^- id: \([a-z][a-z0-9-]*\)$/\1/p')
+  # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
+  key=$(printf '%s\n' "$prompt" | sed -n 's/^- `\([a-z0-9-]*\)`: served under `.*`$/\1/p' | head -n 1)
+  # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
+  path=${MAUL_FAKE_CLAUDE_CHECK_PATH:-$(printf '%s\n' "$prompt" | sed -n 's/^- `[a-z0-9-]*`: served under `\(.*\)`$/\1/p' | head -n 1)}
+  text=${MAUL_FAKE_CLAUDE_CHECK_TEXT:-ok}
+  verdict=${MAUL_FAKE_CODEX_EVALUATE:-pass}
+  mkdir -p checks
+  tool check results
+  verdicts='' proposed=''
+  for o in $ids; do
+    printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"GET","path":"%s"},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
+      "$o" "$o" "$key" "$path" "$text" >"checks/$o.json"
+    tool check run "checks/$o.json"
+    digest=$(printf '%s\n' "$out" | sed -n 's/^\[observed\] check [^ ]* digest \(sha256:[0-9a-f]*\) dry-run: pass .*/\1/p' | head -n 1)
+    verdicts="$verdicts
+  - id: $o
+    verdict: $verdict
+    ledger: [$seq]"
+    if [ "$verdict" = pass ] && [ -n "$digest" ]; then
+      proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    digest: \"$digest\""
+    fi
+  done
+  {
+    printf '%s' '---' '
+verdicts:' "$verdicts"
+    printf '\n%s' 'disputes: []'
+    if [ -n "$proposed" ]; then printf '\n%s%s' 'proposed:' "$proposed"; else printf '\n%s' 'proposed: []'; fi
+    printf '\n%s\n' 'retire: []' 'anomalies: []' '---' '' "Scripted evaluation ($verdict) from hack/fake-agent/codex."
+  } >"$out_report"
+  ;;
 *)
-  printf '{"type":"turn.failed","error":{"message":"the scripted codex only plans and builds"}}\n'
+  printf '{"type":"turn.failed","error":{"message":"the scripted codex only plans, builds, evaluates and reviews checks"}}\n'
   exit 1
   ;;
 esac

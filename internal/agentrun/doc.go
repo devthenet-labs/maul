@@ -31,9 +31,16 @@
 // no tree: the handoff sits in the workspace's input/, out of the agent's
 // reach, and the agent runs in its scratch/ under the evaluate posture
 // (harness.SandboxEvaluate), which a harness that cannot hold it refuses.
-// Evaluate writes one report and emits an evaluation event; checkreview
-// runs one fresh session per check of its handoff and emits a checkreview
-// event whose answers are keyed by the handoff's digests. Both run on the
+// Both handoffs are strict JSON (EvaluateHandoff, CheckReviewHandoff) and
+// both prompts are the controller's templates (templates.RenderEvaluatePrompt,
+// templates.RenderCheckReviewPrompt). Evaluate drives the round's tool pod
+// through maul-tool (MAUL_TOOLS_URL), writes one report whose proposed
+// checks must each match a check file it wrote, and once the agent exits
+// asks the tool pod to confirm those checks and to finish, naming the
+// screenshots the report cites as evidence (evaluate_tools.go), then emits
+// an evaluation event; checkreview runs one fresh session per check of its
+// handoff and emits a checkreview event whose answers are keyed by the
+// handoff's digests. Both run on the
 // investigate stage's configuration, and every phase switch names every
 // phase: an unknown one is an error, never another stage.
 //
