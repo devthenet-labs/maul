@@ -74,7 +74,7 @@ func run(ctx context.Context, s previewtools.Seams, stdout, stderr io.Writer) in
 		Listener: ln,
 	}
 	if cfg.Browser {
-		front, err := withBrowser(&opts)
+		front, err := withBrowser(&opts, s)
 		if err != nil {
 			// The ledger still closes: every browser call is "unavailable".
 			log.Error("the browser relay is unavailable", "err", err)
@@ -91,14 +91,10 @@ func run(ctx context.Context, s previewtools.Seams, stdout, stderr io.Writer) in
 	return 0
 }
 
-// withBrowser sets up the image's browser relay and its preview front's
-// loopback listener.
-func withBrowser(o *previewtools.RunOptions) (net.Listener, error) {
-	br, store, err := previewtools.ImageBrowser()
-	if err != nil {
-		return nil, err
-	}
-	front, err := net.Listen("tcp", previewtools.FrontAddr)
+// withBrowser sets up the browser relay and its preview front's loopback
+// listener: the image's, unless the e2e build scripts it (Seams.Browser).
+func withBrowser(o *previewtools.RunOptions, s previewtools.Seams) (net.Listener, error) {
+	br, store, front, err := s.Browser()
 	if err != nil {
 		return nil, err
 	}

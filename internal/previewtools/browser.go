@@ -491,6 +491,20 @@ func ImageBrowser() (*BrowserOptions, ArtifactKeeper, error) {
 	}, DirArtifacts{Dir: filepath.Join(BrowserDir, "artifacts")}, nil
 }
 
+// openImageBrowser is ImageBrowser with its preview front's listener on
+// FrontAddr.
+func openImageBrowser() (*BrowserOptions, ArtifactKeeper, net.Listener, error) {
+	br, store, err := ImageBrowser()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	front, err := net.Listen("tcp", FrontAddr)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return br, store, front, nil
+}
+
 // NewFront is the preview front: one origin for the browser, serving the
 // preview's components path-routed as the gateway routes them
 // (v1alpha1.PreviewRoute), each request with the gateway's header set and

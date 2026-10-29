@@ -26,8 +26,11 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // The agent evaluator e2e (SPEC S1-24): the shipped intent-controller with
@@ -128,6 +131,8 @@ type evalOptions struct {
 	// beforeIntents runs once the cluster is up, before intent-controller
 	// starts, and returns more flags for it (a broker started first).
 	beforeIntents func(*cluster) []string
+	// component, when set, is served as the application in evalApp's place.
+	component http.Handler
 }
 
 // startEvaluate runs the evaluator stack for a Project whose one
@@ -158,7 +163,11 @@ func startEvaluate(t *testing.T, o evalOptions) *evalEnv {
 	slots := []string{"maul-preview-0", "maul-preview-1"}
 	e.kubelet.runTesters(t, slots...)
 	e.kubelet.runTools(t, slots...)
-	e.kubelet.serveComponent(t, appRepo, app)
+	var component http.Handler = app
+	if o.component != nil {
+		component = o.component
+	}
+	e.kubelet.serveComponent(t, appRepo, component)
 	e.kubelet.useAgentRunner(t, append([]string{"evaluate", "checkreview"}, o.agentRunner...)...)
 	outcomes := o.outcomes
 	if outcomes == "" {
@@ -593,7 +602,8 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 // from the component's captured log, its bearer token redacted.
 func checkReproduction(t *testing.T, repro string) {
 	t.Helper()
-	for _, want := range []string{"version-served", "GET /version", "panic: runtime error: index out of range"} {
+	for _, want := range []string{"version-served", "GET /version", "status 500, expected one of [200]",
+		"panic: runtime error: index out of range"} {
 		if !strings.Contains(repro, want) {
 			t.Errorf("the fix handoff lacks %q:\n%s", want, repro)
 		}
@@ -857,4 +867,343 @@ func TestIntentEvaluateCeiling(t *testing.T) {
 		body := e.previewComment(name, pr.Number)
 		return strings.Contains(body, "it spent its evaluation budget") && strings.Contains(body, name+previewHostSuffix)
 	})
+}
+
+// ---- the browser surface ---------------------------------------------------
+
+// browserOutcome is a plan stating one outcome only a browser shows.
+const browserOutcome = `acceptance:
+  - id: vote-button
+    outcome: the battle page shows a 32 px square Vote button a person can see and click`
+
+// browserCheckLine is maul's line for the check the scripted evaluator
+// saves in "browser" mode.
+const browserCheckLine = "maul's check: `browser: goto /, expect visible, expect size, expect clickable`"
+
+// browserApp stands in for a previewed web application: its page, as the
+// relay's scripted browser reads it (previewtools.ScriptedPage), is a Vote
+// button whose width the test sets and a heading.
+type browserApp struct {
+	mu    sync.Mutex
+	width float64
+}
+
+func (a *browserApp) setWidth(w float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.width = w
+}
+
+func (a *browserApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	width := a.width
+	a.mu.Unlock()
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"title": "Beat Battle", "elements": []map[string]any{
+		{"role": "button", "name": "Vote", "testid": "vote", "text": "Vote", "x": 600, "y": 400, "width": width,
+			"height": 32},
+		{"role": "heading", "name": "Beat Battle", "text": "Beat Battle", "x": 20, "y": 20, "width": 400,
+			"height": 40},
+	}})
+}
+
+// startBrowserEvaluate runs the evaluator stack for a Project with the
+// browser surface (entry /), the plan stating browserOutcome, the
+// application a browserApp whose Vote button is a 32 px square, and the
+// scripted evaluator in mode.
+func startBrowserEvaluate(t *testing.T, mode string) (*evalEnv, *browserApp) {
+	t.Helper()
+	app := &browserApp{width: 32}
+	e := startEvaluate(t, evalOptions{outcomes: browserOutcome, mode: mode, component: app,
+		mutate: func(s *v1alpha1.ProjectSpec) {
+			s.Surfaces = &v1alpha1.ProjectSurfaces{Browser: &v1alpha1.BrowserSurface{Entry: "/"}}
+		}})
+	return e, app
+}
+
+// round is the Intent's PreviewVerification of round n.
+func (e *evalEnv) round(t *testing.T, name string, n int32) v1alpha1.PreviewVerification {
+	t.Helper()
+	for _, pv := range e.verifications(t, name) {
+		if pv.Spec.Round == n {
+			return pv
+		}
+	}
+	t.Fatalf("no verification of round %d:\n%s", n, e.describeEval(t, name))
+	return v1alpha1.PreviewVerification{}
+}
+
+// toolRunOf is the tool pod run of pv's round.
+func (e *evalEnv) toolRunOf(t *testing.T, pv v1alpha1.PreviewVerification) toolRun {
+	t.Helper()
+	for _, r := range e.kubelet.ToolRuns() {
+		if r.Job.Labels[v1alpha1.LabelPreviewVerification] == string(pv.UID) ||
+			r.Job.Spec.Template.Labels[v1alpha1.LabelPreviewVerification] == string(pv.UID) {
+			return r
+		}
+	}
+	t.Fatalf("no tool run of %s among %d", pv.Name, len(e.kubelet.ToolRuns()))
+	return toolRun{}
+}
+
+// checkMeasuredBrowserCheck holds c to a browser check whose compiled
+// steps measure the Vote button: visible, a 32 px square, clickable.
+func checkMeasuredBrowserCheck(t *testing.T, c v1alpha1.SavedCheck) {
+	t.Helper()
+	parsed, err := checks.Parse([]byte(c.Body))
+	if err != nil || string(c.Form) != string(checks.FormBrowser) || parsed.Browser == nil {
+		t.Fatalf("check %+v (%v), want a browser check", c, err)
+	}
+	spec, err := playwright.Compile(*parsed.Browser, playwright.Options{RunToken: "v1a1t1-e2e"})
+	if err != nil {
+		t.Fatalf("compile the saved check: %v", err)
+	}
+	for _, want := range []string{`maul.visible(page.getByTestId("vote"))`,
+		`maul.size(page.getByTestId("vote"), { width: 32, height: 32 }, 0)`,
+		`maul.clickable(page.getByTestId("vote"))`} {
+		if !strings.Contains(string(spec), want) {
+			t.Errorf("the saved check's compiled steps lack %s:\n%s", want, spec)
+		}
+	}
+}
+
+// checkBrowserLedger holds a round's tools ledger to every browser action
+// its evaluator took: one agent browser entry per `maul-tool browser`
+// call, in order and with its arguments, each run (none refused) after the
+// relay opened its session, each screenshot an artifact of its entry; and
+// the verified index on pv to the same count. It returns the entries.
+func (e *evalEnv) checkBrowserLedger(t *testing.T, pv v1alpha1.PreviewVerification,
+	eval agentRun) []toolwire.LedgerEntry {
+	t.Helper()
+	calls, err := os.ReadFile(filepath.Join(eval.Workspace, ".fake-claude", "tools"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want [][]string
+	for _, line := range strings.Split(string(calls), "\n") {
+		if rest, ok := strings.CutPrefix(line, "browser "); ok {
+			want = append(want, strings.Fields(rest))
+		}
+	}
+	var entries []toolwire.LedgerEntry
+	var got [][]string
+	session := false
+	for _, line := range strings.Split(string(e.toolRunOf(t, pv).Stdout), "\n") {
+		body, ok := strings.CutPrefix(line, toolwire.EntryPrefix)
+		if !ok {
+			continue
+		}
+		var wire struct {
+			Entry *toolwire.LedgerEntry `json:"entry"`
+		}
+		if err := json.Unmarshal([]byte(body), &wire); err != nil {
+			t.Fatalf("decode a ledger line: %v", err)
+		}
+		if wire.Entry == nil {
+			continue // the summary
+		}
+		entry := *wire.Entry
+		entries = append(entries, entry)
+		if entry.Verb == toolwire.VerbSession && entry.Exit == 0 {
+			session = true
+		}
+		if entry.Verb != toolwire.VerbBrowser || entry.Kind != toolwire.KindAgent {
+			continue
+		}
+		var req toolwire.BrowserRequest
+		if err := json.Unmarshal(entry.Args, &req); err != nil || entry.Refused != "" || entry.Exit != 0 || !session {
+			t.Errorf("browser entry %d: args %s exit %d refused %q (session open %v)", entry.Seq, entry.Args,
+				entry.Exit, entry.Refused, session)
+		}
+		got = append(got, append([]string{req.Verb}, req.Args...))
+		if req.Verb == "screenshot" && len(screenshots(entry)) != 1 {
+			t.Errorf("screenshot entry %d artifacts %+v, want its PNG", entry.Seq, entry.Artifacts)
+		}
+	}
+	if len(want) == 0 || !slices.EqualFunc(want, got, slices.Equal[[]string]) {
+		t.Errorf("the evaluator's browser calls %q, the ledger's %q; want every one recorded, in order", want, got)
+	}
+	indexed := 0
+	if pv.Status.Ledger != nil {
+		for _, x := range pv.Status.Ledger.Entries {
+			if x.Verb == v1alpha1.LedgerVerbBrowser && x.Kind == v1alpha1.LedgerKindAgent && !x.Refused {
+				indexed++
+			}
+		}
+	}
+	if indexed != len(want) {
+		t.Errorf("the verified ledger index holds %d browser entries, want %d", indexed, len(want))
+	}
+	return entries
+}
+
+// screenshots are an entry's PNG artifacts (a snapshot's YAML is one too).
+func screenshots(e toolwire.LedgerEntry) []toolwire.Artifact {
+	var out []toolwire.Artifact
+	for _, a := range e.Artifacts {
+		if toolwire.IsScreenshot(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// TestIntentEvaluateBrowserPasses (browser case a): a Project with the
+// browser surface. The scripted evaluator opens the page in the tool pod's
+// browser (the relay's scripted one, through the preview front), takes a
+// snapshot, clicks, takes a screenshot, and saves a browser check that
+// measures the Vote button: visible, a 32 px square, clickable. The tools
+// container confirms it, the reviewer answers proves, and the outcome
+// passes on that confirmed check, never on the evaluator's say-so: its
+// basis is the check, whose compiled steps hold the measured assertions.
+// Every browser action is in the ledger. Another round at the same heads,
+// whose evaluator only looks, passes on the check's replay.
+func TestIntentEvaluateBrowserPasses(t *testing.T) {
+	e, _ := startBrowserEvaluate(t, "browser")
+	number, name, pr := e.toReview(t)
+	e.serve(t, name, pr.HeadSHA)
+	in := e.waitEval(t, name, "the browser evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	pv := e.round(t, name, 1)
+	if len(pv.Status.Confirmed) != 1 || len(pv.Status.Confirmations) != 1 ||
+		pv.Status.Confirmations[0].Result != v1alpha1.CheckRunPass {
+		t.Fatalf("confirmations %+v, confirmed %d; want the one browser check confirmed", pv.Status.Confirmations,
+			len(pv.Status.Confirmed))
+	}
+	saved := pv.Status.Confirmed[0]
+	checkMeasuredBrowserCheck(t, saved)
+	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed ||
+		o[0].Reason != "confirmed" || o[0].Basis != saved.Digest {
+		t.Errorf("outcomes %+v, want vote-button passed on the confirmed browser check %s", o, saved.Digest)
+	}
+	entries := e.checkBrowserLedger(t, pv, e.evaluatorJobs()[0])
+	if !slices.ContainsFunc(entries, func(x toolwire.LedgerEntry) bool {
+		return x.Verb == toolwire.VerbBrowser && slices.Equal(x.Locators, []string{"getByTestId('vote')"})
+	}) {
+		t.Errorf("no browser entry recorded the clicked element's locator")
+	}
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	eventually(t, "the preview comment to show the browser check line", func() bool {
+		body := e.previewComment(name, pr.Number)
+		return strings.Contains(body, "Ready: maul checked the approved outcomes.") &&
+			strings.Contains(body, browserCheckLine)
+	})
+
+	// The saved check replays: a round whose evaluator only looks passes
+	// on it.
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "browser-look")
+	e.requestRound(t, number)
+	in = e.waitEval(t, name, "round 2 to pass on the replay", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed && v.Round == 2
+	})
+	pv = e.round(t, name, 2)
+	if len(pv.Status.Replay) != 1 || pv.Status.Replay[0].CheckDigest != saved.Digest ||
+		pv.Status.Replay[0].Result != v1alpha1.CheckRunPass || len(pv.Status.Confirmed) != 0 {
+		t.Errorf("round 2 replay %+v, confirmed %d; want the saved browser check replayed green, nothing new",
+			pv.Status.Replay, len(pv.Status.Confirmed))
+	}
+	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed ||
+		o[0].Basis != saved.Digest {
+		t.Errorf("round 2 outcomes %+v, want passed on the replayed check", o)
+	}
+	e.checkBrowserLedger(t, pv, e.evaluatorJobs()[1])
+}
+
+// TestIntentEvaluateBrowserFixRound (browser case b, the demo's step (d)):
+// round 1 saves the measuring browser check. The Vote button is then 30 px
+// wide where the outcome says 32: the saved check fails its replay at the
+// size step ("width 30 not 32"), the evaluator's own check fails too and
+// it reports fail citing the run, and maul starts a verify-fix round whose
+// reproduction names the measurement. The fix pushes; at its head the
+// button is 32 px again and the next round passes on the check's replay.
+func TestIntentEvaluateBrowserFixRound(t *testing.T) {
+	e, app := startBrowserEvaluate(t, "browser")
+	number, name, pr := e.toReview(t)
+	e.serve(t, name, pr.HeadSHA)
+	e.waitEval(t, name, "round 1 to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	saved := e.round(t, name, 1).Status.Confirmed
+	if len(saved) != 1 {
+		t.Fatalf("round 1 confirmed %d checks, want the browser check", len(saved))
+	}
+
+	app.setWidth(30)
+	e.requestRound(t, number)
+	fix := e.waitFixRun(t, name)
+	in := e.intent(t, name)
+	if o := in.Status.Verification.Outcomes; in.Status.Verification.Round != 2 || len(o) != 1 ||
+		o[0].Result != v1alpha1.OutcomeFailed || o[0].Reason != "reproduced" || o[0].Basis != saved[0].Digest {
+		t.Errorf("verification %+v, want round 2 failed, reproduced by the saved browser check", in.Status.Verification)
+	}
+	pv := e.round(t, name, 2)
+	if len(pv.Status.Replay) != 1 || pv.Status.Replay[0].Result != v1alpha1.CheckRunFail {
+		t.Errorf("round 2 replay %+v, want the saved browser check failed", pv.Status.Replay)
+	}
+	e.checkBrowserLedger(t, pv, e.evaluatorJobs()[1])
+	e.waitStatus(t, pr.HeadSHA, "failure", "")
+	job := e.kubelet.waitRun(t, "the fix round's Job", func(r agentRun) bool {
+		return r.Job.Name == jobs.NameFor(fix.Name, intentRunKind, 1)
+	})
+	for _, want := range []string{"vote-button", "width 30 not 32"} {
+		if !strings.Contains(string(job.Investigation), want) {
+			t.Errorf("the fix handoff lacks %q:\n%s", want, job.Investigation)
+		}
+	}
+
+	in = e.waitFor(t, name, "the fix pushed and back in review", func(in *v1alpha1.Intent) bool {
+		run := e.run(t, fix.Name)
+		return in.Status.Phase == v1alpha1.IntentInReview && run.Status.PushedCommit != "" &&
+			in.Status.PullRequests[0].HeadSHA == run.Status.PushedCommit
+	})
+	head := in.Status.PullRequests[0].HeadSHA
+	app.setWidth(32)
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "browser-look")
+	e.serve(t, name, head)
+	in = e.waitEval(t, name, "the round at the fix's head to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == head
+	})
+	pv = e.round(t, name, in.Status.Verification.Round)
+	if len(pv.Status.Replay) != 1 || pv.Status.Replay[0].Result != v1alpha1.CheckRunPass ||
+		in.Status.VerifyFixes != 1 {
+		t.Errorf("replay %+v, verify fixes %d; want the saved browser check green after one fix", pv.Status.Replay,
+			in.Status.VerifyFixes)
+	}
+	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
+}
+
+// TestIntentEvaluateBrowserScreenshotOnly (browser case c, DESIGN 7.5,
+// D12): the evaluator looks at the page, takes a screenshot and passes the
+// outcome on the screenshot alone, proposing no check. The screenshot
+// reaches maul as cited evidence, and still the outcome is unsure (a
+// model-only pass), never passed: the verification is Unconfirmed and the
+// hand-off "maul couldn't confirm this".
+func TestIntentEvaluateBrowserScreenshotOnly(t *testing.T) {
+	e, _ := startBrowserEvaluate(t, "browser-look")
+	_, name, pr := e.toReview(t)
+	e.serve(t, name, pr.HeadSHA)
+	in := e.waitEval(t, name, "the evaluation to stay unconfirmed", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationUnconfirmed
+	})
+	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomeUnsure ||
+		o[0].Reason != "model-only-pass" || o[0].Basis != "" {
+		t.Errorf("outcomes %+v, want vote-button unsure: a model-only pass", o)
+	}
+	if acc := in.Status.Acceptance; acc.Checks != nil && acc.Checks.Count > 0 {
+		t.Errorf("check store %+v, want nothing stored", acc.Checks)
+	}
+	pv := e.round(t, name, 1)
+	entries := e.checkBrowserLedger(t, pv, e.evaluatorJobs()[0])
+	if pv.Status.Ledger == nil || pv.Status.Ledger.Evidence == "" ||
+		!slices.ContainsFunc(entries, func(x toolwire.LedgerEntry) bool {
+			return x.Verb == toolwire.VerbBrowser && len(screenshots(x)) == 1
+		}) {
+		t.Errorf("ledger %+v, want the cited screenshot kept as evidence", pv.Status.Ledger)
+	}
+	e.waitStatus(t, pr.HeadSHA, "error", "maul couldn't confirm this")
 }

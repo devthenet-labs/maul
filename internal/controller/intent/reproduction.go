@@ -119,13 +119,15 @@ func ledgerEntries(lines []string) []toolwire.LedgerEntry {
 	return out
 }
 
-// checkRunAt is the check run of digest recorded at seq, nil for none.
+// checkRunAt is the check run of digest ("sha256:<hex>", as status carries
+// it) recorded at seq, nil for none. The ledger records a check run's
+// digest as bare hex (toolwire.CheckRunRecord).
 func checkRunAt(entries []toolwire.LedgerEntry, seq int32, digest string) *toolwire.CheckRunRecord {
 	if seq == 0 {
 		return nil
 	}
 	for _, e := range entries {
-		if e.Seq == int64(seq) && e.CheckRun != nil && e.CheckRun.Digest == digest {
+		if e.Seq == int64(seq) && e.CheckRun != nil && "sha256:"+e.CheckRun.Digest == digest {
 			return e.CheckRun
 		}
 	}

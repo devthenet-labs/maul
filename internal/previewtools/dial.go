@@ -5,6 +5,8 @@
 
 package previewtools
 
+import "net"
+
 // Seams is what only the e2e build (the e2edial tag, dial_e2e.go) can
 // change. A released relay dials the addresses it was given, listens on
 // Port, refuses local callers and writes its termination message to
@@ -25,4 +27,10 @@ type Seams struct {
 // SeamsFrom returns the released relay's seams; getenv is unused.
 func SeamsFrom(func(string) string) (Seams, error) {
 	return Seams{TerminationPath: TerminationPath, ListenAddr: listenAddr, ConfigDir: DefaultConfigDir}, nil
+}
+
+// Browser is the released relay's browser: the image's (ImageBrowser), its
+// preview front on FrontAddr.
+func (Seams) Browser() (*BrowserOptions, ArtifactKeeper, net.Listener, error) {
+	return openImageBrowser()
 }

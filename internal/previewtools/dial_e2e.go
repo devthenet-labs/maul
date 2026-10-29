@@ -10,13 +10,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"path/filepath"
 )
 
 // The e2e suite's seams: envtest has no kubelet, kube-proxy or cluster DNS,
 // so the suite's fake kubelet runs the relay built with the e2edial tag,
 // maps each component's Service address to a loopback listener, names a
-// termination message file and a listen address of its own, and calls the
-// relay from loopback. Never in a released binary.
+// termination message file and a listen address of its own, calls the
+// relay from loopback, and (no Chromium either) puts the scripted browser
+// (browser_e2e.go) in the browser container's place. Never in a released
+// binary.
 
 const (
 	// DialMapEnv is a JSON object mapping "<address>:<port>" to the
@@ -28,6 +31,9 @@ const (
 	ListenEnv = "MAUL_E2E_LISTEN"
 	// ConfigDirEnv replaces the tool ConfigMap's mount when set.
 	ConfigDirEnv = "MAUL_E2E_TOOLS_CONFIG_DIR"
+	// BrowserEnv, an absolute directory, replaces the image's browser with
+	// the scripted one (browser_e2e.go) working there.
+	BrowserEnv = "MAUL_E2E_BROWSER_DIR"
 )
 
 // Seams is what only the e2e build can change (see dial.go).
@@ -37,6 +43,16 @@ type Seams struct {
 	ListenAddr      string
 	AllowLocal      bool
 	ConfigDir       string
+	// BrowserDir, when set, is the scripted browser's working directory.
+	BrowserDir string
+}
+
+// Browser is the scripted browser when BrowserDir is set, else the image's.
+func (s Seams) Browser() (*BrowserOptions, ArtifactKeeper, net.Listener, error) {
+	if s.BrowserDir == "" {
+		return openImageBrowser()
+	}
+	return ScriptedBrowser(s.BrowserDir)
 }
 
 // SeamsFrom reads the e2e seams from the environment.
@@ -44,6 +60,12 @@ func SeamsFrom(getenv func(string) string) (Seams, error) {
 	s := Seams{TerminationPath: TerminationPath, ListenAddr: listenAddr, ConfigDir: DefaultConfigDir}
 	if d := getenv(ConfigDirEnv); d != "" {
 		s.ConfigDir = d
+	}
+	if d := getenv(BrowserEnv); d != "" {
+		if !filepath.IsAbs(d) {
+			return Seams{}, fmt.Errorf("%s: %q is not an absolute directory", BrowserEnv, d)
+		}
+		s.BrowserDir = d
 	}
 	if p := getenv(TerminationEnv); p != "" {
 		s.TerminationPath = p

@@ -36,16 +36,30 @@ func logsEntry(seq int64, component, output string) toolwire.LedgerEntry {
 }
 
 // checkRunEntry is a replay ledger entry at seq of check digest, failing
-// on step step with detail.
+// on step step with detail. The record carries the digest as the tools
+// container writes it, bare hex (toolwire.CheckRunRecord, which refuses
+// the "sha256:" form the PreviewVerification's status carries).
 func checkRunEntry(seq int64, digest, id string, step int, detail string) toolwire.LedgerEntry {
 	return toolwire.LedgerEntry{Seq: seq, TS: time.Unix(seq, 0).UTC(), Kind: toolwire.KindRelay,
 		Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{
-			Digest: digest, CheckID: id, Mode: toolwire.ModeReplay, Result: toolwire.RunFail,
+			Digest: strings.TrimPrefix(digest, "sha256:"), CheckID: id, Mode: toolwire.ModeReplay,
+			Result: toolwire.RunFail,
 			Attempts: []toolwire.Attempt{
 				{Run: "r1", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
 					{Index: 0, Result: toolwire.ResultPass}, {Index: step, Result: toolwire.ResultFail, Detail: detail}}},
 				{Run: "r2", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
 					{Index: step, Result: toolwire.ResultFail, Detail: detail}}}}}}
+}
+
+// TestCheckRunEntryIsWire pins checkRunEntry to the tools ledger's wire:
+// an entry the tools container could have written, so the reproduction is
+// tested on the digests it really reads.
+func TestCheckRunEntryIsWire(t *testing.T) {
+	e := checkRunEntry(2, savedCheck(t, versionCheck).Digest, "version-shown", 1, "detail")
+	e.OutputSHA256 = hex.EncodeToString(func() []byte { s := sha256.Sum256(nil); return s[:] }())
+	if err := e.Check(); err != nil {
+		t.Errorf("checkRunEntry is no ledger entry the tools container writes: %v", err)
+	}
 }
 
 // TestLogWindow: a failing run's window is what a component logged between

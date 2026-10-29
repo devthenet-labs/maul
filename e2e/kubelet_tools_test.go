@@ -48,8 +48,12 @@ import (
 //     Ready once the relay's readiness path answers, as the probe the Job
 //     renders would make it; once the relay exits, its stdout is the tools
 //     container's log and its termination message the file it wrote. The
-//     browser and sandbox sidecars do not run: a browser or exec call is
-//     the relay's "unavailable" answer.
+//     browser and sandbox sidecars do not run. In a pod with a browser the
+//     relay runs its e2e-only scripted browser (MAUL_E2E_BROWSER_DIR,
+//     internal/previewtools/browser_e2e.go) behind the real Playwright
+//     seams: it loads each page through the relay's preview front, reads
+//     the component's answer as a page model, and measures compiled
+//     checks against it. An exec call is the relay's "unavailable" answer.
 //   - An evaluator Job reaches its tool pod by the host entry its pod
 //     template pins (maul-tools at the tool pod's address): the kubelet
 //     points its MAUL_TOOLS_URL at the relay's loopback listener for that
@@ -325,6 +329,11 @@ func (k *kubelet) startRelay(tp *toolPod) error {
 	tp.cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + tp.dir,
 		"MAUL_E2E_DIAL_MAP=" + string(dialMap), "MAUL_E2E_LISTEN=" + tp.listen,
 		"MAUL_E2E_TOOLS_CONFIG_DIR=" + tp.dir, "MAUL_E2E_TERMINATION_PATH=" + tp.term}
+	if tp.cfg.Browser {
+		// The browser container's part: the relay's scripted browser
+		// (browser_e2e.go), working beside the mirrored config.
+		tp.cmd.Env = append(tp.cmd.Env, "MAUL_E2E_BROWSER_DIR="+tp.dir+".browser")
+	}
 	tp.cmd.Stdout, tp.cmd.Stderr = &tp.stdout, &tp.stderr
 	if err := tp.cmd.Start(); err != nil {
 		return fmt.Errorf("start preview-tools: %w", err)

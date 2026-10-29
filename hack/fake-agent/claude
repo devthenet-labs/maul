@@ -74,7 +74,21 @@
 #                              the dry run refuses, proposes it anyway by its
 #                              own digest and passes every outcome; and
 #                              "nochecks" passes every outcome on one
-#                              `maul-tool http GET` and proposes nothing.
+#                              `maul-tool http GET` and proposes nothing;
+#                              "browser" opens MAUL_FAKE_CLAUDE_BROWSER_ENTRY
+#                              (default /) in the browser, takes a snapshot,
+#                              clicks the first element after the root, takes
+#                              a screenshot, then writes and dry-runs a
+#                              browser check measuring the element of test id
+#                              MAUL_FAKE_CLAUDE_BROWSER_TESTID (default vote):
+#                              visible, a MAUL_FAKE_CLAUDE_BROWSER_SIZE
+#                              (default 32) px square, clickable; passing the
+#                              outcome and proposing the check when it ran
+#                              green, else failing it, citing the screenshot
+#                              and the run; "browser-look" opens the entry,
+#                              takes a snapshot and a screenshot, and passes
+#                              every outcome on the screenshot alone,
+#                              proposing nothing.
 #   MAUL_FAKE_CLAUDE_ANOMALY   set: the report also carries one look-around
 #                              anomaly with this summary, on the first
 #                              component's path, citing `check results`.
@@ -218,6 +232,14 @@ http_check() {
     "$1" "$2" "$key" "$path" "$3"
 }
 
+# browser_check <id> <outcome> — a browser check of the browser entry: the
+# element of test id MAUL_FAKE_CLAUDE_BROWSER_TESTID is visible, a square of
+# MAUL_FAKE_CLAUDE_BROWSER_SIZE px, and clickable.
+browser_check() {
+  printf '{"id":"%s","outcome":"%s","form":"browser","browser":{"steps":[{"goto":"%s"},{"expect":{"assert":"visible","locator":{"testid":"%s"}}},{"expect":{"assert":"size","locator":{"testid":"%s"},"width":%s,"height":%s}},{"expect":{"assert":"clickable","locator":{"testid":"%s"}}}]}}' \
+    "$1" "$2" "$entry" "$testid" "$testid" "$size" "$size" "$testid"
+}
+
 if [ "$MAUL_PHASE" = checkreview ]; then
   out_report=$(report_path)
   answer=${MAUL_FAKE_CLAUDE_REVIEW:-proves}
@@ -243,6 +265,9 @@ if [ "$MAUL_PHASE" = evaluate ]; then
   # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
   path=${MAUL_FAKE_CLAUDE_CHECK_PATH:-$(printf '%s\n' "$prompt" | sed -n 's/^- `[a-z0-9-]*`: served under `\(.*\)`$/\1/p' | head -n 1)}
   text=${MAUL_FAKE_CLAUDE_CHECK_TEXT:-ok}
+  entry=${MAUL_FAKE_CLAUDE_BROWSER_ENTRY:-/}
+  testid=${MAUL_FAKE_CLAUDE_BROWSER_TESTID:-vote}
+  size=${MAUL_FAKE_CLAUDE_BROWSER_SIZE:-32}
   mkdir -p checks
   tool check results
   results=$seq results_out=$out
@@ -310,6 +335,43 @@ if [ "$MAUL_PHASE" = evaluate ]; then
   - id: \"$o.canary\"
     outcome: $o
     digest: \"$digest\""
+      ;;
+    browser)
+      tool browser goto "$entry"
+      tool browser snapshot
+      ref=$(printf '%s\n' "$out" | sed -n 's/.* \[ref=\(e[0-9]*\)\].*/\1/p' | sed -n 2p)
+      tool browser click "${ref:-e2}"
+      tool browser screenshot
+      shot=$seq
+      browser_check "$o" "$o" >"checks/$o.json"
+      tool check run "checks/$o.json"
+      digest=$(green_digest dry-run)
+      if [ -n "$digest" ]; then
+        verdicts="$verdicts
+  - id: $o
+    verdict: pass
+    ledger: [$shot, $seq]"
+        proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    digest: \"$digest\""
+      else
+        verdicts="$verdicts
+  - id: $o
+    verdict: fail
+    ledger: [$shot, $seq]
+    note: \"The page does not show what the outcome states.\""
+      fi
+      ;;
+    browser-look)
+      tool browser goto "$entry"
+      tool browser snapshot
+      tool browser screenshot
+      verdicts="$verdicts
+  - id: $o
+    verdict: pass
+    ledger: [$seq]
+    note: \"The screenshot shows what the outcome states.\""
       ;;
     nochecks)
       tool http GET "$path"
