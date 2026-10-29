@@ -151,6 +151,9 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 		if prev := cur.Status.Verification; prev != nil {
 			next.Round, next.Reset, next.Requested, next.CancelRun = prev.Round, prev.Reset, prev.Requested,
 				prev.CancelRun
+			// A link the humans have is never held again; the hand-off's
+			// clock runs from the intent's first green.
+			next.Handoff, next.FirstGreenAt = keepHandoff(prev.Handoff), prev.FirstGreenAt
 		}
 		since := metav1.NewTime(p.now)
 		next.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixArmed, Since: &since}
@@ -314,8 +317,13 @@ func (p *pass) settleState(ctx context.Context, state v1alpha1.IntentVerificatio
 	})
 }
 
-// halt halts automatic fixes for reason, unless they are halted already.
+// halt halts automatic fixes for reason, unless they are halted already. A
+// human's own action (humanHalt) also releases a held preview link: the
+// human wins (handoff.go).
 func halt(v *v1alpha1.IntentVerification, reason v1alpha1.AutoFixReason, now metav1.Time) {
+	if humanHalt(reason) {
+		releaseHandoff(v, v1alpha1.HandoffReasonHuman, now, false)
+	}
 	if v.AutoFix.State == v1alpha1.AutoFixHalted {
 		return
 	}
@@ -412,12 +420,21 @@ func clearJudgement(v *v1alpha1.IntentVerification) {
 	v.Failing, v.QuarantinedIDs = nil, nil
 }
 
-// countManual counts the manual criteria accepted at v's head set and those
-// still open, and the criteria this slice cannot run.
+// countManual counts the manual criteria (or outcomes) accepted at v's head
+// set and those still open, and the criteria this slice cannot run.
 func countManual(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance) {
 	v.ManualOpen, v.ManualAccepted, v.NotRun = 0, 0, 0
 	if acc == nil {
 		return
+	}
+	for _, o := range acc.Outcomes {
+		switch {
+		case !o.Manual:
+		case outcomeAccepted(acc, o.ID, v.HeadSetDigest):
+			v.ManualAccepted++
+		default:
+			v.ManualOpen++
+		}
 	}
 	for _, c := range acc.Criteria {
 		switch c.Kind {
@@ -818,6 +835,9 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 			at := metav1.NewTime(p.now)
 			nv.Automatic++
 			nv.LastAutomaticAt = &at
+		}
+		if state == v1alpha1.VerificationEvaluating {
+			p.startHandoff(nv)
 		}
 		if kind != verifyAutomatic {
 			nv.Requested = nil // a retry serves a waiting request too

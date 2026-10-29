@@ -177,11 +177,11 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 			slog.String("intent", p.in.Name), slog.String("verification", v.Ref.Name), slog.Any("error", err))
 		return false, nil
 	}
-	if pv == nil || pv.Spec.HeadSetDigest != v.HeadSetDigest || pv.Spec.CriteriaDigest != acc.Digest ||
+	if pv == nil || pv.Spec.HeadSetDigest != v.HeadSetDigest || !verifiesApproved(pv, acc) ||
 		p.verificationConsumed(pv.UID) {
 		return false, nil
 	}
-	failure, ok := fixableFailure(acc.Criteria, pv)
+	failure, ok := p.roundFailure(ctx, acc, pv)
 	if !ok {
 		return false, nil
 	}
@@ -213,6 +213,47 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 		return true, p.haltFix(ctx, v1alpha1.AutoFixNoOpenPR, "", "")
 	}
 	return p.leaseVerifyFix(ctx, pr, pv)
+}
+
+// startVerifyWork is startRound's last steps, once no human's or CI's
+// round started: while a human's feedback is pending (humanPending, its
+// quiet window included) maul starts nothing of its own, and a held preview
+// link is released for it (releaseForHuman); then an acceptance-fix round
+// when one is due (startVerifyFix), and last the verification's gate
+// (startVerification).
+func (p *pass) startVerifyWork(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
+	if p.set.Verification && p.verifies() && (verifyWorkPending(p.in.Status.Verification) || p.linkHeld()) {
+		if wrote, pending, err := p.releaseForHuman(ctx, prs); wrote || pending || err != nil {
+			// The human's round starts once its quiet window ends, on a
+			// later poll; a held preview link is released now.
+			return wrote, err
+		}
+		if started, err := p.startVerifyFix(ctx); started || err != nil {
+			return started, err
+		}
+	}
+	return p.startVerification(ctx, prs)
+}
+
+// verifiesApproved reports that pv verified the approved plan revision's
+// acceptance as recorded: its outcomes (the evaluator), or its criteria.
+func verifiesApproved(pv *v1alpha1.PreviewVerification, acc *v1alpha1.IntentAcceptance) bool {
+	if len(acc.Outcomes) > 0 {
+		return pv.Spec.OutcomesDigest == acc.OutcomesDigest
+	}
+	return pv.Spec.CriteriaDigest == acc.Digest
+}
+
+// roundFailure is the failure a fix round may take from pv: under the
+// evaluator Decide's fix request (evaluationFailure, Decision.Fix), else
+// slice 1's judged criteria (fixableFailure).
+func (p *pass) roundFailure(ctx context.Context, acc *v1alpha1.IntentAcceptance,
+	pv *v1alpha1.PreviewVerification) (verifyFailure, bool) {
+	if len(acc.Outcomes) > 0 {
+		f, _, _, ok := p.evaluationFailure(ctx, pv)
+		return f, ok
+	}
+	return fixableFailure(acc.Criteria, pv)
 }
 
 // verifyWorkPending reports whether v leaves anything startVerifyFix or
@@ -469,9 +510,17 @@ func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (f
 	if err != nil {
 		return "", verifyFailure{}, fmt.Errorf("read verification %s: %w", ref.Name, err)
 	}
-	if pv == nil || pv.Spec.CriteriaDigest != acc.Digest {
+	if pv == nil || !verifiesApproved(pv, acc) {
 		return "", verifyFailure{}, fmt.Errorf("%w: verification %s is gone or no longer this intent's", errInputUnavailable,
 			ref.Name)
+	}
+	if len(acc.Outcomes) > 0 {
+		failure, fix, j, ok := p.evaluationFailure(ctx, pv)
+		if !ok {
+			return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable,
+				ref.Name)
+		}
+		return renderOutcomeEvidence(pv, acc, fix, j.checks), failure, nil
 	}
 	failure, ok := fixableFailure(acc.Criteria, pv)
 	if !ok {

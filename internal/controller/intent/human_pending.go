@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -55,6 +56,30 @@ func (p *pass) humanPending(ctx context.Context, prs []v1alpha1.IntentPullReques
 		}
 	}
 	return "", nil
+}
+
+// releaseForHuman is startRound's part of "the human wins" under a gated
+// hand-off (SPEC S1-20): while the preview link is held and no round
+// started, a human's pending feedback on prs (humanPending, its quiet
+// window included) releases the link at once and halts automatic fixes, in
+// one write; the human's round follows once its window ends. It reports
+// whether it wrote, and whether the human's feedback holds up maul's own
+// work (the verification's fix and gate) this pass.
+func (p *pass) releaseForHuman(ctx context.Context, prs []v1alpha1.IntentPullRequest) (wrote, pending bool,
+	err error) {
+	reason, err := p.humanPending(ctx, prs)
+	if err != nil || reason == "" {
+		return false, false, err
+	}
+	if !p.linkHeld() {
+		return false, true, nil
+	}
+	p.r.log().LogAttrs(ctx, slog.LevelInfo, "a human's feedback releases the preview link",
+		slog.String("intent", p.in.Name), slog.String("reason", string(reason)))
+	return true, true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		halt(cur.Status.Verification, reason, metav1.NewTime(p.now))
+		return nil
+	})
 }
 
 // reviewDue reports a review round due on pr, its quiet window ignored:

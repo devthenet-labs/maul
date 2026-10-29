@@ -65,12 +65,6 @@ import (
 // PreviewVerification's checksDigest carries.
 const keyCheckStore = "checks.json"
 
-// evaluationReasonNotJudged is an outcome's result reason while maul does
-// not yet judge an evaluation round's facts (acceptance.Decide, S1-20):
-// every outcome is unsure, never passed, so nothing is ever confirmed
-// before it is judged.
-const evaluationReasonNotJudged = "maul has not judged this evaluation round"
-
 // evaluationCeiling is the most one intent's evaluate and checkreview runs
 // may spend, in micro-USD: the Project's limits.maxEvaluateCostMicroUSD (or
 // its default), never more than --intent-evaluation-cost-max.
@@ -137,7 +131,10 @@ func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationWaitingForCI); changed || err != nil {
 		return changed, err
 	}
-	return p.settleEvaluation(ctx)
+	if changed, err := p.settleEvaluation(ctx); changed || err != nil {
+		return changed, err
+	}
+	return p.syncHandoff(ctx)
 }
 
 // settleUnverified records an intent of a Project with no verified
@@ -176,6 +173,9 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 		return false, nil
 	}
 	kind, err := p.verifyDue(ctx, v)
+	if err == nil && kind == verifyNotDue && p.replayDue(v) {
+		kind = verifyAutomatic
+	}
 	if err != nil || kind == verifyNotDue {
 		return false, err
 	}
@@ -228,6 +228,15 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 		nv.State, nv.Requested = v1alpha1.VerificationUnconfirmed, nil
 		return nil
 	})
+}
+
+// replayDue reports the one model-free replay round a judgement asked for
+// (a disputed check retired for a confirmed, proven replacement:
+// status.verification.disputed) as due at the same heads, within the
+// automatic bounds: it counts against maxVerifications like any round.
+func (p *pass) replayDue(v *v1alpha1.IntentVerification) bool {
+	return v.State == v1alpha1.VerificationUnconfirmed && len(v.Disputed) > 0 && v.Ref != nil &&
+		v.Requested == nil && p.verifyBounded(v)
 }
 
 // evaluationRung is the rung a new round runs (SPEC Q17): replay, with no
@@ -398,11 +407,17 @@ func (p *pass) evaluationObserved(ctx context.Context, pv *v1alpha1.PreviewVerif
 	case !runSettled(run):
 		return false, nil
 	}
-	// Its new checks reviewed and the proven ones stored (S1-19) first.
+	// Its new checks reviewed and the proven ones stored (S1-19) first,
+	// then the disputed checks a proven replacement retires (S1-20), each
+	// in a pass of its own; then the round is judged.
 	if changed, wait, err := p.reviewChecks(ctx, pv); changed || wait || err != nil {
 		return changed, err
 	}
-	return true, p.judgeEvaluation(ctx, pv, run)
+	j := p.decideRound(ctx, pv, run)
+	if wrote, err := p.retireDisputed(ctx, j); wrote || err != nil {
+		return wrote, err
+	}
+	return true, p.writeJudgement(ctx, pv, run, j)
 }
 
 // runSettled reports a run that ended.
@@ -528,31 +543,6 @@ func (p *pass) createRoleRun(ctx context.Context, stage v1alpha1.IntentStage, ro
 		return nil, err
 	}
 	return run, nil
-}
-
-// judgeEvaluation settles a collected round: pv's facts (its ledger,
-// replays and confirmations) and run's claims (its report; nil on a replay
-// round, which has no evaluator). Until maul judges them (acceptance.Decide,
-// S1-20) every outcome is unsure, the verification Unconfirmed: nothing is
-// confirmed that was not judged.
-func (p *pass) judgeEvaluation(ctx context.Context, pv *v1alpha1.PreviewVerification, run *v1alpha1.IntentRun) error {
-	var claims string
-	if run != nil {
-		claims = run.Name
-	}
-	p.r.log().LogAttrs(ctx, slog.LevelInfo, "evaluation round collected",
-		slog.String("intent", p.in.Name), slog.String("verification", pv.Name), slog.String("run", claims),
-		slog.Int("ledger_entries", ledgerCount(pv)))
-	return p.update(ctx, func(cur *v1alpha1.Intent) error {
-		nv := cur.Status.Verification
-		clearJudgement(nv)
-		nv.State, nv.Outcomes = v1alpha1.VerificationUnconfirmed, nil
-		for _, o := range cur.Status.Acceptance.Outcomes {
-			nv.Outcomes = append(nv.Outcomes, v1alpha1.OutcomeResult{ID: o.ID, Result: v1alpha1.OutcomeUnsure,
-				Reason: evaluationReasonNotJudged})
-		}
-		return nil
-	})
 }
 
 // ledgerCount is the number of entries pv's verified ledger holds.

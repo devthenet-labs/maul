@@ -564,17 +564,7 @@ func (p *pass) startRound(ctx context.Context, prs []v1alpha1.IntentPullRequest)
 			}
 		}
 	}
-	if p.set.Verification && p.verifies() && verifyWorkPending(p.in.Status.Verification) {
-		if reason, err := p.humanPending(ctx, prs); err != nil || reason != "" {
-			// The human's round starts once its quiet window ends, on a
-			// later poll.
-			return false, err
-		}
-		if started, err := p.startVerifyFix(ctx); started || err != nil {
-			return started, err
-		}
-	}
-	return p.startVerification(ctx, prs)
+	return p.startVerifyWork(ctx, prs)
 }
 
 // settleVerifyCommandsOnPRs settles the acceptance commands (/maul verify,

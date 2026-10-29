@@ -218,6 +218,8 @@ func (p *pass) previewComment(view previewView, pr v1alpha1.IntentPullRequest, r
 		return c
 	}
 	c.State, c.Reason, c.Host = view.state, view.reason, view.host
+	// Under a gated hand-off the link is held, then labelled.
+	c.Handoff = p.handoffView()
 	for _, comp := range view.components {
 		if sameRepo(comp.repository, rp.URL) {
 			c.Revision = comp.revision

@@ -187,13 +187,15 @@ func (p *pass) loadPreview(ctx context.Context) (previewView, bool) {
 }
 
 // statusPreview is the status comment's preview: nil when there is none to
-// show.
+// show. Under a gated hand-off its link is held, then labelled
+// (handoffView).
 func (p *pass) statusPreview() *templates.IntentPreview {
 	v := p.preview
 	if v.state == "" {
 		return nil
 	}
-	out := &templates.IntentPreview{State: v.state, Reason: v.reason, Host: v.host, Resource: p.in.Name}
+	out := &templates.IntentPreview{State: v.state, Reason: v.reason, Host: v.host, Resource: p.in.Name,
+		Handoff: p.handoffView()}
 	for _, c := range v.components {
 		out.Components = append(out.Components, templates.IntentPreviewComponent{
 			Repository: repoSlug(c.repository), Path: c.path, Revision: c.revision,

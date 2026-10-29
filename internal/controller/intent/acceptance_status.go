@@ -101,6 +101,11 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	total := int32(len(automatable(acc.Criteria)))
 	used, most := p.verifyFixesUsed()
+	if len(acc.Outcomes) > 0 {
+		if st, ok := p.evaluationStatus(); ok {
+			return st, true
+		}
+	}
 	passed := fmt.Sprintf("%d/%d automated passed", v.Passed, total)
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
@@ -140,6 +145,69 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationOff:
 	}
 	return acceptanceState{}, false
+}
+
+// evaluationStatus is the status of an intent the agent evaluator verifies,
+// in a state that counts outcomes: success only once every approved outcome
+// is confirmed or an approver accepted it at the current heads, naming who
+// accepted; pending while maul evaluates or could not confirm (a human
+// decides); failure while an outcome fails. ok is false in the states slice
+// 1's descriptions already say (waiting, unavailable, needs replan).
+func (p *pass) evaluationStatus() (acceptanceState, bool) {
+	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	used, most := p.verifyFixesUsed()
+	total := int32(len(acc.Outcomes))
+	confirmed := fmt.Sprintf("%d/%d outcomes confirmed", confirmedCount(acc, v), total)
+	switch v.State {
+	case v1alpha1.VerificationNotDeclared:
+		if v.ManualOpen > 0 {
+			return acceptanceState{statusPending, fmt.Sprintf("%d/%d outcomes accepted by hand",
+				v.ManualAccepted, v.ManualAccepted+v.ManualOpen)}, true
+		}
+		return acceptanceState{statusSuccess, fmt.Sprintf("%d/%d outcomes accepted by hand %s", v.ManualAccepted,
+			v.ManualAccepted, acceptedBy(outcomeAccepters(acc, v)))}, true
+	case v1alpha1.VerificationEvaluating:
+		return acceptanceState{statusPending, fmt.Sprintf("evaluating: evaluation %d, %d %s, %d of %d automatic %s used",
+			v.Round, total, plural(total, "outcome", "outcomes"), used, most, plural(most, "fix", "fixes"))}, true
+	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
+		if !outcomesReady(acc, v) {
+			return acceptanceState{statusPending, "maul couldn't confirm every outcome: " + confirmed}, true
+		}
+		if who := outcomeAccepters(acc, v); len(who) > 0 {
+			return acceptanceState{statusSuccess, confirmed + "; some accepted by hand " + acceptedBy(who)}, true
+		}
+		return acceptanceState{statusSuccess, confirmed}, true
+	case v1alpha1.VerificationFailing:
+		if v.AutoFix.State == v1alpha1.AutoFixHalted {
+			return acceptanceState{statusFailure, confirmed + "; automatic fixes halted"}, true
+		}
+		return acceptanceState{statusFailure, fmt.Sprintf("%s, %d failing", confirmed, v.Failed)}, true
+	case v1alpha1.VerificationFixing:
+		return acceptanceState{statusFailure, fmt.Sprintf("%s; automatic fix %d of %d running", confirmed, used,
+			most)}, true
+	case v1alpha1.VerificationExhausted:
+		return acceptanceState{statusFailure, confirmed + "; no automatic fix left"}, true
+	}
+	return acceptanceState{}, false
+}
+
+// outcomeAccepters are the approvers who accepted an outcome maul did not
+// confirm at v's heads, latest first, each once.
+func outcomeAccepters(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) []string {
+	var out []string
+	for i := len(acc.Accepted) - 1; i >= 0; i-- {
+		r := acc.Accepted[i]
+		if r.HeadSetDigest != v.HeadSetDigest || slices.Contains(out, r.By) {
+			continue
+		}
+		passed := slices.ContainsFunc(v.Outcomes, func(o v1alpha1.OutcomeResult) bool {
+			return o.ID == r.ID && o.Result == v1alpha1.OutcomePassed
+		})
+		if !passed && slices.ContainsFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == r.ID }) {
+			out = append(out, r.By)
+		}
+	}
+	return out
 }
 
 // passedStatus is the status of a verification that found no failure: a

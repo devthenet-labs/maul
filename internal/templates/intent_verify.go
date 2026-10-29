@@ -67,6 +67,11 @@ const (
 	// which the agent evaluator does not run, so nothing is verified until
 	// a plan stating outcomes is approved.
 	VerifyCriteriaReplan = "criteria-replan"
+	// VerifyEvaluating: the agent evaluator checks the approved outcomes.
+	VerifyEvaluating = "evaluating"
+	// VerifyUnconfirmed: the evaluation settled without confirming every
+	// outcome.
+	VerifyUnconfirmed = "unconfirmed"
 )
 
 // Automatic fix states.
@@ -131,6 +136,10 @@ type VerifyProgress struct {
 	// the controller's short fixed reason for a halt.
 	AutoFix       string
 	AutoFixReason string
+	// Outcomes: the agent evaluator checks approved outcomes, so the
+	// clause names evaluations and counts outcomes confirmed. false is
+	// slice 1's wording, unchanged.
+	Outcomes bool
 }
 
 // verifyRestingLine is the sentence of a state nothing is checked in:
@@ -161,6 +170,25 @@ func verifyRestingLine(state string) (line string, whole bool) {
 	return "", false
 }
 
+// verifyNames are the progress clause's words: which verification (or
+// evaluation) it is, its counts (checks passing, or outcomes confirmed;
+// "" with none), and its passed head.
+func verifyNames(p VerifyProgress) (which, counts, passed string) {
+	which, counted, done := "Verification", "%d/%d checks passing", "%d/%d checks passed"
+	if p.Outcomes {
+		which, counted, done = "Evaluation", "%d/%d outcomes confirmed", "%d/%d outcomes confirmed"
+	}
+	if p.Verification > 0 {
+		which = fmt.Sprintf("%s %d", which, p.Verification)
+	}
+	passed = which + " passed"
+	if p.Total > 0 {
+		counts = fmt.Sprintf(counted, p.Passing, p.Total)
+		passed += ": " + fmt.Sprintf(done, p.Passing, p.Total)
+	}
+	return which, counts, passed
+}
+
 // verifyLine is the progress as one sentence; "" for none.
 func verifyLine(p VerifyProgress) string {
 	head, whole := verifyRestingLine(p.State)
@@ -168,14 +196,7 @@ func verifyLine(p VerifyProgress) string {
 		return head
 	}
 	fixes := fmt.Sprintf("%d of %d automatic %s used", p.FixesUsed, p.MaxFixes, plural(p.MaxFixes, "fix", "fixes"))
-	which := "Verification"
-	if p.Verification > 0 {
-		which = fmt.Sprintf("Verification %d", p.Verification)
-	}
-	counts := ""
-	if p.Total > 0 {
-		counts = fmt.Sprintf("%d/%d checks passing", p.Passing, p.Total)
-	}
+	which, counts, passed := verifyNames(p)
 	join := func(parts ...string) string {
 		var kept []string
 		for _, s := range parts {
@@ -190,13 +211,12 @@ func verifyLine(p VerifyProgress) string {
 		// verifyRestingLine's head.
 	case VerifyWaiting:
 		head = "Verification waits for the preview to be ready"
-	case VerifyRunning:
+	case VerifyRunning, VerifyEvaluating:
 		head = which + " running: " + join(counts, fixes)
+	case VerifyUnconfirmed:
+		head = which + ": maul couldn't confirm every outcome: " + join(counts, fixes)
 	case VerifyPassed:
-		head = which + " passed"
-		if p.Total > 0 {
-			head = fmt.Sprintf("%s passed: %d/%d checks passed", which, p.Passing, p.Total)
-		}
+		head = passed
 	case VerifyFailing:
 		head = which + " failing: " + join(counts, fixes)
 	case VerifyExhausted:
@@ -303,6 +323,11 @@ type VerifyLog struct {
 type VerifySection struct {
 	Progress VerifyProgress
 	Criteria []VerifyCriterion
+	// Outcomes are the agent evaluator's approved outcomes with their
+	// decided results, in plan order (in place of Criteria); Anomalies are
+	// its look-around anomalies.
+	Outcomes  []VerifyOutcomeResult
+	Anomalies []VerifyAnomaly
 	// Logs are shown only when the caller passes them: the issue always,
 	// a pull request only under the Project's postLogs.
 	Logs []VerifyLog
@@ -352,7 +377,7 @@ func noDefectNote(n *VerifyNoDefect) string {
 }
 
 func (s *VerifySection) empty() bool {
-	return s == nil || (s.Progress.State == "" && len(s.Criteria) == 0)
+	return s == nil || (s.Progress.State == "" && len(s.Criteria) == 0 && len(s.Outcomes) == 0)
 }
 
 // VerifyComment is the verification comment on the intent's issue: one per
@@ -381,6 +406,9 @@ type verifyView struct {
 	Notes    []string
 	Logs     []verifyLogView
 	LogsCut  bool
+	// Outcomes are the outcomes' details, Anomalies the look-around's.
+	Outcomes  []outcomeDetail
+	Anomalies []string
 	// Omitted counts the pieces of failure evidence left out to keep the
 	// comment within its evidence budget (budgetEvidence).
 	Omitted int
@@ -457,6 +485,7 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 		}
 	}
 	v.Failures, v.Omitted = budgetEvidence(v.Failures)
+	outcomeViews(&v, s)
 	if s.StatusNotPosted {
 		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
 			"posted: an administrator sets Commit statuses to Read and write in the App's settings and accepts the "+
