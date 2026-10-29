@@ -345,12 +345,17 @@ func (p *pass) readBlockers(ctx context.Context) (depRead, error) {
 	}
 	read := depRead{kind: depReadOK, blockers: blockers}
 	if is := p.issue; is != nil && is.Dependencies != nil {
-		// What GitHub counts but would not list: a blocker in a repository
-		// this token may not read.
-		read.unreadable = int32(min(max(is.Dependencies.TotalBlockedBy-len(list.Blockers), 0), 999))
-		if list.NotModified {
-			read.unreadable = int32(min(max(is.Dependencies.TotalBlockedBy-len(blockers), 0), 999))
+		// What GitHub counts open but would not list: a blocker in a
+		// repository this token may not read (or one too malformed to
+		// record). Open ones only: a hidden blocker closed since cannot
+		// hold the intent for ever, though maul cannot tell its reason.
+		listedOpen := 0
+		for _, b := range blockers {
+			if b.State == "open" {
+				listedOpen++
+			}
 		}
+		read.unreadable = int32(min(max(is.Dependencies.BlockedBy-listedOpen, 0), 999))
 	}
 	return read, nil
 }
@@ -585,9 +590,13 @@ func (p *pass) noticeLateBlockers(ctx context.Context) (bool, error) {
 	if err != nil || read.kind != depReadOK {
 		return false, err
 	}
+	// Open blockers the wait did not know of: one an approver's start
+	// overrode is no news.
 	var late []v1alpha1.IntentBlocker
 	for _, b := range read.blockers {
-		if b.State == "open" {
+		if b.State == "open" && !slices.ContainsFunc(deps.Blockers, func(k v1alpha1.IntentBlocker) bool {
+			return k.Number == b.Number && sameRepo(k.Repository, b.Repository)
+		}) {
 			late = append(late, b)
 		}
 	}

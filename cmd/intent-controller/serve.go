@@ -70,6 +70,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"hold an intent whose issue GitHub records as blocked by other issues in Pending until every blocker is "+
 			"closed as completed (an approver's /maul start overrides); off, intents start as soon as their "+
 			"trigger is accepted and every Project says DependenciesUnavailable (DependenciesOff)")
+	f.Duration("intent-dependency-give-up", intent.DefaultDependencyGiveUp,
+		"how long a dependency read GitHub keeps failing holds an intent before it starts without its dependencies")
+	_ = f.MarkHidden("intent-dependency-give-up")
 	f.Bool("intent-multi-repo", false,
 		"run intents of Projects that list more than one repository; off, such a Project is not Ready and its "+
 			"intents are held Blocked (UnsupportedRepositories) where they stand: no run is launched and nothing "+
@@ -154,6 +157,7 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		MultiRepo:            opts.Bool("intent-multi-repo"),
 		Previews:             opts.Bool("intent-previews-enabled"),
 		IgnoreDependencies:   !opts.Bool("intent-dependencies"),
+		DependencyGiveUp:     opts.Duration("intent-dependency-give-up"),
 		Plan: intent.StageCeiling{
 			MaxTurns:    int32(opts.Int("intent-plan-max-turns")),
 			TokenBudget: int64(opts.Int("intent-plan-token-budget")),

@@ -152,6 +152,8 @@ func TestComponentConfigReachesSettings(t *testing.T) {
 		// defaults to the chart's tester deadline maximum.
 		Verification:     false,
 		VerifyTimeoutMax: intent.DefaultVerifyTimeoutMax,
+		// Dependencies are honoured, with the default give-up bound.
+		DependencyGiveUp: intent.DefaultDependencyGiveUp,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)

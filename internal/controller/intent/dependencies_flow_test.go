@@ -278,6 +278,9 @@ func TestDependencyStartCommand(t *testing.T) {
 	if body := e.statusOf(1); !strings.Contains(body, "started by `peter` with `/maul start` while [#2](") {
 		t.Fatalf("status comment:\n%s", body)
 	}
+	if n := len(e.gh.withMarker(lateNoticeKey)); n != 0 || e.get(name).Status.Dependencies.LateNotice != nil {
+		t.Fatalf("the blocker the start overrode was noticed as added late (%d notices)", n)
+	}
 
 	// Planning now: a second start is not available.
 	again := e.gh.comment(approver, "/maul start")
