@@ -63,9 +63,13 @@ const (
 	// integration-scoped delete-everything), which no intent surface offers.
 	VerbVerify = "verify"
 	// VerbAccept records an approver's acceptance of one acceptance
-	// criterion (a manual one, or one that passed only on retry) at the
-	// current combined change.
+	// criterion or outcome (a manual one, one that passed only on retry, or
+	// an outcome the evaluator could not confirm or found failing) at the
+	// current combined change; "all" accepts every one of them.
 	VerbAccept = "accept"
+	// VerbPreview releases an intent's held preview link at once, before the
+	// evaluation settles; it changes nothing else.
+	VerbPreview = "preview"
 )
 
 // ActionVerbs lists the per-finding verbs in the order clients present them.

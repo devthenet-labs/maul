@@ -23,8 +23,9 @@ import (
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// The acceptance commands, /maul verify [fix|stop|--reset] and /maul accept <id>,
-// settle here for both surfaces that offer them: the intent issue (from
+// The acceptance commands, /maul verify [fix|stop|--reset], /maul accept
+// <id>|all and /maul preview, settle here for both surfaces that offer them:
+// the intent issue (from
 // decide, on the poll's answer path) and each of the intent's pull requests
 // (settlePRVerifyCommands). An intent has one combined change and one
 // Preview, so the surface a command is made on changes only where its
@@ -32,7 +33,8 @@ import (
 // answered, never what it does. Every effect is a status write of the intent
 // reconciler; nothing here starts a round or touches a Preview: the
 // verification loop reads status.verification.requested, the reset
-// generation and the auto-fix latch, and status.acceptance.accepted.
+// generation and the auto-fix latch, status.acceptance.accepted, and the
+// hand-off (status.verification.handoff), which /maul preview releases.
 
 // verifyResetInterval spaces resets: each restarts every part of the
 // Preview and drops its data, so one approver's burst of --reset comments
@@ -54,7 +56,7 @@ type verifyCommand struct {
 
 // isVerifyVerb reports an acceptance command's verb.
 func isVerifyVerb(verb string) bool {
-	return verb == action.VerbVerify || verb == action.VerbAccept
+	return verb == action.VerbVerify || verb == action.VerbAccept || verb == action.VerbPreview
 }
 
 // verifyPhase reports a phase the acceptance commands mean something in:
@@ -113,17 +115,27 @@ func (p *pass) settleVerifyIssue(ctx context.Context, a humanAction) error {
 // replyVerifyRecorded answers an acceptance command the Intent already
 // records, from what it records.
 func (p *pass) replyVerifyRecorded(ctx context.Context, a humanAction) error {
-	n := p.recordedVerifyNotice(command.IntentIssue, a.key(), a.id, a.actor, a.verb)
+	body := ""
+	if a.comment != nil {
+		body = a.comment.Body
+	}
+	n := p.recordedVerifyNotice(verifyCommand{surface: command.IntentIssue, key: a.key(), id: a.id, actor: a.actor,
+		verb: a.verb, body: body})
 	return p.verifyNotice(ctx, a.key(), a.at, n)
 }
 
 // recordedVerifyNotice is the reply to an acceptance command recorded as
-// comment id: what it recorded while that still stands, else that it was
+// comment c.id: what it recorded while that still stands, else that it was
 // applied.
-func (p *pass) recordedVerifyNotice(surface command.Surface, key string, id int64, actor ghclient.Actor,
-	verb string) templates.VerifyCommandNotice {
-	n := p.verifyNoticeFor(surface, key, actor, verb)
+func (p *pass) recordedVerifyNotice(c verifyCommand) templates.VerifyCommandNotice {
+	n := p.verifyNoticeFor(c.surface, c.key, c.actor, c.verb)
+	id := c.id
 	n.Outcome = templates.VerifyApplied
+	if v := p.in.Status.Verification; c.verb == action.VerbPreview && v != nil && v.Handoff != nil &&
+		v.Handoff.Released && v.Handoff.Reason == v1alpha1.HandoffReasonCommand {
+		n.Outcome = templates.VerifyPreviewReleased
+		return n
+	}
 	if v := p.in.Status.Verification; v != nil && v.Requested != nil && v.Requested.CommentID == id {
 		n.Outcome, n.Fix, n.Reset = templates.VerifyRequested, v.Requested.Fix, v.Requested.Reset
 		n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
@@ -134,13 +146,26 @@ func (p *pass) recordedVerifyNotice(surface command.Surface, key string, id int6
 		n.Outcome = templates.VerifyStopped
 		return n
 	}
-	if acc := p.in.Status.Acceptance; acc != nil {
-		for _, r := range acc.Accepted {
-			if r.CommentID == id {
-				n.Outcome, n.Criterion, n.Heads = templates.VerifyAccepted, r.ID, r.Heads
-				n.NoCriteria = r.ID == acceptAll && len(acc.Criteria) == 0
-			}
+	return p.recordedAcceptance(c, n)
+}
+
+// recordedAcceptance is recordedVerifyNotice for /maul accept: the ids
+// comment c.id is recorded as accepting, while those records stand.
+func (p *pass) recordedAcceptance(c verifyCommand, n templates.VerifyCommandNotice) templates.VerifyCommandNotice {
+	acc := p.in.Status.Acceptance
+	if acc == nil {
+		return n
+	}
+	n.Outcomes = len(acc.Outcomes) > 0
+	for _, r := range acc.Accepted {
+		if r.CommentID == c.id {
+			n.Outcome, n.Criterion, n.Heads = templates.VerifyAccepted, r.ID, r.Heads
+			n.NoCriteria = r.ID == acceptAll && len(acc.Criteria) == 0 && !n.Outcomes
+			n.Accepted = append(n.Accepted, r.ID)
 		}
+	}
+	if named, ok := command.ParseAccept(c.body); n.Outcome == templates.VerifyAccepted && ok && named == acceptAll {
+		n.Criterion = acceptAll // /maul accept all, however many it closed
 	}
 	return n
 }
@@ -183,8 +208,63 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 		}
 		n.Criterion = id
 		return p.acceptCriterion(ctx, c, id, n)
+	case action.VerbPreview:
+		if !command.ParsePreview(c.body) {
+			n.Outcome = templates.VerifyUsage
+			return n, nil
+		}
+		return p.releasePreview(ctx, c, n)
 	}
 	return n, fmt.Errorf("verify command: unexpected verb %q", c.verb)
+}
+
+// releasePreview records /maul preview: the held preview link is released
+// at once, reason command, and nothing else changes (the evaluation goes on,
+// and its results follow). Only a plan that declares outcomes under a gated
+// hand-off holds the link; anything else, or a link released already, is
+// answered and records nothing.
+func (p *pass) releasePreview(ctx context.Context, c verifyCommand,
+	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	if v := p.in.Status.Verification; v != nil && v.Handoff != nil && v.Handoff.Released {
+		n.Outcome = templates.VerifyPreviewAlready
+		return n, nil
+	}
+	mode, held := p.previewHeld()
+	if !held {
+		n.Outcome = templates.VerifyPreviewNotHeld
+		return n, nil
+	}
+	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
+		v := in.Status.Verification
+		if v == nil {
+			v = &v1alpha1.IntentVerification{}
+			in.Status.Verification = v
+		}
+		at := metav1.NewTime(p.now)
+		v.Handoff = &v1alpha1.HandoffState{Mode: mode, Released: true, ReleasedAt: &at,
+			Reason: v1alpha1.HandoffReasonCommand}
+		rememberApplied(in, c.id)
+		return nil
+	}); err != nil {
+		return n, err
+	}
+	n.Outcome = templates.VerifyPreviewReleased
+	return n, nil
+}
+
+// previewHeld reports the hand-off mode in force and whether it holds the
+// preview link: only for an approved plan that declares outcomes (the
+// evaluator's), under a gated hand-off. The mode is the one recorded on the
+// hand-off, else the Project's, gated by default (DESIGN 7.2).
+func (p *pass) previewHeld() (v1alpha1.HandoffMode, bool) {
+	if !p.acceptanceCurrent() || len(p.in.Status.Acceptance.Outcomes) == 0 {
+		return "", false
+	}
+	mode := p.proj.Spec.HandoffMode(v1alpha1.HandoffGated)
+	if v := p.in.Status.Verification; v != nil && v.Handoff != nil {
+		mode = v.Handoff.Mode
+	}
+	return mode, mode == v1alpha1.HandoffGated
 }
 
 // requestVerification records /maul verify as status.verification.requested,
@@ -299,10 +379,11 @@ func (p *pass) inFlightVerifyFix() (pending string, running bool) {
 }
 
 // acceptAll is the id /maul accept all records for a plan that declares no
-// acceptance criteria: the approver's word that the change needs none. It
-// means nothing for a plan that declares some (a criterion of that id is
-// accepted as itself).
-const acceptAll = "all"
+// acceptance criteria: the approver's word that the change needs none. For a
+// plan that declares outcomes it closes every outcome an approver could
+// close one by one, each recorded as itself. A criterion or outcome of that
+// id is accepted as itself.
+const acceptAll = command.AcceptAll
 
 // acceptCriterion records /maul accept <id> in status.acceptance.accepted,
 // bound to the combined change being verified (status.verification's head
@@ -310,11 +391,10 @@ const acceptAll = "all"
 // criterion, one maul does not run yet (command), or one quarantined (it
 // passed only on retry) is accepted by hand, and for a plan with no
 // criteria, all: one maul checks and judged outright is never overridden by
-// a human saying so.
+// a human saying so. A plan that declares outcomes is acceptOutcome's.
 func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	acc := p.in.Status.Acceptance
-	v := p.in.Status.Verification
 	n.Acceptable = p.acceptable()
 	var crit *v1alpha1.AcceptanceCriterion
 	if !p.acceptanceCurrent() {
@@ -323,10 +403,11 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 		n.Acceptable, n.Outcome = nil, templates.VerifyAcceptNotYet
 		return n, nil
 	}
-	if acc != nil {
-		if i := slices.IndexFunc(acc.Criteria, func(c v1alpha1.AcceptanceCriterion) bool { return c.ID == id }); i >= 0 {
-			crit = &acc.Criteria[i]
-		}
+	if len(acc.Outcomes) > 0 {
+		return p.acceptOutcome(ctx, c, id, n)
+	}
+	if i := slices.IndexFunc(acc.Criteria, func(c v1alpha1.AcceptanceCriterion) bool { return c.ID == id }); i >= 0 {
+		crit = &acc.Criteria[i]
 	}
 	switch {
 	case crit == nil && (id != acceptAll || len(acc.Criteria) != 0):
@@ -335,7 +416,53 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	case !slices.Contains(n.Acceptable, id):
 		n.Outcome = templates.VerifyAcceptAutomatic
 		return n, nil
-	case v == nil || v.HeadSetDigest == "":
+	}
+	n, err := p.recordAcceptance(ctx, c, []string{id}, n)
+	n.NoCriteria = n.Outcome == templates.VerifyAccepted && crit == nil
+	return n, err
+}
+
+// acceptOutcome records /maul accept <id>|all on a plan that declares
+// outcomes (the evaluator's), as acceptCriterion records a criterion: an
+// approver closes a manual outcome, or one the evaluator could not confirm,
+// found failing or passed only on retry; all closes every such outcome at
+// once, each recorded as itself under the one comment. An outcome that
+// passed, or that nothing has decided yet, is never closed by hand.
+func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
+	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	n.Outcomes = true
+	declared := slices.ContainsFunc(p.in.Status.Acceptance.Outcomes,
+		func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == id })
+	ids := []string{id}
+	switch {
+	case !declared && id == acceptAll:
+		if len(n.Acceptable) == 0 {
+			n.Outcome = templates.VerifyAcceptAutomatic
+			return n, nil
+		}
+		ids = slices.Clone(n.Acceptable)
+	case !declared:
+		n.Outcome = templates.VerifyAcceptUnknown
+		return n, nil
+	case !slices.Contains(n.Acceptable, id):
+		n.Outcome = templates.VerifyAcceptAutomatic
+		return n, nil
+	}
+	n, err := p.recordAcceptance(ctx, c, ids, n)
+	if n.Outcome == templates.VerifyAccepted {
+		n.Accepted = ids
+	}
+	return n, err
+}
+
+// recordAcceptance records an approver's acceptance of ids in
+// status.acceptance.accepted, each replacing any earlier acceptance of the
+// same id, bound to the head set under verification, and only when the
+// Preview ran it when the approver commented (liveWhenGiven).
+func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []string,
+	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	v := p.in.Status.Verification
+	if v == nil || v.HeadSetDigest == "" {
 		n.Outcome = templates.VerifyAcceptNotYet
 		return n, nil
 	}
@@ -344,15 +471,18 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 		n.Outcome, n.Heads = templates.VerifyAcceptMoved, heads
 		return n, err
 	}
-	rec := v1alpha1.AcceptanceRecord{ID: id, By: c.actor.Login, ByID: c.actor.ID, At: metav1.NewTime(c.at),
-		CommentID: c.id, HeadSetDigest: v.HeadSetDigest, Heads: heads}
+	recs := make([]v1alpha1.AcceptanceRecord, 0, len(ids))
+	for _, id := range ids {
+		recs = append(recs, v1alpha1.AcceptanceRecord{ID: id, By: c.actor.Login, ByID: c.actor.ID,
+			At: metav1.NewTime(c.at), CommentID: c.id, HeadSetDigest: v.HeadSetDigest, Heads: heads})
+	}
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		a := in.Status.Acceptance
 		if a == nil {
 			return errors.New("accept: the acceptance criteria vanished")
 		}
 		a.Accepted = append(slices.DeleteFunc(slices.Clone(a.Accepted),
-			func(r v1alpha1.AcceptanceRecord) bool { return r.ID == id }), rec)
+			func(r v1alpha1.AcceptanceRecord) bool { return slices.Contains(ids, r.ID) }), recs...)
 		rememberApplied(in, c.id)
 		// The counts maul/acceptance reads follow the acceptance at once.
 		if v := in.Status.Verification; v != nil {
@@ -362,7 +492,7 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	}); err != nil {
 		return n, err
 	}
-	n.Outcome, n.Heads, n.NoCriteria = templates.VerifyAccepted, heads, crit == nil
+	n.Outcome, n.Heads = templates.VerifyAccepted, heads
 	return n, nil
 }
 
@@ -411,11 +541,15 @@ func rememberApplied(in *v1alpha1.Intent, id int64) {
 
 // acceptable are the criteria an approver can accept by hand, in plan
 // order: the manual ones, those maul does not run yet and the quarantined;
-// for a plan with no criteria, all.
+// for a plan with no criteria, all; for a plan that declares outcomes, the
+// outcomes acceptableOutcomes names.
 func (p *pass) acceptable() []string {
 	acc := p.in.Status.Acceptance
 	if acc == nil {
 		return nil
+	}
+	if len(acc.Outcomes) > 0 {
+		return p.acceptableOutcomes()
 	}
 	if len(acc.Criteria) == 0 {
 		return []string{acceptAll}
@@ -428,6 +562,32 @@ func (p *pass) acceptable() []string {
 	for _, c := range acc.Criteria {
 		if byHand(c) || slices.Contains(quarantined, c.ID) {
 			out = append(out, c.ID)
+		}
+	}
+	return out
+}
+
+// acceptableOutcomes are the outcomes an approver can close by hand, in plan
+// order: the manual ones, and those the latest decision left failed, unsure
+// or quarantined (passed only on retry), or accepted earlier, which a new
+// acceptance rebinds to the current commits. One that passed, or that
+// nothing has decided yet, is not among them.
+func (p *pass) acceptableOutcomes() []string {
+	result := map[string]v1alpha1.OutcomeResultValue{}
+	if v := p.in.Status.Verification; v != nil {
+		for _, r := range v.Outcomes {
+			result[r.ID] = r.Result
+		}
+	}
+	var out []string
+	for _, o := range p.in.Status.Acceptance.Outcomes {
+		switch result[o.ID] {
+		case v1alpha1.OutcomeFailed, v1alpha1.OutcomeUnsure, v1alpha1.OutcomeQuarantined, v1alpha1.OutcomeAccepted:
+			out = append(out, o.ID)
+		case v1alpha1.OutcomePassed, "":
+			if o.Manual {
+				out = append(out, o.ID)
+			}
 		}
 	}
 	return out
@@ -527,7 +687,8 @@ func (p *pass) settlePRVerifyCommand(ctx context.Context, pr *v1alpha1.IntentPul
 	}
 	if p.verifyRecorded(c.ID) {
 		body, err := templates.RenderVerifyCommandNotice(
-			p.recordedVerifyNotice(command.IntentPR, key, c.ID, a.actor, a.verb))
+			p.recordedVerifyNotice(verifyCommand{surface: command.IntentPR, key: key, id: c.ID, actor: a.actor,
+				verb: a.verb, body: c.Body}))
 		return p.prReply(ctx, pr, body, err)
 	}
 	edited, err := p.r.GitHub.PullRequestCommentEdited(ctx, pr.Repository, c.NodeID)
