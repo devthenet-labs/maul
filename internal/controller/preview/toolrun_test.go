@@ -315,6 +315,63 @@ func TestToolsStatusOnlyWhenReady(t *testing.T) {
 	}
 }
 
+// A restarted preview-controller holds no CDP key in memory and never reads
+// its Secret back, so it must not capture with a key it does not know: the
+// capture is refused (the last one written stands) rather than refreshed
+// with the key unredacted, and status.tools is still written. A restart
+// while the tool pod runs and one between writing the Secret and marking
+// the verification Running are both covered.
+func TestToolsCaptureRefusedAfterRestart(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		beforeRunning bool
+	}{
+		{name: "while running"},
+		{name: "before the status was written", beforeRunning: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			pv, _ := e.verify()
+			var sec corev1.Secret
+			if err := e.slotObject(toolName(e.p, pv, toolKeyInfix), &sec); err != nil {
+				t.Fatal(err)
+			}
+			key := string(sec.Data[cdpKeyFile])
+			if tc.beforeRunning {
+				pv.Status.Phase, pv.Status.StartedAt = "", nil
+				e.mustStatus(pv)
+			}
+			// The restart: a new reconciler, no tool state.
+			e.v = &VerificationReconciler{Client: e.v.Client, Settings: e.v.Settings, Logs: e.v.Logs,
+				DeadlineMax: e.v.DeadlineMax, Now: e.v.Now, Log: e.v.Log}
+			if tc.beforeRunning {
+				if pv, _ = e.verify(); pv.Status.Phase != v1alpha1.VerificationRunning {
+					t.Fatalf("phase %q after the restart", pv.Status.Phase)
+				}
+			}
+			e.startToolPod(e.testerJob(), true)
+			e.logs.logs["maul-preview-0/"+componentName(e.p, 0)+"-pod/web"] = []byte("GET / 200 leaked " + key + "\n")
+			e.logs.logs["maul-preview-0/"+componentName(e.p, 1)+"-pod/api"] = []byte("listening\n")
+			pv, _ = e.verify()
+			var cm corev1.ConfigMap
+			if err := e.slotObject(toolName(e.p, pv, toolConfigInfix), &cm); err != nil {
+				t.Fatal(err)
+			}
+			for k, v := range cm.Data {
+				if strings.Contains(v, key) {
+					t.Errorf("tool ConfigMap %s holds the CDP key unredacted: %q", k, v)
+				}
+			}
+			if got, _ := json.Marshal(pv.Status); bytes.Contains(got, []byte(key)) {
+				t.Errorf("status holds the CDP key: %s", got)
+			}
+			if pv.Status.Tools == nil || !pv.Status.Tools.Ready {
+				t.Errorf("status.tools %+v, want Ready", pv.Status.Tools)
+			}
+		})
+	}
+}
+
 func TestToolsObserved(t *testing.T) {
 	e := newToolEnv(t)
 	e.verify()
