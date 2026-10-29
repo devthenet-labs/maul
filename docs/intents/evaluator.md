@@ -205,7 +205,11 @@ spec:
 
 The evaluation ceiling is counted apart from the intent's own `limits.maxCostMicroUSD`, so evaluation can never spend
 what the fix rounds need; the chart's `maxEvaluateCostUSD` caps it for every Project. Under
-`egressBroker.limits.unit: cost` each run's own cost budget is stamped on its pod as for every other stage.
+`egressBroker.limits.unit: cost` each run's own cost budget is stamped on its pod as for every other stage: its stage's
+`maxCostMicroUSD`, or the evaluation ceiling when that is unset, never more than the ceiling. Like every other stage,
+`limits.evaluate` and `limits.checkReview` lower a run's turns, tokens and `timeout` but never raise them past the
+controller's, and an evaluate or checkreview run budget over half the broker's hourly cost limit keeps the Project from
+Ready (`RunBudgetOverHourlyLimit`).
 
 ## Reading the evidence
 
@@ -253,3 +257,10 @@ scripted codex, but no live run has proved it yet, screenshot viewing included: 
 A tool pod lives as long as its evaluate run plus five minutes, under the slot's verification deadline
 (`preview.verification.deadlineMaxSeconds`), and needs about 2.5 CPU and 2 GiB beside the Preview: see
 [the preview-controller](../configuration/preview-controller.md#the-agent-evaluators-tool-pod).
+
+## Known limits
+
+- **No replan once the pull requests are open.** An approved plan cannot be replanned while its intent is in review:
+  `/maul replan` and a re-applied trigger label are answered as not available there, and no notice offers them. To start
+  over with a new plan, an approver comments `/maul cancel` (the pull requests are left as they are) and opens a new
+  issue. Replanning from review is deferred to a later release.

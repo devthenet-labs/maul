@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,6 +18,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -47,6 +49,9 @@ const (
 	// paths read per pull request (one page of GitHub's listing).
 	changedPathMaxBytes = 512
 	changedPathsMax     = 100
+	// priorReasonMaxBytes bounds a previous verdict's reason (the Intent's
+	// schema bound on it).
+	priorReasonMaxBytes = 600
 )
 
 // evaluationRunToken is the run token the evaluator names the data it
@@ -59,8 +64,9 @@ func evaluationRunToken(pv *v1alpha1.PreviewVerification) string {
 // evaluateHandoff renders pv's evaluate handoff from the intent's records:
 // the round and its run token, the request (the input snapshot's issue
 // text), the approved outcomes, the previewed components at pv's heads,
-// the tool pod's tools, and the files the open pull requests change with
-// their line counts (SPEC Q15). A fix round's diff (Q15) is not handed yet.
+// the tool pod's tools, the files the open pull requests change with
+// their line counts (SPEC Q15), and on a round after a judged one, that
+// round's results and the diff since its heads (previousRound).
 func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerification) (string, error) {
 	outcomes, err := crdconv.OutcomesFromCRD(pv.Spec.Outcomes)
 	if err != nil {
@@ -88,7 +94,124 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 		return "", err
 	}
 	h.ChangedPaths = p.changedPaths(ctx)
+	if err := p.previousRound(ctx, pv, &h); err != nil {
+		return "", err
+	}
 	return encodeEvaluateHandoff(h)
+}
+
+// previousRound fills h, pv's handoff, with what the controller stores of
+// the last judged round before pv (SPEC Q15), on a round after one: maul's
+// results of the approved outcomes (status.verification.outcomes, which
+// only a judgement writes), how that round's saved checks replayed, and
+// the diff since the heads it evaluated (fixDiff). Each string is bounded
+// and made visible. A previous round's PreviewVerification already pruned
+// leaves the verdicts alone.
+func (p *pass) previousRound(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	h *agentrun.EvaluateHandoff) error {
+	if pv.Spec.Round <= 1 {
+		return nil
+	}
+	prev, err := p.judgedBefore(ctx, pv)
+	if err != nil {
+		return err
+	}
+	h.PriorVerdicts = p.priorVerdicts()
+	if prev == nil {
+		if len(h.PriorVerdicts) > 0 {
+			h.PriorRound = int(pv.Spec.Round) - 1
+		}
+		return nil
+	}
+	h.PriorRound = int(prev.Spec.Round)
+	h.PriorReplay = priorReplay(prev)
+	h.FixDiff = p.fixDiff(ctx, prev, pv)
+	return nil
+}
+
+// judgedBefore is the Intent's latest PreviewVerification before pv's round
+// that was judged (Observed, or EnvFailed) on the same approved outcomes:
+// nil when there is none.
+func (p *pass) judgedBefore(ctx context.Context, pv *v1alpha1.PreviewVerification) (
+	*v1alpha1.PreviewVerification, error) {
+	pvs, err := p.ownVerifications(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var prev *v1alpha1.PreviewVerification
+	for i := range pvs {
+		c := &pvs[i]
+		judged := c.Status.Phase == v1alpha1.VerificationObserved || c.Status.Phase == v1alpha1.VerificationEnvFailed
+		if !judged || c.Spec.Round >= pv.Spec.Round || c.Spec.OutcomesDigest != pv.Spec.OutcomesDigest {
+			continue
+		}
+		if prev == nil || c.Spec.Round > prev.Spec.Round ||
+			c.Spec.Round == prev.Spec.Round && c.Spec.Attempt > prev.Spec.Attempt {
+			prev = c
+		}
+	}
+	return prev, nil
+}
+
+// priorVerdicts are maul's recorded results of the approved outcomes, in
+// plan order, each reason bounded and made visible.
+func (p *pass) priorVerdicts() []agentrun.PriorVerdict {
+	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	if acc == nil || v == nil {
+		return nil
+	}
+	var out []agentrun.PriorVerdict
+	for _, o := range acc.Outcomes {
+		i := slices.IndexFunc(v.Outcomes, func(r v1alpha1.OutcomeResult) bool { return r.ID == o.ID })
+		if i < 0 {
+			continue
+		}
+		r := v.Outcomes[i]
+		out = append(out, agentrun.PriorVerdict{Outcome: r.ID, Result: string(r.Result),
+			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)})
+	}
+	return out
+}
+
+// priorReplay is how prev's saved checks replayed, in replay order: each by
+// its id and outcome, a run of a check prev does not carry left out.
+func priorReplay(prev *v1alpha1.PreviewVerification) []agentrun.PriorReplay {
+	var out []agentrun.PriorReplay
+	for _, r := range prev.Status.Replay {
+		i := slices.IndexFunc(prev.Spec.Checks, func(c v1alpha1.SavedCheck) bool { return c.Digest == r.CheckDigest })
+		if i < 0 {
+			continue
+		}
+		c := prev.Spec.Checks[i]
+		out = append(out, agentrun.PriorReplay{Check: c.ID, Outcome: c.Outcome, Result: string(r.Result)})
+	}
+	return out
+}
+
+// fixDiff is the diff since the heads prev evaluated (SPEC Q15): one
+// compare per component whose head moved, under its repository's name,
+// bounded to what the prompt quotes and made visible; "" when no head
+// moved. A compare that fails is logged and left out: the evaluator judges
+// without it rather than not at all.
+func (p *pass) fixDiff(ctx context.Context, prev, pv *v1alpha1.PreviewVerification) string {
+	var b strings.Builder
+	for _, head := range pv.Spec.Heads {
+		i := slices.IndexFunc(prev.Spec.Heads, func(o v1alpha1.VerificationHead) bool {
+			return o.Component == head.Component
+		})
+		if i < 0 || prev.Spec.Heads[i].Revision == head.Revision || b.Len() >= templates.FixDiffMaxBytes {
+			continue
+		}
+		patch, err := p.r.GitHub.ComparePatch(ctx, head.Repository, prev.Spec.Heads[i].Revision, head.Revision)
+		if err != nil {
+			p.r.log().LogAttrs(ctx, slog.LevelWarn, "compare the heads for the evaluator's fix diff; left out",
+				slog.String("intent", p.in.Name), slog.String("repository", head.Repository), slog.Any("error", err))
+			continue
+		}
+		fmt.Fprintf(&b, "# %s %s...%s\n%s\n", repoSlug(head.Repository), prev.Spec.Heads[i].Revision,
+			head.Revision, strings.TrimRight(patch, "\n"))
+	}
+	return untrusted.Visible(b.String(), templates.FixDiffMaxBytes)
 }
 
 // requestText is the intent's request as its input snapshot recorded it,

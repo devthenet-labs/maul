@@ -222,11 +222,11 @@ func (e *env) checkStoppedForReplan(name string) string {
 		t.Fatalf("condition = %+v", c)
 	}
 	s := e.latestAcceptance(in.Status.PullRequests[0].HeadSHA)
-	if s.State != "error" || !strings.Contains(s.Description, "replan needed") {
+	if s.State != "error" || !strings.Contains(s.Description, "nothing is verified") {
 		t.Fatalf("status = %+v", s)
 	}
 	if status := e.gh.withMarker("maul:intent"); len(status) == 0 ||
-		!strings.Contains(status[len(status)-1].Body, "Verification waits for a new plan") {
+		!strings.Contains(status[len(status)-1].Body, "the approved plan states acceptance criteria") {
 		t.Errorf("status comment does not say why nothing is verified")
 	}
 	return key

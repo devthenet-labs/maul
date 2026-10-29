@@ -48,10 +48,11 @@ The outcomes are the contract. The request is context: use it to understand them
 
 ### The fix since the last round
 
-The last round found a failure, and an agent changed the code to fix it. This is its diff since the heads the last
-round evaluated. A fix agent sees how a failing check reproduced the failure, so read the diff for special-casing:
-code that recognises a check's requests or data instead of fixing the behaviour. Where you find any, judge the
-outcome it touches with data of your own the fix could not have foreseen, and say what you found in its note.
+The code changed since the heads the last round evaluated: most often an agent fixed a failure that round found,
+sometimes a person pushed. This is the diff since those heads. A fix agent sees how a failing check reproduced the
+failure, so read the diff for special-casing: code that recognises a check's requests or data instead of fixing the
+behaviour. Where you find any, judge the outcome it touches with data of your own the fix could not have foreseen,
+and say what you found in its note.
 
 ```text
 --- a/api/ratings.go
@@ -59,6 +60,27 @@ outcome it touches with data of your own the fix could not have foreseen, and sa
 @@ -1 +1 @@
 -k := 16
 +k := 32
+```
+
+### The previous round
+
+maul judged round 1 of this evaluation as below: `result` is maul's own decision from that round's
+ledger, and `why` may quote that round's evaluator; `replayed` is how each saved check ran at the start of that round.
+Use it to decide where to look first: every outcome that did not pass, and every outcome the change since then
+touches. It is no evidence for this round: every verdict you give cites this round's ledger, and the saved checks
+replay again this round (`maul-tool check results`).
+
+```text
+verdicts:
+- outcome: winner-rises
+  result: failed
+  why: The loser stays above the winner after one rating.
+- outcome: leaderboard-still-loads
+  result: passed
+- outcome: sounds-good
+  result: unsure
+replayed:
+- check: leaderboard-still-loads (outcome leaderboard-still-loads): pass
 ```
 
 ## The preview and your tools

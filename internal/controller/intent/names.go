@@ -460,26 +460,44 @@ func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha
 		TimeoutMilliseconds: timeout.Milliseconds(),
 	}
 	if s.CostBudgets {
-		g.BudgetMicroUSD = runBudget(p, stage)
+		g.BudgetMicroUSD = s.stageBudget(p, stage)
 	}
 	return g
+}
+
+// stageBudget is the cost budget of one run of stage in micro-USD, held to
+// the ceiling it is spent against: a build-side stage's runBudget, and an
+// evaluate or checkreview run's stage maxCostMicroUSD, or the evaluation
+// ceiling when that is unset, and never more than that ceiling.
+func (s Settings) stageBudget(p *v1alpha1.Project, stage v1alpha1.IntentStage) int64 {
+	if !roleStage(stage) {
+		return runBudget(p, stage)
+	}
+	ceiling := s.evaluationCeiling(p)
+	if b := stageLimits(p, stage).MaxCostMicroUSD; b > 0 && b < ceiling {
+		return b
+	}
+	return ceiling
 }
 
 // budgetOverHourly reports the first stage whose run budget is more than
 // half the broker's hourly cost limit, with that budget: the guard that one
 // run cannot starve every other (design "limits that fit large features"
-// §1.4). Nothing is reported unless the broker counts cost under an hourly
-// limit.
+// §1.4). The evaluate and checkreview stages count while the evaluator
+// verifies the Project's intents. Nothing is reported unless the broker
+// counts cost under an hourly limit.
 func (s Settings) budgetOverHourly(p *v1alpha1.Project) (v1alpha1.IntentStage, int64) {
 	if !s.CostBudgets || s.BrokerCostPerHour <= 0 {
 		return "", 0
 	}
-	for _, stage := range []v1alpha1.IntentStage{
-		v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise,
-	} {
+	stages := []v1alpha1.IntentStage{v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise}
+	if s.evaluates(p) && !s.evaluatorUnverified(p) {
+		stages = append(stages, v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview)
+	}
+	for _, stage := range stages {
 		// A budget is at most the schema's $1000 cap, so doubling it cannot
 		// overflow; exactly half the limit is allowed.
-		if b := runBudget(p, stage); 2*b > s.BrokerCostPerHour {
+		if b := s.stageBudget(p, stage); 2*b > s.BrokerCostPerHour {
 			return stage, b
 		}
 	}
@@ -506,7 +524,7 @@ func (s Settings) runBudgetFor(run *v1alpha1.IntentRun, p *v1alpha1.Project) int
 	if b := run.Spec.Grant.BudgetMicroUSD; b > 0 {
 		return b
 	}
-	return runBudget(p, run.Spec.Stage)
+	return s.stageBudget(p, run.Spec.Stage)
 }
 
 // Project settings with the schema defaults applied, for a Project the API

@@ -32,7 +32,8 @@ const evaluateHandoffMaxBytes = 256 << 10
 // the intent controller encodes as strict JSON (encoding/json of this
 // type). agent-runner renders the evaluate prompt from it
 // (templates.RenderEvaluatePrompt), which quotes every untrusted field
-// (Request, Outcomes, ChangedPaths, FixDiff) as fenced data.
+// (Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay) as
+// fenced data.
 type EvaluateHandoff struct {
 	// Round is the verification round, 1-based.
 	Round int `json:"round"`
@@ -54,6 +55,28 @@ type EvaluateHandoff struct {
 	// FixDiff is the fix's diff since the last evaluated heads, on a round
 	// after a fix; empty on round 1.
 	FixDiff string `json:"fix_diff,omitempty"`
+	// PriorRound is the last judged round before this one, 0 for none;
+	// PriorVerdicts are maul's results of its outcomes, and PriorReplay how
+	// its saved checks replayed (SPEC Q15).
+	PriorRound    int            `json:"prior_round,omitempty"`
+	PriorVerdicts []PriorVerdict `json:"prior_verdicts,omitempty"`
+	PriorReplay   []PriorReplay  `json:"prior_replay,omitempty"`
+}
+
+// PriorVerdict is maul's result of one outcome in a previous round, with
+// why it did not pass (which may quote that round's evaluator).
+type PriorVerdict struct {
+	Outcome string `json:"outcome"`
+	Result  string `json:"result"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// PriorReplay is how one saved check, bound to Outcome, replayed in a
+// previous round.
+type PriorReplay struct {
+	Check   string `json:"check"`
+	Outcome string `json:"outcome"`
+	Result  string `json:"result"`
 }
 
 // EvaluateComponent is one previewed component: the key an http check's
@@ -206,7 +229,15 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 			Browser: h.Tools.Browser, Sandbox: h.Tools.Sandbox,
 			MaxToolCalls: h.Tools.MaxToolCalls, LookAroundRoutes: h.Tools.LookAroundRoutes,
 		},
-		Request: h.Request, Outcomes: h.Outcomes, FixDiff: h.FixDiff,
+		Request: h.Request, Outcomes: h.Outcomes, FixDiff: h.FixDiff, PriorRound: h.PriorRound,
+	}
+	for _, v := range h.PriorVerdicts {
+		p.PriorVerdicts = append(p.PriorVerdicts, templates.PriorVerdict{Outcome: v.Outcome, Result: v.Result,
+			Reason: v.Reason})
+	}
+	for _, r := range h.PriorReplay {
+		p.PriorReplay = append(p.PriorReplay, templates.PriorReplay{Check: r.Check, Outcome: r.Outcome,
+			Result: r.Result})
 	}
 	for _, c := range h.Components {
 		p.Components = append(p.Components, templates.EvaluateComponent{Key: c.Key, Path: c.Path})

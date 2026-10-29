@@ -37,6 +37,11 @@ const (
 	// evaluateComponentsMax bounds the previewed components named: a
 	// Preview's.
 	evaluateComponentsMax = 4
+	// priorReplaysMax bounds the previous round's replays shown: an
+	// intent's saved checks (v1alpha1.MaxSavedChecks); priorReasonMaxBytes
+	// one prior verdict's reason (the Intent's schema bound).
+	priorReplaysMax     = 40
+	priorReasonMaxBytes = 600
 )
 
 // runToken is the exploration token's grammar: what the prompt states
@@ -47,9 +52,10 @@ var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 // the approved outcomes against the running preview with maul-tool, save
 // checks for them, look around what the change touched, and report.
 //
-// Request, Outcomes, ChangedPaths and FixDiff are UNTRUSTED (DESIGN 4.4):
-// the issue anyone may have written, the plan's outcome text, and paths and
-// diff text from the pull request. RenderEvaluatePrompt shows each only
+// Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts and PriorReplay
+// are UNTRUSTED (DESIGN 4.4): the issue anyone may have written, the plan's
+// outcome text, paths and diff text from the pull request, and a previous
+// round's results, whose reasons may quote its evaluator. RenderEvaluatePrompt shows each only
 // inside a fenced block it labels as data, made legible by
 // untrusted.Visible. Everything else is maul's own and is stated as fact.
 type EvaluatePrompt struct {
@@ -84,6 +90,25 @@ type EvaluatePrompt struct {
 	// FixDiff is the fix's diff since the last evaluated heads, on a round
 	// after a fix; "" omits the section.
 	FixDiff string
+	// PriorRound is the last judged round before this one, and
+	// PriorVerdicts and PriorReplay its results (SPEC Q15): maul's result
+	// per outcome, and how each saved check replayed at its start. Zero, or
+	// neither, omits the section.
+	PriorRound    int
+	PriorVerdicts []PriorVerdict
+	PriorReplay   []PriorReplay
+}
+
+// PriorVerdict is maul's result of one outcome in a previous round, with
+// why it did not pass.
+type PriorVerdict struct {
+	Outcome, Result, Reason string
+}
+
+// PriorReplay is how one saved check, bound to Outcome, replayed in a
+// previous round.
+type PriorReplay struct {
+	Check, Outcome, Result string
 }
 
 // EvaluateComponent is one previewed component as the evaluate prompt
@@ -123,6 +148,7 @@ type evaluateView struct {
 	OutcomesBlock string
 	ChangedBlock  string
 	FixDiffBlock  string
+	PriorBlock    string
 	Examples      evaluateExamples
 	// LookAroundCalls is LookAroundToolCalls, for the template.
 	LookAroundCalls int
@@ -156,7 +182,40 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 	if strings.TrimSpace(p.FixDiff) != "" {
 		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")
 	}
+	if p.PriorRound > 0 {
+		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
+	}
 	return render("prompt_evaluate.md.tmpl", v)
+}
+
+// priorBlock lists a previous round's results as the prompt quotes them:
+// maul's result per outcome with its reason, then each saved check's
+// replay, each list bounded; "" for neither.
+func priorBlock(verdicts []PriorVerdict, replays []PriorReplay) string {
+	var b strings.Builder
+	for i, r := range verdicts {
+		if i == acceptance.MaxOutcomes {
+			break
+		}
+		if i == 0 {
+			b.WriteString("verdicts:\n")
+		}
+		fmt.Fprintf(&b, "- outcome: %s\n  result: %s\n", quotedLine(r.Outcome, 64), quotedLine(r.Result, 16))
+		if r.Reason != "" {
+			fmt.Fprintf(&b, "  why: %s\n", quotedLine(r.Reason, priorReasonMaxBytes))
+		}
+	}
+	for i, r := range replays {
+		if i == priorReplaysMax {
+			break
+		}
+		if i == 0 {
+			b.WriteString("replayed:\n")
+		}
+		fmt.Fprintf(&b, "- check: %s (outcome %s): %s\n", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64),
+			quotedLine(r.Result, 16))
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // boundEvaluateComponents keeps the components with a valid key and a

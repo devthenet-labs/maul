@@ -219,7 +219,8 @@ func (p *pass) stopUnreadable(ctx context.Context, ap *v1alpha1.IntentApproval) 
 		cur.Status.Verification = next
 		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, reasonCriteriaUnreadable,
 			fmt.Sprintf("the acceptance criteria of the approved plan r%d cannot be read, so nothing is verified; "+
-				"/maul replan to approve a plan again", ap.PlanRevision))
+				"the plan cannot change while its pull requests are open: /maul cancel and a new issue start over",
+				ap.PlanRevision))
 		return nil
 	})
 }
@@ -298,7 +299,8 @@ func (p *pass) stopForReplan(ctx context.Context, ap *v1alpha1.IntentApproval) (
 		cur.Status.Verification = next
 		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, reasonCriteriaReplan,
 			fmt.Sprintf("the approved plan r%d states acceptance criteria, which the agent evaluator does not "+
-				"run, so nothing is verified; /maul replan to approve a plan stating outcomes", ap.PlanRevision))
+				"run, so nothing is verified; the plan cannot change while its pull requests are open: /maul cancel "+
+				"and a new issue start over with outcomes", ap.PlanRevision))
 		return nil
 	})
 }
@@ -758,7 +760,8 @@ func (p *pass) needsReplan(ctx context.Context, id string) error {
 		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue,
 			string(v1alpha1.AutoFixCriterionError),
 			"an approved acceptance criterion's target is not a previewed component of this Project, so it "+
-				"cannot run as approved; /maul replan to change the criteria")
+				"cannot run as approved; the plan cannot change while its pull requests are open: /maul cancel and "+
+				"a new issue start over")
 		return nil
 	})
 }

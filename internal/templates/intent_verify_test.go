@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 const hostileText = "@octocat fixes #12 closes owner/repo#3 \u202e<b>x</b> `tick` [l](https://evil.example)"
@@ -363,12 +365,13 @@ func TestVerifyLineStates(t *testing.T) {
 		{VerifyProgress{State: VerifyWaitingForCI}, "Verification waits for the pull requests' checks to pass."},
 		{VerifyProgress{State: VerifyWaiting}, "Verification waits for the preview to be ready."},
 		{VerifyProgress{State: VerifyNeedsReplan, AutoFix: FixHalted, AutoFixReason: "CriterionError"},
-			"Verification cannot run: an approved check's target is not previewed, so only " +
-				"`/maul replan` can change it."},
+			"Verification cannot run: an approved check's target is not previewed. " + startOverText},
 		{VerifyProgress{State: VerifyNotDeclared}, "No acceptance criteria were declared."},
 		{VerifyProgress{State: VerifyNotChecked, ManualOpen: 2}, "Nothing is checked automatically, 2 for a human."},
 		{VerifyProgress{State: VerifyUnreadable}, "Verification stopped: maul cannot read the approved plan's " +
-			"acceptance criteria, so nothing is verified. `/maul replan` to approve a plan again."},
+			"acceptance criteria, so nothing is verified. " + startOverText},
+		{VerifyProgress{State: VerifyCriteriaReplan}, "Nothing is verified: the approved plan states acceptance " +
+			"criteria, which maul's evaluator does not run. " + startOverText},
 		{VerifyProgress{State: VerifyPreviewNotLive, Verification: 1, FixesUsed: 0, MaxFixes: 3, ManualOpen: 1},
 			"Verification unavailable: the preview did not become live at the pull requests' heads in time, so the " +
 				"checks could not run. Verification resumes once the preview is live; `kubectl get preview` says " +
@@ -376,6 +379,44 @@ func TestVerifyLineStates(t *testing.T) {
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)
+		}
+	}
+}
+
+// startOverText is what an intent in review is told instead of a replan
+// (S1-29): a replan is not available once its pull requests are open.
+const startOverText = "The approved plan cannot change while its pull requests are open: to start over with a " +
+	"new plan, an approver comments `/maul cancel` (the pull requests are left to you) and opens a new issue."
+
+// TestNoReplanOfferedInReview (S1-29): nothing maul tells an intent in
+// review offers a replan, which is not available there.
+func TestNoReplanOfferedInReview(t *testing.T) {
+	said := make([]string, 0, 5)
+	for _, state := range []string{VerifyNeedsReplan, VerifyUnreadable, VerifyCriteriaReplan} {
+		line, _ := verifyRestingLine(state)
+		said = append(said, line)
+	}
+	notice, err := RenderCriteriaReplanNotice(CriteriaReplanNotice{Namespace: "maul", Intent: "x-1",
+		Key: CriteriaReplanKey(2), PlanRevision: 2, TriggerLabel: "maul:intent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	said = append(said, notice)
+	text, _, err := verifyNoticeText(VerifyCommandNotice{Verb: "verify", Actor: "octocat",
+		Outcome: VerifyCapReached, MaxVerifications: 5}, command.IntentIssue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said = append(said, text)
+	for _, s := range said {
+		if strings.Contains(s, "/maul replan") || strings.Contains(s, "replan needed") ||
+			strings.Contains(s, "re-apply") {
+			t.Errorf("offers a replan in review: %q", s)
+		}
+	}
+	for _, want := range []string{"`/maul cancel`", "new issue with the `maul:intent` label"} {
+		if !strings.Contains(strings.Join(strings.Fields(notice), " "), want) {
+			t.Errorf("the criteria notice does not say %q:\n%s", want, notice)
 		}
 	}
 }

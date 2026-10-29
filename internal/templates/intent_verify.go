@@ -52,8 +52,8 @@ const (
 	// VerifyWaitingForCI: verification waits for the pull requests' named
 	// checks to pass.
 	VerifyWaitingForCI = "waiting-for-ci"
-	// VerifyNeedsReplan: an approved criterion cannot run as approved, so
-	// only a replan can change it.
+	// VerifyNeedsReplan: an approved criterion cannot run as approved, and
+	// the approved plan cannot change in review (startOver).
 	VerifyNeedsReplan = "needs-replan"
 	// VerifyNotDeclared: the approved plan declares no acceptance criteria.
 	VerifyNotDeclared = "not-declared"
@@ -150,16 +150,15 @@ func verifyRestingLine(state string) (line string, whole bool) {
 	case VerifyWaitingForCI:
 		return "Verification waits for the pull requests' checks to pass", false
 	case VerifyNeedsReplan:
-		return "Verification cannot run: an approved check's target is not previewed, so only " +
-			slashCommand("replan") + " can change it.", true
+		return "Verification cannot run: an approved check's target is not previewed. " + startOver(), true
 	case VerifyNotDeclared:
 		return "No acceptance criteria were declared.", true
 	case VerifyUnreadable:
 		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
-			"verified. " + slashCommand("replan") + " to approve a plan again.", true
+			"verified. " + startOver(), true
 	case VerifyCriteriaReplan:
-		return "Verification waits for a new plan: the approved plan states acceptance criteria, which maul's " +
-			"evaluator does not run. " + slashCommand("replan") + ", then approve a plan stating outcomes.", true
+		return "Nothing is verified: the approved plan states acceptance criteria, which maul's evaluator does " +
+			"not run. " + startOver(), true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
 	case VerifyPreviewNotLive:
@@ -168,6 +167,15 @@ func verifyRestingLine(state string) (line string, whole bool) {
 			"says why it is not.", true
 	}
 	return "", false
+}
+
+// startOver is what an intent in review is told it can do for a new plan:
+// maul does not replan an intent whose pull requests are open (replan from
+// review is deferred; /maul replan there is not available), so an approver
+// cancels it and opens a new issue.
+func startOver() string {
+	return "The approved plan cannot change while its pull requests are open: to start over with a new plan, an " +
+		"approver comments " + slashCommand("cancel") + " (the pull requests are left to you) and opens a new issue."
 }
 
 // verifyNames are the progress clause's words: which verification (or

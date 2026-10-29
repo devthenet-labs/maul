@@ -163,10 +163,13 @@ func TestReplanNoticeGolden(t *testing.T) {
 }
 
 // TestCriteriaReplanProgress: the status and preview comments say why
-// nothing is verified while the approved plan states slice-1 criteria.
+// nothing is verified while the approved plan states slice-1 criteria, and
+// what an approver can do in review.
 func TestCriteriaReplanProgress(t *testing.T) {
 	line, whole := verifyRestingLine(VerifyCriteriaReplan)
-	if !whole || !strings.Contains(line, "/maul replan") || !strings.Contains(line, "outcomes") {
+	// S1-29: a replan is not available in review, so none is offered.
+	if !whole || strings.Contains(line, "replan") || !strings.Contains(line, "/maul cancel") ||
+		!strings.Contains(line, "acceptance criteria") {
 		t.Errorf("verifyRestingLine(%q) = %q, %t", VerifyCriteriaReplan, line, whole)
 	}
 }

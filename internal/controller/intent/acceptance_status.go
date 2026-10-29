@@ -30,7 +30,9 @@ import (
 //   - pending while maul waits or verifies, and while a result waits for a
 //     human; failure when a check failed; error when maul could not run
 //     them, an approved criterion cannot run as approved, or the approved
-//     criteria cannot be read.
+//     criteria cannot be read. Under the agent evaluator (evaluationStatus)
+//     the same states count outcomes; an outcome maul could not confirm is
+//     a final error, never a pending status that waits for nothing.
 //   - When verification is switched off for an intent (the Project, its
 //     Preview or the controller stops verifying), a final error on every pull
 //     request maul posted a status on, so none is left pending or green.
@@ -84,10 +86,10 @@ func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
 	}
 	switch p.verifyStopped() {
 	case reasonCriteriaUnreadable:
-		return acceptanceState{statusError, "the approved acceptance criteria cannot be read: replan needed"}, false,
+		return acceptanceState{statusError, "the approved acceptance criteria cannot be read: nothing is verified"}, false,
 			true
 	case reasonCriteriaReplan:
-		return acceptanceState{statusError, "the approved plan states criteria, not outcomes: replan needed"}, false,
+		return acceptanceState{statusError, "the approved plan states criteria, not outcomes: nothing is verified"}, false,
 			true
 	}
 	st, ok = p.verifyingStatus()
@@ -135,7 +137,7 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationExhausted:
 		return acceptanceState{statusFailure, passed + "; no automatic fix left"}, true
 	case v1alpha1.VerificationNeedsReplan:
-		return acceptanceState{statusError, "a check cannot run as approved: replan needed"}, true
+		return acceptanceState{statusError, "a check cannot run as approved: its target is not previewed"}, true
 	case v1alpha1.VerificationUnavailable:
 		if previewNotLive(v) {
 			return acceptanceState{statusError, fmt.Sprintf("the preview was not live within %d minutes, so the "+
@@ -150,9 +152,12 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 // evaluationStatus is the status of an intent the agent evaluator verifies,
 // in a state that counts outcomes: success only once every approved outcome
 // is confirmed or an approver accepted it at the current heads, naming who
-// accepted; pending while maul evaluates or could not confirm (a human
-// decides); failure while an outcome fails. ok is false in the states slice
-// 1's descriptions already say (waiting, unavailable, needs replan).
+// accepted; pending while maul evaluates, or a dispute's replay round is
+// due ("maul is checking this"); error once maul could not confirm an
+// outcome ("maul couldn't confirm this"), final until an approver accepts
+// it or the heads move; failure while an outcome fails. ok is false in the
+// states slice 1's descriptions already say (waiting, unavailable, needs
+// replan).
 func (p *pass) evaluationStatus() (acceptanceState, bool) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	used, most := p.verifyFixesUsed()
@@ -167,11 +172,19 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 		return acceptanceState{statusSuccess, fmt.Sprintf("%d/%d outcomes accepted by hand %s", v.ManualAccepted,
 			v.ManualAccepted, acceptedBy(outcomeAccepters(acc, v)))}, true
 	case v1alpha1.VerificationEvaluating:
-		return acceptanceState{statusPending, fmt.Sprintf("evaluating: evaluation %d, %d %s, %d of %d automatic %s used",
-			v.Round, total, plural(total, "outcome", "outcomes"), used, most, plural(most, "fix", "fixes"))}, true
+		return checkingStatus(v.Round, total, used, most), true
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
-		if !outcomesReady(acc, v) {
-			return acceptanceState{statusPending, "maul couldn't confirm every outcome: " + confirmed}, true
+		switch {
+		case outcomesReady(acc, v):
+		case p.replayDue(v):
+			// The model-free replay round a dispute asked for is due:
+			// maul is still checking.
+			return checkingStatus(v.Round, total, used, most), true
+		default:
+			// Final until an approver accepts what maul could not
+			// confirm, or the heads move: never a pending status that
+			// waits for nothing.
+			return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed}, true
 		}
 		if who := outcomeAccepters(acc, v); len(who) > 0 {
 			return acceptanceState{statusSuccess, confirmed + "; some accepted by hand " + acceptedBy(who)}, true
@@ -189,6 +202,13 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 		return acceptanceState{statusFailure, confirmed + "; no automatic fix left"}, true
 	}
 	return acceptanceState{}, false
+}
+
+// checkingStatus is the pending status of an evaluation round under way.
+func checkingStatus(round, outcomes, used, most int32) acceptanceState {
+	return acceptanceState{statusPending, fmt.Sprintf("maul is checking this: evaluation %d, %d %s, %d of %d "+
+		"automatic %s used", round, outcomes, plural(outcomes, "outcome", "outcomes"), used, most,
+		plural(most, "fix", "fixes"))}
 }
 
 // outcomeAccepters are the approvers who accepted an outcome maul did not

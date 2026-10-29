@@ -282,3 +282,106 @@ func TestRunBudgetOverHourlyLimit(t *testing.T) {
 		t.Errorf("Ready over the default ceiling = %+v, want the plan named", c)
 	}
 }
+
+// roleSettings are testSettings with the agent evaluator on for a Project
+// that verifies (evaluatingProject), counting cost.
+func roleSettings() Settings {
+	s := testSettings()
+	s.Verification, s.Previews, s.Evaluator, s.CostBudgets = true, true, true, true
+	s.Evaluate = StageCeiling{MaxTurns: DefaultEvaluateMaxTurns, TokenBudget: DefaultEvaluateTokenBudget,
+		Timeout: DefaultEvaluateTimeout}
+	s.CheckReview = StageCeiling{MaxTurns: DefaultCheckReviewMaxTurns, TokenBudget: DefaultCheckReviewTokenBudget,
+		Timeout: DefaultCheckReviewTimeout}
+	return s
+}
+
+// evaluatingProject is a Project the evaluator verifies under roleSettings.
+func evaluatingProject() *v1alpha1.Project {
+	p := testProject()
+	p.Spec.Preview = &appPreview
+	p.Spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
+	return p
+}
+
+// TestRoleStagesHonourTheirLimits (S1-29): an evaluate or checkreview run
+// is granted its stage's limits like any other stage (turns, tokens and the
+// wall clock lowered, never raised), and its cost budget is held to the
+// evaluation ceiling it is spent against, not the build ceiling: unset, it
+// is that ceiling; set, never above it.
+func TestRoleStagesHonourTheirLimits(t *testing.T) {
+	s := roleSettings()
+	p := evaluatingProject()
+	p.Spec.Limits.MaxCostMicroUSD = 80000000
+	p.Spec.Limits.MaxEvaluateCostMicroUSD = new(int64(4000000))
+	p.Spec.Limits.Evaluate = v1alpha1.StageLimits{MaxTurns: 30, TokenBudget: 1000,
+		Timeout: &metav1.Duration{Duration: 10 * time.Minute}}
+	p.Spec.Limits.CheckReview = v1alpha1.StageLimits{MaxTurns: 9, MaxCostMicroUSD: 1000000,
+		Timeout: &metav1.Duration{Duration: 3 * time.Hour}}
+
+	g := s.grant(p, v1alpha1.IntentStageEvaluate)
+	if g.MaxTurns != 30 || g.TokenBudget != 1000 || g.TimeoutMilliseconds != (10*time.Minute).Milliseconds() {
+		t.Errorf("evaluate grant = %+v, want the Project's 30 turns, 1000 tokens and 10m", g)
+	}
+	if g.BudgetMicroUSD != 4000000 {
+		t.Errorf("evaluate budget = %d, want the evaluation ceiling 4000000, not the build ceiling", g.BudgetMicroUSD)
+	}
+	g = s.grant(p, v1alpha1.IntentStageCheckReview)
+	if g.MaxTurns != DefaultCheckReviewMaxTurns || g.TimeoutMilliseconds != DefaultCheckReviewTimeout.Milliseconds() {
+		t.Errorf("checkreview grant = %+v, want the controller's turns and timeout (the Project's are higher)", g)
+	}
+	if g.BudgetMicroUSD != 1000000 {
+		t.Errorf("checkreview budget = %d, want its stage's 1000000", g.BudgetMicroUSD)
+	}
+	s.EvaluationCostMax = 2000000
+	if g := s.grant(p, v1alpha1.IntentStageEvaluate); g.BudgetMicroUSD != 2000000 {
+		t.Errorf("evaluate budget = %d, want --intent-evaluation-cost-max 2000000", g.BudgetMicroUSD)
+	}
+	run := &v1alpha1.IntentRun{Spec: v1alpha1.IntentRunSpec{Stage: v1alpha1.IntentStageEvaluate}}
+	if got := s.runBudgetFor(run, p); got != 2000000 {
+		t.Errorf("an unbudgeted evaluate run's budget = %d, want the evaluation ceiling 2000000", got)
+	}
+}
+
+// TestRoleBudgetOverHourlyLimit (S1-29): RunBudgetOverHourlyLimit counts
+// the evaluate and checkreview runs of a Project the evaluator verifies,
+// naming the stage and the field that lowers it, and not those of one it
+// does not.
+func TestRoleBudgetOverHourlyLimit(t *testing.T) {
+	for _, tt := range []struct {
+		stage v1alpha1.IntentStage
+		field string
+		set   func(*v1alpha1.ProjectLimits)
+	}{
+		{v1alpha1.IntentStageEvaluate, "limits.evaluate.maxCostMicroUSD",
+			func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxCostMicroUSD = 9000000 }},
+		{v1alpha1.IntentStageCheckReview, "limits.checkReview.maxCostMicroUSD",
+			func(l *v1alpha1.ProjectLimits) { l.CheckReview.MaxCostMicroUSD = 9000000 }},
+	} {
+		t.Run(string(tt.stage), func(t *testing.T) {
+			s := roleSettings()
+			s.BrokerCostPerHour = 16000000
+			p := evaluatingProject()
+			p.Spec.Limits.MaxCostMicroUSD = 10000000
+			p.Spec.Limits.MaxEvaluateCostMicroUSD = new(int64(9000000))
+			for _, st := range []*v1alpha1.StageLimits{&p.Spec.Limits.Plan, &p.Spec.Limits.Build,
+				&p.Spec.Limits.Revise, &p.Spec.Limits.Evaluate, &p.Spec.Limits.CheckReview} {
+				st.MaxCostMicroUSD = 1000000
+			}
+			tt.set(&p.Spec.Limits)
+			reason, msg := s.refusal(p)
+			if reason != ReasonRunBudgetOverHourlyLimit {
+				t.Fatalf("refusal = %q, want %s", reason, ReasonRunBudgetOverHourlyLimit)
+			}
+			for _, want := range []string{string(tt.stage) + " run", "9000000", tt.field,
+				"limits.maxEvaluateCostMicroUSD"} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("message %q does not say %q", msg, want)
+				}
+			}
+			s.Evaluator = false
+			if reason, _ := s.refusal(p); reason != "" {
+				t.Errorf("refusal without the evaluator = %q, want none", reason)
+			}
+		})
+	}
+}

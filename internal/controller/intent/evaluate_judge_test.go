@@ -55,8 +55,8 @@ type judgeRoute struct {
 // link held; a fix at heads a fix round found no defect in Exhausted
 // (D3); a dispute's replay round held and Unconfirmed; an anomaly, a
 // failing environment, a quarantined or a model-only outcome released as
-// "couldn't confirm" with maul's reason; an approver's acceptance of the
-// failing outcome closes it.
+// "couldn't confirm" with maul's reason, its maul/acceptance a final error
+// (S1-29); an approver's acceptance of the failing outcome closes it.
 func TestJudgementRoutes(t *testing.T) {
 	check := savedCheck(t, versionCheck)
 	pass := func(id string) acceptance.OutcomeResult {
@@ -68,7 +68,7 @@ func TestJudgementRoutes(t *testing.T) {
 			state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed, status: statusSuccess,
 			held: templates.HandoffReady, versionResult: v1alpha1.OutcomePassed, manualResult: v1alpha1.OutcomeAccepted},
 		{name: "manual open", version: pass(oVersion), healthy: pass(oHealthy),
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusPending,
+			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeUnsure},
 		{name: "fix", version: fail, healthy: pass(oHealthy), fix: true, acceptManual: true,
@@ -87,25 +87,25 @@ func TestJudgementRoutes(t *testing.T) {
 			progress: templates.VerifyUnconfirmed, status: statusPending, held: templates.HandoffHeld, disputed: 1,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
 		{name: "anomaly", version: pass(oVersion), healthy: pass(oHealthy), anomaly: true, acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusPending,
+			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyAnomaly, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted},
 		{name: "environment failed",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
 			healthy: pass(oHealthy), env: acceptance.EnvAppFailure, acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusPending,
+			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
 		{name: "quarantined",
 			version: judged(oVersion, acceptance.ResultQuarantined, acceptance.ReasonQuarantined, ""),
 			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusPending, held: templates.HandoffUnconfirmed,
+			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomeQuarantined,
 			manualResult: v1alpha1.OutcomeAccepted},
 		{name: "model only",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, ""),
 			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusPending, held: templates.HandoffUnconfirmed,
+			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomeUnsure,
 			manualResult: v1alpha1.OutcomeAccepted},
 	} {
@@ -192,8 +192,21 @@ func checkRouteViews(t *testing.T, p *pass, tc judgeRoute) {
 	if prog := p.verifyProgress(); prog == nil || prog.State != tc.progress || !prog.Outcomes {
 		t.Errorf("progress = %+v, want %s", prog, tc.progress)
 	}
-	if st, _, ok := p.acceptanceStatus(); !ok || st.state != tc.status || len(st.description) > 140 {
+	st, _, ok := p.acceptanceStatus()
+	if !ok || st.state != tc.status || len(st.description) > 140 {
 		t.Errorf("maul/acceptance = %+v (posted %v), want %s within 140 bytes", st, ok, tc.status)
+	}
+	// S1-29: maul's own words while it is still checking (a replay round
+	// due) and once it could not confirm an outcome (final, never pending).
+	switch {
+	case tc.state == v1alpha1.VerificationUnconfirmed && tc.held == templates.HandoffHeld:
+		if !strings.HasPrefix(st.description, "maul is checking this") {
+			t.Errorf("maul/acceptance description %q, want maul is checking this", st.description)
+		}
+	case tc.state == v1alpha1.VerificationUnconfirmed:
+		if !strings.HasPrefix(st.description, "maul couldn't confirm this") {
+			t.Errorf("maul/acceptance description %q, want maul couldn't confirm this", st.description)
+		}
 	}
 	if h := p.handoffView(); h == nil || h.State != tc.held || h.Why != tc.why {
 		t.Errorf("hand-off = %+v, want %s %s", h, tc.held, tc.why)

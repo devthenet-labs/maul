@@ -24,6 +24,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
 	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -696,5 +697,36 @@ func TestDryEvaluateOnFakeHarness(t *testing.T) {
 	}
 	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbConfirm, toolwire.VerbFinish}) {
 		t.Errorf("tool calls = %v, want confirm then finish", got)
+	}
+}
+
+// TestEvaluateHandoffCarriesThePreviousRound (S1-29, SPEC Q15): a round
+// after a judged one decodes the previous round's results and the fix diff
+// strictly, and hands every one of them to the prompt.
+func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
+	raw := evalHandoff(func(h *EvaluateHandoff) {
+		h.Round, h.PriorRound, h.FixDiff = 2, 1, "+k := 32\n"
+		h.PriorVerdicts = []PriorVerdict{{Outcome: "rate-battle", Result: "failed", Reason: "stays put"}}
+		h.PriorReplay = []PriorReplay{{Check: "leaderboard", Outcome: "leaderboard", Result: "pass"}}
+	})
+	for _, key := range []string{`"prior_round":1`, `"prior_verdicts":[`, `"prior_replay":[`, `"fix_diff":`} {
+		if !strings.Contains(raw, key) {
+			t.Errorf("handoff %s lacks %s", raw, key)
+		}
+	}
+	var h EvaluateHandoff
+	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
+		t.Fatal(err)
+	}
+	if err := validEvaluateHandoff(h); err != nil {
+		t.Fatal(err)
+	}
+	p := h.prompt("", "", "", templates.StageLimits{})
+	if p.PriorRound != 1 || p.FixDiff != "+k := 32\n" ||
+		len(p.PriorVerdicts) != 1 || p.PriorVerdicts[0] != (templates.PriorVerdict{Outcome: "rate-battle",
+		Result: "failed", Reason: "stays put"}) ||
+		len(p.PriorReplay) != 1 || p.PriorReplay[0] != (templates.PriorReplay{Check: "leaderboard",
+		Outcome: "leaderboard", Result: "pass"}) {
+		t.Errorf("prompt = %+v, want the previous round's results", p)
 	}
 }

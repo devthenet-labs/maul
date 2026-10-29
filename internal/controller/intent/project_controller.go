@@ -346,10 +346,17 @@ func (s Settings) refusal(p *v1alpha1.Project) (reason, msg string) {
 			"discovered and a %s run of one already open waits Pending", p.Spec.Harness, p.Spec.Harness, p.Spec.Harness)
 	}
 	if stage, budget := s.budgetOverHourly(p); stage != "" {
+		field, ceiling := string(stage), "limits.maxCostMicroUSD"
+		if roleStage(stage) {
+			ceiling = "limits.maxEvaluateCostMicroUSD"
+		}
+		if stage == v1alpha1.IntentStageCheckReview {
+			field = "checkReview"
+		}
 		return ReasonRunBudgetOverHourlyLimit, fmt.Sprintf("a %s run's cost budget of %d micro-USD is more than half "+
 			"the egress broker's hourly cost limit of %d micro-USD, so one run could spend the cluster's hour alone; "+
-			"lower limits.%s.maxCostMicroUSD (or limits.maxCostMicroUSD, its default) or raise the broker's "+
-			"costPerHour", stage, budget, s.BrokerCostPerHour, stage)
+			"lower limits.%s.maxCostMicroUSD (or %s, its default) or raise the broker's costPerHour", stage, budget,
+			s.BrokerCostPerHour, field, ceiling)
 	}
 	return "", ""
 }

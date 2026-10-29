@@ -177,8 +177,8 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return cmd + " was not understood.", command.HelpFor(surface, []string{n.Verb}), nil
 	case VerifyCapReached:
 		return fmt.Sprintf("%s does nothing: this approved plan has used all %d verifications its Project allows, "+
-			"so no verification can run. Raise the Project's `spec.limits.maxVerifications` to allow more, or %s "+
-			"for a new plan, whose count starts afresh.", cmd, n.MaxVerifications, slashCommand("replan")), "", nil
+			"so no verification can run. Raise the Project's `spec.limits.maxVerifications` to allow more.", cmd,
+			n.MaxVerifications), "", nil
 	}
 	return "", "", fmt.Errorf("render verify notice: no text for outcome %q", n.Outcome)
 }
