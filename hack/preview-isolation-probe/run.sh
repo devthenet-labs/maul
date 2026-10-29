@@ -12,13 +12,16 @@
 #
 # `run.sh edges` is a separate run on any cluster, with no cloud API:
 # acceptance verification's edge policies admit a Preview's declared edges
-# and nothing else (see edges_main below and README.md).
+# and nothing else (see edges_main below and README.md). `run.sh evaluator`
+# is another: a Pod labelled as an agent evaluator reaches the egress broker
+# and nothing else (see evaluator_main below).
 set -euo pipefail
 
 usage() {
     cat <<EOF
 usage: $0 [options] <open disposable PR number>
        $0 edges [options]   (the edges run; $0 edges --help)
+       $0 evaluator [options]   (the evaluator run; $0 evaluator --help)
 
 Re-run the preview cold-start isolation gate against the image the trusted
 publisher pushed for a disposable test/preview-* PR's head. See README.md.
@@ -91,6 +94,43 @@ wait_zero() {
 # inconclusive unless --refused-is-blocked, and then counts only against a
 # listener that answered on its own loopback before and after the checks
 # and never restarted. Any cluster, no cloud API; see README.md.
+
+# slot_values FAIL: check the values every slot run shares, the caller's
+# $image, $isolation, $node_selector and $taint_key, stopping through FAIL
+# (a usage error) on the first bad one; then set $placement, the stand-in
+# Pods' node selector and toleration, and the shapes the caller's own checks
+# use ($dns_label, $dns_name).
+slot_values() {
+    local fail=$1
+    dns_label='[a-z0-9]([-a-z0-9]*[a-z0-9])?'
+    dns_name="$dns_label(\\.$dns_label)*"
+    local qualified="($dns_name/)?[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?"
+    local label_value='([A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?)?'
+    [[ -n $image ]] || $fail "--image (PROBE_IMAGE) is required"
+    if [[ ! $image =~ ^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+:sha-[0-9a-f]{40}$ ]]; then
+        $fail "--image must be <registry>/<path>:sha-<40 hex>, the shape a slot admits, not $image"
+    fi
+    placement=
+    if [[ $isolation -eq 1 ]]; then
+        [[ -n $node_selector ]] || $fail "--node-selector (PROBE_NODE_SELECTOR) is required unless --no-node-isolation"
+        [[ -n $taint_key ]] || $fail "--taint-key (PROBE_TAINT_KEY) is required with --node-selector"
+        [[ $taint_key =~ ^$qualified$ ]] || $fail "--taint-key must be a taint key, [<dns prefix>/]<name>, not $taint_key"
+        local -a pairs
+        IFS=, read -r -a pairs <<<"$node_selector"
+        placement="      nodeSelector:"$'\n'
+        local pair
+        for pair in "${pairs[@]}"; do
+            if [[ ! $pair =~ ^($qualified)=($label_value)$ ]]; then
+                $fail "--node-selector must be <label>=<value>[,<label>=<value>], not $node_selector"
+            fi
+            placement+="        ${pair%%=*}: \"${pair#*=}\""$'\n'
+        done
+        placement+="      tolerations:"$'\n'
+        placement+="        - {key: $taint_key, operator: Equal, value: \"true\", effect: NoExecute}"$'\n'
+    elif [[ -n $node_selector || -n $taint_key ]]; then
+        $fail "--no-node-isolation takes no --node-selector or --taint-key"
+    fi
+}
 
 edges_usage() {
     cat <<EOF
@@ -192,14 +232,7 @@ edges_main() {
 
     # Every value lands in a kubectl argument or in a manifest, so each must
     # be exactly the shape it names.
-    local dns_label='[a-z0-9]([-a-z0-9]*[a-z0-9])?'
-    local dns_name="$dns_label(\\.$dns_label)*"
-    local qualified="($dns_name/)?[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?"
-    local label_value='([A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?)?'
-    [[ -n $image ]] || edges_fail "--image (PROBE_IMAGE) is required"
-    if [[ ! $image =~ ^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+:sha-[0-9a-f]{40}$ ]]; then
-        edges_fail "--image must be <registry>/<path>:sha-<40 hex>, the shape a slot admits, not $image"
-    fi
+    slot_values edges_fail
     [[ $release_ns =~ ^$dns_label$ ]] || edges_fail "--release-namespace must be a DNS label, not $release_ns"
     if [[ -n $node_pool && ! $node_pool =~ ^$dns_name$ ]]; then
         edges_fail "--cold-node-pool must be a Kubernetes object name, not $node_pool"
@@ -212,26 +245,6 @@ edges_main() {
     distinct=$(printf '%s\n' "${order[@]}" | sort -u)
     [[ $(wc -l <<<"$distinct") -eq 2 ]] || edges_fail "--slots must name exactly two distinct slots, not $slots"
     read -r -a edges_pair <<<"$(tr '\n' ' ' <<<"$distinct")"
-    placement=
-    if [[ $isolation -eq 1 ]]; then
-        [[ -n $node_selector ]] || edges_fail "--node-selector (PROBE_NODE_SELECTOR) is required unless --no-node-isolation"
-        [[ -n $taint_key ]] || edges_fail "--taint-key (PROBE_TAINT_KEY) is required with --node-selector"
-        [[ $taint_key =~ ^$qualified$ ]] || edges_fail "--taint-key must be a taint key, [<dns prefix>/]<name>, not $taint_key"
-        local -a pairs
-        IFS=, read -r -a pairs <<<"$node_selector"
-        placement="      nodeSelector:"$'\n'
-        local pair
-        for pair in "${pairs[@]}"; do
-            if [[ ! $pair =~ ^($qualified)=($label_value)$ ]]; then
-                edges_fail "--node-selector must be <label>=<value>[,<label>=<value>], not $node_selector"
-            fi
-            placement+="        ${pair%%=*}: \"${pair#*=}\""$'\n'
-        done
-        placement+="      tolerations:"$'\n'
-        placement+="        - {key: $taint_key, operator: Equal, value: \"true\", effect: NoExecute}"$'\n'
-    elif [[ -n $node_selector || -n $taint_key ]]; then
-        edges_fail "--no-node-isolation takes no --node-selector or --taint-key"
-    fi
     edges_fixture
 
     if [[ $print_manifests -eq 1 ]]; then
@@ -573,9 +586,332 @@ edges_run() {
     edges_cleanup
 }
 
+# The evaluator run (agent evaluator, DESIGN 4.2; spec S0-10): that the
+# chart's agents-namespace policies hold a Pod labelled as an evaluator is to
+# its row: the egress broker and nothing else. It creates a netprobe
+# listener in a free slot as a slot component, then a Job in the agents
+# namespace carrying the evaluator's labels (the role, a verification UID,
+# the agent selector, kind and harness), created as intent-controller: the
+# maul-evaluator-labels admission policy admits those labels from it alone,
+# and the Pod only from the Job controller. The Job runs `netprobe --as
+# evaluator`, which waits to reach the broker and only then bursts at the
+# internet, the cluster resolver's :53, the API server, the instance
+# metadata service, the artifact server and the slot component, all of
+# which must be refused. Any cluster, no cloud API; see README.md.
+
+evaluator_usage() {
+    cat <<EOF
+usage: $0 evaluator [options]
+
+Check that a Pod labelled as an agent evaluator reaches the egress broker
+and nothing else: not the internet, the cluster's resolver, the API server,
+the instance metadata service, the artifact server or a slot component.
+Needs intentController.verification.evaluator on. kubectl's current context
+must be the cluster, with the right to impersonate intent-controller's
+ServiceAccount. Calls neither gh nor aws. See README.md.
+
+Each option falls back to the environment variable named beside it.
+  --image <ref>                 PROBE_IMAGE (required): the netprobe image,
+                                under preview-controller's image prefix as
+                                <registry>/<path>/<leaf>:sha-<40 hex>
+  --node-selector <k=v[,k=v]>   PROBE_NODE_SELECTOR: the preview nodes' labels
+                                (preview.nodeIsolation.selector); required
+                                unless --no-node-isolation
+  --taint-key <key>             PROBE_TAINT_KEY: the preview nodes' NoExecute
+                                taint key; required with --node-selector
+  --no-node-isolation           the install runs preview.nodeIsolation.mode
+                                none: no selector or toleration
+  --refused-is-blocked          count a refused connection as blocked, for a
+                                policy controller that REJECTs (k3s, k3d),
+                                once the evaluator has reached the broker
+  --slot <n>                    PROBE_SLOT: the free slot the component runs
+                                in (default 0)
+  --release-namespace <ns>      PROBE_RELEASE_NAMESPACE: maul's namespace
+                                (release maul; default maul)
+  --agents-namespace <ns>       PROBE_AGENTS_NAMESPACE: the agents' namespace
+                                (default maul-agents)
+  --intent-controller-sa <name> PROBE_INTENT_CONTROLLER_SA: intent-controller's
+                                ServiceAccount in the release namespace
+                                (default maul-intent-controller)
+  --timeout <seconds>           PROBE_TIMEOUT: how long the component may take
+                                to start, and the probe Job to finish
+                                (default 300)
+  --dry-run                     check every value and print the site, then
+                                exit before kubectl is called
+  --print-manifests             print the Deployment and Job a run creates
+                                (addresses as 192.0.2.x), then exit before
+                                kubectl is called
+  -h, --help                    print this help
+EOF
+}
+
+evaluator_fail() {
+    echo "$1" >&2
+    evaluator_usage >&2
+    exit 2
+}
+
+# The run's objects. The UID is the probe's own, no PreviewVerification's,
+# so no slot tool pod's ingress policy ever admits the probe.
+evaluator_job=preview-isolation-evaluator
+evaluator_component=preview-isolation-component
+evaluator_uid=00000000-0000-4000-8000-0000000e7a10
+
+evaluator_main() {
+    image=${PROBE_IMAGE:-}
+    local node_selector=${PROBE_NODE_SELECTOR:-} taint_key=${PROBE_TAINT_KEY:-}
+    local slot=${PROBE_SLOT:-0} release_ns=${PROBE_RELEASE_NAMESPACE:-maul}
+    local agents_ns=${PROBE_AGENTS_NAMESPACE:-maul-agents}
+    local ic_sa=${PROBE_INTENT_CONTROLLER_SA:-maul-intent-controller}
+    local isolation=1 dry_run=0 print_manifests=0
+    timeout=${PROBE_TIMEOUT:-300}
+    refused_blocks=0
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+        -h | --help)
+            evaluator_usage
+            exit 0
+            ;;
+        --dry-run) dry_run=1 ;;
+        --print-manifests) print_manifests=1 ;;
+        --no-node-isolation) isolation=0 ;;
+        --refused-is-blocked) refused_blocks=1 ;;
+        --image | --node-selector | --taint-key | --slot | --release-namespace | --agents-namespace | \
+            --intent-controller-sa | --timeout)
+            [[ $# -ge 2 ]] || evaluator_fail "$1 needs a value"
+            case $1 in
+            --image) image=$2 ;;
+            --node-selector) node_selector=$2 ;;
+            --taint-key) taint_key=$2 ;;
+            --slot) slot=$2 ;;
+            --release-namespace) release_ns=$2 ;;
+            --agents-namespace) agents_ns=$2 ;;
+            --intent-controller-sa) ic_sa=$2 ;;
+            --timeout) timeout=$2 ;;
+            esac
+            shift
+            ;;
+        *) evaluator_fail "unknown argument $1" ;;
+        esac
+        shift
+    done
+
+    # Every value lands in a kubectl argument or in a manifest, so each must
+    # be exactly the shape it names.
+    slot_values evaluator_fail
+    [[ $slot =~ ^[0-9]+$ ]] || evaluator_fail "--slot must be a slot number, not $slot"
+    [[ $release_ns =~ ^$dns_label$ ]] || evaluator_fail "--release-namespace must be a DNS label, not $release_ns"
+    [[ $agents_ns =~ ^$dns_label$ ]] || evaluator_fail "--agents-namespace must be a DNS label, not $agents_ns"
+    [[ $ic_sa =~ ^$dns_name$ ]] || evaluator_fail "--intent-controller-sa must be a ServiceAccount name, not $ic_sa"
+    [[ $timeout =~ ^[1-9][0-9]*$ ]] || evaluator_fail "--timeout must be a positive number of seconds, not $timeout"
+    local slot_ns="maul-preview-$slot" as="system:serviceaccount:$release_ns:$ic_sa"
+
+    if [[ $print_manifests -eq 1 ]]; then
+        edges_deployment "$slot_ns" "$evaluator_component"
+        printf -- '---\n'
+        evaluator_manifest "$agents_ns" 192.0.2.1 192.0.2.2 192.0.2.3 192.0.2.4 192.0.2.5
+        exit 0
+    fi
+    if [[ $dry_run -eq 1 ]]; then
+        cat <<EOF
+image:       $image
+component:   $slot_ns/$evaluator_component
+evaluator:   $agents_ns/$evaluator_job (verification UID $evaluator_uid), created as $as
+placement:   $(if [[ $isolation -eq 1 ]]; then echo "$node_selector, tolerating $taint_key"; else echo "none (nodeIsolation none)"; fi)
+refusal:     $(if [[ $refused_blocks -eq 1 ]]; then echo "blocked, once the broker is reached"; else echo "inconclusive"; fi)
+assumed:     release maul in namespace $release_ns
+dry run: nothing was called
+EOF
+        exit 0
+    fi
+
+    trap evaluator_cleanup EXIT
+    evaluator_run "$slot_ns" "$agents_ns" "$release_ns" "$as"
+    echo "Evaluator isolation passed: an evaluator-labelled Pod reached the broker and nothing else." >&2
+}
+
+# evaluator_manifest NAMESPACE BROKER API DNS ARTIFACT COMPONENT: the probe
+# Job, labelled as an evaluator Job is (internal/jobs: the agent selector,
+# kind intent, harness claude, the role and a verification UID, on the Job
+# and its Pod alike), with no resolver, as the evaluator runs.
+evaluator_manifest() {
+    local flag=
+    [[ $refused_blocks -eq 0 ]] || flag=", --refused-is-blocked"
+    cat <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: $evaluator_job
+  namespace: $1
+  labels:
+$(evaluator_labels '    ')
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: $timeout
+  template:
+    metadata:
+      labels:
+$(evaluator_labels '        ')
+    spec:
+      restartPolicy: Never
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: [127.0.0.1]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: probe
+          image: $image
+          imagePullPolicy: IfNotPresent
+          args: [--as, evaluator$flag]
+          env:
+            - {name: PROBE_EGRESS_BROKER, value: "$2"}
+            - {name: PROBE_KUBERNETES_API, value: "$3"}
+            - {name: PROBE_CLUSTER_DNS, value: "$4"}
+            - {name: PROBE_SOURCE_CONTROLLER, value: "$5"}
+            - {name: PROBE_SLOT_COMPONENT, value: "$6"}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+EOF
+}
+
+# evaluator_labels INDENT: the probe Job's labels, each line indented.
+evaluator_labels() {
+    local label
+    for label in "app.kubernetes.io/managed-by: maul" "app.kubernetes.io/name: maul-agent" \
+        "maul.run/harness: claude" "maul.run/kind: intent" "maul.run/preview-verification: $evaluator_uid" \
+        "maul.run/role: evaluator"; do
+        printf '%s%s\n' "$1" "$label"
+    done
+}
+
+evaluator_created=
+evaluator_cleanup() {
+    [[ -n $evaluator_created ]] || return 0
+    local slot_ns=${evaluator_created% *} agents_ns=${evaluator_created#* }
+    ekube delete job "$evaluator_job" -n "$agents_ns" --ignore-not-found --cascade=foreground --wait=true >&2 || true
+    ekube delete deployment "$evaluator_component" -n "$slot_ns" --ignore-not-found --cascade=foreground \
+        --wait=true >&2 || true
+    evaluator_created=
+}
+
+# evaluator_run SLOT_NS AGENTS_NS RELEASE_NS AS: one run (see above); stops
+# the script on any failure, after cleaning up.
+evaluator_run() {
+    local ns=$1 agents=$2 rel=$3 as=$4 n held
+    if ! ekube get networkpolicy maul-agents-evaluator -n "$agents" -o name >/dev/null; then
+        echo "there is no NetworkPolicy $agents/maul-agents-evaluator: is intentController.verification.evaluator on?" >&2
+        exit 1
+    fi
+    if ! ekube get networkpolicy preview-isolation -n "$ns" -o name >/dev/null; then
+        echo "there is no slot NetworkPolicy $ns/preview-isolation: is the slot created (preview.enabled)?" >&2
+        exit 1
+    fi
+    held=$(ekube get deployments -n "$ns" -o name)
+    if [[ -n $held ]]; then
+        echo "$ns is not free: it holds $(tr '\n' ' ' <<<"$held"); run the probe while no Preview holds it" >&2
+        exit 1
+    fi
+    if [[ -n $(ekube get job "$evaluator_job" -n "$agents" --ignore-not-found -o name) ]]; then
+        echo "the Job $agents/$evaluator_job already exists: delete it once no probe is running" >&2
+        exit 1
+    fi
+    # The evaluator's targets: the broker it must reach, and the cluster
+    # addresses it must not (the resolver is the kube-dns Service's, which
+    # the evaluator's strict sandbox probe also finds closed).
+    local entry name where svc ip
+    local -a addrs=()
+    for entry in "maul-egress-broker $rel maul-egress-broker" "kubernetes-api default kubernetes" \
+        "cluster-dns kube-system kube-dns" "maul-source-controller $rel maul-source-controller"; do
+        read -r name where svc <<<"$entry"
+        ip=$(ekube get service "$svc" -n "$where" -o jsonpath='{.spec.clusterIP}')
+        ip=$(edges_ipv4 "$ip" "the Service $where/$svc")
+        addrs+=("$ip")
+    done
+
+    evaluator_created="$ns $agents"
+    edges_deployment "$ns" "$evaluator_component" | ekube create -f - >&2
+    ekube wait --for=condition=Available "deployment/$evaluator_component" -n "$ns" --timeout="${timeout}s" >&2
+    local pod
+    pod=$(edges_pod "$ns" "$evaluator_component")
+    if [[ -z $pod ]]; then
+        echo "$ns/$evaluator_component has no one running Pod with an IPv4 address" >&2
+        exit 1
+    fi
+    # The component answers on its own loopback before and after, and is the
+    # same Pod throughout: its refusal is the policy's, never a dead
+    # listener's.
+    alive() {
+        local got
+        got=$(edges_verdict "$ns" "${pod%% *}" 127.0.0.1:8080)
+        if [[ $got != REACHED ]]; then
+            echo "FAIL $ns slot component: its own listener is $got, want REACHED" >&2
+            exit 1
+        fi
+    }
+    alive
+    local component_ip
+    component_ip=$(cut -d' ' -f2 <<<"$pod")
+
+    evaluator_manifest "$agents" "${addrs[@]}" "$component_ip" | ekube create "--as=$as" -f - >&2
+    local status deadline=$((SECONDS + timeout))
+    while :; do
+        status=$(ekube get job "$evaluator_job" -n "$agents" -o jsonpath='{.status.succeeded}/{.status.failed}')
+        [[ ! $status =~ ^[1-9]|/[1-9] ]] || break
+        if [[ $SECONDS -ge $deadline ]]; then
+            echo "FAIL evaluator: the probe Job did not finish within ${timeout}s" >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    local out got
+    out=$(ekube logs "job/$evaluator_job" -n "$agents" -c probe 2>/dev/null) || out=
+    got=$(jq -Rr 'fromjson? | select(type == "object" and .name == "summary") | .outcome // empty' <<<"$out" |
+        tail -1) || got=
+    got=${got:-NO_SUMMARY}
+    local failed=0
+    if [[ $got != PASS ]]; then
+        echo "FAIL evaluator: $got; the probe's log:" >&2
+        printf '%s\n' "$out" >&2
+        failed=1
+    elif [[ $status =~ /[1-9] ]]; then
+        echo "FAIL evaluator: the Job failed although its probe printed PASS" >&2
+        failed=1
+    else
+        echo "PASS evaluator: reached the broker; refused the internet, the cluster resolver, the API server," \
+            "IMDS, the artifact server and the slot component" >&2
+    fi
+    alive
+    if [[ $(edges_pod "$ns" "$evaluator_component") != "$pod" ]]; then
+        echo "FAIL $ns slot component: its Pod restarted or was replaced during the run" >&2
+        failed=1
+    fi
+    if [[ $failed -ne 0 ]]; then
+        echo "An evaluator-labelled Pod is not held to the broker; keep intentController.verification.evaluator" \
+            "off and investigate." >&2
+        exit 1
+    fi
+    evaluator_cleanup
+}
+
 if [[ ${1:-} == edges ]]; then
     shift
     edges_main "$@"
+    exit 0
+fi
+if [[ ${1:-} == evaluator ]]; then
+    shift
+    evaluator_main "$@"
     exit 0
 fi
 
