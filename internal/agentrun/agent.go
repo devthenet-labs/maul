@@ -85,32 +85,56 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	if a.cfg.Phase == PhaseInvestigate {
+	switch a.cfg.Phase {
+	case PhaseInvestigate:
 		// The analysis stage: one event, no continuation — the controller
 		// routes on the verdict.
 		ev := a.investigate(ctx)
 		a.emit(envelope.Event{Type: envelope.TypeInvestigation, Investigation: ev})
 		return nil
-	}
-	if a.cfg.Phase == PhasePlan || a.cfg.Phase == PhaseBuild {
+	case PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview:
 		return a.runIntent(ctx)
+	case PhaseRemediate:
+		// The controller supplies the analysis this run executes; thresholds
+		// and holds were already applied controller-side.
+		params, err := a.remediationInput()
+		if err != nil {
+			a.emit(envelope.Event{Type: envelope.TypeFatal, Error: err.Error()})
+			return err
+		}
+		rev := a.remediate(ctx, params)
+		a.emit(envelope.Event{Type: envelope.TypeRemediation, Remediation: rev})
+		return nil
 	}
+	// FromEnv refuses any other phase; one that reaches here anyway runs
+	// nothing rather than falling through to a stage it did not name.
+	err := fmt.Errorf("phase %q is not a stage this runner knows", a.cfg.Phase)
+	a.emit(envelope.Event{Type: envelope.TypeFatal, Error: err.Error()})
+	return err
+}
 
-	// The controller supplies the analysis this run executes; thresholds and
-	// holds were already applied controller-side.
-	params, err := a.remediationInput()
-	if err != nil {
-		a.emit(envelope.Event{Type: envelope.TypeFatal, Error: err.Error()})
-		return err
+// workDir is the directory a stage's agent runs in: a role stage's scratch
+// directory, which holds no tree, and the repository clone otherwise.
+func (a *Agent) workDir() string {
+	if a.cfg.Phase.role() {
+		return a.cfg.scratchDir()
 	}
-	rev := a.remediate(ctx, params)
-	a.emit(envelope.Event{Type: envelope.TypeRemediation, Remediation: rev})
-	return nil
+	return a.cfg.repoDir()
 }
 
 // prepare validates the workspace the controller assembled and creates the
-// output directories.
+// output directories. A role stage's workspace holds no clone: its handoff
+// and the scratch directory it runs in are all there is.
 func (a *Agent) prepare() error {
+	if a.cfg.Phase.role() {
+		if _, err := os.Stat(a.cfg.issuePath()); err != nil {
+			return fmt.Errorf("workspace: handoff missing: %w", err)
+		}
+		if err := os.MkdirAll(a.cfg.scratchDir(), 0o755); err != nil {
+			return fmt.Errorf("workspace: %w", err)
+		}
+		return nil
+	}
 	if _, err := os.Stat(filepath.Join(a.cfg.repoDir(), ".git")); err != nil {
 		return fmt.Errorf("workspace: repository clone missing: %w", err)
 	}

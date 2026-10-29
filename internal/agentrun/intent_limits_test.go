@@ -5,6 +5,7 @@ package agentrun
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"slices"
 	"strconv"
@@ -130,5 +131,93 @@ func TestBuildPromptStatesItsLimits(t *testing.T) {
 				t.Errorf("the prompt does not state the run's own limits %q:\n%s", own, prompt)
 			}
 		})
+	}
+}
+
+// TestStageLimitsUnknownStageErrors: every intent stage resolves its own
+// limits, and a stage that is not one of them is an error, never the plan
+// stage's ceiling (or any other's).
+func TestStageLimitsUnknownStageErrors(t *testing.T) {
+	tests := []struct {
+		phase              Phase
+		wantTurns, wantTok int
+		wantErr            bool
+	}{
+		{PhasePlan, 25, 150000, false},
+		{PhaseBuild, 80, 400000, false},
+		{PhaseEvaluate, 25, 150000, false},
+		{PhaseCheckReview, 25, 150000, false},
+		{PhaseInvestigate, 0, 0, true},
+		{PhaseRemediate, 0, 0, true},
+		{Phase("deploy"), 0, 0, true},
+		{Phase(""), 0, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.phase), func(t *testing.T) {
+			var out bytes.Buffer
+			cfg := newConfig(t, t.TempDir(), &out)
+			cfg.Phase = tt.phase
+			turns, tok, err := New(cfg, nil).stageLimits()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("stageLimits() error = %v, want error %v", err, tt.wantErr)
+			}
+			if turns != tt.wantTurns || tok != tt.wantTok {
+				t.Errorf("stageLimits() = %d, %d; want %d, %d", turns, tok, tt.wantTurns, tt.wantTok)
+			}
+		})
+	}
+}
+
+// TestRoleStageLimitsFromTheGrant: an evaluate or checkreview run is held to
+// its grant, which may lower the investigate stage's ceiling but never
+// raise it.
+func TestRoleStageLimitsFromTheGrant(t *testing.T) {
+	tests := []struct {
+		name      string
+		granted   int
+		wantTurns string
+	}{
+		{"no grant runs on the ceiling", 0, "25"},
+		{"a lower grant", 6, "6"},
+		{"a grant above the ceiling is clamped", 400, "25"},
+	}
+	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
+		for _, tt := range tests {
+			t.Run(string(phase)+"/"+tt.name, func(t *testing.T) {
+				var out bytes.Buffer
+				cfg, ws := roleConfig(t, phase, reviewHandoff(1), &out)
+				brokeredClaude(t, &cfg)
+				cfg.GrantedMaxTurns = tt.granted
+				write := map[string]string{"scratch/report.md": goodEvaluation}
+				if phase == PhaseCheckReview {
+					write = map[string]string{"scratch/review-1.md": reviewReport("proves")}
+				}
+				fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: write}}}
+				onlyEvent(t, cfg, fx, &out)
+				if got := argvFlag(t, fx.specs[0].Argv, "--max-turns"); got != tt.wantTurns {
+					t.Errorf("--max-turns = %s, want %s", got, tt.wantTurns)
+				}
+			})
+		}
+	}
+}
+
+// TestRunUnknownPhaseIsFatal: a phase no stage handles is a fatal before
+// any command runs, never a remediation (the stage a phase that was neither
+// investigate nor an intent stage used to fall through to).
+func TestRunUnknownPhaseIsFatal(t *testing.T) {
+	var out bytes.Buffer
+	cfg, _ := remediateConfig(t, goodInvestigation, &out)
+	cfg.Phase = "deploy"
+	fx := &fakeExec{}
+	err := New(cfg, fx).Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "deploy") {
+		t.Fatalf("Run() error = %v, want the unknown phase named", err)
+	}
+	if len(fx.specs) != 0 {
+		t.Errorf("commands run = %d, want none", len(fx.specs))
+	}
+	if evs := events(t, out.String()); len(evs) != 1 || evs[0].Type != envelope.TypeFatal {
+		t.Errorf("events = %+v, want one fatal", evs)
 	}
 }

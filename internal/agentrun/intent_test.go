@@ -437,7 +437,7 @@ func TestIntentStagesRefuseHarnesses(t *testing.T) {
 		{"unbrokered claude", "claude", false, "", "must be brokered"},
 		{"unknown", "nope", true, "", `harness "nope" is refused`},
 	}
-	for _, phase := range []Phase{PhasePlan, PhaseBuild} {
+	for _, phase := range []Phase{PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview} {
 		for _, tt := range tests {
 			t.Run(string(phase)+"/"+tt.name, func(t *testing.T) {
 				var out bytes.Buffer
@@ -823,7 +823,7 @@ func countTurns(out string) int {
 }
 
 func TestFromEnvIntentPhases(t *testing.T) {
-	for _, phase := range []Phase{PhasePlan, PhaseBuild} {
+	for _, phase := range []Phase{PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview} {
 		env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "run-1", "MAUL_PHASE": string(phase)}
 		cfg, err := FromEnv(func(k string) string { return env[k] })
 		if err != nil || cfg.Phase != phase {
@@ -833,7 +833,7 @@ func TestFromEnvIntentPhases(t *testing.T) {
 	env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "run-1", "MAUL_PHASE": "revise"}
 	_, err := FromEnv(func(k string) string { return env[k] })
 	if err == nil || !strings.Contains(err.Error(),
-		`MAUL_PHASE="revise" is not "investigate", "remediate", "plan" or "build"`) {
+		`MAUL_PHASE="revise" is not "investigate", "remediate", "plan", "build", "evaluate" or "checkreview"`) {
 		t.Errorf("FromEnv(revise) error = %v, want the phase refused by name", err)
 	}
 }

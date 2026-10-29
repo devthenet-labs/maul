@@ -26,6 +26,17 @@
 // of such a plan and learns which from MAUL_REPO alone, matched against
 // the approved plan's own list: no new configuration key exists for either.
 //
+// The agent evaluator and the check reviewer are two more intent phases,
+// evaluate and checkreview (evaluate.go, checkreview.go). Their Jobs hold
+// no tree: the handoff sits in the workspace's input/, out of the agent's
+// reach, and the agent runs in its scratch/ under the evaluate posture
+// (harness.SandboxEvaluate), which a harness that cannot hold it refuses.
+// Evaluate writes one report and emits an evaluation event; checkreview
+// runs one fresh session per check of its handoff and emits a checkreview
+// event whose answers are keyed by the handoff's digests. Both run on the
+// investigate stage's configuration, and every phase switch names every
+// phase: an unknown one is an error, never another stage.
+//
 // The runner trusts the repository over the agent: a remediation or build
 // report claiming success is downgraded unless commit.sh ran cleanly and
 // left real commits on the branch. It never talks to a forge — the pod has

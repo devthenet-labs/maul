@@ -127,3 +127,43 @@ func TestFindingStageInvocationsUnchanged(t *testing.T) {
 		goldenFile(t, "invocation_remediate.txt", got)
 	})
 }
+
+// TestRoleStageInvocations pins the command an evaluate and a checkreview
+// stage run: the evaluate posture (harness.SandboxEvaluate), in the scratch
+// directory, on the investigate stage's model, brokered. Beyond the goldens
+// it states the posture's load-bearing properties outright: the CLI runs in
+// scratch and never in the workspace, no directory is added (neither
+// AddDirs nor the posture's own), and the shell is held to maul-tool.
+func TestRoleStageInvocations(t *testing.T) {
+	tests := []struct {
+		phase           Phase
+		handoff, golden string
+		write           map[string]string
+	}{
+		{PhaseEvaluate, evaluateHandoff, "invocation_evaluate.txt",
+			map[string]string{"scratch/report.md": goodEvaluation}},
+		{PhaseCheckReview, reviewHandoff(1), "invocation_checkreview.txt",
+			map[string]string{"scratch/review-1.md": reviewReport("proves")}},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.phase), func(t *testing.T) {
+			var out bytes.Buffer
+			cfg, ws := roleConfig(t, tt.phase, tt.handoff, &out)
+			got := stageInvocation(t, tt.phase, step{stdout: streamSuccess, writes: tt.write}, ws, cfg)
+			goldenFile(t, tt.golden, got)
+			if !strings.HasPrefix(got, "dir: /workspace/scratch\n") {
+				t.Errorf("the stage does not run in the scratch directory:\n%s", got)
+			}
+			for _, banned := range []string{"--add-dir", "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"} {
+				if strings.Contains(got, banned) {
+					t.Errorf("the evaluate posture renders %s:\n%s", banned, got)
+				}
+			}
+			for _, want := range []string{"--restricted", "Bash(maul-tool:*)", "Read(//workspace/scratch/**)"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("the evaluate posture lacks %s:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
