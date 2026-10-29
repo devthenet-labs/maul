@@ -66,15 +66,16 @@ jobs:
                   # empty ref falls through to checkout's default (the triggering ref)
                   ref: ${{ inputs.ref }}
 
-            # The preview tester runs inside preview slots, whose admission
-            # policy admits it only by exact digest, so the chart carries it
-            # by digest, never by tag: resolve the digest goreleaser pushed
-            # for this release (the image index, both platforms) and stamp it
-            # into the packaged chart's values (hack/stamp-preview-tester.sh,
-            # which keeps the file's layout and reads the key back). Any miss
-            # fails the publish, so a chart never ships with a tester that was
-            # not released with it.
-            - name: Stamp the preview tester digest
+            # The preview tester and the slot tool pod's three images (tools,
+            # browser, toolbox) run inside preview slots, whose admission
+            # policies admit each only by exact digest, so the chart carries
+            # them by digest, never by tag: resolve the digest goreleaser
+            # pushed for this release (the image index, both platforms) and
+            # stamp it into the packaged chart's values
+            # (hack/stamp-preview-images.sh, which keeps the file's layout
+            # and reads the key back). Any miss fails the publish, so a chart
+            # never ships with an image that was not released with it.
+            - name: Stamp the preview image digests
               if: matrix.chart == 'maul'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,10 +83,13 @@ jobs:
                   set -euo pipefail
                   command -v yq >/dev/null || { echo "yq (mikefarah v4) is required" >&2; exit 1; }
                   docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin <<<"${GITHUB_TOKEN}"
-                  repository="$(yq -r '.image.repository' charts/maul/values.yaml)/preview-tester"
+                  registry="$(yq -r '.image.repository' charts/maul/values.yaml)"
                   version="$(yq -r '.appVersion' charts/maul/Chart.yaml)"
-                  digest="$(docker buildx imagetools inspect "${repository}:v${version}" --format '{{ .Manifest.Digest }}')"
-                  hack/stamp-preview-tester.sh charts/maul/values.yaml "${repository}" "${digest}"
+                  for name in tester tools browser toolbox; do
+                      repository="${registry}/preview-${name}"
+                      digest="$(docker buildx imagetools inspect "${repository}:v${version}" --format '{{ .Manifest.Digest }}')"
+                      hack/stamp-preview-images.sh charts/maul/values.yaml "${name}" "${repository}" "${digest}"
+                  done
 
             - name: Lint
               run: |

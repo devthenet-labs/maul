@@ -13,6 +13,13 @@
 # watch: the requests) and previewverifications/status (update: the
 # results). Admission fences each: maul-preview-jobs,
 # maul-preview-networkpolicies and maul-preview-verifications.
+# The agent evaluator's slot tool pod (intentController.verification.evaluator
+# with verification on) adds, in each slot, events (get, list, watch: the pod
+# events a tool pod reports), secrets (create, delete: the per-verification
+# CDP key) and configmaps (create, update, delete: the tool ConfigMap), and in
+# the release namespace configmaps (create, delete: each verification's ledger
+# and evidence). None of them reads a Secret or ConfigMap. Admission fences
+# them: maul-preview-tool-objects and maul-preview-ledgers.
 {{- if .Values.previewController.enabled }}
 {{- if not .Values.preview.enabled }}{{ fail "previewController.enabled requires preview.enabled: the guarded slot namespaces must exist" }}{{ end }}
 {{- if and (include "maul.previewLegacyIngress" .) (not .Values.preview.placeholder.enabled) }}{{ fail "previewController.enabled requires preview.placeholder.enabled: the stable placeholder Ingress must be rendered (on the legacy path, preview.legacyIngress)" }}{{ end }}
@@ -22,6 +29,7 @@
 {{- $vals := .Values.previewController }}
 {{- $name := "preview-controller" }}
 {{- $verify := include "maul.previewVerification" . }}
+{{- $tools := include "maul.previewTools" . }}
 {{- $c := dict "name" $name "vals" $vals }}
 {{- $sa := include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
 {{- if $vals.serviceAccount.create }}
@@ -64,6 +72,13 @@ rules:
     - apiGroups: [maul.run]
       resources: [previewverifications/status]
       verbs: [update]
+    {{- end }}
+    {{- if $tools }}
+    # The tool pod's records: each verification's ledger and evidence
+    # ConfigMaps, written and deleted, never read (maul-preview-ledgers).
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [create, delete]
     {{- end }}
     - apiGroups: [coordination.k8s.io]
       resources: [leases]
@@ -124,6 +139,20 @@ rules:
     - apiGroups: [""]
       resources: [pods/log]
       verbs: [get]
+    {{- end }}
+    {{- if $tools }}
+    # The agent evaluator's tool pod: the events it reports on the slot's
+    # pods, its per-verification CDP key Secret and its tool ConfigMap
+    # (maul-preview-tool-objects; neither is ever read back).
+    - apiGroups: [""]
+      resources: [events]
+      verbs: [get, list, watch]
+    - apiGroups: [""]
+      resources: [secrets]
+      verbs: [create, delete]
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [create, update, delete]
     {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

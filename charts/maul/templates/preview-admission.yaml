@@ -72,7 +72,29 @@ verifying release must still lose its job-tracking finalizer.
 {{- $deadlineMax = int (include "maul.previewVerifyDeadlineSeconds" .) }}
 {{- $kinds = list (dict "name" "pods" "group" `""` "resource" "pods" "pod" "object.spec" "exact" (list $tester)) (dict "name" "deployments" "group" "apps" "resource" "deployments" "pod" "object.spec.template.spec" "exact" list) (dict "name" "jobs" "group" "batch" "resource" "jobs" "pod" "object.spec.template.spec" "exact" (list $tester)) }}
 {{- end }}
+{{- /*
+The agent evaluator's slot tool pod (maul.previewTools: verification and
+intentController.verification.evaluator both on). A pod labelled
+maul.run/preview-role tools, from preview-controller's Job (role tools in the
+Job rules), takes its own container, image and volume rules in place of the
+one-container, prefix-image, emptyDir-only ones every other slot pod keeps:
+main container tools in the tools image, at most a browser and a sandbox
+native sidecar (restartPolicy Always) in the browser and toolbox images, one
+preview- ConfigMap mounted in tools alone and one preview- Secret mounted in
+tools and browser alone, beside emptyDirs. Every other rule (no token, the
+default ServiceAccount, no host namespaces, the preview nodes, the default
+scheduler, no Secret through env) holds for it unchanged. A Deployment may
+never carry the role, and a bare Pod carrying it must belong to a Job: the
+tool pod alone is left out of preview-isolation.
+*/}}
+{{- $tools := include "maul.previewTools" . }}
+{{- $toolImages := dict }}
+{{- if $tools }}
+{{- $toolImages = include "maul.previewToolImages" . | fromJson }}
+{{- end }}
 {{- range $kind := $kinds }}
+{{- $toolRules := and $tools (ne $kind.name "deployments") }}
+{{- $meta := ternary "object.metadata" "object.spec.template.?metadata" (eq $kind.name "pods") }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -109,6 +131,14 @@ spec:
         - name: spec
           expression: object.spec
         {{- end }}
+        {{- if $toolRules }}
+        - name: tools
+          expression: "{{ $meta }}.?labels[?'maul.run/preview-role'].orValue('') == 'tools'"
+        - name: configMapVolumes
+          expression: "variables.pod.?volumes.orValue([]).filter(v, has(v.configMap)).map(v, v.name)"
+        - name: secretVolumes
+          expression: "variables.pod.?volumes.orValue([]).filter(v, has(v.secret)).map(v, v.name)"
+        {{- end }}
     validations:
         {{- if eq $kind.name "jobs" }}
         - expression: "request.userInfo.username == '{{ $pcSA }}'"
@@ -129,12 +159,15 @@ spec:
               variables.pod.restartPolicy == 'Never'
           message: preview Jobs and their pods carry a bounded deadline
         - expression: >-
-              object.spec.template.metadata.?labels[?'maul.run/preview-role'].orValue('') in ['tester', 'command', 'seed'] &&
+              object.spec.template.metadata.?labels[?'maul.run/preview-role'].orValue('') in ['tester', 'command', 'seed'{{ if $tools }}, 'tools'{{ end }}] &&
               object.spec.template.metadata.?labels[?'maul.run/preview-uid'].orValue('') != '' &&
               object.spec.template.metadata.?labels[?'maul.run/preview-part'].orValue('') != ''
           message: preview Job pods are labelled with their Preview, part and role
         {{- end }}
         - expression: >-
+              {{- if $toolRules }}
+              variables.tools ||
+              {{- end }}
               variables.pod.containers.all(c,
               {{- if $kind.exact }}
                 c.image in {{ $kind.exact | toJson }} ||
@@ -151,10 +184,48 @@ spec:
               variables.pod.serviceAccountName == 'default'
           message: preview pods must explicitly disable API token mounting and use the default ServiceAccount
         - expression: >-
+              {{- if $toolRules }}
+              variables.tools || (
+              {{- end }}
               (!has(variables.pod.initContainers) || size(variables.pod.initContainers) == 0) &&
               (!has(variables.pod.ephemeralContainers) || size(variables.pod.ephemeralContainers) == 0) &&
               (!has(variables.pod.volumes) || variables.pod.volumes.all(v, has(v.emptyDir)))
+              {{- if $toolRules }})
+              {{- end }}
           message: preview pods may use only emptyDir volumes and no init or ephemeral containers
+        {{- if $toolRules }}
+        - expression: >-
+              !variables.tools || (
+                variables.pod.containers.all(c, c.name == 'tools' && c.image == '{{ $toolImages.tools }}') &&
+                size(variables.pod.?ephemeralContainers.orValue([])) == 0 &&
+                variables.pod.?initContainers.orValue([]).all(c,
+                  c.?restartPolicy.orValue('') == 'Always' &&
+                  ((c.name == 'browser' && c.image == '{{ $toolImages.browser }}') ||
+                   (c.name == 'sandbox' && c.image == '{{ $toolImages.toolbox }}'))))
+          message: preview tool pods run tools with at most a browser and a sandbox native sidecar, each in its own exact image
+        - expression: >-
+              !variables.tools || (
+                variables.pod.?volumes.orValue([]).all(v, has(v.emptyDir) ||
+                  (has(v.configMap) && v.configMap.?name.orValue('').startsWith('preview-')) ||
+                  (has(v.secret) && v.secret.?secretName.orValue('').startsWith('preview-'))) &&
+                size(variables.configMapVolumes) <= 1 && size(variables.secretVolumes) <= 1 &&
+                (variables.pod.containers + variables.pod.?initContainers.orValue([])).all(c,
+                  c.?volumeMounts.orValue([]).all(m,
+                    (!(m.name in variables.configMapVolumes) || c.name == 'tools') &&
+                    (!(m.name in variables.secretVolumes) || c.name in ['tools', 'browser']))))
+          message: preview tool pods mount one preview- ConfigMap in tools alone and one preview- Secret in tools and browser alone, beside emptyDirs
+        {{- if eq $kind.name "pods" }}
+        - expression: >-
+              !variables.tools ||
+              object.metadata.?ownerReferences.orValue([]).exists(r,
+                r.?controller.orValue(false) && r.apiVersion == 'batch/v1' && r.kind == 'Job')
+          message: a preview tool pod belongs to its Job
+        {{- end }}
+        {{- end }}
+        {{- if and $tools (eq $kind.name "deployments") }}
+        - expression: "object.spec.template.?metadata.?labels[?'maul.run/preview-role'].orValue('') != 'tools'"
+          message: preview components never carry the tool pod's role
+        {{- end }}
         - expression: >-
               (!has(variables.pod.hostNetwork) || !variables.pod.hostNetwork) &&
               (!has(variables.pod.hostPID) || !variables.pod.hostPID) &&
@@ -333,24 +404,75 @@ spec:
                   size(t.podSelector.matchLabels) == 2 &&
                   t.podSelector.matchLabels[?'maul.run/preview-uid'] == optional.of(variables.uid) &&
                   'maul.run/preview-part' in t.podSelector.matchLabels))))
+        {{- if $tools }}
+        # The agent evaluator's tool pod (DESIGN 4.2): its per-verification
+        # ingress policy selects it by role and verification UID alone.
+        - name: toolSel
+          expression: >-
+              !has(variables.sel.matchExpressions) && has(variables.sel.matchLabels) &&
+              size(variables.sel.matchLabels) == 2 &&
+              variables.sel.matchLabels[?'maul.run/preview-role'] == optional.of('tools') &&
+              variables.sel.matchLabels[?'maul.run/preview-verification'].orValue('') != ''
+        - name: verification
+          expression: "variables.sel.?matchLabels[?'maul.run/preview-verification'].orValue('')"
+        # Exactly one rule: from the agents namespace, by name, exactly the
+        # evaluator pod of this same verification, on TCP 8090; no egress.
+        - name: toolIngressOK
+          expression: >-
+              request.operation == 'DELETE' || (
+              object.spec.?policyTypes.orValue([]) == ['Ingress'] &&
+              size(object.spec.?egress.orValue([])) == 0 &&
+              size(object.spec.?ingress.orValue([])) == 1 &&
+              object.spec.ingress.all(r,
+                size(r.?from.orValue([])) == 1 && size(r.?ports.orValue([])) == 1 &&
+                r.ports.all(p, p.?protocol.orValue('') == 'TCP' && has(p.port) && type(p.port) == int &&
+                  p.port == 8090 && !has(p.endPort)) &&
+                r.from.all(f, !has(f.ipBlock) &&
+                  has(f.namespaceSelector) && !has(f.namespaceSelector.matchExpressions) &&
+                  f.namespaceSelector.?matchLabels.orValue({}) == {'kubernetes.io/metadata.name': '{{ .Values.agent.namespace }}'} &&
+                  has(f.podSelector) && !has(f.podSelector.matchExpressions) &&
+                  f.podSelector.?matchLabels.orValue({}) ==
+                    {'maul.run/role': 'evaluator', 'maul.run/preview-verification': variables.verification})))
+        {{- end }}
     validations:
-        - expression: "!(variables.pc && variables.np.metadata.name == 'preview-isolation')"
+        - expression: "!(variables.pc && variables.np.metadata.name {{ if $tools }}in ['preview-isolation', 'preview-tools-isolation']{{ else }}== 'preview-isolation'{{ end }})"
           message: preview-controller may never create, change or delete the slot isolation policy
         - expression: >-
               !variables.pc || (variables.np.metadata.name.startsWith('preview-') &&
               variables.np.metadata.name.contains('-np-') &&
               variables.np.metadata.?labels[?'app.kubernetes.io/managed-by'] == optional.of('maul-preview-controller') &&
+              {{- if $tools }}
+              (variables.toolSel || (
+              {{- end }}
               variables.uid != '' && !has(variables.sel.matchExpressions) &&
               size(variables.sel.matchLabels) == 2 &&
               'maul.run/preview-part' in variables.sel.matchLabels)
+              {{- if $tools }}))
+              {{- end }}
           message: preview-controller policies select one part of one Preview, by labels only
         - expression: >-
               !variables.pc || request.operation == 'DELETE' ||
+              {{- if $tools }}
+              variables.toolSel ||
+              {{- end }}
               (has(object.spec.policyTypes) && size(object.spec.policyTypes) == 2 &&
                'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes)
           message: preview edge policies always cover both directions
-        - expression: "!variables.pc || variables.rulesOK"
+        - expression: "!variables.pc || {{ if $tools }}variables.toolSel || {{ end }}variables.rulesOK"
           message: preview edges admit only pods of the same Preview, by part, on explicit TCP ports
+        {{- if $tools }}
+        - expression: "!variables.pc || !variables.toolSel || variables.toolIngressOK"
+          message: the tool pod's ingress policy admits exactly its own evaluator, from the agents namespace by name, on TCP 8090, ingress only
+        # The tool pod reaches components on its declared edges (an ordinary
+        # edge policy for its part, tools); nothing in the slot reaches it.
+        - expression: >-
+              !variables.pc || request.operation == 'DELETE' || (
+              object.spec.?egress.orValue([]).all(r, r.?to.orValue([]).all(t,
+                t.?podSelector.?matchLabels[?'maul.run/preview-part'].orValue('') != 'tools')) &&
+              (variables.sel.?matchLabels[?'maul.run/preview-part'].orValue('') != 'tools' ||
+                size(object.spec.?ingress.orValue([])) == 0))
+          message: nothing in a slot reaches the tool pod; no edge ends at part tools
+        {{- end }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -361,6 +483,50 @@ metadata:
 spec:
     policyName: maul-preview-networkpolicies
     validationActions: [Deny]
+{{- if $tools }}
+---
+# The agent evaluator's tool pod objects: preview-controller creates a
+# per-verification CDP key Secret and a tool ConfigMap in a slot, and may
+# delete them; it never reads either. A slot also holds Secrets that are not
+# its own (each preview sign-in generation's OIDC client), so its Secret and
+# ConfigMap writes there are held to its own: a preview- name and its
+# managed-by label, before and after. Kept, like every slot policy.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: maul-preview-tool-objects
+    annotations:
+        helm.sh/resource-policy: keep
+spec:
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [""]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE, DELETE]
+              resources: [secrets, configmaps]
+    matchConditions:
+        - name: exact-preview-slot
+          expression: 'request.namespace in {{ $guardSlots | toJson }}'
+        - name: preview-controller
+          expression: "request.userInfo.username == '{{ $pcSA }}'"
+    validations:
+        - expression: >-
+              [request.operation == 'DELETE' ? oldObject : object, request.operation == 'CREATE' ? object : oldObject]
+                .all(o, o.metadata.name.startsWith('preview-') &&
+                  o.metadata.?labels[?'app.kubernetes.io/managed-by'] == optional.of('maul-preview-controller'))
+          message: preview-controller writes only its own preview- Secrets and ConfigMaps in a slot, labelled as its own
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: maul-preview-tool-objects
+    annotations:
+        helm.sh/resource-policy: keep
+spec:
+    policyName: maul-preview-tool-objects
+    validationActions: [Deny]
+{{- end }}
 {{- end }}
 ---
 # No slot workload may name a Secret through its environment. The emptyDir-only
