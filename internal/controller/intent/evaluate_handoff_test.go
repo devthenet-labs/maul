@@ -117,3 +117,24 @@ func mustHandoff(t *testing.T, p *pass, pv *v1alpha1.PreviewVerification) string
 	}
 	return raw
 }
+
+// TestEvaluateHandoffCarriesTheBrowserEntry: a Project's surfaces.browser.entry
+// reaches the evaluator as the path its browser opens first, only on a
+// round whose tool pod has a browser.
+func TestEvaluateHandoffCarriesTheBrowserEntry(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4, func(pr *v1alpha1.Project) {
+		pr.Spec.Surfaces = &v1alpha1.ProjectSurfaces{Browser: &v1alpha1.BrowserSurface{Entry: "/battle?x=1"}}
+	})
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	p := e.prVerifyPass(name)
+
+	pv.Spec.Tools = &v1alpha1.ToolsSpec{Browser: true, MaxToolCalls: 100}
+	if got := decodeEvaluateHandoff(t, mustHandoff(t, p, &pv)).Tools.BrowserEntry; got != "/battle?x=1" {
+		t.Errorf("browser entry = %q, want /battle?x=1", got)
+	}
+	pv.Spec.Tools.Browser = false
+	if got := decodeEvaluateHandoff(t, mustHandoff(t, p, &pv)).Tools.BrowserEntry; got != "" {
+		t.Errorf("browser entry without a browser = %q, want none", got)
+	}
+}

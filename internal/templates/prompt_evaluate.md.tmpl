@@ -87,6 +87,9 @@ You may make at most {{.Tools.MaxToolCalls}} tool calls; past that every call is
   from the latest snapshot. `screenshot` writes a PNG under `{{.ShotsDir}}` and prints its path: open it
   with Read to look at it. Look at a screenshot of every page you judge: whether text can be read, and whether
   things overlap or are hidden, shows only there (or in computed styles read with `eval`), never in the snapshot.
+{{- with .Tools.BrowserEntry}}
+  The application's entry page is `{{.}}`: start with `goto {{.}}`, as a person opening the preview would.
+{{- end}}
 {{- end}}
 {{- if .Tools.Sandbox}}
 - `maul-tool exec [--file <path>]... -- <argv>`: runs a program in the preview's sandbox, which can reach the

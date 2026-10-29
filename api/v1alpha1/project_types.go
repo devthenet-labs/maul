@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -490,6 +491,26 @@ type BrowserSurface struct {
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:Pattern=`^/([^/].*)?$`
 	Entry string `json:"entry"`
+}
+
+// MaxBrowserEntryBytes bounds BrowserSurface.Entry (its schema's maximum).
+const MaxBrowserEntryBytes = 256
+
+// ValidBrowserEntry reports whether entry is a path on the preview host the
+// evaluator's browser may open first: absolute, at most MaxBrowserEntryBytes
+// of visible ASCII (no space or control character), not scheme-relative
+// ("//host") and without a backslash (browsers read it as a slash) or a backtick (the prompt quotes the path). The
+// schema pattern is the looser form; consumers hold the value to this.
+func ValidBrowserEntry(entry string) bool {
+	if entry == "" || len(entry) > MaxBrowserEntryBytes || entry[0] != '/' || strings.HasPrefix(entry, "//") {
+		return false
+	}
+	for i := 0; i < len(entry); i++ {
+		if c := entry[i]; c <= ' ' || c >= 0x7f || c == '\\' || c == '`' {
+			return false
+		}
+	}
+	return true
 }
 
 // MaxPreviewComponents bounds how many of a Project's repositories are

@@ -196,12 +196,16 @@ spec:
     maxToolCalls: 300 # 50 to 300 per round, never above the chart's
   surfaces:
     browser:
-      entry: / # the path the browser opens first; without it the evaluator has http and the sandbox only
+      entry: / # the path the browser opens first (the evaluator is told to start there); without it the evaluator has http and the sandbox only
   limits:
     maxEvaluateCostMicroUSD: 6000000 # what the intent's evaluate and checkreview runs may spend together
     evaluate: { maxCostMicroUSD: 1500000 } # each evaluate run (limits.evaluate, like limits.build)
     checkReview: { maxCostMicroUSD: 300000 } # each checkreview run (limits.checkReview)
 ```
+
+`surfaces.browser.entry` must be an absolute path on the preview host (at most 256 visible ASCII characters, no space,
+backslash, backtick or leading `//`, and no scheme or host); the evaluator's prompt names it as the page to open first.
+A value that is not such a path is left out of the prompt.
 
 The evaluation ceiling is counted apart from the intent's own `limits.maxCostMicroUSD`, so evaluation can never spend
 what the fix rounds need; the chart's `maxEvaluateCostUSD` caps it for every Project. Under

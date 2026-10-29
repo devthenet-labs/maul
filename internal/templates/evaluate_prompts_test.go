@@ -433,3 +433,22 @@ func TestEvaluatePromptStatesThePreviousRound(t *testing.T) {
 		t.Error("a prior verdict's reason is not bounded")
 	}
 }
+
+func TestEvaluatePromptStartsTheBrowserAtItsEntry(t *testing.T) {
+	p := testEvaluatePrompt()
+	p.Tools.BrowserEntry = "/battle"
+	got, err := RenderEvaluatePrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "`goto /battle`") {
+		t.Errorf("prompt does not tell the browser to start at its entry:\n%s", got)
+	}
+	long := "/" + strings.Repeat("a", 256)
+	for _, bad := range []string{"//evil.example/x", "http://evil.example/", "battle", "/a b", "/a\nb", long} {
+		p.Tools.BrowserEntry = bad
+		if _, err := RenderEvaluatePrompt(p); err == nil {
+			t.Errorf("entry %q rendered, want it refused", bad)
+		}
+	}
+}

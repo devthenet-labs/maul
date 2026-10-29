@@ -89,10 +89,13 @@ type EvaluateComponent struct {
 // EvaluateTools are what a round's tool pod offers beside http, logs and
 // events.
 type EvaluateTools struct {
-	Browser          bool `json:"browser,omitempty"`
-	Sandbox          bool `json:"sandbox,omitempty"`
-	MaxToolCalls     int  `json:"max_tool_calls"`
-	LookAroundRoutes int  `json:"look_around_routes,omitempty"`
+	Browser bool `json:"browser,omitempty"`
+	// BrowserEntry is the path the browser opens first (the Project's
+	// surfaces.browser.entry); v1alpha1.ValidBrowserEntry, and only with Browser.
+	BrowserEntry     string `json:"browser_entry,omitempty"`
+	Sandbox          bool   `json:"sandbox,omitempty"`
+	MaxToolCalls     int    `json:"max_tool_calls"`
+	LookAroundRoutes int    `json:"look_around_routes,omitempty"`
 }
 
 // ChangedPath is one file a pull request changes, with its added and
@@ -226,7 +229,7 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 		ReportPath: reportPath, ChecksDir: checksDir, ShotsDir: shotsDir,
 		Limits: limits, Round: h.Round, RunToken: h.RunToken,
 		Tools: templates.EvaluateTools{
-			Browser: h.Tools.Browser, Sandbox: h.Tools.Sandbox,
+			Browser: h.Tools.Browser, BrowserEntry: h.Tools.BrowserEntry, Sandbox: h.Tools.Sandbox,
 			MaxToolCalls: h.Tools.MaxToolCalls, LookAroundRoutes: h.Tools.LookAroundRoutes,
 		},
 		Request: h.Request, Outcomes: h.Outcomes, FixDiff: h.FixDiff, PriorRound: h.PriorRound,

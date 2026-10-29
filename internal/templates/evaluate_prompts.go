@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/untrusted"
@@ -123,6 +124,9 @@ type EvaluateComponent struct {
 type EvaluateTools struct {
 	// Browser offers maul-tool browser and browser checks.
 	Browser bool
+	// BrowserEntry is the path the browser opens first; "" leaves it to the
+	// evaluator. Else it must be v1alpha1.ValidBrowserEntry.
+	BrowserEntry string
 	// Sandbox offers maul-tool exec and exec checks.
 	Sandbox bool
 	// MaxToolCalls is the run's tool-call bound.
@@ -167,6 +171,10 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 	}
 	if !runToken.MatchString(p.RunToken) {
 		return "", fmt.Errorf("render evaluate prompt: run token %q is not %s", p.RunToken, runToken)
+	}
+	if p.Tools.BrowserEntry != "" && (!p.Tools.Browser || !v1alpha1.ValidBrowserEntry(p.Tools.BrowserEntry)) {
+		return "", fmt.Errorf("render evaluate prompt: browser entry %q is not a path on a preview with a browser",
+			p.Tools.BrowserEntry)
 	}
 	p.Components = boundEvaluateComponents(p.Components)
 	p.Tools.LookAroundRoutes = min(max(p.Tools.LookAroundRoutes, 0), 8)

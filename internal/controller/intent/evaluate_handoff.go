@@ -80,6 +80,7 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	if t := pv.Spec.Tools; t != nil {
 		h.Tools = agentrun.EvaluateTools{Browser: t.Browser, Sandbox: t.Sandbox,
 			MaxToolCalls: int(t.MaxToolCalls), LookAroundRoutes: int(t.LookAroundRoutes)}
+		h.Tools.BrowserEntry = p.browserEntry(t.Browser)
 	}
 	previews := v1alpha1.EffectivePreviews(p.proj)
 	for _, head := range pv.Spec.Heads {
@@ -98,6 +99,17 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 		return "", err
 	}
 	return encodeEvaluateHandoff(h)
+}
+
+// browserEntry is the Project's surfaces.browser.entry when the round has a
+// browser and the value is a path the browser may open; "" otherwise (the
+// evaluator then starts where it likes).
+func (p *pass) browserEntry(browser bool) string {
+	s := p.proj.Spec.Surfaces
+	if !browser || s == nil || s.Browser == nil || !v1alpha1.ValidBrowserEntry(s.Browser.Entry) {
+		return ""
+	}
+	return s.Browser.Entry
 }
 
 // previousRound fills h, pv's handoff, with what the controller stores of
