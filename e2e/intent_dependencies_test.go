@@ -305,6 +305,24 @@ func TestIntentDependenciesCrossRepositoryAndUnavailable(t *testing.T) {
 	e.projectCondition(t, metav1.ConditionTrue, v1alpha1.ReasonDependenciesUnanswered)
 }
 
+// TestIntentDependenciesThrottled403Waits: a 403 that only its Retry-After
+// header marks as throttling is no permission refusal: a blocked intent
+// keeps waiting (and the Project reports no DependenciesForbidden), then
+// waits on its blocker once GitHub answers again.
+func TestIntentDependenciesThrottled403Waits(t *testing.T) {
+	e := startIntents(t)
+	e.gh.SetDependenciesThrottled(true)
+	x := e.plainIssue(intentRepo, "Blocker X")
+	_, dName := e.fileBlocked(t, "T", x)
+	e.waitWaiting(t, dName, v1alpha1.ReasonCheckingDependencies)
+	if c := meta.FindStatusCondition(e.project(t).Status.Conditions, v1alpha1.ConditionDependenciesUnavailable); c != nil &&
+		c.Status == metav1.ConditionTrue && c.Reason == v1alpha1.ReasonDependenciesForbidden {
+		t.Fatalf("a throttled read was reported as %+v", c)
+	}
+	e.gh.SetDependenciesThrottled(false)
+	e.waitWaiting(t, dName, v1alpha1.ReasonOpenBlockers)
+}
+
 // TestIntentDependenciesLateSlotAndOff: a released waiter holds back for
 // the Project's one active slot until the active intent merges; a blocker
 // added after the start gets one notice and stops nothing; and with

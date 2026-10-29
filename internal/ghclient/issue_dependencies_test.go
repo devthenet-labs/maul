@@ -107,6 +107,10 @@ func TestListBlockedByErrors(t *testing.T) {
 				`"documentation_url":"https://docs.github.com/rest/overview/rate-limits-for-the-rest-api` +
 				`#about-secondary-rate-limits"}`,
 			unclassified, "unclassified"},
+		// The same throttle without go-github's documentation_url anchor
+		// arrives as a plain 403.
+		{"403 throttle without anchor", http.StatusForbidden, map[string]string{"Retry-After": "0"},
+			`{"message":"Forbidden"}`, unclassified, "unclassified"},
 		{"429", http.StatusTooManyRequests, map[string]string{"Retry-After": "0"},
 			`{"message":"You have exceeded a secondary rate limit."}`, unclassified, "unclassified"},
 	} {

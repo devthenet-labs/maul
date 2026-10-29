@@ -40,6 +40,10 @@ const (
 	dependenciesUnsupported
 	// dependenciesFailing: every listing answers 500.
 	dependenciesFailing
+	// dependenciesThrottled: every listing answers a throttling 403 that
+	// go-github cannot type as a rate limit (a Retry-After header, no
+	// documentation_url anchor).
+	dependenciesThrottled
 )
 
 // AddBlockedBy records issue number as blocked by issue blocker; both are
@@ -77,6 +81,10 @@ func (s *Server) SetDependenciesUnsupported(on bool) {
 
 // SetDependenciesFailing makes every blocked-by listing answer 500.
 func (s *Server) SetDependenciesFailing(on bool) { s.setDependencyMode(on, dependenciesFailing) }
+
+// SetDependenciesThrottled makes every blocked-by listing answer a 403 that
+// only its Retry-After header marks as throttling.
+func (s *Server) SetDependenciesThrottled(on bool) { s.setDependencyMode(on, dependenciesThrottled) }
 
 func (s *Server) setDependencyMode(on bool, mode dependencyMode) {
 	s.mu.Lock()
@@ -151,6 +159,10 @@ func (s *Server) listBlockedBy(w http.ResponseWriter, r *http.Request) {
 		return
 	case dependenciesFailing:
 		http.Error(w, `{"message":"Server Error"}`, http.StatusInternalServerError)
+		return
+	case dependenciesThrottled:
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, `{"message":"Forbidden"}`, http.StatusForbidden)
 		return
 	}
 	if _, ok := s.issues[number]; !ok {

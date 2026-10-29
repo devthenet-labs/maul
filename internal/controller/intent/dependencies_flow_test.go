@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-github/v90/github"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -203,6 +204,19 @@ func TestDependencyUnsupportedStarts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDependencyThrottled403Waits: a 403 that go-github did not recognise
+// as a rate limit but that carries Retry-After is throttling, not a refusal:
+// a blocked intent keeps waiting instead of starting early.
+func TestDependencyThrottled403Waits(t *testing.T) {
+	e := newEnv(t, testProject())
+	name := e.newIntent(approver)
+	res := &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{"Retry-After": {"60"}}}
+	e.gh.blockedByErr = &github.ErrorResponse{Response: res, Message: "Forbidden"}
+	e.mustIntent(name)
+	e.mustIntent(name)
+	e.wantWaiting(name, v1alpha1.ReasonCheckingDependencies)
 }
 
 // TestDependencyTransientGivesUpAcrossRestart: a read GitHub keeps failing
