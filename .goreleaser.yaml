@@ -224,6 +224,25 @@ builds:
       goarch:
           - amd64
           - arm64
+    - id: tool-exec
+      main: ./cmd/tool-exec
+      binary: tool-exec
+      flags:
+          - -trimpath
+      # The exec shim links only the standard library and internal/toolexec,
+      # so these stamps name a package it does not link and the linker drops
+      # them; they stay so every build carries the same contract
+      # (internal/version's TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
     - id: agent-runner
       main: ./cmd/agent-runner
       binary: agent-runner
@@ -328,6 +347,7 @@ archives:
           - egress-proxy
           - preview-auth
           - preview-tester
+          - tool-exec
           - agent-runner
           - status-server
       formats: [tar.gz]
@@ -568,6 +588,25 @@ dockers_v2:
       dockerfile: Dockerfile.preview-tester
       images:
           - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-tester"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
+    # The preview toolbox (cmd/tool-exec plus curl, grpcurl, websocat, node,
+    # python and go): the sandbox container of a slot tool pod. The chart
+    # takes it only by digest.
+    - id: preview-toolbox
+      ids: [tool-exec]
+      dockerfile: Dockerfile.preview-toolbox
+      images:
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-toolbox"
       tags:
           - v{{ .Version }}
           - latest
