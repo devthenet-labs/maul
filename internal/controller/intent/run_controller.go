@@ -48,18 +48,46 @@ const runSchedulerRequest = "\x00intent-scheduler"
 const KindIntent = "intent"
 
 // Stage priorities within the slot pool: a build ahead of a plan (a revise
-// round, slice 1b, ahead of both), each FIFO.
+// round, slice 1b, ahead of both; an evaluation ahead of a revise round,
+// since a hand-off waits on it; its check review ahead of everything), each
+// FIFO.
 var stagePriority = map[v1alpha1.IntentStage]int32{
-	v1alpha1.IntentStagePlan:   1,
-	v1alpha1.IntentStageBuild:  2,
-	v1alpha1.IntentStageRevise: 3,
+	v1alpha1.IntentStagePlan:        1,
+	v1alpha1.IntentStageBuild:       2,
+	v1alpha1.IntentStageRevise:      3,
+	v1alpha1.IntentStageEvaluate:    4,
+	v1alpha1.IntentStageCheckReview: 5,
 }
 
 // jobPhase is the agentrun phase each stage's Job runs.
 var jobPhase = map[v1alpha1.IntentStage]string{
-	v1alpha1.IntentStagePlan:   "plan",
-	v1alpha1.IntentStageBuild:  "build",
-	v1alpha1.IntentStageRevise: "build",
+	v1alpha1.IntentStagePlan:        "plan",
+	v1alpha1.IntentStageBuild:       "build",
+	v1alpha1.IntentStageRevise:      "build",
+	v1alpha1.IntentStageEvaluate:    "evaluate",
+	v1alpha1.IntentStageCheckReview: "checkreview",
+}
+
+// errStageNotEnabled: a stage the schema admits that this controller does
+// not run yet (the evaluator's and the check reviewer's, until their round
+// lands): no run of it is created, and a granted one launches nothing.
+var errStageNotEnabled = errors.New("this controller does not run the stage yet")
+
+// errUnknownStage: a stage no switch of this controller knows (the schema's
+// enum refuses one); nothing is created or launched for it.
+var errUnknownStage = errors.New("the stage is unknown to this controller")
+
+// launchEnabled reports whether runs of stage may be created and launched:
+// nil for the plan, build and revise stages, errStageNotEnabled for the
+// evaluate and checkreview stages, errUnknownStage for any other.
+func launchEnabled(stage v1alpha1.IntentStage) error {
+	switch stage {
+	case v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise:
+		return nil
+	case v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
+		return fmt.Errorf("stage %q: %w", stage, errStageNotEnabled)
+	}
+	return fmt.Errorf("stage %q: %w", stage, errUnknownStage)
 }
 
 // irunGVK is the owner TypeMeta a run's transcript carries.
@@ -553,6 +581,11 @@ func repositoryLeftDetail(run *v1alpha1.IntentRun) string {
 // Project picks one; a class this controller does not define launches
 // nothing, and the run waits Pending.
 func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) error {
+	// A run of a stage this controller does not run (one made by hand) ends
+	// before anything is read for it.
+	if err := launchEnabled(run.Spec.Stage); err != nil {
+		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused, detail: err.Error() + "; nothing was launched"})
+	}
 	proj, wait, err := r.launchProject(ctx, run)
 	switch {
 	case err != nil:
@@ -789,10 +822,17 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 	settings := r.Settings.withDefaults()
 	stage := run.Spec.Stage
 	build := settings.grant(proj, v1alpha1.IntentStageBuild)
-	env := stageEnv(stage, settings, build)
+	env, err := stageEnv(stage, settings, build)
+	if err != nil {
+		return fmt.Errorf("launch run %s: %w", run.Name, err)
+	}
+	timeoutKey, err := stageTimeoutKey(stage)
+	if err != nil {
+		return fmt.Errorf("launch run %s: %w", run.Name, err)
+	}
 	// The in-pod wall clock is the run's own granted timeout, which a
 	// Project may set below the controller's.
-	env[stageTimeoutKey(stage)] = settings.runTimeout(run).String()
+	env[timeoutKey] = settings.runTimeout(run).String()
 	if stage == v1alpha1.IntentStagePlan {
 		if profiles := r.planBuildProfiles(run); profiles != "" {
 			env[envBuildProfiles] = profiles
@@ -800,7 +840,7 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 	}
 	// A registry grant naming a Forge's host is refused like a profile
 	// Create refuses, before any Job exists.
-	err := r.Images.CheckForges(ctx, run.Namespace, &spec)
+	err = r.Images.CheckForges(ctx, run.Namespace, &spec)
 	var jobName string
 	var image v1alpha1.RunnerImageRef
 	if err == nil {
@@ -915,25 +955,7 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 	proj *v1alpha1.Project, repo *v1alpha1.Repository) (requireImage bool, refusal *result) {
 	switch run.Spec.Stage {
 	case v1alpha1.IntentStagePlan:
-		if got := digest([]byte(spec.IssueMarkdown)); got != run.Spec.Inputs.InputDigest {
-			return false, &result{outcome: OutcomeAborted,
-				detail: fmt.Sprintf("the request's bytes hash to %s, not the snapshot's %s; nothing was launched",
-					got, run.Spec.Inputs.InputDigest)}
-		}
-		// The context file of a replan or revival, pinned by its own
-		// digest; a run with no pin is handed none.
-		planCtx := cm.Data[keyInvestigation]
-		if pin := run.Spec.Inputs.ContextDigest; pin == "" && planCtx != "" ||
-			pin != "" && digest([]byte(planCtx)) != pin {
-			return false, &result{outcome: OutcomeAborted,
-				detail: fmt.Sprintf("the context file's bytes hash to %s, not the snapshot's %q; nothing was launched",
-					digest([]byte(planCtx)), pin)}
-		}
-		spec.InvestigationMarkdown = planCtx
-		spec.Model = r.runHarness(run).PlanModel
-		spec.OpenPullRequests = r.planOpenPullRequests(run, cm)
-		spec.PlanVerification = r.planVerification(proj)
-		return false, nil
+		return false, r.planSpec(run, spec, cm, proj)
 	case v1alpha1.IntentStageBuild:
 		spec.Model = r.runHarness(run).BuildModel
 		plan := cm.Data[keyInvestigation]
@@ -982,9 +1004,36 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		}
 		r.networkProfile(run, spec)
 		return true, nil
+	case v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
+		return false, &result{outcome: OutcomeLaunchRefused,
+			detail: launchEnabled(run.Spec.Stage).Error() + "; nothing was launched"}
 	}
 	return false, &result{outcome: OutcomeAborted,
-		detail: fmt.Sprintf("stage %q is not run by this controller", run.Spec.Stage)}
+		detail: launchEnabled(run.Spec.Stage).Error() + "; nothing was launched"}
+}
+
+// planSpec is stageSpec for a plan run: its refusal, nil to launch.
+func (r *RunReconciler) planSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *corev1.ConfigMap,
+	proj *v1alpha1.Project) *result {
+	if got := digest([]byte(spec.IssueMarkdown)); got != run.Spec.Inputs.InputDigest {
+		return &result{outcome: OutcomeAborted,
+			detail: fmt.Sprintf("the request's bytes hash to %s, not the snapshot's %s; nothing was launched",
+				got, run.Spec.Inputs.InputDigest)}
+	}
+	// The context file of a replan or revival, pinned by its own
+	// digest; a run with no pin is handed none.
+	planCtx := cm.Data[keyInvestigation]
+	if pin := run.Spec.Inputs.ContextDigest; pin == "" && planCtx != "" ||
+		pin != "" && digest([]byte(planCtx)) != pin {
+		return &result{outcome: OutcomeAborted,
+			detail: fmt.Sprintf("the context file's bytes hash to %s, not the snapshot's %q; nothing was launched",
+				digest([]byte(planCtx)), pin)}
+	}
+	spec.InvestigationMarkdown = planCtx
+	spec.Model = r.runHarness(run).PlanModel
+	spec.OpenPullRequests = r.planOpenPullRequests(run, cm)
+	spec.PlanVerification = r.planVerification(proj)
+	return nil
 }
 
 // networkProfile requests the operator network profile the run's repository

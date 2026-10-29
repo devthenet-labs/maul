@@ -57,16 +57,16 @@ func TestStageEnv(t *testing.T) {
 			t.Errorf("plan env %s = %q, want %q", k, planEnv[k], v)
 		}
 	}
-	build := stageEnv(v1alpha1.IntentStageBuild, testSettings(), v1alpha1.IntentRunGrant{})
-	if build["MAUL_REMEDIATE_TIMEOUT"] != "1h0m0s" || build["MAUL_REMEDIATE_MANUAL_MAX_TURNS"] != "150" ||
+	build, err := stageEnv(v1alpha1.IntentStageBuild, testSettings(), v1alpha1.IntentRunGrant{})
+	if err != nil || build["MAUL_REMEDIATE_TIMEOUT"] != "1h0m0s" || build["MAUL_REMEDIATE_MANUAL_MAX_TURNS"] != "150" ||
 		build["MAUL_REMEDIATE_AUTO_MAX_TURNS"] != "150" {
-		t.Errorf("build env = %v", build)
+		t.Errorf("build env = %v, %v", build, err)
 	}
-	revise := stageEnv(v1alpha1.IntentStageRevise, testSettings(), v1alpha1.IntentRunGrant{})
-	if revise["MAUL_REMEDIATE_TIMEOUT"] != "45m0s" ||
+	revise, err := stageEnv(v1alpha1.IntentStageRevise, testSettings(), v1alpha1.IntentRunGrant{})
+	if err != nil || revise["MAUL_REMEDIATE_TIMEOUT"] != "45m0s" ||
 		revise["MAUL_REMEDIATE_MANUAL_MAX_TURNS"] != "80" ||
 		revise["MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET"] != "400000" {
-		t.Errorf("revise env = %v", revise)
+		t.Errorf("revise env = %v, %v", revise, err)
 	}
 }
 

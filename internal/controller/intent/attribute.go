@@ -17,6 +17,10 @@ import (
 //     refused or unavailable one included, never moves a later attempt.
 //   - build and check-fix: the approver of the plan being built, reason
 //     approver.
+//   - evaluate and checkreview: likewise the approver of the plan whose
+//     build they judge.
+//
+// A stage it does not know is the org's.
 //
 // A revise round by command or review is attributed where it is leased (its
 // commenter, its newest reviewer). A person with no GitHub id on record (an
@@ -31,13 +35,15 @@ func (p *pass) attributeRun(stage v1alpha1.IntentStage) *v1alpha1.Attribution {
 			return attribution.Org()
 		}
 		return attribution.To(lt.Login, lt.UserID, v1alpha1.AttributionRequester)
-	default:
+	case v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise, v1alpha1.IntentStageEvaluate,
+		v1alpha1.IntentStageCheckReview:
 		ap := p.in.Status.Approval
 		if ap == nil {
 			return attribution.Org()
 		}
 		return attribution.To(ap.By, ap.ByID, v1alpha1.AttributionApprover)
 	}
+	return attribution.Org()
 }
 
 // planTrigger is the trigger action that opened the current input revision,
