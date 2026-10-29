@@ -12,7 +12,7 @@
 // (key, path prefix on the preview host, "<ClusterIP>:<port>"; the pod
 // resolves no name), the preview host and the pairwise viewer the gateway
 // would send, the saved checks to replay, maxToolCalls, the wall clock, and
-// whether this is a replay round; "log.<component>" and EventsFile hold the
+// whether this is a replay round; "logs.<component>" and EventsFile hold the
 // captured log tails and pod events (capture.go), re-read on every call.
 //
 // The Relay (server.go) serves POST /v1/<verb> on Port, one endpoint per

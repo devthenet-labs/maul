@@ -127,7 +127,8 @@ func (r *Reconciler) ensureNetworkPolicies(ctx context.Context, p *v1alpha1.Prev
 	}
 	for i := range live.Items {
 		np := &live.Items[i]
-		if names[np.Name] || !ownedBy(np, p) || !np.DeletionTimestamp.IsZero() {
+		// A verification's ingress policy is its own (toolpolicy.go).
+		if names[np.Name] || isEvaluatorPolicy(p, np.Name) || !ownedBy(np, p) || !np.DeletionTimestamp.IsZero() {
 			continue
 		}
 		if err := r.Delete(ctx, np); err != nil && !kerrors.IsNotFound(err) {

@@ -19,6 +19,7 @@ import (
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // The tool ConfigMap's keys, as preview-controller writes them and the
@@ -27,11 +28,12 @@ const (
 	// ConfigFile holds the Config, JSON.
 	ConfigFile = "tools.json"
 	// EventsFile holds the slot's pod events and container states,
-	// refreshed by preview-controller on each poll.
-	EventsFile = "events"
+	// refreshed by preview-controller on each poll (toolwire's key, which
+	// preview-controller writes).
+	EventsFile = toolwire.CaptureEventsKey
 	// LogFilePrefix starts each component's captured log tail:
-	// "log.<component key>".
-	LogFilePrefix = "log."
+	// "logs.<component key>" (toolwire's).
+	LogFilePrefix = toolwire.CaptureLogPrefix
 )
 
 // DefaultConfigDir is where the tool ConfigMap is mounted.

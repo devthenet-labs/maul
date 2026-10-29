@@ -132,7 +132,7 @@ func TestHandlerRefusals(t *testing.T) {
 func TestToolCallCap(t *testing.T) {
 	cfg := baseConfig()
 	h := newHarness(t, cfg, routes{}, nil)
-	writeFile(t, h.dir, "events", "nothing yet")
+	writeFile(t, h.dir, EventsFile, "nothing yet")
 	for i := 1; i <= cfg.MaxToolCalls; i++ {
 		if _, resp := h.call(toolwire.VerbEvents, `{}`); resp.Refused != "" {
 			t.Fatalf("call %d refused: %+v", i, resp)
@@ -154,7 +154,7 @@ func TestToolCallCapKeepsRoomForConfirmation(t *testing.T) {
 	cfg := baseConfig()
 	cfg.MaxToolCalls = 300
 	h := newHarness(t, cfg, routes{}, nil)
-	writeFile(t, h.dir, "events", "")
+	writeFile(t, h.dir, EventsFile, "")
 	for range toolwire.MaxEntries {
 		h.call(toolwire.VerbEvents, `{}`)
 	}
@@ -240,13 +240,13 @@ func TestLogsAndEventsAreReadEachCall(t *testing.T) {
 	if resp.Refused != "" || resp.Untrusted != "" || !strings.Contains(resp.Reason, "no log") {
 		t.Fatalf("logs before any capture: %+v", resp)
 	}
-	writeFile(t, h.dir, "log.api", "panic: boom\n")
-	writeFile(t, h.dir, "events", "web restarted (OOMKilled)\n")
+	writeFile(t, h.dir, LogFilePrefix+"api", "panic: boom\n")
+	writeFile(t, h.dir, EventsFile, "web restarted (OOMKilled)\n")
 	_, resp = h.call(toolwire.VerbLogs, `{"component":"api"}`)
 	if resp.Untrusted != "panic: boom\n" {
 		t.Errorf("logs: %+v", resp)
 	}
-	writeFile(t, h.dir, "log.api", "panic: boom\npanic: again\n")
+	writeFile(t, h.dir, LogFilePrefix+"api", "panic: boom\npanic: again\n")
 	_, resp = h.call(toolwire.VerbLogs, `{"component":"api"}`)
 	if !strings.Contains(resp.Untrusted, "again") {
 		t.Errorf("logs were not re-read: %+v", resp)

@@ -129,6 +129,23 @@ type Settings struct {
 	// and a Preview's environment renders no edge, so its slot stays as
 	// closed as preview-isolation leaves it.
 	TesterImage string
+	// Evaluator runs outcome verifications on the slot tool pod (the agent
+	// evaluator, --preview-evaluator). It needs verification on and the
+	// three tool images below; off, an outcome verification is maul's
+	// trouble (Infra) and renders nothing.
+	Evaluator bool
+	// ToolsImage, BrowserImage and ToolboxImage are the tool pod's three
+	// images (the tools relay, the Chromium sidecar, the sandbox sidecar),
+	// each digest-pinned and never under the preview image prefix.
+	ToolsImage   string
+	BrowserImage string
+	ToolboxImage string
+	// AgentsNamespace is where evaluators run: the one namespace the tool
+	// pod's per-verification ingress policy admits.
+	AgentsNamespace string
+	// MaxEvaluations bounds the tool pods running at once across slots;
+	// zero is SlotCount.
+	MaxEvaluations int
 }
 
 // testerImagePattern is a digest-pinned image reference: a lowercase
@@ -173,6 +190,9 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("invalid preview-controller settings: %w", err)
 	}
 	if err := s.validateTesterImage(); err != nil {
+		return fmt.Errorf("invalid preview-controller settings: %w", err)
+	}
+	if err := s.validateEvaluator(); err != nil {
 		return fmt.Errorf("invalid preview-controller settings: %w", err)
 	}
 	return s.Auth.validate(s)
