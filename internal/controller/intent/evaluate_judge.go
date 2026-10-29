@@ -5,7 +5,6 @@ package intent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -59,7 +58,6 @@ const (
 	maxAnomalyCites      = 32
 	maxCheckLineBytes    = 1000
 	maxCheckLineSteps    = 12
-	maxOutcomeEvidence   = 4 << 10
 	maxEvaluationReports = 256 << 10
 )
 
@@ -431,35 +429,6 @@ func httpTarget(c v1alpha1.SavedCheck) string {
 	return parsed.HTTP.Target
 }
 
-// renderOutcomeEvidence is an evaluation's verify-fix round's feedback:
-// the heads it judged, and per failing outcome its approved text and the
-// saved check maul re-ran that failed, by its id and form. S1-21 adds the
-// reproduction (the check's steps, observed against expected, the log
-// excerpt); nothing here is the evaluator's words, its notes or a check's
-// digest.
-func renderOutcomeEvidence(pv *v1alpha1.PreviewVerification, acc *v1alpha1.IntentAcceptance,
-	fix *acceptance.FixRequest, cs []v1alpha1.SavedCheck) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Verification `%s` (verification %d, attempt %d) checked the approved outcomes against the "+
-		"preview of these commits:\n\n", pv.Name, pv.Spec.Round, pv.Spec.Attempt)
-	for _, h := range pv.Spec.Heads {
-		fmt.Fprintf(&b, "- `%s` at `%s`\n", h.Component, h.Revision)
-	}
-	for _, f := range fix.Failures {
-		i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == f.Outcome })
-		if i < 0 {
-			continue
-		}
-		fmt.Fprintf(&b, "\n#### Outcome `%s`\n\nApproved outcome:\n\n%s\n\n", f.Outcome,
-			fencedBounded(visibleFeedback(acc.Outcomes[i].Outcome), maxVerifyStatementBytes))
-		if k := slices.IndexFunc(cs, func(c v1alpha1.SavedCheck) bool { return c.Digest == f.CheckDigest }); k >= 0 {
-			fmt.Fprintf(&b, "maul re-ran its saved check `%s` (%s) against the preview, and it failed; the "+
-				"evaluator agrees that this is a defect.\n", cs[k].ID, cs[k].Form)
-		}
-	}
-	return untrusted.Cap(strings.TrimRight(b.String(), "\n"), maxOutcomeEvidence)
-}
-
 // checkLine is maul's one-line description of a saved check, from its
 // structured body: its form, what it asks of the preview, and how much it
 // asserts. "" for a body that does not parse. The paths and names in it are
@@ -622,22 +591,12 @@ const maxAppOutputBytes = 2 << 10
 // application's text, untrusted: the templates show it only fenced,
 // sanitised and defanged.
 func (p *pass) appOutput(ctx context.Context, pv *v1alpha1.PreviewVerification, digest string) string {
-	var seq int32
-	for _, r := range append(slices.Clone(pv.Status.Replay), pv.Status.Confirmations...) {
-		if r.CheckDigest == digest && r.Result == v1alpha1.CheckRunFail && (seq == 0 || r.Seq < seq) {
-			seq = r.Seq
-		}
-	}
+	seq := failingSeq(pv, digest)
 	if seq == 0 {
 		return ""
 	}
-	for _, line := range p.ledgerOf(ctx, pv) {
-		var e toolwire.LedgerEntry
-		if err := json.Unmarshal([]byte(line), &e); err != nil || e.Seq != int64(seq) || e.CheckRun == nil ||
-			e.CheckRun.Digest != digest {
-			continue
-		}
-		return failedSteps(e.CheckRun)
+	if run := checkRunAt(ledgerEntries(p.ledgerOf(ctx, pv)), seq, digest); run != nil {
+		return failedSteps(run)
 	}
 	return ""
 }

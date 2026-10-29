@@ -520,7 +520,11 @@ func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (f
 			return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable,
 				ref.Name)
 		}
-		return renderOutcomeEvidence(pv, acc, fix, j.checks), failure, nil
+		feedback, err := p.reproduction(ctx, pv, acc, fix, j.checks)
+		if err != nil {
+			return "", verifyFailure{}, err
+		}
+		return feedback, failure, nil
 	}
 	failure, ok := fixableFailure(acc.Criteria, pv)
 	if !ok {
