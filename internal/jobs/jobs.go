@@ -328,6 +328,12 @@ type Config struct {
 	// Spec.NetworkProfile is dropped and every Job is exactly what it would
 	// be without one, so a flip takes effect at the next Job.
 	NetworkProfiles bool
+	// SandboxProbeDNS is the controller's own resolver as <ip>:53, read once
+	// at startup (runnercfg.ProbeDNS): the address an evaluator Job's strict
+	// probe must find closed, since under dnsPolicy None the pod's own
+	// resolver configuration names nothing to probe. Required to build an
+	// evaluator Job; no other Job reads it.
+	SandboxProbeDNS string
 }
 
 // Spec is one agent Job to create.
@@ -460,6 +466,22 @@ type Spec struct {
 	// from it. An intent run's deadline follows its stage timeout; zero, as
 	// on every Finding Job, keeps the Config's.
 	Deadline time.Duration
+	// Role is an intent run's agents-namespace role: v1alpha1.RoleEvaluator
+	// or v1alpha1.RoleCheckReview (evaluator.go). Empty, as on every other
+	// Job, leaves the Job exactly as before roles existed. A role Job reads
+	// no tree, fetches no artifact, runs maul's runner image with no network
+	// profile, has no resolver whatever Config.DNS says, works in /work, and
+	// carries v1alpha1.LabelRole on the Job and its pod.
+	Role string
+	// Evaluation is the PreviewVerification's UID a role Job works for,
+	// carried as v1alpha1.LabelPreviewVerification on the Job and its pod;
+	// required on an evaluator, refused without a role.
+	Evaluation string
+	// ToolHost is the evaluator's tool pod (ToolsHostName at the address
+	// the PreviewVerification's status carries), pinned in the pod's hosts
+	// file and named by MAUL_TOOLS_URL. Required on an evaluator, refused on
+	// every other Job.
+	ToolHost *HostAlias
 }
 
 // Resources is one Job's CPU and memory (Spec.Resources). The four
@@ -732,6 +754,19 @@ func (c *Client) build(ctx context.Context, name string, spec Spec) (*batchv1.Jo
 	if err != nil {
 		return nil, err
 	}
+	pod := &job.Spec.Template.Spec
+	if spec.Role != "" {
+		// A role Job fetches nothing and dials only the broker (and the
+		// evaluator its tool pod, by address): no resolver, whatever
+		// Config.DNS says.
+		if err := c.isolateDNSAs(ctx, pod, DNSNone, spec.Harness, runner, endpointURLs(runner)); err != nil {
+			return nil, err
+		}
+		if spec.ToolHost != nil {
+			pod.HostAliases = withHostAlias(pod.HostAliases, spec.ToolHost)
+		}
+		return job, nil
+	}
 	artifacts := []string{spec.ArtifactURL}
 	for _, tr := range spec.Trees {
 		artifacts = append(artifacts, tr.ArtifactURL)
@@ -742,19 +777,28 @@ func (c *Client) build(ctx context.Context, name string, spec Spec) (*batchv1.Jo
 		// others.
 		artifacts = append(artifacts, spec.NetworkProfile.ProxyURL)
 	}
-	if err := c.isolateDNS(ctx, &job.Spec.Template.Spec, spec.Harness, runner,
+	if err := c.isolateDNS(ctx, pod, spec.Harness, runner,
 		endpointURLs(runner, artifacts...)); err != nil {
 		return nil, err
 	}
 	return job, nil
 }
 
-func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
-	// A profile beside trees is the profile's refusal: it is judged first.
-	if err := profileRefusal(spec); err != nil {
-		return nil, err
+// refusal is the first of a Spec's contradictions, or nil. A role is judged
+// first: a role Job carrying a profile or trees is the role's contradiction.
+// Then a profile beside trees is the profile's.
+func (c *Client) refusal(spec Spec) error {
+	if err := roleRefusal(c.cfg, spec); err != nil {
+		return err
 	}
-	if err := treesRefusal(spec); err != nil {
+	if err := profileRefusal(spec); err != nil {
+		return err
+	}
+	return treesRefusal(spec)
+}
+
+func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
+	if err := c.refusal(spec); err != nil {
 		return nil, err
 	}
 	res, err := c.cfg.resources(spec.Resources)
@@ -766,6 +810,7 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 		return nil, err
 	}
 	lbls := jobLabels(spec)
+	roleLabels(lbls, spec)
 	ann := map[string]string{annotationRepo: spec.Repo}
 	if spec.Resources != nil && spec.Resources.Class != "" {
 		ann[AnnotationResourceClass] = spec.Resources.Class
@@ -837,18 +882,19 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
 					Volumes:        c.podVolumes(name, runner, findingTokenTTL(deadline), inject),
-					InitContainers: []corev1.Container{c.prepareContainer(runner, spec, res, inject)},
+					InitContainers: []corev1.Container{c.initContainer(runner, spec, res, inject)},
 					Containers:     []corev1.Container{c.agentContainer(runner, spec, res, inject, profile, tunnel)},
 				},
 			},
 		},
 	}
-	if inject {
-		// A repository image is untrusted: refuse the kube-api-access token
-		// in the pod's own spec instead of relying on the ServiceAccount's
-		// automount setting, which an operator overlay could change. The
-		// broker's projected caller token is an explicit volume and is
-		// unaffected. Default Jobs are left byte-identical.
+	if inject || spec.Role != "" {
+		// A repository image is untrusted, and a role pod reads app output:
+		// refuse the kube-api-access token in the pod's own spec instead of
+		// relying on the ServiceAccount's automount setting, which an
+		// operator overlay could change. The broker's projected caller token
+		// is an explicit volume and is unaffected. Default Jobs are left
+		// byte-identical.
 		job.Spec.Template.Spec.AutomountServiceAccountToken = new(false)
 	}
 	if deadline > 0 {
@@ -912,6 +958,16 @@ func (c *Client) podVolumes(secretName string, runner Runner, tokenTTL int64, in
 func findingTokenTTL(deadline time.Duration) int64 {
 	ttl := int64((deadline + 15*time.Minute).Seconds())
 	return max(ttl, 3600)
+}
+
+// initContainer is a Job's prepare init: a role Job's (evaluator.go), or
+// prepareContainer.
+func (c *Client) initContainer(runner Runner, spec Spec, res corev1.ResourceRequirements,
+	inject bool) corev1.Container {
+	if spec.Role != "" {
+		return c.rolePrepareContainer(runner, spec, res)
+	}
+	return c.prepareContainer(runner, spec, res, inject)
 }
 
 // prepareContainer fetches the artifact tarball and stages the handoff
@@ -979,7 +1035,7 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 func (c *Client) agentContainer(runner Runner, spec Spec, res corev1.ResourceRequirements,
 	inject, profile bool, tunnel []corev1.EnvVar) corev1.Container {
 	mounts := []corev1.VolumeMount{
-		{Name: volWorkspace, MountPath: workspaceDir},
+		{Name: volWorkspace, MountPath: workDir(spec)},
 		{Name: volTmp, MountPath: "/tmp"},
 	}
 	if runner.Brokered {
@@ -1063,6 +1119,7 @@ var perJobEnv = map[string]bool{
 	"MAUL_OPEN_PULL_REQUESTS":   true,
 	"MAUL_PLAN_VERIFICATION":    true,
 	"MAUL_ACCEPTANCE_FIX":       true,
+	ToolsURLEnv:                 true,
 	agentrun.BinDirEnv:          true,
 	// Set only on a Job that carries a network profile (profileEnv), and
 	// read by cmd/agent-runner, not agentrun.FromEnv, so they are no
@@ -1262,8 +1319,8 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	env := make([]corev1.EnvVar, 0, len(c.cfg.Env)+10)
 	env = append(env,
 		// HOME must be writable under readOnlyRootFilesystem.
-		corev1.EnvVar{Name: "HOME", Value: workspaceDir},
-		corev1.EnvVar{Name: "MAUL_WORKSPACE", Value: workspaceDir},
+		corev1.EnvVar{Name: "HOME", Value: workDir(spec)},
+		corev1.EnvVar{Name: "MAUL_WORKSPACE", Value: workDir(spec)},
 		corev1.EnvVar{Name: "MAUL_REPO", Value: spec.Repo},
 		corev1.EnvVar{Name: "MAUL_PHASE", Value: spec.Phase},
 		corev1.EnvVar{Name: "MAUL_FINDING", Value: spec.Finding},
@@ -1308,6 +1365,9 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	}
 	if spec.AcceptanceFix {
 		env = append(env, corev1.EnvVar{Name: "MAUL_ACCEPTANCE_FIX", Value: "true"})
+	}
+	if spec.ToolHost != nil {
+		env = append(env, corev1.EnvVar{Name: ToolsURLEnv, Value: toolsURL(spec.ToolHost)})
 	}
 
 	// The controller-global Env under the full reserved filter, then the
