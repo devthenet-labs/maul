@@ -671,3 +671,44 @@ func TestToolsBeforeRelease(t *testing.T) {
 		t.Error("the tool pod outlived the release")
 	}
 }
+
+// The settle path's environment capture keeps component log tails in status:
+// the CDP key is redacted from them, and with a browser tool pod's key
+// unknown (a restart) no tail is kept at all.
+func TestEnvironmentRedactsCDPKey(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		restart bool
+		want    string
+	}{
+		{"key held", false, "GET / 200 leaked [redacted]\n"},
+		{"key unknown", true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			e.verify()
+			key := e.v.toolStateOf(e.pv.UID).key
+			if key == "" {
+				t.Fatal("no CDP key held")
+			}
+			if tc.restart {
+				e.v.forgetTools(e.pv.UID)
+			}
+			web := componentName(e.p, 0) + "-pod"
+			e.logs.logs["maul-preview-0/"+web+"/web"] = []byte("GET / 200 leaked " + key + "\n")
+			facts, err := e.v.environment(context.Background(), e.p, 0, nil, e.pv)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got *string
+			for i := range facts {
+				if facts[i].Name == "web" {
+					got = &facts[i].LogTail
+				}
+			}
+			if got == nil || *got != tc.want {
+				t.Errorf("web log tail %v, want %q", got, tc.want)
+			}
+		})
+	}
+}

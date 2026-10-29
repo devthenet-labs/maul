@@ -69,7 +69,7 @@ type toolState struct {
 // keyUnknown reports a browser tool pod whose CDP key this process does
 // not hold, so cannot redact.
 func (st *toolState) keyUnknown(pv *v1alpha1.PreviewVerification) bool {
-	return pv.Spec.Tools.Browser && st.key == ""
+	return pv.Spec.Tools != nil && pv.Spec.Tools.Browser && st.key == ""
 }
 
 // redactions are the keys the capture redacts: the CDP key, when there is
