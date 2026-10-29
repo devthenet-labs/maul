@@ -693,6 +693,17 @@ func fullIntentStatus() maulv1.IntentStatus {
 			Reset:     maulv1.ResetState{Generation: 1, By: "octocat", ByID: 583231, At: schemaNow.DeepCopy()},
 			Automatic: 3, LastAutomaticAt: schemaNow.DeepCopy(), InfraRetries: 1,
 		},
+		Dependencies: &maulv1.IntentDependencies{
+			Since: schemaNow.DeepCopy(),
+			Blockers: []maulv1.IntentBlocker{
+				{Repository: "https://github.com/acme/intents", Number: 12, State: "open"},
+				{Repository: "https://github.com/acme/shop", Number: 3, State: "closed", StateReason: "not_planned"},
+			},
+			More: 1, Unreadable: 2, UnavailableSince: schemaNow.DeepCopy(),
+			StartedBy:  &maulv1.IntentAction{Source: maulv1.IntentActionCommand, EventID: 48, Login: "octocat", At: schemaNow},
+			ReleasedAt: schemaNow.DeepCopy(), LateNotice: schemaNow.DeepCopy(),
+			Late: []maulv1.IntentBlocker{{Repository: "https://github.com/acme/intents", Number: 20, State: "open"}},
+		},
 		Usage: maulv1.IntentUsage{
 			CostMicroUSD: 1234567, InputTokens: 10, OutputTokens: 20, CacheReadTokens: 30, CacheCreationTokens: 40,
 		},
@@ -985,6 +996,33 @@ func testIntentSchema(ctx context.Context, t *testing.T, c client.Client) {
 			s.PullRequests[0].AcceptanceDigest = strings.Repeat("d", 64)
 		}, true},
 		{"a negative verify-fix count", func(s *maulv1.IntentStatus) { s.VerifyFixes = -1 }, true},
+		{"a blocker closed for a reason GitHub adds later", func(s *maulv1.IntentStatus) {
+			s.Dependencies.Blockers[1].StateReason = "something_new"
+		}, false},
+		{"a blocker reason that is no identifier", func(s *maulv1.IntentStatus) {
+			s.Dependencies.Blockers[1].StateReason = "Not Planned"
+		}, true},
+		{"a blocker reason past 32 characters", func(s *maulv1.IntentStatus) {
+			s.Dependencies.Blockers[1].StateReason = strings.Repeat("a", 33)
+		}, true},
+		{"a blocker state outside the enum", func(s *maulv1.IntentStatus) {
+			s.Dependencies.Blockers[0].State = "reopened"
+		}, true},
+		{"a blocker repository that is no https URL", func(s *maulv1.IntentStatus) {
+			s.Dependencies.Blockers[0].Repository = "acme/intents"
+		}, true},
+		{"a blocker repository with a path", func(s *maulv1.IntentStatus) {
+			s.Dependencies.Blockers[0].Repository = "https://github.com/acme/intents/issues"
+		}, true},
+		{"blocker number zero", func(s *maulv1.IntentStatus) { s.Dependencies.Blockers[0].Number = 0 }, true},
+		{"16 blockers", func(s *maulv1.IntentStatus) { s.Dependencies.Blockers = schemaBlockers(16) }, false},
+		{"17 blockers", func(s *maulv1.IntentStatus) { s.Dependencies.Blockers = schemaBlockers(17) }, true},
+		{"17 late blockers", func(s *maulv1.IntentStatus) { s.Dependencies.Late = schemaBlockers(17) }, true},
+		{"more past its bound", func(s *maulv1.IntentStatus) { s.Dependencies.More = 1000 }, true},
+		{"a negative unreadable count", func(s *maulv1.IntentStatus) { s.Dependencies.Unreadable = -1 }, true},
+		{"a start recorded before the wait", func(s *maulv1.IntentStatus) {
+			s.Dependencies = &maulv1.IntentDependencies{StartedBy: s.Dependencies.StartedBy}
+		}, false},
 	} {
 		t.Run("status with "+tt.name, func(t *testing.T) {
 			i := fresh(t)
@@ -995,6 +1033,15 @@ func testIntentSchema(ctx context.Context, t *testing.T, c client.Client) {
 			}
 		})
 	}
+}
+
+// schemaBlockers are n open blockers in the intent repository.
+func schemaBlockers(n int) []maulv1.IntentBlocker {
+	out := make([]maulv1.IntentBlocker, n)
+	for k := range out {
+		out[k] = maulv1.IntentBlocker{Repository: "https://github.com/acme/intents", Number: int64(k + 1), State: "open"}
+	}
+	return out
 }
 
 // schemaIntentRun is a valid run of the given stage, each at round 1: a plan
