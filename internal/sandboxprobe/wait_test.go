@@ -67,9 +67,23 @@ func TestParse(t *testing.T) {
 			wantAddrs: []string{"169.254.169.254:80"}, wantTime: DefaultTimeout},
 		{name: "wait may name the internet explicitly", args: []string{"--mode=wait", "--targets=internet"},
 			wantMode: ModeWait, wantAddrs: []string{"1.1.1.1:443"}, wantTime: DefaultTimeout},
-		{name: "targets with the strict probe", args: []string{"--targets=imds"}, wantErr: "wait only"},
+		{name: "strict with the evaluator's targets", args: []string{"--mode=strict", "--targets=internet,k8s,imds,dns"},
+			env: map[string]string{DNSEnv: "10.96.0.10:53", TimeoutEnv: "30s"}, wantMode: ModeStrict,
+			wantAddrs: []string{"1.1.1.1:443", "172.20.0.1:443", "169.254.169.254:80", "10.96.0.10:53"},
+			wantTime:  30 * time.Second},
+		{name: "strict with targets and no mode flag", args: []string{"--targets=imds"}, wantMode: ModeStrict,
+			wantAddrs: []string{"169.254.169.254:80"}, wantTime: DefaultTimeout},
+		{name: "strict targets with a bad window", args: []string{"--mode=strict", "--targets=imds"},
+			env: map[string]string{TimeoutEnv: "twenty"}, wantErr: "not a duration"},
+		{name: "strict dns without its address", args: []string{"--mode=strict", "--targets=k8s,dns"},
+			wantErr: DNSEnv},
+		{name: "strict targets with an unknown key", args: []string{"--mode=strict", "--targets=k8s,dnz"},
+			wantErr: `unknown target "dnz"`},
+		{name: "wait may name dns", args: []string{"--mode=wait", "--targets=dns"},
+			env: map[string]string{DNSEnv: "10.96.0.10:53"}, wantMode: ModeWait,
+			wantAddrs: []string{"10.96.0.10:53"}, wantTime: DefaultTimeout},
 		{name: "unknown mode", args: []string{"--mode=lenient"}, wantErr: `"lenient"`},
-		{name: "unknown target", args: []string{"--mode=wait", "--targets=k8s,dns"}, wantErr: `unknown target "dns"`},
+		{name: "unknown target", args: []string{"--mode=wait", "--targets=k8s,dnz"}, wantErr: `unknown target "dnz"`},
 		{name: "repeated target", args: []string{"--mode=wait", "--targets=imds,imds"}, wantErr: "twice"},
 		{name: "empty targets", args: []string{"--mode=wait", "--targets="}, wantErr: "names no target"},
 		{name: "positional argument", args: []string{"wait"}, wantErr: `unexpected argument "wait"`},
@@ -126,6 +140,90 @@ func TestTargetsForDerivesTheAPIServer(t *testing.T) {
 				t.Errorf("TargetsFor = %+v, want the kubernetes API at %s", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestTargetsForDNS: the dns target is the resolver address the controller
+// passes in DNSEnv, dialled over TCP 53. Unset or anything but an IP
+// literal on port 53 is refused rather than dropped, since a probe that
+// silently skipped the resolver would read as a clean verdict.
+func TestTargetsForDNS(t *testing.T) {
+	tests := []struct {
+		name    string
+		dns     string
+		want    string
+		wantErr string
+	}{
+		{name: "ipv4", dns: "10.96.0.10:53", want: "10.96.0.10:53"},
+		{name: "ipv6", dns: "[fd00::a]:53", want: "[fd00::a]:53"},
+		{name: "unset", dns: "", wantErr: DNSEnv + " is unset"},
+		{name: "no port", dns: "10.96.0.10", wantErr: "want <ip>:53"},
+		{name: "another port", dns: "10.96.0.10:5353", wantErr: "want <ip>:53"},
+		{name: "a name, not an address", dns: "kube-dns.kube-system:53", wantErr: "want <ip>:53"},
+		{name: "empty host", dns: ":53", wantErr: "want <ip>:53"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := TargetsFor(TargetDNS, k8sEnv(map[string]string{DNSEnv: tt.dns}))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("TargetsFor error = %v, want one mentioning %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("TargetsFor: %v", err)
+			}
+			if len(got) != 1 || got[0].Addr != tt.want || got[0].Name != "cluster DNS" {
+				t.Errorf("TargetsFor = %+v, want the cluster DNS at %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDefaultTargetsUnchanged: the strict probe with no --targets, the one
+// every repository-image build runs, never probes DNS even when the
+// address is in the environment. Adding it would turn every build under the
+// default DNS rule into ExitUnenforced.
+func TestDefaultTargetsUnchanged(t *testing.T) {
+	getenv := k8sEnv(map[string]string{DNSEnv: "10.96.0.10:53"})
+	want := []string{"1.1.1.1:443", "172.20.0.1:443", "169.254.169.254:80"}
+	if got := addrs(DefaultTargets(getenv)); !slices.Equal(got, want) {
+		t.Errorf("DefaultTargets = %v, want %v", got, want)
+	}
+	p, mode, err := Parse(nil, getenv)
+	if err != nil || mode != ModeStrict || !slices.Equal(addrs(p.Targets), want) {
+		t.Errorf("Parse(no arguments) = %v %s %v, want strict over %v", addrs(p.Targets), mode, err, want)
+	}
+}
+
+// TestStrictExitsUnenforcedWhenDNSOpen: the evaluator's strict probe, with
+// every other target blocked, exits ExitUnenforced when only the cluster's
+// resolver still answers on TCP 53, naming it in the verdict; and 0 once
+// it is blocked too.
+func TestStrictExitsUnenforcedWhenDNSOpen(t *testing.T) {
+	getenv := k8sEnv(map[string]string{DNSEnv: "10.96.0.10:53"})
+	for _, dnsOpen := range []bool{true, false} {
+		p, mode, err := Parse([]string{"--mode=strict", "--targets=internet,k8s,imds,dns"}, getenv)
+		if err != nil || mode != ModeStrict {
+			t.Fatalf("Parse = %s, %v", mode, err)
+		}
+		clock := newClock()
+		n := &fakeNet{targets: len(p.Targets),
+			open: func(_ int, addr string) bool { return dnsOpen && addr == "10.96.0.10:53" }}
+		p.Dial, p.Now, p.Sleep = n.dial, clock.Now, clock.Sleep
+		var buf bytes.Buffer
+		code := p.Exit(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)))
+		want := 0
+		if dnsOpen {
+			want = ExitUnenforced
+		}
+		if code != want {
+			t.Errorf("dns open=%v: Exit = %d, want %d (log %q)", dnsOpen, code, want, buf.String())
+		}
+		if dnsOpen && !strings.Contains(buf.String(), "cluster DNS (10.96.0.10:53)") {
+			t.Errorf("verdict %q does not name the cluster DNS", buf.String())
+		}
 	}
 }
 

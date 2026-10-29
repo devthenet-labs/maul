@@ -10,8 +10,10 @@
 // runs the negative-connectivity check the trusted prepare init container
 // performs before a repository-declared image gets to run anything, and
 // exits sandboxprobe.ExitUnenforced when egress is still open at the end of
-// the window; with --mode=wait (a default-image Job's prepare) it holds
-// until egress is blocked or the window closes and exits 0 either way.
+// the window; --targets names the targets in place of the defaults (the
+// evaluator's strict probe adds dns, the resolver at
+// sandboxprobe.DNSEnv); with --mode=wait (a default-image Job's prepare) it
+// holds until egress is blocked or the window closes and exits 0 either way.
 // Invoked as `agent-runner preflight [harness]` (agentrun.PreflightCommand)
 // it runs only the preflight a stage runs first
 // on a repository-declared image, prints the verdict on stdout and exits
