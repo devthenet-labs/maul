@@ -224,7 +224,11 @@ func TestClaudePromptSpecEvaluate(t *testing.T) {
 		if n := countArg(tc.spec.Argv, "--add-dir"); n != 0 {
 			t.Errorf("%s: --add-dir given %d times, want none: it would widen --restricted's confinement", tc.name, n)
 		}
-		if want := []string{"A=b", claudeNoAutoMemory}; !slices.Equal(tc.spec.Env, want) {
+		// maul-tool's calls (a check run is two attempts in a fresh browser
+		// each, maultool.CallTimeout) outlast the CLI's default Bash timeout:
+		// the evaluate posture raises both its default and its ceiling.
+		want := []string{"A=b", claudeNoAutoMemory, "BASH_DEFAULT_TIMEOUT_MS=600000", "BASH_MAX_TIMEOUT_MS=600000"}
+		if !slices.Equal(tc.spec.Env, want) {
 			t.Errorf("%s: Env = %q, want %q", tc.name, tc.spec.Env, want)
 		}
 	}

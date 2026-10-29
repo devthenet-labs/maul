@@ -185,7 +185,7 @@ func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(string(phase)+"/"+tt.name, func(t *testing.T) {
 				var out bytes.Buffer
-				cfg, ws := roleConfig(t, phase, reviewHandoff(1), &out)
+				cfg, ws := roleConfig(t, phase, roleHandoff(phase), &out)
 				brokeredClaude(t, &cfg)
 				cfg.GrantedMaxTurns = tt.granted
 				write := map[string]string{"scratch/report.md": goodEvaluation}

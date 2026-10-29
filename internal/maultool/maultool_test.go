@@ -228,7 +228,8 @@ func TestOutputShape(t *testing.T) {
 					{Run: "r2", Result: toolwire.ResultPass},
 				}}}}},
 			"[maul-tool ledger seq 9]\n" +
-				"[observed] check loads digest " + strings.Repeat("a", 64) + " dry-run: quarantined (attempts: fail, pass)\n" +
+				"[observed] check loads digest sha256:" + strings.Repeat("a", 64) +
+				" dry-run: quarantined (attempts: fail, pass)\n" +
 				"[observed]   attempt 1 step 2 fail: \"expected 3 rows\"\n"},
 	}
 	for _, tc := range cases {

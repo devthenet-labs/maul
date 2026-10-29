@@ -34,6 +34,7 @@ import (
 	"syscall"
 
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/netprofile"
 	"github.com/devthenet-labs/maul/internal/runner"
 	"github.com/devthenet-labs/maul/internal/sandboxprobe"
@@ -84,7 +85,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 // registry grants its ecosystems and grants (netprofile.EnvEcosystems,
 // netprofile.EnvGrants), and for a profile with tunnel hosts its routes and
 // hosts (netprofile.EnvRoutes, netprofile.EnvHosts), so a tunnel-only
-// profile is never described as a Go route. They are read here through the
+// profile is never described as a Go route; and the evaluator's tool pod
+// (maultool.EnvToolsURL). They are read here through the
 // same getenv rather than in FromEnv, so they are no agentrun configuration
 // keys, which a repository-image Job would blank. Only the controller sets
 // them; a value that does not hold together is a configuration error, never
@@ -95,6 +97,7 @@ func config(getenv func(string) string) (agentrun.Config, error) {
 		return agentrun.Config{}, err
 	}
 	cfg.NetworkProfile = getenv(netprofile.EnvProfile)
+	cfg.ToolsURL = getenv(maultool.EnvToolsURL)
 	ecosystems, err := netprofile.ParseEcosystems(getenv(netprofile.EnvEcosystems))
 	if err != nil {
 		return agentrun.Config{}, err

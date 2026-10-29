@@ -223,6 +223,12 @@ const claudeMDFromAddDirs = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1"
 // anywhere in the workspace in any case.
 const claudeNoAutoMemory = "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
 
+// claudeEvaluateBash raises the CLI's Bash timeout, its default and its
+// ceiling, to ten minutes for an evaluate run: every Bash call there is one
+// maul-tool call, and a check run (two attempts, each in a fresh browser) may
+// take up to maultool.CallTimeout, well past the CLI's two-minute default.
+var claudeEvaluateBash = []string{"BASH_DEFAULT_TIMEOUT_MS=600000", "BASH_MAX_TIMEOUT_MS=600000"}
+
 // PromptSpec builds the headless claude invocation for one prompted run.
 // stream-json with --verbose emits one JSON event per line, which is what
 // ParseResult and ScanUsage parse. Optional request fields append their flag
@@ -258,6 +264,9 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		}
 		if req.Sandbox == SandboxReadOnly || req.Sandbox == SandboxEvaluate {
 			env = append(env, claudeNoAutoMemory)
+		}
+		if req.Sandbox == SandboxEvaluate {
+			env = append(env, claudeEvaluateBash...)
 		}
 	}
 	if !claudeTools[req.Sandbox].scratchOnly {

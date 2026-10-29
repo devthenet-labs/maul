@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/netprofile"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -164,5 +165,29 @@ func TestConfigReadsTunnel(t *testing.T) {
 		if _, err := config(func(k string) string { return env[k] }); err == nil {
 			t.Errorf("%s: config accepted it", name)
 		}
+	}
+}
+
+// TestConfigReadsToolsURL: the evaluator's tool pod reaches the stage
+// configuration through config alone, never agentrun.FromEnv, so it is no
+// key a repository-image Job blanks.
+func TestConfigReadsToolsURL(t *testing.T) {
+	env := map[string]string{
+		"MAUL_REPO": "acme/api", "MAUL_FINDING": "intent-ev-r1-a1", "MAUL_PHASE": "evaluate",
+		maultool.EnvToolsURL: "http://maul-tools:8090",
+	}
+	getenv := func(k string) string { return env[k] }
+	cfg, err := config(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ToolsURL != "http://maul-tools:8090" {
+		t.Errorf("ToolsURL = %q, want the Job's", cfg.ToolsURL)
+	}
+	if plain, err := agentrun.FromEnv(getenv); err != nil || plain.ToolsURL != "" {
+		t.Errorf("FromEnv read the tools URL (%q, %v); cmd/agent-runner owns it", plain.ToolsURL, err)
+	}
+	if slices.Contains(agentrun.ConfigEnvKeys(), maultool.EnvToolsURL) {
+		t.Errorf("ConfigEnvKeys lists %s", maultool.EnvToolsURL)
 	}
 }
