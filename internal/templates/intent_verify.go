@@ -172,10 +172,12 @@ func verifyRestingLine(state string) (line string, whole bool) {
 // startOver is what an intent in review is told it can do for a new plan:
 // maul does not replan an intent whose pull requests are open (replan from
 // review is deferred; /maul replan there is not available), so an approver
-// cancels it and opens a new issue.
+// cancels it on its issue (cancel is no pull request command) and opens a
+// new issue.
 func startOver() string {
 	return "The approved plan cannot change while its pull requests are open: to start over with a new plan, an " +
-		"approver comments " + slashCommand("cancel") + " (the pull requests are left to you) and opens a new issue."
+		"approver comments " + slashCommand("cancel") + " on the intent's issue (the pull requests are left to you) " +
+		"and opens a new issue."
 }
 
 // verifyNames are the progress clause's words: which verification (or

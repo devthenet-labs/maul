@@ -5,6 +5,7 @@ package templates
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -386,7 +387,8 @@ func TestVerifyLineStates(t *testing.T) {
 // startOverText is what an intent in review is told instead of a replan
 // (S1-29): a replan is not available once its pull requests are open.
 const startOverText = "The approved plan cannot change while its pull requests are open: to start over with a " +
-	"new plan, an approver comments `/maul cancel` (the pull requests are left to you) and opens a new issue."
+	"new plan, an approver comments `/maul cancel` on the intent's issue (the pull requests are left to you) and " +
+	"opens a new issue."
 
 // TestNoReplanOfferedInReview (S1-29): nothing maul tells an intent in
 // review offers a replan, which is not available there.
@@ -418,5 +420,23 @@ func TestNoReplanOfferedInReview(t *testing.T) {
 		if !strings.Contains(strings.Join(strings.Fields(notice), " "), want) {
 			t.Errorf("the criteria notice does not say %q:\n%s", want, notice)
 		}
+	}
+}
+
+// TestStartOverNamesTheIssue: the start-over sentence is also shown in a
+// pull request's preview comment, where `/maul cancel` is not a command
+// (command.IntentPR), so it says where the approver comments it.
+func TestStartOverNamesTheIssue(t *testing.T) {
+	if slices.Contains(command.Available(command.IntentPR), "cancel") {
+		t.Skip("cancel is a pull request command now")
+	}
+	c := testPreviewComment(PreviewLive, "", "")
+	c.Verify = &VerifySection{Progress: VerifyProgress{State: VerifyCriteriaReplan}}
+	got, err := RenderIntentPreviewComment(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "`/maul cancel` on the intent's issue"; !strings.Contains(strings.Join(strings.Fields(got), " "), want) {
+		t.Errorf("the pull request's comment does not say where to cancel (%q):\n%s", want, got)
 	}
 }

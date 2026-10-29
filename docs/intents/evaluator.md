@@ -270,9 +270,9 @@ A tool pod lives as long as its evaluate run plus five minutes, under the slot's
 
 - **No replan once the pull requests are open.** An approved plan cannot be replanned while its intent is in review:
   `/maul replan` and a re-applied trigger label are answered as not available there, and no notice offers them. To start
-  over with a new plan, an approver comments `/maul cancel` (the pull requests are left as they are) and opens a new
-  issue. Replanning from review is an owner decision, deferred to a later release; until then the options in review are
-  `/maul revise`, a verify fix and `/maul cancel`.
+  over with a new plan, an approver comments `/maul cancel` on the intent's issue (the pull requests are left as they
+  are) and opens a new issue. Replanning from review is an owner decision, deferred to a later release; until then the
+  options in review are `/maul revise`, a verify fix and `/maul cancel`.
 - **A model judging a screenshot is never support.** The evaluate model (`claude-sonnet-5`) was calibrated on
   screenshots of known defects and failed: it called 5 of 15 defect runs a pass, with confident evidence it invented,
   and failed 3 of 18 correct builds. It was right on gross structure (steps 14.8 px against 32 px, rows visibly offset
