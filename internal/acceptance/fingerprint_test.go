@@ -5,6 +5,7 @@ package acceptance
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -125,5 +126,52 @@ func TestFingerprintSetSemantics(t *testing.T) {
 	}
 	if !fingerprintForm.MatchString(Fingerprint(nil, nil)) {
 		t.Error("empty fingerprint form")
+	}
+}
+
+var evaluationFingerprintForm = regexp.MustCompile(`^maul-evaluation-fingerprint/1:[0-9a-f]{64}$`)
+
+// TestEvaluationFingerprint: the evaluator's fix fingerprint names the
+// failing outcomes, the failing check digests and the failing parts, in
+// any order, and nothing that changes from run to run.
+func TestEvaluationFingerprint(t *testing.T) {
+	crash := []PartFact{{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 3, LogTail: "panic: a"}}
+	crashAgain := []PartFact{{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 9,
+		LogTail: "panic: b"}}
+	healthy := []PartFact{{Name: "web", Role: RoleComponent, Ready: true}}
+	base := EvaluationFingerprint([]string{"elo", "rank"}, []string{"sha256:a", "sha256:b"}, crash)
+	if !evaluationFingerprintForm.MatchString(base) {
+		t.Fatalf("fingerprint %q has the wrong form", base)
+	}
+	type args struct {
+		name     string
+		outcomes []string
+		checks   []string
+		env      []PartFact
+	}
+	same := []args{
+		{"order of outcomes and checks", []string{"rank", "elo"}, []string{"sha256:b", "sha256:a"}, crash},
+		{"duplicates", []string{"elo", "rank", "elo"}, []string{"sha256:a", "sha256:b", "sha256:a"}, crash},
+		{"restart counts and log tails", []string{"elo", "rank"}, []string{"sha256:a", "sha256:b"}, crashAgain},
+		{"healthy parts", []string{"elo", "rank"}, []string{"sha256:a", "sha256:b"}, append(slices.Clone(crash), healthy...)},
+	}
+	for _, tt := range same {
+		if got := EvaluationFingerprint(tt.outcomes, tt.checks, tt.env); got != base {
+			t.Errorf("%s changed the fingerprint", tt.name)
+		}
+	}
+	differ := []args{
+		{"another outcome", []string{"elo"}, []string{"sha256:a", "sha256:b"}, crash},
+		{"another check", []string{"elo", "rank"}, []string{"sha256:a"}, crash},
+		{"a healthy environment", []string{"elo", "rank"}, []string{"sha256:a", "sha256:b"}, healthy},
+		{"an outcome named like a check", []string{"elo", "rank", "sha256:a"}, []string{"sha256:b"}, crash},
+	}
+	for _, tt := range differ {
+		if got := EvaluationFingerprint(tt.outcomes, tt.checks, tt.env); got == base {
+			t.Errorf("%s left the fingerprint unchanged", tt.name)
+		}
+	}
+	if EvaluationFingerprint(nil, nil, nil) == Fingerprint(nil, nil) {
+		t.Error("the evaluation fingerprint collides with slice 1's")
 	}
 }
