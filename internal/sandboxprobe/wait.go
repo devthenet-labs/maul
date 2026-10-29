@@ -43,7 +43,17 @@ const (
 	TargetKubernetes = "k8s"
 	// TargetMetadata is the cloud metadata service, 169.254.169.254:80.
 	TargetMetadata = "imds"
+	// TargetDNS is the cluster's resolver on TCP 53, at the address the
+	// controller passes in DNSEnv. Only the evaluator's strict probe names
+	// it; DefaultTargets never does, since a repository-image build under
+	// the default DNS rule reaches the resolver on purpose.
+	TargetDNS = "dns"
 )
+
+// DNSEnv names the environment variable the dns target's address comes
+// from, as <ip>:53: the controller's own resolver, because under dns: none
+// the pod's own resolver configuration names nothing to probe.
+const DNSEnv = "MAUL_SANDBOX_PROBE_DNS"
 
 // Targets by key, the public ones fixed. The Kubernetes API's address comes
 // from the environment (kubernetesTarget).
@@ -66,11 +76,27 @@ func kubernetesTarget(getenv func(string) string) (Target, bool) {
 	return Target{Name: "kubernetes API", Addr: net.JoinHostPort(host, port)}, true
 }
 
+// dnsTarget is the cluster resolver DNSEnv names. Unset, or anything but
+// an IP literal on port 53, is an error: the value is controller-written,
+// and a probe of the wrong address would read as a clean verdict.
+func dnsTarget(getenv func(string) string) (Target, error) {
+	raw := getenv(DNSEnv)
+	if raw == "" {
+		return Target{}, fmt.Errorf("%s is unset; the probe cannot check the cluster DNS", DNSEnv)
+	}
+	host, port, err := net.SplitHostPort(raw)
+	if err != nil || port != "53" || net.ParseIP(host) == nil {
+		return Target{}, fmt.Errorf("%s=%q: want <ip>:53", DNSEnv, raw)
+	}
+	return Target{Name: "cluster DNS", Addr: net.JoinHostPort(host, port)}, nil
+}
+
 // TargetsFor resolves a comma-separated --targets value into the targets
 // it names, in the order given. An unknown or repeated key, an empty list,
 // and k8s without KUBERNETES_SERVICE_HOST are errors: the value is
 // controller-written, so each means a bug, and a probe that silently
-// checked less than it was asked to would read as a clean verdict.
+// checked less than it was asked to would read as a clean verdict. So is
+// dns without a valid DNSEnv (dnsTarget).
 func TargetsFor(keys string, getenv func(string) string) ([]Target, error) {
 	if strings.TrimSpace(keys) == "" {
 		return nil, errors.New("--targets names no target")
@@ -94,9 +120,15 @@ func TargetsFor(keys string, getenv func(string) string) ([]Target, error) {
 			targets = append(targets, t)
 		case TargetMetadata:
 			targets = append(targets, metadataTarget)
+		case TargetDNS:
+			t, err := dnsTarget(getenv)
+			if err != nil {
+				return nil, err
+			}
+			targets = append(targets, t)
 		default:
-			return nil, fmt.Errorf("--targets: unknown target %q (want %s, %s or %s)",
-				key, TargetInternet, TargetKubernetes, TargetMetadata)
+			return nil, fmt.Errorf("--targets: unknown target %q (want %s, %s, %s or %s)",
+				key, TargetInternet, TargetKubernetes, TargetMetadata, TargetDNS)
 		}
 	}
 	return targets, nil
@@ -105,15 +137,15 @@ func TargetsFor(keys string, getenv func(string) string) ([]Target, error) {
 // Parse reads the subcommand's arguments and environment into a Prober and
 // the mode it runs in. No arguments is the strict probe, exactly as
 // FromEnv builds it, so a repository-image Job's bare `sandbox-probe` keeps
-// its meaning. --targets applies to the wait mode only (the strict probe's
-// targets are fixed) and defaults there to k8s,imds. Both forms of a flag
-// are accepted (--mode wait and --mode=wait); a positional argument is an
-// error.
+// its meaning. --targets defaults to DefaultTargets in the strict mode and
+// to k8s,imds in the wait mode; named, it replaces them in either (the
+// evaluator's strict probe adds dns). Both forms of a flag are accepted
+// (--mode wait and --mode=wait); a positional argument is an error.
 func Parse(args []string, getenv func(string) string) (Prober, Mode, error) {
 	fs := flag.NewFlagSet(Command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	mode := fs.String("mode", string(ModeStrict), "strict or wait")
-	keys := fs.String("targets", "", "comma-separated targets (wait mode only)")
+	keys := fs.String("targets", "", "comma-separated targets")
 	if err := fs.Parse(args); err != nil {
 		return Prober{}, "", err
 	}
@@ -125,27 +157,26 @@ func Parse(args []string, getenv func(string) string) (Prober, Mode, error) {
 
 	switch Mode(*mode) {
 	case ModeStrict:
-		if targetsSet {
-			return Prober{}, "", errors.New("--targets applies to --mode wait only; the strict probe's targets are fixed")
+		if !targetsSet {
+			p, err := FromEnv(getenv)
+			return p, ModeStrict, err
 		}
-		p, err := FromEnv(getenv)
-		return p, ModeStrict, err
 	case ModeWait:
 		if !targetsSet {
 			*keys = TargetKubernetes + "," + TargetMetadata
 		}
-		targets, err := TargetsFor(*keys, getenv)
-		if err != nil {
-			return Prober{}, "", err
-		}
-		timeout, err := timeoutFromEnv(getenv)
-		if err != nil {
-			return Prober{}, "", err
-		}
-		return Prober{Targets: targets, Timeout: timeout}, ModeWait, nil
 	default:
 		return Prober{}, "", fmt.Errorf("--mode %q: want %s or %s", *mode, ModeStrict, ModeWait)
 	}
+	targets, err := TargetsFor(*keys, getenv)
+	if err != nil {
+		return Prober{}, "", err
+	}
+	timeout, err := timeoutFromEnv(getenv)
+	if err != nil {
+		return Prober{}, "", err
+	}
+	return Prober{Targets: targets, Timeout: timeout}, Mode(*mode), nil
 }
 
 // WaitVerdict is the one line the wait mode prints. It names only the

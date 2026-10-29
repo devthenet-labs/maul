@@ -28,6 +28,12 @@
 // the window. It narrows the window in which a trusted agent could run
 // before its policy attaches; it never refuses a run.
 //
+// The strict probe takes --targets too: the evaluator's prepare runs
+// `sandbox-probe --mode=strict --targets=internet,k8s,imds,dns`, whose dns
+// target is the cluster resolver on TCP 53 at the address DNSEnv carries.
+// DefaultTargets, what a repository-image build's bare strict probe dials,
+// never includes dns.
+//
 // The probe is stdlib-only and lives in the static agent-runner binary
 // (`agent-runner sandbox-probe`, the subcommand named by Command, which
 // internal/jobs writes into the prepare script and agent-runner dispatches
