@@ -24,8 +24,8 @@
 # binary reaches the runtime stage.
 #
 # Built by GoReleaser (`dockers_v2` in .goreleaser.yaml): the agent-runner
-# binary is compiled by GoReleaser and arrives in the build context at
-# $TARGETPLATFORM/agent-runner — no Go toolchain or source here.
+# and maul-tool binaries are compiled by GoReleaser and arrive in the build
+# context at $TARGETPLATFORM/<binary> — no Go toolchain or source here.
 #
 # readOnlyRootFilesystem: internal/jobs runs both containers with a read-only
 # root filesystem, uid 65532, all capabilities dropped. The only writable
@@ -85,6 +85,10 @@ COPY --from=fetch /codex /usr/local/bin/codex
 
 ARG TARGETPLATFORM
 COPY ${TARGETPLATFORM}/agent-runner /usr/local/bin/agent-runner
+# maul-tool is the agent evaluator's CLI (internal/maultool): an evaluate
+# stage's agent runs it by bare name through its shell tool, so it must be on
+# PATH under exactly that name. It reads only MAUL_TOOLS_URL and holds no key.
+COPY ${TARGETPLATFORM}/maul-tool /usr/local/bin/maul-tool
 
 # No user setup: wolfi-base already ships the nonroot user, uid 65532 —
 # matching internal/jobs' runAsUser (and the distroless "nonroot" convention).
