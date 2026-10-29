@@ -50,6 +50,10 @@ data:
     # discards that finished work, which is then run again. One-repository
     # Projects are the same either way.
     MAUL_INTENT_MULTI_REPO: "false"
+    # Hold an intent whose issue is blocked by other issues (GitHub issue
+    # dependencies) in Pending until every blocker is closed as completed;
+    # an approver's /maul start overrides. "false" is the rollback lever.
+    MAUL_INTENT_DEPENDENCIES: "true"
     # Intent agent Jobs running at once: a pool of its own, separate from
     # remediation's. A multi-repository intent's builds share it.
     MAUL_INTENT_MAX_CONCURRENT_RUNS: "1"

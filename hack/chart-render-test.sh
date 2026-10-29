@@ -1913,6 +1913,17 @@ if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
   "$(get intent-multi "$it | .metadata.annotations[\"checksum/config\"]")" ]; then
   fail "intent-multi: checksum/config did not change, so turning multiRepo on would not roll the controller"
 fi
+# Intent dependencies are honoured unless turned off, and turning them off
+# (the rollback lever) rolls the controller.
+cm intent intent-controller MAUL_INTENT_DEPENDENCIES true
+render intent-nodeps -f "$ifx" --set intentController.dependencies.enabled=false
+cm intent-nodeps intent-controller MAUL_INTENT_DEPENDENCIES false
+if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
+  "$(get intent-nodeps "$it | .metadata.annotations[\"checksum/config\"]")" ]; then
+  fail "intent-nodeps: checksum/config did not change, so turning dependencies off would not roll the controller"
+fi
+expect_fail 'dependencies block of the wrong shape' 'additional properties' \
+  --set intentController.enabled=true --set intentController.dependencies.bogus=true
 if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
   "$(get intent-tuned "$it | .metadata.annotations[\"checksum/config\"]")" ]; then
   fail "intent-tuned: checksum/config did not change, so an upgrade would not roll the controller"
