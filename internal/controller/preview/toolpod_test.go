@@ -406,7 +406,7 @@ func TestEvaluatorPolicy(t *testing.T) {
 	tcp := corev1.ProtocolTCP
 	want := networkingv1.NetworkPolicySpec{
 		PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
-			labelPreviewUID: string(p.UID), labelPart: v1alpha1.PreviewPartTester}},
+			labelRole: v1alpha1.PreviewRoleTools, v1alpha1.LabelPreviewVerification: string(pv.UID)}},
 		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 		Ingress: []networkingv1.NetworkPolicyIngressRule{{
 			From: []networkingv1.NetworkPolicyPeer{{

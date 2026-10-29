@@ -20,9 +20,12 @@ import (
 // tester part's: the Preview's own edge policy for part tester admits only
 // the components on their declared ports, and preview-isolation (which
 // alone grants DNS) does not select role tools. Its ingress is this one
-// policy per verification, beside the tester part's (which admits nothing):
-// on previewtools.Port, from the agents namespace by name, only the pod
-// labelled exactly maul.run/role evaluator and maul.run/preview-verification
+// policy per verification, beside the tester part's (which admits nothing).
+// It selects the tool pod by its role and the verification's UID alone, the
+// one shape the chart's maul-preview-networkpolicies admits for it (an
+// ingress-only policy selecting a part is refused): on previewtools.Port,
+// from the agents namespace by name, only the pod labelled exactly
+// maul.run/role evaluator and maul.run/preview-verification
 // the verification's UID. A NetworkPolicy cannot say "the tool pod of the
 // same verification", so the chart's evaluator egress reaches any tool pod;
 // this policy is the binding control. It is named preview-<p>-np-ev-<hash>
@@ -57,7 +60,8 @@ func (s Settings) evaluatorPolicy(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerif
 	return &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: evaluatorPolicyName(p, pv), Namespace: s.slotName(slot), Labels: l},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: *partSelector(p, v1alpha1.PreviewPartTester),
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
+				labelRole: v1alpha1.PreviewRoleTools, v1alpha1.LabelPreviewVerification: string(pv.UID)}},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{{
 				From: []networkingv1.NetworkPolicyPeer{{

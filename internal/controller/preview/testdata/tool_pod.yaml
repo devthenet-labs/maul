@@ -21,8 +21,8 @@ spec:
       protocol: TCP
   podSelector:
     matchLabels:
-      maul.run/preview-part: tester
-      maul.run/preview-uid: preview-shop-1
+      maul.run/preview-role: tools
+      maul.run/preview-verification: pv-shop-1
   policyTypes:
   - Ingress
 ---
