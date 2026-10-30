@@ -347,8 +347,10 @@ How each mode judges:
 - **`--as evaluator`, `--as tools`, `--as peers`** share one engine. Every REACHED target is dialled first, for up to a
   minute, and only if all connect is the BLOCKED burst made (four workers, four attempts per target, the egress run's).
   A refusal is inconclusive unless `--refused-is-blocked`, which is sound because the control answered first.
-  `PROBE_REACH` and `PROBE_DENY` (`name=<ipv4>:<port>` lists) carry the run's own addresses, and `peers` refuses to run
-  without a control and a target to deny. The summary is `PASS`, `SECURITY_FAILURE`, `INCONCLUSIVE` or `NOT_REACHED`.
+  `PROBE_REACH` and `PROBE_DENY` (`name=<ipv4>:<port>` lists, separated by commas or semicolons: the script uses
+  semicolons because `kubectl debug --env` splits its value on commas) carry the run's own addresses, and `peers`
+  refuses to run without a control and a target to deny. The summary is `PASS`, `SECURITY_FAILURE`, `INCONCLUSIVE` or
+  `NOT_REACHED`.
 - **`--as sandbox`** makes plain HTTP requests, with no `Origin`, to `tools`' `:8090` (loopback and the pod's address,
   `PROBE_POD_IP`) and to the shim's `/json/version` with no key and with a wrong `X-Maul-Cdp-Key`. A 4xx status, a
   connection closed at accept (how `tools` refuses local callers) or a timeout is `blocked`; a 2xx or 3xx is `REACHED`;
@@ -387,6 +389,6 @@ bash hack/preview-isolation-probe/run.sh tools \
 | `--timeout`            | `PROBE_TIMEOUT`           | `120`                      | Seconds each row may take                                                                                                              |
 
 `--dry-run` checks every value and prints exactly what each row would run in which pod and what it must find REACHED and
-BLOCKED, then exits before `kubectl` is called. A row that does not hold is printed with the probe's log, the remaining
-rows still run so the matrix is whole, and the script exits 1: keep `intentController.verification.evaluator` off and
-investigate.
+BLOCKED, then exits before `kubectl` is called. A row that does not hold, or whose container exits non-zero or cannot be
+started, is printed with the probe's log, the remaining rows still run so the matrix is whole, and the script exits 1 at
+the end: keep `intentController.verification.evaluator` off and investigate.

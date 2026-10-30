@@ -1103,7 +1103,10 @@ tools_failed=0
 
 # tools_debug ROW POD_REF CONTAINER ENVS ROLE: add the ephemeral netprobe
 # container CONTAINER to POD_REF, running --as ROLE with the newline-separated
-# KEY=VALUE ENVS.
+# KEY=VALUE ENVS. A list in an ENV is joined with semicolons, which netprobe
+# parses as it does commas: kubectl debug --env splits its value on commas.
+# Returns the probe container's status (kubectl debug exits with it): a
+# refused row is recorded by tools_collect, never an abort.
 tools_debug() {
     local row=$1 ref=$2 container=$3 envs=() kv flag=()
     while IFS= read -r kv; do [[ -z $kv ]] || envs+=("--env=$kv"); done <<<"$4"
@@ -1114,9 +1117,12 @@ tools_debug() {
 }
 
 # tools_collect ROW POD_REF CONTAINER: wait for the container's summary,
-# print the matrix lines its log holds, and fail the run unless PASS.
+# print the matrix lines its log holds, and fail the run unless PASS. A fourth
+# argument, the container's exit status, when not 0 reads the log once: a row
+# that exited non-zero has nothing more to wait for.
 tools_collect() {
     local row=$1 ref=$2 container=$3 out got deadline=$((SECONDS + timeout))
+    [[ ${4:-0} -eq 0 ]] || deadline=$SECONDS
     while :; do
         out=$(ekube logs "${ref#*/}" -n "${ref%/*}" -c "$container" 2>/dev/null) || out=
         got=$(jq -Rr 'fromjson? | select(type == "object" and .name == "summary") | .outcome // empty' <<<"$out" |
@@ -1142,8 +1148,9 @@ tools_collect() {
 # tools_row ROW POD_REF ROLE ENVS: tools_debug then tools_collect.
 tools_row() {
     local container="probe-$1-$tools_stamp"
-    tools_debug "$1" "$2" "$container" "$4" "$3"
-    tools_collect "$1" "$2" "$container"
+    local status=0
+    tools_debug "$1" "$2" "$container" "$4" "$3" || status=$?
+    tools_collect "$1" "$2" "$container" "$status"
 }
 
 tools_run() {
@@ -1166,9 +1173,9 @@ PROBE_CLUSTER_DNS=$dns
 PROBE_SOURCE_CONTROLLER=$artifact
 PROBE_SLOT_COMPONENT=$comp_ip
 PROBE_REACH=own-tool-pod=$tool_ip:8090
-PROBE_DENY=other-tool-pod=$other_tool_ip:8090,other-slot-pod=$other_slot_ip:$port"
+PROBE_DENY=other-tool-pod=$other_tool_ip:8090;other-slot-pod=$other_slot_ip:$port"
     tools_row component "$component" peers "PROBE_REACH=cluster-dns=$dns:53
-PROBE_DENY=tool-pod=$tool_ip:8090,evaluator=$eval_ip:8080,maul-egress-broker=$broker:8080"
+PROBE_DENY=tool-pod=$tool_ip:8090;evaluator=$eval_ip:8080;maul-egress-broker=$broker:8080"
     tools_row tools "$tool" tools "PROBE_CLUSTER_DNS=$dns
 PROBE_KUBERNETES_API=$api"
     tools_row sandbox "$tool" sandbox "PROBE_POD_IP=$tool_ip"
@@ -1177,12 +1184,13 @@ PROBE_KUBERNETES_API=$api"
     # pod's network) and the browser container's own Chromium, an engine
     # that sends an Origin and holds no key, loads it.
     local page="probe-page-$tools_stamp"
+    local page_status=0
     tools_debug page "$tool" "$page" "PROBE_POD_IP=$tool_ip
-PROBE_PAGE_WAIT_SECONDS=$timeout" page
+PROBE_PAGE_WAIT_SECONDS=$timeout" page || page_status=$?
     ekube exec "${tool#*/}" -n "${tool%/*}" -c browser -- "$chromium" --headless --no-sandbox --disable-gpu \
         --user-data-dir=/tmp/probe-page --virtual-time-budget=15000 --dump-dom http://127.0.0.1:8099/ \
         >/dev/null 2>&1 </dev/null || true
-    tools_collect page "$tool" "$page"
+    tools_collect page "$tool" "$page" "$page_status"
 
     if [[ -n $agents_tool ]]; then
         tools_row agents "$agents_tool" tools "PROBE_CLUSTER_DNS=$dns
