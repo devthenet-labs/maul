@@ -192,9 +192,9 @@ func (p *pass) handoffDue(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVeri
 }
 
 // syncHandoff releases a held link when it is due (handoffDue). It reports
-// whether it wrote. A human's release is the halt's (halt, releaseForHuman):
-// in the same write as the human's round, or as the halt that waits for its
-// quiet window.
+// whether it wrote. A human's release is the halt's (haltHuman,
+// releaseForHuman, releaseForPush): in the same write as the human's round
+// or push, or as the halt that waits for its quiet window.
 func (p *pass) syncHandoff(ctx context.Context) (bool, error) {
 	if !p.handsOff() {
 		return false, nil
@@ -254,6 +254,32 @@ func releaseHandoff(v *v1alpha1.IntentVerification, reason v1alpha1.HandoffReaso
 	}
 	at := now
 	h.Released, h.ReleasedAt, h.Reason = true, &at, reason
+}
+
+// haltHuman halts v's automatic fixes for reason, a human's own action
+// (humanHalt), at p.now, releasing a held link at once: a link held before
+// the first evaluation recorded its hand-off (startHandoff) gets its record
+// here, so the release stands, and startHandoff then keeps it.
+func (p *pass) haltHuman(v *v1alpha1.IntentVerification, reason v1alpha1.AutoFixReason) {
+	p.recordHeld(v)
+	halt(v, reason, metav1.NewTime(p.now))
+}
+
+// releaseForPush releases v's held link for a push maul did not make that
+// automatic fixes go on through (an approver re-armed them after it): the
+// human wins the link either way.
+func (p *pass) releaseForPush(v *v1alpha1.IntentVerification) {
+	p.recordHeld(v)
+	releaseHandoff(v, v1alpha1.HandoffReasonHuman, metav1.NewTime(p.now), false)
+}
+
+// recordHeld gives v the record of the gated hand-off holding p's link
+// when none is recorded yet: before the first evaluation the link is held
+// (linkHeld) with nothing recorded to release.
+func (p *pass) recordHeld(v *v1alpha1.IntentVerification) {
+	if v != nil && v.Handoff == nil && p.linkHeld() {
+		v.Handoff = &v1alpha1.HandoffState{Mode: v1alpha1.HandoffGated}
+	}
 }
 
 // humanHalt reports a halt a human's own action caused: their feedback, a

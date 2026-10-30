@@ -121,7 +121,7 @@ func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	}
 	if reason := p.humanRoundHalt(); reason != "" {
 		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			halt(cur.Status.Verification, reason, metav1.NewTime(p.now))
+			p.haltHuman(cur.Status.Verification, reason)
 			return nil
 		})
 	}

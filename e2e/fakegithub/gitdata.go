@@ -35,6 +35,9 @@ type gitData struct {
 	// writes are every ref create and update asked for, refused ones
 	// included, in order, each with the repository it was asked of.
 	writes []refWrite
+	// activity is every branch creation and push the fake accepted, in
+	// order (listActivity).
+	activity []activityRec
 }
 
 // refWrite is a RefWrite and the repository (a repoKey) it was asked of.
@@ -191,6 +194,7 @@ func (s *Server) HumanPush(owner, repo, branch, path, content, message string) s
 	sha := s.git.sha("c")
 	s.git.commits[sha] = commitRec{Message: message, Tree: tree, Parents: []string{parent}}
 	s.git.setRef(key, "heads/"+branch, sha)
+	s.recordActivity(key, "heads/"+branch, parent, sha, "push")
 	return sha
 }
 
@@ -245,6 +249,7 @@ func (s *Server) gitRoutes(handle func(pattern, perm string, h http.HandlerFunc)
 	handle("POST /repos/{owner}/{repo}/git/commits", permContents, s.createCommit)
 	handle("POST /repos/{owner}/{repo}/git/refs", permContents, s.createRef)
 	handle("PATCH /repos/{owner}/{repo}/git/refs/{ref...}", permContents, s.updateRef)
+	handle("GET /repos/{owner}/{repo}/activity", permContents, s.listActivity)
 }
 
 func (s *Server) getRef(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +375,7 @@ func (s *Server) createRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.git.setRef(repo, ref, body.SHA)
+	s.recordActivity(repo, ref, "0000000000000000000000000000000000000000", body.SHA, "branch_creation")
 	write.Status = http.StatusCreated
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, map[string]any{"ref": body.Ref, "object": map[string]any{"type": "commit", "sha": body.SHA}})
@@ -407,6 +413,13 @@ func (s *Server) updateRef(w http.ResponseWriter, r *http.Request) {
 	case !body.Force && body.SHA != current && !s.descends(body.SHA, current):
 		unprocessable(w, msgNotFastForward)
 		return
+	}
+	if body.SHA != current {
+		kind := "push"
+		if !s.descends(body.SHA, current) {
+			kind = "force_push"
+		}
+		s.recordActivity(repo, ref, current, body.SHA, kind)
 	}
 	s.git.setRef(repo, ref, body.SHA)
 	write.Status = http.StatusOK

@@ -9,8 +9,6 @@ import (
 	"slices"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 )
@@ -77,7 +75,7 @@ func (p *pass) releaseForHuman(ctx context.Context, prs []v1alpha1.IntentPullReq
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "a human's feedback releases the preview link",
 		slog.String("intent", p.in.Name), slog.String("reason", string(reason)))
 	return true, true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-		halt(cur.Status.Verification, reason, metav1.NewTime(p.now))
+		p.haltHuman(cur.Status.Verification, reason)
 		return nil
 	})
 }
@@ -171,7 +169,7 @@ func humanReason(t v1alpha1.IntentRunTrigger) v1alpha1.AutoFixReason {
 // approved plan revision that a human started, is entered: in the same
 // write (§4.5 step 2). A round not later than the one an approver's
 // /maul verify fix re-armed them at does not halt them again (H10).
-func haltForHumanRound(cur *v1alpha1.Intent, run *v1alpha1.IntentRun, now metav1.Time) {
+func (p *pass) haltForHumanRound(cur *v1alpha1.Intent, run *v1alpha1.IntentRun) {
 	v, ap := cur.Status.Verification, cur.Status.Approval
 	reason := humanReason(run.Spec.Trigger)
 	if v == nil || ap == nil || reason == "" || run.Spec.Inputs.PlanRevision != ap.PlanRevision {
@@ -180,5 +178,5 @@ func haltForHumanRound(cur *v1alpha1.Intent, run *v1alpha1.IntentRun, now metav1
 	if r := v.AutoFix.Rearm; r != nil && run.Spec.Round <= r.Round {
 		return
 	}
-	halt(v, reason, now)
+	p.haltHuman(v, reason)
 }

@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Preview:** The preview is live, and maul holds its link until it has checked the approved outcomes. A comment, a push or `/maul preview` shows it now. Evaluation 1 running: 0 of 2 automatic fixes used.
+**Preview:** The preview is live, and maul holds its link until it has checked the approved outcomes. An approver's review asking for changes or `/maul revise` on a pull request, a push maul did not make or `/maul preview` shows it now. Evaluation 1 running: 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

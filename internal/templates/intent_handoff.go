@@ -18,8 +18,9 @@ const (
 	HandoffReady = "ready"
 	// HandoffUnconfirmed: maul gave up without confirming every outcome.
 	HandoffUnconfirmed = "unconfirmed"
-	// HandoffChecking: the link was released (a human's comment or push,
-	// /maul preview) while maul is still checking.
+	// HandoffChecking: the link was released (an approver's review or
+	// command round, a push maul did not make, /maul preview) while maul is
+	// still checking.
 	HandoffChecking = "checking"
 )
 
@@ -80,10 +81,13 @@ func handoffLabel(h PreviewHandoff) string {
 }
 
 // handoffHeld is the sentence of a held link: what maul is doing, and how
-// to see it now.
+// to see it now. It names what intent-controller releases a held link on
+// (haltHuman, releaseForPush, and /maul preview): an approver's round on a
+// pull request, not any comment and not /maul verify.
 func handoffHeld(subject string) string {
-	return subject + " is live, and maul holds its link until it has checked the approved outcomes. A comment, a " +
-		"push or " + slashCommand("preview") + " shows it now."
+	return subject + " is live, and maul holds its link until it has checked the approved outcomes. An approver's " +
+		"review asking for changes or " + slashCommand("revise") + " on a pull request, a push maul did not make " +
+		"or " + slashCommand("preview") + " shows it now."
 }
 
 // handoffStatusSentence is the status comment's preview sentence under h,
