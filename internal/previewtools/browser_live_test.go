@@ -183,6 +183,10 @@ var (
 		{regexp.MustCompile(`127\.0\.0\.1:\d+`), "<front>"},
 		{regexp.MustCompile(`\[\s*\d+ms\]`), "[<ms>]"},
 		{regexp.MustCompile(`--config=\S+`), "--config=<config>"},
+		// The CLI reports a page's console entries on whichever command
+		// first follows them, so where the block lands is a race with the
+		// page's own scripts. The relay never parses it.
+		{regexp.MustCompile(`(?m)^### Events\n(?:- .*\n)*`), ""},
 	}
 )
 

@@ -29,8 +29,6 @@ await page.goto('http://<front>/battles/1');
 - Console: 1 errors, 0 warnings
 ### Snapshot
 - [Snapshot](.playwright-cli/page-<ts>.yml)
-### Events
-- New console entries: .playwright-cli/console-<ts>.log#L1
 
 $ snapshot
 [exit 0]
