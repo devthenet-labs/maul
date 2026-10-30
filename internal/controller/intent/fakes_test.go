@@ -115,6 +115,21 @@ type fakeIssue struct {
 	labels   []string
 	events   []*ghclient.IssueEvent
 	comments []*ghclient.Comment
+	// stateReason is GitHub's state_reason once closed.
+	stateReason string
+	// blockedBy are the issues GitHub records as blocking this one.
+	blockedBy []fakeBlocker
+}
+
+// fakeBlocker is one issue blocking another: an issue of the intent
+// repository (repo ""), whose state is that issue's, or an issue of another
+// repository with its own state, which hidden keeps out of the listing
+// while the summary still counts it.
+type fakeBlocker struct {
+	repo          string
+	number        int64
+	state, reason string
+	hidden        bool
 }
 
 type fakePR struct {
@@ -235,6 +250,15 @@ type fakeGitHub struct {
 	installs []installCheck
 	errs     map[string][]error
 	calls    map[string]int
+	// noSummary leaves issue_dependencies_summary off every issue, as a
+	// GitHub without issue dependencies does.
+	noSummary bool
+	// summaryCountsClosed counts closed blockers in the summary's
+	// blocked_by too, as a GitHub whose summary lags or counts every
+	// blocker would.
+	summaryCountsClosed bool
+	// blockedByErr answers every ListBlockedBy with it.
+	blockedByErr error
 	// sinces are the since of every comment listing, in order.
 	sinces []time.Time
 }
@@ -448,7 +472,7 @@ func (f *fakeGitHub) humanClose(n int64) {
 func (f *fakeGitHub) closeIssue(n int64, actor string) {
 	is := f.issues[n]
 	if is.state != "closed" {
-		is.state = "closed"
+		is.state, is.stateReason = "closed", "completed"
 		is.events = append(is.events, &ghclient.IssueEvent{
 			ID: f.id(), Event: "closed", CreatedAt: f.clock.Now(), Actor: actorOf(actor),
 		})
@@ -625,10 +649,81 @@ func (f *fakeGitHub) ListIssues(_ context.Context, _ string, labels []string, et
 }
 
 func (f *fakeGitHub) view(is *fakeIssue) *ghclient.Issue {
-	return &ghclient.Issue{
+	v := &ghclient.Issue{
 		Number: int(is.number), Title: is.title, Body: is.body, State: is.state,
 		Labels: slices.Clone(is.labels), HTMLURL: fmt.Sprintf("%s/issues/%d", intentRepoURL, is.number),
 	}
+	if !f.noSummary {
+		v.Dependencies = &ghclient.DependencySummary{}
+		for _, b := range is.blockedBy {
+			v.Dependencies.TotalBlockedBy++
+			if f.blockerState(b).State == "open" || f.summaryCountsClosed {
+				v.Dependencies.BlockedBy++
+			}
+		}
+	}
+	return v
+}
+
+// blockerState is the blocker as GitHub lists it now.
+func (f *fakeGitHub) blockerState(b fakeBlocker) ghclient.Blocker {
+	repo := ghclient.Repo{Owner: "acme", Name: "intents"}
+	if b.repo != "" {
+		owner, name, _ := strings.Cut(b.repo, "/")
+		repo = ghclient.Repo{Owner: owner, Name: name}
+	}
+	out := ghclient.Blocker{Repo: repo, Number: int(b.number), State: b.state, StateReason: b.reason,
+		HTMLURL: fmt.Sprintf("https://github.com/%s/issues/%d", repo, b.number)}
+	if b.repo == "" {
+		if is, ok := f.issues[b.number]; ok {
+			out.State, out.StateReason = is.state, is.stateReason
+		}
+	}
+	return out
+}
+
+// blockBy records issue n blocked by blocker.
+func (f *fakeGitHub) blockBy(n int64, blocker fakeBlocker) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	is := f.issues[n]
+	is.blockedBy = append(is.blockedBy, blocker)
+	f.version++
+}
+
+// closeAs closes issue n with reason, as a human would.
+func (f *fakeGitHub) closeAs(n int64, reason string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closeIssue(n, approver)
+	f.issues[n].stateReason = reason
+}
+
+func (f *fakeGitHub) ListBlockedBy(_ context.Context, _ string, number int64, etag string) (
+	*ghclient.BlockerList, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("ListBlockedBy"); err != nil {
+		return nil, err
+	}
+	if f.blockedByErr != nil {
+		return nil, f.blockedByErr
+	}
+	is, err := f.issue(number)
+	if err != nil {
+		return nil, err
+	}
+	var out []ghclient.Blocker
+	for _, b := range is.blockedBy {
+		if !b.hidden {
+			out = append(out, f.blockerState(b))
+		}
+	}
+	tag := fmt.Sprintf(`"dep-%d-%d"`, number, f.version)
+	if etag == tag {
+		return &ghclient.BlockerList{ETag: tag, NotModified: true}, nil
+	}
+	return &ghclient.BlockerList{Blockers: out, ETag: tag}, nil
 }
 
 func (f *fakeGitHub) GetIssue(_ context.Context, _ string, number int64) (*ghclient.Issue, error) {
@@ -892,6 +987,7 @@ func (f *fakeGitHub) CloseIssue(_ context.Context, _ string, number int64, reaso
 	}
 	f.closes[number] = append(f.closes[number], reason)
 	f.closeIssue(number, f.bot)
+	f.issues[number].stateReason = reason
 	return nil
 }
 
@@ -1511,6 +1607,9 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	e.c = fake.NewClientBuilder().
 		WithScheme(envScheme()).
 		WithObjects(objs...).
+		WithIndex(&v1alpha1.Intent{}, projectIndex, func(obj client.Object) []string {
+			return []string{obj.(*v1alpha1.Intent).Spec.Project}
+		}).
 		WithStatusSubresource(&v1alpha1.Project{}, &v1alpha1.Intent{}, &v1alpha1.IntentRun{},
 			&v1alpha1.Repository{}, &v1alpha1.UsageRollup{}).
 		WithInterceptorFuncs(interceptor.Funcs{

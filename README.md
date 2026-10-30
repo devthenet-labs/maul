@@ -11,7 +11,8 @@ agent builds it and opens the pull request, and a human merges it. Kubernetes cu
 - **Intents.** Open a GitHub issue saying what you want. An agent reads the code and posts a plan on the issue; an
   approver approves it (`/maul approve` or the approve label), and an agent builds exactly that plan in a sandboxed pod,
   in the application's own toolchain image, and opens the pull request. Review feedback and failing checks get further
-  rounds.
+  rounds. An issue marked **blocked by** others on GitHub waits until they are closed as completed
+  ([intent dependencies](docs/intents/dependencies.md); `/maul start` starts it anyway).
 - **Previews.** Each intent's pull request is deployed to a live URL of its own until it merges or closes, behind
   optional sign-in.
 - **Fixing.** Security alerts (GitHub Advanced Security / CodeQL, Wiz, Google Cloud Security Command Center, or any HTTP

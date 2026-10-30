@@ -73,6 +73,7 @@ func TestIntentWireTypesMatchTypeScript(t *testing.T) {
 	ts := tsInterfaces(t, string(src))
 	for _, v := range []any{
 		Me{}, ProjectAccess{}, IntentBoard{}, BoardProject{}, ProjectRepo{}, IntentLimits{}, IntentCard{},
+		IntentWaiting{},
 		IntentPR{}, PreviewLink{}, RunningRun{}, AttemptCount{}, IntentDetail{}, IntentInputView{},
 		IntentPlanView{}, IntentApproval{}, IntentRunRow{}, RunGrant{}, IntentRunDetail{}, RunJobClock{},
 		IntentPlanText{}, RunActivity{}, RunOutput{}, StreamNotice{},

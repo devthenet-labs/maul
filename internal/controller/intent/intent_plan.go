@@ -30,8 +30,30 @@ var errNotOwned = errors.New("exists and belongs to another owner")
 
 // pending decides the trigger that created the Intent: an approver's starts
 // planning; anyone else's closes the Intent with one notice, the label
-// removed first.
+// removed first. With dependencies honoured (the default) an accepted
+// trigger first waits for the issues its issue is blocked by
+// (pendingOnDependencies). With them off, an intent that waited on them
+// before (a rollback) starts only once its Project has a slot for it.
 func (p *pass) pending(ctx context.Context) (bool, error) {
+	if !p.set.IgnoreDependencies {
+		return p.pendingOnDependencies(ctx)
+	}
+	if waitReason(p.in) != "" {
+		if free, err := p.haveSlot(ctx); err != nil || !free {
+			return false, err
+		}
+	}
+	accepted, err := p.decideTrigger(ctx)
+	if err != nil || !accepted {
+		return true, err
+	}
+	return true, p.startPlanning(ctx, nil, nil)
+}
+
+// decideTrigger decides the trigger's authority: accepted for an
+// approver's; anyone else's closes the Intent with one notice, the label
+// removed first, and is not accepted.
+func (p *pass) decideTrigger(ctx context.Context) (accepted bool, err error) {
 	rb := p.in.Spec.RequestedBy
 	if err := p.readBot(ctx); err != nil {
 		return false, err
@@ -41,11 +63,8 @@ func (p *pass) pending(ctx context.Context) (bool, error) {
 		actor.Type = "Bot"
 	}
 	ok, bot, err := p.authorize(ctx, actor)
-	if err != nil {
-		return false, err
-	}
-	if ok {
-		return true, p.startPlanning(ctx, nil, nil)
+	if err != nil || ok {
+		return ok, err
 	}
 	if err := p.r.GitHub.RemoveLabel(ctx, p.repo(), p.number(), p.trigger()); err != nil {
 		return false, fmt.Errorf("remove the trigger label: %w", err)
@@ -55,7 +74,7 @@ func (p *pass) pending(ctx context.Context) (bool, error) {
 	if err := p.notAllowed(ctx, a, bot, true, true); err != nil {
 		return false, err
 	}
-	return true, p.setPhase(ctx, v1alpha1.IntentClosed, nil)
+	return false, p.setPhase(ctx, v1alpha1.IntentClosed, nil)
 }
 
 // startPlanning snapshots the request at the next input revision and moves
@@ -63,8 +82,10 @@ func (p *pass) pending(ctx context.Context) (bool, error) {
 // status write. issue is the issue as this pass read it, nil to read it now.
 // A replan's and a revival's snapshot carries the approvers' comments since
 // the last plan, and beside it a context file of the earlier work
-// (planContext), read before the plan it names is cleared.
-func (p *pass) startPlanning(ctx context.Context, issue *ghclient.Issue, trigger *v1alpha1.IntentAction) error {
+// (planContext), read before the plan it names is cleared. also are further
+// changes to make in the same status write (a dependency release).
+func (p *pass) startPlanning(ctx context.Context, issue *ghclient.Issue, trigger *v1alpha1.IntentAction,
+	also ...func(*v1alpha1.Intent)) error {
 	if issue == nil {
 		var err error
 		if issue, err = p.r.GitHub.GetIssue(ctx, p.repo(), p.number()); err != nil {
@@ -116,8 +137,9 @@ func (p *pass) startPlanning(ctx context.Context, issue *ghclient.Issue, trigger
 		input.ContextDigest = digest([]byte(c))
 	}
 	// The revision's plan runs are attributed to the action that opened it,
-	// whatever is consumed after it.
-	opened := p.lastTrigger()
+	// whatever is consumed after it: the first start's is the trigger that
+	// created the Intent, never a replan consumed while it waited.
+	opened := p.requested()
 	if trigger != nil {
 		opened = *trigger
 	}
@@ -135,6 +157,9 @@ func (p *pass) startPlanning(ctx context.Context, issue *ghclient.Issue, trigger
 		meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionUntrackedPullRequests)
 		if trigger != nil {
 			cur.Status.LastTrigger = trigger
+		}
+		for _, f := range also {
+			f(cur)
 		}
 	})
 }

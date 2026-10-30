@@ -799,6 +799,184 @@ spec:
                 - id
                 - login
                 type: object
+              dependencies:
+                description: |-
+                  Dependencies is the intent's wait on the issues GitHub records as
+                  blocking its issue (intent_dependencies_types.go); nil until a start
+                  was decided with dependencies honoured.
+                properties:
+                  blockers:
+                    description: |-
+                      Blockers are the blockers not yet closed as completed, as last read
+                      while the intent waited, open first.
+                    items:
+                      description: |-
+                        IntentBlocker is one issue blocking an intent's issue, as GitHub listed
+                        it. No title is kept: the comment links each blocker.
+                      properties:
+                        number:
+                          description: Number is the blocker's issue number.
+                          format: int64
+                          minimum: 1
+                          type: integer
+                        repository:
+                          description: Repository is the blocker's repository as an
+                            https URL.
+                          maxLength: 255
+                          pattern: ^https://[^\s/]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
+                          type: string
+                        state:
+                          description: State is the blocker's state.
+                          enum:
+                          - open
+                          - closed
+                          type: string
+                        stateReason:
+                          description: StateReason is GitHub's state_reason, any future
+                            value tolerated.
+                          maxLength: 32
+                          pattern: ^[a-z_]*$
+                          type: string
+                      required:
+                      - number
+                      - repository
+                      - state
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  late:
+                    description: Late are the open blockers that notice named.
+                    items:
+                      description: |-
+                        IntentBlocker is one issue blocking an intent's issue, as GitHub listed
+                        it. No title is kept: the comment links each blocker.
+                      properties:
+                        number:
+                          description: Number is the blocker's issue number.
+                          format: int64
+                          minimum: 1
+                          type: integer
+                        repository:
+                          description: Repository is the blocker's repository as an
+                            https URL.
+                          maxLength: 255
+                          pattern: ^https://[^\s/]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
+                          type: string
+                        state:
+                          description: State is the blocker's state.
+                          enum:
+                          - open
+                          - closed
+                          type: string
+                        stateReason:
+                          description: StateReason is GitHub's state_reason, any future
+                            value tolerated.
+                          maxLength: 32
+                          pattern: ^[a-z_]*$
+                          type: string
+                      required:
+                      - number
+                      - repository
+                      - state
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  lateNotice:
+                    description: |-
+                      LateNotice is when maul posted the one notice that the issue became
+                      blocked after its work started.
+                    format: date-time
+                    type: string
+                  more:
+                    description: More counts such blockers past the ones recorded.
+                    format: int32
+                    maximum: 999
+                    minimum: 0
+                    type: integer
+                  releaseReason:
+                    description: |-
+                      ReleaseReason is the release reason the start was decided by (a
+                      WaitingOnDependencies False reason): recorded while the intent waits
+                      for an active slot (NoActiveSlot), so a later read that decides
+                      nothing leaves it standing, and kept once it starts.
+                    enum:
+                    - NoBlockers
+                    - BlockersClosed
+                    - StartedByApprover
+                    - DependenciesUnsupported
+                    - DependenciesForbidden
+                    - DependenciesUnanswered
+                    type: string
+                  releasedAt:
+                    description: ReleasedAt is when the wait ended, for any reason.
+                    format: date-time
+                    type: string
+                  since:
+                    description: |-
+                      Since is when the wait began: the trigger accepted with dependencies
+                      honoured. Nil while only an approver's start is recorded and the
+                      trigger is still to be decided.
+                    format: date-time
+                    type: string
+                  startedBy:
+                    description: StartedBy is the approver's /maul start that ended
+                      the wait.
+                    properties:
+                      at:
+                        description: At is the action's created_at, as GitHub reports
+                          it.
+                        format: date-time
+                        type: string
+                      eventID:
+                        description: EventID is GitHub's id of the action, in Source's
+                          id space.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      login:
+                        description: |-
+                          Login of the actor. It may be anyone, a Bot ("<name>[bot]")
+                          included: an action refused for its actor is consumed too.
+                        maxLength: 64
+                        minLength: 1
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*(\[bot\])?$
+                        type: string
+                      source:
+                        description: Source of the action, and so the id space of
+                          EventID.
+                        enum:
+                        - label
+                        - command
+                        type: string
+                      userID:
+                        description: |-
+                          UserID is GitHub's numeric id of the actor (design L1). Zero on an
+                          action recorded before it was.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                    required:
+                    - at
+                    - eventID
+                    - login
+                    - source
+                    type: object
+                  unavailableSince:
+                    description: |-
+                      UnavailableSince is the first failed read of the current failing
+                      streak; cleared by a read that succeeds.
+                    format: date-time
+                    type: string
+                  unreadable:
+                    description: Unreadable counts blockers GitHub counts but would
+                      not show.
+                    format: int32
+                    maximum: 999
+                    minimum: 0
+                    type: integer
+                type: object
               input:
                 description: Input is the current issue snapshot.
                 properties:

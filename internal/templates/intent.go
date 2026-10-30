@@ -162,6 +162,10 @@ type IntentStatusComment struct {
 	// Commands are the verbs an approver can use in this phase, such as
 	// "approve"; each is shown as its /maul command.
 	Commands []string
+	// Dependencies is where the intent stands on the issues its issue is
+	// blocked by (intent_dependencies.go); nil, or one with nothing to say,
+	// omits the section, and the comment is exactly the one without.
+	Dependencies *IntentDependencyStatus
 }
 
 // IntentAttribution is whom a run is attributed to: Login for a person, ""
@@ -206,6 +210,12 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 	if c.FixingChecks && v1alpha1.IntentPhase(c.Phase) == v1alpha1.IntentRevising {
 		sentence = fixingChecksSentence
 	}
+	if d := c.Dependencies; d != nil && d.Waiting && v1alpha1.IntentPhase(c.Phase) == v1alpha1.IntentPending {
+		sentence = waitingSentence
+		if d.Reason == v1alpha1.ReasonNoActiveSlot {
+			sentence = slotSentence
+		}
+	}
 	prs := make([]statusPR, len(c.PullRequests))
 	for i, pr := range c.PullRequests {
 		prs[i] = statusPR{
@@ -218,6 +228,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		Marker           string
 		Phase            string
 		Sentence         string
+		Dependencies     string
 		AgentsPaused     bool
 		PlanRevision     int32
 		PlanURL          string
@@ -239,6 +250,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		Marker:           IntentStatusMarker(c.Namespace, c.Intent),
 		Phase:            oneLine(c.Phase),
 		Sentence:         sentence,
+		Dependencies:     renderDependencies(c.Dependencies),
 		AgentsPaused:     c.AgentsPaused,
 		PlanRevision:     c.PlanRevision,
 		PlanURL:          oneLine(c.PlanURL),

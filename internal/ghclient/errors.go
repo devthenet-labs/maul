@@ -6,6 +6,7 @@ package ghclient
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/google/go-github/v90/github"
 )
@@ -19,11 +20,24 @@ func IsNotFound(err error) bool {
 
 // IsForbidden reports whether err (anywhere in its chain) is a GitHub API
 // 403 refusing the credential — a missing permission. Rate limiting also
-// answers 403, but go-github reports it as its own error types, so a
-// throttled call is never mistaken for one.
+// answers 403. go-github types it as its own error only when the body's
+// documentation_url carries its anchor, so a throttling 403 without it
+// arrives here as a plain ErrorResponse; one marked as throttling (a
+// Retry-After header, an exhausted X-RateLimit-Remaining, or "rate limit" in
+// the message) is transient, never a refusal, so no caller mistakes a
+// throttle for a permission it lacks.
 func IsForbidden(err error) bool {
 	var ger *github.ErrorResponse
-	return errors.As(err, &ger) && ger.Response != nil && ger.Response.StatusCode == http.StatusForbidden
+	return errors.As(err, &ger) && ger.Response != nil &&
+		ger.Response.StatusCode == http.StatusForbidden && !throttled(ger)
+}
+
+// throttled reports whether a 403 carries any mark of rate limiting.
+func throttled(ger *github.ErrorResponse) bool {
+	h := ger.Response.Header
+	return h.Get("Retry-After") != "" ||
+		strings.TrimSpace(h.Get("X-RateLimit-Remaining")) == "0" ||
+		strings.Contains(strings.ToLower(ger.Message), "rate limit")
 }
 
 // IsGone reports whether err (anywhere in its chain) is a GitHub API 410.

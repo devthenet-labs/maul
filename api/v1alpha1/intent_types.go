@@ -1273,6 +1273,11 @@ type IntentStatus struct {
 	// intent's combined change.
 	// +optional
 	Verification *IntentVerification `json:"verification,omitempty"`
+	// Dependencies is the intent's wait on the issues GitHub records as
+	// blocking its issue (intent_dependencies_types.go); nil until a start
+	// was decided with dependencies honoured.
+	// +optional
+	Dependencies *IntentDependencies `json:"dependencies,omitempty"`
 	// Usage totals the spend of every run.
 	// +optional
 	Usage IntentUsage `json:"usage,omitempty"`

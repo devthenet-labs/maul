@@ -28,7 +28,7 @@ func TestAvailable(t *testing.T) {
 	}{
 		{command.FindingIssue, action.ActionVerbs},
 		{command.IntentIssue, []string{
-			action.VerbApprove, action.VerbReplan, action.VerbVerify, action.VerbAccept, action.VerbCancel,
+			action.VerbApprove, action.VerbReplan, action.VerbStart, action.VerbVerify, action.VerbAccept, action.VerbCancel,
 		}},
 		{command.IntentPR, []string{action.VerbRevise, action.VerbRetry, action.VerbVerify, action.VerbAccept}},
 		{"pull-request", nil},
@@ -100,6 +100,7 @@ func TestHelp(t *testing.T) {
 		{command.IntentIssue, intro +
 			"- `/maul approve`: approve the posted plan and start the build\n" +
 			"- `/maul replan [note]`: plan again, taking the note and approvers' comments since the last plan into account\n" +
+			"- `/maul start`: start this intent now, without waiting for the issues it is blocked by\n" +
 			verifyLine + "\n" + acceptLine + "\n" +
 			"- `/maul cancel`: stop work on this intent and close it; open pull requests are left to you"},
 		{command.IntentPR, intro +
@@ -171,7 +172,8 @@ func helpLines(help string) (verbs, lines []string) {
 func TestHelpListsExactlyAvailable(t *testing.T) {
 	candidates := []string{
 		action.VerbApprove, action.VerbRetry, action.VerbExpedite, action.VerbSuspend, action.VerbResume,
-		action.VerbReplan, action.VerbCancel, action.VerbRevise, action.VerbVerify, action.VerbAccept, "bogus",
+		action.VerbReplan, action.VerbCancel, action.VerbRevise, action.VerbVerify, action.VerbAccept, action.VerbStart,
+		"bogus",
 	}
 	for _, s := range []command.Surface{command.FindingIssue, command.IntentIssue, command.IntentPR} {
 		offered := command.Available(s)

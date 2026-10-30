@@ -131,6 +131,8 @@ var tokenUses = map[string][]string{
 	"EnsureLabel": {onIntentRepository}, "ListIssues": {onIntentRepository},
 	"GetIssue": {onIntentRepository}, "ListIssueEvents": {onIntentRepository},
 	"ListIssueComments": {onIntentRepository}, "GetIssueComment": {onIntentRepository},
+	// The dependency wait reads the intent issue's blockers (dependencies.go).
+	"ListBlockedBy": {onIntentRepository},
 	"CommentEdited": {onIntentRepository}, "CreateIssueComment": {onIntentRepository},
 	"EditIssueComment": {onIntentRepository}, "React": {onIntentRepository},
 	"RemoveLabel": {onIntentRepository}, "CloseIssue": {onIntentRepository},

@@ -568,6 +568,7 @@ export interface IntentCard {
   column: IntentColumn;
   blockedFrom?: IntentPhase;
   blockedReasons?: string[];
+  waiting?: IntentWaiting;
   suspended?: boolean;
   summary?: string;
   repositories?: string[];
@@ -582,6 +583,12 @@ export interface IntentCard {
   requestedAt?: string;
   phaseSince?: string;
   completedAt?: string;
+}
+
+export interface IntentWaiting {
+  reason: string;
+  refs?: string[];
+  others?: number;
 }
 
 export interface IntentPR {

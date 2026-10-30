@@ -263,6 +263,7 @@ key renders and the ConfigMap is as it was.
 {{- $_ := set $data "MAUL_INTENT_VERIFY_TIMEOUT_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
 {{- end }}
 {{- $_ := set $data "MAUL_INTENT_MULTI_REPO" $own.multiRepo }}
+{{- $_ := set $data "MAUL_INTENT_DEPENDENCIES" (dig "dependencies" "enabled" true $root.Values.intentController) }}
 {{- $_ := set $data "MAUL_INTENT_MAX_CONCURRENT_RUNS" $own.maxConcurrentRuns }}
 {{- $_ := set $data "MAUL_INTENT_RATE_LIMIT_FLOOR" $own.rateLimitFloor }}
 {{- $_ := set $data "MAUL_INTENT_TTL" $own.intentTTL }}

@@ -2079,6 +2079,16 @@
                         }
                     }
                 },
+                "dependencies": {
+                    "type": "object",
+                    "description": "Intent dependencies: an intent whose issue is blocked by other issues waits in Pending until every blocker is closed as completed. On by default; off, intents start as soon as their trigger is accepted.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        }
+                    }
+                },
                 "config": {
                     "type": "object",
                     "additionalProperties": false,

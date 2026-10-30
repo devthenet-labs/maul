@@ -21,6 +21,17 @@ type Issue struct {
 	Author string
 	// HTMLURL is the issue's page on the forge, the link a human follows.
 	HTMLURL string
+	// Dependencies is GitHub's issue_dependencies_summary, nil when GitHub
+	// sent none (a GitHub without issue dependencies).
+	Dependencies *DependencySummary
+}
+
+// DependencySummary counts the issues blocking an issue, as GitHub
+// summarises them on the issue itself: BlockedBy the open ones, and
+// TotalBlockedBy every one, closed included.
+type DependencySummary struct {
+	BlockedBy      int
+	TotalBlockedBy int
 }
 
 // Actor is the account behind an issue event or a comment.

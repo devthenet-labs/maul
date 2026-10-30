@@ -206,11 +206,12 @@ func TestPushedAfterIsAStrictOrder(t *testing.T) {
 func TestSettingsWithDefaults(t *testing.T) {
 	got := Settings{PollInterval: -1, MaxAttempts: -3}.withDefaults()
 	if got.PollInterval != DefaultPollInterval || got.ApprovalPollInterval != DefaultApprovalPollInterval ||
-		got.PRPollInterval != DefaultPRPollInterval || got.MaxAttempts != DefaultMaxAttempts {
+		got.PRPollInterval != DefaultPRPollInterval || got.MaxAttempts != DefaultMaxAttempts ||
+		got.DependencyGiveUp != DefaultDependencyGiveUp {
 		t.Errorf("withDefaults of an empty Settings = %+v", got)
 	}
 	set := Settings{PollInterval: 3 * time.Second, ApprovalPollInterval: 4 * time.Second,
-		PRPollInterval: 5 * time.Second, MaxAttempts: 7, Namespace: "ns"}
+		PRPollInterval: 5 * time.Second, MaxAttempts: 7, Namespace: "ns", DependencyGiveUp: time.Minute}
 	if got := set.withDefaults(); !reflect.DeepEqual(got, set) {
 		t.Errorf("withDefaults changed set settings: %+v, want %+v", got, set)
 	}
