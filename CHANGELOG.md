@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.5](https://github.com/devthenet-labs/maul/compare/v0.13.4...v0.13.5) (2026-10-30)
+
+
+### Features
+
+* **intent:** wait for blocking issues before planning ([#288](https://github.com/devthenet-labs/maul/issues/288)) ([c09b08a](https://github.com/devthenet-labs/maul/commit/c09b08aa24b67b95ab7fbc264b77e076faab0c0a))
+* the agent evaluator checks intent work before hand-off (S0+S1) ([#290](https://github.com/devthenet-labs/maul/issues/290)) ([bb5e9ac](https://github.com/devthenet-labs/maul/commit/bb5e9ac025bb2e87e975389f74609072a942e701))
+
 ## [0.13.4](https://github.com/devthenet-labs/maul/compare/v0.13.3...v0.13.4) (2026-10-27)
 
 
