@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -92,6 +93,11 @@ type VerificationReconciler struct {
 	DeadlineMax time.Duration
 	Now         func() time.Time
 	Log         *slog.Logger
+
+	// toolStates is each running tool pod's state (toolrun.go), guarded
+	// by toolsMu: BeforeRelease runs on the preview reconciler's goroutine.
+	toolsMu    sync.Mutex
+	toolStates map[types.UID]*toolState
 }
 
 func (v *VerificationReconciler) now() time.Time {
@@ -118,6 +124,8 @@ type verifySubject struct {
 	project  *v1alpha1.Project
 	criteria []acceptance.Criterion
 	slot     int32
+	// outcomes marks an outcome verification: the slot tool pod's.
+	outcomes bool
 }
 
 // settled reports whether a phase is final: nothing writes it again.
@@ -140,7 +148,7 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 	if settled(pv.Status.Phase) {
-		return ctrl.Result{}, v.deleteTesterJobs(ctx, &pv)
+		return ctrl.Result{}, v.teardown(ctx, &pv)
 	}
 	s, reason, err := v.check(ctx, &pv)
 	switch {
@@ -150,8 +158,12 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, v.capture(ctx, &pv, s.preview, s.slot)
 	case reason != "":
 		return ctrl.Result{}, v.settle(ctx, &pv, v1alpha1.VerificationStale, reason)
+	case pv.Status.Phase == v1alpha1.VerificationRunning && s.outcomes:
+		return v.observeTools(ctx, &pv, s)
 	case pv.Status.Phase == v1alpha1.VerificationRunning:
 		return v.observe(ctx, &pv, s)
+	case s.outcomes:
+		return v.startTools(ctx, &pv, s)
 	}
 	return v.start(ctx, &pv, s)
 }
@@ -184,6 +196,13 @@ func (v *VerificationReconciler) check(ctx context.Context,
 	}
 	if reason != "" {
 		return s, reason, nil
+	}
+	if len(pv.Spec.Outcomes) > 0 {
+		if !approvedOutcomes(pv, s.intent) {
+			return s, v1alpha1.VerificationReasonStaleCriteria, nil
+		}
+		s.outcomes = true
+		return s, "", nil
 	}
 	criteria, ok := approvedSubset(pv, s.intent)
 	if !ok {
@@ -531,7 +550,7 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 		ids[i] = c.ID
 	}
 	targets := slices.Sorted(maps.Keys(spec.Targets))
-	out := parseTesterOutput(log, terminationMessage(pod), rt, ids, targets)
+	out := parseTesterOutput(log, terminationMessageOf(pod, testerContainer), rt, ids, targets)
 	facts, err := v.environment(ctx, s.preview, s.slot, pod, pv)
 	if err != nil {
 		return err
@@ -560,7 +579,7 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 		pv.Status.SummarySHA256 = sum.SHA256
 	}
 	pv.Status.Environment = facts
-	pv.Status.TesterImageID = testerImageID(pod)
+	pv.Status.TesterImageID = imageIDOf(pod, testerContainer)
 	return v.settleWith(ctx, pv, phase, reason)
 }
 
@@ -715,20 +734,20 @@ func imagePullReason(reason string) bool {
 	return false
 }
 
-// terminationMessage is the tester container's termination message.
-func terminationMessage(pod *corev1.Pod) string {
+// terminationMessageOf is container's termination message.
+func terminationMessageOf(pod *corev1.Pod, container string) string {
 	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == testerContainer && s.State.Terminated != nil {
+		if s.Name == container && s.State.Terminated != nil {
 			return s.State.Terminated.Message
 		}
 	}
 	return ""
 }
 
-// testerImageID is the image the tester ran, as the kubelet reports it.
-func testerImageID(pod *corev1.Pod) string {
+// imageIDOf is the image container ran, as the kubelet reports it.
+func imageIDOf(pod *corev1.Pod, container string) string {
 	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == testerContainer && len(s.ImageID) <= 512 {
+		if s.Name == container && len(s.ImageID) <= 512 {
 			return s.ImageID
 		}
 	}
@@ -863,12 +882,17 @@ func appFailureReason(facts []v1alpha1.PartFact, failing []string) v1alpha1.Prev
 func infraReason(facts []v1alpha1.PartFact,
 	outReason v1alpha1.PreviewVerificationReason) v1alpha1.PreviewVerificationReason {
 	for _, f := range facts {
-		if f.Role != v1alpha1.PreviewRoleTester {
+		tools := f.Role == v1alpha1.PreviewRoleToolPod
+		if f.Role != v1alpha1.PreviewRoleTester && !tools {
 			continue
 		}
 		switch {
+		case f.Unschedulable && tools:
+			return v1alpha1.VerificationReasonToolsUnscheduled
 		case f.Unschedulable:
 			return v1alpha1.VerificationReasonTesterUnscheduled
+		case imagePullReason(f.Waiting) && tools:
+			return v1alpha1.VerificationReasonToolsImagePull
 		case imagePullReason(f.Waiting):
 			return v1alpha1.VerificationReasonTesterImagePull
 		}
@@ -900,15 +924,23 @@ func infraReason(facts []v1alpha1.PartFact,
 func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
 	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
 	w := attemptWindow{start: attemptStart(tester, pv), end: attemptEnd(tester, v.now())}
+	keys, keyUnknown := v.captureKeys(pv)
 	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
 	for i, c := range p.Spec.Components {
 		all, err := v.allComponentPods(ctx, p, i, slot)
 		if err != nil {
 			return nil, err
 		}
-		facts = append(facts, v.componentFact(ctx, p, c, all, w, startedAt(pv)))
+		fact := v.componentFact(ctx, p, c, all, w, startedAt(pv), keys)
+		if keyUnknown {
+			fact.LogTail = ""
+		}
+		facts = append(facts, fact)
 	}
-	if tester != nil {
+	switch {
+	case tester != nil && len(pv.Spec.Outcomes) > 0:
+		facts = append(facts, podFact(tester, toolsPart, toolsContainer, v1alpha1.PreviewRoleToolPod))
+	case tester != nil:
 		facts = append(facts, podFact(tester, v1alpha1.PreviewPartTester, testerContainer, v1alpha1.PreviewRoleTester))
 	}
 	return facts, nil
@@ -920,13 +952,13 @@ func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Pr
 // A component not Ready with no evidence of the application's is disrupted
 // (disruption.go has why that is safe).
 func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.Preview,
-	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time) v1alpha1.PartFact {
+	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time, keys []string) v1alpha1.PartFact {
 	fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
 	live := slices.DeleteFunc(slices.Clone(all), func(pod corev1.Pod) bool { return !livePod(&pod) })
 	pod := currentPod(live, p, c)
 	if pod != nil {
 		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
-		fact.LogTail = v.logTail(ctx, pod, c.Name, since)
+		fact.LogTail = v.logTail(ctx, pod, c.Name, since, keys)
 	}
 	cause := componentCause(all, pod, p, c, w)
 	if cause == causeNone && !fact.Ready {
@@ -1001,7 +1033,7 @@ func kubeletWord(s string) string {
 // maxLogTail bytes of it kept, as valid UTF-8. Untrusted and opaque; a log
 // that cannot be read leaves none.
 func (v *VerificationReconciler) logTail(ctx context.Context, pod *corev1.Pod, container string,
-	since time.Time) string {
+	since time.Time, keys []string) string {
 	if v.Logs == nil {
 		return ""
 	}
@@ -1014,7 +1046,20 @@ func (v *VerificationReconciler) logTail(ctx context.Context, pod *corev1.Pod, c
 	if err != nil {
 		return ""
 	}
-	return lastValidUTF8(b, maxLogTail)
+	return lastValidUTF8([]byte(redact(strings.ToValidUTF8(string(b), "�"), keys)), maxLogTail)
+}
+
+// captureKeys are the secrets pv's tool pod holds, to redact from a log tail
+// kept in status, and whether a browser tool pod's CDP key is unknown to this
+// process (restarted since writing it), in which case no tail may be kept.
+func (v *VerificationReconciler) captureKeys(pv *v1alpha1.PreviewVerification) (keys []string, unknown bool) {
+	v.toolsMu.Lock()
+	st := v.toolStates[pv.UID]
+	v.toolsMu.Unlock()
+	if st == nil {
+		st = &toolState{}
+	}
+	return st.redactions(), st.keyUnknown(pv)
 }
 
 // lastValidUTF8 is the last at most n bytes of b, cut on a rune boundary,
@@ -1095,14 +1140,18 @@ func (v *VerificationReconciler) settle(ctx context.Context, pv *v1alpha1.Previe
 }
 
 // settleWith writes the attempt's final phase and reason, held to the size
-// cap, then deletes its tester Job.
+// cap, then deletes its tester Job, or its tool pod and what it owns.
 func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	phase v1alpha1.PreviewVerificationPhase, reason v1alpha1.PreviewVerificationReason) error {
 	t := metav1.NewTime(v.now())
 	pv.Status.Phase = phase
 	pv.Status.Reason = reason
 	pv.Status.CompletedAt = &t
-	fitStatus(pv)
+	if len(pv.Spec.Outcomes) > 0 {
+		fitToolStatus(pv)
+	} else {
+		fitStatus(pv)
+	}
 	if err := v.Status().Update(ctx, pv); err != nil {
 		return err
 	}
@@ -1111,7 +1160,7 @@ func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.Pr
 			slog.String("verification", pv.Name), slog.String("phase", string(pv.Status.Phase)),
 			slog.String("reason", string(pv.Status.Reason)))
 	}
-	return v.deleteTesterJobs(ctx, pv)
+	return v.teardown(ctx, pv)
 }
 
 // fitStatus holds the object to maxVerificationObject, so an application

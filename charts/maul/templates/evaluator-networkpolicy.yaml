@@ -1,0 +1,84 @@
+{{- /*
+Copyright 2026 Bitwise Media Group Ltd.
+SPDX-License-Identifier: MIT
+*/}}
+{{- if include "maul.evaluatorEnabled" . }}
+{{- if not .Values.agent.networkPolicy.create }}
+{{- fail "intentController.verification.evaluator needs agent.networkPolicy.create: the evaluator's egress is closed only by the chart's agents-namespace policies" }}
+{{- end }}
+{{- if eq (include "maul.egressMode" .) "istio" }}
+{{- fail "intentController.verification.evaluator is incompatible with agent.networkPolicy.mode istio: the mesh's agents-istio policy grants every agent pod istiod, so the evaluator's egress cannot be closed" }}
+{{- end }}
+#
+# The agent evaluator's and check reviewer's egress, rendered only while
+# intentController.verification.evaluator is on, in every network mode
+# (none, cilium, gke; istio is refused above). Plain networking.k8s.io/v1, so
+# every one of those modes enforces it.
+#
+# Every other agents-namespace egress policy (agents-egress, the Cilium and
+# GKE per-harness policies, the network-profile policies) leaves out the
+# roles evaluator, checkreview and tools (maul.agentRoleExclusion), so a
+# role pod is selected only by the namespace default-deny and by its own
+# policy below. Neither role gets DNS (the job controllers pin the broker,
+# and the evaluator's tool pod, in the pod's hosts file), the artifact
+# server, a model API or a network profile:
+#
+#   evaluator    the egress broker on 8080, and 8090 on pods labelled
+#                maul.run/preview-role tools in a preview slot namespace.
+#                A NetworkPolicy cannot say "the tool pod of this same
+#                verification", so the binding control is the per-
+#                verification ingress policy preview-controller renders on
+#                the tool pod, admitting exactly one evaluator's UID.
+#   checkreview  the egress broker on 8080, nothing else.
+#   tools        nothing: no agents-namespace tool pod exists yet.
+#
+# The labels these select on are fenced by maul-evaluator-labels
+# (evaluator-labels-policy.yaml).
+{{- range $role := list "evaluator" "checkreview" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: {{ include "maul.fullname" $ }}-agents-{{ $role }}
+    namespace: {{ $.Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" $ "name" "maul-agents") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    podSelector:
+        matchLabels:
+            {{- include "maul.agentPodSelector" $ | nindent 12 }}
+            maul.run/role: {{ $role }}
+    policyTypes: [Egress]
+    egress:
+        {{- if include "maul.brokerEnabled" $ }}
+        # The egress credential broker: all of the agent's model traffic.
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: {{ $.Release.Namespace }}
+                podSelector:
+                    matchLabels:
+                        app.kubernetes.io/name: egress-broker
+          ports:
+              - protocol: TCP
+                port: 8080
+        {{- end }}
+        {{- if eq $role "evaluator" }}
+        # The tool APIs of a slot tool pod.
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        app.kubernetes.io/part-of: maul-preview
+                podSelector:
+                    matchLabels:
+                        maul.run/preview-role: tools
+          ports:
+              - protocol: TCP
+                port: 8090
+        {{- end }}
+{{- end }}
+{{- end }}

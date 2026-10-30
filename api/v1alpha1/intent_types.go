@@ -696,6 +696,14 @@ type IntentCommentRef struct {
 // criteria once per approved plan revision, from the plan bytes it re-reads
 // under the approved digest; no run writes Intent status, so nothing a fix
 // round does can change what was approved.
+//
+// Under the evaluator the approved plan declares outcomes instead of
+// criteria (never both): Outcomes with their OutcomesDigest, the check store
+// the evaluator's confirmed and reviewed checks are saved in, and the check
+// reviewer's cached answers. Digest is then the digest of the plan's empty
+// criteria list, as for a plan that declared none.
+// +kubebuilder:validation:XValidation:rule="!has(self.criteria) || !has(self.outcomes)",message="an approved plan declares criteria or outcomes, never both"
+// +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.outcomesDigest)",message="outcomes and outcomesDigest are set together"
 type IntentAcceptance struct {
 	// PlanRevision is the approved plan revision the criteria are from.
 	// +kubebuilder:validation:Minimum=1
@@ -712,6 +720,29 @@ type IntentAcceptance struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=atomic
 	Criteria []AcceptanceCriterion `json:"criteria,omitempty"`
+	// Outcomes are the approved outcomes in plan order (the evaluator).
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=map
+	// +listMapKey=id
+	Outcomes []AcceptanceOutcome `json:"outcomes,omitempty"`
+	// OutcomesDigest is the digest of the full outcome list, manual
+	// outcomes included: what every outcome PreviewVerification's
+	// outcomesDigest must equal.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	OutcomesDigest string `json:"outcomesDigest,omitempty"`
+	// Checks names the check store of the approved plan revision; unset
+	// until a first check is saved.
+	// +optional
+	Checks *CheckStoreRef `json:"checks,omitempty"`
+	// Reviews cache the check reviewer's answers, so a check is reviewed
+	// once per outcome statement.
+	// +optional
+	// +kubebuilder:validation:MaxItems=80
+	// +listType=atomic
+	Reviews []CheckReviewRecord `json:"reviews,omitempty"`
 	// Accepted are the approvers' /maul accept records, oldest first.
 	// +optional
 	// +kubebuilder:validation:MaxItems=32
@@ -748,11 +779,20 @@ type AcceptanceRecord struct {
 	// +listType=atomic
 	// +kubebuilder:validation:items:Pattern=`^[0-9a-f]{7,40}$`
 	Heads []string `json:"heads,omitempty"`
+	// Note is the text the approver wrote after the command, if any. It
+	// is untrusted and shown only through untrusted.Visible.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Note string `json:"note,omitempty"`
 }
+
+// MaxAcceptanceNoteBytes bounds AcceptanceRecord.Note. The schema marker
+// repeats it as a literal; keep them in lockstep.
+const MaxAcceptanceNoteBytes = 1024
 
 // IntentVerificationState is where an intent's acceptance verification
 // stands. It is a sub-state of review: no Intent phase depends on it.
-// +kubebuilder:validation:Enum=NotDeclared;Off;WaitingForCI;WaitingForPreview;Verifying;Passed;Failing;Fixing;Exhausted;NeedsReplan;Unavailable
+// +kubebuilder:validation:Enum=NotDeclared;Off;WaitingForCI;WaitingForPreview;Verifying;Passed;Failing;Fixing;Exhausted;NeedsReplan;Unavailable;Evaluating;Unconfirmed
 type IntentVerificationState string
 
 // Verification states.
@@ -785,7 +825,130 @@ const (
 	// VerificationUnavailable: maul's own machinery failed every attempt,
 	// or the Preview was not live within the bound (UnavailableReason).
 	VerificationUnavailable IntentVerificationState = "Unavailable"
+	// VerificationEvaluating: the evaluator judges the outcomes (its tool
+	// pod or its evaluate run, a confirmation or a check review is in
+	// flight).
+	VerificationEvaluating IntentVerificationState = "Evaluating"
+	// VerificationUnconfirmed: the evaluation settled without confirming
+	// every outcome (unsure, disputed, an anomaly, or out of rounds, budget
+	// or time): the hand-off is released as "maul couldn't confirm this",
+	// never a block.
+	VerificationUnconfirmed IntentVerificationState = "Unconfirmed"
 )
+
+// OutcomeResultValue is the decided result of one approved outcome
+// (acceptance.Decide): passed only on a confirmed, reviewed, deterministic
+// check the evaluator agrees with; failed only on a failing confirmed check
+// the evaluator also fails; accepted by an approver's /maul accept.
+// +kubebuilder:validation:Enum=passed;failed;unsure;quarantined;accepted
+type OutcomeResultValue string
+
+// Outcome results.
+const (
+	OutcomePassed      OutcomeResultValue = "passed"
+	OutcomeFailed      OutcomeResultValue = "failed"
+	OutcomeUnsure      OutcomeResultValue = "unsure"
+	OutcomeQuarantined OutcomeResultValue = "quarantined"
+	OutcomeAccepted    OutcomeResultValue = "accepted"
+)
+
+// OutcomeResult is the decided result of one approved outcome.
+type OutcomeResult struct {
+	// ID of the outcome.
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
+	ID string `json:"id"`
+	// Result decided.
+	Result OutcomeResultValue `json:"result"`
+	// Basis is the digest of the saved check the result rests on; unset
+	// when none does.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	Basis string `json:"basis,omitempty"`
+	// Reason says why the result is not passed. It may quote the
+	// evaluator, so it is untrusted and shown only through the templates'
+	// sanitising.
+	// +optional
+	// +kubebuilder:validation:MaxLength=600
+	Reason string `json:"reason,omitempty"`
+	// Line is the maul-rendered one-line description of the basis check
+	// (its steps and assertions in maul's words).
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:Pattern=`^[^\r\n]*$`
+	Line string `json:"line,omitempty"`
+}
+
+// AnomalyRecord is one look-around anomaly the evaluator reported, with the
+// ledger entries that show it: it downgrades the hand-off, never starts a
+// fix. Summary and route are the evaluator's, untrusted.
+type AnomalyRecord struct {
+	// Summary of the anomaly.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=600
+	Summary string `json:"summary"`
+	// Route it was seen on.
+	// +optional
+	// +kubebuilder:validation:MaxLength=300
+	Route string `json:"route,omitempty"`
+	// Ledger are the entries cited, by seq.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=atomic
+	// +kubebuilder:validation:items:Minimum=1
+	// +kubebuilder:validation:items:Maximum=512
+	Ledger []int32 `json:"ledger,omitempty"`
+}
+
+// HandoffMode is when the preview link is handed to humans: gated (held
+// until the evaluation passes or gives up, bounded by handoffMax) or early
+// (at once, labelled unverified: slice 1's behaviour).
+// +kubebuilder:validation:Enum=gated;early
+type HandoffMode string
+
+// Hand-off modes.
+const (
+	HandoffGated HandoffMode = "gated"
+	HandoffEarly HandoffMode = "early"
+)
+
+// HandoffReason says why the hand-off was released.
+// +kubebuilder:validation:Enum=ready;unconfirmed;out-of-time;human;command;early;evaluator-unverified
+type HandoffReason string
+
+// Hand-off reasons.
+const (
+	// HandoffReasonReady: every outcome passed with no anomaly.
+	HandoffReasonReady HandoffReason = "ready"
+	// HandoffReasonUnconfirmed: the evaluation settled without confirming.
+	HandoffReasonUnconfirmed HandoffReason = "unconfirmed"
+	// HandoffReasonOutOfTime: handoffMax ran out.
+	HandoffReasonOutOfTime HandoffReason = "out-of-time"
+	// HandoffReasonHuman: a human comment or push released it at once.
+	HandoffReasonHuman HandoffReason = "human"
+	// HandoffReasonCommand: an approver's /maul preview.
+	HandoffReasonCommand HandoffReason = "command"
+	// HandoffReasonEarly: the mode is early.
+	HandoffReasonEarly HandoffReason = "early"
+	// HandoffReasonEvaluatorUnverified: the Project's harness has no
+	// verified evaluator (EvaluatorUnverified), so nothing is held.
+	HandoffReasonEvaluatorUnverified HandoffReason = "evaluator-unverified"
+)
+
+// HandoffState is the hand-off of an intent's preview to humans.
+// +kubebuilder:validation:XValidation:rule="!has(self.released) || !self.released || (has(self.releasedAt) && has(self.reason))",message="a released hand-off records when and why"
+type HandoffState struct {
+	// Mode in force for the intent.
+	Mode HandoffMode `json:"mode"`
+	// Released reports that the preview link has been handed over.
+	// +optional
+	Released bool `json:"released,omitempty"`
+	// ReleasedAt is when.
+	// +optional
+	ReleasedAt *metav1.Time `json:"releasedAt,omitempty"`
+	// Reason is why.
+	// +optional
+	Reason HandoffReason `json:"reason,omitempty"`
+}
 
 // VerificationUnavailableReason says why a verification is Unavailable.
 // +kubebuilder:validation:Enum=PreviewNotLive
@@ -1028,46 +1191,49 @@ type IntentVerification struct {
 	// +listType=map
 	// +listMapKey=component
 	Heads []VerificationHead `json:"heads,omitempty"`
+	// The counters and lists below count criteria, or outcomes under the
+	// evaluator: their bounds are the larger list's (20 outcomes).
+	//
 	// Passed counts the automatable criteria that passed.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=16
+	// +kubebuilder:validation:Maximum=20
 	Passed int32 `json:"passed,omitempty"`
 	// Failed counts the automatable criteria that failed.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=16
+	// +kubebuilder:validation:Maximum=20
 	Failed int32 `json:"failed,omitempty"`
 	// Quarantined counts the criteria that passed only on retry.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=16
+	// +kubebuilder:validation:Maximum=20
 	Quarantined int32 `json:"quarantined,omitempty"`
 	// ManualOpen counts the manual criteria not accepted at the current
 	// heads.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=16
+	// +kubebuilder:validation:Maximum=20
 	ManualOpen int32 `json:"manualOpen,omitempty"`
 	// ManualAccepted counts the manual criteria accepted at the current
 	// heads.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=16
+	// +kubebuilder:validation:Maximum=20
 	ManualAccepted int32 `json:"manualAccepted,omitempty"`
 	// NotRun counts the criteria this slice cannot run yet.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=16
+	// +kubebuilder:validation:Maximum=20
 	NotRun int32 `json:"notRun,omitempty"`
 	// Failing are the criteria that did not pass, in plan order.
 	// +optional
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=20
 	// +listType=atomic
 	Failing []CriterionState `json:"failing,omitempty"`
 	// QuarantinedIDs are the criteria that passed only on retry.
 	// +optional
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=20
 	// +listType=set
 	// +kubebuilder:validation:items:Pattern=`^[a-z][a-z0-9-]{0,31}$`
 	QuarantinedIDs []string `json:"quarantinedIDs,omitempty"`
@@ -1119,6 +1285,38 @@ type IntentVerification struct {
 	// every attempt. Read only with state Unavailable.
 	// +optional
 	UnavailableReason VerificationUnavailableReason `json:"unavailableReason,omitempty"`
+	// Outcomes are the decided results of the approved outcomes, in plan
+	// order (the evaluator).
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=atomic
+	Outcomes []OutcomeResult `json:"outcomes,omitempty"`
+	// Anomalies are the latest round's look-around anomalies.
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	// +listType=atomic
+	Anomalies []AnomalyRecord `json:"anomalies,omitempty"`
+	// Handoff is the hand-off of the preview link to humans.
+	// +optional
+	Handoff *HandoffState `json:"handoff,omitempty"`
+	// FirstGreenAt is when CI first went green at the first PR heads: the
+	// start of the handoffMax clock.
+	// +optional
+	FirstGreenAt *metav1.Time `json:"firstGreenAt,omitempty"`
+	// EvaluationCostMicroUSD is what the intent's evaluate and checkreview
+	// runs have spent, against the Project's maxEvaluateCostMicroUSD.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1000000000000
+	EvaluationCostMicroUSD int64 `json:"evaluationCostMicroUSD,omitempty"`
+	// Disputed are the digests of the saved checks the evaluator disputed,
+	// awaiting a replay round once their replacements are confirmed and
+	// reviewed.
+	// +optional
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^sha256:[0-9a-f]{64}$`
+	Disputed []string `json:"disputed,omitempty"`
 }
 
 // IntentStatus is the intent's observed state. Written only by

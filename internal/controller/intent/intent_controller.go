@@ -205,6 +205,11 @@ type pass struct {
 	// once: verifyPVRead reports the read was made.
 	verifyPV     *v1alpha1.PreviewVerification
 	verifyPVRead bool
+	// ledgerLines are verifyPV's full ledger lines (its <pv>-ledger
+	// ConfigMap), read at most once a pass for the evaluator's app output;
+	// ledgerRead reports the read was made.
+	ledgerLines []string
+	ledgerRead  bool
 	// prListed are the pull requests' comments this pass listed, by pull
 	// request (prComments): every step reading them shares one listing.
 	prListed map[string]prListing
@@ -512,11 +517,17 @@ func (p *pass) syncUsage(ctx context.Context) (bool, error) {
 		u.CacheReadTokens = addUsage(u.CacheReadTokens, s.CacheReadTokens)
 		u.CacheCreationTokens = addUsage(u.CacheCreationTokens, s.CacheCreationTokens)
 	}
-	if u == p.in.Status.Usage {
+	// The evaluations' share, which only the evaluation ceiling counts, is
+	// recorded beside the verification it was spent on.
+	v, evaluated := p.in.Status.Verification, p.evaluationSpend()
+	if u == p.in.Status.Usage && (v == nil || v.EvaluationCostMicroUSD == evaluated) {
 		return false, nil
 	}
 	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
 		cur.Status.Usage = u
+		if cur.Status.Verification != nil {
+			cur.Status.Verification.EvaluationCostMicroUSD = evaluated
+		}
 		return nil
 	})
 	switch {

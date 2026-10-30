@@ -32,6 +32,11 @@ const (
 	// the two job controllers sharing one namespace never touch each other's
 	// Jobs.
 	LabelRunKind = "maul.run/kind"
+	// LabelRole names an intent agent Job's role in the agents namespace
+	// (RoleEvaluator, RoleCheckReview), the selector each role's own egress
+	// policy matches and every other agent policy excludes. Only
+	// intent-controller may set it (the maul-evaluator-labels policy).
+	LabelRole = "maul.run/role"
 	// LabelHarness names the agent harness a Job's pod runs ("claude"/"codex"),
 	// the selector the per-harness egress network policies match on so each
 	// runner reaches only its own model API.
@@ -43,6 +48,13 @@ const (
 	// LabelEvaluation names the owning Evaluation on EvaluationUnit children
 	// and evaluation agent Jobs.
 	LabelEvaluation = "maul.run/evaluation"
+	// LabelPreviewVerification carries the PreviewVerification's UID on an
+	// evaluator Job (LabelRole RoleEvaluator) and on its slot tool pod
+	// (preview role PreviewRoleTools): the value the tool pod's
+	// per-verification ingress policy admits. It is deliberately not
+	// LabelEvaluation, which evaluation-controller's Jobs already carry and
+	// which the maul-evaluator-labels policy must therefore never fence.
+	LabelPreviewVerification = "maul.run/preview-verification"
 	// LabelUnitIndex carries the unit's 0-based index within its Evaluation.
 	LabelUnitIndex = "maul.run/unit-index"
 	// LabelIntent names the owning Intent on IntentRuns and on the
@@ -57,6 +69,19 @@ const (
 	// Remediation children (label values cannot hold it), so the rollup can
 	// attribute spend to the repository even after the Finding is gone.
 	AnnotationRepo = "maul.run/repo"
+)
+
+// Role label values. RoleEvaluator and RoleCheckReview are LabelRole values
+// on agents-namespace Jobs; PreviewRoleTools is the maul.run/preview-role
+// value of a slot's tool pod, beside the PreviewPartRole values the slot
+// already uses (tester, command, seed).
+const (
+	// RoleEvaluator marks an evaluate-stage IntentRun's Job and pod.
+	RoleEvaluator = "evaluator"
+	// RoleCheckReview marks a checkreview-stage IntentRun's Job and pod.
+	RoleCheckReview = "checkreview"
+	// PreviewRoleTools marks the slot tool pod an evaluator drives.
+	PreviewRoleTools = "tools"
 )
 
 // Finalizers. The rollup finalizers guarantee no object is deleted before its

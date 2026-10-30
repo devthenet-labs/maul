@@ -28,9 +28,12 @@ func TestAvailable(t *testing.T) {
 	}{
 		{command.FindingIssue, action.ActionVerbs},
 		{command.IntentIssue, []string{
-			action.VerbApprove, action.VerbReplan, action.VerbStart, action.VerbVerify, action.VerbAccept, action.VerbCancel,
+			action.VerbApprove, action.VerbReplan, action.VerbStart, action.VerbVerify, action.VerbAccept,
+			action.VerbPreview, action.VerbCancel,
 		}},
-		{command.IntentPR, []string{action.VerbRevise, action.VerbRetry, action.VerbVerify, action.VerbAccept}},
+		{command.IntentPR, []string{
+			action.VerbRevise, action.VerbRetry, action.VerbVerify, action.VerbAccept, action.VerbPreview,
+		}},
 		{"pull-request", nil},
 		{"", nil},
 	}
@@ -81,8 +84,11 @@ const (
 	verifyLine = "- `/maul verify [fix|stop|--reset]`: check the change against the plan's acceptance criteria " +
 		"now; `fix` also lets maul fix failures again, `stop` only stops maul fixing failures on its own, " +
 		"`--reset` first restarts the preview with fresh data"
-	acceptLine = "- `/maul accept <id>`: accept a manual criterion, or one that passed only on retry, " +
-		"at the current commits"
+	acceptLine = "- `/maul accept <id>|all`: accept, at the current commits, a manual outcome or criterion, one " +
+		"maul could not confirm or found failing, or one that passed only on retry; `all` accepts every one of " +
+		"them, and a note may follow on the lines below"
+	previewLine = "- `/maul preview`: show the preview link now, before maul has finished checking the change; " +
+		"nothing else changes"
 )
 
 func TestHelp(t *testing.T) {
@@ -101,12 +107,12 @@ func TestHelp(t *testing.T) {
 			"- `/maul approve`: approve the posted plan and start the build\n" +
 			"- `/maul replan [note]`: plan again, taking the note and approvers' comments since the last plan into account\n" +
 			"- `/maul start`: start this intent now, without waiting for the issues it is blocked by\n" +
-			verifyLine + "\n" + acceptLine + "\n" +
+			verifyLine + "\n" + acceptLine + "\n" + previewLine + "\n" +
 			"- `/maul cancel`: stop work on this intent and close it; open pull requests are left to you"},
 		{command.IntentPR, intro +
 			"- `/maul revise [note]`: start a revision round from your review feedback and the note\n" +
 			"- `/maul retry`: retry the round that failed\n" +
-			verifyLine + "\n" + acceptLine},
+			verifyLine + "\n" + acceptLine + "\n" + previewLine},
 		{"pull-request", ""},
 	}
 	for _, tc := range cases {
@@ -172,8 +178,8 @@ func helpLines(help string) (verbs, lines []string) {
 func TestHelpListsExactlyAvailable(t *testing.T) {
 	candidates := []string{
 		action.VerbApprove, action.VerbRetry, action.VerbExpedite, action.VerbSuspend, action.VerbResume,
-		action.VerbReplan, action.VerbCancel, action.VerbRevise, action.VerbVerify, action.VerbAccept, action.VerbStart,
-		"bogus",
+		action.VerbReplan, action.VerbCancel, action.VerbRevise, action.VerbVerify, action.VerbAccept,
+		action.VerbPreview, action.VerbStart, "bogus",
 	}
 	for _, s := range []command.Surface{command.FindingIssue, command.IntentIssue, command.IntentPR} {
 		offered := command.Available(s)

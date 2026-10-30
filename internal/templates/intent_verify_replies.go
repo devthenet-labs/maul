@@ -45,6 +45,14 @@ const (
 	VerifyCapReached VerifyOutcome = "cap-reached"
 	// VerifyStopped: /maul verify stop halted automatic fixes.
 	VerifyStopped VerifyOutcome = "stopped"
+	// VerifyPreviewReleased: /maul preview released the held preview link.
+	VerifyPreviewReleased VerifyOutcome = "preview-released"
+	// VerifyPreviewNotHeld: nothing holds the preview link (a plan with
+	// criteria, or an early hand-off), so /maul preview has nothing to
+	// release.
+	VerifyPreviewNotHeld VerifyOutcome = "preview-not-held"
+	// VerifyPreviewAlready: the preview link was released before.
+	VerifyPreviewAlready VerifyOutcome = "preview-already"
 )
 
 // VerifyCommandNotice answers a /maul verify or /maul accept on the intent
@@ -58,7 +66,7 @@ type VerifyCommandNotice struct {
 	Surface command.Surface
 	// Actor is the login that made the command.
 	Actor string
-	// Verb is action.VerbVerify or action.VerbAccept.
+	// Verb is action.VerbVerify, action.VerbAccept or action.VerbPreview.
 	Verb string
 	// Outcome is what maul made of it.
 	Outcome VerifyOutcome
@@ -76,7 +84,13 @@ type VerifyCommandNotice struct {
 	Heads []string
 	// NoCriteria: the accepted plan declares no criteria (/maul accept all).
 	NoCriteria bool
-	// Acceptable are the criteria an approver can accept now.
+	// Outcomes: the approved plan declares outcomes (the evaluator's), so
+	// an accept names outcomes, not criteria.
+	Outcomes bool
+	// Accepted are the outcomes an accept closed, in plan order: the one
+	// it named, or every one /maul accept all closed.
+	Accepted []string
+	// Acceptable are the criteria or outcomes an approver can accept now.
 	Acceptable []string
 	// ResetWait is how long resets are spaced, for VerifyResetTooSoon.
 	ResetWait string
@@ -116,7 +130,18 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		cmd = slashCommand(n.Verb + " " + n.Criterion)
 	}
 	actor := code(oneLine(n.Actor))
+	if text, ok := outcomeAcceptText(n, cmd, actor); ok {
+		return text, "", nil
+	}
 	switch n.Outcome {
+	case VerifyPreviewReleased:
+		return fmt.Sprintf("%s from %s is recorded: the preview link is shown now, before maul has finished "+
+			"checking the change. maul goes on checking it, and its results follow.", cmd, actor), "", nil
+	case VerifyPreviewNotHeld:
+		return cmd + " does nothing: the preview link is not held for this intent, so it is shown as soon as the " +
+			"preview runs the current commits.", "", nil
+	case VerifyPreviewAlready:
+		return cmd + " does nothing: the preview link was released already.", "", nil
 	case VerifyRequested:
 		return requestedText(n, actor), "", nil
 	case VerifyResetTooSoon:
@@ -132,10 +157,11 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return fmt.Sprintf("%s from %s is done: the criterion is accepted at %s. If the commits change, it is shown "+
 			"as accepted earlier and not re-checked.", cmd, actor, joinCode(n.Heads)), "", nil
 	case VerifyAcceptUnknown:
-		return cmd + " names no criterion of the approved plan." + acceptable(n.Acceptable), "", nil
+		return cmd + " names no criterion of the approved plan." + acceptable("criterion", n.Acceptable), "", nil
 	case VerifyAcceptAutomatic:
 		return cmd + " does nothing: that criterion is checked automatically, and only a manual one, one maul does " +
-			"not run yet or one that passed only on retry is accepted by hand." + acceptable(n.Acceptable), "", nil
+			"not run yet or one that passed only on retry is accepted by hand." +
+			acceptable("criterion", n.Acceptable), "", nil
 	case VerifyAcceptNotYet:
 		return cmd + " must wait: maul has not yet recorded the commits it verifies, and an acceptance holds only " +
 			"at those. Try again once verification has started.", "", nil
@@ -151,8 +177,8 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return cmd + " was not understood.", command.HelpFor(surface, []string{n.Verb}), nil
 	case VerifyCapReached:
 		return fmt.Sprintf("%s does nothing: this approved plan has used all %d verifications its Project allows, "+
-			"so no verification can run. Raise the Project's `spec.limits.maxVerifications` to allow more, or %s "+
-			"for a new plan, whose count starts afresh.", cmd, n.MaxVerifications, slashCommand("replan")), "", nil
+			"so no verification can run. Raise the Project's `spec.limits.maxVerifications` to allow more.", cmd,
+			n.MaxVerifications), "", nil
 	}
 	return "", "", fmt.Errorf("render verify notice: no text for outcome %q", n.Outcome)
 }
@@ -202,10 +228,40 @@ func stoppedText(n VerifyCommandNotice, actor string) string {
 	return b.String()
 }
 
-// acceptable is the sentence naming the criteria an approver can accept now.
-func acceptable(ids []string) string {
+// outcomeAcceptText is the reply to a /maul accept on a plan that declares
+// outcomes, for the replies whose words differ from a criterion's; ok is
+// false for any other notice.
+func outcomeAcceptText(n VerifyCommandNotice, cmd, actor string) (string, bool) {
+	if !n.Outcomes || n.Verb != action.VerbAccept {
+		return "", false
+	}
+	const byHand = "only a manual outcome, or one maul could not confirm or found failing, is accepted by hand."
+	switch n.Outcome {
+	case VerifyAccepted:
+		if n.Criterion == command.AcceptAll {
+			return fmt.Sprintf("%s from %s is done: the outcomes %s are accepted at %s. If the commits change, they "+
+				"are shown as accepted earlier and not re-checked.", cmd, actor, joinCode(n.Accepted),
+				joinCode(n.Heads)), true
+		}
+		return fmt.Sprintf("%s from %s is done: the outcome is accepted at %s. If the commits change, it is shown "+
+			"as accepted earlier and not re-checked.", cmd, actor, joinCode(n.Heads)), true
+	case VerifyAcceptUnknown:
+		return cmd + " names no outcome of the approved plan." + acceptable("outcome", n.Acceptable), true
+	case VerifyAcceptAutomatic:
+		if n.Criterion == command.AcceptAll {
+			return cmd + " does nothing: " + byHand + acceptable("outcome", n.Acceptable), true
+		}
+		return cmd + " does nothing: that outcome passed, or maul has not decided it yet, and " + byHand +
+			acceptable("outcome", n.Acceptable), true
+	}
+	return "", false
+}
+
+// acceptable is the sentence naming the criteria or outcomes (noun) an
+// approver can accept now.
+func acceptable(noun string, ids []string) string {
 	if len(ids) == 0 {
-		return " No criterion can be accepted now."
+		return " No " + noun + " can be accepted now."
 	}
 	return " You can accept: " + joinCode(ids) + "."
 }

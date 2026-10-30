@@ -119,7 +119,7 @@ Then follow `NEXT-STEPS.md`. Every recipe has the same eight steps:
 8. **Check:** `maul check previews -n <release namespace>`. Every line should pass before the first intent's preview is
    opened ([what each check reads](../cli.md#checking-the-preview-install)). Then prove slot isolation once with
    `--isolation`, which creates four short-lived probe Pods and deletes them
-   ([how](../cli.md#proving-slot-isolation---isolation)).
+   ([how](../cli.md#proving-slot-isolation-isolation)).
 
 It ends with a rollback section for the recipe, all by deletion in reverse order.
 

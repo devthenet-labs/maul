@@ -63,10 +63,23 @@ func (l *jobLauncher) Create(ctx context.Context, spec jobs.Spec, env map[string
 // agent-runner requires. A build run reads the remediate stage's keys: its
 // wall clock, its idle limit, and its manual ceiling (the automated budget,
 // which applies only to a Job with no grant, no higher); every intent run is
-// granted.
-func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGrant) map[string]string {
+// granted. An evaluate or checkreview run (a role run) reads the investigate
+// stage's keys, as agent-runner runs both role stages on the investigate
+// stage's configuration: its wall clock, idle limit and ceilings, and
+// nothing of a build's. An unknown stage has none at all (errUnknownStage).
+func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGrant) (map[string]string, error) {
 	n := func(v int64) string { return strconv.FormatInt(v, 10) }
-	if stage == v1alpha1.IntentStagePlan {
+	var ceiling StageCeiling
+	switch stage {
+	case v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
+		role := s.ceiling(stage)
+		return map[string]string{
+			"MAUL_INVESTIGATE_TIMEOUT":      role.Timeout.String(),
+			"MAUL_INVESTIGATE_IDLE_TIMEOUT": role.IdleTimeout.String(),
+			"MAUL_INVESTIGATE_MAX_TURNS":    n(int64(role.MaxTurns)),
+			"MAUL_INVESTIGATE_TOKEN_BUDGET": n(role.TokenBudget),
+		}, nil
+	case v1alpha1.IntentStagePlan:
 		return map[string]string{
 			"MAUL_INVESTIGATE_TIMEOUT":           s.Plan.Timeout.String(),
 			"MAUL_INVESTIGATE_IDLE_TIMEOUT":      s.Plan.IdleTimeout.String(),
@@ -76,11 +89,13 @@ func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGr
 			"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": n(build.TokenBudget),
 			"MAUL_REMEDIATE_AUTO_MAX_TURNS":      n(int64(build.MaxTurns)),
 			"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   n(build.TokenBudget),
-		}
-	}
-	ceiling := s.Build
-	if stage == v1alpha1.IntentStageRevise {
+		}, nil
+	case v1alpha1.IntentStageBuild:
+		ceiling = s.Build
+	case v1alpha1.IntentStageRevise:
 		ceiling = s.Revise
+	default:
+		return nil, launchEnabled(stage)
 	}
 	return map[string]string{
 		"MAUL_REMEDIATE_TIMEOUT":             ceiling.Timeout.String(),
@@ -89,15 +104,19 @@ func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGr
 		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": n(ceiling.TokenBudget),
 		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      n(int64(ceiling.MaxTurns)),
 		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   n(ceiling.TokenBudget),
-	}
+	}, nil
 }
 
 // stageTimeoutKey is the MAUL_* key carrying stage's wall clock to
-// agent-runner: a plan reads the investigate stage's, every other stage the
-// remediate stage's.
-func stageTimeoutKey(stage v1alpha1.IntentStage) string {
-	if stage == v1alpha1.IntentStagePlan {
-		return "MAUL_INVESTIGATE_TIMEOUT"
+// agent-runner: a plan, evaluate or checkreview run reads the investigate
+// stage's, a build or revise run the remediate stage's; an unknown stage
+// none at all (errUnknownStage).
+func stageTimeoutKey(stage v1alpha1.IntentStage) (string, error) {
+	switch stage {
+	case v1alpha1.IntentStagePlan, v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
+		return "MAUL_INVESTIGATE_TIMEOUT", nil
+	case v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise:
+		return "MAUL_REMEDIATE_TIMEOUT", nil
 	}
-	return "MAUL_REMEDIATE_TIMEOUT"
+	return "", launchEnabled(stage)
 }

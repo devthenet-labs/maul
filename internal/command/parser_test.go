@@ -91,6 +91,8 @@ func TestParseAccept(t *testing.T) {
 	}{
 		{"an id", "/maul accept sounds-good", "sounds-good", true},
 		{"an id and a note below", "/maul accept login\nchecked on my phone", "login", true},
+		{"all", "/maul accept all", "all", true},
+		{"all and a note below", "/maul accept all\nmaul could not reach the page; I checked by hand", "all", true},
 		{"the longest id", "/maul accept a" + strings.Repeat("b", 31), "a" + strings.Repeat("b", 31), true},
 		{"too long", "/maul accept a" + strings.Repeat("b", 32), "", false},
 		{"no id", "/maul accept", "", false},
@@ -108,6 +110,34 @@ func TestParseAccept(t *testing.T) {
 			got, ok := command.ParseAccept(tc.body)
 			if ok != tc.wantOK || got != tc.want {
 				t.Errorf("ParseAccept(%q) = %q, %v; want %q, %v", tc.body, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+// TestParsePreview pins /maul preview's grammar: no argument, a note below
+// allowed; anything else asks for the help.
+func TestParsePreview(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"plain", "/maul preview", true},
+		{"any case", "/MAUL Preview", true},
+		{"a note below", "/maul preview\nI want to look now", true},
+		{"after blank lines", "\n\n  /maul preview", true},
+		{"an argument", "/maul preview now", false},
+		{"a modifier of verify", "/maul preview --reset", false},
+		{"another verb", "/maul verify", false},
+		{"no command", "preview", false},
+		{"hidden in code", "    /maul preview", false},
+		{"quoted", "> /maul preview", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := command.ParsePreview(tc.body); got != tc.want {
+				t.Errorf("ParsePreview(%q) = %v, want %v", tc.body, got, tc.want)
 			}
 		})
 	}

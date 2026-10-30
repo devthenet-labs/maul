@@ -87,6 +87,7 @@ func testVerificationSchema(ctx context.Context, t *testing.T, c client.Client) 
 	testPreviewEnvironmentSchema(ctx, t, c)
 	testVerifyTriggerSchema(ctx, t, c)
 	testPreviewVerificationSchema(ctx, t, c)
+	testEvaluatorSchema(ctx, t, c)
 }
 
 // testProjectVerificationSchema: the verification settings are optional and
@@ -164,6 +165,15 @@ func testProjectVerificationSchema(ctx context.Context, t *testing.T, c client.C
 		}, true},
 		{"a repository keyed tester without verification", func(s *maulv1.ProjectSpec) {
 			s.Repositories[0].Name = "tester"
+			s.Verification = &maulv1.ProjectVerification{}
+		}, false},
+		// So is the evaluator's tool pod's (the slot's tools part).
+		{"a repository keyed tools under verification", func(s *maulv1.ProjectSpec) {
+			s.Repositories[0].Name = "tools"
+			s.Verification = &maulv1.ProjectVerification{Enabled: true}
+		}, true},
+		{"a repository keyed tools without verification", func(s *maulv1.ProjectSpec) {
+			s.Repositories[0].Name = "tools"
 			s.Verification = &maulv1.ProjectVerification{}
 		}, false},
 	} {

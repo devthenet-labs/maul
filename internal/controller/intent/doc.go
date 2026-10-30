@@ -154,6 +154,35 @@
 // RunReconciler only reads (uncached) and answers by settling that run
 // unlaunched, keeping IntentRun status its own.
 //
+// With --intent-evaluator too, a Project the evaluator verifies has its
+// approved outcomes evaluated instead (evaluate_round.go), on the same
+// writers: the IntentReconciler creates the outcome PreviewVerification and,
+// only once preview-controller's status names the slot tool pod's address,
+// the evaluate IntentRun pinning it (createRoleRun, the lease, under the
+// evaluation ceiling, which only evaluate and checkreview spend counts
+// against); the RunReconciler launches it only while that verification is
+// still the Intent's at its heads (evaluationCurrent, read uncached) and
+// keeps its report, the evaluator's claims, on run status; the
+// IntentReconciler collects the round from the run's status and the
+// verification's (the facts) and judges it. Before judging, the
+// IntentReconciler creates one checkreview IntentRun per round for the
+// confirmed checks with no cached review (checkreview_round.go), which the
+// RunReconciler launches only while that round is still the Intent's in
+// flight (checkReviewCurrent), caches its answers in
+// status.acceptance.reviews, and stores the proven checks in the check
+// store (checkstore.go): an immutable Intent-owned ConfigMap, replaced
+// under the next number and never updated, status.acceptance.checks naming
+// it. No role run (evaluate, checkreview) owns a Repository or reads a
+// tree, and none pushes. The IntentReconciler then judges the round
+// (evaluate_judge.go, acceptance.Decide), first retiring a disputed check a
+// proven replacement replaces (a new store), and routes it through the kept
+// machinery: a reproduced failure is a verify-fix round, a dispute one
+// replay round (status.verification.disputed). It alone writes the gated
+// hand-off (handoff.go, status.verification.handoff and firstGreenAt): the
+// mode and clock as the first evaluation is created, the release with a
+// judgement that makes it due, on handoffMax, or in the halt a human's
+// feedback or push causes.
+//
 // Repositories (spec, at creation) and the input, plan and run-input
 // ConfigMaps are created by the IntentReconciler and never changed; the
 // transcript ConfigMap by the RunReconciler. source-controller alone writes

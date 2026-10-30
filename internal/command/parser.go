@@ -78,11 +78,19 @@ func ParseVerify(body string) (VerifyArgs, bool) {
 	return VerifyArgs{}, false
 }
 
+// AcceptAll is the argument of /maul accept that names every criterion or
+// outcome an approver may accept now (for a plan with no criteria, the
+// change as a whole). It matches the id grammar, so ParseAccept returns it
+// like an id; what it means is the caller's.
+const AcceptAll = "all"
+
 // ParseAccept reads body as /maul accept <id>: exactly one argument, a
-// criterion id as the plan grammar writes one (a lower-case ASCII letter,
-// then up to 31 lower-case letters, digits and dashes). ok is false for any
+// criterion or outcome id as the plan grammar writes one (a lower-case ASCII
+// letter, then up to 31 lower-case letters, digits and dashes), or
+// AcceptAll. The note, if any, is on the lines below. ok is false for any
 // other verb and anything else, so an id returned is always safe to echo.
-// Whether the intent has such a criterion is the caller's to decide.
+// Whether the intent has such a criterion or outcome is the caller's to
+// decide.
 func ParseAccept(body string) (id string, ok bool) {
 	c, ok := parseGrammar(body)
 	if !ok || c.Verb != action.VerbAccept {
@@ -93,6 +101,17 @@ func ParseAccept(body string) (id string, ok bool) {
 		return "", false
 	}
 	return args[0], true
+}
+
+// ParsePreview reports that body is /maul preview with no argument (a note
+// may follow on the lines below). Any argument asks for the help instead.
+func ParsePreview(body string) bool {
+	c, ok := parseGrammar(body)
+	if !ok || c.Verb != action.VerbPreview {
+		return false
+	}
+	args, _ := Args(body)
+	return len(args) == 0
 }
 
 // criterionID reports whether s matches ^[a-z][a-z0-9-]{0,31}$, the plan

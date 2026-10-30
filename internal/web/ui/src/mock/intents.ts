@@ -11,6 +11,7 @@ import type {
   IntentRunDetail,
   IntentRunRow,
   Me,
+  RunEvaluation,
   RunOutput,
   TranscriptTurn,
 } from "../types";
@@ -140,6 +141,27 @@ function runs(card: IntentCard): IntentRunRow[] {
     transcript: { turns: 4 },
     grant: { maxTurns: 80, tokenBudget: 400_000, timeoutMilliseconds: 1_800_000 },
   };
+  if (card.name === "storefront-7") {
+    return [
+      plan,
+      {
+        name: `${card.name}-ev-r1-a1`,
+        stage: "evaluate",
+        repository: "acme/storefront",
+        round: 1,
+        attempt: 1,
+        phase: "Complete",
+        outcome: "ok",
+        reason: "ok: completed",
+        createdAt: ago(960),
+        startedAt: ago(958),
+        finishedAt: ago(940),
+        costMicroUSD: 1_120_000,
+        imageSource: "default",
+        grant: { maxTurns: 120, timeoutMilliseconds: 1_200_000 },
+      },
+    ];
+  }
   if (card.phase !== "Building") return [plan];
   return [
     plan,
@@ -208,6 +230,93 @@ export function mockIntentRun(intent: string, run: string): IntentRunDetail | nu
       ? { createdAt: ago(24), startedAt: ago(23), deadlineSeconds: 5400, idleTimeoutSeconds: 1200 }
       : undefined,
     report: row.stage === "plan" ? "# Plan\n\nAdd GET /healthz returning 200 once the store is reachable.\n" : undefined,
+  };
+}
+
+// mockRunEvaluation is the evidence of the demo's one evaluate run: a saved
+// browser check that failed its replay and was disputed, a proposed http
+// check confirmed, and a look-around anomaly. Demo builds have no server, so
+// no evidence image is named.
+export function mockRunEvaluation(intent: string, run: string): RunEvaluation | null {
+  const detail = mockIntentRun(intent, run);
+  if (!detail || detail.stage !== "evaluate") return null;
+  const browserDigest = "sha256:4b1c9e0a7d3f52e86b1a0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f";
+  const httpDigest = "sha256:7e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d";
+  const sha = (c: string) => c.repeat(64);
+  return {
+    intent,
+    run,
+    tier: "transcripts",
+    verification: `${intent}-v1-a1`,
+    round: 1,
+    attempt: 1,
+    rung: "full",
+    phase: "Observed",
+    current: true,
+    handoff: { mode: "gated", released: true, releasedAt: ago(939), reason: "unconfirmed" },
+    outcomes: [
+      {
+        id: "cart-renamed",
+        outcome: "The cart API answers on /api/basket",
+        kind: "change",
+        result: "passed",
+        basis: httpDigest,
+        line: "GET /api/basket answers 200 with the run's item",
+        verdict: "pass",
+        cited: [3, 4],
+        note: "Added an item and read it back under the new path.",
+      },
+      {
+        id: "cart-page",
+        outcome: "The cart page still lists added items",
+        kind: "keep",
+        result: "unsure",
+        reason: "the saved check was disputed: it counted rows other runs created",
+        verdict: "unsure",
+        note: "The replay counted shared rows; proposed a check scoped to this run.",
+      },
+    ],
+    checks: [
+      {
+        id: "cart-page.rows",
+        outcome: "cart-page",
+        form: "browser",
+        digest: browserDigest,
+        source: "saved",
+        steps: '{\n  "steps": [\n    { "goto": "/cart" },\n    { "expect": { "assert": "count", "count": 2 } }\n  ]\n}',
+        compiled: 'test("cart-page.rows", async ({ page }) => {\n  await page.goto("/cart");\n});\n',
+        compiledToken: "v1a1t1-3f9a2c",
+        replay: { result: "fail", token: "v1a1t1-3f9a2c", seq: 1 },
+        disputed: true,
+      },
+      {
+        id: "cart-renamed",
+        outcome: "cart-renamed",
+        form: "http",
+        digest: httpDigest,
+        source: "proposed",
+        steps: '{\n  "target": "web",\n  "steps": [\n    { "request": { "path": "/api/basket" } }\n  ]\n}',
+        confirmation: { result: "pass", token: "v1a1t2-81d0e4", seq: 6, dryRunSeq: 4 },
+      },
+    ],
+    anomalies: [{ summary: "Console error on /cart: TypeError: total is undefined", route: "/cart", ledger: [5] }],
+    disputes: [
+      { checkDigest: browserDigest, reason: "The check counted rows other runs created.", ledger: [1] },
+    ],
+    ledger: {
+      count: 6,
+      sha256: sha("c"),
+      outputs: true,
+      entries: [
+        { seq: 1, kind: "runner", verb: "check-run", exit: 1, resultSHA256: sha("1"), output: "1 failed: expected 2 rows, saw 7" },
+        { seq: 2, kind: "agent", verb: "browser", resultSHA256: sha("2"), args: '{"argv":["open","/cart"]}', output: "- heading \"Cart\"" },
+        { seq: 3, kind: "agent", verb: "http", resultSHA256: sha("3"), args: '{"path":"/api/basket"}', output: "HTTP/1.1 200 OK" },
+        { seq: 4, kind: "agent", verb: "check-run", resultSHA256: sha("4"), output: "1 passed" },
+        { seq: 5, kind: "agent", verb: "browser", resultSHA256: sha("5"), artifacts: [{ sha256: sha("e") }], outputDropped: true },
+        { seq: 6, kind: "relay", verb: "confirm", resultSHA256: sha("6"), output: "1 passed" },
+      ],
+    },
+    capture: { components: [{ name: "web", bytes: 18_432 }], events: 3 },
   };
 }
 

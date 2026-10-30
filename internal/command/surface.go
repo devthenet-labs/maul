@@ -45,8 +45,12 @@ var (
 		summary: "check the change against the plan's acceptance criteria now; `" + VerifyFix +
 			"` also lets maul fix failures again, `" + VerifyStop + "` only stops maul fixing failures on its own, `" +
 			VerifyReset + "` first restarts the preview with fresh data"}
-	acceptUsage = usage{verb: action.VerbAccept, args: "<id>",
-		summary: "accept a manual criterion, or one that passed only on retry, at the current commits"}
+	acceptUsage = usage{verb: action.VerbAccept, args: "<id>|" + AcceptAll,
+		summary: "accept, at the current commits, a manual outcome or criterion, one maul could not confirm or " +
+			"found failing, or one that passed only on retry; `" + AcceptAll + "` accepts every one of them, and " +
+			"a note may follow on the lines below"}
+	previewUsage = usage{verb: action.VerbPreview,
+		summary: "show the preview link now, before maul has finished checking the change; nothing else changes"}
 )
 
 // surfaces is the design's table of which verbs apply where, in the order the
@@ -67,6 +71,7 @@ var surfaces = map[Surface][]usage{
 		{verb: action.VerbStart, summary: "start this intent now, without waiting for the issues it is blocked by"},
 		verifyUsage,
 		acceptUsage,
+		previewUsage,
 		{verb: action.VerbCancel,
 			summary: "stop work on this intent and close it; open pull requests are left to you"},
 	},
@@ -75,6 +80,7 @@ var surfaces = map[Surface][]usage{
 		{verb: action.VerbRetry, summary: "retry the round that failed"},
 		verifyUsage,
 		acceptUsage,
+		previewUsage,
 	},
 }
 

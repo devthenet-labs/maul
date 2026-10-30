@@ -298,6 +298,7 @@ func TestAcceptCommand(t *testing.T) {
 			t.Errorf("accepted[%d] = %+v", i, r)
 		}
 	}
+	checkAcceptNotes(t, acc.Accepted, "checked it on my phone", "")
 	if body := e.onlyReply(manual); !strings.Contains(body, "accepted at `"+heads[0]+"`") {
 		t.Errorf("reply = %s", body)
 	}
@@ -325,6 +326,20 @@ func TestAcceptCommand(t *testing.T) {
 	}
 	if body := e.onlyReply(early); !strings.Contains(body, "must wait") {
 		t.Errorf("reply = %s", body)
+	}
+}
+
+// checkAcceptNotes: the note below each command is kept with its record,
+// in order (as text, never the id); a command with none records none.
+func checkAcceptNotes(t *testing.T, recs []v1alpha1.AcceptanceRecord, notes ...string) {
+	t.Helper()
+	if len(recs) != len(notes) {
+		t.Fatalf("records = %d, want %d", len(recs), len(notes))
+	}
+	for i, want := range notes {
+		if recs[i].Note != want {
+			t.Errorf("accepted[%d].Note = %q, want %q", i, recs[i].Note, want)
+		}
 	}
 }
 
@@ -772,5 +787,242 @@ func TestAcceptCommandCriterion(t *testing.T) {
 	got := e.get(name).Status.Acceptance.Accepted
 	if len(got) != 1 || got[0].ID != "kick-onsets" || got[0].CommentID != id {
 		t.Fatalf("accepted = %+v", got)
+	}
+}
+
+// The outcomes of reviewingWithOutcomes, by what the evaluator made of them.
+const (
+	passedOutcome  = "render"
+	failedOutcome  = "kick-onsets"
+	unsureOutcome  = "deep-link"
+	manualOutcome  = "sounds-good"
+	pendingOutcome = "leaderboard"
+)
+
+// reviewingWithOutcomes drives a new intent to InReview and records an
+// approved plan's outcomes (the evaluator's) and a verification of the
+// current commits that decided them: one passed, one failed, one unsure, one
+// manual and one not decided yet, the preview link held. The Preview exists
+// but is not live yet (acceptReady).
+func (e *env) reviewingWithOutcomes() string {
+	e.t.Helper()
+	name := e.reviewing()
+	e.previewOf(name)
+	hs, ok := previewHeadSet(e.getProject(), e.get(name))
+	if !ok {
+		e.t.Fatal("the intent has no preview head set")
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: in.Status.Approval.PlanRevision,
+			Digest: hs.digest, OutcomesDigest: hs.digest, Outcomes: []v1alpha1.AcceptanceOutcome{
+				{ID: passedOutcome, Outcome: "a render returns audio"},
+				{ID: failedOutcome, Outcome: "kicks land on the beat"},
+				{ID: unsureOutcome, Outcome: "a shared link opens the battle"},
+				{ID: manualOutcome, Outcome: "the beat sounds good", Manual: true},
+				{ID: pendingOutcome, Outcome: "the leaderboard lists votes"},
+			}}
+		in.Status.Verification = &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnconfirmed,
+			HeadSetDigest: hs.digest, Heads: hs.heads,
+			Outcomes: []v1alpha1.OutcomeResult{
+				{ID: passedOutcome, Result: v1alpha1.OutcomePassed},
+				{ID: failedOutcome, Result: v1alpha1.OutcomeFailed, Reason: "the kick lands late"},
+				{ID: unsureOutcome, Result: v1alpha1.OutcomeUnsure, Reason: "no check confirmed it"},
+			},
+			Handoff: &v1alpha1.HandoffState{Mode: v1alpha1.HandoffGated},
+			AutoFix: v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted, Reason: v1alpha1.AutoFixHumanReview}}
+	})
+	e.settleActions(name)
+	return name
+}
+
+// TestAcceptOutcome: an approver closes an outcome the evaluator found
+// failing or could not confirm, or a manual one, at the commits the preview
+// ran; one that passed, or is not decided yet, is never closed by hand, and
+// an id the plan does not declare names no outcome.
+func TestAcceptOutcome(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithOutcomes()
+	e.acceptReady(name)
+	digest, heads := e.headSet(name)
+	failed := e.gh.comment(approver, "/maul accept "+failedOutcome+"\nthe kick is late by design")
+	unsure := e.gh.comment(approver, "/maul accept "+unsureOutcome)
+	manual := e.gh.comment(approver, "/maul accept "+manualOutcome)
+	passed := e.gh.comment(approver, "/maul accept "+passedOutcome)
+	pending := e.gh.comment(approver, "/maul accept "+pendingOutcome)
+	unknown := e.gh.comment(approver, "/maul accept no-such-thing")
+	e.settleActions(name)
+	acc := e.get(name).Status.Acceptance
+	got := make([]string, 0, len(acc.Accepted))
+	for _, r := range acc.Accepted {
+		got = append(got, r.ID)
+		if r.HeadSetDigest != digest || !slices.Equal(r.Heads, heads) || r.ByID != actorOf(approver).ID {
+			t.Errorf("accepted %+v, want it bound to %s", r, digest)
+		}
+	}
+	if want := []string{failedOutcome, unsureOutcome, manualOutcome}; !slices.Equal(got, want) {
+		t.Fatalf("accepted = %v, want %v", got, want)
+	}
+	if body := e.onlyReply(failed); !strings.Contains(body, "the outcome is accepted at `"+heads[0]+"`") {
+		t.Errorf("reply = %s", body)
+	}
+	for _, id := range []int64{passed, pending} {
+		body := e.onlyReply(id)
+		if !strings.Contains(body, "only a manual outcome") || strings.Contains(body, "`"+passedOutcome+"`,") ||
+			!strings.Contains(body, "`"+unsureOutcome+"`") {
+			t.Errorf("reply to %d = %s", id, body)
+		}
+	}
+	if body := e.onlyReply(unknown); !strings.Contains(body, "names no outcome") {
+		t.Errorf("reply = %s", body)
+	}
+	for _, id := range []int64{unsure, manual} {
+		if body := e.onlyReply(id); !strings.Contains(body, "is done") {
+			t.Errorf("reply to %d = %s", id, body)
+		}
+	}
+}
+
+// TestAcceptAllOutcomes: /maul accept all closes every outcome an approver
+// could close one by one, each recorded under the one comment, and is
+// answered with what it closed, once, even after a crash between the write
+// and the reply; with nothing left to close it records nothing.
+func TestAcceptAllOutcomes(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithOutcomes()
+	e.acceptReady(name)
+	all := e.gh.comment(approver, "/maul accept all\nchecked these on my phone")
+	e.gh.failNext("CreateIssueComment", errTransient)
+	if err := e.reconcileIntent(name); err == nil {
+		t.Fatal("the failed reply returned no error")
+	}
+	e.clock.Advance(time.Minute)
+	e.settleActions(name)
+	var got []string
+	for _, r := range e.get(name).Status.Acceptance.Accepted {
+		if r.CommentID != all {
+			t.Errorf("accepted %+v, want it recorded under comment %d", r, all)
+		}
+		got = append(got, r.ID)
+	}
+	if want := []string{failedOutcome, unsureOutcome, manualOutcome}; !slices.Equal(got, want) {
+		t.Fatalf("accepted = %v, want %v", got, want)
+	}
+	body := e.onlyReply(all)
+	for _, id := range []string{failedOutcome, unsureOutcome, manualOutcome} {
+		if !strings.Contains(body, "`"+id+"`") {
+			t.Errorf("reply does not name %s: %s", id, body)
+		}
+	}
+	if !strings.Contains(body, "`/maul accept all`") {
+		t.Errorf("reply = %s", body)
+	}
+
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Accepted = nil
+		in.Status.Acceptance.Outcomes = in.Status.Acceptance.Outcomes[:1]
+	})
+	none := e.gh.comment(approver, "/maul accept all")
+	e.settleActions(name)
+	if got := e.get(name).Status.Acceptance.Accepted; len(got) != 0 {
+		t.Fatalf("accept all with nothing to close recorded %+v", got)
+	}
+	if body := e.onlyReply(none); !strings.Contains(body, "No outcome can be accepted now") {
+		t.Errorf("reply = %s", body)
+	}
+}
+
+// TestPreviewCommand: an approver's /maul preview releases the held preview
+// link, recording the command as the reason, and changes nothing else; a
+// second is told it was released already, and the command applied is
+// answered once.
+func TestPreviewCommand(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithOutcomes()
+	before := e.verification(name).DeepCopy()
+	id := e.gh.comment(approver, "/maul preview\nI want to look at it now")
+	e.settleActions(name)
+	v := e.verification(name)
+	h := v.Handoff
+	if h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonCommand || h.Mode != v1alpha1.HandoffGated ||
+		h.ReleasedAt == nil {
+		t.Fatalf("hand-off = %+v", h)
+	}
+	if v.Requested != nil || v.AutoFix.State != before.AutoFix.State || v.Reset.Generation != 0 ||
+		!slices.Equal(v.Outcomes, before.Outcomes) || v.State != before.State {
+		t.Errorf("/maul preview changed more than the hand-off: %+v", v)
+	}
+	if body := e.onlyReply(id); !strings.Contains(body, "the preview link is shown now") {
+		t.Errorf("reply = %s", body)
+	}
+	e.settleActions(name)
+	if n := len(e.gh.withMarker("comment-" + itoa(id))); n != 1 {
+		t.Errorf("the command was answered %d times", n)
+	}
+	e.clock.Advance(time.Minute)
+	again := e.gh.comment(approver, "/maul preview")
+	e.settleActions(name)
+	if body := e.onlyReply(again); !strings.Contains(body, "already") {
+		t.Errorf("reply = %s", body)
+	}
+	if got := e.verification(name).Handoff; got.ReleasedAt == nil || !got.ReleasedAt.Equal(h.ReleasedAt) {
+		t.Errorf("a second /maul preview moved the release: %+v", got)
+	}
+	bad := e.gh.comment(approver, "/maul preview now")
+	e.settleActions(name)
+	if body := e.onlyReply(bad); !strings.Contains(body, "not understood") ||
+		!strings.Contains(body, "- `/maul preview`") {
+		t.Errorf("reply = %s", body)
+	}
+}
+
+// TestPreviewCommandNothingHeld: where nothing holds the link (a plan with
+// criteria, slice 1's verification, or a Project whose hand-off is early)
+// /maul preview records nothing and says so.
+func TestPreviewCommandNothingHeld(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate []func(*v1alpha1.Project)
+		setup  func(e *env) string
+	}{
+		{"criteria", nil, func(e *env) string { return e.reviewingWithCriteria() }},
+		{"an early project", []func(*v1alpha1.Project){func(p *v1alpha1.Project) {
+			p.Spec.Verification.Handoff = v1alpha1.HandoffEarly
+		}}, func(e *env) string {
+			name := e.reviewingWithOutcomes()
+			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.Handoff = nil })
+			return name
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newAcceptEnv(t, tt.mutate...)
+			name := tt.setup(e)
+			id := e.gh.comment(approver, "/maul preview")
+			e.settleActions(name)
+			if h := e.verification(name).Handoff; h != nil {
+				t.Errorf("hand-off = %+v, want none recorded", h)
+			}
+			if body := e.onlyReply(id); !strings.Contains(body, "is not held") {
+				t.Errorf("reply = %s", body)
+			}
+		})
+	}
+}
+
+// TestPreviewCommandOnThePullRequest: /maul preview on an intent's pull
+// request releases the link as on the issue, answered there once.
+func TestPreviewCommandOnThePullRequest(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithOutcomes()
+	pr := e.get(name).Status.PullRequests[0]
+	id := e.prCommand(pr.Number, approver, "/maul preview")
+	e.clock.Advance(time.Second)
+	e.settlePR(name)
+	e.settlePR(name)
+	if h := e.verification(name).Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonCommand {
+		t.Fatalf("hand-off = %+v", h)
+	}
+	if r := e.prReplies(pr.Number, id); len(r) != 1 || !strings.Contains(r[0], "the preview link is shown now") {
+		t.Errorf("replies = %q", r)
 	}
 }

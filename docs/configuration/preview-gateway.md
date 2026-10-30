@@ -738,8 +738,8 @@ as on EKS. On k3s and k3d add `--refused-is-blocked`: their policy controller, k
 gateway's client has shown the listener answers. Run it after turning the gateway on and after any CNI or cluster
 upgrade. `maul check previews -n <release namespace> --isolation` runs the same probe from the CLI, always in the
 `--refused-is-blocked` order, reading the placement, the namespaces and the image prefix from the install, and deletes
-its Pods when done ([how](../cli.md#proving-slot-isolation---isolation)). Build the netprobe image from the same commit
-as the script or the CLI. See its
+its Pods when done ([how](../cli.md#proving-slot-isolation-isolation)). Build the netprobe image from the same commit as
+the script or the CLI. See its
 [README](https://github.com/devthenet-labs/maul/blob/main/hack/preview-isolation-probe/README.md#the-ingress-direction-only-the-preview-gateway-reaches-a-slot).
 On EKS, the egress run (`run.sh`) still covers the cold-start egress direction.
 

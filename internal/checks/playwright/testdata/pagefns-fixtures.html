@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- Copyright 2026 Bitwise Media Group Ltd. SPDX-License-Identifier: MIT -->
+<!-- The page-function test page (spike SP-5 fixtures, plus clickable and box cases). TestLivePageFunctions holds
+     each element to its expected verdicts; S1-12's live browser test may reuse it. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>maul page-function fixtures</title>
+    <style>
+      body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: #fff; color: #111; }
+      .case { position: relative; padding: 12px; margin: 6px; min-height: 40px; }
+      .hero { background: #fff; }
+      .hero .bg { position: absolute; inset: 0; background: #000; }
+      .hero h3 { position: relative; color: #fff; margin: 0; }
+      .img { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Crect width='10' height='10' fill='%23000'/%3E%3C/svg%3E"); }
+      .img span { color: #fff; }
+      .clip { background: linear-gradient(90deg, #f0f, #0ff); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 28px; font-weight: 700; display: inline-block; }
+      .grey { color: #777; }
+      .faint { opacity: 0.05; }
+      .transparent { color: transparent; }
+      .glow { background: #140c2b; }
+      .glow span { color: #140c2b; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 2px #fff; font-size: 20px; }
+      .large { color: #949494; font-size: 28px; }
+      .translucent { background: rgba(0, 0, 0, 0.6); }
+      .translucent span { color: #fff; }
+      .gradok { background: linear-gradient(#000, #222); }
+      .gradok span { color: #fff; }
+      .gradmix { background: linear-gradient(90deg, #000, #fff); }
+      .gradmix span { color: #888; }
+      .thin { color: #bbb; font-weight: 100; font-size: 12px; }
+      .offscreen { position: absolute; left: -9999px; }
+      .underlay { position: relative; height: 40px; }
+      .underlay .bg { position: absolute; inset: 0; background: #000; pointer-events: none; }
+      .underlay span { position: relative; color: #fff; }
+      .emoji { background: #0d0720; }
+      .emoji button { background: none; border: 1px solid #f0f; }
+      .blend { background: #fff; }
+      .blend span { color: #fff; mix-blend-mode: difference; }
+      .filter { filter: brightness(0); background: #fff; }
+      .filter span { color: #000; }
+      .covered .lid { position: absolute; inset: 0; background: #eee; }
+      .veiled .veil { position: absolute; inset: 0; pointer-events: none; }
+      .row { display: flex; gap: 20px; }
+      .card { width: 200px; height: 100px; background: #ddd; }
+      .pushed { margin-left: -150px; }
+    </style>
+  </head>
+  <body>
+    <div class="case hero"><div class="bg"></div><h3 id="t-hero">White heading on a black sibling overlay</h3></div>
+    <div class="case img"><span id="t-img">White on a dark url() image</span></div>
+    <div class="case"><span class="clip" id="t-clip">Gradient clipped text</span></div>
+    <div class="case"><span class="grey" id="t-grey">#777 on white (4.48:1)</span></div>
+    <div class="case"><span class="faint" id="t-faint">opacity .05</span></div>
+    <div class="case"><span class="transparent" id="t-transparent">color transparent</span></div>
+    <div class="case glow"><span id="t-glow">Dark text with white glow</span></div>
+    <div class="case"><span class="large" id="t-large">Large #949494 (3.03:1)</span></div>
+    <div class="case translucent"><span id="t-translucent">White on rgba(0,0,0,.6) over white</span></div>
+    <div class="case gradok"><span id="t-gradok">White on dark gradient</span></div>
+    <div class="case gradmix"><span id="t-gradmix">Grey on black-to-white gradient</span></div>
+    <div class="case"><span class="thin" id="t-thin">thin 12px #bbb (1.92:1)</span></div>
+    <div class="case underlay"><div class="bg"></div><span id="t-underlay">White over pointer-events:none black sibling</span></div>
+    <div class="case emoji"><button id="t-emoji" type="button">🔥</button></div>
+    <div class="case blend"><span id="t-blend">white text, blend difference (renders black on white)</span></div>
+    <div class="case filter"><span id="t-filter">black on white under filter brightness(0) (renders black on black)</span></div>
+    <div class="case"><span class="offscreen" id="t-offscreen">offscreen</span></div>
+    <div class="case"><button id="c-free" type="button">Free</button></div>
+    <div class="case covered"><button id="c-covered" type="button">Covered</button><div class="lid"></div></div>
+    <div class="case veiled"><button id="c-veiled" type="button">Veiled</button><div class="veil"></div></div>
+    <div class="case row"><div class="card" id="b-left"></div><div class="card" id="b-right"></div></div>
+    <div class="case row"><div class="card" id="b-first"></div><div class="card pushed" id="b-over"></div></div>
+  </body>
+</html>

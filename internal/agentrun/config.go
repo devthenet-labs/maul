@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/transcript"
@@ -36,12 +37,27 @@ type Phase string
 // Both run on brokered claude or brokered codex only (see intentHarness). The Job seams keep
 // their Finding names on an intent run: MAUL_FINDING carries the
 // IntentRun's name, and input/investigation.md the approved plan.
+//
+// PhaseEvaluate and PhaseCheckReview are the agent evaluator's and the
+// check reviewer's intent stages (evaluate.go, checkreview.go). Their Jobs
+// have no tree: the workspace (/work) holds the handoff in input/, which
+// the agent's tools cannot reach, and the scratch directory the agent runs
+// in under the evaluate posture (harness.SandboxEvaluate). Both run on the
+// investigate stage's harness, model, limits, timeout and idle limit, which
+// the intent controller sets per stage as it does a plan's, and a per-Job
+// grant may lower those limits but never raise them.
 const (
 	PhaseInvestigate Phase = "investigate"
 	PhaseRemediate   Phase = "remediate"
 	PhasePlan        Phase = "plan"
 	PhaseBuild       Phase = "build"
+	PhaseEvaluate    Phase = "evaluate"
+	PhaseCheckReview Phase = "checkreview"
 )
+
+// role reports whether the phase is an evaluator-side stage: one whose Job
+// has no repository clone and whose agent runs in the scratch directory.
+func (p Phase) role() bool { return p == PhaseEvaluate || p == PhaseCheckReview }
 
 // Config is the runner's configuration; in the pod every field arrives as
 // MAUL_* environment (see FromEnv).
@@ -146,6 +162,15 @@ type Config struct {
 	// section.
 	PlanVerification *templates.PlanVerification
 
+	// ToolsURL is the evaluator's tool pod (MAUL_TOOLS_URL, which
+	// internal/jobs sets on an evaluator Job only): the origin maul-tool
+	// reaches it at, and agent-runner's own confirm and finish go to. Any
+	// other Job has none, and only the evaluate stage reads it. FromEnv
+	// never sets it: cmd/agent-runner reads it through the same getenv, as
+	// it does NetworkProfile, so it is no configuration key a
+	// repository-image Job blanks (an evaluator never runs one).
+	ToolsURL string
+
 	// AcceptanceFix marks an intent build Job that is an acceptance-fix
 	// round (MAUL_ACCEPTANCE_FIX, "true" or unset): its prompt tells the
 	// agent it may conclude, with evidence, that the code has no defect,
@@ -223,6 +248,25 @@ func (c Config) commitScript() string { return filepath.Join(c.Workspace, "commi
 // planPath and buildPath are the intent stages' reports.
 func (c Config) planPath() string  { return filepath.Join(c.Workspace, "reports", "plan.md") }
 func (c Config) buildPath() string { return filepath.Join(c.Workspace, "reports", "build.md") }
+
+// scratchDir is a role stage's working directory, the only one its agent's
+// file tools reach; the stage's reports are written there.
+func (c Config) scratchDir() string { return filepath.Join(c.Workspace, "scratch") }
+
+// evaluationPath is the evaluate stage's report.
+func (c Config) evaluationPath() string { return filepath.Join(c.scratchDir(), "report.md") }
+
+// checksDir is where the evaluator writes the check files it proposes,
+// under scratch; shotsDir is where maul-tool writes screenshots
+// (maultool.ShotsDir).
+func (c Config) checksDir() string { return filepath.Join(c.scratchDir(), "checks") }
+func (c Config) shotsDir() string  { return filepath.Join(c.scratchDir(), maultool.ShotsDir) }
+
+// reviewPath is the checkreview stage's report for its n-th review
+// (1-based), one per session.
+func (c Config) reviewPath(n int) string {
+	return filepath.Join(c.scratchDir(), "review-"+strconv.Itoa(n)+".md")
+}
 
 // branch is the remediation branch, keyed by finding name (pull-request
 // webhooks resolve the Finding from the head ref).
@@ -419,10 +463,10 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		errs = append(errs, "MAUL_FINDING is required")
 	}
 	switch cfg.Phase {
-	case PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild:
+	case PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview:
 	default:
-		errs = append(errs, fmt.Sprintf("MAUL_PHASE=%q is not %q, %q, %q or %q",
-			cfg.Phase, PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild))
+		errs = append(errs, fmt.Sprintf("MAUL_PHASE=%q is not %q, %q, %q, %q, %q or %q",
+			cfg.Phase, PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview))
 	}
 	if len(errs) > 0 {
 		return Config{}, fmt.Errorf("agentrun config: %s", strings.Join(errs, "; "))

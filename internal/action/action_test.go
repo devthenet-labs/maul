@@ -527,7 +527,7 @@ func TestVerbConstantsAreUnique(t *testing.T) {
 // phase gate here that accepted them would let a GitHub command meant for an
 // intent move a Finding.
 func TestIntentVerbsStayOffFindings(t *testing.T) {
-	intentVerbs := []string{VerbReplan, VerbCancel, VerbRevise, VerbVerify, VerbAccept, VerbStart}
+	intentVerbs := []string{VerbReplan, VerbCancel, VerbRevise, VerbVerify, VerbAccept, VerbPreview, VerbStart}
 	for _, verb := range intentVerbs {
 		for name, list := range map[string][]string{
 			"ActionVerbs": ActionVerbs, "IntegrationVerbs": IntegrationVerbs, "AdminVerbs": AdminVerbs,

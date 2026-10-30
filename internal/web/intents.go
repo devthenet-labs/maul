@@ -113,6 +113,8 @@ func (s *Server) registerIntents(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/intents/{name}/plans/{revision}", s.handleIntentPlan)
 	mux.HandleFunc("GET /api/intents/{name}/runs/{run}", s.handleIntentRun)
 	mux.HandleFunc("GET /api/intents/{name}/runs/{run}/stream", s.handleRunStream)
+	mux.HandleFunc("GET /api/intents/{name}/runs/{run}/evaluation", s.handleRunEvaluation)
+	mux.HandleFunc("GET /api/intents/{name}/runs/{run}/evidence/{image}", s.handleEvidenceImage)
 }
 
 // Cache field indexes the intents views look objects up by.

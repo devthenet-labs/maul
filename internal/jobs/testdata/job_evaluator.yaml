@@ -1,0 +1,179 @@
+metadata:
+  annotations:
+    maul.run/repo: octo/repo
+  labels:
+    app.kubernetes.io/managed-by: maul
+    app.kubernetes.io/name: maul-agent
+    maul.run/attempt: "1"
+    maul.run/finding: intent-x-ev-r1-a1
+    maul.run/harness: claude
+    maul.run/kind: intent
+    maul.run/owner: intent-x-ev-r1-a1
+    maul.run/preview-verification: 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
+    maul.run/role: evaluator
+  name: maul-2cb3001829-int-a1
+  namespace: maul-agents
+spec:
+  activeDeadlineSeconds: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+        maul.run/repo: octo/repo
+      labels:
+        app.kubernetes.io/managed-by: maul
+        app.kubernetes.io/name: maul-agent
+        maul.run/attempt: "1"
+        maul.run/finding: intent-x-ev-r1-a1
+        maul.run/harness: claude
+        maul.run/kind: intent
+        maul.run/owner: intent-x-ev-r1-a1
+        maul.run/preview-verification: 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
+        maul.run/role: evaluator
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - command:
+        - agent-runner
+        env:
+        - name: HOME
+          value: /work
+        - name: MAUL_WORKSPACE
+          value: /work
+        - name: MAUL_REPO
+          value: octo/repo
+        - name: MAUL_PHASE
+          value: evaluate
+        - name: MAUL_FINDING
+          value: intent-x-ev-r1-a1
+        - name: MAUL_BASE_SHA
+        - name: MAUL_INVESTIGATE_HARNESS
+          value: claude
+        - name: MAUL_INVESTIGATE_MODEL
+          value: anthropic/claude-sonnet-5
+        - name: MAUL_TOOLS_URL
+          value: http://maul-tools:8090
+        - name: ANTHROPIC_BASE_URL
+          value: http://maul-egress-broker.maul.svc.cluster.local:8080/anthropic
+        - name: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+          value: "1"
+        - name: MAUL_INVESTIGATE_TIMEOUT
+          value: 15m
+        - name: MAUL_BROKER_TOKEN_FILE
+          value: /var/run/maul/broker/token
+        - name: ANTHROPIC_AUTH_TOKEN
+          value: maul-brokered-placeholder
+        image: ghcr.io/devthenet-labs/maul/claude-agent-runner:1
+        name: agent
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /work
+          name: workspace
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /var/run/maul/broker
+          name: broker-token
+          readOnly: true
+      dnsConfig:
+        nameservers:
+        - 127.0.0.1
+        options:
+        - name: timeout
+          value: "1"
+        - name: attempts
+          value: "1"
+      dnsPolicy: None
+      hostAliases:
+      - hostnames:
+        - maul-tools
+        ip: 10.42.3.17
+      - hostnames:
+        - maul-egress-broker.maul.svc.cluster.local
+        ip: 10.100.40.2
+      initContainers:
+      - command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          mkdir -p /work/input /work/scratch
+          cp /maul/input/issue.md /work/input/issue.md
+          if [ -f /maul/input/investigation.md ]; then
+            cp /maul/input/investigation.md /work/input/investigation.md
+          fi
+          /usr/local/bin/agent-runner sandbox-probe --mode=strict --targets=internet,k8s,imds,dns
+        env:
+        - name: HOME
+          value: /work
+        - name: MAUL_SANDBOX_PROBE_TIMEOUT
+          value: 20s
+        - name: MAUL_SANDBOX_PROBE_DNS
+          value: 10.96.0.10:53
+        image: ghcr.io/devthenet-labs/maul/claude-agent-runner:1
+        name: prepare
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /work
+          name: workspace
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /maul/input
+          name: input
+          readOnly: true
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: maul-agent
+      volumes:
+      - emptyDir: {}
+        name: workspace
+      - emptyDir: {}
+        name: tmp
+      - name: input
+        secret:
+          secretName: maul-2cb3001829-int-a1
+      - name: broker-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              audience: maul-egress-broker
+              expirationSeconds: 4500
+              path: token
+  ttlSecondsAfterFinished: 7200
+status: {}

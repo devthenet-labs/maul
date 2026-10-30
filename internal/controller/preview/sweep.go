@@ -16,6 +16,8 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -237,9 +239,10 @@ func (s *Sweeper) sweepSlot(ctx context.Context, namespace string, slot int32, l
 }
 
 // sweepVerification removes what verification left in a slot: the
-// NetworkPolicies and tester Jobs of a Preview no longer holding the slot, a
-// tester Job whose PreviewVerification is gone, and a tester Pod whose Job is
-// gone (one deleted without background propagation). Pods are listed before
+// NetworkPolicies and Jobs of a Preview no longer holding the slot, a
+// tester or tool Job whose PreviewVerification is gone, and such a Job's Pod
+// whose Job is gone (one deleted without background propagation); a tool
+// Job's key Secret and ConfigMap are the Job's, and go with it. Pods are listed before
 // Jobs, so a Pod seen here has a Job the Job list sees too, whichever was
 // created last; a component's Pod is never the sweep's.
 func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot int32, live map[string]int32) error {
@@ -254,8 +257,7 @@ func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot 
 		}
 	}
 	var pods corev1.PodList
-	if err := s.List(ctx, &pods, client.InNamespace(namespace), selector,
-		client.MatchingLabels{labelRole: string(v1alpha1.PreviewRoleTester)}); err != nil {
+	if err := s.List(ctx, &pods, client.InNamespace(namespace), selector, jobPodRoles()); err != nil {
 		return err
 	}
 	var jobs batchv1.JobList
@@ -297,6 +299,18 @@ func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot 
 		}
 	}
 	return nil
+}
+
+// jobPodRoles selects the Pods of the Jobs a verification renders: the
+// tester's and the tool pod's roles.
+func jobPodRoles() client.ListOption {
+	roles, err := labels.NewRequirement(labelRole, selection.In,
+		[]string{string(v1alpha1.PreviewRoleTester), v1alpha1.PreviewRoleTools})
+	if err != nil {
+		// Constant, valid values: never. Fail closed: no Pod is swept.
+		return client.MatchingLabelsSelector{Selector: labels.Nothing()}
+	}
+	return client.MatchingLabelsSelector{Selector: labels.NewSelector().Add(*roles)}
 }
 
 // liveVerifications are the UIDs of the PreviewVerifications in the release

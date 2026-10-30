@@ -163,7 +163,7 @@ func (p *pass) verifyDue(ctx context.Context, v *v1alpha1.IntentVerification) (v
 	case v1alpha1.VerificationNeedsReplan, v1alpha1.VerificationOff, v1alpha1.VerificationNotDeclared:
 		return verifyNotDue, nil
 	}
-	if v.Ref != nil && v.State == v1alpha1.VerificationVerifying {
+	if v.Ref != nil && (v.State == v1alpha1.VerificationVerifying || v.State == v1alpha1.VerificationEvaluating) {
 		return verifyNotDue, nil // in flight
 	}
 	if v.Ref == nil && v.Attempt > 0 {

@@ -61,7 +61,7 @@ type impostorNote struct {
 // stopped because they cannot be read (criteriaUnreadable).
 func (p *pass) verifyReported() bool {
 	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Verification != nil &&
-		(p.acceptanceCurrent() || p.criteriaUnreadable())
+		(p.acceptanceCurrent() || p.verifyStopped() != "")
 }
 
 // verifyJudged reports a state holding a round's judged (or given up)
@@ -69,7 +69,7 @@ func (p *pass) verifyReported() bool {
 func verifyJudged(s v1alpha1.IntentVerificationState) bool {
 	switch s {
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationFailing, v1alpha1.VerificationFixing,
-		v1alpha1.VerificationExhausted, v1alpha1.VerificationUnavailable:
+		v1alpha1.VerificationExhausted, v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnconfirmed:
 		return true
 	}
 	return false
@@ -116,13 +116,19 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 	if !p.verifyReported() {
 		return nil
 	}
-	if p.criteriaUnreadable() {
+	switch p.verifyStopped() {
+	case reasonCriteriaUnreadable:
 		return &templates.VerifyProgress{State: templates.VerifyUnreadable}
+	case reasonCriteriaReplan:
+		return &templates.VerifyProgress{State: templates.VerifyCriteriaReplan}
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	used, most := p.verifyFixesUsed()
 	out := &templates.VerifyProgress{Verification: v.Round, FixesUsed: used, MaxFixes: most, ManualOpen: v.ManualOpen}
 	total := int32(len(automatable(acc.Criteria)))
+	if len(acc.Outcomes) > 0 {
+		return p.evaluationProgress(out)
+	}
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
 		out = &templates.VerifyProgress{State: templates.VerifyNotDeclared}
@@ -163,6 +169,98 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 	return out
 }
 
+// evaluationProgress is verifyProgress for the agent evaluator's outcomes
+// (out holds the round and fix counts): evaluations, and outcomes confirmed
+// or accepted out of every approved one. nil when it says nothing.
+func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.VerifyProgress {
+	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	out.Outcomes = true
+	judged := func(state string) *templates.VerifyProgress {
+		out.State, out.Passing, out.Total = state, confirmedCount(acc, v), int32(len(acc.Outcomes))
+		return out
+	}
+	switch v.State {
+	case v1alpha1.VerificationNotDeclared:
+		return &templates.VerifyProgress{State: templates.VerifyNotChecked, ManualOpen: v.ManualOpen, Outcomes: true}
+	case v1alpha1.VerificationWaitingForCI:
+		out.State = templates.VerifyWaitingForCI
+	case v1alpha1.VerificationWaitingForPreview:
+		out.State = templates.VerifyWaiting
+	case v1alpha1.VerificationEvaluating:
+		out.State = templates.VerifyEvaluating
+	case v1alpha1.VerificationPassed:
+		return judged(templates.VerifyPassed)
+	case v1alpha1.VerificationUnconfirmed:
+		if outcomesReady(acc, v) {
+			return judged(templates.VerifyPassed)
+		}
+		return judged(templates.VerifyUnconfirmed)
+	case v1alpha1.VerificationFailing:
+		if v.AutoFix.State == v1alpha1.AutoFixHalted {
+			out.AutoFix, out.AutoFixReason = templates.FixHalted, string(v.AutoFix.Reason)
+		}
+		return judged(templates.VerifyFailing)
+	case v1alpha1.VerificationFixing:
+		out.AutoFix = templates.FixRunning
+		return judged(templates.VerifyFailing)
+	case v1alpha1.VerificationExhausted:
+		return judged(templates.VerifyExhausted)
+	case v1alpha1.VerificationNeedsReplan:
+		out.State = templates.VerifyNeedsReplan
+	case v1alpha1.VerificationUnavailable:
+		out.State = templates.VerifyUnavailable
+		if previewNotLive(v) {
+			out.State = templates.VerifyPreviewNotLive
+		}
+	default:
+		return nil
+	}
+	return out
+}
+
+// outcomeSection fills s with the evaluator's outcomes in plan order, each
+// with its result as reported now (an approver's acceptance at the heads
+// included), maul's line on the check it rests on and, for a failure, the
+// application's output from pv's ledger; and the look-around anomalies.
+func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, pv *v1alpha1.PreviewVerification) {
+	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	for _, o := range acc.Outcomes {
+		row := templates.VerifyOutcomeResult{ID: o.ID, Statement: o.Outcome, Result: templates.OutcomeResultUnsure}
+		i := slices.IndexFunc(v.Outcomes, func(r v1alpha1.OutcomeResult) bool { return r.ID == o.ID })
+		if i < 0 || !verifyJudged(v.State) {
+			if o.Manual {
+				row.Reason = "manual"
+			}
+			if r := acceptedAt(acc, o.ID, v.HeadSetDigest); r != nil {
+				row.Result, row.AcceptedAt = templates.OutcomeResultAccepted, firstHead(r)
+			}
+			s.Outcomes = append(s.Outcomes, row)
+			continue
+		}
+		r := v.Outcomes[i]
+		row.Result, row.Reason, row.Check = string(effectiveResult(acc, v, r)), r.Reason, r.Line
+		if rec := acceptedAt(acc, o.ID, v.HeadSetDigest); rec != nil && row.Result == templates.OutcomeResultAccepted {
+			row.AcceptedAt = firstHead(rec)
+		}
+		if row.Result == templates.OutcomeResultFailed && pv != nil {
+			row.AppOutput = p.appOutput(ctx, pv, r.Basis)
+		}
+		s.Outcomes = append(s.Outcomes, row)
+	}
+	for _, a := range v.Anomalies {
+		s.Anomalies = append(s.Anomalies, templates.VerifyAnomaly{Summary: a.Summary, Route: a.Route})
+	}
+}
+
+// firstHead is the first short head an acceptance was given at, "" for
+// none.
+func firstHead(r *v1alpha1.AcceptanceRecord) string {
+	if len(r.Heads) == 0 {
+		return ""
+	}
+	return r.Heads[0]
+}
+
 // judgedVerification is the PreviewVerification the recorded result was
 // judged from, read once per pass (uncached) and only while a judged result
 // stands: its observations are a failure's evidence and its environment the
@@ -200,7 +298,7 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 		return nil
 	}
 	s := &templates.VerifySection{Progress: *prog, StatusNotPosted: p.statusesUnavailable()}
-	if p.criteriaUnreadable() {
+	if p.verifyStopped() != "" {
 		// The criteria on record, if any, are not the approved ones.
 		return s
 	}
@@ -209,6 +307,9 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 	judged := verifyJudged(v.State) && v.Passed+v.Failed+v.Quarantined > 0
 	for _, c := range acc.Criteria {
 		s.Criteria = append(s.Criteria, criterionView(c, acc, v, pv, judged))
+	}
+	if len(acc.Outcomes) > 0 {
+		p.outcomeSection(ctx, s, pv)
 	}
 	if pv != nil {
 		s.Logs = p.verifyLogs(pv, pr)

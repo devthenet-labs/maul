@@ -221,8 +221,10 @@ type fakeGitHub struct {
 	reviewEdits map[string]bool
 	inlineEdits map[string]bool
 	patch       string
-	checks      map[string][]ghclient.CheckRun
-	statuses    map[string][]ghclient.CommitStatus
+	// compared records each ComparePatch call as "repo base...head".
+	compared []string
+	checks   map[string][]ghclient.CheckRun
+	statuses map[string][]ghclient.CommitStatus
 	// nextStatusID numbers the statuses CreateCommitStatus posts, from a
 	// range clear of the ids tests seed.
 	nextStatusID int64
@@ -1218,9 +1220,10 @@ func (f *fakeGitHub) ReviewCommentEdited(_ context.Context, _, nodeID string) (b
 	return f.inlineEdits[nodeID], f.call("ReviewCommentEdited")
 }
 
-func (f *fakeGitHub) ComparePatch(context.Context, string, string, string) (string, error) {
+func (f *fakeGitHub) ComparePatch(_ context.Context, repoURL, base, head string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.compared = append(f.compared, repoSlug(repoURL)+" "+base+"..."+head)
 	return f.patch, f.call("ComparePatch")
 }
 

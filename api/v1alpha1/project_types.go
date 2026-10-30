@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,7 +85,49 @@ const (
 	DefaultMaxVerifications int32 = 20
 	// DefaultVerificationTimeout is verification.timeout when unset.
 	DefaultVerificationTimeout = 10 * time.Minute
+	// DefaultHandoffMax is verification.handoffMax when unset (DESIGN 7.11).
+	DefaultHandoffMax = 60 * time.Minute
+	// DefaultMaxToolCalls is verification.maxToolCalls when unset.
+	DefaultMaxToolCalls int32 = 300
+	// DefaultMaxEvaluateCostMicroUSD is limits.maxEvaluateCostMicroUSD when
+	// unset ($6, DESIGN 7.11).
+	DefaultMaxEvaluateCostMicroUSD int64 = 6000000
 )
+
+// MaxEvaluateCostLimit is limits.maxEvaluateCostMicroUSD, or its default
+// when unset.
+func (l ProjectLimits) MaxEvaluateCostLimit() int64 {
+	if l.MaxEvaluateCostMicroUSD == nil {
+		return DefaultMaxEvaluateCostMicroUSD
+	}
+	return *l.MaxEvaluateCostMicroUSD
+}
+
+// HandoffMode is spec.verification.handoff, or def (the controller's
+// chart-wide default) when unset.
+func (s *ProjectSpec) HandoffMode(def HandoffMode) HandoffMode {
+	if s.Verification == nil || s.Verification.Handoff == "" {
+		return def
+	}
+	return s.Verification.Handoff
+}
+
+// HandoffMax is spec.verification.handoffMax, or its default when unset.
+func (s *ProjectSpec) HandoffMax() time.Duration {
+	if s.Verification == nil || s.Verification.HandoffMax == nil {
+		return DefaultHandoffMax
+	}
+	return s.Verification.HandoffMax.Duration
+}
+
+// MaxToolCalls is spec.verification.maxToolCalls, or its default when
+// unset.
+func (s *ProjectSpec) MaxToolCalls() int32 {
+	if s.Verification == nil || s.Verification.MaxToolCalls == nil {
+		return DefaultMaxToolCalls
+	}
+	return *s.Verification.MaxToolCalls
+}
 
 // MaxVerifyFixesLimit is limits.maxVerifyFixes, or its default when unset.
 func (l ProjectLimits) MaxVerifyFixesLimit() int32 {
@@ -257,6 +300,8 @@ type StageLimits struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.plan) || !has(self.plan.maxCostMicroUSD) || self.plan.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.plan.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 // +kubebuilder:validation:XValidation:rule="!has(self.build) || !has(self.build.maxCostMicroUSD) || self.build.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.build.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 // +kubebuilder:validation:XValidation:rule="!has(self.revise) || !has(self.revise.maxCostMicroUSD) || self.revise.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.revise.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
+// +kubebuilder:validation:XValidation:rule="!has(self.evaluate) || !has(self.evaluate.maxCostMicroUSD) || self.evaluate.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.evaluate.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
+// +kubebuilder:validation:XValidation:rule="!has(self.checkReview) || !has(self.checkReview.maxCostMicroUSD) || self.checkReview.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.checkReview.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 type ProjectLimits struct {
 	// MaxActiveIntents is how many of this Project's intents may be
 	// non-terminal at once; a newly triggered issue past it waits.
@@ -320,6 +365,24 @@ type ProjectLimits struct {
 	// Revise bounds each revise or check-fix run.
 	// +optional
 	Revise StageLimits `json:"revise,omitempty"`
+	// Evaluate bounds each evaluator run (read-only, judging the live
+	// preview through its slot tool pod).
+	// +optional
+	Evaluate StageLimits `json:"evaluate,omitempty"`
+	// CheckReview bounds each check reviewer run (read-only, judging the
+	// round's new saved checks).
+	// +optional
+	CheckReview StageLimits `json:"checkReview,omitempty"`
+	// MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
+	// micro-USD: what the intent's evaluate and checkreview runs may spend
+	// together, apart from the build ceiling (maxCostMicroUSD). Past it the
+	// evaluation ends and the hand-off is released as unconfirmed, never a
+	// block. Nil means DefaultMaxEvaluateCostMicroUSD
+	// (MaxEvaluateCostLimit).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1000000000
+	MaxEvaluateCostMicroUSD *int64 `json:"maxEvaluateCostMicroUSD,omitempty"`
 }
 
 // ProjectChecks configures automatic fix rounds on failed CI checks of the
@@ -391,6 +454,63 @@ type ProjectVerification struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('1h')",message="verification.timeout must be between 1m and 1h"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	// Handoff is when the preview link is handed to humans under the
+	// evaluator: gated (held until the evaluation passes or gives up) or
+	// early (at once, labelled). Unset means the chart-wide default
+	// (intent-controller's), so one value flips every Project.
+	// +optional
+	Handoff HandoffMode `json:"handoff,omitempty"`
+	// HandoffMax bounds a gated hand-off's wait, counted from CI green at
+	// the first PR heads, between 10m and 4h; DefaultHandoffMax when unset.
+	// Past it the hand-off is released as "couldn't confirm: out of time".
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('10m') && duration(self) <= duration('4h')",message="verification.handoffMax must be between 10m and 4h"
+	HandoffMax *metav1.Duration `json:"handoffMax,omitempty"`
+	// MaxToolCalls bounds the evaluator's tool calls per evaluation,
+	// between 50 and 300 (what the tools ledger has room for);
+	// DefaultMaxToolCalls when unset.
+	// +optional
+	// +kubebuilder:validation:Minimum=50
+	// +kubebuilder:validation:Maximum=300
+	MaxToolCalls *int32 `json:"maxToolCalls,omitempty"`
+}
+
+// ProjectSurfaces names how the evaluator reaches the application beyond
+// http, which it always has. The cli and library surfaces are reserved for
+// slice 2.
+type ProjectSurfaces struct {
+	// Browser lets the evaluator drive a browser against the preview.
+	// +optional
+	Browser *BrowserSurface `json:"browser,omitempty"`
+}
+
+// BrowserSurface is the browser surface of a previewed application.
+type BrowserSurface struct {
+	// Entry is the path on the preview host the browser opens first.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:Pattern=`^/([^/].*)?$`
+	Entry string `json:"entry"`
+}
+
+// MaxBrowserEntryBytes bounds BrowserSurface.Entry (its schema's maximum).
+const MaxBrowserEntryBytes = 256
+
+// ValidBrowserEntry reports whether entry is a path on the preview host the
+// evaluator's browser may open first: absolute, at most MaxBrowserEntryBytes
+// of visible ASCII (no space or control character), not scheme-relative
+// ("//host") and without a backslash (browsers read it as a slash) or a backtick (the prompt quotes the path). The
+// schema pattern is the looser form; consumers hold the value to this.
+func ValidBrowserEntry(entry string) bool {
+	if entry == "" || len(entry) > MaxBrowserEntryBytes || entry[0] != '/' || strings.HasPrefix(entry, "//") {
+		return false
+	}
+	for i := 0; i < len(entry); i++ {
+		if c := entry[i]; c <= ' ' || c >= 0x7f || c == '\\' || c == '`' {
+			return false
+		}
+	}
+	return true
 }
 
 // MaxPreviewComponents bounds how many of a Project's repositories are
@@ -413,7 +533,7 @@ const MaxPreviewComponents = 4
 // +kubebuilder:validation:XValidation:rule="self.repositories.filter(r, has(r.preview)).size() <= 4",message="at most 4 repositories are previewed (repositories[].preview)"
 // +kubebuilder:validation:XValidation:rule="self.repositories.all(r, !has(r.preview) || self.repositories.exists_one(s, has(s.preview) && (has(s.preview.path) ? s.preview.path : '/') == (has(r.preview.path) ? r.preview.path : '/')))",message="two previewed repositories have the same path (repositories[].preview.path, default /)"
 // +kubebuilder:validation:XValidation:rule="!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r, has(r.preview)))",message="spec.preview is the one-repository shorthand: it needs exactly one repository and no repositories[].preview"
-// +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester')",message="a repository key cannot be tester while verification is enabled: it names the verification tester's part of the preview slot"
+// +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester' || r.name == 'tools')",message="a repository key cannot be tester or tools while verification is enabled: they name the verification tester's and the evaluator's tool pod's parts of the preview slot"
 type ProjectSpec struct {
 	// IntentRepository is the https URL of the repository whose issues are
 	// this Project's intents (e.g. https://github.com/acme/intents). Several
@@ -496,6 +616,10 @@ type ProjectSpec struct {
 	// intents (ProjectVerification). Unset means off.
 	// +optional
 	Verification *ProjectVerification `json:"verification,omitempty"`
+	// Surfaces names how the evaluator reaches the application beyond http
+	// (ProjectSurfaces). Unset means http only.
+	// +optional
+	Surfaces *ProjectSurfaces `json:"surfaces,omitempty"`
 }
 
 // ProjectHarness is the coding agent an intent's runs use.

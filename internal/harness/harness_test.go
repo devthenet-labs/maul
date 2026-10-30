@@ -4,8 +4,10 @@
 package harness
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -45,6 +47,33 @@ func TestHarnessesImplementUsageScanner(t *testing.T) {
 	for _, h := range All() {
 		if _, ok := h.(UsageScanner); !ok {
 			t.Errorf("harness %q does not implement UsageScanner", h.ID())
+		}
+	}
+}
+
+// TestCheckPosture: every harness accepts the postures it renders; copilot
+// refuses evaluate, which it cannot express, rather than running it as its
+// default; and a posture no harness knows is refused by all of them.
+func TestCheckPosture(t *testing.T) {
+	unknown := SandboxEvaluate + 1
+	for _, tt := range []struct {
+		harness string
+		refused []Sandbox
+	}{
+		{"claude", []Sandbox{unknown}},
+		{"codex", []Sandbox{unknown}},
+		{"copilot", []Sandbox{SandboxEvaluate, unknown}},
+		{"fake", []Sandbox{unknown}},
+	} {
+		h, ok := ByID(tt.harness)
+		if !ok {
+			t.Fatalf("no harness %q", tt.harness)
+		}
+		for _, s := range []Sandbox{SandboxDefault, SandboxReadOnly, SandboxWorkspaceWrite, SandboxEvaluate, unknown} {
+			err := CheckPosture(h, s)
+			if want := slices.Contains(tt.refused, s); want != errors.Is(err, ErrPostureUnsupported) {
+				t.Errorf("CheckPosture(%s, %d) = %v, want refused = %v", tt.harness, s, err, want)
+			}
 		}
 	}
 }

@@ -199,3 +199,54 @@ func TestVerificationFlags(t *testing.T) {
 		t.Error("MAUL_PREVIEW_TESTER_IMAGE or MAUL_PREVIEW_VERIFY_DEADLINE_MAX not honoured")
 	}
 }
+
+const (
+	toolsImage = "ghcr.io/devthenet-labs/maul-preview-tools@sha256:" +
+		"1111111111111111111111111111111111111111111111111111111111111111"
+	browserImage = "ghcr.io/devthenet-labs/maul-preview-browser@sha256:" +
+		"2222222222222222222222222222222222222222222222222222222222222222"
+	toolboxImage = "ghcr.io/devthenet-labs/maul-preview-toolbox@sha256:" +
+		"3333333333333333333333333333333333333333333333333333333333333333"
+)
+
+// evaluatorArgs turns the evaluator on with every value it needs.
+func evaluatorArgs(extra ...string) []string {
+	return validArgs(append([]string{"--preview-tester-image", testerImage, "--preview-evaluator",
+		"--preview-tools-image", toolsImage, "--preview-browser-image", browserImage,
+		"--preview-toolbox-image", toolboxImage, "--preview-agents-namespace", "maul-agents"}, extra...)...)
+}
+
+// TestEvaluatorFlags: the evaluator is off unless the operator turns it
+// on, and on it needs verification, its three digest-pinned images and the
+// agents namespace.
+func TestEvaluatorFlags(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "")
+	opts := serveOpts(t, validArgs()...)
+	if opts.Bool("preview-evaluator") || opts.Int("preview-max-evaluations") != 0 {
+		t.Error("the evaluator is on by default; it must be opt-in")
+	}
+	missing := filepath.Join(t.TempDir(), "absent")
+	for _, tt := range []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "on reaches the manager", args: evaluatorArgs("--kubeconfig", missing), wantErr: "kubeconfig"},
+		{name: "no verification", args: validArgs("--preview-evaluator", "--preview-tools-image", toolsImage,
+			"--preview-browser-image", browserImage, "--preview-toolbox-image", toolboxImage,
+			"--preview-agents-namespace", "maul-agents"), wantErr: "verification on"},
+		{name: "no toolbox image", args: evaluatorArgs("--preview-toolbox-image", ""), wantErr: "toolbox"},
+		{name: "a tag", args: evaluatorArgs("--preview-browser-image", "ghcr.io/x/browser:v1"),
+			wantErr: "not pinned by digest"},
+		{name: "no agents namespace", args: evaluatorArgs("--preview-agents-namespace", ""),
+			wantErr: "agents namespace"},
+		{name: "negative max", args: evaluatorArgs("--preview-max-evaluations", "-1"), wantErr: "max evaluations"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := serve(t.Context(), serveOpts(t, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("serve error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}

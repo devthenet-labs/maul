@@ -68,7 +68,7 @@ func partClass(p PartFact) EnvClass {
 		if crashed {
 			return EnvAppFailure
 		}
-	case RoleTester, RoleSeed:
+	case RoleTester, RoleTools, RoleSeed:
 		if crashed || (p.LastTermination != nil && !completed(*p.LastTermination)) {
 			return EnvInfra
 		}

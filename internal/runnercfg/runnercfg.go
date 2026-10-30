@@ -9,14 +9,17 @@
 package runnercfg
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -469,6 +472,55 @@ func Attribution(opts *cli.Options) (attribution.Mode, error) {
 		return "", fmt.Errorf("--%s: %w", attribution.Flag, err)
 	}
 	return mode, nil
+}
+
+// ResolvConf is where a controller's own resolver is configured: in a pod,
+// the kubelet's file naming the cluster DNS Service.
+const ResolvConf = "/etc/resolv.conf"
+
+// ProbeDNS reads the controller's own resolver once, at startup, as the
+// <ip>:53 an evaluator Job's strict sandbox probe must find closed
+// (jobs.Config.SandboxProbeDNS): under dnsPolicy None the agent pod's own
+// resolver configuration names nothing to probe, and the cluster's resolver
+// is what the controller's file names. path is ResolvConf outside tests.
+func ProbeDNS(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("read the controller's resolver: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	addr, err := probeDNSFrom(f)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	return addr, nil
+}
+
+// probeDNSFrom is the first nameserver line of a resolv.conf as <ip>:53. A
+// loopback or unspecified nameserver (a node-local stub such as
+// systemd-resolved's) is refused: probed from the agent pod it would be that
+// pod's own loopback, always closed, a clean verdict that checked nothing.
+func probeDNSFrom(r io.Reader) (string, error) {
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 2 || fields[0] != "nameserver" {
+			continue
+		}
+		addr, err := netip.ParseAddr(fields[1])
+		if err != nil {
+			return "", fmt.Errorf("nameserver %q is not an IP address", fields[1])
+		}
+		addr = addr.Unmap().WithZone("")
+		if addr.IsLoopback() || addr.IsUnspecified() {
+			return "", fmt.Errorf("nameserver %s is local to this pod; an agent pod's probe cannot check it", addr)
+		}
+		return netip.AddrPortFrom(addr, 53).String(), nil
+	}
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	return "", errors.New("names no nameserver")
 }
 
 // AgentDNS reads --agent-dns and holds it to the harnesses this controller

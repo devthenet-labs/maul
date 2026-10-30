@@ -236,6 +236,12 @@ spec:
                           description: ID of the accepted criterion.
                           pattern: ^[a-z][a-z0-9-]{0,31}$
                           type: string
+                        note:
+                          description: |-
+                            Note is the text the approver wrote after the command, if any. It
+                            is untrusted and shown only through untrusted.Visible.
+                          maxLength: 1024
+                          type: string
                       required:
                       - at
                       - by
@@ -247,6 +253,33 @@ spec:
                     maxItems: 32
                     type: array
                     x-kubernetes-list-type: atomic
+                  checks:
+                    description: |-
+                      Checks names the check store of the approved plan revision; unset
+                      until a first check is saved.
+                    properties:
+                      configMap:
+                        description: ConfigMap names the store.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                      count:
+                        description: Count is how many checks the store holds.
+                        format: int32
+                        maximum: 40
+                        minimum: 0
+                        type: integer
+                      digest:
+                        description: |-
+                          Digest is the digest of the stored checks: what a
+                          PreviewVerification's checksDigest must equal.
+                        pattern: ^sha256:[0-9a-f]{64}$
+                        type: string
+                    required:
+                    - configMap
+                    - count
+                    - digest
+                    type: object
                   criteria:
                     description: |-
                       Criteria are the approved criteria in plan order; empty when the plan
@@ -513,6 +546,62 @@ spec:
                       criteriaDigest must equal.
                     pattern: ^sha256:[0-9a-f]{64}$
                     type: string
+                  outcomes:
+                    description: Outcomes are the approved outcomes in plan order
+                      (the evaluator).
+                    items:
+                      description: |-
+                        AcceptanceOutcome is one outcome of an approved plan: a statement of what
+                        must hold, the issue line it answers, and whether a human checks it.
+                      properties:
+                        from:
+                          description: From quotes the issue line the outcome answers.
+                          maxLength: 300
+                          pattern: ^[^\r\n]*$
+                          type: string
+                        id:
+                          description: ID names the outcome, unique within its plan.
+                          pattern: ^[a-z][a-z0-9-]{0,31}$
+                          type: string
+                        kind:
+                          description: Kind is change or keep; unset is change.
+                          enum:
+                          - change
+                          - keep
+                          type: string
+                        manual:
+                          description: Manual marks an outcome only a human can check
+                            (/maul accept).
+                          type: boolean
+                        outcome:
+                          description: Outcome is the approved one-line statement
+                            of what must hold.
+                          maxLength: 500
+                          minLength: 1
+                          pattern: ^[^\r\n]*$
+                          type: string
+                        reason:
+                          description: Reason says why a manual outcome needs a human.
+                          maxLength: 120
+                          pattern: ^[^\r\n]*$
+                          type: string
+                      required:
+                      - id
+                      - outcome
+                      type: object
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - id
+                    x-kubernetes-list-type: map
+                  outcomesDigest:
+                    description: |-
+                      OutcomesDigest is the digest of the full outcome list, manual
+                      outcomes included: what every outcome PreviewVerification's
+                      outcomesDigest must equal.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
                   planRevision:
                     description: PlanRevision is the approved plan revision the criteria
                       are from.
@@ -520,10 +609,55 @@ spec:
                     maximum: 999
                     minimum: 1
                     type: integer
+                  reviews:
+                    description: |-
+                      Reviews cache the check reviewer's answers, so a check is reviewed
+                      once per outcome statement.
+                    items:
+                      description: |-
+                        CheckReviewRecord is one cached check review: the answer a checkreview
+                        run gave for one check against one outcome statement, keyed by both
+                        digests, so a changed check or outcome is reviewed again.
+                      properties:
+                        answer:
+                          description: Answer is the reviewer's.
+                          enum:
+                          - proves
+                          - does_not_prove
+                          - unclear
+                          type: string
+                        checkDigest:
+                          description: CheckDigest is the reviewed check's digest.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        outcomeDigest:
+                          description: OutcomeDigest is the digest of the outcome
+                            it was reviewed against.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        run:
+                          description: Run is the checkreview IntentRun that answered.
+                          maxLength: 63
+                          minLength: 1
+                          type: string
+                      required:
+                      - answer
+                      - checkDigest
+                      - outcomeDigest
+                      - run
+                      type: object
+                    maxItems: 80
+                    type: array
+                    x-kubernetes-list-type: atomic
                 required:
                 - digest
                 - planRevision
                 type: object
+                x-kubernetes-validations:
+                - message: an approved plan declares criteria or outcomes, never both
+                  rule: '!has(self.criteria) || !has(self.outcomes)'
+                - message: outcomes and outcomesDigest are set together
+                  rule: has(self.outcomes) == has(self.outcomesDigest)
               activeRun:
                 description: |-
                   ActiveRun points at the IntentRun currently holding the run lease
@@ -1544,6 +1678,39 @@ spec:
                   Verification is the state of the acceptance verification of the
                   intent's combined change.
                 properties:
+                  anomalies:
+                    description: Anomalies are the latest round's look-around anomalies.
+                    items:
+                      description: |-
+                        AnomalyRecord is one look-around anomaly the evaluator reported, with the
+                        ledger entries that show it: it downgrades the hand-off, never starts a
+                        fix. Summary and route are the evaluator's, untrusted.
+                      properties:
+                        ledger:
+                          description: Ledger are the entries cited, by seq.
+                          items:
+                            format: int32
+                            maximum: 512
+                            minimum: 1
+                            type: integer
+                          maxItems: 32
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        route:
+                          description: Route it was seen on.
+                          maxLength: 300
+                          type: string
+                        summary:
+                          description: Summary of the anomaly.
+                          maxLength: 600
+                          minLength: 1
+                          type: string
+                      required:
+                      - summary
+                      type: object
+                    maxItems: 10
+                    type: array
+                    x-kubernetes-list-type: atomic
                   attempt:
                     description: Attempt is the latest attempt within it.
                     format: int32
@@ -1658,10 +1825,29 @@ spec:
                       its Job.
                     maxLength: 63
                     type: string
+                  disputed:
+                    description: |-
+                      Disputed are the digests of the saved checks the evaluator disputed,
+                      awaiting a replay round once their replacements are confirmed and
+                      reviewed.
+                    items:
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    maxItems: 40
+                    type: array
+                    x-kubernetes-list-type: set
+                  evaluationCostMicroUSD:
+                    description: |-
+                      EvaluationCostMicroUSD is what the intent's evaluate and checkreview
+                      runs have spent, against the Project's maxEvaluateCostMicroUSD.
+                    format: int64
+                    maximum: 1000000000000
+                    minimum: 0
+                    type: integer
                   failed:
                     description: Failed counts the automatable criteria that failed.
                     format: int32
-                    maximum: 16
+                    maximum: 20
                     minimum: 0
                     type: integer
                   failing:
@@ -1693,9 +1879,50 @@ spec:
                       - id
                       - outcome
                       type: object
-                    maxItems: 16
+                    maxItems: 20
                     type: array
                     x-kubernetes-list-type: atomic
+                  firstGreenAt:
+                    description: |-
+                      FirstGreenAt is when CI first went green at the first PR heads: the
+                      start of the handoffMax clock.
+                    format: date-time
+                    type: string
+                  handoff:
+                    description: Handoff is the hand-off of the preview link to humans.
+                    properties:
+                      mode:
+                        description: Mode in force for the intent.
+                        enum:
+                        - gated
+                        - early
+                        type: string
+                      reason:
+                        description: Reason is why.
+                        enum:
+                        - ready
+                        - unconfirmed
+                        - out-of-time
+                        - human
+                        - command
+                        - early
+                        - evaluator-unverified
+                        type: string
+                      released:
+                        description: Released reports that the preview link has been
+                          handed over.
+                        type: boolean
+                      releasedAt:
+                        description: ReleasedAt is when.
+                        format: date-time
+                        type: string
+                    required:
+                    - mode
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a released hand-off records when and why
+                      rule: '!has(self.released) || !self.released || (has(self.releasedAt)
+                        && has(self.reason))'
                   headSetDigest:
                     description: HeadSetDigest is the combined change the state is
                       about.
@@ -1752,7 +1979,7 @@ spec:
                       ManualAccepted counts the manual criteria accepted at the current
                       heads.
                     format: int32
-                    maximum: 16
+                    maximum: 20
                     minimum: 0
                     type: integer
                   manualOpen:
@@ -1760,7 +1987,7 @@ spec:
                       ManualOpen counts the manual criteria not accepted at the current
                       heads.
                     format: int32
-                    maximum: 16
+                    maximum: 20
                     minimum: 0
                     type: integer
                   noDefect:
@@ -1798,13 +2025,65 @@ spec:
                     description: NotRun counts the criteria this slice cannot run
                       yet.
                     format: int32
-                    maximum: 16
+                    maximum: 20
                     minimum: 0
                     type: integer
+                  outcomes:
+                    description: |-
+                      Outcomes are the decided results of the approved outcomes, in plan
+                      order (the evaluator).
+                    items:
+                      description: OutcomeResult is the decided result of one approved
+                        outcome.
+                      properties:
+                        basis:
+                          description: |-
+                            Basis is the digest of the saved check the result rests on; unset
+                            when none does.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        id:
+                          description: ID of the outcome.
+                          pattern: ^[a-z][a-z0-9-]{0,31}$
+                          type: string
+                        line:
+                          description: |-
+                            Line is the maul-rendered one-line description of the basis check
+                            (its steps and assertions in maul's words).
+                          maxLength: 1024
+                          pattern: ^[^\r\n]*$
+                          type: string
+                        reason:
+                          description: |-
+                            Reason says why the result is not passed. It may quote the
+                            evaluator, so it is untrusted and shown only through the templates'
+                            sanitising.
+                          maxLength: 600
+                          type: string
+                        result:
+                          description: Result decided.
+                          enum:
+                          - passed
+                          - failed
+                          - unsure
+                          - quarantined
+                          - accepted
+                          type: string
+                      required:
+                      - id
+                      - result
+                      type: object
+                    maxItems: 20
+                    type: array
+                    x-kubernetes-list-type: atomic
                   passed:
-                    description: Passed counts the automatable criteria that passed.
+                    description: |-
+                      The counters and lists below count criteria, or outcomes under the
+                      evaluator: their bounds are the larger list's (20 outcomes).
+
+                      Passed counts the automatable criteria that passed.
                     format: int32
-                    maximum: 16
+                    maximum: 20
                     minimum: 0
                     type: integer
                   previewWaitSince:
@@ -1819,7 +2098,7 @@ spec:
                     description: Quarantined counts the criteria that passed only
                       on retry.
                     format: int32
-                    maximum: 16
+                    maximum: 20
                     minimum: 0
                     type: integer
                   quarantinedIDs:
@@ -1828,7 +2107,7 @@ spec:
                     items:
                       pattern: ^[a-z][a-z0-9-]{0,31}$
                       type: string
-                    maxItems: 16
+                    maxItems: 20
                     type: array
                     x-kubernetes-list-type: set
                   ref:
@@ -1927,6 +2206,8 @@ spec:
                     - Exhausted
                     - NeedsReplan
                     - Unavailable
+                    - Evaluating
+                    - Unconfirmed
                     type: string
                   unavailableReason:
                     description: |-

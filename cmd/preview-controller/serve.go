@@ -70,6 +70,17 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"preview.verification.deadlineMaxSeconds); a verification asking more is clamped. 1m to 1h")
 	f.String("preview-auth-previous-annotations", "", "the previous key generation's pinned auth annotations "+
 		"during a rotation's overlap (same JSON shape); an Ingress still on them is not unauthenticated")
+	f.Bool("preview-evaluator", false, "run outcome verifications on the slot tool pod for the agent "+
+		"evaluator (chart intentController.verification.evaluator); needs --preview-tester-image, the three tool "+
+		"images and --preview-agents-namespace. Off, an outcome verification is Infra and renders nothing")
+	f.String("preview-tools-image", "", "digest-pinned preview-tools image, the tool pod's relay "+
+		"(<repository>@sha256:<64 hex>, never under the preview image prefix)")
+	f.String("preview-browser-image", "", "digest-pinned preview-browser image, the tool pod's CDP shim and "+
+		"Chromium sidecar")
+	f.String("preview-toolbox-image", "", "digest-pinned preview-toolbox image, the tool pod's sandbox sidecar")
+	f.String("preview-agents-namespace", "", "the agents namespace: the one namespace a tool pod's "+
+		"per-verification ingress policy admits its evaluator from")
+	f.Int("preview-max-evaluations", 0, "the most slot tool pods running at once; 0 is the slot count")
 	return cmd
 }
 
@@ -96,6 +107,12 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		TargetHealth:    opts.Bool("preview-target-health"),
 		NoLegacyIngress: !opts.Bool("preview-legacy-ingress"),
 		TesterImage:     opts.String("preview-tester-image"),
+		Evaluator:       opts.Bool("preview-evaluator"),
+		ToolsImage:      opts.String("preview-tools-image"),
+		BrowserImage:    opts.String("preview-browser-image"),
+		ToolboxImage:    opts.String("preview-toolbox-image"),
+		AgentsNamespace: opts.String("preview-agents-namespace"),
+		MaxEvaluations:  opts.Int("preview-max-evaluations"),
 	}
 	selector, err := preview.ParseNodeSelector(opts.String("preview-node-selector"))
 	if err != nil {
@@ -154,7 +171,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	prov.Logger.LogAttrs(ctx, slog.LevelInfo, "preview-controller starting",
 		slog.Int("slot_count", settings.SlotCount), slog.String("namespace", namespace),
 		slog.Bool("auth_required", settings.Auth.Required), slog.Bool("legacy_ingress", !settings.NoLegacyIngress),
-		slog.Bool("verification", settings.TesterImage != ""))
+		slog.Bool("verification", settings.TesterImage != ""), slog.Bool("evaluator", settings.Evaluator))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

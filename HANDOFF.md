@@ -11,6 +11,14 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
+## In flight: the agent evaluator (branch `feature/agent-evaluator`, not released)
+
+Design `.claude/plans/agent-evaluator/DESIGN.md`. Landed on the branch: the evaluate and checkreview stages, the tool
+pod and its gateway, the verification ledger, the status-page evidence view (S1-23), the isolation probe's code (S1-25)
+and the intent-controller gaps (S1-29). Still to come: the e2e cases (S1-24) and the live demo and probe run (S1-28,
+needs owner approval to deploy). Calibration D12 failed for `claude-sonnet-5`: a model-judged screenshot is never
+support, only `unsure` (docs/intents/evaluator.md, Known limits). Replan from InReview and codex verification are open.
+
 ## Current checkpoint — 2026-10-18: 0.12.40 on the desktop, EKS down
 
 **0.12.40 ships easy previews (`maul setup previews`, `maul check previews`) and the Claude CLI posture hardening.**

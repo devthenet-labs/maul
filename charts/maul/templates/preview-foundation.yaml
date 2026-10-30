@@ -70,6 +70,18 @@
 {{- if $verify }}
 {{- $quotaDefaults = dict "pods" 10 "services" 5 "requests" (dict "cpu" "1250m" "memory" "1280Mi") "limits" (dict "cpu" "2500m" "memory" "2560Mi") "jobs" 1 "networkPolicies" 6 }}
 {{- end }}
+{{- /* The agent evaluator's slot tool pod (SP-2): quota counts its native
+       sidecars' requests too, so the whole pod (about 2.5 CPU / 2Gi) goes
+       on top of a full Preview's; a finished Job counts until
+       preview-controller deletes it, hence two; its edge policy, its
+       per-verification ingress policy and preview-tools-isolation. The
+       LimitRange's per-container max must reach the browser sidecar. */}}
+{{- $tools := include "maul.previewTools" . }}
+{{- $containerMax := dict "cpu" "1" "memory" "512Mi" }}
+{{- if $tools }}
+{{- $quotaDefaults = dict "pods" 11 "services" 5 "requests" (dict "cpu" "3750m" "memory" "3328Mi") "limits" (dict "cpu" "5" "memory" "4608Mi") "jobs" 2 "networkPolicies" 9 }}
+{{- $containerMax = dict "cpu" "1500m" "memory" "1536Mi" }}
+{{- end }}
 {{- $quotaSet := $p.quota | default dict }}
 {{- $quota := mergeOverwrite (deepCopy $quotaDefaults) (deepCopy $quotaSet) }}
 {{- range $slot := $slots }}
@@ -107,7 +119,17 @@ metadata:
     annotations:
         helm.sh/resource-policy: keep
 spec:
+    {{- if $tools }}
+    # Every pod but the agent evaluator's tool pod, which gets neither DNS
+    # nor the gateway: preview-tools-isolation below holds it.
+    podSelector:
+        matchExpressions:
+            - key: maul.run/preview-role
+              operator: NotIn
+              values: [tools]
+    {{- else }}
     podSelector: {}
+    {{- end }}
     policyTypes: [Ingress, Egress]
     {{- /* The ALB's subnets only while the legacy slot Ingress serves
            (preview.legacyIngress): once it is off the ALB has no target in
@@ -157,6 +179,28 @@ spec:
               port: 53
             - protocol: TCP
               port: 53
+{{- if $tools }}
+---
+# The agent evaluator's slot tool pod, isolated in both directions with no
+# rule of its own: no DNS, no gateway, nothing. What it may reach (the
+# components on its declared edges) and what may reach it (exactly its own
+# evaluator, on 8090) is added only by preview-controller's per-verification
+# policies, which maul-preview-networkpolicies holds to those shapes, and
+# which go with the verification. Kept and Helm's, like preview-isolation:
+# preview-controller may never change or delete it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: preview-tools-isolation
+    namespace: {{ $slot }}
+    annotations:
+        helm.sh/resource-policy: keep
+spec:
+    podSelector:
+        matchLabels:
+            maul.run/preview-role: tools
+    policyTypes: [Ingress, Egress]
+{{- end }}
 ---
 apiVersion: v1
 kind: ResourceQuota
@@ -205,8 +249,8 @@ spec:
               cpu: 250m
               memory: 256Mi
           max:
-              cpu: "1"
-              memory: 512Mi
+              cpu: {{ $containerMax.cpu | quote }}
+              memory: {{ $containerMax.memory }}
 {{- end }}
 {{- if $alb }}
 ---

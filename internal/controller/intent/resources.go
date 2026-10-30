@@ -125,11 +125,18 @@ func (p *pass) blockOnClass(ctx context.Context, runs []*v1alpha1.IntentRun) (bl
 }
 
 // stageNoun names a run's stage in a message: the plan, the build, the
-// revise round, the check-fix round or the acceptance-fix round.
+// revise round, the check-fix round, the acceptance-fix round, the
+// evaluation round or the check review.
 func stageNoun(run *v1alpha1.IntentRun) string {
 	switch run.Spec.Stage {
 	case v1alpha1.IntentStagePlan:
 		return "plan"
+	case v1alpha1.IntentStageBuild:
+		return "build"
+	case v1alpha1.IntentStageEvaluate:
+		return "evaluation round"
+	case v1alpha1.IntentStageCheckReview:
+		return "check review"
 	case v1alpha1.IntentStageRevise:
 		switch roundKindOf(run.Spec.Trigger) {
 		case roundChecks:
@@ -140,7 +147,7 @@ func stageNoun(run *v1alpha1.IntentRun) string {
 		}
 		return "revise round"
 	}
-	return "build"
+	return fmt.Sprintf("%q run", run.Spec.Stage)
 }
 
 // resourcesBlocked reports a failed run whose agent pod no node could fit:

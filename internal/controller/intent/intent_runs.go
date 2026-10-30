@@ -225,17 +225,49 @@ func (p *pass) blockAtCeiling(ctx context.Context) (bool, error) {
 	if p.proj.Spec.Suspend {
 		return false, nil
 	}
-	spent, ceiling := p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj)
+	spent, ceiling := p.sharedSpend(), maxCostMicroUSD(p.proj)
 	return true, p.block(ctx, v1alpha1.ConditionBudgetExhausted, "CostCeilingReached",
 		fmt.Sprintf("the intent has spent %d micro-USD, at or over the project's ceiling of %d; "+
 			"raise limits.maxCostMicroUSD to continue", spent, ceiling))
 }
 
-// atCeiling reports whether the Intent's spend has reached the Project's
-// per-intent ceiling.
+// atCeiling reports whether the Intent's shared spend (every run but its
+// evaluations, sharedSpend) has reached the Project's per-intent ceiling.
 func (p *pass) atCeiling() bool {
-	return p.in.Status.Usage.CostMicroUSD >= maxCostMicroUSD(p.proj)
+	return p.sharedSpend() >= maxCostMicroUSD(p.proj)
 }
+
+// evaluationSpend is what the Intent's evaluate and checkreview runs have
+// spent, in micro-USD, summed as syncUsage sums every run's: what the
+// evaluation ceiling (evaluationCeiling) is held to, and never the shared
+// ceiling, so evaluation can never use up the budget fix rounds need
+// (DESIGN 5).
+func (p *pass) evaluationSpend() int64 {
+	var sum int64
+	for _, run := range p.runs {
+		if roleStage(run.Spec.Stage) {
+			sum = addUsage(sum, microUSD(run.Status.Usage.CostUSD))
+		}
+	}
+	return sum
+}
+
+// sharedSpend is the Intent's recorded spend less its evaluations': what
+// the Project's per-intent ceiling (limits.maxCostMicroUSD) is held to.
+func (p *pass) sharedSpend() int64 {
+	return max(p.in.Status.Usage.CostMicroUSD-p.evaluationSpend(), 0)
+}
+
+// atEvaluationCeiling reports whether the Intent's evaluations have spent
+// their ceiling (evaluationCeiling).
+func (p *pass) atEvaluationCeiling() bool {
+	return p.evaluationSpend() >= p.set.evaluationCeiling(p.proj)
+}
+
+// errEvaluationCeiling: lease refused an evaluate or checkreview run at the
+// intent's evaluation ceiling. Unlike errAtCeiling it never blocks the
+// intent: the round ends unconfirmed, and fix rounds keep their budget.
+var errEvaluationCeiling = errors.New("the intent's evaluations are at their cost ceiling")
 
 // lease creates run under its deterministic name, the lease of its stage,
 // round, attempt and repository, and returns nil; or, when the name is
@@ -246,7 +278,11 @@ func (p *pass) atCeiling() bool {
 // ceiling nothing is created, and a run already under the name is still
 // returned, never stranded, while a name not taken is errAtCeiling.
 func (p *pass) lease(ctx context.Context, run *v1alpha1.IntentRun) (*v1alpha1.IntentRun, error) {
-	atCeiling := p.atCeiling()
+	atCeiling, refusal := p.atCeiling(), errAtCeiling
+	if roleStage(run.Spec.Stage) {
+		// Evaluations are held to their own ceiling, never the shared one.
+		atCeiling, refusal = p.atEvaluationCeiling(), errEvaluationCeiling
+	}
 	if !atCeiling {
 		err := p.r.Create(ctx, run)
 		if err == nil {
@@ -260,7 +296,7 @@ func (p *pass) lease(ctx context.Context, run *v1alpha1.IntentRun) (*v1alpha1.In
 	var existing v1alpha1.IntentRun
 	switch err := p.r.APIReader.Get(ctx, client.ObjectKeyFromObject(run), &existing); {
 	case atCeiling && kerrors.IsNotFound(err):
-		return nil, errAtCeiling
+		return nil, refusal
 	case err != nil:
 		return nil, fmt.Errorf("read run %s: %w", run.Name, err)
 	}
@@ -377,6 +413,15 @@ func (p *pass) blockOnBranch(ctx context.Context, round int32, repo v1alpha1.Pro
 // Repository of its own the run will own.
 func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v1alpha1.ProjectRepository,
 	round, attempt int32, prev *v1alpha1.PreviousAttempt) (*v1alpha1.IntentRun, error) {
+	// No run of a stage this controller does not run is ever created.
+	if err := p.set.stageEnabled(stage); err != nil {
+		return nil, fmt.Errorf("create run: %w", err)
+	}
+	if roleStage(stage) {
+		// A role run reads no repository and is handed a JSON handoff the
+		// round renders: createRoleRun's.
+		return nil, fmt.Errorf("create run: stage %q is created with its handoff (createRoleRun)", stage)
+	}
 	name := v1alpha1.IntentRunName(p.in.Name, stage, round, repo.Name, attempt)
 	inputs := v1alpha1.IntentRunInputs{ConfigMap: runInputName(name), InputDigest: p.in.Status.Input.Digest}
 	if stage == v1alpha1.IntentStagePlan {

@@ -23,7 +23,7 @@ in priority order into pull requests, everything else routes to humans. Complete
 `FindingRollup` resources keep the all-time statistics, and (under `attribution.mode: attribute`) `UsageRollup`
 resources each person's, Project's and the org's usage by day and month.
 
-Fifteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
+Nineteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
 
 - `cmd/integration-controller` — the single internet-facing entry point, driven by `Integration` CRs: validates
   provider webhooks (`/github/webhooks` HMAC, `/google-cloud/webhooks` Pub/Sub OIDC, `/wiz/webhooks` bearer
@@ -58,8 +58,10 @@ Fifteen binaries, one module. "Not monolithic" means separate binaries/deploymen
   as a `maul` provider on its command line, `harness.Gateway`), a copilot pod only its token. Two subcommands share
   the binary: `sandbox-probe` (the
   `internal/sandboxprobe` check the trusted prepare init runs: `--mode strict`, the default, for a repository image,
-  exit 78 when egress is open; `--mode wait --targets k8s,imds` for every other non-evaluation Job, exit 0 either way)
-  and `preflight` (what `maul check image --run` drives).
+  exit 78 when egress is open, and for the agent evaluator's Job over `--targets internet,k8s,imds,dns`; `--mode wait
+  --targets k8s,imds` for every other non-evaluation Job, exit 0 either way) and `preflight` (what
+  `maul check image --run` drives). The agent evaluator's stages `evaluate` and `checkreview` run here too
+  (`internal/agentrun`).
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
   proxy all claude and codex model traffic goes through, one route per provider (anthropic — key or `claude
   setup-token` bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra, and the OpenAI
@@ -206,6 +208,17 @@ Fifteen binaries, one module. "Not monolithic" means separate binaries/deploymen
   budget (`limits.<stage>.maxCostMicroUSD`, else the per-intent ceiling) stamped on its Job and pod as
   `provider.BudgetAnnotation`, the chart's `budget-policy.yaml` letting only intent-controller set it; with
   `--broker-cost-per-hour` a Project whose run budget exceeds half of it is not Ready (`RunBudgetOverHourlyLimit`).
+  With `--intent-evaluator` (default off; chart `intentController.verification.evaluator`, needing verification and
+  previews; design `.claude/plans/agent-evaluator/DESIGN.md`, people's guide `docs/intents/evaluator.md`) plans state
+  acceptance outcomes, not criteria, and each round is an outcome `PreviewVerification` plus, once preview-controller's
+  `status.tools` names the slot tool pod, an `evaluate` IntentRun (`<intent>-ev-…`, launched only while that round is
+  still current) and one `checkreview` run per round (`-cr-`) for the new confirmed checks; the proven ones go to an
+  immutable Intent-owned ConfigMap `<intent>-checks-<n>` (`checkstore.go`), the round is judged by
+  `acceptance.Decide` (`evaluate_judge.go`), a reproduced failure gets a maul-rendered reproduction
+  (`reproduction.go`), and the gated hand-off holds the preview link (`handoff.go`; `--intent-default-handoff`,
+  `--intent-handoff-max`, `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
+  `limits.maxEvaluateCostMicroUSD`); a codex Project is evaluated only with `--intent-evaluate-codex`, else its hand-off
+  is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes.
 - `cmd/preview-controller` — OPTIONAL (default-off): renders one `Preview` per eligible Intent PR into a fixed,
   isolated slot namespace. It uses only the Kubernetes API, with namespaced Roles and no GitHub, AWS, ECR or Secret
   access. It owns Preview status, fixed Deployment/Service/Ingress objects, bounded retries, slot cleanup and a
@@ -225,7 +238,15 @@ Fifteen binaries, one module. "Not monolithic" means separate binaries/deploymen
   `--preview-taint-key`, `--preview-node-isolation=required|none`; the NodePool/NodeClass flags fill EKS's two keys, so
   renders stay byte-identical; chart `preview.nodeIsolation.{selector,mode,eksAutoMode}`). `--preview-legacy-ingress`
   (default true, today's path; chart `preview.legacyIngress`) off renders no slot Ingress, ignores target health and
-  deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
+  deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`. With
+  `--preview-evaluator` (chart: the agent evaluator with verification on) an outcome verification runs the slot tool
+  pod instead of the tester (`toolpod.go`, `toolpolicy.go`, `toolrun.go`): a Job of `tools` (preview-tools) with
+  `browser` (cdp-shim, only for a Project with `surfaces.browser`) and `sandbox` (tool-exec) native sidecars, its CDP
+  key Secret and tool ConfigMap (owned by the Job, never read back), and one ingress policy admitting exactly its
+  evaluator on 8090; it writes `status.tools` once `tools` is Ready, refreshes the redacted log tails and slot events
+  each poll (`capture.go`), then verifies the `tools` log against its termination message and keeps the ledger and
+  cited evidence in `<pv>-ledger`/`<pv>-evidence` (`ledger.go`, `evidence.go`). `--preview-max-evaluations` bounds
+  tool pods at once (0, the slot count).
 - `cmd/preview-tester` — OPTIONAL (default-off with acceptance verification; chart `preview.verification`, a
   digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
   tester Job preview-controller runs, stdlib plus `internal/acceptance` only, it observes and never judges. It reads
@@ -234,7 +255,21 @@ Fifteen binaries, one module. "Not monolithic" means separate binaries/deploymen
   a count-and-sha256 summary that preview-controller reads back through `pods/log`, beside the termination message. The
   e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
   Operator guide `docs/configuration/preview-controller.md#acceptance-verification-off-by-default`, the people's guide
-  `docs/intents/acceptance.md`.
+  `docs/intents/acceptance.md`. Kept until the evaluator's S4, which deletes it; the evaluator's tool pod replaces it.
+- `cmd/preview-tools` — OPTIONAL (with the agent evaluator; `Dockerfile.preview-tools`, a digest-pinned image, chart
+  `preview.verification.tools.image`): the `tools` container of the evaluator's slot tool pod, maul's relay over
+  `internal/previewtools`. It serves the `toolwire` verbs on 8090 (refusing local callers), runs every tool call and
+  check, and writes the ledger v2 (`MAUL-TOOLS:` entries, count and sha256 in the summary line and the termination
+  message) on its stdout, which only it writes. The image adds Node and the exactly pinned `@playwright/cli`,
+  `playwright-core` and `@playwright/test`.
+- `cmd/cdp-shim` — OPTIONAL (with the evaluator; `Dockerfile.preview-browser`, beside Chromium): the `browser`
+  container's keyed CDP shim over `internal/cdpshim`. Chromium speaks CDP only over a pipe; the shim serves it to a
+  caller presenting the per-verification key and no `Origin`, one Chromium per connection.
+- `cmd/tool-exec` — OPTIONAL (with the evaluator; `Dockerfile.preview-toolbox`): the `sandbox` container's exec shim
+  over `internal/toolexec`, on a unix socket only `tools` shares; agent-written programs run here, holding nothing.
+- `cmd/maul-tool` — the evaluator's one shell CLI (`internal/maultool`), shipped in the claude and codex agent-runner
+  images: `maul-tool http|browser|exec|logs|events|check run|check results`, sent to its tool pod over `toolwire`
+  (`MAUL_TOOLS_URL`, no key). Not deployed on its own.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded SPA +
   JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration `spec.replay`;
@@ -638,7 +673,38 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `pass`, `quarantined` or `fail` verdict out; no runtime `error`), `Fingerprint` and `ClassifyEnvironment`, and the
   `MAUL-VERIFY:` wire v1. `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded
   round-trip. `untrusted` (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
-  text before a human or model sees it. `previewtester` is the tester binary's engine.
+  text before a human or model sees it. `previewtester` is the tester binary's engine. For the agent evaluator,
+  `acceptance` also holds the plan's outcome grammar (`PlanOutcome`, `ValidateOutcomes`, at most 20, kinds `change` and
+  `keep`, `manual`; `report.(*Plan).CheckEvaluator` refuses a criteria plan with `ErrSliceOneCriteria`),
+  `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and `Decide` (`decide.go`:
+  the six pass rules
+  of DESIGN 4.3, the dispute rule, failed only on a deterministic check failure the evaluator agrees with, unsure
+  otherwise, anomalies and a failing environment downgrading the hand-off; seeded property: no pass without all six).
+  `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`).
+- `checks` (+ `checks/playwright`) — the evaluator's saved-check grammar, pure: a check is bound to one outcome and is
+  `http` (slice 1's steps plus `$range`, `$includes`, header presence), `browser` (a JSON step grammar: `goto`,
+  `waitForURL`, `click`, `fill`, `select`, `press`, `scroll`; scoped locators, never a snapshot ref; assertions
+  `visible`, `legible`, `text`, `count`, `url`, the box relations, `size`, `clickable`; never a colour literal) or
+  `exec` (an argv run in the sandbox). `Canonical`/`Digest` key a check however it was spelled; `Validate` refuses with
+  a named rule (not substantive, unscoped to `{{run}}` data, too many steps, over 8 KiB). `checks/playwright` compiles a
+  browser check to a readable `.spec.ts` at a fixed 1280x800, maul's page functions (`pagefns.js`) judging human
+  visibility, WCAG contrast and hit-tested clicks, indeterminate as a check error, never a fail.
+- `toolwire` — the evaluator's tool wire and ledger v2, stdlib only: one endpoint per verb (`POST /v1/<verb>`), typed
+  requests held to their bounds, one `Response` keeping the application's bytes (`Untrusted`) apart from maul's
+  measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`), evidence lines and the `Summary` (count and sha256)
+  that is also the termination message; `Verify` holds a log to it. The contract between `maul-tool`, agent-runner,
+  `preview-tools` and the controllers, and the capture's shared key names.
+- `previewtools` — `cmd/preview-tools`'s engine: the `Relay` (one call at a time; `http` through the gateway's header
+  hygiene, `browser` through the pinned Playwright CLI with an allowlist and a pre-opened session, `exec` through the
+  exec shim, `logs`/`events` from the captured files, `check run`/`results`, and agent-runner's `confirm` and `finish`),
+  the replay of saved checks each alone with a fresh run token, artifacts served by sha256, and `GuardListener`
+  refusing loopback and own-pod callers. `previewtools/node` is the pinned Node side.
+- `cdpshim`, `toolexec`, `maultool` — the engines of `cmd/cdp-shim` (keyed CDP over Chromium's pipe, one browser per
+  connection, at most two live, idle 10 minutes, never logs the key), `cmd/tool-exec` (one program at a time under the
+  sandbox's UID, files only under the scratch directory through `os.Root`, a fixed environment, bounded output and
+  time) and `cmd/maul-tool` (the CLI: `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into
+  `shots/` under the scratch directory only). Each imports only the stdlib, `toolwire` and, for the shim,
+  `x/net/websocket` (tests pin that).
 - **Verification flow** (default off; `--intent-verification`, `--intent-verify-timeout-max`; chart
   `preview.verification`, whose `deadlineMaxSeconds` drives both controllers' deadline flags): intent-controller reads
   the approved plan's criteria into `status.acceptance` on the first review pass, and at the gate (CI green, no human
@@ -671,7 +737,10 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
   plugins and web search off; its argv and stream are pinned from the real pinned CLI (rust-v0.153.4) run against a
-  recording Responses server (`internal/harness/testdata/codex-0.153.4-*.jsonl`).
+  recording Responses server (`internal/harness/testdata/codex-0.153.4-*.jsonl`). `SandboxEvaluate` is the
+  evaluator's posture: claude with `--restricted`, `--tools Bash,Read,Write`, `Bash(maul-tool:*)` and Read/Edit under
+  `//work/scratch/**` only, cwd `/work/scratch`, auto memory off, the long Bash timeouts maul-tool needs, pinned by the
+  posture probe; codex is held structurally (no data, no route); copilot refuses it (`CheckPosture`).
 - `agentrun` — the in-pod stage flow (`investigate` | `remediate`, and the intent stages `plan` | `build`, which
   reuse investigate's and remediate's configuration and helpers and run on brokered claude or brokered codex only;
   codex cannot render the read-only posture, so its plan prompt states the rule as the planner's own,
@@ -684,7 +753,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   foreground command's output is printed live as `MAUL-OUTPUT:` chunks (`output.go`: read from the file the CLI
   keeps it in, via the optional `harness.TaskWatcher`; bounded per command and per process by constants; never
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every
-  stdout line.
+  stdout line. The evaluator's stages `evaluate` (`evaluate.go`, `evaluate_tools.go`: the strict JSON handoff from
+  `/work/input`, the `SandboxEvaluate` posture in `/work/scratch`, then `confirm` and `finish` sent to the tool pod;
+  its envelope is only the model's claim) and `checkreview` (`checkreview.go`: one fresh session per new check,
+  answering `proves`, `does_not_prove` or `unclear`) run on maul's image with no tree; `report.Evaluation` and
+  `report.CheckReview` are their reports, the plan report gains `acceptance` outcomes.
 - `jobs` — the Kubernetes Job the agent runs in. The isolation model lives here, and it STRENGTHENED with the
   broker: a brokered (claude, codex) pod holds no credential of any kind — its projected SA token (audience-bound,
   agent container only, never the init) is an identity document, not a capability; claude's fixed, non-secret
@@ -714,12 +787,18 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   reserved per-Job names). The prepare init runs `agent-runner sandbox-probe`: strict inside the injection script on a
   repository image, else the wait probe (`--mode=wait --targets=k8s,imds`, `|| echo`, never fails the Job) as the
   script's last step, both with `MAUL_SANDBOX_PROBE_TIMEOUT` (default 20s); evaluation Jobs run neither.
+  `evaluator.go` is the agent evaluator's and check reviewer's Job shape (`Spec.Role`): maul's image, no tree, no
+  artifact fetch, no network profile, no resolver whatever `Config.DNS` says (the broker and the tool pod are host
+  entries), `maul.run/role` on Job and pod, and for the evaluator `maul.run/preview-verification` plus a prepare ending
+  in the strict probe over every target, DNS included (`Config.SandboxProbeDNS`).
 - `sandboxprobe` — the negative-connectivity check behind `agent-runner sandbox-probe`, stdlib only: dial the targets
   (`internet` 1.1.1.1:443, `k8s` from `KUBERNETES_SERVICE_HOST`, `imds` 169.254.169.254:80) until three consecutive
   rounds find all closed or the window (`MAUL_SANDBOX_PROBE_TIMEOUT`, 20s) ends. `ModeStrict` (no arguments; every
   target) exits `ExitUnenforced` (78), which `jobs` re-exports and the collectors map to `SandboxUnenforced`;
   `ModeWait` (default targets `k8s,imds`) exits 0 either way with one `SANDBOX NOT CONFIRMED` line. Window, clock and
-  dialer injectable.
+  dialer injectable. `ModeStrict` also takes `--targets`, and `TargetsFor` knows `dns` (the cluster resolver's `:53`
+  must be closed), which only the evaluator's prepare asks for; `DefaultTargets` is unchanged, so a repository-image
+  build under the default DNS rule is not refused.
 - `runnercfg` — the job controllers' shared agent-runner flag surface and startup validation (investigation,
   remediation, intent, evaluation): per-harness runner images and credential Secrets, harness restriction, repository
   images, network profiles, agent resources, agent DNS, `--agents-paused`, `--attribution-mode`, the `--usage-*`

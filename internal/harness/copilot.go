@@ -6,6 +6,7 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/devthenet-labs/maul/internal/runner"
@@ -61,9 +62,24 @@ func NewCopilot() *Copilot {
 // discarded after the run) and the fact that only the remediation stage's
 // changeset is ever pushed. SandboxDefault renders nothing, matching the other
 // harnesses.
+//
+// SandboxEvaluate cannot be expressed either (a shell held to one command, and
+// writes to one directory), so copilot refuses it (CheckPosture); a caller
+// that renders it regardless gets no shell, no writes and no URLs, a run that
+// can do nothing, never the CLI's defaults.
 var copilotDeny = map[Sandbox][]string{
 	SandboxReadOnly:       {"url()"},
 	SandboxWorkspaceWrite: {"url()"},
+	SandboxEvaluate:       {"url()", "shell", "write"},
+}
+
+// CheckPosture refuses SandboxEvaluate, which copilot's grammar cannot hold a
+// run to (copilotDeny); every other posture renders.
+func (c *Copilot) CheckPosture(s Sandbox) error {
+	if s == SandboxEvaluate {
+		return fmt.Errorf("%w: copilot cannot hold a run to the evaluate posture", ErrPostureUnsupported)
+	}
+	return nil
 }
 
 // PromptSpec builds the headless copilot invocation for one prompted run.

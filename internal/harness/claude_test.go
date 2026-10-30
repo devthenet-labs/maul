@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 // Claude Code emits one JSON event per line under --output-format stream-json
@@ -145,17 +147,18 @@ func TestClaudeReadOnlyDeniesTheOtherEditTools(t *testing.T) {
 	}
 }
 
-// TestClaudeRestrictedOnlyReadOnly: the read-only posture runs with
-// --restricted, which confines its file tools to the directories it adds, on
-// its first run and on resume; the writable posture does not, since the flag
-// would take its shell, and an unpostured run imposes nothing.
-func TestClaudeRestrictedOnlyReadOnly(t *testing.T) {
+// TestClaudeRestrictedPostures: the read-only and evaluate postures run with
+// --restricted, which confines their file tools to the working directories,
+// on the first run and on resume; the writable posture does not, since the
+// flag would take its shell, and an unpostured run imposes nothing.
+func TestClaudeRestrictedPostures(t *testing.T) {
 	c := NewClaude()
 	for _, tt := range []struct {
 		sandbox Sandbox
 		want    bool
 	}{
 		{SandboxReadOnly, true},
+		{SandboxEvaluate, true},
 		{SandboxWorkspaceWrite, false},
 		{SandboxDefault, false},
 	} {
@@ -169,6 +172,86 @@ func TestClaudeRestrictedOnlyReadOnly(t *testing.T) {
 					tt.sandbox, name, got, argv, tt.want)
 			}
 		}
+	}
+}
+
+// TestClaudePromptSpecEvaluate pins the evaluate posture (spike SP-4, run
+// C-cwd on 2.1.263): the CLI runs in the scratch directory itself with no
+// --add-dir at all, so --restricted confines Read and Write to it; the shell
+// is maul-tool alone; reads and writes are scoped to scratch by absolute
+// rules, the write scope as an Edit rule (a Write rule grants nothing); and
+// the request's AddDirs and WriteDirs, which would widen the confinement,
+// are not rendered. Auto memory is off and CLAUDE.md is not loaded from an
+// added directory (there is none). Resume renders the same posture.
+func TestClaudePromptSpecEvaluate(t *testing.T) {
+	reqEnv := make([]string, 1, 4)
+	reqEnv[0] = "A=b"
+	req := PromptRequest{
+		Prompt: "evaluate", Model: "m", MaxTurns: 40, Sandbox: SandboxEvaluate,
+		SessionID:          claudeSessionID,
+		SystemPromptAppend: "judge",
+		AddDirs:            []string{"/work"},
+		WriteDirs:          []string{"/work"},
+		Env:                reqEnv,
+	}
+	head := []string{
+		"claude", "-p", "evaluate", "--model", "m", "--output-format", "stream-json", "--verbose",
+		"--max-turns", "40",
+		"--tools", "Bash,Read,Write",
+		"--allowedTools", "Bash(maul-tool:*) Read(//work/scratch/**) Edit(//work/scratch/**)",
+		"--disallowedTools", "WebFetch WebSearch Task NotebookEdit Glob Grep",
+		"--restricted",
+		"--setting-sources", "user", "--permission-mode", "dontAsk",
+		"--strict-mcp-config",
+	}
+	c := NewClaude()
+	for _, tc := range []struct {
+		name string
+		spec runner.CommandSpec
+		want []string
+	}{
+		{"first run", c.PromptSpec("/work/scratch", req),
+			slices.Concat(head, []string{"--session-id", claudeSessionID, "--append-system-prompt", "judge"})},
+		{"resume", c.ResumeSpec("/work/scratch", claudeSessionID, req),
+			slices.Concat(head, []string{"--append-system-prompt", "judge", "--resume", claudeSessionID})},
+	} {
+		if !slices.Equal(tc.spec.Argv, tc.want) {
+			t.Errorf("%s: Argv =\n%q\nwant\n%q", tc.name, tc.spec.Argv, tc.want)
+		}
+		if tc.spec.Dir != "/work/scratch" {
+			t.Errorf("%s: Dir = %q, want the scratch directory as the CLI's cwd", tc.name, tc.spec.Dir)
+		}
+		if n := countArg(tc.spec.Argv, "--add-dir"); n != 0 {
+			t.Errorf("%s: --add-dir given %d times, want none: it would widen --restricted's confinement", tc.name, n)
+		}
+		// maul-tool's calls (a check run is two attempts in a fresh browser
+		// each, maultool.CallTimeout) outlast the CLI's default Bash timeout:
+		// the evaluate posture raises both its default and its ceiling.
+		want := []string{"A=b", claudeNoAutoMemory, "BASH_DEFAULT_TIMEOUT_MS=600000", "BASH_MAX_TIMEOUT_MS=600000"}
+		if !slices.Equal(tc.spec.Env, want) {
+			t.Errorf("%s: Env = %q, want %q", tc.name, tc.spec.Env, want)
+		}
+	}
+	if spare := reqEnv[:cap(reqEnv)][1]; spare != "" {
+		t.Errorf("request Env's backing array written through: %q", spare)
+	}
+}
+
+// TestClaudeEvaluateScopesToTheWorkspace: the Read and Edit rules follow the
+// directory the run is given, cleaned and made absolute with the "//"
+// prefix, so a run elsewhere (the posture probe) is held to that directory.
+// No rule names Write: on the pinned CLI a Write rule grants nothing (SP-4).
+func TestClaudeEvaluateScopesToTheWorkspace(t *testing.T) {
+	spec := NewClaude().PromptSpec("/tmp/x/scratch/", PromptRequest{Prompt: "p", Model: "m", Sandbox: SandboxEvaluate})
+	i := slices.Index(spec.Argv, "--allowedTools")
+	if i < 0 || i+1 >= len(spec.Argv) {
+		t.Fatalf("argv lacks --allowedTools: %q", spec.Argv)
+	}
+	if got, want := spec.Argv[i+1], "Bash(maul-tool:*) Read(//tmp/x/scratch/**) Edit(//tmp/x/scratch/**)"; got != want {
+		t.Errorf("--allowedTools = %q, want %q", got, want)
+	}
+	if strings.Contains(spec.Argv[i+1], "Write(") {
+		t.Errorf("--allowedTools %q carries a Write rule", spec.Argv[i+1])
 	}
 }
 

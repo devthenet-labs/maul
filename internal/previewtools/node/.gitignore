@@ -1,0 +1,6 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+
+# What the live tests leave here: the Playwright test runner's output when
+# internal/checks/playwright's TestLivePageFunctions runs on this project.
+test-results/

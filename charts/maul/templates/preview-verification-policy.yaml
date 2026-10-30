@@ -31,22 +31,71 @@ workload and an agent sandbox). Compared on segment boundaries through
 maul.registryPathKey, as the prefix overlap check is.
 */}}
 {{- define "maul.previewTesterImage" -}}
-{{- $img := (.Values.preview.verification | default dict).testerImage | default "" | toString -}}
-{{- if not $img }}{{ fail "preview.verification.testerImage is required when preview.verification.enabled=true: the digest-pinned preview-tester image" }}{{ end -}}
+{{- include "maul.previewMaulImage" (dict "root" . "key" "testerImage" "what" "the digest-pinned preview-tester image" "when" "preview.verification.enabled=true") -}}
+{{- end }}
+{{- /*
+maul.previewMaulImage: one of maul's own slot images, preview.verification.<key>
+(dict root, key, what, when), checked as the tester's always was: pinned by
+digest, the registry named, and under neither the preview image prefix nor
+an agent registry. Returns the reference.
+*/}}
+{{- define "maul.previewMaulImage" -}}
+{{- $root := .root -}}
+{{- $name := printf "preview.verification.%s" .key -}}
+{{- $img := "" -}}
+{{- $v := $root.Values.preview.verification | default dict -}}
+{{- if hasPrefix "tools." .key -}}
+{{- $img = get ($v.tools | default dict) (trimPrefix "tools." .key) | default "" | toString -}}
+{{- else -}}
+{{- $img = get $v .key | default "" | toString -}}
+{{- end -}}
+{{- if not $img }}{{ fail (printf "%s is required when %s: %s" $name .when .what) }}{{ end -}}
 {{- $host := `(([a-z0-9-]+\.)+[a-z0-9-]+(:[0-9]+)?|[a-z0-9-]+:[0-9]+|localhost(:[0-9]+)?)` -}}
 {{- $path := `(/[a-z0-9]+([._-][a-z0-9]+)*)+` -}}
 {{- $tag := `(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?` -}}
 {{- $digest := `@sha256:[0-9a-f]{64}` -}}
-{{- if not (regexMatch (printf "^%s%s%s%s$" $host $path $tag $digest) $img) }}{{ fail (printf "preview.verification.testerImage %q must be pinned by digest: <registry host>/<path>[:tag]@sha256:<64 lowercase hex>, the registry named" $img) }}{{ end -}}
+{{- if not (regexMatch (printf "^%s%s%s%s$" $host $path $tag $digest) $img) }}{{ fail (printf "%s %q must be pinned by digest: <registry host>/<path>[:tag]@sha256:<64 lowercase hex>, the registry named" $name $img) }}{{ end -}}
 {{- $repo := regexReplaceAll (printf "%s%s$" $tag $digest) $img "" -}}
 {{- $key := include "maul.registryPathKey" (printf "%s/" $repo) -}}
-{{- $preview := include "maul.registryPathKey" (include "maul.previewImagePrefix" .) -}}
-{{- if hasPrefix $preview $key }}{{ fail (printf "preview.verification.testerImage %q lies under the preview image prefix %s: that path holds images built from unreviewed pull requests, and the tester must be maul's own" $img (include "maul.previewImagePrefix" .)) }}{{ end -}}
-{{- range $entry := (.Values.agent.repositoryImages | default dict).registries | default list -}}
+{{- $preview := include "maul.registryPathKey" (include "maul.previewImagePrefix" $root) -}}
+{{- if hasPrefix $preview $key }}{{ fail (printf "%s %q lies under the preview image prefix %s: that path holds images built from unreviewed pull requests, and a slot image of maul's must be maul's own" $name $img (include "maul.previewImagePrefix" $root)) }}{{ end -}}
+{{- range $entry := ($root.Values.agent.repositoryImages | default dict).registries | default list -}}
 {{- $agent := include "maul.registryPathKey" (printf "%s/" (trimSuffix "/" (toString $entry))) -}}
-{{- if hasPrefix $agent $key }}{{ fail (printf "preview.verification.testerImage %q lies under the agent registry %q (agent.repositoryImages.registries): an image a slot runs must never be one an agent sandbox may run" $img (toString $entry)) }}{{ end -}}
+{{- if hasPrefix $agent $key }}{{ fail (printf "%s %q lies under the agent registry %q (agent.repositoryImages.registries): an image a slot runs must never be one an agent sandbox may run" $name $img (toString $entry)) }}{{ end -}}
 {{- end -}}
 {{- $img -}}
+{{- end }}
+{{- /*
+maul.previewTools: the slot tool pod switch. Returns "true" when acceptance
+verification and the agent evaluator (intentController.verification.evaluator)
+are both on, "" otherwise: the evaluator drives a tool pod in a Preview's
+slot, so without verification (no slot Jobs, no PreviewVerifications) it has
+nothing to evaluate, and intent-controller is not switched on. On, it checks
+the three tool images and that one evaluation round's timeout fits under the
+slot Job deadline.
+*/}}
+{{- define "maul.previewTools" -}}
+{{- if and (include "maul.previewVerification" .) (include "maul.evaluatorEnabled" .) -}}
+{{- $_ := include "maul.previewToolImages" . -}}
+{{- $ev := .Values.intentController.verification | default dict -}}
+{{- $timeout := toString ($ev.evaluateTimeout | default "20m") -}}
+{{- $seconds := int64 (include "maul.durationSeconds" $timeout) -}}
+{{- $deadline := int64 (include "maul.previewVerifyDeadlineSeconds" .) -}}
+{{- if or (le $seconds 0) (ge $seconds $deadline) }}{{ fail (printf "intentController.verification.evaluateTimeout %s must be a whole number of h, m and s shorter than preview.verification.deadlineMaxSeconds (%ds): one evaluation round's slot tool Job runs for it plus a margin, under that deadline" $timeout $deadline) }}{{ end -}}
+true
+{{- end -}}
+{{- end }}
+{{- /*
+maul.previewToolImages: the tool pod's three images, checked, as JSON
+{tools, browser, toolbox}.
+*/}}
+{{- define "maul.previewToolImages" -}}
+{{- $when := "preview.verification.enabled and intentController.verification.evaluator are on" -}}
+{{- dict
+    "tools" (include "maul.previewMaulImage" (dict "root" . "key" "tools.image" "what" "the digest-pinned preview-tools image (the slot tool pod's relay)" "when" $when))
+    "browser" (include "maul.previewMaulImage" (dict "root" . "key" "tools.browserImage" "what" "the digest-pinned preview-browser image (the tool pod's browser sidecar)" "when" $when))
+    "toolbox" (include "maul.previewMaulImage" (dict "root" . "key" "tools.toolboxImage" "what" "the digest-pinned preview-toolbox image (the tool pod's sandbox sidecar)" "when" $when))
+    | toJson -}}
 {{- end }}
 {{- /*
 maul.previewVerifyDeadlineSeconds: preview.verification.deadlineMaxSeconds
@@ -105,4 +154,51 @@ metadata:
 spec:
     policyName: maul-preview-verifications
     validationActions: [Deny]
+{{- if include "maul.previewTools" . }}
+---
+# The slot tool pod's records (SPEC Q8, Q7): preview-controller writes each
+# verification's full ledger and its verified screenshots to ConfigMaps in
+# the release namespace, <verification>-ledger and <verification>-evidence,
+# owned by that PreviewVerification so they go with it. Its configmaps grant
+# there is create and delete only (no read), but the namespace also holds
+# every Finding's transcripts and the controllers' settings: this holds it to
+# its own two kinds of record. Fail closed.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: maul-preview-ledgers
+spec:
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [""]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE, DELETE]
+              resources: [configmaps]
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    matchConditions:
+        - name: preview-controller
+          expression: "request.userInfo.username == '{{ $pcSA }}'"
+    variables:
+        - name: cm
+          expression: "request.operation == 'DELETE' ? oldObject : object"
+    validations:
+        - expression: >-
+              (variables.cm.metadata.name.endsWith('-ledger') || variables.cm.metadata.name.endsWith('-evidence')) &&
+              variables.cm.metadata.?ownerReferences.orValue([]).exists(r,
+                r.apiVersion == 'maul.run/v1alpha1' && r.kind == 'PreviewVerification' &&
+                r.?controller.orValue(false) &&
+                variables.cm.metadata.name in [r.name + '-ledger', r.name + '-evidence'])
+          message: preview-controller writes only a PreviewVerification's own ledger and evidence ConfigMaps
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: maul-preview-ledgers
+spec:
+    policyName: maul-preview-ledgers
+    validationActions: [Deny]
+{{- end }}
 {{- end }}

@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// stampScript is the release step that pins this binary's image into the
-// chart (.github/workflows/helm.yaml).
-const stampScript = "../../hack/stamp-preview-tester.sh"
+// stampScript is the release step that pins this binary's image, and the
+// slot tool pod's three, into the chart (.github/workflows/helm.yaml).
+const stampScript = "../../hack/stamp-preview-images.sh"
 
 const stampValues = `# head comment
 image:
@@ -24,64 +24,93 @@ preview:
     verification:
         enabled: false
         testerImage: "" # x-maul-preview-tester-image
+        tools:
+            image: "" # x-maul-preview-tools-image
+            browserImage: "" # x-maul-preview-browser-image
+            toolboxImage: "" # x-maul-preview-toolbox-image
 `
 
-// TestStampScript: the release stamp writes the image by digest into the
+// stampKeys are the images the script stamps: the name it is called with,
+// the values line it rewrites and that line's marker.
+var stampKeys = []struct{ name, key, marker string }{
+	{"tester", "testerImage", "# x-maul-preview-tester-image"},
+	{"tools", "image", "# x-maul-preview-tools-image"},
+	{"browser", "browserImage", "# x-maul-preview-browser-image"},
+	{"toolbox", "toolboxImage", "# x-maul-preview-toolbox-image"},
+}
+
+// stamp runs the script on a copy of values and returns the result.
+func stamp(t *testing.T, values string, args ...string) (string, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(path, []byte(values), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(stampScript, append([]string{path}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Logf("%s", out)
+	}
+	got, rerr := os.ReadFile(path)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	return string(got), err
+}
+
+// TestStampScript: the release stamp writes each image by digest into its
 // one marked line, leaves every other byte alone, and refuses anything it
 // cannot stamp exactly.
 func TestStampScript(t *testing.T) {
 	if _, err := exec.LookPath("yq"); err != nil {
 		t.Skip("yq not on PATH")
 	}
-	repo := "ghcr.io/devthenet-labs/maul/preview-tester"
 	digest := "sha256:" + strings.Repeat("0a", 32)
-	stamp := func(t *testing.T, values, repository, digest string) (string, error) {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "values.yaml")
-		if err := os.WriteFile(path, []byte(values), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		out, err := exec.Command(stampScript, path, repository, digest).CombinedOutput()
-		if err != nil {
-			t.Logf("%s", out)
-		}
-		got, rerr := os.ReadFile(path)
-		if rerr != nil {
-			t.Fatal(rerr)
-		}
-		return string(got), err
-	}
+	for _, k := range stampKeys {
+		t.Run(k.name, func(t *testing.T) {
+			repo := "ghcr.io/devthenet-labs/maul/preview-" + k.name
+			got, err := stamp(t, stampValues, k.name, repo, digest)
+			if err != nil {
+				t.Fatalf("stamp: %v", err)
+			}
+			want := strings.Replace(stampValues, k.key+`: "" `+k.marker,
+				k.key+`: "`+repo+"@"+digest+`" `+k.marker, 1)
+			if got != want {
+				t.Errorf("stamped values:\n%s\nwant:\n%s", got, want)
+			}
 
-	got, err := stamp(t, stampValues, repo, digest)
-	if err != nil {
-		t.Fatalf("stamp: %v", err)
+			for name, tc := range map[string]struct{ values, repo, digest string }{
+				"tag, not digest":   {stampValues, repo, "v0.14.0"},
+				"short digest":      {stampValues, repo, "sha256:abc"},
+				"repository syntax": {stampValues, repo + "|x", digest},
+				"no marker":         {strings.Replace(stampValues, " "+k.marker, "", 1), repo, digest},
+				"two markers": {stampValues + "other:\n    " + k.key + `: "" ` + k.marker + "\n",
+					repo, digest},
+				"marker on another key": {strings.Replace(stampValues, k.key+`: "" `+k.marker,
+					"elsewhere: \"\" "+k.marker, 1), repo, digest},
+			} {
+				t.Run(name, func(t *testing.T) {
+					if _, err := stamp(t, tc.values, k.name, tc.repo, tc.digest); err == nil {
+						t.Errorf("stamp accepted %s", name)
+					}
+				})
+			}
+		})
 	}
-	want := strings.Replace(stampValues, `testerImage: ""`, `testerImage: "`+repo+"@"+digest+`"`, 1)
-	if got != want {
-		t.Errorf("stamped values:\n%s\nwant:\n%s", got, want)
-	}
-
-	for name, tc := range map[string]struct{ values, repo, digest string }{
-		"tag, not digest":   {stampValues, repo, "v0.14.0"},
-		"short digest":      {stampValues, repo, "sha256:abc"},
-		"repository syntax": {stampValues, repo + "|x", digest},
-		"no marker":         {strings.Replace(stampValues, " # x-maul-preview-tester-image", "", 1), repo, digest},
-		"two markers": {stampValues + `other:
-    testerImage: "" # x-maul-preview-tester-image
-`, repo, digest},
-		"marker on another key": {strings.Replace(stampValues, "    verification:\n", "    elsewhere:\n", 1), repo, digest},
+	for name, args := range map[string][]string{
+		"an unknown image": {"agent", "ghcr.io/devthenet-labs/maul/agent", digest},
+		"no image name":    {"ghcr.io/devthenet-labs/maul/preview-tester", digest},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := stamp(t, tc.values, tc.repo, tc.digest); err == nil {
+			if _, err := stamp(t, stampValues, args...); err == nil {
 				t.Errorf("stamp accepted %s", name)
 			}
 		})
 	}
 }
 
-// TestStampChartValues: the shipped chart holds the one marked line the
-// release stamp rewrites, at preview.verification.testerImage, so a release
-// never fails its publish (or ships unstamped) over a values edit.
+// TestStampChartValues: the shipped chart holds each marked line the
+// release stamp rewrites, so a release never fails its publish (or ships
+// unstamped) over a values edit.
 func TestStampChartValues(t *testing.T) {
 	if _, err := exec.LookPath("yq"); err != nil {
 		t.Skip("yq not on PATH")
@@ -90,23 +119,19 @@ func TestStampChartValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "values.yaml")
-	if err := os.WriteFile(path, src, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	repo := "ghcr.io/devthenet-labs/maul/preview-tester"
 	digest := "sha256:" + strings.Repeat("0a", 32)
-	out, err := exec.Command(stampScript, path, repo, digest).CombinedOutput()
-	if err != nil {
-		t.Fatalf("stamp of charts/maul/values.yaml: %v\n%s", err, out)
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := strings.Replace(string(src), `testerImage: "" # x-maul-preview-tester-image`,
-		`testerImage: "`+repo+"@"+digest+`" # x-maul-preview-tester-image`, 1)
-	if string(got) != want {
-		t.Error("the stamp changed more of charts/maul/values.yaml than the marked line")
+	for _, k := range stampKeys {
+		t.Run(k.name, func(t *testing.T) {
+			repo := "ghcr.io/devthenet-labs/maul/preview-" + k.name
+			got, err := stamp(t, string(src), k.name, repo, digest)
+			if err != nil {
+				t.Fatalf("stamp of charts/maul/values.yaml: %v", err)
+			}
+			want := strings.Replace(string(src), k.key+`: "" `+k.marker,
+				k.key+`: "`+repo+"@"+digest+`" `+k.marker, 1)
+			if got != want {
+				t.Error("the stamp changed more of charts/maul/values.yaml than the marked line")
+			}
+		})
 	}
 }

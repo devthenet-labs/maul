@@ -275,6 +275,102 @@ spec:
                         minimum: 0
                         type: integer
                     type: object
+                  checkReview:
+                    description: |-
+                      CheckReview bounds each check reviewer run (read-only, judging the
+                      round's new saved checks).
+                    properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
+                      maxTurns:
+                        description: MaxTurns the agent may take in one run of the
+                          stage.
+                        format: int32
+                        maximum: 1000
+                        minimum: 0
+                        type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
+                      tokenBudget:
+                        description: |-
+                          TokenBudget is the output-token budget of one run of the stage (the
+                          runner's kill switch).
+                        format: int64
+                        maximum: 100000000
+                        minimum: 0
+                        type: integer
+                    type: object
+                  evaluate:
+                    description: |-
+                      Evaluate bounds each evaluator run (read-only, judging the live
+                      preview through its slot tool pod).
+                    properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
+                      maxTurns:
+                        description: MaxTurns the agent may take in one run of the
+                          stage.
+                        format: int32
+                        maximum: 1000
+                        minimum: 0
+                        type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
+                      tokenBudget:
+                        description: |-
+                          TokenBudget is the output-token budget of one run of the stage (the
+                          runner's kill switch).
+                        format: int64
+                        maximum: 100000000
+                        minimum: 0
+                        type: integer
+                    type: object
                   maxActiveIntents:
                     default: 2
                     description: |-
@@ -304,6 +400,18 @@ spec:
                       reported usage comes from a repository-declared image and is
                       untrusted — the per-run limits, the Job deadline and MaxRevisions are
                       what is actually enforced there. The ceiling is capped at $1000.
+                    format: int64
+                    maximum: 1000000000
+                    minimum: 1
+                    type: integer
+                  maxEvaluateCostMicroUSD:
+                    description: |-
+                      MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
+                      micro-USD: what the intent's evaluate and checkreview runs may spend
+                      together, apart from the build ceiling (maxCostMicroUSD). Past it the
+                      evaluation ends and the hand-off is released as unconfirmed, never a
+                      block. Nil means DefaultMaxEvaluateCostMicroUSD
+                      (MaxEvaluateCostLimit).
                     format: int64
                     maximum: 1000000000
                     minimum: 1
@@ -445,6 +553,14 @@ spec:
                   rule: '!has(self.revise) || !has(self.revise.maxCostMicroUSD) ||
                     self.revise.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD
                     : 10000000)'
+                - message: limits.evaluate.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.evaluate) || !has(self.evaluate.maxCostMicroUSD)
+                    || self.evaluate.maxCostMicroUSD <= (has(self.maxCostMicroUSD)
+                    ? self.maxCostMicroUSD : 10000000)'
+                - message: limits.checkReview.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.checkReview) || !has(self.checkReview.maxCostMicroUSD)
+                    || self.checkReview.maxCostMicroUSD <= (has(self.maxCostMicroUSD)
+                    ? self.maxCostMicroUSD : 10000000)'
               preview:
                 description: |-
                   Preview is the one-repository shorthand for previews: the runtime
@@ -623,6 +739,26 @@ spec:
                   ImageRequired otherwise. False lets them fall back to the default
                   runner image, which carries no toolchain.
                 type: boolean
+              surfaces:
+                description: |-
+                  Surfaces names how the evaluator reaches the application beyond http
+                  (ProjectSurfaces). Unset means http only.
+                properties:
+                  browser:
+                    description: Browser lets the evaluator drive a browser against
+                      the preview.
+                    properties:
+                      entry:
+                        description: Entry is the path on the preview host the browser
+                          opens first.
+                        maxLength: 256
+                        minLength: 1
+                        pattern: ^/([^/].*)?$
+                        type: string
+                    required:
+                    - entry
+                    type: object
+                type: object
               suspend:
                 description: |-
                   Suspend stops the Project: no new intents are discovered and no run
@@ -639,12 +775,41 @@ spec:
                       prompt asks for acceptance criteria, and each Preview is created
                       verification-capable.
                     type: boolean
+                  handoff:
+                    description: |-
+                      Handoff is when the preview link is handed to humans under the
+                      evaluator: gated (held until the evaluation passes or gives up) or
+                      early (at once, labelled). Unset means the chart-wide default
+                      (intent-controller's), so one value flips every Project.
+                    enum:
+                    - gated
+                    - early
+                    type: string
+                  handoffMax:
+                    description: |-
+                      HandoffMax bounds a gated hand-off's wait, counted from CI green at
+                      the first PR heads, between 10m and 4h; DefaultHandoffMax when unset.
+                      Past it the hand-off is released as "couldn't confirm: out of time".
+                    type: string
+                    x-kubernetes-validations:
+                    - message: verification.handoffMax must be between 10m and 4h
+                      rule: duration(self) >= duration('10m') && duration(self) <=
+                        duration('4h')
                   manualGatesStatus:
                     description: |-
                       ManualGatesStatus keeps maul/acceptance pending until every manual
                       criterion is accepted (/maul accept) at the current heads. Off, the
                       status reports the automated part only and names what is still open.
                     type: boolean
+                  maxToolCalls:
+                    description: |-
+                      MaxToolCalls bounds the evaluator's tool calls per evaluation,
+                      between 50 and 300 (what the tools ledger has room for);
+                      DefaultMaxToolCalls when unset.
+                    format: int32
+                    maximum: 300
+                    minimum: 50
+                    type: integer
                   postLogs:
                     description: |-
                       PostLogs also puts component log tails in the pull request comments,
@@ -679,11 +844,12 @@ spec:
                 one repository and no repositories[].preview'
               rule: '!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r,
                 has(r.preview)))'
-            - message: 'a repository key cannot be tester while verification is enabled:
-                it names the verification tester''s part of the preview slot'
+            - message: 'a repository key cannot be tester or tools while verification
+                is enabled: they name the verification tester''s and the evaluator''s
+                tool pod''s parts of the preview slot'
               rule: '!has(self.verification) || !has(self.verification.enabled) ||
                 !self.verification.enabled || !self.repositories.exists(r, r.name
-                == ''tester'')'
+                == ''tester'' || r.name == ''tools'')'
           status:
             description: |-
               ProjectStatus is the Project's observed state. Written only by

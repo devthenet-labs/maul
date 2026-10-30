@@ -76,6 +76,10 @@ type IntentPreview struct {
 	// Verify is where acceptance verification stands, appended to the line
 	// as a clause; nil, or a zero State, adds nothing.
 	Verify *VerifyProgress
+	// Handoff is a gated hand-off's state (the agent evaluator): while held
+	// a live preview's link is not shown, and once released the link is
+	// labelled. nil (slice 1, and the early hand-off) changes nothing.
+	Handoff *PreviewHandoff
 }
 
 // IntentPreviewComponent is one repository a preview serves.
@@ -115,6 +119,8 @@ type IntentPreviewComment struct {
 	// Verify is the acceptance verification section, shown below the link
 	// sentence; nil, or one with no state and no criteria, adds nothing.
 	Verify *VerifySection
+	// Handoff is a gated hand-off's state, as IntentPreview's.
+	Handoff *PreviewHandoff
 }
 
 // previewHost is a host maul links: lowercase DNS labels, at least two.
@@ -196,6 +202,9 @@ func renderStatusPreview(p *IntentPreview) *statusPreview {
 		if single {
 			s += " serves " + shortRevision(p.Components[0].Revision) + "."
 		}
+		if p.Handoff != nil {
+			s = handoffStatusSentence(*p.Handoff, s)
+		}
 	case PreviewUpdating:
 		s = "being deployed"
 		if single {
@@ -242,6 +251,9 @@ func RenderIntentPreviewComment(c IntentPreviewComment) (string, error) {
 			s += ", under " + code(path)
 		}
 		s += "."
+		if c.Handoff != nil {
+			s = handoffCommentSentence(*c.Handoff, head, s)
+		}
 	case PreviewUpdating:
 		s = head + " is being deployed to the intent's preview; the link appears here once it is ready."
 	case PreviewWaiting:

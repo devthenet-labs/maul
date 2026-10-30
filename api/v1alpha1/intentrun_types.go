@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // IntentRunName returns the deterministic name of one IntentRun of the Intent
@@ -15,9 +16,13 @@ import (
 //   - plan:   <intent>-plan-r<round>-a<attempt>
 //   - build:  <intent>-bld-r<round>-<repoKey>-a<attempt>
 //   - revise: <intent>-rev<round>-<repoKey>-a<attempt>
+//   - evaluate: <intent>-ev-r<round>-a<attempt>
+//   - checkreview: <intent>-cr-r<round>-a<attempt>
 //
 // repoKey is the Project repository's key; a plan run plans from the first
-// repository and its name carries none. Within one Intent, distinct (stage,
+// repository and its name carries none, and neither does an evaluate or check
+// review run, which judges the Intent's whole preview rather than one
+// repository. Within one Intent, distinct (stage,
 // round, attempt, and for build and revise runs repoKey) give distinct names,
 // and inside the name budget
 // every name is at most 63 characters, a valid label value. A name can still
@@ -35,13 +40,30 @@ func IntentRunName(intent string, stage IntentStage, round int32, repoKey string
 		return fmt.Sprintf("%s-bld-r%d-%s-a%d", intent, round, repoKey, attempt)
 	case IntentStageRevise:
 		return fmt.Sprintf("%s-rev%d-%s-a%d", intent, round, repoKey, attempt)
+	case IntentStageEvaluate:
+		return fmt.Sprintf("%s-ev-r%d-a%d", intent, round, attempt)
+	case IntentStageCheckReview:
+		return fmt.Sprintf("%s-cr-r%d-a%d", intent, round, attempt)
 	default:
 		return ""
 	}
 }
 
+// IntentStages returns every IntentStage, in declaration order, as a fresh
+// slice. Every switch over a stage is tested against it, so a stage added
+// here cannot fall through to a default branch unnoticed.
+func IntentStages() []IntentStage {
+	return []IntentStage{
+		IntentStagePlan,
+		IntentStageBuild,
+		IntentStageRevise,
+		IntentStageEvaluate,
+		IntentStageCheckReview,
+	}
+}
+
 // IntentStage is the agent stage one IntentRun executes.
-// +kubebuilder:validation:Enum=plan;build;revise
+// +kubebuilder:validation:Enum=plan;build;revise;evaluate;checkreview
 type IntentStage string
 
 // Intent stages.
@@ -57,6 +79,14 @@ const (
 	// request head and run in the build round's image; its changeset is
 	// pushed fast-forward only.
 	IntentStageRevise IntentStage = "revise"
+	// IntentStageEvaluate: the evaluator's round, which judges the
+	// approved plan's outcomes against the live preview through its slot
+	// tool pod and changes nothing in any repository.
+	IntentStageEvaluate IntentStage = "evaluate"
+	// IntentStageCheckReview: the check reviewer's round, which judges
+	// whether each new saved check tests the outcome it claims; it reads
+	// quoted checks only and changes nothing.
+	IntentStageCheckReview IntentStage = "checkreview"
 )
 
 // IntentRunTrigger names what started a revise round (slice 1b).
@@ -307,6 +337,7 @@ type IntentRunGrant struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.inputs.commandID) || (has(self.trigger) && self.trigger == 'command')",message="inputs.commandID is consumed only by command rounds"
 // +kubebuilder:validation:XValidation:rule="!has(self.inputs.contextDigest) || self.stage == 'plan'",message="inputs.contextDigest is set on plan runs only: a build or revise run is handed the approved plan alone"
 // +kubebuilder:validation:XValidation:rule="!has(self.trees) || self.stage == 'plan'",message="spec.trees is set on plan runs only: a build or revise run works on its one repository"
+// +kubebuilder:validation:XValidation:rule="(self.stage == 'evaluate') == has(self.evaluation)",message="spec.evaluation is set on evaluate runs, and only on them"
 // +kubebuilder:validation:XValidation:rule="!has(self.trees) || self.trees.all(t, (t.url.endsWith('.git') ? t.url.substring(0, size(t.url) - 4) : t.url).lowerAscii() != (self.repository.url.endsWith('.git') ? self.repository.url.substring(0, size(self.repository.url) - 4) : self.repository.url).lowerAscii() && self.trees.exists_one(u, (u.url.endsWith('.git') ? u.url.substring(0, size(u.url) - 4) : u.url).lowerAscii() == (t.url.endsWith('.git') ? t.url.substring(0, size(t.url) - 4) : t.url).lowerAscii()))",message="every tree is a different repository from the others and from spec.repository (compared case-insensitively, ignoring a .git suffix)"
 type IntentRunSpec struct {
 	// IntentRef is the owning Intent. Its UID is required (CEL-enforced):
@@ -389,6 +420,32 @@ type IntentRunSpec struct {
 	// Project says later. Immutable with the rest of the spec.
 	// +optional
 	Harness ProjectHarness `json:"harness,omitempty"`
+	// Evaluation is the PreviewVerification an evaluate run judges through,
+	// pinned by UID, with its tool pod's address. Set on every evaluate run
+	// and on no other (CEL-enforced); immutable with the rest of the spec.
+	// +optional
+	Evaluation *IntentRunEvaluation `json:"evaluation,omitempty"`
+}
+
+// IntentRunEvaluation is an evaluate run's record of the verification it
+// judges: the agent pod reaches exactly that verification's tool pod, at an
+// address it is handed as a hostAlias (the evaluator has no DNS).
+// +kubebuilder:validation:XValidation:rule="size(self.uid) > 0 && size(self.uid) <= 64",message="spec.evaluation.uid is required: the verification is pinned by UID"
+type IntentRunEvaluation struct {
+	// Verification names the PreviewVerification.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Verification string `json:"verification"`
+	// UID is the PreviewVerification's UID: its tool pod's ingress policy
+	// admits only the evaluator labelled with it.
+	UID types.UID `json:"uid"`
+	// ToolIP is the tool pod's address (status.tools.podIP).
+	// +kubebuilder:validation:MinLength=2
+	// +kubebuilder:validation:MaxLength=45
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F:.]+$`
+	ToolIP string `json:"toolIP"`
+	// Rung is the verification's rung.
+	Rung VerificationRung `json:"rung"`
 }
 
 // IntentRunStatus records how the run ran. Written only by

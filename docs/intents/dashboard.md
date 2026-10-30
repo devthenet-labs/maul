@@ -75,10 +75,10 @@ from fields the controllers write, and only as `https`.
 Access is decided per Project by Kubernetes RBAC, through SubjectAccessReviews the status server runs for the signed-in
 user, on two **virtual** subresources of `projects.maul.run`:
 
-| Grant                           | Shows                                                                                                     |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `get` on `projects/intents`     | The board, timelines and run panels: phases, durations, recorded cost, outcomes, links                    |
-| `get` on `projects/transcripts` | With `projects/intents`: plan text, run reports, transcripts (persisted and live) and live command output |
+| Grant                           | Shows                                                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get` on `projects/intents`     | The board, timelines and run panels: phases, durations, recorded cost, outcomes, links                                                                                        |
+| `get` on `projects/transcripts` | With `projects/intents`: plan text, run reports, transcripts (persisted and live) and live command output; an evaluate run's ledger outputs, evaluator claims and screenshots |
 
 Nothing on the API server serves these subresources, so the rules grant `kubectl` nothing; the status server's reviews
 are their only reader. The tiers nest: `projects/transcripts` without `projects/intents` opens nothing. A rule without
@@ -137,6 +137,37 @@ different tiers share one log follow and still receive different streams.
 Grants are by Project **name**. A Project deleted and created again under the same name while the old one's intents are
 still within their TTL hands those intents to the new Project's viewers; give a Project a new name rather than reuse
 one.
+
+## The evaluation evidence
+
+With [the agent evaluator](evaluator.md) on, the panel of an `evaluate` run also shows that run's round as maul recorded
+it, so a person can see why a hand-off was held or released without reading the evaluator's transcript. It is the same
+evidence the [evaluator page](evaluator.md#reading-the-evidence) lists for GitHub and `kubectl`, read-only and per run:
+`GET /api/intents/<intent>/runs/<run>/evaluation`.
+
+It is read from the round's `PreviewVerification`, which must be the one the run pins (by name and UID) and must name
+this very intent, so a look-alike object is never shown. When that round is the intent's latest, the view also carries
+the decided results; for an older round it shows what was recorded and says it is not the current one.
+
+| Section        | Shows                                                                                                                         | Tier |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---- |
+| Outcomes       | Each approved outcome, maul's decided result (`confirmed`, `failed`, `unsure`, `quarantined`) and its one-line check          | 1    |
+| Checks         | Each check replayed or confirmed this round: its steps, a browser check's compiled spec, and the result of each run           | 1    |
+| Anomalies      | What the evaluator noticed while looking around, as its words, with the ledger entries it cites                               | 1    |
+| Hand-off       | Whether the preview link was released to people, when and why                                                                 | 1    |
+| Ledger         | One row per tool call: kind, verb, exit, refused, and the sha256 of the result                                                | 1    |
+| Ledger detail  | Each call's request and output, shown only where the output hashes to the ledger's index; one that does not is marked dropped | 2    |
+| Evaluator says | The evaluator's verdict and note per outcome, and its reason for a disputed check                                             | 2    |
+| Screenshots    | The images the evaluator cited, served as PNG only when the bytes start with the PNG signature                                | 2    |
+
+Tier 1 is `projects/intents`, tier 2 is `projects/transcripts`. Everything written by the evaluator or the application
+is plain text, framed as such and never rendered as markup. Application output is labelled as the application's, the
+evaluator's request as the evaluator's, and a compiled spec as maul's. The evaluator's verdict is a claim; the result
+beside it is maul's decision, and the two can differ. A screenshot is shown as evidence a person can look at. It never
+decides an outcome on its own: see [the known limits](evaluator.md#known-limits).
+
+The status server reads the verification and its two ConfigMaps (`<verification>-ledger`, `<verification>-evidence`)
+with `get` only, uncached, and a ConfigMap another object controls is never served.
 
 ## Identity: OIDC with prefixes
 

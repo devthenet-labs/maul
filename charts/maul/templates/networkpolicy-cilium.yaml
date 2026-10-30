@@ -59,6 +59,9 @@ spec:
         matchLabels:
             {{- include "maul.agentPodSelector" $root | nindent 12 }}
             maul.run/harness: {{ $id | quote }}
+        {{- with include "maul.agentRoleExclusion" $root }}
+        {{- . | nindent 8 }}
+        {{- end }}
     egress:
         {{- /* Under agent.networkPolicy.dns: none the pod has no resolver and
                the DNS rule is not rendered (only brokered claude runs then,

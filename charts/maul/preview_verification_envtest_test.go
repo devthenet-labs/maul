@@ -202,8 +202,16 @@ func applyTesterImage(t *testing.T, admin client.Client, image string) {
 // needs objects envtest does not serve.
 func applyVerificationRender(t *testing.T, admin client.Client) {
 	t.Helper()
+	applySlotRender(t, admin, verificationArgs)
+}
+
+// applySlotRender is applyVerificationRender for the chart rendered with
+// helmArgs (and the test's slot Job deadline): the slot isolation policies
+// include preview-tools-isolation where it renders.
+func applySlotRender(t *testing.T, admin client.Client, helmArgs []string) {
+	t.Helper()
 	ctx := t.Context()
-	args := append([]string{"template", "maul", ".", "--namespace", egressRelease}, verificationArgs...)
+	args := append([]string{"template", "maul", ".", "--namespace", egressRelease}, helmArgs...)
 	args = append(args, "--set", "preview.verification.deadlineMaxSeconds="+strconv.FormatInt(verifyDeadline, 10))
 	output, err := exec.CommandContext(ctx, "helm", args...).Output()
 	if err != nil {
@@ -224,7 +232,7 @@ func applyVerificationRender(t *testing.T, admin client.Client) {
 		case "Role", "RoleBinding", "ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding":
 			others = append(others, u)
 		case "NetworkPolicy":
-			if u.GetName() == "preview-isolation" {
+			if u.GetName() == "preview-isolation" || u.GetName() == "preview-tools-isolation" {
 				others = append(others, u)
 			}
 		}

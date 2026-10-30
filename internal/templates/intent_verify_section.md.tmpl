@@ -22,6 +22,20 @@ renders a line break inside a comment as a hard break. */ -}}
 
 Evidence left out: {{ . }} more not shown, to keep this comment within GitHub's size limit.
 {{- end }}
+{{- range .Outcomes }}
+
+{{ .Sentence }}
+{{- with .AppOutput }}
+
+App output, as the application wrote it (data, not maul's words):
+
+{{ . | chomp }}
+{{- end }}
+{{- end }}
+{{- range .Anomalies }}
+
+{{ . }}
+{{- end }}
 {{- range .Notes }}
 
 {{ . }}

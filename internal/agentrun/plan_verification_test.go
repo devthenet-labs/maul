@@ -96,3 +96,43 @@ func TestPlanVerificationRefused(t *testing.T) {
 		}
 	}
 }
+
+// TestPlanPromptAsksForOutcomes: a plan Job whose Project is judged by the
+// agent evaluator (MAUL_PLAN_VERIFICATION's outcomes) asks the planner for
+// acceptance outcomes, not slice-1 criteria; without it, criteria as before.
+func TestPlanPromptAsksForOutcomes(t *testing.T) {
+	outcomes := strings.Replace(testPlanVerification, `{"components"`, `{"outcomes":true,"components"`, 1)
+	for _, tt := range []struct {
+		name, handoff      string
+		outcomes, criteria bool
+	}{
+		{"evaluator", outcomes, true, false},
+		{"slice 1", testPlanVerification, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "target-1-plan-r1-a1",
+				"MAUL_PHASE": string(PhasePlan), "MAUL_PLAN_VERIFICATION": tt.handoff}
+			fromEnv, err := FromEnv(func(k string) string { return env[k] })
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			cfg, ws := intentConfig(t, PhasePlan, &out)
+			brokeredClaude(t, &cfg)
+			cfg.PlanVerification = fromEnv.PlanVerification
+			fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
+				"reports/plan.md": goodPlan,
+			}}}}
+			if ev := onlyEvent(t, cfg, fx, &out); ev.Plan == nil || ev.Plan.Outcome != envelope.OutcomeOK {
+				t.Fatalf("event = %+v, want an ok plan", ev)
+			}
+			prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+			if got := strings.Contains(prompt, "### Acceptance outcomes"); got != tt.outcomes {
+				t.Errorf("prompt asks for outcomes = %v, want %v", got, tt.outcomes)
+			}
+			if got := strings.Contains(prompt, "### Acceptance criteria"); got != tt.criteria {
+				t.Errorf("prompt asks for criteria = %v, want %v", got, tt.criteria)
+			}
+		})
+	}
+}

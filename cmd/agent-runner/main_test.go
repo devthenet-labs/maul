@@ -55,6 +55,21 @@ func TestRunPassesProbeArguments(t *testing.T) {
 	}
 }
 
+// TestRunPassesStrictTargets: the evaluator's prepare passes --targets to
+// the strict probe; the binary hands them through, so dns without its
+// address is refused by name rather than the targets being dropped.
+func TestRunPassesStrictTargets(t *testing.T) {
+	getenv := func(k string) string { return map[string]string{"KUBERNETES_SERVICE_HOST": "10.96.0.1"}[k] }
+	var stderr bytes.Buffer
+	code := run(context.Background(),
+		[]string{"agent-runner", sandboxprobe.Command, "--mode=strict", "--targets=internet,k8s,imds,dns"}, getenv,
+		io.Discard, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), sandboxprobe.DNSEnv) {
+		t.Errorf("run(%s --mode=strict --targets=...,dns) = %d, stderr %q; want the probe refusing dns without %s",
+			sandboxprobe.Command, code, stderr.String(), sandboxprobe.DNSEnv)
+	}
+}
+
 // TestRunDispatchesPreflight: `agent-runner preflight` runs the preflight
 // alone, not a stage — the stage would demand MAUL_REPO — and prints its
 // verdict on stdout with the exit status the workstation check reads.

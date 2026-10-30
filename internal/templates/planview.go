@@ -181,3 +181,82 @@ func wideRune(r rune) bool {
 	}
 	return false
 }
+
+// PlanOutcomes is a plan's acceptance outcomes as the plan comment lists
+// them under the agent evaluator (intent-controller's planAsk): each
+// outcome with the issue line it answers, then the issue's list items no
+// outcome answers (acceptance.NotCovered). nil omits the section, and the
+// comment is exactly the comment before the field existed.
+type PlanOutcomes struct {
+	// Outcomes are the plan's outcomes, in plan order, as the plan grammar
+	// validated them: agent text, rendered inert.
+	Outcomes []PlanOutcome
+	// NotCovered are the issue lines no outcome answers, in issue order:
+	// issue text the caller has bounded and made visible
+	// (untrusted.Visible), rendered inert again here.
+	NotCovered []string
+	// NotCoveredMore counts the further issue lines the caller left out.
+	NotCoveredMore int
+	// omitted: the list did not fit in the comment beside the plan, so a
+	// pointer to the plan stands in its place (fitOutcomes).
+	omitted bool
+}
+
+// PlanOutcome is one outcome of a plan, as the plan comment lists it.
+type PlanOutcome struct {
+	// ID is the outcome's id, held to its grammar by the plan parser.
+	ID string
+	// Outcome is what must hold; From the issue line it answers.
+	Outcome, From string
+	// Keep: the outcome held before the change and must still hold.
+	Keep bool
+	// Manual: an approver checks it; Reason says why.
+	Manual bool
+	Reason string
+}
+
+// outcomesOmitted stands in for an outcome list that does not fit.
+const outcomesOmitted = "The outcomes are too long to list beside the plan: read them under `acceptance` in the " +
+	"plan below."
+
+// planOutcomesView is the plan comment's outcomes section: its lead, one
+// line per outcome and one per issue line no outcome answers (the last
+// saying how many more there are), each inert; all empty for nil.
+func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered []string) {
+	switch {
+	case o == nil:
+		return "", nil, nil
+	case o.omitted:
+		return outcomesOmitted, nil, nil
+	case len(o.Outcomes) == 0:
+		lead = "The plan states no acceptance outcomes, so maul's evaluator checks nothing in the preview."
+	default:
+		lead = "maul's evaluator checks each outcome below in the running preview; a manual one is left to an " +
+			"approver."
+	}
+	for _, out := range o.Outcomes {
+		line := code(oneLine(out.ID))
+		switch {
+		case out.Manual && strings.TrimSpace(out.Reason) != "":
+			line += " (manual: " + SanitizeInline(out.Reason) + ")"
+		case out.Manual:
+			line += " (manual)"
+		case out.Keep:
+			line += " (must keep holding)"
+		}
+		line += ": " + SanitizeInline(out.Outcome)
+		if from := SanitizeInline(out.From); from != "" {
+			line += ". It answers the issue's line: " + from
+		}
+		items = append(items, line)
+	}
+	for _, l := range o.NotCovered {
+		if l = SanitizeInline(l); l != "" {
+			notCovered = append(notCovered, l)
+		}
+	}
+	if o.NotCoveredMore > 0 {
+		notCovered = append(notCovered, "and "+count(o.NotCoveredMore, "1 more line", "more lines"))
+	}
+	return lead, items, notCovered
+}

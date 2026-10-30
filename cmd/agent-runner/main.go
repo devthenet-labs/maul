@@ -3,15 +3,19 @@
 
 // Command agent-runner is the coding-agent runtime that executes inside the
 // ephemeral Job pod: it drives the classification and remediation harness
-// stages against a pre-cloned repository and reports results as an event
-// stream on stdout. It never talks to GitHub.
+// stages against a pre-cloned repository (an intent's plan and build stages
+// likewise; its evaluate and checkreview stages against no tree, in the
+// scratch directory) and reports results as an event stream on stdout. It
+// never talks to GitHub.
 //
 // Invoked as `agent-runner sandbox-probe` (sandboxprobe.Command) it instead
 // runs the negative-connectivity check the trusted prepare init container
 // performs before a repository-declared image gets to run anything, and
 // exits sandboxprobe.ExitUnenforced when egress is still open at the end of
-// the window; with --mode=wait (a default-image Job's prepare) it holds
-// until egress is blocked or the window closes and exits 0 either way.
+// the window; --targets names the targets in place of the defaults (the
+// evaluator's strict probe adds dns, the resolver at
+// sandboxprobe.DNSEnv); with --mode=wait (a default-image Job's prepare) it
+// holds until egress is blocked or the window closes and exits 0 either way.
 // Invoked as `agent-runner preflight [harness]` (agentrun.PreflightCommand)
 // it runs only the preflight a stage runs first
 // on a repository-declared image, prints the verdict on stdout and exits
@@ -30,6 +34,7 @@ import (
 	"syscall"
 
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/netprofile"
 	"github.com/devthenet-labs/maul/internal/runner"
 	"github.com/devthenet-labs/maul/internal/sandboxprobe"
@@ -80,7 +85,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 // registry grants its ecosystems and grants (netprofile.EnvEcosystems,
 // netprofile.EnvGrants), and for a profile with tunnel hosts its routes and
 // hosts (netprofile.EnvRoutes, netprofile.EnvHosts), so a tunnel-only
-// profile is never described as a Go route. They are read here through the
+// profile is never described as a Go route; and the evaluator's tool pod
+// (maultool.EnvToolsURL). They are read here through the
 // same getenv rather than in FromEnv, so they are no agentrun configuration
 // keys, which a repository-image Job would blank. Only the controller sets
 // them; a value that does not hold together is a configuration error, never
@@ -91,6 +97,7 @@ func config(getenv func(string) string) (agentrun.Config, error) {
 		return agentrun.Config{}, err
 	}
 	cfg.NetworkProfile = getenv(netprofile.EnvProfile)
+	cfg.ToolsURL = getenv(maultool.EnvToolsURL)
 	ecosystems, err := netprofile.ParseEcosystems(getenv(netprofile.EnvEcosystems))
 	if err != nil {
 		return agentrun.Config{}, err

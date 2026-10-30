@@ -108,6 +108,34 @@ app.kubernetes.io/managed-by: maul
 {{- end }}
 
 {{/*
+Whether the agent evaluator is on (intentController.verification.evaluator).
+Returns a non-empty string for yes.
+*/}}
+{{- define "maul.evaluatorEnabled" -}}
+{{- if (dig "verification" "evaluator" false .Values.intentController) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The selector half every agents-namespace egress policy that selects agent pods
+(maul.agentPodSelector) carries while the evaluator is on: the roles with
+their own egress policies (evaluator-networkpolicy.yaml) are left out of
+every other one, so none of them gains DNS, the artifact server, a model API
+or a network profile through it. A matchExpressions block beside matchLabels;
+empty with the evaluator off, so those policies render as before. Include it
+with nindent at the matchLabels key's indent inside `with`.
+*/}}
+{{- define "maul.agentRoleExclusion" -}}
+{{- if include "maul.evaluatorEnabled" . -}}
+matchExpressions:
+    - key: maul.run/role
+      operator: NotIn
+      values: [evaluator, checkreview, tools]
+{{- end -}}
+{{- end }}
+
+{{/*
 The edge IngressClass's name while edgeIngressClass.create is on, else empty:
 the className the webhook and status-page Ingresses fall back to when their
 own is empty, so with create off they render exactly as before.

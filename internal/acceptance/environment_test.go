@@ -96,6 +96,15 @@ func TestClassifyEnvironment(t *testing.T) {
 		{"seed failed", []PartFact{{Name: "seed", Role: RoleSeed,
 			LastTermination: &Termination{Reason: "Error", ExitCode: 1}}}, EnvInfra, nil},
 		{"unknown role", []PartFact{{Name: "x", Role: "sidecar"}}, EnvInfra, nil},
+		// The evaluator's slot tool pod is judged like the tester: by how it
+		// ran, never as the application.
+		{"tools completed", []PartFact{ready("api", RoleComponent), {Name: "tools", Role: RoleTools,
+			LastTermination: &Termination{Reason: "Completed"}}}, EnvOK, nil},
+		{"tools crashed", []PartFact{ready("api", RoleComponent), {Name: "tools", Role: RoleTools,
+			LastTermination: &Termination{Reason: "Error", ExitCode: 1}}}, EnvInfra, nil},
+		{"tools image pull", []PartFact{
+			ready("api", RoleComponent), {Name: "tools", Role: RoleTools, Waiting: "ImagePullBackOff"},
+		}, EnvInfra, nil},
 		{"infra wins over app", []PartFact{
 			{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff"},
 			{Name: "tester", Role: RoleTester, Unschedulable: true},

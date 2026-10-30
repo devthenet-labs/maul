@@ -52,8 +52,8 @@ const (
 	// VerifyWaitingForCI: verification waits for the pull requests' named
 	// checks to pass.
 	VerifyWaitingForCI = "waiting-for-ci"
-	// VerifyNeedsReplan: an approved criterion cannot run as approved, so
-	// only a replan can change it.
+	// VerifyNeedsReplan: an approved criterion cannot run as approved, and
+	// the approved plan cannot change in review (startOver).
 	VerifyNeedsReplan = "needs-replan"
 	// VerifyNotDeclared: the approved plan declares no acceptance criteria.
 	VerifyNotDeclared = "not-declared"
@@ -63,6 +63,15 @@ const (
 	// VerifyUnreadable: the approved plan's acceptance criteria cannot be
 	// read, so nothing is verified until a plan is approved again.
 	VerifyUnreadable = "unreadable"
+	// VerifyCriteriaReplan: the approved plan states slice-1 criteria,
+	// which the agent evaluator does not run, so nothing is verified until
+	// a plan stating outcomes is approved.
+	VerifyCriteriaReplan = "criteria-replan"
+	// VerifyEvaluating: the agent evaluator checks the approved outcomes.
+	VerifyEvaluating = "evaluating"
+	// VerifyUnconfirmed: the evaluation settled without confirming every
+	// outcome.
+	VerifyUnconfirmed = "unconfirmed"
 )
 
 // Automatic fix states.
@@ -127,6 +136,10 @@ type VerifyProgress struct {
 	// the controller's short fixed reason for a halt.
 	AutoFix       string
 	AutoFixReason string
+	// Outcomes: the agent evaluator checks approved outcomes, so the
+	// clause names evaluations and counts outcomes confirmed. false is
+	// slice 1's wording, unchanged.
+	Outcomes bool
 }
 
 // verifyRestingLine is the sentence of a state nothing is checked in:
@@ -137,13 +150,15 @@ func verifyRestingLine(state string) (line string, whole bool) {
 	case VerifyWaitingForCI:
 		return "Verification waits for the pull requests' checks to pass", false
 	case VerifyNeedsReplan:
-		return "Verification cannot run: an approved check's target is not previewed, so only " +
-			slashCommand("replan") + " can change it.", true
+		return "Verification cannot run: an approved check's target is not previewed. " + startOver(), true
 	case VerifyNotDeclared:
 		return "No acceptance criteria were declared.", true
 	case VerifyUnreadable:
 		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
-			"verified. " + slashCommand("replan") + " to approve a plan again.", true
+			"verified. " + startOver(), true
+	case VerifyCriteriaReplan:
+		return "Nothing is verified: the approved plan states acceptance criteria, which maul's evaluator does " +
+			"not run. " + startOver(), true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
 	case VerifyPreviewNotLive:
@@ -154,6 +169,36 @@ func verifyRestingLine(state string) (line string, whole bool) {
 	return "", false
 }
 
+// startOver is what an intent in review is told it can do for a new plan:
+// maul does not replan an intent whose pull requests are open (replan from
+// review is deferred; /maul replan there is not available), so an approver
+// cancels it on its issue (cancel is no pull request command) and opens a
+// new issue.
+func startOver() string {
+	return "The approved plan cannot change while its pull requests are open: to start over with a new plan, an " +
+		"approver comments " + slashCommand("cancel") + " on the intent's issue (the pull requests are left to you) " +
+		"and opens a new issue."
+}
+
+// verifyNames are the progress clause's words: which verification (or
+// evaluation) it is, its counts (checks passing, or outcomes confirmed;
+// "" with none), and its passed head.
+func verifyNames(p VerifyProgress) (which, counts, passed string) {
+	which, counted, done := "Verification", "%d/%d checks passing", "%d/%d checks passed"
+	if p.Outcomes {
+		which, counted, done = "Evaluation", "%d/%d outcomes confirmed", "%d/%d outcomes confirmed"
+	}
+	if p.Verification > 0 {
+		which = fmt.Sprintf("%s %d", which, p.Verification)
+	}
+	passed = which + " passed"
+	if p.Total > 0 {
+		counts = fmt.Sprintf(counted, p.Passing, p.Total)
+		passed += ": " + fmt.Sprintf(done, p.Passing, p.Total)
+	}
+	return which, counts, passed
+}
+
 // verifyLine is the progress as one sentence; "" for none.
 func verifyLine(p VerifyProgress) string {
 	head, whole := verifyRestingLine(p.State)
@@ -161,14 +206,7 @@ func verifyLine(p VerifyProgress) string {
 		return head
 	}
 	fixes := fmt.Sprintf("%d of %d automatic %s used", p.FixesUsed, p.MaxFixes, plural(p.MaxFixes, "fix", "fixes"))
-	which := "Verification"
-	if p.Verification > 0 {
-		which = fmt.Sprintf("Verification %d", p.Verification)
-	}
-	counts := ""
-	if p.Total > 0 {
-		counts = fmt.Sprintf("%d/%d checks passing", p.Passing, p.Total)
-	}
+	which, counts, passed := verifyNames(p)
 	join := func(parts ...string) string {
 		var kept []string
 		for _, s := range parts {
@@ -183,13 +221,12 @@ func verifyLine(p VerifyProgress) string {
 		// verifyRestingLine's head.
 	case VerifyWaiting:
 		head = "Verification waits for the preview to be ready"
-	case VerifyRunning:
+	case VerifyRunning, VerifyEvaluating:
 		head = which + " running: " + join(counts, fixes)
+	case VerifyUnconfirmed:
+		head = which + ": maul couldn't confirm every outcome: " + join(counts, fixes)
 	case VerifyPassed:
-		head = which + " passed"
-		if p.Total > 0 {
-			head = fmt.Sprintf("%s passed: %d/%d checks passed", which, p.Passing, p.Total)
-		}
+		head = passed
 	case VerifyFailing:
 		head = which + " failing: " + join(counts, fixes)
 	case VerifyExhausted:
@@ -296,6 +333,11 @@ type VerifyLog struct {
 type VerifySection struct {
 	Progress VerifyProgress
 	Criteria []VerifyCriterion
+	// Outcomes are the agent evaluator's approved outcomes with their
+	// decided results, in plan order (in place of Criteria); Anomalies are
+	// its look-around anomalies.
+	Outcomes  []VerifyOutcomeResult
+	Anomalies []VerifyAnomaly
 	// Logs are shown only when the caller passes them: the issue always,
 	// a pull request only under the Project's postLogs.
 	Logs []VerifyLog
@@ -345,7 +387,7 @@ func noDefectNote(n *VerifyNoDefect) string {
 }
 
 func (s *VerifySection) empty() bool {
-	return s == nil || (s.Progress.State == "" && len(s.Criteria) == 0)
+	return s == nil || (s.Progress.State == "" && len(s.Criteria) == 0 && len(s.Outcomes) == 0)
 }
 
 // VerifyComment is the verification comment on the intent's issue: one per
@@ -374,6 +416,9 @@ type verifyView struct {
 	Notes    []string
 	Logs     []verifyLogView
 	LogsCut  bool
+	// Outcomes are the outcomes' details, Anomalies the look-around's.
+	Outcomes  []outcomeDetail
+	Anomalies []string
 	// Omitted counts the pieces of failure evidence left out to keep the
 	// comment within its evidence budget (budgetEvidence).
 	Omitted int
@@ -450,6 +495,7 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 		}
 	}
 	v.Failures, v.Omitted = budgetEvidence(v.Failures)
+	outcomeViews(&v, s)
 	if s.StatusNotPosted {
 		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
 			"posted: an administrator sets Commit statuses to Read and write in the App's settings and accepts the "+
@@ -622,6 +668,12 @@ func planAcceptanceLine(a *PlanAcceptance) string {
 type PlanVerification struct {
 	// Components are the previewed repositories criteria can target.
 	Components []PlanVerifyComponent `json:"components"`
+	// Outcomes: the Project is verified by the agent evaluator, so the
+	// plan is asked for acceptance outcomes, plain statements of what must
+	// hold, rather than slice-1 criteria (intent-controller's planAsk;
+	// SPEC S1-11). false omits it from the JSON, which is then exactly the
+	// JSON before the field existed.
+	Outcomes bool `json:"outcomes,omitempty"`
 }
 
 // PlanVerifyComponent is one previewed repository: the key a criterion's
@@ -635,8 +687,8 @@ type PlanVerifyComponent struct {
 // Normalize is what of v a plan can be told, the one normaliser behind both
 // the handoff (EncodePlanVerification) and the prompt (RenderPlanPrompt):
 // each field on one line, only the components with a key and a path, at
-// most planVerificationMaxComponents, in order; nil when none is left, and
-// the prompt then has no acceptance section.
+// most planVerificationMaxComponents, in order, and Outcomes as set; nil
+// when no component is left, and the prompt then has no acceptance section.
 func (v *PlanVerification) Normalize() *PlanVerification {
 	if v == nil {
 		return nil
@@ -648,7 +700,7 @@ func (v *PlanVerification) Normalize() *PlanVerification {
 			continue
 		}
 		if out == nil {
-			out = &PlanVerification{}
+			out = &PlanVerification{Outcomes: v.Outcomes}
 		}
 		if len(out.Components) < planVerificationMaxComponents {
 			out.Components = append(out.Components, c)

@@ -159,6 +159,12 @@ type Settings struct {
 	// Plan, Build and Revise are the per-stage ceilings: a Project's limits are
 	// clamped to them, and the Job's stage configuration carries them.
 	Plan, Build, Revise StageCeiling
+	// Evaluate and CheckReview are the evaluator's and the check reviewer's
+	// ceilings, set under --intent-evaluator (the evaluate timeout from
+	// --intent-evaluate-timeout, the rest maul's defaults); no run of either
+	// stage is created or launched while the evaluator is off
+	// (errStageNotEnabled, stageEnabled).
+	Evaluate, CheckReview StageCeiling
 	// MultiRepo runs intents of Projects that list more than one repository
 	// (--intent-multi-repo). Off, such a Project is not Ready, and every
 	// Intent of one is held Blocked (UnsupportedRepositories): nothing is
@@ -213,6 +219,40 @@ type Settings struct {
 	// the intent reconciler writes no acceptance or verification state and
 	// creates no PreviewVerification, whatever the Project says.
 	Verification bool
+	// Evaluator is --intent-evaluator (SPEC Q11): a verifying Project's
+	// plans are asked for acceptance outcomes, which the agent evaluator
+	// checks, and an approved plan's outcomes are recorded
+	// (status.acceptance.outcomes) and evaluated against the Preview, one
+	// round at a time (evaluate_round.go); an open intent whose approved
+	// plan states slice-1 criteria gets one replan notice and is not
+	// verified until a new plan is approved (DESIGN 7.6). Off (the default)
+	// slice 1 runs unchanged. serve refuses it without Verification and
+	// Previews.
+	Evaluator bool
+	// EvaluateModel and CheckReviewModel are the canonical models a claude
+	// Project's evaluate and checkreview runs run on
+	// (--intent-evaluate-model, --intent-checkreview-model); a codex
+	// Project's run on Codex.BuildModel.
+	EvaluateModel, CheckReviewModel string
+	// DefaultHandoff is --intent-default-handoff, the hand-off mode of a
+	// Project that sets none (spec.verification.handoff), and HandoffMax
+	// --intent-handoff-max, the gated hand-off's bound when it sets none.
+	DefaultHandoff v1alpha1.HandoffMode
+	HandoffMax     time.Duration
+	// EvaluateCodex is --intent-evaluate-codex (SPEC Q16): a codex Project's
+	// intents are evaluated on codex. Off (the default), they are not
+	// evaluated at all: their hand-off is early, and the Project says so
+	// (ConditionEvaluatorUnverified).
+	EvaluateCodex bool
+	// EvaluationCostMax is --intent-evaluation-cost-max in micro-USD: the
+	// most one intent's evaluate and checkreview runs may spend, whatever
+	// its Project's limits.maxEvaluateCostMicroUSD says; zero leaves the
+	// Project's alone (evaluationCeiling).
+	EvaluationCostMax int64
+	// MaxToolCalls is --intent-max-tool-calls: the most tool calls an
+	// evaluation's tool pod allows, whatever its Project's
+	// verification.maxToolCalls says; zero leaves the Project's alone.
+	MaxToolCalls int32
 	// VerifyTimeoutMax is --intent-verify-timeout-max: the most a Project's
 	// verification.timeout gives a tester Job (verifyTimeout). Zero is
 	// DefaultVerifyTimeoutMax.
@@ -272,15 +312,22 @@ func (s Settings) jobDeadline(timeout time.Duration) time.Duration {
 	return max(s.JobDeadline, derived)
 }
 
-// ceiling is stage's controller ceiling.
+// ceiling is stage's controller ceiling; an unknown stage's is zero, never
+// another stage's.
 func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
 	switch stage {
+	case v1alpha1.IntentStagePlan:
+		return s.Plan
 	case v1alpha1.IntentStageBuild:
 		return s.Build
 	case v1alpha1.IntentStageRevise:
 		return s.Revise
+	case v1alpha1.IntentStageEvaluate:
+		return s.Evaluate
+	case v1alpha1.IntentStageCheckReview:
+		return s.CheckReview
 	}
-	return s.Plan
+	return StageCeiling{}
 }
 
 // VerificationWithoutPreviews reports --intent-verification without
@@ -302,15 +349,22 @@ func (s Settings) verifyTimeout(p *v1alpha1.Project) time.Duration {
 	return min(p.Spec.VerificationTimeout(), limit)
 }
 
-// stageLimits are the Project's limits for stage.
+// stageLimits are the Project's limits for stage; an unknown stage's are
+// zero, never another stage's.
 func stageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.StageLimits {
 	switch stage {
+	case v1alpha1.IntentStagePlan:
+		return p.Spec.Limits.Plan
 	case v1alpha1.IntentStageBuild:
 		return p.Spec.Limits.Build
 	case v1alpha1.IntentStageRevise:
 		return p.Spec.Limits.Revise
+	case v1alpha1.IntentStageEvaluate:
+		return p.Spec.Limits.Evaluate
+	case v1alpha1.IntentStageCheckReview:
+		return p.Spec.Limits.CheckReview
 	}
-	return p.Spec.Limits.Plan
+	return v1alpha1.StageLimits{}
 }
 
 // runBudget is the cost budget of one run of stage in micro-USD: the
@@ -352,6 +406,27 @@ const (
 	// chart's preview.verification.deadlineMaxSeconds, which preview-controller
 	// holds a tester Job's deadline to.
 	DefaultVerifyTimeoutMax = 30 * time.Minute
+	// DefaultEvaluateTimeout is --intent-evaluate-timeout's default, an
+	// evaluate run's wall clock (DESIGN 5); MaxEvaluateTimeout its most, so
+	// the round's tool pod (the evaluate timeout plus
+	// EvaluationToolsMargin) fits a PreviewVerification's one-hour bound.
+	DefaultEvaluateTimeout = 20 * time.Minute
+	MaxEvaluateTimeout     = time.Hour - EvaluationToolsMargin
+	// EvaluationToolsMargin is what a round's tool pod lives past its
+	// evaluate run's timeout (DESIGN 5: the evaluator's start-up and the
+	// confirmation runs after it).
+	EvaluationToolsMargin = 5 * time.Minute
+	// DefaultEvaluateMaxTurns and DefaultEvaluateTokenBudget bound an
+	// evaluate run (DESIGN 5: 60 turns); a Project's limits.evaluate may
+	// lower them.
+	DefaultEvaluateMaxTurns    int32 = 60
+	DefaultEvaluateTokenBudget int64 = 400000
+	// DefaultCheckReviewMaxTurns, DefaultCheckReviewTokenBudget and
+	// DefaultCheckReviewTimeout bound a checkreview run: its turns bound
+	// each review session (DESIGN 5: 3), the rest the whole run.
+	DefaultCheckReviewMaxTurns    int32 = 3
+	DefaultCheckReviewTokenBudget int64 = 100000
+	DefaultCheckReviewTimeout           = 15 * time.Minute
 )
 
 // withDefaults fills unset settings.
@@ -397,26 +472,44 @@ func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha
 		TimeoutMilliseconds: timeout.Milliseconds(),
 	}
 	if s.CostBudgets {
-		g.BudgetMicroUSD = runBudget(p, stage)
+		g.BudgetMicroUSD = s.stageBudget(p, stage)
 	}
 	return g
+}
+
+// stageBudget is the cost budget of one run of stage in micro-USD, held to
+// the ceiling it is spent against: a build-side stage's runBudget, and an
+// evaluate or checkreview run's stage maxCostMicroUSD, or the evaluation
+// ceiling when that is unset, and never more than that ceiling.
+func (s Settings) stageBudget(p *v1alpha1.Project, stage v1alpha1.IntentStage) int64 {
+	if !roleStage(stage) {
+		return runBudget(p, stage)
+	}
+	ceiling := s.evaluationCeiling(p)
+	if b := stageLimits(p, stage).MaxCostMicroUSD; b > 0 && b < ceiling {
+		return b
+	}
+	return ceiling
 }
 
 // budgetOverHourly reports the first stage whose run budget is more than
 // half the broker's hourly cost limit, with that budget: the guard that one
 // run cannot starve every other (design "limits that fit large features"
-// §1.4). Nothing is reported unless the broker counts cost under an hourly
-// limit.
+// §1.4). The evaluate and checkreview stages count while the evaluator
+// verifies the Project's intents. Nothing is reported unless the broker
+// counts cost under an hourly limit.
 func (s Settings) budgetOverHourly(p *v1alpha1.Project) (v1alpha1.IntentStage, int64) {
 	if !s.CostBudgets || s.BrokerCostPerHour <= 0 {
 		return "", 0
 	}
-	for _, stage := range []v1alpha1.IntentStage{
-		v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise,
-	} {
+	stages := []v1alpha1.IntentStage{v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise}
+	if s.evaluates(p) && !s.evaluatorUnverified(p) {
+		stages = append(stages, v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview)
+	}
+	for _, stage := range stages {
 		// A budget is at most the schema's $1000 cap, so doubling it cannot
 		// overflow; exactly half the limit is allowed.
-		if b := runBudget(p, stage); 2*b > s.BrokerCostPerHour {
+		if b := s.stageBudget(p, stage); 2*b > s.BrokerCostPerHour {
 			return stage, b
 		}
 	}
@@ -443,7 +536,7 @@ func (s Settings) runBudgetFor(run *v1alpha1.IntentRun, p *v1alpha1.Project) int
 	if b := run.Spec.Grant.BudgetMicroUSD; b > 0 {
 		return b
 	}
-	return runBudget(p, run.Spec.Stage)
+	return s.stageBudget(p, run.Spec.Stage)
 }
 
 // Project settings with the schema defaults applied, for a Project the API

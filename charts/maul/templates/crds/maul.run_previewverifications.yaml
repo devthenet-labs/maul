@@ -75,7 +75,10 @@ spec:
           spec:
             description: |-
               PreviewVerificationSpec is one request to run an Intent's automatable
-              acceptance criteria against its Preview at exactly the recorded heads.
+              acceptance criteria (slice 1's tester), or to evaluate its approved
+              outcomes (the evaluator), against its Preview at exactly the recorded
+              heads: exactly one of criteria and outcomes, each with its digest; an
+              outcome verification also names its rung and its tool pod's tools.
               intent-controller writes it once, at creation, and it is immutable: a new
               attempt or round is a new PreviewVerification. preview-controller re-checks
               every field against the Intent and the Preview before it renders anything.
@@ -88,10 +91,73 @@ spec:
                 maximum: 3
                 minimum: 1
                 type: integer
+              checks:
+                description: |-
+                  Checks are the Intent's saved checks, copied inline from its check
+                  store (status.acceptance.checks), which preview-controller copies
+                  into the slot tool pod's ConfigMap: it never reads the store, so it
+                  needs no read of the release namespace's ConfigMaps (SPEC Q1). Empty
+                  on a first round, before any check is saved.
+                items:
+                  description: |-
+                    SavedCheck is one confirmed, reviewed check of an approved outcome: its
+                    canonical JSON (internal/checks.Canonical) and digest. The body is the
+                    agent's, validated by internal/checks before it was ever run, and is
+                    untrusted text: it is shown only as quoted data.
+                  properties:
+                    body:
+                      description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
+                        bytes.
+                      maxLength: 8192
+                      minLength: 1
+                      type: string
+                    digest:
+                      description: |-
+                        Digest is internal/checks.Digest of the body: what every dry run,
+                        confirmation, replay and review is recorded against.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    form:
+                      description: Form is how the check runs.
+                      enum:
+                      - http
+                      - browser
+                      - exec
+                      type: string
+                    id:
+                      description: 'ID names the check: its outcome''s id with an
+                        optional .<name>.'
+                      pattern: ^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$
+                      type: string
+                    outcome:
+                      description: Outcome is the id of the outcome the check is bound
+                        to.
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                  required:
+                  - body
+                  - digest
+                  - form
+                  - id
+                  - outcome
+                  type: object
+                  x-kubernetes-validations:
+                  - message: a saved check's body is at most 8 KiB (MaxSavedCheckBytes)
+                    rule: size(bytes(self.body)) <= 8192
+                maxItems: 40
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+              checksDigest:
+                description: |-
+                  ChecksDigest is the check store's digest
+                  (status.acceptance.checks.digest). Set with Checks, and only with it.
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
               criteria:
                 description: |-
                   Criteria are the automatable criteria of the Intent's approved
-                  acceptance list, in plan order.
+                  acceptance list, in plan order (slice 1's tester).
                 items:
                   description: AcceptanceCriterion is one acceptance criterion of
                     an approved plan.
@@ -349,7 +415,7 @@ spec:
                 description: |-
                   CriteriaDigest is the digest of the Intent's full approved list
                   (status.acceptance.digest), of which Criteria is the automatable
-                  subset.
+                  subset. Set with Criteria, and only with it.
                 pattern: ^sha256:[0-9a-f]{64}$
                 type: string
               headSetDigest:
@@ -407,6 +473,62 @@ spec:
                 required:
                 - name
                 type: object
+              outcomes:
+                description: |-
+                  Outcomes are the Intent's approved outcomes (status.acceptance.outcomes),
+                  in plan order, manual ones included: the evaluator judges them.
+                items:
+                  description: |-
+                    AcceptanceOutcome is one outcome of an approved plan: a statement of what
+                    must hold, the issue line it answers, and whether a human checks it.
+                  properties:
+                    from:
+                      description: From quotes the issue line the outcome answers.
+                      maxLength: 300
+                      pattern: ^[^\r\n]*$
+                      type: string
+                    id:
+                      description: ID names the outcome, unique within its plan.
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                    kind:
+                      description: Kind is change or keep; unset is change.
+                      enum:
+                      - change
+                      - keep
+                      type: string
+                    manual:
+                      description: Manual marks an outcome only a human can check
+                        (/maul accept).
+                      type: boolean
+                    outcome:
+                      description: Outcome is the approved one-line statement of what
+                        must hold.
+                      maxLength: 500
+                      minLength: 1
+                      pattern: ^[^\r\n]*$
+                      type: string
+                    reason:
+                      description: Reason says why a manual outcome needs a human.
+                      maxLength: 120
+                      pattern: ^[^\r\n]*$
+                      type: string
+                  required:
+                  - id
+                  - outcome
+                  type: object
+                maxItems: 20
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - id
+                x-kubernetes-list-type: map
+              outcomesDigest:
+                description: |-
+                  OutcomesDigest is the Intent's status.acceptance.outcomesDigest. Set
+                  with Outcomes, and only with it.
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
               previewGeneration:
                 description: PreviewGeneration is the Preview generation the heads
                   were read at.
@@ -439,13 +561,52 @@ spec:
                   v<round>a<attempt>t<try>-<run>.
                 pattern: ^[0-9a-f]{6}$
                 type: string
-              timeout:
-                description: Timeout is the tester Job's wall clock.
+              rung:
+                description: |-
+                  Rung is how much of an evaluation the round runs. Set on an outcome
+                  verification, and only on one.
+                enum:
+                - full
+                - replay
                 type: string
+              timeout:
+                description: Timeout is the tester Job's, or the tool pod's, wall
+                  clock.
+                type: string
+              tools:
+                description: |-
+                  Tools is what the slot tool pod offers. Set on an outcome
+                  verification, and only on one.
+                properties:
+                  browser:
+                    description: Browser runs the browser sidecar.
+                    type: boolean
+                  lookAroundRoutes:
+                    description: |-
+                      LookAroundRoutes bounds the routes the look-around visits; zero
+                      skips it.
+                    format: int32
+                    maximum: 8
+                    minimum: 0
+                    type: integer
+                  maxToolCalls:
+                    description: |-
+                      MaxToolCalls bounds the evaluator's tool calls; a call past it is
+                      refused, and the refusal is a ledger entry.
+                    format: int32
+                    maximum: 300
+                    minimum: 50
+                    type: integer
+                  sandbox:
+                    description: |-
+                      Sandbox runs the sandbox sidecar (exec checks and agent-written
+                      clients).
+                    type: boolean
+                required:
+                - maxToolCalls
+                type: object
             required:
             - attempt
-            - criteria
-            - criteriaDigest
             - headSetDigest
             - heads
             - intentRef
@@ -459,6 +620,22 @@ spec:
             - message: spec is immutable; create a new PreviewVerification for a new
                 attempt
               rule: self == oldSelf
+            - message: a verification runs exactly one of criteria and outcomes
+              rule: has(self.criteria) != has(self.outcomes)
+            - message: criteria and criteriaDigest are set together
+              rule: has(self.criteria) == has(self.criteriaDigest)
+            - message: outcomes and outcomesDigest are set together
+              rule: has(self.outcomes) == has(self.outcomesDigest)
+            - message: an outcome verification, and only one, names its rung and its
+                tools
+              rule: has(self.outcomes) == has(self.rung) && has(self.outcomes) ==
+                has(self.tools)
+            - message: saved checks belong to an outcome verification
+              rule: '!has(self.checks) || has(self.outcomes)'
+            - message: checks and checksDigest are set together
+              rule: has(self.checks) == has(self.checksDigest)
+            - message: 'a replay round replays saved checks: it needs at least one'
+              rule: '!has(self.rung) || self.rung != ''replay'' || has(self.checks)'
             - message: spec.intentRef.uid is required
               rule: has(self.intentRef.uid) && size(self.intentRef.uid) > 0
             - message: spec.previewRef.uid is required
@@ -471,10 +648,158 @@ spec:
               PreviewVerificationStatus is written only by preview-controller: what the
               tester and the kubelet observed, never a verdict.
             properties:
+              capture:
+                description: |-
+                  Capture summarises the component log tails and slot events captured
+                  for the evaluator.
+                properties:
+                  components:
+                    description: Components are the per-component log tails.
+                    items:
+                      description: ComponentCapture is one component's captured log
+                        tail.
+                      properties:
+                        bytes:
+                          description: Bytes held, at most 64 KiB.
+                          format: int32
+                          maximum: 65536
+                          minimum: 0
+                          type: integer
+                        name:
+                          description: Name of the part.
+                          maxLength: 20
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        truncated:
+                          description: Truncated reports that older output was dropped
+                            to keep the newest.
+                          type: boolean
+                      required:
+                      - bytes
+                      - name
+                      type: object
+                    maxItems: 12
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  events:
+                    description: Events counts the slot events and container states
+                      captured.
+                    format: int32
+                    maximum: 100000
+                    minimum: 0
+                    type: integer
+                type: object
               completedAt:
                 description: CompletedAt is when the attempt settled.
                 format: date-time
                 type: string
+              confirmations:
+                description: |-
+                  Confirmations is each proposed check's confirmation run, alone with
+                  a fresh run token, after the evaluator finished.
+                items:
+                  description: CheckRun is one run of one check, as the ledger recorded
+                    it.
+                  properties:
+                    checkDigest:
+                      description: CheckDigest is the check's digest.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    dryRunSeq:
+                      description: |-
+                        DryRunSeq is the ledger entry of the green dry run a confirmation
+                        required; unset on a replay.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    result:
+                      description: Result of the run.
+                      enum:
+                      - pass
+                      - fail
+                      - quarantined
+                      - error
+                      - refused
+                      type: string
+                    seq:
+                      description: Seq is the ledger entry of the run.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    token:
+                      description: |-
+                        Token is the fresh run token the run substituted for the check's
+                        run placeholder.
+                      maxLength: 40
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9-]+$
+                      type: string
+                  required:
+                  - checkDigest
+                  - result
+                  - seq
+                  - token
+                  type: object
+                maxItems: 40
+                type: array
+                x-kubernetes-list-type: atomic
+              confirmed:
+                description: |-
+                  Confirmed are the proposed checks that passed their confirmation,
+                  their bodies read from the verified ledger (never from the
+                  evaluator's report): what intent-controller may store once reviewed.
+                items:
+                  description: |-
+                    SavedCheck is one confirmed, reviewed check of an approved outcome: its
+                    canonical JSON (internal/checks.Canonical) and digest. The body is the
+                    agent's, validated by internal/checks before it was ever run, and is
+                    untrusted text: it is shown only as quoted data.
+                  properties:
+                    body:
+                      description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
+                        bytes.
+                      maxLength: 8192
+                      minLength: 1
+                      type: string
+                    digest:
+                      description: |-
+                        Digest is internal/checks.Digest of the body: what every dry run,
+                        confirmation, replay and review is recorded against.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    form:
+                      description: Form is how the check runs.
+                      enum:
+                      - http
+                      - browser
+                      - exec
+                      type: string
+                    id:
+                      description: 'ID names the check: its outcome''s id with an
+                        optional .<name>.'
+                      pattern: ^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$
+                      type: string
+                    outcome:
+                      description: Outcome is the id of the outcome the check is bound
+                        to.
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                  required:
+                  - body
+                  - digest
+                  - form
+                  - id
+                  - outcome
+                  type: object
+                  x-kubernetes-validations:
+                  - message: a saved check's body is at most 8 KiB (MaxSavedCheckBytes)
+                    rule: size(bytes(self.body)) <= 8192
+                maxItems: 40
+                type: array
+                x-kubernetes-list-type: atomic
               environment:
                 description: Environment is the evidence about each part of the slot.
                 items:
@@ -540,6 +865,7 @@ spec:
                       - tester
                       - command
                       - seed
+                      - tools
                       type: string
                     unreachableForMs:
                       description: |-
@@ -568,6 +894,103 @@ spec:
                 maxItems: 12
                 type: array
                 x-kubernetes-list-type: atomic
+              ledger:
+                description: Ledger summarises the tools container's verified ledger.
+                properties:
+                  configMap:
+                    description: |-
+                      ConfigMap names the full ledger: <pv>-ledger, owned by the
+                      PreviewVerification, oldest outputs truncated with a marker past its
+                      size bound.
+                    maxLength: 253
+                    type: string
+                  count:
+                    description: Count is the number of entries.
+                    format: int32
+                    maximum: 512
+                    minimum: 0
+                    type: integer
+                  entries:
+                    description: Entries index every entry, in order; never truncated.
+                    items:
+                      description: LedgerIndexEntry is one ledger entry's facts, without
+                        its output.
+                      properties:
+                        artifacts:
+                          description: |-
+                            Artifacts are the hex sha256s of its artifacts (screenshots), in
+                            order.
+                          items:
+                            pattern: ^[0-9a-f]{64}$
+                            type: string
+                          maxItems: 8
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        exit:
+                          description: Exit is the exit code of the process it ran;
+                            0 when it ran none.
+                          format: int32
+                          type: integer
+                        kind:
+                          description: Kind is who caused it.
+                          enum:
+                          - agent
+                          - runner
+                          - relay
+                          type: string
+                        refused:
+                          description: 'Refused reports that nothing ran: the call
+                            was refused.'
+                          type: boolean
+                        resultSHA256:
+                          description: ResultSHA256 is the hex sha256 of its full
+                            output.
+                          pattern: ^[0-9a-f]{64}$
+                          type: string
+                        seq:
+                          description: Seq is the entry's sequence number.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        verb:
+                          description: Verb is the tool it records.
+                          enum:
+                          - http
+                          - browser
+                          - exec
+                          - logs
+                          - events
+                          - check-run
+                          - check-results
+                          - confirm
+                          - finish
+                          - session
+                          type: string
+                      required:
+                      - kind
+                      - resultSHA256
+                      - seq
+                      - verb
+                      type: object
+                    maxItems: 512
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  evidence:
+                    description: |-
+                      Evidence names the cited screenshots, re-encoded: <pv>-evidence,
+                      owned by the PreviewVerification.
+                    maxLength: 253
+                    type: string
+                  sha256:
+                    description: SHA256 is the hex sha256 over the entry lines in
+                      order.
+                    pattern: ^[0-9a-f]{64}$
+                    type: string
+                required:
+                - count
+                - sha256
+                type: object
               observations:
                 description: Observations are the tester's, one per criterion, in
                   spec order.
@@ -828,7 +1251,64 @@ spec:
                 - component-disrupted
                 - service-no-cluster-ip
                 - tester-version-mismatch
+                - tools-unscheduled
+                - tools-image-pull
+                - tools-not-ready
+                - ledger-mismatch
+                - evidence-mismatch
                 type: string
+              replay:
+                description: |-
+                  Replay is each saved check's replay at the start of the round, in
+                  spec order.
+                items:
+                  description: CheckRun is one run of one check, as the ledger recorded
+                    it.
+                  properties:
+                    checkDigest:
+                      description: CheckDigest is the check's digest.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    dryRunSeq:
+                      description: |-
+                        DryRunSeq is the ledger entry of the green dry run a confirmation
+                        required; unset on a replay.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    result:
+                      description: Result of the run.
+                      enum:
+                      - pass
+                      - fail
+                      - quarantined
+                      - error
+                      - refused
+                      type: string
+                    seq:
+                      description: Seq is the ledger entry of the run.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    token:
+                      description: |-
+                        Token is the fresh run token the run substituted for the check's
+                        run placeholder.
+                      maxLength: 40
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9-]+$
+                      type: string
+                  required:
+                  - checkDigest
+                  - result
+                  - seq
+                  - token
+                  type: object
+                maxItems: 40
+                type: array
+                x-kubernetes-list-type: atomic
               startedAt:
                 description: |-
                   StartedAt is when the tester Job was created: the window environment
@@ -854,6 +1334,30 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              tools:
+                description: |-
+                  Tools is the slot tool pod, once scheduled: where the evaluator
+                  reaches it (a hostAlias, since the evaluator has no DNS).
+                properties:
+                  podIP:
+                    description: PodIP is the tool pod's address.
+                    maxLength: 45
+                    minLength: 2
+                    pattern: ^[0-9a-fA-F:.]+$
+                    type: string
+                  port:
+                    description: Port is the tools container's listener.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  ready:
+                    description: Ready reports whether the tools container was Ready.
+                    type: boolean
+                required:
+                - podIP
+                - port
+                type: object
             type: object
         required:
         - spec

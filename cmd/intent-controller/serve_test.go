@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/cli"
 	"github.com/devthenet-labs/maul/internal/controller/intent"
@@ -430,6 +431,102 @@ func TestUsageMeasurementReachesMeter(t *testing.T) {
 	}
 	if m, err := runnercfg.UsageMeter(opts, nil); err != nil || !m.On() {
 		t.Fatalf("meter = %v, %v; want on", m, err)
+	}
+}
+
+// TestEvaluatorSettings: --intent-evaluator reaches the settings with its
+// models, hand-off, ceilings and bounds, the evaluate timeout and the
+// check reviewer's defaults; it is refused without verification and
+// previews, and each of its values outside its bounds stops startup. Off,
+// nothing of it reaches the settings.
+func TestEvaluatorSettings(t *testing.T) {
+	load := func(t *testing.T, args ...string) (intent.Settings, error) {
+		t.Helper()
+		opts, root, _ := command(t, args...)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return settings(opts, "maul", "maul-agents")
+	}
+	s, err := load(t, "--intent-evaluate-timeout", "30m")
+	if err != nil || s.Evaluator || s.Evaluate != (intent.StageCeiling{}) || s.EvaluateModel != "" {
+		t.Fatalf("evaluator off: settings %+v, %v; want none of it", s, err)
+	}
+	on := []string{"--intent-verification", "--intent-previews-enabled", "--intent-evaluator"}
+	s, err = load(t, append(on, "--intent-evaluate-timeout", "30m", "--intent-default-handoff", "early",
+		"--intent-handoff-max", "2h", "--intent-evaluate-codex", "--intent-evaluation-cost-max", "4000000",
+		"--intent-max-tool-calls", "120", "--intent-checkreview-model", "anthropic/claude-haiku-5")...)
+	if err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	if !s.Evaluator || s.EvaluateModel != "anthropic/claude-sonnet-5" ||
+		s.CheckReviewModel != "anthropic/claude-haiku-5" || s.DefaultHandoff != v1alpha1.HandoffEarly ||
+		s.HandoffMax != 2*time.Hour || !s.EvaluateCodex || s.EvaluationCostMax != 4000000 || s.MaxToolCalls != 120 {
+		t.Errorf("settings = %+v", s)
+	}
+	if s.Evaluate != (intent.StageCeiling{MaxTurns: intent.DefaultEvaluateMaxTurns,
+		TokenBudget: intent.DefaultEvaluateTokenBudget, Timeout: 30 * time.Minute}) ||
+		s.CheckReview.Timeout != intent.DefaultCheckReviewTimeout || s.CheckReview.MaxTurns != 3 {
+		t.Errorf("ceilings = %+v, %+v", s.Evaluate, s.CheckReview)
+	}
+	for _, args := range [][]string{
+		{"--intent-evaluator"},
+		{"--intent-evaluator", "--intent-verification"},
+		{"--intent-evaluator", "--intent-previews-enabled"},
+		append(on, "--intent-evaluate-timeout", "56m"),
+		append(on, "--intent-evaluate-timeout", "30s"),
+		append(on, "--intent-default-handoff", "late"),
+		append(on, "--intent-handoff-max", "5m"),
+		append(on, "--intent-handoff-max", "5h"),
+		append(on, "--intent-evaluation-cost-max", "0"),
+		append(on, "--intent-max-tool-calls", "49"),
+		append(on, "--intent-max-tool-calls", "301"),
+		append(on, "--intent-job-deadline-max", "30m"),
+	} {
+		if _, err := load(t, args...); err == nil {
+			t.Errorf("settings(%v) succeeded, want a startup error", args)
+		}
+	}
+}
+
+// TestChartEvaluatorKeysAreFlags: every key the chart sets for the
+// evaluator (charts/maul/templates/configmap.yaml) is a flag
+// intent-controller binds, so none is silently ignored.
+func TestChartEvaluatorKeysAreFlags(t *testing.T) {
+	_, _, serve := command(t)
+	for _, key := range []string{"MAUL_INTENT_EVALUATOR", "MAUL_INTENT_EVALUATE_MODEL",
+		"MAUL_INTENT_CHECKREVIEW_MODEL", "MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF",
+		"MAUL_INTENT_HANDOFF_MAX", "MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX",
+		"MAUL_INTENT_MAX_TOOL_CALLS"} {
+		if serve.Flags().Lookup(flagName(key)) == nil {
+			t.Errorf("the chart sets %s, and --%s is not a flag", key, flagName(key))
+		}
+	}
+}
+
+// TestEvaluatorProbeDNS: under --intent-evaluator the evaluator Jobs' probe
+// is given the controller's own resolver as <ip>:53, and a resolver file
+// that names none stops startup; off, nothing is read.
+func TestEvaluatorProbeDNS(t *testing.T) {
+	dir := t.TempDir()
+	good, empty := dir+"/resolv.conf", dir+"/empty.conf"
+	if err := os.WriteFile(good, []byte("search svc.cluster.local\nnameserver 10.43.0.10\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(empty, []byte("search svc.cluster.local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := evaluatorProbeDNS(intent.Settings{}, dir+"/missing"); got != "" || err != nil {
+		t.Errorf("evaluator off: %q, %v; want nothing read", got, err)
+	}
+	on := intent.Settings{Evaluator: true}
+	if got, err := evaluatorProbeDNS(on, good); got != "10.43.0.10:53" || err != nil {
+		t.Errorf("evaluator on: %q, %v; want 10.43.0.10:53", got, err)
+	}
+	for _, path := range []string{empty, dir + "/missing"} {
+		if _, err := evaluatorProbeDNS(on, path); err == nil {
+			t.Errorf("evaluatorProbeDNS(%s) succeeded, want a startup error", path)
+		}
 	}
 }
 

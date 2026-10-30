@@ -13,10 +13,13 @@ import (
 // PullRequestFile is one file a pull request changes: its path, and the
 // path it was renamed from, which the pull request changes too ("" unless
 // it was renamed). Both are untrusted text: anyone who can push to the pull
-// request's branch chose them.
+// request's branch chose them. Additions and Deletions are its added and
+// deleted line counts as GitHub counts them (a negative count reads as 0).
 type PullRequestFile struct {
 	Path         string
 	PreviousPath string
+	Additions    int
+	Deletions    int
 }
 
 // ListPullRequestFiles returns the first files a pull request changes, in
@@ -38,7 +41,8 @@ func (c *Client) ListPullRequestFiles(ctx context.Context, repo Repo, number, li
 		if f == nil || f.GetFilename() == "" || len(out) == limit {
 			continue
 		}
-		out = append(out, PullRequestFile{Path: f.GetFilename(), PreviousPath: f.GetPreviousFilename()})
+		out = append(out, PullRequestFile{Path: f.GetFilename(), PreviousPath: f.GetPreviousFilename(),
+			Additions: max(f.GetAdditions(), 0), Deletions: max(f.GetDeletions(), 0)})
 	}
 	return out, nil
 }

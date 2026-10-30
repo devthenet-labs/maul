@@ -58,6 +58,14 @@ func TestDesiredPreviewEnvironment(t *testing.T) {
 			}}),
 			intent: reviewing(openPR("https://github.com/acme/t", headA)),
 		},
+		{
+			name: "a component keyed like the tool pod fails closed",
+			project: verifying(&Project{Spec: ProjectSpec{
+				Repositories: []ProjectRepository{{Name: PreviewRoleTools, URL: "https://github.com/acme/t"}},
+				Preview:      &ProjectPreview{ImageRepository: previewImageWeb, Port: 8080, ReadinessPath: "/healthz"},
+			}}),
+			intent: reviewing(openPR("https://github.com/acme/t", headA)),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

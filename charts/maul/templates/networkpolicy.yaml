@@ -229,6 +229,9 @@ spec:
     podSelector:
         matchLabels:
             {{- include "maul.agentPodSelector" . | nindent 12 }}
+        {{- with include "maul.agentRoleExclusion" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
     policyTypes: [Egress]
     egress:
         {{- /* Under agent.networkPolicy.dns: none there is no DNS rule: the

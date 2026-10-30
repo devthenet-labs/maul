@@ -79,6 +79,7 @@ func TestEvidenceMirrorsMatch(t *testing.T) {
 		{"PartFact", reflect.TypeFor[acceptance.PartFact](), reflect.TypeFor[v1alpha1.PartFact]()},
 		{"Termination", reflect.TypeFor[acceptance.Termination](), reflect.TypeFor[v1alpha1.Termination]()},
 		{"TargetWait", reflect.TypeFor[acceptance.TargetWait](), reflect.TypeFor[v1alpha1.TargetWait]()},
+		{"PlanOutcome", reflect.TypeFor[acceptance.PlanOutcome](), reflect.TypeFor[v1alpha1.AcceptanceOutcome]()},
 	}
 	for _, m := range mirrors {
 		acc, crd := jsonFields(m.acc), jsonFields(m.crd)

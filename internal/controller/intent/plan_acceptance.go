@@ -9,7 +9,9 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
 // A plan's acceptance criteria, before approval. One decision, planAsk,
@@ -31,38 +33,52 @@ func (s Settings) verifiesProject(p *v1alpha1.Project) bool {
 	return s.Verification && s.Previews && p.Spec.VerificationEnabled()
 }
 
-// planAsk is how a plan of a Project is asked for acceptance criteria.
+// evaluates reports that the agent evaluator verifies Project p's intents
+// (--intent-evaluator, beside verifiesProject): its plans are asked for
+// acceptance outcomes, a plan stating slice-1 criteria is refused, and an
+// approved one's outcomes are what is recorded and verified.
+func (s Settings) evaluates(p *v1alpha1.Project) bool {
+	return s.Evaluator && s.verifiesProject(p)
+}
+
+// planAsk is how a plan of a Project is asked for acceptance criteria, or,
+// under the agent evaluator, outcomes.
 type planAsk struct {
 	// verified: the Project's intents are verified (verifiesProject).
 	verified bool
+	// outcomes: the agent evaluator verifies them (evaluates), so the plan
+	// states outcomes, never criteria.
+	outcomes bool
 	// targets are the previewed components a criterion can target, as the
-	// plan is told of them (templates.PlanVerification.Normalize); nil when
-	// there is none, or the Project is not verified.
+	// plan is told of them (templates.PlanVerification.Normalize, which
+	// carries outcomes too); nil when there is none, or the Project is not
+	// verified.
 	targets *templates.PlanVerification
 }
 
 // planAsk is the plan-time decision for Project p: verified, and the
 // components of every Preview of it (v1alpha1.EffectivePreviews). A
-// component named like the tester part gives none, as
+// component named like the tester or the tool pod part gives none, as
 // v1alpha1.DesiredPreviewEnvironment fails closed on it.
 func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 	if !s.verifiesProject(p) {
 		return planAsk{}
 	}
-	v := &templates.PlanVerification{}
+	outcomes := s.evaluates(p)
+	v := &templates.PlanVerification{Outcomes: outcomes}
 	for _, rp := range v1alpha1.EffectivePreviews(p) {
-		if rp.Name == v1alpha1.PreviewPartTester {
-			return planAsk{verified: true}
+		if rp.Name == v1alpha1.PreviewPartTester || rp.Name == v1alpha1.PreviewRoleTools {
+			return planAsk{verified: true, outcomes: outcomes}
 		}
 		v.Components = append(v.Components, templates.PlanVerifyComponent{
 			Key: rp.Name, Path: rp.Path, Readiness: rp.Preview.ReadinessPath})
 	}
-	return planAsk{verified: true, targets: v.Normalize()}
+	return planAsk{verified: true, outcomes: outcomes, targets: v.Normalize()}
 }
 
-// asked reports whether the plan is asked for criteria: its Project is
-// verified and previews at least one component they can target. Only then
-// will an approved plan's criteria be run.
+// asked reports whether the plan is asked for criteria (or outcomes): its
+// Project is verified and previews at least one component they can target.
+// Only then will an approved plan's criteria be run.
 func (a planAsk) asked() bool { return a.verified && a.targets != nil }
 
 // planAcceptance is the plan comment's acceptance line for a plan declaring
@@ -71,11 +87,14 @@ func (a planAsk) asked() bool { return a.verified && a.targets != nil }
 // says it declares none); "not asked for", and why, when the Project
 // verifies but previews nothing a criterion could target; "not checked"
 // when criteria are declared for a Project that is not verified, kept
-// rather than refused; nil, no line, when none of these.
+// rather than refused; nil, no line, when none of these, or when the plan
+// was asked for outcomes, which planOutcomes lists instead.
 func planAcceptance(a planAsk, cs []acceptance.Criterion) *templates.PlanAcceptance {
 	switch {
 	case a.verified && !a.asked():
 		return &templates.PlanAcceptance{NotAsked: true}
+	case a.outcomes:
+		return nil
 	case !a.verified && len(cs) == 0:
 		return nil
 	case !a.verified:
@@ -93,6 +112,56 @@ func planAcceptance(a planAsk, cs []acceptance.Criterion) *templates.PlanAccepta
 		}
 	}
 	return out
+}
+
+// The bounds of the issue lines a plan comment lists as answered by no
+// outcome: issue text, which anyone who can edit the issue writes.
+const (
+	maxNotCoveredLines     = 20
+	maxNotCoveredLineBytes = 300
+)
+
+// planOutcomes is the plan comment's outcomes section for a plan asked for
+// outcomes (a.outcomes and a.asked()): each outcome as the plan states it,
+// and the list items of issueBody, the request the plan answers, that no
+// outcome quotes in its from (acceptance.NotCovered), at most
+// maxNotCoveredLines of them, each bounded and made visible
+// (untrusted.Visible), the rest counted. nil for any other plan, and
+// without the issue lines when the request cannot be read (issue false).
+func planOutcomes(a planAsk, os []acceptance.PlanOutcome, issueBody string, issue bool) *templates.PlanOutcomes {
+	if !a.outcomes || !a.asked() {
+		return nil
+	}
+	out := &templates.PlanOutcomes{}
+	for _, o := range acceptance.NormalizeOutcomes(os) {
+		out.Outcomes = append(out.Outcomes, templates.PlanOutcome{ID: o.ID, Outcome: o.Outcome, From: o.From,
+			Keep: o.Kind == acceptance.OutcomeKindKeep, Manual: o.Manual, Reason: o.Reason})
+	}
+	if !issue {
+		return out
+	}
+	for _, line := range acceptance.NotCovered(issueBody, os) {
+		if len(out.NotCovered) == maxNotCoveredLines {
+			out.NotCoveredMore++
+			continue
+		}
+		out.NotCovered = append(out.NotCovered, untrusted.Visible(line, maxNotCoveredLineBytes))
+	}
+	return out
+}
+
+// criteriaUnderEvaluator says why a plan cannot be offered under the agent
+// evaluator ("" when it can): it states slice-1 criteria, which the
+// evaluator never runs (report.Plan.CheckEvaluator). Such a plan is refused
+// when its run is collected, and the next attempt is told why.
+func criteriaUnderEvaluator(a planAsk, cs []acceptance.Criterion) string {
+	if !a.outcomes {
+		return ""
+	}
+	if err := (&report.Plan{Acceptance: cs}).CheckEvaluator(); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // unpreviewedTarget says which of cs is aimed at nothing ("" when none is),

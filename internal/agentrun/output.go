@@ -152,13 +152,19 @@ func (t *followedTask) isEnded() bool {
 
 // followOutput sets up the live output of one run whose command is spec,
 // or returns nil when the stage shows none or the harness cannot follow
-// commands. Only an intent's stages show it: an intent run's panel is the
+// commands. Only an intent's plan and build stages show it: an intent run's panel is the
 // output's one reader, and a Finding's stages, whose transcript view never
 // shows it, would only add it to their pod log. secrets is the run's scrub
 // list: the credentials, and the caller token read afresh for this run.
 func (a *Agent) followOutput(ctx context.Context, h harness.Harness, spec runner.CommandSpec,
 	secrets []string) *outputFollower {
-	if a.cfg.Phase != PhasePlan && a.cfg.Phase != PhaseBuild {
+	switch a.cfg.Phase {
+	case PhasePlan, PhaseBuild:
+	case PhaseInvestigate, PhaseRemediate, PhaseEvaluate, PhaseCheckReview:
+		// The evaluator's and check reviewer's commands are maul-tool calls,
+		// whose output is the tools ledger's to keep; none is shown live.
+		return nil
+	default:
 		return nil
 	}
 	tw, ok := h.(harness.TaskWatcher)

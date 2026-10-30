@@ -224,6 +224,83 @@ builds:
       goarch:
           - amd64
           - arm64
+    - id: preview-tools
+      main: ./cmd/preview-tools
+      binary: preview-tools
+      flags:
+          - -trimpath
+      # The relay links only the standard library and the internal packages
+      # its imports test pins, so these stamps name a package it does not
+      # link and the linker drops them; they stay so every build carries the
+      # same contract (internal/version's TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
+    - id: tool-exec
+      main: ./cmd/tool-exec
+      binary: tool-exec
+      flags:
+          - -trimpath
+      # The exec shim links only the standard library and internal/toolexec,
+      # so these stamps name a package it does not link and the linker drops
+      # them; they stay so every build carries the same contract
+      # (internal/version's TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
+    - id: cdp-shim
+      main: ./cmd/cdp-shim
+      binary: cdp-shim
+      flags:
+          - -trimpath
+      # The CDP shim links only the standard library, internal/cdpshim and
+      # x/net/websocket, so these stamps name a package it does not link and
+      # the linker drops them; they stay so every build carries the same
+      # contract (internal/version's TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
+    - id: maul-tool
+      main: ./cmd/maul-tool
+      binary: maul-tool
+      flags:
+          - -trimpath
+      # The agent evaluator's CLI links only the standard library and
+      # internal/maultool (with its toolwire), so these stamps name a package
+      # it does not link and the linker drops them; they stay so every build
+      # carries the same contract (internal/version's
+      # TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
     - id: agent-runner
       main: ./cmd/agent-runner
       binary: agent-runner
@@ -328,6 +405,10 @@ archives:
           - egress-proxy
           - preview-auth
           - preview-tester
+          - preview-tools
+          - tool-exec
+          - cdp-shim
+          - maul-tool
           - agent-runner
           - status-server
       formats: [tar.gz]
@@ -579,8 +660,69 @@ dockers_v2:
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
+    # The preview tools (cmd/preview-tools plus the pinned Playwright CLI
+    # and test runner, installed from internal/previewtools/node's lockfile):
+    # the tools container of a slot tool pod. The chart takes it only by
+    # digest.
+    - id: preview-tools
+      ids: [preview-tools]
+      dockerfile: Dockerfile.preview-tools
+      extra_files:
+          - internal/previewtools/node/package.json
+          - internal/previewtools/node/package-lock.json
+      images:
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-tools"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
+    # The preview toolbox (cmd/tool-exec plus curl, grpcurl, websocat, node,
+    # python and go): the sandbox container of a slot tool pod. The chart
+    # takes it only by digest.
+    - id: preview-toolbox
+      ids: [tool-exec]
+      dockerfile: Dockerfile.preview-toolbox
+      images:
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-toolbox"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
+    # The preview browser (cmd/cdp-shim plus a pinned headless Chromium):
+    # the optional browser container of a slot tool pod. The chart takes it
+    # only by digest.
+    - id: preview-browser
+      ids: [cdp-shim]
+      dockerfile: Dockerfile.preview-browser
+      images:
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-browser"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
     - id: claude-agent-runner
-      ids: [agent-runner]
+      ids: [agent-runner, maul-tool]
       dockerfile: Dockerfile.claude-agent-runner
       images:
           - "{{ .Env.MAUL_IMAGE_REGISTRY }}/claude-agent-runner"
@@ -596,7 +738,7 @@ dockers_v2:
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
     - id: codex-agent-runner
-      ids: [agent-runner]
+      ids: [agent-runner, maul-tool]
       dockerfile: Dockerfile.codex-agent-runner
       images:
           - "{{ .Env.MAUL_IMAGE_REGISTRY }}/codex-agent-runner"

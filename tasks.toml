@@ -12,6 +12,21 @@ hide = true
 dir = "{{cwd}}"
 run = ["golangci-lint run", "hack/govulncheck.sh"]
 
+# Overrides the archetype's go-test: the same race-and-coverage run, with an
+# explicit -timeout. internal/controller/preview's seeded property tests
+# (JSON-heavy, about 8x slower under -race) take close to go test's default
+# 10m per package on a hosted runner, so one slow run would panic with
+# "test timed out"; hack/e2e.sh carries the same headroom for its suite.
+[go-test]
+hide = true
+dir = "{{cwd}}"
+run = """
+set -eu
+mkdir -p coverage
+gotestsum --junitfile coverage/junit.xml -- \
+  -race -covermode=atomic -coverprofile=coverage/coverage.out -timeout 30m ./...
+"""
+
 # The e2e suite is a separate module: it boots an envtest kube-apiserver
 # (the CRD state machine), builds the real controller binaries, and drives
 # them with recorded webhook fixtures against an in-memory GitHub. No real
@@ -111,6 +126,22 @@ description = "run the egress proxy's CONNECT tunnel with the real package manag
 dir = "{{cwd}}"
 env = { MAUL_LIVE_TUNNEL = "1" }
 run = "go test -count=1 -v -timeout 30m -run '^TestLiveTunnel$' ./internal/egressproxy"
+
+# The browser tool against a real Chromium (hack/live-browser.sh): npm ci of
+# internal/previewtools/node, then the keyed CDP shim (TestLiveCDPShim), the
+# pinned Playwright CLI's output grammar against its golden
+# (TestPlaywrightCLIFormat), maul's fixture under tsc (TestFixtureTypechecks)
+# and the browser trial's matrix through the relay with no model
+# (TestLiveBrowser); MAUL_LIVE_PAGE_FUNCTIONS=1 adds S1-04's
+# TestLivePageFunctions. Chromium from MAUL_LIVE_CHROMIUM or PATH. CI's
+# browser-tools job runs it when the browser tool changed (renovate's pin
+# bumps included); run it before a Chromium bump in Dockerfile.preview-browser
+# merges, for a bump inside the new image (its read-only root, uid 65532, no
+# capabilities).
+[live-browser]
+description = "run the browser relay, the pinned Playwright CLI and the CDP shim against a real headless Chromium"
+dir = "{{cwd}}"
+run = "./hack/live-browser.sh"
 
 # Tests that need a real API server (CRD schema validation, controller
 # integration): setup-envtest provisions kube-apiserver/etcd, then the suites

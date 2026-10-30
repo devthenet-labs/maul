@@ -109,6 +109,12 @@ type PlanPrompt struct {
 	// target. nil omits the section, and the prompt is exactly the prompt
 	// without it.
 	Verification *PlanVerification
+	// Outcomes says the Project's changes are judged by the agent
+	// evaluator: the prompt then teaches the outcome form of the
+	// `acceptance` list (acceptance.PlanOutcome) instead of slice 1's
+	// criteria, and Verification is not stated. False, the zero value, is
+	// the prompt exactly as without it.
+	Outcomes bool
 }
 
 // BuildProfile is one repository whose build gets an operator network

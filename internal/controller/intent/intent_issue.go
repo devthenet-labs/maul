@@ -220,7 +220,7 @@ func verbs(phase v1alpha1.IntentPhase, verification bool) []string {
 	case terminal(phase):
 		return nil
 	case verification && verifyPhase(phase):
-		return []string{"verify", "accept", "cancel"}
+		return []string{"verify", "accept", "preview", "cancel"}
 	}
 	return []string{"cancel"}
 }

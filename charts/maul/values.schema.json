@@ -835,7 +835,17 @@
                     "properties": {
                         "enabled": {"type": "boolean"},
                         "testerImage": {"type": "string", "description": "The preview-tester image, pinned by digest; the render checks its grammar and that it lies under neither the preview prefix nor an agent registry"},
-                        "deadlineMaxSeconds": {"type": "integer", "minimum": 60, "maximum": 3600, "description": "The longest activeDeadlineSeconds a slot Job may carry; also rendered as preview-controller's --preview-verify-deadline-max and intent-controller's --intent-verify-timeout-max, which accept 1m to 1h"}
+                        "deadlineMaxSeconds": {"type": "integer", "minimum": 60, "maximum": 3600, "description": "The longest activeDeadlineSeconds a slot Job may carry; also rendered as preview-controller's --preview-verify-deadline-max and intent-controller's --intent-verify-timeout-max, which accept 1m to 1h"},
+                        "tools": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "The slot tool pod's images, each pinned by digest; used and required only with intentController.verification.evaluator on, and checked as testerImage is",
+                            "properties": {
+                                "image": {"type": "string", "description": "The preview-tools image: the tool pod's main container, maul's relay"},
+                                "browserImage": {"type": "string", "description": "The preview-browser image: the browser sidecar, headless Chromium behind the keyed CDP shim"},
+                                "toolboxImage": {"type": "string", "description": "The preview-toolbox image: the sandbox sidecar"}
+                            }
+                        }
                     }
                 },
                 "quota": {
@@ -2076,6 +2086,56 @@
                             "type": "string",
                             "minLength": 1,
                             "description": "Canonical model a codex Project's build, revise and check-fix stages run; must resolve to codex"
+                        }
+                    }
+                },
+                "verification": {
+                    "type": "object",
+                    "description": "The agent evaluator. Off by default; on, it renders the maul-evaluator-labels admission policies (Kubernetes 1.30+) and the evaluator and check reviewer egress policies, leaving those roles out of every other agent egress policy (needs agent.networkPolicy.create; refused under mode istio).",
+                    "additionalProperties": false,
+                    "properties": {
+                        "evaluator": {
+                            "type": "boolean",
+                            "description": "Turn the agent evaluator on"
+                        },
+                        "defaultHandoff": {
+                            "type": "string",
+                            "enum": ["gated", "early"],
+                            "description": "The hand-off for a Project that does not choose: gated holds the preview link until the evaluator passes or gives up, early posts it at once"
+                        },
+                        "handoffMax": {
+                            "$ref": "#/definitions/duration",
+                            "description": "The longest a gated hand-off waits, from CI green at the first PR heads"
+                        },
+                        "codexEvaluator": {
+                            "type": "boolean",
+                            "description": "Evaluate codex Projects' previews on brokered codex; off, they get the early hand-off"
+                        },
+                        "evaluateModel": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Canonical model the evaluator runs"
+                        },
+                        "checkReviewModel": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Canonical model the check reviewer runs"
+                        },
+                        "evaluateTimeout": {
+                            "$ref": "#/definitions/duration",
+                            "description": "One evaluation round's wall clock; shorter than preview.verification.deadlineMaxSeconds"
+                        },
+                        "maxEvaluateCostUSD": {
+                            "type": "number",
+                            "exclusiveMinimum": 0,
+                            "maximum": 1000,
+                            "description": "The most an intent's evaluation runs may spend, in USD; rendered in micro-USD"
+                        },
+                        "maxToolCalls": {
+                            "type": "integer",
+                            "minimum": 50,
+                            "maximum": 300,
+                            "description": "The evaluator's tool calls per round"
                         }
                     }
                 },
