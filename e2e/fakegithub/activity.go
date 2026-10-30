@@ -46,7 +46,7 @@ func (s *Server) listActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	repo := repoKey(r.PathValue("owner"), r.PathValue("repo"))
 	s.mu.Lock()
-	out := make([]activityRec, 0, limit)
+	out := []activityRec{}
 	for _, a := range slices.Backward(s.git.activity) {
 		if len(out) == limit {
 			break
