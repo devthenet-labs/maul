@@ -51,8 +51,8 @@ RUN apk add --no-cache \
   && sha256sum -c /tmp/websocat.sha256 \
   && rm /tmp/websocat.sha256 \
   && chmod 0755 /usr/local/bin/websocat \
-  && install -d -o 65532 -g 65532 -m 0700 /work /work/scratch \
-  && install -d -o 65532 -g 65532 -m 0755 /run/maul-exec
+  && install -d -o 65534 -g 65534 -m 0700 /work /work/scratch \
+  && install -d -o 65534 -g 65534 -m 0755 /run/maul-exec
 
 COPY ${TARGETPLATFORM}/tool-exec /usr/local/bin/tool-exec
 
@@ -76,6 +76,7 @@ LABEL org.opencontainers.image.title="maul preview-toolbox" \
 
 WORKDIR /work/scratch
 
-# Runs as uid 65532 under PSA restricted and a read-only root filesystem.
-USER 65532:65532
+# Runs as uid 65534, the sandbox UID preview-controller sets (toolpod.go
+# sandboxUID), under PSA restricted and a read-only root filesystem.
+USER 65534:65534
 ENTRYPOINT ["/usr/local/bin/tool-exec"]

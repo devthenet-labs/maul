@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -543,5 +545,37 @@ func TestSweepToolPodOrphans(t *testing.T) {
 	}
 	if err := e.c.Get(ctx, client.ObjectKeyFromObject(policy), &networkingv1.NetworkPolicy{}); err != nil {
 		t.Errorf("a live Preview's verification policy was swept: %v", err)
+	}
+}
+
+// TestToolImagesTraversableByTheirUID holds each tool image's private
+// directories to the UID the renderer runs its container as: a directory
+// others cannot enter, owned by another UID, leaves the container unable to
+// reach what is mounted below it (the sandbox's /work/scratch, 0.13.5).
+func TestToolImagesTraversableByTheirUID(t *testing.T) {
+	dirLine := regexp.MustCompile(`install -d -o (\d+) -g \d+ -m (0[0-7]{3}) (.+?)(?: \\)?$`)
+	for _, tc := range []struct {
+		dockerfile string
+		uid        int64
+	}{
+		{"Dockerfile.preview-tools", toolsUID},
+		{"Dockerfile.preview-browser", browserUID},
+		{"Dockerfile.preview-toolbox", sandboxUID},
+	} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "..", tc.dockerfile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for line := range strings.SplitSeq(string(raw), "\n") {
+			m := dirLine.FindStringSubmatch(strings.TrimSpace(line))
+			if m == nil {
+				continue
+			}
+			owner, _ := strconv.ParseInt(m[1], 10, 64)
+			mode, _ := strconv.ParseUint(m[2], 8, 32)
+			if mode&0o005 != 0o005 && owner != tc.uid {
+				t.Errorf("%s: %s is mode %s owned by %d, but its container runs as %d", tc.dockerfile, m[3], m[2], owner, tc.uid)
+			}
+		}
 	}
 }
