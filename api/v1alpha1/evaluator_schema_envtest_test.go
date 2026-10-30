@@ -468,7 +468,7 @@ func testEvaluatorStatusSchema(ctx context.Context, t *testing.T, c client.Clien
 	t.Run("the evaluator's reasons are admitted", func(t *testing.T) {
 		for _, r := range []maulv1.PreviewVerificationReason{
 			maulv1.VerificationReasonToolsUnscheduled, maulv1.VerificationReasonToolsImagePull,
-			maulv1.VerificationReasonToolsCrashLoop,
+			maulv1.VerificationReasonToolsCrashLoop, maulv1.VerificationReasonEvaluatorNotRun,
 			maulv1.VerificationReasonToolsNotReady, maulv1.VerificationReasonLedgerMismatch,
 			maulv1.VerificationReasonEvidenceMismatch,
 		} {

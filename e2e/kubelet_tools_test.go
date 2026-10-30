@@ -480,11 +480,29 @@ func (k *kubelet) toolPodRunning(ctx context.Context, tp *toolPod, ready bool) e
 		PodIPs:     []corev1.PodIP{{IP: tp.ip}},
 		Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: cond}},
 		ContainerStatuses: []corev1.ContainerStatus{{Name: "tools", Image: image, ImageID: image, Ready: ready,
-			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: tp.started}}}}}
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: tp.started}}}},
+		InitContainerStatuses: sidecarsRunning(pod, tp.started)}
 	if err := k.cl.client.Status().Update(ctx, pod); err != nil {
 		return fmt.Errorf("record tool pod status: %w", err)
 	}
 	return nil
+}
+
+// sidecarsRunning reports each of pod's native sidecars (browser, sandbox)
+// started, running and Ready, as a kubelet would once they came up: they
+// do not run here, but preview-controller publishes a tool pod only once
+// every sidecar its round asks for is.
+func sidecarsRunning(pod *corev1.Pod, started metav1.Time) []corev1.ContainerStatus {
+	var out []corev1.ContainerStatus
+	for _, c := range pod.Spec.InitContainers {
+		if c.RestartPolicy == nil || *c.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+			continue
+		}
+		up := true
+		out = append(out, corev1.ContainerStatus{Name: c.Name, Image: c.Image, ImageID: c.Image, Ready: true,
+			Started: &up, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: started}}})
+	}
+	return out
 }
 
 // toolPodEnded records the tool pod's end: its tools container terminated

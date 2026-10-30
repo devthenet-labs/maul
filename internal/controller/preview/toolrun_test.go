@@ -93,7 +93,7 @@ func (e *verifyEnv) toolPV(mut func(*v1alpha1.PreviewVerification)) *v1alpha1.Pr
 }
 
 // startTools plays the Job controller creating the tool pod and the
-// kubelet running it, its tools container Ready or not.
+// kubelet running it, its tools container and both sidecars Ready or not.
 func (e *verifyEnv) startToolPod(job *batchv1.Job, ready bool) *corev1.Pod {
 	e.t.Helper()
 	pod := testerPod(job, job.Name+"-t0012")
@@ -105,8 +105,14 @@ func (e *verifyEnv) startToolPod(job *batchv1.Job, ready bool) *corev1.Pod {
 	if ready {
 		pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
 	}
-	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: toolsContainer, Ready: ready,
-		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: metav1.NewTime(e.now)}}}}
+	running := corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: metav1.NewTime(e.now)}}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: toolsContainer, Ready: ready, State: running}}
+	if ready {
+		pod.Status.InitContainerStatuses = []corev1.ContainerStatus{
+			{Name: browserContainer, Ready: true, Started: ptr(true), State: running},
+			{Name: sandboxContainer, Ready: true, Started: ptr(true), State: running},
+		}
+	}
 	if err := e.c.Status().Update(context.Background(), pod); err != nil {
 		e.t.Fatal(err)
 	}
@@ -222,6 +228,31 @@ func toolLedger(t *testing.T, shot []byte, unreached ...string) ([]byte, string)
 	}
 	if err := w.Evidence(browse.Seq, shot); err != nil {
 		t.Fatal(err)
+	}
+	sum, err := w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes(), sum.TerminationMessage()
+}
+
+// deadlineLedger is the ledger of a tool pod no evaluator ever called:
+// the relay's readiness wait, then its own finish at the wall clock.
+func deadlineLedger(t *testing.T) ([]byte, string) {
+	t.Helper()
+	var out bytes.Buffer
+	w := toolwire.NewWriter(&out)
+	at := time.Date(2026, 10, 1, 12, 1, 0, 0, time.UTC)
+	readiness, _ := json.Marshal([]acceptance.TargetWait{{Target: "api", WaitMs: 40, Attempts: 1},
+		{Target: "web", WaitMs: 40, Attempts: 1}})
+	for _, e := range []toolwire.LedgerEntry{
+		{Kind: toolwire.KindRelay, Verb: toolwire.VerbHTTP, TS: at,
+			Args: json.RawMessage(`{"readiness":{"targets":["api","web"]}}`), Output: string(readiness)},
+		{Kind: toolwire.KindRelay, Verb: toolwire.VerbFinish, TS: at, Args: json.RawMessage(`{"reason":"deadline"}`)},
+	} {
+		if _, err := w.Append(e); err != nil {
+			t.Fatal(err)
+		}
 	}
 	sum, err := w.Close()
 	if err != nil {
@@ -639,6 +670,93 @@ func TestToolsCrashLoopIsInfra(t *testing.T) {
 			}
 			if len(e.jobs()) != 0 {
 				t.Error("the tool Job outlived the settle")
+			}
+		})
+	}
+}
+
+// The tool pod is published only once every sidecar its round asks for is
+// running and Ready beside the tools container: an evaluator launched on a
+// pod whose sandbox is down would spend a round on a half-broken pod.
+func TestToolsStatusNeedsItsSidecars(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sandbox bool
+		status  *corev1.ContainerStatus
+		want    bool
+	}{
+		{name: "sandbox restarting", sandbox: true, status: &corev1.ContainerStatus{Name: sandboxContainer,
+			RestartCount: 1, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}}},
+		{name: "sandbox not Ready", sandbox: true, status: &corev1.ContainerStatus{Name: sandboxContainer,
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}},
+		{name: "sandbox Ready", sandbox: true, want: true},
+		{name: "no sandbox asked for", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			if !tc.sandbox {
+				if err := e.c.Delete(context.Background(), e.pv); err != nil {
+					t.Fatal(err)
+				}
+				e.pv = e.toolPV(func(pv *v1alpha1.PreviewVerification) { pv.Spec.Tools.Sandbox = false })
+			}
+			e.verify()
+			pod := e.startToolPod(e.testerJob(), true)
+			i := slices.IndexFunc(pod.Status.InitContainerStatuses, func(s corev1.ContainerStatus) bool {
+				return s.Name == sandboxContainer
+			})
+			switch {
+			case tc.status != nil:
+				pod.Status.InitContainerStatuses[i] = *tc.status
+			case !tc.sandbox:
+				pod.Status.InitContainerStatuses = slices.Delete(pod.Status.InitContainerStatuses, i, i+1)
+			}
+			e.mustStatus(pod)
+			pv, _ := e.verify()
+			if got := pv.Status.Tools != nil; got != tc.want {
+				t.Fatalf("status.tools %+v, want published %v", pv.Status.Tools, tc.want)
+			}
+		})
+	}
+}
+
+// A full round whose tool Job ran to its deadline with no evaluator call
+// in its ledger (no agent entry, no runner finish) is maul's trouble, never
+// Observed ok: tools-not-ready when the pod was never published,
+// evaluator-not-run when it was. A replay round has no evaluator to miss.
+func TestToolsNoEvaluatorIsInfra(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		replay    bool
+		published bool
+		phase     v1alpha1.PreviewVerificationPhase
+		reason    v1alpha1.PreviewVerificationReason
+	}{
+		{name: "never published", phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonToolsNotReady},
+		{name: "published, never called", published: true, phase: v1alpha1.VerificationInfra,
+			reason: v1alpha1.VerificationReasonEvaluatorNotRun},
+		{name: "replay round", replay: true, published: true, phase: v1alpha1.VerificationObserved,
+			reason: v1alpha1.VerificationReasonOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			if tc.replay {
+				if err := e.c.Delete(context.Background(), e.pv); err != nil {
+					t.Fatal(err)
+				}
+				e.pv = e.toolPV(func(pv *v1alpha1.PreviewVerification) { pv.Spec.Rung = v1alpha1.RungReplay })
+			}
+			e.verify()
+			job := e.testerJob()
+			pod := e.startToolPod(job, tc.published)
+			if pv, _ := e.verify(); (pv.Status.Tools != nil) != tc.published {
+				t.Fatalf("status.tools %+v", pv.Status.Tools)
+			}
+			log, msg := deadlineLedger(t)
+			e.finishToolPod(job, pod, log, msg)
+			pv, _ := e.verify()
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
 			}
 		})
 	}

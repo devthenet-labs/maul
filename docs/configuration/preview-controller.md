@@ -361,9 +361,9 @@ application. Off, an outcome verification is `Infra` and renders nothing.
   DNS and no gateway. preview-controller adds one ingress policy per verification, admitting on port 8090 only pods of
   role `evaluator` carrying this verification's UID in `maul.run/preview-verification`, from the agents namespace;
   `maul-preview-networkpolicies` admits no other shape.
-- **`status.tools`.** Once `tools` is Ready, the controller writes the pod's address and port to the request's
-  `status.tools`; intent-controller creates the evaluator only then, because the evaluator reaches it through a host
-  entry fixed when its pod starts.
+- **`status.tools`.** Once `tools` is Ready, and every sidecar the round asks for (`browser`, `sandbox`) is running and
+  Ready, the controller writes the pod's address and port to the request's `status.tools`; intent-controller creates the
+  evaluator only then, because the evaluator reaches it through a host entry fixed when its pod starts.
 - **Logs and events.** While the pod runs, each poll refreshes the tool ConfigMap with a bounded log tail of each
   component since the round began, redacted (JWT-shaped strings, `Bearer` and `Authorization` values, the round's keys),
   and the slot's pod events and container states. That is how `maul-tool logs` and `maul-tool events` see them: the
@@ -376,13 +376,15 @@ application. Off, an outcome verification is `Infra` and renders nothing.
   dry-run records, never from the evaluator's report. The full ledger goes to the ConfigMap `<verification>-ledger` and
   the cited screenshots (kept only on a sha256 match with their ledger entry, checked as PNG and re-encoded, at most
   1280 pixels wide) to `<verification>-evidence`, both in the release namespace and owned by the request. A ledger that
-  does not hold is `Infra` (`ledger-mismatch`), never a verdict. A pod that is never created, scheduled or pulled is
-  `Infra` past its bound (`tools-not-ready`, `tools-unscheduled`, `tools-image-pull`; a quota refusal `quota-refused`).
-  So is one whose container, a browser or sandbox sidecar above all, keeps exiting in error (`CrashLoopBackOff`, or
-  three restarts with the last exit non-zero): `tools-crashloop`, settled past the same bound rather than at the Job's
-  deadline, its `status.environment` fact naming the container, its last termination and, as its `logTail`, the redacted
-  termination message (also logged as `preview tool pod container crash-looping`). Settling deletes the Job, its Secret
-  and ConfigMap, and the ingress policy.
+  does not hold is `Infra` (`ledger-mismatch`), never a verdict. So is a full round whose ledger holds no call from the
+  evaluator (no agent entry, no agent-runner finish), as when the Job ran to its deadline with no evaluator:
+  `tools-not-ready` when `status.tools` was never written, else `evaluator-not-run`. A pod that is never created,
+  scheduled or pulled is `Infra` past its bound (`tools-not-ready`, `tools-unscheduled`, `tools-image-pull`; a quota
+  refusal `quota-refused`). So is one whose container, a browser or sandbox sidecar above all, keeps exiting in error
+  (`CrashLoopBackOff`, or three restarts with the last exit non-zero): `tools-crashloop`, settled past the same bound
+  rather than at the Job's deadline, its `status.environment` fact naming the container, its last termination and, as
+  its `logTail`, the redacted termination message (also logged as `preview tool pod container crash-looping`). Settling
+  deletes the Job, its Secret and ConfigMap, and the ingress policy.
 - **Timing.** A round's request asks for the evaluate timeout plus five minutes. The chart refuses
   `intentController.verification.evaluateTimeout` unless it is shorter than `preview.verification.deadlineMaxSeconds`,
   so the slot Job policy never refuses the tool pod.

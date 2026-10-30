@@ -54,7 +54,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;ledger-mismatch;evidence-mismatch
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -121,6 +121,11 @@ const (
 	// Job Running with no pod, so this comes from the bound, never from Job
 	// status). Infra.
 	VerificationReasonToolsNotReady PreviewVerificationReason = "tools-not-ready"
+	// VerificationReasonEvaluatorNotRun: a full round's tool pod was
+	// published Ready but finished (at its wall clock, as a rule) with no
+	// call from the evaluator in its ledger, neither an agent entry nor
+	// agent-runner's own: no evaluator ran against it. Infra.
+	VerificationReasonEvaluatorNotRun PreviewVerificationReason = "evaluator-not-run"
 	// VerificationReasonLedgerMismatch: the tools container's ledger lines
 	// did not match its summary (count and sha256) or its termination
 	// message. Infra, never a verdict.

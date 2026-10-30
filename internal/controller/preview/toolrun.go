@@ -37,8 +37,8 @@ import (
 // the tester does for the rollout and the edge policies, then renders the
 // per-verification ingress policy, the tool Job, and the CDP key Secret and
 // tool ConfigMap the Job owns. While it runs, each poll refreshes the
-// capture in the tool ConfigMap and, once the tools container is Ready,
-// writes status.tools: only then may intent-controller create the
+// capture in the tool ConfigMap and, once the tools container and every
+// sidecar the round asks for are Ready, writes status.tools: only then may intent-controller create the
 // evaluator, whose hosts entry is fixed when its pod is created. A pod that
 // never comes (a quota or LimitRange refusal leaves the Job Running with no
 // pod), is never scheduled, cannot pull an image, has a container
@@ -47,7 +47,8 @@ import (
 // Once the Job has finished, its ledger is collected (ledger.go,
 // evidence.go) and the attempt settles as a tester's does:
 // Observed, EnvFailed (the application's, a component never reached
-// included) or Infra (ledger-mismatch). Settling deletes the Job, the
+// included) or Infra (ledger-mismatch; a full round with no evaluator call
+// in its ledger, tools-not-ready or evaluator-not-run). Settling deletes the Job, the
 // Secret, the ConfigMap and the policy.
 
 // maxToolVerificationObject caps an outcome verification as written: the
@@ -467,7 +468,7 @@ func (v *VerificationReconciler) followTools(ctx context.Context, pv *v1alpha1.P
 	s *verifySubject, job *batchv1.Job, pod *corev1.Pod) error {
 	before := pv.Status.DeepCopy()
 	v.followCapture(ctx, pv, s, job)
-	if pv.Status.Tools == nil && pod != nil && toolsReady(pod) {
+	if pv.Status.Tools == nil && pod != nil && toolsReady(pod, pv.Spec.Tools) {
 		pv.Status.Tools = &v1alpha1.ToolsStatus{PodIP: pod.Status.PodIP, Port: previewtools.Port, Ready: true}
 	}
 	if reflect.DeepEqual(before, &pv.Status) {
@@ -505,15 +506,26 @@ func (v *VerificationReconciler) followCapture(ctx context.Context, pv *v1alpha1
 	st.data = cm.Data
 }
 
-// toolsReady reports the tools container Ready on a pod with an address.
-func toolsReady(pod *corev1.Pod) bool {
-	if pod.Status.PodIP == "" || !podCondition(pod, corev1.PodReady) {
+// toolsReady reports the tools container Ready on a pod with an address,
+// and every sidecar tools asks for (browser, sandbox) running and Ready:
+// the pod's own Ready condition does not wait for a native sidecar that
+// restarts after it started.
+func toolsReady(pod *corev1.Pod, tools *v1alpha1.ToolsSpec) bool {
+	if pod.Status.PodIP == "" || !podCondition(pod, corev1.PodReady) ||
+		!containerReady(pod.Status.ContainerStatuses, toolsContainer) {
 		return false
 	}
-	i := slices.IndexFunc(pod.Status.ContainerStatuses, func(s corev1.ContainerStatus) bool {
-		return s.Name == toolsContainer
-	})
-	return i >= 0 && pod.Status.ContainerStatuses[i].Ready
+	if tools == nil {
+		return true
+	}
+	return (!tools.Browser || containerReady(pod.Status.InitContainerStatuses, browserContainer)) &&
+		(!tools.Sandbox || containerReady(pod.Status.InitContainerStatuses, sandboxContainer))
+}
+
+// containerReady reports the named container running and Ready.
+func containerReady(statuses []corev1.ContainerStatus, name string) bool {
+	i := slices.IndexFunc(statuses, func(s corev1.ContainerStatus) bool { return s.Name == name })
+	return i >= 0 && statuses[i].Ready && statuses[i].State.Running != nil
 }
 
 // recordTools settles a finished tool pod's attempt from its ledger and
@@ -535,6 +547,13 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 		}
 	}
 	phase, reason := route(facts, out.reason)
+	if phase == v1alpha1.VerificationObserved && pv.Spec.Rung == v1alpha1.RungFull &&
+		!evaluatorCalled(out.ledger.Entries) {
+		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun
+		if pv.Status.Tools == nil {
+			reason = v1alpha1.VerificationReasonToolsNotReady
+		}
+	}
 	if out.reason == "" {
 		if err := v.storeLedger(ctx, pv, out, finishedAt); err != nil {
 			return err
@@ -544,6 +563,16 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 	pv.Status.Environment = facts
 	pv.Status.TesterImageID = imageIDOf(pod, toolsContainer)
 	return v.settleWith(ctx, pv, phase, reason)
+}
+
+// evaluatorCalled reports an evaluator's call in the ledger: one of its
+// own tool calls, or agent-runner's after it exited (confirm, finish).
+// The relay's entries alone (readiness, replay, a deadline finish) are a
+// round no evaluator ran in.
+func evaluatorCalled(entries []toolwire.LedgerEntry) bool {
+	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
+		return e.Kind == toolwire.KindAgent || e.Kind == toolwire.KindRunner
+	})
 }
 
 // storeLedger writes the verified ledger's index, runs and confirmed
