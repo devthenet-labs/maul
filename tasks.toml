@@ -12,6 +12,21 @@ hide = true
 dir = "{{cwd}}"
 run = ["golangci-lint run", "hack/govulncheck.sh"]
 
+# Overrides the archetype's go-test: the same race-and-coverage run, with an
+# explicit -timeout. internal/controller/preview's seeded property tests
+# (JSON-heavy, about 8x slower under -race) take close to go test's default
+# 10m per package on a hosted runner, so one slow run would panic with
+# "test timed out"; hack/e2e.sh carries the same headroom for its suite.
+[go-test]
+hide = true
+dir = "{{cwd}}"
+run = """
+set -eu
+mkdir -p coverage
+gotestsum --junitfile coverage/junit.xml -- \
+  -race -covermode=atomic -coverprofile=coverage/coverage.out -timeout 30m ./...
+"""
+
 # The e2e suite is a separate module: it boots an envtest kube-apiserver
 # (the CRD state machine), builds the real controller binaries, and drives
 # them with recorded webhook fixtures against an in-memory GitHub. No real
