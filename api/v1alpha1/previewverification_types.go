@@ -54,7 +54,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-not-ready;ledger-mismatch;evidence-mismatch
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;ledger-mismatch;evidence-mismatch
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -110,6 +110,12 @@ const (
 	// VerificationReasonToolsImagePull: one of the tool pod's three images
 	// could not be pulled. Infra.
 	VerificationReasonToolsImagePull PreviewVerificationReason = "tools-image-pull"
+	// VerificationReasonToolsCrashLoop: one of the tool pod's containers (a
+	// native sidecar, browser or sandbox, above all) kept exiting in error:
+	// the kubelet backing it off, or restarted past a small bound. Its
+	// environment fact names the container, its last termination and, as
+	// the fact's redacted logTail, its termination message. Infra.
+	VerificationReasonToolsCrashLoop PreviewVerificationReason = "tools-crashloop"
 	// VerificationReasonToolsNotReady: the tool pod did not become Ready
 	// within its readiness bound (a quota or LimitRange refusal leaves the
 	// Job Running with no pod, so this comes from the bound, never from Job

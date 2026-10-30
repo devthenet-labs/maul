@@ -561,6 +561,89 @@ func TestToolsNeverReadyIsInfra(t *testing.T) {
 	}
 }
 
+// A tool pod container that keeps exiting in error, a native sidecar above
+// all (Init:CrashLoopBackOff, or restarted past the bound), will never let
+// the pod finish: past the grace the attempt is settled Infra
+// tools-crashloop at once, not after the Job's deadline, its fact naming
+// the container, its last termination and its termination message, the
+// CDP key redacted. One restart is not a loop.
+func TestToolsCrashLoopIsInfra(t *testing.T) {
+	failed := func(msg string) corev1.ContainerState {
+		return corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Error", ExitCode: 2,
+			Message: msg}}
+	}
+	for _, tc := range []struct {
+		name      string
+		status    func(key string) corev1.ContainerStatus
+		container string
+		waiting   string
+		stuck     bool
+	}{
+		{name: "sandbox in back-off", container: sandboxContainer, waiting: "CrashLoopBackOff", stuck: true,
+			status: func(key string) corev1.ContainerStatus {
+				return corev1.ContainerStatus{Name: sandboxContainer, RestartCount: 2,
+					State:                corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+					LastTerminationState: failed("exec shim: listen failed, key " + key)}
+			}},
+		{name: "browser restarting in error", container: browserContainer, stuck: true,
+			status: func(key string) corev1.ContainerStatus {
+				return corev1.ContainerStatus{Name: browserContainer, RestartCount: toolRestartBound,
+					State:                corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+					LastTerminationState: failed("chromium exited, key " + key)}
+			}},
+		{name: "one restart", container: sandboxContainer,
+			status: func(string) corev1.ContainerStatus {
+				return corev1.ContainerStatus{Name: sandboxContainer, RestartCount: 1,
+					State:                corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+					LastTerminationState: failed("once")}
+			}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			e.verify()
+			key := e.v.toolStateOf(e.pv.UID).key
+			pod := e.startToolPod(e.testerJob(), false)
+			pod.Status.InitContainerStatuses = []corev1.ContainerStatus{tc.status(key)}
+			e.mustStatus(pod)
+			if pv, _ := e.verify(); pv.Status.Phase != v1alpha1.VerificationRunning {
+				t.Fatalf("settled %s within the grace", pv.Status.Phase)
+			}
+			e.now = e.now.Add(verifyGrace)
+			pv, _ := e.verify()
+			if !tc.stuck {
+				if pv.Status.Phase != v1alpha1.VerificationRunning {
+					t.Fatalf("settled %s %s on one restart", pv.Status.Phase, pv.Status.Reason)
+				}
+				return
+			}
+			if pv.Status.Phase != v1alpha1.VerificationInfra || pv.Status.Reason != v1alpha1.VerificationReasonToolsCrashLoop {
+				t.Fatalf("phase %s %s, want Infra %s", pv.Status.Phase, pv.Status.Reason,
+					v1alpha1.VerificationReasonToolsCrashLoop)
+			}
+			i := slices.IndexFunc(pv.Status.Environment, func(f v1alpha1.PartFact) bool {
+				return f.Name == tc.container && f.Role == v1alpha1.PreviewRoleToolPod
+			})
+			if i < 0 {
+				t.Fatalf("no fact names %s: %+v", tc.container, pv.Status.Environment)
+			}
+			f := pv.Status.Environment[i]
+			if f.Waiting != tc.waiting || f.Restarts == 0 || f.LastTermination == nil ||
+				f.LastTermination.Reason != "Error" || f.LastTermination.ExitCode != 2 {
+				t.Errorf("fact %+v", f)
+			}
+			if !strings.Contains(f.LogTail, "key [redacted]") {
+				t.Errorf("fact's termination message %q, want it redacted", f.LogTail)
+			}
+			if got, _ := json.Marshal(pv.Status); bytes.Contains(got, []byte(key)) {
+				t.Errorf("status holds the CDP key: %s", got)
+			}
+			if len(e.jobs()) != 0 {
+				t.Error("the tool Job outlived the settle")
+			}
+		})
+	}
+}
+
 // An outcome verification that is not the Intent's approved one renders
 // nothing; with the evaluator off it is maul's trouble.
 func TestToolsPreChecks(t *testing.T) {
