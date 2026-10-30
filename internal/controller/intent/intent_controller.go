@@ -95,6 +95,8 @@ type IntentReconciler struct {
 	// comments that its status may not hold yet; a restart lists a pull
 	// request once more, which costs a request and nothing else.
 	previews map[string]*previewNotes
+	// deps is each Intent's last blocker listing (dependencies.go).
+	deps map[string]depMemo
 }
 
 func (r *IntentReconciler) now() time.Time {
@@ -127,6 +129,9 @@ func (r *IntentReconciler) memo(f func()) {
 	if r.previews == nil {
 		r.previews = map[string]*previewNotes{}
 	}
+	if r.deps == nil {
+		r.deps = map[string]depMemo{}
+	}
 	f()
 }
 
@@ -138,6 +143,7 @@ func (r *IntentReconciler) forget(name string) {
 		delete(r.siblings, name)
 		delete(r.departed, name)
 		delete(r.previews, name)
+		delete(r.deps, name)
 	})
 }
 
@@ -158,6 +164,8 @@ type pass struct {
 	// other polls (a blocked build's default branch) are due too, each under
 	// its own repository's floor.
 	polled bool
+	// issue is the issue as the poll read it, nil without a poll.
+	issue *ghclient.Issue
 	// rates are the pass's one reading of the rate floor per repository
 	// polled (rateOK), by normalized URL.
 	rates map[string]bool
@@ -265,6 +273,9 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		if err != nil || stop {
 			return ctrl.Result{}, err
 		}
+	}
+	if changed, err := p.noticeLateBlockers(ctx); changed || err != nil {
+		return ctrl.Result{}, err
 	}
 	stop, err := p.step(ctx)
 	if err != nil || stop {
@@ -377,10 +388,15 @@ func (p *pass) step(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// pollInterval is how often the intent's phase polls its issue.
+// pollInterval is how often the intent's phase polls its issue: slower
+// while it waits on its dependencies (waitingPollFactor), since an ending
+// intent of its Project nudges it at once.
 func (p *pass) pollInterval() time.Duration {
-	if p.in.Status.Phase == v1alpha1.IntentAwaitingApproval {
+	switch {
+	case p.in.Status.Phase == v1alpha1.IntentAwaitingApproval:
 		return p.set.ApprovalPollInterval
+	case p.waitingPoll():
+		return waitingPollFactor * p.set.PollInterval
 	}
 	return p.set.PollInterval
 }
@@ -572,6 +588,9 @@ func (r *IntentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.Intent{}).
 		Watches(&v1alpha1.IntentRun{}, mapRun).
 		Watches(&v1alpha1.Project{}, mapProject).
+		// An intent ending releases the Project's waiters at once: its
+		// issue closing may be what they wait for, and its slot is free.
+		Watches(&v1alpha1.Intent{}, r.endedIntentHandler(mgr.GetClient())).
 		Named("intent")
 	if r.Nudger != nil {
 		b = b.WatchesRawSource(r.Nudger.source())

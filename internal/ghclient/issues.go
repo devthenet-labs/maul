@@ -180,6 +180,7 @@ func issueFromGitHub(is *github.Issue) *Issue {
 		Author:    is.GetUser().GetLogin(),
 		HTMLURL:   is.GetHTMLURL(),
 	}
+	out.Dependencies = dependencySummary(is.IssueDependenciesSummary)
 	for _, l := range is.Labels {
 		out.Labels = append(out.Labels, l.GetName())
 	}

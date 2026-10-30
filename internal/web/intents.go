@@ -422,6 +422,9 @@ func projectCard(in *v1alpha1.Intent, runs []*v1alpha1.IntentRun, pv *v1alpha1.P
 		c.BlockedFrom = string(v1alpha1.IntentBlockedFrom(in))
 		c.BlockedReasons = intentview.BlockedReasons(in, limits, runs)
 	}
+	if w := intentview.Waiting(in); w != nil {
+		c.Waiting = &IntentWaiting{Reason: w.Reason, Refs: w.Refs, Others: w.Others}
+	}
 	if n := len(st.PhaseTimes); n > 0 {
 		c.PhaseSince = stamp(st.PhaseTimes[n-1].At)
 	}

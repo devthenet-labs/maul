@@ -70,6 +70,9 @@ type IntentCard struct {
 	BlockedFrom string `json:"blockedFrom,omitempty"`
 	// BlockedReasons are the public reasons, never a condition's message.
 	BlockedReasons []string `json:"blockedReasons,omitempty"`
+	// Waiting is a Pending intent's wait on the issues its issue is blocked
+	// by (intentview.Waiting), nil while it does not wait.
+	Waiting *IntentWaiting `json:"waiting,omitempty"`
 	// Suspended is spec.suspend: nothing launches, and the status may be
 	// stale, since a suspended intent is not reconciled.
 	Suspended bool `json:"suspended,omitempty"`
@@ -92,6 +95,15 @@ type IntentCard struct {
 	RequestedAt  string `json:"requestedAt,omitempty"`
 	PhaseSince   string `json:"phaseSince,omitempty"`
 	CompletedAt  string `json:"completedAt,omitempty"`
+}
+
+// IntentWaiting is an intent's wait on its dependencies: the public
+// wording of why, the intent repository's blockers as "#N", and how many
+// others it waits on without naming them.
+type IntentWaiting struct {
+	Reason string   `json:"reason"`
+	Refs   []string `json:"refs,omitempty"`
+	Others int      `json:"others,omitempty"`
 }
 
 // IntentPR is one pull request maul opened for an intent.

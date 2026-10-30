@@ -94,6 +94,13 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Int("intent-max-tool-calls", int(v1alpha1.DefaultMaxToolCalls),
 		"the most tool calls one evaluation may make, between 50 and 300, whatever its Project's "+
 			"verification.maxToolCalls says")
+	f.Bool("intent-dependencies", true,
+		"hold an intent whose issue GitHub records as blocked by other issues in Pending until every blocker is "+
+			"closed as completed (an approver's /maul start overrides); off, intents start as soon as their "+
+			"trigger is accepted and every Project says DependenciesUnavailable (DependenciesOff)")
+	f.Duration("intent-dependency-give-up", intent.DefaultDependencyGiveUp,
+		"how long a dependency read GitHub keeps failing holds an intent before it starts without its dependencies")
+	_ = f.MarkHidden("intent-dependency-give-up")
 	f.Bool("intent-multi-repo", false,
 		"run intents of Projects that list more than one repository; off, such a Project is not Ready and its "+
 			"intents are held Blocked (UnsupportedRepositories) where they stand: no run is launched and nothing "+
@@ -177,6 +184,8 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		MaxAttempts:          intent.DefaultMaxAttempts,
 		MultiRepo:            opts.Bool("intent-multi-repo"),
 		Previews:             opts.Bool("intent-previews-enabled"),
+		IgnoreDependencies:   !opts.Bool("intent-dependencies"),
+		DependencyGiveUp:     opts.Duration("intent-dependency-give-up"),
 		Plan: intent.StageCeiling{
 			MaxTurns:    int32(opts.Int("intent-plan-max-turns")),
 			TokenBudget: int64(opts.Int("intent-plan-token-budget")),
@@ -731,6 +740,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent_runs", opts.Int("intent-max-concurrent-runs")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
+		slog.Bool("dependencies", !set.IgnoreDependencies),
 		slog.Bool("verification", set.Verification),
 		slog.Bool("evaluator", set.Evaluator),
 		slog.Bool("evaluate_codex", set.EvaluateCodex),

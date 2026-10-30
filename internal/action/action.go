@@ -70,6 +70,9 @@ const (
 	// VerbPreview releases an intent's held preview link at once, before the
 	// evaluation settles; it changes nothing else.
 	VerbPreview = "preview"
+	// VerbStart starts an intent whose issue is blocked by other issues
+	// without waiting for them to close.
+	VerbStart = "start"
 )
 
 // ActionVerbs lists the per-finding verbs in the order clients present them.

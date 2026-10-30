@@ -209,7 +209,8 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.APIReader.List(ctx, &intents, client.InNamespace(p.Namespace)); err != nil {
 		return ctrl.Result{}, err
 	}
-	cur.Status.ActiveIntents = activeIntents(&intents, p.Name)
+	cur.Status.ActiveIntents = activeIntents(&intents, p.Name, settings.IgnoreDependencies)
+	setDependenciesUnavailable(cur, &intents, settings)
 
 	due := poll.attemptedAt.IsZero() || now.Sub(poll.attemptedAt) >= settings.PollInterval
 	if due {
@@ -567,7 +568,7 @@ func (r *ProjectReconciler) discover(ctx context.Context, p *v1alpha1.Project, p
 			byIssue[in.Spec.Issue.Number] = in
 		}
 	}
-	active := activeIntents(intents, p.Name)
+	active := activeIntents(intents, p.Name, settings.IgnoreDependencies)
 	for _, is := range issues {
 		delete(poll.conflicts, is.Number)
 		if is.Number < 1 || int64(is.Number) > v1alpha1.MaxIntentIssueNumber {
@@ -745,12 +746,14 @@ func triggerSinceClose(events []*ghclient.IssueEvent, trigger string) *ghclient.
 	return labeled
 }
 
-// activeIntents counts the Project's non-terminal Intents.
-func activeIntents(intents *v1alpha1.IntentList, project string) int32 {
+// activeIntents counts the Project's Intents that hold one of its active
+// slots: every one not ended, but one waiting on its dependencies while
+// they are honoured (holdsActiveSlot).
+func activeIntents(intents *v1alpha1.IntentList, project string, ignoreDeps bool) int32 {
 	var n int32
 	for i := range intents.Items {
 		in := &intents.Items[i]
-		if in.Spec.Project == project && in.DeletionTimestamp.IsZero() && !terminal(in.Status.Phase) {
+		if in.Spec.Project == project && holdsActiveSlot(in, ignoreDeps) {
 			n++
 		}
 	}

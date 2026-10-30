@@ -68,6 +68,7 @@ var surfaces = map[Surface][]usage{
 		{verb: action.VerbApprove, summary: "approve the posted plan and start the build"},
 		{verb: action.VerbReplan, note: true,
 			summary: "plan again, taking the note and approvers' comments since the last plan into account"},
+		{verb: action.VerbStart, summary: "start this intent now, without waiting for the issues it is blocked by"},
 		verifyUsage,
 		acceptUsage,
 		previewUsage,

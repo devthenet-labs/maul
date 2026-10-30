@@ -42,6 +42,10 @@ type GitHub interface {
 	GetIssue(ctx context.Context, repoURL string, number int64) (*ghclient.Issue, error)
 	ListIssueEvents(ctx context.Context, repoURL string, number int64) ([]*ghclient.IssueEvent, error)
 	ListIssueComments(ctx context.Context, repoURL string, number int64, since time.Time) ([]*ghclient.Comment, error)
+	// ListBlockedBy lists the issues GitHub records as blocking the issue
+	// (ghclient.ListBlockedBy), conditional on etag: the intent's
+	// dependency wait (dependencies.go).
+	ListBlockedBy(ctx context.Context, repoURL string, number int64, etag string) (*ghclient.BlockerList, error)
 	GetIssueComment(ctx context.Context, repoURL string, id int64) (*ghclient.Comment, error)
 	// CommentEdited reports whether the comment with GraphQL node id nodeID
 	// was ever edited (ghclient.CommentEdited): GitHub's own fact. REST
@@ -417,6 +421,15 @@ func (g *forgeGitHub) GetIssue(ctx context.Context, repoURL string, number int64
 		return nil, err
 	}
 	return c.GetIssue(ctx, repo, int(number))
+}
+
+func (g *forgeGitHub) ListBlockedBy(ctx context.Context, repoURL string, number int64, etag string) (
+	*ghclient.BlockerList, error) {
+	c, repo, err := g.client(ctx, repoURL, issuesRead)
+	if err != nil {
+		return nil, err
+	}
+	return c.ListBlockedBy(ctx, repo, number, etag)
 }
 
 func (g *forgeGitHub) ListIssueEvents(ctx context.Context, repoURL string, number int64) (

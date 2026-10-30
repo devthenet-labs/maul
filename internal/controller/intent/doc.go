@@ -130,7 +130,8 @@
 // status, and within it each has one reconciler writing it:
 //
 //	Intent spec          ProjectReconciler, once, at creation
-//	Intent status        IntentReconciler (every phase edge)
+//	Intent status        IntentReconciler (every phase edge;
+//	                     status.dependencies, the dependency wait)
 //	IntentRun spec       IntentReconciler, once, at creation (the lease)
 //	IntentRun status     RunReconciler
 //	Project status       ProjectReconciler
@@ -228,6 +229,38 @@
 // ModelCredential is created (credential_hold.go); status.credentialHold
 // names the person, and while blocked from Building an approval by an
 // approver holding a Valid credential replaces the approval.
+//
+// # Pending waits on dependencies
+//
+// Unless the controller runs with --intent-dependencies=false, an accepted
+// trigger does not start planning at once: the issues GitHub records as
+// blocking the intent issue are read (its blocked_by listing, with the
+// intent repository's issues-read token, conditional on the last tag), and
+// the intent stays Pending, WaitingOnDependencies True, with
+// status.dependencies recording what it waits for, until every blocker is
+// closed as completed (dependencies.go). A blocker closed as not planned or
+// a duplicate keeps it waiting; one GitHub counts but will not list keeps it
+// waiting too. A wait is a condition, never a phase: Pending already means
+// nothing was launched, and no new edge or phase exists. The trigger's
+// authority is decided first (a refused trigger never waits), only the
+// first start is gated (a replan or a revival is not), and an approver's
+// /maul start ends the wait. A waiting intent holds no maxActiveIntents
+// slot; a released one starts only when the Project has a slot for it,
+// oldest first (NoActiveSlot meanwhile, which discovery counts, its release
+// reason recorded in status.dependencies.releaseReason so a read that
+// decides nothing never sends it back), its trigger authorised again at that
+// start, and an intent of the Project ending nudges at once the waiters it
+// blocked and those waiting for a slot. With the flag off (a rollback) an
+// intent that waited holds a slot again and starts as one frees. A waiting
+// intent polls its issue every waitingPollFactor poll intervals. If GitHub
+// answers 404, 410 or 403, the intent starts without its dependencies at
+// once; any other failure waits up to DependencyGiveUp (30m), timed from
+// status.dependencies.unavailableSince so a restart does not reset it; the
+// Project's DependenciesUnavailable condition (ProjectReconciler) says so. A
+// blocker added after the start never stops the intent: one notice, keyed
+// dependencies-late, and a line in the status comment; it is looked for
+// only when the issue's dependency summary changes, and never after a start
+// without the dependencies read.
 //
 // # Authority
 //

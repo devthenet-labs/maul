@@ -1,0 +1,7 @@
+{{- /* Posted once when an intent's issue becomes blocked after maul started
+work on it (intent dependencies). The blocker references are maul's own,
+built from GitHub's listing; a repository outside the intent's own and the
+Project's is counted, never named. One line per paragraph: GitHub renders a
+line break inside a comment as a hard break. */ -}}
+{{ .Marker }}
+This issue is now blocked by {{ .Blockers }}, added after maul started work on it. maul does not pause an intent once it has started, so its plan and pull requests will not include that work. To stop, comment {{ .Cancel }}. While the plan awaits approval, you can comment {{ .Replan }} once the blockers are closed.

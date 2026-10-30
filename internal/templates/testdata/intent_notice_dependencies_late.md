@@ -1,0 +1,2 @@
+<!-- maul:notice maul/target-3 dependencies-late -->
+This issue is now blocked by [#20](https://github.com/acme/intents/issues/20) and 1 issue in another repository, added after maul started work on it. maul does not pause an intent once it has started, so its plan and pull requests will not include that work. To stop, comment `/maul cancel`. While the plan awaits approval, you can comment `/maul replan` once the blockers are closed.

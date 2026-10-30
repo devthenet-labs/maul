@@ -348,7 +348,8 @@ names, and a seeded property test checks that they are label-safe and unique wit
 Local enum. There is one writer for every edge, intent-controller. A small edge table and a `SetIntentPhase` helper live
 in `intent_types.go`, following the idiom of `transitions.go` but separate from it.
 
-- `Pending` → `Planning` when an approver applied the trigger label. Otherwise it goes to `Closed` with one notice.
+- `Pending` → `Planning` when an approver applied the trigger label. Otherwise it goes to `Closed` with one notice. An
+  approver's trigger on an issue GitHub records as blocked by other issues first waits in `Pending` (below).
 - `Planning` → `AwaitingApproval` when a valid plan has been posted.
 - `AwaitingApproval` → `Building` when an approval is accepted, or back to `Planning` when an approver re-applies the
   trigger label to request a replan.
@@ -368,6 +369,33 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
   intent to `Planning`.
 - `Merged` and `Closed` are terminal. No terminal Intent leaves its trigger in place (see "Ending an intent, and its
   name").
+
+#### Pending waits on dependencies
+
+An intent whose issue is blocked by other issues (GitHub issue dependencies, its `blocked_by` listing, read with the
+intent repository's issues-read token) does not start planning until every blocker is closed as completed, so its plan
+is written against code that holds the dependency (people's guide: [Intent dependencies](../intents/dependencies.md)).
+The wait is a condition on `Pending`, `WaitingOnDependencies`, with `status.dependencies` recording the blockers, never
+a phase: `Pending` already means nothing was launched, and `Blocked` means a fault a human must fix.
+
+- The trigger's authority is decided first; a refused trigger closes the intent at once and never waits.
+- Only the first start waits. A replan and a revival from `Failed` are approvers' explicit actions on an intent that
+  already started.
+- A blocker closed as not planned or a duplicate keeps the intent waiting (what it was for never landed); one closed as
+  completed, or with no reason, releases it. A blocker that is an intent works through its issue: merged closes it as
+  completed, cancelled as not planned, failed leaves it open.
+- A waiting intent holds no `maxActiveIntents` slot. A released one starts once the Project has a slot, oldest first
+  (`NoActiveSlot` meanwhile, which discovery counts as holding one). An intent ending nudges every `Pending` intent of
+  its Project at once, so chains release in seconds; otherwise a waiting intent polls every five poll intervals.
+- `/maul start`, from an approver, ends the wait; it is recorded in `status.dependencies.startedBy` and moves no
+  attribution.
+- A blocker GitHub counts but will not list (a repository the token may not read) keeps the intent waiting, unnamed. A
+  blocker's repository is named on the issue only when it is the intent repository or one of the Project's.
+- Two intents blocking each other both wait and both say "Dependency cycle".
+- 404, 410 or 403 from the dependencies API starts the intent at once; any other failure waits up to 30 minutes from the
+  first one (recorded in status). The Project's `DependenciesUnavailable` condition reports it.
+- A blocker added after the start never stops the intent: one notice, and a line in the status comment.
+- `--intent-dependencies=false` (chart `intentController.dependencies.enabled: false`) runs the old path.
 
 ### End-to-end flow (slice 1)
 
@@ -556,7 +584,7 @@ there is one grammar, and everything else is an alias for it.
   | Where                  | Verbs                                               |
   | ---------------------- | --------------------------------------------------- |
   | Finding tracking issue | `approve`, `retry`, `suspend`, `resume`, `expedite` |
-  | Intent issue           | `approve`, `replan`, `cancel`                       |
+  | Intent issue           | `approve`, `replan`, `start`, `cancel`              |
   | Intent PR              | `revise`, `retry`                                   |
 
   The Finding verbs mean exactly what they mean on the status page and in the CLI. The intent verbs join the same

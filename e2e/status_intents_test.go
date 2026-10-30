@@ -153,6 +153,44 @@ func TestStatusServerIntents(t *testing.T) {
 		}
 	}
 
+	// An intent waiting on the issues it is blocked by carries its wait on
+	// the board in public wording, naming only the intent repository's
+	// issues, never the condition's message or another repository.
+	fabricateWaitingIntent(t, cl)
+	var waiting struct {
+		Intents []struct {
+			Name    string `json:"name"`
+			Column  string `json:"column"`
+			Waiting *struct {
+				Reason string   `json:"reason"`
+				Refs   []string `json:"refs"`
+				Others int      `json:"others"`
+			} `json:"waiting"`
+		} `json:"intents"`
+	}
+	eventually(t, "the waiting intent on viv's board", func() bool {
+		getJSON(t, viv, base+"/api/intents", &waiting)
+		for _, in := range waiting.Intents {
+			if in.Name == "alpha-2" {
+				return in.Waiting != nil
+			}
+		}
+		return false
+	})
+	for _, in := range waiting.Intents {
+		if in.Name != "alpha-2" {
+			continue
+		}
+		if in.Column != "planning" || in.Waiting.Reason != "waiting for the issues it is blocked by" ||
+			strings.Join(in.Waiting.Refs, ",") != "#7" || in.Waiting.Others != 1 {
+			t.Errorf("waiting card = %+v (column %s)", in.Waiting, in.Column)
+		}
+	}
+	if _, body := status(t, viv, base+"/api/intents"); strings.Contains(body, "private-thing") ||
+		strings.Contains(body, "secret condition") {
+		t.Errorf("the board leaks a blocker's repository or the condition's message: %s", body)
+	}
+
 	// A posture that cannot serve the views refuses to start at all.
 	refusesToStart(t, cl, "mode: none\n", "refuses auth mode none")
 	refusesToStart(t, cl, "mode: anonymous\nanonymous:\n  username: viewer\n", "the intents views need auth mode oidc")
@@ -329,6 +367,39 @@ func fabricateIntents(t *testing.T, cl *cluster) intentRuns {
 		t.Fatal(err)
 	}
 	return intentRuns{plan: plan.Name, evicted: evicted.Name}
+}
+
+// fabricateWaitingIntent stores alpha-2, Pending and waiting on two
+// blockers: one in the intent repository, one elsewhere.
+func fabricateWaitingIntent(t *testing.T, cl *cluster) {
+	t.Helper()
+	ctx := context.Background()
+	now := metav1.Now()
+	in := &v1alpha1.Intent{
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-2", Namespace: namespace},
+		Spec: v1alpha1.IntentSpec{
+			Project: "alpha",
+			Issue: v1alpha1.IntentIssue{Repository: "https://github.com/acme/intents", Number: 2,
+				URL: "https://github.com/acme/intents/issues/2"},
+			RequestedBy: v1alpha1.IntentRequest{Login: "octocat", At: now, EventID: 2},
+		},
+	}
+	if err := cl.client.Create(ctx, in); err != nil {
+		t.Fatalf("create intent: %v", err)
+	}
+	in.Status = v1alpha1.IntentStatus{
+		Phase:      v1alpha1.IntentPending,
+		PhaseTimes: []v1alpha1.IntentPhaseTime{{Phase: v1alpha1.IntentPending, At: now}},
+		Conditions: []metav1.Condition{{Type: v1alpha1.ConditionWaitingOnDependencies, Status: metav1.ConditionTrue,
+			Reason: v1alpha1.ReasonOpenBlockers, Message: "secret condition", LastTransitionTime: now}},
+		Dependencies: &v1alpha1.IntentDependencies{Since: &now, Blockers: []v1alpha1.IntentBlocker{
+			{Repository: "https://github.com/acme/intents", Number: 7, State: "open"},
+			{Repository: "https://github.com/acme/private-thing", Number: 9, State: "open"},
+		}},
+	}
+	if err := cl.client.Status().Update(ctx, in); err != nil {
+		t.Fatalf("intent status: %v", err)
+	}
 }
 
 // writeIntentsAuthConfig is a Dex-with-GitHub shaped oidc config: GitHub

@@ -25,11 +25,13 @@ import (
 // posted again. With the preview projection on, it also says where the
 // intent's preview stands (loadPreview).
 func (p *pass) syncStatusComment(ctx context.Context) error {
-	if p.in.Status.Input == nil {
+	if d := p.in.Status.Dependencies; p.in.Status.Input == nil && (d == nil || d.Since == nil) {
+		// Neither started nor waiting on its dependencies: its trigger is
+		// still to be accepted, or was refused.
 		return nil
 	}
 	p.loadPreview(ctx)
-	body, err := templates.RenderIntentStatusComment(p.statusComment())
+	body, err := templates.RenderIntentStatusComment(p.statusComment(ctx))
 	if err != nil {
 		return err
 	}
@@ -77,12 +79,12 @@ func (p *pass) syncStatusComment(ctx context.Context) error {
 
 // statusComment is what the status comment says about the Intent now: the
 // preview as loadPreview last read it.
-func (p *pass) statusComment() templates.IntentStatusComment {
+func (p *pass) statusComment(ctx context.Context) templates.IntentStatusComment {
 	st := p.in.Status
 	c := templates.IntentStatusComment{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Phase: string(st.Phase),
 		CostMicroUSD: st.Usage.CostMicroUSD, MaxCostMicroUSD: maxCostMicroUSD(p.proj),
-		Commands: verbs(st.Phase, p.set.Verification),
+		Commands: p.availableVerbs(st.Phase), Dependencies: p.statusDependencies(ctx),
 	}
 	if pl := st.Plan; pl != nil && pl.CommentID != 0 {
 		c.PlanRevision, c.Summary = pl.Revision, pl.Summary

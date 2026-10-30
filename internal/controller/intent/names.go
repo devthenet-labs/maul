@@ -263,6 +263,15 @@ type Settings struct {
 	// (ReasonHarnessNotEnabled), and a codex run of its intents is not
 	// launched but waits Pending (harnessOff).
 	Codex RunHarness
+	// IgnoreDependencies is --intent-dependencies=false: an intent starts
+	// as soon as its trigger is accepted, whatever its issue is blocked by,
+	// and nothing is read or written for dependencies. The zero value
+	// honours them (dependencies.go).
+	IgnoreDependencies bool
+	// DependencyGiveUp is how long a dependency read GitHub keeps failing
+	// holds an intent before it starts without its dependencies; zero is
+	// DefaultDependencyGiveUp.
+	DependencyGiveUp time.Duration
 }
 
 // RunHarness is a harness intent runs launch on: its harness id (claude,
@@ -433,6 +442,9 @@ func (s Settings) withDefaults() Settings {
 	}
 	if s.MaxAttempts <= 0 {
 		s.MaxAttempts = DefaultMaxAttempts
+	}
+	if s.DependencyGiveUp <= 0 {
+		s.DependencyGiveUp = DefaultDependencyGiveUp
 	}
 	return s
 }

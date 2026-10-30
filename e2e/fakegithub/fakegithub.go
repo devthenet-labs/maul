@@ -79,6 +79,9 @@ type Issue struct {
 	// User opened the issue: maul[bot], the login its comments carry too,
 	// unless a test opened it as a human (OpenIssue).
 	User Actor `json:"user"`
+	// Dependencies is issue_dependencies_summary, filled in as the issue is
+	// served (dependencies.go), never stored.
+	Dependencies *DependenciesSummary `json:"issue_dependencies_summary,omitempty"`
 }
 
 type label struct {
@@ -197,6 +200,14 @@ type Server struct {
 	repoFiles map[string]map[string]string
 	// rateRemaining is the core budget GET /rate_limit reports.
 	rateRemaining int
+	// blockedBy are each issue's blockers by number (dependencies.go);
+	// dependencyMode how dependency reads are answered;
+	// crossBlockersVisible lists blockers outside a token's repositories;
+	// blockedByReads counts the listings answered.
+	blockedBy            map[int][]int
+	dependencyMode       dependencyMode
+	crossBlockersVisible bool
+	blockedByReads       int
 	// Now stamps created_at; tests override it to age issues instantly.
 	Now func() time.Time
 }
@@ -228,6 +239,7 @@ func newState() (*Server, *http.ServeMux) {
 		repoLabels:     make(map[string][]RepoLabel),
 		repoFiles:      make(map[string]map[string]string),
 		rateRemaining:  defaultRateRemaining,
+		blockedBy:      make(map[int][]int),
 		Now:            time.Now,
 	}
 	mux := http.NewServeMux()
@@ -362,6 +374,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// GET issues/{number}/comments, issues/{number}/events and
 	// issues/comments/{id} overlap as mux patterns; one handler splits them.
 	handle("GET /repos/{owner}/{repo}/issues/{number}/{sub}", permIssues, s.getIssueSub)
+	handle("GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by", permIssues, s.listBlockedBy)
 	handle("POST /repos/{owner}/{repo}/issues/{number}/comments", permIssues, s.createComment)
 	handle("PATCH /repos/{owner}/{repo}/issues/comments/{id}", permIssues, s.editComment)
 	handle("POST /repos/{owner}/{repo}/issues/comments/{id}/reactions", permIssues, s.createReaction)
@@ -566,7 +579,7 @@ func (s *Server) listIssues(w http.ResponseWriter, r *http.Request) {
 	out := []*Issue{}
 	for _, is := range s.issues {
 		if (state == "all" || is.State == state) && hasLabels(is, want) {
-			out = append(out, is)
+			out = append(out, s.withSummary(is))
 		}
 	}
 	slices.SortFunc(out, issueOrder(q.Get("sort"), q.Get("direction")))
@@ -643,7 +656,7 @@ func (s *Server) getIssue(w http.ResponseWriter, r *http.Request) {
 	is, ok := s.issues[number]
 	var out Issue
 	if ok {
-		out = *is // copied under the lock: SetIssueState and Age write it
+		out = *s.withSummary(is) // copied under the lock: SetIssueState and Age write it
 	}
 	s.mu.Unlock()
 	if !ok {

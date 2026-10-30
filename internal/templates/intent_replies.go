@@ -36,6 +36,9 @@ func RenderCommandDoneNotice(n CommandDoneNotice) (string, error) {
 		outcome = "maul is writing a new plan, which it will post here for approval."
 	case action.VerbCancel:
 		outcome = "maul has stopped work on this intent and closed the issue. Pull requests it opened are left to you."
+	case action.VerbStart:
+		outcome = "maul starts this intent without waiting for the issues it is blocked by, as soon as the " +
+			"Project has an active slot free."
 	default:
 		return "", fmt.Errorf("render command done: no outcome for verb %q", n.Verb)
 	}

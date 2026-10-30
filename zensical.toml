@@ -54,6 +54,7 @@ nav = [
     { "Set up previews" = "intents/set-up-previews.md" },
     { "Acceptance verification" = "intents/acceptance.md" },
     { "The agent evaluator" = "intents/evaluator.md" },
+    { "Intent dependencies" = "intents/dependencies.md" },
     { "Sizing limits for large features" = "intents/sizing.md" },
     { "Onboarding an application" = "intents/onboarding-app.md" },
     { "The Terraform module" = "intents/terraform-module.md" },

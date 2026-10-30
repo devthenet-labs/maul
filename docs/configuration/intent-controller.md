@@ -65,6 +65,7 @@ other binary binds, so the shared kustomize ConfigMap cannot set one by accident
 | `--intent-evaluation-cost-max`                  | `MAUL_INTENT_EVALUATION_COST_MAX`                     | `6000000`                                  | The most one intent's evaluate and checkreview runs may spend, in micro-USD, whatever its Project's `limits.maxEvaluateCostMicroUSD` says; counted apart from the per-intent ceiling. Helm: `intentController.verification.maxEvaluateCostUSD` (in USD)                                                                                                                                                               |
 | `--intent-max-tool-calls`                       | `MAUL_INTENT_MAX_TOOL_CALLS`                          | `300`                                      | The most tool calls one evaluation round may make, 50 to 300, whatever its Project's `verification.maxToolCalls` says. Helm: `intentController.verification.maxToolCalls`                                                                                                                                                                                                                                             |
 | `--intent-multi-repo`                           | `MAUL_INTENT_MULTI_REPO`                              | `false`                                    | Run intents of Projects listing several repositories; off, their intents are held `Blocked`                                                                                                                                                                                                                                                                                                                           |
+| `--intent-dependencies`                         | `MAUL_INTENT_DEPENDENCIES`                            | `true`                                     | Hold an intent whose issue is blocked by other issues in `Pending` until every blocker is closed as completed (see [Intent dependencies](#intent-dependencies)); off, intents start as soon as their trigger is accepted. Helm: `intentController.dependencies.enabled`                                                                                                                                               |
 | `--intent-max-concurrent-runs`                  | `MAUL_INTENT_MAX_CONCURRENT_RUNS`                     | `1`                                        | Intent agent Jobs at once, a pool apart from remediation's; a multi-repository intent's builds share it                                                                                                                                                                                                                                                                                                               |
 | `--agents-paused`                               | `MAUL_AGENTS_PAUSED`                                  | `false`                                    | Launch no new intent Job; running ones finish and are collected ([pausing agents](investigation-controller.md#pausing-agents)). Helm: `agent.paused`                                                                                                                                                                                                                                                                  |
 | `--attribution-mode`                            | `MAUL_ATTRIBUTION_MODE`                               | `off`                                      | `attribute` stamps each new IntentRun with whom it is for, annotates its Jobs and names it on the issue ([run attribution](attribution.md)). Helm: `attribution.mode`                                                                                                                                                                                                                                                 |
@@ -338,13 +339,14 @@ eviction would end the run with nothing to show for it. Sizing advice, with a wo
 
 ## On the issue
 
-| Action                                            | Effect                                                  |
-| ------------------------------------------------- | ------------------------------------------------------- |
-| The trigger label (`maul:<project>`)              | Starts an intent: plans it                              |
-| The approve label, or `/maul approve`             | Approves the posted plan; the build starts              |
-| The trigger label re-applied, or `/maul replan`   | Plans again, with approver comments since the last plan |
-| The trigger label re-applied on a `Failed` intent | Revives it: a new plan, and a new approval              |
-| `/maul cancel`                                    | Closes the intent and its issue (`not_planned`)         |
+| Action                                            | Effect                                                     |
+| ------------------------------------------------- | ---------------------------------------------------------- |
+| The trigger label (`maul:<project>`)              | Starts an intent: plans it                                 |
+| The approve label, or `/maul approve`             | Approves the posted plan; the build starts                 |
+| The trigger label re-applied, or `/maul replan`   | Plans again, with approver comments since the last plan    |
+| The trigger label re-applied on a `Failed` intent | Revives it: a new plan, and a new approval                 |
+| `/maul start`                                     | Starts a `Pending` intent without waiting for its blockers |
+| `/maul cancel`                                    | Closes the intent and its issue (`not_planned`)            |
 
 A replan or revival does not start from nothing. Its planner is also handed a context file of the earlier work, as data:
 the previous plan, how the latest build, revise or check-fix run ended if it failed, the approvers' earlier comments on
@@ -591,6 +593,44 @@ intent-controller is the second code path that writes to a forge (remediation-co
 
 It writes no Finding spec, so it is not exempt from the finding admission policy.
 
+### Intent dependencies
+
+An intent whose issue GitHub records as **blocked by** other issues waits in `Pending` until every blocker is closed as
+completed; the people's guide is [Intent dependencies](../intents/dependencies.md). It reads the issue's `blocked_by`
+listing with the intent repository's issues-read token, which the issues-write grant Ready already proves covers, so no
+new App permission is needed. A waiting intent carries `WaitingOnDependencies=True` with one of the reasons
+`OpenBlockers`, `BlockerNotCompleted`, `BlockerUnreadable`, `DependencyCycle`, `CheckingDependencies` or `NoActiveSlot`,
+and `status.dependencies` (`kubectl describe intent` shows both). Once its start is decided the condition is False:
+`NoBlockers`, `BlockersClosed`, `StartedByApprover`, or one of the degraded reasons below.
+
+Each Project reports a `DependenciesUnavailable` condition, absent until one of its intents has decided a start:
+
+| Status  | Reason                    | Meaning                                                                              |
+| ------- | ------------------------- | ------------------------------------------------------------------------------------ |
+| `False` | `DependenciesRead`        | Dependencies are read and honoured                                                   |
+| `True`  | `DependenciesUnsupported` | GitHub answered 404 or 410 (no issue dependencies there): intents start without them |
+| `True`  | `DependenciesForbidden`   | GitHub answered 403: the App may not read them; intents start without them           |
+| `True`  | `DependenciesUnanswered`  | GitHub failed for 30 minutes from an intent's first failed read; it started without  |
+| `True`  | `DependenciesOff`         | intent-controller runs with `--intent-dependencies=false`                            |
+
+It follows the newest start decided by a read of an intent's dependencies, so it clears once a read succeeds again. An
+approver's `/maul start` reads nothing and does not change it.
+
+An intent waiting on its blockers holds no active slot. Once released it starts only when the Project is under
+`limits.maxActiveIntents`; until then it waits with `NoActiveSlot`, and a later read GitHub fails to answer does not
+send it back. The trigger that created it is authorised again at that start, so an approver who lost write access while
+it waited cannot start it. When an intent ends, maul re-reads at once only the waiting intents it blocked and those
+waiting for the slot it freed; the others keep their slower poll (five poll intervals). A started intent reads its
+blockers again, for the one late-blocker notice, only when its issue's dependency summary changes, and never after it
+started because GitHub would not answer or refused the read.
+
+**Rollback.** Set `intentController.dependencies.enabled: false` and upgrade: the intents that waited start as the
+Project has active slots for them, oldest first, on the old code path, which ignores the rest of `status.dependencies`;
+every Project says `DependenciesOff`. Nothing else reads the new fields, so turning it on again later is safe. An older
+controller ignores them too, but counts every waiting intent as active and starts them all on its next pass, past
+`limits.maxActiveIntents`: turn the flag off and let the waiting intents drain before rolling back to a release without
+intent dependencies.
+
 ## Polling cost
 
 Each active intent reads about three GitHub resources per interval (its issue, its events, and its comments since the
@@ -603,3 +643,10 @@ the installation of the repository it reads: the intent repository and an app re
 installations, and the app repository's is the one the Finding flow shares, so its pull request and a blocked build's
 default branch wait on its floor, the issue on the intent repository's. The headers GitHub reports are not consistent
 from one response to the next, so the floor is a coarse guard, not an exact budget.
+
+With [intent dependencies](#intent-dependencies) on, an intent's first decision also lists its issue's blockers (one
+request), and a waiting intent polls every five poll intervals: its issue, its events, its comments and a conditional
+blocked-by listing, about four requests per five minutes at the defaults (a 304 is not guaranteed to be free: on
+github.com one counted against the token's budget when pinned live). A started intent reads its blockers again only when
+its issue's summary shows an open blocker it has not yet given notice of. An intent of the Project ending makes every
+waiting one poll at once.

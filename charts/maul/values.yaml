@@ -1296,6 +1296,17 @@ intentController:
         maxEvaluateCostUSD: 6
         # The evaluator's tool calls per round, 50 to 300.
         maxToolCalls: 300
+    # Intent dependencies: an intent whose issue GitHub records as blocked by
+    # other issues waits in Pending, holding no active slot and starting no
+    # Job, until every blocker is closed as completed; an approver's
+    # `/maul start` overrides. Only the first start waits. If GitHub's
+    # dependencies API cannot be read (404, a refused permission, or no answer
+    # for 30 minutes) the intent starts as before and its Project says so
+    # (DependenciesUnavailable). Off is the rollback lever: intents start as
+    # soon as their trigger is accepted, and every Project says
+    # DependenciesUnavailable (DependenciesOff).
+    dependencies:
+        enabled: true
     # The Secrets your Forges reference (spec.secretRef): intent-controller's
     # `secrets get` is restricted to exactly these names. Required and
     # non-empty — RBAC reads an empty resourceNames list as every Secret.

@@ -12,13 +12,17 @@ envelope for the whole status page; read this page before you do.
 
 **The board** has a column per stage: planning, awaiting approval, building, in review (revise and check-fix rounds
 included), done (merged, closed, failed, until the intent expires). A Blocked intent stays in the column of the phase it
-was blocked from, with a badge and the reason. A card shows the issue, the plan's one-line summary, the repositories,
-every agent run that is pending or running (a multi-repository build runs one per repository at once), the attempt of
-the newest run against the two each round gets (an attempt whose agent never ran, such as one no node could fit, does
-not count, as it does not for the controller), revision and CI-fix rounds against the Project's limits (every round
-started counts, a failed one too, as it does for the limit), recorded spend against the cost ceiling, its age and time
-in phase, and its pull request and preview links. A suspended intent is badged: it is not reconciled while suspended, so
-its status may be stale.
+was blocked from, with a badge and the reason. An intent waiting on the issues it is blocked by
+([intent dependencies](dependencies.md)) sits in planning with a **waiting** badge, the reason in fixed words ("waiting
+for the issues it is blocked by", "a blocker was closed without being completed", "a blocker cannot be read",
+"dependency cycle", "checking dependencies", "waiting for an active slot"), the intent repository's blockers as `#N`,
+and a count of any others: a blocker in another repository is never named. A card shows the issue, the plan's one-line
+summary, the repositories, every agent run that is pending or running (a multi-repository build runs one per repository
+at once), the attempt of the newest run against the two each round gets (an attempt whose agent never ran, such as one
+no node could fit, does not count, as it does not for the controller), revision and CI-fix rounds against the Project's
+limits (every round started counts, a failed one too, as it does for the limit), recorded spend against the cost
+ceiling, its age and time in phase, and its pull request and preview links. A suspended intent is badged: it is not
+reconciled while suspended, so its status may be stale.
 
 **The timeline** of one intent lists its phase changes; the plan revision and digest, with a link to the plan comment;
 the accepted approval with who approved, how (label or command), the plan revision and both digests it is bound to; the
