@@ -1253,7 +1253,9 @@ spec:
                 - tester-version-mismatch
                 - tools-unscheduled
                 - tools-image-pull
+                - tools-crashloop
                 - tools-not-ready
+                - evaluator-not-run
                 - ledger-mismatch
                 - evidence-mismatch
                 type: string

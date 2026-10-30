@@ -12,6 +12,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -36,16 +37,18 @@ import (
 // the tester does for the rollout and the edge policies, then renders the
 // per-verification ingress policy, the tool Job, and the CDP key Secret and
 // tool ConfigMap the Job owns. While it runs, each poll refreshes the
-// capture in the tool ConfigMap and, once the tools container is Ready,
-// writes status.tools: only then may intent-controller create the
+// capture in the tool ConfigMap and, once the tools container and every
+// sidecar the round asks for are Ready, writes status.tools: only then may intent-controller create the
 // evaluator, whose hosts entry is fixed when its pod is created. A pod that
 // never comes (a quota or LimitRange refusal leaves the Job Running with no
-// pod), is never scheduled, cannot pull an image or never finishes is
-// maul's trouble past its bound (Infra tools-not-ready, tools-unscheduled,
-// tools-image-pull). Once the Job has finished, its ledger is collected
-// (ledger.go, evidence.go) and the attempt settles as a tester's does:
+// pod), is never scheduled, cannot pull an image, has a container
+// crash-looping or never finishes is maul's trouble past its bound (Infra
+// tools-not-ready, tools-unscheduled, tools-image-pull, tools-crashloop).
+// Once the Job has finished, its ledger is collected (ledger.go,
+// evidence.go) and the attempt settles as a tester's does:
 // Observed, EnvFailed (the application's, a component never reached
-// included) or Infra (ledger-mismatch). Settling deletes the Job, the
+// included) or Infra (ledger-mismatch; a full round with no evaluator call
+// in its ledger, tools-not-ready or evaluator-not-run). Settling deletes the Job, the
 // Secret, the ConfigMap and the policy.
 
 // maxToolVerificationObject caps an outcome verification as written: the
@@ -53,6 +56,10 @@ import (
 // bodies sit on its status, well over a criteria verification's cap and
 // still well under the API server's object size limit.
 const maxToolVerificationObject = 5 << 18
+
+// toolRestartBound is how many restarts of a tool pod container, its last
+// exit in error, make a crash loop even between the kubelet's back-offs.
+const toolRestartBound = 3
 
 // toolState is what preview-controller keeps of a running tool pod: its CDP
 // key, redacted from the capture, and the tool ConfigMap's data as last
@@ -339,6 +346,9 @@ func (v *VerificationReconciler) observeTools(ctx context.Context, pv *v1alpha1.
 	finishedAt, finished := jobFinished(job)
 	if !finished {
 		if reason := v.toolsStuck(pv, pod); reason != "" {
+			if reason == v1alpha1.VerificationReasonToolsCrashLoop {
+				v.recordCrashLoop(ctx, pv, pod)
+			}
 			return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra, reason)
 		}
 		return v.wait(), v.followTools(ctx, pv, s, job, pod)
@@ -361,7 +371,8 @@ func (v *VerificationReconciler) observeTools(ctx context.Context, pv *v1alpha1.
 
 // toolsStuck is why a running tool pod will not finish, past its grace: no
 // pod created (a quota or LimitRange refusal), none scheduled, an image not
-// pulled, or the Job's own deadline long past. "" while it may yet.
+// pulled, a container crash-looping (a native sidecar's restarts never end
+// the pod), or the Job's own deadline long past. "" while it may yet.
 func (v *VerificationReconciler) toolsStuck(pv *v1alpha1.PreviewVerification,
 	pod *corev1.Pod) v1alpha1.PreviewVerificationReason {
 	since := v.now().Sub(startedAt(pv))
@@ -376,6 +387,8 @@ func (v *VerificationReconciler) toolsStuck(pv *v1alpha1.PreviewVerification,
 		return v1alpha1.VerificationReasonToolsUnscheduled
 	case anyImagePullWaiting(pod):
 		return v1alpha1.VerificationReasonToolsImagePull
+	case crashLooping(pod) != nil:
+		return v1alpha1.VerificationReasonToolsCrashLoop
 	case since >= jobDeadline+verifyGrace:
 		return v1alpha1.VerificationReasonToolsNotReady
 	}
@@ -393,6 +406,58 @@ func anyImagePullWaiting(pod *corev1.Pod) bool {
 	return false
 }
 
+// crashLooping is the first of the pod's containers, a sidecar's included,
+// that keeps exiting in error: the kubelet backing it off, or restarted at
+// least toolRestartBound times with its last exit in error. nil for none.
+func crashLooping(pod *corev1.Pod) *corev1.ContainerStatus {
+	statuses := slices.Concat(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses)
+	for i := range statuses {
+		s := &statuses[i]
+		last := s.LastTerminationState.Terminated
+		switch {
+		case s.State.Waiting != nil && s.State.Waiting.Reason == "CrashLoopBackOff":
+			return s
+		case s.RestartCount >= toolRestartBound && last != nil && last.ExitCode != 0:
+			return s
+		}
+	}
+	return nil
+}
+
+// recordCrashLoop records pod's crash-looping container as the attempt's
+// environment: its name, waiting reason, restarts and last termination,
+// and its termination message as the fact's log tail, redacted as a
+// capture is and bounded, or none while this process does not hold the CDP
+// key. The same goes to the log for the operator.
+func (v *VerificationReconciler) recordCrashLoop(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	pod *corev1.Pod) {
+	s := crashLooping(pod)
+	if s == nil {
+		return
+	}
+	f := v1alpha1.PartFact{Name: s.Name, Role: v1alpha1.PreviewRoleToolPod, Restarts: max(s.RestartCount, 0)}
+	if s.State.Waiting != nil {
+		f.Waiting = kubeletWord(s.State.Waiting.Reason)
+	}
+	if last := s.LastTerminationState.Terminated; last != nil {
+		f.LastTermination = &v1alpha1.Termination{Reason: kubeletWord(last.Reason), ExitCode: last.ExitCode}
+		if keys, unknown := v.captureKeys(pv); !unknown {
+			f.LogTail = lastValidUTF8([]byte(redact(strings.ToValidUTF8(last.Message, "�"), keys)), maxLogTail)
+		}
+	}
+	pv.Status.Environment = []v1alpha1.PartFact{f}
+	if v.Log == nil {
+		return
+	}
+	attrs := []slog.Attr{slog.String("verification", pv.Name), slog.String("container", f.Name),
+		slog.String("waiting", f.Waiting), slog.Int("restarts", int(f.Restarts)), slog.String("message", f.LogTail)}
+	if f.LastTermination != nil {
+		attrs = append(attrs, slog.String("lastReason", f.LastTermination.Reason),
+			slog.Int("exitCode", int(f.LastTermination.ExitCode)))
+	}
+	v.Log.LogAttrs(ctx, slog.LevelWarn, "preview tool pod container crash-looping", attrs...)
+}
+
 // followTools refreshes the capture in the tool ConfigMap and, once the
 // tools container is Ready, records where the evaluator reaches it; it
 // writes status only when either changed. The capture is best effort: a
@@ -403,7 +468,7 @@ func (v *VerificationReconciler) followTools(ctx context.Context, pv *v1alpha1.P
 	s *verifySubject, job *batchv1.Job, pod *corev1.Pod) error {
 	before := pv.Status.DeepCopy()
 	v.followCapture(ctx, pv, s, job)
-	if pv.Status.Tools == nil && pod != nil && toolsReady(pod) {
+	if pv.Status.Tools == nil && pod != nil && toolsReady(pod, pv.Spec.Tools) {
 		pv.Status.Tools = &v1alpha1.ToolsStatus{PodIP: pod.Status.PodIP, Port: previewtools.Port, Ready: true}
 	}
 	if reflect.DeepEqual(before, &pv.Status) {
@@ -441,15 +506,26 @@ func (v *VerificationReconciler) followCapture(ctx context.Context, pv *v1alpha1
 	st.data = cm.Data
 }
 
-// toolsReady reports the tools container Ready on a pod with an address.
-func toolsReady(pod *corev1.Pod) bool {
-	if pod.Status.PodIP == "" || !podCondition(pod, corev1.PodReady) {
+// toolsReady reports the tools container Ready on a pod with an address,
+// and every sidecar tools asks for (browser, sandbox) running and Ready:
+// the pod's own Ready condition does not wait for a native sidecar that
+// restarts after it started.
+func toolsReady(pod *corev1.Pod, tools *v1alpha1.ToolsSpec) bool {
+	if pod.Status.PodIP == "" || !podCondition(pod, corev1.PodReady) ||
+		!containerReady(pod.Status.ContainerStatuses, toolsContainer) {
 		return false
 	}
-	i := slices.IndexFunc(pod.Status.ContainerStatuses, func(s corev1.ContainerStatus) bool {
-		return s.Name == toolsContainer
-	})
-	return i >= 0 && pod.Status.ContainerStatuses[i].Ready
+	if tools == nil {
+		return true
+	}
+	return (!tools.Browser || containerReady(pod.Status.InitContainerStatuses, browserContainer)) &&
+		(!tools.Sandbox || containerReady(pod.Status.InitContainerStatuses, sandboxContainer))
+}
+
+// containerReady reports the named container running and Ready.
+func containerReady(statuses []corev1.ContainerStatus, name string) bool {
+	i := slices.IndexFunc(statuses, func(s corev1.ContainerStatus) bool { return s.Name == name })
+	return i >= 0 && statuses[i].Ready && statuses[i].State.Running != nil
 }
 
 // recordTools settles a finished tool pod's attempt from its ledger and
@@ -471,6 +547,13 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 		}
 	}
 	phase, reason := route(facts, out.reason)
+	if phase == v1alpha1.VerificationObserved && pv.Spec.Rung == v1alpha1.RungFull &&
+		!evaluatorCalled(out.ledger.Entries) {
+		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun
+		if pv.Status.Tools == nil {
+			reason = v1alpha1.VerificationReasonToolsNotReady
+		}
+	}
 	if out.reason == "" {
 		if err := v.storeLedger(ctx, pv, out, finishedAt); err != nil {
 			return err
@@ -480,6 +563,16 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 	pv.Status.Environment = facts
 	pv.Status.TesterImageID = imageIDOf(pod, toolsContainer)
 	return v.settleWith(ctx, pv, phase, reason)
+}
+
+// evaluatorCalled reports an evaluator's call in the ledger: one of its
+// own tool calls, or agent-runner's after it exited (confirm, finish).
+// The relay's entries alone (readiness, replay, a deadline finish) are a
+// round no evaluator ran in.
+func evaluatorCalled(entries []toolwire.LedgerEntry) bool {
+	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
+		return e.Kind == toolwire.KindAgent || e.Kind == toolwire.KindRunner
+	})
 }
 
 // storeLedger writes the verified ledger's index, runs and confirmed
