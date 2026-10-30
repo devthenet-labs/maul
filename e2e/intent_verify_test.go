@@ -875,6 +875,46 @@ func TestIntentVerifyHumanPushAndAccept(t *testing.T) {
 	})
 }
 
+// TestIntentVerifyFixAfterAHumanPush (S1 demo bug 2): automatic fixes are
+// halted (/maul verify stop); the approver pushes to the pull request and
+// re-arms them with /maul verify fix a second later, before maul need have
+// seen the push. GitHub recorded the push first, so the re-arm stands once
+// maul records the pushed head: the application now fails there, and an
+// automatic fix round starts.
+func TestIntentVerifyFixAfterAHumanPush(t *testing.T) {
+	e := startVerify(t, versionCriterion, http.StatusOK)
+	number, name, pr := e.toReview(t)
+	e.serve(t, name, pr.HeadSHA)
+	e.waitVerification(t, name, "the verification to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	e.gh.CommentAs(number, "/maul verify stop", approver)
+	e.waitVerification(t, name, "automatic fixes stopped", func(v *v1alpha1.IntentVerification) bool {
+		return v.AutoFix.State == v1alpha1.AutoFixHalted && v.AutoFix.Reason == v1alpha1.AutoFixHumanStop
+	})
+
+	e.app.set(http.StatusInternalServerError)
+	branch := v1alpha1.IntentBranchPrefix + name
+	pushed := e.gh.HumanPush(intentOwner, appRepo, branch, "NOTES.md", "Written by hand.\n", "docs: notes")
+	afterSecond(time.Now().UTC().Truncate(time.Second))
+	e.gh.CommentAs(number, "/maul verify fix", approver)
+	e.serve(t, name, pushed)
+	e.waitVerification(t, name, "the pushed head recorded with automatic fixes armed",
+		func(v *v1alpha1.IntentVerification) bool {
+			return len(v.Heads) == 1 && v.Heads[0].Revision == pushed && v.AutoFix.Rearm != nil &&
+				v.AutoFix.State == v1alpha1.AutoFixArmed
+		})
+	fix := e.waitFixRun(t, name)
+	if v := e.intent(t, name).Status.Verification; v.AutoFix.Reason == v1alpha1.AutoFixHumanPush {
+		t.Errorf("auto-fix = %+v: the push halted it after the later re-arm", v.AutoFix)
+	}
+	e.waitFor(t, name, "the fix pushed on top of the human's commit", func(in *v1alpha1.Intent) bool {
+		run := e.run(t, fix.Name)
+		return run.Status.PushedCommit != "" && run.Status.BaseSHA == pushed &&
+			in.Status.PullRequests[0].HeadSHA == run.Status.PushedCommit
+	})
+}
+
 // TestIntentVerifyReset: /maul verify --reset bumps the intent's reset
 // generation, which reaches the Preview; preview-controller restarts its
 // parts, and once they run for the reset the verification runs again.

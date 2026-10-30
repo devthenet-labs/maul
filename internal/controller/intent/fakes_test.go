@@ -210,11 +210,14 @@ type fakeGitHub struct {
 	// index.
 	commitRepos []string
 	// lockedPRs refuse every comment on them (a locked conversation).
-	lockedPRs   map[int64]bool
-	parents     map[string]string
-	branches    map[string]string
-	prs         map[int64]*fakePR
-	heads       map[string]string
+	lockedPRs map[int64]bool
+	parents   map[string]string
+	branches  map[string]string
+	prs       map[int64]*fakePR
+	heads     map[string]string
+	// pushes are each branch's pushes, by fakeRef(repoURL, branch), oldest
+	// first, as GitHub's repository activity records them (PushedAt).
+	pushes      map[string][]fakePush
 	reviews     map[int64][]ghclient.Review
 	inline      map[int64][]ghclient.ReviewComment
 	prComments  map[int64][]*ghclient.Comment
@@ -282,6 +285,7 @@ func newFakeGitHub(clock *fakeClock) *fakeGitHub {
 		files:              map[string]map[string]string{},
 		prs:                map[int64]*fakePR{},
 		heads:              map[string]string{"main": baseSHA},
+		pushes:             map[string][]fakePush{},
 		reviews:            map[int64][]ghclient.Review{},
 		inline:             map[int64][]ghclient.ReviewComment{},
 		prComments:         map[int64][]*ghclient.Comment{},
@@ -1104,12 +1108,38 @@ func (f *fakeGitHub) FastForwardRef(_ context.Context, repoURL, branch, sha stri
 		return ghclient.ErrNotFastForward
 	}
 	f.branches[ref] = sha
+	f.pushes[ref] = append(f.pushes[ref], fakePush{sha: sha, at: f.clock.Now()})
 	for _, pr := range f.prs {
 		if pr.in(repoURL) && pr.head == branch && pr.pr.State == "open" {
 			pr.pr.HeadSHA = sha
 		}
 	}
 	return nil
+}
+
+// fakePush is one push to a branch: the commit it moved the branch to, and
+// when GitHub recorded it.
+type fakePush struct {
+	sha string
+	at  time.Time
+}
+
+func (f *fakeGitHub) PushedAt(_ context.Context, repoURL, branch, sha string) (time.Time, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("PushedAt"); err != nil {
+		return time.Time{}, false, err
+	}
+	if err := f.repoErr("PushedAt", repoURL); err != nil {
+		return time.Time{}, false, err
+	}
+	pushes := f.pushes[fakeRef(repoURL, branch)]
+	for i := len(pushes) - 1; i >= 0; i-- {
+		if pushes[i].sha == sha {
+			return pushes[i].at, true, nil
+		}
+	}
+	return time.Time{}, false, nil
 }
 
 func (f *fakeGitHub) FindPullRequest(_ context.Context, repoURL, head, base string) (*ghclient.PR, error) {

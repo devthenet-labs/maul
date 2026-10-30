@@ -138,6 +138,7 @@ var tokenUses = map[string][]string{
 	"RemoveLabel": {onIntentRepository}, "CloseIssue": {onIntentRepository},
 
 	"DefaultBranch": {onAppRepository}, "HeadSHA": {onAppRepository},
+	"PushedAt":     {onAppRepository},
 	"FileContent":  {onAppRepository},
 	"CreateCommit": {onAppRepository}, "CreateBranchRef": {onAppRepository},
 	"FastForwardRef": {onAppRepository}, "FindPullRequest": {onAppRepository},

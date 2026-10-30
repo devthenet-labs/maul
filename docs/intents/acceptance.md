@@ -299,11 +299,18 @@ Auto-fix halts the moment a human acts:
   automatic fix, even when a fix is also due or a review is still in its quiet window. If an automatic fix is queued but
   has not started, it is **cancelled for your review** and your round runs next. One that is already running finishes
   and pushes, then your round runs next, and its text notes the automatic fix.
-- **`HumanPush`:** a head maul did not push halts auto-fix. Verification still re-runs and reports; it never fixes.
+- **`HumanPush`:** a head maul did not push halts auto-fix. Verification still re-runs and reports; it never fixes there
+  unless an approver re-armed auto-fix after that push (below).
 - `/maul verify fix` re-arms auto-fix. It does not reset the fix count, but the next failure is never judged a repeat of
-  a fix round from before it.
-- **The preview link.** With the evaluator and a gated hand-off, an approver's review or command, a push maul did not
-  make, or `/maul preview` releases a held preview link at once, labelled as still being checked. maul goes on checking.
+  a fix round from before it. To push a change of your own and let maul go on fixing, push first, then comment
+  `/maul verify fix`: maul notices a push only at its next poll, a minute or more later, and a re-arm posted after
+  GitHub recorded the push (by GitHub's own clock, the comment's time against the push's in the repository's activity)
+  keeps auto-fix armed for it, and a fix round may then build on top of your commit. A push GitHub recorded after the
+  re-arm, in the same second, or at a time GitHub will not show, still halts it.
+- **The preview link.** With the evaluator and a gated hand-off, an approver's changes-requested review or
+  `/maul revise` or `/maul retry` on a pull request, a push maul did not make, or `/maul preview` releases a held
+  preview link at once, labelled as still being checked, even before the first evaluation has started. A plain comment,
+  `/maul verify` and `/maul verify fix` do not release it. maul goes on checking.
 
 ## On GitHub
 

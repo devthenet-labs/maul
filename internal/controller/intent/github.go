@@ -61,6 +61,10 @@ type GitHub interface {
 	// Application repositories.
 	DefaultBranch(ctx context.Context, repoURL string) (string, error)
 	HeadSHA(ctx context.Context, repoURL, branch string) (string, error)
+	// PushedAt is when GitHub recorded the latest push that moved branch
+	// to sha (ghclient.PushedAt): GitHub's own clock, which a comment's
+	// created_at is on too; ok false when GitHub shows none.
+	PushedAt(ctx context.Context, repoURL, branch, sha string) (at time.Time, ok bool, err error)
 	// FileContent is the file at path at ref (ghclient.FileContent): the
 	// go.mod a pull request's body compares with its base's.
 	FileContent(ctx context.Context, repoURL, path, ref string) ([]byte, error)
@@ -521,6 +525,14 @@ func (g *forgeGitHub) HeadSHA(ctx context.Context, repoURL, branch string) (stri
 		return "", err
 	}
 	return c.HeadSHA(ctx, repo, branch)
+}
+
+func (g *forgeGitHub) PushedAt(ctx context.Context, repoURL, branch, sha string) (time.Time, bool, error) {
+	c, repo, err := g.client(ctx, repoURL, contentsRead)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return c.PushedAt(ctx, repo, branch, sha)
 }
 
 func (g *forgeGitHub) FileContent(ctx context.Context, repoURL, path, ref string) ([]byte, error) {

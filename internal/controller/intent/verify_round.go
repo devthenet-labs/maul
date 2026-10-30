@@ -185,6 +185,14 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 	if !ok {
 		return false, nil
 	}
+	return p.guardVerifyFix(ctx, pv, failure)
+}
+
+// guardVerifyFix is startVerifyFix's guards over failure, the failure of
+// pv, the verification at the recorded heads, in order, then the lease of
+// the round when every one holds.
+func (p *pass) guardVerifyFix(ctx context.Context, pv *v1alpha1.PreviewVerification, failure verifyFailure) (
+	bool, error) {
 	if limit := p.proj.Spec.Limits.MaxVerifyFixesLimit(); p.verifyFixRounds() >= limit ||
 		p.in.Status.Rounds >= v1alpha1.MaxIntentRound {
 		return true, p.haltFix(ctx, v1alpha1.AutoFixMaxVerifyFixes, v1alpha1.VerificationExhausted,
@@ -199,7 +207,11 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 		return true, p.haltFix(ctx, v1alpha1.AutoFixRepeatedFailure, "",
 			"the verification failed again exactly as it did before the last acceptance-fix round")
 	}
-	if p.fixHeadMoved() {
+	moved, err := p.fixHeadMoved(ctx)
+	if err != nil {
+		return false, err
+	}
+	if moved {
 		return true, p.haltFix(ctx, v1alpha1.AutoFixHumanPush, "", "")
 	}
 	if p.atCeiling() {
@@ -458,19 +470,26 @@ func (p *pass) roundInputFailure(ctx context.Context, run *v1alpha1.IntentRun) (
 // fixHeadMoved reports an open pull request of a previewed component whose
 // head is not the commit maul last pushed in its repository: no automatic
 // fix runs on a head maul did not push (guard 5, the rule check-fix rounds
-// keep too).
-func (p *pass) fixHeadMoved() bool {
-	v := p.in.Status.Verification
-	for _, h := range v.Heads {
+// keep too), unless an approver's /maul verify fix re-armed automatic
+// fixes after GitHub recorded the push of every such head (rearmedAfter,
+// H10): then the approver let maul fix on top of it.
+func (p *pass) fixHeadMoved(ctx context.Context) (bool, error) {
+	var moved []v1alpha1.VerificationHead
+	for _, h := range p.in.Status.Verification.Heads {
 		pr := p.pullRequest(h.Repository)
 		if pr == nil || pr.State != prOpen || p.leftProject(pr.Repository) {
 			continue
 		}
 		if latest := p.latestPushedRun(pr.Repository); latest == nil || latest.Status.PushedCommit != pr.HeadSHA {
-			return true
+			moved = append(moved, v1alpha1.VerificationHead{Component: h.Component, Repository: pr.Repository,
+				Revision: pr.HeadSHA})
 		}
 	}
-	return false
+	if len(moved) == 0 {
+		return false, nil
+	}
+	rearmed, err := p.rearmedAfter(ctx, moved)
+	return !rearmed, err
 }
 
 // fixTarget is the pull request an acceptance-fix round works on: that of
@@ -724,7 +743,7 @@ func (p *pass) humanOvertakesFix(ctx context.Context, run *v1alpha1.IntentRun) (
 		slog.String("intent", p.in.Name), slog.String("run", run.Name), slog.Bool("cancelled", unlaunched))
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		halt(nv, reason, metav1.NewTime(p.now))
+		p.haltHuman(nv, reason)
 		if unlaunched {
 			nv.CancelRun = run.Name
 		}

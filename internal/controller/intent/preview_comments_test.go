@@ -106,7 +106,14 @@ func (e *env) onePreviewComment(name string, n int64) ghclient.Comment {
 func (e *env) pushHead(n int64, sha string) {
 	e.gh.mu.Lock()
 	defer e.gh.mu.Unlock()
-	e.gh.prs[n].pr.HeadSHA = sha
+	pr := e.gh.prs[n]
+	pr.pr.HeadSHA = sha
+	repoURL := appRepoURL
+	if pr.repo != "" {
+		repoURL = "https://github.com/" + pr.repo
+	}
+	ref := fakeRef(repoURL, pr.head)
+	e.gh.pushes[ref] = append(e.gh.pushes[ref], fakePush{sha: sha, at: e.gh.clock.Now()})
 }
 
 // everyBody is every comment body on the intent issue and every pull

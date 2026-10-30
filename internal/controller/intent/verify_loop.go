@@ -20,6 +20,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -102,7 +103,7 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 	}
 	if reason := p.humanRoundHalt(); reason != "" {
 		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			halt(cur.Status.Verification, reason, metav1.NewTime(p.now))
+			p.haltHuman(cur.Status.Verification, reason)
 			return nil
 		})
 	}
@@ -367,17 +368,23 @@ func (p *pass) humanRoundHalt() v1alpha1.AutoFixReason {
 // the state starts over at hs in state (waiting for its checks, or
 // NotDeclared for a plan with nothing to run), and a component
 // whose revision changed to a head maul did not push halts automatic fixes
-// (HumanPush). The commit statuses are re-posted on every head from the new
+// (HumanPush) and releases a held link, unless an approver re-armed them
+// after GitHub recorded that push (rearmedAfter): then it releases the
+// link alone. The commit statuses are re-posted on every head from the new
 // head-set digest.
 func (p *pass) syncHeadSet(ctx context.Context, hs headSet, state v1alpha1.IntentVerificationState) (bool, error) {
 	v := p.in.Status.Verification
 	if v.HeadSetDigest == hs.digest {
 		return false, nil
 	}
+	pushed := p.humanPushes(v.Heads, hs.heads)
+	rearmed, err := p.rearmedAfter(ctx, pushed)
+	if err != nil {
+		return false, err
+	}
 	if v.Ref != nil {
 		p.dropInFlight(ctx, *v.Ref)
 	}
-	pushed := p.humanPushed(v.Heads, hs.heads)
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State = state
@@ -386,20 +393,25 @@ func (p *pass) syncHeadSet(ctx context.Context, hs headSet, state v1alpha1.Inten
 		// A no-defect conclusion is about the heads it judged.
 		nv.NoDefect = nil
 		clearJudgement(nv)
-		if pushed {
-			halt(nv, v1alpha1.AutoFixHumanPush, metav1.NewTime(p.now))
+		switch {
+		case len(pushed) == 0:
+		case rearmed:
+			p.releaseForPush(nv)
+		default:
+			p.haltHuman(nv, v1alpha1.AutoFixHumanPush)
 		}
 		countManual(nv, cur.Status.Acceptance)
 		return nil
 	})
 }
 
-// humanPushed reports a component of heads whose revision is not what it
+// humanPushes are the components of heads whose revision is not what it
 // was in old and is not the head maul last pushed in its repository: a
 // human pushed to its pull request's branch. A component with no pull
 // request runs its recorded default-branch head, which no one pushes to
 // through the intent.
-func (p *pass) humanPushed(old, heads []v1alpha1.VerificationHead) bool {
+func (p *pass) humanPushes(old, heads []v1alpha1.VerificationHead) []v1alpha1.VerificationHead {
+	var pushed []v1alpha1.VerificationHead
 	for _, h := range heads {
 		if slices.ContainsFunc(old, func(o v1alpha1.VerificationHead) bool {
 			return o.Component == h.Component && o.Revision == h.Revision
@@ -410,10 +422,47 @@ func (p *pass) humanPushed(old, heads []v1alpha1.VerificationHead) bool {
 			continue
 		}
 		if latest := p.latestPushedRun(h.Repository); latest == nil || latest.Status.PushedCommit != h.Revision {
-			return true
+			pushed = append(pushed, h)
 		}
 	}
-	return false
+	return pushed
+}
+
+// rearmedAfter reports that automatic fixes are armed by an approver's
+// /maul verify fix posted after GitHub recorded the push of every head in
+// pushed: the approver re-armed them with those pushes in place, so the
+// pushes do not halt them again. maul sees a push only at its next poll,
+// which can come after a re-arm made seconds after the push (S1 demo,
+// bug 2).
+//
+// The order is GitHub's alone: the push's time from the repository
+// activity API (GitHub.PushedAt) against the command comment's created_at,
+// both stamped by GitHub, so no clock skew of maul's enters it, and no
+// commit date, which the pusher sets, does. A push in the re-arm's second,
+// a head GitHub shows no push to, or a refusal to show it halts: the human
+// wins. An error that may pass is returned, deciding nothing.
+func (p *pass) rearmedAfter(ctx context.Context, pushed []v1alpha1.VerificationHead) (bool, error) {
+	af := p.in.Status.Verification.AutoFix
+	if len(pushed) == 0 || af.State == v1alpha1.AutoFixHalted || af.Rearm == nil {
+		return false, nil
+	}
+	branch := branchName(p.in.Name)
+	for _, h := range pushed {
+		at, ok, err := p.r.GitHub.PushedAt(ctx, h.Repository, branch, h.Revision)
+		if ghclient.IsNotFound(err) || ghclient.IsForbidden(err) {
+			p.r.log().LogAttrs(ctx, slog.LevelWarn, "GitHub would not show when a head was pushed; the push halts "+
+				"automatic fixes", slog.String("intent", p.in.Name), slog.String("repository", h.Repository),
+				slog.String("revision", h.Revision), slog.Any("error", err))
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("read when %s was pushed to %s: %w", h.Revision, h.Repository, err)
+		}
+		if !ok || !af.Rearm.At.After(at) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // clearJudgement drops a verification's judged result.

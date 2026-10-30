@@ -164,9 +164,11 @@ The hand-off is when people get the preview link and hear that the change is rea
 
 `gated` holds the link at most `handoffMax` (default 60 minutes, 10 minutes to 4 hours), counted from when CI first went
 green at the first pull request heads; past it the link is released as "maul couldn't confirm this: it ran out of time".
-**A human always wins:** an approver's review or command, a push maul did not make, or `/maul preview` releases the link
-at once ("Shown while maul is still checking the approved outcomes."), and maul goes on checking. The pull requests open
-as usual, not as drafts, so GitHub still notifies their watchers; maul only holds its own words.
+**A human always wins:** an approver's changes-requested review or `/maul revise` or `/maul retry` on a pull request, a
+push maul did not make, or `/maul preview` releases the link at once ("Shown while maul is still checking the approved
+outcomes."), even before the first evaluation has started, and maul goes on checking. A plain comment, `/maul verify`
+and `/maul verify fix` do not release it. The pull requests open as usual, not as drafts, so GitHub still notifies their
+watchers; maul only holds its own words.
 
 "maul couldn't confirm this" names one reason:
 

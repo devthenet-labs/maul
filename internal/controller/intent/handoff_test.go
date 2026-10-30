@@ -86,6 +86,58 @@ func TestHumanFeedbackReleasesAndHalts(t *testing.T) {
 	e.reviewUntil(name, func() bool { return len(e.runsOf(name, v1alpha1.IntentStageRevise)) > 0 })
 }
 
+// TestPushBeforeTheFirstEvaluationReleases: the link is held from the
+// first pass, before the first evaluation records its hand-off; a push
+// maul did not make in that time releases it at once all the same, and
+// the evaluation that follows keeps it released.
+func TestPushBeforeTheFirstEvaluationReleases(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.reviewUntil(name, func() bool { return e.verification(name).HeadSetDigest != "" })
+	if v := e.verification(name); v.Handoff != nil || !e.prVerifyPass(name).linkHeld() {
+		t.Fatalf("verification = %+v, want the link held with no hand-off recorded yet", v)
+	}
+	e.pushHead(e.prNumber(name), strings.Repeat("e", 40))
+	e.review(name, 2)
+	v := e.verification(name)
+	if v.Handoff == nil || !v.Handoff.Released || v.Handoff.Reason != v1alpha1.HandoffReasonHuman ||
+		v.Handoff.Mode != v1alpha1.HandoffGated {
+		t.Fatalf("hand-off = %+v, want released for the human's push", v.Handoff)
+	}
+	if v.AutoFix.State != v1alpha1.AutoFixHalted || v.AutoFix.Reason != v1alpha1.AutoFixHumanPush {
+		t.Errorf("auto-fix = %+v, want halted for the push", v.AutoFix)
+	}
+	e.readyPreview(name)
+	e.reviewUntil(name, func() bool { return e.verification(name).FirstGreenAt != nil })
+	if h := e.verification(name).Handoff; !h.Released || h.Reason != v1alpha1.HandoffReasonHuman {
+		t.Errorf("hand-off = %+v after the first evaluation, want it kept released", h)
+	}
+}
+
+// TestPushReArmedAfterReleasesTheLinkOnly: a push an approver re-armed
+// automatic fixes after still releases the held link (the human wins it),
+// while automatic fixes stay armed.
+func TestPushReArmedAfterReleasesTheLinkOnly(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	if v := e.verification(name); v.Handoff == nil || v.Handoff.Released {
+		t.Fatalf("verification = %+v, want the link held", v)
+	}
+	e.pushHead(e.prNumber(name), strings.Repeat("e", 40))
+	e.clock.Advance(6 * time.Second)
+	e.rearm(name)
+	e.review(name, 2)
+	v := e.verification(name)
+	if !movedTo(v, strings.Repeat("e", 40)) {
+		t.Fatalf("verification = %+v, want the pushed head set recorded", v)
+	}
+	if !v.Handoff.Released || v.Handoff.Reason != v1alpha1.HandoffReasonHuman {
+		t.Errorf("hand-off = %+v, want released for the human's push", v.Handoff)
+	}
+	if v.AutoFix.State != v1alpha1.AutoFixArmed {
+		t.Errorf("auto-fix = %+v, want the later re-arm to stand", v.AutoFix)
+	}
+}
+
 // TestEarlyHandoffKeepsSliceOne: under an early hand-off nothing is held:
 // it is released at once as the evaluation starts, the views carry no
 // hand-off, and the status comment links the preview exactly as slice 1

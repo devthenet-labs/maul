@@ -1093,7 +1093,7 @@ func (p *pass) enterRevising(ctx context.Context, run *v1alpha1.IntentRun) error
 	return p.setPhase(ctx, v1alpha1.IntentRevising, func(cur *v1alpha1.Intent) {
 		cur.Status.Rounds = run.Spec.Round
 		cur.Status.ActiveRun = &v1alpha1.ObjectReference{Name: run.Name, UID: run.UID}
-		haltForHumanRound(cur, run, metav1.NewTime(p.now))
+		p.haltForHumanRound(cur, run)
 	})
 }
 
