@@ -27,7 +27,11 @@ case "$1" in
 get)
     case "$2" in service) kind=SVC ;; *) kind=POD ;; esac
     eval "printf '%s' \"\${STUB_${kind}_$(var "$3")}\"" ;;
-debug) ;;
+debug)
+    for a in "$@"; do case "$a" in probe-*) container=$a ;; esac; done
+    row=${container#probe-}; row=${row%-*}
+    eval "fail=\${STUB_DEBUG_FAIL_$(var "$row")}"
+    exit "${fail:-0}" ;;
 exec) ;;
 logs)
     for a in "$@"; do case "$a" in probe-*) container=$a ;; esac; done
@@ -135,7 +139,7 @@ func TestToolsRunsEveryRow(t *testing.T) {
 	ev := strings.Join(calls["evaluator@evaluator"], " ")
 	for _, want := range []string{
 		"-n maul-agents", "--env=PROBE_REACH=own-tool-pod=10.42.0.5:8090",
-		"--env=PROBE_DENY=other-tool-pod=10.42.2.8:8090,other-slot-pod=10.42.3.9:8080",
+		"--env=PROBE_DENY=other-tool-pod=10.42.2.8:8090;other-slot-pod=10.42.3.9:8080",
 		"--env=PROBE_EGRESS_BROKER=10.43.1.2", "--env=PROBE_SLOT_COMPONENT=10.42.0.7", "--profile=restricted",
 	} {
 		if !strings.Contains(ev, want) {
@@ -145,7 +149,7 @@ func TestToolsRunsEveryRow(t *testing.T) {
 	peers := strings.Join(calls["peers@component"], " ")
 	for _, want := range []string{
 		"--env=PROBE_REACH=cluster-dns=10.43.0.10:53",
-		"tool-pod=10.42.0.5:8090,evaluator=10.42.1.6:8080,maul-egress-broker=10.43.1.2:8080",
+		"tool-pod=10.42.0.5:8090;evaluator=10.42.1.6:8080;maul-egress-broker=10.43.1.2:8080",
 	} {
 		if !strings.Contains(peers, want) {
 			t.Errorf("component row lacks %q in %s", want, peers)
@@ -218,6 +222,56 @@ func TestToolsAFailingRowFailsTheRunAfterTheRest(t *testing.T) {
 		// The matrix is complete even when one row fails.
 		if n := len(debugCalls(run)); n != 5 {
 			t.Errorf("%s: %d probe containers ran, want all 5", tc.row, n)
+		}
+	}
+}
+
+// A probe that exits non-zero makes kubectl debug exit non-zero: the row is
+// recorded as failed and the remaining rows still run, the run exiting 1.
+func TestToolsARefusedRowDoesNotAbortTheMatrix(t *testing.T) {
+	for _, row := range []string{"evaluator", "component", "tools", "sandbox"} {
+		run := runToolsProbe(t, []string{"STUB_DEBUG_FAIL_" + row + "=1",
+			"STUB_LOG_" + row + "=" + `{"name":"summary","outcome":"SECURITY_FAILURE"}`}, toolsArgs()...)
+		if run.code != 1 || !strings.Contains(run.stderr, "FAIL "+row) {
+			t.Errorf("%s: exit %d, stderr:\n%s", row, run.code, run.stderr)
+		}
+		if n := len(debugCalls(run)); n != 5 {
+			t.Errorf("%s: %d probe containers ran, want all 5\n%s", row, n, run.stderr)
+		}
+		if strings.Contains(run.stderr, "Tool-pod isolation passed") {
+			t.Errorf("%s: passed", row)
+		}
+	}
+}
+
+// A row whose container could not be started at all (no summary to read) is
+// a failure of the run too, not a pass and not an abort.
+func TestToolsARowThatCouldNotRunFailsTheRun(t *testing.T) {
+	run := runToolsProbe(t, []string{"STUB_DEBUG_FAIL_tools=1", "STUB_LOG_tools=none"}, toolsArgs()...)
+	if run.code != 1 || !strings.Contains(run.stderr, "FAIL tools") || len(debugCalls(run)) != 5 {
+		t.Errorf("exit %d, %d probe containers, stderr:\n%s", run.code, len(debugCalls(run)), run.stderr)
+	}
+}
+
+// kubectl debug --env splits its value on commas, so a list must reach the
+// probe whole: no comma in any PROBE_ list the script passes.
+func TestToolsListsSurviveKubectlDebugEnv(t *testing.T) {
+	run := runToolsProbe(t, nil, toolsArgs()...)
+	c := debugCalls(run)["evaluator@evaluator"]
+	var deny string
+	for _, a := range c {
+		if v, ok := strings.CutPrefix(a, "--env=PROBE_DENY="); ok {
+			deny = v
+		}
+	}
+	if !strings.Contains(deny, "other-tool-pod=10.42.2.8:8090") || !strings.Contains(deny, "other-slot-pod=") {
+		t.Fatalf("PROBE_DENY = %q, want both the other tool pod and the other slot pod", deny)
+	}
+	for _, calls := range debugCalls(run) {
+		for _, a := range calls {
+			if strings.HasPrefix(a, "--env=PROBE_") && strings.Contains(a, ",") {
+				t.Errorf("%q carries a comma, which kubectl debug --env would split on", a)
+			}
 		}
 	}
 }

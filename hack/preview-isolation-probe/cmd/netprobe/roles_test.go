@@ -22,6 +22,13 @@ func TestExtraTargets(t *testing.T) {
 		{"none is fine", nil, nil, nil, true},
 		{"both", map[string]string{"PROBE_REACH": "tool-pod=10.0.0.5:8090", "PROBE_DENY": "a=10.0.0.6:8090,b=10.0.0.7:80"},
 			[]string{"10.0.0.5:8090"}, []string{"10.0.0.6:8090", "10.0.0.7:80"}, true},
+		// kubectl debug --env splits its value on commas, so the script joins
+		// a list with semicolons; both separators parse, a mix included.
+		{"semicolons", map[string]string{"PROBE_DENY": "a=10.0.0.6:8090;b=10.0.0.7:80"},
+			nil, []string{"10.0.0.6:8090", "10.0.0.7:80"}, true},
+		{"a mixed list", map[string]string{"PROBE_DENY": "a=10.0.0.6:8090;b=10.0.0.7:80,c=10.0.0.8:81"},
+			nil, []string{"10.0.0.6:8090", "10.0.0.7:80", "10.0.0.8:81"}, true},
+		{"an empty semicolon entry", map[string]string{"PROBE_DENY": "a=10.0.0.6:80;"}, nil, nil, false},
 		{"a name is not an address", map[string]string{"PROBE_DENY": "a=svc.example:80"}, nil, nil, false},
 		{"a bad port", map[string]string{"PROBE_DENY": "a=10.0.0.6:0"}, nil, nil, false},
 		{"a bad name", map[string]string{"PROBE_REACH": "A_B=10.0.0.6:80"}, nil, nil, false},

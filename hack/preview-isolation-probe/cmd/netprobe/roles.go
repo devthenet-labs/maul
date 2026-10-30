@@ -32,13 +32,15 @@ const (
 
 var specName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-// parseSpecs splits "name=value,name=value" into pairs; false when any entry
+// parseSpecs splits "name=value,name=value" into pairs, a semicolon being as
+// good a separator as a comma (kubectl debug --env splits its value on commas,
+// so the script joins its lists with semicolons); false when any entry
 // is malformed, so a typo makes a run inconclusive and never a smaller one.
 func parseSpecs(s string) (pairs [][2]string, ok bool) {
 	if s == "" {
 		return nil, true
 	}
-	for entry := range strings.SplitSeq(s, ",") {
+	for entry := range strings.SplitSeq(strings.ReplaceAll(s, ";", ","), ",") {
 		name, value, found := strings.Cut(entry, "=")
 		if !found || !specName.MatchString(name) || value == "" {
 			return nil, false

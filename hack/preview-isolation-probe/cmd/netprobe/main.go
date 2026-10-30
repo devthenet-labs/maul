@@ -296,7 +296,7 @@ func probe(ctx context.Context, dialer *net.Dialer, t target, worker, attempt in
 		if connected {
 			r.Outcome = "REACHABLE"
 		} else {
-			r.Outcome = classify(err)
+			r.Outcome = connectOutcome(err, t.refusedBlocks)
 		}
 	} else {
 		conn, err := dialer.DialContext(ctx, "tcp", t.addr)

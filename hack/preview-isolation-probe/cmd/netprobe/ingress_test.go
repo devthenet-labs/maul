@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -168,6 +169,23 @@ func TestRefusedIsBlockedOnlyRefusals(t *testing.T) {
 		}
 		if got, want := connectOutcome(tc.err, false), classify(tc.err); got != want {
 			t.Errorf("connectOutcome(%v, false) = %q, want classify's %q", tc.err, got, want)
+		}
+	}
+}
+
+// TestIMDSRefusalHonoursRefusedIsBlocked: the instance-metadata row counts a
+// refusal the way every other row does (a live run found it did not).
+func TestIMDSRefusalHonoursRefusedIsBlocked(t *testing.T) {
+	tg := refusingTarget(t)
+	tg.imds = true
+	for _, tc := range []struct {
+		refusedBlocks bool
+		want          string
+	}{{false, "inconclusive"}, {true, outcomeRefused}} {
+		tg.refusedBlocks = tc.refusedBlocks
+		r := probe(context.Background(), &net.Dialer{}, tg, 1, 1, time.Now())
+		if r.Outcome != tc.want {
+			t.Errorf("refusedBlocks=%v: outcome %q, want %q", tc.refusedBlocks, r.Outcome, tc.want)
 		}
 	}
 }
