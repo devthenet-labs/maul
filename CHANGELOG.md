@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.6](https://github.com/devthenet-labs/maul/compare/v0.13.5...v0.13.6) (2026-10-30)
+
+
+### Bug Fixes
+
+* **preview:** let the sandbox container reach its scratch directory ([#291](https://github.com/devthenet-labs/maul/issues/291)) ([7ff7490](https://github.com/devthenet-labs/maul/commit/7ff74907d56cd9bb2ec8035dd6c7a96c9f016dd8))
+
 ## [0.13.5](https://github.com/devthenet-labs/maul/compare/v0.13.4...v0.13.5) (2026-10-30)
 
 
