@@ -1291,6 +1291,17 @@ intentController:
         # One evaluation round's wall clock. Its slot tool Job must fit under
         # preview.verification.deadlineMaxSeconds, so this must be shorter.
         evaluateTimeout: 20m
+        # The most agent turns one evaluate run may take, 1 to 1000 (a
+        # Project's limits.evaluate.maxTurns may lower it). Every tool call is
+        # a turn, and agent-runner keeps the run's last few for its report,
+        # so a run that reaches the cap still reports what it found. The cost
+        # budget and the wall clock end a run with no report, so keep this
+        # the limit that binds first: 100 turns keeps every evaluate run
+        # measured live under the default $6 run budget and well inside the
+        # 20 minutes. Raise the cost budget and the timeout before raising it.
+        evaluateMaxTurns: 100
+        # The most agent turns each check-review session may take, 1 to 1000.
+        checkReviewMaxTurns: 3
         # The most an intent's evaluation runs may spend, in USD (rendered
         # in micro-USD).
         maxEvaluateCostUSD: 6

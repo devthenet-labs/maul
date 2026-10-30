@@ -92,10 +92,23 @@ You may make at most 150 tool calls; past that every call is refused.
 Name every piece of data you create while exploring with `v1a1-3f9c2a` (for example `v1a1-3f9c2a-alice`), and
 judge only data you created. The preview's data persists between rounds, so rows earlier rounds left are there too.
 
-## How to evaluate
+## Your turns
 
-This stage may take at most 80 agent turns, 200000 output tokens and 20 minutes.
-A run that reaches any of them ends with no report, so write the report well before then.
+This run may take at most 80 agent turns, 200000 output tokens and 20 minutes.
+Every tool call takes one of these turns, and a run that reaches any of these limits is stopped where it is, so
+budget for your report:
+
+- Write your report as soon as every outcome has a verdict: a pass or a fail shown by a green `maul-tool check run`,
+  or unsure. Do not hold it back for a better check or for the look-around: look around
+  after it with the turns left, and rewrite it with any anomaly you find.
+- Write it by turn 72 at the latest, whatever is left; keep the turns after that for it. An outcome you
+  have not shown by then is unsure.
+- Spend your turns on the outcomes first. An outcome that still resists after a few tries is unsure; move on.
+- If your run is stopped before you have written it, maul asks you once to write it from what you have: propose only
+  the checks whose `maul-tool check run` printed pass, and mark every outcome you did not show unsure. Do not count
+  on it: a run stopped by its cost or its wall clock gets no such turn.
+
+## How to evaluate
 
 1. Run `maul-tool check results`. A saved check that failed is a failure of the outcome it is bound to, unless you
    show it is not a defect (a dispute, below).
@@ -282,5 +295,5 @@ one line each, at most 600 characters. After the frontmatter, add a short accoun
 in plain visible text: no emoji and no invisible characters.
 
 Your report is your claim. maul believes only its own ledger: it reruns every check you propose with a fresh token,
-and a verdict citing seqs that do not show what you say counts for nothing. Write the report once, then end your
-turn.
+and a verdict citing seqs that do not show what you say counts for nothing. Write the report (rewrite it only to add
+what you found after it), then end your turn.

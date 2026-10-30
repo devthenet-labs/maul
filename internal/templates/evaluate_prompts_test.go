@@ -154,6 +154,41 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 	}
 }
 
+// TestEvaluatePromptStatesTheTurnBudget (S1 bug 3): every live evaluator
+// ran out of turns before writing its report. The prompt states the run's
+// turns, that every tool call takes one, the turn by which the report must
+// be written (a tenth, at least 2, kept back), when to write it (every
+// outcome shown by a green check run or unsure), and what to write if maul
+// has to ask for it after the run was stopped.
+func TestEvaluatePromptStatesTheTurnBudget(t *testing.T) {
+	for _, tt := range []struct {
+		turns int
+		by    string
+	}{{80, "72"}, {94, "85"}, {12, "10"}} {
+		p := testEvaluatePrompt()
+		p.Limits.MaxTurns = tt.turns
+		got, err := RenderEvaluatePrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		flat := strings.Join(strings.Fields(got), " ")
+		for _, want := range []string{
+			fmt.Sprintf("This run may take at most %d agent turns, 200000 output tokens and 20 minutes.", tt.turns),
+			"Every tool call takes one of these turns",
+			"Write your report as soon as every outcome has a verdict: a pass or a fail shown by a green " +
+				"`maul-tool check run`, or unsure.",
+			"Write it by turn " + tt.by + " at the latest",
+			"An outcome you have not shown by then is unsure.",
+			"maul asks you once to write it from what you have: propose only the checks whose `maul-tool check " +
+				"run` printed pass, and mark every outcome you did not show unsure.",
+		} {
+			if !strings.Contains(flat, want) {
+				t.Errorf("%d turns: prompt lacks %q", tt.turns, want)
+			}
+		}
+	}
+}
+
 // TestEvaluatePromptExamplesHold: every example the prompts show is one
 // maul accepts, so the prompt never teaches a refused shape.
 func TestEvaluatePromptExamplesHold(t *testing.T) {

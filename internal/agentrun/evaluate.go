@@ -289,8 +289,11 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 	if err != nil {
 		return fail(envelope.OutcomeRuntimeError, err.Error())
 	}
+	// The first run is not given the stage's last turns: a run that reaches
+	// its own cap without a report spends them writing one (settleReport).
+	firstTurns := maxTurns - reportReserve(maxTurns)
 	prompt, err := templates.RenderEvaluatePrompt(in.prompt(a.cfg.evaluationPath(), a.cfg.checksDir(),
-		a.cfg.shotsDir(), templates.StageLimits{MaxTurns: maxTurns, TokenBudget: budget,
+		a.cfg.shotsDir(), templates.StageLimits{MaxTurns: firstTurns, TokenBudget: budget,
 			Timeout: a.cfg.InvestigateTimeout}))
 	if err != nil {
 		return fail(envelope.OutcomeRuntimeError, err.Error())
@@ -298,21 +301,33 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 	sr := a.newStage(h, "", harness.PromptRequest{
 		Prompt:    prompt,
 		Model:     a.cliModel(a.cfg.InvestigateModel, a.cfg.InvestigateHarness),
-		MaxTurns:  maxTurns,
+		MaxTurns:  firstTurns,
 		Sandbox:   harness.SandboxEvaluate,
 		SessionID: a.newSessionID(),
 		Env:       env,
 		Gateway:   gateway,
 	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, budget)
+	sr.turns = maxTurns
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)
-	if outcome, detail := a.runOutcome(h, res, idle, runErr); outcome != envelope.OutcomeOK {
-		return fail(outcome, detail)
+	runOutcome, runDetail := a.runOutcome(h, res, idle, runErr)
+	if runOutcome != envelope.OutcomeOK {
+		if !turnCapped(h, res, idle, runErr) {
+			return fail(runOutcome, runDetail)
+		}
+		// Out of turns: what the run found is collected, not thrown away.
+		sr.outOfTurns = true
+		a.cfg.Log.Info("the evaluate run reached its turn cap; asking it for its report", "phase", a.cfg.Phase,
+			"turns", firstTurns, "kept", maxTurns-firstTurns)
 	}
 
 	e, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.evaluationPath(), readReport,
 		a.parseEvaluation)
 	if outcome != envelope.OutcomeOK {
+		if sr.outOfTurns {
+			// It still ends on the cap, as before, with why no report came.
+			return fail(runOutcome, runDetail+"; "+detail)
+		}
 		return fail(outcome, detail)
 	}
 	ev.Outcome = envelope.OutcomeOK

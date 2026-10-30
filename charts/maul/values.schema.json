@@ -2125,6 +2125,18 @@
                             "$ref": "#/definitions/duration",
                             "description": "One evaluation round's wall clock; shorter than preview.verification.deadlineMaxSeconds"
                         },
+                        "evaluateMaxTurns": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000,
+                            "description": "The most agent turns one evaluate run may take; every tool call is a turn, and the last few are kept for the report"
+                        },
+                        "checkReviewMaxTurns": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000,
+                            "description": "The most agent turns each check-review session may take"
+                        },
                         "maxEvaluateCostUSD": {
                             "type": "number",
                             "exclusiveMinimum": 0,

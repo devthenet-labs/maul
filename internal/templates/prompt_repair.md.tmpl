@@ -4,6 +4,14 @@ or found none. It is maul's fixed text, the report's path and the reason, and no
 (it is derived from the agent's own file), so RenderRepairPrompt has bounded it and stripped its control characters,
 and fence picks a delimiter no line of it can close.
 */ -}}
+{{if .OutOfTurns -}}
+## Your turns ran out
+
+Your run reached its turn limit before you wrote your report. Stop working on the task: run no more tools but
+what writing the report needs. Write your report now, from what you have already done, and state what you did not
+finish as not done or unsure rather than leaving it out.
+
+{{end -}}
 ## Your report was refused
 
 {{if .Missing -}}

@@ -78,6 +78,12 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("intent-evaluate-timeout", intent.DefaultEvaluateTimeout,
 		"wall-clock limit of an evaluate run, between 1m and 55m (its tool pod lives 5m longer, within the "+
 			"hour a verification may take)")
+	f.Int("intent-evaluate-max-turns", int(intent.DefaultEvaluateMaxTurns),
+		fmt.Sprintf("most agent turns an evaluate run may take, between 1 and %d (a Project may lower it); every "+
+			"tool call is a turn, and the run's last few are kept for its report", intent.MaxStageTurns))
+	f.Int("intent-checkreview-max-turns", int(intent.DefaultCheckReviewMaxTurns),
+		fmt.Sprintf("most agent turns each check-review session may take, between 1 and %d (a Project may lower it)",
+			intent.MaxStageTurns))
 	f.String("intent-default-handoff", string(v1alpha1.HandoffGated),
 		"when a Project that sets no verification.handoff hands its preview to humans under the evaluator: "+
 			"gated (once the evaluation passes or gives up) or early (at once)")
@@ -310,16 +316,34 @@ func evaluator(opts *cli.Options, s *intent.Settings) error {
 		return fmt.Errorf("--intent-max-tool-calls %d must be between %d and %d", calls, v1alpha1.MinToolCalls,
 			v1alpha1.MaxToolCallsLimit)
 	}
+	evaluateTurns, err := stageTurns(opts, "intent-evaluate-max-turns")
+	if err != nil {
+		return err
+	}
+	reviewTurns, err := stageTurns(opts, "intent-checkreview-max-turns")
+	if err != nil {
+		return err
+	}
 	s.Evaluator = true
 	s.EvaluateModel, s.CheckReviewModel = opts.String("intent-evaluate-model"), opts.String("intent-checkreview-model")
 	s.DefaultHandoff, s.HandoffMax = handoff, handoffMax
 	s.EvaluateCodex = opts.Bool("intent-evaluate-codex")
 	s.EvaluationCostMax, s.MaxToolCalls = cost, int32(calls)
-	s.Evaluate = intent.StageCeiling{MaxTurns: intent.DefaultEvaluateMaxTurns,
+	s.Evaluate = intent.StageCeiling{MaxTurns: evaluateTurns,
 		TokenBudget: intent.DefaultEvaluateTokenBudget, Timeout: timeout}
-	s.CheckReview = intent.StageCeiling{MaxTurns: intent.DefaultCheckReviewMaxTurns,
+	s.CheckReview = intent.StageCeiling{MaxTurns: reviewTurns,
 		TokenBudget: intent.DefaultCheckReviewTokenBudget, Timeout: intent.DefaultCheckReviewTimeout}
 	return nil
+}
+
+// stageTurns reads a role stage's turn ceiling flag, held to what a run's
+// grant may carry (1 to intent.MaxStageTurns).
+func stageTurns(opts *cli.Options, flag string) (int32, error) {
+	n := opts.Int(flag)
+	if n < 1 || n > int(intent.MaxStageTurns) {
+		return 0, fmt.Errorf("--%s %d must be between 1 and %d", flag, n, intent.MaxStageTurns)
+	}
+	return int32(n), nil
 }
 
 // evaluatorProbeDNS is the resolver an evaluator Job's strict probe must

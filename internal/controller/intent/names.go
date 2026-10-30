@@ -416,17 +416,30 @@ const (
 	// evaluate run's timeout (DESIGN 5: the evaluator's start-up and the
 	// confirmation runs after it).
 	EvaluationToolsMargin = 5 * time.Minute
-	// DefaultEvaluateMaxTurns and DefaultEvaluateTokenBudget bound an
-	// evaluate run (DESIGN 5: 60 turns); a Project's limits.evaluate may
-	// lower them.
-	DefaultEvaluateMaxTurns    int32 = 60
+	// DefaultEvaluateMaxTurns (--intent-evaluate-max-turns) and
+	// DefaultEvaluateTokenBudget bound an evaluate run; a Project's
+	// limits.evaluate may lower them. Every tool call is a turn, and the turn
+	// cap is the one limit a run still gets its report out of (agent-runner
+	// keeps its last turns for it), while the broker's cost budget and the
+	// wall clock end the session with none. So the cap must bind first: live
+	// (S1, 0.13.5-0.13.6) an evaluate run spent $1.26-2.51 measured over its
+	// first 60 turns, 4-7 s each, and a turn costs more as the session grows;
+	// 100 turns keeps even the dearest of those runs under the default $6
+	// run budget (DefaultMaxEvaluateCostMicroUSD) and well inside the 20
+	// minutes, nearly twice the turns that ran out on 8 outcomes. The 300
+	// tool calls (maxToolCalls) then never bind at the defaults.
+	DefaultEvaluateMaxTurns    int32 = 100
 	DefaultEvaluateTokenBudget int64 = 400000
-	// DefaultCheckReviewMaxTurns, DefaultCheckReviewTokenBudget and
-	// DefaultCheckReviewTimeout bound a checkreview run: its turns bound
-	// each review session (DESIGN 5: 3), the rest the whole run.
+	// DefaultCheckReviewMaxTurns (--intent-checkreview-max-turns),
+	// DefaultCheckReviewTokenBudget and DefaultCheckReviewTimeout bound a
+	// checkreview run: its turns bound each review session (DESIGN 5: 3),
+	// the rest the whole run.
 	DefaultCheckReviewMaxTurns    int32 = 3
 	DefaultCheckReviewTokenBudget int64 = 100000
 	DefaultCheckReviewTimeout           = 15 * time.Minute
+	// MaxStageTurns is the most turns a role stage's ceiling may be set to:
+	// the most a run's grant carries (IntentRunGrant.MaxTurns).
+	MaxStageTurns int32 = 1000
 )
 
 // withDefaults fills unset settings.

@@ -23,6 +23,10 @@ type RepairPrompt struct {
 	ReportPath string
 	// Missing is set when there was no report to read at all.
 	Missing bool
+	// OutOfTurns is set when the stage's run reached its turn limit before
+	// it wrote a report maul could accept: the agent is told to stop
+	// working and report what it has.
+	OutOfTurns bool
 	// Error is why the report was refused (or could not be read).
 	Error string
 	// Round is this repair's ordinal, of at most Rounds.
