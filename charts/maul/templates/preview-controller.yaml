@@ -10,9 +10,8 @@
 # edge policy per part), pods (delete beside list: the sweep removes a tester
 # pod whose Job is gone) and pods/log (get: the tester's result and component
 # log tails), and in the release namespace previewverifications (get, list,
-# watch: the requests; update: only its cleanup finalizer) and
-# previewverifications/status (update: the results). Admission fences each:
-# maul-preview-jobs,
+# watch: the requests) and previewverifications/status (update: the
+# results). Admission fences each: maul-preview-jobs,
 # maul-preview-networkpolicies and maul-preview-verifications.
 # The agent evaluator's slot tool pod (intentController.verification.evaluator
 # with verification on) adds, in each slot, events (get, list, watch: the pod
@@ -66,11 +65,10 @@ rules:
       verbs: [get]
     {{- if $verify }}
     # Acceptance verification: read the requests, write only their results
-    # and its own cleanup finalizer (maul-preview-verifications holds it to
-    # status and that finalizer).
+    # (maul-preview-verifications holds it to status).
     - apiGroups: [maul.run]
       resources: [previewverifications]
-      verbs: [get, list, watch, update]
+      verbs: [get, list, watch]
     - apiGroups: [maul.run]
       resources: [previewverifications/status]
       verbs: [update]

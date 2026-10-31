@@ -337,10 +337,13 @@ func (s *Sweeper) sweepPolicies(ctx context.Context, policies []networkingv1.Net
 }
 
 // orphanPolicyGrace is how old an evaluator ingress policy whose
-// PreviewVerification is not seen must be before the sweep deletes it: the
-// request always exists before its policy, so this only covers a cache
-// that has not yet observed a new one.
-const orphanPolicyGrace = verifyGrace
+// PreviewVerification is not seen must be before the sweep deletes it. A
+// policy is only ever created for a request that already exists, so the
+// grace has only to cover the sweep's cache not yet having observed a new
+// request; it is short so that a burst of failed attempts, each leaving its
+// policy behind when intent-controller deletes the request, cannot fill a
+// slot's NetworkPolicy quota between sweeps.
+const orphanPolicyGrace = 30 * time.Second
 
 // verificationPolicy reports whether np is one verification's own: it
 // carries that verification's UID.

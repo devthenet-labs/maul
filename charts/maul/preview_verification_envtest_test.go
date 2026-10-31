@@ -268,7 +268,6 @@ func waitVerificationGrants(t *testing.T, admin client.Client) {
 	reviews = append(reviews, rbactest.Verbs(saPreview, nil, slot("", "pods", "log"), "get")...)
 	reviews = append(reviews, rbactest.Verbs(saPreview, nil, slot("", "pods", ""), "delete")...)
 	reviews = append(reviews, rbactest.Verbs(saPreview, nil, release("status"), "update")...)
-	reviews = append(reviews, rbactest.Verbs(saPreview, nil, release(""), "update")...)
 	reviews = append(reviews, rbactest.Verbs(saIntent, nil, release(""), "create", "delete")...)
 	rbactest.WaitAllowed(t, admin, reviews...)
 }
@@ -491,64 +490,11 @@ func checkVerificationWriters(t *testing.T, admin, pc, ic client.Client) {
 	if err := ic.Status().Update(ctx, v.DeepCopy(), client.DryRunAll); !deniedWith(err, pvWriters, "forbidden") {
 		t.Errorf("intent-controller writing the result: %v, want a refusal", err)
 	}
-	checkCleanupFinalizer(t, admin, pc, ic)
 	if err := admin.Delete(ctx, v.DeepCopy(), client.DryRunAll); !deniedWith(err, pvWriters) {
 		t.Errorf("the operator deleting a request: %v, want %q", err, pvWriters)
 	}
 	if err := ic.Delete(ctx, v.DeepCopy(), client.DryRunAll); err != nil {
 		t.Errorf("intent-controller deleting a request: %v", err)
-	}
-}
-
-// checkCleanupFinalizer: preview-controller may add and remove its own
-// cleanup finalizer on a request, and change nothing else of it that way;
-// nobody else may write that finalizer.
-func checkCleanupFinalizer(t *testing.T, admin, pc, ic client.Client) {
-	t.Helper()
-	ctx := t.Context()
-	fresh := func() *v1alpha1.PreviewVerification {
-		var v v1alpha1.PreviewVerification
-		if err := admin.Get(ctx, client.ObjectKey{Namespace: egressRelease, Name: "target-1-v1-a1"}, &v); err != nil {
-			t.Fatal(err)
-		}
-		return &v
-	}
-	with := func(f func(*v1alpha1.PreviewVerification)) *v1alpha1.PreviewVerification {
-		v := fresh()
-		v.Finalizers = append(v.Finalizers, v1alpha1.FinalizerPreviewVerification)
-		if f != nil {
-			f(v)
-		}
-		return v
-	}
-	for _, tc := range []struct {
-		what string
-		c    client.Client
-		obj  *v1alpha1.PreviewVerification
-	}{
-		{"preview-controller changing a label with its finalizer", pc, with(func(v *v1alpha1.PreviewVerification) {
-			v.Labels = map[string]string{"x": "y"}
-		})},
-		{"preview-controller changing the spec with its finalizer", pc, with(func(v *v1alpha1.PreviewVerification) {
-			v.Spec.Run = "ffffff"
-		})},
-		{"preview-controller adding another finalizer", pc, with(func(v *v1alpha1.PreviewVerification) {
-			v.Finalizers = append(v.Finalizers, "example.com/other")
-		})},
-		{"the operator adding the cleanup finalizer", admin, with(nil)},
-		{"intent-controller adding the cleanup finalizer", ic, with(nil)},
-	} {
-		if err := tc.c.Update(ctx, tc.obj, client.DryRunAll); !deniedWith(err, pvWriters, "forbidden", "spec is immutable") {
-			t.Errorf("%s: %v, want a refusal", tc.what, err)
-		}
-	}
-	held := with(nil)
-	if err := pc.Update(ctx, held); err != nil {
-		t.Fatalf("preview-controller adding its cleanup finalizer: %v", err)
-	}
-	held.Finalizers = nil
-	if err := pc.Update(ctx, held); err != nil {
-		t.Errorf("preview-controller removing its cleanup finalizer: %v", err)
 	}
 }
 
