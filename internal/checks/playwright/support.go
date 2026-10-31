@@ -53,8 +53,9 @@ type Box = { x: number; y: number; width: number; height: number };
 const PAGE_FUNCTIONS: string = PAGE_FUNCTIONS_LITERAL;
 const pageFunction = new Function("return (" + PAGE_FUNCTIONS + ");")() as PageFunction;
 
-// TIMEOUT bounds every retried judgement, as actionTimeout bounds actions.
-const TIMEOUT = ACTION_TIMEOUT_MS;
+// TIMEOUT bounds every retried judgement, as actionTimeout bounds actions;
+// a patient check (one run to show a defect) raises it (maul.patience).
+let TIMEOUT = ACTION_TIMEOUT_MS;
 const POLL = 100;
 
 function indeterminate(what: string, why: string[]): never {
@@ -125,6 +126,12 @@ function pathPattern(pattern: string): (u: URL) => boolean {
 }
 
 export const maul = {
+  // patience raises every retried judgement's bound, for a check run to
+  // show a defect: a slow but correct page must not read as one.
+  patience(ms: number): void {
+    TIMEOUT = ms;
+  },
+
   // settled waits for the page at its current URL to load: after a goto,
   // and after a click or key press whose navigation has committed.
   async settled(page: Page): Promise<void> {

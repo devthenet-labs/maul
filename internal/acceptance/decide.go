@@ -52,6 +52,23 @@ type StoredCheck struct {
 	Valid bool
 	// Retired marks a check retired in an earlier round (or this one).
 	Retired bool
+	// ExpectFail marks a check saved to show a defect (S1 bug 7): the
+	// evaluator proposed it for a fail verdict, red. Its confirmation counts
+	// only red by assertion (CheckRun.AssertionStep), never green, and only a
+	// review of the red question (CheckReview.ExpectFail) lets it support a
+	// result.
+	ExpectFail bool
+	// FailedStep is, for a check saved red, the step (1-based) its
+	// confirmation failed at by assertion; Cleared that it has since
+	// replayed green. Until it has, its later steps never ran, so a replay
+	// fail reproduces the defect only red by assertion at or before
+	// FailedStep (review finding 2).
+	FailedStep int32
+	// FailedAssertion is which assertion of FailedStep failed (second
+	// review, 2B): an http step holds several, an exec check one step of
+	// many. Until Cleared, only a run red by this same assertion counts.
+	FailedAssertion string
+	Cleared         bool
 }
 
 // RunResult is a check run's result as the tools ledger recorded it.
@@ -76,6 +93,14 @@ type CheckRun struct {
 	Token string
 	// Seq is the run's ledger entry.
 	Seq int32
+	// AssertionStep is, for a fail red by assertion (both attempts at the
+	// same step of a check that otherwise ran: toolwire's AssertionStep),
+	// that step, 1-based; 0 otherwise.
+	AssertionStep int32
+	// AssertionID is which assertion of AssertionStep failed.
+	AssertionID string
+	// ExpectFail: a confirmation of a check proposed to show a defect.
+	ExpectFail bool
 }
 
 // ReviewAnswer is the check reviewer's answer.
@@ -93,6 +118,14 @@ type CheckReview struct {
 	CheckDigest   string
 	OutcomeDigest string
 	Answer        ReviewAnswer
+	// ExpectFail: the reviewer was asked the red question (does this check
+	// encode the outcome as approved, would it pass where the outcome
+	// holds, and is the assertion that failed the outcome itself), about
+	// the failing assertion FailedStep and FailedAssertion: it counts only
+	// for a check saved failing that same assertion (second review, 2A).
+	ExpectFail      bool
+	FailedStep      int32
+	FailedAssertion string
 }
 
 // Claim is what the evaluator said about an outcome.
@@ -200,6 +233,19 @@ const (
 	ReasonModelOnlyFail = "model-only-fail"
 	// ReasonNoCheck: no check and no verdict.
 	ReasonNoCheck = "no-confirmed-check"
+	// ReasonNotReproduced: a check saved to show a defect was not red by
+	// assertion in maul's own confirmation run (it passed, flaked, errored
+	// or failed some other way, or the same check replayed green this
+	// round), or, not yet replayed green since, its replay failed other than
+	// by assertion at its saved step: neither a fail nor a pass.
+	ReasonNotReproduced = "not-reproduced"
+	// ReasonFlaky: a check of the outcome both passed and failed at the
+	// same heads this round.
+	ReasonFlaky = "flaky"
+	// ReasonChecksDisagree: a check of the outcome failed while another,
+	// valid and reviewed proves, passed cleanly: two vetted checks
+	// disagree, so neither a fail nor a pass.
+	ReasonChecksDisagree = "checks-disagree"
 )
 
 // OutcomeResult is one outcome's result, with the check digest it rests on
@@ -296,6 +342,80 @@ type decider struct {
 	retired  map[string]bool
 	disputed map[string]CheckDispute
 	verdicts map[string]EvaluatorVerdict
+	// red: the digests of checks saved to show a defect; notReproduced
+	// the digests of checks proposed this round to show a defect whose
+	// confirmation was not red by assertion.
+	red, notReproduced map[string]bool
+	// redChecks are the checks saved red, by digest; dropped those of them
+	// whose fail this round Decide does not count (drop).
+	redChecks map[string]StoredCheck
+	dropped   map[string]bool
+}
+
+// reproduces reports whether run is red by the assertion check c, saved
+// red, was saved failing: the same step and the same assertion of it.
+func reproduces(c StoredCheck, run CheckRun) bool {
+	return run.Result == RunFail && run.AssertionStep > 0 && run.AssertionStep == c.FailedStep &&
+		run.AssertionID == c.FailedAssertion
+}
+
+// drop records a fail of a check saved red that Decide does not count: not
+// reproduced, neither a fail nor a pass, and not evidence; a dispute may
+// still retire the check (dropped).
+func (d *decider) drop(run CheckRun) {
+	d.notReproduced[run.CheckDigest] = true
+	if run.Result == RunFail {
+		d.dropped[run.CheckDigest] = true
+	}
+}
+
+// confirmationRuns are the confirmations Decide counts: every run of a
+// check proposed to pass, except a fail of a check saved red and not yet
+// replayed green that is not red by its saved assertion (judged as its
+// replay is: second review, 2A); and of one proposed to show a defect (its
+// run ExpectFail) only a fail red by assertion (guard 1) of a check no
+// replay this round saw green (finding 3), by the assertion it was saved
+// failing (2A), and never of a check saved red that already replayed green
+// (it would need a new review); its others are not reproduced. A check
+// proposed red that ran green is flaky, never a pass; a check saved red
+// earlier and proposed green again after a fix is confirmed as any other.
+func (d *decider) confirmationRuns() []CheckRun {
+	var out []CheckRun
+	for _, run := range d.in.Confirmations {
+		greenReplay := slices.ContainsFunc(d.in.Replay, func(r CheckRun) bool {
+			return r.CheckDigest == run.CheckDigest && r.Result == RunPass
+		})
+		c, saved := d.redChecks[run.CheckDigest]
+		switch {
+		case !run.ExpectFail && saved && !c.Cleared && run.Result == RunFail && !reproduces(c, run):
+			d.drop(run)
+		case !run.ExpectFail:
+			out = append(out, run)
+		case run.Result != RunFail || run.AssertionStep == 0 || greenReplay:
+			d.drop(run)
+		case saved && (c.Cleared || !reproduces(c, run)):
+			d.drop(run)
+		default:
+			out = append(out, run)
+		}
+	}
+	return out
+}
+
+// replayRuns are the replays Decide counts: every replay, but of a check
+// saved red that has not yet replayed green, a fail only red by the
+// assertion it was saved failing (findings 2 and 2B: its later steps and
+// other assertions never ran); its other fails are not reproduced.
+func (d *decider) replayRuns() []CheckRun {
+	var out []CheckRun
+	for _, run := range d.in.Replay {
+		if c, red := d.redChecks[run.CheckDigest]; red && !c.Cleared && run.Result == RunFail && !reproduces(c, run) {
+			d.drop(run)
+			continue
+		}
+		out = append(out, run)
+	}
+	return out
 }
 
 // Decide judges one evaluator round (DESIGN 4.3). An outcome passes only on
@@ -305,15 +425,28 @@ type decider struct {
 // base where a base exists (5), with no other unretired, unquarantined
 // check of the outcome failing (6). A fail needs both a deterministic
 // failure of a stored, valid, reviewed check and the evaluator's cited
-// fail; a dispute, a retirement this round or a failing environment makes
-// the outcome unsure; any anomaly or environment failure downgrades the
-// hand-off.
+// fail; for a check proposed to show a defect (S1 bug 7) its confirmation
+// counts only red by assertion and its review only on the red question,
+// and a confirmation of it that is not red by assertion leaves the outcome
+// unsure, never passed. A dispute, a retirement this round or a failing
+// environment makes the outcome unsure; any anomaly or environment failure
+// downgrades the hand-off.
 func Decide(in Input) Decision {
 	d := decider{
 		in: in, env: ClassifyEnvironment(in.Env),
-		runs:    aggregate(append(slices.Clone(in.Replay), in.Confirmations...)),
 		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
+		red: map[string]bool{}, notReproduced: map[string]bool{}, redChecks: map[string]StoredCheck{},
+		dropped: map[string]bool{},
 	}
+	for _, c := range in.Checks {
+		if c.ExpectFail {
+			d.red[c.Digest] = true
+			if _, dup := d.redChecks[c.Digest]; !dup {
+				d.redChecks[c.Digest] = c
+			}
+		}
+	}
+	d.runs = aggregate(append(d.replayRuns(), d.confirmationRuns()...))
 	if in.Base != nil {
 		d.base = aggregate(in.Base.Runs)
 	}
@@ -321,7 +454,9 @@ func Decide(in Input) Decision {
 		d.retired[r.CheckDigest] = true
 	}
 	for _, dp := range in.Disputes {
-		if d.runs[dp.CheckDigest].fail {
+		// A fail Decide dropped is still a fail a dispute may retire the
+		// check for (second review: no dead end).
+		if d.runs[dp.CheckDigest].fail || d.dropped[dp.CheckDigest] {
 			if _, dup := d.disputed[dp.CheckDigest]; !dup {
 				d.disputed[dp.CheckDigest] = dp
 			}
@@ -364,13 +499,26 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 		res.Reason = ReasonDisputed
 		return res, nil
 	}
+	if slices.ContainsFunc(bound, func(c StoredCheck) bool { r := d.runs[c.Digest]; return r.pass && r.fail }) {
+		// A check that passed and failed at the same heads this round is
+		// flaky (third review, F4): neither a fail nor a pass.
+		res.Reason = ReasonFlaky
+		return res, nil
+	}
 	if failing := d.failing(bound); len(failing) > 0 {
 		return d.failure(o, res, failing)
 	}
 	for _, c := range bound {
-		if d.supports(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
+		if !d.notReproduced[c.Digest] && d.passes(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
 			return OutcomeResult{ID: o.ID, Result: ResultPassed, Basis: c.Digest, Reason: ReasonConfirmed}, nil
 		}
+	}
+	if slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.notReproduced[c.Digest] }) {
+		// A check proposed or saved red whose run this round maul does not
+		// count: not evidence either way. Another proven check may pass the
+		// outcome (above); otherwise it is unsure.
+		res.Reason = ReasonNotReproduced
+		return res, nil
 	}
 	switch {
 	case slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.runs[c.Digest].quarantined }):
@@ -397,6 +545,10 @@ func (d decider) failure(o OutcomeRef, res OutcomeResult, failing []StoredCheck)
 		res.Reason = ReasonInfra
 		return res, nil
 	}
+	if d.disagree(o, failing) {
+		res.Reason = ReasonChecksDisagree
+		return res, nil
+	}
 	v, ok := d.verdicts[o.ID]
 	agrees := ok && v.Claim == ClaimFail && len(v.Ledger) > 0
 	var fs []FixFailure
@@ -410,6 +562,22 @@ func (d decider) failure(o OutcomeRef, res OutcomeResult, failing []StoredCheck)
 		return res, nil
 	}
 	return OutcomeResult{ID: o.ID, Result: ResultFailed, Basis: fs[0].CheckDigest, Reason: ReasonReproduced}, fs
+}
+
+// disagree reports another check of o, not failing, that could pass it
+// this round (valid, reviewed proves, run clean, discriminating): two vetted
+// checks disagree on the outcome (finding 3), so it is neither failed nor
+// passed.
+func (d decider) disagree(o OutcomeRef, failing []StoredCheck) bool {
+	for _, c := range d.bound(o.ID) {
+		if slices.ContainsFunc(failing, func(f StoredCheck) bool { return f.Digest == c.Digest }) {
+			continue
+		}
+		if d.passes(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
+			return true
+		}
+	}
+	return false
 }
 
 // bound is the outcome's stored, unretired checks, by digest.
@@ -438,7 +606,8 @@ func (d decider) failing(bound []StoredCheck) []StoredCheck {
 
 // supports reports rules 1, 2 and 4 for c and o: one of maul's forms,
 // valid, reviewed proves for exactly this outcome's text with no other
-// answer cached.
+// answer cached; a check saved to show a defect only once a review of the
+// red question (guard 3) answered proves.
 func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 	switch c.Form {
 	case CheckFormHTTP, CheckFormBrowser, CheckFormExec:
@@ -448,7 +617,7 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 	if !c.Valid || c.Retired || d.retired[c.Digest] || o.Digest == "" {
 		return false
 	}
-	proves := false
+	proves, red := false, false
 	for _, r := range d.in.Reviews {
 		if r.CheckDigest != c.Digest || r.OutcomeDigest != o.Digest {
 			continue
@@ -457,8 +626,25 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 			return false
 		}
 		proves = true
+		red = red || (r.ExpectFail && r.FailedStep == c.FailedStep && r.FailedAssertion == c.FailedAssertion)
 	}
-	return proves
+	return proves && (red || !c.ExpectFail && !d.red[c.Digest])
+}
+
+// passes is supports for a pass: a check saved red passes its outcome only
+// once a review of the green question also answered proves (third review,
+// F5): its red review asked only whether its failure shows a defect, never
+// whether a pass could be special-cased or merely shows a call worked.
+func (d decider) passes(c StoredCheck, o OutcomeRef) bool {
+	if !d.supports(c, o) {
+		return false
+	}
+	if !c.ExpectFail && !d.red[c.Digest] {
+		return true
+	}
+	return slices.ContainsFunc(d.in.Reviews, func(r CheckReview) bool {
+		return r.CheckDigest == c.Digest && r.OutcomeDigest == o.Digest && !r.ExpectFail && r.Answer == ReviewProves
+	})
 }
 
 // discriminates is rule 5. With no base, or no clean verdict at base (the
@@ -492,7 +678,7 @@ func (d decider) replacements() ([]string, bool) {
 			continue
 		}
 		for _, c := range d.bound(o.ID) {
-			if c.Digest == dp.Replacement && d.supports(c, o) && d.runs[c.Digest].clean() {
+			if c.Digest == dp.Replacement && d.passes(c, o) && d.runs[c.Digest].clean() {
 				retire = append(retire, digest)
 				break
 			}

@@ -108,6 +108,32 @@ func TestLogWindow(t *testing.T) {
 	}
 }
 
+// TestLogAnchorOfARedConfirmation: a check saved to show a defect fails in
+// maul's confirmation run, after the evaluator exited, so no read of a log
+// follows it; its log window is its red dry run's, which the evaluator read
+// the logs after. A replay's window is its own.
+func TestLogAnchorOfARedConfirmation(t *testing.T) {
+	d := savedCheck(t, versionCheck).Digest
+	pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{
+		Confirmations: []v1alpha1.CheckRun{{CheckDigest: d, Result: v1alpha1.CheckRunFail, Token: "t", Seq: 10,
+			DryRunSeq: 4, Expect: v1alpha1.CheckExpectFail, AssertionStep: 2}},
+		Replay: []v1alpha1.CheckRun{{CheckDigest: "sha256:" + strings.Repeat("b", 64), Result: v1alpha1.CheckRunFail,
+			Token: "t", Seq: 2}},
+	}}
+	if got := logAnchor(pv, d, 10); got != 4 {
+		t.Errorf("logAnchor(red confirmation) = %d, want its dry run, 4", got)
+	}
+	if got := logAnchor(pv, "sha256:"+strings.Repeat("b", 64), 2); got != 2 {
+		t.Errorf("logAnchor(replay) = %d, want its own seq", got)
+	}
+	entries := []toolwire.LedgerEntry{logsEntry(3, "app", "boot ok\n"),
+		logsEntry(6, "app", "boot ok\npanic: upset bonus not implemented\n")}
+	if got := logWindow(entries, int64(logAnchor(pv, d, 10)), "app"); !slices.Equal(got,
+		[]string{"panic: upset bonus not implemented"}) {
+		t.Errorf("the red failure's excerpt = %q, want the panic its dry run logged", got)
+	}
+}
+
 // ledgerOfEntries plays preview-controller writing pv's full ledger
 // (<pv>-ledger, owned by pv) of entries.
 func (e *env) ledgerOfEntries(pvName string, entries ...toolwire.LedgerEntry) {

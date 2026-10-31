@@ -313,7 +313,33 @@ type SavedCheck struct {
 	// confirmation, replay and review is recorded against.
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	Digest string `json:"digest"`
+	// Expect is fail for a check saved to show a defect: proposed for a fail
+	// verdict, its dry run and its confirmation red by assertion, reviewed
+	// with the red question. It is the check of the outcome as approved all
+	// the same, so it passes once the defect is fixed. Unset for a check
+	// saved green.
+	// +optional
+	Expect CheckExpectation `json:"expect,omitempty"`
+	// FailedStep is, for a check saved red, the step (1-based) at which its
+	// confirmation failed by assertion.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
+	FailedStep int32 `json:"failedStep,omitempty"`
+	// FailedAssertion is, for a check saved red, which assertion of
+	// FailedStep failed (CheckRun.AssertionID). Until the check replays green
+	// once, only a run red by this same assertion reproduces its defect.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	FailedAssertion string `json:"failedAssertion,omitempty"`
 }
+
+// CheckExpectation is what a check was confirmed to do when it was saved.
+// +kubebuilder:validation:Enum=fail
+type CheckExpectation string
+
+// CheckExpectFail is a check saved red: it showed a defect of its outcome.
+const CheckExpectFail CheckExpectation = "fail"
 
 // CheckStoreRef names the Intent's check store: an immutable ConfigMap
 // owned by the Intent, in the release namespace, holding the saved checks
@@ -358,6 +384,20 @@ type CheckReviewRecord struct {
 	OutcomeDigest string `json:"outcomeDigest"`
 	// Answer is the reviewer's.
 	Answer ReviewAnswer `json:"answer"`
+	// Expect is fail when the reviewer was asked the red question: the
+	// check failed, and the evaluator proposed it to show a defect. Only
+	// such a review lets a check saved red support a fail.
+	// +optional
+	Expect CheckExpectation `json:"expect,omitempty"`
+	// FailedStep and FailedAssertion are, for the red question, the
+	// failing assertion it judged: a red review counts only for that one.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
+	FailedStep int32 `json:"failedStep,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	FailedAssertion string `json:"failedAssertion,omitempty"`
 	// Run is the checkreview IntentRun that answered.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63

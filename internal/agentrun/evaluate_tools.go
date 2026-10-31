@@ -260,10 +260,16 @@ func (a *Agent) closeTools(ctx context.Context, tools *maultool.Client, accepted
 	var refs []int32
 	if accepted != nil {
 		// One call per check: the tools container refuses a whole confirm
-		// when any digest it names has no green dry run, so a batch would
-		// let one unconfirmable proposal cost every other its confirmation.
-		for _, d := range proposedDigests(accepted.Proposed) {
-			a.toolsCall(ctx, tools, toolwire.VerbConfirm, &toolwire.ConfirmRequest{Digests: []string{d}})
+		// when any digest it names has no dry run of its expectation (green,
+		// or red by assertion for a check proposed to show a defect), so a
+		// batch would let one unconfirmable proposal cost every other its
+		// confirmation.
+		for _, p := range proposedDigests(accepted.Proposed) {
+			req := &toolwire.ConfirmRequest{Digests: []string{p.digest}}
+			if p.red {
+				req.ExpectFail = []string{p.digest}
+			}
+			a.toolsCall(ctx, tools, toolwire.VerbConfirm, req)
 		}
 		refs = accepted.LedgerRefs()
 	}
@@ -292,14 +298,22 @@ func (a *Agent) toolsCall(ctx context.Context, tools *maultool.Client, verb tool
 	return true
 }
 
-// proposedDigests are the proposals' digests as the tools container keys a
-// check: bare hex, in report order, none twice.
-func proposedDigests(proposed []report.ProposedCheck) []string {
-	var out []string
+// proposedDigest is a proposal as agent-runner confirms it: its digest as
+// the tools container keys a check (bare hex), and whether it is proposed
+// to show a defect.
+type proposedDigest struct {
+	digest string
+	red    bool
+}
+
+// proposedDigests are the proposals' digests, in report order, none twice
+// (the first proposal of a digest names its expectation).
+func proposedDigests(proposed []report.ProposedCheck) []proposedDigest {
+	var out []proposedDigest
 	for _, p := range proposed {
 		d := strings.TrimPrefix(p.Digest, "sha256:")
-		if !slices.Contains(out, d) {
-			out = append(out, d)
+		if !slices.ContainsFunc(out, func(o proposedDigest) bool { return o.digest == d }) {
+			out = append(out, proposedDigest{digest: d, red: p.ExpectsFail()})
 		}
 	}
 	return out

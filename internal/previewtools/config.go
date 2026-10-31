@@ -92,6 +92,8 @@ type StoredCheck struct {
 	ID     string `json:"id"`
 	Digest string `json:"digest"`
 	Body   string `json:"body"`
+	// Expect is "fail" for a check saved red: its replay is patient.
+	Expect string `json:"expect,omitempty"`
 }
 
 // ErrConfig is a config the relay refuses.
@@ -193,6 +195,9 @@ func validateChecks(cs []StoredCheck) error {
 		}
 		if c.ID != s.ID || checks.Digest(c) != s.Digest {
 			return fmt.Errorf("check %q: its id or digest is not its body's", s.ID)
+		}
+		if s.Expect != "" && s.Expect != toolwire.ExpectFail {
+			return fmt.Errorf("check %q: expect %q is not fail", s.ID, s.Expect)
 		}
 		if seen[s.Digest] {
 			return fmt.Errorf("check %q is named twice", s.ID)

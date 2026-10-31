@@ -61,6 +61,63 @@ func TestEvaluatePromptReportExampleDecodes(t *testing.T) {
 	}
 }
 
+// TestCheckReviewPromptReportExampleDecodes (S1 bug 8): the example the
+// rendered reviewer prompt shows, red question or not, is
+// ExampleCheckReviewReport, closed by its second fence, and decodes with the
+// real decoder; the prompt says both fence lines are required.
+func TestCheckReviewPromptReportExampleDecodes(t *testing.T) {
+	for _, red := range []bool{false, true} {
+		p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
+		if red {
+			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
+		}
+		got, err := RenderCheckReviewPrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		example := reportExampleOf(t, got)
+		if example != ExampleCheckReviewReport {
+			t.Errorf("red %v: the prompt's example is not ExampleCheckReviewReport:\n%s", red, example)
+		}
+		c, err := report.ParseCheckReview([]byte(example))
+		if err != nil || c.Answer != report.AnswerProves || c.Reason == "" {
+			t.Errorf("red %v: the prompt's report example decodes to %+v, %v", red, c, err)
+		}
+		if strings.Count(example, "---\n") != 2 || !strings.Contains(got, "both lines are required") {
+			t.Errorf("red %v: the example or the prompt does not close the frontmatter:\n%s", red, got)
+		}
+	}
+}
+
+// TestCheckReviewPromptRedQuestion: a check proposed to show a defect is
+// asked the red question, naming the step that failed; a green one never
+// is.
+func TestCheckReviewPromptRedQuestion(t *testing.T) {
+	p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
+	green, err := RenderCheckReviewPrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
+	red, err := RenderCheckReviewPrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"This check failed on the build under review",
+		"The application's own state was not fresh",
+		"at step 4, on its assertion `json /players`",
+		"It would pass on a build where the outcome holds",
+		"That assertion, `json /players` of step 4, asserts the outcome itself",
+		"about data the check itself created"} {
+		if !strings.Contains(red, want) {
+			t.Errorf("the red prompt lacks %q", want)
+		}
+		if strings.Contains(green, want) {
+			t.Errorf("the green prompt carries %q", want)
+		}
+	}
+}
+
 // reportKeyLine is a line that reads as a key of the report's frontmatter.
 var reportKeyLine = regexp.MustCompile(`^\s*(- )?(id|outcome|kind|manual|verdict|ledger|note|result|why|check|` +
 	`digest|file|from the request|why a person judges it):`)
@@ -97,6 +154,27 @@ func TestEvaluatePromptDataIsNotReportSyntax(t *testing.T) {
 		"- check winner-rises.api, of outcome winner-rises, replayed fail"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
+
+// TestCheckReviewPromptExecMarker (second review, 1a): an exec check's
+// failure is its program's own word (the marker), so the reviewer is shown
+// which marker it printed and asked whether the program prints it only when
+// the approved outcome is violated, never on a transport or status error.
+func TestCheckReviewPromptExecMarker(t *testing.T) {
+	p := testCheckReviewPrompt(mustCheck(t, ExampleExecCheck))
+	p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 1, "marker live-score"
+	got, err := RenderCheckReviewPrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(got), " ")
+	for _, want := range []string{"`MAUL-ASSERTION-FAILED: live-score:`",
+		"prints it only when the approved outcome is violated",
+		"never on a connection or transport error, a status code, a timeout, an exception or bad input"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the exec red prompt lacks %q:\n%s", want, got)
 		}
 	}
 }

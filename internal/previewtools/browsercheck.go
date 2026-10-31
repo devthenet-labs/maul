@@ -68,17 +68,18 @@ const maxReportBytes = 1 << 20
 
 // checkRunTimeout bounds one runner process: the test's own timeout, the
 // CDP attach and the runner's start.
-const checkRunTimeout = time.Duration(playwright.TestTimeoutMS)*time.Millisecond + 60*time.Second
+const checkRunTimeout = time.Duration(playwright.PatientTestTimeoutMS)*time.Millisecond + 60*time.Second
 
 // browserAttempt runs a browser check once under run.
-func (r *Relay) browserAttempt(ctx context.Context, b checks.BrowserCheck, run string) []toolwire.StepRecord {
+func (r *Relay) browserAttempt(ctx context.Context, b checks.BrowserCheck, run string,
+	patient bool) []toolwire.StepRecord {
 	errStep := func(detail string) []toolwire.StepRecord {
 		return []toolwire.StepRecord{{Result: toolwire.ResultError, Detail: detail}}
 	}
 	if r.br == nil || r.br.Runner == nil {
 		return errStep(reasonNoBrowser)
 	}
-	spec, err := playwright.Compile(b, playwright.Options{RunToken: run})
+	spec, err := playwright.Compile(b, playwright.Options{RunToken: run, Patient: patient})
 	if err != nil {
 		return errStep("the check did not compile: " + bounded(err.Error()))
 	}
@@ -86,7 +87,33 @@ func (r *Relay) browserAttempt(ctx context.Context, b checks.BrowserCheck, run s
 	if err != nil {
 		return errStep("the test runner did not run")
 	}
-	return judgeReport(report, spec)
+	return aboutTheRun(judgeReport(report, spec), b)
+}
+
+// aboutTheRun keeps a failing step's assertion only when that expect is
+// about the run's own data (third review, F3): its locator, other locator,
+// expected text or URL names {{run}}, and it is no count (a count over
+// shared rows can differ for data the run did not make).
+func aboutTheRun(steps []toolwire.StepRecord, b checks.BrowserCheck) []toolwire.StepRecord {
+	for i, s := range steps {
+		if !s.Assertion {
+			continue
+		}
+		var a *checks.Assertion
+		if s.Index < len(b.Steps) {
+			a = b.Steps[s.Index].Expect
+		}
+		if a == nil || a.Assert == checks.AssertCount || !marshalsRun(a) {
+			steps[i].Assertion, steps[i].AssertionID = false, ""
+		}
+	}
+	return steps
+}
+
+// marshalsRun reports whether v's JSON names {{run}}.
+func marshalsRun(v any) bool {
+	b, err := json.Marshal(v)
+	return err == nil && strings.Contains(string(b), checks.RunPlaceholder)
 }
 
 // stepComment marks a compiled spec's step N (1-based).
@@ -130,14 +157,63 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 		result = toolwire.ResultError
 	}
 	at, detail := 0, failureDetail(res)
-	if len(res.Errors) > 0 && res.Errors[0].Location != nil {
-		at = stepAt(starts, res.Errors[0].Location.Line)
+	line, located := failedLine(res)
+	if located {
+		at = stepAt(starts, line)
 	}
+	assertion := result == toolwire.ResultFail && res.Status == "failed" && located &&
+		at < len(starts) && expectStep(spec, starts[at]) && assertionMessage(res.Errors[0].Message)
 	out := make([]toolwire.StepRecord, 0, at+1)
 	for i := range at {
 		out = append(out, toolwire.StepRecord{Index: i, Result: toolwire.ResultPass})
 	}
-	return append(out, toolwire.StepRecord{Index: at, Result: result, Detail: detail})
+	rec := toolwire.StepRecord{Index: at, Result: result, Detail: detail, Assertion: assertion}
+	if assertion {
+		rec.AssertionID = "expect" // one assertion per browser step
+	}
+	return append(out, rec)
+}
+
+// expectStep reports whether the step whose comment is at line (1-based)
+// of spec is an expect step (internal/checks/playwright writes "// step N:
+// expect <assert>").
+func expectStep(spec []byte, line int) bool {
+	lines := strings.Split(string(spec), "\n")
+	if line < 1 || line > len(lines) {
+		return false
+	}
+	return expectComment.MatchString(lines[line-1])
+}
+
+// receivedZero is a matcher message's "Received: 0" line.
+var receivedZero = regexp.MustCompile(`(?m)^\s*Received:\s*0\s*$`)
+
+// expectComment is an expect step's comment.
+var expectComment = regexp.MustCompile(`^\s*// step \d+: expect `)
+
+// assertionMessage reports whether a failed expect step's error is an
+// assertion that did not hold on an element that was there: maul's own
+// "<what> failed: <why>" (not an element with no box, not a trial click,
+// whose error may be an unresolved or covered locator) or a Playwright
+// expect matcher's failure that found its element (no "element(s) not
+// found", no strict mode violation). Anything else (an action's timeout,
+// the browser not answering) is not.
+func assertionMessage(msg string) bool {
+	msg = stripANSI(msg)
+	first, _, _ := strings.Cut(msg, "\n")
+	first = strings.TrimPrefix(strings.TrimSpace(first), "Error: ")
+	switch {
+	case strings.Contains(msg, "element(s) not found"), strings.Contains(msg, "strict mode violation"):
+		return false
+	case strings.Contains(first, "toHaveCount") && receivedZero.MatchString(msg):
+		// A count over a locator that resolved nothing: a guessed
+		// selector looks the same as a missing feature.
+		return false
+	case strings.HasPrefix(first, "maul: "):
+		return strings.Contains(first, " failed: ") && !strings.HasPrefix(first, "maul: indeterminate") &&
+			!strings.Contains(first, "has no box") && !strings.Contains(first, "trial click")
+	}
+	return strings.Contains(first, "expect(") && strings.Contains(first, ")")
 }
 
 // stepLines are the 1-based line numbers of each step's comment, in order.
@@ -243,13 +319,51 @@ type jsonResult struct {
 	Status      string           `json:"status"`
 	Annotations []jsonAnnotation `json:"annotations"`
 	Errors      []jsonError      `json:"errors"`
+	Error       *jsonError       `json:"error"`
 }
 
 type jsonError struct {
 	Message  string `json:"message"`
+	Stack    string `json:"stack"`
 	Location *struct {
-		Line int `json:"line"`
+		File string `json:"file"`
+		Line int    `json:"line"`
 	} `json:"location"`
+}
+
+// specFrame is a stack frame in the compiled spec: its line.
+var specFrame = regexp.MustCompile(`(?m)^\s+at .*[/\\]` + regexp.QuoteMeta(specFile) + `:(\d+):\d+\)?\s*$`)
+
+// failedLine is the spec line res's first error was thrown at (specLine),
+// its stack read from the result's error when the error has none (the
+// reporter keeps it there).
+func failedLine(res jsonResult) (int, bool) {
+	if len(res.Errors) == 0 {
+		return 0, false
+	}
+	e := res.Errors[0]
+	if e.Stack == "" && res.Error != nil {
+		e.Stack = res.Error.Stack
+	}
+	return specLine(e)
+}
+
+// specLine is the line of the compiled spec an error was thrown at: its
+// location when that is the spec (or names no file), else the first spec
+// frame of its stack: an "at" line, never a path the message quotes (maul's
+// url assertion quotes the page's). A maul assertion throws in maul's
+// support module, so its location is that file's, whose lines are not the
+// spec's. ok is false when no spec line is known: the failing step is then
+// unknown.
+func specLine(e jsonError) (int, bool) {
+	if l := e.Location; l != nil && (l.File == "" || filepath.Base(l.File) == specFile) {
+		return l.Line, true
+	}
+	if m := specFrame.FindStringSubmatch(e.Stack); m != nil {
+		n, err := strconv.Atoi(m[1])
+		return n, err == nil
+	}
+	return 0, false
 }
 
 // only is the report's one test's last result.

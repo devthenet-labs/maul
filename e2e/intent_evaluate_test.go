@@ -95,7 +95,9 @@ func (a *evalApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	status, version := a.status, a.version
 	a.mu.Unlock()
-	if r.URL.Path != "/version" {
+	// GET /version, or a POST under /version/ (a check writing its run's
+	// own record there).
+	if r.URL.Path != "/version" && (r.Method != http.MethodPost || !strings.HasPrefix(r.URL.Path, "/version/")) {
 		http.NotFound(w, r)
 		return
 	}
@@ -629,6 +631,87 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestIntentEvaluateRound1Defect (SPEC 6 step (b), S1 bug 7): the build
+// is defective from round 1 (the application answers a version other than
+// the one the build wrote, and logs a panic). The evaluator's check of the
+// outcome fails at its assertion, so it reports fail, reads the log and
+// proposes the check with expect: fail; tools confirms it red by assertion
+// in a fresh context, the reviewer is asked the red question and answers
+// proves, and maul stores it expecting to fail and judges the outcome
+// failed: a verify-fix round starts, handed the reproduction (the failing
+// step and the panic, redacted). The fix pushes; at its head the saved
+// check replays green and the outcome passes on it: ready.
+func TestIntentEvaluateRound1Defect(t *testing.T) {
+	e := startEvaluate(t, evalOptions{outcomes: oneOutcome, mode: "red"})
+	e.app.set(http.StatusOK, "0.0.9")
+	e.kubelet.setContainerLog("maul-preview-0", appRepo, []byte("listening on :8080\n"+
+		"GET /version authorization: Bearer e2e-secret-token-0123456789abcdef\n"+
+		"panic: runtime error: version not wired\ngoroutine 7 [running]:\nmain.version()\n"))
+	_, name, pr := e.toReview(t)
+	e.serve(t, name, pr.HeadSHA)
+
+	fix := e.waitFixRun(t, name)
+	in := e.intent(t, name)
+	v := in.Status.Verification
+	if v.Round != 1 || v.Failed != 1 || v.Outcomes[0].Result != v1alpha1.OutcomeFailed {
+		t.Fatalf("verification = %+v, want round 1 failed", v)
+	}
+	red := v.Outcomes[0].Basis
+	acc := in.Status.Acceptance
+	if acc.Checks == nil || acc.Checks.Count != 1 {
+		t.Fatalf("check store %+v, want the red check", acc.Checks)
+	}
+	if i := slices.IndexFunc(acc.Reviews, func(r v1alpha1.CheckReviewRecord) bool { return r.CheckDigest == red }); i < 0 ||
+		acc.Reviews[i].Expect != v1alpha1.CheckExpectFail || acc.Reviews[i].Answer != v1alpha1.ReviewProves {
+		t.Errorf("reviews %+v, want the red check reviewed proves on the red question", acc.Reviews)
+	}
+	for _, r := range e.kubelet.Runs() {
+		if r.Env["MAUL_PHASE"] == "checkreview" && !strings.Contains(string(r.Issue), `"expect":"fail"`) {
+			t.Errorf("the check review handoff asks no red question: %s", r.Issue)
+		}
+	}
+	e.waitStatus(t, pr.HeadSHA, "failure", "")
+	job := e.kubelet.waitRun(t, "the fix round's Job", func(r agentRun) bool {
+		return r.Job.Name == jobs.NameFor(fix.Name, intentRunKind, 1)
+	})
+	repro := string(job.Investigation)
+	for _, want := range []string{"version-served", "POST /version", "the body does not contain the expected text",
+		"panic: runtime error: version not wired"} {
+		if !strings.Contains(repro, want) {
+			t.Errorf("the fix handoff lacks %q:\n%s", want, repro)
+		}
+	}
+	if strings.Contains(repro, "e2e-secret-token") {
+		t.Errorf("the fix handoff carries the bearer token unredacted:\n%s", repro)
+	}
+
+	in = e.waitFor(t, name, "the fix pushed and back in review", func(in *v1alpha1.Intent) bool {
+		run := e.run(t, fix.Name)
+		return in.Status.Phase == v1alpha1.IntentInReview && run.Status.PushedCommit != "" &&
+			in.Status.PullRequests[0].HeadSHA == run.Status.PushedCommit
+	})
+	head := in.Status.PullRequests[0].HeadSHA
+	e.app.set(http.StatusOK, "0.1.0")
+	e.serve(t, name, head)
+	in = e.waitEval(t, name, "the round at the fix's head to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == head
+	})
+	if v := in.Status.Verification; v.Round != 2 || v.Outcomes[0].Basis != red || in.Status.VerifyFixes != 1 {
+		t.Errorf("verification %+v, verify fixes %d; want round 2 passed on the saved red check after one fix", v,
+			in.Status.VerifyFixes)
+	}
+	var replayed bool
+	for _, pv := range e.verifications(t, name) {
+		for _, r := range pv.Status.Replay {
+			replayed = replayed || (pv.Spec.Round == 2 && r.CheckDigest == red && r.Result == v1alpha1.CheckRunPass)
+		}
+	}
+	if !replayed {
+		t.Errorf("round 2 did not replay the red check green")
+	}
+	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
 }
 
 // checkReproduction holds a fix round's handoff to the reproduction maul

@@ -32,27 +32,51 @@ sandbox that can reach the running preview, and the check fails unless its exit 
 Every `{{"{{"}}run{{"}}"}}` is replaced by a fresh token on every run, so the data a check creates is its own.
 
 ## How to judge
+{{- if .ExpectFail}}
+
+This check failed on the build under review: maul ran it itself, each time in a fresh browser or session under a
+fresh run token, and it failed each time at step {{.FailedStep}}, on its assertion `{{.Assertion}}`.
+The application's own state was not fresh: rows and records from earlier runs and from the other agent's exploration
+were still there. The other agent says that failure shows a defect: the outcome does not hold. maul will report the
+outcome failed, and start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change
+code that works. Answer `proves` only if all of these hold:
+
+1. The check encodes the outcome as approved: if it passed, that would show the outcome holds. It does what the
+   outcome describes, on data it created itself.
+2. It would pass on a build where the outcome holds: nothing it expects goes beyond what the outcome states (an exact
+   value, a wording, an order, a layout or a timing the outcome does not promise), and it depends on no data it did
+   not create.
+3. That assertion, `{{.Assertion}}` of step {{.FailedStep}}, asserts the outcome itself, not something incidental to
+   it (not setup, navigation or a value the outcome says nothing about), and it is about data the check itself created
+   with its run token, never data it did not create.
+{{- if .Marker}}
+4. The program decides this failure itself: it printed `{{.Marker}}`. Find where it prints that line, and answer
+   `proves` only if it prints it only when the approved outcome is violated by what it observed: never on a connection
+   or transport error, a status code, a timeout, an exception or bad input.
+{{- end}}
+
+Answer `does_not_prove` if any of them does not hold, and `unclear` if you cannot tell from what is shown.
+{{- else}}
 
 Answer `proves` only if a pass of this check really shows the outcome holds: it does what the outcome describes, on
 data it created itself, and it would fail if the outcome did not hold. Answer `does_not_prove` if it could pass while
 the outcome does not hold: it checks something else or only part of the outcome, it asserts only that a call succeeded
 or a page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did
 not create. Answer `unclear` if you cannot tell from what is shown.
+{{- end}}
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 {{.Limits.MaxTurns}} agent turns, {{.Limits.TokenBudget}} output tokens and {{.Limits.WallClock}}.
 
 ## Your report
 
-Write your report to `{{.ReportPath}}` with the Write tool. It must be exactly this YAML frontmatter,
-with nothing after it:
+Write your report to `{{.ReportPath}}` with the Write tool. It is YAML frontmatter of exactly two keys,
+opened by a line `---` and closed by another line `---`; both lines are required. For example:
 
 ```markdown
----
-answer: proves
-reason: "<one line, at most 600 characters: why>"
----
+{{.ReportExample | chomp}}
 ```
 
-`answer` is one of `proves`, `does_not_prove` and `unclear`. Put the reason in double quotes on one line, and escape
-a double quote inside it as `\"`. Write the report once, then end your turn.
+`answer` is one of `proves`, `does_not_prove` and `unclear`. `reason` says why in one line of at most 600
+characters: put it in double quotes, and escape a double quote inside it as `\"`. Write the file with both `---`
+lines and nothing after the second, once, then end your turn.

@@ -215,7 +215,35 @@ type StepRecord struct {
 	Result AttemptResult `json:"result"`
 	// Detail is the runner's message for a step that did not pass.
 	Detail string `json:"detail,omitempty"`
+	// Assertion marks a failing step that failed an assertion the outcome
+	// is the judge of, about data the check's own run made, in a check that
+	// otherwise ran; only on a fail step (Check). Only such a failure may
+	// show a defect (a check saved red), so it is drawn conservatively.
+	// http: only content: a JSON pointer (never the whole document "") that
+	// resolves, in a JSON body, to a different value, not by a list matcher
+	// ($order, $includes); a header present with a different value; body
+	// text missing from a non-HTML body; and only when the step's path
+	// (never its query) or the expected value names {{run}} or a capture of
+	// one of the check's own writes. Never a status (a 500 included), a
+	// pointer or header that resolves to nothing, no response, an unbuilt
+	// request or a missing capture. exec: only when the program printed
+	// checks.ExecAssertionMarker with an assertion id, never an exit code or
+	// missing output alone, never a time limit. browser: an expect step's
+	// maul assertion or Playwright matcher on an element that was there,
+	// keyed by {{run}} (its locator, text or URL), never a count, a timeout,
+	// an action, a locator that resolved nothing or more than one element,
+	// an element with no box, a trial click or an indeterminate judgement.
+	Assertion bool `json:"assertion,omitempty"`
+	// AssertionID names which assertion of the step failed, set exactly
+	// when Assertion is: "json <pointer>", "header <name>", "bodyContains"
+	// (http), "marker <id>" (exec: the id its program printed), "expect"
+	// (browser: one assertion per step). A run is red by assertion only when
+	// every attempt failed the same step and id.
+	AssertionID string `json:"assertionID,omitempty"`
 }
+
+// MaxAssertionIDBytes bounds a StepRecord's AssertionID.
+const MaxAssertionIDBytes = 512
 
 // Bounds of a check run record.
 const (
@@ -359,8 +387,66 @@ func (a Attempt) check() error {
 			!utf8.ValidString(s.Detail) {
 			return errors.New("a step record is out of bounds")
 		}
+		if s.Assertion && s.Result != ResultFail {
+			return errors.New("a step that did not fail is marked an assertion")
+		}
+		if s.Assertion != (s.AssertionID != "") || len(s.AssertionID) > MaxAssertionIDBytes ||
+			!utf8.ValidString(s.AssertionID) || strings.ContainsAny(s.AssertionID, "\r\n") {
+			return errors.New("a step's assertion id is not its assertion's")
+		}
 	}
 	return nil
+}
+
+// AssertionStep is the step at which a run is red by assertion, and
+// whether it is: the run failed (never quarantined, never an error), each
+// of its two attempts, under its own fresh token, failed, and each at the
+// same step, an assertion (StepRecord.Assertion) that every step before it
+// passed. A check red any other way (a check error, a timeout, an action
+// on nothing, a fail then a pass) is not red by assertion: it may show a
+// broken check, never a defect.
+func (r CheckRunRecord) AssertionStep() (int, bool) {
+	if r.Result != RunFail || len(r.Attempts) != 2 || DeriveResult(r.Attempts) != RunFail {
+		return 0, false
+	}
+	at, id := -1, ""
+	for _, a := range r.Attempts {
+		i, aid, ok := a.assertionStep()
+		if !ok || (at >= 0 && (i != at || aid != id)) {
+			return 0, false
+		}
+		at, id = i, aid
+	}
+	return at, true
+}
+
+// FailedAssertionID is the id of the assertion a run red by assertion
+// failed (StepRecord.AssertionID), "" for a run that is not.
+func (r CheckRunRecord) FailedAssertionID() string {
+	if _, ok := r.AssertionStep(); !ok {
+		return ""
+	}
+	_, id, _ := r.Attempts[0].assertionStep()
+	return id
+}
+
+// assertionStep is the index and assertion id of a failed attempt's
+// failing step when that step is its last, an assertion with an id, and
+// every step before it passed.
+func (a Attempt) assertionStep() (int, string, bool) {
+	if a.Result != ResultFail || len(a.Steps) == 0 {
+		return 0, "", false
+	}
+	for i, s := range a.Steps {
+		if s.Result == ResultPass {
+			continue
+		}
+		if s.Result != ResultFail || !s.Assertion || s.AssertionID == "" || i != len(a.Steps)-1 {
+			return 0, "", false
+		}
+		return s.Index, s.AssertionID, true
+	}
+	return 0, "", false
 }
 
 // Evidence is one cited image's bytes, as the tools container emitted

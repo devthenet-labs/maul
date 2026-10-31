@@ -59,13 +59,15 @@ the application chose (`[untrusted output]`, always last).
 5. **Explore (the model).** The evaluator sees the replay's results, uses its tools, looks at screenshots, and writes a
    report: a verdict per outcome citing the ledger entries that show it, a dispute for any replay failure it judges is
    not a defect, the checks it proposes, and look-around anomalies. A proposed check must have a green
-   `maul-tool check run` first: `tools` refuses to confirm a check whose digest has no green dry run. The report's
-   frontmatter is decoded strictly (an unknown key refuses it): a verdict names its outcome as `outcome` (the older `id`
-   is still read; both, differing, are refused), and a proposal names the check `file` it ran (or the `digest` that run
-   printed). agent-runner reads the digest from that file, under the evaluator's scratch directory, and asks `tools` to
-   confirm it; a proposal whose file does not resolve to a check of its id and outcome is dropped, with its reason in
-   the run's transcript, never the whole report. A refused report's detail lists its frontmatter's key paths (never
-   their values), and each repair message restates the exact frontmatter example and the decoder's lines.
+   `maul-tool check run` first: `tools` refuses to confirm a check whose digest has no green dry run. A check proposed
+   to show a defect (`expect: fail`) needs a dry run red by assertion instead, and none green (see
+   [A defect found in round 1](#a-defect-found-in-round-1)). The report's frontmatter is decoded strictly (an unknown
+   key refuses it): a verdict names its outcome as `outcome` (the older `id` is still read; both, differing, are
+   refused), and a proposal names the check `file` it ran (or the `digest` that run printed). agent-runner reads the
+   digest from that file, under the evaluator's scratch directory, and asks `tools` to confirm it; a proposal whose file
+   does not resolve to a check of its id and outcome is dropped, with its reason in the run's transcript, never the
+   whole report. A refused report's detail lists its frontmatter's key paths (never their values), and each repair
+   message restates the exact frontmatter example and the decoder's lines.
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
@@ -74,7 +76,10 @@ the application chose (`[untrusted output]`, always last).
    believes.
 8. **Review.** One `checkreview` run per round reads each new confirmed check, opening a fresh session per check, and
    answers `proves`, `does_not_prove` or `unclear` for its outcome. Answers are cached by the check's and the outcome's
-   digests, so a check is reviewed once. A check reviewed `proves` is stored; any other is dropped.
+   digests (and whether the red question was asked), so a check is reviewed once. A check reviewed `proves` is stored;
+   any other is dropped. Each session may take 6 turns, the last 3 kept for one repair of its report; a review whose
+   report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached), and the run
+   goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
@@ -93,7 +98,7 @@ An outcome is **confirmed** only on a check bound to it that:
    or exit code alone is not), and every list assertion is filtered to data the check created itself, named with
    `{{run}}`. A check over shared data (a global ranking, a global count) is refused when it is saved;
 3. passed in this round's confirmation or replay, run by `tools` at the current heads with a token `tools` made;
-4. was reviewed `proves` for this outcome's text;
+4. was reviewed `proves` for this outcome's text (a check saved red: on the red question);
 5. and no other live check of the outcome failed this round.
 
 A browser check never names a snapshot ref or a colour literal. Its `visible` assertion means visible to a person (in
@@ -108,6 +113,8 @@ Everything else:
 | Situation                                                                           | The outcome                                                                       |
 | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | A check failed, and the evaluator reports `fail` for that outcome citing the ledger | **failed**: a verify-fix round with a reproduction                                |
+| A check proposed to show a defect, red by assertion in maul's own run, reviewed yes | **failed** (see [A defect found in round 1](#a-defect-found-in-round-1))          |
+| A check proposed to show a defect that maul's own run did not see red by assertion  | **unsure**: never failed, and never passed by that run                            |
 | A check failed, and the evaluator **disputes** it                                   | **unsure** this round (see [Disputes](#disputes))                                 |
 | A check failed, and the evaluator neither agrees nor disputes                       | **unsure**: "a check failed, but the evaluator did not agree that it is a defect" |
 | The evaluator says it holds (or fails), but no check maul re-ran shows it           | **unsure**: no pass and no fix without a check                                    |
@@ -115,6 +122,68 @@ Everything else:
 | A check failed while preview-controller saw a component crash, get evicted or OOM   | **unsure**, the preview's failure; never a fix                                    |
 | maul's own machinery failed (a tool pod never ready, a ledger that does not hold)   | the attempt is retried; past its bound, unsure                                    |
 | A manual outcome                                                                    | only a person closes it, with `/maul accept <id>`                                 |
+
+## A defect found in round 1
+
+A check saved green can show only a regression: a defect present from the first round would fail its check, and a check
+with no green dry run could never be proposed. So the evaluator may also propose a check that **shows a defect**: the
+check of the outcome as approved, which would pass where the outcome holds and fails on this build. It proposes it with
+`expect: fail`, under an outcome it reports `fail`. A wrong fail starts a fix of code that works, so every one of these
+must hold before the outcome is failed:
+
+1. **Red by assertion.** The check's dry run failed one assertion the outcome is the judge of, about data the check's
+   own run made, in a check that otherwise ran: every step before passed, and both attempts failed the same assertion of
+   the same step. When in doubt maul counts nothing: unsure beats catching a defect. What counts, by form:
+   - `http`: only content: a JSON pointer (never the whole document) that resolves to a different value, not by a list
+     matcher (`$order`, `$includes`); a header that is present with a different value; or body text missing from a body
+     that is not an HTML page. And only when the step reads the run's own data: its path (not its query) names `{{run}}`
+     or a value captured from one of the check's own writes, or the expected value names one. No status counts, a 500
+     included, nor a pointer or header that resolves to nothing, a total or a count over shared rows, HTML where JSON
+     was expected, no answer, or a capture with nothing to keep. The check may list only success statuses.
+   - `exec`: only a program that says so itself, printing `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a
+     line of its output (stdout and stderr combined), `<id>` naming the assertion, with the check's expectation failing.
+     An exit code alone, a crash, `127` or a traceback never is.
+   - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
+     or URL keyed by `{{run}}`; never a count, a timeout, an action, a locator that resolved nothing or more than one
+     element, an element with no box, a trial click or an indeterminate judgement. The failing step is read from the
+     compiled spec's own stack frame. maul's own runs of such a check (its confirmation, and its replays once saved)
+     wait 15 seconds for each judgement instead of 5, so a slow but correct page is not read as the defect.
+
+   `maul-tool` prints `red by assertion at step <n> (<assertion>)` for such a run. The check must also write data of its
+   own run: `{{run}}` in a POST, PUT or PATCH (its path or body), a browser fill or its program.
+
+2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
+   assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
+   green proposal only against a green dry run, never one the replay saw red).
+3. **The red question.** The reviewer is told the check failed, at which step and by which assertion, and that the
+   application's state was not fresh. It answers `proves` only if the check encodes the outcome as approved, would pass
+   on a build where the outcome holds, and that assertion is the outcome itself and about data the check created, not
+   setup or something incidental. For an `exec` check it is shown the marker its program printed and answers whether the
+   program prints it only when the approved outcome is violated, never on a connection error, a status code, a timeout
+   or an exception. The answer counts only for that assertion: another failing assertion of the check needs a review of
+   its own. Anything else and the check is not stored; the outcome stays unsure.
+4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
+   run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
+   passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.
+5. **No vetted check disagrees.** If another check of the outcome, valid and reviewed `proves`, passed cleanly in the
+   same round, the two disagree: the outcome is unsure. A check that both passed and failed at the same heads in one
+   round is flaky: unsure, never failed. Both hold for every check, not only red ones.
+
+The check is then stored (marked as saved red, with the assertion it failed) and the verify-fix round is handed its
+failure as the reproduction. After the fix, the same check replays at the new heads; green, it is asked the green
+question too (the red review never asked whether a pass could be special-cased or merely shows a call worked), and only
+once that answer is `proves` does it pass the outcome. A replay that clears it counts from the next round on, so the
+round and its fix are decided on the same facts. Until it has replayed green once, its later steps and its other
+assertions have never run, so a replay or a new confirmation that fails other than by that same assertion is not
+evidence: never a second fix, never a block. Another proven check may pass the outcome, and a dispute with a proven
+replacement can still retire it. A check saved red that already replayed green and is proposed red again is unsure.
+Where a base is available, a check of a new outcome that fails at base too is expected (the feature did not exist), and
+is not a reason to refuse it.
+
+A residual risk stays: maul's own run happens on the preview the exploration used, so a check whose failing assertion
+reads state the evaluator left behind could go red deterministically. The write rule, the rule that the failing
+assertion reads the run's own record, rule 2's run-scoped list assertions, the reviewer and the red question narrow it;
+they do not close it.
 
 ## Disputes
 
@@ -154,7 +223,8 @@ checks:
 - the component's log lines from the failing run's window, redacted, at most 40 lines, starting at the first panic,
   fatal, error, exception or traceback line. The window is between the evaluator's last `maul-tool logs` read before the
   failing run and its first one after it, so there is an excerpt only when the evaluator read the logs after the check
-  failed.
+  failed. For a check saved red, maul's failing run comes after the evaluator exits, so its window is that of the red
+  dry run it confirmed.
 
 `{{run}}` stays a placeholder in it: the fix must make the outcome hold for any token. The next round replays the check
 (with a new token) and the evaluator reads the fix's diff for special cases.
@@ -291,7 +361,7 @@ scripted codex, but no live run has proved it yet, screenshot viewing included: 
 | Bound                       | Default                                                            | Where                                                                                                                            |
 | --------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | One evaluate run            | 100 turns (the last few kept for its report), 20 minutes           | `--intent-evaluate-max-turns`, chart `evaluateMaxTurns`; `--intent-evaluate-timeout`, chart `evaluateTimeout`; `limits.evaluate` |
-| One checkreview run         | 3 turns per check, 15 minutes                                      | `--intent-checkreview-max-turns`, chart `checkReviewMaxTurns`; `limits.checkReview`                                              |
+| One checkreview run         | 6 turns per check (3 kept for a repair), 15 minutes                | `--intent-checkreview-max-turns`, chart `checkReviewMaxTurns`; `limits.checkReview`                                              |
 | Tool calls per round        | 300 (50 to 300)                                                    | `verification.maxToolCalls`, chart `maxToolCalls`                                                                                |
 | Look-around                 | 8 routes per round                                                 | fixed                                                                                                                            |
 | Evaluation spend per intent | \$6                                                                | `limits.maxEvaluateCostMicroUSD`, chart `maxEvaluateCostUSD`                                                                     |

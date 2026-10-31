@@ -235,7 +235,7 @@ func checkToolConfig(t *testing.T, cms map[string]map[string]string) {
 			"MAUL_INTENT_EVALUATE_TIMEOUT":  "20m", "MAUL_INTENT_DEFAULT_HANDOFF": "gated",
 			"MAUL_INTENT_HANDOFF_MAX": "60m", "MAUL_INTENT_EVALUATE_CODEX": "false",
 			"MAUL_INTENT_EVALUATION_COST_MAX": "6000000", "MAUL_INTENT_MAX_TOOL_CALLS": "300",
-			"MAUL_INTENT_EVALUATE_MAX_TURNS": "100", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS": "3"},
+			"MAUL_INTENT_EVALUATE_MAX_TURNS": "100", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS": "6"},
 	}
 	for cm, kv := range want {
 		for k, v := range kv {

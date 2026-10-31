@@ -48,6 +48,12 @@ func reportReserve(maxTurns int) int {
 	return reserve
 }
 
+// Repairable reports whether a stage capped at maxTurns keeps back enough
+// of them (reportReserve) for one repair of its report. A controller sizing
+// a stage's default turns holds it to this (S1 bug 8: a check review of 3
+// turns could never be repaired).
+func Repairable(maxTurns int) bool { return reportReserve(maxTurns) >= repairMinTurns }
+
 // repairTurns is the turn cap of repair round (1-based) with left of the
 // stage's turns: at most repairMaxTurns, keeping repairMinTurns for each
 // round after it while that leaves this one its own minimum, and never more

@@ -497,15 +497,16 @@ func TestEvaluatorSettings(t *testing.T) {
 // TestEvaluatorTurnDefaults: unset, the role stages' turn ceilings are the
 // defaults: evaluate's sized so that the turn cap, the one limit a run
 // still gets its report out of, binds before the cost budget or the wall
-// clock ends the session (S1 bug 3).
+// clock ends the session (S1 bug 3), checkreview's so each review keeps
+// the turns for one repair of its report (S1 bug 8).
 func TestEvaluatorTurnDefaults(t *testing.T) {
 	opts, root, _ := command(t, "--intent-verification", "--intent-previews-enabled", "--intent-evaluator")
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	s, err := settings(opts, "maul", "maul-agents")
-	if err != nil || s.Evaluate.MaxTurns != 100 || s.CheckReview.MaxTurns != 3 {
-		t.Errorf("default ceilings = %+v, %+v (%v); want 100 and 3 turns", s.Evaluate, s.CheckReview, err)
+	if err != nil || s.Evaluate.MaxTurns != 100 || s.CheckReview.MaxTurns != 6 {
+		t.Errorf("default ceilings = %+v, %+v (%v); want 100 and 6 turns", s.Evaluate, s.CheckReview, err)
 	}
 }
 

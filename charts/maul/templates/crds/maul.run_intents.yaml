@@ -613,6 +613,35 @@ spec:
                     maximum: 999
                     minimum: 1
                     type: integer
+                  redCleared:
+                    description: |-
+                      RedCleared are the checks saved red (SavedCheck.Expect fail) that
+                      have since replayed green, each with the verification whose replay
+                      did. Until one has, only a run red by the assertion it was saved
+                      failing reproduces its defect. A clearance counts from the round
+                      after the one that earned it, so that round is judged, and its fix
+                      decided, on the same facts.
+                    items:
+                      description: RedClearance is a check saved red that replayed
+                        green.
+                      properties:
+                        digest:
+                          description: Digest is the check's digest.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        verification:
+                          description: Verification names the PreviewVerification
+                            whose replay passed it.
+                          maxLength: 63
+                          minLength: 1
+                          type: string
+                      required:
+                      - digest
+                      - verification
+                      type: object
+                    maxItems: 40
+                    type: array
+                    x-kubernetes-list-type: atomic
                   reviews:
                     description: |-
                       Reviews cache the check reviewer's answers, so a check is reviewed
@@ -634,6 +663,25 @@ spec:
                           description: CheckDigest is the reviewed check's digest.
                           pattern: ^sha256:[0-9a-f]{64}$
                           type: string
+                        expect:
+                          description: |-
+                            Expect is fail when the reviewer was asked the red question: the
+                            check failed, and the evaluator proposed it to show a defect. Only
+                            such a review lets a check saved red support a fail.
+                          enum:
+                          - fail
+                          type: string
+                        failedAssertion:
+                          maxLength: 512
+                          type: string
+                        failedStep:
+                          description: |-
+                            FailedStep and FailedAssertion are, for the red question, the
+                            failing assertion it judged: a red review counts only for that one.
+                          format: int32
+                          maximum: 64
+                          minimum: 1
+                          type: integer
                         outcomeDigest:
                           description: OutcomeDigest is the digest of the outcome
                             it was reviewed against.

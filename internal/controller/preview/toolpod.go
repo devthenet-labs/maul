@@ -393,7 +393,8 @@ func (s Settings) toolConfig(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerificati
 			Path: v1alpha1.PreviewComponentPath(c), Addr: addr})
 	}
 	for _, c := range pv.Spec.Checks {
-		cfg.Checks = append(cfg.Checks, previewtools.StoredCheck{ID: c.ID, Digest: c.Digest, Body: c.Body})
+		cfg.Checks = append(cfg.Checks, previewtools.StoredCheck{ID: c.ID, Digest: c.Digest, Body: c.Body,
+			Expect: string(c.Expect)})
 	}
 	if err := cfg.Validate(); err != nil {
 		return previewtools.Config{}, err
