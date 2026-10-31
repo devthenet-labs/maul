@@ -51,6 +51,12 @@ const (
 	// stage's run budget is more than half the broker's hourly cost limit,
 	// so one run could spend the whole cluster's hour.
 	ReasonRunBudgetOverHourlyLimit = "RunBudgetOverHourlyLimit"
+	// ReasonRunBudgetUnderRequestReserve: under the broker's cost unit, an
+	// evaluate or checkreview run budget is smaller than two of the
+	// reservations the broker holds for each of its requests (the stage's
+	// output bound at its model's output price), so the run would be
+	// refused its model traffic having spent next to nothing (S1 bug 6).
+	ReasonRunBudgetUnderRequestReserve = "RunBudgetUnderRequestReserve"
 	// ReasonHarnessNotEnabled: the Project asks for a harness this
 	// controller does not run intents on (spec.harness codex without
 	// --intent-codex).
@@ -358,6 +364,17 @@ func (s Settings) refusal(p *v1alpha1.Project) (reason, msg string) {
 			"the egress broker's hourly cost limit of %d micro-USD, so one run could spend the cluster's hour alone; "+
 			"lower limits.%s.maxCostMicroUSD (or %s, its default) or raise the broker's costPerHour", stage, budget,
 			s.BrokerCostPerHour, field, ceiling)
+	}
+	if u := s.budgetUnderReserve(p); u.stage != "" {
+		field := string(u.stage)
+		if u.stage == v1alpha1.IntentStageCheckReview {
+			field = "checkReview"
+		}
+		return ReasonRunBudgetUnderRequestReserve, fmt.Sprintf("a %s run's cost budget of %d micro-USD is less "+
+			"than %d micro-USD, twice what the egress broker reserves for each of its requests (%d output tokens "+
+			"of %s at its output price, %d micro-USD), so the run could spend at most %d micro-USD before its "+
+			"model traffic is refused; raise limits.%s.maxCostMicroUSD to at least %d", u.stage, u.budget,
+			u.least, u.tokens, u.model, u.reserve, max(u.budget-u.reserve, 0), field, u.least)
 	}
 	return "", ""
 }

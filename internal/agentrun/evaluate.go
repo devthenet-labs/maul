@@ -16,6 +16,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
 	"github.com/devthenet-labs/maul/internal/maultool"
+	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/runner"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -306,6 +307,9 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 		SessionID: a.newSessionID(),
 		Env:       env,
 		Gateway:   gateway,
+		// Bounded so the broker's per-request reservation fits the
+		// stage's cost budget (provider.EvaluateMaxOutputTokens).
+		MaxOutputTokens: provider.EvaluateMaxOutputTokens,
 	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, budget)
 	sr.turns, sr.example = maxTurns, templates.ExampleEvaluationReport
 	res, idle, runErr := a.start(ctx, sr)

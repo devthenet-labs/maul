@@ -36,6 +36,31 @@ const LimitMessagePrefix = "egress broker: per-pod limit"
 // BrokerTokenHeader, so the writer and the reader share one name and grammar.
 const BudgetAnnotation = "maul.run/budget-micro-usd"
 
+// The output bounds of the intent stages that run on small cost budgets
+// (harness.PromptRequest.MaxOutputTokens). The egress broker reserves each
+// request's whole output bound at the model's output price before it
+// forwards it, and refuses a request whose reservation would carry the pod
+// past its budget, so a pod can spend at most its budget less one
+// reservation. At the CLI's default bound (64000 tokens, $0.96 on
+// claude-sonnet-5) a $1 checkreview pod was refused after four calls having
+// spent $0.044 (S1 bug 6). agent-runner passes these to the CLI, and
+// intent-controller refuses a Project whose stage budget cannot hold two of
+// them (ReasonRunBudgetUnderRequestReserve).
+//
+//   - CheckReviewMaxOutputTokens: a review session writes one short report
+//     (an answer and a reason of at most 600 characters, report.CheckReview)
+//     and otherwise reads; 8192 tokens is that report several times over
+//     plus room to think, $0.12 reserved on claude-sonnet-5.
+//   - EvaluateMaxOutputTokens: the evaluator's largest single response is a
+//     Write of its report (report.ReportMaxBytes, 56 KiB) or of an exec
+//     check's program (checks.MaxProgramBytes, 64 KiB), about 16000-22000
+//     tokens at three to four bytes a token, plus its thinking: 32000 tokens,
+//     half the CLI's default, $0.48 reserved on claude-sonnet-5.
+const (
+	CheckReviewMaxOutputTokens = 8192
+	EvaluateMaxOutputTokens    = 32000
+)
+
 // maxBudgetDigits bounds a budget value: sixteen digits is ten billion
 // dollars, far past any run, and keeps every sum the broker forms of it
 // clear of int64 overflow.

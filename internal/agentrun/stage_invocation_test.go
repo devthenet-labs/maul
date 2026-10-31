@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/runner"
 )
 
@@ -139,11 +141,12 @@ func TestRoleStageInvocations(t *testing.T) {
 		phase           Phase
 		handoff, golden string
 		write           map[string]string
+		maxOutput       int
 	}{
 		{PhaseEvaluate, evaluateHandoff, "invocation_evaluate.txt",
-			map[string]string{"scratch/report.md": goodEvaluation}},
+			map[string]string{"scratch/report.md": goodEvaluation}, provider.EvaluateMaxOutputTokens},
 		{PhaseCheckReview, reviewHandoff(1), "invocation_checkreview.txt",
-			map[string]string{"scratch/review-1.md": reviewReport("proves")}},
+			map[string]string{"scratch/review-1.md": reviewReport("proves")}, provider.CheckReviewMaxOutputTokens},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.phase), func(t *testing.T) {
@@ -158,6 +161,12 @@ func TestRoleStageInvocations(t *testing.T) {
 				if strings.Contains(got, banned) {
 					t.Errorf("the evaluate posture renders %s:\n%s", banned, got)
 				}
+			}
+			// The stage's output bound, so the broker's per-request
+			// reservation fits the stage's small cost budget (S1 bug 6).
+			bound := fmt.Sprintf("--- env\n%s=%d\n", harness.ClaudeMaxOutputTokensEnv, tt.maxOutput)
+			if !strings.Contains(got, bound) {
+				t.Errorf("the stage does not bound its output (%q):\n%s", bound, got)
 			}
 			for _, want := range []string{"--restricted", "Bash(maul-tool:*)", "Read(//workspace/scratch/**)"} {
 				if !strings.Contains(got, want) {
