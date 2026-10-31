@@ -453,15 +453,15 @@ func TestEvaluatePromptStatesThePreviousRound(t *testing.T) {
 	}
 	flat := strings.Join(strings.Fields(got), " ")
 	for _, want := range []string{"### The previous round", "maul judged round 2 of this evaluation",
-		"It is no evidence for this round", "outcome: o-0", "result: failed", "check: c-0 (outcome o-1): fail"} {
+		"It is no evidence for this round", "- o-0 was judged failed.", "- check c-0, of outcome o-1, replayed fail"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("prompt lacks %q", want)
 		}
 	}
-	if n := strings.Count(got, "result: failed"); n != acceptance.MaxOutcomes {
+	if n := strings.Count(got, " was judged failed."); n != acceptance.MaxOutcomes {
 		t.Errorf("%d prior verdicts shown, want %d", n, acceptance.MaxOutcomes)
 	}
-	if n := strings.Count(got, "): fail"); n != priorReplaysMax {
+	if n := strings.Count(got, ", replayed fail"); n != priorReplaysMax {
 		t.Errorf("%d prior replays shown, want %d", n, priorReplaysMax)
 	}
 	if strings.Contains(got, strings.Repeat("r", priorReasonMaxBytes+1)) {

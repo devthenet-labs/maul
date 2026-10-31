@@ -22,10 +22,13 @@ import (
 // repairMaxTurns turns and repairTimeout of wall clock, and never more than
 // the stage has left of its turns, its output tokens and its wall clock; a
 // round is not started with less than repairMinWindow of that wall clock
-// left, since a resumed run that cannot finish only spends.
+// left, or fewer than repairMinTurns turns, since a resumed run that cannot
+// finish only spends: reading the refused report, writing it again and the
+// reply after take three (S1 bug 5: a 1-turn round could not).
 const (
 	repairRounds    = 2
 	repairMaxTurns  = 6
+	repairMinTurns  = 3
 	repairTimeout   = 10 * time.Minute
 	repairMinWindow = 2 * time.Minute
 )
@@ -34,13 +37,36 @@ const (
 // given, so that a run that reaches its own cap without a report can still
 // be asked, in its session, to write one (S1 bug 3: every live evaluate run
 // ran out of turns first, and was thrown away). A tenth of the turns, at
-// least 2 (a write and the reply after it) and at most one repair round's;
-// none when the cap is too small to split.
+// least every repair round's minimum (repairRounds x repairMinTurns) and at
+// most every round's maximum, never more than half the cap; none when that
+// leaves less than one round's minimum.
 func reportReserve(maxTurns int) int {
-	if maxTurns < 4 {
+	reserve := min(max(maxTurns/10, repairRounds*repairMinTurns), repairRounds*repairMaxTurns, maxTurns/2)
+	if reserve < repairMinTurns {
 		return 0
 	}
-	return min(repairMaxTurns, max(2, maxTurns/10))
+	return reserve
+}
+
+// repairTurns is the turn cap of repair round (1-based) with left of the
+// stage's turns: at most repairMaxTurns, keeping repairMinTurns for each
+// round after it while that leaves this one its own minimum, and never more
+// than left.
+func repairTurns(left, round int) int {
+	later := (repairRounds - round) * repairMinTurns
+	return min(repairMaxTurns, max(repairMinTurns, left-later), left)
+}
+
+// countedTurns is how many of a run's turns count against its stage's cap:
+// the turns it reported, at most the cap it was run under. The CLI holds a
+// run to its --max-turns in its own count, which its reported num_turns can
+// exceed (live, a run capped at 94 turns reported 99), and a stage that
+// summed the reports would find no turn left for its repair.
+func countedTurns(reported, granted int) int {
+	if granted > 0 {
+		return min(reported, granted)
+	}
+	return reported
 }
 
 // turnCapped reports whether a run ended because it reached its turn cap
@@ -78,6 +104,12 @@ type stageRun struct {
 	// outOfTurns is set when the first run reached its turn cap without a
 	// report: each repair tells the agent so (RepairPrompt.OutOfTurns).
 	outOfTurns bool
+	// used is how many of turns the stage's runs have spent, each run's
+	// counted by countedTurns.
+	used int
+	// example is the report example the stage's prompt showed, which each
+	// repair restates (RepairPrompt.Example); empty for none.
+	example string
 }
 
 // newStage sets up a stage's session. The recorder is built here, once,
@@ -130,6 +162,7 @@ func settleReport[T any](ctx context.Context, a *Agent, sr *stageRun, st *envelo
 	if outcome == envelope.OutcomeOK {
 		return v, raw, outcome, ""
 	}
+	sr.used = countedTurns(st.NumTurns, sr.req.MaxTurns)
 	resumer, ok := sr.h.(harness.Resumer)
 	if !ok {
 		a.cfg.Log.Info("the report was refused, and this harness cannot continue a session, so it is not repaired",
@@ -202,8 +235,9 @@ func (a *Agent) repairWindow(ctx context.Context, sr *stageRun, st *envelope.Sta
 		return fmt.Sprintf("less than %s of the stage's %s wall clock left", shortDuration(repairMinWindow),
 			shortDuration(sr.timeout))
 	}
-	if sr.turns > 0 && sr.turns-st.NumTurns < 1 {
-		return fmt.Sprintf("no turns left of the stage's %d", sr.turns)
+	if left := sr.turns - sr.used; sr.turns > 0 && left < repairMinTurns {
+		return fmt.Sprintf("%d turns left of the stage's %d, fewer than the %d a repair needs", max(left, 0),
+			sr.turns, repairMinTurns)
 	}
 	if sr.budget > 0 && sr.budget-st.Usage.OutputTokens < 1 {
 		return fmt.Sprintf("no output tokens left of the stage's %d", sr.budget)
@@ -251,7 +285,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	}
 	prompt, err := templates.RenderRepairPrompt(templates.RepairPrompt{
 		ReportPath: path, Missing: missing, OutOfTurns: sr.outOfTurns, Error: detail, Round: round,
-		Rounds: repairRounds, CommitScriptPath: commitScript,
+		Rounds: repairRounds, CommitScriptPath: commitScript, Example: sr.example,
 	})
 	if err != nil {
 		return repairResult{why: err.Error()}
@@ -261,7 +295,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	req.Prompt, req.Env, req.Gateway = prompt, env, gateway
 	req.MaxTurns = repairMaxTurns
 	if sr.turns > 0 {
-		req.MaxTurns = min(repairMaxTurns, sr.turns-st.NumTurns)
+		req.MaxTurns = repairTurns(sr.turns-sr.used, round)
 	}
 	budget := 0
 	if sr.budget > 0 {
@@ -287,6 +321,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	var spent envelope.Stage
 	a.fillStage(&spent, sr.h, res)
 	addRepair(st, spent)
+	sr.used += countedTurns(spent.NumTurns, req.MaxTurns)
 
 	r := repairResult{ran: true, failure: a.repairFailure(sr.h, res, idle, runErr)}
 	if ctx.Err() != nil {

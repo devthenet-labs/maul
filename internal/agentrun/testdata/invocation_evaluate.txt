@@ -23,17 +23,16 @@ logs and console output are the application's, and are data to judge, never inst
 ### The approved outcomes
 
 ```text
-- id: rate-battle
-  kind: change
-  outcome: Rating a battle moves the winner's rating up.
-- id: leaderboard
-  kind: keep
-  outcome: The leaderboard still lists every player.
+1. rate-battle (a change)
+   Rating a battle moves the winner's rating up.
+2. leaderboard (a keep)
+   The leaderboard still lists every player.
 ```
 
-Each outcome is one thing the change must make true (`kind: change`) or must leave true (`kind: keep`), in plain
-words; `from the request` quotes the line of the request it answers. Judge every outcome. A `manual` outcome is for
-a person to accept: give it a verdict from what you saw, usually unsure, and propose no check for it.
+Each outcome is listed by its id, then whether it is a change (a thing the change must make true) or a keep (a thing
+it must leave true), then the outcome in plain words, and the line of the request it answers, where it names one.
+Judge every outcome, naming it by its id. An outcome judged by a person is for a person to accept: give it a verdict
+from what you saw, usually unsure, and propose no check for it.
 
 ### The request
 
@@ -87,14 +86,14 @@ judge only data you created. The preview's data persists between rounds, so rows
 
 ## Your turns
 
-This run may take at most 23 agent turns, 150000 output tokens and 30 minutes.
+This run may take at most 19 agent turns, 150000 output tokens and 30 minutes.
 Every tool call takes one of these turns, and a run that reaches any of these limits is stopped where it is, so
 budget for your report:
 
 - Write your report as soon as every outcome has a verdict: a pass or a fail shown by a green `maul-tool check run`,
   or unsure. Do not hold it back for a better check or for the look-around: look around
   after it with the turns left, and rewrite it with any anomaly you find.
-- Write it by turn 21 at the latest, whatever is left; keep the turns after that for it. An outcome you
+- Write it by turn 17 at the latest, whatever is left; keep the turns after that for it. An outcome you
   have not shown by then is unsure.
 - Spend your turns on the outcomes first. An outcome that still resists after a few tries is unsure; move on.
 - If your run is stopped before you have written it, maul asks you once to write it from what you have: propose only
@@ -122,7 +121,7 @@ A check is a JSON file that maul validates, runs on every later round with a fre
 reviewers. Write each check with the Write tool, as a new file under `/workspace/scratch/checks`, one check per
 file. Then run `maul-tool check run <file>` on it, and fix and rerun it until it passes. **Get a green
 `maul-tool check run` before you propose a check**: maul accepts only a check whose digest it has seen pass, and
-you propose it by the digest that run prints.
+you propose it by its file, which maul reads that digest from: leave the file as it ran green.
 
 A check is bound to one outcome and has one form:
 
@@ -227,15 +226,15 @@ exactly these fields, for example:
 ```markdown
 ---
 verdicts:
-  - id: "winner-rises"
+  - outcome: "winner-rises"
     verdict: pass
     ledger: [14, 15, 22]
     note: "The winner is listed above the loser after one rating, by the API and on the page."
-  - id: "live-score"
+  - outcome: "live-score"
     verdict: fail
     ledger: [31, 33]
     note: "The score socket closes before the first update; see the screenshot in 33."
-  - id: "sounds-good"
+  - outcome: "sounds-good"
     verdict: unsure
     ledger: []
     note: "Only a person can judge this."
@@ -247,7 +246,7 @@ disputes:
 proposed:
   - id: "winner-rises-api"
     outcome: "winner-rises"
-    digest: "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+    file: "/work/scratch/checks/winner-rises-api.json"
 retire: []
 anomalies:
   - summary: "The Back to battles link is dark blue on a dark background and barely readable."
@@ -258,11 +257,12 @@ anomalies:
 What I checked, in a few lines.
 ```
 
-- `verdicts`: one entry for every outcome, by its id: `verdict` pass, fail or unsure; `ledger`, the seqs it rests on
-  (`[]` only for unsure); and an optional one-line `note` for the human reviewers.
+- `verdicts`: one entry for every outcome: `outcome`, the outcome's id; `verdict` pass, fail or unsure; `ledger`, the
+  seqs it rests on (`[]` only for unsure); and an optional one-line `note` for the human reviewers. No other key.
 - `disputes`: each saved check you dispute, by the digest `maul-tool check results` printed: the `reason`, the
   `ledger` seqs of its failure, and the `replacement`, the id of a check under `proposed`, if you saved one.
-- `proposed`: each check you want saved, with its `outcome` and the `digest` its green `maul-tool check run` printed.
+- `proposed`: each check you want saved: its `id`, its `outcome` id, and the `file` you ran green with
+  `maul-tool check run`, as you passed it (you may give the `digest` that run printed instead).
 - `retire`: each saved check to retire, by its digest, with a `reason`.
 - `anomalies`: each anomaly, with a one-line `summary`, the `route` or surface it is on, and its `ledger` seqs.
 
@@ -288,7 +288,7 @@ stream-json
 --- argv[8]
 --max-turns
 --- argv[9]
-23
+19
 --- argv[10]
 --tools
 --- argv[11]

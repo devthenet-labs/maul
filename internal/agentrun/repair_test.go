@@ -656,7 +656,8 @@ func TestRepairLimits(t *testing.T) {
 	}{
 		{"no wall clock left", func(c *Config) { c.InvestigateTimeout = time.Minute },
 			"less than 2m of the stage's 1m wall clock left"},
-		{"no turns left", func(c *Config) { c.InvestigateMaxTurns = 7 }, "no turns left of the stage's 7"},
+		{"no turns left", func(c *Config) { c.InvestigateMaxTurns = 7 },
+			"0 turns left of the stage's 7, fewer than the 3 a repair needs"},
 		{"no output tokens left", func(c *Config) { c.InvestigateTokenBudget = 30 },
 			"no output tokens left of the stage's 30"},
 	} {

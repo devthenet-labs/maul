@@ -171,7 +171,7 @@ func TestStageLimitsUnknownStageErrors(t *testing.T) {
 // TestRoleStageLimitsFromTheGrant: an evaluate or checkreview run is held to
 // its grant, which may lower the investigate stage's ceiling but never
 // raise it. An evaluate stage's first run is given its turns less those it
-// keeps for its report (reportReserve: 2 of 25, 2 of 6).
+// keeps for its report (reportReserve: 6 of 25, 3 of 6).
 func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -179,9 +179,9 @@ func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 		wantTurns    string
 		wantEvaluate string
 	}{
-		{"no grant runs on the ceiling", 0, "25", "23"},
-		{"a lower grant", 6, "6", "4"},
-		{"a grant above the ceiling is clamped", 400, "25", "23"},
+		{"no grant runs on the ceiling", 0, "25", "19"},
+		{"a lower grant", 6, "6", "3"},
+		{"a grant above the ceiling is clamped", 400, "25", "19"},
 	}
 	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
 		for _, tt := range tests {

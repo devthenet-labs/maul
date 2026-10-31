@@ -35,6 +35,11 @@ type RepairPrompt struct {
 	// tree; empty on a read-only stage. A repair there may write it as well
 	// as the report, and nothing else.
 	CommitScriptPath string
+	// Example is the report example the stage's prompt showed, restated
+	// exactly (maul's own text, such as ExampleEvaluationReport), or empty
+	// for none: a model repairing a report tens of turns after its prompt
+	// rewrites it from memory otherwise (S1 bug 5).
+	Example string
 }
 
 // RepairErrorMaxBytes bounds the reason a repair prompt quotes; a longer

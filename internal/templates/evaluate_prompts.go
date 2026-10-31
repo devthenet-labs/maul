@@ -207,9 +207,10 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 	return render("prompt_evaluate.md.tmpl", v)
 }
 
-// priorBlock lists a previous round's results as the prompt quotes them:
-// maul's result per outcome with its reason, then each saved check's
-// replay, each list bounded; "" for neither.
+// priorBlock lists a previous round's results as the prompt quotes them, in
+// prose as the outcomes are (outcomesBlock): maul's result per outcome with
+// its reason, then each saved check's replay, each list bounded; "" for
+// neither.
 func priorBlock(verdicts []PriorVerdict, replays []PriorReplay) string {
 	var b strings.Builder
 	for i, r := range verdicts {
@@ -217,22 +218,23 @@ func priorBlock(verdicts []PriorVerdict, replays []PriorReplay) string {
 			break
 		}
 		if i == 0 {
-			b.WriteString("verdicts:\n")
+			b.WriteString("Results:\n")
 		}
-		fmt.Fprintf(&b, "- outcome: %s\n  result: %s\n", quotedLine(r.Outcome, 64), quotedLine(r.Result, 16))
+		fmt.Fprintf(&b, "- %s was judged %s.", quotedLine(r.Outcome, 64), quotedLine(r.Result, 16))
 		if r.Reason != "" {
-			fmt.Fprintf(&b, "  why: %s\n", quotedLine(r.Reason, priorReasonMaxBytes))
+			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
 		}
+		b.WriteString("\n")
 	}
 	for i, r := range replays {
 		if i == priorReplaysMax {
 			break
 		}
 		if i == 0 {
-			b.WriteString("replayed:\n")
+			b.WriteString("Replayed at the start of that round:\n")
 		}
-		fmt.Fprintf(&b, "- check: %s (outcome %s): %s\n", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64),
-			quotedLine(r.Result, 16))
+		fmt.Fprintf(&b, "- check %s, of outcome %s, replayed %s\n", quotedLine(r.Check, 72),
+			quotedLine(r.Outcome, 64), quotedLine(r.Result, 16))
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -259,7 +261,9 @@ func quotedLine(s string, maxBytes int) string {
 	return untrusted.Escape(untrusted.Cut(strings.TrimSpace(s), maxBytes))
 }
 
-// outcomesBlock lists the outcomes as the prompt quotes them.
+// outcomesBlock lists the outcomes as the prompt quotes them: numbered, in
+// prose, never as YAML a model would carry into its report (S1 bug 5: the
+// live evaluators copied this list's `outcome:` key into every verdict).
 func outcomesBlock(os []acceptance.PlanOutcome) string {
 	var b strings.Builder
 	for i, o := range os {
@@ -270,16 +274,18 @@ func outcomesBlock(os []acceptance.PlanOutcome) string {
 		if kind == "" {
 			kind = acceptance.OutcomeKindChange
 		}
-		fmt.Fprintf(&b, "- id: %s\n  kind: %s\n", quotedLine(o.ID, 64), quotedLine(string(kind), 16))
+		judged := ""
 		if o.Manual {
-			b.WriteString("  manual: true\n")
+			judged = ", judged by a person"
 		}
-		fmt.Fprintf(&b, "  outcome: %s\n", quotedLine(o.Outcome, acceptance.MaxOutcomeChars*4))
+		fmt.Fprintf(&b, "%d. %s (a %s%s)\n   %s\n", i+1, quotedLine(o.ID, 64), quotedLine(string(kind), 16), judged,
+			quotedLine(o.Outcome, acceptance.MaxOutcomeChars*4))
 		if o.From != "" {
-			fmt.Fprintf(&b, "  from the request: %s\n", quotedLine(o.From, acceptance.MaxFromChars*4))
+			fmt.Fprintf(&b, "   From the request, quoted: %s\n", quotedLine(o.From, acceptance.MaxFromChars*4))
 		}
 		if o.Manual && o.Reason != "" {
-			fmt.Fprintf(&b, "  why a person judges it: %s\n", quotedLine(o.Reason, acceptance.MaxReasonChars*4))
+			fmt.Fprintf(&b, "   Why a person judges it, quoted: %s\n",
+				quotedLine(o.Reason, acceptance.MaxReasonChars*4))
 		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
@@ -448,15 +454,15 @@ const (
 }`
 	ExampleEvaluationReport = `---
 verdicts:
-  - id: "winner-rises"
+  - outcome: "winner-rises"
     verdict: pass
     ledger: [14, 15, 22]
     note: "The winner is listed above the loser after one rating, by the API and on the page."
-  - id: "live-score"
+  - outcome: "live-score"
     verdict: fail
     ledger: [31, 33]
     note: "The score socket closes before the first update; see the screenshot in 33."
-  - id: "sounds-good"
+  - outcome: "sounds-good"
     verdict: unsure
     ledger: []
     note: "Only a person can judge this."
@@ -468,7 +474,7 @@ disputes:
 proposed:
   - id: "winner-rises-api"
     outcome: "winner-rises"
-    digest: "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+    file: "/work/scratch/checks/winner-rises-api.json"
 retire: []
 anomalies:
   - summary: "The Back to battles link is dark blue on a dark background and barely readable."
