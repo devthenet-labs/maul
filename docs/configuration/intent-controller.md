@@ -157,6 +157,11 @@ Project that needs more.
 - With `--broker-cost-per-hour` set, a Project any of whose run budgets is more than half the broker's hourly cost limit
   is not Ready (`RunBudgetOverHourlyLimit`, naming the stage): one such run could spend the cluster's hour alone. Lower
   the stage's budget (or the per-intent ceiling a stage without one uses) or raise the hourly limit.
+- Under the cost unit, a claude Project the evaluator verifies is not Ready (`RunBudgetUnderRequestReserve`, naming the
+  stage, its budget and the least it needs) when its evaluate or checkreview run budget is less than twice what the
+  broker reserves for each of that stage's requests: the stage's output bound (32000 tokens for evaluate, 8192 for
+  checkreview) at its model's output price ([cost limits](egress-broker.md#cost-limits)). Below that the run would be
+  refused its model traffic having spent less than half its budget. Raise the stage's `maxCostMicroUSD`.
 
 Under the cost unit the chart renders admission policies that keep the budget the controller's alone: only
 intent-controller creates a Job carrying the annotation, and every Job it creates carries one; only the Job controller

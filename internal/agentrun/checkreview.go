@@ -17,6 +17,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -203,6 +204,10 @@ func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envel
 			SessionID: a.newSessionID(),
 			Env:       env,
 			Gateway:   gateway,
+			// A review writes one short report: a small output bound keeps
+			// the broker's per-request reservation inside the stage's
+			// small cost budget.
+			MaxOutputTokens: provider.CheckReviewMaxOutputTokens,
 		}
 		if sr == nil {
 			// One recorder for every session, so the transcript's sequence

@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -288,6 +289,61 @@ func TestCostPerPodWithBudgetAnnotation(t *testing.T) {
 	}
 	if gets.Load() != 1 {
 		t.Errorf("pod reads = %d, want 1 (cached with the verdict)", gets.Load())
+	}
+}
+
+// TestSmallBudgetStageNotStarved (S1 bug 6): a $1 checkreview pod making
+// ten small sonnet calls, each about $0.011 as the live reviewer's were, is
+// refused none of them at the stage's output bound
+// (provider.CheckReviewMaxOutputTokens), though the reservation rule is
+// unchanged. At the CLI's default bound of 64000 tokens ($0.96 reserved per
+// request) the same pod is refused its fifth call having spent under $0.05:
+// what starved the reviewer live.
+func TestSmallBudgetStageNotStarved(t *testing.T) {
+	post := func(h http.Handler, maxTokens int) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages",
+			strings.NewReader(`{"model":"claude-sonnet-5","max_tokens":`+strconv.Itoa(maxTokens)+`}`))
+		req.Header.Set(TokenHeader, tok("jobpod"))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	for _, tc := range []struct {
+		name      string
+		maxTokens int
+		served    int // calls served before the first refusal, of ten
+	}{
+		{"the stage's bound", provider.CheckReviewMaxOutputTokens, 10},
+		{"the CLI's default bound", 64000, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var hits, gets atomic.Int64
+			// 2000 input, 10 written, 20 read and 300 output tokens:
+			// 10544 micro-USD a call.
+			up := countingUpstream(t, &hits, "text/event-stream", sseUsage(2000, 300, true))
+			s, buf, _ := costServer(t, up.URL, Limits{Unit: UnitCost, CostPerPod: 10_000_000},
+				budgetPod("1000000"), &gets)
+			h := s.Handler()
+			served := 0
+			for i := range 10 {
+				rec := post(h, tc.maxTokens)
+				if rec.Code != http.StatusOK {
+					if rec.Code != http.StatusTooManyRequests {
+						t.Fatalf("call %d: %d: %s", i+1, rec.Code, rec.Body.String())
+					}
+					break
+				}
+				served++
+			}
+			if served != tc.served {
+				t.Errorf("served %d calls before a refusal, want %d", served, tc.served)
+			}
+			if tc.served == 10 {
+				if spent := lastAudit(t, buf)["pod_cost_micro_usd"]; spent != float64(105440) {
+					t.Errorf("pod spent %v micro-USD, want 105440", spent)
+				}
+			}
+		})
 	}
 }
 

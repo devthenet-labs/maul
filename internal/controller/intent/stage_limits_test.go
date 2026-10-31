@@ -385,3 +385,88 @@ func TestRoleBudgetOverHourlyLimit(t *testing.T) {
 		})
 	}
 }
+
+// TestRoleBudgetUnderRequestReserve (S1 bug 6): under the cost unit the
+// egress broker reserves each request's whole output bound at the model's
+// output price, so an evaluate or checkreview run budget smaller than two
+// such reservations (at the stage's output bound, provider.*MaxOutputTokens,
+// on the stage's model) would starve the run; the Project is not Ready,
+// naming the stage, its budget, the least budget it needs and the field
+// that raises it. The docs' own example budgets are Ready, and nothing is
+// judged under the token unit, without the evaluator or on codex.
+func TestRoleBudgetUnderRequestReserve(t *testing.T) {
+	settings := func() Settings {
+		s := roleSettings()
+		s.EvaluateModel, s.CheckReviewModel = "anthropic/claude-sonnet-5", "anthropic/claude-sonnet-5"
+		return s
+	}
+	project := func(evaluate, checkReview int64) *v1alpha1.Project {
+		p := evaluatingProject()
+		p.Spec.Limits.Evaluate.MaxCostMicroUSD = evaluate
+		p.Spec.Limits.CheckReview.MaxCostMicroUSD = checkReview
+		return p
+	}
+	// claude-sonnet-5 output is $15 per million tokens: 8192 tokens reserve
+	// 122880 micro-USD, 32000 reserve 480000.
+	for _, tt := range []struct {
+		name                string
+		evaluate, review    int64
+		stage, field, least string
+		budget              string
+	}{
+		{"checkreview", 1500000, 200000, "checkreview run", "limits.checkReview.maxCostMicroUSD", "245760", "200000"},
+		{"evaluate", 900000, 300000, "evaluate run", "limits.evaluate.maxCostMicroUSD", "960000", "900000"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, msg := settings().refusal(project(tt.evaluate, tt.review))
+			if reason != ReasonRunBudgetUnderRequestReserve {
+				t.Fatalf("refusal = %q (%s), want %s", reason, msg, ReasonRunBudgetUnderRequestReserve)
+			}
+			for _, want := range []string{tt.stage, tt.budget, tt.least, tt.field, "claude-sonnet-5"} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("message %q does not say %q", msg, want)
+				}
+			}
+		})
+	}
+
+	// docs/intents/evaluator.md's example limits, and the defaults.
+	for name, p := range map[string]*v1alpha1.Project{
+		"the documented example": project(1500000, 300000),
+		"the defaults":           project(0, 0),
+		"exactly two reserves":   project(960000, 245760),
+	} {
+		if reason, msg := settings().refusal(p); reason != "" {
+			t.Errorf("%s: refusal = %q (%s), want none", name, reason, msg)
+		}
+	}
+	tooSmall := project(1500000, 100000)
+	for name, s := range map[string]func(*Settings){
+		"the token unit":    func(s *Settings) { s.CostBudgets = false },
+		"no evaluator":      func(s *Settings) { s.Evaluator = false },
+		"an unpriced model": func(s *Settings) { s.CheckReviewModel = "" },
+	} {
+		st := settings()
+		s(&st)
+		if reason, _ := st.refusal(tooSmall); reason != "" {
+			t.Errorf("%s: refusal = %q, want none", name, reason)
+		}
+	}
+	codex := tooSmall.DeepCopy()
+	codex.Spec.Harness = v1alpha1.ProjectHarnessCodex
+	st := settings()
+	st.Codex = RunHarness{ID: "codex", PlanModel: "openai/gpt-5.3-codex", BuildModel: "openai/gpt-5.3-codex"}
+	st.EvaluateCodex = true
+	if reason, _ := st.refusal(codex); reason != "" {
+		t.Errorf("codex: refusal = %q, want none (codex runs carry no output bound of maul's)", reason)
+	}
+
+	// Through the reconciler: Ready is False with the reason.
+	e := newEnv(t, tooSmall.DeepCopy())
+	e.project.Settings = settings()
+	e.reconcileProject()
+	c := meta.FindStatusCondition(e.getProject().Status.Conditions, v1alpha1.ConditionReady)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != ReasonRunBudgetUnderRequestReserve {
+		t.Fatalf("Ready = %+v, want False with %s", c, ReasonRunBudgetUnderRequestReserve)
+	}
+}

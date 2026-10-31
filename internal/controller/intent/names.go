@@ -19,6 +19,8 @@ import (
 	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/credgate"
 	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // Names derived from an Intent or an IntentRun. Each is created under its
@@ -527,6 +529,75 @@ func (s Settings) budgetOverHourly(p *v1alpha1.Project) (v1alpha1.IntentStage, i
 		}
 	}
 	return "", 0
+}
+
+// reserveShortfall is a stage whose run budget cannot hold two of the
+// broker's per-request reservations: the budget, the least it needs, and
+// what that is reckoned from.
+type reserveShortfall struct {
+	stage                  v1alpha1.IntentStage
+	budget, least, reserve int64
+	tokens                 int
+	model                  string
+}
+
+// roleOutputBounds are the output bounds agent-runner gives the role
+// stages' claude CLI (harness.PromptRequest.MaxOutputTokens), so each of
+// their requests asks for, and the broker reserves, no more.
+var roleOutputBounds = map[v1alpha1.IntentStage]int{
+	v1alpha1.IntentStageEvaluate:    provider.EvaluateMaxOutputTokens,
+	v1alpha1.IntentStageCheckReview: provider.CheckReviewMaxOutputTokens,
+}
+
+// budgetUnderReserve reports the first role stage whose run budget is less
+// than twice the reservation the egress broker holds for each of its
+// requests: under the cost unit the broker admits a request only while
+// what the pod spent plus that request's whole output bound, at the
+// model's output price, fits its budget, so a run can spend at most its
+// budget less one reservation, and a budget under two would end the run's
+// model traffic before it had spent half of it (S1 bug 6: four calls and
+// $0.044 of a $1 budget). It judges the evaluate and checkreview stages of
+// a claude Project the evaluator verifies, on their models and output
+// bounds (roleOutputBounds); a model the registry cannot price, or a codex
+// run, whose CLI gets no output bound of maul's, is not judged. Nothing is
+// reported unless the broker counts cost.
+func (s Settings) budgetUnderReserve(p *v1alpha1.Project) reserveShortfall {
+	if !s.CostBudgets || !s.evaluates(p) || p.Spec.Harness.IsCodex() {
+		return reserveShortfall{}
+	}
+	for _, stage := range []v1alpha1.IntentStage{v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview} {
+		id := s.EvaluateModel
+		if stage == v1alpha1.IntentStageCheckReview {
+			id = s.CheckReviewModel
+		}
+		tokens := roleOutputBounds[stage]
+		reserve, ok := outputReserve(id, tokens)
+		if !ok {
+			continue
+		}
+		if b := s.stageBudget(p, stage); b < 2*reserve {
+			return reserveShortfall{stage: stage, budget: b, least: 2 * reserve, reserve: reserve,
+				tokens: tokens, model: id}
+		}
+	}
+	return reserveShortfall{}
+}
+
+// outputReserve is what the egress broker reserves for a request of the
+// canonical model id asking for tokens output tokens, in micro-USD: the
+// tokens at the model's output price, priced with the function the broker
+// prices with (model.MeasuredCostUSD); false for a model the registry
+// cannot price.
+func outputReserve(id string, tokens int) (int64, bool) {
+	m, ok := model.Resolve(model.Builtins(), id)
+	if !ok || id == "" {
+		return 0, false
+	}
+	usd := model.MeasuredCostUSD(m, model.MeasuredTokens{Output: int64(tokens)})
+	if usd == nil {
+		return 0, false
+	}
+	return int64(math.Round(*usd * 1e6)), true
 }
 
 // runTimeout is a granted run's stage timeout: its grant's, or, for a run

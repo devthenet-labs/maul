@@ -311,6 +311,40 @@ func TestClaudePromptSpecKeepsTheTreesSettingsOut(t *testing.T) {
 	}
 }
 
+// TestClaudeMaxOutputTokens: a request's output bound reaches the CLI as
+// CLAUDE_CODE_MAX_OUTPUT_TOKENS, which the pinned CLI sends as every
+// request's max_tokens (TestClaudePostureProbe pins that), on the first run
+// and on a resume, under any posture, without writing through the request's
+// Env; an unset bound leaves the CLI's default and renders nothing.
+func TestClaudeMaxOutputTokens(t *testing.T) {
+	c := NewClaude()
+	for _, sandbox := range []Sandbox{SandboxDefault, SandboxReadOnly, SandboxWorkspaceWrite, SandboxEvaluate} {
+		reqEnv := make([]string, 1, 2)
+		reqEnv[0] = "A=b"
+		req := PromptRequest{Prompt: "p", Model: "m", Sandbox: sandbox, Env: reqEnv, MaxOutputTokens: 8192}
+		for name, spec := range map[string]runner.CommandSpec{
+			"first run": c.PromptSpec("/work", req),
+			"resume":    c.ResumeSpec("/work", claudeSessionID, req),
+		} {
+			if n := countArg(spec.Env, ClaudeMaxOutputTokensEnv+"=8192"); n != 1 {
+				t.Errorf("%d %s: Env = %q, want %s=8192 once", sandbox, name, spec.Env, ClaudeMaxOutputTokensEnv)
+			}
+			if spec.Env[0] != "A=b" {
+				t.Errorf("%d %s: Env = %q, want the request's own first", sandbox, name, spec.Env)
+			}
+		}
+		if spare := reqEnv[:cap(reqEnv)][1]; spare != "" {
+			t.Errorf("%d: request Env's backing array written through: %q", sandbox, spare)
+		}
+		req.MaxOutputTokens = 0
+		for _, kv := range c.PromptSpec("/work", req).Env {
+			if strings.HasPrefix(kv, ClaudeMaxOutputTokensEnv+"=") {
+				t.Errorf("%d: an unset bound renders %q", sandbox, kv)
+			}
+		}
+	}
+}
+
 // countArg counts the occurrences of arg in argv.
 func countArg(argv []string, arg string) int {
 	n := 0

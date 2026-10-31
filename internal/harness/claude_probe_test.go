@@ -153,8 +153,22 @@ func probeEvaluate(t *testing.T, cli string) {
 	t.Run("evaluate", func(t *testing.T) {
 		p := newEvalProbe(t, cli)
 		script := evaluateScript(p)
-		got := p.run(t, NewClaude().PromptSpec(p.scratch, p.request()), script)
+		// The stage's output bound (agentrun sets one for evaluate and
+		// checkreview, so the broker's per-request reservation fits a small
+		// cost budget) must be what every request asks for.
+		req := p.request()
+		req.MaxOutputTokens = 8192
+		got := p.run(t, NewClaude().PromptSpec(p.scratch, req), script)
 		got.assertPinned(t, script)
+		if len(got.maxTokens) == 0 {
+			t.Error("no model request recorded a max_tokens")
+		}
+		for i, n := range got.maxTokens {
+			if n != req.MaxOutputTokens {
+				t.Errorf("request %d: max_tokens = %d, want the bound %d (%s)", i, n, req.MaxOutputTokens,
+					ClaudeMaxOutputTokensEnv)
+			}
+		}
 		if want := []string{"Bash", "Read", "Write"}; !slices.Equal(slices.Sorted(slices.Values(got.init.Tools)), want) {
 			t.Errorf("tools = %v, want exactly %v", got.init.Tools, want)
 		}
@@ -409,6 +423,8 @@ type probeOutcome struct {
 	// leaked are the upstream's canaries that appeared in a request to the
 	// model.
 	leaked []string
+	// maxTokens is each Messages request's max_tokens, in order.
+	maxTokens []int
 }
 
 type toolResult struct {
@@ -459,6 +475,7 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 
 	out := probeOutcome{results: map[string]toolResult{}}
 	out.headerSeen, out.guidance, out.leaked = p.upstream.seen()
+	out.maxTokens = p.upstream.maxTokensSeen()
 	for _, name := range []string{"hooks", "mcp"} {
 		b, _ := os.ReadFile(filepath.Join(p.marks, name))
 		for line := range strings.Lines(string(b)) {
@@ -640,6 +657,8 @@ type fakeUpstream struct {
 	header   bool // a request carried the tree's env block's header
 	guidance bool // a first request (no tool result yet) carried CLAUDE.md
 	leaked   []string
+	// maxTokens is each Messages request's max_tokens, in order.
+	maxTokens []int
 }
 
 // probeSecretEnv is a variable every probe run carries, holding
@@ -664,7 +683,14 @@ func (f *fakeUpstream) url() string { return f.srv.URL }
 func (f *fakeUpstream) reset(steps [][]toolCall) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.steps, f.header, f.guidance, f.leaked = steps, false, false, nil
+	f.steps, f.header, f.guidance, f.leaked, f.maxTokens = steps, false, false, nil, nil
+}
+
+// maxTokensSeen reports each Messages request's max_tokens.
+func (f *fakeUpstream) maxTokensSeen() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.maxTokens)
 }
 
 // seen reports what the run's requests carried.
@@ -701,13 +727,17 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Unlock()
 	var req struct {
-		Stream bool              `json:"stream"`
-		Tools  []json.RawMessage `json:"tools"`
+		Stream    bool              `json:"stream"`
+		Tools     []json.RawMessage `json:"tools"`
+		MaxTokens int               `json:"max_tokens"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	f.mu.Lock()
+	f.maxTokens = append(f.maxTokens, req.MaxTokens)
+	f.mu.Unlock()
 	first := len(req.Tools) > 0 && !bytes.Contains(body, []byte(`"tool_result"`))
 	if first && bytes.Contains(body, []byte(probeCodeword)) {
 		f.mu.Lock()

@@ -229,6 +229,12 @@ const claudeNoAutoMemory = "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
 // take up to maultool.CallTimeout, well past the CLI's two-minute default.
 var claudeEvaluateBash = []string{"BASH_DEFAULT_TIMEOUT_MS=600000", "BASH_MAX_TIMEOUT_MS=600000"}
 
+// ClaudeMaxOutputTokensEnv is the CLI's output bound: claude 2.1.263 sends
+// it as every request's max_tokens (TestClaudePostureProbe pins that),
+// lowering the default (64000 for the 5-series, 32000 for haiku 4.5) and
+// raising it only to the model's own maximum.
+const ClaudeMaxOutputTokensEnv = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
+
 // PromptSpec builds the headless claude invocation for one prompted run.
 // stream-json with --verbose emits one JSON event per line, which is what
 // ParseResult and ScanUsage parse. Optional request fields append their flag
@@ -268,6 +274,9 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		if req.Sandbox == SandboxEvaluate {
 			env = append(env, claudeEvaluateBash...)
 		}
+	}
+	if req.MaxOutputTokens > 0 {
+		env = append(slices.Clip(env), ClaudeMaxOutputTokensEnv+"="+strconv.Itoa(req.MaxOutputTokens))
 	}
 	if !claudeTools[req.Sandbox].scratchOnly {
 		for _, dir := range req.AddDirs {
