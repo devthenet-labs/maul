@@ -113,13 +113,19 @@ func ReadKey(path string) ([]byte, error) {
 	return key, nil
 }
 
-// Handler serves /json/version and the WebSocket.
+// Handler serves /json/version and the WebSocket. The gate runs first, for
+// every path: the mux's own answers (a 307 canonicalising a path, a 404)
+// would otherwise tell a caller without the key what routes exist.
 func (s *Shim) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/json/version", s.version)
 	mux.HandleFunc("/json/version/", s.version)
 	mux.HandleFunc("/devtools/browser/", s.devtools)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.gate(w, r) {
+			mux.ServeHTTP(w, r)
+		}
+	})
 }
 
 // Live is the number of connections holding a browser slot.
@@ -144,7 +150,7 @@ func (s *Shim) Close() {
 }
 
 // gate refuses a request with any Origin header or without the key, and
-// any method but GET. It runs before the upgrade.
+// any method but GET. Handler runs it before the mux and the upgrade.
 func (s *Shim) gate(w http.ResponseWriter, r *http.Request) bool {
 	if _, ok := r.Header["Origin"]; ok {
 		s.refuse(w, r, http.StatusForbidden, "origin")
@@ -169,9 +175,6 @@ func (s *Shim) refuse(w http.ResponseWriter, r *http.Request, status int, reason
 }
 
 func (s *Shim) version(w http.ResponseWriter, r *http.Request) {
-	if !s.gate(w, r) {
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"Browser":              "maul-cdp-shim",
@@ -181,9 +184,6 @@ func (s *Shim) version(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Shim) devtools(w http.ResponseWriter, r *http.Request) {
-	if !s.gate(w, r) {
-		return
-	}
 	if !s.acquire() {
 		s.refuse(w, r, http.StatusServiceUnavailable, "busy")
 		return
