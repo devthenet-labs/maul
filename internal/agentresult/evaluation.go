@@ -110,11 +110,15 @@ type CheckReview struct {
 }
 
 // ReviewAnswer is one answer, keyed by the digests agent-runner was handed.
+//
+// Unreviewed marks agent-runner's own unclear for a review that ended
+// without an accepted report (envelope.ReviewAnswer.Unreviewed).
 type ReviewAnswer struct {
 	CheckDigest   string
 	OutcomeDigest string
 	Answer        report.ReviewAnswer
 	Reason        string
+	Unreviewed    bool `json:",omitempty"`
 }
 
 // FromCheckReview converts a checkreview event's payload. There is no one
@@ -167,8 +171,12 @@ func reviewAnswers(in []envelope.ReviewAnswer) ([]ReviewAnswer, error) {
 			errs = append(errs, fmt.Errorf("answers[%d]: %w", i, err))
 			continue
 		}
+		if a.Unreviewed && c.Answer != report.AnswerUnclear {
+			errs = append(errs, fmt.Errorf("answers[%d] is unreviewed, so unclear, not %s", i, c.Answer))
+			continue
+		}
 		out = append(out, ReviewAnswer{CheckDigest: a.CheckDigest, OutcomeDigest: a.OutcomeDigest,
-			Answer: c.Answer, Reason: c.Reason})
+			Answer: c.Answer, Reason: c.Reason, Unreviewed: a.Unreviewed})
 	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, err

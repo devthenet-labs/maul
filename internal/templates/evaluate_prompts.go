@@ -324,7 +324,25 @@ type CheckReviewPrompt struct {
 	Outcome string
 	// Check is the check under review.
 	Check checks.Check
+	// ExpectFail asks the red question: the check failed on the build under
+	// review, at step FailedStep (1-based), and the evaluator proposes it to
+	// show that the outcome does not hold.
+	ExpectFail bool
+	FailedStep int
 }
+
+// ExampleCheckReviewReport is the report the check reviewer's prompt
+// shows, which its repair restates; a test decodes it with
+// report.ParseCheckReview, so the prompt never teaches a refused shape (S1
+// bug 8: a live reviewer left its frontmatter open).
+const ExampleCheckReviewReport = `---
+answer: proves
+reason: "It creates its own battle, votes on it and asserts the rating moved by the stake shown."
+---
+`
+
+// ReportExample is ExampleCheckReviewReport, for the template.
+func (checkReviewView) ReportExample() string { return ExampleCheckReviewReport }
 
 // checkReviewView is CheckReviewPrompt as the template reads it.
 type checkReviewView struct {
@@ -475,6 +493,10 @@ proposed:
   - id: "winner-rises-api"
     outcome: "winner-rises"
     file: "/work/scratch/checks/winner-rises-api.json"
+  - id: "live-score-socket"
+    outcome: "live-score"
+    file: "/work/scratch/checks/live-score-socket.json"
+    expect: fail
 retire: []
 anomalies:
   - summary: "The Back to battles link is dark blue on a dark background and barely readable."

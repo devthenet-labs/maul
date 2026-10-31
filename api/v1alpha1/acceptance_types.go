@@ -313,7 +313,21 @@ type SavedCheck struct {
 	// confirmation, replay and review is recorded against.
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	Digest string `json:"digest"`
+	// Expect is fail for a check saved to show a defect: proposed for a fail
+	// verdict, its dry run and its confirmation red by assertion, reviewed
+	// with the red question. It is the check of the outcome as approved all
+	// the same, so it passes once the defect is fixed. Unset for a check
+	// saved green.
+	// +optional
+	Expect CheckExpectation `json:"expect,omitempty"`
 }
+
+// CheckExpectation is what a check was confirmed to do when it was saved.
+// +kubebuilder:validation:Enum=fail
+type CheckExpectation string
+
+// CheckExpectFail is a check saved red: it showed a defect of its outcome.
+const CheckExpectFail CheckExpectation = "fail"
 
 // CheckStoreRef names the Intent's check store: an immutable ConfigMap
 // owned by the Intent, in the release namespace, holding the saved checks
@@ -358,6 +372,11 @@ type CheckReviewRecord struct {
 	OutcomeDigest string `json:"outcomeDigest"`
 	// Answer is the reviewer's.
 	Answer ReviewAnswer `json:"answer"`
+	// Expect is fail when the reviewer was asked the red question: the
+	// check failed, and the evaluator proposed it to show a defect. Only
+	// such a review lets a check saved red support a fail.
+	// +optional
+	Expect CheckExpectation `json:"expect,omitempty"`
 	// Run is the checkreview IntentRun that answered.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63

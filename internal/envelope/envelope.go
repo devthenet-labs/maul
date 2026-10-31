@@ -276,6 +276,8 @@ type ProposedCheck struct {
 	ID      string `json:"id"`
 	Outcome string `json:"outcome"`
 	Digest  string `json:"digest"`
+	// Expect is fail for a check proposed to show a defect.
+	Expect string `json:"expect,omitempty"`
 }
 
 // Retire is the evaluator's request to retire a saved check.
@@ -304,11 +306,17 @@ type CheckReview struct {
 
 // ReviewAnswer is the reviewer's answer on whether one check proves one
 // outcome: proves, does_not_prove or unclear.
+//
+// Unreviewed marks an answer agent-runner wrote itself, unclear, for a
+// check whose review session ended without a report it accepts (refused
+// after its repairs, or the session failed): the check is not saved this
+// round, and the answer is not the reviewer's to cache.
 type ReviewAnswer struct {
 	CheckDigest   string `json:"check_digest"`
 	OutcomeDigest string `json:"outcome_digest"`
 	Answer        string `json:"answer"`
 	Reason        string `json:"reason"`
+	Unreviewed    bool   `json:"unreviewed,omitempty"`
 }
 
 // Event is one envelope line.

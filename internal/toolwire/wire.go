@@ -103,9 +103,26 @@ type CheckResultsRequest struct{}
 
 // ConfirmRequest is agent-runner's confirm: run each named check (by
 // digest) alone, with a fresh run token. The relay refuses a digest with no
-// green dry run.
+// green dry run, or, for one named in ExpectFail (a check the evaluator
+// proposes to show a defect of the outcome it is bound to), with no dry run
+// red by assertion (CheckRunRecord.AssertionStep) or with a green one.
 type ConfirmRequest struct {
 	Digests []string `json:"digests"`
+	// ExpectFail are the digests of Digests whose proposal expects them to
+	// fail: the outcome they are bound to does not hold.
+	ExpectFail []string `json:"expectFail,omitempty"`
+}
+
+// ExpectFail is the expectation a confirmation entry's args record for a
+// check confirmed as showing a defect: {"digest": <hex>, "expect": "fail"}.
+// A confirmation of a check expected to pass records the digest alone.
+const ExpectFail = "fail"
+
+// ConfirmArgs are the args of the relay's own confirmation entry, one per
+// check a confirm ran.
+type ConfirmArgs struct {
+	Digest string `json:"digest"`
+	Expect string `json:"expect,omitempty"`
 }
 
 // FinishRequest is agent-runner's finish: the ledger entries whose images
@@ -210,6 +227,13 @@ func (r *ConfirmRequest) Check() error {
 		}
 		seen[d] = true
 	}
+	red := map[string]bool{}
+	for _, d := range r.ExpectFail {
+		if !seen[d] || red[d] {
+			return fmt.Errorf("expected failure %q names no check of the confirm, or one twice", d)
+		}
+		red[d] = true
+	}
 	return nil
 }
 
@@ -269,6 +293,7 @@ const (
 	RefusedNavigation  = "navigation-not-allowed"
 	RefusedToolCalls   = "tool-calls-exhausted"
 	RefusedNoDryRun    = "no-green-dry-run"
+	RefusedNoRedDryRun = "no-red-dry-run"
 	RefusedCheck       = "check-invalid"
 	RefusedFinished    = "finished"
 	RefusedUnavailable = "unavailable"

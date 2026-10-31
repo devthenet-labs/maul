@@ -144,8 +144,13 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	}
 	items := make([]agentrun.CheckReviewItem, 0, len(pending))
 	for _, c := range pending {
-		items = append(items, agentrun.CheckReviewItem{CheckDigest: c.check.Digest,
-			OutcomeDigest: outcomeDigest(c.outcome), Outcome: reviewOutcomeText(c.outcome), Check: c.check.Body})
+		it := agentrun.CheckReviewItem{CheckDigest: c.check.Digest, OutcomeDigest: outcomeDigest(c.outcome),
+			Outcome: reviewOutcomeText(c.outcome), Check: c.check.Body}
+		if c.red() {
+			// The red question, naming the step maul's own run failed at.
+			it.Expect, it.FailedStep = string(v1alpha1.CheckExpectFail), int(c.failedStep)
+		}
+		items = append(items, it)
 	}
 	handoff, err := encodeCheckReviewHandoff(items)
 	if err != nil {
@@ -162,25 +167,38 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	return true, nil
 }
 
-// recordReviews caches run's answers for pending's keys, each naming run.
-// A run that failed, or answered none of them, caches nothing, and its
-// checks stay unstored this round. It reports whether it wrote.
+// recordReviews caches run's answers for pending's keys, each naming run
+// and the question it answered (red or not). A run that failed, or answered
+// none of them, caches nothing, and its checks stay unstored this round; so
+// does an answer agent-runner wrote itself for a review with no accepted
+// report (unreviewed: unclear, its check alone unstored, and reviewed again
+// should a later round confirm it). It reports whether it wrote.
 func (p *pass) recordReviews(ctx context.Context, run *v1alpha1.IntentRun, pending []storeCandidate,
 	stored []v1alpha1.SavedCheck) (changed, wait bool, err error) {
 	answers := reviewAnswers(run)
-	want := make(map[reviewKey]bool, len(pending))
+	want := make(map[reviewKey]storeCandidate, len(pending))
 	for _, c := range pending {
-		want[c.reviewKey()] = true
+		want[reviewKey{check: c.check.Digest, outcome: outcomeDigest(c.outcome)}] = c
 	}
 	var add []v1alpha1.CheckReviewRecord
 	for _, a := range answers {
 		k := reviewKey{check: a.CheckDigest, outcome: a.OutcomeDigest}
-		if !want[k] {
+		c, ok := want[k]
+		if !ok {
 			continue
 		}
-		want[k] = false
-		add = append(add, v1alpha1.CheckReviewRecord{CheckDigest: a.CheckDigest, OutcomeDigest: a.OutcomeDigest,
-			Answer: v1alpha1.ReviewAnswer(a.Answer), Run: run.Name})
+		delete(want, k)
+		if a.Unreviewed {
+			p.r.log().LogAttrs(ctx, slog.LevelInfo, "a check's review ended with no report; it is unclear and not stored",
+				slog.String("intent", p.in.Name), slog.String("run", run.Name), slog.String("check", a.CheckDigest))
+			continue
+		}
+		rec := v1alpha1.CheckReviewRecord{CheckDigest: a.CheckDigest, OutcomeDigest: a.OutcomeDigest,
+			Answer: v1alpha1.ReviewAnswer(a.Answer), Run: run.Name}
+		if c.red() {
+			rec.Expect = v1alpha1.CheckExpectFail
+		}
+		add = append(add, rec)
 	}
 	if len(add) == 0 {
 		p.r.log().LogAttrs(ctx, slog.LevelInfo, "the check reviewer answered none of the round's checks",

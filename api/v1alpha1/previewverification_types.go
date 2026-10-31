@@ -733,13 +733,29 @@ type CheckRun struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=512
 	Seq int32 `json:"seq"`
-	// DryRunSeq is the ledger entry of the green dry run a confirmation
-	// required; unset on a replay.
+	// DryRunSeq is the ledger entry of the dry run a confirmation required:
+	// green, or, for a check expected to fail (Expect), red by assertion;
+	// unset on a replay.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=512
 	DryRunSeq int32 `json:"dryRunSeq,omitempty"`
+	// Expect is fail for a confirmation of a check the evaluator proposed
+	// to show a defect.
+	// +optional
+	Expect CheckExpectation `json:"expect,omitempty"`
+	// AssertionStep is, for a failed run red by assertion, the step (1-based)
+	// at which both attempts failed, an assertion of a check that otherwise
+	// ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
+	// timeout or a locator that resolved to nothing. Unset otherwise.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
+	AssertionStep int32 `json:"assertionStep,omitempty"`
 }
+
+// RedByAssertion reports a run red by assertion (AssertionStep).
+func (r CheckRun) RedByAssertion() bool { return r.Result == CheckRunFail && r.AssertionStep > 0 }
 
 // CaptureSummary is what was captured from the slot for the evaluator: per
 // component, how many log bytes (a tail since the verification started,

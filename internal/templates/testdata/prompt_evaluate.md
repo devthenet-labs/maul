@@ -95,14 +95,16 @@ This run may take at most 80 agent turns, 200000 output tokens and 20 minutes.
 Every tool call takes one of these turns, and a run that reaches any of these limits is stopped where it is, so
 budget for your report:
 
-- Write your report as soon as every outcome has a verdict: a pass or a fail shown by a green `maul-tool check run`,
-  or unsure. Do not hold it back for a better check or for the look-around: look around
+- Write your report as soon as every outcome has a verdict: a pass shown by a green `maul-tool check run`, a fail
+  shown by a check run that failed an assertion of the outcome, or unsure.
+  Do not hold it back for a better check or for the look-around: look around
   after it with the turns left, and rewrite it with any anomaly you find.
 - Write it by turn 72 at the latest, whatever is left; keep the turns after that for it. An outcome you
   have not shown by then is unsure.
 - Spend your turns on the outcomes first. An outcome that still resists after a few tries is unsure; move on.
 - If your run is stopped before you have written it, maul asks you once to write it from what you have: propose only
-  the checks whose `maul-tool check run` printed pass, and mark every outcome you did not show unsure. Do not count
+  the checks whose `maul-tool check run` printed pass (or, with `expect: fail`, failed an assertion of an outcome you
+  report fail), and mark every outcome you did not show unsure. Do not count
   on it: a run stopped by its cost or its wall clock gets no such turn.
 
 ## How to evaluate
@@ -125,8 +127,20 @@ budget for your report:
 A check is a JSON file that maul validates, runs on every later round with a fresh token, and shows to the human
 reviewers. Write each check with the Write tool, as a new file under `/work/scratch/checks`, one check per
 file. Then run `maul-tool check run <file>` on it, and fix and rerun it until it passes. **Get a green
-`maul-tool check run` before you propose a check**: maul accepts only a check whose digest it has seen pass, and
-you propose it by its file, which maul reads that digest from: leave the file as it ran green.
+`maul-tool check run` before you propose a check that shows an outcome holds**: maul accepts only a check whose
+digest it has seen pass, and you propose it by its file, which maul reads that digest from: leave the file as it ran.
+
+**A check that shows a defect.** When an outcome fails, save the check that shows it: the check of the outcome as
+approved, which would pass on a build where the outcome holds, and fails on this one. Never bend a check to make it
+fail: it asserts exactly what the outcome states, on data it created itself. Its `maul-tool check run` must fail at
+an assertion of the outcome itself (a status, a value, a text or a measurement the outcome states), every step
+before it having passed: maul-tool then prints `red by assertion at step <n>`. maul refuses a check that failed any
+other way: a check error, a timeout, a request with no
+answer, a locator that found nothing or more than one element; fix it until it fails only where the outcome does.
+Propose it with `expect: fail` under the outcome you report `fail`. maul then runs it again itself, a reviewer
+judges whether it encodes the outcome and whether the assertion that failed is the outcome, and only then is the
+outcome failed and a fix started, handed your check's failure as its reproduction. Once the fix is in, the same check
+must pass.
 
 A check is bound to one outcome and has one form:
 
@@ -268,6 +282,10 @@ proposed:
   - id: "winner-rises-api"
     outcome: "winner-rises"
     file: "/work/scratch/checks/winner-rises-api.json"
+  - id: "live-score-socket"
+    outcome: "live-score"
+    file: "/work/scratch/checks/live-score-socket.json"
+    expect: fail
 retire: []
 anomalies:
   - summary: "The Back to battles link is dark blue on a dark background and barely readable."
@@ -282,8 +300,9 @@ What I checked, in a few lines.
   seqs it rests on (`[]` only for unsure); and an optional one-line `note` for the human reviewers. No other key.
 - `disputes`: each saved check you dispute, by the digest `maul-tool check results` printed: the `reason`, the
   `ledger` seqs of its failure, and the `replacement`, the id of a check under `proposed`, if you saved one.
-- `proposed`: each check you want saved: its `id`, its `outcome` id, and the `file` you ran green with
-  `maul-tool check run`, as you passed it (you may give the `digest` that run printed instead).
+- `proposed`: each check you want saved: its `id`, its `outcome` id, and the `file` you ran with
+  `maul-tool check run`, as you passed it (you may give the `digest` that run printed instead); and `expect: fail`
+  for a check that shows a defect of an outcome you report `fail` (leave it out for a check that ran green).
 - `retire`: each saved check to retire, by its digest, with a `reason`.
 - `anomalies`: each anomaly, with a one-line `summary`, the `route` or surface it is on, and its `ledger` seqs.
 

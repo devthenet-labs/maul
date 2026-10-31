@@ -117,6 +117,16 @@ spec:
                         confirmation, replay and review is recorded against.
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
+                    expect:
+                      description: |-
+                        Expect is fail for a check saved to show a defect: proposed for a fail
+                        verdict, its dry run and its confirmation red by assertion, reviewed
+                        with the red question. It is the check of the outcome as approved all
+                        the same, so it passes once the defect is fixed. Unset for a check
+                        saved green.
+                      enum:
+                      - fail
+                      type: string
                     form:
                       description: Form is how the check runs.
                       enum:
@@ -702,18 +712,36 @@ spec:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.
                   properties:
+                    assertionStep:
+                      description: |-
+                        AssertionStep is, for a failed run red by assertion, the step (1-based)
+                        at which both attempts failed, an assertion of a check that otherwise
+                        ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
+                        timeout or a locator that resolved to nothing. Unset otherwise.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
                     checkDigest:
                       description: CheckDigest is the check's digest.
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
                     dryRunSeq:
                       description: |-
-                        DryRunSeq is the ledger entry of the green dry run a confirmation
-                        required; unset on a replay.
+                        DryRunSeq is the ledger entry of the dry run a confirmation required:
+                        green, or, for a check expected to fail (Expect), red by assertion;
+                        unset on a replay.
                       format: int32
                       maximum: 512
                       minimum: 1
                       type: integer
+                    expect:
+                      description: |-
+                        Expect is fail for a confirmation of a check the evaluator proposed
+                        to show a defect.
+                      enum:
+                      - fail
+                      type: string
                     result:
                       description: Result of the run.
                       enum:
@@ -769,6 +797,16 @@ spec:
                         Digest is internal/checks.Digest of the body: what every dry run,
                         confirmation, replay and review is recorded against.
                       pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    expect:
+                      description: |-
+                        Expect is fail for a check saved to show a defect: proposed for a fail
+                        verdict, its dry run and its confirmation red by assertion, reviewed
+                        with the red question. It is the check of the outcome as approved all
+                        the same, so it passes once the defect is fixed. Unset for a check
+                        saved green.
+                      enum:
+                      - fail
                       type: string
                     form:
                       description: Form is how the check runs.
@@ -1267,18 +1305,36 @@ spec:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.
                   properties:
+                    assertionStep:
+                      description: |-
+                        AssertionStep is, for a failed run red by assertion, the step (1-based)
+                        at which both attempts failed, an assertion of a check that otherwise
+                        ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
+                        timeout or a locator that resolved to nothing. Unset otherwise.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
                     checkDigest:
                       description: CheckDigest is the check's digest.
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
                     dryRunSeq:
                       description: |-
-                        DryRunSeq is the ledger entry of the green dry run a confirmation
-                        required; unset on a replay.
+                        DryRunSeq is the ledger entry of the dry run a confirmation required:
+                        green, or, for a check expected to fail (Expect), red by assertion;
+                        unset on a replay.
                       format: int32
                       maximum: 512
                       minimum: 1
                       type: integer
+                    expect:
+                      description: |-
+                        Expect is fail for a confirmation of a check the evaluator proposed
+                        to show a defect.
+                      enum:
+                      - fail
+                      type: string
                     result:
                       description: Result of the run.
                       enum:
