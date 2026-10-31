@@ -131,14 +131,25 @@ check of the outcome as approved, which would pass where the outcome holds and f
 `expect: fail`, under an outcome it reports `fail`. A wrong fail starts a fix of code that works, so every one of these
 must hold before the outcome is failed:
 
-1. **Red by assertion.** The check's dry run failed at an assertion of a check that otherwise ran: a response, page or
-   program was there, every step before passed, and the failing step's expectation was not met (a status, a JSON value,
-   a header, a body text, an exit code, an output, a text, a count, a URL or one of maul's measurements). A compile or
-   runtime error, a timeout, a request with no answer, an action that timed out, or a locator that found nothing or more
-   than one element is not. Both attempts of the run must fail at the same step. `maul-tool` prints
-   `red by assertion at step <n>` for such a run.
+1. **Red by assertion.** The check's dry run failed at an assertion the outcome is the judge of, in a check that
+   otherwise ran: every step before passed, and both attempts failed at the same step. What counts, by form:
+   - `http`: a JSON value of a JSON body that differs or is missing, a header, body text missing from a non-HTML body,
+     or a status that is a success other than the expected one or a 500 (a panic is a defect). Not a 404, 405 or 400 (a
+     path, method or body the check may have guessed wrong), any other 4xx, a 502, 503 or 504, HTML where JSON was
+     expected (an SPA's fallback page), no answer, or a capture with nothing to keep.
+   - `exec`: only a program that says so itself, printing `MAUL-ASSERTION-FAILED: <what it saw>` at the start of a line
+     of stdout, with the check's expectation failing. An exit code alone, a crash, `127` or a traceback never is.
+   - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there. Not a timeout, an
+     action, a locator that resolved nothing (a count of 0 included) or more than one element, an element with no box, a
+     trial click or an indeterminate judgement. The failing step is read from the compiled spec's own stack frame, never
+     from a line of maul's support module.
+
+   `maul-tool` prints `red by assertion at step <n>` for such a run. The check must also act on data of its own run:
+   `{{run}}` in a request, a browser action or its program, never only in an expectation.
+
 2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
-   assertion, and never one that also ran green (as it confirms a green proposal only against a green dry run).
+   assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
+   green proposal only against a green dry run, never one the replay saw red).
 3. **The red question.** The reviewer is told the check failed and at which step, and answers `proves` only if the check
    encodes the outcome as approved, would pass on a build where the outcome holds, and the assertion that failed is the
    outcome itself, not setup or something incidental. Anything else and the check is not stored; the outcome stays
@@ -146,11 +157,18 @@ must hold before the outcome is failed:
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by assertion at the same step as the dry run makes the outcome **failed**. A
    run that passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.
+5. **No vetted check disagrees.** If another check of the outcome, valid and reviewed `proves`, passed cleanly in the
+   same round, the two disagree: the outcome is unsure (this holds for every failing check, not only red ones).
 
-The check is then stored (marked as saved red) and the verify-fix round is handed its failure as the reproduction. After
-the fix, the same check replays at the new heads: green, it passes the outcome as any saved check does. Where a base is
-available, a check of a new outcome that fails at base too is expected (the feature did not exist), and is not a reason
-to refuse it.
+The check is then stored (marked as saved red, with the step it failed at) and the verify-fix round is handed its
+failure as the reproduction. After the fix, the same check replays at the new heads: green, it passes the outcome as any
+saved check does. Until it has replayed green once, its steps after the saved one have never run, so a replay that fails
+other than by assertion at or before that step is unsure, never a second fix. Where a base is available, a check of a
+new outcome that fails at base too is expected (the feature did not exist), and is not a reason to refuse it.
+
+A residual risk stays: maul's own run happens on the preview the exploration used, so a check reading state the
+evaluator left behind could go red deterministically. The run-data rule, the reviewer's "on data it created itself" and
+the red question narrow it; they do not close it.
 
 ## Disputes
 

@@ -215,12 +215,18 @@ type StepRecord struct {
 	Result AttemptResult `json:"result"`
 	// Detail is the runner's message for a step that did not pass.
 	Detail string `json:"detail,omitempty"`
-	// Assertion marks a failing step that failed an assertion of a check
-	// that otherwise ran: a response, page or program was there and did not
-	// match what the check expects. Never set on a compile, runtime or
-	// sandbox error, a timeout, a navigation or transport failure, or a
-	// locator that resolved to nothing or to more than one element; only on
-	// a fail step (Check).
+	// Assertion marks a failing step that failed an assertion the outcome
+	// is the judge of, in a check that otherwise ran; only on a fail step
+	// (Check). http: a JSON value of a JSON body, a header, body text of a
+	// non-HTML body, or a status that is a success or a 500; never a 404,
+	// 405, 400, another 4xx or a 501-504, a non-JSON body where JSON was
+	// expected, no response, an unbuilt request or a missing capture. exec:
+	// only when the program printed checks.ExecAssertionMarker, never an exit
+	// code or missing output alone, never a time limit. browser: an expect
+	// step's maul assertion or Playwright matcher on an element that was
+	// there; never a timeout, an action, a locator that resolved nothing
+	// (a count of 0 included) or more than one element, an element with no
+	// box, a trial click or an indeterminate judgement.
 	Assertion bool `json:"assertion,omitempty"`
 }
 

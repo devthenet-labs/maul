@@ -127,6 +127,14 @@ spec:
                       enum:
                       - fail
                       type: string
+                    failedStep:
+                      description: |-
+                        FailedStep is, for a check saved red, the step (1-based) at which its
+                        confirmation failed by assertion.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
                     form:
                       description: Form is how the check runs.
                       enum:
@@ -808,6 +816,14 @@ spec:
                       enum:
                       - fail
                       type: string
+                    failedStep:
+                      description: |-
+                        FailedStep is, for a check saved red, the step (1-based) at which its
+                        confirmation failed by assertion.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
                     form:
                       description: Form is how the check runs.
                       enum:

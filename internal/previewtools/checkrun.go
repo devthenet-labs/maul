@@ -113,13 +113,15 @@ func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, r
 	case rep.TooLarge:
 		return "the response body is over " + strconv.Itoa(MaxResponseBytes) + " bytes", false
 	case !slices.Contains(st.Expect.Status, int32(rep.Status)):
-		return fmt.Sprintf("status %d, expected one of %v", rep.Status, st.Expect.Status), true
+		return fmt.Sprintf("status %d, expected one of %v", rep.Status, st.Expect.Status), statusAssertion(rep.Status)
 	}
 	doc, valid := decodeJSON(rep.Body)
 	for _, ptr := range sortedKeys(st.Expect.JSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(st.Expect.JSON[ptr], run, caps, raw, present) {
-			return "json " + strconv.Quote(ptr) + " did not match", true
+			// A body that is not JSON (an SPA's HTML fallback for a path
+			// the check guessed) shows the request missed, not the outcome.
+			return "json " + strconv.Quote(ptr) + " did not match", valid
 		}
 	}
 	for _, name := range sortedKeys(st.Expect.Headers) {
@@ -134,7 +136,7 @@ func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, r
 			return "the expected text could not be built: a capture is missing", false
 		}
 		if !bytes.Contains(rep.Body, []byte(needle)) {
-			return "the body does not contain the expected text", true
+			return "the body does not contain the expected text", !htmlBody(rep.Header)
 		}
 	}
 	for _, name := range sortedKeys(st.Capture) {
@@ -146,6 +148,25 @@ func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, r
 		caps[name] = v
 	}
 	return "", false
+}
+
+// statusAssertion reports whether an unexpected status is an assertion,
+// one the outcome is the judge of: a success (the application handled the
+// request, differently from what the outcome states) or a 500 (the
+// application's own failure on a request it routes: a panic is a defect).
+// Every other status is unsure: a 404 or 405 is a path or method the check
+// may have guessed, a 400 a body it may have got wrong, other 4xx are
+// access or conflict the check may have caused, and 501-504 a gateway or a
+// component not there.
+func statusAssertion(status int) bool {
+	return (status >= 200 && status < 300) || status == 500
+}
+
+// htmlBody reports an HTML answer: a page (an SPA's fallback included), on
+// which text missing is no assertion of an http check.
+func htmlBody(h map[string][]string) bool {
+	ct, _ := headerValue(h, "Content-Type")
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(ct)), "text/html")
 }
 
 // execAttempt runs an exec check once in the sandbox: argv and its files
@@ -174,10 +195,13 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	case res.Refused != "":
 		return errStep("the sandbox refused the program")
 	}
-	// fail is an unmet expectation of a program that ran to its end: an
-	// assertion.
+	// fail is an unmet expectation. It is an assertion only when the
+	// program said it judged its own assertion and found the outcome does
+	// not hold (checks.ExecAssertionMarker): an exit code or missing output
+	// alone is what a crashed or broken program shows too.
+	asserted := checks.HasExecAssertion(res.Output)
 	fail := func(detail string) []toolwire.StepRecord {
-		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: detail, Assertion: true}}
+		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: detail, Assertion: asserted}}
 	}
 	x := e.Expect
 	switch {

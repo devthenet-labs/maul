@@ -90,14 +90,21 @@ func TestConfirmedRedChecks(t *testing.T) {
 	l.confirm(alsoGreen, true, failing(1, 1, true))
 	unexpected, _ := l.dryRun(body("unexpected"), failing(1, 1, true))
 	l.confirm(unexpected, false, failing(1, 1, true))
+	// Review finding 3: a saved check this round's replay saw green, then
+	// re-proposed red after the agent's own dry runs went red.
+	replayedGreen, _ := l.dryRun(body("replayed-green"), green)
+	l.entries[len(l.entries)-1].Kind, l.entries[len(l.entries)-1].CheckRun.Mode = toolwire.KindRelay,
+		toolwire.ModeReplay
+	l.dryRun(body("replayed-green"), failing(1, 1, true))
+	l.confirm(replayedGreen, true, failing(1, 1, true))
 
 	got := confirmedChecks(l.entries, testOutcomes())
 	if len(got) != 1 || got[0].Digest != "sha256:"+good || got[0].Expect != v1alpha1.CheckExpectFail ||
-		got[0].ID != "items.red" {
-		t.Fatalf("confirmed %+v, want only items.red, expected to fail", got)
+		got[0].ID != "items.red" || got[0].FailedStep != 2 {
+		t.Fatalf("confirmed %+v, want only items.red, expected to fail at step 2", got)
 	}
 	runs := confirmationRuns(l.entries)
-	if len(runs) != 6 {
+	if len(runs) != 7 {
 		t.Fatalf("confirmation runs %+v", runs)
 	}
 	if r := runs[0]; r.Seq != int32(goodConf) || r.DryRunSeq != int32(goodDry) || r.AssertionStep != 2 ||

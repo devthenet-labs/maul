@@ -418,12 +418,17 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 	for _, d := range req.Digests {
 		dr := r.dryRuns[d]
 		switch red := slices.Contains(req.ExpectFail, d); {
-		case red && (!dr.red || dr.green):
+		case red && (!dr.red || dr.green || r.replayed(d, toolwire.RunPass)):
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
-				"check "+d+" has no dry run in this evaluation that failed an assertion and none that passed"))
-		case !red && !dr.green:
+				"check "+d+" has no dry run in this evaluation that failed an assertion, or one ran green, or it "+
+					"replayed green this round"))
+		case red && !checks.CreatesRunData(dr.check):
+			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
+				"check "+d+" acts on no data of its own run: a check that shows a defect names {{run}} in a "+
+					"request, a browser action or its program"))
+		case !red && (!dr.green || r.replayed(d, toolwire.RunFail)):
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoDryRun,
-				"check "+d+" has no green dry run in this evaluation"))
+				"check "+d+" has no green dry run in this evaluation, or it replayed red this round"))
 		}
 	}
 	resp := r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, result{})
@@ -446,6 +451,15 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 	}
 	resp.Observed = &toolwire.Observed{CheckRuns: runs}
 	return resp
+}
+
+// replayed reports a replay of check d this round that ended result: a
+// saved check that replayed green is never confirmed red, nor one that
+// replayed red confirmed green (review finding 3).
+func (r *Relay) replayed(d string, result toolwire.RunResult) bool {
+	return slices.ContainsFunc(r.replays, func(rec toolwire.CheckRunRecord) bool {
+		return rec.Digest == d && rec.Result == result
+	})
 }
 
 // Finish reasons, the args of the relay's own finish entry.

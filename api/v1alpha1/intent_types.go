@@ -743,6 +743,15 @@ type IntentAcceptance struct {
 	// +kubebuilder:validation:MaxItems=80
 	// +listType=atomic
 	Reviews []CheckReviewRecord `json:"reviews,omitempty"`
+	// RedCleared are the digests of checks saved red (SavedCheck.Expect
+	// fail) that have since replayed green. Until one has, its steps after
+	// the one it was saved failing at never ran, so only a replay red by
+	// assertion at or before that step reproduces its defect.
+	// +optional
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^sha256:[0-9a-f]{64}$`
+	RedCleared []string `json:"redCleared,omitempty"`
 	// Accepted are the approvers' /maul accept records, oldest first.
 	// +optional
 	// +kubebuilder:validation:MaxItems=32

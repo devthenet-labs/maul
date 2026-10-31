@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -18,9 +19,15 @@ import (
 // red that is an assertion of a check that otherwise ran may support a
 // fail. These tests pin where tools draws that line.
 
-// TestHTTPAssertionFailures: an http check's unmet expectation (status,
-// json, header, body) is an assertion; an application that does not answer,
-// a request that cannot be built and a missing capture are not.
+// TestHTTPAssertionFailures: an http check's unmet expectation is an
+// assertion only where the application answered the request as one it
+// routes and the answer is the outcome's to judge: a JSON value that
+// differs (or is missing) in a JSON body, a header, body text in a non-HTML
+// answer, or a status that is a success or a 500 (the application's own
+// failure: a panic). A guessed path's 404, a 405 or a 400 for a body the
+// check got wrong, a gateway's 502-504, a non-JSON body where JSON was
+// expected (an SPA's HTML fallback), no answer, an unbuilt request and a
+// missing capture are not.
 func TestHTTPAssertionFailures(t *testing.T) {
 	t.Run("json out of range", func(t *testing.T) {
 		api := fakeAPI(t, func(int) int { return 99 })
@@ -30,14 +37,52 @@ func TestHTTPAssertionFailures(t *testing.T) {
 			t.Fatalf("AssertionStep() = %d, %v (%+v); want step 1", step, ok, rec)
 		}
 	})
-	t.Run("a status not expected", func(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		status      int
+		contentType string
+		body        string
+		assertion   bool
+	}{
+		{"a 500", http.StatusInternalServerError, "", "", true},
+		{"a success not expected", http.StatusOK, "application/json", `{"name":"x"}`, true},
+		{"another json value", http.StatusCreated, "application/json", `{"name":"someone-else"}`, true},
+		{"a 404", http.StatusNotFound, "", "", false},
+		{"a 405", http.StatusMethodNotAllowed, "", "", false},
+		{"a 400", http.StatusBadRequest, "", "", false},
+		{"a gateway's 502", http.StatusBadGateway, "", "", false},
+		{"an unavailable 503", http.StatusServiceUnavailable, "", "", false},
+		{"html where json was expected", http.StatusCreated, "text/html", "<!doctype html><div id=app></div>", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api := newFakeComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				if tc.contentType != "" {
+					w.Header().Set("Content-Type", tc.contentType)
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+			h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
+			rec := h.relay.runCheck(context.Background(), parseCheck(t, scoreCheck), toolwire.ModeDryRun)
+			if rec.Result != toolwire.RunFail {
+				t.Fatalf("got %+v", rec)
+			}
+			if _, ok := rec.AssertionStep(); ok != tc.assertion {
+				t.Errorf("red by assertion %v, want %v (%+v)", ok, tc.assertion, rec)
+			}
+		})
+	}
+	t.Run("body text in an html page", func(t *testing.T) {
+		const check = `{"id":"page.text","outcome":"page","form":"http","http":{"target":"api","steps":[
+		 {"request":{"path":"/api/x?r={{run}}"},"expect":{"status":200,"bodyContains":"Elo"}}]}}`
 		api := newFakeComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
-			w.WriteHeader(http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte("<!doctype html>"))
 		})
 		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
-		rec := h.relay.runCheck(context.Background(), parseCheck(t, scoreCheck), toolwire.ModeDryRun)
-		if step, ok := rec.AssertionStep(); !ok || step != 0 {
-			t.Fatalf("AssertionStep() = %d, %v (%+v); want step 0", step, ok, rec)
+		rec := h.relay.runCheck(context.Background(), parseCheck(t, check), toolwire.ModeDryRun)
+		if _, ok := rec.AssertionStep(); rec.Result != toolwire.RunFail || ok {
+			t.Errorf("an HTML page missing a text is red by assertion: %+v", rec)
 		}
 	})
 	t.Run("no response", func(t *testing.T) {
@@ -52,17 +97,30 @@ func TestHTTPAssertionFailures(t *testing.T) {
 	})
 }
 
-// TestExecAssertionFailures: an exec check's unmet exit or output is an
-// assertion; a program killed at its time limit is not.
+// TestExecAssertionFailures: an exec check is red by assertion only when
+// its program said so itself, printing a line that starts with
+// checks.ExecAssertionMarker (it reached and judged its assertion), and the
+// check's expectation failed. An exit code alone (a crash, 126, 127, a
+// signal), a traceback, missing output, or a program killed at its time
+// limit never is.
 func TestExecAssertionFailures(t *testing.T) {
+	marked := checks.ExecAssertionMarker + " the stake was 1, expected more than 1\n"
 	for _, tc := range []struct {
 		name      string
 		res       toolexec.Result
 		assertion bool
 	}{
-		{"wrong exit", toolexec.Result{Exit: 1}, true},
-		{"output missing", toolexec.Result{Exit: 0, Output: "nothing"}, true},
-		{"timed out", toolexec.Result{TimedOut: true}, false},
+		{"its own failed assertion, exit 1", toolexec.Result{Exit: 1, Output: marked}, true},
+		{"its own failed assertion, output unmet", toolexec.Result{Exit: 0, Output: marked}, true},
+		{"wrong exit alone", toolexec.Result{Exit: 1}, false},
+		{"command not found", toolexec.Result{Exit: 127, Output: "sh: client.py: not found\n"}, false},
+		{"not executable", toolexec.Result{Exit: 126}, false},
+		{"a signal", toolexec.Result{Exit: -1}, false},
+		{"a traceback", toolexec.Result{Exit: 1, Output: "Traceback (most recent call last):\n" +
+			"SyntaxError: invalid syntax\n"}, false},
+		{"output missing", toolexec.Result{Exit: 0, Output: "nothing"}, false},
+		{"the marker mid-line", toolexec.Result{Exit: 1, Output: "echo " + marked}, false},
+		{"timed out", toolexec.Result{TimedOut: true, Output: marked}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ex := &fakeExec{run: func(*toolwire.ExecRequest, int) (toolexec.Result, error) { return tc.res, nil }}
@@ -94,6 +152,10 @@ func TestBrowserAssertionFailures(t *testing.T) {
 		{"text expectation", at("failed", "Error: expect(locator).toContainText(expected) failed\n"+
 			"Expected substring: \"1\"\nReceived string: \"0\"", "toContainText"), true},
 		{"maul's measurement", at("failed", "Error: maul: size failed: width 30 not 40 +/- 1", "toContainText"), true},
+		{"a count of elements that are there", at("failed", "Error: expect(locator).toHaveCount(expected) failed\n"+
+			"Expected: 1\nReceived: 2", "toContainText"), true},
+		{"a count of nothing", at("failed", "Error: expect(locator).toHaveCount(expected) failed\n"+
+			"Expected: 1\nReceived: 0", "toContainText"), false},
 		{"element not found", at("failed", "Error: expect(locator).toContainText(expected) failed\n"+
 			"Received: <element(s) not found>", "toContainText"), false},
 		{"strict mode", at("failed", "Error: expect(locator).toContainText(expected) failed\n"+
@@ -185,6 +247,72 @@ func TestConfirmExpectedFailure(t *testing.T) {
 		h.call(toolwire.VerbCheckRun, `{"check":`+scoreCheck+`}`)
 		if _, resp := h.call(toolwire.VerbConfirm, confirm(digest, true)); resp.Refused != toolwire.RefusedNoRedDryRun {
 			t.Errorf("a check that also ran green was confirmed as showing a defect: %+v", resp)
+		}
+		h.finish()
+	})
+}
+
+// redConfirm is a confirm of digest, expected to fail when red.
+func redConfirm(t *testing.T, digest string, red bool) string {
+	t.Helper()
+	req := toolwire.ConfirmRequest{Digests: []string{digest}}
+	if red {
+		req.ExpectFail = []string{digest}
+	}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// TestConfirmAgainstTheReplay (review finding 3): a saved check this
+// round's replay saw green is never confirmed red, nor one it saw red
+// confirmed green; and a red check must act on data of its own run.
+func TestConfirmAgainstTheReplay(t *testing.T) {
+	digest := bareDigest(t, scoreCheck)
+	confirm := func(d string, red bool) string { return redConfirm(t, d, red) }
+	t.Run("replayed green this round", func(t *testing.T) {
+		api := fakeAPI(t, func(int) int { return 99 })
+		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
+		h.relay.replays = []toolwire.CheckRunRecord{{Digest: digest, Mode: toolwire.ModeReplay,
+			Result: toolwire.RunPass, Attempts: []toolwire.Attempt{{Run: "tok0", Result: toolwire.ResultPass}}}}
+		h.call(toolwire.VerbCheckRun, `{"check":`+scoreCheck+`}`)
+		if _, resp := h.call(toolwire.VerbConfirm, confirm(digest, true)); resp.Refused != toolwire.RefusedNoRedDryRun {
+			t.Errorf("a check replayed green was confirmed as showing a defect: %+v", resp)
+		}
+		h.finish()
+	})
+	t.Run("replayed red this round, confirmed green", func(t *testing.T) {
+		api := fakeAPI(t, func(int) int { return 5 })
+		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
+		h.relay.replays = []toolwire.CheckRunRecord{{Digest: digest, Mode: toolwire.ModeReplay,
+			Result: toolwire.RunFail, Attempts: []toolwire.Attempt{{Run: "tok0", Result: toolwire.ResultFail},
+				{Run: "tok00", Result: toolwire.ResultFail}}}}
+		h.call(toolwire.VerbCheckRun, `{"check":`+scoreCheck+`}`)
+		if _, resp := h.call(toolwire.VerbConfirm, confirm(digest, false)); resp.Refused != toolwire.RefusedNoDryRun {
+			t.Errorf("a check replayed red was confirmed green: %+v", resp)
+		}
+		h.finish()
+	})
+	t.Run("a red check that creates no data of its own", func(t *testing.T) {
+		const static = `{"id":"score.static","outcome":"score","form":"http","http":{"target":"api","steps":[
+		 {"request":{"path":"/api/players/1"},"expect":{"json":{"/score":{"$range":[0,10]}}}}]}}`
+		api := newFakeComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"score":99}`))
+		})
+		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
+		_, dry := h.call(toolwire.VerbCheckRun, `{"check":`+static+`}`)
+		if dry.Observed == nil || dry.Observed.CheckRun == nil {
+			t.Fatalf("dry run: %+v", dry)
+		}
+		if _, ok := dry.Observed.CheckRun.AssertionStep(); !ok {
+			t.Fatalf("the fixture is not red by assertion: %+v", dry.Observed.CheckRun)
+		}
+		d := bareDigest(t, static)
+		if _, resp := h.call(toolwire.VerbConfirm, confirm(d, true)); resp.Refused != toolwire.RefusedNoRedDryRun {
+			t.Errorf("a red check acting on no run data of its own was confirmed: %+v", resp)
 		}
 		h.finish()
 	})
