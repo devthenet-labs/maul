@@ -369,7 +369,8 @@ func fillEvaluation(ev *envelope.Evaluation, e *report.Evaluation) {
 		})
 	}
 	for _, p := range e.Proposed {
-		ev.Proposed = append(ev.Proposed, envelope.ProposedCheck{ID: p.ID, Outcome: p.Outcome, Digest: p.Digest})
+		ev.Proposed = append(ev.Proposed, envelope.ProposedCheck{ID: p.ID, Outcome: p.Outcome, Digest: p.Digest,
+			Expect: p.Expect})
 	}
 	for _, r := range e.Retire {
 		ev.Retire = append(ev.Retire, envelope.Retire{CheckDigest: r.CheckDigest, Reason: r.Reason})

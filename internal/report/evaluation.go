@@ -81,6 +81,8 @@ var (
 //	    outcome: "<outcome id>"        # names an entry of verdicts
 //	    file: "<path>"                 # the file its green dry run ran,
 //	    digest: "sha256:<hex>"         # or the digest it printed, or both
+//	    expect: pass | fail            # optional, pass; fail: it shows a
+//	                                   # defect of an outcome reported fail
 //	retire:                         # at most 40
 //	  - check_digest: "sha256:<hex>"   # never one disputed here too
 //	    reason: "<one line>"           # required
@@ -137,12 +139,26 @@ type Dispute struct {
 // its green dry run ran (File, a path under the evaluator's scratch
 // directory), by the digest that run printed, or both. Digest is empty
 // when only File is given, until agent-runner resolves it.
+//
+// Expect is fail for a check that shows a defect: it encodes its outcome
+// as approved, its dry run failed an assertion, and the report's verdict on
+// that outcome is fail. Empty or pass is a check that ran green.
 type ProposedCheck struct {
 	ID      string `yaml:"id"`
 	Outcome string `yaml:"outcome"`
 	Digest  string `yaml:"digest"`
 	File    string `yaml:"file"`
+	Expect  string `yaml:"expect"`
 }
+
+// A proposal's expectations.
+const (
+	ExpectPass = "pass"
+	ExpectFail = "fail"
+)
+
+// ExpectsFail reports a proposal of a check that shows a defect.
+func (p ProposedCheck) ExpectsFail() bool { return p.Expect == ExpectFail }
 
 // Retire asks maul to retire a saved check.
 type Retire struct {
@@ -298,8 +314,28 @@ func (e *Evaluation) validateProposed(outcomes map[string]bool) (map[string]bool
 		if p.File != "" {
 			errs = append(errs, uniqueFile(field+".file", &p.File, files))
 		}
+		errs = append(errs, e.proposedExpect(field, p))
 	}
 	return ids, errs
+}
+
+// proposedExpect checks a proposal's expectation: pass (or none), or fail
+// for an outcome the report's verdict says fails.
+func (e *Evaluation) proposedExpect(field string, p *ProposedCheck) error {
+	switch p.Expect {
+	case "", ExpectPass:
+		return nil
+	case ExpectFail:
+	default:
+		return fmt.Errorf("%s.expect %q is not pass or fail", field, p.Expect)
+	}
+	if !slices.ContainsFunc(e.Verdicts, func(v OutcomeVerdict) bool {
+		return v.ID == p.Outcome && v.Verdict == VerdictFail
+	}) {
+		return fmt.Errorf("%s expects to fail, but its outcome %q is not reported fail: propose a check that "+
+			"fails only for an outcome whose verdict is fail", field, p.Outcome)
+	}
+	return nil
 }
 
 // verdictOutcome settles which outcome verdict v names: its outcome, its

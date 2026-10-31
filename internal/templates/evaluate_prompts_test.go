@@ -90,6 +90,12 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 		{"prompt_checkreview_exec.md", func() (string, error) {
 			return RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleExecCheck)))
 		}},
+		// A check proposed to show a defect: the red question.
+		{"prompt_checkreview_red.md", func() (string, error) {
+			p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
+			p.ExpectFail, p.FailedStep = true, 4
+			return RenderCheckReviewPrompt(p)
+		}},
 		{"prompt_plan_outcomes.md", func() (string, error) {
 			return RenderPlanPrompt(PlanPrompt{
 				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
@@ -175,12 +181,13 @@ func TestEvaluatePromptStatesTheTurnBudget(t *testing.T) {
 		for _, want := range []string{
 			fmt.Sprintf("This run may take at most %d agent turns, 200000 output tokens and 20 minutes.", tt.turns),
 			"Every tool call takes one of these turns",
-			"Write your report as soon as every outcome has a verdict: a pass or a fail shown by a green " +
-				"`maul-tool check run`, or unsure.",
+			"Write your report as soon as every outcome has a verdict: a pass shown by a green " +
+				"`maul-tool check run`, a fail shown by a check run that failed an assertion of the outcome, or unsure.",
 			"Write it by turn " + tt.by + " at the latest",
 			"An outcome you have not shown by then is unsure.",
 			"maul asks you once to write it from what you have: propose only the checks whose `maul-tool check " +
-				"run` printed pass, and mark every outcome you did not show unsure.",
+				"run` printed pass (or, with `expect: fail`, failed an assertion of an outcome you report fail), and " +
+				"mark every outcome you did not show unsure.",
 		} {
 			if !strings.Contains(flat, want) {
 				t.Errorf("%d turns: prompt lacks %q", tt.turns, want)

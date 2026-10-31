@@ -61,6 +61,59 @@ func TestEvaluatePromptReportExampleDecodes(t *testing.T) {
 	}
 }
 
+// TestCheckReviewPromptReportExampleDecodes (S1 bug 8): the example the
+// rendered reviewer prompt shows, red question or not, is
+// ExampleCheckReviewReport, closed by its second fence, and decodes with the
+// real decoder; the prompt says both fence lines are required.
+func TestCheckReviewPromptReportExampleDecodes(t *testing.T) {
+	for _, red := range []bool{false, true} {
+		p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
+		if red {
+			p.ExpectFail, p.FailedStep = true, 4
+		}
+		got, err := RenderCheckReviewPrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		example := reportExampleOf(t, got)
+		if example != ExampleCheckReviewReport {
+			t.Errorf("red %v: the prompt's example is not ExampleCheckReviewReport:\n%s", red, example)
+		}
+		c, err := report.ParseCheckReview([]byte(example))
+		if err != nil || c.Answer != report.AnswerProves || c.Reason == "" {
+			t.Errorf("red %v: the prompt's report example decodes to %+v, %v", red, c, err)
+		}
+		if strings.Count(example, "---\n") != 2 || !strings.Contains(got, "both lines are required") {
+			t.Errorf("red %v: the example or the prompt does not close the frontmatter:\n%s", red, got)
+		}
+	}
+}
+
+// TestCheckReviewPromptRedQuestion: a check proposed to show a defect is
+// asked the red question, naming the step that failed; a green one never
+// is.
+func TestCheckReviewPromptRedQuestion(t *testing.T) {
+	p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
+	green, err := RenderCheckReviewPrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ExpectFail, p.FailedStep = true, 4
+	red, err := RenderCheckReviewPrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"This check failed on the build under review", "at step 4, on an assertion",
+		"It would pass on a build where the outcome holds", "Step 4, the one that failed, asserts the outcome itself"} {
+		if !strings.Contains(red, want) {
+			t.Errorf("the red prompt lacks %q", want)
+		}
+		if strings.Contains(green, want) {
+			t.Errorf("the green prompt carries %q", want)
+		}
+	}
+}
+
 // reportKeyLine is a line that reads as a key of the report's frontmatter.
 var reportKeyLine = regexp.MustCompile(`^\s*(- )?(id|outcome|kind|manual|verdict|ledger|note|result|why|check|` +
 	`digest|file|from the request|why a person judges it):`)

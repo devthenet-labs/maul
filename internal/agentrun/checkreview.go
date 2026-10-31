@@ -44,11 +44,52 @@ type CheckReviewHandoff struct {
 // CheckDigest; the reviewer reads it as maul renders it
 // (templates.RenderCheckReviewPrompt: no id, no outcome id, no step names).
 // The digests key the answer and never reach the session.
+//
+// Expect is fail for a check the evaluator proposed to show a defect, red
+// by assertion in maul's own runs: the reviewer is asked the red question
+// (templates.CheckReviewPrompt.ExpectFail), told which step failed
+// (FailedStep, 1-based, of the check as maul renders it). Both are unset for
+// a check confirmed green.
 type CheckReviewItem struct {
 	CheckDigest   string `json:"check_digest"`
 	OutcomeDigest string `json:"outcome_digest"`
 	Outcome       string `json:"outcome"`
 	Check         string `json:"check"`
+	Expect        string `json:"expect,omitempty"`
+	FailedStep    int    `json:"failed_step,omitempty"`
+}
+
+// checkSteps is how many steps c has as a reviewer reads it: an http or
+// browser check's steps, an exec check's one program run.
+func checkSteps(c checks.Check) int {
+	switch {
+	case c.HTTP != nil:
+		return len(c.HTTP.Steps)
+	case c.Browser != nil:
+		return len(c.Browser.Steps)
+	case c.Exec != nil:
+		return 1
+	}
+	return 0
+}
+
+// validExpectation holds an item's expectation: none, or fail with the
+// step that failed, one of the check's.
+func validExpectation(it CheckReviewItem, c checks.Check) error {
+	switch it.Expect {
+	case "":
+		if it.FailedStep != 0 {
+			return errors.New("failed_step is set on a check confirmed green")
+		}
+		return nil
+	case "fail":
+	default:
+		return fmt.Errorf("expect %q is not fail", it.Expect)
+	}
+	if it.FailedStep < 1 || it.FailedStep > checkSteps(c) {
+		return fmt.Errorf("failed_step %d is not a step of the check", it.FailedStep)
+	}
+	return nil
 }
 
 // checkReviewItem is a review as the stage runs it: the handoff's item and
@@ -121,6 +162,10 @@ func validReviews(in []CheckReviewItem) ([]checkReviewItem, error) {
 				refuse("check: %v", err)
 			case checks.Digest(c) != it.CheckDigest:
 				refuse("check's digest is %s, not its check_digest", checks.Digest(c))
+			default:
+				if err := validExpectation(it, c); err != nil {
+					refuse("%v", err)
+				}
 			}
 			item.check = c
 		}
@@ -137,13 +182,23 @@ func validReviews(in []CheckReviewItem) ([]checkReviewItem, error) {
 	return items, nil
 }
 
+// unreviewedReason is the reason of the unclear agent-runner answers for a
+// review that ended without a report it accepts.
+const unreviewedReason = "maul: the review's report was refused and could not be repaired, so this check is " +
+	"not saved this round"
+
 // checkReview runs the checkreview stage: one fresh session per review, in
 // order, each under the evaluate posture in the scratch directory, each
 // writing its own report. Every answer is keyed by the digests the handoff
 // carried, never by anything the session wrote. The stage's turns bound
-// each session; its output tokens and wall clock are the whole run's, each
-// session given what the earlier ones left. The first session that does not
-// end OK ends the stage on its outcome, with no answers.
+// each session, whose first run keeps a reserve back for a repair of its
+// report (reportReserve); its output tokens and wall clock are the whole
+// run's, each session given what the earlier ones left. A session whose
+// report is refused, or missing at its turn cap, and not repaired makes that
+// check unclear (an unreviewed answer, maul's own) and the stage goes on to
+// the next (S1 bug 8: one bad review dropped every check of the round). A
+// session that ends any other way short of OK ends the stage on its
+// outcome, with no answers.
 func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envelope.CheckReview {
 	ev := &envelope.CheckReview{Stage: envelope.Stage{
 		Harness: a.cfg.InvestigateHarness,
@@ -162,6 +217,7 @@ func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envel
 		return fail(envelope.OutcomeRuntimeError, err.Error())
 	}
 	started := time.Now()
+	firstTurns := maxTurns - reportReserve(maxTurns)
 	var sr *stageRun
 	for i, item := range items {
 		n := i + 1
@@ -183,10 +239,12 @@ func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envel
 		prompt, err := templates.RenderCheckReviewPrompt(templates.CheckReviewPrompt{
 			ReportPath: path,
 			Limits: templates.StageLimits{
-				MaxTurns: maxTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
+				MaxTurns: firstTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
 			},
-			Outcome: item.Outcome,
-			Check:   item.check,
+			Outcome:    item.Outcome,
+			Check:      item.check,
+			ExpectFail: item.Expect == "fail",
+			FailedStep: item.FailedStep,
 		})
 		if err != nil {
 			return fail(envelope.OutcomeRuntimeError, session(err.Error()))
@@ -198,7 +256,7 @@ func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envel
 		req := harness.PromptRequest{
 			Prompt:    prompt,
 			Model:     a.cliModel(a.cfg.InvestigateModel, a.cfg.InvestigateHarness),
-			MaxTurns:  maxTurns,
+			MaxTurns:  firstTurns,
 			Sandbox:   harness.SandboxEvaluate,
 			SessionID: a.newSessionID(),
 			Env:       env,
@@ -214,18 +272,35 @@ func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envel
 				sr.rec.AddSecrets(a.scrub...)
 			}
 		}
+		sr.turns, sr.used, sr.outOfTurns, sr.example = maxTurns, 0, false, templates.ExampleCheckReviewReport
 
 		st := envelope.Stage{Harness: ev.Harness, Model: ev.Model}
 		res, idle, runErr := a.start(ctx, sr)
 		a.fillStage(&st, h, res)
 		if outcome, detail := a.runOutcome(h, res, idle, runErr); outcome != envelope.OutcomeOK {
-			addSession(&ev.Stage, st)
-			return fail(outcome, session(detail))
+			if !turnCapped(h, res, idle, runErr) {
+				addSession(&ev.Stage, st)
+				return fail(outcome, session(detail))
+			}
+			// Out of turns: ask the session for its report, with the turns
+			// kept back.
+			sr.outOfTurns = true
 		}
 		c, _, outcome, detail := settleReport(ctx, a, sr, &st, path, readReport, report.ParseCheckReview)
 		addSession(&ev.Stage, st)
 		if outcome != envelope.OutcomeOK {
-			return fail(outcome, session(detail))
+			a.cfg.Log.Warn("a check review ended without a report maul accepts; that check is unclear",
+				"phase", a.cfg.Phase, "review", n, "of", len(items), "outcome", outcome,
+				"detail", oneLine(detail, repairFailureBytes))
+			if sr.rec != nil {
+				sr.rec.Notice("maul refused review %d of %d (%s); that check is unclear and not saved", n, len(items),
+					oneLine(detail, repairFailureBytes))
+			}
+			ev.Answers = append(ev.Answers, envelope.ReviewAnswer{
+				CheckDigest: item.CheckDigest, OutcomeDigest: item.OutcomeDigest,
+				Answer: string(report.AnswerUnclear), Reason: unreviewedReason, Unreviewed: true,
+			})
+			continue
 		}
 		ev.Answers = append(ev.Answers, envelope.ReviewAnswer{
 			CheckDigest: item.CheckDigest, OutcomeDigest: item.OutcomeDigest,

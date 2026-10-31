@@ -52,6 +52,12 @@ type StoredCheck struct {
 	Valid bool
 	// Retired marks a check retired in an earlier round (or this one).
 	Retired bool
+	// ExpectFail marks a check saved to show a defect (S1 bug 7): the
+	// evaluator proposed it for a fail verdict, red. Its confirmation counts
+	// only red by assertion (CheckRun.Assertion), never green, and only a
+	// review of the red question (CheckReview.ExpectFail) lets it support a
+	// result.
+	ExpectFail bool
 }
 
 // RunResult is a check run's result as the tools ledger recorded it.
@@ -76,6 +82,11 @@ type CheckRun struct {
 	Token string
 	// Seq is the run's ledger entry.
 	Seq int32
+	// Assertion: a fail red by assertion, both attempts at the same step
+	// of a check that otherwise ran (toolwire's AssertionStep).
+	Assertion bool
+	// ExpectFail: a confirmation of a check proposed to show a defect.
+	ExpectFail bool
 }
 
 // ReviewAnswer is the check reviewer's answer.
@@ -93,6 +104,10 @@ type CheckReview struct {
 	CheckDigest   string
 	OutcomeDigest string
 	Answer        ReviewAnswer
+	// ExpectFail: the reviewer was asked the red question (does this check
+	// encode the outcome as approved, would it pass where the outcome
+	// holds, and is the assertion that failed the outcome itself).
+	ExpectFail bool
 }
 
 // Claim is what the evaluator said about an outcome.
@@ -200,6 +215,10 @@ const (
 	ReasonModelOnlyFail = "model-only-fail"
 	// ReasonNoCheck: no check and no verdict.
 	ReasonNoCheck = "no-confirmed-check"
+	// ReasonNotReproduced: a check saved to show a defect was not red by
+	// assertion in maul's own confirmation run (it passed, flaked, errored
+	// or failed some other way): neither a fail nor a pass.
+	ReasonNotReproduced = "not-reproduced"
 )
 
 // OutcomeResult is one outcome's result, with the check digest it rests on
@@ -296,6 +315,31 @@ type decider struct {
 	retired  map[string]bool
 	disputed map[string]CheckDispute
 	verdicts map[string]EvaluatorVerdict
+	// red: the digests of checks saved to show a defect; notReproduced
+	// the digests of checks proposed this round to show a defect whose
+	// confirmation was not red by assertion.
+	red, notReproduced map[string]bool
+}
+
+// confirmationRuns are the confirmations Decide counts: every run of a
+// check proposed to pass, and of one proposed to show a defect (its run
+// ExpectFail) only a fail red by assertion (guard 1), whose others are not
+// reproduced. A check proposed red that ran green is flaky, never a pass;
+// a check saved red earlier and proposed green again after a fix is
+// confirmed as any other.
+func (d *decider) confirmationRuns() []CheckRun {
+	var out []CheckRun
+	for _, run := range d.in.Confirmations {
+		switch {
+		case !run.ExpectFail:
+			out = append(out, run)
+		case run.Result == RunFail && run.Assertion:
+			out = append(out, run)
+		default:
+			d.notReproduced[run.CheckDigest] = true
+		}
+	}
+	return out
 }
 
 // Decide judges one evaluator round (DESIGN 4.3). An outcome passes only on
@@ -305,15 +349,24 @@ type decider struct {
 // base where a base exists (5), with no other unretired, unquarantined
 // check of the outcome failing (6). A fail needs both a deterministic
 // failure of a stored, valid, reviewed check and the evaluator's cited
-// fail; a dispute, a retirement this round or a failing environment makes
-// the outcome unsure; any anomaly or environment failure downgrades the
-// hand-off.
+// fail; for a check proposed to show a defect (S1 bug 7) its confirmation
+// counts only red by assertion and its review only on the red question,
+// and a confirmation of it that is not red by assertion leaves the outcome
+// unsure, never passed. A dispute, a retirement this round or a failing
+// environment makes the outcome unsure; any anomaly or environment failure
+// downgrades the hand-off.
 func Decide(in Input) Decision {
 	d := decider{
 		in: in, env: ClassifyEnvironment(in.Env),
-		runs:    aggregate(append(slices.Clone(in.Replay), in.Confirmations...)),
 		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
+		red: map[string]bool{}, notReproduced: map[string]bool{},
 	}
+	for _, c := range in.Checks {
+		if c.ExpectFail {
+			d.red[c.Digest] = true
+		}
+	}
+	d.runs = aggregate(append(slices.Clone(in.Replay), d.confirmationRuns()...))
 	if in.Base != nil {
 		d.base = aggregate(in.Base.Runs)
 	}
@@ -366,6 +419,12 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 	}
 	if failing := d.failing(bound); len(failing) > 0 {
 		return d.failure(o, res, failing)
+	}
+	if slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.notReproduced[c.Digest] }) {
+		// A check proposed red that maul's own run did not see red by
+		// assertion: neither a fail nor a pass this round.
+		res.Reason = ReasonNotReproduced
+		return res, nil
 	}
 	for _, c := range bound {
 		if d.supports(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
@@ -438,7 +497,8 @@ func (d decider) failing(bound []StoredCheck) []StoredCheck {
 
 // supports reports rules 1, 2 and 4 for c and o: one of maul's forms,
 // valid, reviewed proves for exactly this outcome's text with no other
-// answer cached.
+// answer cached; a check saved to show a defect only once a review of the
+// red question (guard 3) answered proves.
 func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 	switch c.Form {
 	case CheckFormHTTP, CheckFormBrowser, CheckFormExec:
@@ -448,7 +508,7 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 	if !c.Valid || c.Retired || d.retired[c.Digest] || o.Digest == "" {
 		return false
 	}
-	proves := false
+	proves, red := false, false
 	for _, r := range d.in.Reviews {
 		if r.CheckDigest != c.Digest || r.OutcomeDigest != o.Digest {
 			continue
@@ -456,9 +516,9 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 		if r.Answer != ReviewProves {
 			return false
 		}
-		proves = true
+		proves, red = true, red || r.ExpectFail
 	}
-	return proves
+	return proves && (red || !c.ExpectFail && !d.red[c.Digest])
 }
 
 // discriminates is rule 5. With no base, or no clean verdict at base (the

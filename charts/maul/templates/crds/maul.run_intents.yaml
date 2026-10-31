@@ -634,6 +634,14 @@ spec:
                           description: CheckDigest is the reviewed check's digest.
                           pattern: ^sha256:[0-9a-f]{64}$
                           type: string
+                        expect:
+                          description: |-
+                            Expect is fail when the reviewer was asked the red question: the
+                            check failed, and the evaluator proposed it to show a defect. Only
+                            such a review lets a check saved red support a fail.
+                          enum:
+                          - fail
+                          type: string
                         outcomeDigest:
                           description: OutcomeDigest is the digest of the outcome
                             it was reviewed against.

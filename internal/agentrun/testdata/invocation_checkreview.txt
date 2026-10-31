@@ -62,22 +62,23 @@ or a page loaded, it is keyed to fixed values that an implementation could speci
 not create. Answer `unclear` if you cannot tell from what is shown.
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
-25 agent turns, 150000 output tokens and 30 minutes.
+19 agent turns, 150000 output tokens and 30 minutes.
 
 ## Your report
 
-Write your report to `/workspace/scratch/review-1.md` with the Write tool. It must be exactly this YAML frontmatter,
-with nothing after it:
+Write your report to `/workspace/scratch/review-1.md` with the Write tool. It is YAML frontmatter of exactly two keys,
+opened by a line `---` and closed by another line `---`; both lines are required. For example:
 
 ```markdown
 ---
 answer: proves
-reason: "<one line, at most 600 characters: why>"
+reason: "It creates its own battle, votes on it and asserts the rating moved by the stake shown."
 ---
 ```
 
-`answer` is one of `proves`, `does_not_prove` and `unclear`. Put the reason in double quotes on one line, and escape
-a double quote inside it as `\"`. Write the report once, then end your turn.
+`answer` is one of `proves`, `does_not_prove` and `unclear`. `reason` says why in one line of at most 600
+characters: put it in double quotes, and escape a double quote inside it as `\"`. Write the file with both `---`
+lines and nothing after the second, once, then end your turn.
 
 --- argv[3]
 --model
@@ -92,7 +93,7 @@ stream-json
 --- argv[8]
 --max-turns
 --- argv[9]
-25
+19
 --- argv[10]
 --tools
 --- argv[11]

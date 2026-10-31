@@ -65,7 +65,14 @@
 #                              the component's captured log after it
 #                              (`maul-tool logs <component>`, the excerpt a
 #                              fix round's reproduction quotes) and fails
-#                              the outcome on that run, proposing nothing; "dispute"
+#                              the outcome on that run, proposing nothing; "red"
+#                              judges as a careful evaluator does (S1 bug 7):
+#                              it dry-runs the same check and, green, passes
+#                              the outcome and proposes it as "pass" does;
+#                              red by assertion (maul-tool's "red by assertion"
+#                              line), reads the component's log, fails the
+#                              outcome on that run and proposes the check with
+#                              expect: fail; red any other way, unsure; "dispute"
 #                              disputes the first saved check `check results`
 #                              shows failing its replay, proposing a green
 #                              replacement (<outcome>.r), the outcome unsure;
@@ -311,6 +318,39 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     verdict: fail
     ledger: [$seq]
     note: \"The page does not show what the outcome states.\""
+      ;;
+    red)
+      http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
+      tool check run "checks/$o.json"
+      run=$seq
+      digest=$(green_digest dry-run)
+      if [ -n "$digest" ]; then
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: pass
+    ledger: [$run]"
+        proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    file: \"checks/$o.json\""
+      elif printf '%s\n' "$out" | grep -q '^\[observed\] red by assertion at step '; then
+        tool logs "$key"
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: fail
+    ledger: [$run, $seq]
+    note: \"The check of the outcome fails at its assertion.\""
+        proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    file: \"checks/$o.json\"
+    expect: fail"
+      else
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: unsure
+    ledger: [$run]"
+      fi
       ;;
     dispute)
       failing=$(printf '%s\n' "$results_out" | sed -n 's/^\[observed\] check [^ ]* digest \(sha256:[0-9a-f]*\) replay: fail.*/\1/p' | head -n 1)

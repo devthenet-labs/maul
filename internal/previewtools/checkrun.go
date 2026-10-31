@@ -79,8 +79,8 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 	var out []toolwire.StepRecord
 	for i, st := range steps {
 		rec := toolwire.StepRecord{Index: i, Result: toolwire.ResultPass}
-		if detail := r.httpStep(ctx, comp.Addr, st, run, caps); detail != "" {
-			rec.Result, rec.Detail = toolwire.ResultFail, detail
+		if detail, assertion := r.httpStep(ctx, comp.Addr, st, run, caps); detail != "" {
+			rec.Result, rec.Detail, rec.Assertion = toolwire.ResultFail, detail, assertion
 		}
 		out = append(out, rec)
 		if rec.Result != toolwire.ResultPass {
@@ -91,53 +91,61 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 }
 
 // httpStep sends one step and judges it, returning maul's words for the
-// first expectation it missed ("" when it passed); its captures go into
-// caps. The words name what was expected, never the application's bytes.
+// first expectation it missed ("" when it passed), and whether that miss is
+// an assertion (a response came back whole and did not match its expect:
+// status, json, headers or body), not a request that could not be built or
+// sent, no response, a body over its bound or a capture with nothing to
+// keep. Its captures go into caps. The words name what was expected, never
+// the application's bytes.
 func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, run string,
-	caps map[string]string) string {
+	caps map[string]string) (string, bool) {
 	built, err := acceptance.BuildRequest(st, run, caps)
 	if err != nil {
-		return "the request could not be built: a capture is missing"
+		return "the request could not be built: a capture is missing", false
 	}
 	rep, err := r.client.send(ctx, outbound{Addr: addr, Method: built.Method, Target: built.Target(),
 		Header: built.Headers, Body: built.Body, Host: r.cfg.Host, Forward: r.forward()})
 	switch {
 	case err != nil:
-		return "the request could not be sent as built"
+		return "the request could not be sent as built", false
 	case rep.Transport != acceptance.TransportNone:
-		return "no response (" + string(rep.Transport) + ")"
+		return "no response (" + string(rep.Transport) + ")", false
 	case rep.TooLarge:
-		return "the response body is over " + strconv.Itoa(MaxResponseBytes) + " bytes"
+		return "the response body is over " + strconv.Itoa(MaxResponseBytes) + " bytes", false
 	case !slices.Contains(st.Expect.Status, int32(rep.Status)):
-		return fmt.Sprintf("status %d, expected one of %v", rep.Status, st.Expect.Status)
+		return fmt.Sprintf("status %d, expected one of %v", rep.Status, st.Expect.Status), true
 	}
 	doc, valid := decodeJSON(rep.Body)
 	for _, ptr := range sortedKeys(st.Expect.JSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(st.Expect.JSON[ptr], run, caps, raw, present) {
-			return "json " + strconv.Quote(ptr) + " did not match"
+			return "json " + strconv.Quote(ptr) + " did not match", true
 		}
 	}
 	for _, name := range sortedKeys(st.Expect.Headers) {
 		raw, present := headerValue(rep.Header, name)
 		if !checks.MatchHeader(st.Expect.Headers[name], run, caps, raw, present) {
-			return "header " + name + " did not match"
+			return "header " + name + " did not match", true
 		}
 	}
 	if st.Expect.BodyContains != "" {
 		needle, err := acceptance.Substitute(st.Expect.BodyContains, run, caps)
-		if err != nil || !bytes.Contains(rep.Body, []byte(needle)) {
-			return "the body does not contain the expected text"
+		if err != nil {
+			return "the expected text could not be built: a capture is missing", false
+		}
+		if !bytes.Contains(rep.Body, []byte(needle)) {
+			return "the body does not contain the expected text", true
 		}
 	}
 	for _, name := range sortedKeys(st.Capture) {
 		v, ok := captureValue(doc, valid, st.Capture[name])
 		if !ok {
-			return "capture " + name + " is not a string, number or boolean at " + strconv.Quote(st.Capture[name])
+			return "capture " + name + " is not a string, number or boolean at " + strconv.Quote(st.Capture[name]),
+				false
 		}
 		caps[name] = v
 	}
-	return ""
+	return "", false
 }
 
 // execAttempt runs an exec check once in the sandbox: argv and its files
@@ -166,13 +174,15 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	case res.Refused != "":
 		return errStep("the sandbox refused the program")
 	}
+	// fail is an unmet expectation of a program that ran to its end: an
+	// assertion.
 	fail := func(detail string) []toolwire.StepRecord {
-		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: detail}}
+		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: detail, Assertion: true}}
 	}
 	x := e.Expect
 	switch {
 	case res.TimedOut:
-		return fail("the program was killed at its time limit")
+		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: "the program was killed at its time limit"}}
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
 		return fail(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit))
 	}

@@ -432,9 +432,11 @@ const (
 	DefaultEvaluateTokenBudget int64 = 400000
 	// DefaultCheckReviewMaxTurns (--intent-checkreview-max-turns),
 	// DefaultCheckReviewTokenBudget and DefaultCheckReviewTimeout bound a
-	// checkreview run: its turns bound each review session (DESIGN 5: 3),
-	// the rest the whole run.
-	DefaultCheckReviewMaxTurns    int32 = 3
+	// checkreview run: its turns bound each review session, the rest the
+	// whole run. 6 turns, not DESIGN 5's 3: a session's first run gets 3 and
+	// keeps 3 back for one repair of its report (agentrun.Repairable; S1
+	// bug 8, a review of 3 turns could never be repaired).
+	DefaultCheckReviewMaxTurns    int32 = 6
 	DefaultCheckReviewTokenBudget int64 = 100000
 	DefaultCheckReviewTimeout           = 15 * time.Minute
 	// MaxStageTurns is the most turns a role stage's ceiling may be set to:

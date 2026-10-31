@@ -2135,7 +2135,7 @@
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 1000,
-                            "description": "The most agent turns each check-review session may take"
+                            "description": "The most agent turns each check-review session may take; a session keeps its last turns (3 of the default 6) for one repair of its report"
                         },
                         "maxEvaluateCostUSD": {
                             "type": "number",

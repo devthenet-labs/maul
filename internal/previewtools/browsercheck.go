@@ -130,14 +130,52 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 		result = toolwire.ResultError
 	}
 	at, detail := 0, failureDetail(res)
-	if len(res.Errors) > 0 && res.Errors[0].Location != nil {
+	located := len(res.Errors) > 0 && res.Errors[0].Location != nil
+	if located {
 		at = stepAt(starts, res.Errors[0].Location.Line)
 	}
+	assertion := result == toolwire.ResultFail && res.Status == "failed" && located &&
+		at < len(starts) && expectStep(spec, starts[at]) && assertionMessage(res.Errors[0].Message)
 	out := make([]toolwire.StepRecord, 0, at+1)
 	for i := range at {
 		out = append(out, toolwire.StepRecord{Index: i, Result: toolwire.ResultPass})
 	}
-	return append(out, toolwire.StepRecord{Index: at, Result: result, Detail: detail})
+	return append(out, toolwire.StepRecord{Index: at, Result: result, Detail: detail, Assertion: assertion})
+}
+
+// expectStep reports whether the step whose comment is at line (1-based)
+// of spec is an expect step (internal/checks/playwright writes "// step N:
+// expect <assert>").
+func expectStep(spec []byte, line int) bool {
+	lines := strings.Split(string(spec), "\n")
+	if line < 1 || line > len(lines) {
+		return false
+	}
+	return expectComment.MatchString(lines[line-1])
+}
+
+// expectComment is an expect step's comment.
+var expectComment = regexp.MustCompile(`^\s*// step \d+: expect `)
+
+// assertionMessage reports whether a failed expect step's error is an
+// assertion that did not hold on an element that was there: maul's own
+// "<what> failed: <why>" (not an element with no box, not a trial click,
+// whose error may be an unresolved or covered locator) or a Playwright
+// expect matcher's failure that found its element (no "element(s) not
+// found", no strict mode violation). Anything else (an action's timeout,
+// the browser not answering) is not.
+func assertionMessage(msg string) bool {
+	msg = stripANSI(msg)
+	first, _, _ := strings.Cut(msg, "\n")
+	first = strings.TrimPrefix(strings.TrimSpace(first), "Error: ")
+	switch {
+	case strings.Contains(msg, "element(s) not found"), strings.Contains(msg, "strict mode violation"):
+		return false
+	case strings.HasPrefix(first, "maul: "):
+		return strings.Contains(first, " failed: ") && !strings.HasPrefix(first, "maul: indeterminate") &&
+			!strings.Contains(first, "has no box") && !strings.Contains(first, "trial click")
+	}
+	return strings.Contains(first, "expect(") && strings.Contains(first, ")")
 }
 
 // stepLines are the 1-based line numbers of each step's comment, in order.

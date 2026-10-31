@@ -80,7 +80,7 @@ func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 			rf.Observed = observations(run)
 		}
 		for _, c := range logged {
-			if lines := logWindow(entries, int64(seq), c); len(lines) > 0 {
+			if lines := logWindow(entries, int64(logAnchor(pv, f.CheckDigest, seq)), c); len(lines) > 0 {
 				rf.Logs = append(rf.Logs, templates.ReproductionLog{Component: c, Lines: lines})
 			}
 		}
@@ -100,6 +100,20 @@ func failingSeq(pv *v1alpha1.PreviewVerification, digest string) int32 {
 	for _, r := range slices.Concat(pv.Status.Replay, pv.Status.Confirmations) {
 		if r.CheckDigest == digest && r.Result == v1alpha1.CheckRunFail && (seq == 0 || r.Seq < seq) {
 			seq = r.Seq
+		}
+	}
+	return seq
+}
+
+// logAnchor is the seq a failure's log window is taken around: the failing
+// run's own, or, for the confirmation of a check saved to show a defect
+// (run after the evaluator exited, so no read of a log follows it), the
+// red dry run that confirmation required, which the evaluator read the
+// logs after (the prompt: read the logs after a failing check run).
+func logAnchor(pv *v1alpha1.PreviewVerification, digest string, seq int32) int32 {
+	for _, r := range pv.Status.Confirmations {
+		if r.CheckDigest == digest && r.Seq == seq && r.Expect == v1alpha1.CheckExpectFail && r.DryRunSeq > 0 {
+			return r.DryRunSeq
 		}
 	}
 	return seq

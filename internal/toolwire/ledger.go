@@ -215,6 +215,13 @@ type StepRecord struct {
 	Result AttemptResult `json:"result"`
 	// Detail is the runner's message for a step that did not pass.
 	Detail string `json:"detail,omitempty"`
+	// Assertion marks a failing step that failed an assertion of a check
+	// that otherwise ran: a response, page or program was there and did not
+	// match what the check expects. Never set on a compile, runtime or
+	// sandbox error, a timeout, a navigation or transport failure, or a
+	// locator that resolved to nothing or to more than one element; only on
+	// a fail step (Check).
+	Assertion bool `json:"assertion,omitempty"`
 }
 
 // Bounds of a check run record.
@@ -359,8 +366,51 @@ func (a Attempt) check() error {
 			!utf8.ValidString(s.Detail) {
 			return errors.New("a step record is out of bounds")
 		}
+		if s.Assertion && s.Result != ResultFail {
+			return errors.New("a step that did not fail is marked an assertion")
+		}
 	}
 	return nil
+}
+
+// AssertionStep is the step at which a run is red by assertion, and
+// whether it is: the run failed (never quarantined, never an error), each
+// of its two attempts, under its own fresh token, failed, and each at the
+// same step, an assertion (StepRecord.Assertion) that every step before it
+// passed. A check red any other way (a check error, a timeout, an action
+// on nothing, a fail then a pass) is not red by assertion: it may show a
+// broken check, never a defect.
+func (r CheckRunRecord) AssertionStep() (int, bool) {
+	if r.Result != RunFail || len(r.Attempts) != 2 || DeriveResult(r.Attempts) != RunFail {
+		return 0, false
+	}
+	at := -1
+	for _, a := range r.Attempts {
+		i, ok := a.assertionStep()
+		if !ok || (at >= 0 && i != at) {
+			return 0, false
+		}
+		at = i
+	}
+	return at, true
+}
+
+// assertionStep is the index of a failed attempt's failing step when that
+// step is its last, an assertion, and every step before it passed.
+func (a Attempt) assertionStep() (int, bool) {
+	if a.Result != ResultFail || len(a.Steps) == 0 {
+		return 0, false
+	}
+	for i, s := range a.Steps {
+		if s.Result == ResultPass {
+			continue
+		}
+		if s.Result != ResultFail || !s.Assertion || i != len(a.Steps)-1 {
+			return 0, false
+		}
+		return s.Index, true
+	}
+	return 0, false
 }
 
 // Evidence is one cited image's bytes, as the tools container emitted

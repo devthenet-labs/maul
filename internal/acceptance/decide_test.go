@@ -562,7 +562,7 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 	for _, c := range genDigests {
 		if r.Intn(4) != 0 {
 			in.Checks = append(in.Checks, StoredCheck{Digest: c, Outcome: pickOf(r, genOutcomes), Form: pickOf(r, forms),
-				Valid: r.Intn(5) != 0, Retired: r.Intn(6) == 0})
+				Valid: r.Intn(5) != 0, Retired: r.Intn(6) == 0, ExpectFail: r.Intn(4) == 0})
 		}
 	}
 	in.Replay, in.Confirmations = genRuns(r), genRuns(r)
@@ -572,7 +572,7 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 	genBiased(r, &in)
 	for range r.Intn(4) {
 		in.Reviews = append(in.Reviews, CheckReview{CheckDigest: pickOf(r, genDigests),
-			OutcomeDigest: od(pickOf(r, genOutcomes)), Answer: pickOf(r, genAnswers)})
+			OutcomeDigest: od(pickOf(r, genOutcomes)), Answer: pickOf(r, genAnswers), ExpectFail: r.Intn(3) == 0})
 	}
 	genClaims(r, &in)
 	for range r.Intn(2) {
@@ -597,7 +597,7 @@ func genRuns(r *rand.Rand) []CheckRun {
 	out := make([]CheckRun, 0, n)
 	for range n {
 		out = append(out, CheckRun{CheckDigest: pickOf(r, genDigests), Result: pickOf(r, genResults),
-			Token: pickOf(r, []string{"", "tok"}), Seq: int32(r.Intn(20))})
+			Token: pickOf(r, []string{"", "tok"}), Seq: int32(r.Intn(20)), Assertion: r.Intn(2) == 0})
 	}
 	return out
 }
@@ -610,14 +610,25 @@ func genBiased(r *rand.Rand, in *Input) {
 	for _, c := range in.Checks {
 		if r.Intn(4) != 0 {
 			in.Reviews = append(in.Reviews, CheckReview{CheckDigest: c.Digest, OutcomeDigest: od(c.Outcome),
-				Answer: pickOf(r, genAnswers)})
+				Answer: pickOf(r, genAnswers), ExpectFail: c.ExpectFail && r.Intn(4) != 0})
 		}
-		if r.Intn(3) != 0 {
+		switch {
+		case c.ExpectFail && r.Intn(2) == 0:
+			// Its confirmation, this round: mostly red by assertion.
+			in.Confirmations = append(in.Confirmations, CheckRun{CheckDigest: c.Digest,
+				Result: pickOf(r, []RunResult{RunFail, RunFail, RunPass, RunError, RunQuarantined}), Token: "tok",
+				Seq: int32(r.Intn(20)), Assertion: r.Intn(4) != 0, ExpectFail: r.Intn(4) != 0})
+		case r.Intn(3) != 0:
 			in.Replay = append(in.Replay, CheckRun{CheckDigest: c.Digest, Result: pickOf(r, genResults),
-				Token: "tok", Seq: int32(r.Intn(20))})
+				Token: "tok", Seq: int32(r.Intn(20)), Assertion: r.Intn(2) == 0})
 		}
 	}
 	if len(in.Checks) > 1 && r.Intn(2) == 0 {
+		// A replacement is proposed green, for the disputed check's outcome.
+		in.Checks[1].ExpectFail = false
+		if r.Intn(2) == 0 {
+			in.Checks[1].Outcome = in.Checks[0].Outcome
+		}
 		in.Disputes = append(in.Disputes, CheckDispute{CheckDigest: in.Checks[0].Digest,
 			Replacement: in.Checks[1].Digest, Ledger: []int32{1}})
 	}
@@ -716,7 +727,31 @@ func oracleRules1To4(in Input, o OutcomeRef, basis string) error {
 	if !oracleProves(in, basis, o) {
 		return fmt.Errorf("rule 4: not reviewed proves")
 	}
+	if oracleRed(in, basis) && !oracleRedReview(in, basis, o) {
+		return fmt.Errorf("rule 4: a check saved red not reviewed proves with the red question")
+	}
+	// No outcome passes in a round that confirmed a check of it proposed
+	// red, whatever that confirmation showed (a flaky green included).
+	for _, c := range in.Checks {
+		if c.Outcome == o.ID && !c.Retired && slices.ContainsFunc(in.Confirmations, func(run CheckRun) bool {
+			return run.CheckDigest == c.Digest && run.ExpectFail
+		}) {
+			return fmt.Errorf("a check of %s proposed red was confirmed this round", o.ID)
+		}
+	}
 	return nil
+}
+
+// oracleRed reports a check saved to show a defect.
+func oracleRed(in Input, digest string) bool {
+	return slices.ContainsFunc(in.Checks, func(c StoredCheck) bool { return c.Digest == digest && c.ExpectFail })
+}
+
+// oracleRedReview reports a review of the red question answering proves.
+func oracleRedReview(in Input, digest string, o OutcomeRef) bool {
+	return slices.ContainsFunc(in.Reviews, func(rv CheckReview) bool {
+		return rv.CheckDigest == digest && rv.OutcomeDigest == o.Digest && rv.ExpectFail && rv.Answer == ReviewProves
+	})
 }
 
 func oracleRule5(in Input, o OutcomeRef, basis string) error {
@@ -769,9 +804,9 @@ func oracleRound(in Input, o OutcomeRef, _ string) error {
 
 // decideStats counts what the property exercised, so a weak generator
 // fails instead of passing vacuously.
-type decideStats struct{ passed, fixes, replays, ready int }
+type decideStats struct{ passed, fixes, redFixes, replays, ready int }
 
-func (s *decideStats) add(d Decision) {
+func (s *decideStats) add(in Input, d Decision) {
 	for _, r := range d.PerOutcome {
 		if r.Result == ResultPassed {
 			s.passed++
@@ -779,6 +814,9 @@ func (s *decideStats) add(d Decision) {
 	}
 	if d.Fix != nil {
 		s.fixes++
+		if slices.ContainsFunc(d.Fix.Failures, func(f FixFailure) bool { return oracleRed(in, f.CheckDigest) }) {
+			s.redFixes++
+		}
 	}
 	if d.ReplayRound {
 		s.replays++
@@ -796,7 +834,7 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	var stats decideStats
 	prop := func(g genDecide) bool {
 		d := Decide(g.in)
-		stats.add(d)
+		stats.add(g.in, d)
 		if err := checkDecision(g.in, d); err != nil {
 			t.Logf("%v\ninput %+v", err, g.in)
 			return false
@@ -806,7 +844,7 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	if err := quick.Check(prop, quickConfig(5000)); err != nil {
 		t.Error(err)
 	}
-	if stats.passed == 0 || stats.fixes == 0 || stats.replays == 0 || stats.ready == 0 {
+	if stats.passed == 0 || stats.fixes == 0 || stats.redFixes == 0 || stats.replays == 0 || stats.ready == 0 {
 		t.Errorf("the generator is too weak: %+v", stats)
 	}
 }
@@ -857,13 +895,22 @@ func oracleFixable(in Input, f FixFailure) error {
 	if !ok || c.Retired || !c.Valid {
 		return fmt.Errorf("not a stored, valid, unretired check of the outcome")
 	}
-	if !slices.ContainsFunc(oracleRuns(in, f.CheckDigest), func(run CheckRun) bool {
-		return run.Result == RunFail && run.Seq == f.Seq
+	red := oracleRed(in, f.CheckDigest)
+	failed := func(run CheckRun) bool {
+		return run.CheckDigest == f.CheckDigest && run.Result == RunFail && run.Seq == f.Seq
+	}
+	// A check proposed to show a defect fails on its confirmation only red
+	// by assertion (guard 1).
+	if !slices.ContainsFunc(in.Replay, failed) && !slices.ContainsFunc(in.Confirmations, func(run CheckRun) bool {
+		return failed(run) && (!run.ExpectFail || run.Assertion)
 	}) {
 		return fmt.Errorf("no failing run at seq %d", f.Seq)
 	}
 	if !oracleProves(in, f.CheckDigest, o) {
 		return fmt.Errorf("failing check not reviewed proves")
+	}
+	if red && !oracleRedReview(in, f.CheckDigest, o) {
+		return fmt.Errorf("a check saved red not reviewed proves with the red question")
 	}
 	if !slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
 		return v.Outcome == o.ID && v.Claim == ClaimFail && len(v.Ledger) > 0

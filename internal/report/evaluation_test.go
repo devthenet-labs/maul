@@ -93,6 +93,23 @@ func TestParseEvaluationLists(t *testing.T) {
 	}
 }
 
+// TestParseEvaluationRedProposal: a check proposed to show a defect names
+// the outcome it disproves, which the report says fails.
+func TestParseEvaluationRedProposal(t *testing.T) {
+	doc := "---\nverdicts:\n  - outcome: upset-pays-more\n    verdict: fail\n    ledger: [7, 9]\n" +
+		"proposed:\n  - id: upset-pays-more\n    outcome: upset-pays-more\n    file: \"checks/upset.json\"\n" +
+		"    expect: fail\n  - id: upset-pays-more.green\n    outcome: upset-pays-more\n    file: \"checks/g.json\"\n" +
+		"    expect: pass\n---\n"
+	e, err := ParseEvaluation([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseEvaluation() error = %v", err)
+	}
+	if len(e.Proposed) != 2 || e.Proposed[0].Expect != ExpectFail || e.Proposed[1].Expect != ExpectPass ||
+		!e.Proposed[0].ExpectsFail() || e.Proposed[1].ExpectsFail() {
+		t.Errorf("Proposed = %+v, want the first expected to fail", e.Proposed)
+	}
+}
+
 // minimalEvaluation is the smallest valid report: one unsure verdict.
 const minimalEvaluation = "---\nverdicts:\n  - id: rate-battle\n    verdict: unsure\n---\n"
 
@@ -148,6 +165,11 @@ func TestParseEvaluationRefusals(t *testing.T) {
 			digestB + "\"\n"), `proposed[0].outcome "other" names no verdict`},
 		{"proposed bad digest", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n    digest: x\n"),
 			"proposed[0].digest"},
+		{"proposed to fail an outcome not reported fail", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n" +
+			"    digest: \"" + digestB + "\"\n    expect: fail\n"),
+			`proposed[0] expects to fail, but its outcome "rate-battle" is not reported fail`},
+		{"proposed with another expectation", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n" +
+			"    digest: \"" + digestB + "\"\n    expect: maybe\n"), `proposed[0].expect "maybe" is not pass or fail`},
 		{"proposed body", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n    digest: \"" + digestB +
 			"\"\n    steps: []\n"), "steps"},
 		{"proposed duplicate id", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n    digest: \"" +

@@ -472,6 +472,36 @@ func TestEvaluateConfirmsEachCheckAlone(t *testing.T) {
 	}
 }
 
+// TestEvaluateConfirmsARedProposal: a check proposed to show a defect is
+// confirmed expecting it to fail (the tools container holds it to a dry run
+// red by assertion); the envelope keeps the proposal's expectation.
+func TestEvaluateConfirmsARedProposal(t *testing.T) {
+	var out bytes.Buffer
+	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
+	tools := useTools(t, &cfg)
+	digest := checks.Digest(rateBattleCheck)
+	report := strings.Replace(goodEvaluation, "verdict: pass", "verdict: fail", 1)
+	report = strings.Replace(report, "anomalies:", "proposed:\n  - id: \"rate-battle.api\"\n    outcome: rate-battle\n"+
+		"    file: \"checks/rate-battle-api.json\"\n    expect: fail\nanomalies:", 1)
+	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
+		"scratch/report.md":                   report,
+		"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
+	}}}}
+	e := onlyEvent(t, cfg, fx, &out).Evaluation
+	if e.Outcome != envelope.OutcomeOK || len(e.Proposed) != 1 || e.Proposed[0].Expect != report2Expect {
+		t.Fatalf("evaluation = %+v, want the red proposal claimed", e)
+	}
+	var confirm toolwire.ConfirmRequest
+	tools.request(t, toolwire.VerbConfirm, &confirm)
+	bare := strings.TrimPrefix(digest, "sha256:")
+	if !slices.Equal(confirm.Digests, []string{bare}) || !slices.Equal(confirm.ExpectFail, []string{bare}) {
+		t.Errorf("confirm %+v, want %s expected to fail", confirm, bare)
+	}
+}
+
+// report2Expect is the envelope's expectation of a red proposal.
+const report2Expect = "fail"
+
 // TestEvaluateFinishesAFailedStage: a stage that does not end OK still
 // finishes its tool pod, naming no evidence and confirming nothing.
 func TestEvaluateFinishesAFailedStage(t *testing.T) {
