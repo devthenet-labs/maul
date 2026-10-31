@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.13.7](https://github.com/devthenet-labs/maul/compare/v0.13.6...v0.13.7) (2026-10-31)
+
+
+### Bug Fixes
+
+* **intent:** let a /maul verify fix made after a human push stand ([#294](https://github.com/devthenet-labs/maul/issues/294)) ([824b3af](https://github.com/devthenet-labs/maul/commit/824b3af9e4c55c62fd879b44352f8e20f1e570cd))
+* **intent:** let a turn-capped evaluator still report what it found ([#297](https://github.com/devthenet-labs/maul/issues/297)) ([f9174ae](https://github.com/devthenet-labs/maul/commit/f9174aee22bb3026009c2ee4aa0213b7a850ae76))
+* **preview:** settle broken tool pods promptly and never as Observed ([#292](https://github.com/devthenet-labs/maul/issues/292)) ([2aadca3](https://github.com/devthenet-labs/maul/commit/2aadca35d0ea0d70755930d07e5fe9e2b0c8aff8))
+* **probe:** honour refused-is-blocked for IMDS, keep PROBE_DENY lists whole, run every tools row ([#296](https://github.com/devthenet-labs/maul/issues/296)) ([2d2ab02](https://github.com/devthenet-labs/maul/commit/2d2ab0274125b0d24020c9e000a5b894d2d1d931))
+
 ## [0.13.6](https://github.com/devthenet-labs/maul/compare/v0.13.5...v0.13.6) (2026-10-30)
 
 
