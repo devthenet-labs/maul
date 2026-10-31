@@ -306,7 +306,12 @@ controller's side:
   fails while a verification runs has its failure written onto the request before the slot is released. Unclear output
   is `Infra`, not a pass.
 - **Cleanup.** Jobs and NetworkPolicies are found and removed by the Preview's UID label like every rendered object, and
-  the orphan sweep removes a tester pod whose Job is gone.
+  the orphan sweep removes a tester pod whose Job is gone. Before it renders anything for a request, preview-controller
+  adds its finalizer `maul.run/preview-verification-cleanup`: a request deleted while it runs (intent-controller drops
+  one in flight) keeps until everything it put in the slot is gone, the evaluator's ingress policy included, which no
+  owner reference can reach across namespaces. A teardown that keeps failing releases the finalizer five minutes after
+  the deletion, and the orphan sweep deletes an evaluator ingress policy whose request is gone once it is two minutes
+  old, logging each.
 
 ### Grants
 
@@ -318,12 +323,13 @@ Everything below renders only under `preview.verification.enabled`, and each is 
 | Each slot (Role)      | `jobs` (batch)                                                 | create, get, list, delete         |
 | Each slot (Role)      | `networkpolicies` (networking.k8s.io)                          | create, get, list, update, delete |
 | Each slot (Role)      | `pods` (delete, beside the list it already had) and `pods/log` | delete; get                       |
-| The release namespace | `previewverifications`                                         | get, list, watch                  |
+| The release namespace | `previewverifications` (update: its cleanup finalizer only)    | get, list, watch, update          |
 | The release namespace | `previewverifications/status`                                  | update                            |
 
 intent-controller gets `previewverifications` create, get, list, watch and delete beside it; it is the only writer of a
-request, and preview-controller the only writer of its status. preview-controller still has no Secret, ConfigMap,
-namespace, cluster-scope, GitHub or cloud access, and the slot quota gains room for one Job and the edge policies
+request, and preview-controller the only writer of its status and its cleanup finalizer (`maul-preview-verifications`
+admits an update from it that changes nothing else). preview-controller still has no Secret, ConfigMap, namespace,
+cluster-scope, GitHub or cloud access, and the slot quota gains room for one Job and the edge policies
 (`preview.quota`). To check a cluster's NetworkPolicy enforcement for the edges, run
 `hack/preview-isolation-probe/run.sh edges` (see its README); `ingress.sh --check-policies` judges the rendered policies
 without creating a pod.

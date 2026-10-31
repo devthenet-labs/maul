@@ -46,7 +46,15 @@ var assignUIDs = interceptor.Funcs{Create: func(ctx context.Context, c client.Wi
 // verification of its Preview.
 func newToolEnv(t *testing.T) *verifyEnv {
 	t.Helper()
-	e := newVerifyEnv(t, assignUIDs)
+	return newToolEnvWith(t, interceptor.Funcs{})
+}
+
+// newToolEnvWith is newToolEnv with an API server behaviour played by funcs
+// beside assignUIDs (whose Create it keeps).
+func newToolEnvWith(t *testing.T, funcs interceptor.Funcs) *verifyEnv {
+	t.Helper()
+	funcs.Create = assignUIDs.Create
+	e := newVerifyEnv(t, funcs)
 	e.v.Settings, e.r.Settings = evalSettings(), evalSettings()
 	e.in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: 1,
 		Digest: acceptance.Digest(nil), Outcomes: testOutcomes(), OutcomesDigest: outcomesDigest(t, testOutcomes()),

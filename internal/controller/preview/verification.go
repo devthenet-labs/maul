@@ -29,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -60,6 +61,10 @@ const (
 	// the tester's Pod being created, scheduled and its image pulled, its
 	// log becoming readable after it finished, and the Job's own deadline.
 	verifyGrace = 2 * time.Minute
+	// verificationFinalizeGrace bounds how long a deleted verification is
+	// held for its slot teardown: past it the finalizer is released anyway
+	// and the orphan sweep removes what is left.
+	verificationFinalizeGrace = 5 * time.Minute
 	// maxTesterLog is the most of the tester's log read. It is the grammar's
 	// own bound, so acceptance.Validate's plan-wide budget
 	// (acceptance.MaxWireBytes, below it) keeps every accepted plan's output
@@ -144,11 +149,20 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !pv.DeletionTimestamp.IsZero() {
-		// Its tester Job, if any, is the sweep's: its verification is gone.
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, v.finalize(ctx, &pv)
 	}
 	if settled(pv.Status.Phase) {
-		return ctrl.Result{}, v.teardown(ctx, &pv)
+		if err := v.teardown(ctx, &pv); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, v.releaseFinalizer(ctx, &pv)
+	}
+	// Held before anything is rendered into a slot, so a deletion while it
+	// runs still tears its slot objects down.
+	if controllerutil.AddFinalizer(&pv, v1alpha1.FinalizerPreviewVerification) {
+		if err := v.Update(ctx, &pv); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 	s, reason, err := v.check(ctx, &pv)
 	switch {
@@ -1160,7 +1174,10 @@ func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.Pr
 			slog.String("verification", pv.Name), slog.String("phase", string(pv.Status.Phase)),
 			slog.String("reason", string(pv.Status.Reason)))
 	}
-	return v.teardown(ctx, pv)
+	if err := v.teardown(ctx, pv); err != nil {
+		return err
+	}
+	return v.releaseFinalizer(ctx, pv)
 }
 
 // fitStatus holds the object to maxVerificationObject, so an application
@@ -1328,6 +1345,36 @@ func (v *VerificationReconciler) deleteTesterJobs(ctx context.Context, pv *v1alp
 		}
 	}
 	return nil
+}
+
+// finalize tears down what a deleted verification put in the slots, then
+// releases its finalizer. A teardown that keeps failing holds the deletion
+// for verificationFinalizeGrace at most: past it the finalizer is released
+// anyway, logged, and the sweep removes what is left.
+func (v *VerificationReconciler) finalize(ctx context.Context, pv *v1alpha1.PreviewVerification) error {
+	if !controllerutil.ContainsFinalizer(pv, v1alpha1.FinalizerPreviewVerification) {
+		return nil
+	}
+	if err := v.teardown(ctx, pv); err != nil {
+		if v.now().Sub(pv.DeletionTimestamp.Time) < verificationFinalizeGrace {
+			return err
+		}
+		v.forgetTools(pv.UID)
+		if v.Log != nil {
+			v.Log.LogAttrs(ctx, slog.LevelWarn, "verification teardown failed past its grace; finalizer released",
+				slog.String("verification", pv.Name), slog.Any("error", err))
+		}
+	}
+	return v.releaseFinalizer(ctx, pv)
+}
+
+// releaseFinalizer removes the verification's cleanup finalizer, if it holds
+// it; one already gone is no error.
+func (v *VerificationReconciler) releaseFinalizer(ctx context.Context, pv *v1alpha1.PreviewVerification) error {
+	if !controllerutil.RemoveFinalizer(pv, v1alpha1.FinalizerPreviewVerification) {
+		return nil
+	}
+	return client.IgnoreNotFound(v.Update(ctx, pv))
 }
 
 func (v *VerificationReconciler) logRefusal(ctx context.Context, pv *v1alpha1.PreviewVerification, msg string,

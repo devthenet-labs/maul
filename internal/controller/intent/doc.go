@@ -140,7 +140,11 @@
 //	PreviewVerification  IntentReconciler: creates (spec, once) and deletes
 //	                     (supersede, retention, review end); preview-controller
 //	                     writes its status, which the IntentReconciler only
-//	                     reads, one uncached get per pass, and judges
+//	                     reads, one uncached get per pass, and judges, and
+//	                     adds and removes its own cleanup finalizer
+//	                     (v1alpha1.FinalizerPreviewVerification), so a deleted
+//	                     request is gone only once its slot objects are, or a
+//	                     bounded grace has passed
 //
 // With --intent-verification, status.acceptance and status.verification are
 // the IntentReconciler's like the rest of Intent status (verify_loop.go): the

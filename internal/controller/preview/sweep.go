@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -240,9 +241,11 @@ func (s *Sweeper) sweepSlot(ctx context.Context, namespace string, slot int32, l
 
 // sweepVerification removes what verification left in a slot: the
 // NetworkPolicies and Jobs of a Preview no longer holding the slot, a
-// tester or tool Job whose PreviewVerification is gone, and such a Job's Pod
-// whose Job is gone (one deleted without background propagation); a tool
-// Job's key Secret and ConfigMap are the Job's, and go with it. Pods are listed before
+// tester or tool Job whose PreviewVerification is gone, an evaluator ingress
+// policy whose PreviewVerification is gone (past orphanPolicyGrace: it has
+// no owner, so nothing else removes it), and such a Job's Pod whose Job is
+// gone (one deleted without background propagation); a tool Job's key
+// Secret and ConfigMap are the Job's, and go with it. Pods are listed before
 // Jobs, so a Pod seen here has a Job the Job list sees too, whichever was
 // created last; a component's Pod is never the sweep's.
 func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot int32, live map[string]int32) error {
@@ -250,11 +253,6 @@ func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot 
 	var policies networkingv1.NetworkPolicyList
 	if err := s.List(ctx, &policies, client.InNamespace(namespace), selector); err != nil {
 		return err
-	}
-	for i := range policies.Items {
-		if err := s.deleteOrphan(ctx, &policies.Items[i], slot, live); err != nil {
-			return err
-		}
 	}
 	var pods corev1.PodList
 	if err := s.List(ctx, &pods, client.InNamespace(namespace), selector, jobPodRoles()); err != nil {
@@ -264,8 +262,12 @@ func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot 
 	if err := s.List(ctx, &jobs, client.InNamespace(namespace), selector); err != nil {
 		return err
 	}
-	verifications, err := s.liveVerifications(ctx, jobs.Items)
+	verifications, err := s.liveVerifications(ctx,
+		len(jobs.Items) > 0 || slices.ContainsFunc(policies.Items, verificationPolicy))
 	if err != nil {
+		return err
+	}
+	if err := s.sweepPolicies(ctx, policies.Items, verifications, slot, live); err != nil {
 		return err
 	}
 	kept := make(map[types.UID]bool, len(jobs.Items))
@@ -313,10 +315,60 @@ func jobPodRoles() client.ListOption {
 	return client.MatchingLabelsSelector{Selector: labels.NewSelector().Add(*roles)}
 }
 
+// sweepPolicies deletes the slot's verification NetworkPolicies of a Preview
+// no longer holding the slot, and its evaluator ingress policies whose
+// PreviewVerification is gone.
+func (s *Sweeper) sweepPolicies(ctx context.Context, policies []networkingv1.NetworkPolicy,
+	verifications map[string]bool, slot int32, live map[string]int32) error {
+	for i := range policies {
+		np := &policies[i]
+		if !s.orphanedEvaluatorPolicy(np, verifications) {
+			if err := s.deleteOrphan(ctx, np, slot, live); err != nil {
+				return err
+			}
+			continue
+		}
+		s.logOrphan(ctx, objectKind(np), np)
+		if err := s.Delete(ctx, np); err != nil && !kerrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// orphanPolicyGrace is how old an evaluator ingress policy whose
+// PreviewVerification is not seen must be before the sweep deletes it: the
+// request always exists before its policy, so this only covers a cache
+// that has not yet observed a new one.
+const orphanPolicyGrace = verifyGrace
+
+// verificationPolicy reports whether np is one verification's own: it
+// carries that verification's UID.
+func verificationPolicy(np networkingv1.NetworkPolicy) bool {
+	return np.Labels[labelVerificationUID] != ""
+}
+
+// orphanedEvaluatorPolicy reports whether np is a rendered evaluator ingress
+// policy whose PreviewVerification is gone (or being deleted) and that is
+// older than orphanPolicyGrace.
+func (s *Sweeper) orphanedEvaluatorPolicy(np *networkingv1.NetworkPolicy, verifications map[string]bool) bool {
+	uid := np.Labels[labelVerificationUID]
+	p := &v1alpha1.Preview{ObjectMeta: metav1.ObjectMeta{Name: np.Labels[labelPreview]}}
+	if uid == "" || verifications[uid] || !renderedName(np) || !isEvaluatorPolicy(p, np.Name) {
+		return false
+	}
+	now := time.Now()
+	if s.Now != nil {
+		now = s.Now()
+	}
+	return now.Sub(np.CreationTimestamp.Time) >= orphanPolicyGrace
+}
+
 // liveVerifications are the UIDs of the PreviewVerifications in the release
-// namespace, read only when there is a Job to judge.
-func (s *Sweeper) liveVerifications(ctx context.Context, jobs []batchv1.Job) (map[string]bool, error) {
-	if len(jobs) == 0 {
+// namespace not being deleted, read only when needed: there is a Job or a
+// verification's policy to judge.
+func (s *Sweeper) liveVerifications(ctx context.Context, needed bool) (map[string]bool, error) {
+	if !needed {
 		return nil, nil
 	}
 	var list v1alpha1.PreviewVerificationList

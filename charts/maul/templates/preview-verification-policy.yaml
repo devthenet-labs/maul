@@ -3,10 +3,12 @@
 #
 # Acceptance verification's request channel (preview.verification.enabled):
 # a PreviewVerification in the release namespace is a request intent-controller
-# writes (create, delete) and preview-controller answers (status only). RBAC
-# grants each its half; this policy holds every identity to it, the cluster's
-# own garbage and namespace controllers aside, so neither controller can write
-# the other's half and nobody else can forge either. Fail closed.
+# writes (create, delete) and preview-controller answers (status, plus its
+# own cleanup finalizer, maul.run/preview-verification-cleanup, which holds a
+# deleted request until its slot objects are torn down). RBAC grants each its
+# half; this policy holds every identity to it, the cluster's own garbage and
+# namespace controllers aside, so neither controller can write the other's
+# half and nobody else can forge either. Fail closed.
 {{- /*
 maul.previewVerification: the verification switch, checked once for every
 template that renders a piece of it. Returns "true" with it on, "" off. On,
@@ -137,14 +139,26 @@ spec:
         # updates one under foreground deletion), the namespace controller
         # with its namespace; both run as their own ServiceAccounts, or as
         # the controller manager where it does not use per-controller
-        # credentials.
+        # credentials. preview-controller may update a request itself only
+        # to add or remove its cleanup finalizer: spec, labels, annotations,
+        # owners and every other finalizer as they were.
         - expression: >-
               request.?subResource.orValue('') == 'status'
                 ? request.userInfo.username == '{{ $pcSA }}'
                 : request.userInfo.username in ['{{ $icSA }}',
                     'system:serviceaccount:kube-system:generic-garbage-collector',
                     'system:serviceaccount:kube-system:namespace-controller',
-                    'system:kube-controller-manager']
+                    'system:kube-controller-manager'] ||
+                  (request.userInfo.username == '{{ $pcSA }}' && request.operation == 'UPDATE' &&
+                    object.spec == oldObject.spec &&
+                    object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+                    object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({}) &&
+                    object.metadata.?ownerReferences.orValue([]) ==
+                      oldObject.metadata.?ownerReferences.orValue([]) &&
+                    object.metadata.?finalizers.orValue([]).filter(f,
+                      f != 'maul.run/preview-verification-cleanup') ==
+                      oldObject.metadata.?finalizers.orValue([]).filter(f,
+                        f != 'maul.run/preview-verification-cleanup'))
           message: intent-controller writes verification requests; preview-controller writes their results
 ---
 apiVersion: admissionregistration.k8s.io/v1

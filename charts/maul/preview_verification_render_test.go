@@ -150,7 +150,7 @@ func checkVerificationGrants(t *testing.T, objs []*unstructured.Unstructured) {
 		}
 	}
 	release := grants(onlyRole(t, objs, "maul", "maul-preview-controller"))
-	if release["maul.run/previewverifications"] != "get,list,watch" ||
+	if release["maul.run/previewverifications"] != "get,list,watch,update" ||
 		release["maul.run/previewverifications/status"] != "update" {
 		t.Errorf("preview-controller release grants %v", release)
 	}

@@ -99,6 +99,13 @@ const (
 	// UsageRollups (ConditionUsageRolledUp): no run can be deleted, by TTL or
 	// by hand, before its usage is aggregated.
 	FinalizerUsageRollup = "maul.run/usage-rollup"
+	// FinalizerPreviewVerification is put on a PreviewVerification by
+	// preview-controller before it renders anything into a slot, and removed
+	// by it once everything the request made there is torn down (or, so a
+	// deletion never hangs, once a bounded grace has passed since it was
+	// deleted, its orphan sweep left to finish): the per-verification slot
+	// objects, which cannot be owned across namespaces, never outlive it.
+	FinalizerPreviewVerification = "maul.run/preview-verification-cleanup"
 )
 
 // LocalSecretReference names a Secret in the same namespace as the referring
