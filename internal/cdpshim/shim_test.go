@@ -231,6 +231,45 @@ func TestGate(t *testing.T) {
 	}
 }
 
+// TestGateFirst: a request without the key, or with an Origin, gets the
+// refusal for every path, including the ones the mux would redirect or
+// not find, so an unauthenticated caller learns nothing about the routes.
+func TestGateFirst(t *testing.T) {
+	_, srv, _ := start(t, &fakeLauncher{t: t}, nil)
+	client := *srv.Client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	withOrigin := http.Header{KeyHeader: {string(testKey)}, "Origin": {"http://evil.example"}}
+	for _, path := range []string{"/devtools/browser", "/json/version//", "/json/list", "/devtools/page/x", "/nope", "/"} {
+		for _, tc := range []struct {
+			name   string
+			header http.Header
+			want   int
+		}{
+			{"no key", http.Header{}, http.StatusUnauthorized},
+			{"wrong key", http.Header{KeyHeader: {strings.Repeat("x", len(testKey))}}, http.StatusUnauthorized},
+			{"origin", withOrigin, http.StatusForbidden},
+		} {
+			req, err := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header["Upgrade"] = []string{"websocket"}
+			for k, v := range tc.header {
+				req.Header[k] = v
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != tc.want || resp.Header.Get("Location") != "" {
+				t.Errorf("%s %s: status %d location %q, want %d",
+					tc.name, path, resp.StatusCode, resp.Header.Get("Location"), tc.want)
+			}
+		}
+	}
+}
+
 // TestRoutes: only GET of the two endpoints is served.
 func TestRoutes(t *testing.T) {
 	_, srv, _ := start(t, &fakeLauncher{t: t}, nil)
