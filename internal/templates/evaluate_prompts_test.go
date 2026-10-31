@@ -158,6 +158,8 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		"An exit code alone, a crash or a traceback never shows a defect",
 		"must write data of its own run: name `{{run}}` in a POST, PUT or PATCH, a browser fill or its program",
 		"the assertion that fails must be about that data",
+		"A total, a count or a list over shared rows never shows a defect.",
+		"Its `expect.status` may list only success statuses.",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("prompt lacks %q", want)

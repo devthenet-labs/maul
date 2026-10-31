@@ -131,53 +131,59 @@ check of the outcome as approved, which would pass where the outcome holds and f
 `expect: fail`, under an outcome it reports `fail`. A wrong fail starts a fix of code that works, so every one of these
 must hold before the outcome is failed:
 
-1. **Red by assertion.** The check's dry run failed one assertion the outcome is the judge of, in a check that otherwise
-   ran: every step before passed, and both attempts failed the same assertion of the same step. When in doubt maul
-   counts nothing: unsure beats catching a defect. What counts, by form:
-   - `http`: only content: a JSON pointer that resolves to a different value, a header that is present with a different
-     value, or body text missing from a body that is not an HTML page. No status counts, a 500 included (it can be the
-     check's own malformed request), nor a pointer or header that resolves to nothing, HTML where JSON was expected (an
-     SPA's fallback page), no answer, or a capture with nothing to keep.
+1. **Red by assertion.** The check's dry run failed one assertion the outcome is the judge of, about data the check's
+   own run made, in a check that otherwise ran: every step before passed, and both attempts failed the same assertion of
+   the same step. When in doubt maul counts nothing: unsure beats catching a defect. What counts, by form:
+   - `http`: only content: a JSON pointer (never the whole document) that resolves to a different value, not by a list
+     matcher (`$order`, `$includes`); a header that is present with a different value; or body text missing from a body
+     that is not an HTML page. And only when the step reads the run's own data: its path (not its query) names `{{run}}`
+     or a value captured from one of the check's own writes, or the expected value names one. No status counts, a 500
+     included, nor a pointer or header that resolves to nothing, a total or a count over shared rows, HTML where JSON
+     was expected, no answer, or a capture with nothing to keep. The check may list only success statuses.
    - `exec`: only a program that says so itself, printing `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a
      line of its output (stdout and stderr combined), `<id>` naming the assertion, with the check's expectation failing.
      An exit code alone, a crash, `127` or a traceback never is.
-   - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there. Not a timeout, an
-     action, a locator that resolved nothing (a count of 0 included) or more than one element, an element with no box, a
-     trial click or an indeterminate judgement. The failing step is read from the compiled spec's own stack frame, never
-     from a line of maul's support module or a path quoted in the error.
+   - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
+     or URL keyed by `{{run}}`; never a count, a timeout, an action, a locator that resolved nothing or more than one
+     element, an element with no box, a trial click or an indeterminate judgement. The failing step is read from the
+     compiled spec's own stack frame. maul's own runs of such a check (its confirmation, and its replays once saved)
+     wait 15 seconds for each judgement instead of 5, so a slow but correct page is not read as the defect.
 
    `maul-tool` prints `red by assertion at step <n> (<assertion>)` for such a run. The check must also write data of its
-   own run: `{{run}}` in a POST, PUT or PATCH (its path or body), a browser fill or its program; a GET's query, a
-   navigation or an expectation is not a write.
+   own run: `{{run}}` in a POST, PUT or PATCH (its path or body), a browser fill or its program.
 
 2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
    assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
    green proposal only against a green dry run, never one the replay saw red).
-3. **The red question.** The reviewer is told the check failed, at which step and by which assertion, and answers
-   `proves` only if the check encodes the outcome as approved, would pass on a build where the outcome holds, and that
-   assertion is the outcome itself and about data the check created, not setup or something incidental. For an `exec`
-   check it is shown the marker its program printed and answers whether the program prints it only when the approved
-   outcome is violated, never on a connection error, a status code, a timeout or an exception. The answer counts only
-   for that assertion: another failing assertion of the check needs a review of its own. Anything else and the check is
-   not stored; the outcome stays unsure.
+3. **The red question.** The reviewer is told the check failed, at which step and by which assertion, and that the
+   application's state was not fresh. It answers `proves` only if the check encodes the outcome as approved, would pass
+   on a build where the outcome holds, and that assertion is the outcome itself and about data the check created, not
+   setup or something incidental. For an `exec` check it is shown the marker its program printed and answers whether the
+   program prints it only when the approved outcome is violated, never on a connection error, a status code, a timeout
+   or an exception. The answer counts only for that assertion: another failing assertion of the check needs a review of
+   its own. Anything else and the check is not stored; the outcome stays unsure.
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.
 5. **No vetted check disagrees.** If another check of the outcome, valid and reviewed `proves`, passed cleanly in the
-   same round, the two disagree: the outcome is unsure (this holds for every failing check, not only red ones).
+   same round, the two disagree: the outcome is unsure. A check that both passed and failed at the same heads in one
+   round is flaky: unsure, never failed. Both hold for every check, not only red ones.
 
 The check is then stored (marked as saved red, with the assertion it failed) and the verify-fix round is handed its
-failure as the reproduction. After the fix, the same check replays at the new heads: green, it passes the outcome as any
-saved check does. Until it has replayed green once, its later steps and its other assertions have never run, so a replay
-or a new confirmation that fails other than by that same assertion is not evidence: never a second fix, never a block.
-Another proven check may pass the outcome, and a dispute with a proven replacement can still retire it. A check saved
-red that already replayed green and is proposed red again is unsure. Where a base is available, a check of a new outcome
-that fails at base too is expected (the feature did not exist), and is not a reason to refuse it.
+failure as the reproduction. After the fix, the same check replays at the new heads; green, it is asked the green
+question too (the red review never asked whether a pass could be special-cased or merely shows a call worked), and only
+once that answer is `proves` does it pass the outcome. A replay that clears it counts from the next round on, so the
+round and its fix are decided on the same facts. Until it has replayed green once, its later steps and its other
+assertions have never run, so a replay or a new confirmation that fails other than by that same assertion is not
+evidence: never a second fix, never a block. Another proven check may pass the outcome, and a dispute with a proven
+replacement can still retire it. A check saved red that already replayed green and is proposed red again is unsure.
+Where a base is available, a check of a new outcome that fails at base too is expected (the feature did not exist), and
+is not a reason to refuse it.
 
 A residual risk stays: maul's own run happens on the preview the exploration used, so a check whose failing assertion
-reads state the evaluator left behind (a count over shared rows, say) could go red deterministically. The write rule,
-the reviewer's "about data the check created", rule 2's run-scoped list assertions and the red question narrow it; they
-do not close it.
+reads state the evaluator left behind could go red deterministically. The write rule, the rule that the failing
+assertion reads the run's own record, rule 2's run-scoped list assertions, the reviewer and the red question narrow it;
+they do not close it.
 
 ## Disputes
 

@@ -615,16 +615,33 @@ spec:
                     type: integer
                   redCleared:
                     description: |-
-                      RedCleared are the digests of checks saved red (SavedCheck.Expect
-                      fail) that have since replayed green. Until one has, its steps after
-                      the one it was saved failing at never ran, so only a replay red by
-                      assertion at or before that step reproduces its defect.
+                      RedCleared are the checks saved red (SavedCheck.Expect fail) that
+                      have since replayed green, each with the verification whose replay
+                      did. Until one has, only a run red by the assertion it was saved
+                      failing reproduces its defect. A clearance counts from the round
+                      after the one that earned it, so that round is judged, and its fix
+                      decided, on the same facts.
                     items:
-                      pattern: ^sha256:[0-9a-f]{64}$
-                      type: string
+                      description: RedClearance is a check saved red that replayed
+                        green.
+                      properties:
+                        digest:
+                          description: Digest is the check's digest.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        verification:
+                          description: Verification names the PreviewVerification
+                            whose replay passed it.
+                          maxLength: 63
+                          minLength: 1
+                          type: string
+                      required:
+                      - digest
+                      - verification
+                      type: object
                     maxItems: 40
                     type: array
-                    x-kubernetes-list-type: set
+                    x-kubernetes-list-type: atomic
                   reviews:
                     description: |-
                       Reviews cache the check reviewer's answers, so a check is reviewed

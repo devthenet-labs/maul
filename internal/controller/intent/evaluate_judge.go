@@ -79,8 +79,10 @@ type roundJudgement struct {
 	// replay: the round was a replay round.
 	replay bool
 	// cleared are the checks saved red whose replay this round passed
-	// cleanly (clearedRed), recorded on status.acceptance.redCleared.
-	cleared []string
+	// cleanly (clearedRed), recorded on status.acceptance.redCleared as
+	// cleared by verification, the round's.
+	cleared      []string
+	verification string
 }
 
 // decideRound judges pv, a collected round, with run its evaluate run (nil
@@ -98,11 +100,34 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 	in := decideInput(p.in.Status.Acceptance, pv, cs, ev)
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
 		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
-		cleared: clearedRed(cs, pv.Status.Replay)}
+		cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name}
 	if ev != nil {
 		j.disputes = resolvedDisputes(ev, pv)
 	}
 	return j
+}
+
+// clearedBefore reports a check saved red that replayed green in a round
+// before verification's (third review, F1): a clearance never counts in
+// the round that earned it, so the judgement and the fix path that
+// re-decides after it decide alike.
+func clearedBefore(acc *v1alpha1.IntentAcceptance, digest, verification string) bool {
+	return slices.ContainsFunc(acc.RedCleared, func(c v1alpha1.RedClearance) bool {
+		return c.Digest == digest && c.Verification != verification
+	})
+}
+
+// addRedCleared records digests as cleared by verification, each once (the
+// first clearance kept), the newest MaxSavedChecks.
+func addRedCleared(acc *v1alpha1.IntentAcceptance, digests []string, verification string) {
+	for _, d := range digests {
+		if !slices.ContainsFunc(acc.RedCleared, func(c v1alpha1.RedClearance) bool { return c.Digest == d }) {
+			acc.RedCleared = append(acc.RedCleared, v1alpha1.RedClearance{Digest: d, Verification: verification})
+		}
+	}
+	if n := len(acc.RedCleared); n > v1alpha1.MaxSavedChecks {
+		acc.RedCleared = slices.Clone(acc.RedCleared[n-v1alpha1.MaxSavedChecks:])
+	}
 }
 
 // clearedRed are the digests of the checks of cs saved red whose replays
@@ -179,7 +204,7 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
 			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
 			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
-			Cleared: slices.Contains(acc.RedCleared, c.Digest)})
+			Cleared: clearedBefore(acc, c.Digest, pv.Name)})
 	}
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, r := range acc.Reviews {
@@ -393,14 +418,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
 		}
 	}
 	nv.Anomalies = j.anomalies
-	for _, d := range j.cleared {
-		if !slices.Contains(acc.RedCleared, d) {
-			acc.RedCleared = append(acc.RedCleared, d)
-		}
-	}
-	if n := len(acc.RedCleared); n > v1alpha1.MaxSavedChecks {
-		acc.RedCleared = slices.Clone(acc.RedCleared[n-v1alpha1.MaxSavedChecks:])
-	}
+	addRedCleared(acc, j.cleared, j.verification)
 	state, replayNext := judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	nv.State, nv.Disputed = state, nil
 	if replayNext {

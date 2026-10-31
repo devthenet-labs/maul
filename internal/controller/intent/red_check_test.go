@@ -5,8 +5,11 @@ package intent
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -198,8 +201,91 @@ func TestRedCheckClearedOnceGreen(t *testing.T) {
 	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: red.Digest, Result: v1alpha1.CheckRunPass, Token: "t1", Seq: 1},
 		v1alpha1.CheckRun{CheckDigest: other.Digest, Result: v1alpha1.CheckRunFail, Token: "t2", Seq: 2})
 	e.settleReviews(name)
-	if got := e.get(name).Status.Acceptance.RedCleared; !slices.Equal(got, []string{red.Digest}) {
+	if got := e.get(name).Status.Acceptance.RedCleared; len(got) != 1 || got[0].Digest != red.Digest ||
+		got[0].Verification != pv.Name {
 		t.Errorf("red cleared = %v, want the red check that replayed green alone", got)
+	}
+}
+
+// TestRedCheckReviewedGreenOnceGreen (third review, F5): a check saved red
+// that replays green after the fix is asked the green question too, in that
+// round's reviewer run, and only then passes its outcome.
+func TestRedCheckReviewedGreenOnceGreen(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	red := redCheck(t)
+	e.storeChecks(name, red)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		rv := in.Status.Acceptance.Reviews
+		for i := range rv {
+			rv[i].Expect, rv[i].FailedStep, rv[i].FailedAssertion = v1alpha1.CheckExpectFail, red.FailedStep,
+				red.FailedAssertion
+		}
+	})
+	r := &fakeReviewer{}
+	e.reviewChecksWith(r)
+	e.evaluateReporting(`---
+verdicts:
+  - outcome: version-shown
+    verdict: pass
+    ledger: [1]
+  - outcome: still-healthy
+    verdict: unsure
+    ledger: []
+---
+Fixed.
+`)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.runRuns()
+	e.runRuns()
+	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: red.Digest, Result: v1alpha1.CheckRunPass, Token: "t1", Seq: 1})
+	e.settleReviews(name)
+	if len(r.handoffs) != 1 || len(r.handoffs[0].Reviews) != 1 || r.handoffs[0].Reviews[0].Expect != "" ||
+		r.handoffs[0].Reviews[0].CheckDigest != red.Digest {
+		t.Fatalf("handoffs %+v, want the red check asked the green question", r.handoffs)
+	}
+	if _, stored := e.checkStore(name); len(stored) != 1 {
+		t.Errorf("store %+v, want the red check alone, not stored twice", stored)
+	}
+	v := e.verification(name)
+	if v.Outcomes[0].Result != v1alpha1.OutcomePassed || v.Outcomes[0].Basis != red.Digest {
+		t.Errorf("verification %s %+v, want version-shown passed on the red check", v.State, v.Outcomes)
+	}
+}
+
+// TestJudgementAndFixDecideAlike (third review, F1): the judgement records
+// the red checks its round saw replay green; the fix path re-decides that
+// same round afterwards, and must decide exactly as the judgement did: a
+// clearance counts only from the round after the one that earned it.
+func TestJudgementAndFixDecideAlike(t *testing.T) {
+	red, green := redCheck(t), savedCheck(t, healthCheck)
+	green.Outcome = red.Outcome
+	o := v1alpha1.AcceptanceOutcome{ID: red.Outcome, Outcome: "GET /version answers with the commit it runs"}
+	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o}, Reviews: []v1alpha1.CheckReviewRecord{
+		{CheckDigest: green.Digest, OutcomeDigest: outcomeDigest(o), Answer: v1alpha1.ReviewProves, Run: "r"}}}
+	pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: "x-v3-a1"},
+		Status: v1alpha1.PreviewVerificationStatus{
+			Replay: []v1alpha1.CheckRun{{CheckDigest: red.Digest, Result: v1alpha1.CheckRunPass, Token: "t", Seq: 1},
+				{CheckDigest: green.Digest, Result: v1alpha1.CheckRunPass, Token: "t", Seq: 2}},
+			Confirmations: []v1alpha1.CheckRun{{CheckDigest: red.Digest, Result: v1alpha1.CheckRunFail, Token: "t",
+				Seq: 9}},
+		}}
+	cs := []v1alpha1.SavedCheck{red, green}
+	before := acceptance.Decide(decideInput(acc, pv, cs, nil))
+	addRedCleared(acc, clearedRed(cs, pv.Status.Replay), pv.Name)
+	if len(acc.RedCleared) != 1 || acc.RedCleared[0].Digest != red.Digest {
+		t.Fatalf("red cleared = %+v, want the red check, by this round", acc.RedCleared)
+	}
+	after := acceptance.Decide(decideInput(acc, pv, cs, nil))
+	if !reflect.DeepEqual(before, after) {
+		t.Errorf("the fix path decides\n%+v\nthe judgement decided\n%+v", after, before)
+	}
+	next := *pv
+	next.Name = "x-v4-a1"
+	if in := decideInput(acc, &next, cs, nil); !in.Checks[0].Cleared {
+		t.Errorf("the next round does not see the clearance: %+v", in.Checks[0])
 	}
 }
 

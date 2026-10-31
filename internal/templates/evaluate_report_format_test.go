@@ -104,6 +104,7 @@ func TestCheckReviewPromptRedQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"This check failed on the build under review",
+		"The application's own state was not fresh",
 		"at step 4, on its assertion `json /players`",
 		"It would pass on a build where the outcome holds",
 		"That assertion, `json /players` of step 4, asserts the outcome itself",

@@ -67,10 +67,36 @@ func outcomeDigest(o v1alpha1.AcceptanceOutcome) string { return digest([]byte(r
 type storeCandidate struct {
 	check   v1alpha1.SavedCheck
 	outcome v1alpha1.AcceptanceOutcome
+	// green: a stored check saved red, now replayed green, to be asked the
+	// green question (regreenCandidates); never stored again.
+	green bool
 }
 
-// red reports a candidate proposed to show a defect.
-func (c storeCandidate) red() bool { return c.check.Expect == v1alpha1.CheckExpectFail }
+// red reports a candidate to be asked the red question: proposed to show a
+// defect, and not a stored one asked the green question.
+func (c storeCandidate) red() bool { return c.check.Expect == v1alpha1.CheckExpectFail && !c.green }
+
+// regreenCandidates are the stored checks saved red whose replays in pv all
+// passed with a run token, and that have no cached review of the green
+// question for their outcome's text (third review, F5): a check saved red
+// passes its outcome only once that question is answered proves too.
+func regreenCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
+	stored []v1alpha1.SavedCheck, reviews []v1alpha1.CheckReviewRecord) []storeCandidate {
+	answers := reviewsByKey(reviews)
+	var out []storeCandidate
+	for _, d := range clearedRed(stored, pv.Status.Replay) {
+		i := slices.IndexFunc(stored, func(c v1alpha1.SavedCheck) bool { return c.Digest == d })
+		o := slices.IndexFunc(outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == stored[i].Outcome })
+		if o < 0 || outcomes[o].Manual {
+			continue
+		}
+		c := storeCandidate{check: stored[i], outcome: outcomes[o], green: true}
+		if _, ok := answers[c.reviewKey()]; !ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 // reviewKey is a candidate's review cache key.
 func (c storeCandidate) reviewKey() reviewKey {
@@ -124,8 +150,8 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 		}
 		cand := storeCandidate{check: c, outcome: outcomes[i]}
 		switch {
-		case cand.red() && !createsRunData(c):
-			refused("a check to show a defect must act on data of its own run", c, "")
+		case cand.red() && !mayShowDefect(c):
+			refused("a check to show a defect must write its run's data and expect only success statuses", c, "")
 			continue
 		case cand.red() && !confirmedRed(pv.Status.Confirmations, c):
 			refused("no confirmation run red by the assertion it was confirmed failing", c, "")
@@ -140,11 +166,12 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 	return out
 }
 
-// createsRunData reports whether c's body writes data under its own run token
-// (checks.WritesRunData); a body that does not parse does not.
-func createsRunData(c v1alpha1.SavedCheck) bool {
+// mayShowDefect reports whether c's body may show a defect (checks.ValidateRed:
+// it writes its run's data and lists only success statuses); a body that does
+// not parse may not.
+func mayShowDefect(c v1alpha1.SavedCheck) bool {
 	parsed, err := checks.Parse([]byte(c.Body))
-	return err == nil && checks.WritesRunData(parsed)
+	return err == nil && checks.ValidateRed(parsed) == nil
 }
 
 // confirmedRed reports that every confirmation of c, expected to fail,

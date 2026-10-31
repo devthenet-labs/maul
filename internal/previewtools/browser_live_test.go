@@ -376,11 +376,15 @@ func TestLiveBrowser(t *testing.T) {
 					}
 					// Review finding 4: a maul assertion throws in maul's
 					// support module; the failing step is still the spec's
-					// own, and the failure is red by assertion there.
-					if step, ok := rec.AssertionStep(); rec.Result == toolwire.RunFail &&
-						(!ok || step != liveFailStep[name]) {
-						t.Errorf("%s replay %d: red by assertion %v at step %d, want step %d (%+v)", name, i+1, ok,
-							step, liveFailStep[name], rec.Attempts)
+					// own. (These checks are not keyed by a run token, so
+					// they are never red by assertion: F3.)
+					if rec.Result == toolwire.RunFail {
+						for _, a := range rec.Attempts {
+							if last := a.Steps[len(a.Steps)-1]; last.Index != liveFailStep[name] {
+								t.Errorf("%s replay %d: failed at step %d, want step %d (%+v)", name, i+1, last.Index,
+									liveFailStep[name], a.Steps)
+							}
+						}
 					}
 				}
 			}

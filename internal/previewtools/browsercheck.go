@@ -68,17 +68,18 @@ const maxReportBytes = 1 << 20
 
 // checkRunTimeout bounds one runner process: the test's own timeout, the
 // CDP attach and the runner's start.
-const checkRunTimeout = time.Duration(playwright.TestTimeoutMS)*time.Millisecond + 60*time.Second
+const checkRunTimeout = time.Duration(playwright.PatientTestTimeoutMS)*time.Millisecond + 60*time.Second
 
 // browserAttempt runs a browser check once under run.
-func (r *Relay) browserAttempt(ctx context.Context, b checks.BrowserCheck, run string) []toolwire.StepRecord {
+func (r *Relay) browserAttempt(ctx context.Context, b checks.BrowserCheck, run string,
+	patient bool) []toolwire.StepRecord {
 	errStep := func(detail string) []toolwire.StepRecord {
 		return []toolwire.StepRecord{{Result: toolwire.ResultError, Detail: detail}}
 	}
 	if r.br == nil || r.br.Runner == nil {
 		return errStep(reasonNoBrowser)
 	}
-	spec, err := playwright.Compile(b, playwright.Options{RunToken: run})
+	spec, err := playwright.Compile(b, playwright.Options{RunToken: run, Patient: patient})
 	if err != nil {
 		return errStep("the check did not compile: " + bounded(err.Error()))
 	}
@@ -86,7 +87,33 @@ func (r *Relay) browserAttempt(ctx context.Context, b checks.BrowserCheck, run s
 	if err != nil {
 		return errStep("the test runner did not run")
 	}
-	return judgeReport(report, spec)
+	return aboutTheRun(judgeReport(report, spec), b)
+}
+
+// aboutTheRun keeps a failing step's assertion only when that expect is
+// about the run's own data (third review, F3): its locator, other locator,
+// expected text or URL names {{run}}, and it is no count (a count over
+// shared rows can differ for data the run did not make).
+func aboutTheRun(steps []toolwire.StepRecord, b checks.BrowserCheck) []toolwire.StepRecord {
+	for i, s := range steps {
+		if !s.Assertion {
+			continue
+		}
+		var a *checks.Assertion
+		if s.Index < len(b.Steps) {
+			a = b.Steps[s.Index].Expect
+		}
+		if a == nil || a.Assert == checks.AssertCount || !marshalsRun(a) {
+			steps[i].Assertion, steps[i].AssertionID = false, ""
+		}
+	}
+	return steps
+}
+
+// marshalsRun reports whether v's JSON names {{run}}.
+func marshalsRun(v any) bool {
+	b, err := json.Marshal(v)
+	return err == nil && strings.Contains(string(b), checks.RunPlaceholder)
 }
 
 // stepComment marks a compiled spec's step N (1-based).

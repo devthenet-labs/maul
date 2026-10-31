@@ -256,7 +256,7 @@ func TestDecide(t *testing.T) {
 				in.Replay = []CheckRun{{CheckDigest: dg("a"), Result: RunFail, Token: "t", Seq: 2}}
 				in.Verdicts[0].Claim = ClaimUnsure
 			}),
-			result: ResultUnsure, reason: ReasonEvaluatorDisagrees, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonFlaky, handoff: HandoffUnconfirmed,
 		},
 		{
 			name:   "deterministic failure and the evaluator's fail citing the ledger: failed with a fix",
@@ -735,8 +735,10 @@ func oracleRules1To4(in Input, o OutcomeRef, basis string) error {
 	if !oracleProves(in, basis, o) {
 		return fmt.Errorf("rule 4: not reviewed proves")
 	}
-	if oracleRed(in, basis) && !oracleRedReview(in, basis, o) {
-		return fmt.Errorf("rule 4: a check saved red not reviewed proves with the red question")
+	if oracleRed(in, basis) && !slices.ContainsFunc(in.Reviews, func(rv CheckReview) bool {
+		return rv.CheckDigest == basis && rv.OutcomeDigest == o.Digest && !rv.ExpectFail && rv.Answer == ReviewProves
+	}) {
+		return fmt.Errorf("rule 4: a check saved red passes only with a green-question review proves (F5)")
 	}
 	// A check proposed red never passes on its own confirmation, whatever
 	// that showed (a flaky green included).
@@ -929,6 +931,15 @@ func oracleFixRun(in Input, o OutcomeRef, f FixFailure) error {
 	}
 	if !oracleCountedFail(in, f.CheckDigest) || !slices.ContainsFunc(oracleRuns(in, f.CheckDigest), failed) {
 		return fmt.Errorf("no counted failing run at seq %d", f.Seq)
+	}
+	// A check that also passed this round is flaky, never a fail (F4).
+	for _, c := range in.Checks {
+		if c.Outcome == o.ID && !c.Retired && oracleCountedFail(in, c.Digest) &&
+			slices.ContainsFunc(oracleRuns(in, c.Digest), func(run CheckRun) bool {
+				return run.Result == RunPass && run.Token != "" && !run.ExpectFail
+			}) {
+			return fmt.Errorf("check %s of the outcome passed and failed this round", c.Digest)
+		}
 	}
 	return oracleNoVettedSibling(in, o, f)
 }

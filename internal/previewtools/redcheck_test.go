@@ -177,7 +177,7 @@ func TestBrowserAssertionFailures(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := browserCheckHarness(t, tc.reports)
-			rec := h.relay.runCheck(context.Background(), parseCheck(t, browserCheck), toolwire.ModeDryRun)
+			rec := h.relay.runCheck(context.Background(), parseCheck(t, keyedBrowserCheck), toolwire.ModeDryRun)
 			if _, ok := rec.AssertionStep(); ok != tc.assertion {
 				t.Errorf("red by assertion %v, want %v (%+v)", ok, tc.assertion, rec)
 			}
@@ -310,13 +310,9 @@ func TestConfirmAgainstTheReplay(t *testing.T) {
 			_, _ = w.Write([]byte(`{"score":99}`))
 		})
 		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
-		_, dry := h.call(toolwire.VerbCheckRun, `{"check":`+static+`}`)
-		if dry.Observed == nil || dry.Observed.CheckRun == nil {
-			t.Fatalf("dry run: %+v", dry)
-		}
-		if _, ok := dry.Observed.CheckRun.AssertionStep(); !ok {
-			t.Fatalf("the fixture is not red by assertion: %+v", dry.Observed.CheckRun)
-		}
+		// Its read is about no data of its own run either, so its dry run is
+		// not red by assertion (F3); the confirm is refused all the same.
+		h.call(toolwire.VerbCheckRun, `{"check":`+static+`}`)
 		d := bareDigest(t, static)
 		if _, resp := h.call(toolwire.VerbConfirm, confirm(d, true)); resp.Refused != toolwire.RefusedNoRedDryRun {
 			t.Errorf("a red check acting on no run data of its own was confirmed: %+v", resp)
