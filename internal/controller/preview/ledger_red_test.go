@@ -29,13 +29,22 @@ func (l *redLedger) add(e toolwire.LedgerEntry) int64 {
 // failing is a failed run's two attempts, each failing at step at (an
 // assertion when assertion is set; the second attempt at step second).
 func failing(at, second int, assertion bool) []toolwire.Attempt {
+	return failingOn(at, second, assertion, "json /n")
+}
+
+// failingOn is failing with the failing assertion named id.
+func failingOn(at, second int, assertion bool, id string) []toolwire.Attempt {
 	attempt := func(run string, step int) toolwire.Attempt {
 		a := toolwire.Attempt{Run: run, Result: toolwire.ResultFail}
 		for i := range step {
 			a.Steps = append(a.Steps, toolwire.StepRecord{Index: i, Result: toolwire.ResultPass})
 		}
-		a.Steps = append(a.Steps, toolwire.StepRecord{Index: step, Result: toolwire.ResultFail, Detail: "json did not match",
-			Assertion: assertion})
+		s := toolwire.StepRecord{Index: step, Result: toolwire.ResultFail, Detail: "json did not match",
+			Assertion: assertion}
+		if assertion {
+			s.AssertionID = id
+		}
+		a.Steps = append(a.Steps, s)
 		return a
 	}
 	return []toolwire.Attempt{attempt("0123456789abcdea", at), attempt("0123456789abcdeb", second)}
@@ -97,17 +106,21 @@ func TestConfirmedRedChecks(t *testing.T) {
 		toolwire.ModeReplay
 	l.dryRun(body("replayed-green"), failing(1, 1, true))
 	l.confirm(replayedGreen, true, failing(1, 1, true))
+	// Second review, 2B: the same step, another assertion of it.
+	otherAssertion, _ := l.dryRun(body("other-assertion"), failingOn(1, 1, true, "json /n"))
+	l.confirm(otherAssertion, true, failingOn(1, 1, true, "header x-n"))
 
 	got := confirmedChecks(l.entries, testOutcomes())
 	if len(got) != 1 || got[0].Digest != "sha256:"+good || got[0].Expect != v1alpha1.CheckExpectFail ||
-		got[0].ID != "items.red" || got[0].FailedStep != 2 {
+		got[0].ID != "items.red" || got[0].FailedStep != 2 || got[0].FailedAssertion != "json /n" {
 		t.Fatalf("confirmed %+v, want only items.red, expected to fail at step 2", got)
 	}
 	runs := confirmationRuns(l.entries)
-	if len(runs) != 7 {
+	if len(runs) != 8 {
 		t.Fatalf("confirmation runs %+v", runs)
 	}
 	if r := runs[0]; r.Seq != int32(goodConf) || r.DryRunSeq != int32(goodDry) || r.AssertionStep != 2 ||
+		r.AssertionID != "json /n" ||
 		r.Expect != v1alpha1.CheckExpectFail || r.Result != v1alpha1.CheckRunFail {
 		t.Errorf("the red confirmation %+v, want fail by assertion, expected, on dry run %d", r, goodDry)
 	}

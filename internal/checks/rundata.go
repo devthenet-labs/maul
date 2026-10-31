@@ -3,26 +3,34 @@
 
 package checks
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
-// CreatesRunData reports whether c acts with its own run token: an http
-// request (its path, headers or body), a browser action (a goto, fill,
-// select or key press), or an exec's argv or program files names
-// RunPlaceholder. A check saved to show a defect must (review finding 3):
-// its confirmation runs against whatever state the evaluator's exploration
-// left behind, so what it asserts on has to be data its own run made. A
-// token only in an expectation creates nothing.
-func CreatesRunData(c Check) bool {
+// WritesRunData reports whether c writes data under its own run token: an
+// http POST, PUT or PATCH whose path or body names RunPlaceholder, a browser
+// fill of it, or an exec program run with it in its argv or files. A check
+// saved to show a defect must (reviews, finding 3): its confirmation runs
+// against whatever state the evaluator's exploration left behind, so what it
+// asserts on has to be data its own run can have made. A token in a GET's
+// query, a navigation or an expectation writes nothing.
+func WritesRunData(c Check) bool {
 	switch {
 	case c.HTTP != nil:
 		for _, st := range c.HTTP.Steps {
-			if marshalsRun(st.Request) {
+			switch strings.ToUpper(st.Request.Method) {
+			case "POST", "PUT", "PATCH":
+			default:
+				continue
+			}
+			if hasRun(st.Request.Path) || hasRun(st.Request.Body) || marshalsRun(st.Request.JSON) {
 				return true
 			}
 		}
 	case c.Browser != nil:
 		for _, st := range c.Browser.Steps {
-			if st.Expect == nil && marshalsRun(st) {
+			if st.Fill != nil && hasRun(st.Fill.Text) {
 				return true
 			}
 		}

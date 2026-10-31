@@ -93,7 +93,7 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 		// A check proposed to show a defect: the red question.
 		{"prompt_checkreview_red.md", func() (string, error) {
 			p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
-			p.ExpectFail, p.FailedStep = true, 4
+			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
 			return RenderCheckReviewPrompt(p)
 		}},
 		{"prompt_plan_outcomes.md", func() (string, error) {
@@ -152,10 +152,12 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		// defect.
 		"Propose it with `expect: fail` under the outcome you report `fail`",
 		"maul-tool then prints `red by assertion at step <n>`",
-		"a status of 404, 405 or 400 (a path, method or body the check may have got wrong)",
-		"prints `MAUL-ASSERTION-FAILED: <what it saw>` at the start of a line of stdout",
-		"an exit code alone, a crash or a traceback never shows a defect",
-		"must act on data of its own run: name `{{run}}` in a request, a browser action or its program",
+		"No status is an assertion for such a check, a 500 included",
+		"a JSON pointer or a header that resolves to nothing is not one either",
+		"prints `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a line of its output",
+		"An exit code alone, a crash or a traceback never shows a defect",
+		"must write data of its own run: name `{{run}}` in a POST, PUT or PATCH, a browser fill or its program",
+		"the assertion that fails must be about that data",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("prompt lacks %q", want)

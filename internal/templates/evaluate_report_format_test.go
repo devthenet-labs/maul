@@ -69,7 +69,7 @@ func TestCheckReviewPromptReportExampleDecodes(t *testing.T) {
 	for _, red := range []bool{false, true} {
 		p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
 		if red {
-			p.ExpectFail, p.FailedStep = true, 4
+			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
 		}
 		got, err := RenderCheckReviewPrompt(p)
 		if err != nil {
@@ -98,13 +98,16 @@ func TestCheckReviewPromptRedQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.ExpectFail, p.FailedStep = true, 4
+	p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
 	red, err := RenderCheckReviewPrompt(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"This check failed on the build under review", "at step 4, on an assertion",
-		"It would pass on a build where the outcome holds", "Step 4, the one that failed, asserts the outcome itself"} {
+	for _, want := range []string{"This check failed on the build under review",
+		"at step 4, on its assertion `json /players`",
+		"It would pass on a build where the outcome holds",
+		"That assertion, `json /players` of step 4, asserts the outcome itself",
+		"about data the check itself created"} {
 		if !strings.Contains(red, want) {
 			t.Errorf("the red prompt lacks %q", want)
 		}
@@ -150,6 +153,27 @@ func TestEvaluatePromptDataIsNotReportSyntax(t *testing.T) {
 		"- check winner-rises.api, of outcome winner-rises, replayed fail"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
+
+// TestCheckReviewPromptExecMarker (second review, 1a): an exec check's
+// failure is its program's own word (the marker), so the reviewer is shown
+// which marker it printed and asked whether the program prints it only when
+// the approved outcome is violated, never on a transport or status error.
+func TestCheckReviewPromptExecMarker(t *testing.T) {
+	p := testCheckReviewPrompt(mustCheck(t, ExampleExecCheck))
+	p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 1, "marker live-score"
+	got, err := RenderCheckReviewPrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(got), " ")
+	for _, want := range []string{"`MAUL-ASSERTION-FAILED: live-score:`",
+		"prints it only when the approved outcome is violated",
+		"never on a connection or transport error, a status code, a timeout, an exception or bad input"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the exec red prompt lacks %q:\n%s", want, got)
 		}
 	}
 }

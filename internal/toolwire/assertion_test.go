@@ -16,8 +16,11 @@ func failAt(at int, assertion bool) Attempt {
 	for i := range at {
 		a.Steps = append(a.Steps, StepRecord{Index: i, Result: ResultPass})
 	}
-	a.Steps = append(a.Steps, StepRecord{Index: at, Result: ResultFail, Detail: "json \"/a\" did not match",
-		Assertion: assertion})
+	s := StepRecord{Index: at, Result: ResultFail, Detail: "json \"/a\" did not match", Assertion: assertion}
+	if assertion {
+		s.AssertionID = "json /a"
+	}
+	a.Steps = append(a.Steps, s)
 	return a
 }
 

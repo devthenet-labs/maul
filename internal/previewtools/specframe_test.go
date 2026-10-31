@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/checks/playwright"
@@ -39,11 +40,26 @@ func TestBrowserStepFromTheSpecFrame(t *testing.T) {
 			"tests": []any{map[string]any{"results": []any{res}}}}}}}})
 		return string(b)
 	}
+	// Second review, 4: a spec path in the error's message (expectPath
+	// quotes the page's path) is no frame.
+	t.Run("a spec path in the message", func(t *testing.T) {
+		h, _ := browserCheckHarness(t, func(_ int, spec string) string {
+			r := report(spec, false)
+			line := lineOf(spec, "toContainText")
+			return strings.Replace(r, `"status":"failed"`, `"status":"failed","error":{"message":"m","stack":`+
+				`"Error: maul: url failed: the page is at /x/`+specFile+`:`+strconv.Itoa(line)+`:1\n    at fail (/t/`+
+				playwright.SupportFile+`:27:9)"}`, 1)
+		})
+		rec := h.relay.runCheck(context.Background(), parseCheck(t, browserCheck), toolwire.ModeDryRun)
+		if _, ok := rec.AssertionStep(); ok {
+			t.Errorf("a spec path quoted in the message located the step: %+v", rec)
+		}
+	})
 	for _, stack := range []bool{true, false} {
 		h, _ := browserCheckHarness(t, func(_ int, spec string) string { return report(spec, stack) })
 		rec := h.relay.runCheck(context.Background(), parseCheck(t, browserCheck), toolwire.ModeDryRun)
 		step, ok := rec.AssertionStep()
-		if stack && (!ok || step != 2) {
+		if stack && (!ok || step != 2 || rec.FailedAssertionID() != "expect") {
 			t.Errorf("with the spec frame: AssertionStep() = %d, %v (%+v); want step 2", step, ok, rec)
 		}
 		if !stack && ok {

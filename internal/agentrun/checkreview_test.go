@@ -210,7 +210,7 @@ func TestCheckReviewRedQuestion(t *testing.T) {
 	if err := json.Unmarshal([]byte(reviewHandoff(1)), &h); err != nil {
 		t.Fatal(err)
 	}
-	h.Reviews[0].Expect, h.Reviews[0].FailedStep = "fail", 1
+	h.Reviews[0].Expect, h.Reviews[0].FailedStep, h.Reviews[0].FailedAssertion = "fail", 1, "bodyContains"
 	raw, _ := json.Marshal(h)
 	var out bytes.Buffer
 	cfg, ws := roleConfig(t, PhaseCheckReview, string(raw), &out)
@@ -265,8 +265,13 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 			"not its check_digest"},
 		{"check off the grammar", item(func(i *CheckReviewItem) { i.Check = `{"steps":[]}` }), "check: "},
 		{"another expectation", item(func(i *CheckReviewItem) { i.Expect, i.FailedStep = "maybe", 1 }), "expect"},
-		{"red with no failed step", item(func(i *CheckReviewItem) { i.Expect = "fail" }), "failed_step"},
-		{"a failed step past the check", item(func(i *CheckReviewItem) { i.Expect, i.FailedStep = "fail", 2 }),
+		{"red with no failed step", item(func(i *CheckReviewItem) { i.Expect, i.FailedAssertion = "fail", "x" }),
+			"failed_step"},
+		{"red with no failed assertion", item(func(i *CheckReviewItem) { i.Expect, i.FailedStep = "fail", 1 }),
+			"failed_assertion"},
+		{"a failed step past the check", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion = "fail", 2, "x"
+		}),
 			"failed_step"},
 		{"a failed step of a green check", item(func(i *CheckReviewItem) { i.FailedStep = 1 }), "failed_step"},
 	}

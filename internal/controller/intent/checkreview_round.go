@@ -147,8 +147,9 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 		it := agentrun.CheckReviewItem{CheckDigest: c.check.Digest, OutcomeDigest: outcomeDigest(c.outcome),
 			Outcome: reviewOutcomeText(c.outcome), Check: c.check.Body}
 		if c.red() {
-			// The red question, naming the step maul's own run failed at.
-			it.Expect, it.FailedStep = string(v1alpha1.CheckExpectFail), int(c.failedStep)
+			// The red question, naming the assertion maul's own run failed.
+			it.Expect, it.FailedStep = string(v1alpha1.CheckExpectFail), int(c.check.FailedStep)
+			it.FailedAssertion = c.check.FailedAssertion
 		}
 		items = append(items, it)
 	}
@@ -196,7 +197,8 @@ func (p *pass) recordReviews(ctx context.Context, run *v1alpha1.IntentRun, pendi
 		rec := v1alpha1.CheckReviewRecord{CheckDigest: a.CheckDigest, OutcomeDigest: a.OutcomeDigest,
 			Answer: v1alpha1.ReviewAnswer(a.Answer), Run: run.Name}
 		if c.red() {
-			rec.Expect = v1alpha1.CheckExpectFail
+			rec.Expect, rec.FailedStep, rec.FailedAssertion = v1alpha1.CheckExpectFail, c.check.FailedStep,
+				c.check.FailedAssertion
 		}
 		add = append(add, rec)
 	}

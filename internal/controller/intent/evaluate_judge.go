@@ -178,13 +178,15 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 	for _, c := range cs {
 		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
 			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
-			FailedStep: c.FailedStep, Cleared: slices.Contains(acc.RedCleared, c.Digest)})
+			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
+			Cleared: slices.Contains(acc.RedCleared, c.Digest)})
 	}
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, r := range acc.Reviews {
 		in.Reviews = append(in.Reviews, acceptance.CheckReview{CheckDigest: r.CheckDigest,
 			OutcomeDigest: r.OutcomeDigest, Answer: acceptance.ReviewAnswer(r.Answer),
-			ExpectFail: r.Expect == v1alpha1.CheckExpectFail})
+			ExpectFail: r.Expect == v1alpha1.CheckExpectFail, FailedStep: r.FailedStep,
+			FailedAssertion: r.FailedAssertion})
 	}
 	in.Env = crdconv.PartFacts(pv.Status.Environment)
 	if ev == nil {
@@ -249,7 +251,7 @@ func checkRuns(rs []v1alpha1.CheckRun) []acceptance.CheckRun {
 		run := acceptance.CheckRun{CheckDigest: r.CheckDigest, Result: acceptance.RunResult(r.Result),
 			Token: r.Token, Seq: r.Seq, ExpectFail: r.Expect == v1alpha1.CheckExpectFail}
 		if r.RedByAssertion() {
-			run.AssertionStep = r.AssertionStep
+			run.AssertionStep, run.AssertionID = r.AssertionStep, r.AssertionID
 		}
 		out = append(out, run)
 	}

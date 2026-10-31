@@ -80,7 +80,8 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 	for i, st := range steps {
 		rec := toolwire.StepRecord{Index: i, Result: toolwire.ResultPass}
 		if detail, assertion := r.httpStep(ctx, comp.Addr, st, run, caps); detail != "" {
-			rec.Result, rec.Detail, rec.Assertion = toolwire.ResultFail, detail, assertion
+			rec.Result, rec.Detail = toolwire.ResultFail, detail
+			rec.Assertion, rec.AssertionID = assertion != "", assertion
 		}
 		out = append(out, rec)
 		if rec.Result != toolwire.ResultPass {
@@ -91,75 +92,89 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 }
 
 // httpStep sends one step and judges it, returning maul's words for the
-// first expectation it missed ("" when it passed), and whether that miss is
-// an assertion (a response came back whole and did not match its expect:
-// status, json, headers or body), not a request that could not be built or
-// sent, no response, a body over its bound or a capture with nothing to
-// keep. Its captures go into caps. The words name what was expected, never
-// the application's bytes.
+// first expectation it missed ("" when it passed), and, when that miss is
+// an assertion, which one (toolwire.StepRecord.AssertionID; "" when it is
+// not). Only content the application answered with is an assertion (second
+// review, 1b): a JSON pointer that resolves to a different value ("json
+// <pointer>"), a header present with a different value ("header <name>"),
+// body text missing from a non-HTML answer ("bodyContains"). No status is,
+// a 500 included (it can be the check's own malformed request), nor a
+// pointer or header that resolves to nothing, a non-JSON body where JSON was
+// expected, an unbuilt or unsent request, no response, a body over its
+// bound or a capture with nothing to keep. Its captures go into caps. The
+// words name what was expected, never the application's bytes.
 func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, run string,
-	caps map[string]string) (string, bool) {
+	caps map[string]string) (string, string) {
 	built, err := acceptance.BuildRequest(st, run, caps)
 	if err != nil {
-		return "the request could not be built: a capture is missing", false
+		return "the request could not be built: a capture is missing", ""
 	}
 	rep, err := r.client.send(ctx, outbound{Addr: addr, Method: built.Method, Target: built.Target(),
 		Header: built.Headers, Body: built.Body, Host: r.cfg.Host, Forward: r.forward()})
 	switch {
 	case err != nil:
-		return "the request could not be sent as built", false
+		return "the request could not be sent as built", ""
 	case rep.Transport != acceptance.TransportNone:
-		return "no response (" + string(rep.Transport) + ")", false
+		return "no response (" + string(rep.Transport) + ")", ""
 	case rep.TooLarge:
-		return "the response body is over " + strconv.Itoa(MaxResponseBytes) + " bytes", false
+		return "the response body is over " + strconv.Itoa(MaxResponseBytes) + " bytes", ""
 	case !slices.Contains(st.Expect.Status, int32(rep.Status)):
-		return fmt.Sprintf("status %d, expected one of %v", rep.Status, st.Expect.Status), statusAssertion(rep.Status)
+		return fmt.Sprintf("status %d, expected one of %v", rep.Status, st.Expect.Status), ""
 	}
 	doc, valid := decodeJSON(rep.Body)
 	for _, ptr := range sortedKeys(st.Expect.JSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(st.Expect.JSON[ptr], run, caps, raw, present) {
-			// A body that is not JSON (an SPA's HTML fallback for a path
-			// the check guessed) shows the request missed, not the outcome.
-			return "json " + strconv.Quote(ptr) + " did not match", valid
+			return "json " + strconv.Quote(ptr) + " did not match", contentAssertion(valid && present, "json "+ptr)
 		}
 	}
 	for _, name := range sortedKeys(st.Expect.Headers) {
 		raw, present := headerValue(rep.Header, name)
 		if !checks.MatchHeader(st.Expect.Headers[name], run, caps, raw, present) {
-			return "header " + name + " did not match", true
+			return "header " + name + " did not match", contentAssertion(present, "header "+strings.ToLower(name))
 		}
 	}
 	if st.Expect.BodyContains != "" {
 		needle, err := acceptance.Substitute(st.Expect.BodyContains, run, caps)
 		if err != nil {
-			return "the expected text could not be built: a capture is missing", false
+			return "the expected text could not be built: a capture is missing", ""
 		}
 		if !bytes.Contains(rep.Body, []byte(needle)) {
-			return "the body does not contain the expected text", !htmlBody(rep.Header)
+			return "the body does not contain the expected text", contentAssertion(!htmlBody(rep.Header), "bodyContains")
 		}
 	}
 	for _, name := range sortedKeys(st.Capture) {
 		v, ok := captureValue(doc, valid, st.Capture[name])
 		if !ok {
-			return "capture " + name + " is not a string, number or boolean at " + strconv.Quote(st.Capture[name]),
-				false
+			return "capture " + name + " is not a string, number or boolean at " + strconv.Quote(st.Capture[name]), ""
 		}
 		caps[name] = v
 	}
-	return "", false
+	return "", ""
 }
 
-// statusAssertion reports whether an unexpected status is an assertion,
-// one the outcome is the judge of: a success (the application handled the
-// request, differently from what the outcome states) or a 500 (the
-// application's own failure on a request it routes: a panic is a defect).
-// Every other status is unsure: a 404 or 405 is a path or method the check
-// may have guessed, a 400 a body it may have got wrong, other 4xx are
-// access or conflict the check may have caused, and 501-504 a gateway or a
-// component not there.
-func statusAssertion(status int) bool {
-	return (status >= 200 && status < 300) || status == 500
+// contentAssertion is id when a missed expectation is on content that was
+// there (ok), else "": no assertion.
+func contentAssertion(ok bool, id string) string {
+	if !ok {
+		return ""
+	}
+	return toolwireID(id)
+}
+
+// toolwireID bounds an assertion id to the ledger's bound, on a rune
+// boundary, one line.
+func toolwireID(id string) string {
+	id = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(id, "\uFFFD"))
+	if len(id) > toolwire.MaxAssertionIDBytes {
+		id = strings.ToValidUTF8(id[:toolwire.MaxAssertionIDBytes], "")
+	}
+	return id
 }
 
 // htmlBody reports an HTML answer: a page (an SPA's fallback included), on
@@ -196,12 +211,16 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 		return errStep("the sandbox refused the program")
 	}
 	// fail is an unmet expectation. It is an assertion only when the
-	// program said it judged its own assertion and found the outcome does
-	// not hold (checks.ExecAssertionMarker): an exit code or missing output
-	// alone is what a crashed or broken program shows too.
-	asserted := checks.HasExecAssertion(res.Output)
+	// program said it judged one of its own assertions, by id, and found the
+	// outcome does not hold (checks.ExecAssertion): an exit code or missing
+	// output alone is what a crashed or broken program shows too.
+	marker, asserted := checks.ExecAssertion(res.Output)
 	fail := func(detail string) []toolwire.StepRecord {
-		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: detail, Assertion: asserted}}
+		rec := toolwire.StepRecord{Result: toolwire.ResultFail, Detail: detail, Assertion: asserted}
+		if asserted {
+			rec.AssertionID = "marker " + marker
+		}
+		return []toolwire.StepRecord{rec}
 	}
 	x := e.Expect
 	switch {

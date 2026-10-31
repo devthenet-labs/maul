@@ -228,7 +228,16 @@ type StepRecord struct {
 	// (a count of 0 included) or more than one element, an element with no
 	// box, a trial click or an indeterminate judgement.
 	Assertion bool `json:"assertion,omitempty"`
+	// AssertionID names which assertion of the step failed, set exactly
+	// when Assertion is: "json <pointer>", "header <name>", "bodyContains"
+	// (http), "marker <id>" (exec: the id its program printed), "expect"
+	// (browser: one assertion per step). A run is red by assertion only when
+	// every attempt failed the same step and id.
+	AssertionID string `json:"assertionID,omitempty"`
 }
+
+// MaxAssertionIDBytes bounds a StepRecord's AssertionID.
+const MaxAssertionIDBytes = 512
 
 // Bounds of a check run record.
 const (
@@ -375,6 +384,10 @@ func (a Attempt) check() error {
 		if s.Assertion && s.Result != ResultFail {
 			return errors.New("a step that did not fail is marked an assertion")
 		}
+		if s.Assertion != (s.AssertionID != "") || len(s.AssertionID) > MaxAssertionIDBytes ||
+			!utf8.ValidString(s.AssertionID) || strings.ContainsAny(s.AssertionID, "\r\n") {
+			return errors.New("a step's assertion id is not its assertion's")
+		}
 	}
 	return nil
 }
@@ -390,33 +403,44 @@ func (r CheckRunRecord) AssertionStep() (int, bool) {
 	if r.Result != RunFail || len(r.Attempts) != 2 || DeriveResult(r.Attempts) != RunFail {
 		return 0, false
 	}
-	at := -1
+	at, id := -1, ""
 	for _, a := range r.Attempts {
-		i, ok := a.assertionStep()
-		if !ok || (at >= 0 && i != at) {
+		i, aid, ok := a.assertionStep()
+		if !ok || (at >= 0 && (i != at || aid != id)) {
 			return 0, false
 		}
-		at = i
+		at, id = i, aid
 	}
 	return at, true
 }
 
-// assertionStep is the index of a failed attempt's failing step when that
-// step is its last, an assertion, and every step before it passed.
-func (a Attempt) assertionStep() (int, bool) {
+// FailedAssertionID is the id of the assertion a run red by assertion
+// failed (StepRecord.AssertionID), "" for a run that is not.
+func (r CheckRunRecord) FailedAssertionID() string {
+	if _, ok := r.AssertionStep(); !ok {
+		return ""
+	}
+	_, id, _ := r.Attempts[0].assertionStep()
+	return id
+}
+
+// assertionStep is the index and assertion id of a failed attempt's
+// failing step when that step is its last, an assertion with an id, and
+// every step before it passed.
+func (a Attempt) assertionStep() (int, string, bool) {
 	if a.Result != ResultFail || len(a.Steps) == 0 {
-		return 0, false
+		return 0, "", false
 	}
 	for i, s := range a.Steps {
 		if s.Result == ResultPass {
 			continue
 		}
-		if s.Result != ResultFail || !s.Assertion || i != len(a.Steps)-1 {
-			return 0, false
+		if s.Result != ResultFail || !s.Assertion || s.AssertionID == "" || i != len(a.Steps)-1 {
+			return 0, "", false
 		}
-		return s.Index, true
+		return s.Index, s.AssertionID, true
 	}
-	return 0, false
+	return 0, "", false
 }
 
 // Evidence is one cited image's bytes, as the tools container emitted

@@ -147,12 +147,15 @@ an assertion of the outcome itself (a status, a value, a text or a measurement t
 before it having passed: maul-tool then prints `red by assertion at step <n>`. maul refuses a check that failed any
 other way: a check error, a timeout, a request with no
 answer, a locator that found nothing or more than one element (a count of 0 included); fix it until it fails only where
-the outcome does. For an `http` check a status of 404, 405 or 400 (a path, method or body the check may have got
-wrong), any other 4xx, a 502, 503 or 504, and HTML where JSON was expected are not assertions; a success status other
-than the expected one and a 500 are. An `exec` check's program must say so itself: on the line where it finds the
-outcome does not hold it prints `MAUL-ASSERTION-FAILED: <what it saw>` at the start of a line of stdout; an exit code alone,
-a crash or a traceback never shows a defect. A check that shows a defect must act on data of its own run: name
-`{{run}}` in a request, a browser action or its program, never only in an expectation.
+the outcome does. For an `http` check only content counts: a JSON pointer that resolves to another value, a header
+that is there with another value, or text missing from a body that is not an HTML page. No status is an assertion for
+such a check, a 500 included (it can be the check's own malformed request), and a JSON pointer or a header that
+resolves to nothing is not one either. An `exec` check's program must say so itself: where it finds the outcome does
+not hold it prints `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a line of its output (stdout and stderr), the
+id naming that assertion (lowercase letters, digits and hyphens); print it for that and nothing else, never on a
+connection error, a status code or an exception. An exit code alone, a crash or a traceback never shows a defect. A
+check that shows a defect must write data of its own run: name `{{run}}` in a POST, PUT or PATCH, a
+browser fill or its program, and the assertion that fails must be about that data.
 Propose it with `expect: fail` under the outcome you report `fail`. maul then runs it again itself, a reviewer
 judges whether it encodes the outcome and whether the assertion that failed is the outcome, and only then is the
 outcome failed and a fix started, handed your check's failure as its reproduction. Once the fix is in, the same check

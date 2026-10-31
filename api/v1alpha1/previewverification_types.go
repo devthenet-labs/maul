@@ -752,6 +752,12 @@ type CheckRun struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=64
 	AssertionStep int32 `json:"assertionStep,omitempty"`
+	// AssertionID names which assertion of that step failed
+	// (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
+	// "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	AssertionID string `json:"assertionID,omitempty"`
 }
 
 // RedByAssertion reports a run red by assertion (AssertionStep).
