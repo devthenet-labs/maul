@@ -117,6 +117,9 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 		}
 		cand := storeCandidate{check: c, outcome: outcomes[i]}
 		switch {
+		case cand.red() && !createsRunData(c):
+			refused("a check to show a defect must act on data of its own run", c, "")
+			continue
 		case cand.red():
 			step := confirmedRed(pv.Status.Confirmations, c.Digest)
 			if step == 0 {
@@ -132,6 +135,13 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 		out = append(out, cand)
 	}
 	return out
+}
+
+// createsRunData reports whether c's body acts with its own run token
+// (checks.CreatesRunData); a body that does not parse does not.
+func createsRunData(c v1alpha1.SavedCheck) bool {
+	parsed, err := checks.Parse([]byte(c.Body))
+	return err == nil && checks.CreatesRunData(parsed)
 }
 
 // confirmedRed is the step (1-based) at which every confirmation of check

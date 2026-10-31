@@ -161,6 +161,9 @@ type evaluateView struct {
 	ReportBy int
 }
 
+// ExecMarker is checks.ExecAssertionMarker, for the template.
+func (evaluateView) ExecMarker() string { return checks.ExecAssertionMarker }
+
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
 // have written its report: a tenth of its turns, at least 2, kept back for
 // it, and never before turn 1.

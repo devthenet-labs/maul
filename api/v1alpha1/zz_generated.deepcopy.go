@@ -2123,6 +2123,11 @@ func (in *IntentAcceptance) DeepCopyInto(out *IntentAcceptance) {
 		*out = make([]CheckReviewRecord, len(*in))
 		copy(*out, *in)
 	}
+	if in.RedCleared != nil {
+		in, out := &in.RedCleared, &out.RedCleared
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Accepted != nil {
 		in, out := &in.Accepted, &out.Accepted
 		*out = make([]AcceptanceRecord, len(*in))

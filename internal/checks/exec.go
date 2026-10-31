@@ -24,6 +24,26 @@ type ExecCheck struct {
 	Expect  ExecExpect `json:"expect"`
 }
 
+// ExecAssertionMarker starts the line an exec check's program prints on
+// stdout when it reached and judged its own assertion and found the outcome
+// does not hold: "MAUL-ASSERTION-FAILED: <what it saw>". Only a run whose
+// stdout has such a line (at the start of a line) and whose expectation
+// failed is red by assertion, so may show a defect (expect: fail); an exit
+// code alone, a crash, a traceback or missing output never is: a broken
+// program fails the same way.
+const ExecAssertionMarker = "MAUL-ASSERTION-FAILED:"
+
+// HasExecAssertion reports whether a program's stdout carries
+// ExecAssertionMarker at the start of a line.
+func HasExecAssertion(stdout string) bool {
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(strings.TrimSuffix(line, "\r"), ExecAssertionMarker) {
+			return true
+		}
+	}
+	return false
+}
+
 // File is one program file, at a relative path under the run directory.
 type File struct {
 	Path       string `json:"path"`

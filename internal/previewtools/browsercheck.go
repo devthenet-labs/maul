@@ -130,9 +130,17 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 		result = toolwire.ResultError
 	}
 	at, detail := 0, failureDetail(res)
-	located := len(res.Errors) > 0 && res.Errors[0].Location != nil
-	if located {
-		at = stepAt(starts, res.Errors[0].Location.Line)
+	located := false
+	if len(res.Errors) > 0 {
+		e := res.Errors[0]
+		if e.Stack == "" && res.Error != nil {
+			// The reporter keeps the stack on the result's error.
+			e.Stack = res.Error.Stack
+		}
+		var line int
+		if line, located = specLine(e); located {
+			at = stepAt(starts, line)
+		}
 	}
 	assertion := result == toolwire.ResultFail && res.Status == "failed" && located &&
 		at < len(starts) && expectStep(spec, starts[at]) && assertionMessage(res.Errors[0].Message)
@@ -154,6 +162,9 @@ func expectStep(spec []byte, line int) bool {
 	return expectComment.MatchString(lines[line-1])
 }
 
+// receivedZero is a matcher message's "Received: 0" line.
+var receivedZero = regexp.MustCompile(`(?m)^\s*Received:\s*0\s*$`)
+
 // expectComment is an expect step's comment.
 var expectComment = regexp.MustCompile(`^\s*// step \d+: expect `)
 
@@ -170,6 +181,10 @@ func assertionMessage(msg string) bool {
 	first = strings.TrimPrefix(strings.TrimSpace(first), "Error: ")
 	switch {
 	case strings.Contains(msg, "element(s) not found"), strings.Contains(msg, "strict mode violation"):
+		return false
+	case strings.Contains(first, "toHaveCount") && receivedZero.MatchString(msg):
+		// A count over a locator that resolved nothing: a guessed
+		// selector looks the same as a missing feature.
 		return false
 	case strings.HasPrefix(first, "maul: "):
 		return strings.Contains(first, " failed: ") && !strings.HasPrefix(first, "maul: indeterminate") &&
@@ -281,13 +296,35 @@ type jsonResult struct {
 	Status      string           `json:"status"`
 	Annotations []jsonAnnotation `json:"annotations"`
 	Errors      []jsonError      `json:"errors"`
+	Error       *jsonError       `json:"error"`
 }
 
 type jsonError struct {
 	Message  string `json:"message"`
+	Stack    string `json:"stack"`
 	Location *struct {
-		Line int `json:"line"`
+		File string `json:"file"`
+		Line int    `json:"line"`
 	} `json:"location"`
+}
+
+// specFrame is a stack frame in the compiled spec: its line.
+var specFrame = regexp.MustCompile(`[/\\]` + regexp.QuoteMeta(specFile) + `:(\d+):\d+`)
+
+// specLine is the line of the compiled spec an error was thrown at: its
+// location when that is the spec (or names no file), else the first spec
+// frame of its stack. A maul assertion throws in maul's support module, so
+// its location is that file's, whose lines are not the spec's. ok is false
+// when no spec line is known: the failing step is then unknown.
+func specLine(e jsonError) (int, bool) {
+	if l := e.Location; l != nil && (l.File == "" || filepath.Base(l.File) == specFile) {
+		return l.Line, true
+	}
+	if m := specFrame.FindStringSubmatch(e.Stack); m != nil {
+		n, err := strconv.Atoi(m[1])
+		return n, err == nil
+	}
+	return 0, false
 }
 
 // only is the report's one test's last result.

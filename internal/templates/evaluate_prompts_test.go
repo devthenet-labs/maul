@@ -148,6 +148,14 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		"Never assert a colour value",
 		"Write your report to `/work/scratch/report.md` with the Write tool.",
 		"You may make at most 150 tool calls",
+		// The post-demo decision on S1 bug 7, and its review: what may show a
+		// defect.
+		"Propose it with `expect: fail` under the outcome you report `fail`",
+		"maul-tool then prints `red by assertion at step <n>`",
+		"a status of 404, 405 or 400 (a path, method or body the check may have got wrong)",
+		"prints `MAUL-ASSERTION-FAILED: <what it saw>` at the start of a line of stdout",
+		"an exit code alone, a crash or a traceback never shows a defect",
+		"must act on data of its own run: name `{{run}}` in a request, a browser action or its program",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("prompt lacks %q", want)

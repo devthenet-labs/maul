@@ -167,7 +167,7 @@ func expectsFail(e toolwire.LedgerEntry) bool {
 // of the check of digest red by assertion at step, or nil; nil too when any
 // dry run of it before seq passed (a check that ran green shows no defect).
 func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step int) *toolwire.LedgerEntry {
-	if greenDryRun(entries, digest, seq) != nil {
+	if greenDryRun(entries, digest, seq) != nil || greenReplay(entries, digest, seq) {
 		return nil
 	}
 	for i := len(entries) - 1; i >= 0; i-- {
@@ -181,6 +181,17 @@ func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step in
 		}
 	}
 	return nil
+}
+
+// greenReplay reports a replay before seq of the check of digest that
+// passed: a saved check this round saw green shows no defect, whatever the
+// agent's own dry runs of it did afterwards (review finding 3).
+func greenReplay(entries []toolwire.LedgerEntry, digest string, seq int64) bool {
+	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
+		return e.Seq < seq && e.Kind == toolwire.KindRelay && e.Verb == toolwire.VerbCheckRun && e.CheckRun != nil &&
+			e.CheckRun.Mode == toolwire.ModeReplay && e.CheckRun.Digest == digest &&
+			e.CheckRun.Result == toolwire.RunPass
+	})
 }
 
 // requiredDryRun is the dry run confirmation entry e required: the green
@@ -284,7 +295,8 @@ func confirmedChecks(entries []toolwire.LedgerEntry, outcomes []v1alpha1.Accepta
 			continue
 		}
 		if red {
-			c.Expect = v1alpha1.CheckExpectFail
+			step, _ := e.CheckRun.AssertionStep() // requiredDryRun held it red by assertion
+			c.Expect, c.FailedStep = v1alpha1.CheckExpectFail, clampInt32(step+1)
 		}
 		seen[e.CheckRun.Digest] = true
 		out = append(out, c)

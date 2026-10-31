@@ -320,6 +320,12 @@ type SavedCheck struct {
 	// saved green.
 	// +optional
 	Expect CheckExpectation `json:"expect,omitempty"`
+	// FailedStep is, for a check saved red, the step (1-based) at which its
+	// confirmation failed by assertion.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
+	FailedStep int32 `json:"failedStep,omitempty"`
 }
 
 // CheckExpectation is what a check was confirmed to do when it was saved.

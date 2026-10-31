@@ -136,7 +136,13 @@ fail: it asserts exactly what the outcome states, on data it created itself. Its
 an assertion of the outcome itself (a status, a value, a text or a measurement the outcome states), every step
 before it having passed: maul-tool then prints `red by assertion at step <n>`. maul refuses a check that failed any
 other way: a check error, a timeout, a request with no
-answer, a locator that found nothing or more than one element; fix it until it fails only where the outcome does.
+answer, a locator that found nothing or more than one element (a count of 0 included); fix it until it fails only where
+the outcome does. For an `http` check a status of 404, 405 or 400 (a path, method or body the check may have got
+wrong), any other 4xx, a 502, 503 or 504, and HTML where JSON was expected are not assertions; a success status other
+than the expected one and a 500 are. An `exec` check's program must say so itself: on the line where it finds the
+outcome does not hold it prints `MAUL-ASSERTION-FAILED: <what it saw>` at the start of a line of stdout; an exit code alone,
+a crash or a traceback never shows a defect. A check that shows a defect must act on data of its own run: name
+`{{run}}` in a request, a browser action or its program, never only in an expectation.
 Propose it with `expect: fail` under the outcome you report `fail`. maul then runs it again itself, a reviewer
 judges whether it encodes the outcome and whether the assertion that failed is the outcome, and only then is the
 outcome failed and a fix started, handed your check's failure as its reproduction. Once the fix is in, the same check

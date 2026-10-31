@@ -11,6 +11,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/checks"
 )
 
 // A defect found in round 1 (S1 bug 7, the post-demo decision): the
@@ -168,6 +169,49 @@ func TestRedCheckGuards(t *testing.T) {
 				t.Errorf("revise runs = %d, want no fix", n)
 			}
 		})
+	}
+}
+
+// TestRedCheckClearedOnceGreen (review finding 2): a check saved red that
+// replays green is recorded as cleared, so from then on its replays are
+// judged as any saved check's; one that has not stays uncleared.
+func TestRedCheckClearedOnceGreen(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	red, other := redCheck(t), savedCheck(t, healthCheck)
+	red.FailedStep = 2
+	other.Expect, other.FailedStep = v1alpha1.CheckExpectFail, 1
+	e.storeChecks(name, red, other)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.runRuns()
+	e.runRuns()
+	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: red.Digest, Result: v1alpha1.CheckRunPass, Token: "t1", Seq: 1},
+		v1alpha1.CheckRun{CheckDigest: other.Digest, Result: v1alpha1.CheckRunFail, Token: "t2", Seq: 2})
+	e.settleReviews(name)
+	if got := e.get(name).Status.Acceptance.RedCleared; !slices.Equal(got, []string{red.Digest}) {
+		t.Errorf("red cleared = %v, want the red check that replayed green alone", got)
+	}
+}
+
+// TestRedCheckWithoutRunDataIsNotStored (review finding 3): a check
+// proposed to show a defect that acts on no data of its own run is never
+// a store candidate, whatever its confirmation showed.
+func TestRedCheckWithoutRunDataIsNotStored(t *testing.T) {
+	c := savedCheck(t, healthCheck) // reads /healthz: no {{run}} in a request
+	c.Expect = v1alpha1.CheckExpectFail
+	pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{
+		Confirmed: []v1alpha1.SavedCheck{c},
+		Confirmations: []v1alpha1.CheckRun{{CheckDigest: c.Digest, Result: v1alpha1.CheckRunFail, Token: "t", Seq: 9,
+			DryRunSeq: 3, Expect: v1alpha1.CheckExpectFail, AssertionStep: 1}},
+	}}
+	var reasons []string
+	got := storeCandidates(pv, []v1alpha1.AcceptanceOutcome{{ID: "still-healthy", Outcome: "it answers"}}, nil,
+		checks.Preview{Paths: []string{"/"}, Components: []string{"app"}},
+		func(reason string, _ v1alpha1.SavedCheck, _ string) { reasons = append(reasons, reason) })
+	if len(got) != 0 || len(reasons) != 1 {
+		t.Errorf("candidates %+v (refusals %v), want the red check refused", got, reasons)
 	}
 }
 

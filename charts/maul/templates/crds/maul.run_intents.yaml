@@ -613,6 +613,18 @@ spec:
                     maximum: 999
                     minimum: 1
                     type: integer
+                  redCleared:
+                    description: |-
+                      RedCleared are the digests of checks saved red (SavedCheck.Expect
+                      fail) that have since replayed green. Until one has, its steps after
+                      the one it was saved failing at never ran, so only a replay red by
+                      assertion at or before that step reproduces its defect.
+                    items:
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    maxItems: 40
+                    type: array
+                    x-kubernetes-list-type: set
                   reviews:
                     description: |-
                       Reviews cache the check reviewer's answers, so a check is reviewed

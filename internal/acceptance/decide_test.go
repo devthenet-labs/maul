@@ -223,7 +223,7 @@ func TestDecide(t *testing.T) {
 				in.Checks = append(in.Checks, StoredCheck{Digest: dg("b"), Outcome: "elo", Form: CheckFormHTTP, Valid: true})
 				in.Replay = []CheckRun{{CheckDigest: dg("b"), Result: RunFail, Token: "t", Seq: 2}}
 			}),
-			result: ResultUnsure, reason: ReasonEvaluatorDisagrees, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonChecksDisagree, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "rule 6: a failing sibling that is not valid still blocks the pass",
@@ -231,7 +231,7 @@ func TestDecide(t *testing.T) {
 				in.Checks = append(in.Checks, StoredCheck{Digest: dg("b"), Outcome: "elo", Form: CheckFormHTTP})
 				in.Replay = []CheckRun{{CheckDigest: dg("b"), Result: RunFail, Token: "t", Seq: 2}}
 			}),
-			result: ResultUnsure, reason: ReasonEvaluatorDisagrees, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonChecksDisagree, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "rule 6: a quarantined sibling does not block",
@@ -562,7 +562,8 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 	for _, c := range genDigests {
 		if r.Intn(4) != 0 {
 			in.Checks = append(in.Checks, StoredCheck{Digest: c, Outcome: pickOf(r, genOutcomes), Form: pickOf(r, forms),
-				Valid: r.Intn(5) != 0, Retired: r.Intn(6) == 0, ExpectFail: r.Intn(4) == 0})
+				Valid: r.Intn(5) != 0, Retired: r.Intn(6) == 0, ExpectFail: r.Intn(4) == 0,
+				FailedStep: int32(1 + r.Intn(2)), Cleared: r.Intn(3) == 0})
 		}
 	}
 	in.Replay, in.Confirmations = genRuns(r), genRuns(r)
@@ -597,7 +598,7 @@ func genRuns(r *rand.Rand) []CheckRun {
 	out := make([]CheckRun, 0, n)
 	for range n {
 		out = append(out, CheckRun{CheckDigest: pickOf(r, genDigests), Result: pickOf(r, genResults),
-			Token: pickOf(r, []string{"", "tok"}), Seq: int32(r.Intn(20)), Assertion: r.Intn(2) == 0})
+			Token: pickOf(r, []string{"", "tok"}), Seq: int32(r.Intn(20)), AssertionStep: int32(r.Intn(3))})
 	}
 	return out
 }
@@ -617,10 +618,10 @@ func genBiased(r *rand.Rand, in *Input) {
 			// Its confirmation, this round: mostly red by assertion.
 			in.Confirmations = append(in.Confirmations, CheckRun{CheckDigest: c.Digest,
 				Result: pickOf(r, []RunResult{RunFail, RunFail, RunPass, RunError, RunQuarantined}), Token: "tok",
-				Seq: int32(r.Intn(20)), Assertion: r.Intn(4) != 0, ExpectFail: r.Intn(4) != 0})
+				Seq: int32(r.Intn(20)), AssertionStep: int32(r.Intn(3)), ExpectFail: r.Intn(4) != 0})
 		case r.Intn(3) != 0:
 			in.Replay = append(in.Replay, CheckRun{CheckDigest: c.Digest, Result: pickOf(r, genResults),
-				Token: "tok", Seq: int32(r.Intn(20)), Assertion: r.Intn(2) == 0})
+				Token: "tok", Seq: int32(r.Intn(20)), AssertionStep: int32(r.Intn(3))})
 		}
 	}
 	if len(in.Checks) > 1 && r.Intn(2) == 0 {
@@ -895,21 +896,13 @@ func oracleFixable(in Input, f FixFailure) error {
 	if !ok || c.Retired || !c.Valid {
 		return fmt.Errorf("not a stored, valid, unretired check of the outcome")
 	}
-	red := oracleRed(in, f.CheckDigest)
-	failed := func(run CheckRun) bool {
-		return run.CheckDigest == f.CheckDigest && run.Result == RunFail && run.Seq == f.Seq
-	}
-	// A check proposed to show a defect fails on its confirmation only red
-	// by assertion (guard 1).
-	if !slices.ContainsFunc(in.Replay, failed) && !slices.ContainsFunc(in.Confirmations, func(run CheckRun) bool {
-		return failed(run) && (!run.ExpectFail || run.Assertion)
-	}) {
-		return fmt.Errorf("no failing run at seq %d", f.Seq)
+	if err := oracleFixRun(in, o, f); err != nil {
+		return err
 	}
 	if !oracleProves(in, f.CheckDigest, o) {
 		return fmt.Errorf("failing check not reviewed proves")
 	}
-	if red && !oracleRedReview(in, f.CheckDigest, o) {
+	if oracleRed(in, f.CheckDigest) && !oracleRedReview(in, f.CheckDigest, o) {
 		return fmt.Errorf("a check saved red not reviewed proves with the red question")
 	}
 	if !slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
@@ -918,4 +911,45 @@ func oracleFixable(in Input, f FixFailure) error {
 		return fmt.Errorf("no agreeing, cited evaluator fail")
 	}
 	return oracleRound(in, o, "")
+}
+
+// oracleFixRun holds a fix failure to a run that may fail its outcome: a
+// check saved red and not yet replayed green fails on a replay only red by
+// assertion at or before its saved step (finding 2); a red confirmation
+// never beside a green replay of the same check, and never with a vetted
+// sibling passing cleanly (finding 3).
+func oracleFixRun(in Input, o OutcomeRef, f FixFailure) error {
+	red := oracleRed(in, f.CheckDigest)
+	failed := func(run CheckRun) bool {
+		return run.CheckDigest == f.CheckDigest && run.Result == RunFail && run.Seq == f.Seq
+	}
+	sc, _ := oracleStored(in, f.CheckDigest, o.ID)
+	uncleared := red && !sc.Cleared
+	greenReplay := slices.ContainsFunc(in.Replay, func(run CheckRun) bool {
+		return run.CheckDigest == f.CheckDigest && run.Result == RunPass
+	})
+	if !slices.ContainsFunc(in.Replay, func(run CheckRun) bool {
+		return failed(run) && (!uncleared || run.AssertionStep > 0 && run.AssertionStep <= sc.FailedStep)
+	}) && !slices.ContainsFunc(in.Confirmations, func(run CheckRun) bool {
+		return failed(run) && (!run.ExpectFail || run.AssertionStep > 0 && !greenReplay)
+	}) {
+		return fmt.Errorf("no failing run at seq %d", f.Seq)
+	}
+	return oracleNoVettedSibling(in, o, f)
+}
+
+// oracleNoVettedSibling: two vetted checks disagreeing is never a fail
+// (finding 3).
+func oracleNoVettedSibling(in Input, o OutcomeRef, f FixFailure) error {
+	for _, c := range in.Checks {
+		if c.Outcome != o.ID || c.Digest == f.CheckDigest || c.Retired || !c.Valid ||
+			slices.ContainsFunc(in.Retired, func(r Retirement) bool { return r.CheckDigest == c.Digest }) {
+			continue
+		}
+		if oracleRules1To4(in, o, c.Digest) == nil && oracleRule5(in, o, c.Digest) == nil &&
+			!oracleFailed(in, c.Digest) {
+			return fmt.Errorf("a vetted sibling %s passed cleanly", c.Digest)
+		}
+	}
+	return nil
 }
