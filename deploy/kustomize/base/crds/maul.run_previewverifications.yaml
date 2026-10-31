@@ -123,6 +123,13 @@ spec:
                       enum:
                       - fail
                       type: string
+                    failedAssertion:
+                      description: |-
+                        FailedAssertion is, for a check saved red, which assertion of
+                        FailedStep failed (CheckRun.AssertionID). Until the check replays green
+                        once, only a run red by this same assertion reproduces its defect.
+                      maxLength: 512
+                      type: string
                     failedStep:
                       description: |-
                         FailedStep is, for a check saved red, the step (1-based) at which its
@@ -716,6 +723,13 @@ spec:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.
                   properties:
+                    assertionID:
+                      description: |-
+                        AssertionID names which assertion of that step failed
+                        (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
+                        "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                      maxLength: 512
+                      type: string
                     assertionStep:
                       description: |-
                         AssertionStep is, for a failed run red by assertion, the step (1-based)
@@ -811,6 +825,13 @@ spec:
                         saved green.
                       enum:
                       - fail
+                      type: string
+                    failedAssertion:
+                      description: |-
+                        FailedAssertion is, for a check saved red, which assertion of
+                        FailedStep failed (CheckRun.AssertionID). Until the check replays green
+                        once, only a run red by this same assertion reproduces its defect.
+                      maxLength: 512
                       type: string
                     failedStep:
                       description: |-
@@ -1317,6 +1338,13 @@ spec:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.
                   properties:
+                    assertionID:
+                      description: |-
+                        AssertionID names which assertion of that step failed
+                        (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
+                        "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                      maxLength: 512
+                      type: string
                     assertionStep:
                       description: |-
                         AssertionStep is, for a failed run red by assertion, the step (1-based)

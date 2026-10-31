@@ -150,7 +150,7 @@ func checkRunOf(e toolwire.LedgerEntry) (v1alpha1.CheckRun, bool) {
 	run := v1alpha1.CheckRun{CheckDigest: "sha256:" + r.Digest, Result: result, Token: r.Attempts[0].Run,
 		Seq: clampInt32(e.Seq)}
 	if step, ok := r.AssertionStep(); ok {
-		run.AssertionStep = clampInt32(step + 1)
+		run.AssertionStep, run.AssertionID = clampInt32(step+1), r.FailedAssertionID()
 	}
 	return run, true
 }
@@ -164,9 +164,10 @@ func expectsFail(e toolwire.LedgerEntry) bool {
 }
 
 // redDryRun is the latest entry before seq recording the agent's dry run
-// of the check of digest red by assertion at step, or nil; nil too when any
-// dry run of it before seq passed (a check that ran green shows no defect).
-func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step int) *toolwire.LedgerEntry {
+// of the check of digest red by assertion id at step, or nil; nil too when
+// any dry run of it before seq passed, or a replay of it this round did (a
+// check that ran green shows no defect).
+func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step int, id string) *toolwire.LedgerEntry {
 	if greenDryRun(entries, digest, seq) != nil || greenReplay(entries, digest, seq) {
 		return nil
 	}
@@ -176,7 +177,7 @@ func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step in
 			e.CheckRun == nil || e.CheckRun.Mode != toolwire.ModeDryRun || e.CheckRun.Digest != digest {
 			continue
 		}
-		if at, ok := e.CheckRun.AssertionStep(); ok && at == step {
+		if at, ok := e.CheckRun.AssertionStep(); ok && at == step && e.CheckRun.FailedAssertionID() == id {
 			return e
 		}
 	}
@@ -205,7 +206,7 @@ func requiredDryRun(entries []toolwire.LedgerEntry, e toolwire.LedgerEntry) *too
 	if !ok {
 		return nil
 	}
-	return redDryRun(entries, e.CheckRun.Digest, e.Seq, step)
+	return redDryRun(entries, e.CheckRun.Digest, e.Seq, step, e.CheckRun.FailedAssertionID())
 }
 
 // runToken is the grammar of a run token status holds (CheckRun.Token).
@@ -297,6 +298,7 @@ func confirmedChecks(entries []toolwire.LedgerEntry, outcomes []v1alpha1.Accepta
 		if red {
 			step, _ := e.CheckRun.AssertionStep() // requiredDryRun held it red by assertion
 			c.Expect, c.FailedStep = v1alpha1.CheckExpectFail, clampInt32(step+1)
+			c.FailedAssertion = e.CheckRun.FailedAssertionID()
 		}
 		seen[e.CheckRun.Digest] = true
 		out = append(out, c)

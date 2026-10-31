@@ -650,6 +650,17 @@ spec:
                           enum:
                           - fail
                           type: string
+                        failedAssertion:
+                          maxLength: 512
+                          type: string
+                        failedStep:
+                          description: |-
+                            FailedStep and FailedAssertion are, for the red question, the
+                            failing assertion it judged: a red review counts only for that one.
+                          format: int32
+                          maximum: 64
+                          minimum: 1
+                          type: integer
                         outcomeDigest:
                           description: OutcomeDigest is the digest of the outcome
                             it was reviewed against.

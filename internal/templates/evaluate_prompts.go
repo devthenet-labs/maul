@@ -328,10 +328,12 @@ type CheckReviewPrompt struct {
 	// Check is the check under review.
 	Check checks.Check
 	// ExpectFail asks the red question: the check failed on the build under
-	// review, at step FailedStep (1-based), and the evaluator proposes it to
+	// review, at step FailedStep (1-based), by its assertion FailedAssertion
+	// (toolwire.StepRecord.AssertionID), and the evaluator proposes it to
 	// show that the outcome does not hold.
-	ExpectFail bool
-	FailedStep int
+	ExpectFail      bool
+	FailedStep      int
+	FailedAssertion string
 }
 
 // ExampleCheckReviewReport is the report the check reviewer's prompt
@@ -354,6 +356,10 @@ type checkReviewView struct {
 	Form         string
 	CheckBlock   string
 	Files        []reviewFile
+	// Assertion is FailedAssertion made one legible line; Marker, for an
+	// exec check, the marker line its program printed, up to the colon
+	// after the id.
+	Assertion, Marker string
 }
 
 // reviewFile is one exec program file as the reviewer reads it.
@@ -381,6 +387,10 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		Form:              string(shown.Form),
 		CheckBlock:        strings.Trim(untrusted.Visible(buf.String(), checkShownMaxBytes), "\n"),
 		Files:             files,
+		Assertion:         quotedLine(p.FailedAssertion, 512),
+	}
+	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
+		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
 	}
 	return render("prompt_checkreview.md.tmpl", v)
 }

@@ -272,7 +272,7 @@ func writeCheckRun(b *strings.Builder, r toolwire.CheckRunRecord) {
 			}
 			kind := ""
 			if s.Assertion {
-				kind = " (assertion)"
+				kind = " (assertion " + oneLine(s.AssertionID) + ")"
 			}
 			fmt.Fprintf(b, "[observed]   attempt %d step %d %s%s: %q\n", i+1, s.Index, oneLine(string(s.Result)),
 				kind, s.Detail)
@@ -281,8 +281,8 @@ func writeCheckRun(b *strings.Builder, r toolwire.CheckRunRecord) {
 	// A check that shows a defect is one red by assertion: only such a run
 	// may back a proposal expecting it to fail.
 	if step, ok := r.AssertionStep(); ok {
-		fmt.Fprintf(b, "[observed] red by assertion at step %d: it can show a defect, proposed with expect: fail\n",
-			step)
+		fmt.Fprintf(b, "[observed] red by assertion at step %d (%s): it can show a defect, proposed with expect: "+
+			"fail\n", step, oneLine(r.FailedAssertionID()))
 	}
 }
 

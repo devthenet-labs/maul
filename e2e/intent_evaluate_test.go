@@ -675,7 +675,7 @@ func TestIntentEvaluateRound1Defect(t *testing.T) {
 		return r.Job.Name == jobs.NameFor(fix.Name, intentRunKind, 1)
 	})
 	repro := string(job.Investigation)
-	for _, want := range []string{"version-served", "GET /version", "the body does not contain the expected text",
+	for _, want := range []string{"version-served", "POST /version", "the body does not contain the expected text",
 		"panic: runtime error: version not wired"} {
 		if !strings.Contains(repro, want) {
 			t.Errorf("the fix handoff lacks %q:\n%s", want, repro)

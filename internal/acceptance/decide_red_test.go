@@ -13,11 +13,11 @@ func redFound() Input {
 	return Input{
 		Outcomes: []OutcomeRef{{ID: "elo", Digest: od("elo")}},
 		Checks: []StoredCheck{{Digest: dg("red"), Outcome: "elo", Form: CheckFormHTTP, Valid: true,
-			ExpectFail: true, FailedStep: 2}},
+			ExpectFail: true, FailedStep: 2, FailedAssertion: "json /stake"}},
 		Confirmations: []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-c", Seq: 31,
-			AssertionStep: 2, ExpectFail: true}},
+			AssertionStep: 2, AssertionID: "json /stake", ExpectFail: true}},
 		Reviews: []CheckReview{{CheckDigest: dg("red"), OutcomeDigest: od("elo"), Answer: ReviewProves,
-			ExpectFail: true}},
+			ExpectFail: true, FailedStep: 2, FailedAssertion: "json /stake"}},
 		Verdicts: []EvaluatorVerdict{{Outcome: "elo", Claim: ClaimFail, Ledger: []int32{12, 14}}},
 	}
 }
@@ -84,9 +84,10 @@ func TestDecideRedCheck(t *testing.T) {
 				in.Confirmations = []CheckRun{{CheckDigest: dg("red"), Result: RunPass, Token: "tok-c", Seq: 9}}
 				in.Verdicts[0] = EvaluatorVerdict{Outcome: "elo", Claim: ClaimPass, Ledger: []int32{2}}
 			}), result: ResultPassed, reason: ReasonConfirmed},
-		{name: "after the fix, still red by assertion at its saved step, the evaluator's fail: failed again",
+		{name: "after the fix, still red by its saved assertion, the evaluator's fail: failed again",
 			in: with(redFound(), func(in *Input) {
-				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2, AssertionStep: 2}}
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2, AssertionStep: 2,
+					AssertionID: "json /stake"}}
 				in.Confirmations = nil
 			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
 		// Review finding 2: until a check saved red has replayed green once,
@@ -99,9 +100,30 @@ func TestDecideRedCheck(t *testing.T) {
 			}), result: ResultUnsure, reason: ReasonNotReproduced},
 		{name: "after the fix, red by assertion at a step after the saved one: unsure",
 			in: with(redFound(), func(in *Input) {
-				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2, AssertionStep: 3}}
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2, AssertionStep: 3,
+					AssertionID: "json /stake"}}
 				in.Confirmations = nil
 			}), result: ResultUnsure, reason: ReasonNotReproduced},
+		// Second review, 2B: the unit is the assertion, not the step.
+		{name: "after the fix, red by another assertion of the saved step: unsure",
+			in: with(redFound(), func(in *Input) {
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2, AssertionStep: 2,
+					AssertionID: "header x-stake"}}
+				in.Confirmations = nil
+			}), result: ResultUnsure, reason: ReasonNotReproduced},
+		// Second review, 2A: re-confirming the stored check is judged as its
+		// replay is; a red review counts only for the assertion it judged.
+		{name: "re-confirmed red at another step: unsure",
+			in: with(redFound(), func(in *Input) {
+				in.Confirmations[0].AssertionStep, in.Confirmations[0].AssertionID = 3, "json /other"
+			}), result: ResultUnsure, reason: ReasonNotReproduced},
+		{name: "a red review of another assertion: unsure",
+			in: with(redFound(), func(in *Input) {
+				in.Reviews[0].FailedStep, in.Reviews[0].FailedAssertion = 3, "json /other"
+			}), result: ResultUnsure, reason: ReasonEvaluatorDisagrees},
+		{name: "once cleared, re-confirmed red: unsure",
+			in:     with(redFound(), func(in *Input) { in.Checks[0].Cleared = true }),
+			result: ResultUnsure, reason: ReasonNotReproduced},
 		{name: "once it replayed green, a later regression fails as any saved check's",
 			in: with(redFound(), func(in *Input) {
 				in.Checks[0].Cleared = true
@@ -142,5 +164,46 @@ func TestDecideRedCheck(t *testing.T) {
 				t.Errorf("hand-off ready on %s", tc.result)
 			}
 		})
+	}
+}
+
+// TestDecideRedCheckDeadEnd (second review): a check saved red whose replay
+// fails another way than its saved assertion is not evidence, never a dead
+// end: a dispute with a proven green replacement still retires it (a
+// replay round follows), and another proven green check passing passes the
+// outcome.
+func TestDecideRedCheckDeadEnd(t *testing.T) {
+	dropped := with(redFound(), func(in *Input) {
+		in.Confirmations = nil
+		in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2, AssertionStep: 2,
+			AssertionID: "header x-stake"}}
+		in.Verdicts[0] = EvaluatorVerdict{Outcome: "elo", Claim: ClaimUnsure}
+	})
+	green := func(in *Input) {
+		in.Checks = append(in.Checks, StoredCheck{Digest: dg("green"), Outcome: "elo", Form: CheckFormHTTP, Valid: true})
+		in.Reviews = append(in.Reviews, CheckReview{CheckDigest: dg("green"), OutcomeDigest: od("elo"),
+			Answer: ReviewProves})
+	}
+	disputed := with(dropped, func(in *Input) {
+		green(in)
+		in.Confirmations = []CheckRun{{CheckDigest: dg("green"), Result: RunPass, Token: "tok-c", Seq: 9}}
+		in.Disputes = []CheckDispute{{CheckDigest: dg("red"), Reason: "wrong check", Replacement: dg("green"),
+			Ledger: []int32{2}}}
+	})
+	d := Decide(disputed)
+	if d.PerOutcome[0].Result != ResultUnsure || d.PerOutcome[0].Reason != ReasonDisputed || !d.ReplayRound ||
+		len(d.Retire) != 1 || d.Retire[0] != dg("red") {
+		t.Errorf("disputed: %+v, retire %v, replay %v; want the red check retired for its replacement",
+			d.PerOutcome[0], d.Retire, d.ReplayRound)
+	}
+	passing := with(dropped, func(in *Input) {
+		green(in)
+		in.Replay = append(in.Replay, CheckRun{CheckDigest: dg("green"), Result: RunPass, Token: "tok-r", Seq: 3})
+	})
+	if r := Decide(passing).PerOutcome[0]; r.Result != ResultPassed || r.Basis != dg("green") {
+		t.Errorf("beside a proven green pass: %+v, want passed on the green check", r)
+	}
+	if d := Decide(passing); d.Fix != nil {
+		t.Errorf("fix %+v from a fail that is not evidence", d.Fix)
 	}
 }

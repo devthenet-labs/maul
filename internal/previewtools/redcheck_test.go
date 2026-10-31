@@ -20,21 +20,22 @@ import (
 // fail. These tests pin where tools draws that line.
 
 // TestHTTPAssertionFailures: an http check's unmet expectation is an
-// assertion only where the application answered the request as one it
-// routes and the answer is the outcome's to judge: a JSON value that
-// differs (or is missing) in a JSON body, a header, body text in a non-HTML
-// answer, or a status that is a success or a 500 (the application's own
-// failure: a panic). A guessed path's 404, a 405 or a 400 for a body the
-// check got wrong, a gateway's 502-504, a non-JSON body where JSON was
-// expected (an SPA's HTML fallback), no answer, an unbuilt request and a
-// missing capture are not.
+// assertion only on content the application answered with (second review,
+// 1b, conservative): a JSON pointer that resolves to a different value, a
+// header that is present with a different value, body text missing from a
+// non-HTML answer. No status is one, a 500 included (it can be the check's
+// own malformed request); nor a JSON pointer or header that resolves to
+// nothing (the http "locator found nothing"), a non-JSON body where JSON
+// was expected (an SPA's HTML fallback), no answer, an unbuilt request or a
+// missing capture.
 func TestHTTPAssertionFailures(t *testing.T) {
 	t.Run("json out of range", func(t *testing.T) {
 		api := fakeAPI(t, func(int) int { return 99 })
 		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
 		rec := h.relay.runCheck(context.Background(), parseCheck(t, scoreCheck), toolwire.ModeDryRun)
-		if step, ok := rec.AssertionStep(); !ok || step != 1 {
-			t.Fatalf("AssertionStep() = %d, %v (%+v); want step 1", step, ok, rec)
+		if step, ok := rec.AssertionStep(); !ok || step != 1 || rec.FailedAssertionID() != "json /score" {
+			t.Fatalf("AssertionStep() = %d, %v, %q (%+v); want step 1, json /score", step, ok, rec.FailedAssertionID(),
+				rec)
 		}
 	})
 	for _, tc := range []struct {
@@ -44,9 +45,10 @@ func TestHTTPAssertionFailures(t *testing.T) {
 		body        string
 		assertion   bool
 	}{
-		{"a 500", http.StatusInternalServerError, "", "", true},
-		{"a success not expected", http.StatusOK, "application/json", `{"name":"x"}`, true},
+		{"a 500", http.StatusInternalServerError, "", "", false},
+		{"a success not expected", http.StatusOK, "application/json", `{"name":"x"}`, false},
 		{"another json value", http.StatusCreated, "application/json", `{"name":"someone-else"}`, true},
+		{"a json pointer that resolves to nothing", http.StatusCreated, "application/json", `{"other":1}`, false},
 		{"a 404", http.StatusNotFound, "", "", false},
 		{"a 405", http.StatusMethodNotAllowed, "", "", false},
 		{"a 400", http.StatusBadRequest, "", "", false},
@@ -98,13 +100,14 @@ func TestHTTPAssertionFailures(t *testing.T) {
 }
 
 // TestExecAssertionFailures: an exec check is red by assertion only when
-// its program said so itself, printing a line that starts with
-// checks.ExecAssertionMarker (it reached and judged its assertion), and the
-// check's expectation failed. An exit code alone (a crash, 126, 127, a
-// signal), a traceback, missing output, or a program killed at its time
-// limit never is.
+// its program said so itself, printing checks.ExecAssertionMarker with the
+// failing assertion's id at the start of a line (it reached and judged that
+// assertion), and the check's expectation failed; its assertion is that id.
+// An exit code alone (a crash, 126, 127, a signal), a traceback, missing
+// output, a marker naming no id, or a program killed at its time limit
+// never is.
 func TestExecAssertionFailures(t *testing.T) {
-	marked := checks.ExecAssertionMarker + " the stake was 1, expected more than 1\n"
+	marked := checks.ExecAssertionMarker + " upset-stake: the stake was 1, expected more than 1\n"
 	for _, tc := range []struct {
 		name      string
 		res       toolexec.Result
@@ -119,6 +122,7 @@ func TestExecAssertionFailures(t *testing.T) {
 		{"a traceback", toolexec.Result{Exit: 1, Output: "Traceback (most recent call last):\n" +
 			"SyntaxError: invalid syntax\n"}, false},
 		{"output missing", toolexec.Result{Exit: 0, Output: "nothing"}, false},
+		{"a marker naming no assertion", toolexec.Result{Exit: 1, Output: checks.ExecAssertionMarker + " no\n"}, false},
 		{"the marker mid-line", toolexec.Result{Exit: 1, Output: "echo " + marked}, false},
 		{"timed out", toolexec.Result{TimedOut: true, Output: marked}, false},
 	} {
@@ -131,6 +135,9 @@ func TestExecAssertionFailures(t *testing.T) {
 			}
 			if _, ok := rec.AssertionStep(); ok != tc.assertion {
 				t.Errorf("red by assertion %v, want %v (%+v)", ok, tc.assertion, rec)
+			}
+			if tc.assertion && rec.FailedAssertionID() != "marker upset-stake" {
+				t.Errorf("assertion id %q, want marker upset-stake", rec.FailedAssertionID())
 			}
 		})
 	}

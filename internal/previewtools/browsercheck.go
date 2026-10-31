@@ -130,17 +130,9 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 		result = toolwire.ResultError
 	}
 	at, detail := 0, failureDetail(res)
-	located := false
-	if len(res.Errors) > 0 {
-		e := res.Errors[0]
-		if e.Stack == "" && res.Error != nil {
-			// The reporter keeps the stack on the result's error.
-			e.Stack = res.Error.Stack
-		}
-		var line int
-		if line, located = specLine(e); located {
-			at = stepAt(starts, line)
-		}
+	line, located := failedLine(res)
+	if located {
+		at = stepAt(starts, line)
 	}
 	assertion := result == toolwire.ResultFail && res.Status == "failed" && located &&
 		at < len(starts) && expectStep(spec, starts[at]) && assertionMessage(res.Errors[0].Message)
@@ -148,7 +140,11 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 	for i := range at {
 		out = append(out, toolwire.StepRecord{Index: i, Result: toolwire.ResultPass})
 	}
-	return append(out, toolwire.StepRecord{Index: at, Result: result, Detail: detail, Assertion: assertion})
+	rec := toolwire.StepRecord{Index: at, Result: result, Detail: detail, Assertion: assertion}
+	if assertion {
+		rec.AssertionID = "expect" // one assertion per browser step
+	}
+	return append(out, rec)
 }
 
 // expectStep reports whether the step whose comment is at line (1-based)
@@ -309,13 +305,29 @@ type jsonError struct {
 }
 
 // specFrame is a stack frame in the compiled spec: its line.
-var specFrame = regexp.MustCompile(`[/\\]` + regexp.QuoteMeta(specFile) + `:(\d+):\d+`)
+var specFrame = regexp.MustCompile(`(?m)^\s+at .*[/\\]` + regexp.QuoteMeta(specFile) + `:(\d+):\d+\)?\s*$`)
+
+// failedLine is the spec line res's first error was thrown at (specLine),
+// its stack read from the result's error when the error has none (the
+// reporter keeps it there).
+func failedLine(res jsonResult) (int, bool) {
+	if len(res.Errors) == 0 {
+		return 0, false
+	}
+	e := res.Errors[0]
+	if e.Stack == "" && res.Error != nil {
+		e.Stack = res.Error.Stack
+	}
+	return specLine(e)
+}
 
 // specLine is the line of the compiled spec an error was thrown at: its
 // location when that is the spec (or names no file), else the first spec
-// frame of its stack. A maul assertion throws in maul's support module, so
-// its location is that file's, whose lines are not the spec's. ok is false
-// when no spec line is known: the failing step is then unknown.
+// frame of its stack: an "at" line, never a path the message quotes (maul's
+// url assertion quotes the page's). A maul assertion throws in maul's
+// support module, so its location is that file's, whose lines are not the
+// spec's. ok is false when no spec line is known: the failing step is then
+// unknown.
 func specLine(e jsonError) (int, bool) {
 	if l := e.Location; l != nil && (l.File == "" || filepath.Base(l.File) == specFile) {
 		return l.Line, true

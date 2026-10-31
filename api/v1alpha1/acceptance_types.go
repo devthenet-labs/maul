@@ -326,6 +326,12 @@ type SavedCheck struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=64
 	FailedStep int32 `json:"failedStep,omitempty"`
+	// FailedAssertion is, for a check saved red, which assertion of
+	// FailedStep failed (CheckRun.AssertionID). Until the check replays green
+	// once, only a run red by this same assertion reproduces its defect.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	FailedAssertion string `json:"failedAssertion,omitempty"`
 }
 
 // CheckExpectation is what a check was confirmed to do when it was saved.
@@ -383,6 +389,15 @@ type CheckReviewRecord struct {
 	// such a review lets a check saved red support a fail.
 	// +optional
 	Expect CheckExpectation `json:"expect,omitempty"`
+	// FailedStep and FailedAssertion are, for the red question, the
+	// failing assertion it judged: a red review counts only for that one.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
+	FailedStep int32 `json:"failedStep,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	FailedAssertion string `json:"failedAssertion,omitempty"`
 	// Run is the checkreview IntentRun that answered.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63

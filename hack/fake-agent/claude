@@ -320,10 +320,10 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     note: \"The page does not show what the outcome states.\""
       ;;
     red)
-      # A check that may show a defect acts on its own run's data: the run
-      # token is in its request (review finding 3).
-      path="${path%%\?*}?run={{run}}"
-      http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
+      # A check that may show a defect writes its own run's data: a POST
+      # whose body names the run token (reviews, finding 3).
+      printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"POST","path":"%s","json":{"run":"{{run}}"}},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
+        "$o" "$o" "$key" "$path" "$text" >"checks/$o.json"
       tool check run "checks/$o.json"
       run=$seq
       digest=$(green_digest dry-run)

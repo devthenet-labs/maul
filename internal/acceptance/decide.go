@@ -64,7 +64,11 @@ type StoredCheck struct {
 	// fail reproduces the defect only red by assertion at or before
 	// FailedStep (review finding 2).
 	FailedStep int32
-	Cleared    bool
+	// FailedAssertion is which assertion of FailedStep failed (second
+	// review, 2B): an http step holds several, an exec check one step of
+	// many. Until Cleared, only a run red by this same assertion counts.
+	FailedAssertion string
+	Cleared         bool
 }
 
 // RunResult is a check run's result as the tools ledger recorded it.
@@ -93,6 +97,8 @@ type CheckRun struct {
 	// same step of a check that otherwise ran: toolwire's AssertionStep),
 	// that step, 1-based; 0 otherwise.
 	AssertionStep int32
+	// AssertionID is which assertion of AssertionStep failed.
+	AssertionID string
 	// ExpectFail: a confirmation of a check proposed to show a defect.
 	ExpectFail bool
 }
@@ -114,8 +120,12 @@ type CheckReview struct {
 	Answer        ReviewAnswer
 	// ExpectFail: the reviewer was asked the red question (does this check
 	// encode the outcome as approved, would it pass where the outcome
-	// holds, and is the assertion that failed the outcome itself).
-	ExpectFail bool
+	// holds, and is the assertion that failed the outcome itself), about
+	// the failing assertion FailedStep and FailedAssertion: it counts only
+	// for a check saved failing that same assertion (second review, 2A).
+	ExpectFail      bool
+	FailedStep      int32
+	FailedAssertion string
 }
 
 // Claim is what the evaluator said about an outcome.
@@ -333,45 +343,71 @@ type decider struct {
 	// the digests of checks proposed this round to show a defect whose
 	// confirmation was not red by assertion.
 	red, notReproduced map[string]bool
-	// uncleared: the checks saved red that have not replayed green since.
-	uncleared map[string]StoredCheck
+	// redChecks are the checks saved red, by digest; dropped those of them
+	// whose fail this round Decide does not count (drop).
+	redChecks map[string]StoredCheck
+	dropped   map[string]bool
+}
+
+// reproduces reports whether run is red by the assertion check c, saved
+// red, was saved failing: the same step and the same assertion of it.
+func reproduces(c StoredCheck, run CheckRun) bool {
+	return run.Result == RunFail && run.AssertionStep > 0 && run.AssertionStep == c.FailedStep &&
+		run.AssertionID == c.FailedAssertion
+}
+
+// drop records a fail of a check saved red that Decide does not count: not
+// reproduced, neither a fail nor a pass, and not evidence; a dispute may
+// still retire the check (dropped).
+func (d *decider) drop(run CheckRun) {
+	d.notReproduced[run.CheckDigest] = true
+	if run.Result == RunFail {
+		d.dropped[run.CheckDigest] = true
+	}
 }
 
 // confirmationRuns are the confirmations Decide counts: every run of a
-// check proposed to pass, and of one proposed to show a defect (its run
-// ExpectFail) only a fail red by assertion (guard 1) of a check no replay
-// this round saw green (finding 3), whose others are not reproduced. A
-// check proposed red that ran green is flaky, never a pass; a check saved
-// red earlier and proposed green again after a fix is confirmed as any
-// other.
+// check proposed to pass, except a fail of a check saved red and not yet
+// replayed green that is not red by its saved assertion (judged as its
+// replay is: second review, 2A); and of one proposed to show a defect (its
+// run ExpectFail) only a fail red by assertion (guard 1) of a check no
+// replay this round saw green (finding 3), by the assertion it was saved
+// failing (2A), and never of a check saved red that already replayed green
+// (it would need a new review); its others are not reproduced. A check
+// proposed red that ran green is flaky, never a pass; a check saved red
+// earlier and proposed green again after a fix is confirmed as any other.
 func (d *decider) confirmationRuns() []CheckRun {
 	var out []CheckRun
 	for _, run := range d.in.Confirmations {
 		greenReplay := slices.ContainsFunc(d.in.Replay, func(r CheckRun) bool {
 			return r.CheckDigest == run.CheckDigest && r.Result == RunPass
 		})
+		c, saved := d.redChecks[run.CheckDigest]
 		switch {
+		case !run.ExpectFail && saved && !c.Cleared && run.Result == RunFail && !reproduces(c, run):
+			d.drop(run)
 		case !run.ExpectFail:
 			out = append(out, run)
-		case run.Result == RunFail && run.AssertionStep > 0 && !greenReplay:
-			out = append(out, run)
+		case run.Result != RunFail || run.AssertionStep == 0 || greenReplay:
+			d.drop(run)
+		case saved && (c.Cleared || !reproduces(c, run)):
+			d.drop(run)
 		default:
-			d.notReproduced[run.CheckDigest] = true
+			out = append(out, run)
 		}
 	}
 	return out
 }
 
 // replayRuns are the replays Decide counts: every replay, but of a check
-// saved red that has not yet replayed green, a fail only red by assertion
-// at or before the step it was saved failing at (finding 2: its later
-// steps never ran); its other fails are not reproduced.
+// saved red that has not yet replayed green, a fail only red by the
+// assertion it was saved failing (findings 2 and 2B: its later steps and
+// other assertions never ran); its other fails are not reproduced.
 func (d *decider) replayRuns() []CheckRun {
 	var out []CheckRun
 	for _, run := range d.in.Replay {
-		c, red := d.uncleared[run.CheckDigest]
-		if red && run.Result == RunFail && (run.AssertionStep == 0 || run.AssertionStep > c.FailedStep) {
-			d.notReproduced[run.CheckDigest] = true
+		if c, red := d.redChecks[run.CheckDigest]; red && !c.Cleared && run.Result == RunFail && !reproduces(c, run) {
+			d.drop(run)
 			continue
 		}
 		out = append(out, run)
@@ -396,13 +432,14 @@ func Decide(in Input) Decision {
 	d := decider{
 		in: in, env: ClassifyEnvironment(in.Env),
 		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
-		red: map[string]bool{}, notReproduced: map[string]bool{}, uncleared: map[string]StoredCheck{},
+		red: map[string]bool{}, notReproduced: map[string]bool{}, redChecks: map[string]StoredCheck{},
+		dropped: map[string]bool{},
 	}
 	for _, c := range in.Checks {
 		if c.ExpectFail {
 			d.red[c.Digest] = true
-			if !c.Cleared {
-				d.uncleared[c.Digest] = c
+			if _, dup := d.redChecks[c.Digest]; !dup {
+				d.redChecks[c.Digest] = c
 			}
 		}
 	}
@@ -414,7 +451,9 @@ func Decide(in Input) Decision {
 		d.retired[r.CheckDigest] = true
 	}
 	for _, dp := range in.Disputes {
-		if d.runs[dp.CheckDigest].fail {
+		// A fail Decide dropped is still a fail a dispute may retire the
+		// check for (second review: no dead end).
+		if d.runs[dp.CheckDigest].fail || d.dropped[dp.CheckDigest] {
 			if _, dup := d.disputed[dp.CheckDigest]; !dup {
 				d.disputed[dp.CheckDigest] = dp
 			}
@@ -460,16 +499,17 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 	if failing := d.failing(bound); len(failing) > 0 {
 		return d.failure(o, res, failing)
 	}
-	if slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.notReproduced[c.Digest] }) {
-		// A check proposed red that maul's own run did not see red by
-		// assertion: neither a fail nor a pass this round.
-		res.Reason = ReasonNotReproduced
-		return res, nil
-	}
 	for _, c := range bound {
-		if d.supports(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
+		if !d.notReproduced[c.Digest] && d.supports(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
 			return OutcomeResult{ID: o.ID, Result: ResultPassed, Basis: c.Digest, Reason: ReasonConfirmed}, nil
 		}
+	}
+	if slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.notReproduced[c.Digest] }) {
+		// A check proposed or saved red whose run this round maul does not
+		// count: not evidence either way. Another proven check may pass the
+		// outcome (above); otherwise it is unsure.
+		res.Reason = ReasonNotReproduced
+		return res, nil
 	}
 	switch {
 	case slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.runs[c.Digest].quarantined }):
@@ -576,7 +616,8 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 		if r.Answer != ReviewProves {
 			return false
 		}
-		proves, red = true, red || r.ExpectFail
+		proves = true
+		red = red || (r.ExpectFail && r.FailedStep == c.FailedStep && r.FailedAssertion == c.FailedAssertion)
 	}
 	return proves && (red || !c.ExpectFail && !d.red[c.Digest])
 }

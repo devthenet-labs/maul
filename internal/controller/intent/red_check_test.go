@@ -42,7 +42,7 @@ The version endpoint answers with the wrong note.
 // redCheck is versionCheck saved red.
 func redCheck(t *testing.T) v1alpha1.SavedCheck {
 	c := savedCheck(t, versionCheck)
-	c.Expect = v1alpha1.CheckExpectFail
+	c.Expect, c.FailedStep, c.FailedAssertion = v1alpha1.CheckExpectFail, 2, "json /note"
 	return c
 }
 
@@ -66,7 +66,7 @@ func (e *env) confirmRed(pvName string, red v1alpha1.SavedCheck, run v1alpha1.Ch
 // step.
 func redRun(red v1alpha1.SavedCheck) v1alpha1.CheckRun {
 	return v1alpha1.CheckRun{CheckDigest: red.Digest, Result: v1alpha1.CheckRunFail, Token: "cf-tok", Seq: 10,
-		DryRunSeq: 4, Expect: v1alpha1.CheckExpectFail, AssertionStep: 2}
+		DryRunSeq: 4, Expect: v1alpha1.CheckExpectFail, AssertionStep: 2, AssertionID: "json /note"}
 }
 
 // redRound drives intent name's first round to its collection, the
@@ -99,8 +99,9 @@ func TestRedCheckFailsTheRoundAndStartsAFix(t *testing.T) {
 	if len(r.handoffs) != 1 || len(r.handoffs[0].Reviews) != 1 {
 		t.Fatalf("handoffs = %+v, want the red check reviewed", r.handoffs)
 	}
-	if it := r.handoffs[0].Reviews[0]; it.Expect != "fail" || it.FailedStep != 2 || it.CheckDigest != red.Digest {
-		t.Errorf("review = %+v, want the red question at step 2", it)
+	if it := r.handoffs[0].Reviews[0]; it.Expect != "fail" || it.FailedStep != 2 ||
+		it.FailedAssertion != "json /note" || it.CheckDigest != red.Digest {
+		t.Errorf("review = %+v, want the red question about json /note at step 2", it)
 	}
 	if _, stored := e.checkStore(name); len(stored) != 1 || stored[0] != red {
 		t.Fatalf("store = %+v, want the red check, expecting to fail", stored)
@@ -108,8 +109,9 @@ func TestRedCheckFailsTheRoundAndStartsAFix(t *testing.T) {
 	acc := e.get(name).Status.Acceptance
 	if i := slices.IndexFunc(acc.Reviews, func(rv v1alpha1.CheckReviewRecord) bool {
 		return rv.CheckDigest == red.Digest
-	}); i < 0 || acc.Reviews[i].Expect != v1alpha1.CheckExpectFail || acc.Reviews[i].Answer != v1alpha1.ReviewProves {
-		t.Errorf("reviews = %+v, want the red question's proves", acc.Reviews)
+	}); i < 0 || acc.Reviews[i].Expect != v1alpha1.CheckExpectFail || acc.Reviews[i].Answer != v1alpha1.ReviewProves ||
+		acc.Reviews[i].FailedStep != 2 || acc.Reviews[i].FailedAssertion != "json /note" {
+		t.Errorf("reviews = %+v, want the red question's proves, keyed to json /note at step 2", acc.Reviews)
 	}
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationFailing || v.Failed != 1 || v.Outcomes[0].Result != v1alpha1.OutcomeFailed ||
@@ -137,9 +139,15 @@ func TestRedCheckGuards(t *testing.T) {
 		{"the reviewer says no", v1alpha1.ReviewDoesNotProve, redRun, true, true},
 		{"red, but not by assertion", v1alpha1.ReviewProves, func(c v1alpha1.SavedCheck) v1alpha1.CheckRun {
 			r := redRun(c)
-			r.AssertionStep = 0
+			r.AssertionStep, r.AssertionID = 0, ""
 			return r
 		}, true, false},
+		{"red by another assertion than it was confirmed at", v1alpha1.ReviewProves,
+			func(c v1alpha1.SavedCheck) v1alpha1.CheckRun {
+				r := redRun(c)
+				r.AssertionID = "header x-note"
+				return r
+			}, true, false},
 		{"its confirmation ran green", v1alpha1.ReviewProves, func(c v1alpha1.SavedCheck) v1alpha1.CheckRun {
 			r := redRun(c)
 			r.Result, r.AssertionStep = v1alpha1.CheckRunPass, 0

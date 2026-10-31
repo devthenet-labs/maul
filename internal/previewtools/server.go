@@ -422,10 +422,10 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
 				"check "+d+" has no dry run in this evaluation that failed an assertion, or one ran green, or it "+
 					"replayed green this round"))
-		case red && !checks.CreatesRunData(dr.check):
+		case red && !checks.WritesRunData(dr.check):
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
-				"check "+d+" acts on no data of its own run: a check that shows a defect names {{run}} in a "+
-					"request, a browser action or its program"))
+				"check "+d+" writes no data of its own run: a check that shows a defect names {{run}} in a "+
+					"POST, PUT or PATCH, a browser fill or its program"))
 		case !red && (!dr.green || r.replayed(d, toolwire.RunFail)):
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoDryRun,
 				"check "+d+" has no green dry run in this evaluation, or it replayed red this round"))

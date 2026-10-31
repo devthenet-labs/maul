@@ -47,9 +47,10 @@ type CheckReviewHandoff struct {
 //
 // Expect is fail for a check the evaluator proposed to show a defect, red
 // by assertion in maul's own runs: the reviewer is asked the red question
-// (templates.CheckReviewPrompt.ExpectFail), told which step failed
-// (FailedStep, 1-based, of the check as maul renders it). Both are unset for
-// a check confirmed green.
+// (templates.CheckReviewPrompt.ExpectFail), told which assertion failed:
+// FailedStep (1-based, of the check as maul renders it) and FailedAssertion
+// (toolwire.StepRecord.AssertionID). All three are unset for a check
+// confirmed green.
 type CheckReviewItem struct {
 	CheckDigest   string `json:"check_digest"`
 	OutcomeDigest string `json:"outcome_digest"`
@@ -57,7 +58,13 @@ type CheckReviewItem struct {
 	Check         string `json:"check"`
 	Expect        string `json:"expect,omitempty"`
 	FailedStep    int    `json:"failed_step,omitempty"`
+	// FailedAssertion is at most checkReviewAssertionMaxBytes.
+	FailedAssertion string `json:"failed_assertion,omitempty"`
 }
+
+// checkReviewAssertionMaxBytes bounds an item's FailedAssertion (the
+// ledger's own bound).
+const checkReviewAssertionMaxBytes = 512
 
 // checkSteps is how many steps c has as a reviewer reads it: an http or
 // browser check's steps, an exec check's one program run.
@@ -78,8 +85,8 @@ func checkSteps(c checks.Check) int {
 func validExpectation(it CheckReviewItem, c checks.Check) error {
 	switch it.Expect {
 	case "":
-		if it.FailedStep != 0 {
-			return errors.New("failed_step is set on a check confirmed green")
+		if it.FailedStep != 0 || it.FailedAssertion != "" {
+			return errors.New("failed_step or failed_assertion is set on a check confirmed green")
 		}
 		return nil
 	case "fail":
@@ -88,6 +95,10 @@ func validExpectation(it CheckReviewItem, c checks.Check) error {
 	}
 	if it.FailedStep < 1 || it.FailedStep > checkSteps(c) {
 		return fmt.Errorf("failed_step %d is not a step of the check", it.FailedStep)
+	}
+	if strings.TrimSpace(it.FailedAssertion) == "" || len(it.FailedAssertion) > checkReviewAssertionMaxBytes ||
+		strings.ContainsAny(it.FailedAssertion, "\r\n") {
+		return errors.New("failed_assertion does not name the assertion that failed")
 	}
 	return nil
 }
@@ -241,10 +252,11 @@ func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envel
 			Limits: templates.StageLimits{
 				MaxTurns: firstTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
 			},
-			Outcome:    item.Outcome,
-			Check:      item.check,
-			ExpectFail: item.Expect == "fail",
-			FailedStep: item.FailedStep,
+			Outcome:         item.Outcome,
+			Check:           item.check,
+			ExpectFail:      item.Expect == "fail",
+			FailedStep:      item.FailedStep,
+			FailedAssertion: item.FailedAssertion,
 		})
 		if err != nil {
 			return fail(envelope.OutcomeRuntimeError, session(err.Error()))
