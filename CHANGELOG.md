@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.9](https://github.com/devthenet-labs/maul/compare/v0.13.8...v0.13.9) (2026-10-31)
+
+
+### Bug Fixes
+
+* **broker:** let small-budget evaluator stages run under the cost unit ([#303](https://github.com/devthenet-labs/maul/issues/303)) ([05187e3](https://github.com/devthenet-labs/maul/commit/05187e306ed25bac4dbf1c61ded7e8a51defc70f))
+* **cdpshim:** check the key before any other handling ([#302](https://github.com/devthenet-labs/maul/issues/302)) ([8c6a4e7](https://github.com/devthenet-labs/maul/commit/8c6a4e79e2b3b71d663f9d658742ee20ad93e2ca))
+
 ## [0.13.8](https://github.com/devthenet-labs/maul/compare/v0.13.7...v0.13.8) (2026-10-31)
 
 
