@@ -965,7 +965,13 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   scrubber, and sends with its own `confirm` and `finish` (a key on a slot round is refused); the check review handoff
   carries `Workspace{surface, binary, language, build, base_unbuildable}` and each item's `head`/`base` run (result,
   assertion, the base run's `cause`): a green item's head run must be `pass`, a red one's `fail` by its
-  `failed_assertion`.
+  `failed_assertion`. Whether the REAL model writes
+  that report as the decoder demands is `TestEvaluatorReportProbe` (`evaluate_report_probe_test.go`, `mise run
+  evaluator-report-probe`): the real evaluate prompt and its out-of-turns repair prompt for a tiny synthetic round,
+  the pinned CLI, a stand-in maul-tool (the test binary re-entered), the report through `readReportAs` and
+  `parseEvaluation`'s two steps; it needs `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` and costs about $0.20,
+  and CI runs it when those prompts, the schema or the CLI pin change, only where the repository secret
+  `EVALUATOR_PROBE_ANTHROPIC_API_KEY` or `EVALUATOR_PROBE_CLAUDE_CODE_OAUTH_TOKEN` exists (otherwise it warns and passes).
 - `jobs` — the Kubernetes Job the agent runs in. The isolation model lives here, and it STRENGTHENED with the
   broker: a brokered (claude, codex) pod holds no credential of any kind — its projected SA token (audience-bound,
   agent container only, never the init) is an identity document, not a capability; claude's fixed, non-secret
