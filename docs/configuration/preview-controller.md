@@ -306,7 +306,9 @@ controller's side:
   fails while a verification runs has its failure written onto the request before the slot is released. Unclear output
   is `Infra`, not a pass.
 - **Cleanup.** Jobs and NetworkPolicies are found and removed by the Preview's UID label like every rendered object, and
-  the orphan sweep removes a tester pod whose Job is gone.
+  the orphan sweep removes a tester pod whose Job is gone. It also removes the Job of a request that is gone and, once
+  it is 30 seconds old, an evaluator ingress policy whose request is gone (intent-controller deletes a request in flight
+  when its evaluate run fails, and no owner reference can reach the policy across namespaces), logging each.
 
 ### Grants
 

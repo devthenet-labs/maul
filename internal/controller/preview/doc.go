@@ -21,7 +21,10 @@
 // exactly its evaluator; it publishes status.tools once tools is Ready,
 // then verifies the tools container's ledger (ledger.go) and stores it, and
 // the evidence images it cites (evidence.go), in ConfigMaps the request
-// owns in the release namespace. Every rendered object is deterministic, a Preview
+// owns in the release namespace. That ingress policy cannot be owned across
+// namespaces, so a request deleted while it runs leaves it behind; the
+// orphan sweep deletes an evaluator ingress policy whose request is gone once
+// it is past a short grace. Every rendered object is deterministic, a Preview
 // without an environment renders exactly what it did before verification
 // (and a single-component one what it did before multi-component previews)
 // existed, and every slot is released only after finalizer cleanup sees no

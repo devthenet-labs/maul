@@ -144,7 +144,8 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !pv.DeletionTimestamp.IsZero() {
-		// Its tester Job, if any, is the sweep's: its verification is gone.
+		// Its tester or tool Job and its evaluator ingress policy, if any,
+		// are the sweep's: its verification is gone.
 		return ctrl.Result{}, nil
 	}
 	if settled(pv.Status.Phase) {
