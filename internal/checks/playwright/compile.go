@@ -29,6 +29,11 @@ const (
 	ActionTimeoutMS = 5000
 	// TestTimeoutMS bounds the whole check.
 	TestTimeoutMS = 30000
+	// PatientExpectTimeoutMS bounds every retried judgement and expectation
+	// of a patient check (Options.Patient), PatientTestTimeoutMS the whole of
+	// it.
+	PatientExpectTimeoutMS = 15000
+	PatientTestTimeoutMS   = 120000
 	// AnnotationIndeterminate is the test annotation an unsure judgement
 	// adds before it throws: the runner reports such a test as a check
 	// error, never a fail.
@@ -50,6 +55,11 @@ var DefaultViewport = Viewport{Width: 1280, Height: 800}
 type Options struct {
 	// RunToken replaces every {{run}}; required when the check uses it.
 	RunToken string
+	// Patient compiles a check run to show a defect (third review, F6):
+	// every retried judgement and Playwright expectation waits
+	// PatientExpectTimeoutMS, under PatientTestTimeoutMS, so a slow but
+	// correct page is not read as the defect.
+	Patient bool
 	// Viewport is the fixed viewport; zero means DefaultViewport.
 	Viewport Viewport
 }
@@ -125,6 +135,9 @@ func emittable(b *checks.BrowserCheck, token string) error {
 // through lit.
 func emit(b checks.BrowserCheck, o Options) ([]byte, error) {
 	w := &writer{run: o.RunToken}
+	if o.Patient {
+		w.expectOpts = ", { timeout: " + strconv.Itoa(PatientExpectTimeoutMS) + " }"
+	}
 	v := o.Viewport
 	size := "{ width: " + strconv.Itoa(v.Width) + ", height: " + strconv.Itoa(v.Height) + " }"
 	usesExpect := false
@@ -147,7 +160,12 @@ func emit(b checks.BrowserCheck, o Options) ([]byte, error) {
 	w.line("test.use({ viewport: " + size + ", actionTimeout: " + strconv.Itoa(ActionTimeoutMS) + " });")
 	w.line("")
 	w.line(`test("maul check", async ({ page }) => {`)
-	w.line("  test.setTimeout(" + strconv.Itoa(TestTimeoutMS) + ");")
+	if o.Patient {
+		w.line("  test.setTimeout(" + strconv.Itoa(PatientTestTimeoutMS) + ");")
+		w.line("  maul.patience(" + strconv.Itoa(PatientExpectTimeoutMS) + ");")
+	} else {
+		w.line("  test.setTimeout(" + strconv.Itoa(TestTimeoutMS) + ");")
+	}
 	w.line("  await page.setViewportSize(" + size + ");")
 	for i, st := range b.Steps {
 		w.line("")
@@ -165,6 +183,9 @@ type writer struct {
 	b   strings.Builder
 	run string
 	err error
+	// expectOpts follows a Playwright expectation's argument: a patient
+	// check's timeout, or nothing.
+	expectOpts string
 }
 
 func (w *writer) line(s string) {
@@ -305,7 +326,7 @@ func (w *writer) assertion(a checks.Assertion) {
 		if a.Count != nil {
 			n = *a.Count
 		}
-		w.do("expect(" + loc(a.Locator) + ").toHaveCount(" + strconv.Itoa(n) + ")")
+		w.do("expect(" + loc(a.Locator) + ").toHaveCount(" + strconv.Itoa(n) + w.expectOpts + ")")
 	case checks.AssertText:
 		w.text(loc(a.Locator), a.Text)
 	default:
@@ -322,11 +343,11 @@ func (w *writer) text(loc string, t *checks.TextMatch) {
 			w.err = errors.New("assert text lacks its text")
 		}
 	case t.Equals != "":
-		w.do("expect(" + loc + ").toHaveText(" + w.lit(t.Equals) + ")")
+		w.do("expect(" + loc + ").toHaveText(" + w.lit(t.Equals) + w.expectOpts + ")")
 	case t.Contains != "":
-		w.do("expect(" + loc + ").toContainText(" + w.lit(t.Contains) + ")")
+		w.do("expect(" + loc + ").toContainText(" + w.lit(t.Contains) + w.expectOpts + ")")
 	default:
-		w.do("expect(" + loc + ").toHaveText(maul.regex(" + w.lit(t.Matches) + "))")
+		w.do("expect(" + loc + ").toHaveText(maul.regex(" + w.lit(t.Matches) + ")" + w.expectOpts + ")")
 	}
 }
 

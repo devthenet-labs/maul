@@ -34,11 +34,12 @@ Every `{{"{{"}}run{{"}}"}}` is replaced by a fresh token on every run, so the da
 ## How to judge
 {{- if .ExpectFail}}
 
-This check failed on the build under review: maul ran it itself, each time in a fresh browser or session with fresh
-data, and it failed each time at step {{.FailedStep}}, on its assertion `{{.Assertion}}`. The other agent says that
-failure shows a defect: the outcome does not hold. maul will report the outcome failed, and start a fix, only if you
-answer `proves`, so a check that is wrong here makes another agent change code that works. Answer `proves` only if all
-of these hold:
+This check failed on the build under review: maul ran it itself, each time in a fresh browser or session under a
+fresh run token, and it failed each time at step {{.FailedStep}}, on its assertion `{{.Assertion}}`.
+The application's own state was not fresh: rows and records from earlier runs and from the other agent's exploration
+were still there. The other agent says that failure shows a defect: the outcome does not hold. maul will report the
+outcome failed, and start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change
+code that works. Answer `proves` only if all of these hold:
 
 1. The check encodes the outcome as approved: if it passed, that would show the outcome holds. It does what the
    outcome describes, on data it created itself.

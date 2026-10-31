@@ -61,10 +61,11 @@ func (p *pass) reviewChecks(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 				slog.String("intent", p.in.Name), slog.String("verification", pv.Name),
 				slog.String("check", c.Digest), slog.String("detail", detail))
 		})
-	if len(cands) == 0 {
+	regreen := regreenCandidates(pv, acc.Outcomes, stored, acc.Reviews)
+	if len(cands) == 0 && len(regreen) == 0 {
 		return false, false, nil
 	}
-	if pending := unreviewed(cands, acc.Reviews); len(pending) > 0 {
+	if pending := append(unreviewed(cands, acc.Reviews), regreen...); len(pending) > 0 {
 		changed, wait, err := p.checkReviewRound(ctx, pv, pending, stored)
 		if changed || wait || err != nil {
 			return changed, wait, err

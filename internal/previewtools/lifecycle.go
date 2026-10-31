@@ -163,7 +163,7 @@ func (r *Relay) replay(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		rec := r.runCheck(ctx, c, toolwire.ModeReplay)
+		rec := r.runCheckAs(ctx, c, toolwire.ModeReplay, s.Expect == toolwire.ExpectFail)
 		if _, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun,
 			Args: mustArgs(map[string]string{"digest": rec.Digest}), CheckRun: &rec}); err != nil {
 			return

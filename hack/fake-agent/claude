@@ -320,9 +320,10 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     note: \"The page does not show what the outcome states.\""
       ;;
     red)
-      # A check that may show a defect writes its own run's data: a POST
-      # whose body names the run token (reviews, finding 3).
-      printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"POST","path":"%s","json":{"run":"{{run}}"}},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
+      # A check that may show a defect writes its own run's data and asserts
+      # on it: a POST to a path naming the run token, whose body names it too
+      # (reviews, finding 3; third review, F3).
+      printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"POST","path":"%s/{{run}}","json":{"run":"{{run}}"}},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
         "$o" "$o" "$key" "$path" "$text" >"checks/$o.json"
       tool check run "checks/$o.json"
       run=$seq

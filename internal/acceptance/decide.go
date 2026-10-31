@@ -239,6 +239,9 @@ const (
 	// round), or, not yet replayed green since, its replay failed other than
 	// by assertion at its saved step: neither a fail nor a pass.
 	ReasonNotReproduced = "not-reproduced"
+	// ReasonFlaky: a check of the outcome both passed and failed at the
+	// same heads this round.
+	ReasonFlaky = "flaky"
 	// ReasonChecksDisagree: a check of the outcome failed while another,
 	// valid and reviewed proves, passed cleanly: two vetted checks
 	// disagree, so neither a fail nor a pass.
@@ -496,11 +499,17 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 		res.Reason = ReasonDisputed
 		return res, nil
 	}
+	if slices.ContainsFunc(bound, func(c StoredCheck) bool { r := d.runs[c.Digest]; return r.pass && r.fail }) {
+		// A check that passed and failed at the same heads this round is
+		// flaky (third review, F4): neither a fail nor a pass.
+		res.Reason = ReasonFlaky
+		return res, nil
+	}
 	if failing := d.failing(bound); len(failing) > 0 {
 		return d.failure(o, res, failing)
 	}
 	for _, c := range bound {
-		if !d.notReproduced[c.Digest] && d.supports(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
+		if !d.notReproduced[c.Digest] && d.passes(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
 			return OutcomeResult{ID: o.ID, Result: ResultPassed, Basis: c.Digest, Reason: ReasonConfirmed}, nil
 		}
 	}
@@ -564,7 +573,7 @@ func (d decider) disagree(o OutcomeRef, failing []StoredCheck) bool {
 		if slices.ContainsFunc(failing, func(f StoredCheck) bool { return f.Digest == c.Digest }) {
 			continue
 		}
-		if d.supports(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
+		if d.passes(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
 			return true
 		}
 	}
@@ -622,6 +631,22 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 	return proves && (red || !c.ExpectFail && !d.red[c.Digest])
 }
 
+// passes is supports for a pass: a check saved red passes its outcome only
+// once a review of the green question also answered proves (third review,
+// F5): its red review asked only whether its failure shows a defect, never
+// whether a pass could be special-cased or merely shows a call worked.
+func (d decider) passes(c StoredCheck, o OutcomeRef) bool {
+	if !d.supports(c, o) {
+		return false
+	}
+	if !c.ExpectFail && !d.red[c.Digest] {
+		return true
+	}
+	return slices.ContainsFunc(d.in.Reviews, func(r CheckReview) bool {
+		return r.CheckDigest == c.Digest && r.OutcomeDigest == o.Digest && !r.ExpectFail && r.Answer == ReviewProves
+	})
+}
+
 // discriminates is rule 5. With no base, or no clean verdict at base (the
 // check could not run there), it is n/a: true.
 func (d decider) discriminates(c StoredCheck, o OutcomeRef) bool {
@@ -653,7 +678,7 @@ func (d decider) replacements() ([]string, bool) {
 			continue
 		}
 		for _, c := range d.bound(o.ID) {
-			if c.Digest == dp.Replacement && d.supports(c, o) && d.runs[c.Digest].clean() {
+			if c.Digest == dp.Replacement && d.passes(c, o) && d.runs[c.Digest].clean() {
 				retire = append(retire, digest)
 				break
 			}

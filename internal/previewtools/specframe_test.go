@@ -50,14 +50,14 @@ func TestBrowserStepFromTheSpecFrame(t *testing.T) {
 				`"Error: maul: url failed: the page is at /x/`+specFile+`:`+strconv.Itoa(line)+`:1\n    at fail (/t/`+
 				playwright.SupportFile+`:27:9)"}`, 1)
 		})
-		rec := h.relay.runCheck(context.Background(), parseCheck(t, browserCheck), toolwire.ModeDryRun)
+		rec := h.relay.runCheck(context.Background(), parseCheck(t, keyedBrowserCheck), toolwire.ModeDryRun)
 		if _, ok := rec.AssertionStep(); ok {
 			t.Errorf("a spec path quoted in the message located the step: %+v", rec)
 		}
 	})
 	for _, stack := range []bool{true, false} {
 		h, _ := browserCheckHarness(t, func(_ int, spec string) string { return report(spec, stack) })
-		rec := h.relay.runCheck(context.Background(), parseCheck(t, browserCheck), toolwire.ModeDryRun)
+		rec := h.relay.runCheck(context.Background(), parseCheck(t, keyedBrowserCheck), toolwire.ModeDryRun)
 		step, ok := rec.AssertionStep()
 		if stack && (!ok || step != 2 || rec.FailedAssertionID() != "expect") {
 			t.Errorf("with the spec frame: AssertionStep() = %d, %v (%+v); want step 2", step, ok, rec)

@@ -155,7 +155,10 @@ not hold it prints `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of 
 id naming that assertion (lowercase letters, digits and hyphens); print it for that and nothing else, never on a
 connection error, a status code or an exception. An exit code alone, a crash or a traceback never shows a defect. A
 check that shows a defect must write data of its own run: name `{{run}}` in a POST, PUT or PATCH, a
-browser fill or its program, and the assertion that fails must be about that data.
+browser fill or its program, and the assertion that fails must be about that data: its step reads a path that names
+`{{run}}` or a value captured from the check's own write, or its expected value names one, or (in the
+browser) its locator or text names `{{run}}`. A total, a count or a list over shared rows never shows a
+defect. Its `expect.status` may list only success statuses.
 Propose it with `expect: fail` under the outcome you report `fail`. maul then runs it again itself, a reviewer
 judges whether it encodes the outcome and whether the assertion that failed is the outcome, and only then is the
 outcome failed and a fix started, handed your check's failure as its reproduction. Once the fix is in, the same check

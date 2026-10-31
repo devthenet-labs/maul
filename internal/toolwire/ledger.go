@@ -216,17 +216,23 @@ type StepRecord struct {
 	// Detail is the runner's message for a step that did not pass.
 	Detail string `json:"detail,omitempty"`
 	// Assertion marks a failing step that failed an assertion the outcome
-	// is the judge of, in a check that otherwise ran; only on a fail step
-	// (Check). http: a JSON value of a JSON body, a header, body text of a
-	// non-HTML body, or a status that is a success or a 500; never a 404,
-	// 405, 400, another 4xx or a 501-504, a non-JSON body where JSON was
-	// expected, no response, an unbuilt request or a missing capture. exec:
-	// only when the program printed checks.ExecAssertionMarker, never an exit
-	// code or missing output alone, never a time limit. browser: an expect
-	// step's maul assertion or Playwright matcher on an element that was
-	// there; never a timeout, an action, a locator that resolved nothing
-	// (a count of 0 included) or more than one element, an element with no
-	// box, a trial click or an indeterminate judgement.
+	// is the judge of, about data the check's own run made, in a check that
+	// otherwise ran; only on a fail step (Check). Only such a failure may
+	// show a defect (a check saved red), so it is drawn conservatively.
+	// http: only content: a JSON pointer (never the whole document "") that
+	// resolves, in a JSON body, to a different value, not by a list matcher
+	// ($order, $includes); a header present with a different value; body
+	// text missing from a non-HTML body; and only when the step's path
+	// (never its query) or the expected value names {{run}} or a capture of
+	// one of the check's own writes. Never a status (a 500 included), a
+	// pointer or header that resolves to nothing, no response, an unbuilt
+	// request or a missing capture. exec: only when the program printed
+	// checks.ExecAssertionMarker with an assertion id, never an exit code or
+	// missing output alone, never a time limit. browser: an expect step's
+	// maul assertion or Playwright matcher on an element that was there,
+	// keyed by {{run}} (its locator, text or URL), never a count, a timeout,
+	// an action, a locator that resolved nothing or more than one element,
+	// an element with no box, a trial click or an indeterminate judgement.
 	Assertion bool `json:"assertion,omitempty"`
 	// AssertionID names which assertion of the step failed, set exactly
 	// when Assertion is: "json <pointer>", "header <name>", "bodyContains"

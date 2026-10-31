@@ -691,6 +691,17 @@ type IntentCommentRef struct {
 	At metav1.Time `json:"at"`
 }
 
+// RedClearance is a check saved red that replayed green.
+type RedClearance struct {
+	// Digest is the check's digest.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	Digest string `json:"digest"`
+	// Verification names the PreviewVerification whose replay passed it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Verification string `json:"verification"`
+}
+
 // IntentAcceptance is the approved plan's acceptance criteria and the
 // approvers' acceptances of the manual ones. intent-controller writes the
 // criteria once per approved plan revision, from the plan bytes it re-reads
@@ -743,15 +754,16 @@ type IntentAcceptance struct {
 	// +kubebuilder:validation:MaxItems=80
 	// +listType=atomic
 	Reviews []CheckReviewRecord `json:"reviews,omitempty"`
-	// RedCleared are the digests of checks saved red (SavedCheck.Expect
-	// fail) that have since replayed green. Until one has, its steps after
-	// the one it was saved failing at never ran, so only a replay red by
-	// assertion at or before that step reproduces its defect.
+	// RedCleared are the checks saved red (SavedCheck.Expect fail) that
+	// have since replayed green, each with the verification whose replay
+	// did. Until one has, only a run red by the assertion it was saved
+	// failing reproduces its defect. A clearance counts from the round
+	// after the one that earned it, so that round is judged, and its fix
+	// decided, on the same facts.
 	// +optional
 	// +kubebuilder:validation:MaxItems=40
-	// +listType=set
-	// +kubebuilder:validation:items:Pattern=`^sha256:[0-9a-f]{64}$`
-	RedCleared []string `json:"redCleared,omitempty"`
+	// +listType=atomic
+	RedCleared []RedClearance `json:"redCleared,omitempty"`
 	// Accepted are the approvers' /maul accept records, oldest first.
 	// +optional
 	// +kubebuilder:validation:MaxItems=32

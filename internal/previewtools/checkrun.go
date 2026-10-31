@@ -30,9 +30,17 @@ const reasonNoBrowser = "the browser is unavailable in this tool pod"
 
 // runCheck runs c and returns its record; mode says why it ran.
 func (r *Relay) runCheck(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode) toolwire.CheckRunRecord {
+	return r.runCheckAs(ctx, c, mode, false)
+}
+
+// runCheckAs is runCheck, patient when the run may show a defect (a red
+// confirmation, the replay of a check saved red: third review, F6): a
+// browser check is then compiled to wait playwright.PatientExpectTimeoutMS.
+func (r *Relay) runCheckAs(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode,
+	patient bool) toolwire.CheckRunRecord {
 	rec := toolwire.CheckRunRecord{Digest: bareDigestOf(checks.Digest(c)), CheckID: c.ID, Mode: mode}
 	for range 2 {
-		a := r.attempt(ctx, c)
+		a := r.attempt(ctx, c, patient)
 		rec.Attempts = append(rec.Attempts, a)
 		if a.Result == toolwire.ResultPass {
 			break
@@ -42,8 +50,8 @@ func (r *Relay) runCheck(ctx context.Context, c checks.Check, mode toolwire.Chec
 	return rec
 }
 
-// attempt runs c once under a fresh token.
-func (r *Relay) attempt(ctx context.Context, c checks.Check) toolwire.Attempt {
+// attempt runs c once under a fresh token, patient as runCheckAs says.
+func (r *Relay) attempt(ctx context.Context, c checks.Check, patient bool) toolwire.Attempt {
 	a := toolwire.Attempt{Run: r.token()}
 	start := time.Now()
 	switch c.Form {
@@ -52,7 +60,7 @@ func (r *Relay) attempt(ctx context.Context, c checks.Check) toolwire.Attempt {
 	case checks.FormExec:
 		a.Steps = r.execAttempt(ctx, *c.Exec, a.Run)
 	case checks.FormBrowser:
-		a.Steps = r.browserAttempt(ctx, *c.Browser, a.Run)
+		a.Steps = r.browserAttempt(ctx, *c.Browser, a.Run, patient)
 	default:
 		a.Steps = []toolwire.StepRecord{{Index: 0, Result: toolwire.ResultError, Detail: reasonNoBrowser}}
 	}
@@ -76,10 +84,13 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 	}
 	steps := acceptance.Normalize([]acceptance.Criterion{{Kind: acceptance.KindHTTP, Steps: h.Steps}})[0].Steps
 	caps := map[string]string{}
+	// own are the captures of the check's own writes: values that name data
+	// its run made (third review, F3).
+	own := map[string]bool{}
 	var out []toolwire.StepRecord
 	for i, st := range steps {
 		rec := toolwire.StepRecord{Index: i, Result: toolwire.ResultPass}
-		if detail, assertion := r.httpStep(ctx, comp.Addr, st, run, caps); detail != "" {
+		if detail, assertion := r.httpStep(ctx, comp.Addr, st, run, caps, own); detail != "" {
 			rec.Result, rec.Detail = toolwire.ResultFail, detail
 			rec.Assertion, rec.AssertionID = assertion != "", assertion
 		}
@@ -87,8 +98,58 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 		if rec.Result != toolwire.ResultPass {
 			break
 		}
+		if writeMethod(st.Request.Method) {
+			for name := range st.Capture {
+				own[name] = true
+			}
+		}
 	}
 	return out
+}
+
+// writeMethod reports a request that writes: POST, PUT or PATCH.
+func writeMethod(m string) bool {
+	switch strings.ToUpper(m) {
+	case "POST", "PUT", "PATCH":
+		return true
+	}
+	return false
+}
+
+// runKeyed reports whether s names the run's own data: {{run}}, or a
+// capture of one of the check's own writes.
+func runKeyed(s string, own map[string]bool) bool {
+	if strings.Contains(s, checks.RunPlaceholder) {
+		return true
+	}
+	for name := range own {
+		if strings.Contains(s, "{{capture."+name+"}}") {
+			return true
+		}
+	}
+	return false
+}
+
+// valueKeyed is runKeyed of an expected value's JSON.
+func valueKeyed(v any, own map[string]bool) bool {
+	b, err := json.Marshal(v)
+	return err == nil && runKeyed(string(b), own)
+}
+
+// listShape reports a matcher over a list ($order, $includes): over shared
+// rows, a list can differ for data the run did not make.
+func listShape(v any) bool {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return true
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(b, &m) != nil {
+		return false
+	}
+	_, order := m["$order"]
+	_, includes := m["$includes"]
+	return order || includes
 }
 
 // httpStep sends one step and judges it, returning maul's words for the
@@ -104,7 +165,7 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 // bound or a capture with nothing to keep. Its captures go into caps. The
 // words name what was expected, never the application's bytes.
 func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, run string,
-	caps map[string]string) (string, string) {
+	caps map[string]string, own map[string]bool) (string, string) {
 	built, err := acceptance.BuildRequest(st, run, caps)
 	if err != nil {
 		return "the request could not be built: a capture is missing", ""
@@ -122,16 +183,41 @@ func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, r
 		return fmt.Sprintf("status %d, expected one of %v", rep.Status, st.Expect.Status), ""
 	}
 	doc, valid := decodeJSON(rep.Body)
+	if detail, assertion := judgeContent(st, rep, doc, valid, run, caps, own); detail != "" {
+		return detail, assertion
+	}
+	for _, name := range sortedKeys(st.Capture) {
+		v, ok := captureValue(doc, valid, st.Capture[name])
+		if !ok {
+			return "capture " + name + " is not a string, number or boolean at " + strconv.Quote(st.Capture[name]), ""
+		}
+		caps[name] = v
+	}
+	return "", ""
+}
+
+// judgeContent judges a response's content against a step's expect (its
+// JSON pointers, headers and body text, the status already met): maul's
+// words for the first miss and its assertion id, as httpStep returns them;
+// "" when it all holds.
+func judgeContent(st acceptance.Step, rep reply, doc any, valid bool, run string, caps map[string]string,
+	own map[string]bool) (string, string) {
+	// The step reads the run's own data when its path (never its query)
+	// addresses it.
+	pathKeyed := runKeyed(strings.SplitN(st.Request.Path, "?", 2)[0], own)
 	for _, ptr := range sortedKeys(st.Expect.JSON) {
 		raw, present := pointerValue(doc, valid, ptr)
-		if !checks.MatchJSON(st.Expect.JSON[ptr], run, caps, raw, present) {
-			return "json " + strconv.Quote(ptr) + " did not match", contentAssertion(valid && present, "json "+ptr)
+		if want := st.Expect.JSON[ptr]; !checks.MatchJSON(want, run, caps, raw, present) {
+			about := ptr != "" && !listShape(want) && (pathKeyed || valueKeyed(want, own))
+			return "json " + strconv.Quote(ptr) + " did not match", contentAssertion(valid && present && about,
+				"json "+ptr)
 		}
 	}
 	for _, name := range sortedKeys(st.Expect.Headers) {
 		raw, present := headerValue(rep.Header, name)
-		if !checks.MatchHeader(st.Expect.Headers[name], run, caps, raw, present) {
-			return "header " + name + " did not match", contentAssertion(present, "header "+strings.ToLower(name))
+		if want := st.Expect.Headers[name]; !checks.MatchHeader(want, run, caps, raw, present) {
+			return "header " + name + " did not match", contentAssertion(present && (pathKeyed || valueKeyed(want, own)),
+				"header "+strings.ToLower(name))
 		}
 	}
 	if st.Expect.BodyContains != "" {
@@ -140,15 +226,9 @@ func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, r
 			return "the expected text could not be built: a capture is missing", ""
 		}
 		if !bytes.Contains(rep.Body, []byte(needle)) {
-			return "the body does not contain the expected text", contentAssertion(!htmlBody(rep.Header), "bodyContains")
+			return "the body does not contain the expected text", contentAssertion(!htmlBody(rep.Header) &&
+				(pathKeyed || runKeyed(st.Expect.BodyContains, own)), "bodyContains")
 		}
-	}
-	for _, name := range sortedKeys(st.Capture) {
-		v, ok := captureValue(doc, valid, st.Capture[name])
-		if !ok {
-			return "capture " + name + " is not a string, number or boolean at " + strconv.Quote(st.Capture[name]), ""
-		}
-		caps[name] = v
 	}
 	return "", ""
 }

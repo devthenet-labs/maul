@@ -95,7 +95,9 @@ func (a *evalApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	status, version := a.status, a.version
 	a.mu.Unlock()
-	if r.URL.Path != "/version" {
+	// GET /version, or a POST under /version/ (a check writing its run's
+	// own record there).
+	if r.URL.Path != "/version" && (r.Method != http.MethodPost || !strings.HasPrefix(r.URL.Path, "/version/")) {
 		http.NotFound(w, r)
 		return
 	}

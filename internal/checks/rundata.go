@@ -5,6 +5,8 @@ package checks
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -47,6 +49,30 @@ func WritesRunData(c Check) bool {
 		}
 	}
 	return false
+}
+
+// ValidateRed holds a check proposed to show a defect to the rules beyond
+// the saved-check grammar: it writes data of its own run (WritesRunData),
+// and an http step lists only success statuses (third review, F2: with an
+// error status listed, a misspelled request gets its correct 400 and that
+// body's JSON reads as a failed content assertion).
+func ValidateRed(c Check) error {
+	if !WritesRunData(c) {
+		return errors.New("a check that shows a defect writes data of its own run: {{run}} in a POST, PUT or " +
+			"PATCH, a browser fill or its program")
+	}
+	if c.HTTP == nil {
+		return nil
+	}
+	for i, st := range c.HTTP.Steps {
+		for _, code := range st.Expect.Status {
+			if code < 200 || code > 299 {
+				return fmt.Errorf("step %d expects status %d: a check that shows a defect expects only success "+
+					"statuses", i+1, code)
+			}
+		}
+	}
+	return nil
 }
 
 // marshalsRun reports whether v's JSON names RunPlaceholder.

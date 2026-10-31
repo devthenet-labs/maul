@@ -72,17 +72,29 @@ func TestDecideRedCheck(t *testing.T) {
 			in: with(redFound(), func(in *Input) {
 				in.Env = []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true}}
 			}), result: ResultUnsure, reason: ReasonEnvFailed},
-		{name: "after the fix the saved check replays green: passed",
+		{name: "after the fix the saved check replays green, reviewed with the green question too: passed",
 			in: with(redFound(), func(in *Input) {
 				in.Confirmations = nil
 				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunPass, Token: "tok-r", Seq: 2}}
 				in.Verdicts[0] = EvaluatorVerdict{Outcome: "elo", Claim: ClaimPass, Ledger: []int32{2}}
+				in.Reviews = append(in.Reviews, CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"),
+					Answer: ReviewProves})
 			}), result: ResultPassed, reason: ReasonConfirmed},
+		// Third review, F5: the red review asked the red question only; a
+		// pass needs the green one too.
+		{name: "after the fix the saved check replays green with only its red review: unsure",
+			in: with(redFound(), func(in *Input) {
+				in.Confirmations = nil
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunPass, Token: "tok-r", Seq: 2}}
+				in.Verdicts[0] = EvaluatorVerdict{Outcome: "elo", Claim: ClaimPass, Ledger: []int32{2}}
+			}), result: ResultUnsure, reason: ReasonModelOnlyPass},
 		{name: "after the fix, re-proposed and confirmed green beside its green replay: passed",
 			in: with(redFound(), func(in *Input) {
 				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunPass, Token: "tok-r", Seq: 2}}
 				in.Confirmations = []CheckRun{{CheckDigest: dg("red"), Result: RunPass, Token: "tok-c", Seq: 9}}
 				in.Verdicts[0] = EvaluatorVerdict{Outcome: "elo", Claim: ClaimPass, Ledger: []int32{2}}
+				in.Reviews = append(in.Reviews, CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"),
+					Answer: ReviewProves})
 			}), result: ResultPassed, reason: ReasonConfirmed},
 		{name: "after the fix, still red by its saved assertion, the evaluator's fail: failed again",
 			in: with(redFound(), func(in *Input) {
@@ -205,5 +217,27 @@ func TestDecideRedCheckDeadEnd(t *testing.T) {
 	}
 	if d := Decide(passing); d.Fix != nil {
 		t.Errorf("fix %+v from a fail that is not evidence", d.Fix)
+	}
+}
+
+// TestDecideFlakyCheck (third review, F4): a check that both passed and
+// failed at the same heads in one round is flaky: unsure, never failed (and
+// never passed), green-proposed or red alike.
+func TestDecideFlakyCheck(t *testing.T) {
+	green := deterministicFail(ClaimFail, 3)
+	green.Confirmations = []CheckRun{{CheckDigest: dg("a"), Result: RunPass, Token: "tok-c", Seq: 9}}
+	if d := Decide(green); d.PerOutcome[0].Result != ResultUnsure || d.PerOutcome[0].Reason != ReasonFlaky ||
+		d.Fix != nil {
+		t.Errorf("a green check failing its replay and passing its confirmation: %+v, fix %+v", d.PerOutcome[0], d.Fix)
+	}
+	red := with(redFound(), func(in *Input) {
+		in.Checks[0].Cleared = true
+		in.Confirmations = []CheckRun{{CheckDigest: dg("red"), Result: RunPass, Token: "tok-c", Seq: 9}}
+		in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2}}
+	})
+	if d := Decide(red); d.PerOutcome[0].Result != ResultUnsure || d.PerOutcome[0].Reason != ReasonFlaky ||
+		d.Fix != nil {
+		t.Errorf("a saved red check failing its replay and passing its confirmation: %+v, fix %+v", d.PerOutcome[0],
+			d.Fix)
 	}
 }
