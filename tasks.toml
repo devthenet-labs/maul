@@ -101,6 +101,18 @@ description = "run the claude CLI posture probe against the pinned CLI version"
 dir = "{{cwd}}"
 run = "./hack/claude-posture-probe.sh"
 
+# The evaluator's report contract against the REAL model, through the REAL
+# CLI at the pinned version: the real evaluate prompt and its out-of-turns
+# repair prompt for a tiny synthetic round, the report held to the strict
+# decoder. Needs ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (skips without
+# one) and costs real money, about $0.20 (each CLI run capped at $0.40). CI
+# runs it when the evaluator's prompts, its report schema or the CLI pin
+# change.
+[evaluator-report-probe]
+description = "run the evaluator report probe: the real model against the evaluate prompt and the strict report decoder"
+dir = "{{cwd}}"
+run = "./hack/evaluator-report-probe.sh"
+
 # The egress proxy's registry routes against the real npm, pip and go
 # commands: loopback TLS registries that demand a login only the proxy holds,
 # a fake proxy.golang.org and a fake signing sum.golang.org. Opt-in (it needs

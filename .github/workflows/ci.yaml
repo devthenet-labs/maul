@@ -260,6 +260,49 @@ jobs:
                     ./hack/claude-posture-probe.sh
                   fi
 
+    # The evaluator report probe (hack/evaluator-report-probe.sh): the REAL
+    # model, through the claude CLI at the pinned version, given the real
+    # evaluate prompt and its out-of-turns repair prompt for a tiny synthetic
+    # round, its report held to the strict decoder. It runs only when the
+    # evaluator's prompts, its report schema or the CLI pin changed against
+    # the base, and only with a model credential: a repository secret named
+    # EVALUATOR_PROBE_ANTHROPIC_API_KEY (an API key) or
+    # EVALUATOR_PROBE_CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
+    # Without either (and on a fork's pull request, which gets no secrets)
+    # the script prints a warning and passes. Each run costs about $0.20
+    # (each CLI run capped at $0.40); `mise run evaluator-report-probe` runs
+    # it on demand.
+    evaluator-report-probe:
+        runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+        permissions:
+            # check out the repository
+            contents: read
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false # read-only checkout; don't leave the token in .git/config
+                  fetch-depth: 0
+
+            - name: Setup go
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+                  cache-dependency-path: go.sum
+
+            - name: Run the probe if the evaluator's prompts, its schema or the CLI pin changed
+              env:
+                  BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+                  ANTHROPIC_API_KEY: ${{ secrets.EVALUATOR_PROBE_ANTHROPIC_API_KEY }}
+                  CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.EVALUATOR_PROBE_CLAUDE_CODE_OAUTH_TOKEN }}
+              run: |
+                  if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ]; then
+                    ./hack/evaluator-report-probe.sh --if-changed "$BASE"
+                  else
+                    ./hack/evaluator-report-probe.sh
+                  fi
+
     # The browser tool against a real headless Chromium (hack/live-browser.sh,
     # `mise run live-browser`): npm ci of internal/previewtools/node from its
     # exact lockfile, the keyed CDP shim, TestPlaywrightCLIFormat (the pinned
