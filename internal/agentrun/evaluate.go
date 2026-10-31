@@ -307,7 +307,7 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 		Env:       env,
 		Gateway:   gateway,
 	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, budget)
-	sr.turns = maxTurns
+	sr.turns, sr.example = maxTurns, templates.ExampleEvaluationReport
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)
 	runOutcome, runDetail := a.runOutcome(h, res, idle, runErr)
@@ -329,6 +329,14 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 			return fail(runOutcome, runDetail+"; "+detail)
 		}
 		return fail(outcome, detail)
+	}
+	for _, d := range e.dropped {
+		reason := oneLine(d.reason, repairFailureBytes)
+		a.cfg.Log.Warn("dropped a proposed check: the file it names does not resolve to a check to confirm",
+			"phase", a.cfg.Phase, "id", oneLine(d.id, 80), "file", oneLine(d.file, 300), "reason", reason)
+		if sr.rec != nil {
+			sr.rec.Notice("maul dropped proposed check %q: %s", oneLine(d.id, 80), reason)
+		}
 	}
 	ev.Outcome = envelope.OutcomeOK
 	ev.ReportMarkdown = string(raw)

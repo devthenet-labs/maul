@@ -34,6 +34,8 @@ const (
 	// EvaluationMaxLedgerRefs bounds the ledger refs a report cites, in all
 	// its lists together.
 	EvaluationMaxLedgerRefs = 300
+	// ProposedFileMaxBytes bounds a proposed check's file path.
+	ProposedFileMaxBytes = 256
 )
 
 // Verdict is the evaluator's verdict on one outcome.
@@ -65,7 +67,7 @@ var (
 //
 //	---
 //	verdicts:                       # required, 1-20, one per outcome
-//	  - id: "<outcome id>"
+//	  - outcome: "<outcome id>"     # or, as before, id (both: the same)
 //	    verdict: pass | fail | unsure
 //	    ledger: [<seq>, ...]        # required for pass and fail
 //	    note: "<one line>"          # optional, at most 600 characters
@@ -77,7 +79,8 @@ var (
 //	proposed:                       # at most 40; no bodies here
 //	  - id: "<check id>"
 //	    outcome: "<outcome id>"        # names an entry of verdicts
-//	    digest: "sha256:<hex>"
+//	    file: "<path>"                 # the file its green dry run ran,
+//	    digest: "sha256:<hex>"         # or the digest it printed, or both
 //	retire:                         # at most 40
 //	  - check_digest: "sha256:<hex>"   # never one disputed here too
 //	    reason: "<one line>"           # required
@@ -96,7 +99,11 @@ var (
 //
 // Every value is the model's claim. That a seq exists, what it shows, that
 // a proposed check was dry-run green and what its body is: the controller
-// reads all of it from the ledger, never from here.
+// reads all of it from the ledger, never from here. A proposal naming its
+// file and no digest leaves Digest empty: agent-runner reads the digest
+// from that file (and the tools container confirms only a digest it saw
+// dry-run green), and the controller finds the check it confirmed in the
+// round's ledger by its id and outcome.
 type Evaluation struct {
 	Verdicts  []OutcomeVerdict `yaml:"verdicts"`
 	Disputes  []Dispute        `yaml:"disputes"`
@@ -107,9 +114,12 @@ type Evaluation struct {
 	Body string `yaml:"-"`
 }
 
-// OutcomeVerdict is the verdict on one outcome.
+// OutcomeVerdict is the verdict on one outcome. The report names the
+// outcome as outcome (the key proposed uses) or, as before, id; once
+// parsed, ID and Outcome both hold it.
 type OutcomeVerdict struct {
 	ID      string  `yaml:"id"`
+	Outcome string  `yaml:"outcome"`
 	Verdict Verdict `yaml:"verdict"`
 	Ledger  []int32 `yaml:"ledger"`
 	Note    string  `yaml:"note"`
@@ -123,11 +133,15 @@ type Dispute struct {
 	Ledger      []int32 `yaml:"ledger"`
 }
 
-// ProposedCheck names a check the agent asks maul to save.
+// ProposedCheck names a check the agent asks maul to save: by the file
+// its green dry run ran (File, a path under the evaluator's scratch
+// directory), by the digest that run printed, or both. Digest is empty
+// when only File is given, until agent-runner resolves it.
 type ProposedCheck struct {
 	ID      string `yaml:"id"`
 	Outcome string `yaml:"outcome"`
 	Digest  string `yaml:"digest"`
+	File    string `yaml:"file"`
 }
 
 // Retire asks maul to retire a saved check.
@@ -232,7 +246,11 @@ func (e *Evaluation) validateVerdicts() (map[string]bool, []error) {
 	for i := range e.Verdicts {
 		v := &e.Verdicts[i]
 		field := fmt.Sprintf("verdicts[%d]", i)
-		errs = append(errs, uniqueID(field+".id", v.ID, ids))
+		key := ".outcome" // the key the report wrote, for the errors
+		if v.Outcome == "" && v.ID != "" {
+			key = ".id"
+		}
+		errs = append(errs, verdictOutcome(field, v), uniqueID(field+key, v.ID, ids))
 		switch v.Verdict {
 		case VerdictPass, VerdictFail:
 			if len(v.Ledger) == 0 {
@@ -262,15 +280,59 @@ func (e *Evaluation) validateProposed(outcomes map[string]bool) (map[string]bool
 	var errs []error
 	ids := make(map[string]bool, len(e.Proposed))
 	digests := make(map[string]bool, len(e.Proposed))
-	for i, p := range e.Proposed {
+	files := make(map[string]bool, len(e.Proposed))
+	for i := range e.Proposed {
+		p := &e.Proposed[i]
 		field := fmt.Sprintf("proposed[%d]", i)
 		errs = append(errs, uniqueCheckID(field+".id", p.ID, ids))
 		if outcomes != nil && !outcomes[p.Outcome] {
 			errs = append(errs, fmt.Errorf("%s.outcome %q names no verdict's outcome", field, p.Outcome))
 		}
-		errs = append(errs, uniqueDigest(field+".digest", p.Digest, digests))
+		if p.Digest == "" && p.File == "" {
+			errs = append(errs, fmt.Errorf("%s names neither a digest nor a file: give the file you ran with "+
+				"`maul-tool check run`, or the digest that run printed", field))
+		}
+		if p.Digest != "" {
+			errs = append(errs, uniqueDigest(field+".digest", p.Digest, digests))
+		}
+		if p.File != "" {
+			errs = append(errs, uniqueFile(field+".file", &p.File, files))
+		}
 	}
 	return ids, errs
+}
+
+// verdictOutcome settles which outcome verdict v names: its outcome, its
+// id as before, or both when they agree. It leaves both fields holding it.
+func verdictOutcome(field string, v *OutcomeVerdict) error {
+	switch {
+	case v.Outcome == "":
+		v.Outcome = v.ID
+	case v.ID == "":
+		v.ID = v.Outcome
+	case v.ID != v.Outcome:
+		return fmt.Errorf("%s names its outcome twice, as id %q and outcome %q: name it once, as outcome", field,
+			v.ID, v.Outcome)
+	}
+	return nil
+}
+
+// uniqueFile checks a proposed check's file path, trimmed in place: one
+// line of visible text of at most ProposedFileMaxBytes that seen does not
+// hold yet, then records it. Where it points is agent-runner's to check.
+func uniqueFile(field string, file *string, seen map[string]bool) error {
+	f, err := oneLine(field, *file, ProposedFileMaxBytes)
+	*file = f
+	switch {
+	case err != nil:
+		return err
+	case len(f) > ProposedFileMaxBytes:
+		return fmt.Errorf("%s is %d bytes, over %d", field, len(f), ProposedFileMaxBytes)
+	case seen[f]:
+		return fmt.Errorf("%s %q is listed twice", field, f)
+	}
+	seen[f] = true
+	return nil
 }
 
 // validateDisputes checks the disputes against the proposed checks and

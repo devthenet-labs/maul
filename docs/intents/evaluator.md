@@ -59,7 +59,13 @@ the application chose (`[untrusted output]`, always last).
 5. **Explore (the model).** The evaluator sees the replay's results, uses its tools, looks at screenshots, and writes a
    report: a verdict per outcome citing the ledger entries that show it, a dispute for any replay failure it judges is
    not a defect, the checks it proposes, and look-around anomalies. A proposed check must have a green
-   `maul-tool check run` first: `tools` refuses to confirm a check whose digest has no green dry run.
+   `maul-tool check run` first: `tools` refuses to confirm a check whose digest has no green dry run. The report's
+   frontmatter is decoded strictly (an unknown key refuses it): a verdict names its outcome as `outcome` (the older `id`
+   is still read; both, differing, are refused), and a proposal names the check `file` it ran (or the `digest` that run
+   printed). agent-runner reads the digest from that file, under the evaluator's scratch directory, and asks `tools` to
+   confirm it; a proposal whose file does not resolve to a check of its id and outcome is dropped, with its reason in
+   the run's transcript, never the whole report. A refused report's detail lists its frontmatter's key paths (never
+   their values), and each repair message restates the exact frontmatter example and the decoder's lines.
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
@@ -220,15 +226,16 @@ Ready (`RunBudgetOverHourlyLimit`).
 **Turns come first.** Every tool call is one agent turn, so an evaluate run's turn cap (`--intent-evaluate-max-turns`,
 chart `evaluateMaxTurns`, default 100; a Project's `limits.evaluate.maxTurns` only lowers it) is what it runs out of,
 long before the round's 300 tool calls. A run that reaches it still reports: agent-runner gives the run's first part all
-but its last few turns (a tenth, at least 2 and at most 6), and when that part ends on the cap with no report it resumes
-the agent's own session on the kept turns, telling it to write the report now from what it has: the checks whose dry run
-passed proposed, every outcome it did not show unsure. The prompt states the run's turns and the turn by which to write
-the report, and asks for the report as soon as every outcome is shown or unsure. A run stopped by its cost budget or its
-wall clock gets no such turn (the broker refuses the pod any further request, and the clock has run out), so keep the
-turn cap the limit that binds first: live, an evaluate run spent \$1.26-2.51 over its first 60 turns, 4-7 seconds each,
-a turn costing more as the session grows, so 100 turns fit the default \$6 run budget and the 20 minutes. Raise the cost
-budget and the timeout before the turns, and lower the turns with a smaller `limits.evaluate.maxCostMicroUSD` (about 40
-turns for \$1.50).
+but its last few turns (a tenth, at least 6 and at most 12, never more than half: two repair rounds of at least 3 turns
+each, enough to read the report, write it again and reply), counted in the CLI's own turns, and when that part ends on
+the cap with no report it resumes the agent's own session on the kept turns, telling it to write the report now from
+what it has: the checks whose dry run passed proposed, every outcome it did not show unsure. The prompt states the run's
+turns and the turn by which to write the report, and asks for the report as soon as every outcome is shown or unsure. A
+run stopped by its cost budget or its wall clock gets no such turn (the broker refuses the pod any further request, and
+the clock has run out), so keep the turn cap the limit that binds first: live, an evaluate run spent \$1.26-2.51 over
+its first 60 turns, 4-7 seconds each, a turn costing more as the session grows, so 100 turns fit the default \$6 run
+budget and the 20 minutes. Raise the cost budget and the timeout before the turns, and lower the turns with a smaller
+`limits.evaluate.maxCostMicroUSD` (about 40 turns for \$1.50).
 
 ## Reading the evidence
 

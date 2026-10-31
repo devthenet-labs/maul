@@ -446,11 +446,12 @@ func TestIntentEvaluatePasses(t *testing.T) {
 // TestIntentEvaluateTurnCap (S1 bug 3): every live evaluator ran out of
 // turns before writing its report, and each round was thrown away. Here the
 // operator sets the evaluate turn ceiling (--intent-evaluate-max-turns 40)
-// and the scripted evaluator runs out: its first run, given the 36 turns
-// left once agent-runner keeps 4 for the report, writes and dry-runs a
-// green check per outcome and ends on claude's error_max_turns with no
-// report. agent-runner resumes its session once, with the 4 kept turns, and
-// the report it then writes proposes those checks: maul confirms both
+// and the scripted evaluator runs out: its first run, given the 34 turns
+// left once agent-runner keeps 6 for the report (two repair rounds of 3),
+// writes and dry-runs a green check per outcome and ends on claude's
+// error_max_turns with no report. agent-runner resumes its session once, on
+// 3 of the 6 kept turns, and the report it then writes proposes those
+// checks (by the files it ran, as live evaluators do): maul confirms both
 // outcomes from that one run, and the hand-off is ready.
 func TestIntentEvaluateTurnCap(t *testing.T) {
 	e := startEvaluate(t, evalOptions{intentArgs: []string{"--intent-evaluate-max-turns", "40"}})
@@ -468,9 +469,10 @@ func TestIntentEvaluateTurnCap(t *testing.T) {
 	}
 	job := e.kubelet.waitRun(t, "the evaluator's Job", phaseIs("evaluate"))
 	calls := scriptedCalls(t, job)
-	if len(calls) != 2 || calls[0].mode != "first" || calls[0].maxTurns != "36" || calls[1].mode != "resume" ||
-		calls[1].session != calls[0].session || calls[1].maxTurns != "4" {
-		t.Errorf("scripted calls = %+v; want the capped run on 36 turns, then its session resumed on the 4 kept", calls)
+	if len(calls) != 2 || calls[0].mode != "first" || calls[0].maxTurns != "34" || calls[1].mode != "resume" ||
+		calls[1].session != calls[0].session || calls[1].maxTurns != "3" {
+		t.Errorf("scripted calls = %+v; want the capped run on 34 turns, then its session resumed on 3 of the 6 kept",
+			calls)
 	}
 	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
 }

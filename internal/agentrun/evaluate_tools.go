@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,27 +30,118 @@ import (
 const checkFilesMax = 256
 
 // evaluationReport is an accepted evaluation report: the parsed frontmatter,
-// each proposed check matched to a check file the agent wrote.
+// each proposed check matched to a check file the agent wrote, and the
+// proposals dropped because the file they name did not resolve.
 type evaluationReport struct {
 	*report.Evaluation
+	dropped []droppedProposal
+}
+
+// droppedProposal is a proposal left out of an accepted report, and why.
+type droppedProposal struct {
+	id, file, reason string
 }
 
 // parseEvaluation parses an evaluation report (report.ParseEvaluation) and
-// holds its proposals to the check files under the checks directory: each
-// proposed digest must be the digest (checks.Digest) of a check file there,
-// whose id and outcome are the proposal's. Anything else refuses the report,
-// so its repair (settleReport) can fix it in the agent's own session. The
-// files are the agent's own claim too: the tools container confirms only a
-// digest it saw dry-run green, and the body it ran is the ledger's.
+// holds its proposals to the check files the agent wrote. A proposal by
+// digest alone must be the digest (checks.Digest) of a check file under the
+// checks directory, whose id and outcome are the proposal's; anything else
+// refuses the report, so its repair (settleReport) can fix it in the
+// agent's own session. A proposal naming its file is resolved from that
+// file (resolveProposedFiles): one that does not resolve is dropped with
+// its reason, never the whole report. The files are the agent's own claim
+// either way: the tools container confirms only a digest it saw dry-run
+// green, and the body it ran is the ledger's.
+//
+// A report the parser refuses has its frontmatter's key paths, never its
+// values, added to the reason (S1 bug 5: the refused file is not kept), so
+// a refusal is diagnosable from the run's detail alone.
 func (a *Agent) parseEvaluation(raw []byte) (*evaluationReport, error) {
 	e, err := report.ParseEvaluation(raw)
 	if err != nil {
+		if paths := report.FrontmatterKeyPaths(raw); len(paths) > 0 {
+			err = fmt.Errorf("%w; frontmatter keys: %s", err, strings.Join(paths, ", "))
+		}
 		return nil, err
 	}
-	if err := checkProposed(a.cfg.checksDir(), e.Proposed); err != nil {
+	var byDigest []report.ProposedCheck
+	for _, p := range e.Proposed {
+		if p.File == "" {
+			byDigest = append(byDigest, p)
+		}
+	}
+	if err := checkProposed(a.cfg.checksDir(), byDigest); err != nil {
 		return nil, fmt.Errorf("report: evaluation: %w", err)
 	}
-	return &evaluationReport{Evaluation: e}, nil
+	dropped := resolveProposedFiles(a.cfg.scratchDir(), e)
+	return &evaluationReport{Evaluation: e, dropped: dropped}, nil
+}
+
+// resolveProposedFiles resolves each of e's proposals that names a file,
+// in place, to that file's digest, and drops each that does not resolve
+// (resolveFile), returning what it dropped. A proposal by digest alone is
+// kept as it is.
+func resolveProposedFiles(scratch string, e *report.Evaluation) []droppedProposal {
+	var (
+		kept    []report.ProposedCheck
+		dropped []droppedProposal
+	)
+	for _, p := range e.Proposed {
+		if p.File == "" {
+			kept = append(kept, p)
+			continue
+		}
+		digest, err := resolveFile(scratch, p)
+		if err != nil {
+			dropped = append(dropped, droppedProposal{id: p.ID, file: p.File, reason: err.Error()})
+			continue
+		}
+		p.Digest = digest
+		kept = append(kept, p)
+	}
+	e.Proposed = kept
+	return dropped
+}
+
+// resolveFile reads the check file p names, a regular file under scratch
+// (absolute, or relative to scratch, where the stage runs) that no path or
+// symlink leads out of, and returns its digest: the digest the dry run of
+// exactly that file printed. The file must be a check whose id and outcome
+// are p's, and, when p gives a digest too, have that digest. Whether it ran
+// green is the tools container's to say: it confirms no digest it did not
+// see dry-run green.
+func resolveFile(scratch string, p report.ProposedCheck) (string, error) {
+	rel := filepath.Clean(p.File)
+	if filepath.IsAbs(rel) {
+		r, err := filepath.Rel(scratch, rel)
+		if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("%s is not under %s", p.File, scratch)
+		}
+		rel = r
+	}
+	root, err := os.OpenRoot(scratch)
+	if err != nil {
+		return "", fmt.Errorf("%s cannot be read: %w", p.File, err)
+	}
+	defer func() { _ = root.Close() }()
+	data, err := readRootFile(root, filepath.ToSlash(rel), toolwire.MaxCheckBytes)
+	if err != nil {
+		return "", fmt.Errorf("%s cannot be read: %w", p.File, err)
+	}
+	c, err := checks.Parse(data)
+	if err != nil {
+		return "", fmt.Errorf("%s is not a check: %w", p.File, err)
+	}
+	digest := checks.Digest(c)
+	switch {
+	case c.ID != p.ID:
+		return "", fmt.Errorf("the id of %s is %q, not the proposal's %q", p.File, c.ID, p.ID)
+	case c.Outcome != p.Outcome:
+		return "", fmt.Errorf("the outcome of %s is %q, not the proposal's %q", p.File, c.Outcome, p.Outcome)
+	case p.Digest != "" && p.Digest != digest:
+		return "", fmt.Errorf("the digest of %s is %s, not the proposal's %s", p.File, digest, p.Digest)
+	}
+	return digest, nil
 }
 
 // checkProposed matches each proposal to its check file in dir.

@@ -17,6 +17,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -263,13 +264,13 @@ func (e *env) storeChecks(name string, cs ...v1alpha1.SavedCheck) {
 	})
 }
 
-// evaluateReporting makes e's evaluate Jobs report report.
-func (e *env) evaluateReporting(report string) {
+// evaluateReporting makes e's evaluate Jobs report text.
+func (e *env) evaluateReporting(text string) {
 	prev := e.jobs.output
 	e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
 		if spec.Phase == "evaluate" {
 			return evaluationOutput(envelope.Stage{Outcome: envelope.OutcomeOK, Harness: "claude", Model: spec.Model,
-				Usage: envelope.Usage{InputTokens: 10, OutputTokens: 20, CostUSD: 0.4}}, report)
+				Usage: envelope.Usage{InputTokens: 10, OutputTokens: 20, CostUSD: 0.4}}, text)
 		}
 		return prev(spec)
 	}
@@ -406,6 +407,91 @@ func TestEvaluationFailureStartsAFix(t *testing.T) {
 		if strings.Contains(all, f) {
 			t.Errorf("the fix round's input carries %q", f)
 		}
+	}
+}
+
+// liveShapedFailingReport is failingReport as the live evaluators wrote
+// reports on 0.13.7 (S1 bug 5): each verdict names its outcome as outcome,
+// and the proposal names the file it ran as file, with no digest.
+const liveShapedFailingReport = `---
+verdicts:
+  - outcome: "version-shown"
+    verdict: fail
+    ledger: [2]
+    note: "The version endpoint answers with the wrong note."
+  - outcome: "still-healthy"
+    verdict: pass
+    ledger: [3]
+disputes: []
+proposed:
+  - id: "still-healthy.again"
+    outcome: "still-healthy"
+    file: "/work/scratch/checks/still-healthy-again.json"
+retire: []
+anomalies: []
+---
+The version endpoint answers with the wrong note.
+`
+
+// TestLiveShapedReportIsJudged (S1 bug 5): a report shaped like the live
+// failures is no longer refused: its claims are read, and the round is
+// judged on them as on any other report, the failure reproduced and a fix
+// started (before, the report was refused and the round claimed nothing).
+func TestLiveShapedReportIsJudged(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.evaluateReporting(liveShapedFailingReport)
+	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	e.storeChecks(name, version, health)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.runRuns()
+	e.runRuns()
+	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: version.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
+		Seq: 2}, v1alpha1.CheckRun{CheckDigest: health.Digest, Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 3})
+	e.settleReviews(name)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationFailing || v.Failed != 1 {
+		t.Fatalf("verification = %s %+v, want Failing on the version outcome", v.State, v.Outcomes)
+	}
+	if r := v.Outcomes[1]; r.ID != oHealthy || r.Result != v1alpha1.OutcomePassed {
+		t.Errorf("health outcome = %+v, want passed on its check", r)
+	}
+	e.reviewUntil(name, func() bool { return len(e.runsOf(name, v1alpha1.IntentStageRevise)) > 0 })
+}
+
+// TestResolvedDisputesByFile: a dispute's replacement names a proposal by
+// its id; a proposal giving its digest resolves to it, one giving only its
+// file to the check of that id and outcome the round's ledger confirmed,
+// and to none when the ledger confirmed no such check.
+func TestResolvedDisputesByFile(t *testing.T) {
+	again := v1alpha1.SavedCheck{ID: "still-healthy.again", Outcome: oHealthy, Digest: "sha256:" +
+		strings.Repeat("a", 64)}
+	other := v1alpha1.SavedCheck{ID: "still-healthy.again", Outcome: oVersion, Digest: "sha256:" +
+		strings.Repeat("b", 64)}
+	given := "sha256:" + strings.Repeat("c", 64)
+	for _, tt := range []struct {
+		name      string
+		proposed  report.ProposedCheck
+		confirmed []v1alpha1.SavedCheck
+		want      string
+	}{
+		{"by digest", report.ProposedCheck{ID: again.ID, Outcome: oHealthy, Digest: given}, nil, given},
+		{"by file, confirmed", report.ProposedCheck{ID: again.ID, Outcome: oHealthy, File: "a.json"},
+			[]v1alpha1.SavedCheck{other, again}, again.Digest},
+		{"by file, unconfirmed", report.ProposedCheck{ID: again.ID, Outcome: oHealthy, File: "a.json"},
+			[]v1alpha1.SavedCheck{other}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := &report.Evaluation{Proposed: []report.ProposedCheck{tt.proposed},
+				Disputes: []report.Dispute{{CheckDigest: "sha256:" + strings.Repeat("d", 64), Reason: "r",
+					Replacement: again.ID, Ledger: []int32{1}}}}
+			pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{Confirmed: tt.confirmed}}
+			if got := resolvedDisputes(ev, pv); len(got) != 1 || got[0].Replacement != tt.want {
+				t.Errorf("resolvedDisputes() = %+v, want the replacement %q", got, tt.want)
+			}
+		})
 	}
 }
 

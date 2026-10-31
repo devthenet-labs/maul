@@ -71,8 +71,11 @@ type roundJudgement struct {
 	// evaluation is the evaluator's report; nil on a replay round, or one
 	// that does not parse.
 	evaluation *report.Evaluation
-	anomalies  []v1alpha1.AnomalyRecord
-	env        []acceptance.PartFact
+	// disputes are the evaluation's disputes, each replacement resolved to
+	// a digest against the round (resolvedDisputes); nil without one.
+	disputes  []report.Dispute
+	anomalies []v1alpha1.AnomalyRecord
+	env       []acceptance.PartFact
 	// replay: the round was a replay round.
 	replay bool
 }
@@ -90,8 +93,12 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 	ev := evaluationClaims(run)
 	cs := judgedChecks(pv, stored)
 	in := decideInput(p.in.Status.Acceptance, pv, cs, ev)
-	return roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
+	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
 		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay}
+	if ev != nil {
+		j.disputes = resolvedDisputes(ev, pv)
+	}
+	return j
 }
 
 // evaluationClaims is run's evaluator report, nil for none (a replay round)
@@ -156,7 +163,7 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 		in.Verdicts = append(in.Verdicts, acceptance.EvaluatorVerdict{Outcome: v.ID, Claim: acceptance.Claim(v.Verdict),
 			Ledger: citedOnly(v.Ledger, pv)})
 	}
-	for _, d := range resolvedDisputes(ev) {
+	for _, d := range resolvedDisputes(ev, pv) {
 		in.Disputes = append(in.Disputes, acceptance.CheckDispute{CheckDigest: d.CheckDigest, Reason: d.Reason,
 			Replacement: d.Replacement, Ledger: citedOnly(d.Ledger, pv)})
 	}
@@ -170,19 +177,38 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 // resolvedDisputes are ev's disputes with each replacement, which the
 // report names by its proposed check's id, resolved to that proposal's
 // digest (the store, the reviews and Decide key checks by digest); a
-// replacement naming no proposal resolves to none.
-func resolvedDisputes(ev *report.Evaluation) []report.Dispute {
+// replacement naming no proposal resolves to none. A proposal that names
+// only its file carries no digest in the report (agent-runner read it from
+// the file, in the pod): it resolves to the digest of the check of its id
+// and outcome that the round's ledger confirmed (pv.status.confirmed, read
+// from the ledger's own green dry run), and to none when there is none.
+func resolvedDisputes(ev *report.Evaluation, pv *v1alpha1.PreviewVerification) []report.Dispute {
 	out := make([]report.Dispute, 0, len(ev.Disputes))
 	for _, d := range ev.Disputes {
 		id := d.Replacement
 		d.Replacement = ""
 		if i := slices.IndexFunc(ev.Proposed, func(pc report.ProposedCheck) bool { return pc.ID == id }); id != "" &&
 			i >= 0 {
-			d.Replacement = ev.Proposed[i].Digest
+			d.Replacement = proposedDigest(ev.Proposed[i], pv)
 		}
 		out = append(out, d)
 	}
 	return out
+}
+
+// proposedDigest is the digest a proposal names: its own, or for one naming
+// only its file, that of the check of its id and outcome pv confirmed.
+func proposedDigest(p report.ProposedCheck, pv *v1alpha1.PreviewVerification) string {
+	if p.Digest != "" {
+		return p.Digest
+	}
+	i := slices.IndexFunc(pv.Status.Confirmed, func(c v1alpha1.SavedCheck) bool {
+		return c.ID == p.ID && c.Outcome == p.Outcome
+	})
+	if i < 0 {
+		return ""
+	}
+	return pv.Status.Confirmed[i].Digest
 }
 
 // checkRuns are a verification's check runs as Decide reads them.
@@ -382,7 +408,7 @@ func (p *pass) retireDisputed(ctx context.Context, j roundJudgement) (bool, erro
 	if len(still) == 0 {
 		return false, nil
 	}
-	wrote, err := p.retireChecks(ctx, still, resolvedDisputes(j.evaluation))
+	wrote, err := p.retireChecks(ctx, still, j.disputes)
 	if err != nil {
 		return false, fmt.Errorf("retire the disputed checks: %w", err)
 	}

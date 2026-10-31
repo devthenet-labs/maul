@@ -270,7 +270,7 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     exit 0
   fi
   out_report=$(report_path)
-  ids=$(printf '%s\n' "$prompt" | sed -n '/^### The approved outcomes/,/^### The request/s/^- id: \([a-z][a-z0-9-]*\)$/\1/p')
+  ids=$(printf '%s\n' "$prompt" | sed -n '/^### The approved outcomes/,/^### The request/s/^[0-9][0-9]*\. \([a-z][a-z0-9-]*\) (a .*)$/\1/p')
   # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
   key=$(printf '%s\n' "$prompt" | sed -n 's/^- `\([a-z0-9-]*\)`: served under `.*`$/\1/p' | head -n 1)
   # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
@@ -286,17 +286,19 @@ if [ "$MAUL_PHASE" = evaluate ]; then
   for o in $ids; do
     case "${MAUL_FAKE_CLAUDE_EVALUATE:-pass}" in
     pass)
+      # The report as the live evaluators write it (S1 bug 5): each verdict
+      # names its outcome as outcome, each proposal the file it ran green.
       http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
       tool check run "checks/$o.json"
       digest=$(green_digest dry-run)
       verdicts="$verdicts
-  - id: $o
+  - outcome: $o
     verdict: pass
     ledger: [$seq]"
       [ -z "$digest" ] || proposed="$proposed
   - id: \"$o\"
     outcome: $o
-    digest: \"$digest\""
+    file: \"checks/$o.json\""
       ;;
     fail)
       http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
