@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.8](https://github.com/devthenet-labs/maul/compare/v0.13.7...v0.13.8) (2026-10-31)
+
+
+### Bug Fixes
+
+* **intent:** accept the evaluator reports models actually write ([#300](https://github.com/devthenet-labs/maul/issues/300)) ([e7d1213](https://github.com/devthenet-labs/maul/commit/e7d121376d8b792847c6e6f2169516a8f94e2808))
+* **preview:** tear down a deleted verification's slot objects ([#298](https://github.com/devthenet-labs/maul/issues/298)) ([16a31bb](https://github.com/devthenet-labs/maul/commit/16a31bbeb2b950359fe3699438de379df59058a4))
+
 ## [0.13.7](https://github.com/devthenet-labs/maul/compare/v0.13.6...v0.13.7) (2026-10-31)
 
 

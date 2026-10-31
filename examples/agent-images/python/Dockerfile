@@ -14,7 +14,7 @@
 # The base, pinned to a maul release (release-please stamps the version).
 # Pin its digest as well once you have built against it.
 # x-release-please-start-version
-ARG AGENT_BASE=ghcr.io/devthenet-labs/maul/agent-base:v0.13.7
+ARG AGENT_BASE=ghcr.io/devthenet-labs/maul/agent-base:v0.13.8
 # x-release-please-end
 FROM ${AGENT_BASE}
 
