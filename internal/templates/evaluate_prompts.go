@@ -156,6 +156,16 @@ type evaluateView struct {
 	Examples      evaluateExamples
 	// LookAroundCalls is LookAroundToolCalls, for the template.
 	LookAroundCalls int
+	// ReportBy is the turn by which the prompt asks for the report
+	// (reportBy).
+	ReportBy int
+}
+
+// reportBy is the turn by which an evaluate run of maxTurns is asked to
+// have written its report: a tenth of its turns, at least 2, kept back for
+// it, and never before turn 1.
+func reportBy(maxTurns int) int {
+	return max(1, maxTurns-max(2, maxTurns/10))
 }
 
 // evaluateExamples are the check and report examples the prompt shows,
@@ -186,6 +196,7 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 		Examples: evaluateExamples{HTTP: ExampleHTTPCheck, Browser: ExampleBrowserCheck, Exec: ExampleExecCheck,
 			Report: ExampleEvaluationReport},
 		LookAroundCalls: LookAroundToolCalls,
+		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
 	if strings.TrimSpace(p.FixDiff) != "" {
 		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")

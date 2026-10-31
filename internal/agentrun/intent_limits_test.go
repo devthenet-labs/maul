@@ -170,16 +170,18 @@ func TestStageLimitsUnknownStageErrors(t *testing.T) {
 
 // TestRoleStageLimitsFromTheGrant: an evaluate or checkreview run is held to
 // its grant, which may lower the investigate stage's ceiling but never
-// raise it.
+// raise it. An evaluate stage's first run is given its turns less those it
+// keeps for its report (reportReserve: 2 of 25, 2 of 6).
 func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 	tests := []struct {
-		name      string
-		granted   int
-		wantTurns string
+		name         string
+		granted      int
+		wantTurns    string
+		wantEvaluate string
 	}{
-		{"no grant runs on the ceiling", 0, "25"},
-		{"a lower grant", 6, "6"},
-		{"a grant above the ceiling is clamped", 400, "25"},
+		{"no grant runs on the ceiling", 0, "25", "23"},
+		{"a lower grant", 6, "6", "4"},
+		{"a grant above the ceiling is clamped", 400, "25", "23"},
 	}
 	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
 		for _, tt := range tests {
@@ -194,8 +196,12 @@ func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 				}
 				fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: write}}}
 				onlyEvent(t, cfg, fx, &out)
-				if got := argvFlag(t, fx.specs[0].Argv, "--max-turns"); got != tt.wantTurns {
-					t.Errorf("--max-turns = %s, want %s", got, tt.wantTurns)
+				want := tt.wantTurns
+				if phase == PhaseEvaluate {
+					want = tt.wantEvaluate
+				}
+				if got := argvFlag(t, fx.specs[0].Argv, "--max-turns"); got != want {
+					t.Errorf("--max-turns = %s, want %s", got, want)
 				}
 			})
 		}

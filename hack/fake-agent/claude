@@ -95,8 +95,15 @@
 #   MAUL_FAKE_CLAUDE_REVIEW    the check reviewer's answer for every check:
 #                              "proves" (default), "does_not_prove" or
 #                              "unclear".
+#   MAUL_FAKE_CLAUDE_CAPPED    set: the evaluator runs out of turns, as every
+#                              live evaluator of S1 bug 3 did: its first run
+#                              makes every call above but, instead of writing
+#                              its report, ends on claude's error_max_turns
+#                              result (exit status 1), and the resumed run
+#                              maul then asks for its report writes the report
+#                              the first run would have.
 #
-# A resumed evaluate run (a repair) keeps the report as it was.
+# A resumed evaluate run (a repair) otherwise keeps the report as it was.
 #
 # Every invocation appends "<first|resume> <session> <max-turns>
 # <allowedTools>" to $HOME/.fake-claude/calls for the test to read.
@@ -252,7 +259,11 @@ fi
 
 if [ "$MAUL_PHASE" = evaluate ]; then
   if [ "$mode" = resume ]; then
-    # A repair: the report is rewritten exactly as the first run wrote it.
+    # A repair: the report is rewritten exactly as the first run wrote it,
+    # or, after a capped run, written from what that run found.
+    if [ -f "$state/capped-report" ]; then
+      mv "$state/capped-report" "$(cat "$state/capped-path")"
+    fi
     cost=$(($(cat "$state/sessions/$session" 2>/dev/null || echo 0) + 100))
     echo "$cost" >"$state/sessions/$session"
     emit "$session" 1 10 20 3000 30 "$(printf '0.%04d' "$cost")" "Report kept."
@@ -395,8 +406,17 @@ verdicts:' "$verdicts"
       printf '\n%s\n' 'anomalies: []'
     fi
     printf '%s\n' '---' '' "Scripted evaluation (${MAUL_FAKE_CLAUDE_EVALUATE:-pass}) from hack/fake-agent/claude."
-  } >"$out_report"
+  } >"$state/report"
   echo 800 >"$state/sessions/$session"
+  if [ -n "${MAUL_FAKE_CLAUDE_CAPPED:-}" ]; then
+    mv "$state/report" "$state/capped-report"
+    printf '%s' "$out_report" >"$state/capped-path"
+    init "$session"
+    printf '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"","session_id":"%s","num_turns":%s,"total_cost_usd":0.0800,"usage":{"input_tokens":2000,"cache_creation_input_tokens":300,"cache_read_input_tokens":4000,"output_tokens":600},"errors":["Reached maximum number of turns (%s)"]}\n' \
+      "$session" "$turns" "$turns"
+    exit 1
+  fi
+  mv "$state/report" "$out_report"
   emit "$session" 6 2000 300 4000 600 0.0800 "Evaluated: ${MAUL_FAKE_CLAUDE_EVALUATE:-pass}."
   exit 0
 fi

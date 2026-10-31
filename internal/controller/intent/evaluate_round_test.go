@@ -200,7 +200,7 @@ func (e *env) checkEvaluatorJob(pv *v1alpha1.PreviewVerification) {
 		t.Fatalf("evaluate Job spec = %+v", spec)
 	}
 	env := e.jobs.envs[jobs.NameFor(spec.Finding, spec.Kind, int32(spec.Attempt))]
-	if env["MAUL_INVESTIGATE_TIMEOUT"] != "20m0s" || env["MAUL_INVESTIGATE_MAX_TURNS"] != "60" ||
+	if env["MAUL_INVESTIGATE_TIMEOUT"] != "20m0s" || env["MAUL_INVESTIGATE_MAX_TURNS"] != "100" ||
 		env["MAUL_REMEDIATE_TIMEOUT"] != "" {
 		t.Errorf("evaluate Job env = %v, want the investigate stage's keys alone", env)
 	}

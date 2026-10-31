@@ -201,7 +201,7 @@ spec:
       entry: / # the path the browser opens first (the evaluator is told to start there); without it the evaluator has http and the sandbox only
   limits:
     maxEvaluateCostMicroUSD: 6000000 # what the intent's evaluate and checkreview runs may spend together
-    evaluate: { maxCostMicroUSD: 1500000 } # each evaluate run (limits.evaluate, like limits.build)
+    evaluate: { maxCostMicroUSD: 1500000, maxTurns: 40 } # each evaluate run (limits.evaluate, like limits.build); fewer turns with less money, see below
     checkReview: { maxCostMicroUSD: 300000 } # each checkreview run (limits.checkReview)
 ```
 
@@ -216,6 +216,19 @@ what the fix rounds need; the chart's `maxEvaluateCostUSD` caps it for every Pro
 `limits.evaluate` and `limits.checkReview` lower a run's turns, tokens and `timeout` but never raise them past the
 controller's, and an evaluate or checkreview run budget over half the broker's hourly cost limit keeps the Project from
 Ready (`RunBudgetOverHourlyLimit`).
+
+**Turns come first.** Every tool call is one agent turn, so an evaluate run's turn cap (`--intent-evaluate-max-turns`,
+chart `evaluateMaxTurns`, default 100; a Project's `limits.evaluate.maxTurns` only lowers it) is what it runs out of,
+long before the round's 300 tool calls. A run that reaches it still reports: agent-runner gives the run's first part all
+but its last few turns (a tenth, at least 2 and at most 6), and when that part ends on the cap with no report it resumes
+the agent's own session on the kept turns, telling it to write the report now from what it has: the checks whose dry run
+passed proposed, every outcome it did not show unsure. The prompt states the run's turns and the turn by which to write
+the report, and asks for the report as soon as every outcome is shown or unsure. A run stopped by its cost budget or its
+wall clock gets no such turn (the broker refuses the pod any further request, and the clock has run out), so keep the
+turn cap the limit that binds first: live, an evaluate run spent \$1.26-2.51 over its first 60 turns, 4-7 seconds each,
+a turn costing more as the session grows, so 100 turns fit the default \$6 run budget and the 20 minutes. Raise the cost
+budget and the timeout before the turns, and lower the turns with a smaller `limits.evaluate.maxCostMicroUSD` (about 40
+turns for \$1.50).
 
 ## Reading the evidence
 
@@ -256,17 +269,17 @@ scripted codex, but no live run has proved it yet, screenshot viewing included: 
 
 ## Limits
 
-| Bound                       | Default                                                            | Where                                                                   |
-| --------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| One evaluate run            | 60 turns, 20 minutes                                               | `--intent-evaluate-timeout`, chart `evaluateTimeout`; `limits.evaluate` |
-| One checkreview run         | 3 turns per check, 15 minutes                                      | `limits.checkReview`                                                    |
-| Tool calls per round        | 300 (50 to 300)                                                    | `verification.maxToolCalls`, chart `maxToolCalls`                       |
-| Look-around                 | 8 routes per round                                                 | fixed                                                                   |
-| Evaluation spend per intent | \$6                                                                | `limits.maxEvaluateCostMicroUSD`, chart `maxEvaluateCostUSD`            |
-| Rounds and fixes            | as slice 1: `maxVerifications`, `maxVerifyFixes`                   | the Project's `limits`                                                  |
-| Hand-off wait               | 60 minutes                                                         | `verification.handoffMax`, chart `handoffMax`                           |
-| Saved checks                | 40 per intent, 8 KiB each, 30 steps                                | fixed                                                                   |
-| Captured logs               | a bounded tail per component per round; 40 lines in a reproduction | fixed                                                                   |
+| Bound                       | Default                                                            | Where                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| One evaluate run            | 100 turns (the last few kept for its report), 20 minutes           | `--intent-evaluate-max-turns`, chart `evaluateMaxTurns`; `--intent-evaluate-timeout`, chart `evaluateTimeout`; `limits.evaluate` |
+| One checkreview run         | 3 turns per check, 15 minutes                                      | `--intent-checkreview-max-turns`, chart `checkReviewMaxTurns`; `limits.checkReview`                                              |
+| Tool calls per round        | 300 (50 to 300)                                                    | `verification.maxToolCalls`, chart `maxToolCalls`                                                                                |
+| Look-around                 | 8 routes per round                                                 | fixed                                                                                                                            |
+| Evaluation spend per intent | \$6                                                                | `limits.maxEvaluateCostMicroUSD`, chart `maxEvaluateCostUSD`                                                                     |
+| Rounds and fixes            | as slice 1: `maxVerifications`, `maxVerifyFixes`                   | the Project's `limits`                                                                                                           |
+| Hand-off wait               | 60 minutes                                                         | `verification.handoffMax`, chart `handoffMax`                                                                                    |
+| Saved checks                | 40 per intent, 8 KiB each, 30 steps                                | fixed                                                                                                                            |
+| Captured logs               | a bounded tail per component per round; 40 lines in a reproduction | fixed                                                                                                                            |
 
 A tool pod lives as long as its evaluate run plus five minutes, under the slot's verification deadline
 (`preview.verification.deadlineMaxSeconds`), and needs about 2.5 CPU and 2 GiB beside the Preview: see

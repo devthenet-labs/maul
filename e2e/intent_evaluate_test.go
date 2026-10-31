@@ -443,6 +443,38 @@ func TestIntentEvaluatePasses(t *testing.T) {
 	})
 }
 
+// TestIntentEvaluateTurnCap (S1 bug 3): every live evaluator ran out of
+// turns before writing its report, and each round was thrown away. Here the
+// operator sets the evaluate turn ceiling (--intent-evaluate-max-turns 40)
+// and the scripted evaluator runs out: its first run, given the 36 turns
+// left once agent-runner keeps 4 for the report, writes and dry-runs a
+// green check per outcome and ends on claude's error_max_turns with no
+// report. agent-runner resumes its session once, with the 4 kept turns, and
+// the report it then writes proposes those checks: maul confirms both
+// outcomes from that one run, and the hand-off is ready.
+func TestIntentEvaluateTurnCap(t *testing.T) {
+	e := startEvaluate(t, evalOptions{intentArgs: []string{"--intent-evaluate-max-turns", "40"}})
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CAPPED", "1")
+	_, name, pr := e.toEvaluating(t)
+
+	in := e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	checkConfirmedReady(t, in.Status.Verification)
+	evals := e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)
+	if len(evals) != 1 || evals[0].Spec.Grant.MaxTurns != 40 {
+		t.Fatalf("evaluate runs %d (grant %+v); want one, granted the controller's 40 turns", len(evals),
+			evals[0].Spec.Grant)
+	}
+	job := e.kubelet.waitRun(t, "the evaluator's Job", phaseIs("evaluate"))
+	calls := scriptedCalls(t, job)
+	if len(calls) != 2 || calls[0].mode != "first" || calls[0].maxTurns != "36" || calls[1].mode != "resume" ||
+		calls[1].session != calls[0].session || calls[1].maxTurns != "4" {
+		t.Errorf("scripted calls = %+v; want the capped run on 36 turns, then its session resumed on the 4 kept", calls)
+	}
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+}
+
 // checkConfirmedReady holds a passed first round: both outcomes confirmed
 // with maul's check line, the gated hand-off released ready.
 func checkConfirmedReady(t *testing.T, v *v1alpha1.IntentVerification) {

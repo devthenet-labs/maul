@@ -277,6 +277,8 @@ in micro-USD, as every cost flag takes it. Off, no key renders.
 {{- $_ := set $data "MAUL_INTENT_EVALUATE_CODEX" $ev.codexEvaluator }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATION_COST_MAX" (int64 (round (mulf $ev.maxEvaluateCostUSD 1000000) 0)) }}
 {{- $_ := set $data "MAUL_INTENT_MAX_TOOL_CALLS" $ev.maxToolCalls }}
+{{- $_ := set $data "MAUL_INTENT_EVALUATE_MAX_TURNS" $ev.evaluateMaxTurns }}
+{{- $_ := set $data "MAUL_INTENT_CHECKREVIEW_MAX_TURNS" $ev.checkReviewMaxTurns }}
 {{- end }}
 {{- end }}
 {{- $_ := set $data "MAUL_INTENT_MULTI_REPO" $own.multiRepo }}

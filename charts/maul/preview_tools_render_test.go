@@ -52,7 +52,7 @@ var toolConfigKeys = map[string][]string{
 	"maul-intent-controller-config": {"MAUL_INTENT_EVALUATOR", "MAUL_INTENT_EVALUATE_MODEL",
 		"MAUL_INTENT_CHECKREVIEW_MODEL", "MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF",
 		"MAUL_INTENT_HANDOFF_MAX", "MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX",
-		"MAUL_INTENT_MAX_TOOL_CALLS"},
+		"MAUL_INTENT_MAX_TOOL_CALLS", "MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS"},
 }
 
 // TestPreviewToolsOffRendersNothing: verification without the evaluator, and
@@ -234,7 +234,8 @@ func checkToolConfig(t *testing.T, cms map[string]map[string]string) {
 			"MAUL_INTENT_CHECKREVIEW_MODEL": "anthropic/claude-sonnet-5",
 			"MAUL_INTENT_EVALUATE_TIMEOUT":  "20m", "MAUL_INTENT_DEFAULT_HANDOFF": "gated",
 			"MAUL_INTENT_HANDOFF_MAX": "60m", "MAUL_INTENT_EVALUATE_CODEX": "false",
-			"MAUL_INTENT_EVALUATION_COST_MAX": "6000000", "MAUL_INTENT_MAX_TOOL_CALLS": "300"},
+			"MAUL_INTENT_EVALUATION_COST_MAX": "6000000", "MAUL_INTENT_MAX_TOOL_CALLS": "300",
+			"MAUL_INTENT_EVALUATE_MAX_TURNS": "100", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS": "3"},
 	}
 	for cm, kv := range want {
 		for k, v := range kv {
@@ -259,7 +260,7 @@ func TestPreviewToolsRenderRefusals(t *testing.T) {
 		args []string
 		want string
 	}
-	cases := make([]refusal, 0, 17)
+	cases := make([]refusal, 0, 20)
 	cases = append(cases,
 		refusal{"evaluate timeout past the slot deadline", with("--set",
 			"intentController.verification.evaluateTimeout=30m"), "intentController.verification.evaluateTimeout"},
@@ -267,6 +268,12 @@ func TestPreviewToolsRenderRefusals(t *testing.T) {
 			"maxToolCalls"},
 		refusal{"too many tool calls", with("--set", "intentController.verification.maxToolCalls=301"),
 			"maxToolCalls"},
+		refusal{"no evaluate turns", with("--set", "intentController.verification.evaluateMaxTurns=0"),
+			"evaluateMaxTurns"},
+		refusal{"too many evaluate turns", with("--set", "intentController.verification.evaluateMaxTurns=1001"),
+			"evaluateMaxTurns"},
+		refusal{"no check-review turns", with("--set", "intentController.verification.checkReviewMaxTurns=0"),
+			"checkReviewMaxTurns"},
 		refusal{"an unknown hand-off", with("--set", "intentController.verification.defaultHandoff=never"),
 			"defaultHandoff"},
 		refusal{"no evaluation budget", with("--set", "intentController.verification.maxEvaluateCostUSD=0"),
