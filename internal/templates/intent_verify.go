@@ -350,6 +350,44 @@ type VerifySection struct {
 	// NoDefect is the acceptance-fix round that concluded the code has no
 	// defect, which halted automatic fixes; nil for none.
 	NoDefect *VerifyNoDefect
+	// Suspected is the defect maul suspects and waits for a person to
+	// confirm (a defect found in round 1); nil for none.
+	Suspected *VerifySuspected
+}
+
+// VerifySuspected is a suspected defect as a comment shows it: the
+// outcomes, and maul's reproduction (rendered by maul from its own ledger;
+// it quotes the application, so it is shown fenced and defanged).
+type VerifySuspected struct {
+	Outcomes     []string
+	Reproduction string
+}
+
+// VerifySuspectedMaxBytes bounds the reproduction a comment shows.
+const VerifySuspectedMaxBytes = 6 << 10
+
+// suspectedNote is the note on a suspected defect: what maul believes and
+// why, that a person should confirm it, the command that does, the known
+// limits, and the reproduction a fix round would be handed.
+func suspectedNote(s *VerifySuspected) string {
+	ids := make([]string, 0, len(s.Outcomes))
+	for _, id := range s.Outcomes {
+		if c := shown(id); c != "" {
+			ids = append(ids, code(c))
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "maul believes %s %s a defect: the evaluator reported the outcome fails, and maul's own runs of "+
+		"the check it saved to show it, each alone under a fresh run token, failed the same assertion. maul does not "+
+		"fix a defect found this way on its own: a person should confirm it. An approver's `/maul verify fix` "+
+		"starts a fix round, handed the reproduction below; until then the preview link stays held. Known limits: "+
+		"an http or exec check reads right after it writes, so an application that updates asynchronously or serves "+
+		"a cached read for a few seconds can look like this; a `clickable` check judges one moment, so a passing "+
+		"toast or spinner over the element can too.", strings.Join(ids, ", "), plural(int32(len(ids)), "has", "have"))
+	if r := strings.TrimSpace(cutRunes(visibleText(s.Reproduction), VerifySuspectedMaxBytes)); r != "" {
+		b.WriteString("\n\nmaul's reproduction:\n\n" + fence(defang(r)))
+	}
+	return b.String()
 }
 
 // VerifyNoDefect is an acceptance-fix round's conclusion that the code has
@@ -503,6 +541,9 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 	}
 	if s.NoDefect != nil {
 		v.Notes = append(v.Notes, noDefectNote(s.NoDefect))
+	}
+	if s.Suspected != nil {
+		v.Notes = append(v.Notes, suspectedNote(s.Suspected))
 	}
 	if who := shown(s.Impostor); who != "" {
 		v.Notes = append(v.Notes, "Another actor, "+code(who)+", posted a `maul/acceptance` status. "+

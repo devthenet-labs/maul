@@ -7,6 +7,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -86,12 +87,13 @@ func (e *env) redRound(name string, red v1alpha1.SavedCheck, run v1alpha1.CheckR
 	e.confirmRed(pv.Name, red, run, confirmed)
 }
 
-// TestRedCheckFailsTheRoundAndStartsAFix: confirmed red by assertion,
-// reviewed with the red question (told the step that failed) and answered
-// proves, the check is stored expecting to fail, its review cached as the
-// red question's; the outcome is failed, reproduced, and a verify-fix round
-// starts.
-func TestRedCheckFailsTheRoundAndStartsAFix(t *testing.T) {
+// TestRedCheckSuspectedUntilAPersonConfirms: confirmed red by assertion,
+// reviewed with the red question (told the assertion that failed) and
+// answered proves, the check is stored expecting to fail, its review cached
+// as the red question's; the outcome is a suspected defect (fourth review):
+// unsure, no automatic fix, the hand-off held and the evidence shown; an
+// approver's /maul verify fix confirms it and starts the verify-fix round.
+func TestRedCheckSuspectedUntilAPersonConfirms(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	red := redCheck(t)
 	r := &fakeReviewer{}
@@ -116,10 +118,14 @@ func TestRedCheckFailsTheRoundAndStartsAFix(t *testing.T) {
 		acc.Reviews[i].FailedStep != 2 || acc.Reviews[i].FailedAssertion != "json /note" {
 		t.Errorf("reviews = %+v, want the red question's proves, keyed to json /note at step 2", acc.Reviews)
 	}
-	v := e.verification(name)
-	if v.State != v1alpha1.VerificationFailing || v.Failed != 1 || v.Outcomes[0].Result != v1alpha1.OutcomeFailed ||
-		v.Outcomes[0].Reason != acceptance.ReasonReproduced || v.Outcomes[0].Basis != red.Digest {
-		t.Fatalf("verification = %s %+v, want version-shown failed on the red check", v.State, v.Outcomes)
+	e.checkSuspectedHeld(name, red)
+
+	// An approver confirms it: the fix round starts exactly as an
+	// automatic one, on the red check's failure.
+	e.gh.comment(approver, "/maul verify fix")
+	e.settleActions(name)
+	if c := e.verification(name).Suspected; c == nil || c.Confirmed == nil || c.Confirmed.ByID != actorOf(approver).ID {
+		t.Fatalf("suspected = %+v, want confirmed by the approver", c)
 	}
 	e.reviewUntil(name, func() bool { return len(e.runsOf(name, v1alpha1.IntentStageRevise)) > 0 })
 	if run := e.runsOf(name, v1alpha1.IntentStageRevise)[0]; run.Spec.Trigger != v1alpha1.IntentRunTriggerVerify {
@@ -342,4 +348,41 @@ func TestUnreviewedCheckIsUnclearAlone(t *testing.T) {
 	if v := e.verification(name); v.State == v1alpha1.VerificationEvaluating {
 		t.Errorf("state = %s, want the round judged", v.State)
 	}
+}
+
+// checkSuspectedHeld (fourth review): intent name's round found a defect
+// on red alone: suspected, never fixed on maul's own; unsure, the hand-off
+// held and the evidence on the issue.
+func (e *env) checkSuspectedHeld(name string, red v1alpha1.SavedCheck) {
+	t := e.t
+	t.Helper()
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationUnconfirmed || v.Failed != 0 ||
+		v.Outcomes[0].Result != v1alpha1.OutcomeUnsure || v.Outcomes[0].Reason != acceptance.ReasonSuspectedDefect ||
+		v.Outcomes[0].Basis != red.Digest {
+		t.Fatalf("verification = %s %+v, want version-shown unsure, a suspected defect on the red check", v.State,
+			v.Outcomes)
+	}
+	if v.Suspected == nil || v.Suspected.Confirmed != nil || v.Suspected.HeadSetDigest != v.HeadSetDigest ||
+		len(v.Suspected.Outcomes) != 1 || v.Suspected.Outcomes[0] != red.Outcome {
+		t.Fatalf("suspected = %+v, want version-shown at the round's heads, unconfirmed", v.Suspected)
+	}
+	e.review(name, 4)
+	if n := len(e.runsOf(name, v1alpha1.IntentStageRevise)); n != 0 {
+		t.Fatalf("revise runs = %d: a suspected defect started an automatic fix", n)
+	}
+	if h := e.verification(name).Handoff; h == nil || h.Released {
+		t.Errorf("hand-off = %+v, want held while the defect awaits a person", h)
+	}
+	evidence := ""
+	for _, c := range e.verifyComments(name, v.Round) {
+		evidence += c.Body
+	}
+	for _, want := range []string{"maul believes", "a person should confirm", "`/maul verify fix`", "`version-shown`",
+		"the evaluator reported", "POST /notes"} {
+		if !strings.Contains(evidence, want) {
+			t.Errorf("the verification comment lacks %q:\n%s", want, evidence)
+		}
+	}
+
 }

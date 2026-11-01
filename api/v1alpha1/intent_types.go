@@ -1136,6 +1136,26 @@ type NoDefectRecord struct {
 	HeadSetDigest string `json:"headSetDigest,omitempty"`
 }
 
+// SuspectedDefect is a judged round's suspected defect (IntentVerification
+// .Suspected).
+type SuspectedDefect struct {
+	// Verification names the PreviewVerification whose judgement found it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Verification string `json:"verification"`
+	// HeadSetDigest is the combined change it was found at.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	HeadSetDigest string `json:"headSetDigest"`
+	// Outcomes are the ids of the outcomes it is about.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=atomic
+	Outcomes []string `json:"outcomes"`
+	// Confirmed records the approver's /maul verify fix that confirmed it.
+	// +optional
+	Confirmed *Rearm `json:"confirmed,omitempty"`
+}
+
 // VerifyRequest is an approver's pending /maul verify, run at the next
 // opportunity.
 type VerifyRequest struct {
@@ -1267,6 +1287,14 @@ type IntentVerification struct {
 	// or a new plan revision.
 	// +optional
 	NoDefect *NoDefectRecord `json:"noDefect,omitempty"`
+	// Suspected is the latest judged round's suspected defect: outcomes
+	// that would be failed only on checks saved red (a defect present from
+	// round 1). maul never fixes one on its own: the gated hand-off is held
+	// and the evidence shown until an approver's /maul verify fix confirms it
+	// (Confirmed), which starts the fix round on it. Set by each judgement,
+	// shown and confirmable only while the heads are the ones it judged.
+	// +optional
+	Suspected *SuspectedDefect `json:"suspected,omitempty"`
 	// CancelRun names a Pending verify-fix IntentRun a human round
 	// overtook: the run scheduler settles it unlaunched instead of creating
 	// its Job.

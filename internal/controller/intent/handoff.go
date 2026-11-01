@@ -183,6 +183,13 @@ func (p *pass) handoffDue(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVeri
 	switch {
 	case outcomesReady(acc, v):
 		return v1alpha1.HandoffReasonReady
+	case suspectedPending(v):
+		// A suspected defect waits for a person (fourth review): held, as
+		// long as the hand-off's own time bound allows.
+		if v.FirstGreenAt != nil && p.now.Sub(v.FirstGreenAt.Time) >= p.set.handoffMax(p.proj) {
+			return v1alpha1.HandoffReasonOutOfTime
+		}
+		return ""
 	case p.gaveUp(acc, v) != "":
 		return v1alpha1.HandoffReasonUnconfirmed
 	case v.FirstGreenAt != nil && p.now.Sub(v.FirstGreenAt.Time) >= p.set.handoffMax(p.proj):

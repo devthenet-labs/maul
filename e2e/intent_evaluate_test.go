@@ -639,24 +639,48 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 // outcome fails at its assertion, so it reports fail, reads the log and
 // proposes the check with expect: fail; tools confirms it red by assertion
 // in a fresh context, the reviewer is asked the red question and answers
-// proves, and maul stores it expecting to fail and judges the outcome
-// failed: a verify-fix round starts, handed the reproduction (the failing
-// step and the panic, redacted). The fix pushes; at its head the saved
-// check replays green and the outcome passes on it: ready.
+// proves, and maul stores it expecting to fail. A defect found in round 1
+// is only suspected (fourth review): the outcome is unsure, no fix starts,
+// the preview link stays held and the issue shows the evidence. An
+// approver's /maul verify fix confirms it: the verify-fix round starts,
+// handed the reproduction (the failing step and the panic, redacted). The
+// fix pushes; at its head the saved check replays green, is asked the green
+// question, and the outcome passes on it: ready.
 func TestIntentEvaluateRound1Defect(t *testing.T) {
 	e := startEvaluate(t, evalOptions{outcomes: oneOutcome, mode: "red"})
 	e.app.set(http.StatusOK, "0.0.9")
 	e.kubelet.setContainerLog("maul-preview-0", appRepo, []byte("listening on :8080\n"+
 		"GET /version authorization: Bearer e2e-secret-token-0123456789abcdef\n"+
 		"panic: runtime error: version not wired\ngoroutine 7 [running]:\nmain.version()\n"))
-	_, name, pr := e.toReview(t)
+	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
 
-	fix := e.waitFixRun(t, name)
-	in := e.intent(t, name)
+	in := e.waitEval(t, name, "round 1's suspected defect", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationUnconfirmed && v.Suspected != nil
+	})
 	v := in.Status.Verification
-	if v.Round != 1 || v.Failed != 1 || v.Outcomes[0].Result != v1alpha1.OutcomeFailed {
-		t.Fatalf("verification = %+v, want round 1 failed", v)
+	if v.Round != 1 || v.Failed != 0 || v.Outcomes[0].Result != v1alpha1.OutcomeUnsure ||
+		v.Outcomes[0].Reason != "suspected-defect" || v.Handoff == nil || v.Handoff.Released {
+		t.Fatalf("verification = %+v, want round 1 unsure, suspected, the link held", v)
+	}
+	if runs := e.verifyRuns(t, name); len(runs) != 0 {
+		t.Fatalf("fix runs = %d before anyone confirmed the defect", len(runs))
+	}
+	evidence := ""
+	for _, c := range e.gh.Comments(number) {
+		evidence += c
+	}
+	for _, want := range []string{"maul believes", "a person should confirm", "`/maul verify fix`", "POST /version"} {
+		if !strings.Contains(evidence, want) {
+			t.Errorf("the issue lacks %q", want)
+		}
+	}
+	e.requestRound(t, number)
+
+	fix := e.waitFixRun(t, name)
+	in = e.intent(t, name)
+	if s := in.Status.Verification.Suspected; s == nil || s.Confirmed == nil {
+		t.Fatalf("suspected = %+v, want the approver's confirmation", s)
 	}
 	red := v.Outcomes[0].Basis
 	acc := in.Status.Acceptance

@@ -242,7 +242,7 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		if rec := acceptedAt(acc, o.ID, v.HeadSetDigest); rec != nil && row.Result == templates.OutcomeResultAccepted {
 			row.AcceptedAt = firstHead(rec)
 		}
-		if row.Result == templates.OutcomeResultFailed && pv != nil {
+		if (row.Result == templates.OutcomeResultFailed || r.Reason == acceptance.ReasonSuspectedDefect) && pv != nil {
 			row.AppOutput = p.appOutput(ctx, pv, r.Basis)
 		}
 		s.Outcomes = append(s.Outcomes, row)
@@ -250,6 +250,25 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 	for _, a := range v.Anomalies {
 		s.Anomalies = append(s.Anomalies, templates.VerifyAnomaly{Summary: a.Summary, Route: a.Route})
 	}
+	s.Suspected = p.suspectedView(ctx, pv)
+}
+
+// suspectedView is the suspected defect awaiting a person (fourth review)
+// as the comment shows it, with the reproduction a fix round would be
+// handed, rendered from pv's own ledger; nil when none awaits.
+func (p *pass) suspectedView(ctx context.Context, pv *v1alpha1.PreviewVerification) *templates.VerifySuspected {
+	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
+	if !suspectedPending(v) || pv == nil || v.Suspected.Verification != pv.Name {
+		return nil
+	}
+	out := &templates.VerifySuspected{Outcomes: slices.Clone(v.Suspected.Outcomes)}
+	j := p.decideRound(ctx, pv, p.evaluateRun(pv))
+	if s := j.decision.Suspected; s != nil {
+		if repro, err := p.reproduction(ctx, pv, acc, s, j.checks); err == nil {
+			out.Reproduction = repro
+		}
+	}
+	return out
 }
 
 // firstHead is the first short head an acceptance was given at, "" for

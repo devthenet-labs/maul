@@ -200,6 +200,9 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 		if args.Stop {
 			return p.stopAutoFix(ctx, c, n)
 		}
+		if args.Fix && !args.Reset && suspectedPending(p.in.Status.Verification) {
+			return p.confirmSuspected(ctx, c, n)
+		}
 		return p.requestVerification(ctx, c, args, n)
 	case action.VerbAccept:
 		id, ok := command.ParseAccept(c.body)
@@ -321,6 +324,33 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	n.Outcome, n.Fix, n.Reset = templates.VerifyRequested, args.Fix, args.Reset
 	n.Joined = waiting != nil
 	n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
+	return n, nil
+}
+
+// confirmSuspected records an approver's /maul verify fix as the
+// confirmation of the suspected defect at the current heads (fourth review):
+// the verification is Failing on it and automatic fixes are armed, so the
+// verify-fix round starts exactly as an automatic one would, its failure the
+// suspected one (evaluationFailure). No new evaluation is run.
+func (p *pass) confirmSuspected(ctx context.Context, c verifyCommand,
+	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	at := metav1.NewTime(c.at)
+	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
+		v := in.Status.Verification
+		if !suspectedPending(v) {
+			return nil
+		}
+		rearm := v1alpha1.Rearm{By: c.actor.Login, ByID: c.actor.ID, At: at, Round: in.Status.Rounds}
+		v.Suspected.Confirmed = &rearm
+		since := metav1.NewTime(p.now)
+		v.State = v1alpha1.VerificationFailing
+		v.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixArmed, Since: &since, Rearm: &rearm}
+		rememberApplied(in, c.id)
+		return nil
+	}); err != nil {
+		return n, err
+	}
+	n.Outcome, n.Fix = templates.VerifyDefectConfirmed, true
 	return n, nil
 }
 

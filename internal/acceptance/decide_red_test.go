@@ -24,8 +24,9 @@ func redFound() Input {
 
 // TestDecideRedCheck: the guards on a check saved to show a defect. Only a
 // confirmation red by assertion, a red review proves and the evaluator's
-// cited fail make the outcome failed (a verify-fix round with the
-// reproduction); anything less leaves it unsure, and a check proposed red
+// cited fail make the defect suspected (fourth review: unsure, never an
+// automatic fix; its fix request kept as Decision.Suspected for a person to
+// confirm); anything less leaves it plain unsure, and a check proposed red
 // that then ran green never passes it.
 func TestDecideRedCheck(t *testing.T) {
 	tests := []struct {
@@ -33,15 +34,17 @@ func TestDecideRedCheck(t *testing.T) {
 		in     Input
 		result Result
 		reason string
-		fix    bool
+		// suspected: unsure, and the red check's failure is the round's
+		// Suspected fix request; never Fix.
+		suspected bool
 	}{
 		{name: "red by assertion, reviewed, the evaluator's fail: failed", in: redFound(),
-			result: ResultFailed, reason: ReasonReproduced, fix: true},
+			result: ResultUnsure, reason: ReasonSuspectedDefect, suspected: true},
 		{name: "a base where the new outcome fails too is recorded, never a refusal",
 			in: with(redFound(), func(in *Input) {
 				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-b", Seq: 40,
 					AssertionStep: 2}}}
-			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
+			}), result: ResultUnsure, reason: ReasonSuspectedDefect, suspected: true},
 		{name: "red, not by assertion (a timeout, a check error): unsure",
 			in:     with(redFound(), func(in *Input) { in.Confirmations[0].AssertionStep = 0 }),
 			result: ResultUnsure, reason: ReasonNotReproduced},
@@ -101,7 +104,7 @@ func TestDecideRedCheck(t *testing.T) {
 				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2, AssertionStep: 2,
 					AssertionID: "json /stake"}}
 				in.Confirmations = nil
-			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
+			}), result: ResultUnsure, reason: ReasonSuspectedDefect, suspected: true},
 		// Review finding 2: until a check saved red has replayed green once,
 		// its steps after the saved one never ran: only a red by assertion at
 		// or before that step reproduces the defect.
@@ -141,7 +144,7 @@ func TestDecideRedCheck(t *testing.T) {
 				in.Checks[0].Cleared = true
 				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2}}
 				in.Confirmations = nil
-			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
+			}), result: ResultUnsure, reason: ReasonSuspectedDefect, suspected: true},
 		// Review finding 3: two vetted checks disagreeing is unsure.
 		{name: "a red confirmation beside a green replay of the same check: unsure",
 			in: with(redFound(), func(in *Input) {
@@ -163,14 +166,15 @@ func TestDecideRedCheck(t *testing.T) {
 			if r.Result != tc.result || r.Reason != tc.reason {
 				t.Fatalf("result %s (%s), want %s (%s)", r.Result, r.Reason, tc.result, tc.reason)
 			}
-			if (d.Fix != nil) != tc.fix {
-				t.Fatalf("fix %+v, want %v", d.Fix, tc.fix)
+			if d.Fix != nil {
+				t.Fatalf("fix %+v: a check saved red never starts an automatic fix", d.Fix)
 			}
-			if !tc.fix && d.Fix != nil {
-				t.Fatalf("fix %+v on %s", d.Fix, tc.result)
+			if (d.Suspected != nil) != tc.suspected {
+				t.Fatalf("suspected %+v, want %v", d.Suspected, tc.suspected)
 			}
-			if tc.fix && (len(d.Fix.Failures) != 1 || d.Fix.Failures[0].CheckDigest != dg("red")) {
-				t.Errorf("fix failures %+v, want the red check's", d.Fix.Failures)
+			if tc.suspected && (len(d.Suspected.Failures) != 1 || d.Suspected.Failures[0].CheckDigest != dg("red") ||
+				d.Suspected.Fingerprint == "") {
+				t.Errorf("suspected failures %+v, want the red check's", d.Suspected)
 			}
 			if d.Handoff == HandoffReady && tc.result != ResultPassed {
 				t.Errorf("hand-off ready on %s", tc.result)
@@ -239,5 +243,34 @@ func TestDecideFlakyCheck(t *testing.T) {
 		d.Fix != nil {
 		t.Errorf("a saved red check failing its replay and passing its confirmation: %+v, fix %+v", d.PerOutcome[0],
 			d.Fix)
+	}
+}
+
+// TestDecideGreenRegressionStillFixes (fourth review): a check saved green
+// that now fails, with the evaluator's cited fail, is failed and starts the
+// automatic fix as before, beside a red check's suspected defect of another
+// outcome.
+func TestDecideGreenRegressionStillFixes(t *testing.T) {
+	in := deterministicFail(ClaimFail, 3)
+	red := redFound()
+	in.Outcomes = append(in.Outcomes, OutcomeRef{ID: "stake", Digest: od("stake")})
+	red.Checks[0].Outcome, red.Verdicts[0].Outcome = "stake", "stake"
+	red.Reviews[0].OutcomeDigest = od("stake")
+	in.Checks = append(in.Checks, red.Checks...)
+	in.Confirmations = append(in.Confirmations, red.Confirmations...)
+	in.Reviews = append(in.Reviews, red.Reviews...)
+	in.Verdicts = append(in.Verdicts, red.Verdicts...)
+	d := Decide(in)
+	if r := d.PerOutcome[0]; r.Result != ResultFailed || r.Reason != ReasonReproduced {
+		t.Errorf("the green regression: %+v, want failed", r)
+	}
+	if r := d.PerOutcome[1]; r.Result != ResultUnsure || r.Reason != ReasonSuspectedDefect {
+		t.Errorf("the red check's outcome: %+v, want unsure, suspected", r)
+	}
+	if d.Fix == nil || len(d.Fix.Failures) != 1 || d.Fix.Failures[0].CheckDigest != dg("a") {
+		t.Errorf("fix %+v, want the green check's alone", d.Fix)
+	}
+	if d.Suspected == nil || len(d.Suspected.Failures) != 1 || d.Suspected.Failures[0].CheckDigest != dg("red") {
+		t.Errorf("suspected %+v, want the red check's", d.Suspected)
 	}
 }

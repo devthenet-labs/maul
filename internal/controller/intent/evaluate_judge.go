@@ -107,6 +107,37 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 	return j
 }
 
+// suspectedRecord is the suspected defect j's decision found (fourth
+// review: failed only on checks saved red), recorded for the verification
+// j judged at headSet; nil for none.
+func suspectedRecord(j roundJudgement, headSet string) *v1alpha1.SuspectedDefect {
+	s := j.decision.Suspected
+	if s == nil || j.verification == "" || headSet == "" {
+		return nil
+	}
+	rec := &v1alpha1.SuspectedDefect{Verification: j.verification, HeadSetDigest: headSet}
+	for _, f := range s.Failures {
+		if !slices.Contains(rec.Outcomes, f.Outcome) && len(rec.Outcomes) < acceptance.MaxOutcomes {
+			rec.Outcomes = append(rec.Outcomes, f.Outcome)
+		}
+	}
+	return rec
+}
+
+// suspectedPending reports v's suspected defect at its current heads,
+// judged and not yet confirmed by an approver: it holds the gated hand-off.
+func suspectedPending(v *v1alpha1.IntentVerification) bool {
+	return v != nil && v.State == v1alpha1.VerificationUnconfirmed && v.Suspected != nil &&
+		v.Suspected.Confirmed == nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
+}
+
+// suspectedConfirmed reports v's suspected defect confirmed by an approver,
+// found by pv's judgement at pv's heads: its fix request is then pv's.
+func suspectedConfirmed(v *v1alpha1.IntentVerification, pv *v1alpha1.PreviewVerification) bool {
+	return v != nil && v.Suspected != nil && v.Suspected.Confirmed != nil && v.Suspected.Verification == pv.Name &&
+		v.Suspected.HeadSetDigest == pv.Spec.HeadSetDigest
+}
+
 // clearedBefore reports a check saved red that replayed green in a round
 // before verification's (third review, F1): a clearance never counts in
 // the round that earned it, so the judgement and the fix path that
@@ -419,6 +450,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
 	}
 	nv.Anomalies = j.anomalies
 	addRedCleared(acc, j.cleared, j.verification)
+	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest)
 	state, replayNext := judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	nv.State, nv.Disputed = state, nil
 	if replayNext {
@@ -487,6 +519,20 @@ func (p *pass) retireDisputed(ctx context.Context, j roundJudgement) (bool, erro
 func (p *pass) evaluationFailure(ctx context.Context, pv *v1alpha1.PreviewVerification) (verifyFailure,
 	*acceptance.FixRequest, roundJudgement, bool) {
 	j := p.decideRound(ctx, pv, p.evaluateRun(pv))
+	if s := j.decision.Suspected; s != nil && suspectedConfirmed(p.in.Status.Verification, pv) {
+		// An approver confirmed the suspected defect (/maul verify fix): its
+		// failures are the fix round's, as an automatic fix's would be.
+		failures := s.Failures
+		if f := j.decision.Fix; f != nil {
+			failures = append(slices.Clone(f.Failures), failures...)
+		}
+		outcomes, digests := make([]string, 0, len(failures)), make([]string, 0, len(failures))
+		for _, f := range failures {
+			outcomes, digests = append(outcomes, f.Outcome), append(digests, f.CheckDigest)
+		}
+		j.decision.Fix = &acceptance.FixRequest{Failures: failures,
+			Fingerprint: acceptance.EvaluationFingerprint(outcomes, digests, j.env)}
+	}
 	fix := pendingFix(p.in.Status.Acceptance, pv.Spec.HeadSetDigest, j)
 	if fix == nil || j.decision.Env != acceptance.EnvOK {
 		return verifyFailure{}, nil, j, false

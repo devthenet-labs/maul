@@ -98,7 +98,9 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 		if rec.Result != toolwire.ResultPass {
 			break
 		}
-		if writeMethod(st.Request.Method) {
+		// A capture is the run's own only from a write that names the run:
+		// a POST of nothing of the run can return a shared id (fourth review).
+		if writeMethod(st.Request.Method) && writesRun(st.Request) {
 			for name := range st.Capture {
 				own[name] = true
 			}
@@ -114,6 +116,12 @@ func writeMethod(m string) bool {
 		return true
 	}
 	return false
+}
+
+// writesRun reports a request whose path or body names {{run}}.
+func writesRun(r acceptance.Request) bool {
+	return strings.Contains(r.Path, checks.RunPlaceholder) || strings.Contains(r.Body, checks.RunPlaceholder) ||
+		valueKeyed(r.JSON, nil)
 }
 
 // runKeyed reports whether s names the run's own data: {{run}}, or a

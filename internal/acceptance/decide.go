@@ -239,6 +239,10 @@ const (
 	// round), or, not yet replayed green since, its replay failed other than
 	// by assertion at its saved step: neither a fail nor a pass.
 	ReasonNotReproduced = "not-reproduced"
+	// ReasonSuspectedDefect: the outcome would be failed only on checks
+	// saved red (a defect present from round 1): unsure, never an
+	// automatic fix; a person confirms it with /maul verify fix.
+	ReasonSuspectedDefect = "suspected-defect"
 	// ReasonFlaky: a check of the outcome both passed and failed at the
 	// same heads this round.
 	ReasonFlaky = "flaky"
@@ -287,8 +291,14 @@ const (
 type Decision struct {
 	// PerOutcome is in Input.Outcomes order.
 	PerOutcome []OutcomeResult
-	// Fix is non-nil only when a failure is reproduced.
+	// Fix is non-nil only when a failure is reproduced on a check saved
+	// green: a regression, which starts an automatic fix.
 	Fix *FixRequest
+	// Suspected is a failure reproduced only on checks saved red (fourth
+	// review): a defect found by the evaluator, which maul believes but
+	// never fixes on its own. Its outcomes are unsure (ReasonSuspectedDefect);
+	// a person confirms it, and that starts the fix round on this request.
+	Suspected *FixRequest
 	// ReplayRound asks for one model-free replay round at the same heads:
 	// a disputed check's replacement is confirmed and reviewed proves.
 	ReplayRound bool
@@ -468,20 +478,40 @@ func Decide(in Input) Decision {
 		}
 	}
 	out := Decision{Env: d.env, Handoff: HandoffUnconfirmed}
-	var failures []FixFailure
-	for _, o := range in.Outcomes {
-		r, fs := d.outcome(o)
-		out.PerOutcome = append(out.PerOutcome, r)
-		failures = append(failures, fs...)
-	}
+	var failures, suspected []FixFailure
+	out.PerOutcome, failures, suspected = d.outcomes()
 	if len(failures) > 0 {
 		out.Fix = &FixRequest{Failures: failures, Fingerprint: fixFingerprint(failures, in.Env)}
+	}
+	if len(suspected) > 0 {
+		out.Suspected = &FixRequest{Failures: suspected, Fingerprint: fixFingerprint(suspected, in.Env)}
 	}
 	out.Retire, out.ReplayRound = d.replacements()
 	if out.Fix == nil && !out.ReplayRound && len(in.Anomalies) == 0 && d.env == EnvOK && allPassed(out.PerOutcome) {
 		out.Handoff = HandoffReady
 	}
 	return out
+}
+
+// outcomes judges every outcome, in order, with the failures a fix round
+// takes (those of checks saved green) and the suspected ones: an outcome
+// failed only on checks saved red is unsure, a suspected defect (fourth
+// review), never an automatic fix.
+func (d decider) outcomes() ([]OutcomeResult, []FixFailure, []FixFailure) {
+	per := make([]OutcomeResult, 0, len(d.in.Outcomes))
+	var failures, suspected []FixFailure
+	for _, o := range d.in.Outcomes {
+		r, fs := d.outcome(o)
+		green := slices.DeleteFunc(slices.Clone(fs), func(f FixFailure) bool { return d.red[f.CheckDigest] })
+		if r.Result == ResultFailed && len(green) == 0 {
+			r.Result, r.Reason = ResultUnsure, ReasonSuspectedDefect
+			suspected = append(suspected, fs...)
+			green = nil
+		}
+		per = append(per, r)
+		failures = append(failures, green...)
+	}
+	return per, failures, suspected
 }
 
 // outcome judges one outcome, returning its failures for a fix round.

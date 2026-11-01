@@ -2257,6 +2257,72 @@ spec:
                     - Evaluating
                     - Unconfirmed
                     type: string
+                  suspected:
+                    description: |-
+                      Suspected is the latest judged round's suspected defect: outcomes
+                      that would be failed only on checks saved red (a defect present from
+                      round 1). maul never fixes one on its own: the gated hand-off is held
+                      and the evidence shown until an approver's /maul verify fix confirms it
+                      (Confirmed), which starts the fix round on it. Set by each judgement,
+                      shown and confirmable only while the heads are the ones it judged.
+                    properties:
+                      confirmed:
+                        description: Confirmed records the approver's /maul verify
+                          fix that confirmed it.
+                        properties:
+                          at:
+                            description: At is the command comment's created_at.
+                            format: date-time
+                            type: string
+                          by:
+                            description: By is the approver's login, for display.
+                            maxLength: 64
+                            minLength: 1
+                            pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                            type: string
+                          byID:
+                            description: ByID is GitHub's numeric id of the approver.
+                            format: int64
+                            minimum: 1
+                            type: integer
+                          round:
+                            description: |-
+                              Round is status.rounds when re-armed: only a human round after it
+                              halts the latch again.
+                            format: int32
+                            maximum: 999
+                            minimum: 0
+                            type: integer
+                        required:
+                        - at
+                        - by
+                        - byID
+                        - round
+                        type: object
+                      headSetDigest:
+                        description: HeadSetDigest is the combined change it was found
+                          at.
+                        pattern: ^sha256:[0-9a-f]{64}$
+                        type: string
+                      outcomes:
+                        description: Outcomes are the ids of the outcomes it is about.
+                        items:
+                          type: string
+                        maxItems: 20
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      verification:
+                        description: Verification names the PreviewVerification whose
+                          judgement found it.
+                        maxLength: 63
+                        minLength: 1
+                        type: string
+                    required:
+                    - headSetDigest
+                    - outcomes
+                    - verification
+                    type: object
                   unavailableReason:
                     description: |-
                       UnavailableReason says why the state is Unavailable: PreviewNotLive

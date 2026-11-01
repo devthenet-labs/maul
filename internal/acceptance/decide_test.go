@@ -812,9 +812,9 @@ func oracleRound(in Input, o OutcomeRef, _ string) error {
 
 // decideStats counts what the property exercised, so a weak generator
 // fails instead of passing vacuously.
-type decideStats struct{ passed, fixes, redFixes, replays, ready int }
+type decideStats struct{ passed, fixes, suspected, replays, ready int }
 
-func (s *decideStats) add(in Input, d Decision) {
+func (s *decideStats) add(d Decision) {
 	for _, r := range d.PerOutcome {
 		if r.Result == ResultPassed {
 			s.passed++
@@ -822,9 +822,9 @@ func (s *decideStats) add(in Input, d Decision) {
 	}
 	if d.Fix != nil {
 		s.fixes++
-		if slices.ContainsFunc(d.Fix.Failures, func(f FixFailure) bool { return oracleRed(in, f.CheckDigest) }) {
-			s.redFixes++
-		}
+	}
+	if d.Suspected != nil {
+		s.suspected++
 	}
 	if d.ReplayRound {
 		s.replays++
@@ -842,7 +842,7 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	var stats decideStats
 	prop := func(g genDecide) bool {
 		d := Decide(g.in)
-		stats.add(g.in, d)
+		stats.add(d)
 		if err := checkDecision(g.in, d); err != nil {
 			t.Logf("%v\ninput %+v", err, g.in)
 			return false
@@ -852,7 +852,7 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	if err := quick.Check(prop, quickConfig(5000)); err != nil {
 		t.Error(err)
 	}
-	if stats.passed == 0 || stats.fixes == 0 || stats.redFixes == 0 || stats.replays == 0 || stats.ready == 0 {
+	if stats.passed == 0 || stats.fixes == 0 || stats.suspected == 0 || stats.replays == 0 || stats.ready == 0 {
 		t.Errorf("the generator is too weak: %+v", stats)
 	}
 }
@@ -875,15 +875,8 @@ func checkDecision(in Input, d Decision) error {
 		}
 		allPassed = allPassed && r.Result == ResultPassed
 	}
-	if d.Fix != nil {
-		if len(d.Fix.Failures) == 0 || ClassifyEnvironment(in.Env) != EnvOK {
-			return fmt.Errorf("fix %+v in env %s", d.Fix, ClassifyEnvironment(in.Env))
-		}
-		for _, f := range d.Fix.Failures {
-			if err := oracleFixable(in, f); err != nil {
-				return fmt.Errorf("fix failure %+v: %w", f, err)
-			}
-		}
+	if err := oracleFixRequests(in, d); err != nil {
+		return err
 	}
 	ready := allPassed && len(in.Anomalies) == 0 && ClassifyEnvironment(in.Env) == EnvOK && d.Fix == nil &&
 		!d.ReplayRound
@@ -995,4 +988,40 @@ func oracleCountedFail(in Input, digest string) bool {
 	}
 	return slices.ContainsFunc(in.Replay, func(r CheckRun) bool { return counts(r, false) }) ||
 		slices.ContainsFunc(in.Confirmations, func(r CheckRun) bool { return counts(r, true) })
+}
+
+// oracleFixRequests holds d's fix and suspected requests to the oracles: a
+// fix only in a clean environment, every failure fixable, and (fourth
+// review) a check saved red never in Fix, every suspected failure a
+// fixable failure of one, and no outcome failed on a suspected defect.
+func oracleFixRequests(in Input, d Decision) error {
+	if d.Fix != nil {
+		if len(d.Fix.Failures) == 0 || ClassifyEnvironment(in.Env) != EnvOK {
+			return fmt.Errorf("fix %+v in env %s", d.Fix, ClassifyEnvironment(in.Env))
+		}
+		for _, f := range d.Fix.Failures {
+			if err := oracleFixable(in, f); err != nil {
+				return fmt.Errorf("fix failure %+v: %w", f, err)
+			}
+			if oracleRed(in, f.CheckDigest) {
+				return fmt.Errorf("fix failure %+v is a check saved red", f)
+			}
+		}
+	}
+	if d.Suspected == nil {
+		return nil
+	}
+	for _, f := range d.Suspected.Failures {
+		if err := oracleFixable(in, f); err != nil || !oracleRed(in, f.CheckDigest) {
+			return fmt.Errorf("suspected failure %+v: not a fixable failure of a check saved red (%v)", f, err)
+		}
+	}
+	for _, r := range d.PerOutcome {
+		if r.Result == ResultFailed && slices.ContainsFunc(d.Suspected.Failures, func(f FixFailure) bool {
+			return f.Outcome == r.ID
+		}) {
+			return fmt.Errorf("outcome %s is failed on a suspected defect", r.ID)
+		}
+	}
+	return nil
 }

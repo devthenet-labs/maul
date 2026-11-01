@@ -71,6 +71,43 @@ func TestHTTPAssertionAboutTheRunsData(t *testing.T) {
 	}
 }
 
+// TestHTTPCaptureFromAWriteOfTheRun (fourth review, item 1): a capture is
+// the run's own only from a write whose request names {{run}}. A POST that
+// returns a shared id (a session's user) is a write of nothing of the run,
+// so a read of that id is about shared data, never red by assertion.
+func TestHTTPCaptureFromAWriteOfTheRun(t *testing.T) {
+	api := newFakeComponent(t, func(w http.ResponseWriter, r *http.Request, _ int) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			_, _ = w.Write([]byte(`{"uid":"u1"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"battleCount":3}`))
+	})
+	for _, tc := range []struct {
+		name, write string
+		assertion   bool
+	}{
+		{"a write naming nothing of the run", `{"request":{"method":"POST","path":"/api/session","json":{"a":1}},` +
+			`"expect":{"status":200},"capture":{"uid":"/uid"}}`, false},
+		{"a write naming the run", `{"request":{"method":"POST","path":"/api/session","json":{"a":"{{run}}"}},` +
+			`"expect":{"status":200},"capture":{"uid":"/uid"}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			check := `{"id":"users.k","outcome":"users","form":"http","http":{"target":"api","steps":[` + tc.write +
+				`,{"request":{"path":"/api/users/{{capture.uid}}"},"expect":{"json":{"/battleCount":1}}}]}}`
+			h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
+			rec := h.relay.runCheck(context.Background(), parseCheck(t, check), toolwire.ModeDryRun)
+			if rec.Result != toolwire.RunFail {
+				t.Fatalf("got %+v", rec)
+			}
+			if _, ok := rec.AssertionStep(); ok != tc.assertion {
+				t.Errorf("red by assertion %v, want %v (%+v)", ok, tc.assertion, rec)
+			}
+		})
+	}
+}
+
 // keyedBrowserCheck fills in the run's own name and asserts on the row
 // that carries it.
 const keyedBrowserCheck = `{"id":"vote","outcome":"vote","form":"browser","browser":{"steps":[{"goto":"/battles/1"},` +
