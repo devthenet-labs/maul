@@ -4,10 +4,11 @@
 package checks
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // WritesRunData reports whether c writes data under its own run token: an
@@ -75,8 +76,8 @@ func ValidateRed(c Check) error {
 	return nil
 }
 
-// marshalsRun reports whether v's JSON names RunPlaceholder.
-func marshalsRun(v any) bool {
-	b, err := json.Marshal(v)
-	return err == nil && hasRun(string(b))
+// marshalsRun reports whether one of v's values names RunPlaceholder (fifth
+// review, 2): never an object key, which substitution leaves as it is.
+func marshalsRun(v *acceptance.Value) bool {
+	return v != nil && v.AnyString(hasRun)
 }

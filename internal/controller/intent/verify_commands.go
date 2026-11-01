@@ -200,7 +200,7 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 		if args.Stop {
 			return p.stopAutoFix(ctx, c, n)
 		}
-		if args.Fix && !args.Reset && suspectedPending(p.in.Status.Verification) {
+		if args.Fix && !args.Reset && suspectedConfirmable(p.in.Status.Verification, c.at) {
 			return p.confirmSuspected(ctx, c, n)
 		}
 		return p.requestVerification(ctx, c, args, n)
@@ -328,16 +328,18 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 }
 
 // confirmSuspected records an approver's /maul verify fix as the
-// confirmation of the suspected defect at the current heads (fourth review):
+// confirmation of the suspected defect at the current heads (fourth review),
+// made after maul recorded it (fifth review, 1), in any judged state (5):
 // the verification is Failing on it and automatic fixes are armed, so the
-// verify-fix round starts exactly as an automatic one would, its failure the
-// suspected one (evaluationFailure). No new evaluation is run.
+// verify-fix round starts exactly as an automatic one would, its failures
+// the suspected one and any the round found on saved green checks
+// (evaluationFailure). No new evaluation is run.
 func (p *pass) confirmSuspected(ctx context.Context, c verifyCommand,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	at := metav1.NewTime(c.at)
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		v := in.Status.Verification
-		if !suspectedPending(v) {
+		if !suspectedConfirmable(v, c.at) {
 			return nil
 		}
 		rearm := v1alpha1.Rearm{By: c.actor.Login, ByID: c.actor.ID, At: at, Round: in.Status.Rounds}

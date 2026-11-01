@@ -191,11 +191,18 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 		}
 		return acceptanceState{statusSuccess, confirmed}, true
 	case v1alpha1.VerificationFailing:
-		if v.AutoFix.State == v1alpha1.AutoFixHalted {
+		switch {
+		case v.AutoFix.State == v1alpha1.AutoFixHalted:
 			return acceptanceState{statusFailure, confirmed + "; automatic fixes halted"}, true
+		case defectConfirmed(v):
+			// A person confirmed the defect maul suspected (fifth review, 6).
+			return acceptanceState{statusFailure, confirmed + "; a person confirmed the defect, a fix is starting"}, true
 		}
 		return acceptanceState{statusFailure, fmt.Sprintf("%s, %d failing", confirmed, v.Failed)}, true
 	case v1alpha1.VerificationFixing:
+		if defectConfirmed(v) {
+			return acceptanceState{statusFailure, confirmed + "; a person confirmed the defect, a fix is running"}, true
+		}
 		return acceptanceState{statusFailure, fmt.Sprintf("%s; automatic fix %d of %d running", confirmed, used,
 			most)}, true
 	case v1alpha1.VerificationExhausted:

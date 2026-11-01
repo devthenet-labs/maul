@@ -2316,6 +2316,13 @@ spec:
                         minItems: 1
                         type: array
                         x-kubernetes-list-type: atomic
+                      recordedAt:
+                        description: |-
+                          RecordedAt is when maul recorded it: only a /maul verify fix created
+                          after it confirms it (fifth review, 1), so no comment written before
+                          the evidence existed counts as a person having seen it.
+                        format: date-time
+                        type: string
                       verification:
                         description: Verification names the PreviewVerification whose
                           judgement found it.
@@ -2325,6 +2332,7 @@ spec:
                     required:
                     - headSetDigest
                     - outcomes
+                    - recordedAt
                     - verification
                     type: object
                   unavailableReason:

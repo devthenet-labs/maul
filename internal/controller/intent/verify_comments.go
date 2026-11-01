@@ -196,12 +196,15 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 		}
 		return judged(templates.VerifyUnconfirmed)
 	case v1alpha1.VerificationFailing:
-		if v.AutoFix.State == v1alpha1.AutoFixHalted {
+		switch {
+		case v.AutoFix.State == v1alpha1.AutoFixHalted:
 			out.AutoFix, out.AutoFixReason = templates.FixHalted, string(v.AutoFix.Reason)
+		case defectConfirmed(v):
+			out.DefectConfirmed, out.AutoFix = true, templates.FixQueued
 		}
 		return judged(templates.VerifyFailing)
 	case v1alpha1.VerificationFixing:
-		out.AutoFix = templates.FixRunning
+		out.AutoFix, out.DefectConfirmed = templates.FixRunning, defectConfirmed(v)
 		return judged(templates.VerifyFailing)
 	case v1alpha1.VerificationExhausted:
 		return judged(templates.VerifyExhausted)
@@ -253,15 +256,20 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 	s.Suspected = p.suspectedView(ctx, pv)
 }
 
-// suspectedView is the suspected defect awaiting a person (fourth review)
-// as the comment shows it, with the reproduction a fix round would be
-// handed, rendered from pv's own ledger; nil when none awaits.
+// suspectedView is the suspected defect at the current heads (fourth
+// review) as the comment shows it, with the reproduction a fix round is
+// handed, rendered from pv's own ledger: shown whatever else the round
+// found (fifth review, 5), and once a person confirmed it, saying so (6);
+// nil when there is none.
 func (p *pass) suspectedView(ctx context.Context, pv *v1alpha1.PreviewVerification) *templates.VerifySuspected {
 	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
-	if !suspectedPending(v) || pv == nil || v.Suspected.Verification != pv.Name {
+	if !suspectedPending(v) && !defectConfirmed(v) || pv == nil || v.Suspected.Verification != pv.Name {
 		return nil
 	}
 	out := &templates.VerifySuspected{Outcomes: slices.Clone(v.Suspected.Outcomes)}
+	if c := v.Suspected.Confirmed; c != nil {
+		out.ConfirmedBy = c.By
+	}
 	j := p.decideRound(ctx, pv, p.evaluateRun(pv))
 	if s := j.decision.Suspected; s != nil {
 		if repro, err := p.reproduction(ctx, pv, acc, s, j.checks); err == nil {

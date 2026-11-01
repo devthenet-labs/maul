@@ -666,14 +666,23 @@ func TestIntentEvaluateRound1Defect(t *testing.T) {
 	if runs := e.verifyRuns(t, name); len(runs) != 0 {
 		t.Fatalf("fix runs = %d before anyone confirmed the defect", len(runs))
 	}
+	// The verification comment is written on a pass after the judgement.
 	evidence := ""
-	for _, c := range e.gh.Comments(number) {
-		evidence += c
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(time.Second) {
+		evidence = strings.Join(e.gh.Comments(number), "")
+		if strings.Contains(evidence, "maul believes") && strings.Contains(evidence, "POST /version") {
+			break
+		}
 	}
 	for _, want := range []string{"maul believes", "a person should confirm", "`/maul verify fix`", "POST /version"} {
 		if !strings.Contains(evidence, want) {
 			t.Errorf("the issue lacks %q", want)
 		}
+	}
+	// Only a comment created after maul recorded the suspected defect
+	// confirms it, and GitHub keeps whole seconds.
+	if d := time.Until(v.Suspected.RecordedAt.Add(time.Second)); d > 0 {
+		time.Sleep(d)
 	}
 	e.requestRound(t, number)
 

@@ -1151,6 +1151,10 @@ type SuspectedDefect struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +listType=atomic
 	Outcomes []string `json:"outcomes"`
+	// RecordedAt is when maul recorded it: only a /maul verify fix created
+	// after it confirms it (fifth review, 1), so no comment written before
+	// the evidence existed counts as a person having seen it.
+	RecordedAt metav1.Time `json:"recordedAt"`
 	// Confirmed records the approver's /maul verify fix that confirmed it.
 	// +optional
 	Confirmed *Rearm `json:"confirmed,omitempty"`

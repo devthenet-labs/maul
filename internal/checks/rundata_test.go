@@ -30,6 +30,14 @@ func TestWritesRunData(t *testing.T) {
 		 {"expect":{"assert":"visible","locator":{"text":"{{run}}"}}}]}}`, true},
 		{"a browser goto names the token", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[
 		 {"goto":"/?q={{run}}"},{"expect":{"assert":"visible","locator":{"text":"{{run}}"}}}]}}`, false},
+		// Fifth review, 2: substitution never touches an object key, so a
+		// token used only as one is the same literal in every run.
+		{"an http POST names the token only as a JSON key", `{"id":"a","outcome":"a","form":"http",
+		 "http":{"target":"api","steps":[
+		 {"request":{"method":"POST","path":"/p","json":{"{{run}}":1}},"expect":{"status":201}}]}}`, false},
+		{"an http POST names the token in a nested value", `{"id":"a","outcome":"a","form":"http",
+		 "http":{"target":"api","steps":[
+		 {"request":{"method":"POST","path":"/p","json":{"k":["{{run}}"]}},"expect":{"status":201}}]}}`, true},
 		{"an exec argv names the token", `{"id":"a","outcome":"a","form":"exec","exec":{"argv":["c","{{run}}"],
 		 "expect":{"exit":0}}}`, true},
 		{"an exec with no token", `{"id":"a","outcome":"a","form":"exec","exec":{"argv":["c"],"expect":{"exit":0}}}`,

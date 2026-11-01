@@ -92,6 +92,16 @@ func TestHTTPCaptureFromAWriteOfTheRun(t *testing.T) {
 			`"expect":{"status":200},"capture":{"uid":"/uid"}}`, false},
 		{"a write naming the run", `{"request":{"method":"POST","path":"/api/session","json":{"a":"{{run}}"}},` +
 			`"expect":{"status":200},"capture":{"uid":"/uid"}}`, true},
+		// Fifth review, 2 and 3: an object key is never substituted, and a
+		// query names no data the write made.
+		{"a write naming the run only as a JSON key", `{"request":{"method":"POST","path":"/api/session",` +
+			`"json":{"{{run}}":1}},"expect":{"status":200},"capture":{"uid":"/uid"}}`, false},
+		{"a write naming the run only in its query", `{"request":{"method":"POST","path":"/api/session?tag={{run}}",` +
+			`"json":{"a":1}},"expect":{"status":200},"capture":{"uid":"/uid"}}`, false},
+		{"a write naming the run in its path", `{"request":{"method":"POST","path":"/api/session/{{run}}",` +
+			`"json":{"a":1}},"expect":{"status":200},"capture":{"uid":"/uid"}}`, true},
+		{"a write naming the run in its raw body", `{"request":{"method":"POST","path":"/api/session",` +
+			`"body":"name={{run}}"},"expect":{"status":200},"capture":{"uid":"/uid"}}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			check := `{"id":"users.k","outcome":"users","form":"http","http":{"target":"api","steps":[` + tc.write +

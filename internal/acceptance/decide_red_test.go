@@ -37,6 +37,9 @@ func TestDecideRedCheck(t *testing.T) {
 		// suspected: unsure, and the red check's failure is the round's
 		// Suspected fix request; never Fix.
 		suspected bool
+		// fix: the check is cleared and green-reviewed, a saved green check
+		// (fifth review, 4): its failure is the round's Fix, never Suspected.
+		fix bool
 	}{
 		{name: "red by assertion, reviewed, the evaluator's fail: failed", in: redFound(),
 			result: ResultUnsure, reason: ReasonSuspectedDefect, suspected: true},
@@ -139,7 +142,25 @@ func TestDecideRedCheck(t *testing.T) {
 		{name: "once cleared, re-confirmed red: unsure",
 			in:     with(redFound(), func(in *Input) { in.Checks[0].Cleared = true }),
 			result: ResultUnsure, reason: ReasonNotReproduced},
-		{name: "once it replayed green, a later regression fails as any saved check's",
+		// Fifth review, 4: once cleared (it replayed green) and reviewed with
+		// the green question, the check is proven against a working build: a
+		// saved green check, whose regression fixes automatically.
+		{name: "once cleared and green-reviewed, a later regression fails as any saved check's",
+			in: with(redFound(), func(in *Input) {
+				in.Checks[0].Cleared = true
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2}}
+				in.Confirmations = nil
+				in.Reviews = append(in.Reviews, CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"),
+					Answer: ReviewProves})
+			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
+		{name: "once cleared and green-reviewed only, a later regression fails as any saved check's",
+			in: with(redFound(), func(in *Input) {
+				in.Checks[0].Cleared = true
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2}}
+				in.Confirmations = nil
+				in.Reviews[0] = CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"), Answer: ReviewProves}
+			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
+		{name: "once cleared but never green-reviewed, a later regression is still suspected",
 			in: with(redFound(), func(in *Input) {
 				in.Checks[0].Cleared = true
 				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2}}
@@ -166,8 +187,12 @@ func TestDecideRedCheck(t *testing.T) {
 			if r.Result != tc.result || r.Reason != tc.reason {
 				t.Fatalf("result %s (%s), want %s (%s)", r.Result, r.Reason, tc.result, tc.reason)
 			}
-			if d.Fix != nil {
-				t.Fatalf("fix %+v: a check saved red never starts an automatic fix", d.Fix)
+			if (d.Fix != nil) != tc.fix {
+				t.Fatalf("fix %+v, want %v: a check saved red and not cleared never starts an automatic fix", d.Fix,
+					tc.fix)
+			}
+			if tc.fix && (len(d.Fix.Failures) != 1 || d.Fix.Failures[0].CheckDigest != dg("red")) {
+				t.Errorf("fix failures %+v, want the cleared check's", d.Fix)
 			}
 			if (d.Suspected != nil) != tc.suspected {
 				t.Fatalf("suspected %+v, want %v", d.Suspected, tc.suspected)

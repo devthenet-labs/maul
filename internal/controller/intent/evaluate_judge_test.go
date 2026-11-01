@@ -127,7 +127,7 @@ func checkJudgeRoute(t *testing.T, tc judgeRoute, check v1alpha1.SavedCheck) {
 	p := e.prVerifyPass(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		routeRecords(in, tc, e.clock.Now())
-		applyJudgement(in, j)
+		applyJudgement(in, j, time.Now())
 		p.releaseIfDue(in)
 	})
 	v := e.verification(name)

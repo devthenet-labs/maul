@@ -118,11 +118,17 @@ func writeMethod(m string) bool {
 	return false
 }
 
-// writesRun reports a request whose path or body names {{run}}.
+// writesRun reports a request whose path, less its query (fifth review, 3:
+// a query names no data the write made), or whose body names {{run}}; a
+// JSON body only by a value, never an object key, which substitution
+// leaves as it is (fifth review, 2).
 func writesRun(r acceptance.Request) bool {
-	return strings.Contains(r.Path, checks.RunPlaceholder) || strings.Contains(r.Body, checks.RunPlaceholder) ||
-		valueKeyed(r.JSON, nil)
+	return runKeyed(pathOnly(r.Path), nil) || runKeyed(r.Body, nil) ||
+		r.JSON != nil && r.JSON.AnyString(func(s string) bool { return runKeyed(s, nil) })
 }
+
+// pathOnly is a request path without its query.
+func pathOnly(p string) string { return strings.SplitN(p, "?", 2)[0] }
 
 // runKeyed reports whether s names the run's own data: {{run}}, or a
 // capture of one of the check's own writes.
@@ -138,10 +144,10 @@ func runKeyed(s string, own map[string]bool) bool {
 	return false
 }
 
-// valueKeyed is runKeyed of an expected value's JSON.
-func valueKeyed(v any, own map[string]bool) bool {
-	b, err := json.Marshal(v)
-	return err == nil && runKeyed(string(b), own)
+// valueKeyed is runKeyed of an expected value's strings, never its object
+// keys, which substitution leaves as they are (fifth review, 2).
+func valueKeyed(v acceptance.Value, own map[string]bool) bool {
+	return v.AnyString(func(s string) bool { return runKeyed(s, own) })
 }
 
 // listShape reports a matcher over a list ($order, $includes): over shared
@@ -212,7 +218,7 @@ func judgeContent(st acceptance.Step, rep reply, doc any, valid bool, run string
 	own map[string]bool) (string, string) {
 	// The step reads the run's own data when its path (never its query)
 	// addresses it.
-	pathKeyed := runKeyed(strings.SplitN(st.Request.Path, "?", 2)[0], own)
+	pathKeyed := runKeyed(pathOnly(st.Request.Path), own)
 	for _, ptr := range sortedKeys(st.Expect.JSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if want := st.Expect.JSON[ptr]; !checks.MatchJSON(want, run, caps, raw, present) {

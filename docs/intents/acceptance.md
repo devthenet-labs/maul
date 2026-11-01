@@ -308,8 +308,9 @@ Auto-fix halts the moment a human acts:
   keeps auto-fix armed for it, and a fix round may then build on top of your commit. A push GitHub recorded after the
   re-arm, in the same second, or at a time GitHub will not show, still halts it. With the evaluator, while maul holds a
   suspected defect at the current commits (see [A defect found in round 1](evaluator.md#a-defect-found-in-round-1)),
-  `/maul verify fix` confirms it instead: the fix round starts at once, handed maul's reproduction, and no new
-  evaluation runs first.
+  `/maul verify fix` written after maul recorded it confirms it instead: the fix round starts at once, handed maul's
+  reproduction and any other failure the round found, and no new evaluation runs first. One written before keeps the
+  meaning above.
 - **The preview link.** With the evaluator and a gated hand-off, an approver's changes-requested review or
   `/maul revise` or `/maul retry` on a pull request, a push maul did not make, or `/maul preview` releases a held
   preview link at once, labelled as still being checked, even before the first evaluation has started. A plain comment,

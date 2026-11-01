@@ -613,6 +613,15 @@ func genRuns(r *rand.Rand) []CheckRun {
 // judged.
 func genBiased(r *rand.Rand, in *Input) {
 	for _, c := range in.Checks {
+		if c.ExpectFail && c.Cleared && r.Intn(3) == 0 {
+			// Cleared and reviewed with the green question, then a replay
+			// fail: a saved green check's regression (fifth review, 4).
+			in.Reviews = append(in.Reviews, CheckReview{CheckDigest: c.Digest, OutcomeDigest: od(c.Outcome),
+				Answer: ReviewProves})
+			in.Replay = append(in.Replay, CheckRun{CheckDigest: c.Digest, Result: RunFail, Token: "tok",
+				Seq: int32(r.Intn(20))})
+			continue
+		}
 		if r.Intn(4) != 0 {
 			in.Reviews = append(in.Reviews, CheckReview{CheckDigest: c.Digest, OutcomeDigest: od(c.Outcome),
 				Answer: pickOf(r, genAnswers), ExpectFail: c.ExpectFail && r.Intn(4) != 0, FailedStep: c.FailedStep,
@@ -812,9 +821,9 @@ func oracleRound(in Input, o OutcomeRef, _ string) error {
 
 // decideStats counts what the property exercised, so a weak generator
 // fails instead of passing vacuously.
-type decideStats struct{ passed, fixes, suspected, replays, ready int }
+type decideStats struct{ passed, fixes, clearedFixes, suspected, replays, ready int }
 
-func (s *decideStats) add(d Decision) {
+func (s *decideStats) add(in Input, d Decision) {
 	for _, r := range d.PerOutcome {
 		if r.Result == ResultPassed {
 			s.passed++
@@ -822,6 +831,11 @@ func (s *decideStats) add(d Decision) {
 	}
 	if d.Fix != nil {
 		s.fixes++
+	}
+	if d.Fix != nil && slices.ContainsFunc(d.Fix.Failures, func(f FixFailure) bool {
+		return oracleRed(in, f.CheckDigest)
+	}) {
+		s.clearedFixes++
 	}
 	if d.Suspected != nil {
 		s.suspected++
@@ -842,7 +856,7 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	var stats decideStats
 	prop := func(g genDecide) bool {
 		d := Decide(g.in)
-		stats.add(d)
+		stats.add(g.in, d)
 		if err := checkDecision(g.in, d); err != nil {
 			t.Logf("%v\ninput %+v", err, g.in)
 			return false
@@ -852,7 +866,8 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	if err := quick.Check(prop, quickConfig(5000)); err != nil {
 		t.Error(err)
 	}
-	if stats.passed == 0 || stats.fixes == 0 || stats.suspected == 0 || stats.replays == 0 || stats.ready == 0 {
+	if stats.passed == 0 || stats.fixes == 0 || stats.clearedFixes == 0 || stats.suspected == 0 ||
+		stats.replays == 0 || stats.ready == 0 {
 		t.Errorf("the generator is too weak: %+v", stats)
 	}
 }
@@ -902,8 +917,8 @@ func oracleFixable(in Input, f FixFailure) error {
 	if !oracleProves(in, f.CheckDigest, o) {
 		return fmt.Errorf("failing check not reviewed proves")
 	}
-	if oracleRed(in, f.CheckDigest) && !oracleRedReview(in, f.CheckDigest, o) {
-		return fmt.Errorf("a check saved red not reviewed proves with the red question")
+	if oracleRed(in, f.CheckDigest) && !oracleRedReview(in, f.CheckDigest, o) && !oracleCleared(in, f) {
+		return fmt.Errorf("a check saved red not reviewed proves with the red question, nor cleared")
 	}
 	if !slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
 		return v.Outcome == o.ID && v.Claim == ClaimFail && len(v.Ledger) > 0
@@ -994,6 +1009,18 @@ func oracleCountedFail(in Input, digest string) bool {
 // fix only in a clean environment, every failure fixable, and (fourth
 // review) a check saved red never in Fix, every suspected failure a
 // fixable failure of one, and no outcome failed on a suspected defect.
+// oracleCleared reports f's check saved red, cleared (it replayed green) and
+// reviewed proves with the green question for f's outcome: a saved green
+// check from then on (fifth review, 4).
+func oracleCleared(in Input, f FixFailure) bool {
+	c, ok := oracleSavedRed(in, f.CheckDigest)
+	i := slices.IndexFunc(in.Outcomes, func(o OutcomeRef) bool { return o.ID == f.Outcome })
+	return ok && c.Cleared && i >= 0 && slices.ContainsFunc(in.Reviews, func(r CheckReview) bool {
+		return r.CheckDigest == f.CheckDigest && r.OutcomeDigest == in.Outcomes[i].Digest && !r.ExpectFail &&
+			r.Answer == ReviewProves
+	})
+}
+
 func oracleFixRequests(in Input, d Decision) error {
 	if d.Fix != nil {
 		if len(d.Fix.Failures) == 0 || ClassifyEnvironment(in.Env) != EnvOK {
@@ -1003,8 +1030,8 @@ func oracleFixRequests(in Input, d Decision) error {
 			if err := oracleFixable(in, f); err != nil {
 				return fmt.Errorf("fix failure %+v: %w", f, err)
 			}
-			if oracleRed(in, f.CheckDigest) {
-				return fmt.Errorf("fix failure %+v is a check saved red", f)
+			if oracleRed(in, f.CheckDigest) && !oracleCleared(in, f) {
+				return fmt.Errorf("fix failure %+v is a check saved red, not cleared and green-reviewed", f)
 			}
 		}
 	}
@@ -1012,7 +1039,7 @@ func oracleFixRequests(in Input, d Decision) error {
 		return nil
 	}
 	for _, f := range d.Suspected.Failures {
-		if err := oracleFixable(in, f); err != nil || !oracleRed(in, f.CheckDigest) {
+		if err := oracleFixable(in, f); err != nil || !oracleRed(in, f.CheckDigest) || oracleCleared(in, f) {
 			return fmt.Errorf("suspected failure %+v: not a fixable failure of a check saved red (%v)", f, err)
 		}
 	}

@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -110,12 +112,19 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 // suspectedRecord is the suspected defect j's decision found (fourth
 // review: failed only on checks saved red), recorded for the verification
 // j judged at headSet; nil for none.
-func suspectedRecord(j roundJudgement, headSet string) *v1alpha1.SuspectedDefect {
+func suspectedRecord(j roundJudgement, headSet string, now time.Time,
+	prev *v1alpha1.SuspectedDefect) *v1alpha1.SuspectedDefect {
 	s := j.decision.Suspected
 	if s == nil || j.verification == "" || headSet == "" {
 		return nil
 	}
-	rec := &v1alpha1.SuspectedDefect{Verification: j.verification, HeadSetDigest: headSet}
+	if prev != nil && prev.Verification == j.verification && prev.HeadSetDigest == headSet {
+		// The same round judged again: the record, its time and any
+		// confirmation stand.
+		return prev
+	}
+	rec := &v1alpha1.SuspectedDefect{Verification: j.verification, HeadSetDigest: headSet,
+		RecordedAt: metav1.NewTime(now)}
 	for _, f := range s.Failures {
 		if !slices.Contains(rec.Outcomes, f.Outcome) && len(rec.Outcomes) < acceptance.MaxOutcomes {
 			rec.Outcomes = append(rec.Outcomes, f.Outcome)
@@ -124,11 +133,35 @@ func suspectedRecord(j roundJudgement, headSet string) *v1alpha1.SuspectedDefect
 	return rec
 }
 
-// suspectedPending reports v's suspected defect at its current heads,
-// judged and not yet confirmed by an approver: it holds the gated hand-off.
+// suspectedPending reports v's suspected defect at its current heads, not
+// yet confirmed by an approver, whatever else the round found (fifth
+// review, 5): it holds the gated hand-off and is shown on the issue.
 func suspectedPending(v *v1alpha1.IntentVerification) bool {
-	return v != nil && v.State == v1alpha1.VerificationUnconfirmed && v.Suspected != nil &&
-		v.Suspected.Confirmed == nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
+	return v != nil && v.Suspected != nil && v.Suspected.Confirmed == nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
+}
+
+// suspectedConfirmable reports v's suspected defect pending in a judged
+// state (a fix round is not running, nor a new round being evaluated) and
+// a /maul verify fix created at at confirming it: created after maul
+// recorded it, so a person can have seen the evidence (fifth review, 1).
+// GitHub and the record both keep whole seconds: a comment in the record's
+// own second may predate it, and does not confirm it.
+func suspectedConfirmable(v *v1alpha1.IntentVerification, at time.Time) bool {
+	if !suspectedPending(v) {
+		return false
+	}
+	switch v.State {
+	case v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationFailing, v1alpha1.VerificationExhausted:
+	default:
+		return false
+	}
+	return at.Truncate(time.Second).After(v.Suspected.RecordedAt.Truncate(time.Second))
+}
+
+// defectConfirmed reports v's suspected defect at its current heads
+// confirmed by an approver (fifth review, 6).
+func defectConfirmed(v *v1alpha1.IntentVerification) bool {
+	return v != nil && v.Suspected != nil && v.Suspected.Confirmed != nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
 }
 
 // suspectedConfirmed reports v's suspected defect confirmed by an approver,
@@ -164,7 +197,9 @@ func addRedCleared(acc *v1alpha1.IntentAcceptance, digests []string, verificatio
 // clearedRed are the digests of the checks of cs saved red whose replays
 // in runs all passed, with a run token, at least one (review finding 2):
 // from then on their later steps have run, and their replays are judged as
-// any saved check's.
+// any saved check's; once also reviewed proves with the green question,
+// each is proven against a working build and is a saved green check, whose
+// later regression fixes automatically (fifth review, 4).
 func clearedRed(cs []v1alpha1.SavedCheck, runs []v1alpha1.CheckRun) []string {
 	var out []string
 	for _, c := range cs {
@@ -433,7 +468,7 @@ func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1a
 
 // applyJudgement writes j onto cur's verification: the results, the counts,
 // the anomalies, the disputed checks a replay round awaits, and the state.
-func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
+func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	nv, acc := cur.Status.Verification, cur.Status.Acceptance
 	clearJudgement(nv)
 	nv.Outcomes = outcomeResults(acc, nv.HeadSetDigest, j)
@@ -450,7 +485,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
 	}
 	nv.Anomalies = j.anomalies
 	addRedCleared(acc, j.cleared, j.verification)
-	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest)
+	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest, now, nv.Suspected)
 	state, replayNext := judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	nv.State, nv.Disputed = state, nil
 	if replayNext {
@@ -479,7 +514,7 @@ func (p *pass) writeJudgement(ctx context.Context, pv *v1alpha1.PreviewVerificat
 		slog.Bool("fix", j.decision.Fix != nil), slog.Bool("replay", j.decision.ReplayRound),
 		slog.String("environment", string(j.decision.Env)))
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
-		applyJudgement(cur, j)
+		applyJudgement(cur, j, p.now)
 		p.releaseIfDue(cur)
 		return nil
 	})

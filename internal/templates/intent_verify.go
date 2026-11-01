@@ -140,6 +140,10 @@ type VerifyProgress struct {
 	// clause names evaluations and counts outcomes confirmed. false is
 	// slice 1's wording, unchanged.
 	Outcomes bool
+	// DefectConfirmed: a person confirmed the defect maul suspected (fifth
+	// review, 6), so the fix is theirs, never called automatic, and no
+	// failing count is shown for it.
+	DefectConfirmed bool
 }
 
 // verifyRestingLine is the sentence of a state nothing is checked in:
@@ -228,6 +232,10 @@ func verifyLine(p VerifyProgress) string {
 	case VerifyPassed:
 		head = passed
 	case VerifyFailing:
+		if p.DefectConfirmed {
+			head = which + ": a person confirmed the defect maul found: " + join(counts)
+			break
+		}
 		head = which + " failing: " + join(counts, fixes)
 	case VerifyExhausted:
 		head = which + " failing: " + join(counts, "no automatic fix left")
@@ -242,16 +250,26 @@ func verifyLine(p VerifyProgress) string {
 	if p.ManualOpen > 0 {
 		head += fmt.Sprintf(", %d for a human", p.ManualOpen)
 	}
+	return head + fixClause(p) + "."
+}
+
+// fixClause is the progress clause's fix: queued, running or halted; a fix
+// a person confirmed the defect for is never called automatic (fifth
+// review, 6).
+func fixClause(p VerifyProgress) string {
 	switch p.AutoFix {
 	case FixQueued, FixRunning:
-		head += "; automatic fix " + p.AutoFix
-	case FixHalted:
-		head += "; automatic fix halted"
-		if r := shown(cutRunes(visibleText(p.AutoFixReason), verifyReasonMaxBytes)); r != "" {
-			head += " (" + code(r) + ")"
+		if p.DefectConfirmed {
+			return "; a fix is " + p.AutoFix
 		}
+		return "; automatic fix " + p.AutoFix
+	case FixHalted:
+		if r := shown(cutRunes(visibleText(p.AutoFixReason), verifyReasonMaxBytes)); r != "" {
+			return "; automatic fix halted (" + code(r) + ")"
+		}
+		return "; automatic fix halted"
 	}
-	return head + "."
+	return ""
 }
 
 // plural is one when n is 1, else many.
@@ -361,6 +379,9 @@ type VerifySection struct {
 type VerifySuspected struct {
 	Outcomes     []string
 	Reproduction string
+	// ConfirmedBy is the approver whose /maul verify fix confirmed it
+	// (fifth review, 6); "" while it waits for a person.
+	ConfirmedBy string
 }
 
 // VerifySuspectedMaxBytes bounds the reproduction a comment shows.
@@ -377,13 +398,21 @@ func suspectedNote(s *VerifySuspected) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "maul believes %s %s a defect: the evaluator reported the outcome fails, and maul's own runs of "+
-		"the check it saved to show it, each alone under a fresh run token, failed the same assertion. maul does not "+
-		"fix a defect found this way on its own: a person should confirm it. An approver's `/maul verify fix` "+
-		"starts a fix round, handed the reproduction below; until then the preview link stays held. Known limits: "+
-		"an http or exec check reads right after it writes, so an application that updates asynchronously or serves "+
-		"a cached read for a few seconds can look like this; a `clickable` check judges one moment, so a passing "+
-		"toast or spinner over the element can too.", strings.Join(ids, ", "), plural(int32(len(ids)), "has", "have"))
+	if who := shown(s.ConfirmedBy); who != "" {
+		fmt.Fprintf(&b, "A person, %s, confirmed the defect maul found in %s: a fix round, handed the reproduction "+
+			"below, fixes it, and maul checks the outcomes again once the fix is pushed.", code(who),
+			strings.Join(ids, ", "))
+	} else {
+		fmt.Fprintf(&b, "maul believes %s %s a defect: the evaluator reported the outcome fails, and maul's own runs "+
+			"of the check it saved to show it, each alone under a fresh run token, failed the same assertion. maul "+
+			"does not fix a defect found this way on its own: a person should confirm it. An approver's "+
+			"`/maul verify fix` starts a fix round, handed the reproduction below; until then the preview link stays "+
+			"held. Known limits: an http or exec check reads right after it writes, so an application that updates "+
+			"asynchronously or serves a cached read for a few seconds can look like this; a `clickable` check judges "+
+			"one moment, so a passing toast or spinner over the element can too; and an exec check's failed "+
+			"assertion is whatever its program reports, so a program that reports every failure that way can look "+
+			"like this too.", strings.Join(ids, ", "), plural(int32(len(ids)), "has", "have"))
+	}
 	if r := strings.TrimSpace(cutRunes(visibleText(s.Reproduction), VerifySuspectedMaxBytes)); r != "" {
 		b.WriteString("\n\nmaul's reproduction:\n\n" + fence(defang(r)))
 	}

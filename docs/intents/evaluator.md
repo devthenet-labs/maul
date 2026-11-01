@@ -134,9 +134,16 @@ check of the outcome as approved, which would pass where the outcome holds and f
 independent reviews kept finding ways a correct build could still look red, so such an outcome is judged **unsure**, a
 _suspected defect_, and the commit status and the hand-off treat it as unsure. maul holds the gated hand-off and shows
 the evidence on the issue: the check it saved, maul's reproduction and that the evaluator reported the outcome fails,
-saying maul believes this is a defect and a person should confirm it. An approver's `/maul verify fix` then starts the
-fix round exactly as an automatic one would, handed that reproduction. A regression of a check saved **green** keeps
-starting the automatic fix as before. Every one of these must hold before a defect is even suspected:
+saying maul believes this is a defect and a person should confirm it. The evidence stays on the issue whatever else the
+round found: beside another outcome that is failing, too. An approver's `/maul verify fix` then starts the fix round
+exactly as an automatic one would, handed that reproduction and any failure of a check saved green the round found
+beside it; the commit status and the status comment then say a person confirmed the defect and a fix is running. Only a
+`/maul verify fix` created after maul recorded the suspected defect confirms it: one written earlier (say, while the
+round was still being evaluated) keeps its earlier meaning, a request that re-arms automatic fixes, so no fix starts
+before a person can have seen the evidence. `/maul verify` and `/maul verify fix --reset` never confirm it; nor does
+anything once the pull requests' heads have moved; and while it waits, the hand-off's own time limit still releases the
+link. A regression of a check saved **green** keeps starting the automatic fix as before. Every one of these must hold
+before a defect is even suspected:
 
 1. **Red by assertion.** The check's dry run failed one assertion the outcome is the judge of, about data the check's
    own run made, in a check that otherwise ran: every step before passed, and both attempts failed the same assertion of
@@ -144,9 +151,11 @@ starting the automatic fix as before. Every one of these must hold before a defe
    - `http`: only content: a JSON pointer (never the whole document) that resolves to a different value, not by a list
      matcher (`$order`, `$includes`); a header that is present with a different value; or body text missing from a body
      that is not an HTML page. And only when the step reads the run's own data: its path (not its query) names `{{run}}`
-     or a value captured from one of the check's own writes, or the expected value names one. No status counts, a 500
-     included, nor a pointer or header that resolves to nothing, a total or a count over shared rows, HTML where JSON
-     was expected, no answer, or a capture with nothing to keep. The check may list only success statuses.
+     or a value captured from one of the check's own writes (a POST, PUT or PATCH whose path, less its query, or whose
+     body names `{{run}}`: a JSON body by a value, never by an object key, which `{{run}}` is never substituted into),
+     or the expected value names one. No status counts, a 500 included, nor a pointer or header that resolves to
+     nothing, a total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to
+     keep. The check may list only success statuses.
    - `exec`: only a program that says so itself, printing `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a
      line of its output (stdout and stderr combined), `<id>` naming the assertion, with the check's expectation failing.
      An exit code alone, a crash, `127` or a traceback never is.
@@ -157,7 +166,8 @@ starting the automatic fix as before. Every one of these must hold before a defe
      wait 15 seconds for each judgement instead of 5, so a slow but correct page is not read as the defect.
 
    `maul-tool` prints `red by assertion at step <n> (<assertion>)` for such a run. The check must also write data of its
-   own run: `{{run}}` in a POST, PUT or PATCH (its path or body), a browser fill or its program.
+   own run: `{{run}}` in a POST, PUT or PATCH (its path or body; in a JSON body, a value, never an object key), a
+   browser fill or its program.
 
 2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
    assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
@@ -180,12 +190,14 @@ The check is then stored (marked as saved red, with the assertion it failed), an
 the verify-fix round is handed its failure as the reproduction. After the fix, the same check replays at the new heads;
 green, it is asked the green question too (the red review never asked whether a pass could be special-cased or merely
 shows a call worked), and only once that answer is `proves` does it pass the outcome. A replay that clears it counts
-from the next round on, so the round and its fix are decided on the same facts. Until it has replayed green once, its
-later steps and its other assertions have never run, so a replay or a new confirmation that fails other than by that
-same assertion is not evidence: never a second fix, never a block. Another proven check may pass the outcome, and a
-dispute with a proven replacement can still retire it. A check saved red that already replayed green and is proposed red
-again is unsure. Where a base is available, a check of a new outcome that fails at base too is expected (the feature did
-not exist), and is not a reason to refuse it.
+from the next round on, so the round and its fix are decided on the same facts. Once cleared and reviewed `proves` with
+the green question, it has been proven against a working build: from then on it is a saved green check, and a later
+regression of it starts the automatic fix, with no person's confirmation. Until it has replayed green once, its later
+steps and its other assertions have never run, so a replay or a new confirmation that fails other than by that same
+assertion is not evidence: never a second fix, never a block. Another proven check may pass the outcome, and a dispute
+with a proven replacement can still retire it. A check saved red that already replayed green and is proposed red again
+is unsure. Where a base is available, a check of a new outcome that fails at base too is expected (the feature did not
+exist), and is not a reason to refuse it.
 
 Known limits, which is why a person confirms: maul's own run happens on the preview the exploration used, so a check
 whose failing assertion reads state the evaluator left behind could go red deterministically (the write rule, the rule

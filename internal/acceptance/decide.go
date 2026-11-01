@@ -502,7 +502,9 @@ func (d decider) outcomes() ([]OutcomeResult, []FixFailure, []FixFailure) {
 	var failures, suspected []FixFailure
 	for _, o := range d.in.Outcomes {
 		r, fs := d.outcome(o)
-		green := slices.DeleteFunc(slices.Clone(fs), func(f FixFailure) bool { return d.red[f.CheckDigest] })
+		green := slices.DeleteFunc(slices.Clone(fs), func(f FixFailure) bool {
+			return d.red[f.CheckDigest] && !d.cleared(f.CheckDigest, o)
+		})
 		if r.Result == ResultFailed && len(green) == 0 {
 			r.Result, r.Reason = ResultUnsure, ReasonSuspectedDefect
 			suspected = append(suspected, fs...)
@@ -658,7 +660,24 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 		proves = true
 		red = red || (r.ExpectFail && r.FailedStep == c.FailedStep && r.FailedAssertion == c.FailedAssertion)
 	}
-	return proves && (red || !c.ExpectFail && !d.red[c.Digest])
+	return proves && (red || d.cleared(c.Digest, o) || !c.ExpectFail && !d.red[c.Digest])
+}
+
+// cleared reports a check saved red that has replayed green (Cleared) and
+// is reviewed proves for o with the green question (fifth review, 4):
+// proven against a working build, it is a saved green check from then on,
+// and its regression fixes automatically.
+func (d decider) cleared(digest string, o OutcomeRef) bool {
+	c, red := d.redChecks[digest]
+	return red && c.Cleared && d.greenReviewed(digest, o)
+}
+
+// greenReviewed reports a review of the green question answering proves
+// for the check and o.
+func (d decider) greenReviewed(digest string, o OutcomeRef) bool {
+	return slices.ContainsFunc(d.in.Reviews, func(r CheckReview) bool {
+		return r.CheckDigest == digest && r.OutcomeDigest == o.Digest && !r.ExpectFail && r.Answer == ReviewProves
+	})
 }
 
 // passes is supports for a pass: a check saved red passes its outcome only
@@ -672,9 +691,7 @@ func (d decider) passes(c StoredCheck, o OutcomeRef) bool {
 	if !c.ExpectFail && !d.red[c.Digest] {
 		return true
 	}
-	return slices.ContainsFunc(d.in.Reviews, func(r CheckReview) bool {
-		return r.CheckDigest == c.Digest && r.OutcomeDigest == o.Digest && !r.ExpectFail && r.Answer == ReviewProves
-	})
+	return d.greenReviewed(c.Digest, o)
 }
 
 // discriminates is rule 5. With no base, or no clean verdict at base (the

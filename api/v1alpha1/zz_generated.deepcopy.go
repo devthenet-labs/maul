@@ -4961,6 +4961,7 @@ func (in *SuspectedDefect) DeepCopyInto(out *SuspectedDefect) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	in.RecordedAt.DeepCopyInto(&out.RecordedAt)
 	if in.Confirmed != nil {
 		in, out := &in.Confirmed, &out.Confirmed
 		*out = new(Rearm)
