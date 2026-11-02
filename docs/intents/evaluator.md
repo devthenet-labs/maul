@@ -200,12 +200,13 @@ green, it is asked the green question too (the red review never asked whether a 
 shows a call worked), and only once that answer is `proves` does it pass the outcome. A replay that clears it counts
 from the next round on, so the round and its fix are decided on the same facts. Once cleared and reviewed `proves` with
 the green question, it has been proven against a working build: from then on it is a saved green check, and a later
-regression of it starts the automatic fix, with no person's confirmation. Until it has replayed green once, its later
-steps and its other assertions have never run, so a replay or a new confirmation that fails other than by that same
-assertion is not evidence: never a second fix, never a block. Another proven check may pass the outcome, and a dispute
-with a proven replacement can still retire it. A check saved red that already replayed green and is proposed red again
-is unsure. Where a base is available, a check of a new outcome that fails at base too is expected (the feature did not
-exist), and is not a reason to refuse it.
+regression of it starts the automatic fix, with no person's confirmation. Never a layout read that writes nothing: it
+measures whatever the page shows, so its failures always wait for a person, cleared or not. Until it has replayed green
+once, its later steps and its other assertions have never run, so a replay or a new confirmation that fails other than
+by that same assertion is not evidence: never a second fix, never a block. Another proven check may pass the outcome,
+and a dispute with a proven replacement can still retire it. A check saved red that already replayed green and is
+proposed red again is unsure. Where a base is available, a check of a new outcome that fails at base too is expected
+(the feature did not exist), and is not a reason to refuse it.
 
 Known limits, which is why a person confirms: maul's own run happens on the preview the exploration used, so a check
 whose failing assertion reads state the evaluator left behind could go red deterministically (the write rule, the rule

@@ -69,6 +69,11 @@ type StoredCheck struct {
 	// many. Until Cleared, only a run red by this same assertion counts.
 	FailedAssertion string
 	Cleared         bool
+	// LayoutOnly marks a check saved red that writes no data of its own
+	// run, admitted only by the layout exception (checks.FailsLayout): it
+	// measures whatever the page shows, so it is never promoted to a saved
+	// green check once cleared, and its failures wait for a person.
+	LayoutOnly bool
 }
 
 // RunResult is a check run's result as the tools ledger recorded it.
@@ -666,10 +671,12 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 // cleared reports a check saved red that has replayed green (Cleared) and
 // is reviewed proves for o with the green question (fifth review, 4):
 // proven against a working build, it is a saved green check from then on,
-// and its regression fixes automatically.
+// and its regression fixes automatically. Never one admitted red only by
+// the layout exception (LayoutOnly, #309 review): it measures whatever the
+// page shows, so its failures always wait for a person.
 func (d decider) cleared(digest string, o OutcomeRef) bool {
 	c, red := d.redChecks[digest]
-	return red && c.Cleared && d.greenReviewed(digest, o)
+	return red && c.Cleared && !c.LayoutOnly && d.greenReviewed(digest, o)
 }
 
 // greenReviewed reports a review of the green question answering proves

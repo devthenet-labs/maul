@@ -566,7 +566,8 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 		if r.Intn(4) != 0 {
 			in.Checks = append(in.Checks, StoredCheck{Digest: c, Outcome: pickOf(r, genOutcomes), Form: pickOf(r, forms),
 				Valid: r.Intn(5) != 0, Retired: r.Intn(6) == 0, ExpectFail: r.Intn(4) == 0,
-				FailedStep: int32(1 + r.Intn(2)), FailedAssertion: pickOf(r, genAssertions), Cleared: r.Intn(3) == 0})
+				FailedStep: int32(1 + r.Intn(2)), FailedAssertion: pickOf(r, genAssertions), Cleared: r.Intn(3) == 0,
+				LayoutOnly: r.Intn(4) == 0})
 		}
 	}
 	in.Replay, in.Confirmations = genRuns(r), genRuns(r)
@@ -1015,7 +1016,7 @@ func oracleCountedFail(in Input, digest string) bool {
 func oracleCleared(in Input, f FixFailure) bool {
 	c, ok := oracleSavedRed(in, f.CheckDigest)
 	i := slices.IndexFunc(in.Outcomes, func(o OutcomeRef) bool { return o.ID == f.Outcome })
-	return ok && c.Cleared && i >= 0 && slices.ContainsFunc(in.Reviews, func(r CheckReview) bool {
+	return ok && c.Cleared && !c.LayoutOnly && i >= 0 && slices.ContainsFunc(in.Reviews, func(r CheckReview) bool {
 		return r.CheckDigest == f.CheckDigest && r.OutcomeDigest == in.Outcomes[i].Digest && !r.ExpectFail &&
 			r.Answer == ReviewProves
 	})

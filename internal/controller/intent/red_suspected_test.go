@@ -9,6 +9,7 @@ import (
 	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // The fifth review of the round-1 fallback: a suspected defect is confirmed
@@ -281,5 +282,44 @@ func TestClearedRedCheckIsGreen(t *testing.T) {
 	}
 	if all := e.fixInput(name); !strings.Contains(all, "`version-shown`") {
 		t.Errorf("the fix round's input lacks the regression:\n%s", all)
+	}
+}
+
+// TestClearedLayoutRedCheckStaysSuspected (#309 review): a check saved red
+// that writes no data of its own run, admitted only by the layout
+// exception, is never promoted: cleared in an earlier round and reviewed
+// with the green question, its later failure is still a suspected defect,
+// held for a person, and starts no fix.
+func TestClearedLayoutRedCheckStaysSuspected(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	red := savedCheck(t, `{"id":"version-shown","outcome":"version-shown","form":"browser","browser":{"steps":[`+
+		`{"goto":"/"},{"expect":{"assert":"size","locator":{"testid":"version"},"height":48,"tolerance":0.5}}]}}`)
+	red.Expect, red.FailedStep, red.FailedAssertion = v1alpha1.CheckExpectFail, 2, "expect"
+	e.storeChecks(name, red) // reviewed proves with the green question
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		acc := in.Status.Acceptance
+		acc.RedCleared = []v1alpha1.RedClearance{{Digest: red.Digest, Verification: name + "-v0-a1"}}
+		redReview := acc.Reviews[len(acc.Reviews)-1]
+		redReview.Expect, redReview.FailedStep, redReview.FailedAssertion = v1alpha1.CheckExpectFail, 2, "expect"
+		acc.Reviews = append(acc.Reviews, redReview) // and with the red question, when it was saved
+	})
+	e.evaluateReporting(failingReport)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.runRuns()
+	e.runRuns()
+	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: red.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
+		Seq: 2, AssertionStep: 2, AssertionID: "expect"})
+	e.settleReviews(name)
+	v := e.verification(name)
+	if v.Failed != 0 || v.Outcomes[0].Reason != acceptance.ReasonSuspectedDefect || v.Suspected == nil {
+		t.Fatalf("verification = %s %+v, suspected %+v; want a suspected defect on the layout check", v.State,
+			v.Outcomes, v.Suspected)
+	}
+	e.review(name, 4)
+	if n := len(e.runsOf(name, v1alpha1.IntentStageRevise)); n != 0 {
+		t.Fatalf("revise runs = %d: a layout-only red check was promoted to an automatic fix", n)
 	}
 }

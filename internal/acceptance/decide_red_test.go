@@ -160,6 +160,17 @@ func TestDecideRedCheck(t *testing.T) {
 				in.Confirmations = nil
 				in.Reviews[0] = CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"), Answer: ReviewProves}
 			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
+		// #309 review: a check admitted red only by the layout exception
+		// (it writes no data of its own run) measures whatever the page
+		// shows: never promoted, its regression waits for a person.
+		{name: "once cleared and green-reviewed, a layout-only check's regression is still suspected",
+			in: with(redFound(), func(in *Input) {
+				in.Checks[0].Cleared, in.Checks[0].LayoutOnly = true, true
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2}}
+				in.Confirmations = nil
+				in.Reviews = append(in.Reviews, CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"),
+					Answer: ReviewProves})
+			}), result: ResultUnsure, reason: ReasonSuspectedDefect, suspected: true},
 		{name: "once cleared but never green-reviewed, a later regression is still suspected",
 			in: with(redFound(), func(in *Input) {
 				in.Checks[0].Cleared = true
