@@ -39,25 +39,31 @@ The check, a `browser` check, as maul runs it:
 }
 ```
 
-How maul runs it: the steps run in order in a fresh browser on the running preview, each an
-action or an assertion; `visible` means a person can see the element, `legible` that a person can read its text, and
-`clickable` that it, not something covering it, receives a click.
+How maul runs it: the steps run in order in a fresh browser on the running preview, its
+window always 1280 by 800 CSS pixels, each an action or an assertion; `visible` means a
+person can see the element, `legible` that a person can read its text, and `clickable` that it, not something covering
+it, receives a click.
 Every `{{run}}` is replaced by a fresh token on every run, so the data a check creates is its own.
 
 ## How to judge
 
 This check failed on the build under review: maul ran it itself, each time in a fresh browser or session under a
 fresh run token, and it failed each time at step 2, on its assertion `expect`.
-The application's own state was not fresh: rows and records from earlier runs and from the other agent's exploration
-were still there. The other agent says that failure shows a defect: the outcome does not hold. maul will report the
-outcome failed, and start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change
-code that works. Answer `proves` only if all of these hold:
+This check writes nothing and that assertion measures the page's layout, so the rule that a check use only data it
+created does not apply: a layout read needs no data of its own, and whether an element is the size or in the place the
+outcome promises does not depend on whose rows or records are on the page. Do not refuse it for data it did not
+create, or for rows or records that earlier runs might have left: refuse it on that ground only if the element it
+measures is itself such a row, or is sized or placed by them as the outcome does not promise (a list that grows, a
+long name another run wrote). A person confirms this failure before anything is fixed.
+The other agent says that failure shows a defect: the outcome does not hold. maul will report the outcome failed, and
+start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change code that works.
+Answer `proves` only if all of these hold:
 
 1. The check encodes the outcome as approved: if it passed, that would show the outcome holds. It writes nothing: it
    reads the page's own layout, and the outcome is about that layout.
 2. It would pass on a build where the outcome holds: nothing it expects goes beyond what the outcome states (a size, a
-   position, an alignment, a contrast or a tolerance the outcome does not promise), and the element it measures is the
-   one the outcome is about on any data, not one whose size or place depends on rows or records it did not create.
+   position, an alignment, a contrast or a tolerance the outcome does not promise), and the element it measures is one
+   the outcome is about.
 3. That assertion, `expect` of step 2, measures the outcome itself, not something incidental to
    it (not setup, navigation or an element the outcome says nothing about).
 
