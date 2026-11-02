@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.12](https://github.com/devthenet-labs/maul/compare/v0.13.11...v0.13.12) (2026-11-02)
+
+
+### Features
+
+* **intent:** outcomes a check can prove, checks that prove the whole outcome, and the reviewer's context ([#312](https://github.com/devthenet-labs/maul/issues/312)) ([e350eac](https://github.com/devthenet-labs/maul/commit/e350eac0f4699494786c355d30514a1156642213))
+
+
+### Bug Fixes
+
+* **checks:** measure what is drawn in box relations, not the layout box ([#313](https://github.com/devthenet-labs/maul/issues/313)) ([762493a](https://github.com/devthenet-labs/maul/commit/762493a48198390e0a4cb7453271cf3eec498f7b))
+
 ## [0.13.11](https://github.com/devthenet-labs/maul/compare/v0.13.10...v0.13.11) (2026-11-02)
 
 
