@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -99,6 +100,11 @@ func classifyHTTPError(err error) string {
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "blocked"
+	}
+	// A close at accept that beats the request onto the wire: net/http
+	// reports it with an unexported error, so only its text identifies it.
+	if strings.Contains(err.Error(), "server closed idle connection") {
 		return "blocked"
 	}
 	return outcomeInconclusive

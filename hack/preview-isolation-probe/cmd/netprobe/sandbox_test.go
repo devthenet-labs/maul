@@ -4,9 +4,11 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -150,5 +152,15 @@ func TestRunSandbox(t *testing.T) {
 				t.Errorf("last line %+v", last)
 			}
 		})
+	}
+}
+
+// A guard that closes at accept can beat the request onto the wire, and
+// net/http then reports its own unexported "server closed idle connection"
+// error instead of an EOF: that is the gate closing, so blocked.
+func TestClassifyServerClosedIdle(t *testing.T) {
+	err := &url.Error{Op: "Get", URL: "http://x", Err: errors.New("http: server closed idle connection")}
+	if got := classifyHTTPError(err); got != "blocked" {
+		t.Errorf("classifyHTTPError = %q, want blocked", got)
 	}
 }
