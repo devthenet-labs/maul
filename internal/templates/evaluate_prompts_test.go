@@ -523,7 +523,8 @@ func TestEvaluatePromptStartsTheBrowserAtItsEntry(t *testing.T) {
 func TestCheckReviewPromptLayoutExemption(t *testing.T) {
 	const viewport = "1280 by 800"
 	layout := testCheckReviewPrompt(mustCheck(t, `{"id":"pads","outcome":"pads","form":"browser","browser":{"steps":[`+
-		`{"goto":"/"},{"expect":{"assert":"size","locator":{"role":"button","name":"kick step 1","nth":0},"width":48,"height":48}}]}}`))
+		`{"goto":"/"},{"expect":{"assert":"size",`+
+		`"locator":{"role":"button","name":"kick step 1","nth":0},"width":48,"height":48}}]}}`))
 	layout.ExpectFail, layout.FailedStep, layout.FailedAssertion = true, 2, "expect"
 	got, err := RenderCheckReviewPrompt(layout)
 	if err != nil {
