@@ -40,7 +40,15 @@ The application's own state was not fresh: rows and records from earlier runs an
 were still there. The other agent says that failure shows a defect: the outcome does not hold. maul will report the
 outcome failed, and start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change
 code that works. Answer `proves` only if all of these hold:
-
+{{if .Layout}}
+1. The check encodes the outcome as approved: if it passed, that would show the outcome holds. It writes nothing: it
+   reads the page's own layout, and the outcome is about that layout.
+2. It would pass on a build where the outcome holds: nothing it expects goes beyond what the outcome states (a size, a
+   position, an alignment, a contrast or a tolerance the outcome does not promise), and the element it measures is the
+   one the outcome is about on any data, not one whose size or place depends on rows or records it did not create.
+3. That assertion, `{{.Assertion}}` of step {{.FailedStep}}, measures the outcome itself, not something incidental to
+   it (not setup, navigation or an element the outcome says nothing about).
+{{- else}}
 1. The check encodes the outcome as approved: if it passed, that would show the outcome holds. It does what the
    outcome describes, on data it created itself.
 2. It would pass on a build where the outcome holds: nothing it expects goes beyond what the outcome states (an exact
@@ -49,6 +57,7 @@ code that works. Answer `proves` only if all of these hold:
 3. That assertion, `{{.Assertion}}` of step {{.FailedStep}}, asserts the outcome itself, not something incidental to
    it (not setup, navigation or a value the outcome says nothing about), and it is about data the check itself created
    with its run token, never data it did not create.
+{{- end}}
 {{- if .Marker}}
 4. The program decides this failure itself: it printed `{{.Marker}}`. Find where it prints that line, and answer
    `proves` only if it prints it only when the approved outcome is violated by what it observed: never on a connection

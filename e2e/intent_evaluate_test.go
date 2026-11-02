@@ -96,10 +96,14 @@ func (a *evalApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	status, version := a.status, a.version
 	a.mu.Unlock()
 	// GET /version, or a POST under /version/ (a check writing its run's
-	// own record there).
+	// own record there; under TestIntentEvaluateFixRound's planted defect
+	// the record is still stored, and only the GET fails).
 	if r.URL.Path != "/version" && (r.Method != http.MethodPost || !strings.HasPrefix(r.URL.Path, "/version/")) {
 		http.NotFound(w, r)
 		return
+	}
+	if r.Method == http.MethodPost && status != http.StatusOK {
+		status = http.StatusOK
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -557,6 +561,10 @@ var evaluatorLeak = []string{"-ev-", "-cr-", "-checks-", "Write your report to",
 // fix handoff of the whole run names the evaluator (case 9).
 func TestIntentEvaluateFixRound(t *testing.T) {
 	e := startEvaluate(t, evalOptions{})
+	// Its checks write their run's own record, so a regression of them may
+	// start an automatic fix (#309 review: one that writes nothing is held
+	// for a person).
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CHECK_WRITES", "1")
 	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
 	e.waitEval(t, name, "round 1 to pass", func(v *v1alpha1.IntentVerification) bool {
@@ -1268,7 +1276,9 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 // round 1 saves the measuring browser check. The Vote button is then 30 px
 // wide where the outcome says 32: the saved check fails its replay at the
 // size step ("width 30 not 32"), the evaluator's own check fails too and
-// it reports fail citing the run, and maul starts a verify-fix round whose
+// it reports fail citing the run. The check reads the page's layout and
+// writes nothing, so maul holds it as a suspected defect (#309 review);
+// once an approver confirms it, maul starts a verify-fix round whose
 // reproduction names the measurement. The fix pushes; at its head the
 // button is 32 px again and the next round passes on the check's replay.
 func TestIntentEvaluateBrowserFixRound(t *testing.T) {
@@ -1285,11 +1295,30 @@ func TestIntentEvaluateBrowserFixRound(t *testing.T) {
 
 	app.setWidth(30)
 	e.requestRound(t, number)
+	// The saved check reads the page's layout and writes nothing, so its
+	// regression is a suspected defect held for a person, never an automatic
+	// fix (#309 review); an approver confirms it.
+	in := e.waitEval(t, name, "round 2's suspected defect", func(v *v1alpha1.IntentVerification) bool {
+		return v.Round == 2 && v.Suspected != nil
+	})
+	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomeUnsure ||
+		o[0].Reason != "suspected-defect" || o[0].Basis != saved[0].Digest {
+		t.Errorf("verification %+v, want round 2 unsure, a suspected defect on the saved browser check",
+			in.Status.Verification)
+	}
+	// (Round 1 passed and released the link as ready; a released link stays
+	// released, so there is no hand-off to hold here.)
+	if runs := e.verifyRuns(t, name); len(runs) != 0 {
+		t.Fatalf("fix runs = %d before anyone confirmed the defect", len(runs))
+	}
+	if d := time.Until(in.Status.Verification.Suspected.RecordedAt.Add(time.Second)); d > 0 {
+		time.Sleep(d)
+	}
+	e.requestRound(t, number)
 	fix := e.waitFixRun(t, name)
-	in := e.intent(t, name)
-	if o := in.Status.Verification.Outcomes; in.Status.Verification.Round != 2 || len(o) != 1 ||
-		o[0].Result != v1alpha1.OutcomeFailed || o[0].Reason != "reproduced" || o[0].Basis != saved[0].Digest {
-		t.Errorf("verification %+v, want round 2 failed, reproduced by the saved browser check", in.Status.Verification)
+	in = e.intent(t, name)
+	if s := in.Status.Verification.Suspected; s == nil || s.Confirmed == nil {
+		t.Errorf("suspected = %+v, want the approver's confirmation", s)
 	}
 	pv := e.round(t, name, 2)
 	if len(pv.Status.Replay) != 1 || pv.Status.Replay[0].Result != v1alpha1.CheckRunFail {

@@ -166,12 +166,13 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 	return out
 }
 
-// mayShowDefect reports whether c's body may show a defect (checks.ValidateRed:
-// it writes its run's data and lists only success statuses); a body that does
-// not parse may not.
+// mayShowDefect reports whether c's body may show a defect by the
+// assertion it was confirmed failing at (checks.ValidateRed: it writes its
+// run's data, or a browser check fails a measured layout assertion, and it
+// lists only success statuses); a body that does not parse may not.
 func mayShowDefect(c v1alpha1.SavedCheck) bool {
 	parsed, err := checks.Parse([]byte(c.Body))
-	return err == nil && checks.ValidateRed(parsed) == nil
+	return err == nil && checks.ValidateRed(parsed, int(c.FailedStep)-1) == nil
 }
 
 // confirmedRed reports that every confirmation of c, expected to fail,

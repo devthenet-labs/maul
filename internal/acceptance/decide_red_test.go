@@ -160,6 +160,17 @@ func TestDecideRedCheck(t *testing.T) {
 				in.Confirmations = nil
 				in.Reviews[0] = CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"), Answer: ReviewProves}
 			}), result: ResultFailed, reason: ReasonReproduced, fix: true},
+		// #309 review: a check admitted red only by the layout exception
+		// (it writes no data of its own run) measures whatever the page
+		// shows: never promoted, its regression waits for a person.
+		{name: "once cleared and green-reviewed, a layout-only check's regression is still suspected",
+			in: with(redFound(), func(in *Input) {
+				in.Checks[0].Cleared, in.Checks[0].NoRunData = true, true
+				in.Replay = []CheckRun{{CheckDigest: dg("red"), Result: RunFail, Token: "tok-r", Seq: 2}}
+				in.Confirmations = nil
+				in.Reviews = append(in.Reviews, CheckReview{CheckDigest: dg("red"), OutcomeDigest: od("elo"),
+					Answer: ReviewProves})
+			}), result: ResultUnsure, reason: ReasonSuspectedDefect, suspected: true},
 		{name: "once cleared but never green-reviewed, a later regression is still suspected",
 			in: with(redFound(), func(in *Input) {
 				in.Checks[0].Cleared = true
@@ -268,6 +279,26 @@ func TestDecideFlakyCheck(t *testing.T) {
 		d.Fix != nil {
 		t.Errorf("a saved red check failing its replay and passing its confirmation: %+v, fix %+v", d.PerOutcome[0],
 			d.Fix)
+	}
+}
+
+// TestDecideGreenWithoutRunDataIsSuspected (#309 review): a saved green
+// check that writes no data of its own run reads whatever the page or API
+// shows, so its regression never starts an automatic fix: it is a
+// suspected defect, held for a person, as a red-only failure is.
+func TestDecideGreenWithoutRunDataIsSuspected(t *testing.T) {
+	in := deterministicFail(ClaimFail, 3)
+	in.Checks[0].NoRunData = true
+	d := Decide(in)
+	if r := d.PerOutcome[0]; r.Result != ResultUnsure || r.Reason != ReasonSuspectedDefect {
+		t.Errorf("result %s (%s), want unsure (suspected-defect)", r.Result, r.Reason)
+	}
+	if d.Fix != nil || d.Suspected == nil || len(d.Suspected.Failures) != 1 ||
+		d.Suspected.Failures[0].CheckDigest != dg("a") {
+		t.Errorf("fix %+v, suspected %+v; want the green check's failure suspected, no fix", d.Fix, d.Suspected)
+	}
+	if d.Handoff == HandoffReady {
+		t.Error("hand-off ready on a suspected defect")
 	}
 }
 

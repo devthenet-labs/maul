@@ -566,7 +566,8 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 		if r.Intn(4) != 0 {
 			in.Checks = append(in.Checks, StoredCheck{Digest: c, Outcome: pickOf(r, genOutcomes), Form: pickOf(r, forms),
 				Valid: r.Intn(5) != 0, Retired: r.Intn(6) == 0, ExpectFail: r.Intn(4) == 0,
-				FailedStep: int32(1 + r.Intn(2)), FailedAssertion: pickOf(r, genAssertions), Cleared: r.Intn(3) == 0})
+				FailedStep: int32(1 + r.Intn(2)), FailedAssertion: pickOf(r, genAssertions), Cleared: r.Intn(3) == 0,
+				NoRunData: r.Intn(4) == 0})
 		}
 	}
 	in.Replay, in.Confirmations = genRuns(r), genRuns(r)
@@ -1009,13 +1010,20 @@ func oracleCountedFail(in Input, digest string) bool {
 // fix only in a clean environment, every failure fixable, and (fourth
 // review) a check saved red never in Fix, every suspected failure a
 // fixable failure of one, and no outcome failed on a suspected defect.
+// oracleHeld reports f's check held for a person: saved red and not
+// promoted, or any stored check of it writing no run data (#309 review).
+func oracleHeld(in Input, f FixFailure) bool {
+	noRun := slices.ContainsFunc(in.Checks, func(c StoredCheck) bool { return c.Digest == f.CheckDigest && c.NoRunData })
+	return noRun || oracleRed(in, f.CheckDigest) && !oracleCleared(in, f)
+}
+
 // oracleCleared reports f's check saved red, cleared (it replayed green) and
 // reviewed proves with the green question for f's outcome: a saved green
 // check from then on (fifth review, 4).
 func oracleCleared(in Input, f FixFailure) bool {
 	c, ok := oracleSavedRed(in, f.CheckDigest)
 	i := slices.IndexFunc(in.Outcomes, func(o OutcomeRef) bool { return o.ID == f.Outcome })
-	return ok && c.Cleared && i >= 0 && slices.ContainsFunc(in.Reviews, func(r CheckReview) bool {
+	return ok && c.Cleared && !c.NoRunData && i >= 0 && slices.ContainsFunc(in.Reviews, func(r CheckReview) bool {
 		return r.CheckDigest == f.CheckDigest && r.OutcomeDigest == in.Outcomes[i].Digest && !r.ExpectFail &&
 			r.Answer == ReviewProves
 	})
@@ -1030,8 +1038,8 @@ func oracleFixRequests(in Input, d Decision) error {
 			if err := oracleFixable(in, f); err != nil {
 				return fmt.Errorf("fix failure %+v: %w", f, err)
 			}
-			if oracleRed(in, f.CheckDigest) && !oracleCleared(in, f) {
-				return fmt.Errorf("fix failure %+v is a check saved red, not cleared and green-reviewed", f)
+			if oracleHeld(in, f) {
+				return fmt.Errorf("fix failure %+v is held for a person: saved red and not promoted, or no run data", f)
 			}
 		}
 	}
@@ -1039,8 +1047,8 @@ func oracleFixRequests(in Input, d Decision) error {
 		return nil
 	}
 	for _, f := range d.Suspected.Failures {
-		if err := oracleFixable(in, f); err != nil || !oracleRed(in, f.CheckDigest) || oracleCleared(in, f) {
-			return fmt.Errorf("suspected failure %+v: not a fixable failure of a check saved red (%v)", f, err)
+		if err := oracleFixable(in, f); err != nil || !oracleHeld(in, f) {
+			return fmt.Errorf("suspected failure %+v: not a fixable failure of a held check (%v)", f, err)
 		}
 	}
 	for _, r := range d.PerOutcome {

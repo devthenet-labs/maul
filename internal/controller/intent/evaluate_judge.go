@@ -171,6 +171,15 @@ func suspectedConfirmed(v *v1alpha1.IntentVerification, pv *v1alpha1.PreviewVeri
 		v.Suspected.HeadSetDigest == pv.Spec.HeadSetDigest
 }
 
+// noRunData reports a saved check, green or red, that writes no data of its
+// own run (checks.WritesRunData): its failure never starts an automatic
+// fix, only a suspected defect a person confirms (#309 review). A body that
+// does not parse counts as writing none: the safe side.
+func noRunData(c v1alpha1.SavedCheck) bool {
+	parsed, err := checks.Parse([]byte(c.Body))
+	return err != nil || !checks.WritesRunData(parsed)
+}
+
 // clearedBefore reports a check saved red that replayed green in a round
 // before verification's (third review, F1): a clearance never counts in
 // the round that earned it, so the judgement and the fix path that
@@ -270,7 +279,7 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
 			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
 			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
-			Cleared: clearedBefore(acc, c.Digest, pv.Name)})
+			Cleared: clearedBefore(acc, c.Digest, pv.Name), NoRunData: noRunData(c)})
 	}
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, r := range acc.Reviews {

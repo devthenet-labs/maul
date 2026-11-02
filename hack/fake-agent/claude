@@ -59,7 +59,10 @@
 #                              first component (GET MAUL_FAKE_CLAUDE_CHECK_PATH,
 #                              default that component's path, its body
 #                              containing MAUL_FAKE_CLAUDE_CHECK_TEXT, default
-#                              "ok"), dry-runs it, and passes the outcome on
+#                              "ok"; with MAUL_FAKE_CLAUDE_CHECK_WRITES=1 it
+#                              first POSTs its run's own record under that
+#                              path, so its regression may start an automatic
+#                              fix), dry-runs it, and passes the outcome on
 #                              that run, proposing the check when it ran
 #                              green; "fail" dry-runs the same check, reads
 #                              the component's captured log after it
@@ -242,6 +245,11 @@ green_digest() {
 # in canonical form (internal/checks.Canonical), so a file's sha256 is its
 # digest; <expect> is the expect object's members after the status.
 http_check() {
+  if [ "${MAUL_FAKE_CLAUDE_CHECK_WRITES:-}" = 1 ]; then
+    printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"POST","path":"%s/{{run}}","json":{"run":"{{run}}"}},"expect":{"status":[200]}},{"request":{"method":"GET","path":"%s"},"expect":{"status":[200]%s}}]}}' \
+      "$1" "$2" "$key" "$path" "$path" "$3"
+    return
+  fi
   printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"GET","path":"%s"},"expect":{"status":[200]%s}}]}}' \
     "$1" "$2" "$key" "$path" "$3"
 }

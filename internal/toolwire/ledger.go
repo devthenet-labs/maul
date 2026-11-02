@@ -130,8 +130,11 @@ type LedgerEntry struct {
 	// Exit is the exit code of the process the verb ran (the Playwright
 	// CLI, an exec argv); 0 for a verb that runs none.
 	Exit int `json:"exit"`
-	// Refused is the refusal code when nothing ran, empty otherwise.
+	// Refused is the refusal code when nothing ran, empty otherwise;
+	// Reason is maul's words for it, as the caller was told (S1 demo bug
+	// 9: a reader can tell which rule refused).
 	Refused string `json:"refused,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 	// Output is the full output (valid UTF-8, at most MaxOutputBytes),
 	// OutputSHA256 its sha256.
 	Output       string `json:"output"`

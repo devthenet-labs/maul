@@ -93,7 +93,9 @@ func (r *Relay) browserAttempt(ctx context.Context, b checks.BrowserCheck, run s
 // aboutTheRun keeps a failing step's assertion only when that expect is
 // about the run's own data (third review, F3): its locator, other locator,
 // expected text or URL names {{run}}, and it is no count (a count over
-// shared rows can differ for data the run did not make).
+// shared rows can differ for data the run did not make); or when it
+// measures the page's layout (checks.LayoutAssertion, S1 demo bug 9), which
+// reads no data.
 func aboutTheRun(steps []toolwire.StepRecord, b checks.BrowserCheck) []toolwire.StepRecord {
 	for i, s := range steps {
 		if !s.Assertion {
@@ -103,7 +105,7 @@ func aboutTheRun(steps []toolwire.StepRecord, b checks.BrowserCheck) []toolwire.
 		if s.Index < len(b.Steps) {
 			a = b.Steps[s.Index].Expect
 		}
-		if a == nil || a.Assert == checks.AssertCount || !marshalsRun(a) {
+		if a == nil || !checks.LayoutAssertion(a.Assert) && (a.Assert == checks.AssertCount || !marshalsRun(a)) {
 			steps[i].Assertion, steps[i].AssertionID = false, ""
 		}
 	}

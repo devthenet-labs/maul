@@ -386,3 +386,31 @@ func (e *env) checkSuspectedHeld(name string, red v1alpha1.SavedCheck) {
 	}
 
 }
+
+// TestRedLayoutCheckMayShowADefect (S1 demo bug 9): a browser check that
+// writes nothing may be stored red when the assertion it was confirmed
+// failing measures the page's layout; failing a text assertion, or with
+// no data of its own run behind an http read, it may not.
+func TestRedLayoutCheckMayShowADefect(t *testing.T) {
+	const layout = `{"id":"pads","outcome":"pads","form":"browser","browser":{"steps":[{"goto":"/"},` +
+		`{"expect":{"assert":"size","locator":{"testid":"pad-1"},"height":48,"tolerance":0.5}},` +
+		`{"expect":{"assert":"text","locator":{"testid":"title"},"text":{"contains":"{{run}}"}}}]}}`
+	for _, tc := range []struct {
+		name string
+		step int32
+		want bool
+	}{
+		{"failing its size", 2, true},
+		{"failing its text", 3, false},
+		{"failing its navigation", 1, false},
+	} {
+		c := savedCheck(t, layout)
+		c.Expect, c.FailedStep, c.FailedAssertion = v1alpha1.CheckExpectFail, tc.step, "expect"
+		if got := mayShowDefect(c); got != tc.want {
+			t.Errorf("%s: mayShowDefect = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if c := redCheck(t); !mayShowDefect(c) {
+		t.Errorf("the red http check that writes its run's data may not show a defect: %+v", c)
+	}
+}

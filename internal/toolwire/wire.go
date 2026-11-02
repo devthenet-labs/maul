@@ -294,6 +294,11 @@ const (
 	RefusedToolCalls   = "tool-calls-exhausted"
 	RefusedNoDryRun    = "no-green-dry-run"
 	RefusedNoRedDryRun = "no-red-dry-run"
+	// RefusedRedRule: a check proposed to show a defect has its red dry
+	// run, but breaks a rule for showing one (checks.ValidateRed), told
+	// apart from RefusedNoRedDryRun so the evaluator can correct it (S1
+	// demo bug 9).
+	RefusedRedRule     = "red-check-rule"
 	RefusedCheck       = "check-invalid"
 	RefusedFinished    = "finished"
 	RefusedUnavailable = "unavailable"

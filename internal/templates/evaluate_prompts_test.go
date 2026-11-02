@@ -96,6 +96,14 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
 			return RenderCheckReviewPrompt(p)
 		}},
+		// A layout read that writes nothing proposed to show a defect (S1
+		// demo bug 9): the red question about a measurement of the page.
+		{"prompt_checkreview_red_layout.md", func() (string, error) {
+			p := testCheckReviewPrompt(mustCheck(t, `{"id":"pads","outcome":"pads","form":"browser","browser":{"steps":[`+
+				`{"goto":"/"},{"expect":{"assert":"size","locator":{"testid":"pad-1"},"height":48,"tolerance":0.5}}]}}`))
+			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 2, "expect"
+			return RenderCheckReviewPrompt(p)
+		}},
 		{"prompt_plan_outcomes.md", func() (string, error) {
 			return RenderPlanPrompt(PlanPrompt{
 				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
