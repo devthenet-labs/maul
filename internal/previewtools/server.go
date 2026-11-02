@@ -93,9 +93,11 @@ type Relay struct {
 type dryRun struct {
 	check checks.Check
 	green bool
-	// red: some dry run was red by assertion (AssertionStep).
-	red    bool
-	latest toolwire.CheckRunRecord
+	// red: some dry run was red by assertion (AssertionStep), redStep
+	// the step (0-based) the latest such run failed at.
+	red     bool
+	redStep int
+	latest  toolwire.CheckRunRecord
 }
 
 // NewRelay builds a Relay writing its ledger to o.Out.
@@ -271,6 +273,7 @@ func (r *Relay) recordResult(kind toolwire.Kind, verb toolwire.Verb, args any, r
 		raw = b
 	}
 	e := toolwire.LedgerEntry{Kind: kind, Verb: verb, Args: raw, Exit: res.exit, Refused: res.refused,
+		Reason: refusedReason(res),
 		Output: res.output, Inline: res.inline, Artifacts: res.artifacts, Locators: res.locators,
 		CheckRun: res.checkRun}
 	seq, err := r.record(e)
@@ -287,6 +290,15 @@ func (r *Relay) recordResult(kind toolwire.Kind, verb toolwire.Verb, args any, r
 		resp.Untrusted = boundInline(res.inline)
 	}
 	return resp
+}
+
+// refusedReason is res's reason when it refused: the ledger keeps it, so a
+// reader can tell which rule refused (S1 demo bug 9).
+func refusedReason(res result) string {
+	if res.refused == "" {
+		return ""
+	}
+	return res.reason
 }
 
 // boundInline is what the agent sees inline, as the ledger records it.
@@ -389,8 +401,8 @@ func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) res
 	}
 	d.check, d.latest = c, rec
 	d.green = d.green || rec.Result == toolwire.RunPass
-	if _, ok := rec.AssertionStep(); ok {
-		d.red = true
+	if step, ok := rec.AssertionStep(); ok {
+		d.red, d.redStep = true, step
 	}
 	r.dryRuns[rec.Digest] = d
 	return result{checkRun: &rec, observed: &toolwire.Observed{CheckRun: &rec}}
@@ -422,9 +434,9 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
 				"check "+d+" has no dry run in this evaluation that failed an assertion, or one ran green, or it "+
 					"replayed green this round"))
-		case red && checks.ValidateRed(dr.check) != nil:
-			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
-				"check "+d+" cannot show a defect: "+checks.ValidateRed(dr.check).Error()))
+		case red && checks.ValidateRed(dr.check, dr.redStep) != nil:
+			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedRedRule,
+				"check "+d+" cannot show a defect: "+checks.ValidateRed(dr.check, dr.redStep).Error()))
 		case !red && (!dr.green || r.replayed(d, toolwire.RunFail)):
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoDryRun,
 				"check "+d+" has no green dry run in this evaluation, or it replayed red this round"))

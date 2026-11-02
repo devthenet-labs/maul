@@ -100,7 +100,7 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 		}
 		// A capture is the run's own only from a write that names the run:
 		// a POST of nothing of the run can return a shared id (fourth review).
-		if writeMethod(st.Request.Method) && writesRun(st.Request) {
+		if writeMethod(st.Request.Method) && writesRun(st.Request, own) {
 			for name := range st.Capture {
 				own[name] = true
 			}
@@ -119,12 +119,14 @@ func writeMethod(m string) bool {
 }
 
 // writesRun reports a request whose path, less its query (fifth review, 3:
-// a query names no data the write made), or whose body names {{run}}; a
-// JSON body only by a value, never an object key, which substitution
-// leaves as it is (fifth review, 2).
-func writesRun(r acceptance.Request) bool {
-	return runKeyed(pathOnly(r.Path), nil) || runKeyed(r.Body, nil) ||
-		r.JSON != nil && r.JSON.AnyString(func(s string) bool { return runKeyed(s, nil) })
+// a query names no data the write made), or whose body names {{run}} or a
+// capture of one of the check's own writes (own: S1 demo bug 10, so a
+// battle of the run's own patterns is the run's own); a JSON body only by a
+// value, never an object key, which substitution leaves as it is (fifth
+// review, 2).
+func writesRun(r acceptance.Request, own map[string]bool) bool {
+	return runKeyed(pathOnly(r.Path), own) || runKeyed(r.Body, own) ||
+		r.JSON != nil && r.JSON.AnyString(func(s string) bool { return runKeyed(s, own) })
 }
 
 // pathOnly is a request path without its query.

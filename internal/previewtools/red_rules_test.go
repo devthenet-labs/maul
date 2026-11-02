@@ -27,7 +27,9 @@ func TestConfirmRefusesARedCheckListingAnErrorStatus(t *testing.T) {
 	h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
 	h.call(toolwire.VerbCheckRun, `{"check":`+check+`}`)
 	d := bareDigest(t, check)
-	if _, resp := h.call(toolwire.VerbConfirm, redConfirm(t, d, true)); resp.Refused != toolwire.RefusedNoRedDryRun {
+	// A rule for showing a defect refuses it, under its own code (S1 demo
+	// bug 9), not no-red-dry-run: its dry run was red.
+	if _, resp := h.call(toolwire.VerbConfirm, redConfirm(t, d, true)); resp.Refused != toolwire.RefusedRedRule {
 		t.Errorf("a red check listing status 400 was confirmed: %+v", resp)
 	}
 	h.finish()

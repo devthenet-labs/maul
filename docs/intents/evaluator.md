@@ -152,22 +152,30 @@ before a defect is even suspected:
      matcher (`$order`, `$includes`); a header that is present with a different value; or body text missing from a body
      that is not an HTML page. And only when the step reads the run's own data: its path (not its query) names `{{run}}`
      or a value captured from one of the check's own writes (a POST, PUT or PATCH whose path, less its query, or whose
-     body names `{{run}}`: a JSON body by a value, never by an object key, which `{{run}}` is never substituted into),
-     or the expected value names one. No status counts, a 500 included, nor a pointer or header that resolves to
-     nothing, a total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to
-     keep. The check may list only success statuses.
+     body names `{{run}}` or a value captured from an earlier such write, so a battle of the check's own patterns is its
+     own too; a JSON body by a value, never by an object key, which `{{run}}` is never substituted into), or the
+     expected value names one. No status counts, a 500 included, nor a pointer or header that resolves to nothing, a
+     total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to keep. The
+     check may list only success statuses.
    - `exec`: only a program that says so itself, printing `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a
      line of its output (stdout and stderr combined), `<id>` naming the assertion, with the check's expectation failing.
      An exit code alone, a crash, `127` or a traceback never is.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
-     or URL keyed by `{{run}}`; never a count, a timeout, an action, a locator that resolved nothing or more than one
-     element, an element with no box, a trial click or an indeterminate judgement. The failing step is read from the
-     compiled spec's own stack frame. maul's own runs of such a check (its confirmation, and its replays once saved)
-     wait 15 seconds for each judgement instead of 5, so a slow but correct page is not read as the defect.
+     or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
+     `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,
+     an action, a locator that resolved nothing or more than one element, an element with no box, a trial click or an
+     indeterminate judgement. The failing step is read from the compiled spec's own stack frame. maul's own runs of such
+     a check (its confirmation, and its replays once saved) wait 15 seconds for each judgement instead of 5, so a slow
+     but correct page is not read as the defect.
 
    `maul-tool` prints `red by assertion at step <n> (<assertion>)` for such a run. The check must also write data of its
    own run: `{{run}}` in a POST, PUT or PATCH (its path or body; in a JSON body, a value, never an object key), a
-   browser fill or its program.
+   browser fill or its program. The one exception is a browser check whose failing assertion measures the page's layout:
+   it may write nothing, since a read of the page's own layout has no shared data to be wrong about, and a person
+   confirms what it finds (a pad 30 px tall where the outcome says 48, rows that scroll apart). Its reviewer is asked
+   whether the element it measures is the one the outcome is about on any data. A check that breaks these rules is
+   refused `red-check-rule`, its reason in the ledger; `no-red-dry-run` means only that no dry run failed an assertion,
+   or one ran green.
 
 2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
    assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
@@ -206,7 +214,9 @@ that the failing assertion reads the run's own record, a capture counting as the
 http or exec check reads right after it writes, with no patience, so an application that updates asynchronously or
 serves a cached read for a few seconds can fail the same way on both attempts. A `clickable` check judges one moment, so
 a toast or spinner passing over the element can too. An exec program's marker is its own word: one printed from a
-catch-all on a connection error would look like a defect; the reviewer is asked about exactly that.
+catch-all on a connection error would look like a defect; the reviewer is asked about exactly that. A layout read that
+writes nothing measures whatever the page shows: an element whose size or place depends on rows other runs made (a list
+that grows, a long name from another run) can measure wrong; the reviewer is asked about that, and a person confirms.
 
 ## Disputes
 

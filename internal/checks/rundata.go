@@ -52,15 +52,45 @@ func WritesRunData(c Check) bool {
 	return false
 }
 
-// ValidateRed holds a check proposed to show a defect to the rules beyond
-// the saved-check grammar: it writes data of its own run (WritesRunData),
-// and an http step lists only success statuses (third review, F2: with an
-// error status listed, a misspelled request gets its correct 400 and that
-// body's JSON reads as a failed content assertion).
-func ValidateRed(c Check) error {
-	if !WritesRunData(c) {
+// LayoutAssertion reports a browser assertion that measures the page's own
+// layout or geometry: its size, a box relation, alignment, legibility,
+// whether it receives a click or is visible. None reads data, so none can
+// be wrong about rows the run did not make (S1 demo bug 9); text, count and
+// url can.
+func LayoutAssertion(k AssertKind) bool {
+	switch k {
+	case AssertSize, AssertLeftOf, AssertAbove, AssertNoOverlap, AssertEqualSize, AssertAligned, AssertLegible,
+		AssertClickable, AssertVisible:
+		return true
+	case AssertText, AssertCount, AssertURL:
+	}
+	return false
+}
+
+// FailsLayout reports a browser check whose step failing (0-based) is an
+// expect of a LayoutAssertion.
+func FailsLayout(c Check, failing int) bool {
+	if c.Browser == nil || failing < 0 || failing >= len(c.Browser.Steps) {
+		return false
+	}
+	a := c.Browser.Steps[failing].Expect
+	return a != nil && LayoutAssertion(a.Assert)
+}
+
+// ValidateRed holds a check proposed to show a defect, whose step failing
+// (0-based) failed its assertion, to the rules beyond the saved-check
+// grammar: it writes data of its own run (WritesRunData), or it is a
+// browser check failing a measured layout assertion (FailsLayout: a read of
+// the page's own layout has no shared data to be wrong about; S1 demo bug
+// 9, since a person confirms every defect a check saved red finds); and an
+// http step lists only success statuses (third review, F2: with an error
+// status listed, a misspelled request gets its correct 400 and that body's
+// JSON reads as a failed content assertion).
+func ValidateRed(c Check, failing int) error {
+	if !WritesRunData(c) && !FailsLayout(c, failing) {
 		return errors.New("a check that shows a defect writes data of its own run: {{run}} in a POST, PUT or " +
-			"PATCH, a browser fill or its program")
+			"PATCH, a browser fill or its program; or, in the browser, fails a measured layout assertion (size, " +
+			"left-of, above, no-overlap, equal-size, aligned, legible, clickable or visible)")
 	}
 	if c.HTTP == nil {
 		return nil

@@ -360,6 +360,10 @@ type checkReviewView struct {
 	// exec check, the marker line its program printed, up to the colon
 	// after the id.
 	Assertion, Marker string
+	// Layout: a browser check that writes no data of its own run, failing
+	// a measured layout assertion (checks.FailsLayout, S1 demo bug 9): the
+	// red question asks about the page's layout, not data it created.
+	Layout bool
 }
 
 // reviewFile is one exec program file as the reviewer reads it.
@@ -392,6 +396,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
 		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
 	}
+	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	return render("prompt_checkreview.md.tmpl", v)
 }
 
