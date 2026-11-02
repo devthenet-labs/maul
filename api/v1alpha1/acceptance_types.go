@@ -402,4 +402,15 @@ type CheckReviewRecord struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	Run string `json:"run"`
+	// Check is the reviewed check's id, and Reason the reviewer's one-line
+	// reason for its answer, bounded and made visible: a later round's
+	// evaluator is told why a check was refused, by outcome and check id,
+	// so it strengthens the check rather than proposes it again. Unset on
+	// a review recorded before they were kept.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$`
+	Check string `json:"check,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=600
+	Reason string `json:"reason,omitempty"`
 }

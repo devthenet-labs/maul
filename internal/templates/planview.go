@@ -6,6 +6,8 @@ package templates
 import (
 	"strings"
 	"unicode"
+
+	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // This file reckons what an approver takes in of a plan shown verbatim in a
@@ -221,13 +223,14 @@ const outcomesOmitted = "The outcomes are too long to list beside the plan: read
 
 // planOutcomesView is the plan comment's outcomes section: its lead, one
 // line per outcome and one per issue line no outcome answers (the last
-// saying how many more there are), each inert; all empty for nil.
-func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered []string) {
+// saying how many more there are), each inert, and the advisory flags of
+// the outcomes (outcomeFlags); all empty for nil.
+func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered, shared, narrowed []string) {
 	switch {
 	case o == nil:
-		return "", nil, nil
+		return "", nil, nil, nil, nil
 	case o.omitted:
-		return outcomesOmitted, nil, nil
+		return outcomesOmitted, nil, nil, nil, nil
 	case len(o.Outcomes) == 0:
 		lead = "The plan states no acceptance outcomes, so maul's evaluator checks nothing in the preview."
 	default:
@@ -258,5 +261,40 @@ func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered []string)
 	if o.NotCoveredMore > 0 {
 		notCovered = append(notCovered, "and "+count(o.NotCoveredMore, "1 more line", "more lines"))
 	}
-	return lead, items, notCovered
+	shared, narrowed = outcomeFlags(o.Outcomes)
+	return lead, items, notCovered, shared, narrowed
+}
+
+// outcomeFlags are the advisory flags acceptance.LintOutcomes raises on os,
+// one line each in plan order, in maul's words: the outcome's id, held to
+// its grammar by the plan parser, and the lint's own word, never the
+// outcome's text. Shared-data flags (an outcome the evaluator may not be
+// able to show) and narrowed-from flags (an outcome worded as the plan
+// prompt asks, covering less than its line) come apart, since the plan
+// comment advises on each in its own words.
+func outcomeFlags(os []PlanOutcome) (shared, narrowed []string) {
+	in := make([]acceptance.PlanOutcome, 0, len(os))
+	for _, o := range os {
+		kind := acceptance.OutcomeKindChange
+		if o.Keep {
+			kind = acceptance.OutcomeKindKeep
+		}
+		in = append(in, acceptance.PlanOutcome{ID: o.ID, Outcome: o.Outcome, From: o.From, Kind: kind,
+			Manual: o.Manual})
+	}
+	for _, f := range acceptance.LintOutcomes(in) {
+		id, word := code(oneLine(f.Outcome)), `"`+f.Word+`"`
+		switch {
+		case f.Rule == acceptance.LintNarrowedFrom:
+			narrowed = append(narrowed, id+" answers an issue line that says "+word+", but speaks of fewer: the "+
+				"evaluator checks only what the outcome says, on items its own checks create.")
+		case f.Word == "still works":
+			shared = append(shared, id+" says "+word+": an outcome a check can show names one action and what a "+
+				"person then sees.")
+		default:
+			shared = append(shared, id+" says "+word+": an outcome about every item, or about others or existing "+
+				"ones, is about data no check creates.")
+		}
+	}
+	return shared, narrowed
 }

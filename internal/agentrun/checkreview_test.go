@@ -274,6 +274,17 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 		}),
 			"failed_step"},
 		{"a failed step of a green check", item(func(i *CheckReviewItem) { i.FailedStep = 1 }), "failed_step"},
+		{"a kind off the grammar", item(func(i *CheckReviewItem) { i.Kind = "maybe" }), "kind"},
+		{"a from over cap", item(func(i *CheckReviewItem) { i.From = strings.Repeat("x", 2<<10+1) }), "from is"},
+		{"a request over cap", func() string {
+			var h CheckReviewHandoff
+			if err := json.Unmarshal([]byte(reviewHandoff(1)), &h); err != nil {
+				t.Fatal(err)
+			}
+			h.Request = strings.Repeat("x", 32<<10+1)
+			raw, _ := json.Marshal(h)
+			return string(raw)
+		}(), "request is"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -291,5 +302,41 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 				t.Errorf("events = %+v, want one fatal", evs)
 			}
 		})
+	}
+}
+
+// TestCheckReviewGetsTheRequest (coverage design C1): the handoff's request
+// and components, and each item's line of the request and kind, reach that
+// item's prompt.
+func TestCheckReviewGetsTheRequest(t *testing.T) {
+	var h CheckReviewHandoff
+	if err := json.Unmarshal([]byte(reviewHandoff(1)), &h); err != nil {
+		t.Fatal(err)
+	}
+	h.Request = "# Beat pages\n\n- each beat links to its page\n"
+	h.Components = []EvaluateComponent{{Key: "api", Path: "/api"}}
+	h.Reviews[0].From, h.Reviews[0].Kind = "each beat links to its page", "keep"
+	raw, err := json.Marshal(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	cfg, ws := roleConfig(t, PhaseCheckReview, string(raw), &out)
+	brokeredClaude(t, &cfg)
+	fx := &fakeExec{steps: []step{
+		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/review-1.md": reviewReport("proves")}},
+	}}
+	if err := New(cfg, fx).Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(fx.specs) != 1 {
+		t.Fatalf("commands run = %d, want 1", len(fx.specs))
+	}
+	prompt := strings.Join(strings.Fields(argvFlag(t, fx.specs[0].Argv, "-p")), " ")
+	for _, want := range []string{"# Beat pages", "each beat links to its page",
+		"It is a keep: something the change must leave true.", "- `api`: served under `/api`"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
 	}
 }

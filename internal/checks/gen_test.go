@@ -132,6 +132,9 @@ func randomBrowserStep(r *rand.Rand) BrowserStep {
 		return BrowserStep{Fill: &Fill{Locator: *loc, Text: "{{run}}-" + word(r)}}
 	default:
 		w := float64(r.Intn(100))
+		if r.Intn(2) == 0 {
+			return BrowserStep{Expect: &Assertion{Assert: AssertSize, Locator: loc, MinWidth: &w, MaxHeight: &w}}
+		}
 		return BrowserStep{Expect: &Assertion{Assert: AssertSize, Locator: loc, Width: &w, Tolerance: 1}}
 	}
 }

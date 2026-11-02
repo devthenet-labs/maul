@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -136,5 +137,68 @@ func TestEvaluateHandoffCarriesTheBrowserEntry(t *testing.T) {
 	pv.Spec.Tools.Browser = false
 	if got := decodeEvaluateHandoff(t, mustHandoff(t, p, &pv)).Tools.BrowserEntry; got != "" {
 		t.Errorf("browser entry without a browser = %q, want none", got)
+	}
+}
+
+// TestEvaluateHandoffCarriesRefusedChecks (coverage design C3): the next
+// round's evaluator is handed each check the reviewer refused for an
+// approved outcome's current text, by outcome, check id and the reviewer's
+// reason made visible; a proven check, a refusal for text the outcome no
+// longer has, and a refusal recorded with no id are left out or named by
+// their digest.
+func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	text := map[string]string{}
+	for _, o := range e.get(name).Status.Acceptance.Outcomes {
+		text[o.ID] = outcomeDigest(o)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Reviews = []v1alpha1.CheckReviewRecord{
+			{CheckDigest: version.Digest, OutcomeDigest: text[oVersion], Answer: v1alpha1.ReviewDoesNotProve,
+				Run: "r1", Check: version.ID, Reason: "it never reads the commit\u202e"},
+			{CheckDigest: health.Digest, OutcomeDigest: text[oHealthy], Answer: v1alpha1.ReviewProves, Run: "r1",
+				Check: health.ID, Reason: "fine"},
+			{CheckDigest: health.Digest, OutcomeDigest: digest([]byte("an older text")),
+				Answer: v1alpha1.ReviewDoesNotProve, Run: "r0", Check: health.ID, Reason: "old"},
+			{CheckDigest: health.Digest, OutcomeDigest: text[oHealthy], Answer: v1alpha1.ReviewUnclear, Run: "r0"},
+			// A red review's refusal is about the failure, not the check:
+			// it is not shown as a refused check.
+			{CheckDigest: version.Digest, OutcomeDigest: text[oVersion], Answer: v1alpha1.ReviewDoesNotProve,
+				Run: "r2", Check: version.ID, Reason: "not a defect", Expect: v1alpha1.CheckExpectFail,
+				FailedStep: 2, FailedAssertion: "json /sha"},
+		}
+	})
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv))
+	if len(h.PriorRefused) != 2 {
+		t.Fatalf("refused = %+v, want the version check's refusal and the unclear one", h.PriorRefused)
+	}
+	got := h.PriorRefused[0]
+	if got.Outcome != oVersion || got.Check != version.ID || !strings.Contains(got.Reason, "it never reads the commit") ||
+		strings.ContainsRune(got.Reason, '\u202e') {
+		t.Errorf("refused[0] = %+v, want the version check by id with its reason made visible", got)
+	}
+	if got := h.PriorRefused[1]; got.Outcome != oHealthy || got.Check != health.Digest || got.Reason != "" {
+		t.Errorf("refused[1] = %+v, want the unclear review named by its digest", got)
+	}
+	// More refusals than the prompt shows: the newest are handed over, in
+	// the order they were made.
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Reviews = nil
+		for i := range templates.PriorRefusedMax + 10 {
+			in.Status.Acceptance.Reviews = append(in.Status.Acceptance.Reviews, v1alpha1.CheckReviewRecord{
+				CheckDigest: digest([]byte(fmt.Sprint(i))), OutcomeDigest: text[oVersion],
+				Answer: v1alpha1.ReviewDoesNotProve, Run: "r1", Check: fmt.Sprintf("c-%d", i), Reason: "no"})
+		}
+	})
+	h = decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv))
+	if n := len(h.PriorRefused); n != templates.PriorRefusedMax {
+		t.Fatalf("%d refusals handed over, want %d", n, templates.PriorRefusedMax)
+	}
+	if first, last := h.PriorRefused[0].Check, h.PriorRefused[len(h.PriorRefused)-1].Check; first != "c-10" ||
+		last != fmt.Sprintf("c-%d", templates.PriorRefusedMax+9) {
+		t.Errorf("refusals run %s..%s, want the newest in order", first, last)
 	}
 }

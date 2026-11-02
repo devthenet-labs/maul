@@ -46,6 +46,39 @@ const (
 	priorReasonMaxBytes = 600
 )
 
+// PriorRefusedMax bounds the refused checks the evaluate prompt shows (C3):
+// half the reviews an intent caches. The controller hands over at most the
+// newest this many.
+const PriorRefusedMax = 40
+
+// GreenRubric is the check reviewer's rule for a check confirmed green, word
+// for word: rendered into every green review and into the evaluator's
+// prompt, so the evaluator writes its checks to the rule they are judged by
+// (coverage design B1). A test pins both.
+const GreenRubric = "Answer `proves` only if a pass of this check really shows the outcome holds: it does what " +
+	"the outcome describes, on data it created itself, and it would fail if the outcome did not hold. Answer " +
+	"`does_not_prove` if it could pass while the outcome does not hold: it checks something else or only part of " +
+	"the outcome, it asserts only that a call succeeded or a page loaded, it is keyed to fixed values that an " +
+	"implementation could special-case, or it depends on data it did not create. Answer `unclear` if you cannot " +
+	"tell from what is shown."
+
+// LayoutReadRule is the green rule's one exception, for a layout read
+// (checks.LayoutRead): a reviewer is shown it for such a check, the
+// evaluator always (coverage design B4), so it is worded in the third
+// person to read in both. It mirrors the red question's layout exemption;
+// such a check's failure is still held for a person.
+const LayoutReadRule = "A browser check that writes nothing and asserts only the layout of the page's fixed " +
+	"markup, at least once by a measure (size, left-of, above, no-overlap, equal-size, aligned or legible), on " +
+	"elements it finds by role, label, test id or CSS rather than by their text or position, reads the same markup " +
+	"on every run: it needs no data it created, and is not refused for that, unless what it measures is a row or " +
+	"record that other runs make, or is sized or placed by them."
+
+// GreenRubric and LayoutReadRule, wrapped as the templates are, for them.
+func (evaluateView) GreenRubric() string       { return wrap(GreenRubric, "", "") }
+func (evaluateView) LayoutReadRule() string    { return wrap(LayoutReadRule, "", "") }
+func (checkReviewView) GreenRubric() string    { return wrap(GreenRubric, "", "") }
+func (checkReviewView) LayoutReadRule() string { return wrap(LayoutReadRule, "", "") }
+
 // runToken is the exploration token's grammar: what the prompt states
 // as maul's own, outside any fence, so nothing but this can pass.
 var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -99,6 +132,15 @@ type EvaluatePrompt struct {
 	PriorRound    int
 	PriorVerdicts []PriorVerdict
 	PriorReplay   []PriorReplay
+	// PriorRefused are the checks the reviewer refused in earlier rounds,
+	// with its reasons (coverage design C3); none omits the section.
+	PriorRefused []PriorRefusal
+}
+
+// PriorRefusal is one check the reviewer refused in an earlier round, by
+// its id and outcome, with the reviewer's reason.
+type PriorRefusal struct {
+	Check, Outcome, Reason string
 }
 
 // PriorVerdict is maul's result of one outcome in a previous round, with
@@ -154,12 +196,45 @@ type evaluateView struct {
 	ChangedBlock  string
 	FixDiffBlock  string
 	PriorBlock    string
+	RefusedBlock  string
 	Examples      evaluateExamples
 	// LookAroundCalls is LookAroundToolCalls, for the template.
 	LookAroundCalls int
 	// ReportBy is the turn by which the prompt asks for the report
 	// (reportBy).
 	ReportBy int
+	// OutcomeTurns is the turns the prompt budgets for each outcome a person
+	// does not judge and no saved check covers (outcomeTurns).
+	OutcomeTurns int
+}
+
+// outcomeTurns shares the turns before the report, less the two that start
+// a round, among the outcomes a person does not judge and no saved check
+// covers (replayedGreen): at least 1 each. It is advice only, so an outcome
+// whose check fails this round after all is still judged.
+func outcomeTurns(reportBy int, os []acceptance.PlanOutcome, replays []PriorReplay) int {
+	green := replayedGreen(replays)
+	n := 0
+	for _, o := range os {
+		if !o.Manual && !green[o.ID] {
+			n++
+		}
+	}
+	return max(1, (reportBy-2)/max(n, 1))
+}
+
+// replayedGreen is the outcomes whose saved checks all replayed, at least
+// one, and every one passed.
+func replayedGreen(replays []PriorReplay) map[string]bool {
+	green := map[string]bool{}
+	for _, r := range replays {
+		pass := r.Result == string(v1alpha1.CheckRunPass)
+		if seen, ok := green[r.Outcome]; ok {
+			pass = pass && seen
+		}
+		green[r.Outcome] = pass
+	}
+	return green
 }
 
 // ExecMarker is checks.ExecAssertionMarker, for the template.
@@ -202,13 +277,33 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
+	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay)
 	if strings.TrimSpace(p.FixDiff) != "" {
 		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")
 	}
 	if p.PriorRound > 0 {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
 	}
+	v.RefusedBlock = refusedBlock(p.PriorRefused)
 	return render("prompt_evaluate.md.tmpl", v)
+}
+
+// refusedBlock lists the checks the reviewer refused, as priorBlock lists a
+// round's results: each by its id and outcome with the reviewer's reason,
+// at most PriorRefusedMax; "" for none.
+func refusedBlock(rs []PriorRefusal) string {
+	var b strings.Builder
+	for i, r := range rs {
+		if i == PriorRefusedMax {
+			break
+		}
+		fmt.Fprintf(&b, "- check %s, of outcome %s, was refused.", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64))
+		if r.Reason != "" {
+			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // priorBlock lists a previous round's results as the prompt quotes them, in
@@ -326,6 +421,16 @@ type CheckReviewPrompt struct {
 	Limits     StageLimits
 	// Outcome is the outcome's text.
 	Outcome string
+	// From is the line of the request the outcome answers, and Kind the
+	// outcome's kind (empty is change). Request is the intent's request, as
+	// the evaluator is given it, and Components the previewed components
+	// (coverage design C1): context, so a reviewer judges the application's
+	// own words by the request. From and Request are UNTRUSTED, quoted as
+	// data; empty ones, and no components, leave their sections out.
+	From       string
+	Kind       acceptance.OutcomeKind
+	Request    string
+	Components []EvaluateComponent
 	// Check is the check under review.
 	Check checks.Check
 	// ExpectFail asks the red question: the check failed on the build under
@@ -354,6 +459,10 @@ func (checkReviewView) ReportExample() string { return ExampleCheckReviewReport 
 type checkReviewView struct {
 	CheckReviewPrompt
 	OutcomeBlock string
+	FromBlock    string
+	RequestBlock string
+	// KindSentence states the outcome's kind: keep, else change.
+	KindSentence string
 	Form         string
 	CheckBlock   string
 	Files        []reviewFile
@@ -365,6 +474,9 @@ type checkReviewView struct {
 	// a measured layout assertion (checks.FailsLayout, S1 demo bug 9): the
 	// red question asks about the page's layout, not data it created.
 	Layout bool
+	// LayoutRead: a green question about a layout read (checks.LayoutRead):
+	// the green rule's layout exception is shown beside it.
+	LayoutRead bool
 	// Viewport is the fixed window a browser check runs in.
 	Viewport playwright.Viewport
 }
@@ -396,11 +508,25 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		Files:             files,
 		Assertion:         quotedLine(p.FailedAssertion, 512),
 		Viewport:          playwright.DefaultViewport,
+		FromBlock:         quotedLine(p.From, acceptance.MaxFromChars*4),
+		RequestBlock:      strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
+		KindSentence:      "It is a change: something the change makes true.",
 	}
+	if p.ExpectFail {
+		// The red question keeps to the outcome as approved: a request
+		// that says more than its narrowed outcome must not push a
+		// reviewer toward a fix outside that contract (coverage review).
+		v.FromBlock, v.RequestBlock = "", ""
+	}
+	if p.Kind == acceptance.OutcomeKindKeep {
+		v.KindSentence = "It is a keep: something the change must leave true."
+	}
+	v.Components = boundEvaluateComponents(p.Components)
 	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
 		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
+	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
 	return render("prompt_checkreview.md.tmpl", v)
 }
 
@@ -447,8 +573,8 @@ func reviewedCheck(c checks.Check) (shownCheck, []reviewFile) {
 // report.ParseEvaluation, so the prompt never teaches a refused shape.
 const (
 	ExampleHTTPCheck = `{
-  "id": "winner-rises-api",
-  "outcome": "winner-rises",
+  "id": "rating-moves-api",
+  "outcome": "rating-moves",
   "form": "http",
   "http": {
     "target": "api",
@@ -457,27 +583,46 @@ const (
        "expect": {"status": 201}, "capture": {"alice": "/id"}},
       {"request": {"method": "POST", "path": "/api/players", "json": {"name": "{{run}}-bob"}},
        "expect": {"status": 201}, "capture": {"bob": "/id"}},
+      {"request": {"method": "GET", "path": "/api/players/{{capture.alice}}"},
+       "expect": {"status": 200, "json": {"/name": "{{run}}-alice", "/rating": 1000}}},
+      {"request": {"method": "GET", "path": "/api/players/{{capture.bob}}"},
+       "expect": {"status": 200, "json": {"/name": "{{run}}-bob", "/rating": 1000}}},
       {"request": {"method": "POST", "path": "/api/battles",
-                   "json": {"winner": "{{capture.alice}}", "loser": "{{capture.bob}}"}},
+                   "json": {"winner": "{{capture.bob}}", "loser": "{{capture.alice}}"}},
        "expect": {"status": 201}},
-      {"request": {"method": "GET", "path": "/api/leaderboard"},
-       "expect": {"status": 200,
-                  "json": {"/players": {"$order": ["{{run}}-alice", "{{run}}-bob"], "$by": "/name"}}}}
+      {"request": {"method": "GET", "path": "/api/players/{{capture.bob}}"},
+       "expect": {"status": 200, "json": {"/rating": {"$range": [1001, 3000]}}}},
+      {"request": {"method": "GET", "path": "/api/players/{{capture.alice}}"},
+       "expect": {"status": 200, "json": {"/rating": {"$range": [0, 999]}}}}
     ]
   }
 }`
 	ExampleBrowserCheck = `{
-  "id": "winner-rises-page",
-  "outcome": "winner-rises",
+  "id": "winner-listed-first-page",
+  "outcome": "winner-listed-first",
   "form": "browser",
   "browser": {
     "steps": [
       {"goto": "/players"},
       {"fill": {"locator": {"label": "Player name"}, "text": "{{run}}-alice"}},
       {"click": {"role": "button", "name": "Add player"}},
-      {"expect": {"assert": "visible", "locator": {"role": "row", "hasText": "{{run}}-alice"}}},
-      {"expect": {"assert": "legible", "locator": {"role": "row", "hasText": "{{run}}-alice"}}},
-      {"expect": {"assert": "clickable", "locator": {"role": "button", "name": "Rate"}}}
+      {"fill": {"locator": {"label": "Player name"}, "text": "{{run}}-bob"}},
+      {"click": {"role": "button", "name": "Add player"}},
+      {"goto": "/battle"},
+      {"select": {"label": "Winner", "option": "{{run}}-bob"}},
+      {"select": {"label": "Loser", "option": "{{run}}-alice"}},
+      {"click": {"role": "button", "name": "Rate"}},
+      {"goto": "/leaderboard"},
+      {"expect": {"assert": "above", "locator": {"role": "row", "hasText": "{{run}}-bob"},
+                  "other": {"role": "row", "hasText": "{{run}}-alice"}}},
+      {"goto": "/battle"},
+      {"select": {"label": "Winner", "option": "{{run}}-alice"}},
+      {"select": {"label": "Loser", "option": "{{run}}-bob"}},
+      {"click": {"role": "button", "name": "Rate"}},
+      {"goto": "/leaderboard"},
+      {"expect": {"assert": "above", "locator": {"role": "row", "hasText": "{{run}}-alice"},
+                  "other": {"role": "row", "hasText": "{{run}}-bob"}}},
+      {"expect": {"assert": "legible", "locator": {"role": "row", "hasText": "{{run}}-alice"}}}
     ]
   }
 }`
@@ -494,10 +639,10 @@ const (
 }`
 	ExampleEvaluationReport = `---
 verdicts:
-  - outcome: "winner-rises"
+  - outcome: "rating-moves"
     verdict: pass
     ledger: [14, 15, 22]
-    note: "The winner is listed above the loser after one rating, by the API and on the page."
+    note: "Both players start at 1000; after the battle the winner is at 1016 and the loser at 984."
   - outcome: "live-score"
     verdict: fail
     ledger: [31, 33]
@@ -506,15 +651,19 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "Only a person can judge this."
+  - outcome: "loser-emailed"
+    verdict: unsure
+    ledger: []
+    note: "The clause 'emails the loser' could not be exercised: the preview sends no mail and no tool reads one."
 disputes:
   - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."
-    replacement: "winner-rises-api"
+    replacement: "rating-moves-api"
     ledger: [3]
 proposed:
-  - id: "winner-rises-api"
-    outcome: "winner-rises"
-    file: "/work/scratch/checks/winner-rises-api.json"
+  - id: "rating-moves-api"
+    outcome: "rating-moves"
+    file: "/work/scratch/checks/rating-moves-api.json"
   - id: "live-score-socket"
     outcome: "live-score"
     file: "/work/scratch/checks/live-score-socket.json"
@@ -531,14 +680,26 @@ What I checked, in a few lines.
 )
 
 // ExamplePlanOutcomes is the outcome list the plan prompt shows, under the
-// evaluator; a test holds it to report.ParsePlan.
+// evaluator; a test holds it to report.ParsePlan. Each outcome models the
+// prompt's rules: about items the person checking creates, one claim a
+// check can show, concrete values, a layout outcome naming one fixed
+// element and the numbers it must meet, a keep naming one action,
+// and where a person sees it.
 const ExamplePlanOutcomes = `acceptance:
-  - id: winner-rises
-    outcome: "Rating a battle moves the winner above the loser on the leaderboard."
+  - id: rating-moves
+    outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
     from: "ratings should update after every battle"
     kind: change
-  - id: leaderboard-still-loads
-    outcome: "The leaderboard page still lists every player."
+  - id: winner-listed-first
+    outcome: "On /leaderboard, the winner of a battle between two players you create is listed above the loser."
+    from: "ratings should update after every battle"
+    kind: change
+  - id: kick-pad-size
+    outcome: "On /, the kick row's first step pad is at least 48 by 48 px."
+    from: "make the step pads at least 48px"
+    kind: change
+  - id: new-player-listed
+    outcome: "A player you add on the players page (/players) is listed there by the name you gave."
     kind: keep
   - id: sounds-good
     outcome: "The new drum kit sounds good."
@@ -548,3 +709,7 @@ const ExamplePlanOutcomes = `acceptance:
 
 // OutcomesExample is ExamplePlanOutcomes, for the plan prompt's template.
 func (PlanPrompt) OutcomesExample() string { return ExamplePlanOutcomes }
+
+// Viewport is the fixed window a browser check runs in, for the plan
+// prompt's template.
+func (PlanPrompt) Viewport() playwright.Viewport { return playwright.DefaultViewport }

@@ -106,12 +106,20 @@ change does can be seen running.
 
 ```yaml
 acceptance:
-  - id: winner-rises
-    outcome: "Rating a battle moves the winner above the loser on the leaderboard."
+  - id: rating-moves
+    outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
     from: "ratings should update after every battle"
     kind: change
-  - id: leaderboard-still-loads
-    outcome: "The leaderboard page still lists every player."
+  - id: winner-listed-first
+    outcome: "On /leaderboard, the winner of a battle between two players you create is listed above the loser."
+    from: "ratings should update after every battle"
+    kind: change
+  - id: kick-pad-size
+    outcome: "On /, the kick row's first step pad is at least 48 by 48 px."
+    from: "make the step pads at least 48px"
+    kind: change
+  - id: new-player-listed
+    outcome: "A player you add on the players page (/players) is listed there by the name you gave."
     kind: keep
   - id: sounds-good
     outcome: "The new drum kit sounds good."
@@ -131,6 +139,36 @@ Rules the outcomes keep to:
 - `manual: true`, with a `reason` of at most 120 characters, for what only a person can judge.
 - Put `outcome`, `from` and `reason` in double quotes, and escape a double quote inside one as `\"`: an unquoted
   colon is invalid YAML, and the whole report is refused.
+
+How to word an outcome so the evaluator can show it:
+
+- The evaluator checks every outcome again in each later round, on a preview whose data persists and is shared by
+  every check: maul never resets it. So write each outcome about an item the person checking creates in that check,
+  never about data that is already there: no "every", "each", "all", "other", "existing" or "saved before", and no
+  global rank, count, or first or last row. Where the request says "each X", write the outcome for an X the check
+  creates. Name two such items where the outcome compares them ("a vote for one of two beats you create moves only
+  that beat").
+- One outcome is one claim a single check can show. Split "X and Y", "on the page and in the API" and "before and
+  after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200 characters.
+- State concrete values: what a person enters, other than the defaults, and what they then see ("a beat you save at
+  90 BPM shows 90 bpm (2.7 s)").
+- A `keep` outcome names one action on the person's own item and what they then see ("a beat you save still plays
+  its 16 steps in order"), never "X still works".
+- An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data.
+  Name one element of the fixed page (the kick row's first step pad) and state the numbers: an exact size or position
+  with a tolerance ("48 by 48 px, within 1 px"), or the bound the request gives ("at least 48 by 48 px", "at most 320
+  px wide"). The rule against a first or last row is about rows of data, not the page's fixed markup. The browser's
+  window is always 1280 by 800 CSS pixels.
+- Do not promise a colour: a check cannot assert one. State the visible state a check can read (the step shows as on,
+  its label reads On, its text can be read against its background), or mark the outcome manual.
+- An outcome only data a check cannot create can show (rows the application seeds or makes in the background) is
+  `manual: true`, with that as its reason.
+- Name where a person sees each outcome, a page's route or an API path, in the application's own words, with the
+  API's name in brackets where it differs from the page's ("a beat (a pattern, /api/patterns)").
+
+The preview serves these components:
+
+- `api`, under `/api`
 
 After the frontmatter, write the plan in markdown under the headings Approach, Steps, Test plan and Risks, in at most
 48 KiB; the whole report, frontmatter included, is at most 56 KiB. It is posted to the request for a human to

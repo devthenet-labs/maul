@@ -232,7 +232,8 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 			Outcomes: schemaOutcomes(), OutcomesDigest: schemaDigest,
 			Checks: &maulv1.CheckStoreRef{ConfigMap: "target-90-checks-r1", Digest: schemaDigest, Count: 3},
 			Reviews: []maulv1.CheckReviewRecord{{CheckDigest: schemaDigest, OutcomeDigest: schemaDigest,
-				Answer: maulv1.ReviewProves, Run: "target-90-cr-r1-a1"}},
+				Answer: maulv1.ReviewProves, Run: "target-90-cr-r1-a1", Check: "winner-rises.api",
+				Reason: "It rates its own battle and reads both ratings."}},
 		}
 		s.Verification = fullEvaluatorVerification()
 		return s
@@ -283,6 +284,10 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 		{"41 stored checks", func(s *maulv1.IntentStatus) { s.Acceptance.Checks.Count = 41 }},
 		{"a check store without its digest", func(s *maulv1.IntentStatus) { s.Acceptance.Checks.Digest = "" }},
 		{"an unknown review answer", func(s *maulv1.IntentStatus) { s.Acceptance.Reviews[0].Answer = "maybe" }},
+		{"a malformed reviewed check id", func(s *maulv1.IntentStatus) { s.Acceptance.Reviews[0].Check = "Rate It" }},
+		{"a review reason over 600 characters", func(s *maulv1.IntentStatus) {
+			s.Acceptance.Reviews[0].Reason = strings.Repeat("r", 601)
+		}},
 		{"81 reviews", func(s *maulv1.IntentStatus) {
 			for len(s.Acceptance.Reviews) < 81 {
 				s.Acceptance.Reviews = append(s.Acceptance.Reviews, s.Acceptance.Reviews[0])

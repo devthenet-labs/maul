@@ -97,7 +97,8 @@ const (
 	AssertEqualSize AssertKind = "equal-size"
 	// AssertAligned: the two boxes share an x (or y) within Tolerance.
 	AssertAligned AssertKind = "aligned"
-	// AssertSize: the box's Width and/or Height, within Tolerance.
+	// AssertSize: the box's Width and/or Height, within Tolerance, or its
+	// bounds (MinWidth, MaxWidth, MinHeight, MaxHeight: "at least 48 px").
 	AssertSize AssertKind = "size"
 	// AssertClickable: the element receives a click at its centre.
 	AssertClickable AssertKind = "clickable"
@@ -118,9 +119,17 @@ type Assertion struct {
 	// URL is a path pattern ("*" any text).
 	URL string `json:"url,omitempty"`
 	// Axis is aligned's: x or y.
-	Axis   string   `json:"axis,omitempty"`
-	Width  *float64 `json:"width,omitempty"`
-	Height *float64 `json:"height,omitempty"`
+	Axis string `json:"axis,omitempty"`
+	// Width and Height are a size's exact dimensions; the bounds below are
+	// its at least and at most, on an axis with no exact one. Declared
+	// after Height, omitted when unset, so an exact size's canonical form
+	// and digest are unchanged.
+	Width     *float64 `json:"width,omitempty"`
+	Height    *float64 `json:"height,omitempty"`
+	MinWidth  *float64 `json:"minWidth,omitempty"`
+	MinHeight *float64 `json:"minHeight,omitempty"`
+	MaxWidth  *float64 `json:"maxWidth,omitempty"`
+	MaxHeight *float64 `json:"maxHeight,omitempty"`
 	// Tolerance is a box assertion's slack in px.
 	Tolerance float64 `json:"tolerance,omitempty"`
 }
@@ -145,7 +154,7 @@ const (
 	MaxCount = 1000
 	// MaxTolerance bounds a box assertion's tolerance in px.
 	MaxTolerance = 100
-	// MaxBox bounds a size assertion's width or height in px.
+	// MaxBox bounds a size assertion's width, height or bound in px.
 	MaxBox = 10000
 )
 
@@ -416,7 +425,7 @@ func validateAssertion(a Assertion, p Preview) *Refusal {
 	}{
 		{useLocator, a.Locator != nil}, {useOther, a.Other != nil}, {useText, a.Text != nil},
 		{useCount, a.Count != nil}, {useURL, a.URL != ""}, {useAxis, a.Axis != ""},
-		{useSize, a.Width != nil || a.Height != nil}, {useTolerance, a.Tolerance != 0},
+		{useSize, a.sized()}, {useTolerance, a.Tolerance != 0},
 	} {
 		if f.set != (uses&f.bit != 0) && (f.set || f.bit != useTolerance) {
 			return refuse(RuleGrammar, "assert %s takes %s", a.Assert, describeUses(uses))
@@ -448,9 +457,37 @@ func validateAssertionValues(a Assertion, p Preview) *Refusal {
 	case a.Tolerance < 0 || a.Tolerance > MaxTolerance || math.IsNaN(a.Tolerance):
 		return refuse(RuleGrammar, "tolerance is 0 to %d px", MaxTolerance)
 	}
-	for _, d := range []*float64{a.Width, a.Height} {
-		if d != nil && (*d <= 0 || *d > MaxBox) {
-			return refuse(RuleGrammar, "width and height are over 0 and at most %d px", MaxBox)
+	return validateDimensions(a)
+}
+
+// sized reports an assertion carrying any size dimension or bound.
+func (a Assertion) sized() bool {
+	for _, d := range []*float64{a.Width, a.Height, a.MinWidth, a.MinHeight, a.MaxWidth, a.MaxHeight} {
+		if d != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// validateDimensions holds a size's dimensions and bounds: each over 0 and at
+// most MaxBox, an axis exact or bounded but not both, a minimum not over
+// its maximum.
+func validateDimensions(a Assertion) *Refusal {
+	for _, d := range []*float64{a.Width, a.Height, a.MinWidth, a.MinHeight, a.MaxWidth, a.MaxHeight} {
+		if d != nil && (!(*d > 0) || *d > MaxBox) {
+			return refuse(RuleGrammar, "width, height and their bounds are over 0 and at most %d px", MaxBox)
+		}
+	}
+	for _, ax := range []struct {
+		name          string
+		exact, lo, hi *float64
+	}{{"width", a.Width, a.MinWidth, a.MaxWidth}, {"height", a.Height, a.MinHeight, a.MaxHeight}} {
+		if ax.exact != nil && (ax.lo != nil || ax.hi != nil) {
+			return refuse(RuleGrammar, "size takes an exact %s or its bounds, not both", ax.name)
+		}
+		if ax.lo != nil && ax.hi != nil && *ax.lo > *ax.hi {
+			return refuse(RuleGrammar, "size's minimum %s is over its maximum", ax.name)
 		}
 	}
 	return nil
@@ -484,7 +521,8 @@ func describeUses(uses int) string {
 		name string
 	}{
 		{useLocator, "locator"}, {useOther, "other"}, {useText, "text"}, {useCount, "count"}, {useURL, "url"},
-		{useAxis, "axis"}, {useSize, "width or height"}, {useTolerance, "tolerance (optional)"},
+		{useAxis, "axis"}, {useSize, "width or height, or minWidth, minHeight, maxWidth, maxHeight"},
+		{useTolerance, "tolerance (optional)"},
 	} {
 		if uses&f.bit != 0 {
 			out = append(out, f.name)

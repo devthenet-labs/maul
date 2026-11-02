@@ -105,6 +105,27 @@ function within(name: string, got: number, want: number, tolerance: number): str
   return Math.abs(got - want) <= tolerance ? [] : [name + " " + px(got) + " not " + px(want) + " +/- " + px(tolerance)];
 }
 
+type SizeWant = {
+  width?: number;
+  minWidth?: number;
+  maxWidth?: number;
+  height?: number;
+  minHeight?: number;
+  maxHeight?: number;
+};
+
+function atLeast(name: string, got: number, min: number, tolerance: number): string[] {
+  return got >= min - tolerance ? [] : [name + " " + px(got) + " not at least " + px(min) + slack(tolerance)];
+}
+
+function atMost(name: string, got: number, max: number, tolerance: number): string[] {
+  return got <= max + tolerance ? [] : [name + " " + px(got) + " not at most " + px(max) + slack(tolerance)];
+}
+
+function slack(tolerance: number): string {
+  return tolerance ? " (slack " + px(tolerance) + ")" : "";
+}
+
 // relation judges two boxes measured in the same turn.
 async function relation(what: string, a: Locator, b: Locator, ok: (p: Box, q: Box) => string[]): Promise<void> {
   await retry(what, async () => {
@@ -222,12 +243,18 @@ export const maul = {
     );
   },
 
-  async size(loc: Locator, want: { width?: number; height?: number }, tolerance: number): Promise<void> {
+  // size: an exact width or height within tolerance, or at least min and
+  // at most max, each with the same slack.
+  async size(loc: Locator, want: SizeWant, tolerance: number): Promise<void> {
     await retry("size", async () => {
       const b = await box(loc, "size");
       const why = [
         ...(want.width === undefined ? [] : within("width", b.width, want.width, tolerance)),
+        ...(want.minWidth === undefined ? [] : atLeast("width", b.width, want.minWidth, tolerance)),
+        ...(want.maxWidth === undefined ? [] : atMost("width", b.width, want.maxWidth, tolerance)),
         ...(want.height === undefined ? [] : within("height", b.height, want.height, tolerance)),
+        ...(want.minHeight === undefined ? [] : atLeast("height", b.height, want.minHeight, tolerance)),
+        ...(want.maxHeight === undefined ? [] : atMost("height", b.height, want.maxHeight, tolerance)),
       ];
       return { verdict: why.length ? "fail" : "pass", why };
     });

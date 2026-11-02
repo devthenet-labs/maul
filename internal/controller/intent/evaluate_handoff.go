@@ -82,15 +82,7 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 			MaxToolCalls: int(t.MaxToolCalls), LookAroundRoutes: int(t.LookAroundRoutes)}
 		h.Tools.BrowserEntry = p.browserEntry(t.Browser)
 	}
-	previews := v1alpha1.EffectivePreviews(p.proj)
-	for _, head := range pv.Spec.Heads {
-		if i := slices.IndexFunc(previews, func(rp v1alpha1.RepositoryPreview) bool {
-			return rp.Name == head.Component
-		}); i >= 0 {
-			h.Components = append(h.Components, agentrun.EvaluateComponent{Key: head.Component,
-				Path: previews[i].Path})
-		}
-	}
+	h.Components = p.evaluateComponents(pv)
 	if h.Request, err = p.requestText(ctx); err != nil {
 		return "", err
 	}
@@ -98,7 +90,60 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	if err := p.previousRound(ctx, pv, &h); err != nil {
 		return "", err
 	}
+	h.PriorRefused = p.priorRefused()
 	return encodeEvaluateHandoff(h)
+}
+
+// evaluateComponents are the previewed components at pv's heads, by the
+// key an http check targets and the path each is served under: what the
+// evaluator and the check reviewer are told the preview serves.
+func (p *pass) evaluateComponents(pv *v1alpha1.PreviewVerification) []agentrun.EvaluateComponent {
+	var out []agentrun.EvaluateComponent
+	previews := v1alpha1.EffectivePreviews(p.proj)
+	for _, head := range pv.Spec.Heads {
+		if i := slices.IndexFunc(previews, func(rp v1alpha1.RepositoryPreview) bool {
+			return rp.Name == head.Component
+		}); i >= 0 {
+			out = append(out, agentrun.EvaluateComponent{Key: head.Component, Path: previews[i].Path})
+		}
+	}
+	return out
+}
+
+// priorRefused are the checks the reviewer refused, cached on the Intent
+// (status.acceptance.reviews), each for an approved outcome's current text:
+// by outcome, the check's id (its digest for a review recorded before ids
+// were kept) and the reviewer's reason, made visible (coverage design C3).
+// A check refused in one form is never reviewed again in that form, so the
+// evaluator is told why, to strengthen it rather than propose it again. A
+// red review's refusal is left out: it judged a failure, not whether the
+// check proves its outcome, and a green review of the same check is still
+// open. At most the newest templates.PriorRefusedMax, oldest first.
+func (p *pass) priorRefused() []agentrun.PriorRefusal {
+	acc := p.in.Status.Acceptance
+	if acc == nil {
+		return nil
+	}
+	outcomes := make(map[string]string, len(acc.Outcomes))
+	for _, o := range acc.Outcomes {
+		outcomes[outcomeDigest(o)] = o.ID
+	}
+	var out []agentrun.PriorRefusal
+	for i := len(acc.Reviews) - 1; i >= 0 && len(out) < templates.PriorRefusedMax; i-- {
+		r := acc.Reviews[i]
+		id, ok := outcomes[r.OutcomeDigest]
+		if !ok || r.Answer == v1alpha1.ReviewProves || r.Expect == v1alpha1.CheckExpectFail {
+			continue
+		}
+		check := r.Check
+		if check == "" {
+			check = r.CheckDigest
+		}
+		out = append(out, agentrun.PriorRefusal{Outcome: id, Check: check,
+			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)})
+	}
+	slices.Reverse(out)
+	return out
 }
 
 // browserEntry is the Project's surfaces.browser.entry when the round has a
@@ -273,8 +318,9 @@ func (p *pass) changedPaths(ctx context.Context) []agentrun.ChangedPath {
 }
 
 // encodeEvaluateHandoff encodes h as agent-runner decodes it, within its
-// bound: changed paths are dropped from the end until it fits, and a
-// handoff that does not fit without them is refused.
+// bound: changed paths are dropped from the end until it fits, then the
+// oldest refused checks, and a handoff that does not fit without either is
+// refused.
 func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 	for {
 		b, err := json.Marshal(h)
@@ -284,28 +330,44 @@ func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 		if len(b) <= evaluateHandoffMaxBytes {
 			return string(b), nil
 		}
-		if len(h.ChangedPaths) == 0 {
+		switch {
+		case len(h.ChangedPaths) > 0:
+			h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
+		case len(h.PriorRefused) > 0:
+			// The newest refusals are the last: keep them.
+			h.PriorRefused = h.PriorRefused[len(h.PriorRefused)/2+len(h.PriorRefused)%2:]
+		default:
 			return "", fmt.Errorf("the evaluate handoff is %d bytes, over %d", len(b), evaluateHandoffMaxBytes)
 		}
-		h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
 	}
 }
 
 // encodeCheckReviewHandoff encodes the check reviewer's handoff as
 // agent-runner decodes it: one review per new check, keyed by the check's
-// and its outcome's digests, the check as maul's canonical JSON. One past
-// agent-runner's bound is refused, never cut: a cut review would be another
+// and its outcome's digests, the check as maul's canonical JSON, beside the
+// round's context (the request and the components). Over agent-runner's
+// bound the context goes first, the request then the components; a handoff
+// still over it is refused, never cut: a cut review would be another
 // review. S1-19's check review round renders it.
-func encodeCheckReviewHandoff(reviews []agentrun.CheckReviewItem) (string, error) {
-	if len(reviews) == 0 {
+func encodeCheckReviewHandoff(h agentrun.CheckReviewHandoff) (string, error) {
+	if len(h.Reviews) == 0 {
 		return "", fmt.Errorf("a check review has no reviews")
 	}
-	b, err := json.Marshal(agentrun.CheckReviewHandoff{Reviews: reviews})
-	if err != nil {
-		return "", fmt.Errorf("encode the check review handoff: %w", err)
+	for {
+		b, err := json.Marshal(h)
+		if err != nil {
+			return "", fmt.Errorf("encode the check review handoff: %w", err)
+		}
+		switch {
+		case len(b) <= checkReviewHandoffMaxBytes:
+			return string(b), nil
+		case h.Request != "":
+			h.Request = ""
+		case len(h.Components) > 0:
+			h.Components = nil
+		default:
+			return "", fmt.Errorf("the check review handoff is %d bytes, over %d", len(b),
+				checkReviewHandoffMaxBytes)
+		}
 	}
-	if len(b) > checkReviewHandoffMaxBytes {
-		return "", fmt.Errorf("the check review handoff is %d bytes, over %d", len(b), checkReviewHandoffMaxBytes)
-	}
-	return string(b), nil
 }

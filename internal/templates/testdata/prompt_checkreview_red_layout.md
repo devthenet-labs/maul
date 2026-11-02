@@ -14,6 +14,13 @@ The outcome:
 Rating a battle moves the winner above the loser on the leaderboard.
 ```
 
+It is a change: something the change makes true.
+
+The preview serves these components:
+
+- `api`: served under `/api`
+- `web`: served under `/`
+
 The check, a `browser` check, as maul runs it:
 
 ```text

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/agentresult"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
@@ -29,14 +30,25 @@ import (
 const (
 	checkReviewOutcomeMaxBytes = 4 << 10
 	checkReviewHandoffMaxBytes = 512 << 10
+	// checkReviewFromMaxBytes bounds an item's line of the request, and
+	// checkReviewRequestMaxBytes the request (the evaluate handoff's bound).
+	checkReviewFromMaxBytes    = 2 << 10
+	checkReviewRequestMaxBytes = 32 << 10
 )
 
 // CheckReviewHandoff is the checkreview stage's handoff (input/issue.md):
 // the new checks of a round, each with the outcome it is to prove, which
 // the intent controller encodes as strict JSON (encoding/json of this
 // type).
+//
+// Request is the intent's request as the evaluator is given it, and
+// Components the previewed components: context every review of the round
+// shares (coverage design C1), so a reviewer judges the application's own
+// words by the request. Never the evaluator's notes or verdicts.
 type CheckReviewHandoff struct {
-	Reviews []CheckReviewItem `json:"reviews"`
+	Reviews    []CheckReviewItem   `json:"reviews"`
+	Request    string              `json:"request,omitempty"`
+	Components []EvaluateComponent `json:"components,omitempty"`
 }
 
 // CheckReviewItem is one review: a check and its outcome's text, each keyed
@@ -56,9 +68,14 @@ type CheckReviewItem struct {
 	CheckDigest   string `json:"check_digest"`
 	OutcomeDigest string `json:"outcome_digest"`
 	Outcome       string `json:"outcome"`
-	Check         string `json:"check"`
-	Expect        string `json:"expect,omitempty"`
-	FailedStep    int    `json:"failed_step,omitempty"`
+	// From is the line of the request the outcome answers (at most
+	// checkReviewFromMaxBytes) and Kind the outcome's kind, change or keep
+	// (empty is change): context, not part of the review's key.
+	From       string `json:"from,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Check      string `json:"check"`
+	Expect     string `json:"expect,omitempty"`
+	FailedStep int    `json:"failed_step,omitempty"`
 	// FailedAssertion is at most checkReviewAssertionMaxBytes.
 	FailedAssertion string `json:"failed_assertion,omitempty"`
 }
@@ -115,20 +132,36 @@ type checkReviewItem struct {
 // JSON, one to agentresult.CheckReviewMaxAnswers reviews, each with
 // well-formed digests, a non-empty bounded outcome, a check that parses and
 // has its digest, and no (check, outcome) pair twice.
-func (a *Agent) checkReviewInput() ([]checkReviewItem, error) {
+func (a *Agent) checkReviewInput() (checkReviewRound, error) {
 	raw, err := a.readHandoff(checkReviewHandoffMaxBytes)
 	if err != nil {
-		return nil, err
+		return checkReviewRound{}, err
 	}
 	var h CheckReviewHandoff
 	if err := decodeHandoff(raw, "check review", &h); err != nil {
-		return nil, err
+		return checkReviewRound{}, err
+	}
+	if len(h.Request) > checkReviewRequestMaxBytes {
+		return checkReviewRound{}, fmt.Errorf("input handoff: the request is %d bytes, over %d", len(h.Request),
+			checkReviewRequestMaxBytes)
 	}
 	items, err := validReviews(h.Reviews)
 	if err != nil {
-		return nil, fmt.Errorf("input handoff: %w", err)
+		return checkReviewRound{}, fmt.Errorf("input handoff: %w", err)
 	}
-	return items, nil
+	r := checkReviewRound{items: items, request: h.Request}
+	for _, c := range h.Components {
+		r.components = append(r.components, templates.EvaluateComponent{Key: c.Key, Path: c.Path})
+	}
+	return r, nil
+}
+
+// checkReviewRound is the checkreview stage's input: its reviews, and the
+// context every review shares.
+type checkReviewRound struct {
+	items      []checkReviewItem
+	request    string
+	components []templates.EvaluateComponent
 }
 
 // validReviews holds a handoff's reviews to their bounds and parses each
@@ -160,6 +193,14 @@ func validReviews(in []CheckReviewItem) ([]checkReviewItem, error) {
 			refuse("outcome is empty")
 		case len(it.Outcome) > checkReviewOutcomeMaxBytes:
 			refuse("outcome is %d bytes, over %d", len(it.Outcome), checkReviewOutcomeMaxBytes)
+		}
+		if len(it.From) > checkReviewFromMaxBytes {
+			refuse("from is %d bytes, over %d", len(it.From), checkReviewFromMaxBytes)
+		}
+		switch acceptance.OutcomeKind(it.Kind) {
+		case "", acceptance.OutcomeKindChange, acceptance.OutcomeKindKeep:
+		default:
+			refuse("kind %q is not change or keep", it.Kind)
 		}
 		item := checkReviewItem{CheckReviewItem: it}
 		switch {
@@ -211,7 +252,8 @@ const unreviewedReason = "maul: the review's report was refused and could not be
 // the next (S1 bug 8: one bad review dropped every check of the round). A
 // session that ends any other way short of OK ends the stage on its
 // outcome, with no answers.
-func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envelope.CheckReview {
+func (a *Agent) checkReview(ctx context.Context, round checkReviewRound) *envelope.CheckReview {
+	items := round.items
 	ev := &envelope.CheckReview{Stage: envelope.Stage{
 		Harness: a.cfg.InvestigateHarness,
 		Model:   a.cfg.InvestigateModel,
@@ -254,6 +296,10 @@ func (a *Agent) checkReview(ctx context.Context, items []checkReviewItem) *envel
 				MaxTurns: firstTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
 			},
 			Outcome:         item.Outcome,
+			From:            item.From,
+			Kind:            acceptance.OutcomeKind(item.Kind),
+			Request:         round.request,
+			Components:      round.components,
 			Check:           item.check,
 			ExpectFail:      item.Expect == "fail",
 			FailedStep:      item.FailedStep,
