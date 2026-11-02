@@ -110,18 +110,18 @@ most 40.
 
 Everything else:
 
-| Situation                                                                           | The outcome                                                                                                    |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| A check failed, and the evaluator reports `fail` for that outcome citing the ledger | **failed**: a verify-fix round with a reproduction                                                             |
-| A check proposed to show a defect, red by assertion in maul's own run, reviewed yes | **unsure**, a suspected defect a person confirms (see [A defect found in round 1](#a-defect-found-in-round-1)) |
-| A check proposed to show a defect that maul's own run did not see red by assertion  | **unsure**: never failed, and never passed by that run                                                         |
-| A check failed, and the evaluator **disputes** it                                   | **unsure** this round (see [Disputes](#disputes))                                                              |
-| A check failed, and the evaluator neither agrees nor disputes                       | **unsure**: "a check failed, but the evaluator did not agree that it is a defect"                              |
-| The evaluator says it holds (or fails), but no check maul re-ran shows it           | **unsure**: no pass and no fix without a check                                                                 |
-| The only support is a check that passed only on its retry                           | **quarantined**                                                                                                |
-| A check failed while preview-controller saw a component crash, get evicted or OOM   | **unsure**, the preview's failure; never a fix                                                                 |
-| maul's own machinery failed (a tool pod never ready, a ledger that does not hold)   | the attempt is retried; past its bound, unsure                                                                 |
-| A manual outcome                                                                    | only a person closes it, with `/maul accept <id>`                                                              |
+| Situation                                                                           | The outcome                                                                                                                                     |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| A check failed, and the evaluator reports `fail` for that outcome citing the ledger | **failed**: a verify-fix round with a reproduction (a check that writes data of its own run; else unsure, a suspected defect a person confirms) |
+| A check proposed to show a defect, red by assertion in maul's own run, reviewed yes | **unsure**, a suspected defect a person confirms (see [A defect found in round 1](#a-defect-found-in-round-1))                                  |
+| A check proposed to show a defect that maul's own run did not see red by assertion  | **unsure**: never failed, and never passed by that run                                                                                          |
+| A check failed, and the evaluator **disputes** it                                   | **unsure** this round (see [Disputes](#disputes))                                                                                               |
+| A check failed, and the evaluator neither agrees nor disputes                       | **unsure**: "a check failed, but the evaluator did not agree that it is a defect"                                                               |
+| The evaluator says it holds (or fails), but no check maul re-ran shows it           | **unsure**: no pass and no fix without a check                                                                                                  |
+| The only support is a check that passed only on its retry                           | **quarantined**                                                                                                                                 |
+| A check failed while preview-controller saw a component crash, get evicted or OOM   | **unsure**, the preview's failure; never a fix                                                                                                  |
+| maul's own machinery failed (a tool pod never ready, a ledger that does not hold)   | the attempt is retried; past its bound, unsure                                                                                                  |
+| A manual outcome                                                                    | only a person closes it, with `/maul accept <id>`                                                                                               |
 
 ## A defect found in round 1
 
@@ -142,8 +142,11 @@ beside it; the commit status and the status comment then say a person confirmed 
 round was still being evaluated) keeps its earlier meaning, a request that re-arms automatic fixes, so no fix starts
 before a person can have seen the evidence. `/maul verify` and `/maul verify fix --reset` never confirm it; nor does
 anything once the pull requests' heads have moved; and while it waits, the hand-off's own time limit still releases the
-link. A regression of a check saved **green** keeps starting the automatic fix as before. Every one of these must hold
-before a defect is even suspected:
+link. A regression of a check saved **green** keeps starting the automatic fix as before, but only for a check that
+writes data of its own run (`{{run}}` in a POST, PUT or PATCH, a browser fill or its program). A saved check that writes
+none reads whatever the application shows (a page's layout, shared rows), so rows other runs made can move it: its
+failure, green or red, cleared or not, is a suspected defect held for a person exactly as below, never an automatic fix.
+What may be saved green is unchanged. Every one of these must hold before a defect is even suspected:
 
 1. **Red by assertion.** The check's dry run failed one assertion the outcome is the judge of, about data the check's
    own run made, in a check that otherwise ran: every step before passed, and both attempts failed the same assertion of
@@ -200,13 +203,13 @@ green, it is asked the green question too (the red review never asked whether a 
 shows a call worked), and only once that answer is `proves` does it pass the outcome. A replay that clears it counts
 from the next round on, so the round and its fix are decided on the same facts. Once cleared and reviewed `proves` with
 the green question, it has been proven against a working build: from then on it is a saved green check, and a later
-regression of it starts the automatic fix, with no person's confirmation. Never a layout read that writes nothing: it
-measures whatever the page shows, so its failures always wait for a person, cleared or not. Until it has replayed green
-once, its later steps and its other assertions have never run, so a replay or a new confirmation that fails other than
-by that same assertion is not evidence: never a second fix, never a block. Another proven check may pass the outcome,
-and a dispute with a proven replacement can still retire it. A check saved red that already replayed green and is
-proposed red again is unsure. Where a base is available, a check of a new outcome that fails at base too is expected
-(the feature did not exist), and is not a reason to refuse it.
+regression of it starts the automatic fix, with no person's confirmation, when it writes data of its own run. A layout
+read that writes nothing is never promoted: like every check that writes no run data, its failures always wait for a
+person, cleared or not. Until it has replayed green once, its later steps and its other assertions have never run, so a
+replay or a new confirmation that fails other than by that same assertion is not evidence: never a second fix, never a
+block. Another proven check may pass the outcome, and a dispute with a proven replacement can still retire it. A check
+saved red that already replayed green and is proposed red again is unsure. Where a base is available, a check of a new
+outcome that fails at base too is expected (the feature did not exist), and is not a reason to refuse it.
 
 Known limits, which is why a person confirms: maul's own run happens on the preview the exploration used, so a check
 whose failing assertion reads state the evaluator left behind could go red deterministically (the write rule, the rule

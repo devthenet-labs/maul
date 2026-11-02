@@ -4,6 +4,7 @@
 package intent
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -175,13 +176,19 @@ proposed:
 The version endpoint answers with the wrong note, and health is down.
 `
 
+// healthProbeCheck is a health check that writes data of its own run, so
+// its regression may start an automatic fix (#309 review).
+const healthProbeCheck = `{"id":"still-healthy","outcome":"still-healthy","form":"http","http":{"target":"app",
+ "steps":[{"request":{"method":"POST","path":"/probes","json":{"name":"{{run}}"}},"expect":{"status":201}},
+ {"request":{"path":"/healthz"},"expect":{"json":{"/status":"ok"}}}]}}`
+
 // TestSuspectedBesideAGreenFailure (fifth review, 5): a suspected defect
 // beside another outcome failing on a saved green check stays visible on
 // the issue, and an approver's /maul verify fix after it confirms it; the
 // fix round then carries both failures.
 func TestSuspectedBesideAGreenFailure(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	health := savedCheck(t, healthCheck)
+	health := savedCheck(t, healthProbeCheck)
 	e.storeChecks(name, health)
 	// Automatic fixes halted, so the green failure waits for a person too.
 	e.gh.comment(approver, "/maul verify stop")
@@ -321,5 +328,52 @@ func TestClearedLayoutRedCheckStaysSuspected(t *testing.T) {
 	e.review(name, 4)
 	if n := len(e.runsOf(name, v1alpha1.IntentStageRevise)); n != 0 {
 		t.Fatalf("revise runs = %d: a layout-only red check was promoted to an automatic fix", n)
+	}
+}
+
+// healthFailsReport: the health outcome fails, citing the ledger.
+const healthFailsReport = `---
+verdicts:
+  - outcome: version-shown
+    verdict: unsure
+    ledger: []
+  - outcome: still-healthy
+    verdict: fail
+    ledger: [3]
+---
+Health is down.
+`
+
+// TestGreenWithoutRunDataIsHeld (#309 review): a saved green check that
+// writes no data of its own run reads whatever the application shows, so
+// its regression starts no automatic fix: a suspected defect, the hand-off
+// held, no fix run. One that writes its run's data still fixes
+// automatically (TestEvaluationFailureStartsAFix).
+func TestGreenWithoutRunDataIsHeld(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	health := savedCheck(t, healthCheck) // GET /healthz: no data of its own run
+	e.storeChecks(name, health)
+	e.evaluateReporting(healthFailsReport)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.runRuns()
+	e.runRuns()
+	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: health.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
+		Seq: 3})
+	e.settleReviews(name)
+	v := e.verification(name)
+	i := slices.IndexFunc(v.Outcomes, func(r v1alpha1.OutcomeResult) bool { return r.ID == "still-healthy" })
+	if v.Failed != 0 || i < 0 || v.Outcomes[i].Reason != acceptance.ReasonSuspectedDefect || v.Suspected == nil {
+		t.Fatalf("verification = %s %+v, suspected %+v; want still-healthy a suspected defect", v.State, v.Outcomes,
+			v.Suspected)
+	}
+	e.review(name, 4)
+	if n := len(e.runsOf(name, v1alpha1.IntentStageRevise)); n != 0 {
+		t.Fatalf("revise runs = %d: a green check with no run data started an automatic fix", n)
+	}
+	if h := e.verification(name).Handoff; h == nil || h.Released {
+		t.Errorf("hand-off = %+v, want held while the defect awaits a person", h)
 	}
 }

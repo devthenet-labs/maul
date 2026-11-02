@@ -69,11 +69,13 @@ type StoredCheck struct {
 	// many. Until Cleared, only a run red by this same assertion counts.
 	FailedAssertion string
 	Cleared         bool
-	// LayoutOnly marks a check saved red that writes no data of its own
-	// run, admitted only by the layout exception (checks.FailsLayout): it
-	// measures whatever the page shows, so it is never promoted to a saved
-	// green check once cleared, and its failures wait for a person.
-	LayoutOnly bool
+	// NoRunData marks a saved check, green or red, that writes no data of
+	// its own run (!checks.WritesRunData; a body that does not parse
+	// included): it reads whatever the page or API shows, so rows other
+	// runs made can move it. Its failure never starts an automatic fix,
+	// cleared or not: it is a suspected defect, held for a person (#309
+	// review).
+	NoRunData bool
 }
 
 // RunResult is a check run's result as the tools ledger recorded it.
@@ -499,17 +501,16 @@ func Decide(in Input) Decision {
 }
 
 // outcomes judges every outcome, in order, with the failures a fix round
-// takes (those of checks saved green) and the suspected ones: an outcome
-// failed only on checks saved red is unsure, a suspected defect (fourth
+// takes (those of checks saved green, or promoted, that write data of their
+// own run) and the suspected ones: an outcome failed only on checks held
+// for a person (held) is unsure, a suspected defect (fourth review, #309
 // review), never an automatic fix.
 func (d decider) outcomes() ([]OutcomeResult, []FixFailure, []FixFailure) {
 	per := make([]OutcomeResult, 0, len(d.in.Outcomes))
 	var failures, suspected []FixFailure
 	for _, o := range d.in.Outcomes {
 		r, fs := d.outcome(o)
-		green := slices.DeleteFunc(slices.Clone(fs), func(f FixFailure) bool {
-			return d.red[f.CheckDigest] && !d.cleared(f.CheckDigest, o)
-		})
+		green := slices.DeleteFunc(slices.Clone(fs), func(f FixFailure) bool { return d.held(f.CheckDigest, o) })
 		if r.Result == ResultFailed && len(green) == 0 {
 			r.Result, r.Reason = ResultUnsure, ReasonSuspectedDefect
 			suspected = append(suspected, fs...)
@@ -668,15 +669,24 @@ func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 	return proves && (red || d.cleared(c.Digest, o) || !c.ExpectFail && !d.red[c.Digest])
 }
 
+// held reports a failure of the check that waits for a person, never an
+// automatic fix: a check saved red and not promoted (cleared), or any check
+// that writes no data of its own run (NoRunData, #309 review), green ones
+// included.
+func (d decider) held(digest string, o OutcomeRef) bool {
+	noRun := slices.ContainsFunc(d.in.Checks, func(c StoredCheck) bool { return c.Digest == digest && c.NoRunData })
+	return noRun || d.red[digest] && !d.cleared(digest, o)
+}
+
 // cleared reports a check saved red that has replayed green (Cleared) and
 // is reviewed proves for o with the green question (fifth review, 4):
 // proven against a working build, it is a saved green check from then on,
 // and its regression fixes automatically. Never one admitted red only by
-// the layout exception (LayoutOnly, #309 review): it measures whatever the
+// the layout exception (NoRunData, #309 review): it measures whatever the
 // page shows, so its failures always wait for a person.
 func (d decider) cleared(digest string, o OutcomeRef) bool {
 	c, red := d.redChecks[digest]
-	return red && c.Cleared && !c.LayoutOnly && d.greenReviewed(digest, o)
+	return red && c.Cleared && !c.NoRunData && d.greenReviewed(digest, o)
 }
 
 // greenReviewed reports a review of the green question answering proves
