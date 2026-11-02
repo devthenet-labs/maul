@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.11](https://github.com/devthenet-labs/maul/compare/v0.13.10...v0.13.11) (2026-11-02)
+
+
+### Bug Fixes
+
+* **templates:** waive the own-data rule for a red layout read, and tell the check reviewer the viewport ([#310](https://github.com/devthenet-labs/maul/issues/310)) ([2bbf52d](https://github.com/devthenet-labs/maul/commit/2bbf52de7c9616b22e5af9d7563cb24fcc1a1b76))
+
 ## [0.13.10](https://github.com/devthenet-labs/maul/compare/v0.13.9...v0.13.10) (2026-11-02)
 
 
