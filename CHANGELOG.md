@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.10](https://github.com/devthenet-labs/maul/compare/v0.13.9...v0.13.10) (2026-11-02)
+
+
+### Bug Fixes
+
+* **previewtools:** confirm a red layout read, and own a write of own captures ([#309](https://github.com/devthenet-labs/maul/issues/309)) ([8acc845](https://github.com/devthenet-labs/maul/commit/8acc845de837367a27a93c873ecebe0e618cde4d))
+* **probe:** count a close that beats the request as blocked ([#307](https://github.com/devthenet-labs/maul/issues/307)) ([1ffe49c](https://github.com/devthenet-labs/maul/commit/1ffe49c364e7d671ac44d537b25ca136469c1eb6))
+
 ## [0.13.9](https://github.com/devthenet-labs/maul/compare/v0.13.8...v0.13.9) (2026-11-02)
 
 
