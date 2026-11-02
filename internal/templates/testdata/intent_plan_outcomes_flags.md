@@ -17,9 +17,12 @@ maul's evaluator checks each outcome below in the running preview; a manual one 
 
 maul's evaluator checks the outcomes in a preview whose data persists and is shared by every check, so a check can show an outcome only about items it creates itself. These outcomes may be ones it cannot show; if one should be worded otherwise, ask for a new plan:
 
-- `every-beat` says "every": an outcome about every item, or about other or existing ones, is about data no check creates.
-- `beat-links` answers an issue line that says "each", but speaks of fewer: the evaluator checks only what the outcome says, on items its own checks create.
+- `every-beat` says "every": an outcome about every item, or about others or existing ones, is about data no check creates.
 - `still-works` says "still works": an outcome a check can show names one action and what a person then sees.
+
+These outcomes answer an issue line that says each, every or all for items the evaluator's checks create, not for every item: approve if that is enough, and if the whole line must hold, check it yourself:
+
+- `beat-links` answers an issue line that says "each", but speaks of fewer: the evaluator checks only what the outcome says, on items its own checks create.
 
 The plan has 1 line longer than 100 columns. GitHub does not wrap a code block, so on most screens such a line runs past the right edge of the block below: scroll the block sideways to read each to its end, since at the edge a line can look finished when it is not.
 

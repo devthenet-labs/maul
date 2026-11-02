@@ -22,10 +22,13 @@ func TestLintOutcomes(t *testing.T) {
 			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "every"}}},
 		{"each, any case", PlanOutcome{ID: "a", Outcome: "EACH beat links to its page."},
 			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "each"}}},
-		{"all", PlanOutcome{ID: "a", Outcome: "All battles show a winner."},
-			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "all"}}},
-		{"other", PlanOutcome{ID: "a", Outcome: "Voting does not move the other beats."},
-			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "other"}}},
+		// "all" and "other" name the check's own items as often as shared
+		// ones ("all 16 steps", "the other beat you create"), so neither is
+		// flagged on its own.
+		{"all of its own", PlanOutcome{ID: "a", Outcome: "A beat you save plays all 16 steps in order."}, nil},
+		{"the other of its own", PlanOutcome{ID: "a",
+			Outcome: "A vote for one of two beats you create moves only that beat, not the other beat you create."},
+			nil},
 		{"others", PlanOutcome{ID: "a", Outcome: "Mine is listed above the others."},
 			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "others"}}},
 		{"existing", PlanOutcome{ID: "a", Outcome: "Existing beats keep their names."},
@@ -84,7 +87,7 @@ func TestLintOutcomesOrderAndPurity(t *testing.T) {
 // outcome flagged shared-data holds its word as a whole word.
 func TestLintOutcomesProperty(t *testing.T) {
 	words := []string{"every", "each", "all", "other", "others", "existing", "still", "works", "a", "beat",
-		"you", "create", "Each,", "ALL.", "eachother", "overall", "‮", "`x`", "@team"}
+		"you", "create", "Each,", "ALL.", "eachother", "overall", "\u202e", "`x`", "@team"}
 	own := map[string]bool{"every": true, "each": true, "all": true, "other": true, "others": true,
 		"existing": true, "still works": true}
 	rng := rand.New(rand.NewSource(7))

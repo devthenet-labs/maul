@@ -68,26 +68,49 @@ func LayoutAssertion(k AssertKind) bool {
 }
 
 // LayoutRead reports a browser check that writes no data of its own run
-// (WritesRunData) and whose every assertion, at least one, is a
-// LayoutAssertion: it reads the page's fixed markup, so it needs no data of
-// its own to show a layout outcome (coverage design B4). A pass of one can
-// pass an outcome once reviewed; a failure of one is still held for a
-// person, as every check that writes no run data is.
+// (WritesRunData) and whose every assertion is a LayoutAssertion, at least
+// one of them a measured one (measuredLayout), on elements found by fixed
+// markup only (fixedLocator): it reads the page's fixed markup, so it needs
+// no data of its own to show a layout outcome (coverage design B4). A row
+// picked by its text or position, or a check that asserts only visibility
+// or clickability, can read what other runs made, so it is not one. A pass
+// of one can pass an outcome once reviewed; a failure of one is still held
+// for a person, as every check that writes no run data is.
 func LayoutRead(c Check) bool {
 	if c.Browser == nil || WritesRunData(c) {
 		return false
 	}
-	asserts := 0
+	measured := false
 	for _, st := range c.Browser.Steps {
-		if st.Expect == nil {
+		a := st.Expect
+		if a == nil {
 			continue
 		}
-		if !LayoutAssertion(st.Expect.Assert) {
+		if !LayoutAssertion(a.Assert) || !fixedLocator(a.Locator) || !fixedLocator(a.Other) {
 			return false
 		}
-		asserts++
+		measured = measured || measuredLayout(a.Assert)
 	}
-	return asserts > 0
+	return measured
+}
+
+// measuredLayout reports a LayoutAssertion that measures geometry or
+// contrast: every one but visible and clickable.
+func measuredLayout(k AssertKind) bool {
+	return LayoutAssertion(k) && k != AssertVisible && k != AssertClickable
+}
+
+// fixedLocator reports a locator, and each of its within parents, that
+// picks no element by its text (text, hasText) or its position (nth): what
+// it finds is the page's fixed markup, not a row another run made. A nil
+// locator is fixed.
+func fixedLocator(l *Locator) bool {
+	for p := l; p != nil; p = p.Within {
+		if p.Text != "" || p.HasText != "" || p.Nth != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // FailsLayout reports a browser check whose step failing (0-based) is an

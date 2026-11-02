@@ -115,7 +115,10 @@ func (p *pass) evaluateComponents(pv *v1alpha1.PreviewVerification) []agentrun.E
 // by outcome, the check's id (its digest for a review recorded before ids
 // were kept) and the reviewer's reason, made visible (coverage design C3).
 // A check refused in one form is never reviewed again in that form, so the
-// evaluator is told why, to strengthen it rather than propose it again.
+// evaluator is told why, to strengthen it rather than propose it again. A
+// red review's refusal is left out: it judged a failure, not whether the
+// check proves its outcome, and a green review of the same check is still
+// open. At most the newest templates.PriorRefusedMax, oldest first.
 func (p *pass) priorRefused() []agentrun.PriorRefusal {
 	acc := p.in.Status.Acceptance
 	if acc == nil {
@@ -126,9 +129,10 @@ func (p *pass) priorRefused() []agentrun.PriorRefusal {
 		outcomes[outcomeDigest(o)] = o.ID
 	}
 	var out []agentrun.PriorRefusal
-	for _, r := range acc.Reviews {
+	for i := len(acc.Reviews) - 1; i >= 0 && len(out) < templates.PriorRefusedMax; i-- {
+		r := acc.Reviews[i]
 		id, ok := outcomes[r.OutcomeDigest]
-		if !ok || r.Answer == v1alpha1.ReviewProves {
+		if !ok || r.Answer == v1alpha1.ReviewProves || r.Expect == v1alpha1.CheckExpectFail {
 			continue
 		}
 		check := r.Check
@@ -138,6 +142,7 @@ func (p *pass) priorRefused() []agentrun.PriorRefusal {
 		out = append(out, agentrun.PriorRefusal{Outcome: id, Check: check,
 			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)})
 	}
+	slices.Reverse(out)
 	return out
 }
 
@@ -313,8 +318,9 @@ func (p *pass) changedPaths(ctx context.Context) []agentrun.ChangedPath {
 }
 
 // encodeEvaluateHandoff encodes h as agent-runner decodes it, within its
-// bound: changed paths are dropped from the end until it fits, and a
-// handoff that does not fit without them is refused.
+// bound: changed paths are dropped from the end until it fits, then the
+// oldest refused checks, and a handoff that does not fit without either is
+// refused.
 func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 	for {
 		b, err := json.Marshal(h)
@@ -324,10 +330,15 @@ func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 		if len(b) <= evaluateHandoffMaxBytes {
 			return string(b), nil
 		}
-		if len(h.ChangedPaths) == 0 {
+		switch {
+		case len(h.ChangedPaths) > 0:
+			h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
+		case len(h.PriorRefused) > 0:
+			// The newest refusals are the last: keep them.
+			h.PriorRefused = h.PriorRefused[len(h.PriorRefused)/2+len(h.PriorRefused)%2:]
+		default:
 			return "", fmt.Errorf("the evaluate handoff is %d bytes, over %d", len(b), evaluateHandoffMaxBytes)
 		}
-		h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
 	}
 }
 

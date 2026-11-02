@@ -114,6 +114,10 @@ acceptance:
     outcome: "On /leaderboard, the winner of a battle between two players you create is listed above the loser."
     from: "ratings should update after every battle"
     kind: change
+  - id: kick-pad-size
+    outcome: "On /, the kick row's first step pad is 48 by 48 px, within 1 px."
+    from: "make the step pads bigger"
+    kind: change
   - id: new-player-listed
     outcome: "A player you add on the players page (/players) is listed there by the name you gave."
     kind: keep
@@ -150,8 +154,15 @@ How to word an outcome so the evaluator can show it:
   90 BPM shows 90 bpm (2.7 s)").
 - A `keep` outcome names one action on the person's own item and what they then see ("a beat you save still plays
   its 16 steps in order"), never "X still works".
-- An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data:
-  state its numbers. The browser's window is always 1280 by 800 CSS pixels.
+- An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data.
+  Name one element of the fixed page (the kick row's first step pad) and an exact size or position with a tolerance
+  ("48 by 48 px, within 1 px"), never "at least" or "at most": a check measures a size only as a value within a
+  tolerance. The rule against a first or last row is about rows of data, not the page's fixed markup. The browser's
+  window is always 1280 by 800 CSS pixels.
+- Do not promise a colour: a check cannot assert one. State the visible state a check can read (the step shows as on,
+  its label reads On, its text can be read against its background), or mark the outcome manual.
+- An outcome only data a check cannot create can show (rows the application seeds or makes in the background) is
+  `manual: true`, with that as its reason.
 - Name where a person sees each outcome, a page's route or an API path, in the application's own words, with the
   API's name in brackets where it differs from the page's ("a beat (a pattern, /api/patterns)").
 

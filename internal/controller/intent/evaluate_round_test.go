@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // evaluationReport is an evaluator's report on outcomesPlan's outcomes.
@@ -469,8 +471,9 @@ func (e *env) runPtrs(name string) []*v1alpha1.IntentRun {
 	return out
 }
 
-// TestRoleHandoffBounds: the evaluate handoff drops changed paths to fit
-// agent-runner's bound and refuses one that cannot fit; the check review
+// TestRoleHandoffBounds: the evaluate handoff drops changed paths, then
+// its oldest refusals, to fit agent-runner's bound and refuses one that
+// cannot fit; the check review
 // handoff is refused empty or over its bound, never cut.
 func TestRoleHandoffBounds(t *testing.T) {
 	h := agentrun.EvaluateHandoff{Round: 1, RunToken: "ev1a1-abcdef"}
@@ -481,7 +484,20 @@ func TestRoleHandoffBounds(t *testing.T) {
 	if err != nil || len(raw) > evaluateHandoffMaxBytes {
 		t.Fatalf("encode = %d bytes, %v", len(raw), err)
 	}
-	h.ChangedPaths, h.Request = nil, strings.Repeat("r", evaluateHandoffMaxBytes)
+	// Then the oldest refusals go, after the changed paths and before the
+	// handoff is refused: the newest refusal is kept.
+	h.ChangedPaths, h.Request = nil, strings.Repeat("r", evaluateHandoffMaxBytes-20<<10)
+	for i := range templates.PriorRefusedMax {
+		h.PriorRefused = append(h.PriorRefused, agentrun.PriorRefusal{Outcome: "o", Check: fmt.Sprintf("c-%d", i),
+			Reason: strings.Repeat("x", 1000)})
+	}
+	if raw, err = encodeEvaluateHandoff(h); err != nil || len(raw) > evaluateHandoffMaxBytes {
+		t.Fatalf("encode with refusals = %d bytes, %v", len(raw), err)
+	}
+	if !strings.Contains(raw, fmt.Sprintf(`"c-%d"`, templates.PriorRefusedMax-1)) || strings.Contains(raw, `"c-0"`) {
+		t.Error("the oldest refusals were not the ones dropped")
+	}
+	h.PriorRefused, h.Request = nil, strings.Repeat("r", evaluateHandoffMaxBytes)
 	if _, err := encodeEvaluateHandoff(h); err == nil {
 		t.Error("an evaluate handoff over its bound with nothing to drop was encoded")
 	}

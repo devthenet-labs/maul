@@ -44,10 +44,12 @@ const (
 	// one prior verdict's reason (the Intent's schema bound).
 	priorReplaysMax     = 40
 	priorReasonMaxBytes = 600
-	// priorRefusedMax bounds the refused checks shown (C3): half the
-	// reviews an intent caches.
-	priorRefusedMax = 40
 )
+
+// PriorRefusedMax bounds the refused checks the evaluate prompt shows (C3):
+// half the reviews an intent caches. The controller hands over at most the
+// newest this many.
+const PriorRefusedMax = 40
 
 // GreenRubric is the check reviewer's rule for a check confirmed green, word
 // for word: rendered into every green review and into the evaluator's
@@ -62,11 +64,13 @@ const GreenRubric = "Answer `proves` only if a pass of this check really shows t
 
 // LayoutReadRule is the green rule's one exception, for a layout read
 // (checks.LayoutRead): a reviewer is shown it for such a check, the
-// evaluator always (coverage design B4). It mirrors the red question's
-// layout exemption; such a check's failure is still held for a person.
-const LayoutReadRule = "A browser check that writes nothing and asserts only the page's layout (size, left-of, " +
-	"above, no-overlap, equal-size, aligned, legible, clickable or visible) reads the page's fixed markup, the same " +
-	"for every run: it needs no data it created, so do not refuse it for that, unless what it measures is a row or " +
+// evaluator always (coverage design B4), so it is worded in the third
+// person to read in both. It mirrors the red question's layout exemption;
+// such a check's failure is still held for a person.
+const LayoutReadRule = "A browser check that writes nothing and asserts only the layout of the page's fixed " +
+	"markup, at least once by a measure (size, left-of, above, no-overlap, equal-size, aligned or legible), on " +
+	"elements it finds by role, label, test id or CSS rather than by their text or position, reads the same markup " +
+	"on every run: it needs no data it created, and is not refused for that, unless what it measures is a row or " +
 	"record that other runs make, or is sized or placed by them."
 
 // GreenRubric and LayoutReadRule, wrapped as the templates are, for them.
@@ -200,20 +204,37 @@ type evaluateView struct {
 	// (reportBy).
 	ReportBy int
 	// OutcomeTurns is the turns the prompt budgets for each outcome a person
-	// does not judge (outcomeTurns).
+	// does not judge and no saved check covers (outcomeTurns).
 	OutcomeTurns int
 }
 
 // outcomeTurns shares the turns before the report, less the two that start
-// a round, among the outcomes a person does not judge: at least 1 each.
-func outcomeTurns(reportBy int, os []acceptance.PlanOutcome) int {
+// a round, among the outcomes a person does not judge and no saved check
+// covers (replayedGreen): at least 1 each. It is advice only, so an outcome
+// whose check fails this round after all is still judged.
+func outcomeTurns(reportBy int, os []acceptance.PlanOutcome, replays []PriorReplay) int {
+	green := replayedGreen(replays)
 	n := 0
 	for _, o := range os {
-		if !o.Manual {
+		if !o.Manual && !green[o.ID] {
 			n++
 		}
 	}
 	return max(1, (reportBy-2)/max(n, 1))
+}
+
+// replayedGreen is the outcomes whose saved checks all replayed, at least
+// one, and every one passed.
+func replayedGreen(replays []PriorReplay) map[string]bool {
+	green := map[string]bool{}
+	for _, r := range replays {
+		pass := r.Result == string(v1alpha1.CheckRunPass)
+		if seen, ok := green[r.Outcome]; ok {
+			pass = pass && seen
+		}
+		green[r.Outcome] = pass
+	}
+	return green
 }
 
 // ExecMarker is checks.ExecAssertionMarker, for the template.
@@ -256,7 +277,7 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
-	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes)
+	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay)
 	if strings.TrimSpace(p.FixDiff) != "" {
 		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")
 	}
@@ -269,11 +290,11 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 
 // refusedBlock lists the checks the reviewer refused, as priorBlock lists a
 // round's results: each by its id and outcome with the reviewer's reason,
-// at most priorRefusedMax; "" for none.
+// at most PriorRefusedMax; "" for none.
 func refusedBlock(rs []PriorRefusal) string {
 	var b strings.Builder
 	for i, r := range rs {
-		if i == priorRefusedMax {
+		if i == PriorRefusedMax {
 			break
 		}
 		fmt.Fprintf(&b, "- check %s, of outcome %s, was refused.", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64))
@@ -491,6 +512,12 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		RequestBlock:      strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
 		KindSentence:      "It is a change: something the change makes true.",
 	}
+	if p.ExpectFail {
+		// The red question keeps to the outcome as approved: a request
+		// that says more than its narrowed outcome must not push a
+		// reviewer toward a fix outside that contract (coverage review).
+		v.FromBlock, v.RequestBlock = "", ""
+	}
 	if p.Kind == acceptance.OutcomeKindKeep {
 		v.KindSentence = "It is a keep: something the change must leave true."
 	}
@@ -624,10 +651,10 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "Only a person can judge this."
-  - outcome: "winner-listed-first"
+  - outcome: "loser-emailed"
     verdict: unsure
     ledger: []
-    note: "The battle page has no Rate button for two new players, so no check could rate one from the page."
+    note: "The clause 'emails the loser' could not be exercised: the preview sends no mail and no tool reads one."
 disputes:
   - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."
@@ -655,8 +682,9 @@ What I checked, in a few lines.
 // ExamplePlanOutcomes is the outcome list the plan prompt shows, under the
 // evaluator; a test holds it to report.ParsePlan. Each outcome models the
 // prompt's rules: about items the person checking creates, one claim a
-// check can show, concrete values, a keep naming one action, and where a
-// person sees it.
+// check can show, concrete values, a layout outcome naming one fixed
+// element and an exact size within a tolerance, a keep naming one action,
+// and where a person sees it.
 const ExamplePlanOutcomes = `acceptance:
   - id: rating-moves
     outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
@@ -665,6 +693,10 @@ const ExamplePlanOutcomes = `acceptance:
   - id: winner-listed-first
     outcome: "On /leaderboard, the winner of a battle between two players you create is listed above the loser."
     from: "ratings should update after every battle"
+    kind: change
+  - id: kick-pad-size
+    outcome: "On /, the kick row's first step pad is 48 by 48 px, within 1 px."
+    from: "make the step pads bigger"
     kind: change
   - id: new-player-listed
     outcome: "A player you add on the players page (/players) is listed there by the name you gave."

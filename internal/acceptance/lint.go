@@ -13,10 +13,11 @@ type LintRule string
 
 const (
 	// LintSharedData flags an outcome that quantifies over data a check does
-	// not create ("every", "each", "all", "other", "others", "existing") or
-	// that only says something "still works": the evaluator's checks run
-	// against a preview whose data persists and is shared, so such an
-	// outcome is one no check can show.
+	// not create ("every", "each", "others", "existing") or that only says
+	// something "still works": the evaluator's checks run against a preview
+	// whose data persists and is shared, so such an outcome is one no check
+	// can show. "all" and "other" are left out: they name a check's own
+	// items as often ("all 16 steps", "the other beat you create").
 	LintSharedData LintRule = "shared-data"
 	// LintNarrowedFrom flags an outcome that answers a request line saying
 	// "each", "every" or "all" while the outcome itself speaks of fewer:
@@ -34,7 +35,7 @@ type OutcomeFlag struct {
 
 // sharedDataWords are what LintSharedData looks for, in the order it
 // reports the first: whole words, or a phrase of whole words.
-var sharedDataWords = []string{"every", "each", "all", "other", "others", "existing", "still works"}
+var sharedDataWords = []string{"every", "each", "others", "existing", "still works"}
 
 // narrowingWords are what LintNarrowedFrom looks for in a from line.
 var narrowingWords = []string{"each", "every", "all"}

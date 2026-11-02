@@ -207,6 +207,25 @@ func TestPlanOutcomesFlagsAreAdvice(t *testing.T) {
 	if strings.Contains(advice, "octocat") {
 		t.Errorf("a flag quotes the outcome's text:\n%s", advice)
 	}
+	if strings.Contains(advice, "check yourself") {
+		t.Errorf("a comment with no narrowed outcome has the narrowed lead:\n%s", advice)
+	}
+	// A narrowed outcome, as the plan prompt asks for, is not one the
+	// evaluator cannot show: it gets its own lead, not the shared-data one.
+	pc.Outcomes = &PlanOutcomes{Outcomes: []PlanOutcome{
+		{ID: "beat-links", Outcome: "a beat you create links to its page", From: "each beat links to its page"}}}
+	if got, err = RenderPlanComment(pc); err != nil {
+		t.Fatal(err)
+	}
+	_, advice, _ = strings.Cut(got, "### Before you approve")
+	advice, _, _ = strings.Cut(advice, "### To approve")
+	if !strings.Contains(advice, "- `beat-links` answers an issue line that says \"each\"") ||
+		!strings.Contains(advice, "approve if that is enough") {
+		t.Errorf("the narrowed flag is not under its own lead:\n%s", advice)
+	}
+	if strings.Contains(advice, "may be ones it cannot show") || strings.Contains(advice, "ask for a new plan") {
+		t.Errorf("a narrowed outcome is advised as one the evaluator cannot show:\n%s", advice)
+	}
 	pc.Outcomes = testOutcomes()
 	if got, err = RenderPlanComment(pc); err != nil {
 		t.Fatal(err)

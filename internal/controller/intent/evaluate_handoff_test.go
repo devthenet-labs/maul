@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -163,6 +164,11 @@ func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 			{CheckDigest: health.Digest, OutcomeDigest: digest([]byte("an older text")),
 				Answer: v1alpha1.ReviewDoesNotProve, Run: "r0", Check: health.ID, Reason: "old"},
 			{CheckDigest: health.Digest, OutcomeDigest: text[oHealthy], Answer: v1alpha1.ReviewUnclear, Run: "r0"},
+			// A red review's refusal is about the failure, not the check:
+			// it is not shown as a refused check.
+			{CheckDigest: version.Digest, OutcomeDigest: text[oVersion], Answer: v1alpha1.ReviewDoesNotProve,
+				Run: "r2", Check: version.ID, Reason: "not a defect", Expect: v1alpha1.CheckExpectFail,
+				FailedStep: 2, FailedAssertion: "json /sha"},
 		}
 	})
 	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv))
@@ -176,5 +182,23 @@ func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 	}
 	if got := h.PriorRefused[1]; got.Outcome != oHealthy || got.Check != health.Digest || got.Reason != "" {
 		t.Errorf("refused[1] = %+v, want the unclear review named by its digest", got)
+	}
+	// More refusals than the prompt shows: the newest are handed over, in
+	// the order they were made.
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Reviews = nil
+		for i := range templates.PriorRefusedMax + 10 {
+			in.Status.Acceptance.Reviews = append(in.Status.Acceptance.Reviews, v1alpha1.CheckReviewRecord{
+				CheckDigest: digest([]byte(fmt.Sprint(i))), OutcomeDigest: text[oVersion],
+				Answer: v1alpha1.ReviewDoesNotProve, Run: "r1", Check: fmt.Sprintf("c-%d", i), Reason: "no"})
+		}
+	})
+	h = decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv))
+	if n := len(h.PriorRefused); n != templates.PriorRefusedMax {
+		t.Fatalf("%d refusals handed over, want %d", n, templates.PriorRefusedMax)
+	}
+	if first, last := h.PriorRefused[0].Check, h.PriorRefused[len(h.PriorRefused)-1].Check; first != "c-10" ||
+		last != fmt.Sprintf("c-%d", templates.PriorRefusedMax+9) {
+		t.Errorf("refusals run %s..%s, want the newest in order", first, last)
 	}
 }

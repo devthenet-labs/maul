@@ -108,17 +108,21 @@ check, so the planner is asked to word each outcome so that one check can show i
   share one `from` line;
 - concrete values, other than the defaults, and what a person then sees ("a beat you save at 90 BPM shows 90 bpm");
 - a `keep` outcome names one action and what a person then sees, never "X still works";
-- a layout outcome (a size, an alignment, no sideways scroll) states its numbers, at the browser's fixed 1280x800
-  window, and needs no data;
+- a layout outcome (a size, an alignment, no sideways scroll) needs no data: it names one element of the fixed page and
+  an exact size or position with a tolerance ("48 by 48 px, within 1 px"), never "at least", at the browser's fixed
+  1280x800 window;
+- no colour: an outcome states a visible state a check can read, or is manual;
+- an outcome only data a check cannot create can show (rows the application seeds) is manual;
 - where a person sees it, a page's route or an API path, in the application's own words, with the API's name in brackets
   where it differs ("a beat (a pattern, /api/patterns)").
 
 The plan comment lists the outcomes, each with the issue line it answers, then the issue's own list items that no
 outcome quotes in `from`: "No outcome answers these lines of the issue, so nothing checks them." That not covered list
 is the approver's prompt to ask for a new plan before approving, if one of those lines should be checked. Under "Before
-you approve" it also flags each outcome that says "every", "each", "all", "other", "others", "existing" or "still
-works", and each that answers an "each", "every" or "all" line while speaking of fewer items: advice for the approver
-only, which never refuses a plan and never decides a result.
+you approve" it also flags each outcome that says "every", "each", "others", "existing" or "still works", as one the
+evaluator may not be able to show, and, under a lead of its own, each that answers an "each", "every" or "all" line
+while speaking of fewer items, as the planner is asked to: approve it if that is enough. Both are advice for the
+approver only, which never refuses a plan and never decides a result.
 
 A plan that states slice 1's acceptance criteria instead is refused while the evaluator is on, and the planner's retry
 is told why. An intent whose approved plan still carries criteria when the evaluator is switched on is no longer

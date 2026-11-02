@@ -95,15 +95,19 @@ This run may take at most 80 agent turns, 200000 output tokens and 20 minutes.
 Every tool call takes one of these turns, and a run that reaches any of these limits is stopped where it is, so
 budget for your report:
 
-- Write your report as soon as every outcome has a verdict: a pass shown by a green `maul-tool check run`, a fail
-  shown by a check run that failed an assertion of the outcome, or unsure. Then strengthen its checks with the turns
+- Write your report as soon as every outcome has a verdict: a pass shown by a green `maul-tool check run` or by a
+  saved check that replayed green (cite its `maul-tool check results` seq), a fail shown by a check run that failed an
+  assertion of the outcome, or unsure. Then strengthen its checks with the turns
   left, look around, and rewrite it with what you found.
 - Write it by turn 72 at the latest, whatever is left; keep the turns after that for it. An outcome you
   have not shown by then is unsure.
 - Spend your turns on the outcomes first, in two passes. First give every outcome a person does not judge a covering
   check: one that runs green and gives every clause of the outcome an assertion, however plainly. Then strengthen
-  each check against the list under **What a check must cover**. Budget about 35 turns for each such
-  outcome, both passes together; one that needs more waits until every other outcome has its covering check.
+  each check against the list under **What a check must cover**. Write a strengthened check as a new file, run it
+  green, and only then put it in `proposed` in place of the covering one; keep the covering one if the new one never
+  runs green. Budget about 35 turns for each such outcome, both passes together, leaving out an outcome
+  whose saved checks all replayed green last round; one that needs more waits until every other outcome has its
+  covering check.
 - A saved check that replayed green this round is already maul's evidence: do not run it again, and write no new
   check for its outcome unless the change since touched it.
 - If your run is stopped before you have written it, maul asks you once to write it from what you have: propose only
@@ -145,10 +149,10 @@ outcome does not hold: it checks something else or only part of the outcome, it 
 page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
 create. Answer `unclear` if you cannot tell from what is shown.
 
-A browser check that writes nothing and asserts only the page's layout (size, left-of, above, no-overlap, equal-size,
-aligned, legible, clickable or visible) reads the page's fixed markup, the same for every run: it needs no data it
-created, so do not refuse it for that, unless what it measures is a row or record that other runs make, or is sized or
-placed by them.
+A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
+(size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS
+rather than by their text or position, reads the same markup on every run: it needs no data it created, and is not
+refused for that, unless what it measures is a row or record that other runs make, or is sized or placed by them.
 
 So before you propose a check that shows an outcome holds, hold it to this list:
 
@@ -217,8 +221,8 @@ Rules every check keeps:
   outcome by its id.
 - Create the data it needs and name it with `{{run}}`, which maul replaces with a fresh token on every
   run. Assert only on that data: a list, row, count or order assertion must be filtered to `{{run}}` text,
-  never a global ranking, count or first row, which data from other rounds can take. A browser check that writes
-  nothing and asserts only the layout of the page's fixed markup needs no data of its own.
+  never a global ranking, count or first row, which data from other rounds can take, except a layout read as
+  stated under **What a check must cover**.
 - Act on the preview and assert on content: a status code, an exit code or a URL alone proves nothing.
 - At most 30 steps, and at most 8 KiB of JSON (an exec check's program files may add 64 KiB).
 - Check the behaviour the outcome states, the way a person would see it, not the implementation.
@@ -343,10 +347,10 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "Only a person can judge this."
-  - outcome: "winner-listed-first"
+  - outcome: "loser-emailed"
     verdict: unsure
     ledger: []
-    note: "The battle page has no Rate button for two new players, so no check could rate one from the page."
+    note: "The clause 'emails the loser' could not be exercised: the preview sends no mail and no tool reads one."
 disputes:
   - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."
@@ -387,4 +391,4 @@ in plain visible text: no emoji and no invisible characters.
 
 Your report is your claim. maul believes only its own ledger: it reruns every check you propose with a fresh token,
 and a verdict citing seqs that do not show what you say counts for nothing. Write the report (rewrite it only to add
-what you found after it), then end your turn.
+what you found after it or to swap in a strengthened check), then end your turn.

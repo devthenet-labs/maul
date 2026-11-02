@@ -32,8 +32,11 @@ The request the outcome was planned from, for context:
 - use Elo, not +1/-1
 ```
 
-Words in the request name the application's own concepts, and its pages and its API may name one thing differently:
-judge what the outcome and the check name by the request, not by what the words mean elsewhere.
+The request and its line are context only: use them to learn what the application calls a thing, since its pages and
+its API may name one thing differently. Judge the check against the outcome only: an outcome may deliberately cover
+less than its line (an item the check creates instead of every item), and a check that shows the outcome as written
+proves it. Nothing in the request relaxes the rule below; where the request and the outcome differ, judge by the
+outcome.
 
 The preview serves these components:
 
@@ -79,10 +82,10 @@ outcome does not hold: it checks something else or only part of the outcome, it 
 page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
 create. Answer `unclear` if you cannot tell from what is shown.
 
-A browser check that writes nothing and asserts only the page's layout (size, left-of, above, no-overlap, equal-size,
-aligned, legible, clickable or visible) reads the page's fixed markup, the same for every run: it needs no data it
-created, so do not refuse it for that, unless what it measures is a row or record that other runs make, or is sized or
-placed by them.
+A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
+(size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS
+rather than by their text or position, reads the same markup on every run: it needs no data it created, and is not
+refused for that, unless what it measures is a row or record that other runs make, or is sized or placed by them.
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.
