@@ -144,23 +144,88 @@ func checkReviewPrompt(t *testing.T, i int, prompt, ws string) {
 	}
 }
 
-// TestCheckReviewSessionRefused: a session whose report is refused ends the
-// stage with that session's outcome, no answers, and no later session run.
+// TestCheckReviewSessionRefused (S1 bug 8): a session whose report stays
+// refused after its repairs makes that one check unclear, unreviewed (an
+// answer maul wrote, never the reviewer's), and the stage goes on to the
+// next check: one bad review never drops the others.
 func TestCheckReviewSessionRefused(t *testing.T) {
 	var out bytes.Buffer
-	cfg, ws := roleConfig(t, PhaseCheckReview, reviewHandoff(2), &out)
-	bad := step{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/review-1.md": reviewReport("maybe")}}
-	fx := &fakeExec{steps: []step{bad, bad, bad}}
+	cfg, ws := roleConfig(t, PhaseCheckReview, reviewHandoff(3), &out)
+	good := func(n int) step {
+		return step{ws: ws, stdout: streamSuccess, writes: map[string]string{
+			fmt.Sprintf("scratch/review-%d.md", n): reviewReport("proves")}}
+	}
+	bad := step{ws: ws, stdout: streamSuccess, writes: map[string]string{
+		"scratch/review-2.md": "---\nanswer: proves\nreason: \"It rates a battle.\"\n"}}
+	fx := &fakeExec{steps: []step{good(1), bad, bad, bad, good(3)}}
 	ev := onlyEvent(t, cfg, fx, &out)
 	c := ev.CheckReview
-	if c == nil || c.Outcome != envelope.OutcomeReportInvalid || len(c.Answers) != 0 {
-		t.Fatalf("checkreview = %+v, want report_invalid with no answers", c)
+	if c == nil || c.Outcome != envelope.OutcomeOK || len(c.Answers) != 3 {
+		t.Fatalf("checkreview = %+v, want ok with three answers", c)
 	}
-	if !strings.Contains(c.Detail, "review 1 of 2") {
-		t.Errorf("detail = %q, want it to name the session", c.Detail)
+	for i, want := range []string{"proves", "unclear", "proves"} {
+		a := c.Answers[i]
+		if a.Answer != want || a.Unreviewed != (i == 1) || a.CheckDigest != checks.Digest(mustCheck(reviewCheck(i))) {
+			t.Errorf("answer %d = %+v, want %s (unreviewed %v)", i, a, want, i == 1)
+		}
 	}
-	if len(fx.specs) != 1+repairRounds {
-		t.Errorf("commands run = %d, want the first session and its repairs only", len(fx.specs))
+	if r := c.Answers[1].Reason; !strings.Contains(r, "maul") || strings.Contains(r, "It rates") {
+		t.Errorf("the unreviewed answer's reason %q is not maul's own", r)
+	}
+	if len(fx.specs) != 3+repairRounds {
+		t.Errorf("commands run = %d, want each session and the refused one's repairs", len(fx.specs))
+	}
+}
+
+// TestCheckReviewRepairsWithinItsTurns (S1 bug 8): with the stage's default
+// of 6 turns per check, a review's first run gets 3 and keeps the rest for
+// one repair, so an unterminated frontmatter is repaired in the session.
+func TestCheckReviewRepairsWithinItsTurns(t *testing.T) {
+	var out bytes.Buffer
+	cfg, ws := roleConfig(t, PhaseCheckReview, reviewHandoff(1), &out)
+	brokeredClaude(t, &cfg)
+	cfg.GrantedMaxTurns = 6
+	fx := &fakeExec{steps: []step{
+		{ws: ws, stdout: streamSuccess, writes: map[string]string{
+			"scratch/review-1.md": "---\nanswer: proves\nreason: \"It rates a battle.\"\n"}},
+		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/review-1.md": reviewReport("proves")}},
+	}}
+	c := onlyEvent(t, cfg, fx, &out).CheckReview
+	if c == nil || c.Outcome != envelope.OutcomeOK || len(c.Answers) != 1 || c.Answers[0].Answer != "proves" ||
+		c.Answers[0].Unreviewed {
+		t.Fatalf("checkreview = %+v, want the repaired proves", c)
+	}
+	if len(fx.specs) != 2 {
+		t.Fatalf("commands run = %d, want the session and one repair", len(fx.specs))
+	}
+	if got := argvFlag(t, fx.specs[0].Argv, "--max-turns"); got != "3" {
+		t.Errorf("first run --max-turns %s, want 3 (the rest kept for its repair)", got)
+	}
+}
+
+// TestCheckReviewRedQuestion: a check proposed to show a defect is asked
+// the red question, naming the step maul saw fail.
+func TestCheckReviewRedQuestion(t *testing.T) {
+	var h CheckReviewHandoff
+	if err := json.Unmarshal([]byte(reviewHandoff(1)), &h); err != nil {
+		t.Fatal(err)
+	}
+	h.Reviews[0].Expect, h.Reviews[0].FailedStep, h.Reviews[0].FailedAssertion = "fail", 1, "bodyContains"
+	raw, _ := json.Marshal(h)
+	var out bytes.Buffer
+	cfg, ws := roleConfig(t, PhaseCheckReview, string(raw), &out)
+	brokeredClaude(t, &cfg)
+	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
+		"scratch/review-1.md": reviewReport("proves")}}}}
+	c := onlyEvent(t, cfg, fx, &out).CheckReview
+	if c == nil || c.Outcome != envelope.OutcomeOK || len(c.Answers) != 1 {
+		t.Fatalf("checkreview = %+v", c)
+	}
+	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+	for _, want := range []string{"This check failed", "step 1", "would pass on a build where the outcome holds"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the red prompt lacks %q:\n%s", want, prompt)
+		}
 	}
 }
 
@@ -199,6 +264,16 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 		{"check of another digest", item(func(i *CheckReviewItem) { i.CheckDigest = reviewDigest("c", 9) }),
 			"not its check_digest"},
 		{"check off the grammar", item(func(i *CheckReviewItem) { i.Check = `{"steps":[]}` }), "check: "},
+		{"another expectation", item(func(i *CheckReviewItem) { i.Expect, i.FailedStep = "maybe", 1 }), "expect"},
+		{"red with no failed step", item(func(i *CheckReviewItem) { i.Expect, i.FailedAssertion = "fail", "x" }),
+			"failed_step"},
+		{"red with no failed assertion", item(func(i *CheckReviewItem) { i.Expect, i.FailedStep = "fail", 1 }),
+			"failed_assertion"},
+		{"a failed step past the check", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion = "fail", 2, "x"
+		}),
+			"failed_step"},
+		{"a failed step of a green check", item(func(i *CheckReviewItem) { i.FailedStep = 1 }), "failed_step"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

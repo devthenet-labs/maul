@@ -62,6 +62,9 @@ type fakeReviewer struct {
 	answers  map[string]v1alpha1.ReviewAnswer
 	handoffs []agentrun.CheckReviewHandoff
 	fail     bool
+	// unreviewed are the checks whose review ended with no report
+	// agent-runner accepts: it answers them unclear, unreviewed.
+	unreviewed map[string]bool
 }
 
 // reviewChecksWith makes e's fake Jobs answer checkreview runs as r does.
@@ -90,6 +93,12 @@ func (e *env) reviewChecksWith(r *fakeReviewer) {
 			a := r.answers[it.CheckDigest]
 			if a == "" {
 				a = v1alpha1.ReviewProves
+			}
+			if r.unreviewed[it.CheckDigest] {
+				cr.Answers = append(cr.Answers, envelope.ReviewAnswer{CheckDigest: it.CheckDigest,
+					OutcomeDigest: it.OutcomeDigest, Answer: string(v1alpha1.ReviewUnclear),
+					Reason: "maul: the review's report was refused", Unreviewed: true})
+				continue
 			}
 			cr.Answers = append(cr.Answers, envelope.ReviewAnswer{CheckDigest: it.CheckDigest,
 				OutcomeDigest: it.OutcomeDigest, Answer: string(a), Reason: "read the steps"})

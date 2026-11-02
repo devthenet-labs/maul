@@ -161,6 +161,9 @@ type evaluateView struct {
 	ReportBy int
 }
 
+// ExecMarker is checks.ExecAssertionMarker, for the template.
+func (evaluateView) ExecMarker() string { return checks.ExecAssertionMarker }
+
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
 // have written its report: a tenth of its turns, at least 2, kept back for
 // it, and never before turn 1.
@@ -324,7 +327,27 @@ type CheckReviewPrompt struct {
 	Outcome string
 	// Check is the check under review.
 	Check checks.Check
+	// ExpectFail asks the red question: the check failed on the build under
+	// review, at step FailedStep (1-based), by its assertion FailedAssertion
+	// (toolwire.StepRecord.AssertionID), and the evaluator proposes it to
+	// show that the outcome does not hold.
+	ExpectFail      bool
+	FailedStep      int
+	FailedAssertion string
 }
+
+// ExampleCheckReviewReport is the report the check reviewer's prompt
+// shows, which its repair restates; a test decodes it with
+// report.ParseCheckReview, so the prompt never teaches a refused shape (S1
+// bug 8: a live reviewer left its frontmatter open).
+const ExampleCheckReviewReport = `---
+answer: proves
+reason: "It creates its own battle, votes on it and asserts the rating moved by the stake shown."
+---
+`
+
+// ReportExample is ExampleCheckReviewReport, for the template.
+func (checkReviewView) ReportExample() string { return ExampleCheckReviewReport }
 
 // checkReviewView is CheckReviewPrompt as the template reads it.
 type checkReviewView struct {
@@ -333,6 +356,10 @@ type checkReviewView struct {
 	Form         string
 	CheckBlock   string
 	Files        []reviewFile
+	// Assertion is FailedAssertion made one legible line; Marker, for an
+	// exec check, the marker line its program printed, up to the colon
+	// after the id.
+	Assertion, Marker string
 }
 
 // reviewFile is one exec program file as the reviewer reads it.
@@ -360,6 +387,10 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		Form:              string(shown.Form),
 		CheckBlock:        strings.Trim(untrusted.Visible(buf.String(), checkShownMaxBytes), "\n"),
 		Files:             files,
+		Assertion:         quotedLine(p.FailedAssertion, 512),
+	}
+	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
+		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
 	}
 	return render("prompt_checkreview.md.tmpl", v)
 }
@@ -475,6 +506,10 @@ proposed:
   - id: "winner-rises-api"
     outcome: "winner-rises"
     file: "/work/scratch/checks/winner-rises-api.json"
+  - id: "live-score-socket"
+    outcome: "live-score"
+    file: "/work/scratch/checks/live-score-socket.json"
+    expect: fail
 retire: []
 anomalies:
   - summary: "The Back to battles link is dark blue on a dark background and barely readable."

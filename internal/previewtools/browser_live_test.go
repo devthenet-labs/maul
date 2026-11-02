@@ -343,6 +343,10 @@ var liveChecks = map[string]string{
 		`"other":{"css":"article[data-side=b]"}}}]}}`,
 }
 
+// liveFailStep is the step (0-based) each live check fails at when it
+// fails: its expect.
+var liveFailStep = map[string]int{"clickable": 1, "visible": 2, "side-by-side": 1}
+
 // TestLiveBrowser reproduces the browser trial's matrix with no model: the
 // overlap build fails clickable (and the cards overlap), the invisible
 // build fails visible, the correct build passes every check; each check
@@ -369,6 +373,18 @@ func TestLiveBrowser(t *testing.T) {
 					if rec.Result != want[variant][name] {
 						t.Errorf("%s replay %d: %s, want %s (%+v)", name, i+1, rec.Result, want[variant][name],
 							rec.Attempts)
+					}
+					// Review finding 4: a maul assertion throws in maul's
+					// support module; the failing step is still the spec's
+					// own. (These checks are not keyed by a run token, so
+					// they are never red by assertion: F3.)
+					if rec.Result == toolwire.RunFail {
+						for _, a := range rec.Attempts {
+							if last := a.Steps[len(a.Steps)-1]; last.Index != liveFailStep[name] {
+								t.Errorf("%s replay %d: failed at step %d, want step %d (%+v)", name, i+1, last.Index,
+									liveFailStep[name], a.Steps)
+							}
+						}
 					}
 				}
 			}

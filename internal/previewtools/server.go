@@ -91,8 +91,10 @@ type Relay struct {
 
 // dryRun is the agent's dry runs of one check.
 type dryRun struct {
-	check  checks.Check
-	green  bool
+	check checks.Check
+	green bool
+	// red: some dry run was red by assertion (AssertionStep).
+	red    bool
 	latest toolwire.CheckRunRecord
 }
 
@@ -387,6 +389,9 @@ func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) res
 	}
 	d.check, d.latest = c, rec
 	d.green = d.green || rec.Result == toolwire.RunPass
+	if _, ok := rec.AssertionStep(); ok {
+		d.red = true
+	}
 	r.dryRuns[rec.Digest] = d
 	return result{checkRun: &rec, observed: &toolwire.Observed{CheckRun: &rec}}
 }
@@ -405,13 +410,24 @@ func (r *Relay) checkResults(req toolwire.Request) toolwire.Response {
 	return resp
 }
 
-// confirm answers the runner's confirm: each named check, which must have
-// a green dry run, run alone under fresh tokens, each run a relay entry.
+// confirm answers the runner's confirm: each named check run alone under
+// fresh tokens, each run a relay entry. A check expected to pass must have a
+// green dry run; one expected to fail (a check showing a defect) a dry run
+// red by assertion and none green, and its entry records the expectation.
 func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolwire.Response {
 	for _, d := range req.Digests {
-		if !r.dryRuns[d].green {
+		dr := r.dryRuns[d]
+		switch red := slices.Contains(req.ExpectFail, d); {
+		case red && (!dr.red || dr.green || r.replayed(d, toolwire.RunPass)):
+			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
+				"check "+d+" has no dry run in this evaluation that failed an assertion, or one ran green, or it "+
+					"replayed green this round"))
+		case red && checks.ValidateRed(dr.check) != nil:
+			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
+				"check "+d+" cannot show a defect: "+checks.ValidateRed(dr.check).Error()))
+		case !red && (!dr.green || r.replayed(d, toolwire.RunFail)):
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoDryRun,
-				"check "+d+" has no green dry run in this evaluation"))
+				"check "+d+" has no green dry run in this evaluation, or it replayed red this round"))
 		}
 	}
 	resp := r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, result{})
@@ -420,9 +436,13 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 	}
 	var runs []toolwire.CheckRunRecord
 	for _, d := range req.Digests {
-		rec := r.runCheck(ctx, r.dryRuns[d].check, toolwire.ModeConfirm)
+		rec := r.runCheckAs(ctx, r.dryRuns[d].check, toolwire.ModeConfirm, slices.Contains(req.ExpectFail, d))
+		args := toolwire.ConfirmArgs{Digest: d}
+		if slices.Contains(req.ExpectFail, d) {
+			args.Expect = toolwire.ExpectFail
+		}
 		if _, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm,
-			Args: mustArgs(map[string]string{"digest": d}), CheckRun: &rec}); err != nil {
+			Args: mustArgs(args), CheckRun: &rec}); err != nil {
 			return toolwire.Response{Seq: resp.Seq, Refused: toolwire.RefusedToolCalls,
 				Reason: "the ledger has no room for the confirmation runs"}
 		}
@@ -430,6 +450,15 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 	}
 	resp.Observed = &toolwire.Observed{CheckRuns: runs}
 	return resp
+}
+
+// replayed reports a replay of check d this round that ended result: a
+// saved check that replayed green is never confirmed red, nor one that
+// replayed red confirmed green (review finding 3).
+func (r *Relay) replayed(d string, result toolwire.RunResult) bool {
+	return slices.ContainsFunc(r.replays, func(rec toolwire.CheckRunRecord) bool {
+		return rec.Digest == d && rec.Result == result
+	})
 }
 
 // Finish reasons, the args of the relay's own finish entry.

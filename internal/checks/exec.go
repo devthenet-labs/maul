@@ -24,6 +24,39 @@ type ExecCheck struct {
 	Expect  ExecExpect `json:"expect"`
 }
 
+// ExecAssertionMarker starts the line an exec check's program prints when
+// it reached and judged one of its own assertions and found the outcome
+// does not hold: "MAUL-ASSERTION-FAILED: <id>: <what it saw>", <id> naming
+// that assertion (lowercase letters, digits and hyphens, at most 32,
+// starting with a letter). The output is the program's stdout and stderr
+// combined. Only a run whose output has such a line (at the start of a line)
+// and whose expectation failed is red by assertion, its assertion that id;
+// an exit code alone, a crash, a traceback or missing output never is: a
+// broken program fails the same way. The marker is the program's own word,
+// so the check reviewer judges the condition it is printed under.
+const ExecAssertionMarker = "MAUL-ASSERTION-FAILED:"
+
+// execAssertionID is a marker's assertion id.
+var execAssertionID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// ExecAssertion is the id of the assertion a program's output says failed:
+// its first line that starts with ExecAssertionMarker, "<id>: <what>". ok
+// is false when no line does, or the first names no valid id.
+func ExecAssertion(output string) (string, bool) {
+	for _, line := range strings.Split(output, "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSuffix(line, "\r"), ExecAssertionMarker)
+		if !found {
+			continue
+		}
+		id, _, ok := strings.Cut(strings.TrimSpace(rest), ":")
+		if !ok || !execAssertionID.MatchString(id) {
+			return "", false
+		}
+		return id, true
+	}
+	return "", false
+}
+
 // File is one program file, at a relative path under the run directory.
 type File struct {
 	Path       string `json:"path"`

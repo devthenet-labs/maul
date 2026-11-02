@@ -88,15 +88,16 @@ You need no tool but Write: do not try to run, fetch or read anything. This revi
 
 ## Your report
 
-Write your report to `/work/scratch/report.md` with the Write tool. It must be exactly this YAML frontmatter,
-with nothing after it:
+Write your report to `/work/scratch/report.md` with the Write tool. It is YAML frontmatter of exactly two keys,
+opened by a line `---` and closed by another line `---`; both lines are required. For example:
 
 ```markdown
 ---
 answer: proves
-reason: "<one line, at most 600 characters: why>"
+reason: "It creates its own battle, votes on it and asserts the rating moved by the stake shown."
 ---
 ```
 
-`answer` is one of `proves`, `does_not_prove` and `unclear`. Put the reason in double quotes on one line, and escape
-a double quote inside it as `\"`. Write the report once, then end your turn.
+`answer` is one of `proves`, `does_not_prove` and `unclear`. `reason` says why in one line of at most 600
+characters: put it in double quotes, and escape a double quote inside it as `\"`. Write the file with both `---`
+lines and nothing after the second, once, then end your turn.

@@ -45,6 +45,9 @@ const (
 	VerifyCapReached VerifyOutcome = "cap-reached"
 	// VerifyStopped: /maul verify stop halted automatic fixes.
 	VerifyStopped VerifyOutcome = "stopped"
+	// VerifyDefectConfirmed: /maul verify fix confirmed the defect maul
+	// suspected, which starts a fix round on it.
+	VerifyDefectConfirmed VerifyOutcome = "defect-confirmed"
 	// VerifyPreviewReleased: /maul preview released the held preview link.
 	VerifyPreviewReleased VerifyOutcome = "preview-released"
 	// VerifyPreviewNotHeld: nothing holds the preview link (a plan with
@@ -171,6 +174,10 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"accept again.", cmd, joinCode(n.Heads)), "", nil
 	case VerifyStopped:
 		return stoppedText(n, actor), "", nil
+	case VerifyDefectConfirmed:
+		return fmt.Sprintf("%s from %s confirms the defect maul suspected: maul starts a fix round on it, handed "+
+			"maul's reproduction, and checks the outcomes again once the fix is pushed.",
+			slashCommand(n.Verb+" "+command.VerifyFix), actor), "", nil
 	case VerifyApplied:
 		return fmt.Sprintf("%s from %s was applied already, and is not applied again.", cmd, actor), "", nil
 	case VerifyUsage:

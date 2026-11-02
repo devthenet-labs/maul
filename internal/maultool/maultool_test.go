@@ -231,6 +231,22 @@ func TestOutputShape(t *testing.T) {
 				"[observed] check loads digest sha256:" + strings.Repeat("a", 64) +
 				" dry-run: quarantined (attempts: fail, pass)\n" +
 				"[observed]   attempt 1 step 2 fail: \"expected 3 rows\"\n"},
+		{"a red run by assertion", []string{"check", "results"}, "/v1/check-results",
+			toolwire.Response{Seq: 11, Observed: &toolwire.Observed{CheckRuns: []toolwire.CheckRunRecord{{
+				Digest: strings.Repeat("a", 64), CheckID: "upset", Mode: toolwire.ModeDryRun,
+				Result: toolwire.RunFail, Attempts: []toolwire.Attempt{
+					{Run: "r1", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{{Index: 0, Result: toolwire.ResultPass},
+						{Index: 1, Result: toolwire.ResultFail, Detail: "json \"/b\" did not match", Assertion: true,
+							AssertionID: "json /b"}}},
+					{Run: "r2", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{{Index: 0, Result: toolwire.ResultPass},
+						{Index: 1, Result: toolwire.ResultFail, Detail: "json \"/b\" did not match", Assertion: true,
+							AssertionID: "json /b"}}},
+				}}}}},
+			"[maul-tool ledger seq 11]\n" +
+				"[observed] check upset digest sha256:" + strings.Repeat("a", 64) + " dry-run: fail (attempts: fail, fail)\n" +
+				"[observed]   attempt 1 step 1 fail (assertion json /b): \"json \\\"/b\\\" did not match\"\n" +
+				"[observed]   attempt 2 step 1 fail (assertion json /b): \"json \\\"/b\\\" did not match\"\n" +
+				"[observed] red by assertion at step 1 (json /b): it can show a defect, proposed with expect: fail\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

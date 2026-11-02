@@ -90,6 +90,12 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 		{"prompt_checkreview_exec.md", func() (string, error) {
 			return RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleExecCheck)))
 		}},
+		// A check proposed to show a defect: the red question.
+		{"prompt_checkreview_red.md", func() (string, error) {
+			p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
+			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
+			return RenderCheckReviewPrompt(p)
+		}},
 		{"prompt_plan_outcomes.md", func() (string, error) {
 			return RenderPlanPrompt(PlanPrompt{
 				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
@@ -142,6 +148,18 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		"Never assert a colour value",
 		"Write your report to `/work/scratch/report.md` with the Write tool.",
 		"You may make at most 150 tool calls",
+		// The post-demo decision on S1 bug 7, and its review: what may show a
+		// defect.
+		"Propose it with `expect: fail` under the outcome you report `fail`",
+		"maul-tool then prints `red by assertion at step <n>`",
+		"No status is an assertion for such a check, a 500 included",
+		"a JSON pointer or a header that resolves to nothing is not one either",
+		"prints `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a line of its output",
+		"An exit code alone, a crash or a traceback never shows a defect",
+		"must write data of its own run: name `{{run}}` in a POST, PUT or PATCH, a browser fill or its program",
+		"the assertion that fails must be about that data",
+		"A total, a count or a list over shared rows never shows a defect.",
+		"Its `expect.status` may list only success statuses.",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("prompt lacks %q", want)
@@ -175,12 +193,13 @@ func TestEvaluatePromptStatesTheTurnBudget(t *testing.T) {
 		for _, want := range []string{
 			fmt.Sprintf("This run may take at most %d agent turns, 200000 output tokens and 20 minutes.", tt.turns),
 			"Every tool call takes one of these turns",
-			"Write your report as soon as every outcome has a verdict: a pass or a fail shown by a green " +
-				"`maul-tool check run`, or unsure.",
+			"Write your report as soon as every outcome has a verdict: a pass shown by a green " +
+				"`maul-tool check run`, a fail shown by a check run that failed an assertion of the outcome, or unsure.",
 			"Write it by turn " + tt.by + " at the latest",
 			"An outcome you have not shown by then is unsure.",
 			"maul asks you once to write it from what you have: propose only the checks whose `maul-tool check " +
-				"run` printed pass, and mark every outcome you did not show unsure.",
+				"run` printed pass (or, with `expect: fail`, failed an assertion of an outcome you report fail), and " +
+				"mark every outcome you did not show unsure.",
 		} {
 			if !strings.Contains(flat, want) {
 				t.Errorf("%d turns: prompt lacks %q", tt.turns, want)

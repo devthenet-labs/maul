@@ -691,6 +691,17 @@ type IntentCommentRef struct {
 	At metav1.Time `json:"at"`
 }
 
+// RedClearance is a check saved red that replayed green.
+type RedClearance struct {
+	// Digest is the check's digest.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	Digest string `json:"digest"`
+	// Verification names the PreviewVerification whose replay passed it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Verification string `json:"verification"`
+}
+
 // IntentAcceptance is the approved plan's acceptance criteria and the
 // approvers' acceptances of the manual ones. intent-controller writes the
 // criteria once per approved plan revision, from the plan bytes it re-reads
@@ -743,6 +754,16 @@ type IntentAcceptance struct {
 	// +kubebuilder:validation:MaxItems=80
 	// +listType=atomic
 	Reviews []CheckReviewRecord `json:"reviews,omitempty"`
+	// RedCleared are the checks saved red (SavedCheck.Expect fail) that
+	// have since replayed green, each with the verification whose replay
+	// did. Until one has, only a run red by the assertion it was saved
+	// failing reproduces its defect. A clearance counts from the round
+	// after the one that earned it, so that round is judged, and its fix
+	// decided, on the same facts.
+	// +optional
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=atomic
+	RedCleared []RedClearance `json:"redCleared,omitempty"`
 	// Accepted are the approvers' /maul accept records, oldest first.
 	// +optional
 	// +kubebuilder:validation:MaxItems=32
@@ -1115,6 +1136,30 @@ type NoDefectRecord struct {
 	HeadSetDigest string `json:"headSetDigest,omitempty"`
 }
 
+// SuspectedDefect is a judged round's suspected defect (IntentVerification
+// .Suspected).
+type SuspectedDefect struct {
+	// Verification names the PreviewVerification whose judgement found it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Verification string `json:"verification"`
+	// HeadSetDigest is the combined change it was found at.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	HeadSetDigest string `json:"headSetDigest"`
+	// Outcomes are the ids of the outcomes it is about.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=atomic
+	Outcomes []string `json:"outcomes"`
+	// RecordedAt is when maul recorded it: only a /maul verify fix created
+	// after it confirms it (fifth review, 1), so no comment written before
+	// the evidence existed counts as a person having seen it.
+	RecordedAt metav1.Time `json:"recordedAt"`
+	// Confirmed records the approver's /maul verify fix that confirmed it.
+	// +optional
+	Confirmed *Rearm `json:"confirmed,omitempty"`
+}
+
 // VerifyRequest is an approver's pending /maul verify, run at the next
 // opportunity.
 type VerifyRequest struct {
@@ -1246,6 +1291,14 @@ type IntentVerification struct {
 	// or a new plan revision.
 	// +optional
 	NoDefect *NoDefectRecord `json:"noDefect,omitempty"`
+	// Suspected is the latest judged round's suspected defect: outcomes
+	// that would be failed only on checks saved red (a defect present from
+	// round 1). maul never fixes one on its own: the gated hand-off is held
+	// and the evidence shown until an approver's /maul verify fix confirms it
+	// (Confirmed), which starts the fix round on it. Set by each judgement,
+	// shown and confirmable only while the heads are the ones it judged.
+	// +optional
+	Suspected *SuspectedDefect `json:"suspected,omitempty"`
 	// CancelRun names a Pending verify-fix IntentRun a human round
 	// overtook: the run scheduler settles it unlaunched instead of creating
 	// its Job.

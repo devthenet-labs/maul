@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -78,6 +80,11 @@ type roundJudgement struct {
 	env       []acceptance.PartFact
 	// replay: the round was a replay round.
 	replay bool
+	// cleared are the checks saved red whose replay this round passed
+	// cleanly (clearedRed), recorded on status.acceptance.redCleared as
+	// cleared by verification, the round's.
+	cleared      []string
+	verification string
 }
 
 // decideRound judges pv, a collected round, with run its evaluate run (nil
@@ -94,11 +101,124 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 	cs := judgedChecks(pv, stored)
 	in := decideInput(p.in.Status.Acceptance, pv, cs, ev)
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
-		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay}
+		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
+		cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name}
 	if ev != nil {
 		j.disputes = resolvedDisputes(ev, pv)
 	}
 	return j
+}
+
+// suspectedRecord is the suspected defect j's decision found (fourth
+// review: failed only on checks saved red), recorded for the verification
+// j judged at headSet; nil for none.
+func suspectedRecord(j roundJudgement, headSet string, now time.Time,
+	prev *v1alpha1.SuspectedDefect) *v1alpha1.SuspectedDefect {
+	s := j.decision.Suspected
+	if s == nil || j.verification == "" || headSet == "" {
+		return nil
+	}
+	if prev != nil && prev.Verification == j.verification && prev.HeadSetDigest == headSet {
+		// The same round judged again: the record, its time and any
+		// confirmation stand.
+		return prev
+	}
+	rec := &v1alpha1.SuspectedDefect{Verification: j.verification, HeadSetDigest: headSet,
+		RecordedAt: metav1.NewTime(now)}
+	for _, f := range s.Failures {
+		if !slices.Contains(rec.Outcomes, f.Outcome) && len(rec.Outcomes) < acceptance.MaxOutcomes {
+			rec.Outcomes = append(rec.Outcomes, f.Outcome)
+		}
+	}
+	return rec
+}
+
+// suspectedPending reports v's suspected defect at its current heads, not
+// yet confirmed by an approver, whatever else the round found (fifth
+// review, 5): it holds the gated hand-off and is shown on the issue.
+func suspectedPending(v *v1alpha1.IntentVerification) bool {
+	return v != nil && v.Suspected != nil && v.Suspected.Confirmed == nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
+}
+
+// suspectedConfirmable reports v's suspected defect pending in a judged
+// state (a fix round is not running, nor a new round being evaluated) and
+// a /maul verify fix created at at confirming it: created after maul
+// recorded it, so a person can have seen the evidence (fifth review, 1).
+// GitHub and the record both keep whole seconds: a comment in the record's
+// own second may predate it, and does not confirm it.
+func suspectedConfirmable(v *v1alpha1.IntentVerification, at time.Time) bool {
+	if !suspectedPending(v) {
+		return false
+	}
+	switch v.State {
+	case v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationFailing, v1alpha1.VerificationExhausted:
+	default:
+		return false
+	}
+	return at.Truncate(time.Second).After(v.Suspected.RecordedAt.Truncate(time.Second))
+}
+
+// defectConfirmed reports v's suspected defect at its current heads
+// confirmed by an approver (fifth review, 6).
+func defectConfirmed(v *v1alpha1.IntentVerification) bool {
+	return v != nil && v.Suspected != nil && v.Suspected.Confirmed != nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
+}
+
+// suspectedConfirmed reports v's suspected defect confirmed by an approver,
+// found by pv's judgement at pv's heads: its fix request is then pv's.
+func suspectedConfirmed(v *v1alpha1.IntentVerification, pv *v1alpha1.PreviewVerification) bool {
+	return v != nil && v.Suspected != nil && v.Suspected.Confirmed != nil && v.Suspected.Verification == pv.Name &&
+		v.Suspected.HeadSetDigest == pv.Spec.HeadSetDigest
+}
+
+// clearedBefore reports a check saved red that replayed green in a round
+// before verification's (third review, F1): a clearance never counts in
+// the round that earned it, so the judgement and the fix path that
+// re-decides after it decide alike.
+func clearedBefore(acc *v1alpha1.IntentAcceptance, digest, verification string) bool {
+	return slices.ContainsFunc(acc.RedCleared, func(c v1alpha1.RedClearance) bool {
+		return c.Digest == digest && c.Verification != verification
+	})
+}
+
+// addRedCleared records digests as cleared by verification, each once (the
+// first clearance kept), the newest MaxSavedChecks.
+func addRedCleared(acc *v1alpha1.IntentAcceptance, digests []string, verification string) {
+	for _, d := range digests {
+		if !slices.ContainsFunc(acc.RedCleared, func(c v1alpha1.RedClearance) bool { return c.Digest == d }) {
+			acc.RedCleared = append(acc.RedCleared, v1alpha1.RedClearance{Digest: d, Verification: verification})
+		}
+	}
+	if n := len(acc.RedCleared); n > v1alpha1.MaxSavedChecks {
+		acc.RedCleared = slices.Clone(acc.RedCleared[n-v1alpha1.MaxSavedChecks:])
+	}
+}
+
+// clearedRed are the digests of the checks of cs saved red whose replays
+// in runs all passed, with a run token, at least one (review finding 2):
+// from then on their later steps have run, and their replays are judged as
+// any saved check's; once also reviewed proves with the green question,
+// each is proven against a working build and is a saved green check, whose
+// later regression fixes automatically (fifth review, 4).
+func clearedRed(cs []v1alpha1.SavedCheck, runs []v1alpha1.CheckRun) []string {
+	var out []string
+	for _, c := range cs {
+		if c.Expect != v1alpha1.CheckExpectFail {
+			continue
+		}
+		passed, clean := false, true
+		for _, r := range runs {
+			if r.CheckDigest != c.Digest {
+				continue
+			}
+			passed = passed || (r.Result == v1alpha1.CheckRunPass && r.Token != "")
+			clean = clean && r.Result == v1alpha1.CheckRunPass && r.Token != ""
+		}
+		if passed && clean {
+			out = append(out, c.Digest)
+		}
+	}
+	return out
 }
 
 // evaluationClaims is run's evaluator report, nil for none (a replay round)
@@ -148,12 +268,16 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 	}
 	for _, c := range cs {
 		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
-			Form: acceptance.CheckForm(c.Form), Valid: true})
+			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
+			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
+			Cleared: clearedBefore(acc, c.Digest, pv.Name)})
 	}
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, r := range acc.Reviews {
 		in.Reviews = append(in.Reviews, acceptance.CheckReview{CheckDigest: r.CheckDigest,
-			OutcomeDigest: r.OutcomeDigest, Answer: acceptance.ReviewAnswer(r.Answer)})
+			OutcomeDigest: r.OutcomeDigest, Answer: acceptance.ReviewAnswer(r.Answer),
+			ExpectFail: r.Expect == v1alpha1.CheckExpectFail, FailedStep: r.FailedStep,
+			FailedAssertion: r.FailedAssertion})
 	}
 	in.Env = crdconv.PartFacts(pv.Status.Environment)
 	if ev == nil {
@@ -215,8 +339,12 @@ func proposedDigest(p report.ProposedCheck, pv *v1alpha1.PreviewVerification) st
 func checkRuns(rs []v1alpha1.CheckRun) []acceptance.CheckRun {
 	out := make([]acceptance.CheckRun, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, acceptance.CheckRun{CheckDigest: r.CheckDigest, Result: acceptance.RunResult(r.Result),
-			Token: r.Token, Seq: r.Seq})
+		run := acceptance.CheckRun{CheckDigest: r.CheckDigest, Result: acceptance.RunResult(r.Result),
+			Token: r.Token, Seq: r.Seq, ExpectFail: r.Expect == v1alpha1.CheckExpectFail}
+		if r.RedByAssertion() {
+			run.AssertionStep, run.AssertionID = r.AssertionStep, r.AssertionID
+		}
+		out = append(out, run)
 	}
 	return out
 }
@@ -340,7 +468,7 @@ func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1a
 
 // applyJudgement writes j onto cur's verification: the results, the counts,
 // the anomalies, the disputed checks a replay round awaits, and the state.
-func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
+func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	nv, acc := cur.Status.Verification, cur.Status.Acceptance
 	clearJudgement(nv)
 	nv.Outcomes = outcomeResults(acc, nv.HeadSetDigest, j)
@@ -356,6 +484,8 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
 		}
 	}
 	nv.Anomalies = j.anomalies
+	addRedCleared(acc, j.cleared, j.verification)
+	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest, now, nv.Suspected)
 	state, replayNext := judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	nv.State, nv.Disputed = state, nil
 	if replayNext {
@@ -384,7 +514,7 @@ func (p *pass) writeJudgement(ctx context.Context, pv *v1alpha1.PreviewVerificat
 		slog.Bool("fix", j.decision.Fix != nil), slog.Bool("replay", j.decision.ReplayRound),
 		slog.String("environment", string(j.decision.Env)))
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
-		applyJudgement(cur, j)
+		applyJudgement(cur, j, p.now)
 		p.releaseIfDue(cur)
 		return nil
 	})
@@ -424,6 +554,20 @@ func (p *pass) retireDisputed(ctx context.Context, j roundJudgement) (bool, erro
 func (p *pass) evaluationFailure(ctx context.Context, pv *v1alpha1.PreviewVerification) (verifyFailure,
 	*acceptance.FixRequest, roundJudgement, bool) {
 	j := p.decideRound(ctx, pv, p.evaluateRun(pv))
+	if s := j.decision.Suspected; s != nil && suspectedConfirmed(p.in.Status.Verification, pv) {
+		// An approver confirmed the suspected defect (/maul verify fix): its
+		// failures are the fix round's, as an automatic fix's would be.
+		failures := s.Failures
+		if f := j.decision.Fix; f != nil {
+			failures = append(slices.Clone(f.Failures), failures...)
+		}
+		outcomes, digests := make([]string, 0, len(failures)), make([]string, 0, len(failures))
+		for _, f := range failures {
+			outcomes, digests = append(outcomes, f.Outcome), append(digests, f.CheckDigest)
+		}
+		j.decision.Fix = &acceptance.FixRequest{Failures: failures,
+			Fingerprint: acceptance.EvaluationFingerprint(outcomes, digests, j.env)}
+	}
 	fix := pendingFix(p.in.Status.Acceptance, pv.Spec.HeadSetDigest, j)
 	if fix == nil || j.decision.Env != acceptance.EnvOK {
 		return verifyFailure{}, nil, j, false

@@ -32,7 +32,9 @@ import (
 // saved-check grammar (rules 1-2: checks.Validate, at its canonical bytes,
 // its digest its own), passed its confirmation run in this round's tools
 // ledger with a run token tools generated (rule 3), and was reviewed proves
-// for its outcome's exact text (rule 4). Rules 5 and 6 are judged each
+// for its outcome's exact text (rule 4). A check proposed to show a defect
+// is stored only red by assertion in its confirmation and reviewed proves
+// on the red question, marked Expect fail. Rules 5 and 6 are judged each
 // round (acceptance.Decide). A stored check leaves the store only retired,
 // and retired only when disputed with a stored replacement for the same
 // outcome reviewed proves (retirable).
@@ -59,26 +61,71 @@ func reviewOutcomeText(o v1alpha1.AcceptanceOutcome) string {
 func outcomeDigest(o v1alpha1.AcceptanceOutcome) string { return digest([]byte(reviewOutcomeText(o))) }
 
 // storeCandidate is a confirmed check a round may store once reviewed, and
-// the outcome it is bound to.
+// the outcome it is bound to. A check saved to show a defect (its Expect
+// fail) carries the step (1-based) its confirmation failed at, which the
+// red question names.
 type storeCandidate struct {
 	check   v1alpha1.SavedCheck
 	outcome v1alpha1.AcceptanceOutcome
+	// green: a stored check saved red, now replayed green, to be asked the
+	// green question (regreenCandidates); never stored again.
+	green bool
+}
+
+// red reports a candidate to be asked the red question: proposed to show a
+// defect, and not a stored one asked the green question.
+func (c storeCandidate) red() bool { return c.check.Expect == v1alpha1.CheckExpectFail && !c.green }
+
+// regreenCandidates are the stored checks saved red whose replays in pv all
+// passed with a run token, and that have no cached review of the green
+// question for their outcome's text (third review, F5): a check saved red
+// passes its outcome only once that question is answered proves too.
+func regreenCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
+	stored []v1alpha1.SavedCheck, reviews []v1alpha1.CheckReviewRecord) []storeCandidate {
+	answers := reviewsByKey(reviews)
+	var out []storeCandidate
+	for _, d := range clearedRed(stored, pv.Status.Replay) {
+		i := slices.IndexFunc(stored, func(c v1alpha1.SavedCheck) bool { return c.Digest == d })
+		o := slices.IndexFunc(outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == stored[i].Outcome })
+		if o < 0 || outcomes[o].Manual {
+			continue
+		}
+		c := storeCandidate{check: stored[i], outcome: outcomes[o], green: true}
+		if _, ok := answers[c.reviewKey()]; !ok {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // reviewKey is a candidate's review cache key.
 func (c storeCandidate) reviewKey() reviewKey {
-	return reviewKey{check: c.check.Digest, outcome: outcomeDigest(c.outcome)}
+	k := reviewKey{check: c.check.Digest, outcome: outcomeDigest(c.outcome)}
+	if c.red() {
+		k.red, k.step, k.assertion = true, c.check.FailedStep, c.check.FailedAssertion
+	}
+	return k
 }
 
-// reviewKey keys a cached review: the check's digest and its outcome's.
-type reviewKey struct{ check, outcome string }
+// reviewKey keys a cached review: the check's digest and its outcome's,
+// and, for the red question, the failing assertion it was asked about. A
+// check saved red is stored only on an answer to that question about the
+// assertion it was saved failing (second review, 2A): another failing
+// assertion needs a new review.
+type reviewKey struct {
+	check, outcome string
+	red            bool
+	step           int32
+	assertion      string
+}
 
 // storeCandidates are pv's confirmed checks a round may store, in the order
 // preview-controller recorded them, judged from the verification alone
 // (rules 1-3): bound to an approved outcome a human does not close, at most
 // MaxSavedCheckBytes, its body the canonical form of a check of its id,
 // outcome and form whose digest it is, valid under the saved-check grammar
-// against the preview, its confirmation a clean pass with a run token, and
+// against the preview, its confirmation a clean pass with a run token (for
+// a check proposed to show a defect: red by assertion, confirmedRed), and
 // not already stored. Each refusal is reported with its reason.
 func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
 	stored []v1alpha1.SavedCheck, preview checks.Preview,
@@ -101,14 +148,52 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 			refused(reason, c, detail)
 			continue
 		}
-		if !confirmedClean(pv.Status.Confirmations, c.Digest) {
+		cand := storeCandidate{check: c, outcome: outcomes[i]}
+		switch {
+		case cand.red() && !mayShowDefect(c):
+			refused("a check to show a defect must write its run's data and expect only success statuses", c, "")
+			continue
+		case cand.red() && !confirmedRed(pv.Status.Confirmations, c):
+			refused("no confirmation run red by the assertion it was confirmed failing", c, "")
+			continue
+		case !cand.red() && !confirmedClean(pv.Status.Confirmations, c.Digest):
 			refused("no clean confirmation run", c, "")
 			continue
 		}
 		seen[c.Digest] = true
-		out = append(out, storeCandidate{check: c, outcome: outcomes[i]})
+		out = append(out, cand)
 	}
 	return out
+}
+
+// mayShowDefect reports whether c's body may show a defect (checks.ValidateRed:
+// it writes its run's data and lists only success statuses); a body that does
+// not parse may not.
+func mayShowDefect(c v1alpha1.SavedCheck) bool {
+	parsed, err := checks.Parse([]byte(c.Body))
+	return err == nil && checks.ValidateRed(parsed) == nil
+}
+
+// confirmedRed reports that every confirmation of c, expected to fail,
+// failed red by assertion with a run token tools generated, by the one
+// assertion c was confirmed failing (its FailedStep and FailedAssertion),
+// and at least one did.
+func confirmedRed(runs []v1alpha1.CheckRun, c v1alpha1.SavedCheck) bool {
+	if c.FailedStep == 0 || c.FailedAssertion == "" {
+		return false
+	}
+	seen := false
+	for _, r := range runs {
+		if r.CheckDigest != c.Digest {
+			continue
+		}
+		if !r.RedByAssertion() || r.Expect != v1alpha1.CheckExpectFail || r.Token == "" ||
+			r.AssertionStep != c.FailedStep || r.AssertionID != c.FailedAssertion {
+			return false
+		}
+		seen = true
+	}
+	return seen
 }
 
 // savedCheckRefusal is why c cannot be stored by its own bytes (rules 1-2),
@@ -171,7 +256,11 @@ func (p *pass) checkPreview(pv *v1alpha1.PreviewVerification) checks.Preview {
 func reviewsByKey(rs []v1alpha1.CheckReviewRecord) map[reviewKey]v1alpha1.ReviewAnswer {
 	out := make(map[reviewKey]v1alpha1.ReviewAnswer, len(rs))
 	for _, r := range rs {
-		out[reviewKey{check: r.CheckDigest, outcome: r.OutcomeDigest}] = r.Answer
+		k := reviewKey{check: r.CheckDigest, outcome: r.OutcomeDigest}
+		if r.Expect == v1alpha1.CheckExpectFail {
+			k.red, k.step, k.assertion = true, r.FailedStep, r.FailedAssertion
+		}
+		out[k] = r.Answer
 	}
 	return out
 }

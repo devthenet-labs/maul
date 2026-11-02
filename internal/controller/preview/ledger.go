@@ -147,8 +147,66 @@ func checkRunOf(e toolwire.LedgerEntry) (v1alpha1.CheckRun, bool) {
 	if !known || len(r.Attempts) == 0 || !runToken.MatchString(r.Attempts[0].Run) {
 		return v1alpha1.CheckRun{}, false
 	}
-	return v1alpha1.CheckRun{CheckDigest: "sha256:" + r.Digest, Result: result, Token: r.Attempts[0].Run,
-		Seq: clampInt32(e.Seq)}, true
+	run := v1alpha1.CheckRun{CheckDigest: "sha256:" + r.Digest, Result: result, Token: r.Attempts[0].Run,
+		Seq: clampInt32(e.Seq)}
+	if step, ok := r.AssertionStep(); ok {
+		run.AssertionStep, run.AssertionID = clampInt32(step+1), r.FailedAssertionID()
+	}
+	return run, true
+}
+
+// expectsFail reports a relay confirmation entry of a check the evaluator
+// proposed to show a defect: its args, which the relay writes, record the
+// expectation (toolwire.ConfirmArgs).
+func expectsFail(e toolwire.LedgerEntry) bool {
+	var a toolwire.ConfirmArgs
+	return json.Unmarshal(e.Args, &a) == nil && a.Expect == toolwire.ExpectFail
+}
+
+// redDryRun is the latest entry before seq recording the agent's dry run
+// of the check of digest red by assertion id at step, or nil; nil too when
+// any dry run of it before seq passed, or a replay of it this round did (a
+// check that ran green shows no defect).
+func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step int, id string) *toolwire.LedgerEntry {
+	if greenDryRun(entries, digest, seq) != nil || greenReplay(entries, digest, seq) {
+		return nil
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := &entries[i]
+		if e.Seq >= seq || e.Kind != toolwire.KindAgent || e.Verb != toolwire.VerbCheckRun || e.Refused != "" ||
+			e.CheckRun == nil || e.CheckRun.Mode != toolwire.ModeDryRun || e.CheckRun.Digest != digest {
+			continue
+		}
+		if at, ok := e.CheckRun.AssertionStep(); ok && at == step && e.CheckRun.FailedAssertionID() == id {
+			return e
+		}
+	}
+	return nil
+}
+
+// greenReplay reports a replay before seq of the check of digest that
+// passed: a saved check this round saw green shows no defect, whatever the
+// agent's own dry runs of it did afterwards (review finding 3).
+func greenReplay(entries []toolwire.LedgerEntry, digest string, seq int64) bool {
+	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
+		return e.Seq < seq && e.Kind == toolwire.KindRelay && e.Verb == toolwire.VerbCheckRun && e.CheckRun != nil &&
+			e.CheckRun.Mode == toolwire.ModeReplay && e.CheckRun.Digest == digest &&
+			e.CheckRun.Result == toolwire.RunPass
+	})
+}
+
+// requiredDryRun is the dry run confirmation entry e required: the green
+// one, or, for a check expected to fail whose confirmation is red by
+// assertion, the red one at the same step; nil when there is none.
+func requiredDryRun(entries []toolwire.LedgerEntry, e toolwire.LedgerEntry) *toolwire.LedgerEntry {
+	if !expectsFail(e) {
+		return greenDryRun(entries, e.CheckRun.Digest, e.Seq)
+	}
+	step, ok := e.CheckRun.AssertionStep()
+	if !ok {
+		return nil
+	}
+	return redDryRun(entries, e.CheckRun.Digest, e.Seq, step, e.CheckRun.FailedAssertionID())
 }
 
 // runToken is the grammar of a run token status holds (CheckRun.Token).
@@ -184,7 +242,8 @@ func greenDryRun(entries []toolwire.LedgerEntry, digest string, seq int64) *tool
 }
 
 // confirmationRuns are the relay's confirmation runs, in order, each with
-// the green dry run it required.
+// the dry run it required (requiredDryRun) and, for a check proposed to
+// show a defect, its expectation.
 func confirmationRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
 	var out []v1alpha1.CheckRun
 	for _, e := range entries {
@@ -196,7 +255,10 @@ func confirmationRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
 		if !ok {
 			continue
 		}
-		if dry := greenDryRun(entries, e.CheckRun.Digest, e.Seq); dry != nil {
+		if expectsFail(e) {
+			run.Expect = v1alpha1.CheckExpectFail
+		}
+		if dry := requiredDryRun(entries, e); dry != nil {
 			run.DryRunSeq = clampInt32(dry.Seq)
 		}
 		out = append(out, run)
@@ -204,27 +266,39 @@ func confirmationRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
 	return out
 }
 
-// confirmedChecks are the checks whose confirmation passed, each read from
-// the dry run that confirmation required: the check the relay itself
-// validated and ran, by its own digest. A check over MaxSavedCheckBytes,
-// bound to no outcome under evaluation, or not reread exactly, is left
-// out: what status holds is only what intent-controller may store.
+// confirmedChecks are the checks whose confirmation did what it was
+// proposed to do, each read from the dry run that confirmation required:
+// the check the relay itself validated and ran, by its own digest. A check
+// expected to pass is confirmed by a passing confirmation after a green dry
+// run; one proposed to show a defect (Expect fail) only by a confirmation
+// red by assertion after a dry run red by assertion at the same step, with
+// no green dry run of it. A check over MaxSavedCheckBytes, bound to no
+// outcome under evaluation, or not reread exactly, is left out: what status
+// holds is only what intent-controller may store.
 func confirmedChecks(entries []toolwire.LedgerEntry, outcomes []v1alpha1.AcceptanceOutcome) []v1alpha1.SavedCheck {
 	var out []v1alpha1.SavedCheck
 	seen := map[string]bool{}
 	for _, e := range entries {
 		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbConfirm || e.CheckRun == nil ||
-			e.CheckRun.Mode != toolwire.ModeConfirm || e.CheckRun.Result != toolwire.RunPass ||
-			seen[e.CheckRun.Digest] || len(out) == v1alpha1.MaxSavedChecks {
+			e.CheckRun.Mode != toolwire.ModeConfirm || seen[e.CheckRun.Digest] || len(out) == v1alpha1.MaxSavedChecks {
 			continue
 		}
-		dry := greenDryRun(entries, e.CheckRun.Digest, e.Seq)
+		red := expectsFail(e)
+		if !red && e.CheckRun.Result != toolwire.RunPass {
+			continue
+		}
+		dry := requiredDryRun(entries, e)
 		if dry == nil {
 			continue
 		}
 		c, ok := checkOf(*dry, e.CheckRun.Digest, outcomes)
 		if !ok {
 			continue
+		}
+		if red {
+			step, _ := e.CheckRun.AssertionStep() // requiredDryRun held it red by assertion
+			c.Expect, c.FailedStep = v1alpha1.CheckExpectFail, clampInt32(step+1)
+			c.FailedAssertion = e.CheckRun.FailedAssertionID()
 		}
 		seen[e.CheckRun.Digest] = true
 		out = append(out, c)

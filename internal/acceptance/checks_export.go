@@ -79,5 +79,17 @@ func JSONEqual(a, b Value) bool { return jsonEqual(a.decoded(), b.decoded()) }
 // Decoded is v decoded, numbers as json.Number.
 func (v Value) Decoded() any { return v.decoded() }
 
+// AnyString reports whether pred holds for one of v's strings, object keys
+// excluded: the strings substitution reaches (substituteValue), so a token
+// that is only a key is the same literal in every run.
+func (v Value) AnyString(pred func(string) bool) bool {
+	found := false
+	_ = valueStrings(v.decoded(), func(s string) error {
+		found = found || pred(s)
+		return nil
+	})
+	return found
+}
+
 // ValueOf encodes a decoded value (numbers as json.Number) canonically.
 func ValueOf(d any) (Value, error) { return valueOf(d) }
