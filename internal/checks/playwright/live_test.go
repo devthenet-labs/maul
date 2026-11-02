@@ -69,7 +69,7 @@ func liveCases() []liveCase {
 			liveCase{v.id + "-legible", v.legible, checks.Assertion{Assert: checks.AssertLegible, Locator: css("#" + v.id)}})
 	}
 	width, atLeast, atMost := 200.0, 48.0, 150.0
-	return append(out,
+	out = append(out,
 		liveCase{"c-free", "pass", checks.Assertion{Assert: checks.AssertClickable, Locator: css("#c-free")}},
 		liveCase{"c-covered", "fail", checks.Assertion{Assert: checks.AssertClickable, Locator: css("#c-covered")}},
 		liveCase{"c-veiled", "pass", checks.Assertion{Assert: checks.AssertClickable, Locator: css("#c-veiled")}},
@@ -94,6 +94,46 @@ func liveCases() []liveCase {
 		liveCase{"b-size-at-most", "fail", checks.Assertion{Assert: checks.AssertSize, Locator: css("#b-left"),
 			MaxWidth: &atMost}},
 	)
+	return append(out, clippedCases()...)
+}
+
+// clippedCases are bug 12's: box relations measure what is drawn, each box
+// cut by its clipping ancestors, and an element clipped away entirely is
+// not drawn, so a relation on it is indeterminate, never a fail.
+func clippedCases() []liveCase {
+	rel := func(name, want string, assert checks.AssertKind, a, b string) liveCase {
+		return liveCase{name, want, checks.Assertion{Assert: assert, Locator: css(a), Other: css(b)}}
+	}
+	step, wide, narrow := 48.0, 100.0, 40.0
+	return []liveCase{
+		// The S1 demo's false alarm: step 1 scrolled out of view under KICK.
+		rel("k-clipped-no-overlap", "indeterminate", checks.AssertNoOverlap, "#k-step1", "#k-label"),
+		rel("k-clipped-left-of", "indeterminate", checks.AssertLeftOf, "#k-label", "#k-step1"),
+		rel("k-clipped-equal-size", "indeterminate", checks.AssertEqualSize, "#k-step1", "#k-step2"),
+		{"k-clipped-size", "indeterminate", checks.Assertion{Assert: checks.AssertSize, Locator: css("#k-step1"),
+			Width: &step}},
+		rel("k-drawn-no-overlap", "pass", checks.AssertNoOverlap, "#k-step2", "#k-label"),
+		// Partly clipped: the drawn part is beside the label; its layout
+		// box still measures 48 wide, and a fail is not a defect's.
+		rel("p-cut-no-overlap", "pass", checks.AssertNoOverlap, "#p-step1", "#p-label"),
+		rel("p-cut-left-of", "pass", checks.AssertLeftOf, "#p-label", "#p-step1"),
+		{"p-cut-size", "pass", checks.Assertion{Assert: checks.AssertSize, Locator: css("#p-step1"), Width: &step}},
+		{"p-cut-size-wrong", "indeterminate", checks.Assertion{Assert: checks.AssertSize, Locator: css("#p-step1"),
+			Width: &wide}},
+		// Bounds take the same rule: a bound that fails on a cut box is
+		// indeterminate, one that holds passes, none judges a box not drawn.
+		{"p-cut-size-at-least", "pass", checks.Assertion{Assert: checks.AssertSize, Locator: css("#p-step1"),
+			MinWidth: &narrow}},
+		{"p-cut-size-at-least-wrong", "indeterminate", checks.Assertion{Assert: checks.AssertSize,
+			Locator: css("#p-step1"), MinWidth: &wide}},
+		{"p-cut-size-at-most-wrong", "indeterminate", checks.Assertion{Assert: checks.AssertSize,
+			Locator: css("#p-step1"), MaxWidth: &narrow}},
+		{"k-clipped-size-at-least", "indeterminate", checks.Assertion{Assert: checks.AssertSize,
+			Locator: css("#k-step1"), MinWidth: &narrow}},
+		// A drawn step under a sticky label still overlaps it.
+		rel("s-under-sticky", "fail", checks.AssertNoOverlap, "#s-stepa", "#s-label"),
+		rel("s-beside-sticky", "pass", checks.AssertNoOverlap, "#s-stepc", "#s-label"),
+	}
 }
 
 // TestLivePageFunctions compiles one check per fixture and assertion, runs

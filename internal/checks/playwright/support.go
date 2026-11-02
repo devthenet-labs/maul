@@ -97,6 +97,24 @@ async function box(loc: Locator, what: string): Promise<Box> {
   return b;
 }
 
+// Drawn is the drawn page function's verdict: the layout box, the part of
+// it that is drawn (clip) and the ancestors that cut it (by).
+type Drawn = Verdict & { box: Box; clip: Box; by: string[] };
+
+// drawn measures loc where it is, never scrolling it (a check may have
+// scrolled its container on purpose). An element clipped away entirely
+// is not drawn: indeterminate.
+async function drawn(loc: Locator, what: string): Promise<Drawn> {
+  await box(loc, what);
+  return (await loc.evaluate(pageFunction, "drawn")) as Drawn;
+}
+
+// partly names the cut boxes among ds, for a measurement of the layout box
+// that a person sees only in part.
+function partly(...ds: Drawn[]): string[] {
+  return ds.filter((d) => d.by.length).map((d) => "partly clipped by " + d.by.join(", "));
+}
+
 function px(n: number): string {
   return String(Math.round(n * 10) / 10);
 }
@@ -126,11 +144,35 @@ function slack(tolerance: number): string {
   return tolerance ? " (slack " + px(tolerance) + ")" : "";
 }
 
-// relation judges two boxes measured in the same turn.
-async function relation(what: string, a: Locator, b: Locator, ok: (p: Box, q: Box) => string[]): Promise<void> {
+// placed judges where two boxes are drawn, measured in the same turn: an
+// overlap or an order is what a person sees, so each box is cut by what
+// clips it.
+async function placed(what: string, a: Locator, b: Locator, ok: (p: Box, q: Box) => string[]): Promise<void> {
   await retry(what, async () => {
-    const why = ok(await box(a, what), await box(b, what));
+    const p = await drawn(a, what);
+    if (p.verdict !== "pass") return p;
+    const q = await drawn(b, what);
+    if (q.verdict !== "pass") return q;
+    const why = ok(p.clip, q.clip);
     return { verdict: why.length ? "fail" : "pass", why };
+  });
+}
+
+// extent judges layout boxes (a size or an edge is the element's, however
+// much of it shows), each of them drawn; a box partly clipped makes a fail
+// indeterminate, since what a person sees of it is not what was measured.
+async function extent(what: string, locs: Locator[], ok: (bs: Box[]) => string[]): Promise<void> {
+  await retry(what, async () => {
+    const ds: Drawn[] = [];
+    for (const l of locs) {
+      const d = await drawn(l, what);
+      if (d.verdict !== "pass") return d;
+      ds.push(d);
+    }
+    const why = ok(ds.map((d) => d.box));
+    if (!why.length) return { verdict: "pass", why };
+    const cut = partly(...ds);
+    return { verdict: cut.length ? "indeterminate" : "fail", why: [...why, ...cut] };
   });
 }
 
@@ -211,19 +253,19 @@ export const maul = {
   },
 
   async leftOf(a: Locator, b: Locator, tolerance: number): Promise<void> {
-    await relation("left-of", a, b, (p, q) =>
+    await placed("left-of", a, b, (p, q) =>
       p.x + p.width <= q.x + tolerance ? [] : ["right edge " + px(p.x + p.width) + " is past " + px(q.x)],
     );
   },
 
   async above(a: Locator, b: Locator, tolerance: number): Promise<void> {
-    await relation("above", a, b, (p, q) =>
+    await placed("above", a, b, (p, q) =>
       p.y + p.height <= q.y + tolerance ? [] : ["bottom edge " + px(p.y + p.height) + " is below " + px(q.y)],
     );
   },
 
   async noOverlap(a: Locator, b: Locator, tolerance: number): Promise<void> {
-    await relation("no-overlap", a, b, (p, q) => {
+    await placed("no-overlap", a, b, (p, q) => {
       const w = Math.min(p.x + p.width, q.x + q.width) - Math.max(p.x, q.x);
       const h = Math.min(p.y + p.height, q.y + q.height) - Math.max(p.y, q.y);
       return w <= tolerance || h <= tolerance ? [] : ["the boxes overlap by " + px(w) + "x" + px(h)];
@@ -231,33 +273,29 @@ export const maul = {
   },
 
   async equalSize(a: Locator, b: Locator, tolerance: number): Promise<void> {
-    await relation("equal-size", a, b, (p, q) => [
+    await extent("equal-size", [a, b], ([p, q]) => [
       ...within("width", p.width, q.width, tolerance),
       ...within("height", p.height, q.height, tolerance),
     ]);
   },
 
   async aligned(a: Locator, b: Locator, axis: string, tolerance: number): Promise<void> {
-    await relation("aligned " + axis, a, b, (p, q) =>
+    await extent("aligned " + axis, [a, b], ([p, q]) =>
       axis === "x" ? within("x", p.x, q.x, tolerance) : within("y", p.y, q.y, tolerance),
     );
   },
 
   // size: an exact width or height within tolerance, or at least min and
-  // at most max, each with the same slack.
+  // at most max, each with the same slack, on the layout box.
   async size(loc: Locator, want: SizeWant, tolerance: number): Promise<void> {
-    await retry("size", async () => {
-      const b = await box(loc, "size");
-      const why = [
-        ...(want.width === undefined ? [] : within("width", b.width, want.width, tolerance)),
-        ...(want.minWidth === undefined ? [] : atLeast("width", b.width, want.minWidth, tolerance)),
-        ...(want.maxWidth === undefined ? [] : atMost("width", b.width, want.maxWidth, tolerance)),
-        ...(want.height === undefined ? [] : within("height", b.height, want.height, tolerance)),
-        ...(want.minHeight === undefined ? [] : atLeast("height", b.height, want.minHeight, tolerance)),
-        ...(want.maxHeight === undefined ? [] : atMost("height", b.height, want.maxHeight, tolerance)),
-      ];
-      return { verdict: why.length ? "fail" : "pass", why };
-    });
+    await extent("size", [loc], ([b]) => [
+      ...(want.width === undefined ? [] : within("width", b.width, want.width, tolerance)),
+      ...(want.minWidth === undefined ? [] : atLeast("width", b.width, want.minWidth, tolerance)),
+      ...(want.maxWidth === undefined ? [] : atMost("width", b.width, want.maxWidth, tolerance)),
+      ...(want.height === undefined ? [] : within("height", b.height, want.height, tolerance)),
+      ...(want.minHeight === undefined ? [] : atLeast("height", b.height, want.minHeight, tolerance)),
+      ...(want.maxHeight === undefined ? [] : atMost("height", b.height, want.maxHeight, tolerance)),
+    ]);
   },
 };
 `

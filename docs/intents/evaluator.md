@@ -124,7 +124,13 @@ check errs, which is unsure, never a fail. Its `size` assertion takes an exact `
 assertion's `tolerance`, or bounds: `minWidth`, `maxWidth`, `minHeight` and `maxHeight`, the same tolerance as slack. An
 axis takes an exact value or its bounds, never both, and a minimum is never over its maximum. So an outcome that says
 "at least 48 px" is checked by `minHeight: 48`, never by an exact 48, which would fail a correct 56 px pad and which the
-reviewer refuses. A saved check is at most 8 KiB as maul stores it, and an intent keeps at most 40.
+reviewer refuses. The box relations (`left-of`, `above`, `no-overlap`, `equal-size`, `aligned`) and `size` measure what
+is drawn, where the page left it (the check's own scrolls are kept): each box is cut by every ancestor whose overflow
+clips it and by the page's extent (the viewport, for a fixed element). `left-of`, `above` and `no-overlap` judge the
+drawn parts; `equal-size`, `aligned` and `size` (exact or bounded) judge the whole box, and a fail on a box partly
+clipped is indeterminate. An element clipped away entirely, scrolled out of its container say, is not drawn, so a
+relation on it is indeterminate, never a fail. A saved check is at most 8 KiB as maul stores it, and an intent keeps at
+most 40.
 
 Everything else:
 
