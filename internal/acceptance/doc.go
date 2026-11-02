@@ -70,6 +70,12 @@
 // caused (charged to the intent, fix 13) or infrastructure trouble (free
 // retries).
 //
+// Under the agent evaluator a plan states outcomes instead (outcome.go).
+// NotCovered (coverage.go) lists the issue lines no outcome answers, and
+// LintOutcomes (lint.go) flags outcomes no check can show on a preview whose
+// data is shared, for the approver: both are advice in the plan comment,
+// never a refusal or a verdict.
+//
 // The package imports only the standard library (a test pins that), so the
 // report parser, both controllers and the tester binary share it.
 // v1alpha1.AcceptanceCriterion mirrors Criterion field for field, with the

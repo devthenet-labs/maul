@@ -452,7 +452,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 			questions++
 		}
 	}
-	outcomesLead, outcomes, notCovered := planOutcomesView(p.Outcomes)
+	outcomesLead, outcomes, notCovered, outcomeFlags := planOutcomesView(p.Outcomes)
 	return render("intent_plan.md.tmpl", struct {
 		Marker          string
 		Revision        int32
@@ -481,6 +481,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		OutcomesLead    string
 		Outcomes        []string
 		NotCovered      []string
+		OutcomeFlags    []string
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -510,6 +511,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		OutcomesLead:    outcomesLead,
 		Outcomes:        outcomes,
 		NotCovered:      notCovered,
+		OutcomeFlags:    outcomeFlags,
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
 }
