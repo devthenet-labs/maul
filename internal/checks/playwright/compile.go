@@ -311,14 +311,7 @@ func (w *writer) assertion(a checks.Assertion) {
 	case checks.AssertAligned:
 		w.do("maul.aligned(" + loc(a.Locator) + ", " + loc(a.Other) + ", " + w.lit(a.Axis) + ", " + tol + ")")
 	case checks.AssertSize:
-		var dims []string
-		if a.Width != nil {
-			dims = append(dims, "width: "+num(*a.Width))
-		}
-		if a.Height != nil {
-			dims = append(dims, "height: "+num(*a.Height))
-		}
-		w.do("maul.size(" + loc(a.Locator) + ", { " + strings.Join(dims, ", ") + " }, " + tol + ")")
+		w.do("maul.size(" + loc(a.Locator) + ", { " + sizeWant(a) + " }, " + tol + ")")
 	case checks.AssertURL:
 		w.do("maul.expectPath(page, " + w.lit(a.URL) + ")")
 	case checks.AssertCount:
@@ -334,6 +327,24 @@ func (w *writer) assertion(a checks.Assertion) {
 			w.err = errors.New("an assertion is not one maul compiles")
 		}
 	}
+}
+
+// sizeWant is a size assertion's dimensions and bounds as the object
+// maul.size takes: each set one by its key, width's then height's.
+func sizeWant(a checks.Assertion) string {
+	var dims []string
+	for _, d := range []struct {
+		key string
+		v   *float64
+	}{
+		{"width", a.Width}, {"minWidth", a.MinWidth}, {"maxWidth", a.MaxWidth},
+		{"height", a.Height}, {"minHeight", a.MinHeight}, {"maxHeight", a.MaxHeight},
+	} {
+		if d.v != nil {
+			dims = append(dims, d.key+": "+num(*d.v))
+		}
+	}
+	return strings.Join(dims, ", ")
 }
 
 func (w *writer) text(loc string, t *checks.TextMatch) {

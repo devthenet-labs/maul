@@ -109,6 +109,20 @@ func TestRefuseGrammar(t *testing.T) {
 			"count":-1}}`), Preview{}},
 		{"size zero", browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"text":"a"},"height":0}},` +
 			seeRun), Preview{}},
+		{"size exact and min width", browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"text":"a"},
+			"width":48,"minWidth":40}},` + seeRun), Preview{}},
+		{"size exact and max height", browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"text":"a"},
+			"height":48,"maxHeight":60}},` + seeRun), Preview{}},
+		{"size min over max", browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"text":"a"},
+			"minWidth":60,"maxWidth":48}},` + seeRun), Preview{}},
+		{"size min zero", browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"text":"a"},
+			"minHeight":0}},` + seeRun), Preview{}},
+		{"size max negative", browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"text":"a"},
+			"maxWidth":-1}},` + seeRun), Preview{}},
+		{"size min too wide", browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"text":"a"},
+			"minWidth":20000}},` + seeRun), Preview{}},
+		{"bounds off a size", browserCheck(gotoRun + `,{"expect":{"assert":"visible","locator":{"text":"{{run}}"},
+			"minWidth":48}}`), Preview{}},
 		{"tolerance too wide", browserCheck(gotoRun + `,{"expect":{"assert":"above","locator":{"text":"a"},
 			"other":{"text":"b"},"tolerance":500}},` + seeRun), Preview{}},
 		{"fill control char", browserCheck(`{"fill":{"locator":{"label":"a"},"text":"a\u0007"}},` + seeRun), Preview{}},
@@ -267,4 +281,28 @@ func TestRefuseTooLarge(t *testing.T) {
 	}
 	steps = append(steps, seeRun)
 	runRefusals(t, RuleTooLarge, []refusalCase{{"browser", browserCheck(strings.Join(steps, ",")), Preview{}}})
+}
+
+// TestSizeBounds: a size assertion takes an exact width or height, a
+// minimum or a maximum, or both bounds, on each axis; "at least 48 px" is a
+// minWidth or minHeight, not an exact 48.
+func TestSizeBounds(t *testing.T) {
+	for name, expect := range map[string]string{
+		"exact width":          `"width":48`,
+		"at least both":        `"minWidth":48,"minHeight":48`,
+		"at most width":        `"maxWidth":320`,
+		"a range":              `"minHeight":40,"maxHeight":56`,
+		"min equals max":       `"minWidth":48,"maxWidth":48`,
+		"exact and other axis": `"width":48,"minHeight":44`,
+		"bounds and tolerance": `"minWidth":48,"tolerance":0.5`,
+	} {
+		c, err := Parse([]byte(browserCheck(gotoRun + `,{"expect":{"assert":"size","locator":{"testid":"pad"},` +
+			expect + `}}`)))
+		if err != nil {
+			t.Fatalf("%s: Parse: %v", name, err)
+		}
+		if err := Validate(c, Preview{}); err != nil {
+			t.Errorf("%s: Validate: %v", name, err)
+		}
+	}
 }

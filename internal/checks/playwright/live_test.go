@@ -68,7 +68,7 @@ func liveCases() []liveCase {
 			liveCase{v.id + "-visible", v.visible, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + v.id)}},
 			liveCase{v.id + "-legible", v.legible, checks.Assertion{Assert: checks.AssertLegible, Locator: css("#" + v.id)}})
 	}
-	width := 200.0
+	width, atLeast, atMost := 200.0, 48.0, 150.0
 	return append(out,
 		liveCase{"c-free", "pass", checks.Assertion{Assert: checks.AssertClickable, Locator: css("#c-free")}},
 		liveCase{"c-covered", "fail", checks.Assertion{Assert: checks.AssertClickable, Locator: css("#c-covered")}},
@@ -89,6 +89,10 @@ func liveCases() []liveCase {
 			Other: css("#b-right")}},
 		liveCase{"b-size", "pass", checks.Assertion{Assert: checks.AssertSize, Locator: css("#b-left"),
 			Width: &width}},
+		liveCase{"b-size-at-least", "pass", checks.Assertion{Assert: checks.AssertSize, Locator: css("#b-left"),
+			MinWidth: &atLeast, MinHeight: &atLeast}},
+		liveCase{"b-size-at-most", "fail", checks.Assertion{Assert: checks.AssertSize, Locator: css("#b-left"),
+			MaxWidth: &atMost}},
 	)
 }
 

@@ -87,6 +87,8 @@ func TestLayoutRead(t *testing.T) {
 		{"size and aligned", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
 		 {"expect":{"assert":"size","locator":{"testid":"pad"},"width":48,"height":48}},
 		 {"expect":{"assert":"aligned","axis":"x","locator":{"testid":"a"},"other":{"testid":"b"}}}]}}`, true},
+		{"a size at least", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
+		 {"expect":{"assert":"size","locator":{"testid":"pad"},"minWidth":48,"maxHeight":64}}]}}`, true},
 		{"visible beside a size", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
 		 {"scroll":{"locator":{"testid":"row"},"dx":40,"dy":0}},
 		 {"expect":{"assert":"visible","locator":{"testid":"pad"}}},

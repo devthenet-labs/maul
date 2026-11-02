@@ -209,9 +209,11 @@ A check is bound to one outcome and has one form:
   and `nth`; never a snapshot ref such as `e21`. `expect` takes one `assert`: `visible` (a person can see it),
   `legible` (a person can read it: enough contrast against its background), `clickable` (it, not something over it,
   receives a click), `text` (`equals`, `contains` or `matches`), `count`, `url`, and the box relations `left-of`,
-  `above`, `no-overlap`, `equal-size`, `aligned` (`axis` x or y) and `size` (`width`, `height`), each with an `other`
-  locator where it compares two and a `tolerance` in px. Assert `legible` for "can a person read it" and `visible`
-  for "is it there". Never assert a colour value: a colour literal is refused.
+  `above`, `no-overlap`, `equal-size`, `aligned` (`axis` x or y) and `size`, each with an `other` locator where it
+  compares two and a `tolerance` in px. `size` takes an exact `width` or `height`, or the bounds `minWidth`,
+  `maxWidth`, `minHeight` and `maxHeight` for an outcome that says "at least" or "at most" (an axis takes one or the
+  other): write "at least 48 px" as `minWidth: 48`, never an exact 48. Assert `legible` for "can a person read it"
+  and `visible` for "is it there". Never assert a colour value: a colour literal is refused.
 - `exec`: an `argv` run in the sandbox without a shell, with its program `files`, asserting on its `exit` code,
   `stdoutContains` and `stdoutJSON`.
 

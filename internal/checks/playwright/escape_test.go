@@ -100,8 +100,14 @@ func genAssertion(r *rand.Rand) *checks.Assertion {
 		w := float64(1 + r.Intn(500))
 		a.Width = &w
 		if r.Intn(2) == 0 {
+			a.Width, a.MinWidth = nil, &w
+		}
+		if r.Intn(2) == 0 {
 			h := 0.5 + float64(r.Intn(300))
 			a.Height = &h
+			if r.Intn(2) == 0 {
+				a.Height, a.MaxHeight = nil, &h
+			}
 		}
 	}
 	return a

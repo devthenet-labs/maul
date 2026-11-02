@@ -109,8 +109,8 @@ check, so the planner is asked to word each outcome so that one check can show i
 - concrete values, other than the defaults, and what a person then sees ("a beat you save at 90 BPM shows 90 bpm");
 - a `keep` outcome names one action and what a person then sees, never "X still works";
 - a layout outcome (a size, an alignment, no sideways scroll) needs no data: it names one element of the fixed page and
-  an exact size or position with a tolerance ("48 by 48 px, within 1 px"), never "at least", at the browser's fixed
-  1280x800 window;
+  states the numbers, an exact size or position with a tolerance ("48 by 48 px, within 1 px") or the bound the request
+  gives ("at least 48 by 48 px"), at the browser's fixed 1280x800 window;
 - no colour: an outcome states a visible state a check can read, or is manual;
 - an outcome only data a check cannot create can show (rows the application seeds) is manual;
 - where a person sees it, a page's route or an API path, in the application's own words, with the API's name in brackets

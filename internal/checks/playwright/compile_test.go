@@ -66,6 +66,12 @@ var goldenCases = []struct {
 			"tolerance":1.5}},
 		{"expect":{"assert":"size","locator":{"testid":"side-a"},"width":400,"tolerance":40}},
 		{"expect":{"assert":"size","locator":{"testid":"side-b"},"height":220.5}}]}`},
+	{"size", `{"steps":[
+		{"goto":"/sequencer"},
+		{"expect":{"assert":"size","locator":{"testid":"kick-pad"},"width":48,"height":48,"tolerance":0.5}},
+		{"expect":{"assert":"size","locator":{"testid":"snare-pad"},"minWidth":48,"minHeight":48}},
+		{"expect":{"assert":"size","locator":{"testid":"grid"},"maxWidth":1200,"minHeight":200,"maxHeight":400,
+			"tolerance":1}}]}`},
 	{"scroll", `{"steps":[
 		{"goto":"/sequencer"},
 		{"select":{"label":"Tempo","option":"120 bpm"}},

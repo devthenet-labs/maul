@@ -117,3 +117,33 @@ func TestRefusalIsTyped(t *testing.T) {
 		t.Fatalf("refusal %+v (%v)", r, r)
 	}
 }
+
+// TestDigestStableForExactSize: the size bounds add no key to an exact size
+// check's canonical form, so a check saved before them keeps its digest.
+func TestDigestStableForExactSize(t *testing.T) {
+	const want = "sha256:85d4e2b01331b452168dfdeb29e359e7c1806977e5f0d1a1ca980dfb2421d854"
+	if got := Digest(mustParse(t, browserGrid)); got != want {
+		t.Fatalf("Digest(browserGrid) = %s, want %s", got, want)
+	}
+}
+
+// TestCanonicalKeepsSizeBounds: a bounded size check round-trips through
+// Canonical with its bounds, and digests apart from the exact one.
+func TestCanonicalKeepsSizeBounds(t *testing.T) {
+	bounded := mustParse(t, `{"id":"a.b","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
+	 {"expect":{"maxHeight":56,"minWidth":48,"locator":{"testid":"pad"},"assert":"size","minHeight":48,"maxWidth":64}}]}}`)
+	exact := mustParse(t, `{"id":"a.b","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
+	 {"expect":{"assert":"size","locator":{"testid":"pad"},"width":48,"height":48}}]}}`)
+	got := string(Canonical(bounded))
+	for _, k := range []string{`"minWidth":48`, `"minHeight":48`, `"maxWidth":64`, `"maxHeight":56`} {
+		if !strings.Contains(got, k) {
+			t.Errorf("Canonical lacks %s: %s", k, got)
+		}
+	}
+	if !bytes.Equal(Canonical(mustParse(t, got)), Canonical(bounded)) {
+		t.Error("Canonical of a bounded size is not idempotent")
+	}
+	if Digest(bounded) == Digest(exact) {
+		t.Error("a bounded size digests like an exact one")
+	}
+}

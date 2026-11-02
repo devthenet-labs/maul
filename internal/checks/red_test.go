@@ -31,6 +31,8 @@ func TestValidateRed(t *testing.T) {
 		// S1 demo bug 9: a browser check that writes nothing may show a
 		// defect only by a measured layout or geometry assertion.
 		{"a layout read failing its size", layoutRead(`{"assert":"size","locator":{"testid":"pad"},"height":48}`), "", 2},
+		{"a layout read failing its minimum size", layoutRead(`{"assert":"size","locator":{"testid":"pad"},
+		 "minWidth":48,"minHeight":48}`), "", 2},
 		{"a layout read failing aligned", layoutRead(`{"assert":"aligned","locator":{"testid":"a"},"other":{"testid":"b"},
 		 "axis":"x"}`), "", 2},
 		{"a layout read failing a text assertion", layoutRead(`{"assert":"text","locator":{"testid":"t"},

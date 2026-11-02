@@ -230,9 +230,9 @@ How to word an outcome so the evaluator can show it:
 - A `keep` outcome names one action on the person's own item and what they then see ("a beat you save still plays
   its 16 steps in order"), never "X still works".
 - An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data.
-  Name one element of the fixed page (the kick row's first step pad) and an exact size or position with a tolerance
-  ("48 by 48 px, within 1 px"), never "at least" or "at most": a check measures a size only as a value within a
-  tolerance. The rule against a first or last row is about rows of data, not the page's fixed markup. The browser's
+  Name one element of the fixed page (the kick row's first step pad) and state the numbers: an exact size or position
+  with a tolerance ("48 by 48 px, within 1 px"), or the bound the request gives ("at least 48 by 48 px", "at most 320
+  px wide"). The rule against a first or last row is about rows of data, not the page's fixed markup. The browser's
   window is always {{ .Viewport.Width }} by {{ .Viewport.Height }} CSS pixels.
 - Do not promise a colour: a check cannot assert one. State the visible state a check can read (the step shows as on,
   its label reads On, its text can be read against its background), or mark the outcome manual.

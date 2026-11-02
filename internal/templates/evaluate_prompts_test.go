@@ -167,6 +167,10 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		"`maul-tool logs` for each component and `maul-tool events`",
 		"An anomaly never fails an outcome and never starts a fix",
 		"Never assert a colour value",
+		// Demo finding F3: "at least 48 px" is a bound, not an exact 48.
+		"or the bounds `minWidth`, `maxWidth`, `minHeight` and `maxHeight` for an outcome that says \"at least\" or " +
+			"\"at most\"",
+		"write \"at least 48 px\" as `minWidth: 48`, never an exact 48",
 		"Write your report to `/work/scratch/report.md` with the Write tool.",
 		"You may make at most 150 tool calls",
 		// The post-demo decision on S1 bug 7, and its review: what may show a
@@ -422,7 +426,13 @@ func TestEvaluatePromptBounds(t *testing.T) {
 	if strings.Count(got, "+1 -0 a.go") != ChangedPathsMax || !strings.Contains(got, "[and 5 more paths]") {
 		t.Error("changed paths not bounded")
 	}
-	if strings.Count(got, "x") > FixDiffMaxBytes+100 {
+	p.FixDiff = ""
+	base, err := RenderEvaluatePrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fix section's own words ("fix") hold some x too.
+	if strings.Count(got, "x")-strings.Count(base, "x") > FixDiffMaxBytes+100 {
 		t.Error("fix diff not bounded")
 	}
 	if strings.Contains(got, "Bad Key") || strings.Contains(got, "`e`: served") || !strings.Contains(got, "`d`: served") {
@@ -519,8 +529,9 @@ func TestPlanPromptOutcomes(t *testing.T) {
 		`Where the request says "each X", write the outcome for an X the check creates.`,
 		`Split "X and Y"`, "several outcomes may share one `from` line", "about 200 characters",
 		"other than the defaults", `never "X still works"`,
-		"Name one element of the fixed page (the kick row's first step pad) and an exact size or position with a " +
-			`tolerance ("48 by 48 px, within 1 px"), never "at least" or "at most"`,
+		"Name one element of the fixed page (the kick row's first step pad) and state the numbers: an exact size or " +
+			`position with a tolerance ("48 by 48 px, within 1 px"), or the bound the request gives ("at least 48 by 48 ` +
+			`px", "at most 320 px wide")`,
 		"The rule against a first or last row is about rows of data, not the page's fixed markup.",
 		"The browser's window is always 1280 by 800 CSS pixels.",
 		"Do not promise a colour: a check cannot assert one.",

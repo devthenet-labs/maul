@@ -683,7 +683,7 @@ What I checked, in a few lines.
 // evaluator; a test holds it to report.ParsePlan. Each outcome models the
 // prompt's rules: about items the person checking creates, one claim a
 // check can show, concrete values, a layout outcome naming one fixed
-// element and an exact size within a tolerance, a keep naming one action,
+// element and the numbers it must meet, a keep naming one action,
 // and where a person sees it.
 const ExamplePlanOutcomes = `acceptance:
   - id: rating-moves
@@ -695,8 +695,8 @@ const ExamplePlanOutcomes = `acceptance:
     from: "ratings should update after every battle"
     kind: change
   - id: kick-pad-size
-    outcome: "On /, the kick row's first step pad is 48 by 48 px, within 1 px."
-    from: "make the step pads bigger"
+    outcome: "On /, the kick row's first step pad is at least 48 by 48 px."
+    from: "make the step pads at least 48px"
     kind: change
   - id: new-player-listed
     outcome: "A player you add on the players page (/players) is listed there by the name you gave."
