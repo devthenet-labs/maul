@@ -10,12 +10,14 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/agentresult"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
 // The reviewer round (DESIGN 2.2 step 9, SPEC S1-19): once a full round
@@ -40,6 +42,31 @@ import (
 
 // maxCachedReviews bounds status.acceptance.reviews (its schema's).
 const maxCachedReviews = 80
+
+// The bounds of what a review carries beside its answer (coverage design
+// C1, C2): an outcome's line of the request, as the reviewer is handed it
+// (agent-runner's bound), and the reviewer's reason as cached (the
+// schema's).
+const (
+	reviewFromMaxBytes   = 2 << 10
+	reviewReasonMaxBytes = 600
+)
+
+// reviewKind is an outcome's kind as the reviewer is handed it: keep, else
+// change.
+func reviewKind(o v1alpha1.AcceptanceOutcome) string {
+	if o.Kind == v1alpha1.OutcomeKindKeep {
+		return string(v1alpha1.OutcomeKindKeep)
+	}
+	return string(v1alpha1.OutcomeKindChange)
+}
+
+// reviewReason is a reviewer's reason as the Intent caches it: one line,
+// bounded and made visible, for a later round's evaluator.
+func reviewReason(s string) string {
+	s = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s)
+	return untrusted.Visible(strings.TrimSpace(s), reviewReasonMaxBytes)
+}
 
 // reviewChecks is the reviewer round of pv, a collected full round: it
 // reports whether it wrote, and whether the round waits for its reviewer.
@@ -143,18 +170,23 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	if held, err := p.holdForCredential(ctx, p.set.Attribution.Stamp(attributed), false); held || err != nil {
 		return held, err
 	}
-	items := make([]agentrun.CheckReviewItem, 0, len(pending))
+	request, err := p.requestText(ctx)
+	if err != nil {
+		return false, err
+	}
+	h := agentrun.CheckReviewHandoff{Request: request, Components: p.evaluateComponents(pv)}
 	for _, c := range pending {
 		it := agentrun.CheckReviewItem{CheckDigest: c.check.Digest, OutcomeDigest: outcomeDigest(c.outcome),
-			Outcome: reviewOutcomeText(c.outcome), Check: c.check.Body}
+			Outcome: reviewOutcomeText(c.outcome), From: untrusted.Visible(c.outcome.From, reviewFromMaxBytes),
+			Kind: reviewKind(c.outcome), Check: c.check.Body}
 		if c.red() {
 			// The red question, naming the assertion maul's own run failed.
 			it.Expect, it.FailedStep = string(v1alpha1.CheckExpectFail), int(c.check.FailedStep)
 			it.FailedAssertion = c.check.FailedAssertion
 		}
-		items = append(items, it)
+		h.Reviews = append(h.Reviews, it)
 	}
-	handoff, err := encodeCheckReviewHandoff(items)
+	handoff, err := encodeCheckReviewHandoff(h)
 	if err != nil {
 		return false, err
 	}
@@ -165,7 +197,7 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "reviewer round: the check reviewer is launched",
 		slog.String("intent", p.in.Name), slog.String("verification", pv.Name), slog.String("run", run.Name),
-		slog.Int("checks", len(items)))
+		slog.Int("checks", len(h.Reviews)))
 	return true, nil
 }
 
@@ -196,7 +228,8 @@ func (p *pass) recordReviews(ctx context.Context, run *v1alpha1.IntentRun, pendi
 			continue
 		}
 		rec := v1alpha1.CheckReviewRecord{CheckDigest: a.CheckDigest, OutcomeDigest: a.OutcomeDigest,
-			Answer: v1alpha1.ReviewAnswer(a.Answer), Run: run.Name}
+			Answer: v1alpha1.ReviewAnswer(a.Answer), Run: run.Name, Check: c.check.ID,
+			Reason: reviewReason(a.Reason)}
 		if c.red() {
 			rec.Expect, rec.FailedStep, rec.FailedAssertion = v1alpha1.CheckExpectFail, c.check.FailedStep,
 				c.check.FailedAssertion

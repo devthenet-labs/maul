@@ -138,3 +138,43 @@ func TestEvaluateHandoffCarriesTheBrowserEntry(t *testing.T) {
 		t.Errorf("browser entry without a browser = %q, want none", got)
 	}
 }
+
+// TestEvaluateHandoffCarriesRefusedChecks (coverage design C3): the next
+// round's evaluator is handed each check the reviewer refused for an
+// approved outcome's current text, by outcome, check id and the reviewer's
+// reason made visible; a proven check, a refusal for text the outcome no
+// longer has, and a refusal recorded with no id are left out or named by
+// their digest.
+func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	text := map[string]string{}
+	for _, o := range e.get(name).Status.Acceptance.Outcomes {
+		text[o.ID] = outcomeDigest(o)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Reviews = []v1alpha1.CheckReviewRecord{
+			{CheckDigest: version.Digest, OutcomeDigest: text[oVersion], Answer: v1alpha1.ReviewDoesNotProve,
+				Run: "r1", Check: version.ID, Reason: "it never reads the commit\u202e"},
+			{CheckDigest: health.Digest, OutcomeDigest: text[oHealthy], Answer: v1alpha1.ReviewProves, Run: "r1",
+				Check: health.ID, Reason: "fine"},
+			{CheckDigest: health.Digest, OutcomeDigest: digest([]byte("an older text")),
+				Answer: v1alpha1.ReviewDoesNotProve, Run: "r0", Check: health.ID, Reason: "old"},
+			{CheckDigest: health.Digest, OutcomeDigest: text[oHealthy], Answer: v1alpha1.ReviewUnclear, Run: "r0"},
+		}
+	})
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv))
+	if len(h.PriorRefused) != 2 {
+		t.Fatalf("refused = %+v, want the version check's refusal and the unclear one", h.PriorRefused)
+	}
+	got := h.PriorRefused[0]
+	if got.Outcome != oVersion || got.Check != version.ID || !strings.Contains(got.Reason, "it never reads the commit") ||
+		strings.ContainsRune(got.Reason, '\u202e') {
+		t.Errorf("refused[0] = %+v, want the version check by id with its reason made visible", got)
+	}
+	if got := h.PriorRefused[1]; got.Outcome != oHealthy || got.Check != health.Digest || got.Reason != "" {
+		t.Errorf("refused[1] = %+v, want the unclear review named by its digest", got)
+	}
+}

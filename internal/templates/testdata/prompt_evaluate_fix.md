@@ -76,6 +76,18 @@ Replayed at the start of that round:
 - check leaderboard-still-loads, of outcome leaderboard-still-loads, replayed pass
 ```
 
+### Checks the reviewer refused
+
+The check reviewer refused these checks of earlier rounds, each named by its id and its outcome, with the reviewer's
+reason, quoted:
+
+```text
+- check winner-rises-api, of outcome winner-rises, was refused. Why, quoted: It reads the leaderboard after the battle only: it never shows the order before it.
+```
+
+A check refused in one form is never reviewed again in that form: maul keeps each review by the check's digest, so the
+same check proposed again is refused again. Strengthen it to answer the reason, run it, and propose the new form.
+
 ## The preview and your tools
 
 The preview serves these components:

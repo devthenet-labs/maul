@@ -60,6 +60,18 @@ replay again this round (`maul-tool check results`).
 
 {{fence . | chomp}}
 {{- end}}
+{{- with .RefusedBlock}}
+
+### Checks the reviewer refused
+
+The check reviewer refused these checks of earlier rounds, each named by its id and its outcome, with the reviewer's
+reason, quoted:
+
+{{fence . | chomp}}
+
+A check refused in one form is never reviewed again in that form: maul keeps each review by the check's digest, so the
+same check proposed again is refused again. Strengthen it to answer the reason, run it, and propose the new form.
+{{- end}}
 
 ## The preview and your tools
 

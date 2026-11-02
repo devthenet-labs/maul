@@ -760,3 +760,36 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 		t.Errorf("prompt = %+v, want the previous round's results", p)
 	}
 }
+
+// TestEvaluateHandoffCarriesRefusedChecks (coverage design C3): the checks
+// the reviewer refused in earlier rounds decode strictly and reach the
+// prompt by outcome, check id and the reviewer's reason.
+func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
+	raw := evalHandoff(func(h *EvaluateHandoff) {
+		h.Round = 2
+		h.PriorRefused = []PriorRefusal{{Outcome: "rate-battle", Check: "rate-battle.api",
+			Reason: "It never reads the loser's rating."}}
+	})
+	if !strings.Contains(raw, `"prior_refused":[{"outcome":"rate-battle","check":"rate-battle.api",`) {
+		t.Errorf("handoff %s lacks the refused check", raw)
+	}
+	var h EvaluateHandoff
+	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
+		t.Fatal(err)
+	}
+	if err := validEvaluateHandoff(h); err != nil {
+		t.Fatal(err)
+	}
+	p := h.prompt("", "", "", templates.StageLimits{})
+	if len(p.PriorRefused) != 1 || p.PriorRefused[0] != (templates.PriorRefusal{Outcome: "rate-battle",
+		Check: "rate-battle.api", Reason: "It never reads the loser's rating."}) {
+		t.Errorf("prompt refused = %+v, want the refused check", p.PriorRefused)
+	}
+	prompt, err := templates.RenderEvaluatePrompt(h.prompt("/r", "/c", "/s", templates.StageLimits{MaxTurns: 10}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "It never reads the loser's rating.") {
+		t.Error("the reviewer's reason does not reach the prompt")
+	}
+}

@@ -44,6 +44,9 @@ const (
 	// one prior verdict's reason (the Intent's schema bound).
 	priorReplaysMax     = 40
 	priorReasonMaxBytes = 600
+	// priorRefusedMax bounds the refused checks shown (C3): half the
+	// reviews an intent caches.
+	priorRefusedMax = 40
 )
 
 // GreenRubric is the check reviewer's rule for a check confirmed green, word
@@ -125,6 +128,15 @@ type EvaluatePrompt struct {
 	PriorRound    int
 	PriorVerdicts []PriorVerdict
 	PriorReplay   []PriorReplay
+	// PriorRefused are the checks the reviewer refused in earlier rounds,
+	// with its reasons (coverage design C3); none omits the section.
+	PriorRefused []PriorRefusal
+}
+
+// PriorRefusal is one check the reviewer refused in an earlier round, by
+// its id and outcome, with the reviewer's reason.
+type PriorRefusal struct {
+	Check, Outcome, Reason string
 }
 
 // PriorVerdict is maul's result of one outcome in a previous round, with
@@ -180,6 +192,7 @@ type evaluateView struct {
 	ChangedBlock  string
 	FixDiffBlock  string
 	PriorBlock    string
+	RefusedBlock  string
 	Examples      evaluateExamples
 	// LookAroundCalls is LookAroundToolCalls, for the template.
 	LookAroundCalls int
@@ -250,7 +263,26 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 	if p.PriorRound > 0 {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
 	}
+	v.RefusedBlock = refusedBlock(p.PriorRefused)
 	return render("prompt_evaluate.md.tmpl", v)
+}
+
+// refusedBlock lists the checks the reviewer refused, as priorBlock lists a
+// round's results: each by its id and outcome with the reviewer's reason,
+// at most priorRefusedMax; "" for none.
+func refusedBlock(rs []PriorRefusal) string {
+	var b strings.Builder
+	for i, r := range rs {
+		if i == priorRefusedMax {
+			break
+		}
+		fmt.Fprintf(&b, "- check %s, of outcome %s, was refused.", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64))
+		if r.Reason != "" {
+			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // priorBlock lists a previous round's results as the prompt quotes them, in
@@ -368,6 +400,16 @@ type CheckReviewPrompt struct {
 	Limits     StageLimits
 	// Outcome is the outcome's text.
 	Outcome string
+	// From is the line of the request the outcome answers, and Kind the
+	// outcome's kind (empty is change). Request is the intent's request, as
+	// the evaluator is given it, and Components the previewed components
+	// (coverage design C1): context, so a reviewer judges the application's
+	// own words by the request. From and Request are UNTRUSTED, quoted as
+	// data; empty ones, and no components, leave their sections out.
+	From       string
+	Kind       acceptance.OutcomeKind
+	Request    string
+	Components []EvaluateComponent
 	// Check is the check under review.
 	Check checks.Check
 	// ExpectFail asks the red question: the check failed on the build under
@@ -396,6 +438,10 @@ func (checkReviewView) ReportExample() string { return ExampleCheckReviewReport 
 type checkReviewView struct {
 	CheckReviewPrompt
 	OutcomeBlock string
+	FromBlock    string
+	RequestBlock string
+	// KindSentence states the outcome's kind: keep, else change.
+	KindSentence string
 	Form         string
 	CheckBlock   string
 	Files        []reviewFile
@@ -441,7 +487,14 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		Files:             files,
 		Assertion:         quotedLine(p.FailedAssertion, 512),
 		Viewport:          playwright.DefaultViewport,
+		FromBlock:         quotedLine(p.From, acceptance.MaxFromChars*4),
+		RequestBlock:      strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
+		KindSentence:      "It is a change: something the change makes true.",
 	}
+	if p.Kind == acceptance.OutcomeKindKeep {
+		v.KindSentence = "It is a keep: something the change must leave true."
+	}
+	v.Components = boundEvaluateComponents(p.Components)
 	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
 		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
 	}

@@ -485,19 +485,33 @@ func TestRoleHandoffBounds(t *testing.T) {
 	if _, err := encodeEvaluateHandoff(h); err == nil {
 		t.Error("an evaluate handoff over its bound with nothing to drop was encoded")
 	}
-	if _, err := encodeCheckReviewHandoff(nil); err == nil {
+	if _, err := encodeCheckReviewHandoff(agentrun.CheckReviewHandoff{}); err == nil {
 		t.Error("an empty check review handoff was encoded")
 	}
-	big := make([]agentrun.CheckReviewItem, 0, 100)
+	big := agentrun.CheckReviewHandoff{Request: "r", Components: []agentrun.EvaluateComponent{{Key: "a", Path: "/"}}}
 	for range 100 {
-		big = append(big, agentrun.CheckReviewItem{Check: strings.Repeat("c", 8<<10)})
+		big.Reviews = append(big.Reviews, agentrun.CheckReviewItem{Check: strings.Repeat("c", 8<<10)})
 	}
 	if _, err := encodeCheckReviewHandoff(big); err == nil {
 		t.Error("a check review handoff over its bound was encoded")
 	}
-	one, err := encodeCheckReviewHandoff([]agentrun.CheckReviewItem{{CheckDigest: "sha256:x", Outcome: "o"}})
+	one, err := encodeCheckReviewHandoff(agentrun.CheckReviewHandoff{
+		Reviews: []agentrun.CheckReviewItem{{CheckDigest: "sha256:x", Outcome: "o"}}})
 	if err != nil || !strings.HasPrefix(one, `{"reviews":[`) {
 		t.Errorf("encode = %s, %v", one, err)
+	}
+	// Coverage design C1: over the bound, the shared context goes before
+	// any review would: the request, then the components.
+	fits := agentrun.CheckReviewHandoff{Request: strings.Repeat("r", 32<<10),
+		Components: []agentrun.EvaluateComponent{{Key: "a", Path: "/"}}}
+	for range 60 {
+		fits.Reviews = append(fits.Reviews, agentrun.CheckReviewItem{Check: strings.Repeat("c", 8<<10)})
+	}
+	raw, err = encodeCheckReviewHandoff(fits)
+	if err != nil || len(raw) > checkReviewHandoffMaxBytes || strings.Contains(raw, `"request"`) ||
+		!strings.Contains(raw, `"components"`) {
+		t.Errorf("encode = %d bytes, %v; want the request dropped, the components and every review kept", len(raw),
+			err)
 	}
 }
 

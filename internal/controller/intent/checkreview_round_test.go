@@ -213,9 +213,55 @@ func TestCheckReviewStoresProvenChecks(t *testing.T) {
 		spec[0].ToolHost != nil || spec[0].ArtifactURL != "" {
 		t.Errorf("checkreview Job = %+v", spec)
 	}
+	e.checkReviewContext(r.handoffs[0])
 	e.checkProvenStore(name, reviews[0].Name, version, health)
 	if v := e.verification(name); v.State != v1alpha1.VerificationUnconfirmed {
 		t.Errorf("state = %s, want the round judged once its checks are stored", v.State)
+	}
+	// Coverage design C3: the next round's evaluator is told of the refusal,
+	// by outcome, check id and the reviewer's reason.
+	next := e.onlyVerification(name)
+	next.Name, next.Spec.Round = next.Name+"-next", 2
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &next))
+	if len(h.PriorRefused) != 1 || h.PriorRefused[0] != (agentrun.PriorRefusal{Outcome: health.Outcome,
+		Check: health.ID, Reason: "read the steps"}) {
+		t.Errorf("next round's refused checks = %+v, want the health check's refusal", h.PriorRefused)
+	}
+}
+
+// checkReviewContext (coverage design C1): the reviewer is handed the
+// request exactly as the round's evaluator was, the previewed components,
+// and each outcome's line of the request and kind; never the evaluator's
+// notes or verdicts.
+func (e *env) checkReviewContext(h agentrun.CheckReviewHandoff) {
+	t := e.t
+	t.Helper()
+	ev := e.specsOf("evaluate")
+	if len(ev) == 0 {
+		t.Fatal("no evaluate Job")
+	}
+	eh := decodeEvaluateHandoff(t, ev[0].IssueMarkdown)
+	if h.Request == "" || h.Request != eh.Request {
+		t.Errorf("review request = %q, want the evaluator's %q", h.Request, eh.Request)
+	}
+	if len(h.Components) != 1 || h.Components[0] != (agentrun.EvaluateComponent{Key: "app", Path: "/"}) {
+		t.Errorf("review components = %+v, want the previewed app", h.Components)
+	}
+	kinds := map[string]string{}
+	for _, it := range h.Reviews {
+		kinds[it.From] = it.Kind
+	}
+	if kinds["Show the version"] != "change" || kinds[""] != "keep" {
+		t.Errorf("review lines and kinds = %v, want version-shown's line as a change and the keep", kinds)
+	}
+	raw, err := json.Marshal(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"verdict", "note", "ledger"} {
+		if strings.Contains(string(raw), `"`+gone) {
+			t.Errorf("the review handoff carries the evaluator's %s", gone)
+		}
 	}
 }
 
@@ -239,6 +285,12 @@ func (e *env) checkProvenStore(name, run string, proven, refused v1alpha1.SavedC
 		got[rv.CheckDigest] = rv.Answer
 		if rv.Run != run {
 			t.Errorf("review %+v names another run", rv)
+		}
+		// Coverage design C2: the check's id and the reviewer's reason are
+		// kept beside the answer.
+		if want := map[string]string{proven.Digest: proven.ID, refused.Digest: refused.ID}[rv.CheckDigest]; rv.Check !=
+			want || rv.Reason != "read the steps" {
+			t.Errorf("review %+v does not keep the check's id %q and the reviewer's reason", rv, want)
 		}
 	}
 	if got[proven.Digest] != v1alpha1.ReviewProves || got[refused.Digest] != v1alpha1.ReviewDoesNotProve {

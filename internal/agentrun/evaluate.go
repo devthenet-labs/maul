@@ -33,8 +33,8 @@ const evaluateHandoffMaxBytes = 256 << 10
 // the intent controller encodes as strict JSON (encoding/json of this
 // type). agent-runner renders the evaluate prompt from it
 // (templates.RenderEvaluatePrompt), which quotes every untrusted field
-// (Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay) as
-// fenced data.
+// (Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay,
+// PriorRefused) as fenced data.
 type EvaluateHandoff struct {
 	// Round is the verification round, 1-based.
 	Round int `json:"round"`
@@ -62,6 +62,17 @@ type EvaluateHandoff struct {
 	PriorRound    int            `json:"prior_round,omitempty"`
 	PriorVerdicts []PriorVerdict `json:"prior_verdicts,omitempty"`
 	PriorReplay   []PriorReplay  `json:"prior_replay,omitempty"`
+	// PriorRefused are the checks the reviewer refused in earlier rounds,
+	// with its reasons (coverage design C3).
+	PriorRefused []PriorRefusal `json:"prior_refused,omitempty"`
+}
+
+// PriorRefusal is one check the reviewer refused in an earlier round: its
+// outcome's id, its own id, and the reviewer's reason.
+type PriorRefusal struct {
+	Outcome string `json:"outcome"`
+	Check   string `json:"check"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // PriorVerdict is maul's result of one outcome in a previous round, with
@@ -242,6 +253,10 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 	for _, r := range h.PriorReplay {
 		p.PriorReplay = append(p.PriorReplay, templates.PriorReplay{Check: r.Check, Outcome: r.Outcome,
 			Result: r.Result})
+	}
+	for _, r := range h.PriorRefused {
+		p.PriorRefused = append(p.PriorRefused, templates.PriorRefusal{Check: r.Check, Outcome: r.Outcome,
+			Reason: r.Reason})
 	}
 	for _, c := range h.Components {
 		p.Components = append(p.Components, templates.EvaluateComponent{Key: c.Key, Path: c.Path})
