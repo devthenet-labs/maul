@@ -214,6 +214,32 @@ Rules the outcomes keep to:
 - `manual: true`, with a `reason` of at most 120 characters, for what only a person can judge.
 - Put `outcome`, `from` and `reason` in double quotes, and escape a double quote inside one as `\"`: an unquoted
   colon is invalid YAML, and the whole report is refused.
+
+How to word an outcome so the evaluator can show it:
+
+- The evaluator checks every outcome again in each later round, on a preview whose data persists and is shared by
+  every check: maul never resets it. So write each outcome about an item the person checking creates in that check,
+  never about data that is already there: no "every", "each", "all", "other", "existing" or "saved before", and no
+  global rank, count, or first or last row. Where the request says "each X", write the outcome for an X the check
+  creates. Name two such items where the outcome compares them ("a vote for one of two beats you create moves only
+  that beat").
+- One outcome is one claim a single check can show. Split "X and Y", "on the page and in the API" and "before and
+  after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200 characters.
+- State concrete values: what a person enters, other than the defaults, and what they then see ("a beat you save at
+  90 BPM shows 90 bpm (2.7 s)").
+- A `keep` outcome names one action on the person's own item and what they then see ("a beat you save still plays
+  its 16 steps in order"), never "X still works".
+- An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data:
+  state its numbers. The browser's window is always {{ .Viewport.Width }} by {{ .Viewport.Height }} CSS pixels.
+- Name where a person sees each outcome, a page's route or an API path, in the application's own words, with the
+  API's name in brackets where it differs from the page's ("a beat (a pattern, /api/patterns)").
+{{- with .Verification }}
+
+The preview serves these components:
+{{ range .Components }}
+- `{{ .Key }}`, under `{{ .Path }}`
+{{- end }}
+{{- end }}
 {{- else }}{{ with .Verification }}
 
 ### Acceptance criteria

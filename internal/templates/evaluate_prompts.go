@@ -531,14 +531,21 @@ What I checked, in a few lines.
 )
 
 // ExamplePlanOutcomes is the outcome list the plan prompt shows, under the
-// evaluator; a test holds it to report.ParsePlan.
+// evaluator; a test holds it to report.ParsePlan. Each outcome models the
+// prompt's rules: about items the person checking creates, one claim a
+// check can show, concrete values, a keep naming one action, and where a
+// person sees it.
 const ExamplePlanOutcomes = `acceptance:
-  - id: winner-rises
-    outcome: "Rating a battle moves the winner above the loser on the leaderboard."
+  - id: rating-moves
+    outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
     from: "ratings should update after every battle"
     kind: change
-  - id: leaderboard-still-loads
-    outcome: "The leaderboard page still lists every player."
+  - id: winner-listed-first
+    outcome: "On /leaderboard, the winner of a battle between two players you create is listed above the loser."
+    from: "ratings should update after every battle"
+    kind: change
+  - id: new-player-listed
+    outcome: "A player you add on the players page (/players) is listed there by the name you gave."
     kind: keep
   - id: sounds-good
     outcome: "The new drum kit sounds good."
@@ -548,3 +555,7 @@ const ExamplePlanOutcomes = `acceptance:
 
 // OutcomesExample is ExamplePlanOutcomes, for the plan prompt's template.
 func (PlanPrompt) OutcomesExample() string { return ExamplePlanOutcomes }
+
+// Viewport is the fixed window a browser check runs in, for the plan
+// prompt's template.
+func (PlanPrompt) Viewport() playwright.Viewport { return playwright.DefaultViewport }

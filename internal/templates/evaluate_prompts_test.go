@@ -243,8 +243,14 @@ func TestEvaluatePromptExamplesHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan outcomes example: %v", err)
 	}
-	if len(p.Outcomes) != 3 || p.CheckEvaluator() != nil {
+	if len(p.Outcomes) != 4 || p.CheckEvaluator() != nil {
 		t.Errorf("plan outcomes example: %d outcomes, CheckEvaluator %v", len(p.Outcomes), p.CheckEvaluator())
+	}
+	// The example keeps to its own rules: no outcome over shared data.
+	for _, f := range acceptance.LintOutcomes(p.Outcomes) {
+		if f.Rule == acceptance.LintSharedData {
+			t.Errorf("plan outcomes example: %s says %q", f.Outcome, f.Word)
+		}
 	}
 	for _, s := range []string{ExampleHTTPCheck, ExampleBrowserCheck, ExampleExecCheck, ExampleEvaluationReport,
 		ExamplePlanOutcomes} {
@@ -441,7 +447,16 @@ func TestPlanPromptOutcomes(t *testing.T) {
 	}
 	flat := strings.Join(strings.Fields(got), " ")
 	for _, want := range []string{"### Acceptance outcomes", ExamplePlanOutcomes,
-		"Put `outcome`, `from` and `reason` in double quotes", "an unquoted colon is invalid YAML"} {
+		"Put `outcome`, `from` and `reason` in double quotes", "an unquoted colon is invalid YAML",
+		// The coverage design (A1-A6): outcomes a check can prove.
+		"a preview whose data persists and is shared by every check",
+		"never about data that is already there",
+		`Where the request says "each X", write the outcome for an X the check creates.`,
+		`Split "X and Y"`, "several outcomes may share one `from` line", "about 200 characters",
+		"other than the defaults", `never "X still works"`,
+		"needs no data: state its numbers. The browser's window is always 1280 by 800 CSS pixels.",
+		"with the API's name in brackets where it differs from the page's",
+		"- `api`, under `/api`"} {
 		if !strings.Contains(got, want) && !strings.Contains(flat, want) {
 			t.Errorf("prompt lacks %q", want)
 		}
