@@ -80,12 +80,16 @@ running application. It writes no steps, requests or checks; the evaluator decid
 
 ```yaml
 acceptance:
-  - id: winner-rises # ^[a-z][a-z0-9-]{0,31}$, unique
-    outcome: "Rating a battle moves the winner above the loser on the leaderboard." # one line, at most 500 characters
+  - id: rating-moves # ^[a-z][a-z0-9-]{0,31}$, unique
+    # one line, at most 500 characters; about 200 is the aim
+    outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
     from: "ratings should update after every battle" # the issue line it answers, copied exactly, at most 300
     kind: change # the default: what the change makes true
-  - id: leaderboard-still-loads
-    outcome: "The leaderboard page still lists every player."
+  - id: winner-listed-first
+    outcome: "On /leaderboard, the winner of a battle between two players you create is listed above the loser."
+    from: "ratings should update after every battle" # several outcomes may answer one line
+  - id: new-player-listed
+    outcome: "A player you add on the players page (/players) is listed there by the name you gave."
     kind: keep # what the change must not break
   - id: sounds-good
     outcome: "The new drum kit sounds good."
@@ -94,9 +98,27 @@ acceptance:
     reason: "only a person can judge how it sounds"
 ```
 
+The evaluator checks every outcome again in each later round, on a preview whose data persists and is shared by every
+check, so the planner is asked to word each outcome so that one check can show it:
+
+- about an item the person checking creates in that check, never about data already there: no "every", "each", "all",
+  "other" or "existing", and no global rank, count, or first or last row. A request line that says "each X" gets an
+  outcome about an X the check creates, two of them where the outcome compares items;
+- one claim per outcome: "X and Y", "on the page and in the API" and "before and after" are separate outcomes, which may
+  share one `from` line;
+- concrete values, other than the defaults, and what a person then sees ("a beat you save at 90 BPM shows 90 bpm");
+- a `keep` outcome names one action and what a person then sees, never "X still works";
+- a layout outcome (a size, an alignment, no sideways scroll) states its numbers, at the browser's fixed 1280x800
+  window, and needs no data;
+- where a person sees it, a page's route or an API path, in the application's own words, with the API's name in brackets
+  where it differs ("a beat (a pattern, /api/patterns)").
+
 The plan comment lists the outcomes, each with the issue line it answers, then the issue's own list items that no
 outcome quotes in `from`: "No outcome answers these lines of the issue, so nothing checks them." That not covered list
-is the approver's prompt to ask for a new plan before approving, if one of those lines should be checked.
+is the approver's prompt to ask for a new plan before approving, if one of those lines should be checked. Under "Before
+you approve" it also flags each outcome that says "every", "each", "all", "other", "others", "existing" or "still
+works", and each that answers an "each", "every" or "all" line while speaking of fewer items: advice for the approver
+only, which never refuses a plan and never decides a result.
 
 A plan that states slice 1's acceptance criteria instead is refused while the evaluator is on, and the planner's retry
 is told why. An intent whose approved plan still carries criteria when the evaluator is switched on is no longer

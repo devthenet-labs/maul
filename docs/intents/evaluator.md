@@ -28,7 +28,7 @@ acceptance criteria, as [Acceptance verification](acceptance.md#without-the-eval
 | The tool pod, `tools`   | the Preview's slot, one per round                                       | maul's relay (`preview-tools`). It runs every tool call, writes the **ledger** (every call and its result, on its own stdout) and runs the checks. No service-account token, no DNS                                                                                                                                     |
 | The tool pod, `browser` | the same pod, when the Project declares `surfaces.browser`              | Headless Chromium behind maul's CDP shim, which speaks CDP only to a caller holding the round's key (`tools`). Holds nothing secret                                                                                                                                                                                     |
 | The tool pod, `sandbox` | the same pod                                                            | maul's toolbox image (curl, grpcurl, websocat, node, python, go) and the exec shim. Programs the evaluator writes run here, as their own user, with no secret                                                                                                                                                           |
-| The check reviewer      | a `checkreview` IntentRun, one per round                                | The round's new checks as maul renders them, and the outcome texts. Never the application, a step's name or the evaluator's notes. Reaches only the broker                                                                                                                                                              |
+| The check reviewer      | a `checkreview` IntentRun, one per round                                | The round's new checks as maul renders them; the outcome texts, the issue line each answers and its kind; the request, as the evaluator gets it; and the previewed components. Never the application, a step's name or the evaluator's notes and verdicts. Reaches only the broker                                      |
 | Log and event capture   | preview-controller                                                      | Bounded, redacted log tails of each component and the slot's pod events since the round began, handed to `tools`. Neither the evaluator nor the tool pod has any Kubernetes access                                                                                                                                      |
 
 The evaluator acts only through one shell command, `maul-tool`:
@@ -67,7 +67,12 @@ the application chose (`[untrusted output]`, always last).
    digest from that file, under the evaluator's scratch directory, and asks `tools` to confirm it; a proposal whose file
    does not resolve to a check of its id and outcome is dropped, with its reason in the run's transcript, never the
    whole report. A refused report's detail lists its frontmatter's key paths (never their values), and each repair
-   message restates the exact frontmatter example and the decoder's lines.
+   message restates the exact frontmatter example and the decoder's lines. The evaluator is shown the reviewer's rule
+   word for word and works in two passes: first a covering check for every outcome a person does not judge, then
+   strengthening each against a list (every clause asserted, inputs other than the defaults, both sides, before and
+   after, nothing changed for a claim that something stays, nothing the outcome does not state), within a turn budget
+   per outcome. An outcome it leaves unsure with no check names the clause it could not exercise. It does not run again
+   a saved check that replayed green.
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
@@ -77,9 +82,13 @@ the application chose (`[untrusted output]`, always last).
 8. **Review.** One `checkreview` run per round reads each new confirmed check, opening a fresh session per check, and
    answers `proves`, `does_not_prove` or `unclear` for its outcome. Answers are cached by the check's and the outcome's
    digests (and whether the red question was asked), so a check is reviewed once. A check reviewed `proves` is stored;
-   any other is dropped. Each session may take 6 turns, the last 3 kept for one repair of its report; a review whose
-   report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached), and the run
-   goes on to the next check.
+   any other is dropped. The reviewer is given the issue line the outcome answers, its kind, the request and the
+   previewed components, and judges the application's own words by the request (a "beat" on the page may be a "pattern"
+   in the API). Each answer is kept with the check's id and the reviewer's reason, and every later round's evaluator is
+   told each refused check by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the
+   check rather than proposes it again. Each session may take 6 turns, the last 3 kept for one repair of its report; a
+   review whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached),
+   and the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
@@ -96,7 +105,9 @@ An outcome is **confirmed** only on a check bound to it that:
    (compiled by maul to a Playwright test), or a sandbox program whose output `tools` asserts on;
 2. is **substantive**: at least one step acts on the application and at least one assertion is about content (a status
    or exit code alone is not), and every list assertion is filtered to data the check created itself, named with
-   `{{run}}`. A check over shared data (a global ranking, a global count) is refused when it is saved;
+   `{{run}}`. A check over shared data (a global ranking, a global count) is refused when it is saved. A browser check
+   that writes nothing and asserts only the layout of the page's fixed markup (a size, an alignment, what is visible)
+   needs no data of its own, and the reviewer's green question says so; its failure is always held for a person;
 3. passed in this round's confirmation or replay, run by `tools` at the current heads with a token `tools` made;
 4. was reviewed `proves` for this outcome's text (a check saved red: on the red question);
 5. and no other live check of the outcome failed this round.
