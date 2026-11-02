@@ -58,11 +58,41 @@ The check, an `http` check, as maul runs it:
       },
       {
         "request": {
+          "method": "GET",
+          "path": "/api/players/{{capture.alice}}"
+        },
+        "expect": {
+          "status": [
+            200
+          ],
+          "json": {
+            "/name": "{{run}}-alice",
+            "/rating": 1000
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/api/players/{{capture.bob}}"
+        },
+        "expect": {
+          "status": [
+            200
+          ],
+          "json": {
+            "/name": "{{run}}-bob",
+            "/rating": 1000
+          }
+        }
+      },
+      {
+        "request": {
           "method": "POST",
           "path": "/api/battles",
           "json": {
-            "loser": "{{capture.bob}}",
-            "winner": "{{capture.alice}}"
+            "loser": "{{capture.alice}}",
+            "winner": "{{capture.bob}}"
           }
         },
         "expect": {
@@ -74,18 +104,36 @@ The check, an `http` check, as maul runs it:
       {
         "request": {
           "method": "GET",
-          "path": "/api/leaderboard"
+          "path": "/api/players/{{capture.bob}}"
         },
         "expect": {
           "status": [
             200
           ],
           "json": {
-            "/players": {
-              "$by": "/name",
-              "$order": [
-                "{{run}}-alice",
-                "{{run}}-bob"
+            "/rating": {
+              "$range": [
+                1001,
+                3000
+              ]
+            }
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/api/players/{{capture.alice}}"
+        },
+        "expect": {
+          "status": [
+            200
+          ],
+          "json": {
+            "/rating": {
+              "$range": [
+                0,
+                999
               ]
             }
           }
@@ -103,11 +151,11 @@ Every `{{run}}` is replaced by a fresh token on every run, so the data a check c
 
 ## How to judge
 
-Answer `proves` only if a pass of this check really shows the outcome holds: it does what the outcome describes, on
-data it created itself, and it would fail if the outcome did not hold. Answer `does_not_prove` if it could pass while
-the outcome does not hold: it checks something else or only part of the outcome, it asserts only that a call succeeded
-or a page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did
-not create. Answer `unclear` if you cannot tell from what is shown.
+Answer `proves` only if a pass of this check really shows the outcome holds: it does what the outcome describes, on data
+it created itself, and it would fail if the outcome did not hold. Answer `does_not_prove` if it could pass while the
+outcome does not hold: it checks something else or only part of the outcome, it asserts only that a call succeeded or a
+page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
+create. Answer `unclear` if you cannot tell from what is shown.
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.

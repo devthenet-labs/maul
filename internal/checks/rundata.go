@@ -67,6 +67,29 @@ func LayoutAssertion(k AssertKind) bool {
 	return false
 }
 
+// LayoutRead reports a browser check that writes no data of its own run
+// (WritesRunData) and whose every assertion, at least one, is a
+// LayoutAssertion: it reads the page's fixed markup, so it needs no data of
+// its own to show a layout outcome (coverage design B4). A pass of one can
+// pass an outcome once reviewed; a failure of one is still held for a
+// person, as every check that writes no run data is.
+func LayoutRead(c Check) bool {
+	if c.Browser == nil || WritesRunData(c) {
+		return false
+	}
+	asserts := 0
+	for _, st := range c.Browser.Steps {
+		if st.Expect == nil {
+			continue
+		}
+		if !LayoutAssertion(st.Expect.Assert) {
+			return false
+		}
+		asserts++
+	}
+	return asserts > 0
+}
+
 // FailsLayout reports a browser check whose step failing (0-based) is an
 // expect of a LayoutAssertion.
 func FailsLayout(c Check, failing int) bool {

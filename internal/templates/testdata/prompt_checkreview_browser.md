@@ -39,11 +39,90 @@ The check, a `browser` check, as maul runs it:
         }
       },
       {
+        "fill": {
+          "locator": {
+            "label": "Player name"
+          },
+          "text": "{{run}}-bob"
+        }
+      },
+      {
+        "click": {
+          "role": "button",
+          "name": "Add player"
+        }
+      },
+      {
+        "goto": "/battle"
+      },
+      {
+        "select": {
+          "label": "Winner",
+          "option": "{{run}}-bob"
+        }
+      },
+      {
+        "select": {
+          "label": "Loser",
+          "option": "{{run}}-alice"
+        }
+      },
+      {
+        "click": {
+          "role": "button",
+          "name": "Rate"
+        }
+      },
+      {
+        "goto": "/leaderboard"
+      },
+      {
         "expect": {
-          "assert": "visible",
+          "assert": "above",
+          "locator": {
+            "role": "row",
+            "hasText": "{{run}}-bob"
+          },
+          "other": {
+            "role": "row",
+            "hasText": "{{run}}-alice"
+          }
+        }
+      },
+      {
+        "goto": "/battle"
+      },
+      {
+        "select": {
+          "label": "Winner",
+          "option": "{{run}}-alice"
+        }
+      },
+      {
+        "select": {
+          "label": "Loser",
+          "option": "{{run}}-bob"
+        }
+      },
+      {
+        "click": {
+          "role": "button",
+          "name": "Rate"
+        }
+      },
+      {
+        "goto": "/leaderboard"
+      },
+      {
+        "expect": {
+          "assert": "above",
           "locator": {
             "role": "row",
             "hasText": "{{run}}-alice"
+          },
+          "other": {
+            "role": "row",
+            "hasText": "{{run}}-bob"
           }
         }
       },
@@ -53,15 +132,6 @@ The check, a `browser` check, as maul runs it:
           "locator": {
             "role": "row",
             "hasText": "{{run}}-alice"
-          }
-        }
-      },
-      {
-        "expect": {
-          "assert": "clickable",
-          "locator": {
-            "role": "button",
-            "name": "Rate"
           }
         }
       }
@@ -78,11 +148,11 @@ Every `{{run}}` is replaced by a fresh token on every run, so the data a check c
 
 ## How to judge
 
-Answer `proves` only if a pass of this check really shows the outcome holds: it does what the outcome describes, on
-data it created itself, and it would fail if the outcome did not hold. Answer `does_not_prove` if it could pass while
-the outcome does not hold: it checks something else or only part of the outcome, it asserts only that a call succeeded
-or a page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did
-not create. Answer `unclear` if you cannot tell from what is shown.
+Answer `proves` only if a pass of this check really shows the outcome holds: it does what the outcome describes, on data
+it created itself, and it would fail if the outcome did not hold. Answer `does_not_prove` if it could pass while the
+outcome does not hold: it checks something else or only part of the outcome, it asserts only that a call succeeded or a
+page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
+create. Answer `unclear` if you cannot tell from what is shown.
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.

@@ -73,3 +73,38 @@ func TestExecAssertion(t *testing.T) {
 		}
 	}
 }
+
+// TestLayoutRead (coverage design B4): a browser check that writes no data
+// of its own run and asserts only the page's layout reads the page's fixed
+// markup, so it needs no data of its own; any data write, any text, count
+// or url assertion, another form or no assertion at all is not one.
+func TestLayoutRead(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		want      bool
+	}{
+		{"size and aligned", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
+		 {"expect":{"assert":"size","locator":{"testid":"pad"},"width":48,"height":48}},
+		 {"expect":{"assert":"aligned","axis":"x","locator":{"testid":"a"},"other":{"testid":"b"}}}]}}`, true},
+		{"visible after a scroll", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
+		 {"scroll":{"locator":{"testid":"row"},"dx":40,"dy":0}},
+		 {"expect":{"assert":"visible","locator":{"testid":"pad"}}}]}}`, true},
+		{"a text assertion", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
+		 {"expect":{"assert":"size","locator":{"testid":"pad"},"width":48}},
+		 {"expect":{"assert":"text","locator":{"testid":"top"},"text":{"contains":"x"}}}]}}`, false},
+		{"a fill of its own run", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"},
+		 {"fill":{"locator":{"label":"Name"},"text":"{{run}}"}},
+		 {"expect":{"assert":"visible","locator":{"text":"{{run}}"}}}]}}`, false},
+		{"no assertion", `{"id":"a","outcome":"a","form":"browser","browser":{"steps":[{"goto":"/"}]}}`, false},
+		{"an http check", `{"id":"a","outcome":"a","form":"http","http":{"target":"api","steps":[
+		 {"request":{"path":"/v"},"expect":{"json":{"/v":1}}}]}}`, false},
+	} {
+		c, err := Parse([]byte(tc.src))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := LayoutRead(c); got != tc.want {
+			t.Errorf("%s: LayoutRead = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

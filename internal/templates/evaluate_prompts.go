@@ -46,6 +46,32 @@ const (
 	priorReasonMaxBytes = 600
 )
 
+// GreenRubric is the check reviewer's rule for a check confirmed green, word
+// for word: rendered into every green review and into the evaluator's
+// prompt, so the evaluator writes its checks to the rule they are judged by
+// (coverage design B1). A test pins both.
+const GreenRubric = "Answer `proves` only if a pass of this check really shows the outcome holds: it does what " +
+	"the outcome describes, on data it created itself, and it would fail if the outcome did not hold. Answer " +
+	"`does_not_prove` if it could pass while the outcome does not hold: it checks something else or only part of " +
+	"the outcome, it asserts only that a call succeeded or a page loaded, it is keyed to fixed values that an " +
+	"implementation could special-case, or it depends on data it did not create. Answer `unclear` if you cannot " +
+	"tell from what is shown."
+
+// LayoutReadRule is the green rule's one exception, for a layout read
+// (checks.LayoutRead): a reviewer is shown it for such a check, the
+// evaluator always (coverage design B4). It mirrors the red question's
+// layout exemption; such a check's failure is still held for a person.
+const LayoutReadRule = "A browser check that writes nothing and asserts only the page's layout (size, left-of, " +
+	"above, no-overlap, equal-size, aligned, legible, clickable or visible) reads the page's fixed markup, the same " +
+	"for every run: it needs no data it created, so do not refuse it for that, unless what it measures is a row or " +
+	"record that other runs make, or is sized or placed by them."
+
+// GreenRubric and LayoutReadRule, wrapped as the templates are, for them.
+func (evaluateView) GreenRubric() string       { return wrap(GreenRubric, "", "") }
+func (evaluateView) LayoutReadRule() string    { return wrap(LayoutReadRule, "", "") }
+func (checkReviewView) GreenRubric() string    { return wrap(GreenRubric, "", "") }
+func (checkReviewView) LayoutReadRule() string { return wrap(LayoutReadRule, "", "") }
+
 // runToken is the exploration token's grammar: what the prompt states
 // as maul's own, outside any fence, so nothing but this can pass.
 var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -160,6 +186,21 @@ type evaluateView struct {
 	// ReportBy is the turn by which the prompt asks for the report
 	// (reportBy).
 	ReportBy int
+	// OutcomeTurns is the turns the prompt budgets for each outcome a person
+	// does not judge (outcomeTurns).
+	OutcomeTurns int
+}
+
+// outcomeTurns shares the turns before the report, less the two that start
+// a round, among the outcomes a person does not judge: at least 1 each.
+func outcomeTurns(reportBy int, os []acceptance.PlanOutcome) int {
+	n := 0
+	for _, o := range os {
+		if !o.Manual {
+			n++
+		}
+	}
+	return max(1, (reportBy-2)/max(n, 1))
 }
 
 // ExecMarker is checks.ExecAssertionMarker, for the template.
@@ -202,6 +243,7 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
+	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes)
 	if strings.TrimSpace(p.FixDiff) != "" {
 		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")
 	}
@@ -365,6 +407,9 @@ type checkReviewView struct {
 	// a measured layout assertion (checks.FailsLayout, S1 demo bug 9): the
 	// red question asks about the page's layout, not data it created.
 	Layout bool
+	// LayoutRead: a green question about a layout read (checks.LayoutRead):
+	// the green rule's layout exception is shown beside it.
+	LayoutRead bool
 	// Viewport is the fixed window a browser check runs in.
 	Viewport playwright.Viewport
 }
@@ -401,6 +446,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
+	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
 	return render("prompt_checkreview.md.tmpl", v)
 }
 
@@ -447,8 +493,8 @@ func reviewedCheck(c checks.Check) (shownCheck, []reviewFile) {
 // report.ParseEvaluation, so the prompt never teaches a refused shape.
 const (
 	ExampleHTTPCheck = `{
-  "id": "winner-rises-api",
-  "outcome": "winner-rises",
+  "id": "rating-moves-api",
+  "outcome": "rating-moves",
   "form": "http",
   "http": {
     "target": "api",
@@ -457,27 +503,46 @@ const (
        "expect": {"status": 201}, "capture": {"alice": "/id"}},
       {"request": {"method": "POST", "path": "/api/players", "json": {"name": "{{run}}-bob"}},
        "expect": {"status": 201}, "capture": {"bob": "/id"}},
+      {"request": {"method": "GET", "path": "/api/players/{{capture.alice}}"},
+       "expect": {"status": 200, "json": {"/name": "{{run}}-alice", "/rating": 1000}}},
+      {"request": {"method": "GET", "path": "/api/players/{{capture.bob}}"},
+       "expect": {"status": 200, "json": {"/name": "{{run}}-bob", "/rating": 1000}}},
       {"request": {"method": "POST", "path": "/api/battles",
-                   "json": {"winner": "{{capture.alice}}", "loser": "{{capture.bob}}"}},
+                   "json": {"winner": "{{capture.bob}}", "loser": "{{capture.alice}}"}},
        "expect": {"status": 201}},
-      {"request": {"method": "GET", "path": "/api/leaderboard"},
-       "expect": {"status": 200,
-                  "json": {"/players": {"$order": ["{{run}}-alice", "{{run}}-bob"], "$by": "/name"}}}}
+      {"request": {"method": "GET", "path": "/api/players/{{capture.bob}}"},
+       "expect": {"status": 200, "json": {"/rating": {"$range": [1001, 3000]}}}},
+      {"request": {"method": "GET", "path": "/api/players/{{capture.alice}}"},
+       "expect": {"status": 200, "json": {"/rating": {"$range": [0, 999]}}}}
     ]
   }
 }`
 	ExampleBrowserCheck = `{
-  "id": "winner-rises-page",
-  "outcome": "winner-rises",
+  "id": "winner-listed-first-page",
+  "outcome": "winner-listed-first",
   "form": "browser",
   "browser": {
     "steps": [
       {"goto": "/players"},
       {"fill": {"locator": {"label": "Player name"}, "text": "{{run}}-alice"}},
       {"click": {"role": "button", "name": "Add player"}},
-      {"expect": {"assert": "visible", "locator": {"role": "row", "hasText": "{{run}}-alice"}}},
-      {"expect": {"assert": "legible", "locator": {"role": "row", "hasText": "{{run}}-alice"}}},
-      {"expect": {"assert": "clickable", "locator": {"role": "button", "name": "Rate"}}}
+      {"fill": {"locator": {"label": "Player name"}, "text": "{{run}}-bob"}},
+      {"click": {"role": "button", "name": "Add player"}},
+      {"goto": "/battle"},
+      {"select": {"label": "Winner", "option": "{{run}}-bob"}},
+      {"select": {"label": "Loser", "option": "{{run}}-alice"}},
+      {"click": {"role": "button", "name": "Rate"}},
+      {"goto": "/leaderboard"},
+      {"expect": {"assert": "above", "locator": {"role": "row", "hasText": "{{run}}-bob"},
+                  "other": {"role": "row", "hasText": "{{run}}-alice"}}},
+      {"goto": "/battle"},
+      {"select": {"label": "Winner", "option": "{{run}}-alice"}},
+      {"select": {"label": "Loser", "option": "{{run}}-bob"}},
+      {"click": {"role": "button", "name": "Rate"}},
+      {"goto": "/leaderboard"},
+      {"expect": {"assert": "above", "locator": {"role": "row", "hasText": "{{run}}-alice"},
+                  "other": {"role": "row", "hasText": "{{run}}-bob"}}},
+      {"expect": {"assert": "legible", "locator": {"role": "row", "hasText": "{{run}}-alice"}}}
     ]
   }
 }`
@@ -494,10 +559,10 @@ const (
 }`
 	ExampleEvaluationReport = `---
 verdicts:
-  - outcome: "winner-rises"
+  - outcome: "rating-moves"
     verdict: pass
     ledger: [14, 15, 22]
-    note: "The winner is listed above the loser after one rating, by the API and on the page."
+    note: "Both players start at 1000; after the battle the winner is at 1016 and the loser at 984."
   - outcome: "live-score"
     verdict: fail
     ledger: [31, 33]
@@ -506,15 +571,19 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "Only a person can judge this."
+  - outcome: "winner-listed-first"
+    verdict: unsure
+    ledger: []
+    note: "The battle page has no Rate button for two new players, so no check could rate one from the page."
 disputes:
   - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."
-    replacement: "winner-rises-api"
+    replacement: "rating-moves-api"
     ledger: [3]
 proposed:
-  - id: "winner-rises-api"
-    outcome: "winner-rises"
-    file: "/work/scratch/checks/winner-rises-api.json"
+  - id: "rating-moves-api"
+    outcome: "rating-moves"
+    file: "/work/scratch/checks/rating-moves-api.json"
   - id: "live-score-socket"
     outcome: "live-score"
     file: "/work/scratch/checks/live-score-socket.json"

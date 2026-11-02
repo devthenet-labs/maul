@@ -112,12 +112,16 @@ Every tool call takes one of these turns, and a run that reaches any of these li
 budget for your report:
 
 - Write your report as soon as every outcome has a verdict: a pass shown by a green `maul-tool check run`, a fail
-  shown by a check run that failed an assertion of the outcome, or unsure.
-  Do not hold it back for a better check{{if .Tools.LookAroundRoutes}} or for the look-around: look around
-  after it with the turns left, and rewrite it with any anomaly you find{{end}}.
+  shown by a check run that failed an assertion of the outcome, or unsure. Then strengthen its checks with the turns
+  left{{if .Tools.LookAroundRoutes}}, look around{{end}}, and rewrite it with what you found.
 - Write it by turn {{.ReportBy}} at the latest, whatever is left; keep the turns after that for it. An outcome you
   have not shown by then is unsure.
-- Spend your turns on the outcomes first. An outcome that still resists after a few tries is unsure; move on.
+- Spend your turns on the outcomes first, in two passes. First give every outcome a person does not judge a covering
+  check: one that runs green and gives every clause of the outcome an assertion, however plainly. Then strengthen
+  each check against the list under **What a check must cover**. Budget about {{.OutcomeTurns}} turns for each such
+  outcome, both passes together; one that needs more waits until every other outcome has its covering check.
+- A saved check that replayed green this round is already maul's evidence: do not run it again, and write no new
+  check for its outcome unless the change since touched it.
 - If your run is stopped before you have written it, maul asks you once to write it from what you have: propose only
   the checks whose `maul-tool check run` printed pass (or, with `expect: fail`, failed an assertion of an outcome you
   report fail), and mark every outcome you did not show unsure. Do not count
@@ -130,8 +134,9 @@ budget for your report:
 2. For each outcome, use the preview the way a person would to see whether it holds{{if .Tools.Browser}}, in the
    browser as well as through the API{{end}}.
    Reproduce a failure before you report it.
-3. For each outcome you judge pass or fail, save a check that shows it (below), unless a saved check that replayed
-   green already does.
+3. Every outcome a person does not judge gets a check: for each outcome you judge pass or fail, save a check that
+   shows it (below), unless a saved check that replayed green already does. An outcome you leave unsure with no
+   check names, in its note, the clause you could not exercise and why.
 4. Give every outcome a verdict: `pass`, `fail` or `unsure`. **Every verdict cites the ledger seqs of the calls it
    rests on; a pass or a fail without one is reported as unsure.** When you are not sure, say unsure: an unsure
    outcome goes to a person with your evidence, while a wrong pass ships a defect and a wrong fail starts a fix of
@@ -147,6 +152,28 @@ reviewers. Write each check with the Write tool, as a new file under `{{.ChecksD
 file. Then run `maul-tool check run <file>` on it, and fix and rerun it until it passes. **Get a green
 `maul-tool check run` before you propose a check that shows an outcome holds**: maul accepts only a check whose
 digest it has seen pass, and you propose it by its file, which maul reads that digest from: leave the file as it ran.
+
+**What a check must cover.** maul passes an outcome only on one stored check that a separate reviewer judges proves
+it. The reviewer sees only that check, the outcome, the line of the request it answers, the request and the previewed
+components: never your notes or your verdicts. It answers by this rule:
+
+{{.GreenRubric}}
+
+{{.LayoutReadRule}}
+
+So before you propose a check that shows an outcome holds, hold it to this list:
+
+1. Split the outcome into its clauses, and give every clause an assertion.
+2. Use inputs other than the defaults (a tempo of 90 where a new beat starts at 120), so a page that shows a fixed
+   value fails.
+3. Cover both sides of the outcome: the winner and the loser, on and off, play and stop.
+4. For anything the outcome says changes, assert it before and after the change.
+5. For a claim that something is left as it was (read only, not moved), act on it, then assert that nothing changed.
+6. Assert only what the outcome states: no wording, value, order or layout it does not promise.
+
+Where an outcome speaks of each item or of other items, create two or more items of your own and assert each by its
+name. An outcome worded about rows a check cannot create (every row there is, rows saved before) is unsure: say in
+its note that it needs own-data wording.
 
 **A check that shows a defect.** When an outcome fails, save the check that shows it: the check of the outcome as
 approved, which would pass on a build where the outcome holds, and fails on this one. Never bend a check to make it
@@ -205,7 +232,8 @@ Rules every check keeps:
   outcome by its id.
 - Create the data it needs and name it with `{{"{{"}}run{{"}}"}}`, which maul replaces with a fresh token on every
   run. Assert only on that data: a list, row, count or order assertion must be filtered to `{{"{{"}}run{{"}}"}}` text,
-  never a global ranking, count or first row, which data from other rounds can take.
+  never a global ranking, count or first row, which data from other rounds can take. A browser check that writes
+  nothing and asserts only the layout of the page's fixed markup needs no data of its own.
 - Act on the preview and assert on content: a status code, an exit code or a URL alone proves nothing.
 - At most 30 steps, and at most 8 KiB of JSON (an exec check's program files may add 64 KiB).
 - Check the behaviour the outcome states, the way a person would see it, not the implementation.

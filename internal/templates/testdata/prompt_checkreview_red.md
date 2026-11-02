@@ -58,11 +58,41 @@ The check, an `http` check, as maul runs it:
       },
       {
         "request": {
+          "method": "GET",
+          "path": "/api/players/{{capture.alice}}"
+        },
+        "expect": {
+          "status": [
+            200
+          ],
+          "json": {
+            "/name": "{{run}}-alice",
+            "/rating": 1000
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/api/players/{{capture.bob}}"
+        },
+        "expect": {
+          "status": [
+            200
+          ],
+          "json": {
+            "/name": "{{run}}-bob",
+            "/rating": 1000
+          }
+        }
+      },
+      {
+        "request": {
           "method": "POST",
           "path": "/api/battles",
           "json": {
-            "loser": "{{capture.bob}}",
-            "winner": "{{capture.alice}}"
+            "loser": "{{capture.alice}}",
+            "winner": "{{capture.bob}}"
           }
         },
         "expect": {
@@ -74,18 +104,36 @@ The check, an `http` check, as maul runs it:
       {
         "request": {
           "method": "GET",
-          "path": "/api/leaderboard"
+          "path": "/api/players/{{capture.bob}}"
         },
         "expect": {
           "status": [
             200
           ],
           "json": {
-            "/players": {
-              "$by": "/name",
-              "$order": [
-                "{{run}}-alice",
-                "{{run}}-bob"
+            "/rating": {
+              "$range": [
+                1001,
+                3000
+              ]
+            }
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/api/players/{{capture.alice}}"
+        },
+        "expect": {
+          "status": [
+            200
+          ],
+          "json": {
+            "/rating": {
+              "$range": [
+                0,
+                999
               ]
             }
           }

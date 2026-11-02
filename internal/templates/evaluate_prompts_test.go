@@ -104,6 +104,13 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 2, "expect"
 			return RenderCheckReviewPrompt(p)
 		}},
+		// A green layout read (coverage design B4): the green rule with its
+		// layout exception.
+		{"prompt_checkreview_layout.md", func() (string, error) {
+			return RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, `{"id":"pads","outcome":"pads",`+
+				`"form":"browser","browser":{"steps":[{"goto":"/"},`+
+				`{"expect":{"assert":"size","locator":{"testid":"pad-1"},"width":48,"height":48}}]}}`)))
+		}},
 		{"prompt_plan_outcomes.md", func() (string, error) {
 			return RenderPlanPrompt(PlanPrompt{
 				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
@@ -168,12 +175,31 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		"the assertion that fails must be about that data",
 		"A total, a count or a list over shared rows never shows a defect.",
 		"Its `expect.status` may list only success statuses.",
+		// The coverage design (B1-B6): how a pass is decided, checks that
+		// cover the whole outcome, for every outcome.
+		"maul passes an outcome only on one stored check that a separate reviewer judges proves it",
+		"never your notes or your verdicts",
+		"Split the outcome into its clauses, and give every clause an assertion.",
+		"Use inputs other than the defaults",
+		"Cover both sides of the outcome",
+		"assert it before and after the change",
+		"act on it, then assert that nothing changed",
+		"Assert only what the outcome states",
+		"First give every outcome a person does not judge a covering check",
+		"Then strengthen each check against the list under **What a check must cover**",
+		"names, in its note, the clause you could not exercise and why",
+		"create two or more items of your own and assert each by its name",
+		"say in its note that it needs own-data wording",
+		"A saved check that replayed green this round is already maul's evidence: do not run it again",
+		"A browser check that writes nothing and asserts only the layout of the page's fixed markup needs no data " +
+			"of its own",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("prompt lacks %q", want)
 		}
 	}
-	for _, gone := range []string{"| ", "&& maul-tool", "--add-dir"} {
+	for _, gone := range []string{"| ", "&& maul-tool", "--add-dir", "Do not hold it back for a better check",
+		"still resists after a few tries"} {
 		if strings.Contains(got, gone) {
 			t.Errorf("prompt suggests %q", gone)
 		}
@@ -190,7 +216,10 @@ func TestEvaluatePromptStatesTheTurnBudget(t *testing.T) {
 	for _, tt := range []struct {
 		turns int
 		by    string
-	}{{80, "72"}, {94, "85"}, {12, "10"}} {
+		// each is the turns budgeted for each of the two outcomes a person
+		// does not judge: the turns before the report, less two, shared.
+		each string
+	}{{80, "72", "35"}, {94, "85", "41"}, {12, "10", "4"}} {
 		p := testEvaluatePrompt()
 		p.Limits.MaxTurns = tt.turns
 		got, err := RenderEvaluatePrompt(p)
@@ -204,6 +233,7 @@ func TestEvaluatePromptStatesTheTurnBudget(t *testing.T) {
 			"Write your report as soon as every outcome has a verdict: a pass shown by a green " +
 				"`maul-tool check run`, a fail shown by a check run that failed an assertion of the outcome, or unsure.",
 			"Write it by turn " + tt.by + " at the latest",
+			"Budget about " + tt.each + " turns for each such outcome, both passes together",
 			"An outcome you have not shown by then is unsure.",
 			"maul asks you once to write it from what you have: propose only the checks whose `maul-tool check " +
 				"run` printed pass (or, with `expect: fail`, failed an assertion of an outcome you report fail), and " +
@@ -581,5 +611,50 @@ func TestCheckReviewPromptLayoutExemption(t *testing.T) {
 	}
 	if strings.Contains(got, viewport) {
 		t.Error("an http check is told a viewport")
+	}
+}
+
+// flat is s as it reads, not as it is wrapped.
+func flat(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// TestGreenRubricIsShared (coverage design B1): the reviewer's green rule
+// is one text, rendered word for word into the evaluator's prompt and into
+// every green review; the layout rule beside it reaches a reviewer only for
+// a layout read (checks.LayoutRead), and the red question keeps its own.
+func TestGreenRubricIsShared(t *testing.T) {
+	ev, err := RenderEvaluatePrompt(testEvaluatePrompt())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range []string{GreenRubric, LayoutReadRule} {
+		if !strings.Contains(flat(ev), flat(rule)) {
+			t.Errorf("the evaluate prompt lacks %q", rule)
+		}
+	}
+	layout := mustCheck(t, `{"id":"pads","outcome":"pads","form":"browser","browser":{"steps":[{"goto":"/"},`+
+		`{"expect":{"assert":"size","locator":{"testid":"pad"},"width":48,"height":48}}]}}`)
+	for name, tc := range map[string]struct {
+		c      checks.Check
+		red    bool
+		layout bool
+	}{
+		"http": {c: mustCheck(t, ExampleHTTPCheck)}, "browser": {c: mustCheck(t, ExampleBrowserCheck)},
+		"exec": {c: mustCheck(t, ExampleExecCheck)}, "layout read": {c: layout, layout: true},
+		"red": {c: mustCheck(t, ExampleHTTPCheck), red: true},
+	} {
+		p := testCheckReviewPrompt(tc.c)
+		if tc.red {
+			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 4, "json /players"
+		}
+		got, err := RenderCheckReviewPrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(flat(got), flat(GreenRubric)) == tc.red {
+			t.Errorf("%s: the green rule shown = %t, want %t", name, tc.red, !tc.red)
+		}
+		if strings.Contains(flat(got), flat(LayoutReadRule)) != tc.layout {
+			t.Errorf("%s: the layout rule shown = %t, want %t", name, !tc.layout, tc.layout)
+		}
 	}
 }
