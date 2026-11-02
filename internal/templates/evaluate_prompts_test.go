@@ -514,3 +514,56 @@ func TestEvaluatePromptStartsTheBrowserAtItsEntry(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckReviewPromptLayoutExemption: a red layout read that writes
+// nothing is not held to the own-data rule, and the reviewer is told why
+// and at which viewport a browser check runs (S1 demo bug 11: a reviewer
+// refused a red size check on a fixed grid for "leftover rows from prior
+// runs").
+func TestCheckReviewPromptLayoutExemption(t *testing.T) {
+	const viewport = "1280 by 800"
+	layout := testCheckReviewPrompt(mustCheck(t, `{"id":"pads","outcome":"pads","form":"browser","browser":{"steps":[`+
+		`{"goto":"/"},{"expect":{"assert":"size","locator":{"role":"button","name":"kick step 1","nth":0},"width":48,"height":48}}]}}`))
+	layout.ExpectFail, layout.FailedStep, layout.FailedAssertion = true, 2, "expect"
+	got, err := RenderCheckReviewPrompt(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = strings.Join(strings.Fields(got), " ") // as read, not as wrapped
+	for _, want := range []string{"the rule that a check use only data it created does not apply", viewport} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the red layout prompt does not say %q", want)
+		}
+	}
+	for _, gone := range []string{"rows and records from earlier runs", "on data it created itself"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("the red layout prompt still says %q", gone)
+		}
+	}
+
+	// A red read of data, and any green browser check, keep the rule.
+	text := testCheckReviewPrompt(mustCheck(t, `{"id":"t","outcome":"t","form":"browser","browser":{"steps":[`+
+		`{"goto":"/"},{"expect":{"assert":"text","locator":{"testid":"top"},"text":{"contains":"alice"}}}]}}`))
+	text.ExpectFail, text.FailedStep, text.FailedAssertion = true, 2, "expect"
+	green := testCheckReviewPrompt(mustCheck(t, ExampleBrowserCheck))
+	for name, p := range map[string]CheckReviewPrompt{"red text": text, "green": green} {
+		got, err := RenderCheckReviewPrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = strings.Join(strings.Fields(got), " ")
+		if strings.Contains(got, "does not apply") {
+			t.Errorf("%s: the own-data rule is waived", name)
+		}
+		if !strings.Contains(got, viewport) {
+			t.Errorf("%s: the viewport is not stated", name)
+		}
+	}
+	got, err = RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, viewport) {
+		t.Error("an http check is told a viewport")
+	}
+}

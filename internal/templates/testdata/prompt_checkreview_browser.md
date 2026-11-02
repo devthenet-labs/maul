@@ -70,9 +70,10 @@ The check, a `browser` check, as maul runs it:
 }
 ```
 
-How maul runs it: the steps run in order in a fresh browser on the running preview, each an
-action or an assertion; `visible` means a person can see the element, `legible` that a person can read its text, and
-`clickable` that it, not something covering it, receives a click.
+How maul runs it: the steps run in order in a fresh browser on the running preview, its
+window always 1280 by 800 CSS pixels, each an action or an assertion; `visible` means a
+person can see the element, `legible` that a person can read its text, and `clickable` that it, not something covering
+it, receives a click.
 Every `{{run}}` is replaced by a fresh token on every run, so the data a check creates is its own.
 
 ## How to judge

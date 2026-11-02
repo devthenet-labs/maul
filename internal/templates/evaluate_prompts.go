@@ -16,6 +16,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -364,6 +365,8 @@ type checkReviewView struct {
 	// a measured layout assertion (checks.FailsLayout, S1 demo bug 9): the
 	// red question asks about the page's layout, not data it created.
 	Layout bool
+	// Viewport is the fixed window a browser check runs in.
+	Viewport playwright.Viewport
 }
 
 // reviewFile is one exec program file as the reviewer reads it.
@@ -392,6 +395,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		CheckBlock:        strings.Trim(untrusted.Visible(buf.String(), checkShownMaxBytes), "\n"),
 		Files:             files,
 		Assertion:         quotedLine(p.FailedAssertion, 512),
+		Viewport:          playwright.DefaultViewport,
 	}
 	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
 		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
