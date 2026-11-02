@@ -43,6 +43,14 @@
       .row { display: flex; gap: 20px; }
       .card { width: 200px; height: 100px; background: #ddd; }
       .pushed { margin-left: -150px; }
+      /* Bug 12: a beat grid's row, a label beside (or stuck inside) an overflow-x: auto scroller that the script
+         below scrolls to its maximum, so step 1's layout box lies under the label while the scroller clips it. */
+      .seq { display: flex; align-items: flex-start; }
+      .seq .label { width: 60px; height: 30px; flex: none; background: #fff; }
+      .seq .scroller { width: 200px; overflow-x: auto; }
+      .seq .steps { display: flex; gap: 16px; }
+      .seq .step { width: 48px; height: 30px; flex: none; background: #c33; }
+      .seq .sticky { position: sticky; left: 0; z-index: 1; }
     </style>
   </head>
   <body>
@@ -68,5 +76,30 @@
     <div class="case veiled"><button id="c-veiled" type="button">Veiled</button><div class="veil"></div></div>
     <div class="case row"><div class="card" id="b-left"></div><div class="card" id="b-right"></div></div>
     <div class="case row"><div class="card" id="b-first"></div><div class="card pushed" id="b-over"></div></div>
+    <!-- Scrolled 64px: step 1 is clipped away entirely, its layout box under the label. -->
+    <div class="case seq">
+      <div class="label" id="k-label">KICK</div>
+      <div class="scroller"><div class="steps" style="width: 264px">
+        <div class="step" id="k-step1"></div><div class="step" id="k-step2"></div>
+        <div class="step"></div><div class="step"></div>
+      </div></div>
+    </div>
+    <!-- Scrolled 40px: step 1 is cut, 8px of it drawn beside the label. -->
+    <div class="case seq">
+      <div class="label" id="p-label">SNARE</div>
+      <div class="scroller"><div class="steps" style="width: 240px">
+        <div class="step" id="p-step1"></div><div class="step"></div><div class="step"></div><div class="step"></div>
+      </div></div>
+    </div>
+    <!-- Scrolled 52px under a sticky label inside the scroller: step a is drawn under it, step c beside it. -->
+    <div class="case seq">
+      <div class="scroller"><div class="steps">
+        <div class="label sticky" id="s-label">HAT</div>
+        <div class="step" id="s-stepa"></div><div class="step"></div><div class="step" id="s-stepc"></div>
+      </div></div>
+    </div>
+    <script>
+      for (const s of document.querySelectorAll('.scroller')) s.scrollLeft = s.scrollWidth;
+    </script>
   </body>
 </html>

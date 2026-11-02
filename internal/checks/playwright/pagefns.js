@@ -16,6 +16,12 @@
 //   hit:     the topmost element at the box centre is the element or
 //            inside it (clickable's hit test; a pass is confirmed by the
 //            caller's trial click).
+//   drawn:   the part of the box that is drawn (the box relations' and
+//            size's measure): the layout box cut by every ancestor whose
+//            overflow clips it, and by the page's own extent (the
+//            viewport for a fixed element). A pass carries both boxes and
+//            what cut them; an element clipped away entirely is not
+//            drawn, which is indeterminate (it measures nothing).
 //
 // The background is resolved from what is painted under the element: the
 // hit-test stack at its centre with pointer-events lifted, the ancestor
@@ -257,6 +263,65 @@
     };
   };
 
+  // establishesFixedBlock reports whether an element with style s is the
+  // containing block of its fixed-position descendants.
+  const establishesFixedBlock = (s) =>
+    s.transform !== 'none' ||
+    s.perspective !== 'none' ||
+    s.filter !== 'none' ||
+    (s.backdropFilter && s.backdropFilter !== 'none') ||
+    /\b(paint|layout|strict|content)\b/.test(s.contain) ||
+    /\b(transform|perspective|filter)\b/.test(s.willChange);
+
+  // drawn cuts el's layout box by each ancestor that clips it, following
+  // the containing-block chain: an absolutely positioned box escapes the
+  // clipping of ancestors below its positioned containing block, a fixed
+  // one every ancestor below one with a transform (or the like). The root
+  // and body are left to the last cut: the page's scrollable extent, or
+  // the viewport for a box fixed to it, so a box below the fold is drawn
+  // (a person scrolls the page to it) but one placed off the page is not.
+  const drawn = () => {
+    const r = el.getBoundingClientRect();
+    const box = { x: r.left, y: r.top, width: r.width, height: r.height };
+    let left = r.left;
+    let top = r.top;
+    let right = r.right;
+    let bottom = r.bottom;
+    const by = [];
+    const cut = (l, t, rr, b, who) => {
+      if (l > left || t > top || rr < right || b < bottom) by.push(who);
+      left = Math.max(left, l);
+      top = Math.max(top, t);
+      right = Math.min(right, rr);
+      bottom = Math.min(bottom, b);
+    };
+    const root = document.documentElement;
+    let pos = getComputedStyle(el).position;
+    for (let a = el.parentElement; a && a !== root && a !== document.body; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      if (pos === 'fixed' && !establishesFixedBlock(s)) continue;
+      if (pos === 'absolute' && s.position === 'static' && !establishesFixedBlock(s)) continue;
+      pos = s.position;
+      const clipX = s.overflowX !== 'visible';
+      const clipY = s.overflowY !== 'visible';
+      if ((!clipX && !clipY) || /^(inline|contents)$/.test(s.display)) continue;
+      const ar = a.getBoundingClientRect();
+      const l = ar.left + a.clientLeft;
+      const t = ar.top + a.clientTop;
+      const w = clipX ? a.clientWidth : Infinity;
+      const h = clipY ? a.clientHeight : Infinity;
+      cut(clipX ? l : -Infinity, clipY ? t : -Infinity, l + w, t + h, desc(a));
+    }
+    if (pos === 'fixed') cut(0, 0, root.clientWidth, root.clientHeight, 'the viewport');
+    else cut(-scrollX, -scrollY, root.scrollWidth - scrollX, root.scrollHeight - scrollY, 'the page');
+    const clip = { x: left, y: top, width: right - left, height: bottom - top };
+    const empty = (w, full) => w < 0 || (full > 0 && w <= 0);
+    if (empty(clip.width, box.width) || empty(clip.height, box.height)) {
+      return { verdict: 'indeterminate', why: ['not drawn: clipped away by ' + by.join(', ')], box, clip, by };
+    }
+    return { verdict: 'pass', why: [], box, clip, by };
+  };
+
   switch (kind) {
     case 'visible':
       return visible();
@@ -264,6 +329,8 @@
       return legible();
     case 'hit':
       return hit();
+    case 'drawn':
+      return drawn();
     default:
       return { verdict: 'indeterminate', why: ['unknown page function ' + kind] };
   }
