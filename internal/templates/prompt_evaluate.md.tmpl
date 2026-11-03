@@ -161,6 +161,17 @@ budget for your report:
 5. Look around (below).
 {{- end}}
 
+**Judge each outcome as it is worded.** If you saw an outcome fail as it is worded, it does not hold, whether or not
+this change caused it: a failure that was there before the change is still a failure of the outcome, and for a keep
+outcome it is exactly what the outcome is there to catch. Such an outcome is never `pass`, and is never re-checked on
+a narrower claim: report it `fail` with a check that shows the defect if one meets the rules under **A check that
+shows a defect**, else `unsure`, and say in its note what failed. Never drop, replace or default an input, a field, a
+step or a value the outcome names (a body it says to send exactly as returned, a page it says to use) to get a green
+run: such a check tests less than the outcome. A call that failed by your own mistake (a malformed request, a wrong
+path, a locator that found nothing) is not the outcome failing: fix it and try again. List in the verdict's
+`contrary` the ledger seqs where you saw the outcome as worded not hold, whatever you believe caused it: maul passes
+no outcome whose verdict lists any.
+
 ## Saving checks
 
 A check is a JSON file that maul validates, runs on every later round with a fresh token, and shows to the human
@@ -276,10 +287,11 @@ For example:
 ```
 {{- end}}
 
-**Disputes.** When a saved check failed but you are sure the failure is not a defect of the change (the check
-asserts on data it did not create, or on something the outcome does not say), dispute it: cite the ledger seqs of
-its failure, give the reason, and save a corrected check as its replacement. maul replays the replacement before it
-believes the dispute. When a saved check no longer fits an outcome at all, retire it with a reason instead.
+**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on data it
+did not create, or on something the outcome does not say), dispute it: cite the ledger seqs of its failure, give the
+reason, and save a corrected check as its replacement. A failure that was there before this change is still a
+defect: never dispute a check for that. maul replays the replacement before it believes the dispute. When a saved
+check no longer fits an outcome at all, retire it with a reason instead.
 {{- if .Tools.LookAroundRoutes}}
 
 ## Look around
@@ -316,7 +328,8 @@ exactly these fields, for example:
 ```
 
 - `verdicts`: one entry for every outcome: `outcome`, the outcome's id; `verdict` pass, fail or unsure; `ledger`, the
-  seqs it rests on (`[]` only for unsure); and an optional one-line `note` for the human reviewers. No other key.
+  seqs it rests on (`[]` only for unsure); `contrary`, the seqs where you saw the outcome as worded not hold
+  (leave it out when there are none); and an optional one-line `note` for the human reviewers. No other key.
 - `disputes`: each saved check you dispute, by the digest `maul-tool check results` printed: the `reason`, the
   `ledger` seqs of its failure, and the `replacement`, the id of a check under `proposed`, if you saved one.
 - `proposed`: each check you want saved: its `id`, its `outcome` id, and the `file` you ran with

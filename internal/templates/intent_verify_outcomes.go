@@ -44,6 +44,8 @@ var outcomeReasonWords = map[string]string{
 	"model-only-pass":     "the evaluator says it holds, but no check maul re-ran proves it",
 	"model-only-fail":     "the evaluator says it does not hold, but no check maul re-ran shows it",
 	"no-confirmed-check":  "no check maul re-ran covers it",
+	"evaluator-saw-failure": "a check passed, but the evaluator saw the outcome as worded fail, " +
+		"so the check tests less than the outcome",
 }
 
 // Bounds on what an outcome's detail shows.

@@ -288,3 +288,27 @@ func TestParseEvaluationNoEvidenceNoVerdict(t *testing.T) {
 		t.Errorf("accepted %d, refused %d: the generator must exercise both sides", accepted, refused)
 	}
 }
+
+// TestParseEvaluationContrary (S1 demo bug 13): a verdict names, apart from
+// the seqs it rests on, the seqs where the evaluator saw the outcome as
+// worded fail; they are ledger refs like any other, cited for evidence.
+func TestParseEvaluationContrary(t *testing.T) {
+	doc := "---\nverdicts:\n  - outcome: \"create-round-trip\"\n    verdict: unsure\n    ledger: []\n" +
+		"    contrary: [37, 39]\n    note: \"The exact GET body posted back is a 400 (seq 37).\"\n---\nbody\n"
+	e, err := ParseEvaluation([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseEvaluation() error = %v", err)
+	}
+	if v := e.Verdicts[0]; !slices.Equal(v.Contrary, []int32{37, 39}) {
+		t.Errorf("Verdicts[0] = %+v, want contrary [37 39]", v)
+	}
+	if got := e.LedgerRefs(); !slices.Equal(got, []int32{37, 39}) {
+		t.Errorf("LedgerRefs() = %v, want the contrary seqs cited", got)
+	}
+	for name, refs := range map[string]string{"negative": "[-1]", "repeated": "[4, 4]"} {
+		bad := strings.Replace(doc, "[37, 39]", refs, 1)
+		if _, err := ParseEvaluation([]byte(bad)); err == nil || !strings.Contains(err.Error(), "contrary") {
+			t.Errorf("%s contrary ref: error = %v, want it refused", name, err)
+		}
+	}
+}

@@ -76,6 +76,12 @@ type StoredCheck struct {
 	// cleared or not: it is a suspected defect, held for a person (#309
 	// review).
 	NoRunData bool
+	// Narrowed marks a check that passed cleanly in an earlier round whose
+	// evaluator saw its outcome, as worded, fail (Decision.Narrowed): it
+	// asserts less than the outcome, so it never supports a pass of it
+	// again, whatever this round's evaluator says (bug 13 review). It only
+	// ever withholds a pass.
+	Narrowed bool
 }
 
 // RunResult is a check run's result as the tools ledger recorded it.
@@ -151,6 +157,10 @@ type EvaluatorVerdict struct {
 	Outcome string
 	Claim   Claim
 	Ledger  []int32
+	// Contrary are the ledger seqs where the evaluator saw the outcome, as
+	// worded, not hold, whatever it believes caused that (S1 demo bug 13):
+	// a fact it records, apart from its verdict, which maul judges.
+	Contrary []int32
 }
 
 // CheckDispute is the evaluator's claim that a failing saved check is not
@@ -257,6 +267,13 @@ const (
 	// valid and reviewed proves, passed cleanly: two vetted checks
 	// disagree, so neither a fail nor a pass.
 	ReasonChecksDisagree = "checks-disagree"
+	// ReasonEvaluatorSawFailure: a check would pass the outcome, but the
+	// evaluator says it saw the outcome fail this round (its verdict is fail,
+	// or it names contrary entries), or every such check passed in an
+	// earlier round where the evaluator saw the outcome fail (Narrowed):
+	// neither a pass nor a fail (S1 demo bug 13, a narrowed check passed
+	// where the outcome as worded failed).
+	ReasonEvaluatorSawFailure = "evaluator-saw-failure"
 )
 
 // OutcomeResult is one outcome's result, with the check digest it rests on
@@ -311,6 +328,11 @@ type Decision struct {
 	ReplayRound bool
 	// Retire names the disputed checks that replacement retires, sorted.
 	Retire []string
+	// Narrowed are the checks, sorted, that passed cleanly this round while
+	// the evaluator saw their outcome fail as worded (sawFailure): the
+	// controller records them, and from the next round on they are
+	// StoredCheck.Narrowed.
+	Narrowed []string
 	// Env is the environment's class.
 	Env     EnvClass
 	Handoff Handoff
@@ -367,6 +389,8 @@ type decider struct {
 	// whose fail this round Decide does not count (drop).
 	redChecks map[string]StoredCheck
 	dropped   map[string]bool
+	// guard withholds a pass the evaluator says it saw fail (sawFailure).
+	guard bool
 }
 
 // reproduces reports whether run is red by the assertion check c, saved
@@ -447,10 +471,17 @@ func (d *decider) replayRuns() []CheckRun {
 // and a confirmation of it that is not red by assertion leaves the outcome
 // unsure, never passed. A dispute, a retirement this round or a failing
 // environment makes the outcome unsure; any anomaly or environment failure
-// downgrades the hand-off.
-func Decide(in Input) Decision {
+// downgrades the hand-off. A pass is also withheld, unsure, when the
+// evaluator says it saw the outcome fail (sawFailure, S1 demo bug 13), or
+// when its only support is a check narrowed in an earlier round
+// (StoredCheck.Narrowed).
+func Decide(in Input) Decision { return decide(in, true) }
+
+// decide is Decide, with the saw-failure guard on or (for its property
+// test) off.
+func decide(in Input, guard bool) Decision {
 	d := decider{
-		in: in, env: ClassifyEnvironment(in.Env),
+		in: in, env: ClassifyEnvironment(in.Env), guard: guard,
 		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
 		red: map[string]bool{}, notReproduced: map[string]bool{}, redChecks: map[string]StoredCheck{},
 		dropped: map[string]bool{},
@@ -494,6 +525,7 @@ func Decide(in Input) Decision {
 		out.Suspected = &FixRequest{Failures: suspected, Fingerprint: fixFingerprint(suspected, in.Env)}
 	}
 	out.Retire, out.ReplayRound = d.replacements()
+	out.Narrowed = d.narrowed()
 	if out.Fix == nil && !out.ReplayRound && len(in.Anomalies) == 0 && d.env == EnvOK && allPassed(out.PerOutcome) {
 		out.Handoff = HandoffReady
 	}
@@ -546,10 +578,11 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 	if failing := d.failing(bound); len(failing) > 0 {
 		return d.failure(o, res, failing)
 	}
-	for _, c := range bound {
-		if !d.notReproduced[c.Digest] && d.passes(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
-			return OutcomeResult{ID: o.ID, Result: ResultPassed, Basis: c.Digest, Reason: ReasonConfirmed}, nil
-		}
+	if basis, withheld := d.passBasis(o, bound); basis != "" {
+		return OutcomeResult{ID: o.ID, Result: ResultPassed, Basis: basis, Reason: ReasonConfirmed}, nil
+	} else if withheld {
+		res.Reason = ReasonEvaluatorSawFailure
+		return res, nil
 	}
 	if slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.notReproduced[c.Digest] }) {
 		// A check proposed or saved red whose run this round maul does not
@@ -569,6 +602,55 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 		res.Reason = ReasonNoCheck
 	}
 	return res, nil
+}
+
+// passBasis is the first of bound that passes o (rules 1-6), "" for none;
+// withheld reports a check that would have but for the saw-failure guard:
+// the evaluator saw o fail this round, or the check was narrowed earlier.
+func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, withheld bool) {
+	for _, c := range bound {
+		if d.notReproduced[c.Digest] || !d.passes(c, o) || !d.runs[c.Digest].clean() || !d.discriminates(c, o) {
+			continue
+		}
+		if d.sawFailure(o) || (d.guard && c.Narrowed) {
+			withheld = true
+			continue
+		}
+		return c.Digest, false
+	}
+	return "", withheld
+}
+
+// sawFailure reports the evaluator saying it saw o fail this round: a fail
+// verdict, or any verdict naming contrary entries (S1 demo bug 13). It only
+// ever withholds a pass, which is then unsure: it never fails an outcome or
+// starts a fix, so a correct build is never failed by it. A check that passes
+// shows only what it asserts; when the evaluator saw the outcome as worded
+// fail, the check asserted less than the outcome, whatever the reviewer said.
+func (d decider) sawFailure(o OutcomeRef) bool {
+	return d.guard && slices.ContainsFunc(d.in.Verdicts, func(v EvaluatorVerdict) bool {
+		return v.Outcome == o.ID && (v.Claim == ClaimFail || len(v.Contrary) > 0)
+	})
+}
+
+// narrowed are the checks, sorted, each once, that passed cleanly this
+// round, bound to an outcome the evaluator says it saw fail (sawFailure): a
+// check that passes where the outcome as worded failed asserts less than
+// the outcome (bug 13 review), and is never again a basis for its pass.
+func (d decider) narrowed() []string {
+	var out []string
+	for _, o := range d.in.Outcomes {
+		if o.Manual || !d.sawFailure(o) {
+			continue
+		}
+		for _, c := range d.bound(o.ID) {
+			if d.runs[c.Digest].clean() && !slices.Contains(out, c.Digest) {
+				out = append(out, c.Digest)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // failure judges an outcome with failing checks (rule 6 already denies it

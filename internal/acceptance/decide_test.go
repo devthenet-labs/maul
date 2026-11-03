@@ -567,7 +567,7 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 			in.Checks = append(in.Checks, StoredCheck{Digest: c, Outcome: pickOf(r, genOutcomes), Form: pickOf(r, forms),
 				Valid: r.Intn(5) != 0, Retired: r.Intn(6) == 0, ExpectFail: r.Intn(4) == 0,
 				FailedStep: int32(1 + r.Intn(2)), FailedAssertion: pickOf(r, genAssertions), Cleared: r.Intn(3) == 0,
-				NoRunData: r.Intn(4) == 0})
+				NoRunData: r.Intn(4) == 0, Narrowed: r.Intn(8) == 0})
 		}
 	}
 	in.Replay, in.Confirmations = genRuns(r), genRuns(r)
@@ -668,6 +668,9 @@ func genClaims(r *rand.Rand, in *Input) {
 		v := EvaluatorVerdict{Outcome: o.ID, Claim: pickOf(r, []Claim{ClaimPass, ClaimFail, ClaimUnsure})}
 		if r.Intn(4) != 0 {
 			v.Ledger = []int32{int32(r.Intn(20))}
+		}
+		if r.Intn(8) == 0 {
+			v.Contrary = []int32{int32(1 + r.Intn(20))}
 		}
 		in.Verdicts = append(in.Verdicts, v)
 	}
@@ -888,10 +891,21 @@ func checkDecision(in Input, d Decision) error {
 			if err := oracleSixRules(in, o, r.Basis); err != nil {
 				return fmt.Errorf("%s passed but %w", o.ID, err)
 			}
+			if slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
+				return v.Outcome == o.ID && (v.Claim == ClaimFail || len(v.Contrary) > 0)
+			}) {
+				return fmt.Errorf("%s passed although the evaluator saw it fail (bug 13)", o.ID)
+			}
+			if slices.ContainsFunc(in.Checks, func(c StoredCheck) bool { return c.Digest == r.Basis && c.Narrowed }) {
+				return fmt.Errorf("%s passed on a check narrowed in an earlier round (bug 13)", o.ID)
+			}
 		}
 		allPassed = allPassed && r.Result == ResultPassed
 	}
 	if err := oracleFixRequests(in, d); err != nil {
+		return err
+	}
+	if err := oracleNarrowed(in, d); err != nil {
 		return err
 	}
 	ready := allPassed && len(in.Anomalies) == 0 && ClassifyEnvironment(in.Env) == EnvOK && d.Fix == nil &&
@@ -1056,6 +1070,30 @@ func oracleFixRequests(in Input, d Decision) error {
 			return f.Outcome == r.ID
 		}) {
 			return fmt.Errorf("outcome %s is failed on a suspected defect", r.ID)
+		}
+	}
+	return nil
+}
+
+// oracleNarrowed: every check Decide names narrowed is bound to an outcome
+// whose verdict is fail or names contrary entries, and passed this round
+// with a run token (Decide's own count also refuses one that did anything
+// else, among the runs it counts).
+func oracleNarrowed(in Input, d Decision) error {
+	if !slices.IsSorted(d.Narrowed) || len(slices.Compact(slices.Clone(d.Narrowed))) != len(d.Narrowed) {
+		return fmt.Errorf("narrowed %v is not sorted and unique", d.Narrowed)
+	}
+	for _, digest := range d.Narrowed {
+		saw := slices.ContainsFunc(in.Checks, func(c StoredCheck) bool {
+			return c.Digest == digest && !c.Retired && slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
+				return v.Outcome == c.Outcome && (v.Claim == ClaimFail || len(v.Contrary) > 0)
+			})
+		})
+		pass := slices.ContainsFunc(append(slices.Clone(in.Replay), in.Confirmations...), func(run CheckRun) bool {
+			return run.CheckDigest == digest && run.Result == RunPass && run.Token != ""
+		})
+		if !saw || !pass {
+			return fmt.Errorf("check %s named narrowed without a clean pass where its outcome was seen fail", digest)
 		}
 	}
 	return nil

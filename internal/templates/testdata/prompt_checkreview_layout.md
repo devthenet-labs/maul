@@ -80,7 +80,9 @@ Answer `proves` only if a pass of this check really shows the outcome holds: it 
 it created itself, and it would fail if the outcome did not hold. Answer `does_not_prove` if it could pass while the
 outcome does not hold: it checks something else or only part of the outcome, it asserts only that a call succeeded or a
 page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
-create. Answer `unclear` if you cannot tell from what is shown.
+create. A check that leaves out, replaces or alters anything the outcome's words name (a field of a body it says to
+send, a step, a value, a page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does
+test is a reasonable reading of the outcome. Answer `unclear` if you cannot tell from what is shown.
 
 A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
 (size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS
