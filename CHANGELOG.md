@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.13](https://github.com/devthenet-labs/maul/compare/v0.13.12...v0.13.13) (2026-11-03)
+
+
+### Bug Fixes
+
+* **acceptance:** match a from against an issue line without inline markup ([#315](https://github.com/devthenet-labs/maul/issues/315)) ([7b16a1e](https://github.com/devthenet-labs/maul/commit/7b16a1e125c3170a41e921aa0095df7f4d8870bf))
+* **agentrun:** package a change the agent already committed with its own commit.sh ([#316](https://github.com/devthenet-labs/maul/issues/316)) ([822f03e](https://github.com/devthenet-labs/maul/commit/822f03efb03ad58d839f816cf83bcdd033a732ca))
+* **evaluator:** never pass an outcome the evaluator saw fail as worded ([#317](https://github.com/devthenet-labs/maul/issues/317)) ([c891a40](https://github.com/devthenet-labs/maul/commit/c891a40be7b7bf516231d1d774cbada25b0bd9d9))
+
 ## [0.13.12](https://github.com/devthenet-labs/maul/compare/v0.13.11...v0.13.12) (2026-11-02)
 
 
