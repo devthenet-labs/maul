@@ -117,9 +117,10 @@ check, so the planner is asked to word each outcome so that one check can show i
   where it differs ("a beat (a pattern, /api/patterns)").
 
 The plan comment lists the outcomes, each with the issue line it answers, then the issue's own list items that no
-outcome quotes in `from`: "No outcome answers these lines of the issue, so nothing checks them." That not covered list
-is the approver's prompt to ask for a new plan before approving, if one of those lines should be checked. Under "Before
-you approve" it also flags each outcome that says "every", "each", "others", "existing" or "still works", as one the
+outcome quotes in `from` (ignoring case, whitespace, trailing punctuation and inline markup such as code spans, emphasis
+and link targets): "No outcome answers these lines of the issue, so nothing checks them." That not covered list is the
+approver's prompt to ask for a new plan before approving, if one of those lines should be checked. Under "Before you
+approve" it also flags each outcome that says "every", "each", "others", "existing" or "still works", as one the
 evaluator may not be able to show, and, under a lead of its own, each that answers an "each", "every" or "all" line
 while speaking of fewer items, as the planner is asked to: approve it if that is enough. Both are advice for the
 approver only, which never refuses a plan and never decides a result.

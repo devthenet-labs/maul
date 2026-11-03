@@ -25,6 +25,11 @@ func TestNotCovered(t *testing.T) {
 - use Elo, not +1/-1
 * the leaderboard still lists everyone
 `
+	const issue57 = "Tell people how long a rendered WAV is without them having to download it.\n\n" +
+		"- `POST /render/wav` answers with an `X-Duration-Ms` header: the length of the returned audio in " +
+		"whole milliseconds.\n" +
+		"- `POST /render/analyze` and `POST /render/wav` agree: for the same pattern, `X-Duration-Ms` equals " +
+		"the analysis's `durationMs`.\n"
 	tests := []struct {
 		name     string
 		body     string
@@ -66,6 +71,28 @@ func TestNotCovered(t *testing.T) {
 		{"not a marker", "-no space\n--- \n***\n- ok\n", nil, []string{"ok"}},
 		{"thematic break", "- - -\n* * *\n", nil, nil},
 		{"blockquote is not a list", "> - quoted\n- plain\n", nil, []string{"plain"}},
+		// #57: the planner quoted the lines without their inline code.
+		{"inline code dropped by the from", issue57, from(
+			"POST /render/wav answers with an X-Duration-Ms header: the length of the returned audio in whole "+
+				"milliseconds.",
+			"POST /render/analyze and POST /render/wav agree: for the same pattern, X-Duration-Ms equals the "+
+				"analysis's durationMs."), nil},
+		{"inline code kept by the from", issue57, from("`POST /render/wav` answers with an `X-Duration-Ms` header",
+			"`POST /render/analyze` and `POST /render/wav` agree"), nil},
+		{"only one of two lines quoted", issue57, from("POST /render/wav answers with an X-Duration-Ms header"),
+			[]string{"`POST /render/analyze` and `POST /render/wav` agree: for the same pattern, `X-Duration-Ms` " +
+				"equals the analysis's `durationMs`."}},
+		{"emphasis and strikethrough", "- ratings **must** update _after_ every ~~round~~ battle\n",
+			from("ratings must update after every round battle"), nil},
+		{"link text", "- see [the leaderboard](https://example.com/lb) and ![a badge](b.png)\n",
+			from("see the leaderboard and a badge"), nil},
+		{"link url is not the text", "- see [the leaderboard](https://example.com/lb)\n",
+			from("example.com"), []string{"see [the leaderboard](https://example.com/lb)"}},
+		{"trailing punctuation", "- ratings update after every battle.\n- use Elo\n",
+			from("ratings update after every battle", "use Elo."), nil},
+		{"markup does not cover a different line", "- `POST /render/wav` answers with a header\n",
+			from("POST /render/mp3 answers with a header"), []string{"`POST /render/wav` answers with a header"}},
+		{"a from of markup only covers nothing", "- `x`\n", from("``", "**", "[](u)"), []string{"`x`"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -78,21 +105,24 @@ func TestNotCovered(t *testing.T) {
 }
 
 // TestNotCoveredProperty: whatever the issue, a from that quotes a bullet
-// exactly (in any case, with any whitespace) covers it, and every line
-// NotCovered reports is a bullet of the issue.
+// exactly (in any case, with any whitespace, with or without its inline
+// markup) covers it, and every line NotCovered reports is a bullet of the
+// issue.
 func TestNotCoveredProperty(t *testing.T) {
 	r := rand.New(rand.NewSource(seed))
 	markers := []string{"- ", "* ", "+ ", "1. ", "12) ", "- [ ] ", "  - "}
 	for n := range 500 {
 		var b strings.Builder
-		var bullets []string
+		var bullets, plains []string
 		for range r.Intn(12) {
 			if r.Intn(4) == 0 {
 				b.WriteString(sentence(r) + "\n")
 				continue
 			}
-			line := sentence(r)
+			plain := sentence(r)
+			line := decorate(r, plain)
 			bullets = append(bullets, line)
+			plains = append(plains, plain)
 			b.WriteString(markers[r.Intn(len(markers))] + line + "\n")
 		}
 		var outcomes []PlanOutcome
@@ -102,6 +132,9 @@ func TestNotCoveredProperty(t *testing.T) {
 				continue
 			}
 			quoted[line] = true
+			if r.Intn(2) == 0 {
+				line = plains[i]
+			}
 			outcomes = append(outcomes, PlanOutcome{ID: fmt.Sprintf("o%d", i), Outcome: "x", From: mangle(r, line)})
 		}
 		got := NotCovered(b.String(), outcomes)
@@ -142,11 +175,44 @@ func mangle(r *rand.Rand, s string) string {
 	return b.String()
 }
 
+// decorate wraps some of a sentence's words in inline markup: code spans,
+// emphasis, strikethrough or a link.
+func decorate(r *rand.Rand, s string) string {
+	fields := strings.Fields(s)
+	for i, f := range fields {
+		switch r.Intn(6) {
+		case 0:
+			fields[i] = "`" + f + "`"
+		case 1:
+			fields[i] = "**" + f + "**"
+		case 2:
+			fields[i] = "_" + f + "_"
+		case 3:
+			fields[i] = "~~" + f + "~~"
+		case 4:
+			fields[i] = "[" + f + "](https://example.com/" + word(r) + ")"
+		}
+	}
+	return strings.Join(fields, " ")
+}
+
 // coveredBySome is the rule restated, for the property's other direction.
 func coveredBySome(line string, os []PlanOutcome) bool {
-	l := strings.ToLower(strings.Join(strings.Fields(line), " "))
+	plain := func(s string) string {
+		for {
+			open := strings.Index(s, "](")
+			end := strings.Index(s, ")")
+			if open < 0 || end < open {
+				break
+			}
+			s = s[:open] + s[end+1:]
+		}
+		s = strings.NewReplacer("[", "", "`", "", "*", "", "_", "", "~", "").Replace(s)
+		return strings.TrimRight(strings.ToLower(strings.Join(strings.Fields(s), " ")), ".,;:!? ")
+	}
+	l := plain(line)
 	for _, o := range os {
-		f := strings.ToLower(strings.Join(strings.Fields(o.From), " "))
+		f := plain(o.From)
 		if f != "" && strings.Contains(l, f) {
 			return true
 		}
