@@ -693,19 +693,33 @@ func (a *Agent) cliModel(canonical, harnessID string) string {
 // packageChangeset runs commit.sh, verifies the repository state, and
 // expresses base..branch as the changeset the controller pushes via the
 // GitHub API.
+//
+// An agent that ran its own commit.sh to check it has already packaged the
+// change, and maul's run of the script then fails on git's "nothing to
+// commit". A script failing on a clone that already met the contract
+// (a clean tree and commits over base) before it ran, and that it left
+// exactly as it was (the same HEAD, staged tree and working tree), is
+// therefore not a failure: those commits are the changeset, validated as
+// any other. Anything else the script fails on still downgrades the claim.
 func (a *Agent) packageChangeset(ctx context.Context, baseSHA string,
 	ev *envelope.Remediation) (envelope.Outcome, string) {
 	script := a.cfg.commitScript()
 	if _, err := os.Stat(script); err != nil {
 		return envelope.OutcomeCommitFailed, "commit.sh missing despite success report"
 	}
-	if out, err := runScript(ctx, a.cfg.repoDir(), script); err != nil {
-		return envelope.OutcomeCommitFailed, fmt.Sprintf("commit.sh failed: %v: %s", err, out)
+	repo, branch := a.cfg.repoDir(), a.cfg.branch()
+	before, packaged := committedFingerprint(ctx, repo, baseSHA, branch)
+	if out, err := runScript(ctx, repo, script); err != nil {
+		if !packaged || !unchangedSince(ctx, repo, before) {
+			return envelope.OutcomeCommitFailed, fmt.Sprintf("commit.sh failed: %v: %s", err, out)
+		}
+		a.cfg.Log.Info("commit.sh failed on a branch the agent had already committed; packaging its commits",
+			"error", err)
 	}
-	if err := verifyCommitted(ctx, a.cfg.repoDir(), baseSHA, a.cfg.branch()); err != nil {
+	if err := verifyCommitted(ctx, repo, baseSHA, branch); err != nil {
 		return envelope.OutcomeCommitFailed, err.Error()
 	}
-	cs, err := buildChangeset(ctx, a.cfg.repoDir(), baseSHA, a.cfg.branch(), a.cfg.ChangesetMaxBytes)
+	cs, err := buildChangeset(ctx, repo, baseSHA, branch, a.cfg.ChangesetMaxBytes)
 	if err == nil && a.cfg.BaseSHA != "" {
 		// Artifact mode: the local base is synthetic; the push parents the
 		// controller-resolved remote SHA.

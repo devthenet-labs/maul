@@ -85,6 +85,11 @@ type step struct {
 	result runner.Result
 	// repoWrite optionally dirties the repo working tree (a "fix").
 	repoWrite map[string]string
+	// runCommit runs the workspace's commit.sh in the clone once the writes
+	// are made, as an agent checking its own script does; repoAfter then
+	// dirties the clone again after it.
+	runCommit bool
+	repoAfter map[string]string
 	ws        string
 	// budgetLines are streamed to this stage's usage observer, exercising
 	// the token-budget kill switch.
@@ -122,6 +127,18 @@ func (f *fakeExec) Run(_ context.Context, spec runner.CommandSpec, timeout time.
 	for path, content := range s.repoWrite {
 		full := filepath.Join(spec.Dir, path)
 		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			return runner.Result{}, err
+		}
+	}
+	if s.runCommit {
+		cmd := exec.Command("sh", filepath.Join(s.ws, "commit.sh"))
+		cmd.Dir = spec.Dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return runner.Result{}, fmt.Errorf("fakeExec: commit.sh: %w: %s", err, out)
+		}
+	}
+	for path, content := range s.repoAfter {
+		if err := os.WriteFile(filepath.Join(spec.Dir, path), []byte(content), 0o644); err != nil {
 			return runner.Result{}, err
 		}
 	}
@@ -757,6 +774,33 @@ func TestRemediationDowngradedWhenNothingCommitted(t *testing.T) {
 	}
 	if !strings.Contains(rem.Detail, "no commits") {
 		t.Errorf("Detail = %q, want the empty-branch explanation", rem.Detail)
+	}
+}
+
+// An agent that runs its own commit.sh to check it has already packaged the
+// fix: maul's run of the script fails on git's "nothing to commit", and the
+// commits the agent's run made are the changeset.
+func TestRemediationPackagesWhatTheAgentCommitted(t *testing.T) {
+	var out bytes.Buffer
+	cfg, ws := remediateConfig(t, goodInvestigation, &out)
+	fx := &fakeExec{steps: []step{
+		{ws: ws, stdout: streamSuccess, runCommit: true,
+			writes:    map[string]string{"reports/remediation.md": goodRemediation, "commit.sh": commitScript},
+			repoWrite: map[string]string{"app.js": "escaped();\n"}},
+	}}
+
+	if err := New(cfg, fx).Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	rem := events(t, out.String())[0].Remediation
+	if rem.Outcome != envelope.OutcomeOK || !rem.Success {
+		t.Fatalf("remediation = %q/success:%v (detail: %q)", rem.Outcome, rem.Success, rem.Detail)
+	}
+	if rem.Changeset == nil || len(rem.Changeset.Upserts) != 1 || rem.Changeset.Upserts[0].Path != "app.js" {
+		t.Fatalf("changeset = %+v, want the agent's committed app.js", rem.Changeset)
+	}
+	if got := decodeB64(t, rem.Changeset.Upserts[0].ContentB64); got != "escaped();\n" {
+		t.Errorf("content = %q, want the fixed file", got)
 	}
 }
 

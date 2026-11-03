@@ -46,8 +46,10 @@
 //
 // The runner trusts the repository over the agent: a remediation or build
 // report claiming success is downgraded unless commit.sh ran cleanly and
-// left real commits on the branch. It never talks to a forge — the pod has
-// no forge credentials by design; the controllers own every side effect.
+// left real commits on the branch (or found them already there, a clean tree
+// the agent's own run of the script left). It never talks to a forge — the
+// pod has no forge credentials by design; the controllers own every side
+// effect.
 //
 // A report the runner refuses, missing or failing its parser, does not end
 // the stage at once on a harness that can continue a session (claude, and
