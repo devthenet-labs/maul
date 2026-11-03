@@ -19,8 +19,10 @@ var (
 	thematicBreak = regexp.MustCompile(`^(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$`)
 	// fromMarker is a list marker a from may quote along with the line.
 	fromMarker = regexp.MustCompile(`^(?:[-*+]|[0-9]{1,9}[.)])(?:[ \t]+|$)`)
-	// inlineLink is an inline link or image, its text kept, its target cut.
-	inlineLink = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]*\)`)
+	// inlineLink is an inline link or image (its target allowing one level
+	// of balanced parentheses) or a full or collapsed reference link, its
+	// text kept, its target or label cut.
+	inlineLink = regexp.MustCompile(`!?\[([^\]]*)\](?:\((?:[^()]|\([^()]*\))*\)|\[[^\]]*\])`)
 	// inlineMarkup cuts the characters of inline code, emphasis,
 	// strikethrough and backslash escapes.
 	inlineMarkup = strings.NewReplacer("`", "", "*", "", "_", "", "~", "", "\\", "")
@@ -30,10 +32,12 @@ var (
 // from, in issue order: the lines the plan may have left out, shown to the
 // approver beside the outcomes. An outcome covers an item when its from
 // (with a list marker it quoted cut) occurs in the item's text, both
-// compared in the same plain form: inline markup cut (links and images to
-// their text; the characters of code spans, emphasis, strikethrough and
-// escapes removed), case and runs of whitespace ignored, trailing
-// punctuation cut. A from with no letter or digit covers nothing.
+// compared in the same plain form: inline markup cut (inline links and
+// images, and full or collapsed reference links, to their text; the
+// characters of code spans, emphasis, strikethrough and escapes removed),
+// case and runs of whitespace ignored, trailing punctuation cut. Inline
+// HTML, entities and shortcut reference links are compared as written. A
+// from with no letter or digit covers nothing.
 //
 // A list item is a line whose first text is a bullet (-, *, +) or ordered
 // (1. or 1)) marker followed by text, indented less than four columns or

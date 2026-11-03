@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func TestNotCovered(t *testing.T) {
@@ -86,6 +87,8 @@ func TestNotCovered(t *testing.T) {
 			from("ratings must update after every round battle"), nil},
 		{"link text", "- see [the leaderboard](https://example.com/lb) and ![a badge](b.png)\n",
 			from("see the leaderboard and a badge"), nil},
+		{"link url with parentheses", "- see [docs](https://e/a_(b)) now\n", from("see docs now"), nil},
+		{"reference link", "- see [docs][1] and [more][] now\n", from("see docs and more now"), nil},
 		{"link url is not the text", "- see [the leaderboard](https://example.com/lb)\n",
 			from("example.com"), []string{"see [the leaderboard](https://example.com/lb)"}},
 		{"trailing punctuation", "- ratings update after every battle.\n- use Elo\n",
@@ -197,6 +200,8 @@ func decorate(r *rand.Rand, s string) string {
 }
 
 // coveredBySome is the rule restated, for the property's other direction.
+// It assumes decorate's shapes: sentence never emits brackets or
+// parentheses, so every "[" starts a link and every "](" ends its text.
 func coveredBySome(line string, os []PlanOutcome) bool {
 	plain := func(s string) string {
 		for {
@@ -213,7 +218,8 @@ func coveredBySome(line string, os []PlanOutcome) bool {
 	l := plain(line)
 	for _, o := range os {
 		f := plain(o.From)
-		if f != "" && strings.Contains(l, f) {
+		if strings.ContainsFunc(f, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) &&
+			strings.Contains(l, f) {
 			return true
 		}
 	}
