@@ -85,6 +85,11 @@ type step struct {
 	result runner.Result
 	// repoWrite optionally dirties the repo working tree (a "fix").
 	repoWrite map[string]string
+	// runCommit runs the workspace's commit.sh in the clone once the writes
+	// are made, as an agent checking its own script does; repoAfter then
+	// dirties the clone again after it.
+	runCommit bool
+	repoAfter map[string]string
 	ws        string
 	// budgetLines are streamed to this stage's usage observer, exercising
 	// the token-budget kill switch.
@@ -122,6 +127,18 @@ func (f *fakeExec) Run(_ context.Context, spec runner.CommandSpec, timeout time.
 	for path, content := range s.repoWrite {
 		full := filepath.Join(spec.Dir, path)
 		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			return runner.Result{}, err
+		}
+	}
+	if s.runCommit {
+		cmd := exec.Command("sh", filepath.Join(s.ws, "commit.sh"))
+		cmd.Dir = spec.Dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return runner.Result{}, fmt.Errorf("fakeExec: commit.sh: %w: %s", err, out)
+		}
+	}
+	for path, content := range s.repoAfter {
+		if err := os.WriteFile(filepath.Join(spec.Dir, path), []byte(content), 0o644); err != nil {
 			return runner.Result{}, err
 		}
 	}

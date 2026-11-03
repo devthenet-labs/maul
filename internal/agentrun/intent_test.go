@@ -619,6 +619,20 @@ func TestBuildOutcomes(t *testing.T) {
 		{"success with nothing committed is downgraded", step{stdout: streamSuccess,
 			writes: map[string]string{"reports/build.md": goodBuild, "commit.sh": "#!/bin/sh\nexit 0\n"}},
 			envelope.OutcomeCommitFailed, false, "no commits"},
+		// An agent that runs its own commit.sh to check it has already
+		// packaged the build: maul's run of the script then finds nothing to
+		// commit, and the commits the script made are the changeset.
+		{"a build the agent already committed with its commit.sh is packaged", step{stdout: streamSuccess,
+			writes:    map[string]string{"reports/build.md": goodBuild, "commit.sh": buildCommitScript},
+			repoWrite: map[string]string{"app.js": "version();\n"}, runCommit: true},
+			envelope.OutcomeOK, true, ""},
+		// Only a clone the script would leave as it is: one changed after
+		// that run is still refused when the script fails.
+		{"a build changed after the agent's own commit is downgraded", step{stdout: streamSuccess,
+			writes:    map[string]string{"reports/build.md": goodBuild, "commit.sh": buildCommitScript},
+			repoWrite: map[string]string{"app.js": "version();\n"}, runCommit: true,
+			repoAfter: map[string]string{"extra.js": "stray();\n"}},
+			envelope.OutcomeCommitFailed, false, "commit.sh failed"},
 		{"success with failing tests is an invalid report", step{stdout: streamSuccess,
 			writes: map[string]string{
 				"reports/build.md": strings.Replace(goodBuild, "passed: true", "passed: false", 1),
