@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"slices"
 	"testing"
 	"testing/quick"
 )
@@ -129,6 +130,12 @@ func (genSawFailure) Generate(r *rand.Rand, size int) reflect.Value {
 		}
 		saw.Verdicts = append(saw.Verdicts, v)
 	}
+	// Some checks were narrowed in an earlier round: the guard keeps them
+	// from passing their outcome, and that too only withholds a pass.
+	saw.Checks = slices.Clone(in.Checks)
+	for i := range saw.Checks {
+		saw.Checks[i].Narrowed = r.Intn(4) == 0
+	}
 	return reflect.ValueOf(genSawFailure{in: in, saw: saw})
 }
 
@@ -200,4 +207,89 @@ func sawFailureOnlyWithholds(g genSawFailure, withheld *int) error {
 // decideUnguarded is Decide without the saw-failure guard, as before it.
 func decideUnguarded(in Input) Decision {
 	return decide(in, false)
+}
+
+// TestDecideNarrowedCheck (bug 13 review): a check that passed cleanly in a
+// round whose evaluator saw its outcome fail as worded asserts less than the
+// outcome. Decide names it (Decision.Narrowed) so the controller records it,
+// and once recorded (StoredCheck.Narrowed) it never passes that outcome
+// again: not in the evaluator-free replay round at the same heads, and not
+// in a later round whose evaluator does not repeat what it saw.
+func TestDecideNarrowedCheck(t *testing.T) {
+	narrowed := func(in *Input) { in.Checks[0].Narrowed = true }
+	tests := []struct {
+		name     string
+		in       Input
+		result   Result
+		reason   string
+		handoff  Handoff
+		narrowed []string
+	}{
+		{
+			name:   "issue 55: the passing check is named narrowed",
+			in:     issue55(),
+			result: ResultUnsure, reason: ReasonEvaluatorSawFailure, handoff: HandoffUnconfirmed,
+			narrowed: []string{dg("381bd01b")},
+		},
+		{
+			name: "a fail verdict: the passing check is named narrowed",
+			in: with(confirmedPass(), func(in *Input) {
+				in.Verdicts[0].Claim = ClaimFail
+			}),
+			result: ResultUnsure, reason: ReasonEvaluatorSawFailure, handoff: HandoffUnconfirmed,
+			narrowed: []string{confirmedPass().Checks[0].Digest},
+		},
+		{
+			name:   "nothing seen fail: nothing narrowed",
+			in:     confirmedPass(),
+			result: ResultPassed, reason: ReasonConfirmed, handoff: HandoffReady,
+		},
+		{
+			name: "the replay round after issue 55 (no verdicts): the narrowed check passes nothing",
+			in: with(issue55(), func(in *Input) {
+				narrowed(in)
+				in.Verdicts = nil
+				in.Replay, in.Confirmations = in.Confirmations, nil
+			}),
+			result: ResultUnsure, reason: ReasonEvaluatorSawFailure, handoff: HandoffUnconfirmed,
+		},
+		{
+			name: "a later round whose evaluator says pass with nothing contrary: still no pass on it",
+			in: with(issue55(), func(in *Input) {
+				narrowed(in)
+				in.Verdicts[0].Contrary = nil
+			}),
+			result: ResultUnsure, reason: ReasonEvaluatorSawFailure, handoff: HandoffUnconfirmed,
+		},
+		{
+			name: "another proven check that was never narrowed passes the outcome",
+			in: with(issue55(), func(in *Input) {
+				narrowed(in)
+				in.Verdicts[0].Contrary = nil
+				in.Checks = append(in.Checks, StoredCheck{Digest: dg("f00d"), Outcome: in.Outcomes[0].ID,
+					Form: CheckFormHTTP, Valid: true})
+				in.Confirmations = append(in.Confirmations, CheckRun{CheckDigest: dg("f00d"), Result: RunPass,
+					Token: "t", Seq: 70})
+				in.Reviews = append(in.Reviews, CheckReview{CheckDigest: dg("f00d"), OutcomeDigest: od("rt"),
+					Answer: ReviewProves})
+			}),
+			result: ResultPassed, reason: ReasonConfirmed, handoff: HandoffReady,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := Decide(tt.in)
+			r := d.PerOutcome[0]
+			if r.Result != tt.result || r.Reason != tt.reason || d.Handoff != tt.handoff {
+				t.Errorf("got %s/%s handoff %s, want %s/%s handoff %s", r.Result, r.Reason, d.Handoff,
+					tt.result, tt.reason, tt.handoff)
+			}
+			if !reflect.DeepEqual(d.Narrowed, tt.narrowed) {
+				t.Errorf("narrowed = %v, want %v", d.Narrowed, tt.narrowed)
+			}
+			if d.Fix != nil {
+				t.Errorf("a fix was requested: %+v", d.Fix)
+			}
+		})
+	}
 }

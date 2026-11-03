@@ -117,7 +117,10 @@ An outcome is **confirmed** only on a check bound to it that:
 5. and no other live check of the outcome failed this round;
 6. and the evaluator did not say it saw the outcome fail this round: a `fail` verdict, or a verdict listing `contrary`
    ledger seqs, where it saw the outcome as worded not hold, whatever it believes caused it. A failure that was there
-   before the change still counts: a check that passes only by leaving out what failed tests less than the outcome.
+   before the change still counts: a check that passes only by leaving out what failed tests less than the outcome. maul
+   remembers every check that passed in such a round (`status.acceptance.narrowed`): from then on none of them confirms
+   that outcome, neither in the replay round at the same heads, which has no evaluator, nor in a later round whose
+   evaluator says nothing contrary. The outcome is confirmed only on another check, or by an approver.
 
 A browser check never names a snapshot ref or a colour literal. Its `visible` assertion means visible to a person (in
 the viewport, a non-zero box, opacity above 0.1, text with at least 1.5:1 contrast against what is painted under it),

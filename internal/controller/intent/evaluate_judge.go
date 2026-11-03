@@ -97,9 +97,16 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 			slog.String("intent", p.in.Name), slog.String("verification", pv.Name), slog.Any("error", err))
 		stored = nil
 	}
-	ev := evaluationClaims(run)
+	return judgeRound(p.in.Status.Acceptance, pv, stored, evaluationClaims(run))
+}
+
+// judgeRound judges pv, a collected round, on acc, the store as read (nil
+// when it could not be) and ev, its evaluator's claims (nil on a replay
+// round).
+func judgeRound(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck,
+	ev *report.Evaluation) roundJudgement {
 	cs := judgedChecks(pv, stored)
-	in := decideInput(p.in.Status.Acceptance, pv, cs, ev)
+	in := decideInput(acc, pv, cs, ev)
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
 		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
 		cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name}
@@ -203,6 +210,40 @@ func addRedCleared(acc *v1alpha1.IntentAcceptance, digests []string, verificatio
 	}
 }
 
+// narrowedBefore reports a check narrowed in a round before verification's
+// (Decision.Narrowed, bug 13 review): like a clearance, a narrowing counts
+// from the round after the one that found it, which withheld the pass on
+// the evaluator's own words, so that round is judged alike every time.
+func narrowedBefore(acc *v1alpha1.IntentAcceptance, digest, verification string) bool {
+	return slices.ContainsFunc(acc.Narrowed, func(n v1alpha1.NarrowedCheck) bool {
+		return n.Digest == digest && n.Verification != verification
+	})
+}
+
+// addNarrowed records digests as narrowed by verification, each once (the
+// first record kept), drops the records of checks the store, when it was
+// read (stored non-nil), no longer holds, and keeps the newest
+// MaxSavedChecks.
+func addNarrowed(acc *v1alpha1.IntentAcceptance, digests []string, verification string,
+	stored []v1alpha1.SavedCheck) {
+	for _, d := range digests {
+		if !slices.ContainsFunc(acc.Narrowed, func(n v1alpha1.NarrowedCheck) bool { return n.Digest == d }) {
+			acc.Narrowed = append(acc.Narrowed, v1alpha1.NarrowedCheck{Digest: d, Verification: verification})
+		}
+	}
+	if stored != nil {
+		acc.Narrowed = slices.DeleteFunc(acc.Narrowed, func(n v1alpha1.NarrowedCheck) bool {
+			return !slices.ContainsFunc(stored, func(c v1alpha1.SavedCheck) bool { return c.Digest == n.Digest })
+		})
+	}
+	if n := len(acc.Narrowed); n > v1alpha1.MaxSavedChecks {
+		acc.Narrowed = slices.Clone(acc.Narrowed[n-v1alpha1.MaxSavedChecks:])
+	}
+	if len(acc.Narrowed) == 0 {
+		acc.Narrowed = nil
+	}
+}
+
 // clearedRed are the digests of the checks of cs saved red whose replays
 // in runs all passed, with a run token, at least one (review finding 2):
 // from then on their later steps have run, and their replays are judged as
@@ -266,9 +307,9 @@ func judgedChecks(pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck
 // decideInput is Decide's input for a round: the approved outcomes (each
 // with the digest its reviews are keyed by), the round's checks (valid: only
 // valid checks are ever stored), the tools ledger's runs, the cached
-// reviews, and the evaluator's claims with the ledger entries it cites that
-// the round's ledger holds (its contrary entries as written). Base runs:
-// none in S1.
+// reviews, the checks narrowed in an earlier round, and the evaluator's
+// claims with the ledger entries it cites that the round's ledger holds (its
+// contrary entries as written). Base runs: none in S1.
 func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, cs []v1alpha1.SavedCheck,
 	ev *report.Evaluation) acceptance.Input {
 	var in acceptance.Input
@@ -280,7 +321,8 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
 			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
 			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
-			Cleared: clearedBefore(acc, c.Digest, pv.Name), NoRunData: noRunData(c)})
+			Cleared: clearedBefore(acc, c.Digest, pv.Name), NoRunData: noRunData(c),
+			Narrowed: narrowedBefore(acc, c.Digest, pv.Name)})
 	}
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, r := range acc.Reviews {
@@ -498,6 +540,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	}
 	nv.Anomalies = j.anomalies
 	addRedCleared(acc, j.cleared, j.verification)
+	addNarrowed(acc, j.decision.Narrowed, j.verification, j.stored)
 	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest, now, nv.Suspected)
 	state, replayNext := judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	nv.State, nv.Disputed = state, nil

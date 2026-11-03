@@ -546,6 +546,37 @@ spec:
                       criteriaDigest must equal.
                     pattern: ^sha256:[0-9a-f]{64}$
                     type: string
+                  narrowed:
+                    description: |-
+                      Narrowed are the saved checks that passed cleanly in a round whose
+                      evaluator saw their outcome, as worded, fail (a fail verdict, or
+                      contrary ledger entries), each with the verification of that round.
+                      From the round after, none of them is a basis for its outcome's pass,
+                      whatever a later evaluator says: the outcome passes only on another
+                      check, or an approver's acceptance.
+                    items:
+                      description: |-
+                        NarrowedCheck is a saved check that passed cleanly in a round whose
+                        evaluator saw its outcome, as worded, fail: it asserts less than the
+                        outcome, and never again supports a pass of it.
+                      properties:
+                        digest:
+                          description: Digest is the check's digest.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        verification:
+                          description: Verification names the PreviewVerification
+                            whose round narrowed it.
+                          maxLength: 63
+                          minLength: 1
+                          type: string
+                      required:
+                      - digest
+                      - verification
+                      type: object
+                    maxItems: 40
+                    type: array
+                    x-kubernetes-list-type: atomic
                   outcomes:
                     description: Outcomes are the approved outcomes in plan order
                       (the evaluator).

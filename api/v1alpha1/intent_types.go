@@ -702,6 +702,19 @@ type RedClearance struct {
 	Verification string `json:"verification"`
 }
 
+// NarrowedCheck is a saved check that passed cleanly in a round whose
+// evaluator saw its outcome, as worded, fail: it asserts less than the
+// outcome, and never again supports a pass of it.
+type NarrowedCheck struct {
+	// Digest is the check's digest.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	Digest string `json:"digest"`
+	// Verification names the PreviewVerification whose round narrowed it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Verification string `json:"verification"`
+}
+
 // IntentAcceptance is the approved plan's acceptance criteria and the
 // approvers' acceptances of the manual ones. intent-controller writes the
 // criteria once per approved plan revision, from the plan bytes it re-reads
@@ -764,6 +777,16 @@ type IntentAcceptance struct {
 	// +kubebuilder:validation:MaxItems=40
 	// +listType=atomic
 	RedCleared []RedClearance `json:"redCleared,omitempty"`
+	// Narrowed are the saved checks that passed cleanly in a round whose
+	// evaluator saw their outcome, as worded, fail (a fail verdict, or
+	// contrary ledger entries), each with the verification of that round.
+	// From the round after, none of them is a basis for its outcome's pass,
+	// whatever a later evaluator says: the outcome passes only on another
+	// check, or an approver's acceptance.
+	// +optional
+	// +kubebuilder:validation:MaxItems=40
+	// +listType=atomic
+	Narrowed []NarrowedCheck `json:"narrowed,omitempty"`
 	// Accepted are the approvers' /maul accept records, oldest first.
 	// +optional
 	// +kubebuilder:validation:MaxItems=32
