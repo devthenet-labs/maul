@@ -697,7 +697,8 @@ func (a *Agent) cliModel(canonical, harnessID string) string {
 // An agent that ran its own commit.sh to check it has already packaged the
 // change, and maul's run of the script then fails on git's "nothing to
 // commit". A script failing on a clone that already met the contract
-// (a clean tree and commits over base) before it ran, and still does, is
+// (a clean tree and commits over base) before it ran, and that it left
+// exactly as it was (the same HEAD, staged tree and working tree), is
 // therefore not a failure: those commits are the changeset, validated as
 // any other. Anything else the script fails on still downgrades the claim.
 func (a *Agent) packageChangeset(ctx context.Context, baseSHA string,
@@ -707,9 +708,9 @@ func (a *Agent) packageChangeset(ctx context.Context, baseSHA string,
 		return envelope.OutcomeCommitFailed, "commit.sh missing despite success report"
 	}
 	repo, branch := a.cfg.repoDir(), a.cfg.branch()
-	packaged := verifyCommitted(ctx, repo, baseSHA, branch) == nil
+	before, packaged := committedFingerprint(ctx, repo, baseSHA, branch)
 	if out, err := runScript(ctx, repo, script); err != nil {
-		if !packaged || verifyCommitted(ctx, repo, baseSHA, branch) != nil {
+		if !packaged || !unchangedSince(ctx, repo, before) {
 			return envelope.OutcomeCommitFailed, fmt.Sprintf("commit.sh failed: %v: %s", err, out)
 		}
 		a.cfg.Log.Info("commit.sh failed on a branch the agent had already committed; packaging its commits",

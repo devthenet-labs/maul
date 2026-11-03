@@ -90,6 +90,24 @@ func verifyCommitted(ctx context.Context, dir, base, branch string) error {
 	return nil
 }
 
+// committedFingerprint fingerprints the clone in dir when it already meets
+// the commit.sh contract (a clean tree, commits over base); ok is false
+// otherwise, or when it cannot be fingerprinted.
+func committedFingerprint(ctx context.Context, dir, base, branch string) (fingerprint, bool) {
+	if verifyCommitted(ctx, dir, base, branch) != nil {
+		return fingerprint{}, false
+	}
+	f, err := treeFingerprint(ctx, dir)
+	return f, err == nil
+}
+
+// unchangedSince reports whether the clone in dir still has the fingerprint
+// before; a clone that cannot be fingerprinted has changed.
+func unchangedSince(ctx context.Context, dir string, before fingerprint) bool {
+	after, err := treeFingerprint(ctx, dir)
+	return err == nil && after == before
+}
+
 // fingerprint identifies a clone's state as a report repair must leave it:
 // the commit HEAD names, the tree its index stages, and the tree of its
 // working files, untracked ones included and ignored ones not.

@@ -56,6 +56,13 @@ Added the handler and its test.
 // contract.
 const buildCommitScript = "#!/bin/sh\nset -e\ngit add app.js\ngit commit -m 'feat: version endpoint'\n"
 
+// rewritingCommitScript commits the build on its first run and, on every
+// later one, rewrites the branch and then fails: a clean tree with commits
+// over base either way, but not the clone the first run left.
+const rewritingCommitScript = "#!/bin/sh\nset -e\nif [ -f .git/maul-test-ran ]; then\n" +
+	"git reset --soft HEAD~1\ngit commit -m 'feat: rewritten'\nexit 1\nfi\n" +
+	"touch .git/maul-test-ran\ngit add app.js\ngit commit -m 'feat: version endpoint'\n"
+
 // intentConfig builds a config for one intent stage over a fresh workspace;
 // a build is handed the approved plan, and an empty request.
 func intentConfig(t *testing.T, phase Phase, out *bytes.Buffer) (Config, string) {
@@ -632,6 +639,13 @@ func TestBuildOutcomes(t *testing.T) {
 			writes:    map[string]string{"reports/build.md": goodBuild, "commit.sh": buildCommitScript},
 			repoWrite: map[string]string{"app.js": "version();\n"}, runCommit: true,
 			repoAfter: map[string]string{"extra.js": "stray();\n"}},
+			envelope.OutcomeCommitFailed, false, "commit.sh failed"},
+		// The waiver is for a failing run that changed nothing: one that
+		// moves the branch on the way to failing is refused, though the
+		// clone it leaves still meets the contract.
+		{"a failing commit.sh that moves an already committed branch is downgraded", step{stdout: streamSuccess,
+			writes:    map[string]string{"reports/build.md": goodBuild, "commit.sh": rewritingCommitScript},
+			repoWrite: map[string]string{"app.js": "version();\n"}, runCommit: true},
 			envelope.OutcomeCommitFailed, false, "commit.sh failed"},
 		{"success with failing tests is an invalid report", step{stdout: streamSuccess,
 			writes: map[string]string{

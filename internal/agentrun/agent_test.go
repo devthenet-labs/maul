@@ -777,6 +777,33 @@ func TestRemediationDowngradedWhenNothingCommitted(t *testing.T) {
 	}
 }
 
+// An agent that runs its own commit.sh to check it has already packaged the
+// fix: maul's run of the script fails on git's "nothing to commit", and the
+// commits the agent's run made are the changeset.
+func TestRemediationPackagesWhatTheAgentCommitted(t *testing.T) {
+	var out bytes.Buffer
+	cfg, ws := remediateConfig(t, goodInvestigation, &out)
+	fx := &fakeExec{steps: []step{
+		{ws: ws, stdout: streamSuccess, runCommit: true,
+			writes:    map[string]string{"reports/remediation.md": goodRemediation, "commit.sh": commitScript},
+			repoWrite: map[string]string{"app.js": "escaped();\n"}},
+	}}
+
+	if err := New(cfg, fx).Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	rem := events(t, out.String())[0].Remediation
+	if rem.Outcome != envelope.OutcomeOK || !rem.Success {
+		t.Fatalf("remediation = %q/success:%v (detail: %q)", rem.Outcome, rem.Success, rem.Detail)
+	}
+	if rem.Changeset == nil || len(rem.Changeset.Upserts) != 1 || rem.Changeset.Upserts[0].Path != "app.js" {
+		t.Fatalf("changeset = %+v, want the agent's committed app.js", rem.Changeset)
+	}
+	if got := decodeB64(t, rem.Changeset.Upserts[0].ContentB64); got != "escaped();\n" {
+		t.Errorf("content = %q, want the fixed file", got)
+	}
+}
+
 func TestRemediationReportsFailureHonestly(t *testing.T) {
 	var out bytes.Buffer
 	cfg, ws := remediateConfig(t, goodInvestigation, &out)
