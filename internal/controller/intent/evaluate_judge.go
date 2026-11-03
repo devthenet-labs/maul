@@ -267,7 +267,8 @@ func judgedChecks(pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck
 // with the digest its reviews are keyed by), the round's checks (valid: only
 // valid checks are ever stored), the tools ledger's runs, the cached
 // reviews, and the evaluator's claims with the ledger entries it cites that
-// the round's ledger holds. Base runs: none in S1.
+// the round's ledger holds (its contrary entries as written). Base runs:
+// none in S1.
 func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, cs []v1alpha1.SavedCheck,
 	ev *report.Evaluation) acceptance.Input {
 	var in acceptance.Input
@@ -293,8 +294,11 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 		return in
 	}
 	for _, v := range ev.Verdicts {
+		// Contrary entries go in as written (S1 demo bug 13): they only ever
+		// withhold a pass, so the evaluator's word that it saw the outcome
+		// fail is enough, whether or not the ledger holds the seq.
 		in.Verdicts = append(in.Verdicts, acceptance.EvaluatorVerdict{Outcome: v.ID, Claim: acceptance.Claim(v.Verdict),
-			Ledger: citedOnly(v.Ledger, pv)})
+			Ledger: citedOnly(v.Ledger, pv), Contrary: slices.Clone(v.Contrary)})
 	}
 	for _, d := range resolvedDisputes(ev, pv) {
 		in.Disputes = append(in.Disputes, acceptance.CheckDispute{CheckDigest: d.CheckDigest, Reason: d.Reason,

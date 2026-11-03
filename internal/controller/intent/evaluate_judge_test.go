@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -516,5 +517,25 @@ func TestCheckLine(t *testing.T) {
 	}
 	if got := checkLine(v1alpha1.SavedCheck{Body: "{"}); got != "" {
 		t.Errorf("checkLine of garbage = %q", got)
+	}
+}
+
+// TestDecideInputCarriesContrary (S1 demo bug 13): the seqs where the
+// evaluator saw an outcome as worded fail reach Decide as it wrote them,
+// even one the round's ledger does not hold: they can only withhold a pass,
+// so the evaluator's word is enough, and nothing it cites is believed as
+// evidence for a result.
+func TestDecideInputCarriesContrary(t *testing.T) {
+	o := v1alpha1.AcceptanceOutcome{ID: "round-trip", Outcome: "Posting back the exact body GET returned gives 201",
+		Kind: v1alpha1.OutcomeKindKeep}
+	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o}}
+	pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{
+		Ledger: &v1alpha1.LedgerSummary{Count: 40}}}
+	ev := &report.Evaluation{Verdicts: []report.OutcomeVerdict{{ID: "round-trip", Verdict: report.VerdictPass,
+		Ledger: []int32{38, 47}, Contrary: []int32{37, 39, 90}}}}
+	in := decideInput(acc, pv, nil, ev)
+	if len(in.Verdicts) != 1 || !slices.Equal(in.Verdicts[0].Ledger, []int32{38}) ||
+		!slices.Equal(in.Verdicts[0].Contrary, []int32{37, 39, 90}) {
+		t.Fatalf("verdicts = %+v, want ledger [38] and contrary [37 39 90]", in.Verdicts)
 	}
 }

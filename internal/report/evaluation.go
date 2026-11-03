@@ -124,7 +124,12 @@ type OutcomeVerdict struct {
 	Outcome string  `yaml:"outcome"`
 	Verdict Verdict `yaml:"verdict"`
 	Ledger  []int32 `yaml:"ledger"`
-	Note    string  `yaml:"note"`
+	// Contrary are the seqs where the evaluator saw the outcome, as worded,
+	// not hold, whatever it believes caused that (S1 demo bug 13). Optional;
+	// maul withholds a pass from an outcome that names any
+	// (acceptance.Decide).
+	Contrary []int32 `yaml:"contrary"`
+	Note     string  `yaml:"note"`
 }
 
 // Dispute claims a failing saved check is not a defect.
@@ -207,6 +212,7 @@ func (e *Evaluation) LedgerRefs() []int32 {
 	var refs []int32
 	for _, v := range e.Verdicts {
 		refs = append(refs, v.Ledger...)
+		refs = append(refs, v.Contrary...)
 	}
 	for _, d := range e.Disputes {
 		refs = append(refs, d.Ledger...)
@@ -237,7 +243,7 @@ func (e *Evaluation) validate() error {
 func (e *Evaluation) refCount() int {
 	n := 0
 	for _, v := range e.Verdicts {
-		n += len(v.Ledger)
+		n += len(v.Ledger) + len(v.Contrary)
 	}
 	for _, d := range e.Disputes {
 		n += len(d.Ledger)
@@ -277,7 +283,7 @@ func (e *Evaluation) validateVerdicts() (map[string]bool, []error) {
 		default:
 			errs = append(errs, fmt.Errorf("%s.verdict %q is not pass, fail or unsure", field, v.Verdict))
 		}
-		errs = append(errs, ledgerRefs(field+".ledger", v.Ledger))
+		errs = append(errs, ledgerRefs(field+".ledger", v.Ledger), ledgerRefs(field+".contrary", v.Contrary))
 		if v.Note != "" {
 			var err error
 			v.Note, err = oneLine(field+".note", v.Note, NoteMaxChars)

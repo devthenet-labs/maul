@@ -669,6 +669,9 @@ func genClaims(r *rand.Rand, in *Input) {
 		if r.Intn(4) != 0 {
 			v.Ledger = []int32{int32(r.Intn(20))}
 		}
+		if r.Intn(8) == 0 {
+			v.Contrary = []int32{int32(1 + r.Intn(20))}
+		}
 		in.Verdicts = append(in.Verdicts, v)
 	}
 }
@@ -887,6 +890,11 @@ func checkDecision(in Input, d Decision) error {
 		if r.Result == ResultPassed {
 			if err := oracleSixRules(in, o, r.Basis); err != nil {
 				return fmt.Errorf("%s passed but %w", o.ID, err)
+			}
+			if slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
+				return v.Outcome == o.ID && (v.Claim == ClaimFail || len(v.Contrary) > 0)
+			}) {
+				return fmt.Errorf("%s passed although the evaluator saw it fail (bug 13)", o.ID)
 			}
 		}
 		allPassed = allPassed && r.Result == ResultPassed

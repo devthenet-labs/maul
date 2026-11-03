@@ -151,6 +151,10 @@ type EvaluatorVerdict struct {
 	Outcome string
 	Claim   Claim
 	Ledger  []int32
+	// Contrary are the ledger seqs where the evaluator saw the outcome, as
+	// worded, not hold, whatever it believes caused that (S1 demo bug 13):
+	// a fact it records, apart from its verdict, which maul judges.
+	Contrary []int32
 }
 
 // CheckDispute is the evaluator's claim that a failing saved check is not
@@ -257,6 +261,11 @@ const (
 	// valid and reviewed proves, passed cleanly: two vetted checks
 	// disagree, so neither a fail nor a pass.
 	ReasonChecksDisagree = "checks-disagree"
+	// ReasonEvaluatorSawFailure: a check would pass the outcome, but the
+	// evaluator says it saw the outcome fail this round (its verdict is fail,
+	// or it names contrary entries): neither a pass nor a fail (S1 demo bug
+	// 13, a narrowed check passed where the outcome as worded failed).
+	ReasonEvaluatorSawFailure = "evaluator-saw-failure"
 )
 
 // OutcomeResult is one outcome's result, with the check digest it rests on
@@ -367,6 +376,8 @@ type decider struct {
 	// whose fail this round Decide does not count (drop).
 	redChecks map[string]StoredCheck
 	dropped   map[string]bool
+	// guard withholds a pass the evaluator says it saw fail (sawFailure).
+	guard bool
 }
 
 // reproduces reports whether run is red by the assertion check c, saved
@@ -447,10 +458,15 @@ func (d *decider) replayRuns() []CheckRun {
 // and a confirmation of it that is not red by assertion leaves the outcome
 // unsure, never passed. A dispute, a retirement this round or a failing
 // environment makes the outcome unsure; any anomaly or environment failure
-// downgrades the hand-off.
-func Decide(in Input) Decision {
+// downgrades the hand-off. A pass is also withheld, unsure, when the
+// evaluator says it saw the outcome fail (sawFailure, S1 demo bug 13).
+func Decide(in Input) Decision { return decide(in, true) }
+
+// decide is Decide, with the saw-failure guard on or (for its property
+// test) off.
+func decide(in Input, guard bool) Decision {
 	d := decider{
-		in: in, env: ClassifyEnvironment(in.Env),
+		in: in, env: ClassifyEnvironment(in.Env), guard: guard,
 		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
 		red: map[string]bool{}, notReproduced: map[string]bool{}, redChecks: map[string]StoredCheck{},
 		dropped: map[string]bool{},
@@ -548,6 +564,10 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 	}
 	for _, c := range bound {
 		if !d.notReproduced[c.Digest] && d.passes(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {
+			if d.sawFailure(o) {
+				res.Reason = ReasonEvaluatorSawFailure
+				return res, nil
+			}
 			return OutcomeResult{ID: o.ID, Result: ResultPassed, Basis: c.Digest, Reason: ReasonConfirmed}, nil
 		}
 	}
@@ -569,6 +589,18 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 		res.Reason = ReasonNoCheck
 	}
 	return res, nil
+}
+
+// sawFailure reports the evaluator saying it saw o fail this round: a fail
+// verdict, or any verdict naming contrary entries (S1 demo bug 13). It only
+// ever withholds a pass, which is then unsure: it never fails an outcome or
+// starts a fix, so a correct build is never failed by it. A check that passes
+// shows only what it asserts; when the evaluator saw the outcome as worded
+// fail, the check asserted less than the outcome, whatever the reviewer said.
+func (d decider) sawFailure(o OutcomeRef) bool {
+	return d.guard && slices.ContainsFunc(d.in.Verdicts, func(v EvaluatorVerdict) bool {
+		return v.Outcome == o.ID && (v.Claim == ClaimFail || len(v.Contrary) > 0)
+	})
 }
 
 // failure judges an outcome with failing checks (rule 6 already denies it

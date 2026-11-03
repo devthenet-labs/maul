@@ -59,8 +59,10 @@ const GreenRubric = "Answer `proves` only if a pass of this check really shows t
 	"the outcome describes, on data it created itself, and it would fail if the outcome did not hold. Answer " +
 	"`does_not_prove` if it could pass while the outcome does not hold: it checks something else or only part of " +
 	"the outcome, it asserts only that a call succeeded or a page loaded, it is keyed to fixed values that an " +
-	"implementation could special-case, or it depends on data it did not create. Answer `unclear` if you cannot " +
-	"tell from what is shown."
+	"implementation could special-case, or it depends on data it did not create. A check that leaves out, " +
+	"replaces or alters anything the outcome's words name (a field of a body it says to send, a step, a value, a " +
+	"page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does test is a " +
+	"reasonable reading of the outcome. Answer `unclear` if you cannot tell from what is shown."
 
 // LayoutReadRule is the green rule's one exception, for a layout read
 // (checks.LayoutRead): a reviewer is shown it for such a check, the
@@ -655,6 +657,11 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "The clause 'emails the loser' could not be exercised: the preview sends no mail and no tool reads one."
+  - outcome: "profile-round-trip"
+    verdict: unsure
+    ledger: []
+    contrary: [41]
+    note: "Posting back the exact profile GET returned is a 400 (seq 41), on a field this change did not touch."
 disputes:
   - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."

@@ -126,6 +126,17 @@ budget for your report:
    code that works.
 5. Look around (below).
 
+**Judge each outcome as it is worded.** If you saw an outcome fail as it is worded, it does not hold, whether or not
+this change caused it: a failure that was there before the change is still a failure of the outcome, and for a keep
+outcome it is exactly what the outcome is there to catch. Such an outcome is never `pass`, and is never re-checked on
+a narrower claim: report it `fail` with a check that shows the defect if one meets the rules under **A check that
+shows a defect**, else `unsure`, and say in its note what failed. Never drop, replace or default an input, a field, a
+step or a value the outcome names (a body it says to send exactly as returned, a page it says to use) to get a green
+run: such a check tests less than the outcome. A call that failed by your own mistake (a malformed request, a wrong
+path, a locator that found nothing) is not the outcome failing: fix it and try again. List in the verdict's
+`contrary` the ledger seqs where you saw the outcome as worded not hold, whatever you believe caused it: maul passes
+no outcome whose verdict lists any.
+
 ## Saving checks
 
 A check is a JSON file that maul validates, runs on every later round with a fresh token, and shows to the human
@@ -142,7 +153,9 @@ Answer `proves` only if a pass of this check really shows the outcome holds: it 
 it created itself, and it would fail if the outcome did not hold. Answer `does_not_prove` if it could pass while the
 outcome does not hold: it checks something else or only part of the outcome, it asserts only that a call succeeded or a
 page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
-create. Answer `unclear` if you cannot tell from what is shown.
+create. A check that leaves out, replaces or alters anything the outcome's words name (a field of a body it says to
+send, a step, a value, a page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does
+test is a reasonable reading of the outcome. Answer `unclear` if you cannot tell from what is shown.
 
 A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
 (size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS
@@ -286,10 +299,11 @@ For example:
 }
 ```
 
-**Disputes.** When a saved check failed but you are sure the failure is not a defect of the change (the check
-asserts on data it did not create, or on something the outcome does not say), dispute it: cite the ledger seqs of
-its failure, give the reason, and save a corrected check as its replacement. maul replays the replacement before it
-believes the dispute. When a saved check no longer fits an outcome at all, retire it with a reason instead.
+**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on data it
+did not create, or on something the outcome does not say), dispute it: cite the ledger seqs of its failure, give the
+reason, and save a corrected check as its replacement. A failure that was there before this change is still a
+defect: never dispute a check for that. maul replays the replacement before it believes the dispute. When a saved
+check no longer fits an outcome at all, retire it with a reason instead.
 
 ## Look around
 
@@ -334,6 +348,11 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "The clause 'emails the loser' could not be exercised: the preview sends no mail and no tool reads one."
+  - outcome: "profile-round-trip"
+    verdict: unsure
+    ledger: []
+    contrary: [41]
+    note: "Posting back the exact profile GET returned is a 400 (seq 41), on a field this change did not touch."
 disputes:
   - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."
@@ -358,7 +377,8 @@ What I checked, in a few lines.
 ```
 
 - `verdicts`: one entry for every outcome: `outcome`, the outcome's id; `verdict` pass, fail or unsure; `ledger`, the
-  seqs it rests on (`[]` only for unsure); and an optional one-line `note` for the human reviewers. No other key.
+  seqs it rests on (`[]` only for unsure); `contrary`, the seqs where you saw the outcome as worded not hold
+  (leave it out when there are none); and an optional one-line `note` for the human reviewers. No other key.
 - `disputes`: each saved check you dispute, by the digest `maul-tool check results` printed: the `reason`, the
   `ledger` seqs of its failure, and the `replacement`, the id of a check under `proposed`, if you saved one.
 - `proposed`: each check you want saved: its `id`, its `outcome` id, and the `file` you ran with

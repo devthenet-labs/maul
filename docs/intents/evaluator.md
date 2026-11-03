@@ -114,7 +114,10 @@ An outcome is **confirmed** only on a check bound to it that:
    person;
 3. passed in this round's confirmation or replay, run by `tools` at the current heads with a token `tools` made;
 4. was reviewed `proves` for this outcome's text (a check saved red: on the red question);
-5. and no other live check of the outcome failed this round.
+5. and no other live check of the outcome failed this round;
+6. and the evaluator did not say it saw the outcome fail this round: a `fail` verdict, or a verdict listing `contrary`
+   ledger seqs, where it saw the outcome as worded not hold, whatever it believes caused it. A failure that was there
+   before the change still counts: a check that passes only by leaving out what failed tests less than the outcome.
 
 A browser check never names a snapshot ref or a colour literal. Its `visible` assertion means visible to a person (in
 the viewport, a non-zero box, opacity above 0.1, text with at least 1.5:1 contrast against what is painted under it),
@@ -134,18 +137,19 @@ most 40.
 
 Everything else:
 
-| Situation                                                                           | The outcome                                                                                                                                     |
-| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| A check failed, and the evaluator reports `fail` for that outcome citing the ledger | **failed**: a verify-fix round with a reproduction (a check that writes data of its own run; else unsure, a suspected defect a person confirms) |
-| A check proposed to show a defect, red by assertion in maul's own run, reviewed yes | **unsure**, a suspected defect a person confirms (see [A defect found in round 1](#a-defect-found-in-round-1))                                  |
-| A check proposed to show a defect that maul's own run did not see red by assertion  | **unsure**: never failed, and never passed by that run                                                                                          |
-| A check failed, and the evaluator **disputes** it                                   | **unsure** this round (see [Disputes](#disputes))                                                                                               |
-| A check failed, and the evaluator neither agrees nor disputes                       | **unsure**: "a check failed, but the evaluator did not agree that it is a defect"                                                               |
-| The evaluator says it holds (or fails), but no check maul re-ran shows it           | **unsure**: no pass and no fix without a check                                                                                                  |
-| The only support is a check that passed only on its retry                           | **quarantined**                                                                                                                                 |
-| A check failed while preview-controller saw a component crash, get evicted or OOM   | **unsure**, the preview's failure; never a fix                                                                                                  |
-| maul's own machinery failed (a tool pod never ready, a ledger that does not hold)   | the attempt is retried; past its bound, unsure                                                                                                  |
-| A manual outcome                                                                    | only a person closes it, with `/maul accept <id>`                                                                                               |
+| Situation                                                                                     | The outcome                                                                                                                                     |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| A check failed, and the evaluator reports `fail` for that outcome citing the ledger           | **failed**: a verify-fix round with a reproduction (a check that writes data of its own run; else unsure, a suspected defect a person confirms) |
+| A check proposed to show a defect, red by assertion in maul's own run, reviewed yes           | **unsure**, a suspected defect a person confirms (see [A defect found in round 1](#a-defect-found-in-round-1))                                  |
+| A check proposed to show a defect that maul's own run did not see red by assertion            | **unsure**: never failed, and never passed by that run                                                                                          |
+| A check failed, and the evaluator **disputes** it                                             | **unsure** this round (see [Disputes](#disputes))                                                                                               |
+| A check failed, and the evaluator neither agrees nor disputes                                 | **unsure**: "a check failed, but the evaluator did not agree that it is a defect"                                                               |
+| The evaluator says it holds (or fails), but no check maul re-ran shows it                     | **unsure**: no pass and no fix without a check                                                                                                  |
+| A check passed, but the evaluator saw the outcome as worded fail (`fail`, or `contrary` seqs) | **unsure**: "a check passed, but the evaluator saw the outcome as worded fail"; never failed by that alone                                      |
+| The only support is a check that passed only on its retry                                     | **quarantined**                                                                                                                                 |
+| A check failed while preview-controller saw a component crash, get evicted or OOM             | **unsure**, the preview's failure; never a fix                                                                                                  |
+| maul's own machinery failed (a tool pod never ready, a ledger that does not hold)             | the attempt is retried; past its bound, unsure                                                                                                  |
+| A manual outcome                                                                              | only a person closes it, with `/maul accept <id>`                                                                                               |
 
 ## A defect found in round 1
 
