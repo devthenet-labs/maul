@@ -36,12 +36,43 @@ const (
 // creates with it, and filters every list assertion by it.
 const RunPlaceholder = "{{run}}"
 
+// Workspace placeholders (SPEC-S2 Q23): the tools container substitutes
+// them in a workspace check's argv, args and program files, the same at
+// head and at base, so one check text runs at both sides.
+const (
+	// BinPlaceholder is the cli surface's built binary, a path under
+	// /work/bin; only a cli workspace has one.
+	BinPlaceholder = "{{bin}}"
+	// TreePlaceholder is the writable tree the build ran in, /work/tree.
+	TreePlaceholder = "{{tree}}"
+)
+
 // Preview is what a check may reach: the preview's path prefixes (a goto
 // must stay under one; none means "/") and its component keys (an http
 // target must be one; none means unchecked).
 type Preview struct {
 	Paths      []string
 	Components []string
+}
+
+// Workspace is a surface with no preview (SPEC-S2): the tool pod's built
+// trees. Exactly one of its fields is set: Binary for a cli surface (exec
+// of BinPlaceholder, or a run program invoking it), Language for a library
+// surface (run only).
+type Workspace struct {
+	// Binary is the cli surface's binary path, as the Project declares it.
+	Binary string
+	// Language is the library surface's language (LanguageGo).
+	Language string
+}
+
+// Context is the surface a check is validated for: exactly one of a
+// preview slot and a workspace. A slot validates http, browser and exec
+// checks as S1 did; a workspace refuses http and browser (RuleOffSurface)
+// and admits exec and run checks of its surface.
+type Context struct {
+	Preview   *Preview
+	Workspace *Workspace
 }
 
 var (
@@ -51,21 +82,29 @@ var (
 	checkIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$`)
 )
 
-// Validate holds c to the grammar and to DESIGN 4.3's static rules. A
-// refused check is a *Refusal naming the rule it broke; the checks run in
-// a fixed order (shape, size, steps, snapshot refs, colours, the form's
-// grammar, substance, run-token scoping), so a check breaking several
-// rules is refused for the first.
-func Validate(c Check, p Preview) error {
-	if r := validate(c, p); r != nil {
+// Validate holds c to the grammar and to DESIGN 4.3's static rules, on
+// the surface ctx names. A refused check is a *Refusal naming the rule it
+// broke; the checks run in a fixed order (context, shape, surface, size,
+// steps, snapshot refs, colours, the form's grammar, substance, run-token
+// scoping), so a check breaking several rules is refused for the first. A
+// context naming no surface, or both, refuses every check (RuleGrammar).
+func Validate(c Check, ctx Context) error {
+	if r := validate(c, ctx); r != nil {
 		r.Check = c.ID
 		return r
 	}
 	return nil
 }
 
-func validate(c Check, p Preview) *Refusal {
+func validate(c Check, ctx Context) *Refusal {
+	if r := validateContext(ctx); r != nil {
+		return r
+	}
 	if r := validateShape(c); r != nil {
+		return r
+	}
+	ws := ctx.Workspace
+	if r := onSurface(c.Form, ws); r != nil {
 		return r
 	}
 	if r := validateSize(c); r != nil {
@@ -85,12 +124,49 @@ func validate(c Check, p Preview) *Refusal {
 	}
 	switch c.Form {
 	case FormHTTP:
-		return validateHTTP(*c.HTTP, p)
+		return validateHTTP(*c.HTTP, *ctx.Preview)
 	case FormBrowser:
-		return validateBrowser(*c.Browser, p)
+		return validateBrowser(*c.Browser, *ctx.Preview)
+	case FormRun:
+		return validateRun(*c.Run, ws)
 	default:
-		return validateExec(*c.Exec)
+		return validateExec(*c.Exec, ws)
 	}
+}
+
+// validateContext refuses a context naming no surface or both, and a
+// workspace that is not exactly one of a cli and a library of a language
+// maul builds programs in.
+func validateContext(ctx Context) *Refusal {
+	if (ctx.Preview == nil) == (ctx.Workspace == nil) {
+		return refuse(RuleGrammar, "a check is validated for exactly one surface: a preview or a workspace")
+	}
+	ws := ctx.Workspace
+	switch {
+	case ws == nil:
+		return nil
+	case (ws.Binary == "") == (ws.Language == ""):
+		return refuse(RuleGrammar, "a workspace is exactly one of a cli (its binary) and a library (its language)")
+	case ws.Language != "" && !runLanguages[ws.Language]:
+		return refuse(RuleGrammar, "library language %q is not one maul builds a program in: %s", ws.Language,
+			LanguageGo)
+	}
+	return nil
+}
+
+// onSurface refuses a form the surface has no tool for: run in a preview
+// slot; http and browser in a workspace; exec in a library, which has no
+// binary.
+func onSurface(f Form, ws *Workspace) *Refusal {
+	switch {
+	case ws == nil && f == FormRun:
+		return refuse(RuleOffSurface, "a preview has no tree to build a program against; use http, browser or exec")
+	case ws != nil && (f == FormHTTP || f == FormBrowser):
+		return refuse(RuleOffSurface, "a workspace has no preview to send requests to or browse; use exec or run")
+	case ws != nil && ws.Language != "" && f == FormExec:
+		return refuse(RuleOffSurface, "a library has no binary to run; use a run check's consumer program")
+	}
+	return nil
 }
 
 // validateShape checks the id, the outcome and that exactly the body the
@@ -103,19 +179,23 @@ func validateShape(c Check) *Refusal {
 		return refuse(RuleGrammar, `outcome must be an outcome id, ^[a-z][a-z0-9-]{0,31}$`)
 	}
 	bodies := 0
-	for _, set := range []bool{c.HTTP != nil, c.Browser != nil, c.Exec != nil} {
+	for _, set := range []bool{c.HTTP != nil, c.Browser != nil, c.Exec != nil, c.Run != nil} {
 		if set {
 			bodies++
 		}
 	}
 	ok := bodies == 1 && (c.Form == FormHTTP && c.HTTP != nil || c.Form == FormBrowser && c.Browser != nil ||
-		c.Form == FormExec && c.Exec != nil)
+		c.Form == FormExec && c.Exec != nil || c.Form == FormRun && c.Run != nil)
 	if !ok {
-		return refuse(RuleGrammar, "form must be one of http, browser, exec, with exactly that body")
+		return refuse(RuleGrammar, "form must be one of http, browser, exec, run, with exactly that body")
 	}
 	return nil
 }
 
+// validateSize bounds a check's canonical JSON: MaxCanonicalBytes, plus
+// MaxProgramBytes for an exec check's program files. A run check's program
+// counts toward MaxCanonicalBytes with the rest of the check: the saved
+// check bound stays (SPEC-S2 S2-04).
 func validateSize(c Check) *Refusal {
 	limit := MaxCanonicalBytes
 	if c.Exec != nil {
@@ -154,14 +234,19 @@ var (
 )
 
 // findSnapshotRef refuses a snapshot ref in any string of the check, keys
-// included. An exec check's program files are left out: they run in the
-// sandbox, never against the browser, and source text such as 1e5 would
-// read as a ref.
+// included. An exec or run check's program files are left out: they run
+// in the sandbox, never against the browser, and source text such as 1e5
+// would read as a ref.
 func findSnapshotRef(c Check) *Refusal {
 	if c.Exec != nil {
 		e := *c.Exec
 		e.Files = nil
 		c.Exec = &e
+	}
+	if c.Run != nil {
+		r := *c.Run
+		r.Files = nil
+		c.Run = &r
 	}
 	var doc any
 	dec := json.NewDecoder(bytes.NewReader(Canonical(c)))
@@ -237,7 +322,7 @@ func colourLiteral(s string) bool {
 
 // assertionTexts lists every text a check asserts on: expected values,
 // headers and body text (http), expected text and URLs (browser), expected
-// stdout (exec).
+// stdout (exec, run).
 func assertionTexts(c Check) []string {
 	var out []string
 	addValues := func(m map[string]acceptance.Value) {
@@ -264,6 +349,9 @@ func assertionTexts(c Check) []string {
 	case c.Exec != nil:
 		addValues(c.Exec.Expect.StdoutJSON)
 		out = append(out, c.Exec.Expect.StdoutContains)
+	case c.Run != nil:
+		addValues(c.Run.Expect.StdoutJSON)
+		out = append(out, c.Run.Expect.StdoutContains)
 	}
 	return out
 }
@@ -281,6 +369,29 @@ func checkText(field, s string) *Refusal {
 			return refuse(RuleGrammar, "%s: captures exist only between http steps; use {{run}}", field)
 		}
 		return refuse(RuleGrammar, "%s: %v", field, err)
+	}
+	return nil
+}
+
+// checkArg holds an argument to checkText, admitting a workspace's
+// placeholders in a workspace: TreePlaceholder in both, BinPlaceholder in
+// a cli only. Outside a workspace either is an unknown placeholder.
+func checkArg(field, s string, ws *Workspace) *Refusal {
+	if ws != nil {
+		if ws.Binary == "" && strings.Contains(s, BinPlaceholder) {
+			return refuse(RuleGrammar, "%s: %s names a cli's binary; a library has none", field, BinPlaceholder)
+		}
+		s = strings.NewReplacer(BinPlaceholder, "bin", TreePlaceholder, "tree").Replace(s)
+	}
+	return checkText(field, s)
+}
+
+// checkProgramPlaceholders refuses BinPlaceholder in a library's program
+// file, where nothing would substitute it.
+func checkProgramPlaceholders(f File, ws *Workspace) *Refusal {
+	if ws != nil && ws.Binary == "" && strings.Contains(f.Content, BinPlaceholder) {
+		return refuse(RuleGrammar, "program file %q: %s names a cli's binary; a library has none", f.Path,
+			BinPlaceholder)
 	}
 	return nil
 }

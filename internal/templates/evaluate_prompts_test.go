@@ -291,7 +291,7 @@ func TestEvaluatePromptExamplesHold(t *testing.T) {
 	for name, src := range map[string]string{"http": ExampleHTTPCheck, "browser": ExampleBrowserCheck,
 		"exec": ExampleExecCheck} {
 		c := mustCheck(t, src)
-		if err := checks.Validate(c, preview); err != nil {
+		if err := checks.Validate(c, checks.Context{Preview: &preview}); err != nil {
 			t.Errorf("%s example: %v", name, err)
 		}
 	}

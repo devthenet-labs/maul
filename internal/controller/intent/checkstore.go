@@ -215,7 +215,7 @@ func savedCheckRefusal(c v1alpha1.SavedCheck, preview checks.Preview) (string, s
 	case parsed.ID != c.ID || parsed.Outcome != c.Outcome || string(parsed.Form) != string(c.Form):
 		return "its body names another check", ""
 	}
-	if err := checks.Validate(parsed, preview); err != nil {
+	if err := checks.Validate(parsed, checks.Context{Preview: &preview}); err != nil {
 		return "refused by the saved-check rules", err.Error()
 	}
 	return "", ""

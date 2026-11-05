@@ -13,9 +13,10 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
-// ExecCheck is a program run in the slot's sandbox container: Argv, run
-// without a shell in a directory holding Files, whose exit code and
-// stdout the tools container asserts on.
+// ExecCheck is a program run in the slot's sandbox container, or a cli
+// workspace's built binary (argv[0] BinPlaceholder): Argv, run without a
+// shell in a directory holding Files, whose exit code and stdout the tools
+// container asserts on.
 type ExecCheck struct {
 	Argv  []string `json:"argv"`
 	Files []File   `json:"files,omitempty"`
@@ -91,17 +92,25 @@ var (
 	shells = map[string]bool{"sh": true, "bash": true, "dash": true, "zsh": true, "ash": true}
 )
 
-func validateExec(e ExecCheck) *Refusal {
+// validateExec holds an exec check to its grammar and substance: in a
+// preview slot (ws nil) as S1 did; in a cli workspace its argv[0] is
+// exactly BinPlaceholder, the built binary (SPEC-S2 S2-04).
+func validateExec(e ExecCheck, ws *Workspace) *Refusal {
 	if len(e.Argv) == 0 || len(e.Argv) > MaxArgs || e.Argv[0] == "" {
 		return refuse(RuleGrammar, "argv holds 1 to %d arguments, the first not empty", MaxArgs)
 	}
 	for _, a := range e.Argv {
-		if r := checkText("an argument", a); r != nil {
+		if r := checkArg("an argument", a, ws); r != nil {
 			return r
 		}
 	}
 	if r := validateFiles(e.Files); r != nil {
 		return r
+	}
+	for _, f := range e.Files {
+		if r := checkProgramPlaceholders(f, ws); r != nil {
+			return r
+		}
 	}
 	if e.Timeout != "" {
 		d, err := time.ParseDuration(e.Timeout)
@@ -115,6 +124,10 @@ func validateExec(e ExecCheck) *Refusal {
 	if trivial(e.Argv) {
 		return refuse(RuleNotSubstantive, "argv %q runs a program that proves nothing; run a client against the "+
 			"preview", e.Argv)
+	}
+	if ws != nil && e.Argv[0] != BinPlaceholder {
+		return refuse(RuleNotSubstantive, "in a cli workspace an exec check runs the built binary: argv[0] is %s",
+			BinPlaceholder)
 	}
 	if e.Expect.StdoutContains == "" && !contentJSON(e.Expect.StdoutJSON) {
 		return refuse(RuleNotSubstantive, "no assertion on stdout; an exit code alone only says the run worked")

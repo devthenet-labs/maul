@@ -35,7 +35,7 @@ func TestProposedCheckIDMatchesTheGrammar(t *testing.T) {
 		if err != nil {
 			t.Fatalf("checks.Parse(%q): %v", id, err)
 		}
-		grammar := checks.Validate(c, checks.Preview{}) == nil
+		grammar := checks.Validate(c, checks.Context{Preview: &checks.Preview{}}) == nil
 
 		raw := strings.Replace(minimalProposal, "PROPOSED_ID", id, 1)
 		_, perr := ParseEvaluation([]byte(raw))

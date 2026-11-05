@@ -22,12 +22,16 @@ const (
 	FormHTTP Form = "http"
 	// FormBrowser checks are browser steps maul compiles to Playwright.
 	FormBrowser Form = "browser"
-	// FormExec checks run a program in the slot's sandbox container.
+	// FormExec checks run a program in the slot's sandbox container, or
+	// a cli workspace's built binary.
 	FormExec Form = "exec"
+	// FormRun checks build and run a consumer program against a
+	// workspace's tree (SPEC-S2 Q25).
+	FormRun Form = "run"
 )
 
 // Check is one saved check, bound to one approved outcome. Exactly one of
-// HTTP, Browser and Exec is set, the one Form names.
+// HTTP, Browser, Exec and Run is set, the one Form names.
 type Check struct {
 	// ID names the check: an outcome-style id with an optional
 	// ".<name>" suffix, e.g. "winner-rises.order".
@@ -38,6 +42,7 @@ type Check struct {
 	HTTP    *HTTPCheck    `json:"http,omitempty"`
 	Browser *BrowserCheck `json:"browser,omitempty"`
 	Exec    *ExecCheck    `json:"exec,omitempty"`
+	Run     *RunCheck     `json:"run,omitempty"`
 }
 
 // Parse decodes one check strictly: unknown fields and trailing data are
@@ -95,6 +100,15 @@ func normalize(c Check) Check {
 		}
 		c.Exec = &e
 	}
+	if c.Run != nil {
+		r := *c.Run
+		r.Files = slices.Clone(r.Files)
+		r.Args = slices.Clone(r.Args)
+		if len(r.Expect.StdoutJSON) == 0 {
+			r.Expect.StdoutJSON = nil
+		}
+		c.Run = &r
+	}
 	return c
 }
 
@@ -122,6 +136,9 @@ const (
 	RuleRunToken Rule = "run-token"
 	// RuleOffPreview: navigation, or a request target, off the preview.
 	RuleOffPreview Rule = "off-preview"
+	// RuleOffSurface: a form the surface has no tool for (SPEC-S2): run in
+	// a preview slot; http or browser in a workspace; exec in a library.
+	RuleOffSurface Rule = "off-surface"
 )
 
 // Refusal is a check the grammar refuses: the only error Validate returns.

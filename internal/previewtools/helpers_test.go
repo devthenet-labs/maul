@@ -217,7 +217,7 @@ func storedCheck(t *testing.T, src string) StoredCheck {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if err := checks.Validate(c, checks.Preview{}); err != nil {
+	if err := checks.Validate(c, checks.Context{Preview: &checks.Preview{}}); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	return StoredCheck{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}
