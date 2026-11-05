@@ -225,7 +225,10 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.
 5. **No vetted check disagrees.** If another check of the outcome, valid and reviewed `proves`, passed cleanly in the
-   same round, the two disagree: the outcome is unsure. A check that both passed and failed at the same heads in one
+   same round, the two disagree: the outcome is unsure. A check maul recorded as narrowed in an earlier round
+   (`status.acceptance.narrowed`) is not such a check: it tests less than the outcome, so its pass says nothing against
+   a failure, and the failing check is judged by the rules above alone. The round that records the narrowing still
+   counts it, so that round is judged alike every time. A check that both passed and failed at the same heads in one
    round is flaky: unsure, never failed. Both hold for every check, not only red ones.
 
 The check is then stored (marked as saved red, with the assertion it failed), and once an approver confirms the defect
