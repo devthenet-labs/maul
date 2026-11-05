@@ -88,8 +88,8 @@ func (c *Client) SetKey(key string) error {
 
 // LoadKey reads the key at path and sets it. A path that does not exist
 // leaves the client keyless (a tool pod of slice 1 has none); any other
-// failure, or a file that holds no key, is an error that never quotes the
-// file.
+// failure, or a file that holds no key (an empty one included: a handoff
+// that wrote the file meant a key), is an error that never quotes the file.
 func (c *Client) LoadKey(path string) error {
 	if path == "" {
 		return nil
@@ -106,7 +106,11 @@ func (c *Client) LoadKey(path string) error {
 	if err != nil || len(b) > 128 {
 		return errors.New("the tools key file cannot be read")
 	}
-	return c.SetKey(strings.TrimSpace(string(b)))
+	key := strings.TrimSpace(string(b))
+	if key == "" {
+		return errors.New("the tools key file holds no key")
+	}
+	return c.SetKey(key)
 }
 
 // errRefused marks a response whose call the tools container refused.

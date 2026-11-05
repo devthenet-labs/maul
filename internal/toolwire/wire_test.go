@@ -210,6 +210,11 @@ func TestKeyAndSides(t *testing.T) {
 			t.Errorf("Side(%q).Valid() = %v, want %v", s, !want, want)
 		}
 	}
+	for s, want := range map[Side]Side{"": "", SideHead: "", SideBase: SideBase} {
+		if got := s.Recorded(); got != want {
+			t.Errorf("Side(%q).Recorded() = %q, want %q", s, got, want)
+		}
+	}
 }
 
 // TestSideIsOptionalOnTheWire pins that a request without a side encodes

@@ -75,6 +75,18 @@ const (
 // (head), "head" or "base".
 func (s Side) Valid() bool { return s == "" || s == SideHead || s == SideBase }
 
+// Recorded is the side as a ledger records it: the empty side for the head,
+// so a head run has one encoding whichever way the caller spelled it.
+func (s Side) Recorded() Side {
+	if s == SideHead {
+		return ""
+	}
+	return s
+}
+
+// recorded reports a side a ledger entry or step may carry: "" or base.
+func (s Side) recorded() bool { return s == "" || s == SideBase }
+
 // Op is what the files verb does.
 type Op string
 

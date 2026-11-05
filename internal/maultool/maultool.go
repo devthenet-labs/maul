@@ -49,9 +49,9 @@ const usage = `usage:
   maul-tool http <METHOD> <path> [json]
   maul-tool browser <verb> [args]...
   maul-tool exec [--base] [--file <file>]... -- <argv>...
-  maul-tool files ls [--base] [<path>]
-  maul-tool files grep [--base] <pattern> [<path>]
-  maul-tool files read [--base] <path>
+  maul-tool files ls [--base] [--] [<path>]
+  maul-tool files grep [--base] [--] <pattern> [<path>]
+  maul-tool files read [--base] [--] <path>
   maul-tool run <dir> [--base] [-- <args>...]
   maul-tool logs <component>
   maul-tool events
@@ -227,14 +227,15 @@ func parseCheck(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, err
 	return "", nil, usagef("check takes `run [--base] <file>` or `results`")
 }
 
-// takeBase removes a single --base from args (before any --), returning
-// the side it names.
+// takeBase removes a single --base from args before any --, returning the
+// side it names. A -- ends the options and is dropped, so an argument that
+// reads "--base" (a pattern, a path) can still be passed after it.
 func takeBase(args []string) (toolwire.Side, []string, error) {
 	var side toolwire.Side
 	out := make([]string, 0, len(args))
 	for i, a := range args {
 		if a == "--" {
-			out = append(out, args[i:]...)
+			out = append(out, args[i+1:]...)
 			break
 		}
 		if a != "--base" {

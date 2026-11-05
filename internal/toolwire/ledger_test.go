@@ -102,6 +102,16 @@ func TestEntryCheckRefuses(t *testing.T) {
 		"unknown kind": func(e *LedgerEntry) { e.Kind = "app" },
 		"unknown verb": func(e *LedgerEntry) { e.Verb = "run-code" },
 		"unknown side": func(e *LedgerEntry) { e.Side = "tree" },
+		// Head is the empty side in a ledger (one encoding per fact), and
+		// only a verb that runs in a sandbox has a side.
+		"explicit head": func(e *LedgerEntry) { e.Side = SideHead },
+		"side on http":  func(e *LedgerEntry) { e.Verb, e.Side = VerbHTTP, SideBase },
+		"side on logs":  func(e *LedgerEntry) { e.Verb, e.Side = VerbLogs, SideBase },
+		"explicit step head": func(e *LedgerEntry) {
+			e.Verb, e.Kind, e.Artifacts, e.Locators = VerbCheckRun, KindAgent, nil, nil
+			e.CheckRun = checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass).CheckRun
+			e.CheckRun.Attempts[0].Steps[0].Side = SideHead
+		},
 		"unknown step side": func(e *LedgerEntry) {
 			e.Verb, e.Kind, e.Artifacts, e.Locators = VerbCheckRun, KindAgent, nil, nil
 			e.CheckRun = checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass).CheckRun

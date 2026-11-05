@@ -113,6 +113,22 @@ const (
 var Verbs = []Verb{VerbHTTP, VerbBrowser, VerbExec, VerbFiles, VerbRun, VerbLogs, VerbEvents, VerbCheckRun,
 	VerbCheckResults, VerbConfirm, VerbFinish, VerbSession, VerbBuild}
 
+// sidedVerbs are the verbs that run in a sandbox, so the only ones whose
+// entry may name a side.
+var sidedVerbs = map[Verb]bool{VerbExec: true, VerbRun: true, VerbFiles: true, VerbBuild: true, VerbCheckRun: true}
+
+// checkSide holds an entry's side to its one encoding: "" for the head,
+// base only on a verb that runs in a sandbox.
+func (e LedgerEntry) checkSide() error {
+	switch {
+	case !e.Side.recorded():
+		return fmt.Errorf("side %q is not a ledger side (the head is the empty side)", e.Side)
+	case e.Side != "" && !sidedVerbs[e.Verb]:
+		return fmt.Errorf("verb %s runs in no sandbox, so it has no side", e.Verb)
+	}
+	return nil
+}
+
 func knownVerb(v Verb) bool {
 	for _, k := range Verbs {
 		if v == k {
@@ -131,7 +147,9 @@ type LedgerEntry struct {
 	Kind Kind      `json:"kind"`
 	Verb Verb      `json:"verb"`
 	// Side is the sandbox the call ran in: empty for the head and for a
-	// verb that has none, so an S1 entry's line is unchanged.
+	// verb that has none, so an S1 entry's line is unchanged. Only base is
+	// ever written (one encoding per fact), and only on a verb that runs in
+	// a sandbox (exec, run, files, build, check-run).
 	Side Side `json:"side,omitempty"`
 	// Args is the request as received, JSON.
 	Args json.RawMessage `json:"args"`
@@ -224,7 +242,8 @@ type Attempt struct {
 type StepRecord struct {
 	Index  int           `json:"index"`
 	Result AttemptResult `json:"result"`
-	// Side is the sandbox the step ran in; empty is the head.
+	// Side is the sandbox the step ran in; empty is the head, and only
+	// base is ever written.
 	Side Side `json:"side,omitempty"`
 	// Detail is the runner's message for a step that did not pass.
 	Detail string `json:"detail,omitempty"`
@@ -318,8 +337,6 @@ func (e LedgerEntry) Check() error {
 		return fmt.Errorf("kind %q is not a kind", e.Kind)
 	case !knownVerb(e.Verb):
 		return fmt.Errorf("verb %q is not a verb", e.Verb)
-	case !e.Side.Valid():
-		return fmt.Errorf("side %q is not a side", e.Side)
 	case len(e.Args) > MaxArgsBytes || !json.Valid(e.Args):
 		return errors.New("args are not bounded JSON")
 	case len(e.Output) > MaxOutputBytes || !utf8.ValidString(e.Output):
@@ -328,6 +345,9 @@ func (e LedgerEntry) Check() error {
 		return errors.New("output does not match its sha256")
 	case len(e.Inline) > MaxInlineBytes || !utf8.ValidString(e.Inline):
 		return errors.New("inline is not bounded UTF-8")
+	}
+	if err := e.checkSide(); err != nil {
+		return err
 	}
 	if err := e.checkParts(); err != nil {
 		return err
@@ -398,7 +418,7 @@ func (a Attempt) check() error {
 		return errors.New("an attempt is out of bounds")
 	}
 	for _, s := range a.Steps {
-		if !s.Side.Valid() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
+		if !s.Side.recorded() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
 			len(s.Detail) > maxDetailBytes || !utf8.ValidString(s.Detail) {
 			return errors.New("a step record is out of bounds")
 		}

@@ -631,6 +631,10 @@ func TestSideAndNewVerbsReachTheirEndpoints(t *testing.T) {
 			&toolwire.FilesRequest{Op: toolwire.OpGrep, Pattern: "func Main", Path: "cmd"}},
 		{"files grep root", []string{"files", "grep", "--base", "x"}, "/v1/files",
 			&toolwire.FilesRequest{Op: toolwire.OpGrep, Side: toolwire.SideBase, Pattern: "x"}},
+		{"files grep after --", []string{"files", "grep", "--", "--base", "cmd"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpGrep, Pattern: "--base", Path: "cmd"}},
+		{"files read after --", []string{"files", "read", "--base", "--", "--base"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpRead, Side: toolwire.SideBase, Path: "--base"}},
 		{"files read", []string{"files", "read", "go.mod"}, "/v1/files",
 			&toolwire.FilesRequest{Op: toolwire.OpRead, Path: "go.mod"}},
 		{"run head", []string{"run", "prog"}, "/v1/run",
@@ -720,7 +724,8 @@ func TestKeyIsSentWhenTheFileExists(t *testing.T) {
 		"no path":    {func(*testing.T) string { return "" }, "", ExitOK},
 		"key":        {writeKey(key + "\n"), key, ExitOK},
 		"not a key":  {writeKey("hunter2"), "", ExitToolError},
-		"empty file": {writeKey(""), "", ExitOK},
+		"empty file": {writeKey(""), "", ExitToolError},
+		"blank file": {writeKey(" \n"), "", ExitToolError},
 		"large":      {writeKey(strings.Repeat("a", 4096)), "", ExitToolError},
 	}
 	for name, tc := range cases {
