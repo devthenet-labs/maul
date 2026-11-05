@@ -211,6 +211,23 @@ func TestRefuseWorkspaceNotSubstantive(t *testing.T) {
 	})
 }
 
+// TestCliExecRefusalNamesTheBinary: a cli exec of anything but the built
+// binary, a trivial program included, is told to run {{bin}}, never to run
+// a client against a preview the workspace does not have.
+func TestCliExecRefusalNamesTheBinary(t *testing.T) {
+	for _, argv := range []string{`["echo","done"]`, `["sh","-c","true"]`, `["python3","client.py"]`} {
+		err := Validate(mustParse(t, execCheck(`"argv":`+argv+`,`+okOut)), cliCtx)
+		var r *Refusal
+		if !errors.As(err, &r) || r.Rule != RuleNotSubstantive {
+			t.Errorf("%s: Validate = %v, want rule %s", argv, err, RuleNotSubstantive)
+			continue
+		}
+		if !strings.Contains(r.Reason, BinPlaceholder) || strings.Contains(r.Reason, "preview") {
+			t.Errorf("%s: reason %q does not name %s, or names a preview", argv, r.Reason, BinPlaceholder)
+		}
+	}
+}
+
 func TestRefuseWorkspaceRunToken(t *testing.T) {
 	runWorkspaceRefusals(t, RuleRunToken, []struct {
 		name  string

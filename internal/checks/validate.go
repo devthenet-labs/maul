@@ -20,8 +20,9 @@ import (
 const (
 	// MaxSteps bounds a check's steps (http requests or browser steps).
 	MaxSteps = 30
-	// MaxCanonicalBytes bounds an http or browser check's canonical JSON,
-	// so it fits inline in a PreviewVerification (SPEC Q1).
+	// MaxCanonicalBytes bounds an http, browser or run check's canonical
+	// JSON (a run check's program included), so it fits inline in a
+	// PreviewVerification (SPEC Q1).
 	MaxCanonicalBytes = 8 << 10
 	// MaxProgramBytes bounds an exec check's program files together.
 	MaxProgramBytes = 64 << 10

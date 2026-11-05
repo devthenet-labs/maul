@@ -121,13 +121,13 @@ func validateExec(e ExecCheck, ws *Workspace) *Refusal {
 	if r := validateExecExpect(e.Expect); r != nil {
 		return r
 	}
-	if trivial(e.Argv) {
-		return refuse(RuleNotSubstantive, "argv %q runs a program that proves nothing; run a client against the "+
-			"preview", e.Argv)
-	}
 	if ws != nil && e.Argv[0] != BinPlaceholder {
 		return refuse(RuleNotSubstantive, "in a cli workspace an exec check runs the built binary: argv[0] is %s",
 			BinPlaceholder)
+	}
+	if trivial(e.Argv) {
+		return refuse(RuleNotSubstantive, "argv %q runs a program that proves nothing; run a client against the "+
+			"preview", e.Argv)
 	}
 	if e.Expect.StdoutContains == "" && !contentJSON(e.Expect.StdoutJSON) {
 		return refuse(RuleNotSubstantive, "no assertion on stdout; an exit code alone only says the run worked")
