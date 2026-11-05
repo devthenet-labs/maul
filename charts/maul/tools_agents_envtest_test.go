@@ -41,6 +41,7 @@ const (
 	tpVolumes   = "agents tool pods mount only emptyDirs and their own <job>-tools Secret"
 	tpShm       = "agents tool pods give tools, sandbox-head and sandbox-base each their own memory-backed /dev/shm"
 	tpSides     = "the head and base sides of an agents tool pod share no writable volume"
+	tpToolsSide = "tools shares no writable volume with a seed or sandbox but that sandbox's exec-socket directory"
 	tpTolerate  = "agents tool pods tolerate neither the preview taint nor every taint"
 	pvByPlace   = "preview-controller writes a slot verification's results; intent-controller an agents verification's"
 	tpRepoImage = "registry.example/acme/render-agent@sha256:" +
@@ -179,6 +180,9 @@ func checkAgentsToolJobs(t *testing.T, admin, ic client.Client) {
 		}, tpShape},
 		{"a third image in a seed", func(p *corev1.PodSpec) { p.InitContainers[1].Image = other }, tpShape},
 		{"two repository images", func(p *corev1.PodSpec) { p.InitContainers[4].Image = other }, tpShape},
+		{"the sandboxes in the tools image", func(p *corev1.PodSpec) {
+			p.InitContainers[3].Image, p.InitContainers[4].Image = toolsImage, toolsImage
+		}, tpShape},
 		{"the repository image by tag", func(p *corev1.PodSpec) {
 			p.InitContainers[3].Image, p.InitContainers[4].Image = "registry.example/acme/render-agent:v1",
 				"registry.example/acme/render-agent:v1"
@@ -258,6 +262,22 @@ func checkAgentsToolJobs(t *testing.T, admin, ic client.Client) {
 		{"the base work in the head seed", func(p *corev1.PodSpec) {
 			mount(p, "seed-head", corev1.VolumeMount{Name: "work-base", MountPath: "/base", ReadOnly: true})
 		}, tpSides},
+		{"a pristine tree writable in a sandbox", func(p *corev1.PodSpec) {
+			mount(p, "sandbox-head", corev1.VolumeMount{Name: "pristine-head", MountPath: "/pristine"})
+		}, tpToolsSide},
+		{"a pristine tree writable in tools", func(p *corev1.PodSpec) {
+			unmount(p, "tools", "pristine-base")
+			mount(p, "tools", corev1.VolumeMount{Name: "pristine-base", MountPath: "/pristine/base"})
+		}, tpToolsSide},
+		{"a sandbox work volume in tools", func(p *corev1.PodSpec) {
+			mount(p, "tools", corev1.VolumeMount{Name: "work-head", MountPath: "/work-head"})
+		}, tpToolsSide},
+		{"a sandbox work volume read-only in tools", func(p *corev1.PodSpec) {
+			mount(p, "tools", corev1.VolumeMount{Name: "work-base", MountPath: "/work-base", ReadOnly: true})
+		}, tpToolsSide},
+		{"an exec directory in a seed", func(p *corev1.PodSpec) {
+			mount(p, "seed-base", corev1.VolumeMount{Name: "exec-base", MountPath: "/run/maul-exec"})
+		}, tpToolsSide},
 		{"tolerating every taint", func(p *corev1.PodSpec) {
 			p.Tolerations = []corev1.Toleration{{Operator: corev1.TolerationOpExists}}
 		}, tpTolerate},

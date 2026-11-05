@@ -31,8 +31,9 @@ SPDX-License-Identifier: MIT
 # runs as the default ServiceAccount, holds no credential (no envFrom, no
 # Secret reference in env, no model credential or gateway variable), mounts
 # only emptyDirs beside its own <job>-tools Secret (tools alone), gives
-# tools and each sandbox their own memory-backed /dev/shm, and lets the head
-# and base sides share no writable volume. It shares no host or process
+# tools and each sandbox their own memory-backed /dev/shm, lets the head
+# and base sides share no writable volume, and lets tools share one with a
+# side only as that side's exec-socket directory. It shares no host or process
 # namespace, runs no ephemeral container, has no resolver, and tolerates
 # neither the preview taint nor every taint. Only intent-controller creates
 # the Job, and only the Kubernetes Job controller its Pod. Fail closed.
@@ -121,6 +122,11 @@ spec:
               object.metadata.?ownerReferences.orValue([])
                 .filter(r, r.?controller.orValue(false) && r.apiVersion == 'batch/v1' && r.kind == 'Job')
                 .map(r, r.name + '-tools')
+        - name: toolsMounts
+          expression: >-
+              variables.pod.containers.exists(c, c.name == 'tools')
+                ? variables.pod.containers.filter(c, c.name == 'tools')[0].?volumeMounts.orValue([])
+                : []
         - name: secretVolumes
           expression: "variables.volumes.filter(v, has(v.secret)).map(v, v.name)"
         - name: sandboxImages
@@ -173,11 +179,12 @@ spec:
                 ? c.?restartPolicy.orValue('') == 'Always'
                 : c.image == '{{ $tools }}' && c.?restartPolicy.orValue('') != 'Always') &&
               size(variables.sandboxImages) == 2 && variables.sandboxImages[0] == variables.sandboxImages[1] &&
+              variables.sandboxImages[0] != '{{ $tools }}' &&
               variables.sandboxImages[0].matches('^[^@[:space:]]+@sha256:[0-9a-f]{64}$')
           message: >-
               agents tool pods run tools and the init containers prepare, seed-head and seed-base in
               maul's preview-tools image, then the native sidecars sandbox-head and sandbox-base in one
-              image pinned by digest
+              other image pinned by digest
           reason: Forbidden
         - expression: >-
               variables.all.all(c, has(c.securityContext) &&
@@ -238,6 +245,18 @@ spec:
                     d.?volumeMounts.orValue([]).all(n, n.name != m.name ||
                       (m.?readOnly.orValue(false) && n.?readOnly.orValue(false))))))
           message: the head and base sides of an agents tool pod share no writable volume
+          reason: Forbidden
+        # What the relay reads from a side (its pristine tree) neither side
+        # can write, and the relay writes into neither side: the one volume
+        # tools and a side share writable is that side's exec-socket
+        # directory, in its sandbox alone.
+        - expression: >-
+              variables.all.filter(c, c.name in {{ concat $head $base | toJson }}).all(c,
+                c.?volumeMounts.orValue([]).all(m,
+                  variables.toolsMounts.filter(t, t.name == m.name).all(t,
+                    (m.?readOnly.orValue(false) && t.?readOnly.orValue(false)) ||
+                    (c.name.startsWith('sandbox-') && m.name == c.name.replace('sandbox-', 'exec-')))))
+          message: tools shares no writable volume with a seed or sandbox but that sandbox's exec-socket directory
           reason: Forbidden
         - expression: >-
               variables.pod.?tolerations.orValue([]).all(t,

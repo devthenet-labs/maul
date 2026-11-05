@@ -288,8 +288,8 @@ func TestAgentsToolPodConfig(t *testing.T) {
 		t.Fatalf("MAUL_INTENT_TOOL_RESOURCES %q: %v", cm["MAUL_INTENT_TOOL_RESOURCES"], err)
 	}
 	want := map[string]map[string]string{
-		"tools":   {"cpu": "250m", "memory": "256Mi", "ephemeralStorage": "256Mi"},
-		"sandbox": {"cpu": "2", "memory": "2Gi", "ephemeralStorage": "6Gi"},
+		"tools":   {"cpu": "250m", "memory": "256Mi", "ephemeralStorage": "2Gi"},
+		"sandbox": {"cpu": "2", "memory": "2Gi", "ephemeralStorage": "8Gi"},
 	}
 	if fmt.Sprint(res) != fmt.Sprint(want) {
 		t.Errorf("MAUL_INTENT_TOOL_RESOURCES = %v, want %v", res, want)
