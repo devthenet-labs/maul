@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -96,8 +97,8 @@ var (
 // Check implements toolwire.Request: the wire's exec grammar plus the
 // workspace fields' own; whether this shim takes them is Do's.
 func (r *Request) Check() error {
-	exec := toolwire.ExecRequest{Argv: r.Argv, Files: r.Files, Side: r.Side}
-	if err := exec.Check(); err != nil {
+	wire := toolwire.ExecRequest{Argv: r.Argv, Files: r.Files, Side: r.Side}
+	if err := wire.Check(); err != nil {
 		return err
 	}
 	switch {
@@ -208,6 +209,37 @@ func (s *Server) checkWorkspace(r *Request) error {
 		}
 	}
 	return nil
+}
+
+// lookIn is exec.LookPath over path, a PATH value, instead of the shim's
+// own: a name with a slash is used as it is, any other is the first
+// executable regular file of that name in path's absolute directories.
+func lookIn(name, path string) (string, error) {
+	if strings.Contains(name, "/") {
+		return name, nil
+	}
+	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
+}
+
+// envValue is name's value in env ("NAME=value" entries), the last one
+// winning as it does for a program.
+func envValue(env []string, name string) string {
+	v := ""
+	for _, kv := range env {
+		if k, val, ok := strings.Cut(kv, "="); ok && k == name {
+			v = val
+		}
+	}
+	return v
 }
 
 // within reports p is dir or under it.

@@ -597,3 +597,36 @@ func waitGone(t *testing.T, pid string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestWorkspaceSearchPath: a program named without a directory is found on
+// the request's PATH (the Repository's search path), never the shim's own,
+// which on a repository image may differ.
+func TestWorkspaceSearchPath(t *testing.T) {
+	s, _ := newWorkspace(t)
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on PATH")
+	}
+	onlyRequest, onlyShim := t.TempDir(), t.TempDir()
+	for dir, word := range map[string]string{onlyRequest: "request", onlyShim: "shim"} {
+		script := "#!" + sh + "\necho " + word + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "maul-probe-"+word), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", onlyShim+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	env := []EnvVar{{Name: "PATH", Value: onlyRequest}}
+
+	res := s.Do(context.Background(), &Request{Argv: []string{"maul-probe-request"}, Run: "r1", Env: env})
+	if res.Refused != "" || res.Exit != 0 || strings.TrimSpace(res.Output) != "request" {
+		t.Errorf("request PATH: got %+v, want the program found on the request's PATH", res)
+	}
+	res = s.Do(context.Background(), &Request{Argv: []string{"maul-probe-shim"}, Run: "r2", Env: env})
+	if res.Refused != "" || res.Exit != 127 {
+		t.Errorf("shim PATH: got %+v, want exit 127 (not on the request's PATH)", res)
+	}
+	res = s.Do(context.Background(), &Request{Argv: []string{"maul-probe-shim"}, Kind: KindBuild, Env: env})
+	if res.Refused != "" || res.Exit != 127 {
+		t.Errorf("build, shim PATH: got %+v, want exit 127", res)
+	}
+}

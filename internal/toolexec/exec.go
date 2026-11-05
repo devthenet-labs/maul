@@ -197,6 +197,10 @@ func (s *Server) execute(ctx context.Context, argv []string, dir string, env []s
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // running argv is the shim's job
+	if s.work != "" {
+		// A workspace program is found on its own PATH, never the shim's.
+		cmd.Path, cmd.Err = lookIn(argv[0], envValue(env, "PATH"))
+	}
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout = out
