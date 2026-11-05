@@ -29,11 +29,13 @@ type ExecCheck struct {
 // does not hold: "MAUL-ASSERTION-FAILED: <id>: <what it saw>", <id> naming
 // that assertion (lowercase letters, digits and hyphens, at most 32,
 // starting with a letter). The output is the program's stdout and stderr
-// combined. Only a run whose output has such a line (at the start of a line)
-// and whose expectation failed is red by assertion, its assertion that id;
-// an exit code alone, a crash, a traceback or missing output never is: a
-// broken program fails the same way. The marker is the program's own word,
-// so the check reviewer judges the condition it is printed under.
+// combined. A run whose output has a line that starts with the marker fails
+// the check, whatever its exit code and its expect (ExecMarked, S1 demo
+// #57: a program that prints it and goes on to exit 0 is no pass). Only such
+// a run whose marker names a valid id is red by assertion, its assertion
+// that id; an exit code alone, a crash, a traceback or missing output never
+// is: a broken program fails the same way. The marker is the program's own
+// word, so the check reviewer judges the condition it is printed under.
 const ExecAssertionMarker = "MAUL-ASSERTION-FAILED:"
 
 // execAssertionID is a marker's assertion id.
@@ -55,6 +57,18 @@ func ExecAssertion(output string) (string, bool) {
 		return id, true
 	}
 	return "", false
+}
+
+// ExecMarked reports whether a program's output has a line that starts
+// with ExecAssertionMarker, naming a valid id or not: the program found
+// the outcome does not hold, so the check fails.
+func ExecMarked(output string) bool {
+	for line := range strings.SplitSeq(output, "\n") {
+		if strings.HasPrefix(line, ExecAssertionMarker) {
+			return true
+		}
+	}
+	return false
 }
 
 // File is one program file, at a relative path under the run directory.

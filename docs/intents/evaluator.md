@@ -69,10 +69,13 @@ the application chose (`[untrusted output]`, always last).
    whole report. A refused report's detail lists its frontmatter's key paths (never their values), and each repair
    message restates the exact frontmatter example and the decoder's lines. The evaluator is shown the reviewer's rule
    word for word and works in two passes: first a covering check for every outcome a person does not judge, then
-   strengthening each against a list (every clause asserted, inputs other than the defaults, both sides, before and
-   after, nothing changed for a claim that something stays, nothing the outcome does not state), within a turn budget
-   per outcome. An outcome it leaves unsure with no check names the clause it could not exercise. It does not run again
-   a saved check that replayed green.
+   strengthening each against a list (every clause asserted, inputs other than the defaults and away from what a new,
+   empty item shows, both sides and both sides of a bound, before and after, nothing changed for a claim that something
+   stays, nothing the outcome does not state, the left-out item created and asserted absent beside a kept one, a whole
+   compared whole), and last naming the wrong builds a careless change could ship and finding the assertion that would
+   go red on each, within a turn budget per outcome. The reviewer's rule names the checks a plausible wrong build would
+   still pass (S1 demo: every outcome left unconfirmed on a correct build had one). An outcome it leaves unsure with no
+   check names the clause it could not exercise. It does not run again a saved check that replayed green.
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
@@ -192,8 +195,9 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to keep. The
      check may list only success statuses.
    - `exec`: only a program that says so itself, printing `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a
-     line of its output (stdout and stderr combined), `<id>` naming the assertion, with the check's expectation failing.
-     An exit code alone, a crash, `127` or a traceback never is.
+     line of its output (stdout and stderr combined), `<id>` naming the assertion. A line that starts with the marker
+     fails the check whatever its exit code and its expectation, so a program that prints it and goes on to exit 0 is
+     never a pass. An exit code alone, a crash, `127` or a traceback never is.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
      or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
      `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,

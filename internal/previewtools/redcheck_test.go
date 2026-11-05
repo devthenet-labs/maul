@@ -143,6 +143,50 @@ func TestExecAssertionFailures(t *testing.T) {
 	}
 }
 
+// sentinelExecCheck expects only an exit code and a line its program may
+// print whatever it saw (S1 demo #57).
+const sentinelExecCheck = `{"id":"wav-header","outcome":"wav","form":"exec","exec":{
+ "argv":["python3","client.py","{{run}}"],"files":[{"path":"client.py","content":"print('DONE')\n"}],
+ "expect":{"exit":0,"stdoutContains":"DONE"}}}`
+
+// TestExecMarkerFailsTheCheck (S1 demo #57): a program that prints
+// checks.ExecAssertionMarker has said the outcome does not hold, so the
+// check fails whatever its exit code and its expect: a program that prints
+// the marker and goes on to exit 0 and print what its expect looks for is
+// never a pass. A marker naming a valid id is red by assertion; one naming
+// none fails the check without being one; a marker mid-line is no marker.
+func TestExecMarkerFailsTheCheck(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		out       string
+		want      toolwire.RunResult
+		assertion bool
+	}{
+		{"no marker", "ok bpm=150\nDONE\n", toolwire.RunPass, false},
+		{"a marker, then exit 0 and the sentinel",
+			checks.ExecAssertionMarker + " header-present: no X-Duration-Ms\nDONE\n", toolwire.RunFail, true},
+		{"a marker naming no assertion", checks.ExecAssertionMarker + " no header\nDONE\n", toolwire.RunFail, false},
+		{"the marker mid-line", "echo " + checks.ExecAssertionMarker + " a: x\nDONE\n", toolwire.RunPass, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &fakeExec{run: func(*toolwire.ExecRequest, int) (toolexec.Result, error) {
+				return toolexec.Result{Exit: 0, Output: tc.out}, nil
+			}}
+			h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
+			rec := h.relay.runCheck(context.Background(), parseCheck(t, sentinelExecCheck), toolwire.ModeDryRun)
+			if rec.Result != tc.want {
+				t.Fatalf("result %s, want %s (%+v)", rec.Result, tc.want, rec)
+			}
+			if _, ok := rec.AssertionStep(); ok != tc.assertion {
+				t.Errorf("red by assertion %v, want %v (%+v)", ok, tc.assertion, rec)
+			}
+			if tc.assertion && rec.FailedAssertionID() != "marker header-present" {
+				t.Errorf("assertion id %q, want marker header-present", rec.FailedAssertionID())
+			}
+		})
+	}
+}
+
 // TestBrowserAssertionFailures: an expect step whose matcher or maul
 // assertion did not hold is an assertion; a timed-out test, an action that
 // timed out, an unresolved or ambiguous locator, an element with no box, a

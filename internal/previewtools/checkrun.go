@@ -322,6 +322,10 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	switch {
 	case res.TimedOut:
 		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: "the program was killed at its time limit"}}
+	case checks.ExecMarked(res.Output):
+		// The program said the outcome does not hold: never a pass,
+		// whatever it went on to print or exit with (S1 demo #57).
+		return fail("the program printed " + checks.ExecAssertionMarker)
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
 		return fail(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit))
 	}

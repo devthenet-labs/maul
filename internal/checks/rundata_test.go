@@ -74,6 +74,27 @@ func TestExecAssertion(t *testing.T) {
 	}
 }
 
+// TestExecMarked (S1 demo #57): any line that starts with the marker, a
+// valid id or not, says the program found the outcome does not hold.
+func TestExecMarked(t *testing.T) {
+	for _, tc := range []struct {
+		out  string
+		want bool
+	}{
+		{"x\nMAUL-ASSERTION-FAILED: upset-stake: stake 1, want more\nDONE\n", true},
+		{"MAUL-ASSERTION-FAILED: the stake was 1\r\n", true},
+		{"MAUL-ASSERTION-FAILED:", true},
+		{"echo MAUL-ASSERTION-FAILED: a: x\n", false},
+		{"maul-assertion-failed: a: x\n", false},
+		{"nothing\nDONE\n", false},
+		{"", false},
+	} {
+		if got := ExecMarked(tc.out); got != tc.want {
+			t.Errorf("ExecMarked(%q) = %v, want %v", tc.out, got, tc.want)
+		}
+	}
+}
+
 // TestLayoutRead (coverage design B4): a browser check that writes no data
 // of its own run and asserts only the page's layout reads the page's fixed
 // markup, so it needs no data of its own; any data write, any text, count

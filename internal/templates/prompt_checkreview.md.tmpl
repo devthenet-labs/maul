@@ -64,7 +64,8 @@ window always {{.Viewport.Width}} by {{.Viewport.Height}} CSS pixels, each an ac
 person can see the element, `legible` that a person can read its text, and `clickable` that it, not something covering
 it, receives a click.{{else}}the program runs without a shell in a
 sandbox that can reach the running preview, and the check fails unless its exit code and output match its
-`expect`.{{end}}
+`expect`. It also fails whenever a line of its output starts with `{{.ExecMarker}}`, whatever its exit code and
+whatever else it prints.{{end}}
 Every `{{"{{"}}run{{"}}"}}` is replaced by a fresh token on every run, so the data a check creates is its own.
 
 ## How to judge

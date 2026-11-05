@@ -74,7 +74,8 @@ import sys
 
 How maul runs it: the program runs without a shell in a
 sandbox that can reach the running preview, and the check fails unless its exit code and output match its
-`expect`.
+`expect`. It also fails whenever a line of its output starts with `MAUL-ASSERTION-FAILED:`, whatever its exit code and
+whatever else it prints.
 Every `{{run}}` is replaced by a fresh token on every run, so the data a check creates is its own.
 
 ## How to judge
@@ -85,7 +86,12 @@ outcome does not hold: it checks something else or only part of the outcome, it 
 page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
 create. A check that leaves out, replaces or alters anything the outcome's words name (a field of a body it says to
 send, a step, a value, a page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does
-test is a reasonable reading of the outcome. Answer `unclear` if you cannot tell from what is shown.
+test is a reasonable reading of the outcome. Answer `does_not_prove` too for a check that a plausible wrong build would
+still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
+item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
+(a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
+gives (a new, empty item where the outcome's value depends on what is in it), and one whose program can print what its
+`expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you cannot tell from what is shown.
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.
