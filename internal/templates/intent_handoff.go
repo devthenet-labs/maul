@@ -3,6 +3,8 @@
 
 package templates
 
+import v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+
 // The gated hand-off (agent evaluator, DESIGN 7.1, 7.2): how a live
 // preview's link is shown while maul checks the approved outcomes. Held, the
 // link is not shown at all; once released it is labelled: ready when maul
@@ -35,6 +37,13 @@ const (
 	HandoffWhySandbox     = "sandbox"
 	HandoffWhyEnvironment = "environment"
 	HandoffWhyUnavailable = "unavailable"
+
+	// The agents-namespace tool pod's (SPEC-S2): its build of the head did
+	// not finish, the repository has no accepted image to build in, or a
+	// tree could not be fetched.
+	HandoffWhyBuildFailed  = "build-failed"
+	HandoffWhySandboxImage = "sandbox-image"
+	HandoffWhyTree         = "tree"
 )
 
 // handoffWhyWords are the reasons in maul's words; one not listed shows as
@@ -49,6 +58,31 @@ var handoffWhyWords = map[string]string{
 	HandoffWhySandbox:     "its sandbox was not enforced",
 	HandoffWhyEnvironment: "the preview failed while it was checked",
 	HandoffWhyUnavailable: "it could not run its checks",
+	// The agents-namespace tool pod's (SPEC-S2).
+	HandoffWhyBuildFailed:  "its own build of the pull request did not finish",
+	HandoffWhySandboxImage: "the repository has no accepted runner image to build the pull request in",
+	HandoffWhyTree:         "it could not fetch the source of the pull request or of its base",
+}
+
+// HandoffWhyOfVerification is why maul could not confirm, as an
+// unconfirmed hand-off says it, for a PreviewVerification that settled for
+// a reason of the agents-namespace tool pod (SPEC-S2); "" for any other
+// reason, and for a saturated tool pod bound, which waits and never gives
+// up.
+func HandoffWhyOfVerification(reason v1alpha1.PreviewVerificationReason) string {
+	switch reason {
+	case v1alpha1.VerificationReasonToolsBuildFailed:
+		return HandoffWhyBuildFailed
+	case v1alpha1.VerificationReasonSandboxImageUnavailable:
+		return HandoffWhySandboxImage
+	case v1alpha1.VerificationReasonTreeUnavailable:
+		return HandoffWhyTree
+	case v1alpha1.VerificationReasonSandboxUnenforced:
+		return HandoffWhySandbox
+	case v1alpha1.VerificationReasonToolsEvicted, v1alpha1.VerificationReasonToolsDeadline:
+		return HandoffWhyUnavailable
+	}
+	return ""
 }
 
 // PreviewHandoff is a gated hand-off's state: one of the Handoff
@@ -107,4 +141,56 @@ func handoffCommentSentence(h PreviewHandoff, head, linked string) string {
 		return label + " " + linked
 	}
 	return handoffHeld(head)
+}
+
+// The link-less hand-off (SPEC-S2): a Project with no preview is evaluated
+// in maul's own build of the pull request, so there is no link to hold;
+// what is held is the hand-off itself, and once released the line says
+// where maul stands, as the linked one does.
+
+// workspaceBuild is where a workspace evaluation checks the change.
+const workspaceBuild = "in its own build of the pull request"
+
+// workspaceRelease is what hands a held workspace evaluation over now:
+// what intent-controller releases a held hand-off on, as handoffHeld names
+// it, less /maul preview, which shows a link there is none of.
+func workspaceRelease() string {
+	return "An approver's review asking for changes or " + slashCommand("revise") + " on a pull request, or a " +
+		"push maul did not make, hands it over now."
+}
+
+// workspaceLabel is a released workspace hand-off's label, ending in a
+// full stop: the linked label, except that nothing is shown while maul is
+// still checking; "" for a held one.
+func workspaceLabel(h PreviewHandoff) string {
+	if h.State == HandoffChecking {
+		return "Handed to its reviewers while maul is still checking the approved outcomes " + workspaceBuild + "."
+	}
+	return handoffLabel(h)
+}
+
+// workspaceStatusSentence is the status comment's evaluation sentence
+// under h; nil (the early hand-off) says only what maul does.
+func workspaceStatusSentence(h *PreviewHandoff) string {
+	if h == nil {
+		return "maul checks the approved outcomes " + workspaceBuild + "."
+	}
+	if label := workspaceLabel(*h); label != "" {
+		return label
+	}
+	return "maul is checking the approved outcomes " + workspaceBuild + ", and holds its hand-off to the " +
+		"reviewers until it has. " + workspaceRelease()
+}
+
+// workspaceCommentSentence is a pull request's evaluation sentence under h:
+// rev is the pull request's head, as shown.
+func workspaceCommentSentence(h *PreviewHandoff, rev string) string {
+	if h == nil {
+		return workspaceStatusSentence(nil) + " This pull request's head is " + rev + "."
+	}
+	if label := workspaceLabel(*h); label != "" {
+		return label + " This pull request's head is " + rev + "."
+	}
+	return "This pull request's head, " + rev + ", is being checked: maul holds its hand-off to the reviewers " +
+		"until it has checked the approved outcomes " + workspaceBuild + ". " + workspaceRelease()
 }

@@ -37,7 +37,7 @@ inside an issue comment as a hard break. */ -}}
 {{- end }}
 {{- with .Preview }}
 
-**Preview:** {{ .Sentence }}
+**{{ .Label }}:** {{ .Sentence }}
 {{- with .Components }}
 {{ range . }}
 - {{ . }}

@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/checks"
 )
 
 // Acceptance verification, as maul tells people about it: the plan comment's
@@ -744,6 +747,37 @@ type PlanVerification struct {
 	// SPEC S1-11). false omits it from the JSON, which is then exactly the
 	// JSON before the field existed.
 	Outcomes bool `json:"outcomes,omitempty"`
+	// Workspace: the Project has no preview, and its outcomes are checked
+	// on a cli or library surface the tool pod builds (SPEC-S2). It is
+	// stated only with Outcomes and no Components; nil omits it from the
+	// JSON, which is then exactly the JSON before the field existed.
+	Workspace *PlanWorkspace `json:"workspace,omitempty"`
+}
+
+// PlanWorkspace is a Project's cli or library surface as the plan prompt
+// states it: Surface SurfaceCLI with the Binary its build writes, or
+// SurfaceLibrary with its Language, go; Repository is the repository built,
+// as the Project spells its URL ("" for a Project of one repository).
+type PlanWorkspace struct {
+	Surface    string `json:"surface"`
+	Repository string `json:"repository,omitempty"`
+	Binary     string `json:"binary,omitempty"`
+	Language   string `json:"language,omitempty"`
+}
+
+// valid reports a workspace the plan prompt can state: a cli with a binary
+// a cli surface may name, or a go library; and a repository on one line.
+func (w *PlanWorkspace) valid() bool {
+	if w == nil || w.Repository != oneLine(w.Repository) {
+		return false
+	}
+	switch w.Surface {
+	case SurfaceCLI:
+		return v1alpha1.ValidCLIBinary(w.Binary) && w.Language == ""
+	case SurfaceLibrary:
+		return w.Language == checks.LanguageGo && w.Binary == ""
+	}
+	return false
 }
 
 // PlanVerifyComponent is one previewed repository: the key a criterion's
@@ -759,9 +793,17 @@ type PlanVerifyComponent struct {
 // each field on one line, only the components with a key and a path, at
 // most planVerificationMaxComponents, in order, and Outcomes as set; nil
 // when no component is left, and the prompt then has no acceptance section.
+// A valid Workspace under Outcomes is kept alone, with no component; an
+// invalid one is dropped.
 func (v *PlanVerification) Normalize() *PlanVerification {
 	if v == nil {
 		return nil
+	}
+	if v.Outcomes && v.Workspace.valid() {
+		// A Project with no preview: its workspace, never components
+		// (SPEC-S2 O6).
+		w := *v.Workspace
+		return &PlanVerification{Outcomes: true, Workspace: &w}
 	}
 	var out *PlanVerification
 	for _, c := range v.Components {
@@ -799,7 +841,8 @@ func EncodePlanVerification(v *PlanVerification) string {
 // none. Anything EncodePlanVerification would not have written is refused:
 // unknown fields, trailing data, no component or more than
 // planVerificationMaxComponents, and a component without a key or a path or
-// with a field that is not plain one-line text.
+// with a field that is not plain one-line text; and a workspace beside a
+// component, without outcomes, or not valid.
 func DecodePlanVerification(s string) (*PlanVerification, error) {
 	if s == "" {
 		return nil, nil
@@ -812,6 +855,13 @@ func DecodePlanVerification(s string) (*PlanVerification, error) {
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, errors.New("plan verification: trailing data after the object")
+	}
+	if v.Workspace != nil {
+		if !v.Outcomes || len(v.Components) > 0 || !v.Workspace.valid() {
+			return nil, errors.New("plan verification: a workspace is stated alone, under outcomes, as a cli with " +
+				"its binary or a go library")
+		}
+		return &v, nil
 	}
 	if n := len(v.Components); n == 0 || n > planVerificationMaxComponents {
 		return nil, fmt.Errorf("plan verification: %d components, want 1 to %d", n, planVerificationMaxComponents)
