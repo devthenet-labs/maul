@@ -169,6 +169,47 @@ func TestSurfaceImage(t *testing.T) {
 	expect(t, r, CheckAgentImage, "api", checkreport.Skip, "default runner image")
 }
 
+// TestSurfaceImageConsequence: a FAIL the surface alone causes names what
+// it holds (the evaluation), never a build block requireRepositoryImage:
+// false does not impose; a Project that requires one keeps S1's words and
+// adds the surface's.
+func TestSurfaceImageConsequence(t *testing.T) {
+	const blocks = "every build and revise run blocks with ImageRequired"
+	no := false
+	cases := []struct {
+		name    string
+		require *bool
+		mutate  func(*world)
+		want    []string
+		notWant string
+	}{
+		{"undeclared, surface only", &no, func(w *world) {
+			delete(w.github.files[w.repo("lib").URL], ".maul/agent.yaml")
+		}, []string{"cli surface", v1alpha1.ReasonRepositoryImageRequired, "default runner image"}, blocks},
+		{"source off, surface only", &no, func(w *world) {
+			w.setting("source-controller", keyRepositoryImages, "false")
+		}, []string{"cli surface", v1alpha1.ReasonRepositoryImageRequired, "default runner image"}, blocks},
+		{"undeclared, both", nil, func(w *world) {
+			delete(w.github.files[w.repo("lib").URL], ".maul/agent.yaml")
+		}, []string{"requireRepositoryImage", blocks, "cli surface", v1alpha1.ReasonRepositoryImageRequired}, ""},
+		{"source off, both", nil, func(w *world) {
+			w.setting("source-controller", keyRepositoryImages, "false")
+		}, []string{blocks, "cli surface", v1alpha1.ReasonRepositoryImageRequired}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := agentsWorld(t)
+			w.project.Spec.RequireRepositoryImage = tc.require
+			tc.mutate(w)
+			r := w.run()
+			expect(t, r, CheckAgentImage, "lib", checkreport.Fail, tc.want...)
+			if c := line(t, r, CheckAgentImage, "lib"); tc.notWant != "" && strings.Contains(c.Reason, tc.notWant) {
+				t.Errorf("reason claims %q: %s", tc.notWant, c.Reason)
+			}
+		})
+	}
+}
+
 func TestSurfaceProfile(t *testing.T) {
 	cases := []struct {
 		name   string

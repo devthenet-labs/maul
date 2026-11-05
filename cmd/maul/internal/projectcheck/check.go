@@ -243,13 +243,46 @@ func (r *run) agentImages(ctx context.Context, s settings, surface *surfaceInfo)
 		polErr = s.Source.Err
 	}
 	for _, repo := range r.p.Spec.Repositories {
-		require, why := projectRequires, "the Project requires one (requireRepositoryImage)"
+		need := imageNeed{project: projectRequires}
 		if surface != nil && surface.key == repo.Name {
-			require, why = true, "the "+surface.kind+" surface needs one ("+v1alpha1.ReasonRepositoryImageRequired+
-				": the tool pod's sandboxes run it)"
+			need.surface = surface.kind
 		}
-		r.agentImage(ctx, repo, require, why, s.Source, pol, polErr)
+		r.agentImage(ctx, repo, need, s.Source, pol, polErr)
 	}
+}
+
+// imageNeed is who requires a repository's accepted image: the Project
+// (requireRepositoryImage), its cli or library surface, both or neither.
+type imageNeed struct {
+	project bool
+	// surface is the surface's kind when the repository is its, else "".
+	surface string
+}
+
+func (n imageNeed) required() bool { return n.project || n.surface != "" }
+
+// by names who requires the image.
+func (n imageNeed) by() string {
+	if n.project {
+		return "the Project requires one (requireRepositoryImage)"
+	}
+	return "the " + n.surface + " surface needs one"
+}
+
+// consequence is what a missing image does: a Project's requirement blocks
+// its builds, a surface's holds its evaluations, which only the accepted
+// image can run.
+func (n imageNeed) consequence() string {
+	const blocks = "every build and revise run blocks with ImageRequired"
+	held := "the " + n.surface + " surface's verification is not Ready (" + v1alpha1.ReasonRepositoryImageRequired +
+		") and its evaluations end unconfirmed: the tool pod's sandboxes run nothing else"
+	switch {
+	case n.surface == "":
+		return blocks
+	case n.project:
+		return blocks + ", and " + held
+	}
+	return held + ", while build and revise runs use the default runner image (requireRepositoryImage: false)"
 }
 
 // surfaceChecks runs the checks of a surface after its shape and image.
@@ -263,7 +296,7 @@ func (r *run) surfaceChecks(surface *surfaceInfo, s settings) {
 	}
 }
 
-func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, require bool, requiredBy string,
+func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, need imageNeed,
 	cfg previewcheck.ControllerConfig, pol imagePolicy, polErr error) {
 	key := repo.Name
 	head, err := r.head(ctx, repo.URL)
@@ -288,9 +321,8 @@ func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, r
 		if decl.Outcome == runnerimage.OutcomeNotApplicable {
 			why = fmt.Sprintf("%s declares no agent image: %s is not for maul (%s)", at, decl.Manifest, decl.Reason)
 		}
-		if require {
-			r.add(CheckAgentImage, key, checkreport.Fail, "%s, and %s, so every build and revise run blocks with "+
-				"ImageRequired", why, requiredBy)
+		if need.required() {
+			r.add(CheckAgentImage, key, checkreport.Fail, "%s, and %s, so %s", why, need.by(), need.consequence())
 		} else {
 			r.add(CheckAgentImage, key, checkreport.Skip, "%s; build and revise runs use the default runner image "+
 				"(requireRepositoryImage: false)", why)
@@ -298,12 +330,12 @@ func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, r
 		return
 	}
 	declared := fmt.Sprintf("%s (%s at %s)", decl.Image, decl.Manifest, at)
-	r.judgeAgentImage(ctx, key, decl.Image, declared, require, cfg, pol, polErr)
+	r.judgeAgentImage(ctx, key, decl.Image, declared, need, cfg, pol, polErr)
 }
 
 // judgeAgentImage judges one declared image under source-controller's
 // policy; declared names it and where it was declared, for the reasons.
-func (r *run) judgeAgentImage(ctx context.Context, key, image, declared string, require bool,
+func (r *run) judgeAgentImage(ctx context.Context, key, image, declared string, need imageNeed,
 	cfg previewcheck.ControllerConfig, pol imagePolicy, polErr error) {
 	switch {
 	case polErr != nil:
@@ -314,10 +346,10 @@ func (r *run) judgeAgentImage(ctx context.Context, key, image, declared string, 
 		r.add(CheckAgentImage, key, checkreport.Skip, "%s: no source-controller ConfigMap in namespace %s, so its "+
 			"policy is unknown; `maul check image %s` checks it by hand", declared, r.p.Namespace, image)
 		return
-	case !pol.enabled && require:
+	case !pol.enabled && need.required():
 		r.add(CheckAgentImage, key, checkreport.Fail, "%s: source-controller does not resolve repository-declared "+
-			"images (%s is not true in %s; the chart's agent.repositoryImages.enabled), so every build and "+
-			"revise run blocks with ImageRequired", declared, keyRepositoryImages, pol.from)
+			"images (%s is not true in %s; the chart's agent.repositoryImages.enabled), so %s", declared,
+			keyRepositoryImages, pol.from, need.consequence())
 		return
 	case !pol.enabled:
 		r.add(CheckAgentImage, key, checkreport.Skip, "%s: source-controller does not resolve repository-declared "+
