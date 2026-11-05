@@ -133,8 +133,9 @@ Rules the outcomes keep to:
 - `id`: lowercase letters, digits and hyphens, starting with a letter; at most 32; unique.
 - `outcome`: what must hold, one line of at most 500 characters, stated as behaviour a person can see ("the
   leaderboard lists the winner above the loser"), never as how the code does it.
-- `from`: the line of the request the outcome answers, copied exactly, at most 300 characters. Give every outcome
-  that answers the request its line, so the approver sees which lines no outcome covers.
+- `from`: the line of the request the outcome answers, copied exactly and whole, never shortened with "...": at most
+  300 characters, so for a longer line copy its first 300 characters exactly. Give every outcome that answers the
+  request its line, so the approver sees which lines no outcome covers.
 - `kind`: `change` (the default) for what the change makes true, `keep` for what it must not break.
 - `manual: true`, with a `reason` of at most 120 characters, for what only a person can judge.
 - Put `outcome`, `from` and `reason` in double quotes, and escape a double quote inside one as `\"`: an unquoted

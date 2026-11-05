@@ -26,7 +26,14 @@ var (
 	// inlineMarkup cuts the characters of inline code, emphasis,
 	// strikethrough and backslash escapes.
 	inlineMarkup = strings.NewReplacer("`", "", "*", "", "_", "", "~", "", "\\", "")
+	// ellipsis is where a from was shortened: three or more dots, or "…".
+	ellipsis = regexp.MustCompile(`\.{3,}|…`)
 )
+
+// minAbbreviated is the fewest letters and digits the pieces of a shortened
+// from must hold together to cover an item, so a few short words found far
+// apart never count as a quote.
+const minAbbreviated = 12
 
 // NotCovered returns the issue's list items that no outcome quotes in its
 // from, in issue order: the lines the plan may have left out, shown to the
@@ -39,6 +46,14 @@ var (
 // HTML, entities and shortcut reference links are compared as written. A
 // from with no letter or digit covers nothing.
 //
+// A from the planner shortened with an ellipsis ("..." or more dots, or
+// "…") at its start or inside it is cut there into pieces, each trimmed of
+// spaces and punctuation, the empty ones dropped. It covers an item when
+// its pieces occur in the item's plain text in order, without overlapping,
+// provided each piece holds a letter or digit and the pieces together hold
+// at least 12 (minAbbreviated); otherwise it covers nothing. A trailing
+// ellipsis is cut with the trailing punctuation, leaving a plain from.
+//
 // A list item is a line whose first text is a bullet (-, *, +) or ordered
 // (1. or 1)) marker followed by text, indented less than four columns or
 // continuing a list; a task box is cut from its text. Lines in fenced or
@@ -46,19 +61,18 @@ var (
 // blockquotes. The issue body is untrusted: the returned lines are its
 // text, for the caller to bound and render as such.
 func NotCovered(issueBody string, outcomes []PlanOutcome) []string {
-	froms := make([]string, 0, len(outcomes))
+	froms := make([][]string, 0, len(outcomes))
 	for _, o := range outcomes {
-		f := plainText(fromMarker.ReplaceAllString(strings.TrimSpace(o.From), ""))
-		if strings.ContainsFunc(f, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
-			froms = append(froms, f)
+		if pieces := fromPieces(o.From); pieces != nil {
+			froms = append(froms, pieces)
 		}
 	}
 	var out []string
 	for _, item := range listItems(issueBody) {
 		text := plainText(item)
 		covered := false
-		for _, f := range froms {
-			if strings.Contains(text, f) {
+		for _, pieces := range froms {
+			if containsInOrder(text, pieces) {
 				covered = true
 				break
 			}
@@ -69,6 +83,54 @@ func NotCovered(issueBody string, outcomes []PlanOutcome) []string {
 	}
 	return out
 }
+
+// fromPieces returns a from's plain pieces as NotCovered defines them: the
+// whole from when it has no ellipsis, nil when it covers nothing.
+func fromPieces(from string) []string {
+	f := plainText(fromMarker.ReplaceAllString(strings.TrimSpace(from), ""))
+	if !ellipsis.MatchString(f) {
+		if !strings.ContainsFunc(f, isAlnum) {
+			return nil
+		}
+		return []string{f}
+	}
+	var pieces []string
+	alnum := 0
+	for _, p := range ellipsis.Split(f, -1) {
+		p = strings.Trim(p, ".,;:!? ")
+		if p == "" {
+			continue
+		}
+		if !strings.ContainsFunc(p, isAlnum) {
+			return nil
+		}
+		for _, r := range p {
+			if isAlnum(r) {
+				alnum++
+			}
+		}
+		pieces = append(pieces, p)
+	}
+	if alnum < minAbbreviated {
+		return nil
+	}
+	return pieces
+}
+
+// containsInOrder reports whether every piece occurs in text after the one
+// before it, without overlapping it.
+func containsInOrder(text string, pieces []string) bool {
+	for _, p := range pieces {
+		i := strings.Index(text, p)
+		if i < 0 {
+			return false
+		}
+		text = text[i+len(p):]
+	}
+	return true
+}
+
+func isAlnum(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // plainText is the comparison form: inline markup cut, lowercased,
 // whitespace runs one space, trailing punctuation and space trimmed. The

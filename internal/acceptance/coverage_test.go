@@ -31,6 +31,13 @@ func TestNotCovered(t *testing.T) {
 		"whole milliseconds.\n" +
 		"- `POST /render/analyze` and `POST /render/wav` agree: for the same pattern, `X-Duration-Ms` equals " +
 		"the analysis's `durationMs`.\n"
+	const (
+		issue59First = "`GET /api/patterns?minBpm=<n>&maxBpm=<n>` returns only the patterns whose `bpm` is " +
+			"between the two values, inclusive, newest first, with the same `limit` rules as today. Either bound " +
+			"may be given alone."
+		issue59Second = "A bound that is not a whole number from 60 to 200, or a `minBpm` above `maxBpm`, gets 400."
+		issue59       = "Let people find beats in a tempo range.\n\n- " + issue59First + "\n- " + issue59Second + "\n"
+	)
 	tests := []struct {
 		name     string
 		body     string
@@ -96,6 +103,24 @@ func TestNotCovered(t *testing.T) {
 		{"markup does not cover a different line", "- `POST /render/wav` answers with a header\n",
 			from("POST /render/mp3 answers with a header"), []string{"`POST /render/wav` answers with a header"}},
 		{"a from of markup only covers nothing", "- `x`\n", from("``", "**", "[](u)"), []string{"`x`"}},
+		// #59: the planner shortened its quote of the 400 line with "...".
+		{"abbreviated with three dots", issue59, from("A bound that is not a whole number from 60 to 200 ... gets 400."),
+			[]string{issue59First}},
+		{"abbreviated with an ellipsis character", issue59, from("A bound that is not a whole number… gets 400"),
+			[]string{issue59First}},
+		{"abbreviated at both ends", issue59,
+			from("…returns only the patterns whose `bpm` is between...", "... above maxBpm, gets 400"), nil},
+		{"abbreviated with its marker", issue59, from("- A bound ... not a whole number ... gets 400"),
+			[]string{issue59First}},
+		{"pieces out of order", issue59, from("gets 400 ... A bound that is not a whole number"),
+			[]string{issue59First, issue59Second}},
+		{"pieces overlapping", "- whole number from 60\n", from("whole number ... number from 60"),
+			[]string{"whole number from 60"}},
+		{"pieces too short", issue59, from("a ... gets 400", "a bound ... 400"), []string{issue59First, issue59Second}},
+		{"a piece of punctuation only", issue59, from("A bound that is not a whole number ... - ... gets 400"),
+			[]string{issue59First, issue59Second}},
+		{"ellipsis only covers nothing", issue59, from("...", "…", "... , ...", "- …"),
+			[]string{issue59First, issue59Second}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -153,6 +178,51 @@ func TestNotCoveredProperty(t *testing.T) {
 			if !quoted[line] && !coveredBySome(line, outcomes) && !slices.Contains(got, line) {
 				t.Fatalf("case %d (seed %d): %q is quoted by no outcome and not reported", n, seed, line)
 			}
+		}
+	}
+}
+
+// TestNotCoveredAbbreviatedProperty: a from that quotes a bullet in
+// pieces, in order, joined by "..." or "…", covers it exactly when the
+// pieces hold at least twelve letters or digits.
+func TestNotCoveredAbbreviatedProperty(t *testing.T) {
+	r := rand.New(rand.NewSource(seed))
+	marks := []string{"...", " ... ", "…", " … ", "....", ", ... "}
+	for n := range 1000 {
+		ws := strings.Fields(sentence(r) + " " + sentence(r))
+		line := strings.Join(ws, " ")
+		var pieces []string
+		for i := 0; i < len(ws); {
+			j := i + 1 + r.Intn(3)
+			if j > len(ws) {
+				j = len(ws)
+			}
+			if r.Intn(3) > 0 {
+				pieces = append(pieces, strings.Join(ws[i:j], " "))
+			}
+			i = j + r.Intn(2)
+		}
+		if len(pieces) < 2 {
+			continue
+		}
+		var b strings.Builder
+		for i, p := range pieces {
+			if i > 0 {
+				b.WriteString(marks[r.Intn(len(marks))])
+			}
+			b.WriteString(p)
+		}
+		from := mangle(r, b.String())
+		alnum := 0
+		for _, c := range strings.Join(pieces, "") {
+			if unicode.IsLetter(c) || unicode.IsDigit(c) {
+				alnum++
+			}
+		}
+		got := NotCovered("- "+line+"\n", []PlanOutcome{{ID: "o", Outcome: "x", From: from}})
+		if covered := len(got) == 0; covered != (alnum >= 12) {
+			t.Fatalf("case %d (seed %d): from %q of %q: covered %v, %d letters or digits", n, seed, from, line,
+				covered, alnum)
 		}
 	}
 }
