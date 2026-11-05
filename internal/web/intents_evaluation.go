@@ -350,7 +350,7 @@ func (s *Server) addLedgerOutputs(ctx context.Context, in *v1alpha1.Intent, pv *
 }
 
 // ledgerDataKey is the key <pv>-ledger holds its entries under, one JSON
-// line each (internal/controller/preview ledgerKey).
+// line each (internal/toolledger Key).
 const ledgerDataKey = "ledger.jsonl"
 
 // ledgerLines decodes the ledger ConfigMap's lines by seq; a line that does

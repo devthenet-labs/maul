@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.14](https://github.com/devthenet-labs/maul/compare/v0.13.13...v0.13.14) (2026-11-05)
+
+
+### Bug Fixes
+
+* **acceptance:** count a from shortened with an ellipsis as covering its line ([#319](https://github.com/devthenet-labs/maul/issues/319)) ([fecdcff](https://github.com/devthenet-labs/maul/commit/fecdcffcacf290785f87f89e57edcd3be19c0636))
+* **acceptance:** never count a narrowed check as a vote that its outcome holds ([#321](https://github.com/devthenet-labs/maul/issues/321)) ([07777cd](https://github.com/devthenet-labs/maul/commit/07777cd5836139b99e0c943e9ced425393ad6623))
+* **evaluator:** ask for checks that a wrong build would fail ([#320](https://github.com/devthenet-labs/maul/issues/320)) ([b3e5a10](https://github.com/devthenet-labs/maul/commit/b3e5a1091da7b0ba9c343bac48190710fb6abbf7))
+
 ## [0.13.13](https://github.com/devthenet-labs/maul/compare/v0.13.12...v0.13.13) (2026-11-03)
 
 

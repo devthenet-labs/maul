@@ -259,7 +259,7 @@ type StepRecord struct {
 	// one of the check's own writes. Never a status (a 500 included), a
 	// pointer or header that resolves to nothing, no response, an unbuilt
 	// request or a missing capture. exec: only when the program printed
-	// checks.ExecAssertionMarker with an assertion id, never an exit code or
+	// its attempt's checks.ExecMarker with an assertion id, never an exit code or
 	// missing output alone, never a time limit. browser: an expect step's
 	// maul assertion or Playwright matcher on an element that was there,
 	// keyed by {{run}} (its locator, text or URL), never a count, a timeout,

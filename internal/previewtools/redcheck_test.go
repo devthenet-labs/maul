@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/checks"
@@ -99,15 +101,37 @@ func TestHTTPAssertionFailures(t *testing.T) {
 	})
 }
 
+// markedExecCheck's program names the attempt's marker, {{marker}}, and
+// its expect is met by output that ends with DONE: either its marker or
+// nothing decides it.
+const markedExecCheck = `{"id":"ws.echo","outcome":"live","form":"exec","exec":{
+ "argv":["python3","client.py","{{run}}"],"files":[{"path":"client.py","content":"print('{{marker}} x: y')\n"}],
+ "expect":{"exit":0,"stdoutContains":"DONE"}}}`
+
+// attemptMarkerPattern matches the marker maul substituted into an
+// attempt's program: the line start only that attempt's output may carry.
+var attemptMarkerPattern = regexp.MustCompile(`MAUL-ASSERTION-FAILED-[0-9a-f]{32}:`)
+
+func attemptMarker(t *testing.T, req *toolwire.ExecRequest) string {
+	t.Helper()
+	content := string(req.Files[0].Content)
+	m := attemptMarkerPattern.FindString(content)
+	if m == "" || strings.Contains(content, checks.ExecMarkerPlaceholder) {
+		t.Fatalf("{{marker}} not substituted in %q", content)
+	}
+	return m
+}
+
 // TestExecAssertionFailures: an exec check is red by assertion only when
-// its program said so itself, printing checks.ExecAssertionMarker with the
-// failing assertion's id at the start of a line (it reached and judged that
-// assertion), and the check's expectation failed; its assertion is that id.
-// An exit code alone (a crash, 126, 127, a signal), a traceback, missing
-// output, a marker naming no id, or a program killed at its time limit
-// never is.
+// its program said so itself, printing its attempt's marker (what
+// {{marker}} stood for) with the failing assertion's id at the start of a
+// line: it reached and judged that assertion. An exit code alone (a crash,
+// 126, 127, a signal), a traceback, missing output, a marker naming no id,
+// the bare MAUL-ASSERTION-FAILED an application can echo, or a program
+// killed at its time limit never is. %M in an output is the attempt's
+// marker.
 func TestExecAssertionFailures(t *testing.T) {
-	marked := checks.ExecAssertionMarker + " upset-stake: the stake was 1, expected more than 1\n"
+	marked := "%M upset-stake: the stake was 1, expected more than 1\n"
 	for _, tc := range []struct {
 		name      string
 		res       toolexec.Result
@@ -115,6 +139,7 @@ func TestExecAssertionFailures(t *testing.T) {
 	}{
 		{"its own failed assertion, exit 1", toolexec.Result{Exit: 1, Output: marked}, true},
 		{"its own failed assertion, output unmet", toolexec.Result{Exit: 0, Output: marked}, true},
+		{"a marker naming no id, then a valid one", toolexec.Result{Exit: 1, Output: "%M no id\n" + marked}, true},
 		{"wrong exit alone", toolexec.Result{Exit: 1}, false},
 		{"command not found", toolexec.Result{Exit: 127, Output: "sh: client.py: not found\n"}, false},
 		{"not executable", toolexec.Result{Exit: 126}, false},
@@ -122,15 +147,21 @@ func TestExecAssertionFailures(t *testing.T) {
 		{"a traceback", toolexec.Result{Exit: 1, Output: "Traceback (most recent call last):\n" +
 			"SyntaxError: invalid syntax\n"}, false},
 		{"output missing", toolexec.Result{Exit: 0, Output: "nothing"}, false},
-		{"a marker naming no assertion", toolexec.Result{Exit: 1, Output: checks.ExecAssertionMarker + " no\n"}, false},
+		{"a marker naming no assertion", toolexec.Result{Exit: 1, Output: "%M no\n"}, false},
 		{"the marker mid-line", toolexec.Result{Exit: 1, Output: "echo " + marked}, false},
+		{"the bare marker the application echoed", toolexec.Result{Exit: 1,
+			Output: "MAUL-ASSERTION-FAILED: upset-stake: x\n"}, false},
 		{"timed out", toolexec.Result{TimedOut: true, Output: marked}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ex := &fakeExec{run: func(*toolwire.ExecRequest, int) (toolexec.Result, error) { return tc.res, nil }}
+			ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {
+				res := tc.res
+				res.Output = strings.ReplaceAll(res.Output, "%M", attemptMarker(t, req))
+				return res, nil
+			}}
 			h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
-			rec := h.relay.runCheck(context.Background(), parseCheck(t, execCheck), toolwire.ModeDryRun)
-			if rec.Result != toolwire.RunFail || rec.Digest != bareDigest(t, execCheck) {
+			rec := h.relay.runCheck(context.Background(), parseCheck(t, markedExecCheck), toolwire.ModeDryRun)
+			if rec.Result != toolwire.RunFail || rec.Digest != bareDigest(t, markedExecCheck) {
 				t.Fatalf("got %+v", rec)
 			}
 			if _, ok := rec.AssertionStep(); ok != tc.assertion {
@@ -140,6 +171,72 @@ func TestExecAssertionFailures(t *testing.T) {
 				t.Errorf("assertion id %q, want marker upset-stake", rec.FailedAssertionID())
 			}
 		})
+	}
+}
+
+// TestExecMarkerFailsTheCheck (S1 demo #57; PR #320 F1, F3): a program
+// that prints its attempt's marker has said the outcome does not hold, so
+// the check fails whatever its exit code and its expect. Only that marker
+// counts: text the application controls and the program echoes (the bare
+// MAUL-ASSERTION-FAILED:, another attempt's marker) never turns a green
+// check red. A run whose output was cut at its bound never passes: a marker
+// past the cut would be lost, so it errs (never a fail) unless a marker
+// was kept. %M is the attempt's marker.
+func TestExecMarkerFailsTheCheck(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		res       toolexec.Result
+		want      toolwire.RunResult
+		assertion bool
+	}{
+		{"no marker", toolexec.Result{Output: "ok bpm=150\nDONE\n"}, toolwire.RunPass, false},
+		{"a marker, then exit 0 and the sentinel",
+			toolexec.Result{Output: "%M header-present: no X-Duration-Ms\nDONE\n"}, toolwire.RunFail, true},
+		{"a marker naming no assertion", toolexec.Result{Output: "%M no header\nDONE\n"}, toolwire.RunFail, false},
+		{"the marker mid-line", toolexec.Result{Output: "echo %M a: x\nDONE\n"}, toolwire.RunPass, false},
+		{"the application's text echoed", toolexec.Result{Output: "MAUL-ASSERTION-FAILED: header-present: " +
+			"from a response body\nMAUL-ASSERTION-FAILED-0123: a: x\nDONE\n"}, toolwire.RunPass, false},
+		{"another attempt's marker", toolexec.Result{Output: checks.ExecMarker(strings.Repeat("ab", 16)) +
+			" header-present: x\nDONE\n"}, toolwire.RunPass, false},
+		{"cut at its bound", toolexec.Result{Output: "DONE\n", Truncated: true}, toolwire.RunError, false},
+		{"cut at its bound, a marker kept",
+			toolexec.Result{Output: "%M header-present: x\nDONE\n", Truncated: true}, toolwire.RunFail, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {
+				res := tc.res
+				res.Output = strings.ReplaceAll(res.Output, "%M", attemptMarker(t, req))
+				return res, nil
+			}}
+			h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
+			rec := h.relay.runCheck(context.Background(), parseCheck(t, markedExecCheck), toolwire.ModeDryRun)
+			if rec.Result != tc.want {
+				t.Fatalf("result %s, want %s (%+v)", rec.Result, tc.want, rec)
+			}
+			if _, ok := rec.AssertionStep(); ok != tc.assertion {
+				t.Errorf("red by assertion %v, want %v (%+v)", ok, tc.assertion, rec)
+			}
+			if tc.assertion && rec.FailedAssertionID() != "marker header-present" {
+				t.Errorf("assertion id %q, want marker header-present", rec.FailedAssertionID())
+			}
+		})
+	}
+}
+
+// TestExecMarkerIsFreshPerAttempt (PR #320 F1): every attempt's program
+// gets a marker of its own, so one attempt's output can never decide
+// another's.
+func TestExecMarkerIsFreshPerAttempt(t *testing.T) {
+	ex := &fakeExec{run: func(*toolwire.ExecRequest, int) (toolexec.Result, error) {
+		return toolexec.Result{Exit: 1}, nil
+	}}
+	h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
+	rec := h.relay.runCheck(context.Background(), parseCheck(t, markedExecCheck), toolwire.ModeDryRun)
+	if rec.Result != toolwire.RunFail || len(ex.reqs) != 2 {
+		t.Fatalf("got %+v after %d attempts, want a fail after 2", rec, len(ex.reqs))
+	}
+	if a, b := attemptMarker(t, &ex.reqs[0]), attemptMarker(t, &ex.reqs[1]); a == b {
+		t.Errorf("both attempts got the marker %q", a)
 	}
 }
 

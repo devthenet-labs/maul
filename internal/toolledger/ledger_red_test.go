@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-package preview
+package toolledger
 
 import (
 	"encoding/json"
@@ -110,12 +110,12 @@ func TestConfirmedRedChecks(t *testing.T) {
 	otherAssertion, _ := l.dryRun(body("other-assertion"), failingOn(1, 1, true, "json /n"))
 	l.confirm(otherAssertion, true, failingOn(1, 1, true, "header x-n"))
 
-	got := confirmedChecks(l.entries, testOutcomes())
+	got := ConfirmedChecks(l.entries, testOutcomes())
 	if len(got) != 1 || got[0].Digest != "sha256:"+good || got[0].Expect != v1alpha1.CheckExpectFail ||
 		got[0].ID != "items.red" || got[0].FailedStep != 2 || got[0].FailedAssertion != "json /n" {
 		t.Fatalf("confirmed %+v, want only items.red, expected to fail at step 2", got)
 	}
-	runs := confirmationRuns(l.entries)
+	runs := ConfirmationRuns(l.entries)
 	if len(runs) != 8 {
 		t.Fatalf("confirmation runs %+v", runs)
 	}
@@ -143,7 +143,7 @@ func TestReplayRunsRecordAssertion(t *testing.T) {
 			CheckRun: &toolwire.CheckRunRecord{Digest: d, Mode: toolwire.ModeReplay,
 				Result: toolwire.DeriveResult(attempts), Attempts: attempts}})
 	}
-	runs := replayRuns(l.entries)
+	runs := ReplayRuns(l.entries)
 	if len(runs) != 2 || runs[0].AssertionStep != 2 || runs[1].AssertionStep != 0 {
 		t.Errorf("replays %+v, want the first red by assertion only", runs)
 	}
