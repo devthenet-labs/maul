@@ -132,6 +132,11 @@ const (
 	// RoleTools is the agent evaluator's slot tool pod, judged like the
 	// tester: by how it ran.
 	RoleTools = "tools"
+	// RoleBuild is the tool pod's build of the head (slice S2, the agents
+	// placement; PreviewPartRole "build"): it built only when it terminated
+	// Completed with exit 0. Only the head build is a part: a base the pod
+	// could not build is BaseRuns.Unbuildable, never a part.
+	RoleBuild = "build"
 )
 
 // PartFact is the environment evidence of one part of a Preview's slot,

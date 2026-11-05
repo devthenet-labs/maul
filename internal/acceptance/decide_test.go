@@ -167,9 +167,10 @@ func TestDecide(t *testing.T) {
 			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
 		},
 		{
-			name: "rule 5: a change outcome's check failing at base discriminates",
+			name: "rule 5: a change outcome's check red by assertion at base discriminates",
 			in: with(confirmedPass(), func(in *Input) {
-				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunFail, Token: "b", Seq: 1}}}
+				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunFail, Token: "b", Seq: 1,
+					AssertionStep: 1, AssertionID: "json /a"}}}
 			}),
 			result: ResultPassed, reason: ReasonConfirmed, basis: dg("a"), handoff: HandoffReady,
 		},
@@ -181,10 +182,11 @@ func TestDecide(t *testing.T) {
 			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
 		},
 		{
-			name: "rule 5: a keep outcome's check must pass at base",
+			name: "rule 5: a keep outcome's check red by assertion at base does not",
 			in: with(confirmedPass(), func(in *Input) {
 				in.Outcomes[0].Keep = true
-				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunFail, Token: "b", Seq: 1}}}
+				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunFail, Token: "b", Seq: 1,
+					AssertionStep: 1, AssertionID: "json /a"}}}
 			}),
 			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
 		},
@@ -561,7 +563,7 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 		}
 		in.Outcomes = append(in.Outcomes, o)
 	}
-	forms := []CheckForm{CheckFormHTTP, CheckFormBrowser, CheckFormExec, "judged"}
+	forms := []CheckForm{CheckFormHTTP, CheckFormBrowser, CheckFormExec, CheckFormRun, "judged"}
 	for _, c := range genDigests {
 		if r.Intn(4) != 0 {
 			in.Checks = append(in.Checks, StoredCheck{Digest: c, Outcome: pickOf(r, genOutcomes), Form: pickOf(r, forms),
@@ -572,7 +574,7 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 	}
 	in.Replay, in.Confirmations = genRuns(r), genRuns(r)
 	if r.Intn(2) == 0 {
-		in.Base = &BaseRuns{Runs: genRuns(r)}
+		in.Base = &BaseRuns{Runs: genRuns(r), Required: r.Intn(2) == 0, Unbuildable: r.Intn(6) == 0}
 	}
 	genBiased(r, &in)
 	for range r.Intn(4) {
@@ -586,11 +588,15 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 	if r.Intn(6) == 0 {
 		in.Anomalies = []AnomalyRef{{Summary: "s", Route: "/", Ledger: []int32{1}}}
 	}
-	switch r.Intn(6) {
+	switch r.Intn(12) {
 	case 0:
 		in.Env = []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true}}
 	case 1:
 		in.Env = []PartFact{{Name: "api", Role: RoleComponent, Unschedulable: true}}
+	case 2:
+		in.Env = []PartFact{failedBuild()}
+	case 3:
+		in.Env = []PartFact{{Name: "build-head", Role: RoleBuild, LastTermination: &Termination{Reason: "Completed"}}}
 	}
 	return reflect.ValueOf(genDecide{in})
 }
@@ -614,6 +620,22 @@ func genRuns(r *rand.Rand) []CheckRun {
 // judged.
 func genBiased(r *rand.Rand, in *Input) {
 	for _, c := range in.Checks {
+		if in.Base != nil && r.Intn(2) == 0 {
+			// A base run of the check (slice S2): mostly one that would
+			// discriminate (red by assertion for a change outcome, green
+			// for a keep one), else the other, a fail with no assertion or
+			// an error.
+			asserted := CheckRun{CheckDigest: c.Digest, Result: RunFail, Token: "tok-b", Seq: int32(r.Intn(20)),
+				AssertionStep: 1, AssertionID: pickOf(r, genAssertions)}
+			green := CheckRun{CheckDigest: c.Digest, Result: RunPass, Token: "tok-b", Seq: int32(r.Intn(20))}
+			bare := CheckRun{CheckDigest: c.Digest, Result: pickOf(r, []RunResult{RunFail, RunError}), Token: "tok-b",
+				Seq: int32(r.Intn(20))}
+			want, other := asserted, green
+			if slices.ContainsFunc(in.Outcomes, func(o OutcomeRef) bool { return o.ID == c.Outcome && o.Keep }) {
+				want, other = green, asserted
+			}
+			in.Base.Runs = append(in.Base.Runs, pickOf(r, []CheckRun{want, want, other, bare}))
+		}
 		if c.ExpectFail && c.Cleared && r.Intn(3) == 0 {
 			// Cleared and reviewed with the green question, then a replay
 			// fail: a saved green check's regression (fifth review, 4).
@@ -730,7 +752,7 @@ func oracleRules1To4(in Input, o OutcomeRef, basis string) error {
 	if !ok || c.Retired || slices.ContainsFunc(in.Retired, func(r Retirement) bool { return r.CheckDigest == basis }) {
 		return fmt.Errorf("rule 1: basis %s is not a stored, unretired check of %s", basis, o.ID)
 	}
-	if c.Form != CheckFormHTTP && c.Form != CheckFormBrowser && c.Form != CheckFormExec {
+	if !slices.Contains([]CheckForm{CheckFormHTTP, CheckFormBrowser, CheckFormExec, CheckFormRun}, c.Form) {
 		return fmt.Errorf("rule 1: form %q", c.Form)
 	}
 	if !c.Valid {
@@ -775,24 +797,74 @@ func oracleRedReview(in Input, digest string, o OutcomeRef) bool {
 	})
 }
 
+// oracleRule5 restates rule 5 with a base (slice S2): a required base needs
+// a run of the check unless it could not be built; a change outcome's check
+// is met only red by assertion at base (never green, quarantined or failing
+// with no assertion there), a keep outcome's never red by assertion or
+// quarantined there; errors and refusals are n/a. Either way a pass with no
+// run token, or a pass beside a fail, at base is no evidence: not met.
 func oracleRule5(in Input, o OutcomeRef, basis string) error {
 	if in.Base == nil {
 		return nil
 	}
+	var runs []CheckRun
 	for _, run := range in.Base.Runs {
-		if run.CheckDigest != basis {
-			continue
+		if run.CheckDigest == basis {
+			runs = append(runs, run)
 		}
-		switch {
-		case run.Result == RunQuarantined:
-			return fmt.Errorf("rule 5: quarantined at base")
-		case run.Result == RunPass && !o.Keep:
-			return fmt.Errorf("rule 5: change check passed at base")
-		case run.Result == RunFail && o.Keep:
-			return fmt.Errorf("rule 5: keep check failed at base")
+	}
+	if len(runs) == 0 && in.Base.Required && !in.Base.Unbuildable {
+		return fmt.Errorf("rule 5: no run at a required base")
+	}
+	passed := slices.ContainsFunc(runs, func(run CheckRun) bool { return run.Result == RunPass })
+	failed := slices.ContainsFunc(runs, func(run CheckRun) bool { return run.Result == RunFail })
+	if passed && failed {
+		return fmt.Errorf("rule 5: passed and failed at base")
+	}
+	for _, run := range runs {
+		if err := oracleBaseRun(o, run); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// oracleBaseRun is rule 5 on one base run of the basis.
+func oracleBaseRun(o OutcomeRef, run CheckRun) error {
+	asserted := run.Result == RunFail && run.AssertionStep > 0
+	switch {
+	case run.Result == RunQuarantined:
+		return fmt.Errorf("rule 5: quarantined at base")
+	case run.Result == RunPass && run.Token == "":
+		return fmt.Errorf("rule 5: a pass at base with no run token")
+	case run.Result == RunPass && !o.Keep:
+		return fmt.Errorf("rule 5: change check passed at base")
+	case run.Result == RunFail && !asserted && !o.Keep:
+		return fmt.Errorf("rule 5: change check failed at base with no assertion")
+	case asserted && o.Keep:
+		return fmt.Errorf("rule 5: keep check red by assertion at base")
+	}
+	return nil
+}
+
+// oracleBareFail reports a counted fail of digest this round that is not
+// red by assertion: a fail of a check saved red and uncleared, and a red
+// confirmation, count only red by assertion anyway.
+func oracleBareFail(in Input, digest string) bool {
+	c, red := oracleSavedRed(in, digest)
+	bare := func(run CheckRun) bool {
+		return run.CheckDigest == digest && run.Result == RunFail && run.AssertionStep == 0 && (!red || c.Cleared)
+	}
+	return slices.ContainsFunc(in.Replay, bare) || slices.ContainsFunc(in.Confirmations, func(run CheckRun) bool {
+		return !run.ExpectFail && bare(run)
+	})
+}
+
+// oracleProgram reports a stored program check (exec or run form) of digest.
+func oracleProgram(in Input, digest string) bool {
+	return slices.ContainsFunc(in.Checks, func(c StoredCheck) bool {
+		return c.Digest == digest && (c.Form == CheckFormExec || c.Form == CheckFormRun)
+	})
 }
 
 func oracleRule6(in Input, o OutcomeRef, _ string) error {
@@ -825,12 +897,31 @@ func oracleRound(in Input, o OutcomeRef, _ string) error {
 
 // decideStats counts what the property exercised, so a weak generator
 // fails instead of passing vacuously.
-type decideStats struct{ passed, fixes, clearedFixes, suspected, replays, ready int }
+type decideStats struct {
+	passed, fixes, clearedFixes, suspected, replays, ready int
+	// Slice S2: passes at a required base, passes on a check red by
+	// assertion there, outcomes O4 made unsure, failed head builds.
+	requiredPasses, assertedBasePasses, notAsserted, buildFailed int
+}
 
 func (s *decideStats) add(in Input, d Decision) {
 	for _, r := range d.PerOutcome {
 		if r.Result == ResultPassed {
 			s.passed++
+			if in.Base != nil && in.Base.Required && !in.Base.Unbuildable {
+				s.requiredPasses++
+			}
+			if in.Base != nil && slices.ContainsFunc(in.Base.Runs, func(run CheckRun) bool {
+				return run.CheckDigest == r.Basis && run.Result == RunFail && run.AssertionStep > 0
+			}) {
+				s.assertedBasePasses++
+			}
+		}
+		switch r.Reason {
+		case ReasonNotAsserted:
+			s.notAsserted++
+		case ReasonBuildFailed:
+			s.buildFailed++
 		}
 	}
 	if d.Fix != nil {
@@ -871,7 +962,7 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 		t.Error(err)
 	}
 	if stats.passed == 0 || stats.fixes == 0 || stats.clearedFixes == 0 || stats.suspected == 0 ||
-		stats.replays == 0 || stats.ready == 0 {
+		stats.replays == 0 || stats.ready == 0 || stats.notAsserted == 0 || stats.buildFailed == 0 {
 		t.Errorf("the generator is too weak: %+v", stats)
 	}
 }
@@ -880,6 +971,9 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 func checkDecision(in Input, d Decision) error {
 	if len(d.PerOutcome) != len(in.Outcomes) {
 		return fmt.Errorf("PerOutcome length %d for %d outcomes", len(d.PerOutcome), len(in.Outcomes))
+	}
+	if err := oracleHeadBuild(in, d); err != nil {
+		return err
 	}
 	allPassed := len(in.Outcomes) > 0
 	for i, r := range d.PerOutcome {
@@ -916,6 +1010,29 @@ func checkDecision(in Input, d Decision) error {
 	return nil
 }
 
+// oracleHeadBuild: a head the tool pod could not build (a build part that
+// did not complete with exit 0) leaves the round with no fail and no pass,
+// and nothing fixed, retired, replayed or narrowed.
+func oracleHeadBuild(in Input, d Decision) error {
+	failed := slices.ContainsFunc(in.Env, func(p PartFact) bool {
+		return p.Role == RoleBuild && (p.LastTermination == nil || p.LastTermination.ExitCode != 0 ||
+			p.LastTermination.Reason != "Completed" && p.LastTermination.Reason != "")
+	})
+	if !failed {
+		return nil
+	}
+	for _, r := range d.PerOutcome {
+		if r.Result != ResultUnsure {
+			return fmt.Errorf("head build failed but %s is %s", r.ID, r.Result)
+		}
+	}
+	if d.Fix != nil || d.Suspected != nil || d.ReplayRound || len(d.Retire) > 0 || len(d.Narrowed) > 0 ||
+		d.Env != EnvInfra {
+		return fmt.Errorf("head build failed but the decision acts on runs: %+v", d)
+	}
+	return nil
+}
+
 func oracleFixable(in Input, f FixFailure) error {
 	i := slices.IndexFunc(in.Outcomes, func(o OutcomeRef) bool { return o.ID == f.Outcome })
 	if i < 0 {
@@ -928,6 +1045,9 @@ func oracleFixable(in Input, f FixFailure) error {
 	}
 	if err := oracleFixRun(in, o, f); err != nil {
 		return err
+	}
+	if oracleProgram(in, f.CheckDigest) && oracleBareFail(in, f.CheckDigest) {
+		return fmt.Errorf("O4: a program check failing with no assertion")
 	}
 	if !oracleProves(in, f.CheckDigest, o) {
 		return fmt.Errorf("failing check not reviewed proves")
