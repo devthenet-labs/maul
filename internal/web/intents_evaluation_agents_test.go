@@ -64,7 +64,9 @@ func TestRunEvaluationSlotHasNoAgentsFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"placement", "noBaseComparison", "builds", `"base"`} {
+	// A slot round has no trees: its runs carry no tree, so the S1 view is
+	// unchanged.
+	for _, k := range []string{"placement", "noBaseComparison", "builds", `"base"`, `"tree"`} {
 		if strings.Contains(string(b), k) {
 			t.Errorf("slot view carries %s: %s", k, b)
 		}

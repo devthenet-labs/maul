@@ -217,6 +217,7 @@ func evaluationChecks(pv *v1alpha1.PreviewVerification, disputed map[string]bool
 	for _, r := range pv.Status.Confirmations {
 		confirm[r.CheckDigest] = r
 	}
+	agents := pv.Spec.IsAgents()
 	base := map[string]v1alpha1.CheckRun{}
 	if pv.Status.Base != nil {
 		for _, r := range pv.Status.Base.Runs {
@@ -234,15 +235,15 @@ func evaluationChecks(pv *v1alpha1.PreviewVerification, disputed map[string]bool
 			Source: source, Steps: indentedBody(c.Body), Disputed: disputed[c.Digest]}
 		token := ""
 		if r, ok := replay[c.Digest]; ok {
-			ec.Replay = wireCheckRun(r)
+			ec.Replay = wireCheckRun(r, agents)
 			token = r.Token
 		}
 		if r, ok := confirm[c.Digest]; ok {
-			ec.Confirmation = wireCheckRun(r)
+			ec.Confirmation = wireCheckRun(r, agents)
 			token = r.Token
 		}
 		if r, ok := base[c.Digest]; ok {
-			ec.Base = wireCheckRun(r)
+			ec.Base = wireCheckRun(r, agents)
 		}
 		if c.Form == v1alpha1.CheckFormBrowser {
 			ec.Compiled, ec.CompiledToken = compiledSpec(c.Body, token)
@@ -258,9 +259,15 @@ func evaluationChecks(pv *v1alpha1.PreviewVerification, disputed map[string]bool
 	return out
 }
 
-func wireCheckRun(r v1alpha1.CheckRun) *EvaluationCheckRun {
-	return &EvaluationCheckRun{Result: string(r.Result), Token: r.Token, Seq: r.Seq, DryRunSeq: r.DryRunSeq,
-		Tree: string(r.Side())}
+// wireCheckRun is one run for the page. Only an agents round has trees, so
+// only its runs name one (unset reads as head); a slot round's stay as S1
+// showed them.
+func wireCheckRun(r v1alpha1.CheckRun, agents bool) *EvaluationCheckRun {
+	out := &EvaluationCheckRun{Result: string(r.Result), Token: r.Token, Seq: r.Seq, DryRunSeq: r.DryRunSeq}
+	if agents {
+		out.Tree = string(r.Side())
+	}
+	return out
 }
 
 // agentsView fills what only an agents round has: its placement, the label

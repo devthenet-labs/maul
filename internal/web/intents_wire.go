@@ -396,9 +396,9 @@ type EvaluationCheckRun struct {
 	Token     string `json:"token"`
 	Seq       int32  `json:"seq"`
 	DryRunSeq int32  `json:"dryRunSeq,omitempty"`
-	// Tree is the tree the run ran against, head or base (unset reads as
-	// head).
-	Tree string `json:"tree"`
+	// Tree is the tree an agents round's run ran against, head or base
+	// (unset reads as head); never set on a slot round's run.
+	Tree string `json:"tree,omitempty"`
 }
 
 // EvaluationBuild is one tree's build in an agents tool pod.

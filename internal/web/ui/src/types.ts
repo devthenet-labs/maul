@@ -829,8 +829,9 @@ export interface EvaluationCheckRun {
   token: string;
   seq: number;
   dryRunSeq?: number;
-  // tree: the tree the run ran against, "head" or "base".
-  tree: string;
+  // tree: the tree an agents round's run ran against, "head" or "base";
+  // unset on a slot round's run.
+  tree?: string;
 }
 
 export interface EvaluationBuild {

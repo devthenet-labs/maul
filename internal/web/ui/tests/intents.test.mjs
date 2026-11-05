@@ -12,6 +12,7 @@ import {
   evidenceImageURL,
   formatDuration,
   groupByColumn,
+  handoffLine,
   mergeRunOutput,
   outputSegments,
   outputStatus,
@@ -440,4 +441,19 @@ test("the demo evaluate run has an evaluation, other runs none", () => {
   const ev = mockRunEvaluation("storefront-7", "storefront-7-ev-r1-a1");
   assert.ok(ev && ev.outcomes.length > 0 && ev.checks.length > 0);
   assert.equal(mockRunEvaluation("storefront-7", "storefront-7-plan-r1-a1"), null);
+});
+
+test("an agents round's hand-off line never mentions a preview", () => {
+  for (const reason of ["ready", "unconfirmed", "out-of-time", "human", "command", "early", "evaluator-unverified"]) {
+    for (const released of [true, false]) {
+      const line = handoffLine({ mode: "gated", released, reason }, "agents", "");
+      assert.doesNotMatch(line, /preview/i, line);
+      const slot = handoffLine({ mode: "gated", released, reason }, undefined, "");
+      assert.match(slot, /^Preview /, slot);
+    }
+  }
+  assert.equal(
+    handoffLine({ mode: "gated", released: true, reason: "ready" }, undefined, " 5 Nov"),
+    "Preview handed over 5 Nov: maul checked the approved outcomes.",
+  );
 });

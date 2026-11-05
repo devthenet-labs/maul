@@ -10,7 +10,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { EvaluationBuild, EvaluationCheck, EvaluationCheckRun, EvaluationLedgerEntry, EvaluationOutcome, RunEvaluation } from "../types";
 import { fetchRunEvaluation } from "../api";
 import { formatDate } from "../format";
-import { HANDOFF_REASONS, evidenceImageURL, resultTone, shortDigest } from "../intents";
+import { evidenceImageURL, handoffLine, resultTone, shortDigest } from "../intents";
 import { PlainText } from "./PlainText";
 import { Pill } from "./Pills";
 
@@ -62,11 +62,13 @@ function Outcome({ o, transcripts }: { o: EvaluationOutcome; transcripts: boolea
   );
 }
 
-// RunPill is one run of a check, with the tree it ran against.
+// RunPill is one run of a check, with the tree it ran against (an agents
+// round only; a slot round's runs name none).
 function RunPill({ label, r }: { label: string; r: EvaluationCheckRun }) {
   return (
     <Pill tone={resultTone(r.result)}>
-      {label} {r.result} · {r.tree || "head"}
+      {label} {r.result}
+      {r.tree ? ` · ${r.tree}` : ""}
     </Pill>
   );
 }
@@ -173,22 +175,13 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
           No base comparison: the base tree did not build, so no check was compared against it.
         </p>
       ) : null}
-      {data.handoff && data.placement === "agents" ? (
+      {data.handoff ? (
         <p class="mt-0 mb-3 text-[12.5px]">
-          {data.handoff.released
-            ? `Result handed over${data.handoff.releasedAt ? ` ${formatDate(data.handoff.releasedAt)}` : ""}: ${
-                HANDOFF_REASONS[data.handoff.reason ?? ""] ?? data.handoff.reason ?? ""
-              }.`
-            : `Result held (${data.handoff.mode}) until the evaluation settles.`}
-        </p>
-      ) : null}
-      {data.handoff && data.placement !== "agents" ? (
-        <p class="mt-0 mb-3 text-[12.5px]">
-          {data.handoff.released
-            ? `Preview handed over${data.handoff.releasedAt ? ` ${formatDate(data.handoff.releasedAt)}` : ""}: ${
-                HANDOFF_REASONS[data.handoff.reason ?? ""] ?? data.handoff.reason ?? ""
-              }.`
-            : `Preview held (${data.handoff.mode}) until the evaluation settles.`}
+          {handoffLine(
+            data.handoff,
+            data.placement,
+            data.handoff.releasedAt ? ` ${formatDate(data.handoff.releasedAt)}` : "",
+          )}
         </p>
       ) : null}
 
