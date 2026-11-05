@@ -24,47 +24,78 @@ type ExecCheck struct {
 	Expect  ExecExpect `json:"expect"`
 }
 
-// ExecAssertionMarker starts the line an exec check's program prints when
-// it reached and judged one of its own assertions and found the outcome
-// does not hold: "MAUL-ASSERTION-FAILED: <id>: <what it saw>", <id> naming
-// that assertion (lowercase letters, digits and hyphens, at most 32,
-// starting with a letter). The output is the program's stdout and stderr
-// combined. A run whose output has a line that starts with the marker fails
+// ExecMarkerPlaceholder is what an exec check's program files write where
+// they print the assertion marker: maul replaces it, in the files only, with
+// the attempt's marker (ExecMarker of a nonce drawn afresh for every
+// attempt, never sent to the application), so only the program can print it
+// (PR #320 review F1). A program prints "{{marker}} <id>: <what it saw>"
+// when it reached and judged one of its own assertions and found the
+// outcome does not hold, <id> naming that assertion (lowercase letters,
+// digits and hyphens, at most 32, starting with a letter). The output is the
+// program's stdout and stderr combined, so text the application controls
+// that the program echoes (a body, a traceback) lands there too; it cannot
+// know the nonce, so it can never pass for a marker.
+//
+// A run whose output has a line that starts with the attempt's marker fails
 // the check, whatever its exit code and its expect (ExecMarked, S1 demo
 // #57: a program that prints it and goes on to exit 0 is no pass). Only such
 // a run whose marker names a valid id is red by assertion, its assertion
 // that id; an exit code alone, a crash, a traceback or missing output never
 // is: a broken program fails the same way. The marker is the program's own
 // word, so the check reviewer judges the condition it is printed under.
-const ExecAssertionMarker = "MAUL-ASSERTION-FAILED:"
+const ExecMarkerPlaceholder = "{{marker}}"
+
+// execMarkerPrefix starts every attempt's marker.
+const execMarkerPrefix = "MAUL-ASSERTION-FAILED-"
+
+// ExecMarker is the marker of the attempt whose nonce is nonce: the line
+// start its program's ExecMarkerPlaceholder stands for.
+func ExecMarker(nonce string) string { return execMarkerPrefix + nonce + ":" }
+
+// ExecProgram is a program file's content with ExecMarkerPlaceholder
+// replaced by the attempt's marker; nothing else is touched.
+func ExecProgram(content, marker string) string {
+	return strings.ReplaceAll(content, ExecMarkerPlaceholder, marker)
+}
+
+// validMarker reports a marker ExecMarker could have made with a nonce.
+func validMarker(marker string) bool {
+	return len(marker) > len(execMarkerPrefix)+1 && strings.HasPrefix(marker, execMarkerPrefix) &&
+		strings.HasSuffix(marker, ":")
+}
 
 // execAssertionID is a marker's assertion id.
 var execAssertionID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
 // ExecAssertion is the id of the assertion a program's output says failed:
-// its first line that starts with ExecAssertionMarker, "<id>: <what>". ok
-// is false when no line does, or the first names no valid id.
-func ExecAssertion(output string) (string, bool) {
-	for _, line := range strings.Split(output, "\n") {
-		rest, found := strings.CutPrefix(strings.TrimSuffix(line, "\r"), ExecAssertionMarker)
+// the first line that starts with the attempt's marker and goes on
+// "<id>: <what>" with a valid id (PR #320 review F6). ok is false when no
+// line does.
+func ExecAssertion(output, marker string) (string, bool) {
+	if !validMarker(marker) {
+		return "", false
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSuffix(line, "\r"), marker)
 		if !found {
 			continue
 		}
-		id, _, ok := strings.Cut(strings.TrimSpace(rest), ":")
-		if !ok || !execAssertionID.MatchString(id) {
-			return "", false
+		if id, _, ok := strings.Cut(strings.TrimSpace(rest), ":"); ok && execAssertionID.MatchString(id) {
+			return id, true
 		}
-		return id, true
 	}
 	return "", false
 }
 
 // ExecMarked reports whether a program's output has a line that starts
-// with ExecAssertionMarker, naming a valid id or not: the program found
+// with the attempt's marker, naming a valid id or not: the program found
 // the outcome does not hold, so the check fails.
-func ExecMarked(output string) bool {
+func ExecMarked(output, marker string) bool {
+	if !validMarker(marker) {
+		return false
+	}
 	for line := range strings.SplitSeq(output, "\n") {
-		if strings.HasPrefix(line, ExecAssertionMarker) {
+		if strings.HasPrefix(line, marker) {
 			return true
 		}
 	}

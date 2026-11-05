@@ -84,31 +84,41 @@ func TestEvaluatePromptAsksForChecksThatCanGoRed(t *testing.T) {
 	}
 }
 
-// TestExecMarkerFailsTheCheckIsStated (S1 demo #57): maul fails an exec
-// check whose output has a marker line whatever its exit code, so the
-// evaluator is told to print it for every failed assertion and to assert on
-// what the program observed, and the reviewer of an exec check is told how
-// maul runs it.
+// TestExecMarkerFailsTheCheckIsStated (S1 demo #57; PR #320 F1, F2, F3):
+// maul fails an exec check whose output has a line starting with what
+// {{marker}} stands for, a secret drawn for every run, whatever its exit
+// code, and never passes an output cut at its bound. The evaluator is told
+// to print it only for an assertion's final judgement, never inside a retry
+// or poll or on an error, and to assert on what the program observed; the
+// reviewer of an exec check is told how maul runs it.
 func TestExecMarkerFailsTheCheckIsStated(t *testing.T) {
 	ev, err := RenderEvaluatePrompt(testEvaluatePrompt())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"maul fails an exec check whose output has a line that starts with `" + checks.ExecAssertionMarker +
-			"`, whatever its exit code and its `expect`",
+		"maul fails an exec check whose output has a line that starts with what `" +
+			checks.ExecMarkerPlaceholder + "` in its program files stands for (a secret maul draws for every run), " +
+			"whatever its exit code and its `expect`",
+		"when its final judgement of an assertion finds the outcome does not hold, never inside a retry or poll, " +
+			"on a connection error, a status code or an exception",
 		"never only on a line it prints whatever happened (`DONE`)",
+		"A run whose output is too long to keep whole (over 64 KiB) never passes",
 	} {
 		if !strings.Contains(flat(ev), want) {
 			t.Errorf("evaluate prompt lacks %q", want)
 		}
 	}
+	if strings.Contains(ev, "MAUL-ASSERTION-FAILED") {
+		t.Error("the evaluate prompt names a marker the program could print without {{marker}}")
+	}
 	cr, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleExecCheck)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "It also fails whenever a line of its output starts with `" + checks.ExecAssertionMarker +
-		"`, whatever its exit code and whatever else it prints."
+	want := "It also fails whenever a line of its output starts with what `" + checks.ExecMarkerPlaceholder +
+		"` in its program files stands for, a secret maul draws afresh for every run and gives only the program, " +
+		"whatever its exit code and whatever else it prints; a run whose output is too long to keep whole never passes."
 	if !strings.Contains(flat(cr), want) {
 		t.Errorf("exec review prompt lacks %q", want)
 	}
@@ -116,7 +126,7 @@ func TestExecMarkerFailsTheCheckIsStated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(http, checks.ExecAssertionMarker) {
+	if strings.Contains(http, checks.ExecMarkerPlaceholder) {
 		t.Error("an http check's review names the exec marker")
 	}
 }

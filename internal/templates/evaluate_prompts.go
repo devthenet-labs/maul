@@ -246,11 +246,11 @@ func replayedGreen(replays []PriorReplay) map[string]bool {
 	return green
 }
 
-// ExecMarker is checks.ExecAssertionMarker, for the templates: a line of an
-// exec check's output that starts with it fails the check
+// ExecMarker is checks.ExecMarkerPlaceholder, for the templates: a line of an
+// exec check's output that starts with what it stands for fails the check
 // (checks.ExecMarked).
-func (evaluateView) ExecMarker() string    { return checks.ExecAssertionMarker }
-func (checkReviewView) ExecMarker() string { return checks.ExecAssertionMarker }
+func (evaluateView) ExecMarker() string    { return checks.ExecMarkerPlaceholder }
+func (checkReviewView) ExecMarker() string { return checks.ExecMarkerPlaceholder }
 
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
 // have written its report: a tenth of its turns, at least 2, kept back for
@@ -535,7 +535,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	}
 	v.Components = boundEvaluateComponents(p.Components)
 	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
-		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
+		v.Marker = checks.ExecMarkerPlaceholder + " " + quotedLine(id, 64) + ":"
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
@@ -644,7 +644,8 @@ const (
   "form": "exec",
   "exec": {
     "argv": ["python3", "client.py", "{{run}}"],
-    "files": [{"path": "client.py", "content": "import sys\n# connect, send, print the reply as JSON\n"}],
+    "files": [{"path": "client.py",
+               "content": "import json, sys\n# judge once; on a fail print {{marker}} score-shown: <what>\n"}],
     "timeout": "30s",
     "expect": {"exit": 0, "stdoutJSON": {"/player": "{{run}}-alice"}}
   }

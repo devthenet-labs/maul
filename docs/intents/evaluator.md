@@ -194,10 +194,15 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      expected value names one. No status counts, a 500 included, nor a pointer or header that resolves to nothing, a
      total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to keep. The
      check may list only success statuses.
-   - `exec`: only a program that says so itself, printing `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a
-     line of its output (stdout and stderr combined), `<id>` naming the assertion. A line that starts with the marker
-     fails the check whatever its exit code and its expectation, so a program that prints it and goes on to exit 0 is
-     never a pass. An exit code alone, a crash, `127` or a traceback never is.
+   - `exec`: only a program that says so itself, printing `{{marker}} <id>: <what it saw>` at the start of a line of its
+     output (stdout and stderr combined), `<id>` naming the assertion. maul replaces `{{marker}}` in the program's
+     files, and nowhere else, with a line start drawn afresh for every attempt (`MAUL-ASSERTION-FAILED-` and 32 random
+     hex characters), so text the application answers with that the program echoes (a body, a traceback) can never pass
+     for one; only lines carrying that attempt's own marker count, the first with a valid id naming the assertion. A
+     line that starts with the marker fails the check whatever its exit code and its expectation, so a program that
+     prints it and goes on to exit 0 is never a pass. A run whose output is cut at its 64 KiB bound is never a pass
+     either (a marker past the cut would be lost): it errs, unless a marker was kept. An exit code alone, a crash, `127`
+     or a traceback never makes a check red by assertion.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
      or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
      `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,
@@ -222,9 +227,10 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    application's state was not fresh. It answers `proves` only if the check encodes the outcome as approved, would pass
    on a build where the outcome holds, and that assertion is the outcome itself and about data the check created, not
    setup or something incidental. For an `exec` check it is shown the marker its program printed and answers whether the
-   program prints it only when the approved outcome is violated, never on a connection error, a status code, a timeout
-   or an exception. The answer counts only for that assertion: another failing assertion of the check needs a review of
-   its own. Anything else and the check is not stored; the outcome stays unsure.
+   program prints it only when the approved outcome is violated, never inside a retry or poll before its final
+   judgement, on a connection error, a status code, a timeout or an exception. The answer counts only for that
+   assertion: another failing assertion of the check needs a review of its own. Anything else and the check is not
+   stored; the outcome stays unsure.
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.

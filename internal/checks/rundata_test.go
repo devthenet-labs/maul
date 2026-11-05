@@ -53,45 +53,72 @@ func TestWritesRunData(t *testing.T) {
 	}
 }
 
-// TestExecAssertion (second review, 2B): the exec marker names the
-// assertion that failed, "MAUL-ASSERTION-FAILED: <id>: <what>", at the start
-// of a line; without an id it names none.
+// testMarker is the line start one attempt's {{marker}} stands for.
+var testMarker = ExecMarker("0123456789abcdef0123456789abcdef")
+
+// TestExecAssertion (second review, 2B; PR #320 F1, F6): the exec marker
+// names the assertion that failed, "<marker> <id>: <what>", at the start of
+// a line, the marker being this attempt's own; the first line that carries
+// it with a valid id names it. A bare MAUL-ASSERTION-FAILED: (text the
+// application can echo) or another attempt's marker names none.
 func TestExecAssertion(t *testing.T) {
+	other := ExecMarker("ffffffffffffffffffffffffffffffff")
 	for _, tc := range []struct {
 		out, id string
 		ok      bool
 	}{
-		{"x\nMAUL-ASSERTION-FAILED: upset-stake: stake 1, want more\n", "upset-stake", true},
-		{"MAUL-ASSERTION-FAILED: the stake was 1\n", "", false},
-		{"MAUL-ASSERTION-FAILED: Bad_ID: x\n", "", false},
-		{"echo MAUL-ASSERTION-FAILED: a: x\n", "", false},
+		{"x\n" + testMarker + " upset-stake: stake 1, want more\n", "upset-stake", true},
+		{testMarker + " the stake was 1\n", "", false},
+		{testMarker + " Bad_ID: x\n", "", false},
+		{testMarker + " no id\n" + testMarker + " upset-stake: x\n", "upset-stake", true},
+		{"echo " + testMarker + " a: x\n", "", false},
+		{"MAUL-ASSERTION-FAILED: upset-stake: from the application\n", "", false},
+		{other + " upset-stake: another attempt's\n", "", false},
 		{"nothing\n", "", false},
 	} {
-		id, ok := ExecAssertion(tc.out)
+		id, ok := ExecAssertion(tc.out, testMarker)
 		if id != tc.id || ok != tc.ok {
 			t.Errorf("ExecAssertion(%q) = %q, %v; want %q, %v", tc.out, id, ok, tc.id, tc.ok)
 		}
 	}
+	if _, ok := ExecAssertion("MAUL-ASSERTION-FAILED-: a: x\n", ""); ok {
+		t.Error("an empty marker matched")
+	}
 }
 
-// TestExecMarked (S1 demo #57): any line that starts with the marker, a
-// valid id or not, says the program found the outcome does not hold.
+// TestExecMarked (S1 demo #57; PR #320 F1): a line that starts with this
+// attempt's marker, a valid id or not, says the program found the outcome
+// does not hold. A line the application could have written (the bare
+// MAUL-ASSERTION-FAILED:, another marker) never does.
 func TestExecMarked(t *testing.T) {
 	for _, tc := range []struct {
 		out  string
 		want bool
 	}{
-		{"x\nMAUL-ASSERTION-FAILED: upset-stake: stake 1, want more\nDONE\n", true},
-		{"MAUL-ASSERTION-FAILED: the stake was 1\r\n", true},
-		{"MAUL-ASSERTION-FAILED:", true},
-		{"echo MAUL-ASSERTION-FAILED: a: x\n", false},
-		{"maul-assertion-failed: a: x\n", false},
+		{"x\n" + testMarker + " upset-stake: stake 1, want more\nDONE\n", true},
+		{testMarker + " the stake was 1\r\n", true},
+		{testMarker, true},
+		{"echo " + testMarker + " a: x\n", false},
+		{"MAUL-ASSERTION-FAILED: a: x\nDONE\n", false},
+		{ExecMarker("ffffffffffffffffffffffffffffffff") + " a: x\n", false},
 		{"nothing\nDONE\n", false},
 		{"", false},
 	} {
-		if got := ExecMarked(tc.out); got != tc.want {
+		if got := ExecMarked(tc.out, testMarker); got != tc.want {
 			t.Errorf("ExecMarked(%q) = %v, want %v", tc.out, got, tc.want)
 		}
+	}
+	if ExecMarked("MAUL-ASSERTION-FAILED-: a\n", "") || ExecMarked("x\n", "") {
+		t.Error("an empty marker matched")
+	}
+}
+
+// TestExecProgram (PR #320 F1): {{marker}} in a program file stands for
+// the attempt's marker; nothing else is touched.
+func TestExecProgram(t *testing.T) {
+	got := ExecProgram("print('{{marker}} a: x', '{{run}}')\n", testMarker)
+	if want := "print('" + testMarker + " a: x', '{{run}}')\n"; got != want {
+		t.Errorf("ExecProgram = %q, want %q", got, want)
 	}
 }
 

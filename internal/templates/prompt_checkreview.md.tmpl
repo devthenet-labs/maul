@@ -64,8 +64,9 @@ window always {{.Viewport.Width}} by {{.Viewport.Height}} CSS pixels, each an ac
 person can see the element, `legible` that a person can read its text, and `clickable` that it, not something covering
 it, receives a click.{{else}}the program runs without a shell in a
 sandbox that can reach the running preview, and the check fails unless its exit code and output match its
-`expect`. It also fails whenever a line of its output starts with `{{.ExecMarker}}`, whatever its exit code and
-whatever else it prints.{{end}}
+`expect`. It also fails whenever a line of its output starts with what `{{.ExecMarker}}` in its program files stands
+for, a secret maul draws afresh for every run and gives only the program, whatever its exit code and whatever else it
+prints; a run whose output is too long to keep whole never passes.{{end}}
 Every `{{"{{"}}run{{"}}"}}` is replaced by a fresh token on every run, so the data a check creates is its own.
 
 ## How to judge
@@ -107,8 +108,9 @@ Answer `proves` only if all of these hold:
 {{- end}}
 {{- if .Marker}}
 4. The program decides this failure itself: it printed `{{.Marker}}`. Find where it prints that line, and answer
-   `proves` only if it prints it only when the approved outcome is violated by what it observed: never on a connection
-   or transport error, a status code, a timeout, an exception or bad input.
+   `proves` only if it prints it only when the approved outcome is violated by what it observed: never inside a retry
+   or poll before its final judgement of that assertion, and never on a connection or transport error, a status code,
+   a timeout, an exception or bad input.
 {{- end}}
 
 Answer `does_not_prove` if any of them does not hold, and `unclear` if you cannot tell from what is shown.

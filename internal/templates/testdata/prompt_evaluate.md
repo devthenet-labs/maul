@@ -211,9 +211,11 @@ the outcome does. For an `http` check only content counts: a JSON pointer that r
 that is there with another value, or text missing from a body that is not an HTML page. No status is an assertion for
 such a check, a 500 included (it can be the check's own malformed request), and a JSON pointer or a header that
 resolves to nothing is not one either. An `exec` check's program must say so itself: where it finds the outcome does
-not hold it prints `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a line of its output (stdout and stderr), the
-id naming that assertion (lowercase letters, digits and hyphens); print it for that and nothing else, never on a
-connection error, a status code or an exception. An exit code alone, a crash or a traceback never shows a defect. A
+not hold it prints `{{marker}} <id>: <what it saw>` at the start of a line of its output (stdout and stderr), the
+id naming that assertion (lowercase letters, digits and hyphens). Write `{{marker}}` as it is in the program file:
+maul replaces it on every run with a secret line start only that run's program is given, so nothing the application
+answers can pass for it. Print it for the final judgement of an assertion and nothing else, never inside a retry or
+poll, on a connection error, a status code or an exception. An exit code alone, a crash or a traceback never shows a defect. A
 check that shows a defect must write data of its own run: name `{{run}}` in a POST, PUT or PATCH, a
 browser fill or its program, and the assertion that fails must be about that data: its step reads a path that names
 `{{run}}` or a value captured from the check's own writes (a write naming `{{run}}` or such a
@@ -249,11 +251,13 @@ A check is bound to one outcome and has one form:
   `scroll` step on that container). Assert `legible` for "can a person read it" and `visible` for "is it there".
   Never assert a colour value: a colour literal is refused.
 - `exec`: an `argv` run in the sandbox without a shell, with its program `files`, asserting on its `exit` code,
-  `stdoutContains` and `stdoutJSON`. maul fails an exec check whose output has a line that starts with
-  `MAUL-ASSERTION-FAILED:`, whatever its exit code and its `expect`: have the program print
-  `MAUL-ASSERTION-FAILED: <id>: <what it saw>` for every assertion that does not hold, and let `expect` assert
-  on what the program read from the preview (`stdoutJSON`, its whole output one JSON document of the values it
-  observed), never only on a line it prints whatever happened (`DONE`).
+  `stdoutContains` and `stdoutJSON`. maul fails an exec check whose output has a line that starts with what
+  `{{marker}}` in its program files stands for (a secret maul draws for every run), whatever its exit code and
+  its `expect`: have the program print `{{marker}} <id>: <what it saw>` when its final judgement of an
+  assertion finds the outcome does not hold, never inside a retry or poll, on a connection error, a status code or an
+  exception. Let `expect` assert on what the program read from the preview (`stdoutJSON`, its whole output one JSON
+  document of the values it observed), never only on a line it prints whatever happened (`DONE`). A run whose output
+  is too long to keep whole (over 64 KiB) never passes: print only what the check needs.
 
 Rules every check keeps:
 
@@ -336,7 +340,8 @@ For example:
   "form": "exec",
   "exec": {
     "argv": ["python3", "client.py", "{{run}}"],
-    "files": [{"path": "client.py", "content": "import sys\n# connect, send, print the reply as JSON\n"}],
+    "files": [{"path": "client.py",
+               "content": "import json, sys\n# judge once; on a fail print {{marker}} score-shown: <what>\n"}],
     "timeout": "30s",
     "expect": {"exit": 0, "stdoutJSON": {"/player": "{{run}}-alice"}}
   }
