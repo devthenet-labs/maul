@@ -99,6 +99,25 @@ func TestCRDKindsMatchValidate(t *testing.T) {
 	}
 }
 
+// TestAPIEnumsMatchAcceptance pins the constants this package keeps beside
+// their v1alpha1 twins (api/ never imports internal/), so a run-form check
+// run, a build part and the build-failed reason cross a status write
+// unchanged.
+func TestAPIEnumsMatchAcceptance(t *testing.T) {
+	for _, c := range []struct{ name, acc, crd string }{
+		{"CheckFormHTTP", string(CheckFormHTTP), string(maulv1.CheckFormHTTP)},
+		{"CheckFormBrowser", string(CheckFormBrowser), string(maulv1.CheckFormBrowser)},
+		{"CheckFormExec", string(CheckFormExec), string(maulv1.CheckFormExec)},
+		{"CheckFormRun", string(CheckFormRun), string(maulv1.CheckFormRun)},
+		{"RoleBuild", RoleBuild, string(maulv1.PreviewRoleBuild)},
+		{"ReasonBuildFailed", ReasonBuildFailed, string(maulv1.VerificationReasonToolsBuildFailed)},
+	} {
+		if c.acc != c.crd {
+			t.Errorf("%s: acceptance %q, v1alpha1 %q", c.name, c.acc, c.crd)
+		}
+	}
+}
+
 // viaCRD re-encodes a criteria list the way the API server stores it: into
 // the CRD type (unknown fields refused) and through generic JSON, object
 // keys sorted and insignificant space dropped.

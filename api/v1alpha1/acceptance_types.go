@@ -267,7 +267,7 @@ func (o AcceptanceOutcome) EffectiveKind() OutcomeKind {
 }
 
 // CheckForm is how a saved check runs (internal/checks.Form).
-// +kubebuilder:validation:Enum=http;browser;exec
+// +kubebuilder:validation:Enum=http;browser;exec;run
 type CheckForm string
 
 // Check forms.
@@ -275,6 +275,9 @@ const (
 	CheckFormHTTP    CheckForm = "http"
 	CheckFormBrowser CheckForm = "browser"
 	CheckFormExec    CheckForm = "exec"
+	// CheckFormRun is a program maul compiles against the tree and runs
+	// (slice S2); internal/acceptance.CheckFormRun is its twin.
+	CheckFormRun CheckForm = "run"
 )
 
 // MaxSavedCheckBytes bounds a saved check's canonical JSON, in bytes, for

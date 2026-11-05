@@ -44,6 +44,8 @@ func schemaSavedChecks() []maulv1.SavedCheck {
 			Body: `{"form":"browser"}`, Digest: digest("2")},
 		{ID: "winner-rises.cli", Outcome: "winner-rises", Form: maulv1.CheckFormExec,
 			Body: `{"form":"exec"}`, Digest: digest("3")},
+		{ID: "winner-rises.run", Outcome: "winner-rises", Form: maulv1.CheckFormRun,
+			Body: `{"form":"run"}`, Digest: digest("4")},
 	}
 }
 

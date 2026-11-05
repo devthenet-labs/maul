@@ -144,6 +144,7 @@ spec:
                       - http
                       - browser
                       - exec
+                      - run
                       type: string
                     id:
                       description: 'ID names the check: its outcome''s id with an
@@ -1138,6 +1139,7 @@ spec:
                       - http
                       - browser
                       - exec
+                      - run
                       type: string
                     id:
                       description: 'ID names the check: its outcome''s id with an
