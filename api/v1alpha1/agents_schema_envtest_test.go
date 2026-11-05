@@ -253,6 +253,8 @@ func fullAgentsStatus() maulv1.PreviewVerificationStatus {
 		{Side: maulv1.TreeBase, Result: maulv1.BuildFailed, Seq: 6, ExitCode: 1, DurationMs: 1200},
 	}
 	s.Replay[0].Tree = maulv1.TreeHead
+	// A confirmed run-form check (S2-01b): the status enum admits it.
+	s.Confirmed = append(s.Confirmed, schemaSavedChecks()[3])
 	s.Base = &maulv1.BaseStatus{Required: true, Unbuildable: true, Runs: []maulv1.CheckRun{
 		{CheckDigest: check, Result: maulv1.CheckRunFail, Token: "b-0a1b2c", Seq: 7, Tree: maulv1.TreeBase,
 			AssertionStep: 1, AssertionID: "expect"},
