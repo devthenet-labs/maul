@@ -155,7 +155,12 @@ outcome does not hold: it checks something else or only part of the outcome, it 
 page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
 create. A check that leaves out, replaces or alters anything the outcome's words name (a field of a body it says to
 send, a step, a value, a page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does
-test is a reasonable reading of the outcome. Answer `unclear` if you cannot tell from what is shown.
+test is a reasonable reading of the outcome. Answer `does_not_prove` too for a check that a plausible wrong build would
+still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
+item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
+(a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
+gives (a new, empty item where the outcome's value depends on what is in it), and one whose program can print what its
+`expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you cannot tell from what is shown.
 
 A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
 (size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS
@@ -166,11 +171,25 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 
 1. Split the outcome into its clauses, and give every clause an assertion.
 2. Use inputs other than the defaults (a tempo of 90 where a new beat starts at 120), so a page that shows a fixed
-   value fails.
-3. Cover both sides of the outcome: the winner and the loser, on and off, play and stop.
+   value fails. Where the expected value depends on what an item holds (a level from the steps set on), fill it so
+   the value the outcome expects is not the one a new, empty item shows.
+3. Cover both sides of the outcome: the winner and the loser, on and off, play and stop. For a rule with a bound
+   (at least, at most, between, from 8), create an item on each side of the bound and assert both.
 4. For anything the outcome says changes, assert it before and after the change.
 5. For a claim that something is left as it was (read only, not moved), act on it, then assert that nothing changed.
 6. Assert only what the outcome states: no wording, value, order or layout it does not promise.
+7. For a claim that something is left out, refused, hidden or absent (does not list it, only those, excludes),
+   create the item that must be left out yourself and assert that it is not there, beside an assertion of an item
+   that is there, so an empty answer does not pass. Narrow the answer to your run's own data (a search or filter
+   the application offers, by `{{run}}` text), assert your kept items by index, and assert that the index after
+   the last is `{"$absent": true}`, so the list ends there; or in the browser assert a `count` of 0 for a locator
+   naming the left-out item's `{{run}}` text.
+   Asserting only what is kept says nothing about what is left out.
+8. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a sample.
+9. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the filter or
+   rule ignored, the bound off by one, the field or header missing, the error swallowed. For each, find the
+   assertion of your check that would go red on it. If none would, the reviewer refuses the check: strengthen it,
+   and where no check you can write would go red, say so in the verdict's note instead of proposing a weaker one.
 
 Where an outcome speaks of each item or of other items, create two or more items of your own and assert each by its
 name. An outcome worded about rows a check cannot create (every row there is, rows saved before) is unsure: say in
@@ -187,9 +206,11 @@ the outcome does. For an `http` check only content counts: a JSON pointer that r
 that is there with another value, or text missing from a body that is not an HTML page. No status is an assertion for
 such a check, a 500 included (it can be the check's own malformed request), and a JSON pointer or a header that
 resolves to nothing is not one either. An `exec` check's program must say so itself: where it finds the outcome does
-not hold it prints `MAUL-ASSERTION-FAILED: <id>: <what it saw>` at the start of a line of its output (stdout and stderr), the
-id naming that assertion (lowercase letters, digits and hyphens); print it for that and nothing else, never on a
-connection error, a status code or an exception. An exit code alone, a crash or a traceback never shows a defect. A
+not hold it prints `{{marker}} <id>: <what it saw>` at the start of a line of its output (stdout and stderr), the
+id naming that assertion (lowercase letters, digits and hyphens). Write `{{marker}}` as it is in the program file:
+maul replaces it on every run with a secret line start only that run's program is given, so nothing the application
+answers can pass for it. Print it for the final judgement of an assertion and nothing else, never inside a retry or
+poll, on a connection error, a status code or an exception. An exit code alone, a crash or a traceback never shows a defect. A
 check that shows a defect must write data of its own run: name `{{run}}` in a POST, PUT or PATCH, a
 browser fill or its program, and the assertion that fails must be about that data: its step reads a path that names
 `{{run}}` or a value captured from the check's own writes (a write naming `{{run}}` or such a
