@@ -380,7 +380,7 @@ func (s *Sweeper) liveVerifications(ctx context.Context, needed bool) (map[strin
 	}
 	out := make(map[string]bool, len(list.Items))
 	for _, pv := range list.Items {
-		if pv.DeletionTimestamp.IsZero() {
+		if pv.DeletionTimestamp.IsZero() && !pv.Spec.IsAgents() {
 			out[string(pv.UID)] = true
 		}
 	}

@@ -238,7 +238,8 @@ func (v *VerificationReconciler) evaluationRoom(ctx context.Context, pv *v1alpha
 	}
 	running := 0
 	for _, other := range list.Items {
-		if other.UID != pv.UID && len(other.Spec.Outcomes) > 0 && other.Status.Phase == v1alpha1.VerificationRunning {
+		if other.UID != pv.UID && !other.Spec.IsAgents() && len(other.Spec.Outcomes) > 0 &&
+			other.Status.Phase == v1alpha1.VerificationRunning {
 			running++
 		}
 	}
