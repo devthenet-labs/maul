@@ -550,14 +550,24 @@ spec:
                   with Outcomes, and only with it.
                 pattern: ^sha256:[0-9a-f]{64}$
                 type: string
+              placement:
+                description: |-
+                  Placement is where the tool pod runs (VerificationPlacement); unset
+                  is slot. Immutable with the spec.
+                enum:
+                - slot
+                - agents
+                type: string
               previewGeneration:
-                description: PreviewGeneration is the Preview generation the heads
-                  were read at.
+                description: |-
+                  PreviewGeneration is the Preview generation the heads were read at:
+                  at least 1 on a slot verification, unset on an agents one.
                 format: int64
-                minimum: 1
                 type: integer
               previewRef:
-                description: PreviewRef is the Intent's Preview, pinned by UID.
+                description: |-
+                  PreviewRef is the Intent's Preview, pinned by UID. Required on a slot
+                  verification, unset on an agents one.
                 properties:
                   name:
                     description: Name of the referent.
@@ -626,13 +636,153 @@ spec:
                 required:
                 - maxToolCalls
                 type: object
+              workspace:
+                description: |-
+                  Workspace is what an agents verification builds and runs: one
+                  repository's head and base trees in its accepted runner image. Set
+                  on an agents verification, and only on one.
+                properties:
+                  baseRepositoryRef:
+                    description: BaseRepositoryRef is the Repository pinned to BaseSHA,
+                      by UID.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        minLength: 1
+                        type: string
+                      uid:
+                        description: UID of the referent at the time the reference
+                          was written.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                    x-kubernetes-validations:
+                    - message: the base repository's uid is required
+                      rule: has(self.uid) && size(self.uid) > 0
+                  baseSHA:
+                    description: BaseSHA is the merge base of the head and the PR's
+                      base branch.
+                    pattern: ^[0-9a-f]{40}$
+                    type: string
+                  headRepositoryRef:
+                    description: HeadRepositoryRef is the Repository pinned to HeadSHA,
+                      by UID.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        minLength: 1
+                        type: string
+                      uid:
+                        description: UID of the referent at the time the reference
+                          was written.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                    x-kubernetes-validations:
+                    - message: the head repository's uid is required
+                      rule: has(self.uid) && size(self.uid) > 0
+                  headSHA:
+                    description: HeadSHA is the PR head commit.
+                    pattern: ^[0-9a-f]{40}$
+                    type: string
+                  networkProfile:
+                    description: |-
+                      NetworkProfile is the operator network profile the repository's
+                      build gets; unset means none. The tool pod's network is never wider.
+                    pattern: ^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$
+                    type: string
+                  repository:
+                    description: Repository is the Project repository's key.
+                    maxLength: 16
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                  sandboxImage:
+                    description: |-
+                      SandboxImage is the repository's accepted runner image, by digest:
+                      both sandboxes run it.
+                    maxLength: 512
+                    pattern: ^[a-z0-9][^@\s]*@sha256:[0-9a-f]{64}$
+                    type: string
+                  sandboxSearchPath:
+                    description: |-
+                      SandboxSearchPath is that image's sanitized PATH (its RunnerImage's
+                      searchPath): absolute entries only.
+                    maxLength: 4096
+                    minLength: 1
+                    pattern: ^/[^:\x00-\x1f]*(:/[^:\x00-\x1f]*)*$
+                    type: string
+                  surface:
+                    description: 'Surface is what the tool pod builds: a cli or a
+                      library.'
+                    properties:
+                      cli:
+                        description: CLI builds a binary from the tree.
+                        properties:
+                          binary:
+                            description: Binary is the built binary (CLISurface.Binary).
+                            maxLength: 139
+                            pattern: ^/work/bin(/[A-Za-z0-9_][A-Za-z0-9._-]{0,63}){1,2}$
+                            type: string
+                          build:
+                            description: Build is the build argv (CLISurface.Build).
+                            items:
+                              maxLength: 256
+                              minLength: 1
+                              pattern: ^[^\x00-\x1f\x7f]+$
+                              type: string
+                            maxItems: 16
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: atomic
+                            x-kubernetes-validations:
+                            - message: the build must write under /work/bin
+                              rule: self.exists(a, a.contains('/work/bin/') || a.endsWith('/work/bin'))
+                          buildTimeout:
+                            description: BuildTimeout bounds each tree's build, between
+                              1m and 20m.
+                            type: string
+                            x-kubernetes-validations:
+                            - message: buildTimeout must be between 1m and 20m
+                              rule: duration(self) >= duration('1m') && duration(self)
+                                <= duration('20m')
+                        required:
+                        - binary
+                        - build
+                        - buildTimeout
+                        type: object
+                      library:
+                        description: Library runs consumer programs against the tree.
+                        properties:
+                          language:
+                            description: Language of the library.
+                            enum:
+                            - go
+                            type: string
+                        required:
+                        - language
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a workspace surface is exactly one of cli and library
+                      rule: has(self.cli) != has(self.library)
+                required:
+                - baseRepositoryRef
+                - baseSHA
+                - headRepositoryRef
+                - headSHA
+                - repository
+                - sandboxImage
+                - sandboxSearchPath
+                - surface
+                type: object
             required:
             - attempt
             - headSetDigest
             - heads
             - intentRef
-            - previewGeneration
-            - previewRef
             - round
             - run
             - timeout
@@ -660,15 +810,136 @@ spec:
             - message: spec.intentRef.uid is required
               rule: has(self.intentRef.uid) && size(self.intentRef.uid) > 0
             - message: spec.previewRef.uid is required
-              rule: has(self.previewRef.uid) && size(self.previewRef.uid) > 0
-            - message: spec.timeout must be between 1m and 1h
-              rule: duration(self.timeout) >= duration('1m') && duration(self.timeout)
-                <= duration('1h')
+              rule: (has(self.placement) && self.placement == 'agents') || (has(self.previewRef)
+                && has(self.previewRef.uid) && size(self.previewRef.uid) > 0)
+            - message: spec.previewGeneration must be at least 1 on a slot verification
+              rule: (has(self.placement) && self.placement == 'agents') || (has(self.previewGeneration)
+                && self.previewGeneration >= 1)
+            - message: spec.timeout must be between 1m and 1h (75m on an agents verification)
+              rule: 'duration(self.timeout) >= duration(''1m'') && duration(self.timeout)
+                <= ((has(self.placement) && self.placement == ''agents'') ? duration(''75m'')
+                : duration(''1h''))'
+            - message: an agents verification, and only one, names its workspace
+              rule: has(self.workspace) == (has(self.placement) && self.placement
+                == 'agents')
+            - message: 'an agents verification has no Preview: previewRef and previewGeneration
+                are unset'
+              rule: '!has(self.placement) || self.placement != ''agents'' || (!has(self.previewRef)
+                && !has(self.previewGeneration))'
+            - message: an agents verification evaluates outcomes with no browser and
+                no look-around
+              rule: '!has(self.placement) || self.placement != ''agents'' || (has(self.outcomes)
+                && has(self.tools) && !(has(self.tools.browser) && self.tools.browser)
+                && (!has(self.tools.lookAroundRoutes) || self.tools.lookAroundRoutes
+                == 0))'
           status:
             description: |-
               PreviewVerificationStatus is written only by preview-controller: what the
               tester and the kubelet observed, never a verdict.
             properties:
+              base:
+                description: |-
+                  Base is an agents verification's base side: whether its outcomes need
+                  a base comparison, whether the base tree built, and each check's run
+                  at base. Unset on a slot verification.
+                properties:
+                  required:
+                    description: |-
+                      Required reports that a change outcome's check must fail by assertion
+                      at base.
+                    type: boolean
+                  runs:
+                    description: |-
+                      Runs are the checks' runs at base, each with a fresh run token
+                      (CheckRun.tree base).
+                    items:
+                      description: CheckRun is one run of one check, as the ledger
+                        recorded it.
+                      properties:
+                        assertionID:
+                          description: |-
+                            AssertionID names which assertion of that step failed
+                            (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
+                            "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                          maxLength: 512
+                          type: string
+                        assertionStep:
+                          description: |-
+                            AssertionStep is, for a failed run red by assertion, the step (1-based)
+                            at which both attempts failed, an assertion of a check that otherwise
+                            ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
+                            timeout or a locator that resolved to nothing. Unset otherwise.
+                          format: int32
+                          maximum: 64
+                          minimum: 1
+                          type: integer
+                        checkDigest:
+                          description: CheckDigest is the check's digest.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        dryRunSeq:
+                          description: |-
+                            DryRunSeq is the ledger entry of the dry run a confirmation required:
+                            green, or, for a check expected to fail (Expect), red by assertion;
+                            unset on a replay.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        expect:
+                          description: |-
+                            Expect is fail for a confirmation of a check the evaluator proposed
+                            to show a defect.
+                          enum:
+                          - fail
+                          type: string
+                        result:
+                          description: Result of the run.
+                          enum:
+                          - pass
+                          - fail
+                          - quarantined
+                          - error
+                          - refused
+                          type: string
+                        seq:
+                          description: Seq is the ledger entry of the run.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        token:
+                          description: |-
+                            Token is the fresh run token the run substituted for the check's
+                            run placeholder.
+                          maxLength: 40
+                          minLength: 1
+                          pattern: ^[A-Za-z0-9-]+$
+                          type: string
+                        tree:
+                          description: |-
+                            Tree is the tree the run ran against in an agents verification;
+                            unset is head (Side), and a slot verification never sets it.
+                          enum:
+                          - head
+                          - base
+                          type: string
+                      required:
+                      - checkDigest
+                      - result
+                      - seq
+                      - token
+                      type: object
+                    maxItems: 80
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  unbuildable:
+                    description: |-
+                      Unbuildable reports that the base tree did not build: every base run
+                      is n/a and a pass rests on the other rules, labelled "no base
+                      comparison".
+                    type: boolean
+                type: object
               capture:
                 description: |-
                   Capture summarises the component log tails and slot events captured
@@ -782,6 +1053,14 @@ spec:
                       maxLength: 40
                       minLength: 1
                       pattern: ^[A-Za-z0-9-]+$
+                      type: string
+                    tree:
+                      description: |-
+                        Tree is the tree the run ran against in an agents verification;
+                        unset is head (Side), and a slot verification never sets it.
+                      enum:
+                      - head
+                      - base
                       type: string
                   required:
                   - checkDigest
@@ -937,6 +1216,7 @@ spec:
                       - command
                       - seed
                       - tools
+                      - build
                       type: string
                     unreachableForMs:
                       description: |-
@@ -968,6 +1248,53 @@ spec:
               ledger:
                 description: Ledger summarises the tools container's verified ledger.
                 properties:
+                  builds:
+                    description: Builds are an agents tool pod's tree builds, in ledger
+                      order.
+                    items:
+                      description: |-
+                        LedgerBuild is one tree's build in an agents tool pod, as its ledger
+                        entry recorded it.
+                      properties:
+                        durationMs:
+                          description: DurationMs is how long the build ran, in milliseconds.
+                          format: int32
+                          maximum: 3600000
+                          minimum: 0
+                          type: integer
+                        exitCode:
+                          description: ExitCode of the build's process; 0 when it
+                            built or never ran.
+                          format: int32
+                          type: integer
+                        result:
+                          description: Result of the build.
+                          enum:
+                          - built
+                          - failed
+                          - timeout
+                          - error
+                          type: string
+                        seq:
+                          description: Seq is the build's ledger entry.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        side:
+                          description: Side is the tree built.
+                          enum:
+                          - head
+                          - base
+                          type: string
+                      required:
+                      - result
+                      - seq
+                      - side
+                      type: object
+                    maxItems: 4
+                    type: array
+                    x-kubernetes-list-type: atomic
                   configMap:
                     description: |-
                       ConfigMap names the full ledger: <pv>-ledger, owned by the
@@ -1037,6 +1364,9 @@ spec:
                           - confirm
                           - finish
                           - session
+                          - build
+                          - files
+                          - run
                           type: string
                       required:
                       - kind
@@ -1329,6 +1659,13 @@ spec:
                 - evaluator-not-run
                 - ledger-mismatch
                 - evidence-mismatch
+                - tools-build-failed
+                - sandbox-unenforced
+                - sandbox-image-unavailable
+                - tree-unavailable
+                - tool-pods-saturated
+                - tools-evicted
+                - tools-deadline
                 type: string
               replay:
                 description: |-
@@ -1397,6 +1734,14 @@ spec:
                       maxLength: 40
                       minLength: 1
                       pattern: ^[A-Za-z0-9-]+$
+                      type: string
+                    tree:
+                      description: |-
+                        Tree is the tree the run ran against in an agents verification;
+                        unset is head (Side), and a slot verification never sets it.
+                      enum:
+                      - head
+                      - base
                       type: string
                   required:
                   - checkDigest

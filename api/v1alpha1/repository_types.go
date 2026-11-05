@@ -7,16 +7,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// RepositoryRef pins what to clone.
+// RepositoryRef pins what to clone: a branch, an exact commit, or neither
+// (the default branch).
+// +kubebuilder:validation:XValidation:rule="!(has(self.branch) && has(self.commit))",message="ref.branch and ref.commit are exclusive"
 type RepositoryRef struct {
 	// Branch to resolve; source-controller resolves it to a SHA exactly once
 	// and pins status.resolvedSHA.
 	// +optional
 	Branch string `json:"branch,omitempty"`
+	// Commit pins the tree to this exact 40-hex commit: source-controller
+	// pins status.resolvedSHA to it, downloads that commit's archive and
+	// never reads a runner image for it (a PR head must never pin an
+	// image). Exclusive with Branch, and immutable: set at creation or
+	// never.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	Commit string `json:"commit,omitempty"`
 }
 
 // RepositorySpec asks source-controller to produce a SHA-pinned clone
 // artifact of one repository.
+// +kubebuilder:validation:XValidation:rule="(has(self.ref) && has(self.ref.commit)) == (has(oldSelf.ref) && has(oldSelf.ref.commit)) && (!has(self.ref) || !has(self.ref.commit) || self.ref.commit == oldSelf.ref.commit)",message="spec.ref.commit is immutable: set at creation or never"
 type RepositorySpec struct {
 	// URL is the normalized https URL of the repository to clone.
 	// +kubebuilder:validation:MinLength=1
