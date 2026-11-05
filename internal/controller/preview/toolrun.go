@@ -28,6 +28,8 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/previewtools"
+	"github.com/devthenet-labs/maul/internal/toolledger"
+	"github.com/devthenet-labs/maul/internal/toolpod"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -257,12 +259,12 @@ func (v *VerificationReconciler) toolData(ctx context.Context, pv *v1alpha1.Prev
 	if err != nil {
 		return nil, "", err
 	}
-	_, _, wall := toolDeadlines(pv.Spec.Timeout.Duration, v.deadlineMax())
+	_, _, wall := toolpod.Deadlines(pv.Spec.Timeout.Duration, v.deadlineMax())
 	cfg, err := v.Settings.toolConfig(s.preview, pv, targets, wall)
 	if err != nil {
 		return nil, v1alpha1.VerificationReasonStaleCriteria, err
 	}
-	data, err := toolConfigData(cfg, pv.Spec.Outcomes)
+	data, err := toolpod.ConfigData(cfg, pv.Spec.Outcomes)
 	if err != nil {
 		return nil, v1alpha1.VerificationReasonStaleCriteria, err
 	}
@@ -303,7 +305,7 @@ func (v *VerificationReconciler) createTools(ctx context.Context, pv *v1alpha1.P
 	if pv.Spec.Tools.Browser {
 		// A Secret already there with no key in memory is an earlier
 		// process's: its key stays unknown.
-		key := cmp.Or(st.key, newCDPKey())
+		key := cmp.Or(st.key, toolpod.NewKey())
 		err := v.Create(ctx, v.Settings.toolKeySecret(s.preview, pv, job, key))
 		switch {
 		case err == nil:
@@ -379,7 +381,7 @@ func (v *VerificationReconciler) toolsStuck(pv *v1alpha1.PreviewVerification,
 	if since < verifyGrace {
 		return ""
 	}
-	jobDeadline, _, _ := toolDeadlines(pv.Spec.Timeout.Duration, v.deadlineMax())
+	jobDeadline, _, _ := toolpod.Deadlines(pv.Spec.Timeout.Duration, v.deadlineMax())
 	switch {
 	case pod == nil:
 		return v1alpha1.VerificationReasonToolsNotReady
@@ -534,27 +536,27 @@ func containerReady(statuses []corev1.ContainerStatus, name string) bool {
 // evidence in <pv>-evidence.
 func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject, pod *corev1.Pod, log []byte, finishedAt time.Time) error {
-	out := parseToolOutput(log, terminationMessageOf(pod, toolsContainer))
+	out := toolledger.Parse(log, terminationMessageOf(pod, toolsContainer))
 	facts, err := v.environment(ctx, s.preview, s.slot, pod, pv)
 	if err != nil {
 		return err
 	}
-	if out.reason == "" {
-		waits := readinessOf(out.ledger.Entries)
+	if out.Reason == "" {
+		waits := toolledger.Readiness(out.Ledger.Entries)
 		markUnreachable(facts, waits)
 		if pv.Status.Readiness, err = crdconv.WaitsToCRD(waits); err != nil {
-			out.reason = v1alpha1.VerificationReasonLedgerMismatch
+			out.Reason = v1alpha1.VerificationReasonLedgerMismatch
 		}
 	}
-	phase, reason := route(facts, out.reason)
+	phase, reason := route(facts, out.Reason)
 	if phase == v1alpha1.VerificationObserved && pv.Spec.Rung == v1alpha1.RungFull &&
-		!evaluatorCalled(out.ledger.Entries) {
+		!evaluatorCalled(out.Ledger.Entries) {
 		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun
 		if pv.Status.Tools == nil {
 			reason = v1alpha1.VerificationReasonToolsNotReady
 		}
 	}
-	if out.reason == "" {
+	if out.Reason == "" {
 		if err := v.storeLedger(ctx, pv, out, finishedAt); err != nil {
 			return err
 		}
@@ -579,12 +581,12 @@ func evaluatorCalled(entries []toolwire.LedgerEntry) bool {
 // checks onto pv's status, and the ledger and its kept evidence into their
 // ConfigMaps. A ConfigMap that cannot be written is retried for the grace
 // after the Job finished, then left out of status: the index stands.
-func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.PreviewVerification, out toolOutput,
-	finishedAt time.Time) error {
-	entries := out.ledger.Entries
-	images, dropped := keepEvidence(entries, out.evidence)
-	if out.dropped > 0 {
-		dropped[dropMalformed] += out.dropped
+func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	out toolledger.Output, finishedAt time.Time) error {
+	entries := out.Ledger.Entries
+	images, dropped := keepEvidence(entries, out.Evidence)
+	if out.Dropped > 0 {
+		dropped[dropMalformed] += out.Dropped
 	}
 	for why, n := range dropped {
 		recordEvidenceDropped(ctx, why, n)
@@ -593,9 +595,9 @@ func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.P
 				slog.String("reason", why), slog.Int("count", n))
 		}
 	}
-	sum := &v1alpha1.LedgerSummary{Count: clampInt32(out.ledger.Summary.Count), SHA256: out.ledger.Summary.SHA256,
-		Entries: ledgerIndex(entries)}
-	cm, err := ledgerConfigMap(pv, out.ledger)
+	sum := &v1alpha1.LedgerSummary{Count: toolledger.ClampInt32(out.Ledger.Summary.Count),
+		SHA256: out.Ledger.Summary.SHA256, Entries: toolledger.Index(entries)}
+	cm, err := ledgerConfigMap(pv, out.Ledger)
 	if err == nil {
 		sum.ConfigMap, err = v.createOwned(ctx, cm, finishedAt)
 	}
@@ -608,9 +610,9 @@ func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.P
 		}
 	}
 	pv.Status.Ledger = sum
-	pv.Status.Replay = replayRuns(entries)
-	pv.Status.Confirmations = confirmationRuns(entries)
-	pv.Status.Confirmed = confirmedChecks(entries, pv.Spec.Outcomes)
+	pv.Status.Replay = toolledger.ReplayRuns(entries)
+	pv.Status.Confirmations = toolledger.ConfirmationRuns(entries)
+	pv.Status.Confirmed = toolledger.ConfirmedChecks(entries, pv.Spec.Outcomes)
 	return nil
 }
 

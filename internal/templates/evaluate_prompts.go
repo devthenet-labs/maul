@@ -62,7 +62,14 @@ const GreenRubric = "Answer `proves` only if a pass of this check really shows t
 	"implementation could special-case, or it depends on data it did not create. A check that leaves out, " +
 	"replaces or alters anything the outcome's words name (a field of a body it says to send, a step, a value, a " +
 	"page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does test is a " +
-	"reasonable reading of the outcome. Answer `unclear` if you cannot tell from what is shown."
+	"reasonable reading of the outcome. Answer `does_not_prove` too for a check that a plausible wrong build " +
+	"would still pass: one " +
+	"that shows something is left out, refused or absent only by asserting what is there (it must create the " +
+	"item to be left out and assert that item is not there), one that compares only some of what the outcome " +
+	"says must match (a few items of a list it says is the same), one whose inputs make the expected result the " +
+	"one a fixed or default answer gives (a new, empty item where the outcome's value depends on what is in " +
+	"it), and one whose program can print what its `expect` looks for and exit as it expects whatever it " +
+	"observed. Answer `unclear` if you cannot tell from what is shown."
 
 // LayoutReadRule is the green rule's one exception, for a layout read
 // (checks.LayoutRead): a reviewer is shown it for such a check, the
@@ -239,8 +246,11 @@ func replayedGreen(replays []PriorReplay) map[string]bool {
 	return green
 }
 
-// ExecMarker is checks.ExecAssertionMarker, for the template.
-func (evaluateView) ExecMarker() string { return checks.ExecAssertionMarker }
+// ExecMarker is checks.ExecMarkerPlaceholder, for the templates: a line of an
+// exec check's output that starts with what it stands for fails the check
+// (checks.ExecMarked).
+func (evaluateView) ExecMarker() string    { return checks.ExecMarkerPlaceholder }
+func (checkReviewView) ExecMarker() string { return checks.ExecMarkerPlaceholder }
 
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
 // have written its report: a tenth of its turns, at least 2, kept back for
@@ -525,7 +535,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	}
 	v.Components = boundEvaluateComponents(p.Components)
 	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
-		v.Marker = checks.ExecAssertionMarker + " " + quotedLine(id, 64) + ":"
+		v.Marker = checks.ExecMarkerPlaceholder + " " + quotedLine(id, 64) + ":"
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
@@ -634,7 +644,8 @@ const (
   "form": "exec",
   "exec": {
     "argv": ["python3", "client.py", "{{run}}"],
-    "files": [{"path": "client.py", "content": "import sys\n# connect, send, print the reply as JSON\n"}],
+    "files": [{"path": "client.py",
+               "content": "import json, sys\n# judge once; on a fail print {{marker}} score-shown: <what>\n"}],
     "timeout": "30s",
     "expect": {"exit": 0, "stdoutJSON": {"/player": "{{run}}-alice"}}
   }

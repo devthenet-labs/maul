@@ -6,6 +6,8 @@ package previewtools
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -289,7 +292,11 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	if r.execer == nil {
 		return errStep(reasonNoSandbox)
 	}
-	req, err := execRequest(e, run)
+	// The attempt's own marker, which only its program's files are given
+	// (checks.ExecMarkerPlaceholder): the application cannot know it, so
+	// no text of its that the program echoes passes for one.
+	marker := checks.ExecMarker(randomMarkerNonce())
+	req, err := execRequest(e, run, marker)
 	if err != nil {
 		return errStep("the program could not be built: " + err.Error())
 	}
@@ -310,11 +317,11 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	// program said it judged one of its own assertions, by id, and found the
 	// outcome does not hold (checks.ExecAssertion): an exit code or missing
 	// output alone is what a crashed or broken program shows too.
-	marker, asserted := checks.ExecAssertion(res.Output)
+	id, asserted := checks.ExecAssertion(res.Output, marker)
 	fail := func(detail string) []toolwire.StepRecord {
 		rec := toolwire.StepRecord{Result: toolwire.ResultFail, Detail: detail, Assertion: asserted}
 		if asserted {
-			rec.AssertionID = "marker " + marker
+			rec.AssertionID = "marker " + id
 		}
 		return []toolwire.StepRecord{rec}
 	}
@@ -322,6 +329,14 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	switch {
 	case res.TimedOut:
 		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: "the program was killed at its time limit"}}
+	case checks.ExecMarked(res.Output, marker):
+		// The program said the outcome does not hold: never a pass,
+		// whatever it went on to print or exit with (S1 demo #57).
+		return fail("the program printed its assertion marker")
+	case res.Truncated:
+		// A marker past the cut would be lost (PR #320 review F3): a
+		// truncated run is never a pass, nor a fail of the outcome.
+		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
 		return fail(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit))
 	}
@@ -341,8 +356,17 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	return []toolwire.StepRecord{{Result: toolwire.ResultPass}}
 }
 
-// execRequest is the shim's request for e under run.
-func execRequest(e checks.ExecCheck, run string) (*toolwire.ExecRequest, error) {
+// randomMarkerNonce is 32 random lowercase hex characters (crypto/rand):
+// one attempt's marker nonce, unguessable to the application.
+func randomMarkerNonce() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:]) // crypto/rand.Read never fails
+	return hex.EncodeToString(b[:])
+}
+
+// execRequest is the shim's request for e under run, its program files
+// given the attempt's marker.
+func execRequest(e checks.ExecCheck, run, marker string) (*toolwire.ExecRequest, error) {
 	req := &toolwire.ExecRequest{}
 	for _, a := range e.Argv {
 		s, err := acceptance.Substitute(a, run, nil)
@@ -352,7 +376,7 @@ func execRequest(e checks.ExecCheck, run string) (*toolwire.ExecRequest, error) 
 		req.Argv = append(req.Argv, s)
 	}
 	for _, f := range e.Files {
-		s, err := acceptance.Substitute(f.Content, run, nil)
+		s, err := acceptance.Substitute(checks.ExecProgram(f.Content, marker), run, nil)
 		if err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -54,7 +55,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -133,6 +134,74 @@ const (
 	// VerificationReasonEvidenceMismatch: an evidence image did not match
 	// the sha256 its ledger entry recorded, or was not a PNG. Infra.
 	VerificationReasonEvidenceMismatch PreviewVerificationReason = "evidence-mismatch"
+	// VerificationReasonToolsBuildFailed: the agents tool pod could not
+	// build the head tree (its build part's fact holds the exit). Infra
+	// ("couldn't confirm"), never a fail: CI built the same head green.
+	VerificationReasonToolsBuildFailed PreviewVerificationReason = "tools-build-failed"
+	// VerificationReasonSandboxUnenforced: the agents tool pod's prepare
+	// found the sandbox's network open (the strict probe's exit 78). Infra;
+	// it trips the sandbox breaker.
+	VerificationReasonSandboxUnenforced PreviewVerificationReason = "sandbox-unenforced"
+	// VerificationReasonSandboxImageUnavailable: the workspace's repository
+	// has no accepted runner image to run the sandboxes in (O8). Infra,
+	// settled before any pod is created.
+	VerificationReasonSandboxImageUnavailable PreviewVerificationReason = "sandbox-image-unavailable"
+	// VerificationReasonTreeUnavailable: a commit-pinned Repository of the
+	// head or base tree did not become Ready. Infra.
+	VerificationReasonTreeUnavailable PreviewVerificationReason = "tree-unavailable"
+	// VerificationReasonToolPodsSaturated: the agents tool pod bound
+	// (--intent-max-tool-pods) was reached; the round waits. Never a
+	// verdict.
+	VerificationReasonToolPodsSaturated PreviewVerificationReason = "tool-pods-saturated"
+	// VerificationReasonToolsEvicted: the cluster took the agents tool pod
+	// away (an eviction, preemption or node loss). Infra.
+	VerificationReasonToolsEvicted PreviewVerificationReason = "tools-evicted"
+	// VerificationReasonToolsDeadline: the agents tool pod reached its Job
+	// deadline with no verified summary. Infra.
+	VerificationReasonToolsDeadline PreviewVerificationReason = "tools-deadline"
+)
+
+// VerificationPlacement is where an outcome verification's tool pod runs:
+// slot (preview-controller, in the Preview's slot; S1) or agents
+// (intent-controller's agents host, in the agents namespace, against the
+// head and base trees of one repository; S2). Unset is slot, so a slot
+// verification stores exactly what it stored before placements existed.
+// The single writer of status follows it: preview-controller for slot,
+// intent-controller's agents host for agents.
+// +kubebuilder:validation:Enum=slot;agents
+type VerificationPlacement string
+
+// Placements.
+const (
+	PlacementSlot   VerificationPlacement = "slot"
+	PlacementAgents VerificationPlacement = "agents"
+)
+
+// TreeSide names one of the two trees an agents verification builds and
+// runs: the PR head or its merge base.
+// +kubebuilder:validation:Enum=head;base
+type TreeSide string
+
+// Tree sides.
+const (
+	TreeHead TreeSide = "head"
+	TreeBase TreeSide = "base"
+)
+
+// The agents verification's bounds. The schema markers repeat them as
+// literals; keep them in lockstep.
+const (
+	// MaxSlotVerificationTimeout bounds a slot verification's timeout.
+	MaxSlotVerificationTimeout = time.Hour
+	// MaxAgentsVerificationTimeout bounds an agents verification's
+	// timeout: the evaluate timeout, the build timeout and a margin (O9).
+	MaxAgentsVerificationTimeout = 75 * time.Minute
+	// MaxBaseRuns bounds status.base.runs: a base run of every replayed and
+	// every confirmed check.
+	MaxBaseRuns = 80
+	// MaxLedgerBuilds bounds ledger.builds: one build of each tree, and one
+	// retry of each.
+	MaxLedgerBuilds = 4
 )
 
 // VerificationRung is how much of an evaluation a round runs: full (the
@@ -204,21 +273,40 @@ type ToolsSpec struct {
 // +kubebuilder:validation:XValidation:rule="has(self.checks) == has(self.checksDigest)",message="checks and checksDigest are set together"
 // +kubebuilder:validation:XValidation:rule="!has(self.rung) || self.rung != 'replay' || has(self.checks)",message="a replay round replays saved checks: it needs at least one"
 // +kubebuilder:validation:XValidation:rule="has(self.intentRef.uid) && size(self.intentRef.uid) > 0",message="spec.intentRef.uid is required"
-// +kubebuilder:validation:XValidation:rule="has(self.previewRef.uid) && size(self.previewRef.uid) > 0",message="spec.previewRef.uid is required"
-// +kubebuilder:validation:XValidation:rule="duration(self.timeout) >= duration('1m') && duration(self.timeout) <= duration('1h')",message="spec.timeout must be between 1m and 1h"
+// +kubebuilder:validation:XValidation:rule="(has(self.placement) && self.placement == 'agents') || (has(self.previewRef) && has(self.previewRef.uid) && size(self.previewRef.uid) > 0)",message="spec.previewRef.uid is required"
+// +kubebuilder:validation:XValidation:rule="(has(self.placement) && self.placement == 'agents') || (has(self.previewGeneration) && self.previewGeneration >= 1)",message="spec.previewGeneration must be at least 1 on a slot verification"
+// +kubebuilder:validation:XValidation:rule="duration(self.timeout) >= duration('1m') && duration(self.timeout) <= ((has(self.placement) && self.placement == 'agents') ? duration('75m') : duration('1h'))",message="spec.timeout must be between 1m and 1h (75m on an agents verification)"
+// +kubebuilder:validation:XValidation:rule="has(self.workspace) == (has(self.placement) && self.placement == 'agents')",message="an agents verification, and only one, names its workspace"
+// +kubebuilder:validation:XValidation:rule="!has(self.placement) || self.placement != 'agents' || (!has(self.previewRef) && !has(self.previewGeneration))",message="an agents verification has no Preview: previewRef and previewGeneration are unset"
+// +kubebuilder:validation:XValidation:rule="!has(self.workspace) || self.heads.exists(h, h.component == self.workspace.repository && h.revision == self.workspace.headSHA)",message="an agents verification's workspace builds one of its heads: spec.heads names spec.workspace.repository at spec.workspace.headSHA"
+// +kubebuilder:validation:XValidation:rule="!has(self.placement) || self.placement != 'agents' || (has(self.outcomes) && has(self.tools) && !(has(self.tools.browser) && self.tools.browser) && (!has(self.tools.lookAroundRoutes) || self.tools.lookAroundRoutes == 0))",message="an agents verification evaluates outcomes with no browser and no look-around"
 type PreviewVerificationSpec struct {
+	// Placement is where the tool pod runs (VerificationPlacement); unset
+	// is slot. Immutable with the spec.
+	// +optional
+	Placement VerificationPlacement `json:"placement,omitempty"`
 	// IntentRef is the Intent that owns the verification, pinned by UID.
 	IntentRef ObjectReference `json:"intentRef"`
-	// PreviewRef is the Intent's Preview, pinned by UID.
-	PreviewRef ObjectReference `json:"previewRef"`
-	// PreviewGeneration is the Preview generation the heads were read at.
-	// +kubebuilder:validation:Minimum=1
-	PreviewGeneration int64 `json:"previewGeneration"`
+	// PreviewRef is the Intent's Preview, pinned by UID. Required on a slot
+	// verification, unset on an agents one.
+	// +optional
+	PreviewRef ObjectReference `json:"previewRef,omitzero"`
+	// PreviewGeneration is the Preview generation the heads were read at:
+	// at least 1 on a slot verification, unset on an agents one.
+	// +optional
+	PreviewGeneration int64 `json:"previewGeneration,omitempty"`
+	// Workspace is what an agents verification builds and runs: one
+	// repository's head and base trees in its accepted runner image. Set
+	// on an agents verification, and only on one.
+	// +optional
+	Workspace *VerificationWorkspace `json:"workspace,omitempty"`
 	// HeadSetDigest is the sha256 over the sorted (repository, revision)
 	// pairs of every Preview component: the combined change verified.
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	HeadSetDigest string `json:"headSetDigest"`
-	// Heads are the Preview spec's components and their revisions.
+	// Heads are the Preview spec's components and their revisions; on an
+	// agents verification, the PR heads, the workspace's repository among
+	// them at its headSHA.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=4
 	// +listType=map
@@ -288,6 +376,92 @@ type PreviewVerificationSpec struct {
 	Tools *ToolsSpec `json:"tools,omitempty"`
 	// Timeout is the tester Job's, or the tool pod's, wall clock.
 	Timeout metav1.Duration `json:"timeout"`
+}
+
+// IsAgents reports whether the verification is placed in the agents
+// namespace; unset placement is slot.
+func (s *PreviewVerificationSpec) IsAgents() bool { return s.Placement == PlacementAgents }
+
+// VerificationWorkspace is an agents verification's workspace: the head and
+// base of one Project repository, each a commit-pinned Repository the tool
+// pod fetches, built and run in the repository's accepted runner image under
+// the build's network profile. intent-controller writes it once, with the
+// spec.
+type VerificationWorkspace struct {
+	// Repository is the Project repository's key.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=16
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Repository string `json:"repository"`
+	// HeadSHA is the PR head commit.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	HeadSHA string `json:"headSHA"`
+	// BaseSHA is the merge base of the head and the PR's base branch.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	BaseSHA string `json:"baseSHA"`
+	// HeadRepositoryRef is the Repository pinned to HeadSHA, by UID.
+	// +kubebuilder:validation:XValidation:rule="has(self.uid) && size(self.uid) > 0",message="the head repository's uid is required"
+	HeadRepositoryRef ObjectReference `json:"headRepositoryRef"`
+	// BaseRepositoryRef is the Repository pinned to BaseSHA, by UID.
+	// +kubebuilder:validation:XValidation:rule="has(self.uid) && size(self.uid) > 0",message="the base repository's uid is required"
+	BaseRepositoryRef ObjectReference `json:"baseRepositoryRef"`
+	// SandboxImage is the repository's accepted runner image, by digest:
+	// both sandboxes run it.
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][^@\s]*@sha256:[0-9a-f]{64}$`
+	SandboxImage string `json:"sandboxImage"`
+	// SandboxSearchPath is that image's sanitized PATH (its RunnerImage's
+	// searchPath): absolute entries only.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=4096
+	// +kubebuilder:validation:Pattern=`^/[^:\x00-\x1f]*(:/[^:\x00-\x1f]*)*$`
+	SandboxSearchPath string `json:"sandboxSearchPath"`
+	// NetworkProfile is the operator network profile the repository's
+	// build gets; unset means none. The tool pod's network is never wider.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$`
+	NetworkProfile string `json:"networkProfile,omitempty"`
+	// Surface is what the tool pod builds: a cli or a library.
+	Surface WorkspaceSurface `json:"surface"`
+}
+
+// WorkspaceSurface is exactly one of cli and library.
+// +kubebuilder:validation:XValidation:rule="has(self.cli) != has(self.library)",message="a workspace surface is exactly one of cli and library"
+type WorkspaceSurface struct {
+	// CLI builds a binary from the tree.
+	// +optional
+	CLI *WorkspaceCLI `json:"cli,omitempty"`
+	// Library runs consumer programs against the tree.
+	// +optional
+	Library *WorkspaceLibrary `json:"library,omitempty"`
+}
+
+// WorkspaceCLI is a cli surface as resolved for one verification: the
+// Project's build and binary, and its build timeout with the default
+// applied.
+type WorkspaceCLI struct {
+	// Build is the build argv (CLISurface.Build).
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=256
+	// +kubebuilder:validation:items:Pattern=`^[^\x00-\x1f\x7f]+$`
+	// +kubebuilder:validation:XValidation:rule="self.exists(a, a.contains('/work/bin/') || a.endsWith('/work/bin'))",message="the build must write under /work/bin"
+	Build []string `json:"build"`
+	// Binary is the built binary (CLISurface.Binary).
+	// +kubebuilder:validation:MaxLength=139
+	// +kubebuilder:validation:Pattern=`^/work/bin(/[A-Za-z0-9_][A-Za-z0-9._-]{0,63}){1,2}$`
+	Binary string `json:"binary"`
+	// BuildTimeout bounds each tree's build, between 1m and 20m.
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('20m')",message="buildTimeout must be between 1m and 20m"
+	BuildTimeout metav1.Duration `json:"buildTimeout"`
+}
+
+// WorkspaceLibrary is a library surface as resolved for one verification.
+type WorkspaceLibrary struct {
+	// Language of the library.
+	Language LibraryLanguage `json:"language"`
 }
 
 // TransportError classifies a request that got no usable response; none
@@ -396,7 +570,7 @@ type CriterionObservation struct {
 }
 
 // PreviewPartRole is the role of one part of a Preview's slot.
-// +kubebuilder:validation:Enum=component;service;tester;command;seed;tools
+// +kubebuilder:validation:Enum=component;service;tester;command;seed;tools;build
 type PreviewPartRole string
 
 // Preview part roles.
@@ -409,6 +583,9 @@ const (
 	// PreviewRoleToolPod is the slot tool pod's part role: the same value
 	// as its maul.run/preview-role label (PreviewRoleTools).
 	PreviewRoleToolPod PreviewPartRole = PreviewRoleTools
+	// PreviewRoleBuild is a build of one tree in an agents tool pod
+	// (build-head, build-base).
+	PreviewRoleBuild PreviewPartRole = "build"
 )
 
 // Termination is a container's last termination.
@@ -597,6 +774,33 @@ type PreviewVerificationStatus struct {
 	// for the evaluator.
 	// +optional
 	Capture *CaptureSummary `json:"capture,omitempty"`
+	// Base is an agents verification's base side: whether its outcomes need
+	// a base comparison, whether the base tree built, and each check's run
+	// at base. Unset on a slot verification.
+	// +optional
+	Base *BaseStatus `json:"base,omitempty"`
+}
+
+// BaseStatus is an agents verification's base side (DESIGN 2.5, 7.10).
+type BaseStatus struct {
+	// Required reports that a change outcome's check must fail by assertion
+	// at base.
+	// +optional
+	Required bool `json:"required,omitempty"`
+	// Unbuildable reports that the base tree did not build: every base run
+	// is n/a and a pass rests on the other rules, labelled "no base
+	// comparison".
+	// +optional
+	Unbuildable bool `json:"unbuildable,omitempty"`
+	// Runs are the checks' runs at base, each with a fresh run token
+	// (CheckRun.tree base). Each names the base tree explicitly: an unset
+	// tree reads as head (CheckRun.Side), so a base run without it would
+	// stand for a head run.
+	// +optional
+	// +kubebuilder:validation:MaxItems=80
+	// +listType=atomic
+	// +kubebuilder:validation:XValidation:rule="self.all(r, has(r.tree) && r.tree == 'base')",message="every base run names the base tree"
+	Runs []CheckRun `json:"runs,omitempty"`
 }
 
 // ToolsStatus is the slot tool pod as preview-controller observed it.
@@ -627,7 +831,7 @@ const (
 )
 
 // LedgerVerb is the tool a ledger entry records (internal/toolwire.Verb).
-// +kubebuilder:validation:Enum=http;browser;exec;logs;events;check-run;check-results;confirm;finish;session
+// +kubebuilder:validation:Enum=http;browser;exec;logs;events;check-run;check-results;confirm;finish;session;build;files;run
 type LedgerVerb string
 
 // Ledger verbs.
@@ -642,6 +846,13 @@ const (
 	LedgerVerbConfirm      LedgerVerb = "confirm"
 	LedgerVerbFinish       LedgerVerb = "finish"
 	LedgerVerbSession      LedgerVerb = "session"
+	// LedgerVerbBuild records an agents tool pod's build of one tree.
+	LedgerVerbBuild LedgerVerb = "build"
+	// LedgerVerbFiles records a read of a pristine tree's files.
+	LedgerVerbFiles LedgerVerb = "files"
+	// LedgerVerbRun records an agent-written program compiled and run
+	// against one tree.
+	LedgerVerbRun LedgerVerb = "run"
 )
 
 // LedgerSummary is the tools container's ledger as preview-controller
@@ -671,6 +882,46 @@ type LedgerSummary struct {
 	// +kubebuilder:validation:MaxItems=512
 	// +listType=atomic
 	Entries []LedgerIndexEntry `json:"entries,omitempty"`
+	// Builds are an agents tool pod's tree builds, in ledger order.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	// +listType=atomic
+	Builds []LedgerBuild `json:"builds,omitempty"`
+}
+
+// BuildResult is how one tree's build ended.
+// +kubebuilder:validation:Enum=built;failed;timeout;error
+type BuildResult string
+
+// Build results.
+const (
+	BuildBuilt   BuildResult = "built"
+	BuildFailed  BuildResult = "failed"
+	BuildTimeout BuildResult = "timeout"
+	// BuildError is maul's own failure to run the build (the exec shim,
+	// the tree), never the build's.
+	BuildError BuildResult = "error"
+)
+
+// LedgerBuild is one tree's build in an agents tool pod, as its ledger
+// entry recorded it.
+type LedgerBuild struct {
+	// Side is the tree built.
+	Side TreeSide `json:"side"`
+	// Result of the build.
+	Result BuildResult `json:"result"`
+	// Seq is the build's ledger entry.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=512
+	Seq int32 `json:"seq"`
+	// ExitCode of the build's process; 0 when it built or never ran.
+	// +optional
+	ExitCode int32 `json:"exitCode,omitempty"`
+	// DurationMs is how long the build ran, in milliseconds.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=3600000
+	DurationMs int32 `json:"durationMs,omitempty"`
 }
 
 // LedgerIndexEntry is one ledger entry's facts, without its output.
@@ -758,10 +1009,22 @@ type CheckRun struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
 	AssertionID string `json:"assertionID,omitempty"`
+	// Tree is the tree the run ran against in an agents verification;
+	// unset is head (Side), and a slot verification never sets it.
+	// +optional
+	Tree TreeSide `json:"tree,omitempty"`
 }
 
 // RedByAssertion reports a run red by assertion (AssertionStep).
 func (r CheckRun) RedByAssertion() bool { return r.Result == CheckRunFail && r.AssertionStep > 0 }
+
+// Side is the tree the run ran against: head when unset.
+func (r CheckRun) Side() TreeSide {
+	if r.Tree == "" {
+		return TreeHead
+	}
+	return r.Tree
+}
 
 // CaptureSummary is what was captured from the slot for the evaluator: per
 // component, how many log bytes (a tail since the verification started,

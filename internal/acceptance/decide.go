@@ -758,10 +758,12 @@ func (d decider) failure(o OutcomeRef, res OutcomeResult, failing []StoredCheck)
 // disagree reports another check of o, not failing, that could pass it
 // this round (valid, reviewed proves, run clean, discriminating): two vetted
 // checks disagree on the outcome (finding 3), so it is neither failed nor
-// passed.
+// passed. A check narrowed in an earlier round (StoredCheck.Narrowed) is no
+// such check: it asserts less than the outcome, so its pass is no vote that
+// the outcome holds (S1 demo bug 14), and the failure is judged on its own.
 func (d decider) disagree(o OutcomeRef, failing []StoredCheck) bool {
 	for _, c := range d.bound(o.ID) {
-		if slices.ContainsFunc(failing, func(f StoredCheck) bool { return f.Digest == c.Digest }) {
+		if c.Narrowed || slices.ContainsFunc(failing, func(f StoredCheck) bool { return f.Digest == c.Digest }) {
 			continue
 		}
 		if d.passes(c, o) && d.runs[c.Digest].clean() && d.discriminates(c, o) {

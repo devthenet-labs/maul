@@ -24,6 +24,7 @@ import (
 
 	"github.com/devthenet-labs/maul/internal/kube"
 	"github.com/devthenet-labs/maul/internal/rbactest"
+	"github.com/devthenet-labs/maul/internal/toolpod"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -111,7 +112,7 @@ func TestRenderedToolObjectsAdmittedByTheChart(t *testing.T) {
 		t.Fatalf("the chart refuses preview-controller's rendered tool Job: %v", err)
 	}
 	admit("tool pod", jc.Create(ctx, podOfJob(job), client.DryRunAll))
-	admit("tool key Secret", pc.Create(ctx, s.toolKeySecret(p, pv, job, newCDPKey())))
+	admit("tool key Secret", pc.Create(ctx, s.toolKeySecret(p, pv, job, toolpod.NewKey())))
 	targets := map[string]string{}
 	for i, c := range p.Spec.Components {
 		targets[c.Name] = "10.96.0." + strconv.Itoa(10+i) + ":80"
@@ -120,7 +121,7 @@ func TestRenderedToolObjectsAdmittedByTheChart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := toolConfigData(cfg, pv.Spec.Outcomes)
+	data, err := toolpod.ConfigData(cfg, pv.Spec.Outcomes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,12 +136,12 @@ func TestRenderedToolObjectsAdmittedByTheChart(t *testing.T) {
 	shot := testPNG(t, 8, 8)
 	log, msg := toolLedger(t, shot) // the ledger tests' full round
 	out := verifiedLedger(t, log, msg)
-	ledger, err := ledgerConfigMap(pv, out.ledger)
+	ledger, err := ledgerConfigMap(pv, out.Ledger)
 	if err != nil {
 		t.Fatal(err)
 	}
 	admit("ledger ConfigMap", pc.Create(ctx, ledger))
-	images, _ := keepEvidence(out.ledger.Entries, out.evidence)
+	images, _ := keepEvidence(out.Ledger.Entries, out.Evidence)
 	if ev := evidenceConfigMap(pv, images); ev == nil {
 		t.Error("no evidence ConfigMap rendered for a cited screenshot")
 	} else {

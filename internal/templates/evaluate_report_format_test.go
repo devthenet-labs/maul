@@ -170,7 +170,8 @@ func TestCheckReviewPromptExecMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	flat := strings.Join(strings.Fields(got), " ")
-	for _, want := range []string{"`MAUL-ASSERTION-FAILED: live-score:`",
+	for _, want := range []string{"`{{marker}} live-score:`",
+		"never inside a retry or poll before its final judgement of that assertion",
 		"prints it only when the approved outcome is violated",
 		"never on a connection or transport error, a status code, a timeout, an exception or bad input"} {
 		if !strings.Contains(flat, want) {
