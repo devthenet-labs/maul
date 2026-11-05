@@ -9,7 +9,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
+
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // ScratchDir is the evaluator's scratch directory: its working directory
@@ -100,4 +104,50 @@ func (s scratch) writeShot(seq int64, n int, data []byte) (string, error) {
 		return "", fmt.Errorf("writing %s under %s: %w", name, s.dir, err)
 	}
 	return filepath.Join(s.dir, filepath.FromSlash(name)), nil
+}
+
+// readGoFiles reads the regular .go files directly in directory dir under
+// the scratch directory, in name order, at most maxFiles of them and limit
+// bytes together. Their names are relative to dir: the program the relay
+// compiles has the directory as its root.
+func (s scratch) readGoFiles(dir string, maxFiles, limit int) ([]toolwire.File, error) {
+	rel, err := s.rel(dir)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(s.dir)
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", s.dir, err)
+	}
+	defer func() { _ = root.Close() }()
+	d, err := root.Open(filepath.FromSlash(rel))
+	if err != nil {
+		return nil, fmt.Errorf("%s cannot be read under %s", dir, s.dir)
+	}
+	defer func() { _ = d.Close() }()
+	entries, err := d.ReadDir(-1)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not a directory", dir)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	var files []toolwire.File
+	total := 0
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		_, data, err := s.read(rel+"/"+e.Name(), limit-total)
+		if err != nil {
+			return nil, err
+		}
+		total += len(data)
+		files = append(files, toolwire.File{Name: e.Name(), Content: data})
+	}
+	switch {
+	case len(files) == 0:
+		return nil, fmt.Errorf("%s holds no .go file", dir)
+	case len(files) > maxFiles:
+		return nil, fmt.Errorf("%s holds more than %d .go files", dir, maxFiles)
+	}
+	return files, nil
 }

@@ -90,11 +90,13 @@ var kinds = map[Kind]bool{KindAgent: true, KindRunner: true, KindRelay: true}
 type Verb string
 
 // Verbs: one per tool endpoint (wire.go), plus VerbSession, the relay's
-// browser session.
+// browser session, and VerbBuild, its build of a tree.
 const (
 	VerbHTTP         Verb = "http"
 	VerbBrowser      Verb = "browser"
 	VerbExec         Verb = "exec"
+	VerbFiles        Verb = "files"
+	VerbRun          Verb = "run"
 	VerbLogs         Verb = "logs"
 	VerbEvents       Verb = "events"
 	VerbCheckRun     Verb = "check-run"
@@ -102,11 +104,14 @@ const (
 	VerbConfirm      Verb = "confirm"
 	VerbFinish       Verb = "finish"
 	VerbSession      Verb = "session"
+	// VerbBuild is the relay's own build of a side's tree (SPEC S2): no
+	// endpoint, so a caller cannot ask for one.
+	VerbBuild Verb = "build"
 )
 
 // Verbs lists every verb, in a fixed order.
-var Verbs = []Verb{VerbHTTP, VerbBrowser, VerbExec, VerbLogs, VerbEvents, VerbCheckRun, VerbCheckResults,
-	VerbConfirm, VerbFinish, VerbSession}
+var Verbs = []Verb{VerbHTTP, VerbBrowser, VerbExec, VerbFiles, VerbRun, VerbLogs, VerbEvents, VerbCheckRun,
+	VerbCheckResults, VerbConfirm, VerbFinish, VerbSession, VerbBuild}
 
 func knownVerb(v Verb) bool {
 	for _, k := range Verbs {
@@ -125,6 +130,9 @@ type LedgerEntry struct {
 	TS   time.Time `json:"ts"`
 	Kind Kind      `json:"kind"`
 	Verb Verb      `json:"verb"`
+	// Side is the sandbox the call ran in: empty for the head and for a
+	// verb that has none, so an S1 entry's line is unchanged.
+	Side Side `json:"side,omitempty"`
 	// Args is the request as received, JSON.
 	Args json.RawMessage `json:"args"`
 	// Exit is the exit code of the process the verb ran (the Playwright
@@ -216,6 +224,8 @@ type Attempt struct {
 type StepRecord struct {
 	Index  int           `json:"index"`
 	Result AttemptResult `json:"result"`
+	// Side is the sandbox the step ran in; empty is the head.
+	Side Side `json:"side,omitempty"`
 	// Detail is the runner's message for a step that did not pass.
 	Detail string `json:"detail,omitempty"`
 	// Assertion marks a failing step that failed an assertion the outcome
@@ -308,6 +318,8 @@ func (e LedgerEntry) Check() error {
 		return fmt.Errorf("kind %q is not a kind", e.Kind)
 	case !knownVerb(e.Verb):
 		return fmt.Errorf("verb %q is not a verb", e.Verb)
+	case !e.Side.Valid():
+		return fmt.Errorf("side %q is not a side", e.Side)
 	case len(e.Args) > MaxArgsBytes || !json.Valid(e.Args):
 		return errors.New("args are not bounded JSON")
 	case len(e.Output) > MaxOutputBytes || !utf8.ValidString(e.Output):
@@ -386,8 +398,8 @@ func (a Attempt) check() error {
 		return errors.New("an attempt is out of bounds")
 	}
 	for _, s := range a.Steps {
-		if s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] || len(s.Detail) > maxDetailBytes ||
-			!utf8.ValidString(s.Detail) {
+		if !s.Side.Valid() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
+			len(s.Detail) > maxDetailBytes || !utf8.ValidString(s.Detail) {
 			return errors.New("a step record is out of bounds")
 		}
 		if s.Assertion && s.Result != ResultFail {

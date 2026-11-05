@@ -97,10 +97,16 @@ func TestEntryCheckRefuses(t *testing.T) {
 		t.Fatalf("valid entry refused: %v", err)
 	}
 	cases := map[string]func(*LedgerEntry){
-		"seq zero":      func(e *LedgerEntry) { e.Seq = 0 },
-		"no timestamp":  func(e *LedgerEntry) { e.TS = time.Time{} },
-		"unknown kind":  func(e *LedgerEntry) { e.Kind = "app" },
-		"unknown verb":  func(e *LedgerEntry) { e.Verb = "run-code" },
+		"seq zero":     func(e *LedgerEntry) { e.Seq = 0 },
+		"no timestamp": func(e *LedgerEntry) { e.TS = time.Time{} },
+		"unknown kind": func(e *LedgerEntry) { e.Kind = "app" },
+		"unknown verb": func(e *LedgerEntry) { e.Verb = "run-code" },
+		"unknown side": func(e *LedgerEntry) { e.Side = "tree" },
+		"unknown step side": func(e *LedgerEntry) {
+			e.Verb, e.Kind, e.Artifacts, e.Locators = VerbCheckRun, KindAgent, nil, nil
+			e.CheckRun = checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass).CheckRun
+			e.CheckRun.Attempts[0].Steps[0].Side = "x"
+		},
 		"args not json": func(e *LedgerEntry) { e.Args = json.RawMessage(`{`) },
 		"args too large": func(e *LedgerEntry) {
 			e.Args = json.RawMessage(`"` + strings.Repeat("a", MaxArgsBytes) + `"`)
@@ -261,4 +267,42 @@ func TestWriterRefuses(t *testing.T) {
 			t.Errorf("err = %v, want ErrLedgerFull", err)
 		}
 	})
+}
+
+func TestSideLedger(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	plain := LedgerEntry{TS: ts, Kind: KindAgent, Verb: VerbExec, Args: json.RawMessage(`{"argv":["x"]}`)}
+	if _, err := w.Append(plain); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "side") {
+		t.Errorf("an entry with no side encodes one (slice 1's lines must not change): %s", buf.String())
+	}
+	base := plain
+	base.Side = SideBase
+	for _, v := range []Verb{VerbExec, VerbRun, VerbFiles, VerbBuild} {
+		base.Verb = v
+		if _, err := w.Append(base); err != nil {
+			t.Fatalf("%s at base refused: %v", v, err)
+		}
+	}
+	rec := checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass)
+	rec.Side = SideBase
+	rec.CheckRun.Attempts[0].Steps[0].Side = SideBase
+	if _, err := w.Append(rec); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := Verify(buf.Bytes(), sum.TerminationMessage())
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if len(l.Entries) != 6 || l.Entries[0].Side != "" || l.Entries[1].Side != SideBase ||
+		l.Entries[5].CheckRun.Attempts[0].Steps[0].Side != SideBase {
+		t.Errorf("sides did not round trip: %+v", l.Entries)
+	}
 }

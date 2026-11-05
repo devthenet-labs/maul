@@ -594,3 +594,172 @@ func TestObservedLinesAreOneLine(t *testing.T) {
 		}
 	}
 }
+
+func TestSideAndNewVerbsReachTheirEndpoints(t *testing.T) {
+	scratch := t.TempDir()
+	prog := filepath.Join(scratch, "prog")
+	if err := os.MkdirAll(filepath.Join(prog, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"b.go": "package main // b", "a.go": "package main // a",
+		"notes.txt": "skip me"} {
+		if err := os.WriteFile(filepath.Join(prog, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(prog, "sub", "c.go"), []byte("package sub"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := `{"id":"loads","steps":[]}`
+	if err := os.WriteFile(filepath.Join(scratch, "c.json"), []byte(check), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := []toolwire.File{{Name: "a.go", Content: []byte("package main // a")},
+		{Name: "b.go", Content: []byte("package main // b")}}
+	cases := []struct {
+		name string
+		args []string
+		path string
+		want any
+	}{
+		{"files ls root", []string{"files", "ls"}, "/v1/files", &toolwire.FilesRequest{Op: toolwire.OpLs}},
+		{"files ls base", []string{"files", "ls", "--base", "internal"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpLs, Side: toolwire.SideBase, Path: "internal"}},
+		{"files ls base last", []string{"files", "ls", "internal", "--base"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpLs, Side: toolwire.SideBase, Path: "internal"}},
+		{"files grep", []string{"files", "grep", "func Main", "cmd"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpGrep, Pattern: "func Main", Path: "cmd"}},
+		{"files grep root", []string{"files", "grep", "--base", "x"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpGrep, Side: toolwire.SideBase, Pattern: "x"}},
+		{"files read", []string{"files", "read", "go.mod"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpRead, Path: "go.mod"}},
+		{"run head", []string{"run", "prog"}, "/v1/run",
+			&toolwire.RunRequest{Language: "go", Files: files}},
+		{"run base args", []string{"run", "prog", "--base", "--", "-n", "3"}, "/v1/run",
+			&toolwire.RunRequest{Language: "go", Side: toolwire.SideBase, Files: files, Args: []string{"-n", "3"}}},
+		{"exec base", []string{"exec", "--base", "--", "true"}, "/v1/exec",
+			&toolwire.ExecRequest{Argv: []string{"true"}, Side: toolwire.SideBase}},
+		{"check run base", []string{"check", "run", "--base", "c.json"}, "/v1/check-run",
+			&toolwire.CheckRunRequest{Spec: json.RawMessage(check), Side: toolwire.SideBase}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, srv := newRelay(t)
+			r.responses[tc.path] = toolwire.Response{Seq: 1}
+			res := run(t, srv.URL, scratch, tc.args...)
+			if res.code != ExitOK {
+				t.Fatalf("exit %d, stderr %q", res.code, res.stderr)
+			}
+			c := r.only()
+			if c.Path != tc.path {
+				t.Fatalf("call %s, want %s", c.Path, tc.path)
+			}
+			want, _ := json.Marshal(tc.want)
+			if !jsonEqual(t, c.Body, want) {
+				t.Errorf("body %s, want %s", c.Body, want)
+			}
+		})
+	}
+}
+
+func TestNewVerbUsage(t *testing.T) {
+	scratch := t.TempDir()
+	for _, d := range []string{"empty", "goless", "many"} {
+		if err := os.MkdirAll(filepath.Join(scratch, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(scratch, "goless", "a.py"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := range toolwire.MaxFiles + 1 {
+		name := filepath.Join(scratch, "many", string(rune('a'+i))+".go")
+		if err := os.WriteFile(name, []byte("package main"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, args := range map[string][]string{
+		"files nothing":       {"files"},
+		"files unknown op":    {"files", "cat", "x"},
+		"files read none":     {"files", "read"},
+		"files read two":      {"files", "read", "a", "b"},
+		"files read dotdot":   {"files", "read", "../x"},
+		"files ls two":        {"files", "ls", "a", "b"},
+		"files grep none":     {"files", "grep"},
+		"files grep three":    {"files", "grep", "a", "b", "c"},
+		"files base twice":    {"files", "ls", "--base", "--base"},
+		"run nothing":         {"run"},
+		"run two dirs":        {"run", "a", "b"},
+		"run escape":          {"run", "../x"},
+		"run missing":         {"run", "nope"},
+		"run no go":           {"run", "empty"},
+		"run only py":         {"run", "goless"},
+		"run too many":        {"run", "many"},
+		"run base twice":      {"run", "empty", "--base", "--base"},
+		"exec base twice":     {"exec", "--base", "--base", "--", "true"},
+		"check run base only": {"check", "run", "--base"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, srv := newRelay(t)
+			res := run(t, srv.URL, scratch, args...)
+			if res.code != ExitUsage || r.count() != 0 {
+				t.Errorf("exit %d, %d calls reached the relay (stderr %q)", res.code, r.count(), res.stderr)
+			}
+		})
+	}
+}
+
+func TestKeyIsSentWhenTheFileExists(t *testing.T) {
+	key := strings.Repeat("ab", 32)
+	cases := map[string]struct {
+		file    func(t *testing.T) string
+		wantKey string
+		code    int
+	}{
+		"no file":    {func(t *testing.T) string { return filepath.Join(t.TempDir(), "tools-key") }, "", ExitOK},
+		"no path":    {func(*testing.T) string { return "" }, "", ExitOK},
+		"key":        {writeKey(key + "\n"), key, ExitOK},
+		"not a key":  {writeKey("hunter2"), "", ExitToolError},
+		"empty file": {writeKey(""), "", ExitOK},
+		"large":      {writeKey(strings.Repeat("a", 4096)), "", ExitToolError},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var got []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = append(got, r.Header.Get(toolwire.KeyHeader))
+				_ = json.NewEncoder(w).Encode(toolwire.Response{Seq: 1})
+			}))
+			defer srv.Close()
+			var out, errb bytes.Buffer
+			code := Run(context.Background(), []string{"events"}, Options{
+				Getenv: func(string) string { return srv.URL }, Stdout: &out, Stderr: &errb,
+				Scratch: t.TempDir(), KeyFile: tc.file(t),
+			})
+			if code != tc.code {
+				t.Fatalf("exit %d, want %d (stderr %q)", code, tc.code, errb.String())
+			}
+			if code == ExitOK && (len(got) != 1 || got[0] != tc.wantKey) {
+				t.Errorf("key header %q, want %q", got, tc.wantKey)
+			}
+			if code != ExitOK && len(got) != 0 {
+				t.Error("a call went out with a bad key file")
+			}
+			all := out.String() + errb.String()
+			if strings.Contains(all, "hunter2") || strings.Contains(all, key) {
+				t.Error("the key or the file's content was printed")
+			}
+		})
+	}
+}
+
+func writeKey(content string) func(t *testing.T) string {
+	return func(t *testing.T) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "tools-key")
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+}

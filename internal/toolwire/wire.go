@@ -38,12 +38,61 @@ const (
 	// MaxConfirm bounds the checks one confirm names (SPEC Q1: at most 40
 	// checks).
 	MaxConfirm = 40
+	// MaxFileReadBytes, MaxGrepHits and MaxListEntries bound what the files
+	// verb returns (SPEC S2-05): a read at most 64 KiB, a grep at most 200
+	// hits, an ls at most 2000 entries. The relay cuts to them; a request
+	// cannot ask for more.
+	MaxFileReadBytes = 64 << 10
+	MaxGrepHits      = 200
+	MaxListEntries   = 2000
+	// MaxPatternBytes bounds a grep pattern.
+	MaxPatternBytes = 1 << 10
+	// MaxTreeSegments bounds the depth of a files path.
+	MaxTreeSegments = 32
 )
 
+// KeyHeader carries the per-evaluation key (SPEC O7): 256 bits, lower-case
+// hex, on every request to the tools container's :8090 once the tool pod
+// has one. It binds one evaluator to one tool pod, which NetworkPolicy
+// cannot; it is never recorded in a ledger entry.
+const KeyHeader = "X-Maul-Tools-Key"
+
+// IsKey reports a well-formed per-evaluation key: 64 lower-case hex digits.
+func IsKey(s string) bool { return isSHA256(s) }
+
+// Side is the revision a call runs against: the PR head (the default, an
+// empty Side) or the base, the merge base of the head and the PR's base
+// branch (SPEC O3). The two are separate sandboxes (SPEC O2).
+type Side string
+
+// Sides.
+const (
+	SideHead Side = "head"
+	SideBase Side = "base"
+)
+
+// Valid reports a side a request or an entry may carry: the empty side
+// (head), "head" or "base".
+func (s Side) Valid() bool { return s == "" || s == SideHead || s == SideBase }
+
+// Op is what the files verb does.
+type Op string
+
+// Ops.
+const (
+	OpLs   Op = "ls"
+	OpGrep Op = "grep"
+	OpRead Op = "read"
+)
+
+// LanguageGo is the only language the run verb takes (SPEC O5): node and
+// python are reserved, and refused.
+const LanguageGo = "go"
+
 // Path is the tools container's endpoint for verb: POST /v1/<verb>. The
-// relay's own VerbSession has none ("").
+// relay's own VerbSession and VerbBuild have none ("").
 func Path(v Verb) string {
-	if v == VerbSession || !knownVerb(v) {
+	if v == VerbSession || v == VerbBuild || !knownVerb(v) {
 		return ""
 	}
 	return "/v1/" + string(v)
@@ -75,12 +124,36 @@ type BrowserRequest struct {
 type ExecRequest struct {
 	Argv  []string `json:"argv"`
 	Files []File   `json:"files,omitempty"`
+	// Side is the sandbox the argv runs in; empty is the head.
+	Side Side `json:"side,omitempty"`
 }
 
 // File is a program file for an exec: a relative path and its contents.
 type File struct {
 	Name    string `json:"name"`
 	Content []byte `json:"content,omitempty"`
+}
+
+// FilesRequest is `maul-tool files ls|grep|read [--base] ...`: a look at a
+// pristine, digest-verified source tree, never at what a build rewrote and
+// never executing it. Path is relative to the tree's root; ls and grep take
+// an empty one (the root), read needs a file. Pattern is grep's.
+type FilesRequest struct {
+	Side    Side   `json:"side,omitempty"`
+	Op      Op     `json:"op"`
+	Path    string `json:"path,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
+}
+
+// RunRequest is `maul-tool run <dir> [--base] -- args`: a small program the
+// agent wrote, compiled and run against the tree of Side. For Go the relay
+// renders the module file itself (SPEC Q25); the agent supplies only .go
+// files.
+type RunRequest struct {
+	Side     Side     `json:"side,omitempty"`
+	Language string   `json:"language"`
+	Files    []File   `json:"files"`
+	Args     []string `json:"args,omitempty"`
 }
 
 // LogsRequest is `maul-tool logs <component>`.
@@ -95,6 +168,8 @@ type EventsRequest struct{}
 // in Spec, whose grammar the relay validates (internal/checks).
 type CheckRunRequest struct {
 	Spec json.RawMessage `json:"check"`
+	// Side is the sandbox the dry run uses; empty is the head.
+	Side Side `json:"side,omitempty"`
 }
 
 // CheckResultsRequest is `maul-tool check results`: the replay and dry-run
@@ -175,12 +250,62 @@ func (r *ExecRequest) Check() error {
 	if r.Argv[0] == "" {
 		return errors.New("argv[0] is empty")
 	}
-	if len(r.Files) > MaxFiles {
+	if !r.Side.Valid() {
+		return fmt.Errorf("side %q is not a side", r.Side)
+	}
+	return checkFiles(r.Files, 0)
+}
+
+// Check implements Request.
+func (r *FilesRequest) Check() error {
+	switch {
+	case !r.Side.Valid():
+		return fmt.Errorf("side %q is not a side", r.Side)
+	case r.Op != OpLs && r.Op != OpGrep && r.Op != OpRead:
+		return fmt.Errorf("op %q is not ls, grep or read", r.Op)
+	case r.Op == OpRead && r.Path == "":
+		return errors.New("read needs a file path")
+	case r.Op == OpGrep && r.Pattern == "":
+		return errors.New("grep needs a pattern")
+	case r.Op != OpGrep && r.Pattern != "":
+		return errors.New("only grep takes a pattern")
+	case len(r.Pattern) > MaxPatternBytes || !utf8.ValidString(r.Pattern) || strings.ContainsRune(r.Pattern, 0):
+		return errors.New("pattern is not bounded UTF-8")
+	}
+	return checkTreePath(r.Path)
+}
+
+// Check implements Request.
+func (r *RunRequest) Check() error {
+	if !r.Side.Valid() {
+		return fmt.Errorf("side %q is not a side", r.Side)
+	}
+	if r.Language != LanguageGo {
+		return fmt.Errorf("language %q is not supported (only %s)", r.Language, LanguageGo)
+	}
+	if err := checkFiles(r.Files, 1); err != nil {
+		return err
+	}
+	for _, f := range r.Files {
+		if !strings.HasSuffix(f.Name, ".go") {
+			return fmt.Errorf("file %q is not a .go file", f.Name)
+		}
+	}
+	return checkArgs(r.Args, 0)
+}
+
+// checkFiles holds program files to their bounds: at least least of them,
+// each a new relative path under the scratch directory.
+func checkFiles(files []File, least int) error {
+	if len(files) < least {
+		return errors.New("no program files")
+	}
+	if len(files) > MaxFiles {
 		return errors.New("too many files")
 	}
 	seen := map[string]bool{}
 	total := 0
-	for _, f := range r.Files {
+	for _, f := range files {
 		if !relativeFile(f.Name) || seen[f.Name] {
 			return fmt.Errorf("file name %q is not a new relative path", f.Name)
 		}
@@ -189,6 +314,28 @@ func (r *ExecRequest) Check() error {
 	}
 	if total > MaxProgramBytes {
 		return errors.New("program files are too large")
+	}
+	return nil
+}
+
+// checkTreePath holds a files path to a plain relative path into a source
+// tree: "" (the root) or slash-separated segments, none empty, "." or "..",
+// no control characters.
+func checkTreePath(p string) error {
+	if p == "" {
+		return nil
+	}
+	if len(p) > MaxPathBytes || !utf8.ValidString(p) || strings.HasPrefix(p, "/") {
+		return errors.New("path is not a bounded relative path")
+	}
+	segs := strings.Split(p, "/")
+	if len(segs) > MaxTreeSegments {
+		return errors.New("path is too deep")
+	}
+	for _, sg := range segs {
+		if sg == "" || sg == "." || sg == ".." || strings.IndexFunc(sg, unicode.IsControl) >= 0 {
+			return errors.New("path is not a plain relative path")
+		}
 	}
 	return nil
 }
@@ -206,6 +353,9 @@ func (*EventsRequest) Check() error { return nil }
 
 // Check implements Request. The check's own grammar is internal/checks'.
 func (r *CheckRunRequest) Check() error {
+	if !r.Side.Valid() {
+		return fmt.Errorf("side %q is not a side", r.Side)
+	}
 	if len(r.Spec) == 0 || len(r.Spec) > MaxCheckBytes || !json.Valid(r.Spec) {
 		return errors.New("check is not bounded JSON")
 	}

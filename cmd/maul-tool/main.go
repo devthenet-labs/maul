@@ -6,8 +6,9 @@
 // evaluator runs it by bare name, one command per Bash call, to reach its
 // tool pod's tools container (http, browser, exec, logs, events, check run,
 // check results). The engine is internal/maultool; this is its thin
-// wiring. It reads only MAUL_TOOLS_URL, holds no key, and reads and writes
-// files only under /work/scratch. Exit 0 ok, 2 usage, 3 refused, 4 tool
+// wiring. It reads only MAUL_TOOLS_URL, sends the per-evaluation key from
+// /work/input/tools-key when that file exists, and otherwise reads and
+// writes files only under /work/scratch. Exit 0 ok, 2 usage, 3 refused, 4 tool
 // error.
 package main
 
@@ -27,6 +28,7 @@ func main() {
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 		Scratch: scratchDir(os.Getenv),
+		KeyFile: maultool.KeyFile,
 	})
 	stop()
 	os.Exit(code)
