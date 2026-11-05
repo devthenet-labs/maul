@@ -648,6 +648,31 @@ func TestToolPodShapeRefusal(t *testing.T) {
 			p.Containers[0].VolumeMounts = append(p.Containers[0].VolumeMounts,
 				corev1.VolumeMount{Name: "cache-head", MountPath: "/c"})
 		},
+		"head mounts base work": func(p *corev1.PodSpec) {
+			c := sandbox(p)
+			c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{Name: "work-base", MountPath: "/b"})
+		},
+		"head reads base cache": func(p *corev1.PodSpec) {
+			c := sandbox(p)
+			c.VolumeMounts = append(c.VolumeMounts,
+				corev1.VolumeMount{Name: "cache-base", MountPath: "/b", ReadOnly: true})
+		},
+		"seed mounts other tree": func(p *corev1.PodSpec) {
+			c := &p.InitContainers[1]
+			c.VolumeMounts = append(c.VolumeMounts,
+				corev1.VolumeMount{Name: "trees-base", MountPath: "/trees/base", ReadOnly: true})
+		},
+		"seed writes its tree": func(p *corev1.PodSpec) { p.InitContainers[1].VolumeMounts[0].ReadOnly = false },
+		"sandbox writes pristine tree": func(p *corev1.PodSpec) {
+			c := sandbox(p)
+			c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{Name: "trees-head", MountPath: "/t"})
+		},
+		"tools writes pristine tree": func(p *corev1.PodSpec) { p.Containers[0].VolumeMounts[1].ReadOnly = false },
+		"unconfined seccomp": func(p *corev1.PodSpec) {
+			sandbox(p).SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeUnconfined}
+		},
+		"pod seccomp unset": func(p *corev1.PodSpec) { p.SecurityContext.SeccompProfile = nil },
 		"hostPath": func(p *corev1.PodSpec) {
 			p.Volumes = append(p.Volumes, corev1.Volume{Name: "h", VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{Path: "/"}}})
@@ -826,6 +851,29 @@ func TestCreateToolPod(t *testing.T) {
 	if len(secret.OwnerReferences) != 1 || secret.OwnerReferences[0].Kind != "Job" ||
 		secret.OwnerReferences[0].Name != toolPodName {
 		t.Errorf("owner references %v", secret.OwnerReferences)
+	}
+}
+
+// TestCreateToolPodStaleSecret refuses to adopt a tools Secret holding
+// other data (another key): the Job would serve a key the caller does not
+// hold.
+func TestCreateToolPodStaleSecret(t *testing.T) {
+	cs := fake.NewClientset()
+	c := New(cs, toolPodConfig(), nil)
+	ctx := context.Background()
+	if _, err := c.CreateToolPod(ctx, toolPodSpec()); err != nil {
+		t.Fatalf("CreateToolPod: %v", err)
+	}
+	if err := cs.BatchV1().Jobs("maul-agents").Delete(ctx, toolPodName, metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	spec := toolPodSpec()
+	spec.Key = strings.Repeat("e", 64)
+	if _, err := c.CreateToolPod(ctx, spec); err == nil {
+		t.Fatal("a tools Secret with another key was adopted")
+	}
+	if _, err := cs.BatchV1().Jobs("maul-agents").Get(ctx, toolPodName, metav1.GetOptions{}); err == nil {
+		t.Error("a Job was created over the stale Secret")
 	}
 }
 

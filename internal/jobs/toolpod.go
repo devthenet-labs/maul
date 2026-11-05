@@ -4,6 +4,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -245,6 +246,12 @@ func (c *Client) CreateToolPod(ctx context.Context, spec ToolPodSpec) (string, e
 	}
 	if err != nil {
 		return "", fmt.Errorf("jobs: create secret %s: %w", want.Name, err)
+	}
+	// An adopted Secret must be this call's: the Secret is immutable, and a
+	// Job mounting another call's would serve a key the caller does not hold.
+	if !maps.EqualFunc(secret.Data, want.Data, bytes.Equal) {
+		return "", fmt.Errorf("jobs: secret %s exists with other data; the tool pod's key or config differs",
+			want.Name)
 	}
 	jobs := c.cs.BatchV1().Jobs(c.cfg.Namespace)
 	created, err := jobs.Create(ctx, job, metav1.CreateOptions{})
@@ -790,6 +797,18 @@ var toolInitNames = []string{initContainerName, "seed-" + ToolSideHead, "seed-" 
 // writable; a /dev/shm of its own in tools and each sandbox.
 func toolPodShapeRefusal(job *batchv1.Job, spec ToolPodSpec, allowed map[string]bool) error {
 	pod := job.Spec.Template.Spec
+	errs := toolPodLevelRefusals(pod)
+	errs = append(errs, toolVolumeRefusals(pod, spec)...)
+	errs = append(errs, toolContainerRefusals(pod, spec, allowed)...)
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", ErrToolPodRefused, errors.Join(errs...))
+}
+
+// toolPodLevelRefusals: the pod's own fields, its identity, namespaces,
+// posture, resolver and placement.
+func toolPodLevelRefusals(pod corev1.PodSpec) []error {
 	var errs []error
 	refuse := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	if pod.AutomountServiceAccountToken == nil || *pod.AutomountServiceAccountToken ||
@@ -802,18 +821,16 @@ func toolPodShapeRefusal(job *batchv1.Job, spec ToolPodSpec, allowed map[string]
 	if pod.HostNetwork || pod.HostPID || pod.HostIPC || pod.HostUsers != nil && *pod.HostUsers {
 		refuse("the pod shares a host namespace")
 	}
+	if !podSecured(pod.SecurityContext) {
+		refuse("the pod must run non-root under the runtime's default seccomp profile")
+	}
 	if pod.DNSPolicy != corev1.DNSNone {
 		refuse("the pod resolves names (dnsPolicy %s)", pod.DNSPolicy)
 	}
 	if len(pod.Tolerations) > 0 || len(pod.NodeSelector) > 0 || pod.Affinity != nil || pod.NodeName != "" {
 		refuse("the tool pod takes no toleration, node selector, affinity or node")
 	}
-	errs = append(errs, toolVolumeRefusals(pod, spec)...)
-	errs = append(errs, toolContainerRefusals(pod, spec, allowed)...)
-	if len(errs) == 0 {
-		return nil
-	}
-	return fmt.Errorf("%w: %w", ErrToolPodRefused, errors.Join(errs...))
+	return errs
 }
 
 // toolVolumeRefusals: only the tools Secret and emptyDirs.
@@ -848,7 +865,43 @@ func toolContainerRefusals(pod corev1.PodSpec, spec ToolPodSpec, allowed map[str
 	for _, c := range slices.Concat(pod.InitContainers, pod.Containers) {
 		errs = append(errs, toolContainerRefusal(c, spec, allowed, vols)...)
 	}
-	return append(errs, toolMountRefusals(pod, vols.shm)...)
+	errs = append(errs, toolMountRefusals(pod, vols.shm)...)
+	return append(errs, toolSideRefusals(pod)...)
+}
+
+// toolSideRefusals hold the head/base wall (O2): a seed or sandbox mounts
+// no volume of the other side, a seed mounts exactly its pristine tree
+// (read-only) and its work volume, and only prepare writes a pristine tree.
+func toolSideRefusals(pod corev1.PodSpec) []error {
+	var errs []error
+	other := map[string]string{ToolSideHead: ToolSideBase, ToolSideBase: ToolSideHead}
+	for _, c := range slices.Concat(pod.InitContainers, pod.Containers) {
+		side := ""
+		for _, prefix := range []string{"seed-", "sandbox-"} {
+			if s, ok := strings.CutPrefix(c.Name, prefix); ok {
+				side = s
+			}
+		}
+		for _, m := range c.VolumeMounts {
+			if side != "" && strings.HasSuffix(m.Name, "-"+other[side]) {
+				errs = append(errs, fmt.Errorf("%s mounts %s, a volume of the other side", c.Name, m.Name))
+			}
+			if strings.HasPrefix(m.Name, "trees-") && !m.ReadOnly && c.Name != initContainerName {
+				errs = append(errs, fmt.Errorf("%s mounts the pristine tree %s writable", c.Name, m.Name))
+			}
+		}
+		if strings.HasPrefix(c.Name, "seed-") {
+			names := make([]string, 0, len(c.VolumeMounts))
+			for _, m := range c.VolumeMounts {
+				names = append(names, m.Name)
+			}
+			slices.Sort(names)
+			if !slices.Equal(names, []string{"trees-" + side, "work-" + side}) {
+				errs = append(errs, fmt.Errorf("%s mounts %v, not exactly its tree and work volume", c.Name, names))
+			}
+		}
+	}
+	return errs
 }
 
 // toolUIDs are each container's UID.
@@ -970,6 +1023,13 @@ func toolMountRefusals(pod corev1.PodSpec, shm map[string]bool) []error {
 	return errs
 }
 
+// podSecured reports whether the pod runs non-root under the runtime's
+// default seccomp profile.
+func podSecured(sc *corev1.PodSecurityContext) bool {
+	return sc != nil && sc.RunAsNonRoot != nil && *sc.RunAsNonRoot && sc.SeccompProfile != nil &&
+		sc.SeccompProfile.Type == corev1.SeccompProfileTypeRuntimeDefault
+}
+
 // securedAs reports whether sc is toolpod.Security(uid) or stricter where
 // it matters: that UID and group, non-root, read-only, no escalation, no
 // capability, not privileged.
@@ -977,6 +1037,7 @@ func securedAs(sc *corev1.SecurityContext, uid int64) bool {
 	return sc != nil && sc.RunAsUser != nil && *sc.RunAsUser == uid && sc.RunAsGroup != nil &&
 		*sc.RunAsGroup == uid && sc.RunAsNonRoot != nil && *sc.RunAsNonRoot && sc.ReadOnlyRootFilesystem != nil &&
 		*sc.ReadOnlyRootFilesystem && sc.AllowPrivilegeEscalation != nil && !*sc.AllowPrivilegeEscalation &&
-		(sc.Privileged == nil || !*sc.Privileged) && sc.Capabilities != nil &&
+		(sc.Privileged == nil || !*sc.Privileged) && (sc.SeccompProfile == nil ||
+		sc.SeccompProfile.Type == corev1.SeccompProfileTypeRuntimeDefault) && sc.Capabilities != nil &&
 		slices.Equal(sc.Capabilities.Drop, []corev1.Capability{"ALL"}) && len(sc.Capabilities.Add) == 0
 }
