@@ -336,6 +336,7 @@ func TestSchemaValidation(t *testing.T) {
 
 	t.Run("acceptance verification records are bounded and set once", func(t *testing.T) {
 		testVerificationSchema(ctx, t, c)
+		testAgentsSchema(ctx, t, c)
 	})
 
 	t.Run("finding commands round-trip and are bounded", func(t *testing.T) {

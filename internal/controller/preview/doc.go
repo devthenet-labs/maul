@@ -12,16 +12,19 @@
 // PreviewVerification request in the release namespace: it re-checks the
 // request against the Preview and the Intent's approved criteria, reads the
 // tester's log through pods/log (and only the log of the Job's own pod), and
-// writes observations, never verdicts, to the request's status. With the
+// writes observations, never verdicts, to the request's status. Only a slot
+// request's (spec.placement unset or slot): an agents one has no Preview,
+// and intent-controller's agents host writes its status (SPEC S2 O1). With the
 // evaluator on (--preview-evaluator), an outcome verification instead runs
-// the slot tool pod (toolpod.go, toolpolicy.go, toolrun.go): a Job of the
-// tools relay with browser and sandbox sidecars, its CDP key Secret and
-// tool ConfigMap (the only Secret and ConfigMap it writes in a slot, both
-// owned by the Job and never read back), and one ingress policy admitting
-// exactly its evaluator; it publishes status.tools once tools is Ready,
-// then verifies the tools container's ledger (ledger.go) and stores it, and
-// the evidence images it cites (evidence.go), in ConfigMaps the request
-// owns in the release namespace. That ingress policy cannot be owned across
+// the slot tool pod (toolpod.go over internal/toolpod, toolpolicy.go,
+// toolrun.go): a Job of the tools relay with browser and sandbox sidecars,
+// its CDP key Secret and tool ConfigMap (the only Secret and ConfigMap it
+// writes in a slot, both owned by the Job and never read back), and one
+// ingress policy admitting exactly its evaluator; it publishes status.tools
+// once tools is Ready, then verifies the tools container's ledger
+// (internal/toolledger; ledger.go names and owns its ConfigMap) and stores
+// it, and the evidence images it cites (evidence.go), in ConfigMaps the
+// request owns in the release namespace. That ingress policy cannot be owned across
 // namespaces, so a request deleted while it runs leaves it behind; the
 // orphan sweep deletes an evaluator ingress policy whose request is gone once
 // it is past a short grace. Every rendered object is deterministic, a Preview

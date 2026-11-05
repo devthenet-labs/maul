@@ -138,9 +138,12 @@
 //	Preview spec         PreviewSourceReconciler (preview-controller writes
 //	                     its status, which the IntentReconciler only reads)
 //	PreviewVerification  IntentReconciler: creates (spec, once) and deletes
-//	                     (supersede, retention, review end); preview-controller
-//	                     writes its status, which the IntentReconciler only
-//	                     reads, one uncached get per pass, and judges
+//	                     (supersede, retention, review end); its status has
+//	                     one writer by spec.placement (immutable): for slot
+//	                     (unset) preview-controller, for agents this
+//	                     controller's agents host (SPEC S2 O1); the
+//	                     IntentReconciler only reads it, one uncached get per
+//	                     pass, and judges
 //
 // With --intent-verification, status.acceptance and status.verification are
 // the IntentReconciler's like the rest of Intent status (verify_loop.go): the

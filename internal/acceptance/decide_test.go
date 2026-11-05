@@ -968,10 +968,10 @@ func oracleFixRun(in Input, o OutcomeRef, f FixFailure) error {
 }
 
 // oracleNoVettedSibling: two vetted checks disagreeing is never a fail
-// (finding 3).
+// (finding 3); a sibling narrowed in an earlier round is no vote (bug 14).
 func oracleNoVettedSibling(in Input, o OutcomeRef, f FixFailure) error {
 	for _, c := range in.Checks {
-		if c.Outcome != o.ID || c.Digest == f.CheckDigest || c.Retired || !c.Valid ||
+		if c.Outcome != o.ID || c.Digest == f.CheckDigest || c.Retired || !c.Valid || c.Narrowed ||
 			slices.ContainsFunc(in.Retired, func(r Retirement) bool { return r.CheckDigest == c.Digest }) {
 			continue
 		}
