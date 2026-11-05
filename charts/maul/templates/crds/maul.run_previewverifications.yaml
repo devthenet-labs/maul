@@ -450,7 +450,10 @@ spec:
                 pattern: ^sha256:[0-9a-f]{64}$
                 type: string
               heads:
-                description: Heads are the Preview spec's components and their revisions.
+                description: |-
+                  Heads are the Preview spec's components and their revisions; on an
+                  agents verification, the PR heads, the workspace's repository among
+                  them at its headSHA.
                 items:
                   description: |-
                     VerificationHead is one previewed component's revision in the combined
@@ -830,6 +833,10 @@ spec:
                 are unset'
               rule: '!has(self.placement) || self.placement != ''agents'' || (!has(self.previewRef)
                 && !has(self.previewGeneration))'
+            - message: 'an agents verification''s workspace builds one of its heads:
+                spec.heads names spec.workspace.repository at spec.workspace.headSHA'
+              rule: '!has(self.workspace) || self.heads.exists(h, h.component == self.workspace.repository
+                && h.revision == self.workspace.headSHA)'
             - message: an agents verification evaluates outcomes with no browser and
                 no look-around
               rule: '!has(self.placement) || self.placement != ''agents'' || (has(self.outcomes)
@@ -855,7 +862,9 @@ spec:
                   runs:
                     description: |-
                       Runs are the checks' runs at base, each with a fresh run token
-                      (CheckRun.tree base).
+                      (CheckRun.tree base). Each names the base tree explicitly: an unset
+                      tree reads as head (CheckRun.Side), so a base run without it would
+                      stand for a head run.
                     items:
                       description: CheckRun is one run of one check, as the ledger
                         recorded it.
@@ -937,6 +946,9 @@ spec:
                     maxItems: 80
                     type: array
                     x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: every base run names the base tree
+                      rule: self.all(r, has(r.tree) && r.tree == 'base')
                   unbuildable:
                     description: |-
                       Unbuildable reports that the base tree did not build: every base run

@@ -58,6 +58,8 @@ func schemaAgentsVerification(name string) *maulv1.PreviewVerification {
 	v.Spec.PreviewRef, v.Spec.PreviewGeneration = maulv1.ObjectReference{}, 0
 	v.Spec.Tools = &maulv1.ToolsSpec{Sandbox: true, MaxToolCalls: 300}
 	v.Spec.Workspace = schemaWorkspace()
+	v.Spec.Heads = []maulv1.VerificationHead{{Component: v.Spec.Workspace.Repository,
+		Repository: "https://github.com/acme/render", Revision: v.Spec.Workspace.HeadSHA}}
 	v.Spec.Timeout = metav1.Duration{Duration: 75 * time.Minute}
 	return v
 }
@@ -172,6 +174,17 @@ func testAgentsVerificationSchema(ctx context.Context, t *testing.T, c client.Cl
 			v.Spec.Timeout.Duration = time.Second
 		}, true},
 		{"agents: a short head", func(v *maulv1.PreviewVerification) { v.Spec.Workspace.HeadSHA = "abc" }, true},
+		// The workspace builds one of the heads the verification is of.
+		{"agents: another head beside the workspace's", func(v *maulv1.PreviewVerification) {
+			v.Spec.Heads = append(v.Spec.Heads, maulv1.VerificationHead{Component: "api",
+				Repository: "https://github.com/acme/api", Revision: strings.Repeat("e", 40)})
+		}, false},
+		{"agents: a workspace head that is not the repository's head", func(v *maulv1.PreviewVerification) {
+			v.Spec.Workspace.HeadSHA = strings.Repeat("e", 40)
+		}, true},
+		{"agents: a workspace repository with no head", func(v *maulv1.PreviewVerification) {
+			v.Spec.Heads[0].Component = "api"
+		}, true},
 		{"agents: an upper-case base", func(v *maulv1.PreviewVerification) {
 			v.Spec.Workspace.BaseSHA = strings.Repeat("B", 40)
 		}, true},
@@ -288,6 +301,11 @@ func testAgentsStatusSchema(ctx context.Context, t *testing.T, c client.Client) 
 		mutate func(*maulv1.PreviewVerificationStatus)
 	}{
 		{"an unknown tree", func(s *maulv1.PreviewVerificationStatus) { s.Base.Runs[0].Tree = "merge" }},
+		// A base run read as head would let a base result stand for head.
+		{"a base run with no tree", func(s *maulv1.PreviewVerificationStatus) { s.Base.Runs[0].Tree = "" }},
+		{"a base run on the head tree", func(s *maulv1.PreviewVerificationStatus) {
+			s.Base.Runs[0].Tree = maulv1.TreeHead
+		}},
 		{"an unknown build side", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Builds[0].Side = "both" }},
 		{"an unknown build result", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Builds[0].Result = "ok" }},
 		{"a build at seq 0", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Builds[0].Seq = 0 }},

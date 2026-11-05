@@ -278,6 +278,7 @@ type ToolsSpec struct {
 // +kubebuilder:validation:XValidation:rule="duration(self.timeout) >= duration('1m') && duration(self.timeout) <= ((has(self.placement) && self.placement == 'agents') ? duration('75m') : duration('1h'))",message="spec.timeout must be between 1m and 1h (75m on an agents verification)"
 // +kubebuilder:validation:XValidation:rule="has(self.workspace) == (has(self.placement) && self.placement == 'agents')",message="an agents verification, and only one, names its workspace"
 // +kubebuilder:validation:XValidation:rule="!has(self.placement) || self.placement != 'agents' || (!has(self.previewRef) && !has(self.previewGeneration))",message="an agents verification has no Preview: previewRef and previewGeneration are unset"
+// +kubebuilder:validation:XValidation:rule="!has(self.workspace) || self.heads.exists(h, h.component == self.workspace.repository && h.revision == self.workspace.headSHA)",message="an agents verification's workspace builds one of its heads: spec.heads names spec.workspace.repository at spec.workspace.headSHA"
 // +kubebuilder:validation:XValidation:rule="!has(self.placement) || self.placement != 'agents' || (has(self.outcomes) && has(self.tools) && !(has(self.tools.browser) && self.tools.browser) && (!has(self.tools.lookAroundRoutes) || self.tools.lookAroundRoutes == 0))",message="an agents verification evaluates outcomes with no browser and no look-around"
 type PreviewVerificationSpec struct {
 	// Placement is where the tool pod runs (VerificationPlacement); unset
@@ -303,7 +304,9 @@ type PreviewVerificationSpec struct {
 	// pairs of every Preview component: the combined change verified.
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	HeadSetDigest string `json:"headSetDigest"`
-	// Heads are the Preview spec's components and their revisions.
+	// Heads are the Preview spec's components and their revisions; on an
+	// agents verification, the PR heads, the workspace's repository among
+	// them at its headSHA.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=4
 	// +listType=map
@@ -790,10 +793,13 @@ type BaseStatus struct {
 	// +optional
 	Unbuildable bool `json:"unbuildable,omitempty"`
 	// Runs are the checks' runs at base, each with a fresh run token
-	// (CheckRun.tree base).
+	// (CheckRun.tree base). Each names the base tree explicitly: an unset
+	// tree reads as head (CheckRun.Side), so a base run without it would
+	// stand for a head run.
 	// +optional
 	// +kubebuilder:validation:MaxItems=80
 	// +listType=atomic
+	// +kubebuilder:validation:XValidation:rule="self.all(r, has(r.tree) && r.tree == 'base')",message="every base run names the base tree"
 	Runs []CheckRun `json:"runs,omitempty"`
 }
 
