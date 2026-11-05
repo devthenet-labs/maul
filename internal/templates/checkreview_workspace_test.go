@@ -125,6 +125,50 @@ func TestCheckReviewWorkspaceStatesMaulsFacts(t *testing.T) {
 	}
 }
 
+// TestCheckReviewWorkspaceStatesRulesExactly: what the reviewer is told of
+// maul's own rules matches them. A change outcome's check that cannot build
+// or run at the base still counts (no base comparison: Decide's
+// discriminates), so the prompt never says only a red-by-assertion base
+// counts; and on the red question it never claims a clean sandbox, since
+// the tree and the caches persist across every run at a side (SPEC-S2
+// Q23), only the working directory is fresh.
+func TestCheckReviewWorkspaceStatesRulesExactly(t *testing.T) {
+	w := testReviewLibrary
+	w.Head = ReviewRun{Result: string(v1alpha1.CheckRunFail), Assertion: "marker too-long"}
+	red := testWorkspaceReview(t, ExampleLibraryRunCheck, w)
+	red.ExpectFail, red.FailedStep, red.FailedAssertion = true, 1, "marker too-long"
+	for _, tt := range []struct {
+		name       string
+		p          CheckReviewPrompt
+		want, gone []string
+	}{
+		{"green", testWorkspaceReview(t, ExampleLibraryRunCheck, testReviewLibrary),
+			[]string{"or cannot build or run there, which leaves no base comparison"},
+			[]string{"only if it fails at the base by an assertion"}},
+		{"red", red,
+			[]string{"only the working directory was fresh", "the tree and the caches are shared by every run"},
+			[]string{"left behind was there"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := RenderCheckReviewPrompt(tt.p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			own := strings.Join(strings.Fields(strings.Join(unfenced(got), "\n")), " ")
+			for _, want := range tt.want {
+				if !strings.Contains(own, want) {
+					t.Errorf("the prompt does not say %q", want)
+				}
+			}
+			for _, gone := range tt.gone {
+				if strings.Contains(own, gone) {
+					t.Errorf("the prompt says %q", gone)
+				}
+			}
+		})
+	}
+}
+
 // TestCheckReviewWorkspaceProgramOnlyFenced: a hostile program and
 // assertion reach the reviewer only fenced or escaped.
 func TestCheckReviewWorkspaceProgramOnlyFenced(t *testing.T) {

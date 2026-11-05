@@ -88,8 +88,9 @@ request's head, and its base without the change, in the repository's own image, 
 - At the head the check passed.
 - At the base it failed by its assertion `stdout`.
 
-maul itself counts a change outcome's check only if it fails at the base by an assertion, and a keep outcome's only
-if it passes there: that rule is not yours to judge. Read the two runs as evidence of what the program exercises.
+maul itself counts a change outcome's check only if it does not pass at the base: it fails there by an assertion,
+or cannot build or run there, which leaves no base comparison. It counts a keep outcome's check unless it fails there
+by an assertion. That rule is not yours to judge: read the two runs as evidence of what the program exercises.
 
 ## How to judge
 
