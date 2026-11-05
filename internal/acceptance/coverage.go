@@ -30,10 +30,16 @@ var (
 	ellipsis = regexp.MustCompile(`\.{3,}|…`)
 )
 
-// minAbbreviated is the fewest letters and digits the pieces of a shortened
-// from must hold together to cover an item, so a few short words found far
+// The fewest letters and digits the pieces of a shortened from must hold,
+// each and together, to cover an item, so a few short words found far
 // apart never count as a quote.
-const minAbbreviated = 12
+const (
+	minPiece       = 4
+	minAbbreviated = 12
+)
+
+// trailing is the punctuation cut from the end of the plain form.
+const trailing = ".,;:!? …"
 
 // NotCovered returns the issue's list items that no outcome quotes in its
 // from, in issue order: the lines the plan may have left out, shown to the
@@ -42,17 +48,19 @@ const minAbbreviated = 12
 // compared in the same plain form: inline markup cut (inline links and
 // images, and full or collapsed reference links, to their text; the
 // characters of code spans, emphasis, strikethrough and escapes removed),
-// case and runs of whitespace ignored, trailing punctuation cut. Inline
-// HTML, entities and shortcut reference links are compared as written. A
-// from with no letter or digit covers nothing.
+// case and runs of whitespace ignored, trailing punctuation (an ellipsis,
+// "..." or "…", included) cut. Inline HTML, entities and shortcut reference
+// links are compared as written. A from with no letter or digit covers
+// nothing.
 //
-// A from the planner shortened with an ellipsis ("..." or more dots, or
-// "…") at its start or inside it is cut there into pieces, each trimmed of
-// spaces and punctuation, the empty ones dropped. It covers an item when
-// its pieces occur in the item's plain text in order, without overlapping,
-// provided each piece holds a letter or digit and the pieces together hold
-// at least 12 (minAbbreviated); otherwise it covers nothing. A trailing
-// ellipsis is cut with the trailing punctuation, leaving a plain from.
+// A from that does not occur whole but holds an ellipsis ("..." or more
+// dots, or "…") at its start or inside it, as the planner may shorten a
+// quote, is cut there into pieces, each trimmed of spaces and punctuation,
+// the empty ones dropped. It also covers an item when its pieces occur in
+// the item's plain text in order, without overlapping, provided each piece
+// holds at least 4 letters or digits (minPiece) and the pieces together at
+// least 12 (minAbbreviated); a from failing either covers an item only by
+// occurring in it whole.
 //
 // A list item is a line whose first text is a bullet (-, *, +) or ordered
 // (1. or 1)) marker followed by text, indented less than four columns or
@@ -61,18 +69,18 @@ const minAbbreviated = 12
 // blockquotes. The issue body is untrusted: the returned lines are its
 // text, for the caller to bound and render as such.
 func NotCovered(issueBody string, outcomes []PlanOutcome) []string {
-	froms := make([][]string, 0, len(outcomes))
+	froms := make([]fromQuote, 0, len(outcomes))
 	for _, o := range outcomes {
-		if pieces := fromPieces(o.From); pieces != nil {
-			froms = append(froms, pieces)
+		if q, ok := quoteOf(o.From); ok {
+			froms = append(froms, q)
 		}
 	}
 	var out []string
 	for _, item := range listItems(issueBody) {
 		text := plainText(item)
 		covered := false
-		for _, pieces := range froms {
-			if containsInOrder(text, pieces) {
+		for _, q := range froms {
+			if q.covers(text) {
 				covered = true
 				break
 			}
@@ -84,37 +92,58 @@ func NotCovered(issueBody string, outcomes []PlanOutcome) []string {
 	return out
 }
 
-// fromPieces returns a from's plain pieces as NotCovered defines them: the
-// whole from when it has no ellipsis, nil when it covers nothing.
-func fromPieces(from string) []string {
+// fromQuote is a from in plain form, and its pieces when it was shortened
+// with an ellipsis and they are substantive.
+type fromQuote struct {
+	whole  string
+	pieces []string
+}
+
+// quoteOf returns a from's fromQuote as NotCovered defines it, and false when
+// it covers nothing.
+func quoteOf(from string) (fromQuote, bool) {
 	f := plainText(fromMarker.ReplaceAllString(strings.TrimSpace(from), ""))
+	if !strings.ContainsFunc(f, isAlnum) {
+		return fromQuote{}, false
+	}
+	return fromQuote{whole: f, pieces: abbreviated(f)}, true
+}
+
+// abbreviated returns the pieces of a plain from cut at its ellipses, or
+// nil when it has none or they are not substantive.
+func abbreviated(f string) []string {
 	if !ellipsis.MatchString(f) {
-		if !strings.ContainsFunc(f, isAlnum) {
-			return nil
-		}
-		return []string{f}
+		return nil
 	}
 	var pieces []string
-	alnum := 0
+	total := 0
 	for _, p := range ellipsis.Split(f, -1) {
-		p = strings.Trim(p, ".,;:!? ")
+		p = strings.Trim(p, trailing)
 		if p == "" {
 			continue
 		}
-		if !strings.ContainsFunc(p, isAlnum) {
-			return nil
-		}
+		n := 0
 		for _, r := range p {
 			if isAlnum(r) {
-				alnum++
+				n++
 			}
 		}
+		if n < minPiece {
+			return nil
+		}
+		total += n
 		pieces = append(pieces, p)
 	}
-	if alnum < minAbbreviated {
+	if total < minAbbreviated {
 		return nil
 	}
 	return pieces
+}
+
+// covers reports whether a quote covers an item's plain text: whole, or
+// by its pieces in order.
+func (q fromQuote) covers(text string) bool {
+	return strings.Contains(text, q.whole) || (q.pieces != nil && containsInOrder(text, q.pieces))
 }
 
 // containsInOrder reports whether every piece occurs in text after the one
@@ -133,13 +162,13 @@ func containsInOrder(text string, pieces []string) bool {
 func isAlnum(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // plainText is the comparison form: inline markup cut, lowercased,
-// whitespace runs one space, trailing punctuation and space trimmed. The
-// planner may quote an issue line with or without its markup, so both
-// sides are compared without it.
+// whitespace runs one space, trailing punctuation (an ellipsis included)
+// and space trimmed. The planner may quote an issue line with or without
+// its markup, so both sides are compared without it.
 func plainText(s string) string {
 	s = inlineMarkup.Replace(inlineLink.ReplaceAllString(s, "$1"))
 	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
-	return strings.TrimRight(s, ".,;:!? ")
+	return strings.TrimRight(s, trailing)
 }
 
 // listItems returns the text of every list item of a markdown body, in

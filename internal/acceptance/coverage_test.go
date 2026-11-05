@@ -6,6 +6,7 @@ package acceptance
 import (
 	"fmt"
 	"math/rand"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -117,6 +118,12 @@ func TestNotCovered(t *testing.T) {
 		{"pieces overlapping", "- whole number from 60\n", from("whole number ... number from 60"),
 			[]string{"whole number from 60"}},
 		{"pieces too short", issue59, from("a ... gets 400", "a bound ... 400"), []string{issue59First, issue59Second}},
+		{"one piece too short", issue59, from("A bound that is not a whole number ... 400"),
+			[]string{issue59First, issue59Second}},
+		{"a line with an ellipsis quoted exactly", "- wait... retry\n- wait… retry later\n- go on...\n",
+			from("wait... retry", "Wait…  retry later.", "go on..."), nil},
+		{"a trailing ellipsis character is trailing punctuation", "- it gets 400\n- it gets 500\n",
+			from("gets 400…", "gets 500..."), nil},
 		{"a piece of punctuation only", issue59, from("A bound that is not a whole number ... - ... gets 400"),
 			[]string{issue59First, issue59Second}},
 		{"ellipsis only covers nothing", issue59, from("...", "…", "... , ...", "- …"),
@@ -183,20 +190,30 @@ func TestNotCoveredProperty(t *testing.T) {
 }
 
 // TestNotCoveredAbbreviatedProperty: a from that quotes a bullet in
-// pieces, in order, joined by "..." or "…", covers it exactly when the
-// pieces hold at least twelve letters or digits.
+// pieces joined by "..." or "…" covers it exactly when the pieces are
+// substantive (each at least four letters or digits, twelve together) and
+// occur in the bullet in that order; a piece the bullet lacks never
+// covers it; and a bullet that itself holds an ellipsis is covered by an
+// exact quote.
 func TestNotCoveredAbbreviatedProperty(t *testing.T) {
 	r := rand.New(rand.NewSource(seed))
 	marks := []string{"...", " ... ", "…", " … ", "....", ", ... "}
-	for n := range 1000 {
+	join := func(parts []string) string {
+		var b strings.Builder
+		for i, p := range parts {
+			if i > 0 {
+				b.WriteString(marks[r.Intn(len(marks))])
+			}
+			b.WriteString(p)
+		}
+		return b.String()
+	}
+	for n := range 2000 {
 		ws := strings.Fields(sentence(r) + " " + sentence(r))
 		line := strings.Join(ws, " ")
 		var pieces []string
 		for i := 0; i < len(ws); {
-			j := i + 1 + r.Intn(3)
-			if j > len(ws) {
-				j = len(ws)
-			}
+			j := min(i+1+r.Intn(3), len(ws))
 			if r.Intn(3) > 0 {
 				pieces = append(pieces, strings.Join(ws[i:j], " "))
 			}
@@ -205,26 +222,52 @@ func TestNotCoveredAbbreviatedProperty(t *testing.T) {
 		if len(pieces) < 2 {
 			continue
 		}
-		var b strings.Builder
-		for i, p := range pieces {
-			if i > 0 {
-				b.WriteString(marks[r.Intn(len(marks))])
-			}
-			b.WriteString(p)
+		var want bool
+		mode := r.Intn(4)
+		switch mode {
+		case 0: // in order
+			want = substantive(pieces)
+		case 1: // out of order
+			slices.Reverse(pieces)
+			want = substantive(pieces) && inOrder(line, pieces)
+		case 2: // a piece the line lacks
+			pieces = slices.Insert(pieces, r.Intn(len(pieces)+1), "zebra quartz")
+			want = false
+		case 3: // the line itself holds an ellipsis, quoted exactly
+			line = join(ws)
+			pieces = []string{line}
+			want = true
 		}
-		from := mangle(r, b.String())
-		alnum := 0
-		for _, c := range strings.Join(pieces, "") {
-			if unicode.IsLetter(c) || unicode.IsDigit(c) {
-				alnum++
-			}
-		}
+		from := mangle(r, join(pieces))
 		got := NotCovered("- "+line+"\n", []PlanOutcome{{ID: "o", Outcome: "x", From: from}})
-		if covered := len(got) == 0; covered != (alnum >= 12) {
-			t.Fatalf("case %d (seed %d): from %q of %q: covered %v, %d letters or digits", n, seed, from, line,
-				covered, alnum)
+		if covered := len(got) == 0; covered != want {
+			t.Fatalf("case %d mode %d (seed %d): from %q of %q: covered %v, want %v", n, mode, seed, from, line,
+				covered, want)
 		}
 	}
+}
+
+// substantive restates the abbreviated from's guard: each piece at least
+// four letters or digits, twelve together.
+func substantive(pieces []string) bool {
+	total := 0
+	for _, p := range pieces {
+		k := len(regexp.MustCompile(`[\pL\pN]`).FindAllString(p, -1))
+		if k < 4 {
+			return false
+		}
+		total += k
+	}
+	return total >= 12
+}
+
+// inOrder restates in-order, non-overlapping occurrence as a regexp.
+func inOrder(line string, pieces []string) bool {
+	quoted := make([]string, len(pieces))
+	for i, p := range pieces {
+		quoted[i] = regexp.QuoteMeta(p)
+	}
+	return regexp.MustCompile(strings.Join(quoted, ".*")).MatchString(line)
 }
 
 func sentence(r *rand.Rand) string {
