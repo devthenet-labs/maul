@@ -26,7 +26,20 @@ var (
 	// inlineMarkup cuts the characters of inline code, emphasis,
 	// strikethrough and backslash escapes.
 	inlineMarkup = strings.NewReplacer("`", "", "*", "", "_", "", "~", "", "\\", "")
+	// ellipsis is where a from was shortened: three or more dots, or "…".
+	ellipsis = regexp.MustCompile(`\.{3,}|…`)
 )
+
+// The fewest letters and digits the pieces of a shortened from must hold,
+// each and together, to cover an item, so a few short words found far
+// apart never count as a quote.
+const (
+	minPiece       = 4
+	minAbbreviated = 12
+)
+
+// trailing is the punctuation cut from the end of the plain form.
+const trailing = ".,;:!? …"
 
 // NotCovered returns the issue's list items that no outcome quotes in its
 // from, in issue order: the lines the plan may have left out, shown to the
@@ -35,9 +48,19 @@ var (
 // compared in the same plain form: inline markup cut (inline links and
 // images, and full or collapsed reference links, to their text; the
 // characters of code spans, emphasis, strikethrough and escapes removed),
-// case and runs of whitespace ignored, trailing punctuation cut. Inline
-// HTML, entities and shortcut reference links are compared as written. A
-// from with no letter or digit covers nothing.
+// case and runs of whitespace ignored, trailing punctuation (an ellipsis,
+// "..." or "…", included) cut. Inline HTML, entities and shortcut reference
+// links are compared as written. A from with no letter or digit covers
+// nothing.
+//
+// A from that does not occur whole but holds an ellipsis ("..." or more
+// dots, or "…") at its start or inside it, as the planner may shorten a
+// quote, is cut there into pieces, each trimmed of spaces and punctuation,
+// the empty ones dropped. It also covers an item when its pieces occur in
+// the item's plain text in order, without overlapping, provided each piece
+// holds at least 4 letters or digits (minPiece) and the pieces together at
+// least 12 (minAbbreviated); a from failing either covers an item only by
+// occurring in it whole.
 //
 // A list item is a line whose first text is a bullet (-, *, +) or ordered
 // (1. or 1)) marker followed by text, indented less than four columns or
@@ -46,19 +69,18 @@ var (
 // blockquotes. The issue body is untrusted: the returned lines are its
 // text, for the caller to bound and render as such.
 func NotCovered(issueBody string, outcomes []PlanOutcome) []string {
-	froms := make([]string, 0, len(outcomes))
+	froms := make([]fromQuote, 0, len(outcomes))
 	for _, o := range outcomes {
-		f := plainText(fromMarker.ReplaceAllString(strings.TrimSpace(o.From), ""))
-		if strings.ContainsFunc(f, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
-			froms = append(froms, f)
+		if q, ok := quoteOf(o.From); ok {
+			froms = append(froms, q)
 		}
 	}
 	var out []string
 	for _, item := range listItems(issueBody) {
 		text := plainText(item)
 		covered := false
-		for _, f := range froms {
-			if strings.Contains(text, f) {
+		for _, q := range froms {
+			if q.covers(text) {
 				covered = true
 				break
 			}
@@ -70,14 +92,83 @@ func NotCovered(issueBody string, outcomes []PlanOutcome) []string {
 	return out
 }
 
+// fromQuote is a from in plain form, and its pieces when it was shortened
+// with an ellipsis and they are substantive.
+type fromQuote struct {
+	whole  string
+	pieces []string
+}
+
+// quoteOf returns a from's fromQuote as NotCovered defines it, and false when
+// it covers nothing.
+func quoteOf(from string) (fromQuote, bool) {
+	f := plainText(fromMarker.ReplaceAllString(strings.TrimSpace(from), ""))
+	if !strings.ContainsFunc(f, isAlnum) {
+		return fromQuote{}, false
+	}
+	return fromQuote{whole: f, pieces: abbreviated(f)}, true
+}
+
+// abbreviated returns the pieces of a plain from cut at its ellipses, or
+// nil when it has none or they are not substantive.
+func abbreviated(f string) []string {
+	if !ellipsis.MatchString(f) {
+		return nil
+	}
+	var pieces []string
+	total := 0
+	for _, p := range ellipsis.Split(f, -1) {
+		p = strings.Trim(p, trailing)
+		if p == "" {
+			continue
+		}
+		n := 0
+		for _, r := range p {
+			if isAlnum(r) {
+				n++
+			}
+		}
+		if n < minPiece {
+			return nil
+		}
+		total += n
+		pieces = append(pieces, p)
+	}
+	if total < minAbbreviated {
+		return nil
+	}
+	return pieces
+}
+
+// covers reports whether a quote covers an item's plain text: whole, or
+// by its pieces in order.
+func (q fromQuote) covers(text string) bool {
+	return strings.Contains(text, q.whole) || (q.pieces != nil && containsInOrder(text, q.pieces))
+}
+
+// containsInOrder reports whether every piece occurs in text after the one
+// before it, without overlapping it.
+func containsInOrder(text string, pieces []string) bool {
+	for _, p := range pieces {
+		i := strings.Index(text, p)
+		if i < 0 {
+			return false
+		}
+		text = text[i+len(p):]
+	}
+	return true
+}
+
+func isAlnum(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+
 // plainText is the comparison form: inline markup cut, lowercased,
-// whitespace runs one space, trailing punctuation and space trimmed. The
-// planner may quote an issue line with or without its markup, so both
-// sides are compared without it.
+// whitespace runs one space, trailing punctuation (an ellipsis included)
+// and space trimmed. The planner may quote an issue line with or without
+// its markup, so both sides are compared without it.
 func plainText(s string) string {
 	s = inlineMarkup.Replace(inlineLink.ReplaceAllString(s, "$1"))
 	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
-	return strings.TrimRight(s, ".,;:!? ")
+	return strings.TrimRight(s, trailing)
 }
 
 // listItems returns the text of every list item of a markdown body, in
