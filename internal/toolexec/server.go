@@ -19,14 +19,15 @@ import (
 
 // The shim's endpoints.
 const (
-	// ExecPath runs one program: POST, a toolwire.ExecRequest in, a Result
-	// out (status 400 with a refused Result for a request of no grammar).
+	// ExecPath runs one program: POST, a Request (a slot shim takes only a
+	// toolwire.ExecRequest's fields) in, a Result out (status 400 with a
+	// refused Result for a request of no grammar).
 	ExecPath = "/v1/exec"
 	// ReadyPath answers GET with 200 once the shim serves.
 	ReadyPath = "/v1/ready"
-	// maxResultBytes bounds a Result a client reads: the output, escaped
-	// at worst six bytes a byte, with room.
-	maxResultBytes = 6*MaxOutputBytes + 16<<10
+	// maxResultBytes bounds a Result a client reads: the longest output (a
+	// build's), escaped at worst six bytes a byte, with room.
+	maxResultBytes = 6*MaxBuildOutputBytes + 16<<10
 )
 
 // Listen listens on a unix socket at path, replacing a stale one, with
@@ -57,12 +58,12 @@ func (s *Server) Handler() http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		var req toolwire.ExecRequest
+		var req Request
 		if err := toolwire.DecodeRequest(r.Body, &req); err != nil {
 			writeResult(w, http.StatusBadRequest, refused(toolwire.RefusedInvalid, err.Error()))
 			return
 		}
-		writeResult(w, http.StatusOK, s.Run(r.Context(), &req))
+		writeResult(w, http.StatusOK, s.Do(r.Context(), &req))
 	})
 	mux.HandleFunc(ReadyPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -104,6 +105,16 @@ func unixHTTP(socket string) *http.Client {
 // Exec runs req in the sandbox. A refusal is a Result with Refused set; an
 // error means the shim gave no Result. ctx bounds the wait and the run.
 func (c *Client) Exec(ctx context.Context, req *toolwire.ExecRequest) (Result, error) {
+	return c.post(ctx, req)
+}
+
+// Do runs req in a workspace sandbox, as Exec does.
+func (c *Client) Do(ctx context.Context, req *Request) (Result, error) {
+	return c.post(ctx, req)
+}
+
+// post sends one request to ExecPath and reads its Result.
+func (c *Client) post(ctx context.Context, req any) (Result, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return Result{}, fmt.Errorf("toolexec: encode request: %w", err)

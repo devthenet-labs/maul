@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,12 @@ type Result struct {
 	// shim's words for it.
 	Refused string `json:"refused,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+	// Unclean reports, from a workspace shim, that processes the program
+	// left outlived the sweep: the result may not stand alone.
+	Unclean bool `json:"unclean,omitempty"`
+	// NetError reports, from a workspace shim, that the output names a bind
+	// or connection error (NetError).
+	NetError bool `json:"netError,omitempty"`
 }
 
 // Options configures a Server.
@@ -64,6 +71,15 @@ type Options struct {
 	// Env is the programs' environment ("NAME=value"); HOME is the scratch
 	// directory unless Env names one.
 	Env []string
+	// Work makes the Server a workspace shim (SPEC S2-07): an absolute
+	// directory holding the side's tree, its build output and the runs'
+	// scratch directories, with Home and Cache (absolute) the programs'
+	// HOME and writable caches. A workspace takes neither Scratch nor Env:
+	// its programs' environment comes with each Request.
+	Work, Home, Cache string
+	// Procfs is the proc filesystem a workspace's sweep reads; the
+	// package's Procfs when empty.
+	Procfs string
 }
 
 // Server runs exec requests, one at a time.
@@ -73,10 +89,20 @@ type Server struct {
 	timeout time.Duration
 	// slot holds the one running program's place.
 	slot chan struct{}
+	// work, home and cache are a workspace shim's places; work is empty
+	// on a slot shim.
+	work, home, cache string
+	// sweep kills a workspace program's leftovers; unclean is set while
+	// some survive it. Both are used holding slot.
+	sweep   sweeper
+	unclean bool
 }
 
 // NewServer returns a Server over opts, its scratch directory created.
 func NewServer(opts Options) (*Server, error) {
+	if opts.Work != "" || opts.Home != "" || opts.Cache != "" {
+		return newWorkspaceServer(opts)
+	}
 	scratch := opts.Scratch
 	if scratch == "" {
 		scratch = ScratchDir
@@ -121,7 +147,7 @@ func (s *Server) Run(ctx context.Context, req *toolwire.ExecRequest) Result {
 	if err := s.writeFiles(req.Files); err != nil {
 		return refused(toolwire.RefusedInvalid, err.Error())
 	}
-	return s.run(ctx, req.Argv)
+	return s.execute(ctx, req.Argv, s.scratch, s.env, s.timeout, &capWriter{limit: MaxOutputBytes})
 }
 
 func refused(code, reason string) Result {
@@ -139,6 +165,11 @@ func (s *Server) writeFiles(files []toolwire.File) error {
 		return fmt.Errorf("scratch directory: %w", err)
 	}
 	defer func() { _ = root.Close() }()
+	return writeFilesIn(root, files)
+}
+
+// writeFilesIn writes each file under root.
+func writeFilesIn(root *os.Root, files []toolwire.File) error {
 	for _, f := range files {
 		if dir := filepath.Dir(f.Name); dir != "." {
 			if err := root.MkdirAll(dir, 0o700); err != nil {
@@ -152,15 +183,22 @@ func (s *Server) writeFiles(files []toolwire.File) error {
 	return nil
 }
 
-// run runs argv in its own process group, killing the group at the time
-// limit and again once the program has exited.
-func (s *Server) run(ctx context.Context, argv []string) Result {
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+// sink is where a program's output goes, and what of it a Result keeps.
+type sink interface {
+	io.Writer
+	output(timedOut bool) (string, bool)
+}
+
+// execute runs argv in dir with env in its own process group, killing the
+// group at timeout and again once the program has exited.
+func (s *Server) execute(ctx context.Context, argv []string, dir string, env []string, timeout time.Duration,
+	out sink,
+) Result {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out := &capWriter{limit: MaxOutputBytes}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // running argv is the shim's job
-	cmd.Dir = s.scratch
-	cmd.Env = s.env
+	cmd.Dir = dir
+	cmd.Env = env
 	cmd.Stdout = out
 	cmd.Stderr = out
 	cmd.WaitDelay = waitDelay
@@ -178,8 +216,7 @@ func (s *Server) run(ctx context.Context, argv []string) Result {
 	_ = cmd.Wait()
 	killGroup(cmd)
 	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
-	raw, overflow := out.contents()
-	output, truncated := finish(raw, overflow, timedOut)
+	output, truncated := out.output(timedOut)
 	return Result{
 		Exit:       cmd.ProcessState.ExitCode(),
 		Output:     output,
@@ -234,9 +271,9 @@ func (w *capWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// contents is what was kept and whether more came.
-func (w *capWriter) contents() ([]byte, bool) {
+// output is what was kept, finished.
+func (w *capWriter) output(timedOut bool) (string, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.buf, w.overflow
+	return finish(w.buf, w.overflow, timedOut)
 }
