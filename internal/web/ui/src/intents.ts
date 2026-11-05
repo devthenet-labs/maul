@@ -3,6 +3,7 @@
 // (tests/intents.test.mjs).
 
 import type {
+  EvaluationHandoff,
   IntentCard,
   IntentColumn,
   IntentPhase,
@@ -308,6 +309,30 @@ export const HANDOFF_REASONS: Record<string, string> = {
   early: "the project hands the preview over before evaluation",
   "evaluator-unverified": "the project's evaluator is not verified",
 };
+
+// AGENTS_HANDOFF_REASONS is HANDOFF_REASONS for an agents round, which has
+// no preview: the result is what is handed over, never a link.
+export const AGENTS_HANDOFF_REASONS: Record<string, string> = {
+  ready: "maul checked the approved outcomes",
+  unconfirmed: "maul could not confirm every outcome",
+  "out-of-time": "the evaluation ran out of time",
+  human: "a human acted on the pull request",
+  command: "an approver asked for the result",
+  early: "the project hands the result over before evaluation",
+  "evaluator-unverified": "the project's evaluator is not verified",
+};
+
+// handoffLine is the evaluation's hand-off sentence: the preview for a slot
+// round, the result for an agents round (placement "agents"), which has no
+// preview link. releasedAt is the formatted release time with its leading
+// space, or "".
+export function handoffLine(h: EvaluationHandoff, placement: string | undefined, releasedAt: string): string {
+  const agents = placement === "agents";
+  const what = agents ? "Result" : "Preview";
+  if (!h.released) return `${what} held (${h.mode}) until the evaluation settles.`;
+  const reasons = agents ? AGENTS_HANDOFF_REASONS : HANDOFF_REASONS;
+  return `${what} handed over${releasedAt}: ${reasons[h.reason ?? ""] ?? h.reason ?? ""}.`;
+}
 
 // shortDigest is a sha256 digest's first 12 hex characters, with or without
 // its "sha256:" prefix.
