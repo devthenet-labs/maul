@@ -88,7 +88,9 @@ func Run(ctx context.Context, cfg Config) (Report, error) {
 	r.forges(ctx)
 	r.labels()
 	s := loadSettings(ctx, cfg.Reader, p.Namespace)
-	r.agentImages(ctx, s)
+	surface := r.surface()
+	r.agentImages(ctx, s, surface)
+	r.surfaceChecks(surface, s)
 	r.acceptanceRules(ctx)
 	r.previews(ctx, s)
 	return r.report, nil
@@ -232,18 +234,36 @@ func (r *run) head(ctx context.Context, repoURL string) (Head, error) {
 }
 
 // agentImages checks each repository's declared agent image.
-func (r *run) agentImages(ctx context.Context, s settings) {
-	require := r.p.Spec.RequireRepositoryImage == nil || *r.p.Spec.RequireRepositoryImage
+// The surface's repository needs an accepted image whatever
+// requireRepositoryImage says: its sandboxes run nothing else.
+func (r *run) agentImages(ctx context.Context, s settings, surface *surfaceInfo) {
+	projectRequires := r.p.Spec.RequireRepositoryImage == nil || *r.p.Spec.RequireRepositoryImage
 	pol, polErr := s.policy()
 	if s.Source.Err != nil {
 		polErr = s.Source.Err
 	}
 	for _, repo := range r.p.Spec.Repositories {
-		r.agentImage(ctx, repo, require, s.Source, pol, polErr)
+		require, why := projectRequires, "the Project requires one (requireRepositoryImage)"
+		if surface != nil && surface.key == repo.Name {
+			require, why = true, "the "+surface.kind+" surface needs one ("+v1alpha1.ReasonRepositoryImageRequired+
+				": the tool pod's sandboxes run it)"
+		}
+		r.agentImage(ctx, repo, require, why, s.Source, pol, polErr)
 	}
 }
 
-func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, require bool,
+// surfaceChecks runs the checks of a surface after its shape and image.
+func (r *run) surfaceChecks(surface *surfaceInfo, s settings) {
+	if surface == nil {
+		return
+	}
+	r.surfaceBuild(surface)
+	if surface.key != "" {
+		r.surfaceProfile(surface, s)
+	}
+}
+
+func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, require bool, requiredBy string,
 	cfg previewcheck.ControllerConfig, pol imagePolicy, polErr error) {
 	key := repo.Name
 	head, err := r.head(ctx, repo.URL)
@@ -269,8 +289,8 @@ func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, r
 			why = fmt.Sprintf("%s declares no agent image: %s is not for maul (%s)", at, decl.Manifest, decl.Reason)
 		}
 		if require {
-			r.add(CheckAgentImage, key, checkreport.Fail, "%s, and the Project requires one (requireRepositoryImage), "+
-				"so every build and revise run blocks with ImageRequired", why)
+			r.add(CheckAgentImage, key, checkreport.Fail, "%s, and %s, so every build and revise run blocks with "+
+				"ImageRequired", why, requiredBy)
 		} else {
 			r.add(CheckAgentImage, key, checkreport.Skip, "%s; build and revise runs use the default runner image "+
 				"(requireRepositoryImage: false)", why)

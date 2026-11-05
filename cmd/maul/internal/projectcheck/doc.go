@@ -34,6 +34,14 @@
 //     the registry host wins (for ECR too), and an ECR host it does not name
 //     is read with the caller's AWS credentials. A signature source-controller requires but whose key is
 //     not found here makes an otherwise passing image a SKIP;
+//   - surface, surface-build, surface-profile: only for a Project with a
+//     cli or library surface (the agents-namespace evaluator, no preview):
+//     the surface's shape and repository (never beside a preview or browser
+//     surface), a cli build that writes under /work/bin with a valid binary
+//     and timeout, and the network profile intent-controller's settings give
+//     that repository's build, which the tool pod gets too and is never
+//     wider than. That repository's agent-image check always requires an
+//     accepted image, whatever requireRepositoryImage says;
 //   - previews: that intent-controller writes Previews and preview-controller
 //     is configured, then, per previewed repository, that its image
 //     repository sits under preview-controller's prefix and that

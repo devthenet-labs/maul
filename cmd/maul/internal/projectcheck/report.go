@@ -15,7 +15,12 @@ const (
 	CheckForge       = "forge"
 	CheckLabels      = "labels"
 	CheckAgentImage  = "agent-image"
-	CheckPreviews    = "previews"
+	// The agents-namespace surface's checks (a cli or library surface; a
+	// Project without one has none of them).
+	CheckSurface        = "surface"
+	CheckSurfaceBuild   = "surface-build"
+	CheckSurfaceProfile = "surface-profile"
+	CheckPreviews       = "previews"
 	// CheckAcceptanceRules is whether a repository's branch rules require
 	// maul/acceptance (only for a Project with verification enabled).
 	CheckAcceptanceRules = "acceptance-rules"
