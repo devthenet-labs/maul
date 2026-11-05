@@ -851,12 +851,8 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 				"calls would go to the egress proxy, which refuses them; only a brokered runner may carry a "+
 				"tunnel", ErrNetworkProfileRefused, spec.NetworkProfile.Name, spec.Harness)
 		}
-		// The tunnel's NO_PROXY names every endpoint the pod dials: the
-		// artifact server, the broker routes and the proxy itself (a
-		// profile Job has no trees).
-		if tunnel, err = TunnelEnv(*spec.NetworkProfile,
-			endpointURLs(runner, spec.ArtifactURL, spec.NetworkProfile.ProxyURL)); err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrNetworkProfileRefused, err)
+		if tunnel, err = profileTunnel(runner, spec); err != nil {
+			return nil, err
 		}
 	}
 

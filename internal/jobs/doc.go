@@ -90,4 +90,13 @@
 // proxy variable comes with it, and the per-Job Secret is unchanged. Create
 // reads the profile back off the Job that exists, so what the caller
 // records is what runs.
+//
+// The agents-namespace tool pod (toolpod.go, CreateToolPod) is built by its
+// own builder, never through Create: an agents verification's head and base
+// trees, built and run in two sandboxes of the repository's accepted image,
+// each under its own UID, behind maul's tools relay, with no ServiceAccount
+// token, no credential, no resolver and no shared process namespace. Its
+// network is exactly its build's (ToolPodSpec.ProfileOf), and every
+// rendered pod is checked against that shape before anything is created
+// (ErrToolPodRefused).
 package jobs

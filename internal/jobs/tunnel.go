@@ -184,6 +184,20 @@ func TunnelEnv(p NetworkProfile, endpointURLs []string) ([]corev1.EnvVar, error)
 	return env, nil
 }
 
+// profileTunnel is the tunnel environment of the profile spec carries on a
+// Job of runner (TunnelEnv's, nil without hosts). Its NO_PROXY names every
+// endpoint such a Job dials: the artifact server, the broker routes and the
+// proxy itself (a profile Job has no trees). buildJob and the tool pod,
+// which takes its build's profile exactly (ProfileOf), share it.
+func profileTunnel(runner Runner, spec Spec) ([]corev1.EnvVar, error) {
+	tunnel, err := TunnelEnv(*spec.NetworkProfile,
+		endpointURLs(runner, spec.ArtifactURL, spec.NetworkProfile.ProxyURL))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrNetworkProfileRefused, err)
+	}
+	return tunnel, nil
+}
+
 // clientPreset is one client's environment (§4.2's preset table): proxy is
 // the profile's proxy URL, host and port its parts, noProxy NO_PROXY's
 // value.
