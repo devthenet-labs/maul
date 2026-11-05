@@ -424,6 +424,39 @@ func TestTarball(t *testing.T) {
 	}
 }
 
+func TestTarballNotFound(t *testing.T) {
+	mux, base := newFake(t)
+	c, err := NewToken("pat-token", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An unknown ref answers 404 at the link; a link that expired or was
+	// withdrawn answers 404 at the download.
+	mux.HandleFunc("GET /repos/o/r/tarball/nolink", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+	})
+	mux.HandleFunc("GET /repos/o/r/tarball/nodl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", base+"/api/v3/_archive/nodl.tar.gz")
+		w.WriteHeader(http.StatusFound)
+	})
+	mux.HandleFunc("GET /_archive/nodl.tar.gz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	mux.HandleFunc("GET /repos/o/r/tarball/gone", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Gone"}`, http.StatusGone)
+	})
+
+	for ref, want := range map[string]bool{"nolink": true, "nodl": true, "gone": false} {
+		_, err := c.Tarball(context.Background(), testRepo, ref)
+		if err == nil {
+			t.Fatalf("Tarball(%s) = nil error", ref)
+		}
+		if got := errors.Is(err, ErrArchiveNotFound); got != want {
+			t.Errorf("Tarball(%s): errors.Is(ErrArchiveNotFound) = %v, want %v (%v)", ref, got, want, err)
+		}
+	}
+}
+
 func TestEditComment(t *testing.T) {
 	mux, c := newFakeClient(t)
 	mux.HandleFunc("PATCH /repos/o/r/issues/comments/11", func(w http.ResponseWriter, r *http.Request) {
