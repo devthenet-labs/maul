@@ -27,8 +27,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -142,6 +144,9 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var pv v1alpha1.PreviewVerification
 	if err := v.Get(ctx, req.NamespacedName, &pv); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if pv.Spec.IsAgents() {
+		return ctrl.Result{}, nil // the agents host's: no slot, no Preview to judge it against
 	}
 	if !pv.DeletionTimestamp.IsZero() {
 		// Its tester or tool Job and its evaluator ingress policy, if any,
@@ -1123,7 +1128,7 @@ func (v *VerificationReconciler) BeforeRelease(ctx context.Context, p *v1alpha1.
 	}
 	for i := range list.Items {
 		pv := &list.Items[i]
-		if pv.Spec.PreviewRef.UID != p.UID || pv.Status.Phase != v1alpha1.VerificationRunning ||
+		if pv.Spec.IsAgents() || pv.Spec.PreviewRef.UID != p.UID || pv.Status.Phase != v1alpha1.VerificationRunning ||
 			!pv.DeletionTimestamp.IsZero() {
 			continue
 		}
@@ -1343,10 +1348,20 @@ func (v *VerificationReconciler) logRefusal(ctx context.Context, pv *v1alpha1.Pr
 	v.Log.LogAttrs(ctx, slog.LevelWarn, msg, slog.String("verification", name), slog.Any("error", err))
 }
 
-// SetupWithManager watches PreviewVerifications in the release namespace,
-// one at a time, so one attempt's Job never races another's for the slot.
+// slotPlacement admits a PreviewVerification that runs in a slot. An agents
+// one (placement agents; unset is slot) belongs to intent-controller's host
+// and is never this controller's to fetch, settle, sweep or count.
+func slotPlacement(obj client.Object) bool {
+	pv, ok := obj.(*v1alpha1.PreviewVerification)
+	return ok && !pv.Spec.IsAgents()
+}
+
+// SetupWithManager watches the slot PreviewVerifications in the release
+// namespace, one at a time, so one attempt's Job never races another's for
+// the slot.
 func (v *VerificationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).For(&v1alpha1.PreviewVerification{}).
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1alpha1.PreviewVerification{}, builder.WithPredicates(predicate.NewPredicateFuncs(slotPlacement))).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Named("preview-verification").Complete(v)
 }
