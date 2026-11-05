@@ -7,6 +7,10 @@
 # grants each its half; this policy holds every identity to it, the cluster's
 # own garbage and namespace controllers aside, so neither controller can write
 # the other's half and nobody else can forge either. Fail closed.
+{{- /* With intentController.verification.agents on, an agents
+       verification's results are intent-controller's instead (its agents
+       host), and only those; the request channel then renders with
+       previews off too. */}}
 {{- /*
 maul.previewVerification: the verification switch, checked once for every
 template that renders a piece of it. Returns "true" with it on, "" off. On,
@@ -113,7 +117,8 @@ range both flags accept.
 {{- define "maul.previewVerifyDeadlineMax" -}}
 {{- printf "%ss" (include "maul.previewVerifyDeadlineSeconds" .) -}}
 {{- end }}
-{{- if include "maul.previewVerification" . }}
+{{- $agents := include "maul.evaluatorAgents" . }}
+{{- if or (include "maul.previewVerification" .) $agents }}
 {{- $pcSA := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "preview-controller" "vals" .Values.previewController)) }}
 {{- $icSA := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "intent-controller" "vals" .Values.intentController)) }}
 ---
@@ -138,6 +143,28 @@ spec:
         # with its namespace; both run as their own ServiceAccounts, or as
         # the controller manager where it does not use per-controller
         # credentials.
+        {{- if $agents }}
+        # With the agents-namespace tool pod on, a verification's results
+        # have one writer by its placement (immutable, unset reads as slot):
+        # preview-controller for a slot verification, intent-controller's
+        # agents host for an agents one, judged on the stored object too.
+        - expression: >-
+              request.?subResource.orValue('') == 'status' ||
+                request.userInfo.username in ['{{ $icSA }}',
+                  'system:serviceaccount:kube-system:generic-garbage-collector',
+                  'system:serviceaccount:kube-system:namespace-controller',
+                  'system:kube-controller-manager']
+          message: intent-controller writes verification requests; preview-controller writes their results
+        - expression: >-
+              request.?subResource.orValue('') != 'status' ||
+                ((object.spec.?placement.orValue('slot') == 'agents' ||
+                  oldObject.spec.?placement.orValue('slot') == 'agents')
+                  ? request.userInfo.username == '{{ $icSA }}' &&
+                    object.spec.?placement.orValue('slot') == 'agents' &&
+                    oldObject.spec.?placement.orValue('slot') == 'agents'
+                  : request.userInfo.username == '{{ $pcSA }}')
+          message: preview-controller writes a slot verification's results; intent-controller an agents verification's
+        {{- else }}
         - expression: >-
               request.?subResource.orValue('') == 'status'
                 ? request.userInfo.username == '{{ $pcSA }}'
@@ -146,6 +173,7 @@ spec:
                     'system:serviceaccount:kube-system:namespace-controller',
                     'system:kube-controller-manager']
           message: intent-controller writes verification requests; preview-controller writes their results
+        {{- end }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

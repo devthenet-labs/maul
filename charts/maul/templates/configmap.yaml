@@ -252,20 +252,23 @@ these keys renders and the ConfigMap is as it was.
 {{- $_ := set $data "MAUL_INTENT_APPROVAL_POLL_INTERVAL" $own.approvalPollInterval }}
 {{- $_ := set $data "MAUL_INTENT_PR_POLL_INTERVAL" $own.prPollInterval }}
 {{- $_ := set $data "MAUL_INTENT_PREVIEWS_ENABLED" $root.Values.previewController.enabled }}
-{{- if include "maul.previewVerification" $root }}
+{{- $agents := include "maul.evaluatorAgents" $root }}
+{{- if or (include "maul.previewVerification" $root) $agents }}
 {{- /*
-Acceptance verification (preview.verification.enabled): intent-controller
-writes PreviewVerification requests, each timeout clamped to the slot Job
-deadline bound preview-controller and maul-preview-jobs hold it to. Off, no
-key renders and the ConfigMap is as it was.
+Acceptance verification (preview.verification.enabled, or the agents-namespace
+tool pod): intent-controller writes PreviewVerification requests, each
+timeout clamped to the slot Job deadline bound preview-controller and
+maul-preview-jobs hold it to. Off, no key renders and the ConfigMap is as it
+was.
 */}}
 {{- $_ := set $data "MAUL_INTENT_VERIFICATION" "true" }}
 {{- $_ := set $data "MAUL_INTENT_VERIFY_TIMEOUT_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
-{{- if include "maul.previewTools" $root }}
+{{- if include "maul.evaluatorConfigured" $root }}
 {{- /*
 The agent evaluator (intentController.verification.evaluator, with
-verification on): rounds, their stages and the hand-off. The cost ceiling is
-in micro-USD, as every cost flag takes it. Off, no key renders.
+verification on or the agents-namespace tool pod): rounds, their stages and
+the hand-off. The cost ceiling is in micro-USD, as every cost flag takes it.
+Off, no key renders.
 */}}
 {{- $ev := $root.Values.intentController.verification }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATOR" "true" }}
@@ -279,6 +282,25 @@ in micro-USD, as every cost flag takes it. Off, no key renders.
 {{- $_ := set $data "MAUL_INTENT_MAX_TOOL_CALLS" $ev.maxToolCalls }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATE_MAX_TURNS" $ev.evaluateMaxTurns }}
 {{- $_ := set $data "MAUL_INTENT_CHECKREVIEW_MAX_TURNS" $ev.checkReviewMaxTurns }}
+{{- if $agents }}
+{{- /*
+The agents-namespace tool pod (intentController.verification.agents): the
+relay's image, the bound on live tool pods, the longest build and each
+container's requests and limits (equal), as JSON with every quantity a
+string. Off, no key renders.
+*/}}
+{{- $a := $ev.agents }}
+{{- $_ := set $data "MAUL_INTENT_EVALUATOR_AGENTS" "true" }}
+{{- $_ := set $data "MAUL_INTENT_TOOLS_IMAGE" (include "maul.previewMaulImage" (dict "root" $root "key" "tools.image" "what" "the digest-pinned preview-tools image" "when" "intentController.verification.agents.enabled=true")) }}
+{{- $_ := set $data "MAUL_INTENT_MAX_TOOL_PODS" $a.maxToolPods }}
+{{- $_ := set $data "MAUL_INTENT_TOOL_BUILD_TIMEOUT_MAX" $a.buildTimeoutMax }}
+{{- $res := dict }}
+{{- range $c := list "tools" "sandbox" }}
+{{- $q := index $a.resources $c }}
+{{- $_ := set $res $c (dict "cpu" (toString $q.cpu) "memory" (toString $q.memory) "ephemeralStorage" (toString $q.ephemeralStorage)) }}
+{{- end }}
+{{- $_ := set $data "MAUL_INTENT_TOOL_RESOURCES" (toJson $res) }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- $_ := set $data "MAUL_INTENT_MULTI_REPO" $own.multiRepo }}

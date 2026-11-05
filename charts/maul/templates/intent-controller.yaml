@@ -100,13 +100,27 @@ rules:
     - apiGroups: [maul.run]
       resources: [previews]
       verbs: [create, get, update, delete]
-    {{- if include "maul.previewVerification" . }}
+    {{- if and (include "maul.previewVerification" .) (not (include "maul.evaluatorAgents" .)) }}
     # Acceptance verification: the requests it writes and supersedes; only
     # preview-controller writes their status (maul-preview-verifications).
     - apiGroups: [maul.run]
       resources: [previewverifications]
       verbs: [create, get, list, watch, delete]
     {{- end }}
+    {{- end }}
+    {{- if include "maul.evaluatorAgents" . }}
+    # Acceptance verification with the agents-namespace tool pod: the
+    # requests it writes and supersedes, and the results of an agents
+    # verification, which its agents host writes (maul-preview-verifications
+    # holds a slot verification's results to preview-controller). The
+    # <verification>-ledger ConfigMaps it writes beside them are covered by
+    # the configmaps grant below and go with their PreviewVerification.
+    - apiGroups: [maul.run]
+      resources: [previewverifications]
+      verbs: [create, get, list, watch, delete]
+    - apiGroups: [maul.run]
+      resources: [previewverifications/status]
+      verbs: [update]
     {{- end }}
     - apiGroups: [maul.run]
       resources: [intentruns]

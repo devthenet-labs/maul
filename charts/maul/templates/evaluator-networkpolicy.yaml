@@ -34,6 +34,21 @@ SPDX-License-Identifier: MIT
 #
 # The labels these select on are fenced by maul-evaluator-labels
 # (evaluator-labels-policy.yaml).
+{{- /*
+With intentController.verification.agents on (maul.evaluatorAgents), the
+agents-namespace tool pod exists, and its rows change (the YAML comment above
+stays as slice 1 rendered it):
+
+  tools        source-controller's artifact server on 9790 (the prepare
+               init's digest-verified fetch of both trees) and, through
+               networkpolicy-profiles.yaml, the egress proxy on its build's
+               network profile port when it carries that profile's label;
+               ingress only from an evaluator on 8090 (maul-agents-tools).
+  evaluator    also 8090 on agents-namespace pods labelled maul.run/role
+               tools. As in a slot, a NetworkPolicy cannot bind one
+               evaluator to its own tool pod: the per-verification key the
+               relay requires on 8090 does.
+*/}}
 {{- range $role := list "evaluator" "checkreview" }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -79,6 +94,62 @@ spec:
           ports:
               - protocol: TCP
                 port: 8090
+        {{- if include "maul.evaluatorAgents" $ }}
+        # The tool APIs of an agents-namespace tool pod.
+        - to:
+              - podSelector:
+                    matchLabels:
+                        {{- include "maul.agentPodSelector" $ | nindent 24 }}
+                        maul.run/role: tools
+          ports:
+              - protocol: TCP
+                port: 8090
         {{- end }}
+        {{- end }}
+{{- end }}
+{{- if include "maul.evaluatorAgents" . }}
+---
+# The agents-namespace tool pod: reached only by an evaluator, on the relay's
+# port; reaching only the artifact server, where its prepare init fetches the
+# head and base trees by digest. Its network profile, when its build has one,
+# comes from that profile's own policy (networkpolicy-profiles.yaml), so the
+# tool pod's network is exactly its build's: never wider, never narrower.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-agents-tools
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" "maul-agents") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    podSelector:
+        matchLabels:
+            {{- include "maul.agentPodSelector" . | nindent 12 }}
+            maul.run/role: tools
+    policyTypes: [Ingress, Egress]
+    ingress:
+        - from:
+              - podSelector:
+                    matchLabels:
+                        {{- include "maul.agentPodSelector" . | nindent 24 }}
+                        maul.run/role: evaluator
+          ports:
+              - protocol: TCP
+                port: 8090
+    egress:
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: {{ .Release.Namespace }}
+                podSelector:
+                    matchLabels:
+                        app.kubernetes.io/name: source-controller
+          ports:
+              - protocol: TCP
+                port: 9790
 {{- end }}
 {{- end }}

@@ -1,0 +1,268 @@
+{{- /*
+Copyright 2026 Bitwise Media Group Ltd.
+SPDX-License-Identifier: MIT
+*/}}
+{{- if include "maul.evaluatorAgents" . }}
+#
+# The agents-namespace tool pod's shape (maul-tools-pod-shape), rendered only
+# while intentController.verification.agents is on.
+#
+# WHY THIS EXISTS
+#
+# The tool pod runs pull request code (both trees' builds and the evaluator's
+# programs) in the agents namespace, beside the agent Jobs that hold a broker
+# token. intent-controller builds it with a builder of its own that never
+# shares a line with an agent Job's (jobs.ToolPod), and this policy makes
+# that structural at admission: a Job or Pod labelled maul.run/role tools in
+# the agents namespace runs exactly
+#
+#   tools          the main container, maul's relay, in the preview-tools
+#                  image stamped below;
+#   prepare,       classic init containers in that same image: the tree fetch,
+#   seed-head,     the strict sandbox probe and each side's writable copy,
+#   seed-base      in that order, each seed under its own sandbox's UID;
+#   sandbox-head,  native sidecars (restartPolicy Always), both in one other
+#   sandbox-base   image pinned by digest (the repository's accepted image);
+#
+# under three distinct UIDs (tools and prepare share one; a sandbox never
+# runs as tools, nor as the other sandbox), each container non-root with a
+# read-only root, no privilege escalation and every capability dropped, the
+# inits and sandboxes starting in /. It mounts no ServiceAccount token and
+# runs as the default ServiceAccount, holds no credential (no envFrom, no
+# Secret reference in env, no model credential or gateway variable), mounts
+# only emptyDirs beside its own <job>-tools Secret (tools alone), gives
+# tools and each sandbox their own memory-backed /dev/shm, and lets the head
+# and base sides share no writable volume. It shares no host or process
+# namespace, runs no ephemeral container, has no resolver, and tolerates
+# neither the preview taint nor every taint. Only intent-controller creates
+# the Job, and only the Kubernetes Job controller its Pod. Fail closed.
+{{- if not (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
+{{- fail (printf "intentController.verification.agents is on but this cluster is %s; its admission policies need Kubernetes 1.30+. Upgrade, or keep it off." .Capabilities.KubeVersion.Version) }}
+{{- end }}
+{{- $agents := .Values.agent.namespace }}
+{{- $icSA := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "intent-controller" "vals" .Values.intentController)) }}
+{{- $tools := include "maul.previewMaulImage" (dict "root" . "key" "tools.image" "what" "the digest-pinned preview-tools image" "when" "intentController.verification.agents.enabled=true") }}
+{{- $taint := "" }}
+{{- if .Values.preview.enabled }}
+{{- $taint = (include "maul.previewNodeIsolation" . | fromJson).taintKey }}
+{{- end }}
+{{- /* Every model credential channel and gateway variable an agent pod may
+       carry (internal/harness EnvKeys, provider.GatewayEnvNames; a render
+       test pins the list to them). */}}
+{{- $credentialEnv := list
+    "ANTHROPIC_API_KEY" "CLAUDE_CODE_OAUTH_TOKEN" "ANTHROPIC_AUTH_TOKEN"
+    "OPENAI_API_KEY" "CODEX_API_KEY" "CODEX_ACCESS_TOKEN"
+    "COPILOT_GITHUB_TOKEN" "GH_TOKEN" "GITHUB_TOKEN"
+    "ANTHROPIC_BASE_URL" "ANTHROPIC_BEDROCK_BASE_URL" "ANTHROPIC_VERTEX_BASE_URL" "ANTHROPIC_FOUNDRY_BASE_URL"
+    "CLAUDE_CODE_USE_BEDROCK" "CLAUDE_CODE_USE_VERTEX" "CLAUDE_CODE_USE_FOUNDRY"
+    "CLAUDE_CODE_SKIP_BEDROCK_AUTH" "CLAUDE_CODE_SKIP_VERTEX_AUTH" "CLAUDE_CODE_SKIP_FOUNDRY_AUTH"
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" "ANTHROPIC_CUSTOM_HEADERS" "ANTHROPIC_VERTEX_PROJECT_ID"
+    "CLOUD_ML_REGION" "AWS_REGION" "MAUL_BROKER_TOKEN_FILE" "MAUL_MODEL_MAP"
+    "MAUL_CODEX_BASE_URL" "MAUL_BROKER_TOKEN" "MAUL_CODEX_PLACEHOLDER_KEY" }}
+{{- $head := list "seed-head" "sandbox-head" }}
+{{- $base := list "seed-base" "sandbox-base" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-tools-pod-shape
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [batch]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [jobs]
+            - apiGroups: [""]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [pods, pods/ephemeralcontainers]
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ $agents }}
+    matchConditions:
+        - name: tool-pod
+          expression: >-
+              object.metadata.?labels[?'maul.run/role'].orValue('') == 'tools' ||
+              (request.resource.resource == 'jobs' &&
+                object.spec.?template.?metadata.?labels[?'maul.run/role'].orValue('') == 'tools')
+        # A metadata-only UPDATE (the garbage collector or the Job controller
+        # removing a finalizer) changes nothing the pod runs.
+        # pods/ephemeralcontainers changes spec, so stays judged.
+        - name: spec-changed
+          expression: "request.operation != 'UPDATE' || object.spec != oldObject.spec"
+    variables:
+        - name: isJob
+          expression: "request.resource.resource == 'jobs'"
+        - name: pod
+          expression: "variables.isJob ? object.spec.template.spec : object.spec"
+        - name: labels
+          expression: >-
+              variables.isJob ? object.spec.template.?metadata.?labels.orValue({}) :
+              object.metadata.?labels.orValue({})
+        - name: inits
+          expression: "variables.pod.?initContainers.orValue([])"
+        - name: all
+          expression: "variables.pod.containers + variables.inits"
+        - name: volumes
+          expression: "variables.pod.?volumes.orValue([])"
+        # The Job the pod belongs to: the Job itself, or a Pod's controlling
+        # owner. Its own Secret is <job>-tools.
+        - name: jobSecrets
+          expression: >-
+              variables.isJob ? [object.metadata.name + '-tools'] :
+              object.metadata.?ownerReferences.orValue([])
+                .filter(r, r.?controller.orValue(false) && r.apiVersion == 'batch/v1' && r.kind == 'Job')
+                .map(r, r.name + '-tools')
+        - name: secretVolumes
+          expression: "variables.volumes.filter(v, has(v.secret)).map(v, v.name)"
+        - name: sandboxImages
+          expression: >-
+              variables.inits.filter(c, c.name in ['sandbox-head', 'sandbox-base']).map(c, c.image)
+        - name: credentialEnv
+          expression: {{ $credentialEnv | toJson | quote }}
+        {{- range $v := list (list "toolsUID" "tools") (list "prepareUID" "prepare") (list "seedHeadUID" "seed-head") (list "seedBaseUID" "seed-base") (list "headUID" "sandbox-head") (list "baseUID" "sandbox-base") }}
+        - name: {{ index $v 0 }}
+          expression: >-
+              variables.all.filter(c, c.name == '{{ index $v 1 }}')
+                .map(c, c.?securityContext.?runAsUser.orValue(-1))
+        {{- end }}
+    validations:
+        - expression: >-
+              variables.isJob
+                ? request.userInfo.username == '{{ $icSA }}'
+                : request.userInfo.username in {{ .Values.admissionPolicy.jobControllerUsernames | toJson }} &&
+                  size(object.metadata.?ownerReferences.orValue([])
+                    .filter(r, r.?controller.orValue(false))) == 1 &&
+                  size(variables.jobSecrets) == 1
+          message: only intent-controller creates an agents tool pod Job, and only the Job controller its pod
+          reason: Forbidden
+        - expression: >-
+              variables.labels[?'app.kubernetes.io/name'].orValue('') == 'maul-agent' &&
+              variables.labels[?'app.kubernetes.io/managed-by'].orValue('') == 'maul' &&
+              variables.labels[?'maul.run/preview-verification'].orValue('') != ''
+          message: agents tool pods carry the agent pod labels and their verification
+          reason: Forbidden
+        - expression: >-
+              has(variables.pod.automountServiceAccountToken) &&
+              variables.pod.automountServiceAccountToken == false &&
+              variables.pod.?serviceAccountName.orValue('default') == 'default' &&
+              variables.pod.?serviceAccount.orValue('default') == 'default'
+          message: agents tool pods mount no ServiceAccount token and run as the default ServiceAccount
+          reason: Forbidden
+        - expression: >-
+              !variables.pod.?hostNetwork.orValue(false) && !variables.pod.?hostPID.orValue(false) &&
+              !variables.pod.?hostIPC.orValue(false) && !variables.pod.?shareProcessNamespace.orValue(false) &&
+              size(variables.pod.?ephemeralContainers.orValue([])) == 0 &&
+              variables.pod.?dnsPolicy.orValue('') == 'None' &&
+              !variables.pod.?enableServiceLinks.orValue(true)
+          message: agents tool pods share no host or process namespace, run no ephemeral container, have no resolver and no service links
+          reason: Forbidden
+        - expression: >-
+              size(variables.pod.containers) == 1 &&
+              variables.pod.containers.all(c, c.name == 'tools' && c.image == '{{ $tools }}') &&
+              variables.inits.map(c, c.name) == ['prepare', 'seed-head', 'seed-base', 'sandbox-head', 'sandbox-base'] &&
+              variables.inits.all(c, c.name in ['sandbox-head', 'sandbox-base']
+                ? c.?restartPolicy.orValue('') == 'Always'
+                : c.image == '{{ $tools }}' && c.?restartPolicy.orValue('') != 'Always') &&
+              size(variables.sandboxImages) == 2 && variables.sandboxImages[0] == variables.sandboxImages[1] &&
+              variables.sandboxImages[0].matches('^[^@[:space:]]+@sha256:[0-9a-f]{64}$')
+          message: >-
+              agents tool pods run tools and the init containers prepare, seed-head and seed-base in
+              maul's preview-tools image, then the native sidecars sandbox-head and sandbox-base in one
+              image pinned by digest
+          reason: Forbidden
+        - expression: >-
+              variables.all.all(c, has(c.securityContext) &&
+                c.securityContext.?runAsUser.orValue(0) > 0 &&
+                c.securityContext.?runAsNonRoot.orValue(false) &&
+                c.securityContext.?allowPrivilegeEscalation.orValue(true) == false &&
+                c.securityContext.?readOnlyRootFilesystem.orValue(false) &&
+                !c.securityContext.?privileged.orValue(false) &&
+                size(c.securityContext.?capabilities.?add.orValue([])) == 0 &&
+                'ALL' in c.securityContext.?capabilities.?drop.orValue([]))
+          message: >-
+              agents tool pod containers run as a set non-root UID with a read-only root, no privilege
+              escalation and every capability dropped
+          reason: Forbidden
+        - expression: >-
+              size(variables.toolsUID) == 1 && size(variables.headUID) == 1 && size(variables.baseUID) == 1 &&
+              variables.prepareUID == variables.toolsUID &&
+              variables.seedHeadUID == variables.headUID && variables.seedBaseUID == variables.baseUID &&
+              variables.headUID != variables.baseUID &&
+              variables.headUID != variables.toolsUID && variables.baseUID != variables.toolsUID
+          message: >-
+              agents tool pods run tools, sandbox-head and sandbox-base as three distinct UIDs, prepare as
+              tools and each seed as its own sandbox
+          reason: Forbidden
+        - expression: "variables.inits.all(c, c.?workingDir.orValue('') == '/')"
+          message: agents tool pod init containers and sandboxes start in /
+          reason: Forbidden
+        - expression: >-
+              variables.all.all(c, size(c.?envFrom.orValue([])) == 0 &&
+                c.?env.orValue([]).all(e, !(e.name in variables.credentialEnv) &&
+                  !e.?valueFrom.?secretKeyRef.hasValue()))
+          message: >-
+              agents tool pods carry no credential: no envFrom, no Secret reference in env and no model
+              credential or gateway variable
+          reason: Forbidden
+        - expression: >-
+              variables.volumes.all(v, has(v.emptyDir) ||
+                (has(v.secret) && v.secret.?secretName.orValue('') in variables.jobSecrets)) &&
+              size(variables.secretVolumes) <= 1 &&
+              variables.all.all(c, c.name == 'tools' ||
+                c.?volumeMounts.orValue([]).all(m, !(m.name in variables.secretVolumes)))
+          message: agents tool pods mount only emptyDirs and their own <job>-tools Secret, in tools alone
+          reason: Forbidden
+        - expression: >-
+              variables.all.filter(c, c.name in ['tools', 'sandbox-head', 'sandbox-base']).all(c,
+                c.?volumeMounts.orValue([]).exists_one(m, m.mountPath == '/dev/shm') &&
+                c.?volumeMounts.orValue([]).filter(m, m.mountPath == '/dev/shm').all(m,
+                  variables.volumes.exists(v, v.name == m.name && has(v.emptyDir) &&
+                    v.emptyDir.?medium.orValue('') == 'Memory') &&
+                  variables.all.all(d, d.name == c.name ||
+                    d.?volumeMounts.orValue([]).all(n, n.name != m.name))))
+          message: agents tool pods give tools, sandbox-head and sandbox-base each their own memory-backed /dev/shm
+          reason: Forbidden
+        - expression: >-
+              variables.all.filter(c, c.name in {{ $head | toJson }}).all(c,
+                c.?volumeMounts.orValue([]).all(m,
+                  variables.all.filter(d, d.name in {{ $base | toJson }}).all(d,
+                    d.?volumeMounts.orValue([]).all(n, n.name != m.name ||
+                      (m.?readOnly.orValue(false) && n.?readOnly.orValue(false))))))
+          message: the head and base sides of an agents tool pod share no writable volume
+          reason: Forbidden
+        - expression: >-
+              variables.pod.?tolerations.orValue([]).all(t,
+                {{- if $taint }}
+                t.?key.orValue('') != {{ $taint | quote }} &&
+                {{- end }}
+                !(t.?operator.orValue('Equal') == 'Exists' && t.?key.orValue('') == ''))
+          message: agents tool pods tolerate neither the preview taint nor every taint
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-tools-pod-shape
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "maul.fullname" . }}-tools-pod-shape
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: In
+                  values: [{{ $agents }}]
+{{- end }}
