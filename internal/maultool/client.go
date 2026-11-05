@@ -12,9 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -28,6 +31,8 @@ const CallTimeout = 10 * time.Minute
 type Client struct {
 	base string
 	hc   *http.Client
+	// key is the per-evaluation key, sent as toolwire.KeyHeader when set.
+	key string
 }
 
 // NewClient returns a client of the tools container at raw: an http or
@@ -66,6 +71,48 @@ func NewClient(raw string) (*Client, error) {
 	}, nil
 }
 
+// KeyFile is where the evaluator's handoff puts the per-evaluation key
+// (SPEC Q28). The model's own file tools are confined to the scratch
+// directory, so it cannot read it; maul-tool, which it runs, does.
+const KeyFile = "/work/input/tools-key"
+
+// SetKey makes the client send key with every call; "" sends none. A key
+// that is not toolwire.IsKey is refused.
+func (c *Client) SetKey(key string) error {
+	if key != "" && !toolwire.IsKey(key) {
+		return errors.New("the tools key is not a 256-bit hex key")
+	}
+	c.key = key
+	return nil
+}
+
+// LoadKey reads the key at path and sets it. A path that does not exist
+// leaves the client keyless (a tool pod of slice 1 has none); any other
+// failure, or a file that holds no key (an empty one included: a handoff
+// that wrote the file meant a key), is an error that never quotes the file.
+func (c *Client) LoadKey(path string) error {
+	if path == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return errors.New("the tools key file cannot be read")
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, 129))
+	if err != nil || len(b) > 128 {
+		return errors.New("the tools key file cannot be read")
+	}
+	key := strings.TrimSpace(string(b))
+	if key == "" {
+		return errors.New("the tools key file holds no key")
+	}
+	return c.SetKey(key)
+}
+
 // errRefused marks a response whose call the tools container refused.
 var errRefused = errors.New("refused")
 
@@ -86,6 +133,9 @@ func (c *Client) Call(ctx context.Context, verb toolwire.Verb, req toolwire.Requ
 		return nil, err
 	}
 	hreq.Header.Set("Content-Type", "application/json")
+	if c.key != "" {
+		hreq.Header.Set(toolwire.KeyHeader, c.key)
+	}
 	hresp, err := c.hc.Do(hreq)
 	if err != nil {
 		return nil, fmt.Errorf("the tools container did not answer: %w", err)
@@ -117,6 +167,9 @@ func (c *Client) Artifact(ctx context.Context, a toolwire.Artifact) ([]byte, err
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
 	if err != nil {
 		return nil, err
+	}
+	if c.key != "" {
+		hreq.Header.Set(toolwire.KeyHeader, c.key)
 	}
 	hresp, err := c.hc.Do(hreq)
 	if err != nil {

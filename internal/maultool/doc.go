@@ -9,7 +9,8 @@
 //
 // Verbs: http <METHOD> <path> [json], browser <verb> [args], exec
 // [--file f]... -- argv, logs <component>, events, check run <file> and
-// check results. confirm and finish are agent-runner's, never the agent's.
+// check results; with S2, files ls|grep|read [--base] and run <dir> [--base]
+// [-- args], and --base on exec and check run. confirm and finish are agent-runner's, never the agent's.
 //
 // Output, in a fixed order: the ledger line `[maul-tool ledger seq N]`;
 // maul's own measurements (`[observed] ...`, one line each, any text a
@@ -30,7 +31,10 @@
 // chooses a local path.
 //
 // It reads one environment variable, MAUL_TOOLS_URL (http or https, a bare
-// origin), holds no key, ignores proxy variables and follows no redirect.
+// origin), and, when it exists, the per-evaluation key file KeyFile
+// (/work/input/tools-key, which the model's own file tools cannot reach),
+// sent as toolwire.KeyHeader with every call and never printed; it
+// ignores proxy variables and follows no redirect.
 // The package imports only the standard library and internal/toolwire (a
 // test pins that).
 package maultool

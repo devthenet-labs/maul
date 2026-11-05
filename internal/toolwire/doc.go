@@ -26,5 +26,11 @@
 // termination message, and Verify holds the log to it. There is no hash
 // chain: only the tools container writes that stdout (DESIGN 3).
 //
+// SPEC S2-05 adds the verbs files (a look at a pristine source tree, with
+// caps) and run (a Go program the agent wrote, compiled against a tree), the
+// relay-internal VerbBuild (no endpoint), Side (head, the default, or base) on
+// exec, run, check-run requests and on entries and steps, and KeyHeader, the
+// per-evaluation key. An entry with no Side encodes as in slice 1.
+//
 // The package imports only the standard library (a test pins that).
 package toolwire

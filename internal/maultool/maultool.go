@@ -38,15 +38,24 @@ type Options struct {
 	Stderr io.Writer
 	// Scratch is the scratch directory, ScratchDir in the pod.
 	Scratch string
+	// KeyFile is the per-evaluation key's file (KeyFile in the pod). When
+	// it exists maul-tool sends its key with every call; when it does not,
+	// none (slice 1's tool pods have no key). A file that is not a key is a
+	// tool error, and no key is ever printed.
+	KeyFile string
 }
 
 const usage = `usage:
   maul-tool http <METHOD> <path> [json]
   maul-tool browser <verb> [args]...
-  maul-tool exec [--file <file>]... -- <argv>...
+  maul-tool exec [--base] [--file <file>]... -- <argv>...
+  maul-tool files ls [--base] [--] [<path>]
+  maul-tool files grep [--base] [--] <pattern> [<path>]
+  maul-tool files read [--base] [--] <path>
+  maul-tool run <dir> [--base] [-- <args>...]
   maul-tool logs <component>
   maul-tool events
-  maul-tool check run <file>
+  maul-tool check run [--base] <file>
   maul-tool check results`
 
 // usageError is a command line that is not a call.
@@ -72,6 +81,10 @@ func Run(ctx context.Context, args []string, opt Options) int {
 	}
 	client, err := NewClient(opt.Getenv(EnvToolsURL))
 	if err != nil {
+		_, _ = fmt.Fprintf(opt.Stderr, "maul-tool: %v\n", err)
+		return ExitToolError
+	}
+	if err := client.LoadKey(opt.KeyFile); err != nil {
 		_, _ = fmt.Fprintf(opt.Stderr, "maul-tool: %v\n", err)
 		return ExitToolError
 	}
@@ -110,6 +123,10 @@ func parse(args []string, sc scratch) (toolwire.Verb, toolwire.Request, error) {
 		v, req = toolwire.VerbBrowser, &toolwire.BrowserRequest{Verb: rest[0], Args: rest[1:]}
 	case "exec":
 		v, req, err = parseExec(rest, sc)
+	case "files":
+		v, req, err = parseFiles(rest)
+	case "run":
+		v, req, err = parseRun(rest, sc)
 	case "logs":
 		if len(rest) != 1 {
 			return "", nil, usagef("logs takes one component")
@@ -161,6 +178,12 @@ func parseExec(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, erro
 				return "", nil, usagef("exec has no argv after --")
 			}
 			return toolwire.VerbExec, req, nil
+		case a == "--base":
+			if req.Side != "" {
+				return "", nil, usagef("exec: --base given twice")
+			}
+			req.Side = toolwire.SideBase
+			continue
 		case a == "--file":
 			if i+1 >= len(rest) {
 				return "", nil, usagef("--file needs a file")
@@ -183,20 +206,106 @@ func parseExec(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, erro
 }
 
 func parseCheck(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, error) {
-	switch {
-	case len(rest) == 2 && rest[0] == "run":
-		_, data, err := sc.read(rest[1], toolwire.MaxCheckBytes)
+	if len(rest) > 0 && rest[0] == "run" {
+		side, args, err := takeBase(rest[1:])
+		if err != nil || len(args) != 1 {
+			return "", nil, usagef("check takes `run [--base] <file>` or `results`")
+		}
+		_, data, err := sc.read(args[0], toolwire.MaxCheckBytes)
 		if err != nil {
 			return "", nil, usagef("check run: %v", err)
 		}
 		if !json.Valid(data) {
-			return "", nil, usagef("check run: %s is not JSON", rest[1])
+			return "", nil, usagef("check run: %s is not JSON", args[0])
 		}
-		return toolwire.VerbCheckRun, &toolwire.CheckRunRequest{Spec: json.RawMessage(data)}, nil
+		return toolwire.VerbCheckRun, &toolwire.CheckRunRequest{Spec: json.RawMessage(data), Side: side}, nil
+	}
+	switch {
 	case len(rest) == 1 && rest[0] == "results":
 		return toolwire.VerbCheckResults, &toolwire.CheckResultsRequest{}, nil
 	}
-	return "", nil, usagef("check takes `run <file>` or `results`")
+	return "", nil, usagef("check takes `run [--base] <file>` or `results`")
+}
+
+// takeBase removes a single --base from args before any --, returning the
+// side it names. A -- ends the options and is dropped, so an argument that
+// reads "--base" (a pattern, a path) can still be passed after it.
+func takeBase(args []string) (toolwire.Side, []string, error) {
+	var side toolwire.Side
+	out := make([]string, 0, len(args))
+	for i, a := range args {
+		if a == "--" {
+			out = append(out, args[i+1:]...)
+			break
+		}
+		if a != "--base" {
+			out = append(out, a)
+			continue
+		}
+		if side != "" {
+			return "", nil, usagef("--base given twice")
+		}
+		side = toolwire.SideBase
+	}
+	return side, out, nil
+}
+
+func parseFiles(rest []string) (toolwire.Verb, toolwire.Request, error) {
+	if len(rest) == 0 {
+		return "", nil, usagef("files takes ls, grep or read")
+	}
+	side, args, err := takeBase(rest[1:])
+	if err != nil {
+		return "", nil, err
+	}
+	req := &toolwire.FilesRequest{Side: side, Op: toolwire.Op(rest[0])}
+	switch req.Op {
+	case toolwire.OpLs:
+		if len(args) > 1 {
+			return "", nil, usagef("files ls takes an optional path")
+		}
+		if len(args) == 1 {
+			req.Path = args[0]
+		}
+	case toolwire.OpRead:
+		if len(args) != 1 {
+			return "", nil, usagef("files read takes one path")
+		}
+		req.Path = args[0]
+	case toolwire.OpGrep:
+		if len(args) < 1 || len(args) > 2 {
+			return "", nil, usagef("files grep takes a pattern and an optional path")
+		}
+		req.Pattern = args[0]
+		if len(args) == 2 {
+			req.Path = args[1]
+		}
+	default:
+		return "", nil, usagef("files takes ls, grep or read, not %q", rest[0])
+	}
+	return toolwire.VerbFiles, req, nil
+}
+
+// parseRun reads the .go files directly in <dir> (under the scratch
+// directory) as the program; args after -- are the program's.
+func parseRun(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, error) {
+	head, tail := rest, []string(nil)
+	for i, a := range rest {
+		if a == "--" {
+			head, tail = rest[:i], rest[i+1:]
+			break
+		}
+	}
+	side, args, err := takeBase(head)
+	if err != nil || len(args) != 1 {
+		return "", nil, usagef("run takes <dir> [--base] [-- <args>...]")
+	}
+	files, err := sc.readGoFiles(args[0], toolwire.MaxFiles, toolwire.MaxProgramBytes)
+	if err != nil {
+		return "", nil, usagef("run: %v", err)
+	}
+	return toolwire.VerbRun, &toolwire.RunRequest{Side: side, Language: toolwire.LanguageGo, Files: files,
+		Args: tail}, nil
 }
 
 // render prints a response in the fixed order the package documents and

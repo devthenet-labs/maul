@@ -90,11 +90,13 @@ var kinds = map[Kind]bool{KindAgent: true, KindRunner: true, KindRelay: true}
 type Verb string
 
 // Verbs: one per tool endpoint (wire.go), plus VerbSession, the relay's
-// browser session.
+// browser session, and VerbBuild, its build of a tree.
 const (
 	VerbHTTP         Verb = "http"
 	VerbBrowser      Verb = "browser"
 	VerbExec         Verb = "exec"
+	VerbFiles        Verb = "files"
+	VerbRun          Verb = "run"
 	VerbLogs         Verb = "logs"
 	VerbEvents       Verb = "events"
 	VerbCheckRun     Verb = "check-run"
@@ -102,11 +104,30 @@ const (
 	VerbConfirm      Verb = "confirm"
 	VerbFinish       Verb = "finish"
 	VerbSession      Verb = "session"
+	// VerbBuild is the relay's own build of a side's tree (SPEC S2): no
+	// endpoint, so a caller cannot ask for one.
+	VerbBuild Verb = "build"
 )
 
 // Verbs lists every verb, in a fixed order.
-var Verbs = []Verb{VerbHTTP, VerbBrowser, VerbExec, VerbLogs, VerbEvents, VerbCheckRun, VerbCheckResults,
-	VerbConfirm, VerbFinish, VerbSession}
+var Verbs = []Verb{VerbHTTP, VerbBrowser, VerbExec, VerbFiles, VerbRun, VerbLogs, VerbEvents, VerbCheckRun,
+	VerbCheckResults, VerbConfirm, VerbFinish, VerbSession, VerbBuild}
+
+// sidedVerbs are the verbs that run in a sandbox, so the only ones whose
+// entry may name a side.
+var sidedVerbs = map[Verb]bool{VerbExec: true, VerbRun: true, VerbFiles: true, VerbBuild: true, VerbCheckRun: true}
+
+// checkSide holds an entry's side to its one encoding: "" for the head,
+// base only on a verb that runs in a sandbox.
+func (e LedgerEntry) checkSide() error {
+	switch {
+	case !e.Side.recorded():
+		return fmt.Errorf("side %q is not a ledger side (the head is the empty side)", e.Side)
+	case e.Side != "" && !sidedVerbs[e.Verb]:
+		return fmt.Errorf("verb %s runs in no sandbox, so it has no side", e.Verb)
+	}
+	return nil
+}
 
 func knownVerb(v Verb) bool {
 	for _, k := range Verbs {
@@ -125,6 +146,11 @@ type LedgerEntry struct {
 	TS   time.Time `json:"ts"`
 	Kind Kind      `json:"kind"`
 	Verb Verb      `json:"verb"`
+	// Side is the sandbox the call ran in: empty for the head and for a
+	// verb that has none, so an S1 entry's line is unchanged. Only base is
+	// ever written (one encoding per fact), and only on a verb that runs in
+	// a sandbox (exec, run, files, build, check-run).
+	Side Side `json:"side,omitempty"`
 	// Args is the request as received, JSON.
 	Args json.RawMessage `json:"args"`
 	// Exit is the exit code of the process the verb ran (the Playwright
@@ -216,6 +242,9 @@ type Attempt struct {
 type StepRecord struct {
 	Index  int           `json:"index"`
 	Result AttemptResult `json:"result"`
+	// Side is the sandbox the step ran in; empty is the head, and only
+	// base is ever written.
+	Side Side `json:"side,omitempty"`
 	// Detail is the runner's message for a step that did not pass.
 	Detail string `json:"detail,omitempty"`
 	// Assertion marks a failing step that failed an assertion the outcome
@@ -317,6 +346,9 @@ func (e LedgerEntry) Check() error {
 	case len(e.Inline) > MaxInlineBytes || !utf8.ValidString(e.Inline):
 		return errors.New("inline is not bounded UTF-8")
 	}
+	if err := e.checkSide(); err != nil {
+		return err
+	}
 	if err := e.checkParts(); err != nil {
 		return err
 	}
@@ -386,8 +418,8 @@ func (a Attempt) check() error {
 		return errors.New("an attempt is out of bounds")
 	}
 	for _, s := range a.Steps {
-		if s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] || len(s.Detail) > maxDetailBytes ||
-			!utf8.ValidString(s.Detail) {
+		if !s.Side.recorded() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
+			len(s.Detail) > maxDetailBytes || !utf8.ValidString(s.Detail) {
 			return errors.New("a step record is out of bounds")
 		}
 		if s.Assertion && s.Result != ResultFail {
