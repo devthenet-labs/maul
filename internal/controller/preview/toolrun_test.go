@@ -28,6 +28,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/previewtools"
+	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -478,7 +479,7 @@ func checkToolsConfigMaps(t *testing.T, e *verifyEnv, pv *v1alpha1.PreviewVerifi
 	if err := e.c.Get(ctx, types.NamespacedName{Namespace: "maul", Name: pv.Name + ledgerSuffix}, &ledger); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(ledger.Data[ledgerKey], "\n") != 7 || ledger.Labels[v1alpha1.LabelIntent] != e.in.Name ||
+	if strings.Count(ledger.Data[toolledger.Key], "\n") != 7 || ledger.Labels[v1alpha1.LabelIntent] != e.in.Name ||
 		ledger.OwnerReferences[0].UID != pv.UID || !*ledger.OwnerReferences[0].Controller {
 		t.Errorf("ledger ConfigMap %+v", ledger.ObjectMeta)
 	}

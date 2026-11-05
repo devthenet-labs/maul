@@ -4,9 +4,6 @@
 package preview
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,6 +17,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/previewtools"
+	"github.com/devthenet-labs/maul/internal/toolpod"
 )
 
 // The slot tool pod (DESIGN 2.1, 2.2, 4.2; SPEC S1-13, Q4): an outcome
@@ -59,10 +57,6 @@ const (
 	// cdpKeyDir holds the CDP key, file cdpKeyFile, in tools and browser.
 	cdpKeyDir  = "/etc/maul-cdp"
 	cdpKeyFile = "key"
-	// cdpKeyBytes is the key's entropy: 256 bits, hex-encoded.
-	cdpKeyBytes = 32
-	// toolOutcomesKey holds the outcomes under evaluation, JSON.
-	toolOutcomesKey = "outcomes.json"
 	// execSocketDir is the exec shim's socket directory (toolexec).
 	execSocketDir = "/run/maul-exec"
 	// sandboxScratch is the sandbox's working directory (toolexec).
@@ -145,20 +139,6 @@ func toolName(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification, infix strin
 	return "preview-" + p.Name + infix + strings.TrimPrefix(testerJobName(p, pv), "preview-"+p.Name+testerInfix)
 }
 
-// toolDeadlines splits a verification's timeout under the slot's Job
-// deadline bound: the Job's deadline, the pod's below it (a Job deadline
-// deletes the pod, and with it the log and termination message; a pod
-// deadline keeps both, SP-2), and the relay's own wall clock below that, so
-// tools finishes and writes its ledger before the kubelet stops it.
-func toolDeadlines(timeout, max time.Duration) (job, pod, wall time.Duration) {
-	const margin = 3 * time.Minute
-	job = min(timeout+2*margin, max)
-	gap := min(margin, job/4)
-	pod = job - gap
-	wall = min(timeout, pod-gap)
-	return job, pod, wall
-}
-
 // toolJob renders verification pv's tool Job in Preview p's slot under a
 // deadline at most deadlineMax. It refuses rather than render a Job that
 // does not belong: the evaluator off, a Preview that is not
@@ -184,7 +164,7 @@ func (s Settings) toolJob(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification,
 	if len(toolName(p, pv, toolConfigInfix)) > maxObjectName {
 		return nil, fmt.Errorf("tool Job name %s is over %d characters", name, maxObjectName)
 	}
-	jobDeadline, podDeadline, _ := toolDeadlines(timeout, deadlineMax)
+	jobDeadline, podDeadline, _ := toolpod.Deadlines(timeout, deadlineMax)
 	meta := toolLabels(p, pv)
 	pod := toolLabels(p, pv)
 	pod[labelPart] = v1alpha1.PreviewPartTester
@@ -230,15 +210,6 @@ func toolLabels(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) map[strin
 	return l
 }
 
-// toolSecurity is a tool container's posture under its own UID.
-func toolSecurity(uid int64) *corev1.SecurityContext {
-	return &corev1.SecurityContext{
-		RunAsUser: ptr(uid), RunAsGroup: ptr(uid), RunAsNonRoot: ptr(true),
-		AllowPrivilegeEscalation: ptr(false), ReadOnlyRootFilesystem: ptr(true),
-		Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-	}
-}
-
 // toolResourcesOf is a container's requests and limits, equal.
 func toolResourcesOf(container string) corev1.ResourceRequirements {
 	r := toolResources[container]
@@ -275,7 +246,7 @@ func (s Settings) toolsMain(tools *v1alpha1.ToolsSpec) corev1.Container {
 		TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 		VolumeMounts:             mounts,
 		Resources:                toolResourcesOf(toolsContainer),
-		SecurityContext:          toolSecurity(toolsUID),
+		SecurityContext:          toolpod.Security(toolsUID),
 	}
 }
 
@@ -291,7 +262,7 @@ func (s Settings) browserSidecar() corev1.Container {
 			{Name: "browser-shm", MountPath: "/dev/shm"},
 		},
 		Resources:       toolResourcesOf(browserContainer),
-		SecurityContext: toolSecurity(browserUID),
+		SecurityContext: toolpod.Security(browserUID),
 	}
 }
 
@@ -307,7 +278,7 @@ func (s Settings) sandboxSidecar() corev1.Container {
 			{Name: "sandbox-tmp", MountPath: "/tmp"},
 		},
 		Resources:       toolResourcesOf(sandboxContainer),
-		SecurityContext: toolSecurity(sandboxUID),
+		SecurityContext: toolpod.Security(sandboxUID),
 	}
 }
 
@@ -342,13 +313,6 @@ func toolVolumes(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification, tools *v
 // ConfigMap go when it does, the sweep's deletion included.
 func jobOwned(job *batchv1.Job) []metav1.OwnerReference {
 	return []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID}}
-}
-
-// newCDPKey draws a fresh per-verification CDP key: 256 random bits, hex.
-func newCDPKey() string {
-	b := make([]byte, cdpKeyBytes)
-	_, _ = rand.Read(b) // crypto/rand.Read never fails
-	return hex.EncodeToString(b)
 }
 
 // toolKeySecret is the CDP key Secret, owned by the tool Job, immutable.
@@ -400,18 +364,4 @@ func (s Settings) toolConfig(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerificati
 		return previewtools.Config{}, err
 	}
 	return cfg, nil
-}
-
-// toolConfigData is the tool ConfigMap's own data: the relay's config and
-// the outcomes under evaluation. The capture adds its keys beside them.
-func toolConfigData(cfg previewtools.Config, outcomes []v1alpha1.AcceptanceOutcome) (map[string]string, error) {
-	c, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("encode the tool config: %w", err)
-	}
-	o, err := json.Marshal(outcomes)
-	if err != nil {
-		return nil, fmt.Errorf("encode the outcomes: %w", err)
-	}
-	return map[string]string{previewtools.ConfigFile: string(c), toolOutcomesKey: string(o)}, nil
 }
