@@ -7,7 +7,7 @@
 // string from the agent or the application is shown as plain text.
 
 import { useEffect, useState } from "preact/hooks";
-import type { EvaluationCheck, EvaluationLedgerEntry, EvaluationOutcome, RunEvaluation } from "../types";
+import type { EvaluationBuild, EvaluationCheck, EvaluationCheckRun, EvaluationLedgerEntry, EvaluationOutcome, RunEvaluation } from "../types";
 import { fetchRunEvaluation } from "../api";
 import { formatDate } from "../format";
 import { HANDOFF_REASONS, evidenceImageURL, resultTone, shortDigest } from "../intents";
@@ -62,6 +62,32 @@ function Outcome({ o, transcripts }: { o: EvaluationOutcome; transcripts: boolea
   );
 }
 
+// RunPill is one run of a check, with the tree it ran against.
+function RunPill({ label, r }: { label: string; r: EvaluationCheckRun }) {
+  return (
+    <Pill tone={resultTone(r.result)}>
+      {label} {r.result} · {r.tree || "head"}
+    </Pill>
+  );
+}
+
+function Builds({ builds }: { builds: EvaluationBuild[] }) {
+  return (
+    <>
+      <h3 class="ps-heading mt-4 mb-2">Builds</h3>
+      <ul class="m-0 list-none p-0">
+        {builds.map((b) => (
+          <li key={`${b.tree}-${b.seq}`} class="py-1 font-mono text-[12px]">
+            #{b.seq} {b.tree} {b.result}
+            {b.exitCode ? ` · exit ${b.exitCode}` : ""}
+            {b.durationMs ? ` · ${(b.durationMs / 1000).toFixed(1)}s` : ""}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 function Check({ c }: { c: EvaluationCheck }) {
   const run = c.confirmation ?? c.replay;
   return (
@@ -71,10 +97,9 @@ function Check({ c }: { c: EvaluationCheck }) {
         <span class="ps-chip">
           {c.form} · {c.source} · {shortDigest(c.digest)}
         </span>
-        {c.replay ? <Pill tone={resultTone(c.replay.result)}>replay {c.replay.result}</Pill> : null}
-        {c.confirmation ? (
-          <Pill tone={resultTone(c.confirmation.result)}>confirmation {c.confirmation.result}</Pill>
-        ) : null}
+        {c.replay ? <RunPill label="replay" r={c.replay} /> : null}
+        {c.confirmation ? <RunPill label="confirmation" r={c.confirmation} /> : null}
+        {c.base ? <RunPill label="base" r={c.base} /> : null}
         {c.disputed ? <Pill tone="amber">disputed</Pill> : null}
       </div>
       <p class="mt-1.5 mb-2 text-[12px] text-muted">
@@ -143,7 +168,21 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
         {data.reason ? ` (${data.reason})` : ""}
         {data.current ? "" : " · a later round has superseded this one's results"}
       </p>
-      {data.handoff ? (
+      {data.noBaseComparison ? (
+        <p class="mt-0 mb-3 text-[12.5px] text-muted">
+          No base comparison: the base tree did not build, so no check was compared against it.
+        </p>
+      ) : null}
+      {data.handoff && data.placement === "agents" ? (
+        <p class="mt-0 mb-3 text-[12.5px]">
+          {data.handoff.released
+            ? `Result handed over${data.handoff.releasedAt ? ` ${formatDate(data.handoff.releasedAt)}` : ""}: ${
+                HANDOFF_REASONS[data.handoff.reason ?? ""] ?? data.handoff.reason ?? ""
+              }.`
+            : `Result held (${data.handoff.mode}) until the evaluation settles.`}
+        </p>
+      ) : null}
+      {data.handoff && data.placement !== "agents" ? (
         <p class="mt-0 mb-3 text-[12.5px]">
           {data.handoff.released
             ? `Preview handed over${data.handoff.releasedAt ? ` ${formatDate(data.handoff.releasedAt)}` : ""}: ${
@@ -201,6 +240,8 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
           ))}
         </ul>
       )}
+
+      {data.builds && data.builds.length > 0 ? <Builds builds={data.builds} /> : null}
 
       {data.ledger ? (
         <>

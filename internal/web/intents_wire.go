@@ -328,14 +328,21 @@ type RunEvaluation struct {
 	Reason string `json:"reason,omitempty"`
 	// Current: the verification is the Intent's latest, so the decided
 	// results, anomalies, disputes and hand-off below are this round's.
-	Current   bool                `json:"current,omitempty"`
-	Handoff   *EvaluationHandoff  `json:"handoff,omitempty"`
-	Outcomes  []EvaluationOutcome `json:"outcomes"`
-	Checks    []EvaluationCheck   `json:"checks"`
-	Anomalies []EvaluationAnomaly `json:"anomalies,omitempty"`
-	Disputes  []EvaluationDispute `json:"disputes,omitempty"`
-	Ledger    *EvaluationLedger   `json:"ledger,omitempty"`
-	Capture   *EvaluationCapture  `json:"capture,omitempty"`
+	Current bool `json:"current,omitempty"`
+	// Placement is "agents" for a round run in the agents namespace (no
+	// Preview, so no preview link), unset for a slot round. NoBaseComparison
+	// labels an agents round whose base tree did not build; Builds are the
+	// tool pod's tree builds.
+	Placement        string              `json:"placement,omitempty"`
+	NoBaseComparison bool                `json:"noBaseComparison,omitempty"`
+	Builds           []EvaluationBuild   `json:"builds,omitempty"`
+	Handoff          *EvaluationHandoff  `json:"handoff,omitempty"`
+	Outcomes         []EvaluationOutcome `json:"outcomes"`
+	Checks           []EvaluationCheck   `json:"checks"`
+	Anomalies        []EvaluationAnomaly `json:"anomalies,omitempty"`
+	Disputes         []EvaluationDispute `json:"disputes,omitempty"`
+	Ledger           *EvaluationLedger   `json:"ledger,omitempty"`
+	Capture          *EvaluationCapture  `json:"capture,omitempty"`
 }
 
 // EvaluationHandoff is the hand-off of the preview link to humans.
@@ -378,6 +385,7 @@ type EvaluationCheck struct {
 	Compiled      string              `json:"compiled,omitempty"`
 	CompiledToken string              `json:"compiledToken,omitempty"`
 	Replay        *EvaluationCheckRun `json:"replay,omitempty"`
+	Base          *EvaluationCheckRun `json:"base,omitempty"`
 	Confirmation  *EvaluationCheckRun `json:"confirmation,omitempty"`
 	Disputed      bool                `json:"disputed,omitempty"`
 }
@@ -388,6 +396,18 @@ type EvaluationCheckRun struct {
 	Token     string `json:"token"`
 	Seq       int32  `json:"seq"`
 	DryRunSeq int32  `json:"dryRunSeq,omitempty"`
+	// Tree is the tree the run ran against, head or base (unset reads as
+	// head).
+	Tree string `json:"tree"`
+}
+
+// EvaluationBuild is one tree's build in an agents tool pod.
+type EvaluationBuild struct {
+	Tree       string `json:"tree"`
+	Result     string `json:"result"`
+	Seq        int32  `json:"seq"`
+	ExitCode   int32  `json:"exitCode,omitempty"`
+	DurationMs int32  `json:"durationMs,omitempty"`
 }
 
 // EvaluationAnomaly is one look-around anomaly (current round only). Its

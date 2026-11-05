@@ -773,6 +773,12 @@ export interface RunEvaluation {
   // current: the Intent's latest verification, so results, anomalies,
   // disputes and the hand-off are this round's.
   current?: boolean;
+  // placement: "agents" for a round run in the agents namespace, which has
+  // no preview (so no preview link); unset for a slot round. noBaseComparison:
+  // the base tree did not build, so no check was compared against it.
+  placement?: string;
+  noBaseComparison?: boolean;
+  builds?: EvaluationBuild[];
   handoff?: EvaluationHandoff;
   outcomes: EvaluationOutcome[];
   checks: EvaluationCheck[];
@@ -813,6 +819,7 @@ export interface EvaluationCheck {
   compiled?: string;
   compiledToken?: string;
   replay?: EvaluationCheckRun;
+  base?: EvaluationCheckRun;
   confirmation?: EvaluationCheckRun;
   disputed?: boolean;
 }
@@ -822,6 +829,16 @@ export interface EvaluationCheckRun {
   token: string;
   seq: number;
   dryRunSeq?: number;
+  // tree: the tree the run ran against, "head" or "base".
+  tree: string;
+}
+
+export interface EvaluationBuild {
+  tree: string;
+  result: string;
+  seq: number;
+  exitCode?: number;
+  durationMs?: number;
 }
 
 export interface EvaluationAnomaly {

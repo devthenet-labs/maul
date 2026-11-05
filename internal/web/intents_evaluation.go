@@ -24,6 +24,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/intentview"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/web/auth"
 	"github.com/devthenet-labs/maul/internal/web/authz"
@@ -182,6 +183,7 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 		out.Outcomes = append(out.Outcomes, eo)
 	}
 	out.Checks = evaluationChecks(pv, disputed)
+	agentsView(&out, pv)
 	out.Disputes = evaluationDisputes(ver, out.Current, claims)
 	if l := pv.Status.Ledger; l != nil {
 		out.Ledger = &EvaluationLedger{Count: l.Count, SHA256: l.SHA256, Entries: []EvaluationLedgerEntry{}}
@@ -215,6 +217,12 @@ func evaluationChecks(pv *v1alpha1.PreviewVerification, disputed map[string]bool
 	for _, r := range pv.Status.Confirmations {
 		confirm[r.CheckDigest] = r
 	}
+	base := map[string]v1alpha1.CheckRun{}
+	if pv.Status.Base != nil {
+		for _, r := range pv.Status.Base.Runs {
+			base[r.CheckDigest] = r
+		}
+	}
 	out := []EvaluationCheck{}
 	seen := map[string]bool{}
 	add := func(c v1alpha1.SavedCheck, source string) {
@@ -233,6 +241,9 @@ func evaluationChecks(pv *v1alpha1.PreviewVerification, disputed map[string]bool
 			ec.Confirmation = wireCheckRun(r)
 			token = r.Token
 		}
+		if r, ok := base[c.Digest]; ok {
+			ec.Base = wireCheckRun(r)
+		}
 		if c.Form == v1alpha1.CheckFormBrowser {
 			ec.Compiled, ec.CompiledToken = compiledSpec(c.Body, token)
 		}
@@ -248,7 +259,24 @@ func evaluationChecks(pv *v1alpha1.PreviewVerification, disputed map[string]bool
 }
 
 func wireCheckRun(r v1alpha1.CheckRun) *EvaluationCheckRun {
-	return &EvaluationCheckRun{Result: string(r.Result), Token: r.Token, Seq: r.Seq, DryRunSeq: r.DryRunSeq}
+	return &EvaluationCheckRun{Result: string(r.Result), Token: r.Token, Seq: r.Seq, DryRunSeq: r.DryRunSeq,
+		Tree: string(r.Side())}
+}
+
+// agentsView fills what only an agents round has: its placement, the label
+// when the base tree did not build, and the tree builds.
+func agentsView(out *RunEvaluation, pv *v1alpha1.PreviewVerification) {
+	if !pv.Spec.IsAgents() {
+		return
+	}
+	out.Placement = string(v1alpha1.PlacementAgents)
+	out.NoBaseComparison = pv.Status.Base != nil && pv.Status.Base.Unbuildable
+	if l := pv.Status.Ledger; l != nil {
+		for _, b := range l.Builds {
+			out.Builds = append(out.Builds, EvaluationBuild{Tree: string(b.Side), Result: string(b.Result),
+				Seq: b.Seq, ExitCode: b.ExitCode, DurationMs: b.DurationMs})
+		}
+	}
 }
 
 // indentedBody is a check's canonical JSON indented for reading, as plain
@@ -321,7 +349,7 @@ func (s *Server) addLedgerOutputs(ctx context.Context, in *v1alpha1.Intent, pv *
 	}
 	if sum.ConfigMap != "" {
 		if cm, err := s.guardedConfigMap(ctx, sum.ConfigMap, in.Name, pv.UID); err == nil {
-			lines := ledgerLines(cm.Data[ledgerDataKey])
+			lines := ledgerLines(cm.Data[toolledger.Key])
 			l.Outputs = true
 			for i := range l.Entries {
 				fillLedgerEntry(&l.Entries[i], lines)
@@ -348,10 +376,6 @@ func (s *Server) addLedgerOutputs(ctx context.Context, in *v1alpha1.Intent, pv *
 		}
 	}
 }
-
-// ledgerDataKey is the key <pv>-ledger holds its entries under, one JSON
-// line each (internal/toolledger Key).
-const ledgerDataKey = "ledger.jsonl"
 
 // ledgerLines decodes the ledger ConfigMap's lines by seq; a line that does
 // not decode is skipped.

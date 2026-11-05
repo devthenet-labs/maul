@@ -77,7 +77,7 @@ func TestIntentWireTypesMatchTypeScript(t *testing.T) {
 		IntentPR{}, PreviewLink{}, RunningRun{}, AttemptCount{}, IntentDetail{}, IntentInputView{},
 		IntentPlanView{}, IntentApproval{}, IntentRunRow{}, RunGrant{}, IntentRunDetail{}, RunJobClock{},
 		IntentPlanText{}, RunActivity{}, RunOutput{}, StreamNotice{},
-		RunEvaluation{}, EvaluationHandoff{}, EvaluationOutcome{}, EvaluationCheck{}, EvaluationCheckRun{},
+		RunEvaluation{}, EvaluationHandoff{}, EvaluationOutcome{}, EvaluationCheck{}, EvaluationCheckRun{}, EvaluationBuild{},
 		EvaluationAnomaly{}, EvaluationDispute{}, EvaluationLedger{}, EvaluationLedgerEntry{},
 		EvaluationArtifact{}, EvaluationCapture{}, EvaluationComponentCapture{},
 	} {

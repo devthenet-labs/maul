@@ -24,6 +24,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/web/auth"
 )
@@ -173,7 +174,7 @@ func evaluationFixture(t *testing.T) []client.Object {
 			OwnerReferences: []metav1.OwnerReference{ctrlRef("PreviewVerification", evalPV, evalPVUID)}}
 	}
 	ledgerCM := &corev1.ConfigMap{ObjectMeta: pvOwned(evalPV + "-ledger"), Data: map[string]string{
-		ledgerDataKey: line(1, evalArgs, evalOutput) + "\n" +
+		toolledger.Key: line(1, evalArgs, evalOutput) + "\n" +
 			// Entry 2's output was cut to fit: it no longer hashes to the index.
 			line(2, `{"verb":"snapshot"}`, "[maul: output dropped to fit; its sha256 is kept]") + "\n",
 	}}
