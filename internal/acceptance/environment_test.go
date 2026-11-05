@@ -105,6 +105,22 @@ func TestClassifyEnvironment(t *testing.T) {
 		{"tools image pull", []PartFact{
 			ready("api", RoleComponent), {Name: "tools", Role: RoleTools, Waiting: "ImagePullBackOff"},
 		}, EnvInfra, nil},
+		// The tool pod's head build (slice S2) built only when it completed
+		// with exit 0; anything else is maul's (tools-build-failed), never
+		// the application's, since CI built that head green.
+		{"build completed", []PartFact{{Name: "build-head", Role: RoleBuild,
+			LastTermination: &Termination{Reason: "Completed"}}}, EnvOK, nil},
+		{"build failed", []PartFact{{Name: "build-head", Role: RoleBuild,
+			LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, EnvInfra, nil},
+		{"build with no termination", []PartFact{{Name: "build-head", Role: RoleBuild}}, EnvInfra, nil},
+		{"build out of memory", []PartFact{{Name: "build-head", Role: RoleBuild,
+			LastTermination: &Termination{Reason: "OOMKilled", ExitCode: 137}}}, EnvInfra, nil},
+		{"build evicted", []PartFact{{Name: "build-head", Role: RoleBuild, Evicted: true,
+			LastTermination: &Termination{Reason: "Completed"}}}, EnvInfra, nil},
+		{"build failed beside a crashing component", []PartFact{
+			{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff"},
+			{Name: "build-head", Role: RoleBuild, LastTermination: &Termination{Reason: "Error", ExitCode: 1}},
+		}, EnvInfra, []string{"api"}},
 		{"infra wins over app", []PartFact{
 			{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff"},
 			{Name: "tester", Role: RoleTester, Unschedulable: true},

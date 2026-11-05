@@ -29,8 +29,8 @@ type OutcomeRef struct {
 	Manual bool
 }
 
-// CheckForm is a saved check's form. Only maul's three forms can support a
-// pass (rule 1); anything else, a model-judged screenshot included (7.5),
+// CheckForm is a saved check's form. Only maul's forms can support a pass
+// (rule 1); anything else, a model-judged screenshot included (7.5),
 // cannot.
 type CheckForm string
 
@@ -39,7 +39,16 @@ const (
 	CheckFormHTTP    CheckForm = "http"
 	CheckFormBrowser CheckForm = "browser"
 	CheckFormExec    CheckForm = "exec"
+	// CheckFormRun is a program maul compiles against the tree and runs
+	// (slice S2, the agents placement). Like exec, it is a program check:
+	// it fails its outcome only red by assertion (O4).
+	CheckFormRun CheckForm = "run"
 )
+
+// programForm reports a form whose check is a program: exec and run. A
+// program that crashed, did not compile, timed out or exited wrong with no
+// assertion marker shows what a broken check shows too.
+func programForm(f CheckForm) bool { return f == CheckFormExec || f == CheckFormRun }
 
 // StoredCheck is a saved check in the Intent's immutable check store.
 type StoredCheck struct {
@@ -186,9 +195,19 @@ type AnomalyRef struct {
 }
 
 // BaseRuns are this round's runs of saved checks at the base revision
-// (rule 5). nil when no base is available: always in S1.
+// (rule 5): the merge base of the head and the PR's base branch. nil when no
+// base is available: always in S1, the slot placement.
 type BaseRuns struct {
 	Runs []CheckRun
+	// Required marks a round whose every check was to run at base too (the
+	// agents placement): a check with no base run then does not
+	// discriminate, so it never passes its outcome.
+	Required bool
+	// Unbuildable marks a base the tool pod could not build: no check could
+	// run there, so a missing base run is n/a ("no base comparison") and a
+	// pass rests on rules 1-4 and 6. A base run recorded anyway is still
+	// judged: it can only withhold a pass.
+	Unbuildable bool
 }
 
 // Input is everything Decide judges one round on.
@@ -274,6 +293,15 @@ const (
 	// neither a pass nor a fail (S1 demo bug 13, a narrowed check passed
 	// where the outcome as worded failed).
 	ReasonEvaluatorSawFailure = "evaluator-saw-failure"
+	// ReasonNotAsserted: the outcome would be failed, but a program check
+	// (exec or run form) failed other than by assertion (a crash, a compile
+	// error, a timeout, a wrong exit with no marker): what a broken check
+	// shows too, so neither a fail nor a pass (owner decision O4).
+	ReasonNotAsserted = "not-asserted"
+	// ReasonBuildFailed: the tool pod could not build the head (slice S2):
+	// maul's Infra, so the round has no fail and no pass whatever its runs
+	// show (the PreviewVerification reason of the same name).
+	ReasonBuildFailed = "tools-build-failed"
 )
 
 // OutcomeResult is one outcome's result, with the check digest it rests on
@@ -343,7 +371,10 @@ type runs struct {
 	pass, fail, quarantined, other bool
 	// untrusted: a pass with no tools run token.
 	untrusted bool
-	failSeq   int32
+	// asserted: a fail red by assertion; bare: a fail that is not (a
+	// timeout, a crash, a wrong exit with no marker).
+	asserted, bare bool
+	failSeq        int32
 }
 
 func (r runs) clean() bool { return r.pass && !r.fail && !r.quarantined && !r.other && !r.untrusted }
@@ -362,6 +393,8 @@ func aggregate(rs []CheckRun) map[string]runs {
 				a.failSeq = run.Seq
 			}
 			a.fail = true
+			a.asserted = a.asserted || run.AssertionStep > 0
+			a.bare = a.bare || run.AssertionStep <= 0
 		case run.Result == RunQuarantined:
 			a.quarantined = true
 		default:
@@ -475,11 +508,21 @@ func (d *decider) replayRuns() []CheckRun {
 // evaluator says it saw the outcome fail (sawFailure, S1 demo bug 13), or
 // when its only support is a check narrowed in an earlier round
 // (StoredCheck.Narrowed).
+//
+// With a base (slice S2), rule 5 is met for a change outcome's check only
+// red by assertion at base, for a keep outcome's only not red by assertion
+// there; a required base with no run of the check is not met. A program
+// check (exec, run) failing other than by assertion never fails its outcome
+// (O4), and a head the tool pod could not build (a RoleBuild part) leaves
+// every outcome unsure.
 func Decide(in Input) Decision { return decide(in, true) }
 
 // decide is Decide, with the saw-failure guard on or (for its property
 // test) off.
 func decide(in Input, guard bool) Decision {
+	if headBuildFailed(in.Env) {
+		return buildFailed(in)
+	}
 	d := decider{
 		in: in, env: ClassifyEnvironment(in.Env), guard: guard,
 		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
@@ -528,6 +571,23 @@ func decide(in Input, guard bool) Decision {
 	out.Narrowed = d.narrowed()
 	if out.Fix == nil && !out.ReplayRound && len(in.Anomalies) == 0 && d.env == EnvOK && allPassed(out.PerOutcome) {
 		out.Handoff = HandoffReady
+	}
+	return out
+}
+
+// buildFailed is the decision of a round whose head the tool pod could not
+// build (tools-build-failed): CI built that head green, so it is maul's
+// Infra. No outcome fails or passes, whatever the runs show; nothing is
+// fixed, retired, replayed or narrowed on them.
+func buildFailed(in Input) Decision {
+	out := Decision{Env: ClassifyEnvironment(in.Env), Handoff: HandoffUnconfirmed,
+		PerOutcome: make([]OutcomeResult, 0, len(in.Outcomes))}
+	for _, o := range in.Outcomes {
+		r := OutcomeResult{ID: o.ID, Result: ResultUnsure, Reason: ReasonBuildFailed}
+		if o.Manual {
+			r.Reason = ReasonManual
+		}
+		out.PerOutcome = append(out.PerOutcome, r)
 	}
 	return out
 }
@@ -672,13 +732,24 @@ func (d decider) failure(o OutcomeRef, res OutcomeResult, failing []StoredCheck)
 	v, ok := d.verdicts[o.ID]
 	agrees := ok && v.Claim == ClaimFail && len(v.Ledger) > 0
 	var fs []FixFailure
+	unasserted := false
 	for _, c := range failing {
-		if d.supports(c, o) {
-			fs = append(fs, FixFailure{Outcome: o.ID, CheckDigest: c.Digest, Seq: d.runs[c.Digest].failSeq})
+		if !d.supports(c, o) {
+			continue
 		}
+		if programForm(c.Form) && d.runs[c.Digest].bare {
+			// O4: a program that failed other than by assertion shows what
+			// a broken check shows too; it is no evidence of a defect.
+			unasserted = true
+			continue
+		}
+		fs = append(fs, FixFailure{Outcome: o.ID, CheckDigest: c.Digest, Seq: d.runs[c.Digest].failSeq})
 	}
 	if !agrees || len(fs) == 0 {
 		res.Reason = ReasonEvaluatorDisagrees
+		if agrees && unasserted {
+			res.Reason = ReasonNotAsserted
+		}
 		return res, nil
 	}
 	return OutcomeResult{ID: o.ID, Result: ResultFailed, Basis: fs[0].CheckDigest, Reason: ReasonReproduced}, fs
@@ -730,7 +801,7 @@ func (d decider) failing(bound []StoredCheck) []StoredCheck {
 // red question (guard 3) answered proves.
 func (d decider) supports(c StoredCheck, o OutcomeRef) bool {
 	switch c.Form {
-	case CheckFormHTTP, CheckFormBrowser, CheckFormExec:
+	case CheckFormHTTP, CheckFormBrowser, CheckFormExec, CheckFormRun:
 	default:
 		return false
 	}
@@ -793,8 +864,14 @@ func (d decider) passes(c StoredCheck, o OutcomeRef) bool {
 	return d.greenReviewed(c.Digest, o)
 }
 
-// discriminates is rule 5. With no base, or no clean verdict at base (the
-// check could not run there), it is n/a: true.
+// discriminates is rule 5. With no base it is n/a: true. A required base
+// with no run of the check is not met, unless the base could not be built
+// (n/a). A run that could not run the check there (an error, a refusal: a
+// compile failure and a timeout are errors in the agents placement) is n/a.
+// A change outcome's check is met only red by assertion at base: a pass, a
+// quarantine or a fail with no assertion (exit only) is not. A keep
+// outcome's is met by a clean pass at base and not met red by assertion
+// there; a fail with no assertion is n/a.
 func (d decider) discriminates(c StoredCheck, o OutcomeRef) bool {
 	if d.base == nil {
 		return true
@@ -802,15 +879,13 @@ func (d decider) discriminates(c StoredCheck, o OutcomeRef) bool {
 	b, ok := d.base[c.Digest]
 	switch {
 	case !ok:
-		return true
+		return !d.in.Base.Required || d.in.Base.Unbuildable
 	case b.quarantined || b.untrusted || (b.pass && b.fail):
 		return false
-	case b.fail:
-		return !o.Keep
-	case b.pass:
-		return o.Keep
+	case o.Keep:
+		return !b.asserted
 	}
-	return true // only errors or refusals: n/a
+	return !b.pass && !b.bare // change: red by assertion, or only errors or refusals (n/a)
 }
 
 // replacements are the disputed checks whose replacement is stored for the

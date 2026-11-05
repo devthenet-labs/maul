@@ -76,6 +76,10 @@ func partClass(p PartFact) EnvClass {
 		if crashed || !p.Ready {
 			return EnvInfra
 		}
+	case RoleBuild:
+		if !built(p) {
+			return EnvInfra
+		}
 	default:
 		return EnvInfra
 	}
@@ -114,6 +118,26 @@ func componentClass(p PartFact) EnvClass {
 		return EnvAppFailure
 	}
 	return EnvOK
+}
+
+// built reports a head build part that built: it terminated Completed with
+// exit 0, nothing else about it failing. Anything else, no termination
+// included, is the tool pod's failure to build a head CI built green: maul's
+// Infra (tools-build-failed), never evidence about the change.
+func built(p PartFact) bool {
+	return !p.Unschedulable && p.Waiting == "" && !p.Evicted && p.LastTermination != nil &&
+		completed(*p.LastTermination)
+}
+
+// headBuildFailed reports a head build part (RoleBuild) that did not build:
+// the round then has no fail and no pass, whatever its runs show.
+func headBuildFailed(parts []PartFact) bool {
+	for _, p := range parts {
+		if p.Role == RoleBuild && !built(p) {
+			return true
+		}
+	}
+	return false
 }
 
 func completed(t Termination) bool {
