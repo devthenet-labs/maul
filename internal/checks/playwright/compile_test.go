@@ -97,7 +97,7 @@ func TestGoldenCompile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := parseBrowser(t, tc.check)
 			c := checks.Check{ID: "golden", Outcome: "golden", Form: checks.FormBrowser, Browser: &b}
-			if err := checks.Validate(c, checks.Preview{}); err != nil {
+			if err := checks.Validate(c, checks.Context{Preview: &checks.Preview{}}); err != nil {
 				t.Fatalf("golden input is not a valid check: %v", err)
 			}
 			got, err := Compile(b, Options{RunToken: testToken})

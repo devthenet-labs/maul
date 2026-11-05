@@ -70,7 +70,7 @@ func (genStatusOnly) Generate(r *rand.Rand, _ int) reflect.Value {
 // status or an exit code.
 func TestNothingStatusOnlyIsAccepted(t *testing.T) {
 	prop := func(g genStatusOnly) bool {
-		err := Validate(g.c, Preview{})
+		err := Validate(g.c, slotCtx)
 		if err == nil {
 			t.Logf("accepted: %s", Canonical(g.c))
 			return false

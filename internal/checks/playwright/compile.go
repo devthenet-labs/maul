@@ -99,7 +99,7 @@ func Compile(b checks.BrowserCheck, o Options) ([]byte, error) {
 		return nil, fmt.Errorf("viewport %dx%d is not within 1..%d px a side", v.Width, v.Height, MaxViewportSide)
 	}
 	c := checks.Check{ID: "compile", Outcome: "compile", Form: checks.FormBrowser, Browser: &b}
-	if err := checks.Validate(c, checks.Preview{}); err != nil {
+	if err := checks.Validate(c, checks.Context{Preview: &checks.Preview{}}); err != nil {
 		return nil, err
 	}
 	if err := emittable(&b, o.RunToken); err != nil {

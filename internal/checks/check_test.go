@@ -58,7 +58,7 @@ func mustParse(t *testing.T, s string) Check {
 func TestDemoChecksAreValid(t *testing.T) {
 	for _, s := range []string{httpOrder, httpRate, browserRow, browserGrid, execWS} {
 		c := mustParse(t, s)
-		if err := Validate(c, Preview{}); err != nil {
+		if err := Validate(c, slotCtx); err != nil {
 			t.Errorf("%s: Validate: %v", c.ID, err)
 		}
 	}
@@ -108,7 +108,7 @@ func TestCanonicalIsIdempotentOnDemoChecks(t *testing.T) {
 func TestRefusalIsTyped(t *testing.T) {
 	c := mustParse(t, `{"id":"a.b","outcome":"a","form":"http","http":{"target":"api","steps":[
 	  {"request":{"path":"/"},"expect":{"status":200}}]}}`)
-	err := Validate(c, Preview{})
+	err := Validate(c, slotCtx)
 	var r *Refusal
 	if !errors.As(err, &r) {
 		t.Fatalf("Validate = %v, want a *Refusal", err)

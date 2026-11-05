@@ -46,7 +46,7 @@ func runRefusals(t *testing.T, rule Rule, cases []refusalCase) {
 			t.Errorf("%s: Parse: %v", tc.name, err)
 			continue
 		}
-		err = Validate(c, tc.preview)
+		err = Validate(c, Context{Preview: &tc.preview})
 		var r *Refusal
 		if !errors.As(err, &r) || r.Rule != rule {
 			t.Errorf("%s: Validate = %v, want rule %s", tc.name, err, rule)
@@ -169,7 +169,7 @@ func TestRefuseColourLiterals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := Validate(c, Preview{}); err != nil {
+		if err := Validate(c, slotCtx); err != nil {
 			t.Errorf("Validate(%s) = %v", c.ID, err)
 		}
 	}
@@ -186,7 +186,7 @@ func TestRefuseCSSDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Validate(c, Preview{}); err != nil {
+	if err := Validate(c, slotCtx); err != nil {
 		t.Errorf("three compounds with spaces inside brackets refused: %v", err)
 	}
 }
@@ -261,7 +261,7 @@ func TestRefuseOffPreview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Validate(c, app); err != nil {
+	if err := Validate(c, Context{Preview: &app}); err != nil {
 		t.Errorf("goto under the preview refused: %v", err)
 	}
 }
@@ -301,7 +301,7 @@ func TestSizeBounds(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: Parse: %v", name, err)
 		}
-		if err := Validate(c, Preview{}); err != nil {
+		if err := Validate(c, slotCtx); err != nil {
 			t.Errorf("%s: Validate: %v", name, err)
 		}
 	}

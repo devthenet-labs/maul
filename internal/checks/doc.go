@@ -7,7 +7,7 @@
 // ever run.
 //
 // A Check (check.go) is bound to one approved outcome and has exactly one
-// of three forms, all of them data that maul runs, never code an agent
+// of four forms, all of them data that maul runs, never code an agent
 // wrote for a token-holding pod:
 //
 //   - http (http.go): slice 1's request steps (internal/acceptance's
@@ -27,7 +27,21 @@
 //     (each within a tolerance in px), and clickable.
 //   - exec (exec.go): an argv run in the slot's sandbox container with
 //     its program files, asserting on the exit code, stdout text and
-//     stdout JSON.
+//     stdout JSON; in a cli workspace, the built binary ({{bin}}).
+//   - run (run.go, SPEC-S2 Q25): a consumer program of at most MaxFiles
+//     source files in one language (go only, O5) that maul builds against
+//     a workspace's tree and runs with its args, asserting as exec does.
+//
+// Validate takes the surface a check is for (Context): a preview slot
+// (Preview), where http, browser and exec are validated as in S1, or a
+// workspace with no preview (Workspace, SPEC-S2), a cli (its binary) or a
+// library (its language). A workspace refuses http and browser, a library
+// exec, and a slot run (RuleOffSurface); a cli check runs the binary (an
+// exec whose argv[0] is {{bin}}, or a run whose program names it), a
+// library check is a run, and each asserts on stdout content. {{bin}} and
+// {{tree}} are the workspace's placeholders, substituted by the tools
+// container alike at head and at base; they are text to Canonical, Digest
+// and WritesRunData, and unknown placeholders outside a workspace.
 //
 // Parse decodes a check strictly; Canonical is its normalised JSON
 // (defaults explicit, object keys sorted, values canonical) and Digest the
@@ -42,7 +56,9 @@
 // a surface and one assertion about content; a status or exit code alone
 // never is), a list, row, count, $order or $includes assertion not
 // filtered by {{run}} text (RuleRunToken), navigation off the preview's
-// paths (RuleOffPreview), a check too large to store (RuleTooLarge) and
+// paths (RuleOffPreview), a form off the surface (RuleOffSurface), a
+// check too large to store (RuleTooLarge; a run check's program counts
+// toward MaxCanonicalBytes) and
 // everything else the grammar refuses (RuleGrammar).
 //
 // The package imports only the standard library and internal/acceptance

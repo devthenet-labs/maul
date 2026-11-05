@@ -383,7 +383,8 @@ func exchange(rep reply) string {
 func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) result {
 	c, err := checks.Parse(req.Spec)
 	if err == nil {
-		err = checks.Validate(c, checks.Preview{Paths: r.cfg.paths(), Components: r.cfg.keys()})
+		preview := checks.Preview{Paths: r.cfg.paths(), Components: r.cfg.keys()}
+		err = checks.Validate(c, checks.Context{Preview: &preview})
 	}
 	if err != nil {
 		return refusal(toolwire.RefusedCheck, err.Error())

@@ -6,6 +6,7 @@ package checks
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -13,7 +14,8 @@ import (
 
 // WritesRunData reports whether c writes data under its own run token: an
 // http POST, PUT or PATCH whose path or body names RunPlaceholder, a browser
-// fill of it, or an exec program run with it in its argv or files. A check
+// fill of it, or an exec or run program run with it in its argv, args or
+// files (BinPlaceholder and TreePlaceholder name no data of the run). A check
 // saved to show a defect must (reviews, finding 3): its confirmation runs
 // against whatever state the evaluator's exploration left behind, so what it
 // asserts on has to be data its own run can have made. A token in a GET's
@@ -38,18 +40,18 @@ func WritesRunData(c Check) bool {
 			}
 		}
 	case c.Exec != nil:
-		for _, a := range c.Exec.Argv {
-			if hasRun(a) {
-				return true
-			}
-		}
-		for _, f := range c.Exec.Files {
-			if hasRun(f.Content) {
-				return true
-			}
-		}
+		return programWritesRun(c.Exec.Argv, c.Exec.Files)
+	case c.Run != nil:
+		return programWritesRun(c.Run.Args, c.Run.Files)
 	}
 	return false
+}
+
+// programWritesRun reports a program run with RunPlaceholder in one of its
+// arguments or files.
+func programWritesRun(args []string, files []File) bool {
+	return slices.ContainsFunc(args, hasRun) ||
+		slices.ContainsFunc(files, func(f File) bool { return hasRun(f.Content) })
 }
 
 // LayoutAssertion reports a browser assertion that measures the page's own

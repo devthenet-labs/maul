@@ -402,7 +402,7 @@ func parseLive(t *testing.T, src string) checks.Check {
 		t.Fatal(err)
 	}
 	p := checks.Preview{Paths: []string{"/api", "/"}, Components: []string{"api", "web"}}
-	if err := checks.Validate(c, p); err != nil {
+	if err := checks.Validate(c, checks.Context{Preview: &p}); err != nil {
 		t.Fatalf("%s: %v", c.ID, err)
 	}
 	return c
