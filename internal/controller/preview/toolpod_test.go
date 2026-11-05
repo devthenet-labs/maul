@@ -30,6 +30,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/previewtools"
+	"github.com/devthenet-labs/maul/internal/toolpod"
 )
 
 const (
@@ -97,33 +98,6 @@ func toolVerification(t *testing.T, p *v1alpha1.Preview) *v1alpha1.PreviewVerifi
 	pv.Spec.Tools = &v1alpha1.ToolsSpec{Browser: true, Sandbox: true, MaxToolCalls: 120}
 	pv.Spec.Timeout = metav1.Duration{Duration: 20 * time.Minute}
 	return pv
-}
-
-func TestToolDeadlines(t *testing.T) {
-	for _, tc := range []struct {
-		timeout, max, job, pod, wall time.Duration
-	}{
-		{20 * time.Minute, 30 * time.Minute, 26 * time.Minute, 23 * time.Minute, 20 * time.Minute},
-		{20 * time.Minute, 22 * time.Minute, 22 * time.Minute, 19 * time.Minute, 16 * time.Minute},
-		{time.Hour, time.Hour, time.Hour, 57 * time.Minute, 54 * time.Minute},
-		{time.Minute, time.Minute, time.Minute, 45 * time.Second, 30 * time.Second},
-	} {
-		job, pod, wall := toolDeadlines(tc.timeout, tc.max)
-		if job != tc.job || pod != tc.pod || wall != tc.wall {
-			t.Errorf("toolDeadlines(%s, %s) = %s %s %s, want %s %s %s", tc.timeout, tc.max, job, pod, wall,
-				tc.job, tc.pod, tc.wall)
-		}
-	}
-	// Every timeout and bound the schema and the chart admit keep the
-	// order the ledger's survival rests on: wall < pod < job <= max.
-	for timeout := time.Minute; timeout <= time.Hour; timeout += 7 * time.Minute {
-		for max := time.Minute; max <= time.Hour; max += 5 * time.Minute {
-			job, pod, wall := toolDeadlines(timeout, max)
-			if wall <= 0 || wall > timeout || wall >= pod || pod >= job || job > max {
-				t.Errorf("toolDeadlines(%s, %s) = %s %s %s out of order", timeout, max, job, pod, wall)
-			}
-		}
-	}
 }
 
 func TestEvaluatorSettings(t *testing.T) {
@@ -369,7 +343,7 @@ func TestToolConfig(t *testing.T) {
 		Addr: "10.96.0.11:80"}) {
 		t.Errorf("components %+v", cfg.Components)
 	}
-	data, err := toolConfigData(cfg, pv.Spec.Outcomes)
+	data, err := toolpod.ConfigData(cfg, pv.Spec.Outcomes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,8 +351,8 @@ func TestToolConfig(t *testing.T) {
 		t.Errorf("the relay refuses the config: %v", err)
 	}
 	var outcomes []v1alpha1.AcceptanceOutcome
-	if err := json.Unmarshal([]byte(data[toolOutcomesKey]), &outcomes); err != nil || len(outcomes) != 2 {
-		t.Errorf("outcomes %s: %v", data[toolOutcomesKey], err)
+	if err := json.Unmarshal([]byte(data[toolpod.OutcomesKey]), &outcomes); err != nil || len(outcomes) != 2 {
+		t.Errorf("outcomes %s: %v", data[toolpod.OutcomesKey], err)
 	}
 	pv.Spec.Rung = v1alpha1.RungReplay
 	if cfg, err := s.toolConfig(p, pv, targets, time.Minute); err != nil || !cfg.ReplayOnly {
@@ -460,7 +434,7 @@ func TestGoldenToolPod(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := toolConfigData(cfg, pv.Spec.Outcomes)
+	data, err := toolpod.ConfigData(cfg, pv.Spec.Outcomes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,10 +468,7 @@ func TestToolObjectsAreTheJobs(t *testing.T) {
 	pv := toolVerification(t, p)
 	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: testerJobName(p, pv), Namespace: "maul-preview-0",
 		UID: "job-uid"}}
-	key := newCDPKey()
-	if len(key) != 2*cdpKeyBytes || key == newCDPKey() {
-		t.Errorf("key %q is not a fresh 256-bit hex key", key)
-	}
+	key := toolpod.NewKey()
 	sec := s.toolKeySecret(p, pv, job, key)
 	cm := s.toolConfigMap(p, pv, job, map[string]string{"a": "b"})
 	for _, obj := range []client.Object{sec, cm} {
