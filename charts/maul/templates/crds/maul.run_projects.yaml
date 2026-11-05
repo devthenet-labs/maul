@@ -762,7 +762,85 @@ spec:
                     required:
                     - entry
                     type: object
+                  cli:
+                    description: |-
+                      CLI lets the evaluator build the PR's command-line program and run
+                      it, at head and at base, in the repository's accepted runner image.
+                    properties:
+                      binary:
+                        description: |-
+                          Binary is the built program: an absolute path under /work/bin, at
+                          most two names below it.
+                        maxLength: 139
+                        pattern: ^/work/bin(/[A-Za-z0-9_][A-Za-z0-9._-]{0,63}){1,2}$
+                        type: string
+                      build:
+                        description: |-
+                          Build is the argv that builds the program from the tree's root, run
+                          in the repository's accepted runner image under its build's network
+                          profile; it writes its output under /work/bin (some argument names
+                          it). 1 to 16 arguments of at most 256 bytes, no control characters.
+                        items:
+                          maxLength: 256
+                          minLength: 1
+                          pattern: ^[^\x00-\x1f\x7f]+$
+                          type: string
+                        maxItems: 16
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: atomic
+                        x-kubernetes-validations:
+                        - message: surfaces.cli.build must write under /work/bin
+                          rule: self.exists(a, a.contains('/work/bin/') || a.endsWith('/work/bin'))
+                      buildTimeout:
+                        description: |-
+                          BuildTimeout bounds each tree's build, between 1m and 20m;
+                          DefaultCLIBuildTimeout when unset.
+                        type: string
+                      repository:
+                        description: |-
+                          Repository is the key of the Project repository the program is built
+                          from; optional when the Project has one repository.
+                        maxLength: 16
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                        type: string
+                    required:
+                    - binary
+                    - build
+                    type: object
+                    x-kubernetes-validations:
+                    - message: surfaces.cli.buildTimeout must be between 1m and 20m
+                      rule: '!has(self.buildTimeout) || (duration(self.buildTimeout)
+                        >= duration(''1m'') && duration(self.buildTimeout) <= duration(''20m''))'
+                  library:
+                    description: |-
+                      Library lets the evaluator compile and run its own consumer programs
+                      against the PR's library, at head and at base.
+                    properties:
+                      language:
+                        description: Language of the library.
+                        enum:
+                        - go
+                        type: string
+                      repository:
+                        description: |-
+                          Repository is the key of the Project repository holding the library;
+                          optional when the Project has one repository.
+                        maxLength: 16
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                        type: string
+                    required:
+                    - language
+                    type: object
                 type: object
+                x-kubernetes-validations:
+                - message: a Project has at most one of surfaces.cli and surfaces.library
+                  rule: '!(has(self.cli) && has(self.library))'
+                - message: surfaces.browser drives a preview; a Project with a cli
+                    or library surface has none
+                  rule: '!has(self.browser) || !(has(self.cli) || has(self.library))'
               suspend:
                 description: |-
                   Suspend stops the Project: no new intents are discovered and no run
@@ -854,6 +932,20 @@ spec:
               rule: '!has(self.verification) || !has(self.verification.enabled) ||
                 !self.verification.enabled || !self.repositories.exists(r, r.name
                 == ''tester'' || r.name == ''tools'')'
+            - message: 'a cli or library surface is evaluated without a preview: drop
+                spec.preview and repositories[].preview, or the surface'
+              rule: '!has(self.surfaces) || !(has(self.surfaces.cli) || has(self.surfaces.library))
+                || (!has(self.preview) && !self.repositories.exists(r, has(r.preview)))'
+            - message: surfaces.cli.repository must name one of the Project's repositories
+                (optional with exactly one)
+              rule: '!has(self.surfaces) || !has(self.surfaces.cli) || (has(self.surfaces.cli.repository)
+                ? self.repositories.exists(r, r.name == self.surfaces.cli.repository)
+                : size(self.repositories) == 1)'
+            - message: surfaces.library.repository must name one of the Project's
+                repositories (optional with exactly one)
+              rule: '!has(self.surfaces) || !has(self.surfaces.library) || (has(self.surfaces.library.repository)
+                ? self.repositories.exists(r, r.name == self.surfaces.library.repository)
+                : size(self.repositories) == 1)'
           status:
             description: |-
               ProjectStatus is the Project's observed state. Written only by

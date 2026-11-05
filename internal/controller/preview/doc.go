@@ -12,7 +12,9 @@
 // PreviewVerification request in the release namespace: it re-checks the
 // request against the Preview and the Intent's approved criteria, reads the
 // tester's log through pods/log (and only the log of the Job's own pod), and
-// writes observations, never verdicts, to the request's status. With the
+// writes observations, never verdicts, to the request's status. Only a slot
+// request's (spec.placement unset or slot): an agents one has no Preview,
+// and intent-controller's agents host writes its status (SPEC S2 O1). With the
 // evaluator on (--preview-evaluator), an outcome verification instead runs
 // the slot tool pod (toolpod.go, toolpolicy.go, toolrun.go): a Job of the
 // tools relay with browser and sandbox sidecars, its CDP key Secret and

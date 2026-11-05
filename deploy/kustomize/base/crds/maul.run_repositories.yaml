@@ -77,7 +77,19 @@ spec:
                       Branch to resolve; source-controller resolves it to a SHA exactly once
                       and pins status.resolvedSHA.
                     type: string
+                  commit:
+                    description: |-
+                      Commit pins the tree to this exact 40-hex commit: source-controller
+                      pins status.resolvedSHA to it, downloads that commit's archive and
+                      never reads a runner image for it (a PR head must never pin an
+                      image). Exclusive with Branch, and immutable: set at creation or
+                      never.
+                    pattern: ^[0-9a-f]{40}$
+                    type: string
                 type: object
+                x-kubernetes-validations:
+                - message: ref.branch and ref.commit are exclusive
+                  rule: '!(has(self.branch) && has(self.commit))'
               url:
                 description: URL is the normalized https URL of the repository to
                   clone.
@@ -89,6 +101,11 @@ spec:
             required:
             - url
             type: object
+            x-kubernetes-validations:
+            - message: 'spec.ref.commit is immutable: set at creation or never'
+              rule: (has(self.ref) && has(self.ref.commit)) == (has(oldSelf.ref) &&
+                has(oldSelf.ref.commit)) && (!has(self.ref) || !has(self.ref.commit)
+                || self.ref.commit == oldSelf.ref.commit)
           status:
             description: RepositoryStatus is the repository artifact's observed state.
             properties:

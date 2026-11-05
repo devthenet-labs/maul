@@ -1077,6 +1077,64 @@
                             "required": ["entry"],
                             "type": "object",
                             "additionalProperties": false
+                        },
+                        "cli": {
+                            "description": "CLI lets the evaluator build the PR's command-line program and run\nit, at head and at base, in the repository's accepted runner image.",
+                            "properties": {
+                                "binary": {
+                                    "description": "Binary is the built program: an absolute path under /work/bin, at\nmost two names below it.",
+                                    "maxLength": 139,
+                                    "pattern": "^/work/bin(/[A-Za-z0-9_][A-Za-z0-9._-]{0,63}){1,2}$",
+                                    "type": "string"
+                                },
+                                "build": {
+                                    "description": "Build is the argv that builds the program from the tree's root, run\nin the repository's accepted runner image under its build's network\nprofile; it writes its output under /work/bin (some argument names\nit). 1 to 16 arguments of at most 256 bytes, no control characters.",
+                                    "items": {
+                                        "maxLength": 256,
+                                        "minLength": 1,
+                                        "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+                                        "type": "string"
+                                    },
+                                    "maxItems": 16,
+                                    "minItems": 1,
+                                    "type": "array",
+                                    "x-kubernetes-list-type": "atomic"
+                                },
+                                "buildTimeout": {
+                                    "description": "BuildTimeout bounds each tree's build, between 1m and 20m;\nDefaultCLIBuildTimeout when unset.",
+                                    "type": "string"
+                                },
+                                "repository": {
+                                    "description": "Repository is the key of the Project repository the program is built\nfrom; optional when the Project has one repository.",
+                                    "maxLength": 16,
+                                    "minLength": 1,
+                                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["binary", "build"],
+                            "type": "object",
+                            "additionalProperties": false
+                        },
+                        "library": {
+                            "description": "Library lets the evaluator compile and run its own consumer programs\nagainst the PR's library, at head and at base.",
+                            "properties": {
+                                "language": {
+                                    "description": "Language of the library.",
+                                    "enum": ["go"],
+                                    "type": "string"
+                                },
+                                "repository": {
+                                    "description": "Repository is the key of the Project repository holding the library;\noptional when the Project has one repository.",
+                                    "maxLength": 16,
+                                    "minLength": 1,
+                                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["language"],
+                            "type": "object",
+                            "additionalProperties": false
                         }
                     },
                     "type": "object",

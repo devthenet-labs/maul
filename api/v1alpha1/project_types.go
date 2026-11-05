@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -476,13 +477,160 @@ type ProjectVerification struct {
 }
 
 // ProjectSurfaces names how the evaluator reaches the application beyond
-// http, which it always has. The cli and library surfaces are reserved for
-// slice 2.
+// http, which it always has. browser drives a preview; cli and library are
+// the agents-namespace surfaces of a Project with no preview (slice 2),
+// evaluated by a tool pod that builds the PR's head and base. S2 runs one
+// host per Project (O6): cli and library are exclusive with each other,
+// with browser, and with any preview (the last CEL-enforced on the spec).
+// +kubebuilder:validation:XValidation:rule="!(has(self.cli) && has(self.library))",message="a Project has at most one of surfaces.cli and surfaces.library"
+// +kubebuilder:validation:XValidation:rule="!has(self.browser) || !(has(self.cli) || has(self.library))",message="surfaces.browser drives a preview; a Project with a cli or library surface has none"
 type ProjectSurfaces struct {
 	// Browser lets the evaluator drive a browser against the preview.
 	// +optional
 	Browser *BrowserSurface `json:"browser,omitempty"`
+	// CLI lets the evaluator build the PR's command-line program and run
+	// it, at head and at base, in the repository's accepted runner image.
+	// +optional
+	CLI *CLISurface `json:"cli,omitempty"`
+	// Library lets the evaluator compile and run its own consumer programs
+	// against the PR's library, at head and at base.
+	// +optional
+	Library *LibrarySurface `json:"library,omitempty"`
 }
+
+// Agents reports whether the surfaces evaluate in the agents namespace (a
+// cli or library surface); nil has none.
+func (s *ProjectSurfaces) Agents() bool { return s != nil && (s.CLI != nil || s.Library != nil) }
+
+// Project condition reasons of the agents-namespace evaluator, which
+// intent-controller sets on a verifying Project it cannot evaluate.
+const (
+	// ReasonSurfaceCombinationUnsupported: a cli or library surface beside
+	// a preview (O6).
+	ReasonSurfaceCombinationUnsupported = "SurfaceCombinationUnsupported"
+	// ReasonRepositoryImageRequired: the surface's repository has no
+	// accepted runner image for the sandboxes (O8).
+	ReasonRepositoryImageRequired = "RepositoryImageRequired"
+	// ReasonAgentsToolPodNotEnabled: a cli or library surface while
+	// intent-controller's agents tool pod is off.
+	ReasonAgentsToolPodNotEnabled = "AgentsToolPodNotEnabled"
+)
+
+// The cli surface's bounds and paths. The schema markers repeat them as
+// literals; keep them in lockstep.
+const (
+	// CLIBinDir is where a cli build writes its output in the sandbox.
+	CLIBinDir = "/work/bin"
+	// MaxCLIBuildArgs and MaxCLIBuildArgBytes bound CLISurface.Build.
+	MaxCLIBuildArgs     = 16
+	MaxCLIBuildArgBytes = 256
+	// DefaultCLIBuildTimeout is a cli build's timeout when unset;
+	// MaxCLIBuildTimeout its ceiling.
+	DefaultCLIBuildTimeout = 10 * time.Minute
+	MaxCLIBuildTimeout     = 20 * time.Minute
+)
+
+// CLISurface is a command-line program the evaluator builds and runs.
+// +kubebuilder:validation:XValidation:rule="!has(self.buildTimeout) || (duration(self.buildTimeout) >= duration('1m') && duration(self.buildTimeout) <= duration('20m'))",message="surfaces.cli.buildTimeout must be between 1m and 20m"
+type CLISurface struct {
+	// Repository is the key of the Project repository the program is built
+	// from; optional when the Project has one repository.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=16
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Repository string `json:"repository,omitempty"`
+	// Build is the argv that builds the program from the tree's root, run
+	// in the repository's accepted runner image under its build's network
+	// profile; it writes its output under /work/bin (some argument names
+	// it). 1 to 16 arguments of at most 256 bytes, no control characters.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=256
+	// +kubebuilder:validation:items:Pattern=`^[^\x00-\x1f\x7f]+$`
+	// +kubebuilder:validation:XValidation:rule="self.exists(a, a.contains('/work/bin/') || a.endsWith('/work/bin'))",message="surfaces.cli.build must write under /work/bin"
+	Build []string `json:"build"`
+	// Binary is the built program: an absolute path under /work/bin, at
+	// most two names below it.
+	// +kubebuilder:validation:MaxLength=139
+	// +kubebuilder:validation:Pattern=`^/work/bin(/[A-Za-z0-9_][A-Za-z0-9._-]{0,63}){1,2}$`
+	Binary string `json:"binary"`
+	// BuildTimeout bounds each tree's build, between 1m and 20m;
+	// DefaultCLIBuildTimeout when unset.
+	// +optional
+	BuildTimeout *metav1.Duration `json:"buildTimeout,omitempty"`
+}
+
+// Timeout is the build timeout: DefaultCLIBuildTimeout when unset (or c is
+// nil), never over MaxCLIBuildTimeout.
+func (c *CLISurface) Timeout() time.Duration {
+	if c == nil || c.BuildTimeout == nil {
+		return DefaultCLIBuildTimeout
+	}
+	return min(c.BuildTimeout.Duration, MaxCLIBuildTimeout)
+}
+
+// LibraryLanguage is a library surface's language. Only go is accepted in
+// S2 (O5); node and python are reserved until proven.
+// +kubebuilder:validation:Enum=go
+type LibraryLanguage string
+
+// Library languages.
+const (
+	LibraryLanguageGo LibraryLanguage = "go"
+)
+
+// LibrarySurface is a library the evaluator writes consumer programs for.
+type LibrarySurface struct {
+	// Repository is the key of the Project repository holding the library;
+	// optional when the Project has one repository.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=16
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Repository string `json:"repository,omitempty"`
+	// Language of the library.
+	Language LibraryLanguage `json:"language"`
+}
+
+// cliBinaryPattern is CLISurface.Binary's schema pattern, repeated so a
+// Project the API server never validated fails closed too.
+var cliBinaryPattern = regexp.MustCompile(`^/work/bin(/[A-Za-z0-9_][A-Za-z0-9._-]{0,63}){1,2}$`)
+
+// ValidCLIBinary reports whether path is a cli surface's binary: absolute,
+// under CLIBinDir, at most two names below it, none starting with a dot.
+func ValidCLIBinary(path string) bool { return cliBinaryPattern.MatchString(path) }
+
+// ValidCLIBuild reports whether argv is a cli surface's build: 1 to
+// MaxCLIBuildArgs arguments, each 1 to MaxCLIBuildArgBytes bytes with no
+// control character, at least one naming CLIBinDir as a directory.
+func ValidCLIBuild(argv []string) bool {
+	if len(argv) == 0 || len(argv) > MaxCLIBuildArgs {
+		return false
+	}
+	writes := false
+	for _, a := range argv {
+		if a == "" || len(a) > MaxCLIBuildArgBytes {
+			return false
+		}
+		for i := 0; i < len(a); i++ {
+			if c := a[i]; c < ' ' || c == 0x7f {
+				return false
+			}
+		}
+		writes = writes || strings.Contains(a, CLIBinDir+"/") || strings.HasSuffix(a, CLIBinDir)
+	}
+	return writes
+}
+
+// commitPattern is a full commit SHA.
+var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// ValidCommitSHA reports whether sha is a full, lowercase 40-hex commit
+// SHA: what RepositoryRef.Commit and a workspace's heads hold.
+func ValidCommitSHA(sha string) bool { return commitPattern.MatchString(sha) }
 
 // BrowserSurface is the browser surface of a previewed application.
 type BrowserSurface struct {
@@ -534,6 +682,9 @@ const MaxPreviewComponents = 4
 // +kubebuilder:validation:XValidation:rule="self.repositories.all(r, !has(r.preview) || self.repositories.exists_one(s, has(s.preview) && (has(s.preview.path) ? s.preview.path : '/') == (has(r.preview.path) ? r.preview.path : '/')))",message="two previewed repositories have the same path (repositories[].preview.path, default /)"
 // +kubebuilder:validation:XValidation:rule="!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r, has(r.preview)))",message="spec.preview is the one-repository shorthand: it needs exactly one repository and no repositories[].preview"
 // +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester' || r.name == 'tools')",message="a repository key cannot be tester or tools while verification is enabled: they name the verification tester's and the evaluator's tool pod's parts of the preview slot"
+// +kubebuilder:validation:XValidation:rule="!has(self.surfaces) || !(has(self.surfaces.cli) || has(self.surfaces.library)) || (!has(self.preview) && !self.repositories.exists(r, has(r.preview)))",message="a cli or library surface is evaluated without a preview: drop spec.preview and repositories[].preview, or the surface"
+// +kubebuilder:validation:XValidation:rule="!has(self.surfaces) || !has(self.surfaces.cli) || (has(self.surfaces.cli.repository) ? self.repositories.exists(r, r.name == self.surfaces.cli.repository) : size(self.repositories) == 1)",message="surfaces.cli.repository must name one of the Project's repositories (optional with exactly one)"
+// +kubebuilder:validation:XValidation:rule="!has(self.surfaces) || !has(self.surfaces.library) || (has(self.surfaces.library.repository) ? self.repositories.exists(r, r.name == self.surfaces.library.repository) : size(self.repositories) == 1)",message="surfaces.library.repository must name one of the Project's repositories (optional with exactly one)"
 type ProjectSpec struct {
 	// IntentRepository is the https URL of the repository whose issues are
 	// this Project's intents (e.g. https://github.com/acme/intents). Several

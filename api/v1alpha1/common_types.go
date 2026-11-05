@@ -71,7 +71,7 @@ const (
 	AnnotationRepo = "maul.run/repo"
 )
 
-// Role label values. RoleEvaluator and RoleCheckReview are LabelRole values
+// Role label values. RoleEvaluator, RoleCheckReview and RoleTools are LabelRole values
 // on agents-namespace Jobs; PreviewRoleTools is the maul.run/preview-role
 // value of a slot's tool pod, beside the PreviewPartRole values the slot
 // already uses (tester, command, seed).
@@ -80,6 +80,9 @@ const (
 	RoleEvaluator = "evaluator"
 	// RoleCheckReview marks a checkreview-stage IntentRun's Job and pod.
 	RoleCheckReview = "checkreview"
+	// RoleTools marks an agents-namespace tool pod's Job and pod: the tool
+	// pod an agents verification's evaluator drives (no Preview).
+	RoleTools = "tools"
 	// PreviewRoleTools marks the slot tool pod an evaluator drives.
 	PreviewRoleTools = "tools"
 )
