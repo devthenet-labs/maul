@@ -27,7 +27,7 @@ const ledgerSuffix = "-ledger"
 
 // maxBuilds is the builds a workspace ledger may record (status.ledger.
 // builds' bound); the relay records one of each tree.
-const maxBuilds = 4
+const maxBuilds = v1alpha1.MaxLedgerBuilds
 
 // builds is what a workspace ledger's build entries show.
 type builds struct {

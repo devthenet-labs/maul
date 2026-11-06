@@ -20,6 +20,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
@@ -851,8 +852,9 @@ func confirmedCount(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificati
 }
 
 // keyLedgerLines is the data key of a verification's full ledger
-// (<pv>-ledger, preview-controller's): one JSON line per entry.
-const keyLedgerLines = "ledger.jsonl"
+// (<pv>-ledger, its host's: preview-controller's or the agents host's): one
+// JSON line per entry.
+const keyLedgerLines = toolledger.Key
 
 // maxAppOutputBytes bounds the application output a failure shows.
 const maxAppOutputBytes = 2 << 10

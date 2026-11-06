@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
 )
@@ -235,28 +236,27 @@ func (p *pass) sandboxImage(ctx context.Context, repoURL string) (sandboxPin, st
 }
 
 // buildRepository is the Repository the latest build run of repoURL was
-// built on, the intent's runner-image anchor (deletePlanRepository keeps
-// it); nil when no build of it has one, or one this Intent's run does not
-// own.
+// built on (agentshost.LatestBuildRun, the very run the agents host
+// renders the pod from: U24), the intent's runner-image anchor
+// (deletePlanRepository keeps it); nil when no build of it has one, or one
+// this Intent's run does not own.
 func (p *pass) buildRepository(ctx context.Context, repoURL string) (*v1alpha1.Repository, error) {
-	for _, run := range slices.Backward(p.runs) {
-		if run.Spec.Stage != v1alpha1.IntentStageBuild || !sameRepo(run.Spec.Repository.URL, repoURL) {
-			continue
-		}
-		var repo v1alpha1.Repository
-		key := types.NamespacedName{Namespace: p.in.Namespace, Name: run.Spec.Repository.RepositoryRef.Name}
-		switch err := p.r.Get(ctx, key, &repo); {
-		case kerrors.IsNotFound(err):
-			return nil, nil
-		case err != nil:
-			return nil, fmt.Errorf("read the build's repository %s: %w", key.Name, err)
-		}
-		if !controlledBy(repo.OwnerReferences, run.UID) {
-			return nil, nil
-		}
-		return &repo, nil
+	run := agentshost.LatestBuildRun(p.in, repoURL, p.runs)
+	if run == nil {
+		return nil, nil
 	}
-	return nil, nil
+	var repo v1alpha1.Repository
+	key := types.NamespacedName{Namespace: p.in.Namespace, Name: run.Spec.Repository.RepositoryRef.Name}
+	switch err := p.r.Get(ctx, key, &repo); {
+	case kerrors.IsNotFound(err):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("read the build's repository %s: %w", key.Name, err)
+	}
+	if !controlledBy(repo.OwnerReferences, run.UID) {
+		return nil, nil
+	}
+	return &repo, nil
 }
 
 // mergeBase is the merge base of head and repoURL's default branch, the
