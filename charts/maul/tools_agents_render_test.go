@@ -7,16 +7,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/yaml"
 
 	"github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/provider"
 )
 
@@ -420,4 +427,83 @@ func ingressOf(t *testing.T, policies []*unstructured.Unstructured, pod labels.S
 		}
 	}
 	return slices.Sorted(maps.Keys(set))
+}
+
+// TestAgentsToolPodResourcesMatchJobs pins the chart's default tool pod
+// resources to internal/jobs' (SPEC S2-21, from wave 1): nothing else ties
+// intentController.verification.agents.resources to
+// jobs.DefaultToolsResources and DefaultSandboxResources, and an ephemeral
+// storage below the emptyDirs the builder sizes lets the kubelet evict a
+// full build. The tool pod the builder renders with those defaults (its
+// golden) must fit them: each sandbox the disk volumes it writes, tools
+// every other disk volume (its own, prepare's, the pristine trees and
+// maul-bin; prepare and the seeds run with tools' resources).
+func TestAgentsToolPodResourcesMatchJobs(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	cm := renderConfigMaps(t, agentsArgs)["maul-intent-controller-config"]
+	var chart map[string]jobs.ToolResources
+	if err := json.Unmarshal([]byte(cm["MAUL_INTENT_TOOL_RESOURCES"]), &chart); err != nil {
+		t.Fatalf("MAUL_INTENT_TOOL_RESOURCES %q: %v", cm["MAUL_INTENT_TOOL_RESOURCES"], err)
+	}
+	want := map[string]jobs.ToolResources{"tools": jobs.DefaultToolsResources, "sandbox": jobs.DefaultSandboxResources}
+	if fmt.Sprint(chart) != fmt.Sprint(want) {
+		t.Errorf("the chart's default tool pod resources %+v, internal/jobs' %+v", chart, want)
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "jobs", "testdata", "toolpod_default.yaml"))
+	if err != nil {
+		t.Fatalf("read the builder's golden: %v", err)
+	}
+	var job batchv1.Job
+	if err := yaml.UnmarshalStrict(raw, &job); err != nil {
+		t.Fatalf("decode the builder's golden: %v", err)
+	}
+	used := toolPodDiskByOwner(job.Spec.Template.Spec)
+	for _, owner := range slices.Sorted(maps.Keys(used)) {
+		res := chart["tools"]
+		if strings.HasPrefix(owner, "sandbox-") {
+			res = chart["sandbox"]
+		}
+		limit, err := apiresource.ParseQuantity(res.EphemeralStorage)
+		if err != nil {
+			t.Fatalf("%s ephemeral storage %q: %v", owner, res.EphemeralStorage, err)
+		}
+		if q := used[owner]; q.Cmp(limit) > 0 || q.IsZero() {
+			t.Errorf("%s's disk emptyDirs size %s, want above zero and within its ephemeral storage %s", owner,
+				q.String(), limit.String())
+		}
+	}
+}
+
+// toolPodDiskByOwner sums the disk-backed emptyDirs' size limits by the
+// container whose ephemeral storage pays for them: a sandbox for those it
+// mounts writable, tools for the rest.
+func toolPodDiskByOwner(pod corev1.PodSpec) map[string]*apiresource.Quantity {
+	owner := map[string]string{}
+	for _, c := range pod.InitContainers {
+		if !strings.HasPrefix(c.Name, "sandbox-") {
+			continue
+		}
+		for _, m := range c.VolumeMounts {
+			if !m.ReadOnly {
+				owner[m.Name] = c.Name
+			}
+		}
+	}
+	out := map[string]*apiresource.Quantity{}
+	for _, who := range []string{"tools", "sandbox-head", "sandbox-base"} {
+		out[who] = apiresource.NewQuantity(0, apiresource.BinarySI)
+	}
+	for _, v := range pod.Volumes {
+		if v.EmptyDir == nil || v.EmptyDir.Medium == corev1.StorageMediumMemory || v.EmptyDir.SizeLimit == nil {
+			continue
+		}
+		who := owner[v.Name]
+		if who == "" {
+			who = "tools"
+		}
+		out[who].Add(*v.EmptyDir.SizeLimit)
+	}
+	return out
 }

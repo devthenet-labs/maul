@@ -337,10 +337,10 @@ pullable on the preview and agent nodes.
 | `tools`     | `--as tools`     | the tool pod                                                |                                                     | DNS `:53`, the API server, IMDS, the internet                                                                                                      |
 | `sandbox`   | `--as sandbox`   | the tool pod                                                |                                                     | `:8090` on loopback and on the pod IP; the CDP shim `:9222` with no key and with a wrong one                                                       |
 | `page`      | `--as page`      | the tool pod, loaded by Chromium in its `browser` container |                                                     | page JS fetching `:8090` and the CDP shim                                                                                                          |
-| `agents`    | `--as tools`     | an agents-namespace tool pod (`--agents-tool-pod`)          | the artifact server `:9790`                         | the broker, DNS `:53`, the API server, IMDS, the internet                                                                                          |
 
 The `tools`, `sandbox` and `browser` containers share one network namespace, which is the point of the `sandbox` and
-`page` rows: the policy cannot separate containers of one pod, so the application gates do.
+`page` rows: the policy cannot separate containers of one pod, so the application gates do. An agents-namespace tool pod
+admits no ephemeral container (`maul-tools-pod-shape`), so it has no row here: the agents run below has its rows.
 
 How each mode judges:
 
@@ -381,7 +381,6 @@ bash hack/preview-isolation-probe/run.sh tools \
 | `--component-pod`      | `PROBE_COMPONENT_POD`     | required                   | A component pod of the same Preview                                                                                                    |
 | `--other-tool-pod`     | `PROBE_OTHER_TOOL_POD`    | required                   | Another evaluation's tool pod (not `--tool-pod`)                                                                                       |
 | `--other-slot-pod`     | `PROBE_OTHER_SLOT_POD`    | required                   | A pod in another slot                                                                                                                  |
-| `--agents-tool-pod`    | `PROBE_AGENTS_TOOL_POD`   |                            | A tool pod in the agents namespace; adds the `agents` row                                                                              |
 | `--component-port`     | `PROBE_COMPONENT_PORT`    | `8080`                     | The port the component and the other slot pod listen on                                                                                |
 | `--release-namespace`  | `PROBE_RELEASE_NAMESPACE` | `maul`                     | Where the broker's and source-controller's Services run                                                                                |
 | `--chromium`           | `PROBE_CHROMIUM`          | `/usr/lib/chromium/chrome` | Chromium in the browser image (`Dockerfile.preview-browser`)                                                                           |
@@ -392,3 +391,76 @@ bash hack/preview-isolation-probe/run.sh tools \
 BLOCKED, then exits before `kubectl` is called. A row that does not hold, or whose container exits non-zero or cannot be
 started, is printed with the probe's log, the remaining rows still run so the matrix is whole, and the script exits 1 at
 the end: keep `intentController.verification.evaluator` off and investigate.
+
+## The agents run: an agents-namespace tool pod, live
+
+`run.sh agents` checks the agents-namespace tool pod (`intentController.verification.agents`, slice S2) on **one live
+agents verification**, on any cluster with no cloud API. It is the isolation half of the S2 live gate; nothing runs it
+automatically. Run it while the verification's tool pod is running (its evaluation not yet finished): the run's own
+calls go through the same relay as the evaluator's, one at a time, and are recorded in its ledger like any call.
+
+The tool pod admits no ephemeral container, so nothing is added to it. PR code's vantage is reached the way PR code and
+the evaluator's programs reach it: through the relay's `exec` verb, in the real sandboxes, under their own UIDs, through
+the real exec shim. A Job labelled as an evaluator Job is (created **as intent-controller's ServiceAccount**, as in the
+evaluator run, with a verification UID of the probe's own) mounts only the `tools-key` file of the tool Job's
+`<job>-tools` Secret, so the script never reads the key. It runs `netprobe --as agents`, which:
+
+1. reaches the tool pod's `:8090` (the control), is served a `files ls` with the key, and must be refused the same call
+   with no key, with a well-formed key of no evaluation's and with a malformed one: an evaluator holding another
+   verification's key gets nothing. With `--other-tool-pod`, another evaluation's tool pod must refuse this key;
+2. sends the sandbox program (`cmd/netprobe/sandboxprog/probe.go`, embedded in netprobe; standard library only) to
+   `exec` as one file and runs `go run probe.go`, four times:
+
+| Step      | Program mode        | Side | What must hold                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------- | ------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `head-1`  | `--as sandbox-head` | head | Its UID is 65540; no process of another UID is visible (so no `tools` pid); forged ledger lines go to every reachable stdout and stderr, its own output and its own `/dev/termination-log`; it mounts no volume of the base side, no pristine tree, Secret or token; it plants a file in its own `/dev/shm` and files and symlinks in its exec-socket directory; it leaves a loopback listener behind; `127.0.0.1:8090` and the pod's own `:8090` refuse it with no key and with a wrong one |
+| `base`    | `--as sandbox-base` | base | The same as UID 65541, and the head's `/dev/shm` file is not in its `/dev/shm` and the head's leftover listener is gone (the shim's sweep), while the planted exec-directory files changed nothing (this run was served)                                                                                                                                                                                                                                                                     |
+| `head-2`  | `--as sandbox-head` | head | The same, and the base's `/dev/shm` file and listener are gone                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `network` | `--as tools-agents` | base | REACHED: the artifact server `:9790` and, with `--profile-proxy-port`, its profile's egress proxy port. BLOCKED: the broker `:8080`, the API server, DNS `:53`, IMDS, the internet and, with `--other-tool-pod`, the other tool pod's `:8090`. A sandbox shares the pod's network, so these are `tools`' rows too; run at the base, so each exec-socket directory is dialled again after its side last planted in it                                                                         |
+
+Then `cmd/agentscheck` (this checkout's, through `go run`, so `go` must be on the workstation's PATH):
+
+- `agentscheck pod` holds the tool pod's spec to its shape: `shareProcessNamespace` explicitly false, `tools`,
+  `sandbox-head` and `sandbox-base` as 65532, 65540 and 65541, no ServiceAccount token, no ephemeral container, no
+  toleration of the preview taint (`--taint-key`) or of every taint;
+- once the evaluation finishes (the `tools` container terminated, within `--ledger-timeout`), `agentscheck ledger` reads
+  the `tools` container's log and termination message as the controller does and requires that the ledger verifies
+  (`toolwire.Verify`) and that none of the program's forged lines reached either, raw or as a ledger line.
+
+Its summary per row is `PASS`, `SECURITY_FAILURE`, `INCONCLUSIVE` or `NOT_REACHED`. A program that does not compile or
+print a summary is `INCONCLUSIVE`, never a pass. Every row needs `go` on the repository image's `PATH` (`--go` names it
+otherwise), which a Go CLI or library repository's accepted image has.
+
+```sh
+bash hack/preview-isolation-probe/run.sh agents \
+  --image registry.example/maul/previews/netprobe:sha-0123456789abcdef0123456789abcdef01234567 \
+  --tool-pod maul-agents/maul-tools-6f1c2d3e4b5a-x7k2p \
+  --taint-key maul.example.com/preview-only \
+  --refused-is-blocked
+```
+
+| Flag                     | Environment                  | Default                  | Meaning                                                                                  |
+| ------------------------ | ---------------------------- | ------------------------ | ---------------------------------------------------------------------------------------- |
+| `--image`                | `PROBE_IMAGE`                | required                 | The netprobe image, `<registry>/<path>:sha-<40 hex>`, pullable on the agent nodes        |
+| `--tool-pod`             | `PROBE_TOOL_POD`             | required                 | `<namespace>/<pod>`: the live agents verification's tool pod                             |
+| `--other-tool-pod`       | `PROBE_OTHER_TOOL_POD`       |                          | Another evaluation's agents tool pod, in the same namespace; adds its rows               |
+| `--taint-key`            | `PROBE_TAINT_KEY`            |                          | The preview nodes' taint key, which the tool pod must not tolerate                       |
+| `--profile-proxy-port`   | `PROBE_PROFILE_PROXY_PORT`   |                          | The egress proxy port of the tool pod's network profile, when its build has one          |
+| `--go`                   | `PROBE_GO`                   | `go`                     | go on the repository image's `PATH`                                                      |
+| `--refused-is-blocked`   |                              |                          | Count a refusal as blocked once the row's control is reached (k3s, k3d)                  |
+| `--release-namespace`    | `PROBE_RELEASE_NAMESPACE`    | `maul`                   | Where release `maul`'s Services run                                                      |
+| `--intent-controller-sa` | `PROBE_INTENT_CONTROLLER_SA` | `maul-intent-controller` | intent-controller's ServiceAccount in the release namespace, which the Job is created as |
+| `--timeout`              | `PROBE_TIMEOUT`              | `900`                    | Seconds the probe Job may take                                                           |
+| `--ledger-timeout`       | `PROBE_LEDGER_TIMEOUT`       | `4800`                   | Seconds to wait for the evaluation to finish before the ledger rows                      |
+
+`--dry-run` checks every value and prints the rows; `--print-manifests` prints the probe Job (its addresses as
+`192.0.2.x`). Neither calls `kubectl`. The probe Job is deleted as soon as it finishes, before the ledger wait. A failed
+row is printed with its output and the script exits 1: keep `intentController.verification.agents` off and investigate.
+
+What this run does not decide, by design (SPEC-S2 8a): the pod-wide IPC namespace and loopback are shared by every
+container of a pod and cannot be split, so they are recorded residuals, not pass criteria; `:8090` on loopback is held
+by `GuardListener` and the key, which the `head-*` and `base` rows check. That a bind or connect error at the base is a
+run error (n/a), never an assertion fail, is the relay's mapping of the shim's `NetError` (internal/toolexec,
+internal/previewtools), pinned by their unit tests rather than this run. The `maul-tools-pod-shape` admission policy's
+refusals of every other shape are the chart's envtest (`charts/maul/tools_agents_envtest_test.go`), which also admits
+the builder's own goldens.

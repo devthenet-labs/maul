@@ -23,6 +23,8 @@ import (
 //	--as peers      any other vantage (a slot component): PROBE_REACH / PROBE_DENY only
 //	--as sandbox    the tool pod's `sandbox` container: HTTP refusals (sandbox.go)
 //	--as page       a page served in the pod, fetched by its browser (page.go)
+//	--as agents     an evaluator-labelled pod driving an agents-namespace
+//	                tool pod's relay (agents.go)
 const (
 	toolsRole   = "tools"
 	peersRole   = "peers"
@@ -145,7 +147,8 @@ func pageWait(getenv func(string) string) time.Duration {
 }
 
 func usageAs() int {
-	fmt.Fprintln(os.Stderr, "usage: probe --as {"+evaluatorRole+"|"+toolsRole+"|"+peersRole+"} ["+refusedIsBlocked+
+	fmt.Fprintln(os.Stderr, "usage: probe --as {"+evaluatorRole+"|"+toolsRole+"|"+peersRole+"|"+agentsRole+
+		"} ["+refusedIsBlocked+
 		"] | --as {"+sandboxRole+"|"+pageRole+"}")
 	return 2
 }

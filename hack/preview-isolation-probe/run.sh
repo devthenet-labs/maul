@@ -16,7 +16,9 @@
 # is another: a Pod labelled as an agent evaluator reaches the egress broker
 # and nothing else (see evaluator_main below). `run.sh tools` is another: the
 # whole evaluator and tool-pod matrix against a live evaluation (see
-# tools_main below).
+# tools_main below). `run.sh agents` is another: an agents-namespace tool
+# pod's key, sandbox walls, network, shape and ledger against a live agents
+# verification (see agents_main below).
 set -euo pipefail
 
 usage() {
@@ -924,8 +926,9 @@ evaluator_run() {
 #   sandbox    --as sandbox    refused :8090 and the CDP shim, without the key
 #   page       --as page       the browser container's Chromium loads a page
 #                              whose JS fetches :8090 and the shim: refused
-#   agents     --as tools      (with --agents-tool-pod) reaches only the
-#                              artifact server
+#
+# An agents-namespace tool pod admits no ephemeral container
+# (maul-tools-pod-shape): its rows are the agents run's (agents_main).
 #
 # Needs the right to create pods/ephemeralcontainers in those namespaces.
 
@@ -954,8 +957,6 @@ Each option falls back to the environment variable named beside it.
                                 evaluation's tool pod
   --other-slot-pod <ns/name>    PROBE_OTHER_SLOT_POD (required): a pod in
                                 another slot
-  --agents-tool-pod <ns/name>   PROBE_AGENTS_TOOL_POD: a tool pod in the
-                                agents namespace (no Preview); adds its row
   --component-port <port>       PROBE_COMPONENT_PORT: the component's and the
                                 other slot pod's listening port (default 8080)
   --release-namespace <ns>      PROBE_RELEASE_NAMESPACE: maul's namespace
@@ -989,7 +990,7 @@ tools_main() {
     image=${PROBE_IMAGE:-}
     local tool_pod=${PROBE_TOOL_POD:-} evaluator_pod=${PROBE_EVALUATOR_POD:-} component_pod=${PROBE_COMPONENT_POD:-}
     local other_tool=${PROBE_OTHER_TOOL_POD:-} other_slot=${PROBE_OTHER_SLOT_POD:-}
-    local agents_tool=${PROBE_AGENTS_TOOL_POD:-} port=${PROBE_COMPONENT_PORT:-8080}
+    local port=${PROBE_COMPONENT_PORT:-8080}
     local release_ns=${PROBE_RELEASE_NAMESPACE:-maul} chromium=${PROBE_CHROMIUM:-/usr/lib/chromium/chrome} dry_run=0
     timeout=${PROBE_TIMEOUT:-120}
     refused_blocks=0
@@ -1004,7 +1005,7 @@ tools_main() {
         --dry-run) dry_run=1 ;;
         --refused-is-blocked) refused_blocks=1 ;;
         --image | --tool-pod | --evaluator-pod | --component-pod | --other-tool-pod | --other-slot-pod | \
-            --agents-tool-pod | --component-port | --release-namespace | --chromium | --timeout)
+            --component-port | --release-namespace | --chromium | --timeout)
             [[ $# -ge 2 ]] || tools_fail "$1 needs a value"
             case $1 in
             --image) image=$2 ;;
@@ -1013,7 +1014,6 @@ tools_main() {
             --component-pod) component_pod=$2 ;;
             --other-tool-pod) other_tool=$2 ;;
             --other-slot-pod) other_slot=$2 ;;
-            --agents-tool-pod) agents_tool=$2 ;;
             --component-port) port=$2 ;;
             --release-namespace) release_ns=$2 ;;
             --chromium) chromium=$2 ;;
@@ -1040,7 +1040,6 @@ tools_main() {
         [[ -n $value ]] || tools_fail "$flag is required"
         tools_check_pod "$flag" "$value"
     done
-    [[ -z $agents_tool ]] || tools_check_pod --agents-tool-pod "$agents_tool"
     [[ $port =~ ^[1-9][0-9]{0,4}$ && $port -le 65535 ]] || tools_fail "--component-port must be a port, not $port"
     [[ $release_ns =~ ^$dns_label$ ]] || tools_fail "--release-namespace must be a DNS label, not $release_ns"
     [[ $chromium =~ ^/[A-Za-z0-9._/-]+$ ]] || tools_fail "--chromium must be an absolute path, not $chromium"
@@ -1054,7 +1053,6 @@ tool pod:    $tool_pod (its tools, sandbox and browser containers share one netw
 evaluator:   $evaluator_pod
 component:   $component_pod (port $port)
 other:       tool pod $other_tool, slot pod $other_slot (port $port)
-agents pod:  ${agents_tool:-none (no agents-namespace row)}
 rows, each an ephemeral container of the image in the pod named:
   evaluator  netprobe --as evaluator in $evaluator_pod
              REACHED: broker :8080, its own tool pod :8090
@@ -1069,13 +1067,6 @@ rows, each an ephemeral container of the image in the pod named:
   page       netprobe --as page in $tool_pod, loaded by $chromium in its browser container
              BLOCKED: page JS fetching :8090 and the CDP shim
 EOF
-        if [[ -n $agents_tool ]]; then
-            cat <<EOF
-  agents     netprobe --as tools in $agents_tool
-             REACHED: artifact server :9790
-             BLOCKED: broker :8080, DNS :53, API server, IMDS, internet
-EOF
-        fi
         cat <<EOF
 refusal:     $(if [[ $refused_blocks -eq 1 ]]; then echo "blocked, once the row's control is reached"; else echo "inconclusive"; fi)
 assumed:     release maul in namespace $release_ns; ephemeral containers allowed in each pod's namespace
@@ -1084,7 +1075,7 @@ EOF
         exit 0
     fi
     tools_run "$release_ns" "$port" "$chromium" "$tool_pod" "$evaluator_pod" "$component_pod" "$other_tool" \
-        "$other_slot" "$agents_tool"
+        "$other_slot"
 }
 
 # tools_ip KIND NS NAME: the IPv4 address of a Service (KIND service) or of
@@ -1154,7 +1145,7 @@ tools_row() {
 }
 
 tools_run() {
-    local rel=$1 port=$2 chromium=$3 tool=$4 evaluator=$5 component=$6 other_tool=$7 other_slot=$8 agents_tool=$9
+    local rel=$1 port=$2 chromium=$3 tool=$4 evaluator=$5 component=$6 other_tool=$7 other_slot=$8
     local broker api dns artifact tool_ip eval_ip comp_ip other_tool_ip other_slot_ip
     tools_stamp=$(date +%s)
     broker=$(tools_ip service "$rel" maul-egress-broker)
@@ -1192,18 +1183,423 @@ PROBE_PAGE_WAIT_SECONDS=$timeout" page || page_status=$?
         >/dev/null 2>&1 </dev/null || true
     tools_collect page "$tool" "$page" "$page_status"
 
-    if [[ -n $agents_tool ]]; then
-        tools_row agents "$agents_tool" tools "PROBE_CLUSTER_DNS=$dns
-PROBE_KUBERNETES_API=$api
-PROBE_REACH=artifact-server=$artifact:9790
-PROBE_DENY=maul-egress-broker=$broker:8080"
-    fi
     if [[ $tools_failed -ne 0 ]]; then
         echo "The evaluator and tool-pod isolation matrix does not hold; keep" \
             "intentController.verification.evaluator off and investigate." >&2
         exit 1
     fi
     echo "Tool-pod isolation passed: every REACHED row connected and every BLOCKED row was refused." >&2
+}
+
+# The agents run (agent evaluator, slice S2; spec S2-21): the agents-namespace
+# tool pod's rows, against a LIVE agents verification's tool pod. The tool
+# pod admits no ephemeral container (maul-tools-pod-shape), so nothing is
+# added to it; PR code's vantage is reached the way PR code reaches it. A Job
+# labelled as an evaluator Job is (created as intent-controller, like the
+# evaluator run's) mounts the tool Job's Secret's key file only, so the
+# script never reads the key, and runs `netprobe --as agents`, which:
+#
+#   - reaches the tool pod's :8090, is served with the key, and refused with
+#     no key, a key of no evaluation's and a malformed one; with
+#     --other-tool-pod, another evaluation's tool pod refuses this key;
+#   - sends the sandbox program (cmd/netprobe/sandboxprog) to the exec verb,
+#     `go run probe.go`, at the head, the base, the head again, then the
+#     tool pod's network from the base: the side walls, /dev/shm, the
+#     exec-socket directory, the leftover loopback listener, :8090 from
+#     inside, and the tool pod's egress (the artifact server and its
+#     profile's proxy only).
+#
+# Then cmd/agentscheck (run from this checkout with go) holds the tool pod's
+# spec to its shape and, once the evaluation finishes, the tools container's
+# log and termination message to the ledger the forged lines never reached.
+# See README.md.
+
+agents_usage() {
+    cat <<EOF
+usage: $0 agents [options]
+
+Probe a live agents-namespace tool pod (intentController.verification.agents):
+its key, its sandboxes' walls as pull request code meets them, and its
+network; then its pod shape and, once the evaluation finishes, its ledger.
+kubectl's current context must be the cluster, with the right to impersonate
+intent-controller's ServiceAccount; go must be on PATH (this checkout's
+cmd/agentscheck). Calls neither gh nor aws. See README.md.
+
+Each option falls back to the environment variable named beside it.
+  --image <ref>                 PROBE_IMAGE (required): the netprobe image,
+                                <registry>/<path>:sha-<40 hex>, pullable on the
+                                agent nodes
+  --tool-pod <ns/name>          PROBE_TOOL_POD (required): the live agents
+                                verification's tool pod
+  --other-tool-pod <ns/name>    PROBE_OTHER_TOOL_POD: another evaluation's tool
+                                pod; adds its rows
+  --taint-key <key>             PROBE_TAINT_KEY: the preview nodes' taint key,
+                                which the tool pod must not tolerate
+  --profile-proxy-port <port>   PROBE_PROFILE_PROXY_PORT: the egress proxy port
+                                of the tool pod's network profile, which it must
+                                reach (only when its build has a profile)
+  --go <command>                PROBE_GO: go on the repository image's PATH
+                                (default go)
+  --refused-is-blocked          count a refused connection as blocked once the
+                                row's control is reached (k3s, k3d)
+  --release-namespace <ns>      PROBE_RELEASE_NAMESPACE: maul's namespace
+                                (release maul; default maul)
+  --intent-controller-sa <name> PROBE_INTENT_CONTROLLER_SA: intent-controller's
+                                ServiceAccount (default maul-intent-controller)
+  --timeout <seconds>           PROBE_TIMEOUT: how long the probe Job may take
+                                (default 900)
+  --ledger-timeout <seconds>    PROBE_LEDGER_TIMEOUT: how long to wait for the
+                                evaluation to finish (default 4800)
+  --dry-run                     check every value and print the rows, then exit
+                                before kubectl is called
+  --print-manifests             print the probe Job (addresses as 192.0.2.x),
+                                then exit before kubectl is called
+  -h, --help                    print this help
+EOF
+}
+
+agents_fail() {
+    echo "$1" >&2
+    agents_usage >&2
+    exit 2
+}
+
+# The probe Job and its own verification UID: no PreviewVerification's, so
+# intent-controller never mistakes the Job for an evaluator of its own.
+agents_job=preview-isolation-agents
+agents_uid=00000000-0000-4000-8000-0000000a6e75
+
+agents_main() {
+    image=${PROBE_IMAGE:-}
+    local tool_pod=${PROBE_TOOL_POD:-} other_tool=${PROBE_OTHER_TOOL_POD:-} taint_key=${PROBE_TAINT_KEY:-}
+    local proxy_port=${PROBE_PROFILE_PROXY_PORT:-} go_cmd=${PROBE_GO:-go}
+    local release_ns=${PROBE_RELEASE_NAMESPACE:-maul} ic_sa=${PROBE_INTENT_CONTROLLER_SA:-maul-intent-controller}
+    local dry_run=0 print_manifests=0
+    timeout=${PROBE_TIMEOUT:-900}
+    ledger_timeout=${PROBE_LEDGER_TIMEOUT:-4800}
+    refused_blocks=0
+    dns_label='[a-z0-9]([-a-z0-9]*[a-z0-9])?'
+    dns_name="$dns_label(\\.$dns_label)*"
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+        -h | --help)
+            agents_usage
+            exit 0
+            ;;
+        --dry-run) dry_run=1 ;;
+        --print-manifests) print_manifests=1 ;;
+        --refused-is-blocked) refused_blocks=1 ;;
+        --image | --tool-pod | --other-tool-pod | --taint-key | --profile-proxy-port | --go | --release-namespace | \
+            --intent-controller-sa | --timeout | --ledger-timeout)
+            [[ $# -ge 2 ]] || agents_fail "$1 needs a value"
+            case $1 in
+            --image) image=$2 ;;
+            --tool-pod) tool_pod=$2 ;;
+            --other-tool-pod) other_tool=$2 ;;
+            --taint-key) taint_key=$2 ;;
+            --profile-proxy-port) proxy_port=$2 ;;
+            --go) go_cmd=$2 ;;
+            --release-namespace) release_ns=$2 ;;
+            --intent-controller-sa) ic_sa=$2 ;;
+            --timeout) timeout=$2 ;;
+            --ledger-timeout) ledger_timeout=$2 ;;
+            esac
+            shift
+            ;;
+        *) agents_fail "unknown argument $1" ;;
+        esac
+        shift
+    done
+
+    # Every value lands in a kubectl argument or in a manifest, so each must
+    # be exactly the shape it names.
+    [[ -n $image ]] || agents_fail "--image (PROBE_IMAGE) is required"
+    if [[ ! $image =~ ^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+:sha-[0-9a-f]{40}$ ]]; then
+        agents_fail "--image must be <registry>/<path>:sha-<40 hex>, not $image"
+    fi
+    [[ -n $tool_pod ]] || agents_fail "--tool-pod (PROBE_TOOL_POD) is required"
+    [[ $tool_pod =~ ^$dns_label/$dns_name$ ]] || agents_fail "--tool-pod must be <namespace>/<pod>, not $tool_pod"
+    if [[ -n $other_tool && ! $other_tool =~ ^$dns_label/$dns_name$ ]]; then
+        agents_fail "--other-tool-pod must be <namespace>/<pod>, not $other_tool"
+    fi
+    [[ $other_tool != "$tool_pod" ]] || agents_fail "--other-tool-pod must be another evaluation's, not $tool_pod"
+    if [[ -n $taint_key && ! $taint_key =~ ^($dns_name/)?[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$ ]]; then
+        agents_fail "--taint-key must be a taint key, [<dns prefix>/]<name>, not $taint_key"
+    fi
+    if [[ -n $proxy_port ]] && ! [[ $proxy_port =~ ^[1-9][0-9]{0,4}$ && $proxy_port -le 65535 ]]; then
+        agents_fail "--profile-proxy-port must be a port, not $proxy_port"
+    fi
+    [[ $go_cmd =~ ^[A-Za-z0-9_./-]+$ ]] || agents_fail "--go must be one command or path, not $go_cmd"
+    [[ $release_ns =~ ^$dns_label$ ]] || agents_fail "--release-namespace must be a DNS label, not $release_ns"
+    [[ $ic_sa =~ ^$dns_name$ ]] || agents_fail "--intent-controller-sa must be a ServiceAccount name, not $ic_sa"
+    [[ $timeout =~ ^[1-9][0-9]*$ ]] || agents_fail "--timeout must be a positive number of seconds, not $timeout"
+    if [[ ! $ledger_timeout =~ ^[1-9][0-9]*$ ]]; then
+        agents_fail "--ledger-timeout must be a positive number of seconds, not $ledger_timeout"
+    fi
+    local agents_ns=${tool_pod%/*} as="system:serviceaccount:$release_ns:$ic_sa"
+    [[ -z $other_tool ]] || [[ ${other_tool%/*} == "$agents_ns" ]] ||
+        agents_fail "--other-tool-pod must be in the agents namespace $agents_ns too"
+
+    if [[ $print_manifests -eq 1 ]]; then
+        agents_manifest "$agents_ns" maul-tools-0123456789-tools 0123456789abcdef0123456789abcdef \
+            "$go_cmd" 192.0.2.1 "$(if [[ -n $other_tool ]]; then echo 192.0.2.2; fi)" \
+            "artifact-server=192.0.2.3:9790" "maul-egress-broker=192.0.2.4:8080;kubernetes-api=192.0.2.5:443"
+        exit 0
+    fi
+    if [[ $dry_run -eq 1 ]]; then
+        cat <<EOF
+image:       $image
+tool pod:    $tool_pod (a live agents verification's; its Job's Secret's key file is mounted, never read)
+driver:      $agents_ns/$agents_job (verification UID $agents_uid), created as $as
+rows:
+  key        REACHED: the tool pod :8090; served with its key
+             BLOCKED: no key, a key of no evaluation's, a malformed key$(if [[ -n $other_tool ]]; then printf '\n             BLOCKED: %s refusing this evaluation'"'"'s key' "$other_tool"; fi)
+  head-1     go run probe.go --as sandbox-head at the head: its UID, no other UID's process, no other side's
+             volume, its own /dev/shm, files planted in its exec directory, a leftover listener, :8090 refused
+  base       --as sandbox-base at the base: the same, and the head's /dev/shm file and listener gone
+  head-2     --as sandbox-head again: the base's /dev/shm file and listener gone
+  network    --as tools-agents at the base (after which each exec directory has been dialled again)
+             REACHED: artifact server :9790$(if [[ -n $proxy_port ]]; then echo ", the egress proxy :$proxy_port"; fi)
+             BLOCKED: broker :8080, DNS :53, API server, IMDS, internet$(if [[ -n $other_tool ]]; then echo ", the other tool pod :8090"; fi)
+  pod        agentscheck pod: shareProcessNamespace false, UIDs 65532/65540/65541, no token, no ephemeral
+             container, no toleration of ${taint_key:-every taint}
+  ledger     agentscheck ledger, once the evaluation finishes (within ${ledger_timeout}s): it verifies and holds
+             none of the forged lines
+refusal:     $(if [[ $refused_blocks -eq 1 ]]; then echo "blocked, once the row's control is reached"; else echo "inconclusive"; fi)
+assumed:     release maul in namespace $release_ns
+dry run: nothing was called
+EOF
+        exit 0
+    fi
+
+    agents_dir=$(mktemp -d)
+    trap agents_cleanup EXIT
+    agents_run "$agents_ns" "$release_ns" "$as" "$tool_pod" "$other_tool" "$taint_key" "$proxy_port" "$go_cmd"
+}
+
+# agents_manifest NS SECRET NONCE GO TOOL_IP OTHER_IP REACH DENY: the probe
+# Job, labelled as an evaluator Job is, mounting only the key file of the
+# tool Job's Secret.
+agents_manifest() {
+    local refusal_flag=
+    [[ $refused_blocks -eq 0 ]] || refusal_flag=", --refused-is-blocked"
+    cat <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: $agents_job
+  namespace: $1
+  labels:
+$(agents_labels '    ')
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: $timeout
+  template:
+    metadata:
+      labels:
+$(agents_labels '        ')
+    spec:
+      restartPolicy: Never
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: [127.0.0.1]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      volumes:
+        - name: tools-key
+          secret:
+            secretName: $2
+            items: [{key: tools-key, path: tools-key}]
+            defaultMode: 0444
+      containers:
+        - name: probe
+          image: $image
+          imagePullPolicy: IfNotPresent
+          args: [--as, agents$refusal_flag]
+          env:
+            - {name: PROBE_TOOL_POD, value: "$5"}
+            - {name: PROBE_OTHER_TOOL_POD, value: "$6"}
+            - {name: PROBE_TOOLS_KEY_FILE, value: /probe-key/tools-key}
+            - {name: PROBE_NONCE, value: "$3"}
+            - {name: PROBE_GO, value: "$4"}
+            - {name: PROBE_REACH, value: "$7"}
+            - {name: PROBE_DENY, value: "$8"}
+          volumeMounts:
+            - {name: tools-key, mountPath: /probe-key, readOnly: true}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+EOF
+}
+
+# agents_labels INDENT: the probe Job's labels, each line indented.
+agents_labels() {
+    local label
+    for label in "app.kubernetes.io/managed-by: maul" "app.kubernetes.io/name: maul-agent" \
+        "maul.run/harness: claude" "maul.run/kind: intent" "maul.run/preview-verification: $agents_uid" \
+        "maul.run/role: evaluator"; do
+        printf '%s%s\n' "$1" "$label"
+    done
+}
+
+agents_created=
+agents_dir=
+agents_cleanup() {
+    if [[ -n $agents_created ]]; then
+        ekube delete job "$agents_job" -n "$agents_created" --ignore-not-found --cascade=foreground \
+            --wait=true >&2 || true
+        agents_created=
+    fi
+    [[ -z $agents_dir ]] || rm -rf -- "$agents_dir"
+}
+
+agents_failed=0
+
+# agents_verdict ROW OUTPUT: print OUTPUT's rows and record ROW's summary.
+agents_verdict() {
+    local got
+    got=$(jq -Rr 'fromjson? | select(type == "object" and .name == "summary") | .outcome // empty' <<<"$2" |
+        tail -1) || got=
+    got=${got:-NO_SUMMARY}
+    jq -Rr 'fromjson? | select(type == "object" and .name != "summary") | "\(.name) \(.outcome)"' <<<"$2" |
+        sed 's/ REACHABLE$/ REACHED/; s/ blocked$/ BLOCKED/; s/ refused$/ BLOCKED/' | sed 's/^/  /' >&2 || true
+    if [[ $got == PASS ]]; then
+        echo "PASS $1" >&2
+    else
+        echo "FAIL $1: $got; its output:" >&2
+        printf '%s\n' "$2" >&2
+        agents_failed=1
+    fi
+}
+
+# agents_check SUBCOMMAND ARGS...: this checkout's agentscheck, its output
+# whatever its exit.
+agents_check() {
+    go -C "$probe_dir" run ./cmd/agentscheck "$@" 2>&1 || true
+}
+
+# agents_run NS RELEASE_NS AS TOOL_POD OTHER_TOOL TAINT PROXY_PORT GO
+agents_run() {
+    local ns=$1 rel=$2 as=$3 tool=$4 other=$5 taint=$6 proxy_port=$7 go_cmd=$8
+    probe_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+    local pod_json tool_ip owner role other_ip=
+    pod_json=$(ekube get pod "${tool#*/}" -n "$ns" -o json)
+    role=$(jq -r '.metadata.labels["maul.run/role"] // empty' <<<"$pod_json")
+    if [[ $role != tools ]]; then
+        echo "$tool is not an agents tool pod (maul.run/role ${role:-unset})" >&2
+        exit 1
+    fi
+    tool_ip=$(edges_ipv4 "$(jq -r '.status.podIP // empty' <<<"$pod_json")" "the tool pod $tool")
+    owner=$(jq -r '[.metadata.ownerReferences[]? | select(.controller and .kind == "Job") | .name] | first // empty' \
+        <<<"$pod_json")
+    [[ $owner =~ ^$dns_name$ ]] || {
+        echo "the tool pod $tool has no controlling Job" >&2
+        exit 1
+    }
+    if [[ -n $other ]]; then
+        other_ip=$(edges_ipv4 "$(ekube get pod "${other#*/}" -n "$ns" -o jsonpath='{.status.podIP}')" \
+            "the other tool pod $other")
+    fi
+    if [[ -n $(ekube get job "$agents_job" -n "$ns" --ignore-not-found -o name) ]]; then
+        echo "the Job $ns/$agents_job already exists: delete it once no probe is running" >&2
+        exit 1
+    fi
+    local entry name where svc port ip reach deny=
+    for entry in "maul-egress-broker $rel maul-egress-broker 8080" "kubernetes-api default kubernetes 443" \
+        "cluster-dns kube-system kube-dns 53"; do
+        read -r name where svc port <<<"$entry"
+        ip=$(edges_ipv4 "$(ekube get service "$svc" -n "$where" -o jsonpath='{.spec.clusterIP}')" \
+            "the Service $where/$svc")
+        deny+="$name=$ip:$port;"
+    done
+    deny+="imds=169.254.169.254:80;internet=1.1.1.1:443"
+    ip=$(edges_ipv4 "$(ekube get service maul-source-controller -n "$rel" -o jsonpath='{.spec.clusterIP}')" \
+        "the Service $rel/maul-source-controller")
+    reach="artifact-server=$ip:9790"
+    if [[ -n $proxy_port ]]; then
+        ip=$(edges_ipv4 "$(ekube get service maul-egress-proxy -n "$rel" -o jsonpath='{.spec.clusterIP}')" \
+            "the Service $rel/maul-egress-proxy")
+        reach+=";egress-proxy=$ip:$proxy_port"
+    fi
+
+    echo "Row pod: agentscheck pod on $tool" >&2
+    agents_verdict pod "$(agents_check pod --taint-key "$taint" <<<"$pod_json")"
+
+    local nonce
+    nonce=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    agents_created=$ns
+    agents_manifest "$ns" "$owner-tools" "$nonce" "$go_cmd" "$tool_ip" "$other_ip" "$reach" "$deny" |
+        ekube create "--as=$as" -f - >&2
+    echo "Rows key, head-1, base, head-2, network: netprobe --as agents in $ns/$agents_job" >&2
+    local status deadline=$((SECONDS + timeout))
+    while :; do
+        status=$(ekube get job "$agents_job" -n "$ns" -o jsonpath='{.status.succeeded}/{.status.failed}')
+        [[ ! $status =~ ^[1-9]|/[1-9] ]] || break
+        if [[ $SECONDS -ge $deadline ]]; then
+            status=timeout
+            break
+        fi
+        sleep 2
+    done
+    local out
+    out=$(ekube logs "job/$agents_job" -n "$ns" -c probe 2>/dev/null) || out=
+    agents_verdict agents "$out"
+    if [[ $status == timeout ]]; then
+        echo "FAIL agents: the probe Job did not finish within ${timeout}s" >&2
+        agents_failed=1
+    fi
+    agents_cleanup_job "$ns"
+
+    # The ledger: once the relay has finished, its log and termination
+    # message, read as the controller reads them.
+    echo "Row ledger: waiting up to ${ledger_timeout}s for $tool's tools container to finish" >&2
+    local finished="" term=""
+    deadline=$((SECONDS + ledger_timeout))
+    while :; do
+        finished=$(ekube get pod "${tool#*/}" -n "$ns" -o json |
+            jq -c '[.status.containerStatuses[]? | select(.name == "tools") | .state.terminated // empty][0] //
+                empty') || finished=
+        if [[ -n $finished ]]; then
+            term=$(jq -r '.message // ""' <<<"$finished")
+            break
+        fi
+        if [[ $SECONDS -ge $deadline ]]; then
+            echo "FAIL ledger: $tool's tools container did not finish within ${ledger_timeout}s" >&2
+            agents_failed=1
+            break
+        fi
+        sleep 10
+    done
+    if [[ -n $finished ]]; then
+        printf '%s' "$term" >"$agents_dir/termination"
+        ekube logs "${tool#*/}" -n "$ns" -c tools >"$agents_dir/tools.log"
+        agents_verdict ledger "$(agents_check ledger --log "$agents_dir/tools.log" \
+            --termination "$agents_dir/termination" --nonce "$nonce")"
+    fi
+
+    if [[ $agents_failed -ne 0 ]]; then
+        echo "The agents-namespace tool pod's isolation does not hold; keep" \
+            "intentController.verification.agents off and investigate." >&2
+        exit 1
+    fi
+    echo "Agents tool pod isolation passed: the key binds, the sides do not cross, the ledger holds." >&2
+}
+
+# agents_cleanup_job NS: delete the probe Job now, so it holds no key while
+# the run waits on the ledger.
+agents_cleanup_job() {
+    ekube delete job "$agents_job" -n "$1" --ignore-not-found --cascade=foreground --wait=true >&2 || true
+    agents_created=
 }
 
 if [[ ${1:-} == edges ]]; then
@@ -1219,6 +1615,11 @@ fi
 if [[ ${1:-} == tools ]]; then
     shift
     tools_main "$@"
+    exit 0
+fi
+if [[ ${1:-} == agents ]]; then
+    shift
+    agents_main "$@"
     exit 0
 fi
 
