@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.17](https://github.com/devthenet-labs/maul/compare/v0.13.16...v0.13.17) (2026-11-06)
+
+
+### Bug Fixes
+
+* **intent:** S2-B3 show outcome results only for the round and heads that decided them ([#354](https://github.com/devthenet-labs/maul/issues/354)) ([c79f5fe](https://github.com/devthenet-labs/maul/commit/c79f5fe86e041ec41a06ec618f3ed320f4878245))
+* **intent:** settle an agents round the rollback strands; resume Off on return (S2-B4) ([#355](https://github.com/devthenet-labs/maul/issues/355)) ([c269526](https://github.com/devthenet-labs/maul/commit/c269526e76401724a38b0b4fb372680ea6f1774d))
+* **previewtools:** finish an agents round before readiness when the head does not build (S2-B5) ([#353](https://github.com/devthenet-labs/maul/issues/353)) ([c525eb1](https://github.com/devthenet-labs/maul/commit/c525eb1e38a60b4a3e516e3268e03fad73251383))
+
 ## [0.13.16](https://github.com/devthenet-labs/maul/compare/v0.13.15...v0.13.16) (2026-11-06)
 
 
