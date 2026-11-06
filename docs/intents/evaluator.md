@@ -476,9 +476,11 @@ spec:
 - **The image.** Both sandboxes run the image the repository's latest build ran in (its accepted pin), never one the
   pull request declares. A repository with no accepted image is never evaluated: the round settles "maul couldn't
   confirm this: the repository has no accepted runner image to build the pull request in", never a block, and while
-  `--repository-images` is off the Project shows `RepositoryImageRequired` from the start. Only `GOMODCACHE` and
-  `GOPATH` from the image's own environment reach the programs (a network profile's own win); everything else in it,
-  `GOFLAGS` or `GOPROXY` say, does not.
+  `--repository-images` is off the Project shows `RepositoryImageRequired` from the start. Turning repository images off
+  on intent-controller alone, as a rollback, also needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` while the egress proxy
+  is on, or intent-controller does not start ([how](../configuration/intent-controller.md#repository-declared-images)).
+  Only `GOMODCACHE` and `GOPATH` from the image's own environment reach the programs (a network profile's own win);
+  everything else in it, `GOFLAGS` or `GOPROXY` say, does not.
 
 ### What the evaluator can do there
 

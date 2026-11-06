@@ -236,8 +236,25 @@ new build attempt pinned afresh, when:
 - intent-controller restarts, which a change to its configuration does.
 
 A block because `--repository-images` is off lifts once it is on, and a block because the sandbox breaker tripped lifts
-once the breaker is clear; both need a restart. Each check is a new attempt, and once all 16 attempt numbers of the
-build are spent the intent fails instead.
+once the breaker is clear; both need a restart.
+
+**Turning repository images off on intent-controller alone** (its kill switch, leaving the other controllers as they
+are) takes two keys while the egress proxy is on, because startup refuses `--network-profiles-enabled` without
+`--repository-images` (a profile only ever applies to a Job running an accepted repository image):
+
+```yaml
+intentController:
+  config:
+    extra:
+      MAUL_REPOSITORY_IMAGES: "false"
+      MAUL_NETWORK_PROFILES_ENABLED: "false" # only needed while egressProxy.enabled
+```
+
+With the first key alone intent-controller exits at startup with
+`--network-profiles-enabled requires --repository-images` and crash-loops, and a `helm upgrade --wait` times out.
+`egressProxy.suspendProfiles: true` turns the profiles off too, but on remediation-controller as well. Removing both
+keys restores the previous behaviour. Each check is a new attempt, and once all 16 attempt numbers of the build are
+spent the intent fails instead.
 
 A build's changeset is held to the intent rules whatever image ran it. Nothing under `.github/`, `.maul/` or
 `.devcontainer/` is accepted, so an agent cannot choose its own next sandbox.
@@ -342,7 +359,11 @@ Each round's verification may take the evaluate timeout plus one build's timeout
 **Rollback.** Set `intentController.verification.agents.enabled: false`. intent-controller restarts without the agents
 host, its sweep deletes every tool Job on its next pass, and each Project with a cli or library surface carries
 `VerificationOff` (`AgentsToolPodNotEnabled`) again; Projects with a preview are unaffected. The chart stops rendering
-the tool pod's admission policy, network policy and status grant.
+the tool pod's admission policy, network policy and status grant. To keep the agents host and stop only the image its
+rounds build in, turn repository images off on intent-controller instead: each agents round then settles "maul couldn't
+confirm this" (no accepted runner image), never a block. That needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` beside
+`MAUL_REPOSITORY_IMAGES: "false"` while the egress proxy is on
+([repository-declared images](#repository-declared-images)), or intent-controller does not start.
 
 ## Projects
 
