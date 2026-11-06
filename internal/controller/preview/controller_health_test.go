@@ -15,6 +15,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -456,5 +457,126 @@ func TestTargetHealthAddedComponentWaitsForAFreshIngress(t *testing.T) {
 	}
 	if err := e.slotObject(componentName(p, 1), &appsv1.Deployment{}); err != nil {
 		t.Fatalf("api Deployment not created once the fresh Ingress was admitted: %v", err)
+	}
+}
+
+// TestHeadMoveWaitsForTheSpecToCatchUp pins the two-write race: the Intent
+// records a new PR head before intent-controller copies it into the Preview's
+// spec, so a poll between the two sees a spec this controller already
+// accepted that no longer matches the recorded head. It waits for the spec,
+// rendering nothing for it, leaving the admitted Ingress alone and spending
+// no retry; once the spec catches up it redeploys as any head update does.
+// A spec that does not catch up within specCatchUp fails as before, and a
+// spec this controller never accepted (a new generation at a head the Intent
+// does not record) fails at once.
+func TestHeadMoveWaitsForTheSpecToCatchUp(t *testing.T) {
+	head, forged := strings.Repeat("b", 40), strings.Repeat("c", 40)
+	for _, tc := range []struct {
+		name string
+		// intentHead and specHead move the Intent's recorded head and the
+		// Preview's spec revision (a new generation) before the first poll;
+		// empty leaves either where it is.
+		intentHead, specHead string
+		// after is how long past the first poll the second one is.
+		after      time.Duration
+		wantFailed bool
+	}{
+		{name: "the Intent's head moved, the spec not yet", intentHead: head, after: specCatchUp / 2},
+		{name: "the spec never catches up", intentHead: head, after: specCatchUp + time.Second, wantFailed: true},
+		{name: "the spec moved to a head the Intent never recorded", specHead: forged, wantFailed: true},
+		{name: "the Intent's head moved, the spec elsewhere", intentHead: head, specHead: forged, wantFailed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in, p := testPreview("demo-1", time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC))
+			e := newHealthEnv(t, in, p)
+			p = e.readyBehindAdmittedIngress(p)
+			ctx := context.Background()
+			if tc.intentHead != "" {
+				e.updatePRHead(in, tc.intentHead)
+			}
+			if tc.specHead != "" {
+				e.moveSpecHead(p, tc.specHead)
+			}
+			e.step(p.Name) // the poll that lands between the two writes
+			e.now = e.now.Add(tc.after)
+			res, err := e.r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(p)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := e.c.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantFailed {
+				e.assertRefused(p)
+				return
+			}
+			e.assertWaited(p, res)
+			// intent-controller's second write: the spec catches up.
+			e.moveSpecHead(p, head)
+			if p = e.step(p.Name); p.Status.Phase != v1alpha1.PreviewDeploying || p.Status.ObservedRevision != head {
+				t.Fatalf("status = %+v, want Deploying at the new head", p.Status)
+			}
+			if err := e.slotObject(resourceName(p), &networkingv1.Ingress{}); err != nil {
+				t.Fatalf("Ingress withdrawn on the head update: %v", err)
+			}
+		})
+	}
+}
+
+// readyBehindAdmittedIngress brings a target-health Preview to Ready behind
+// an Ingress the load balancer admitted.
+func (e *testEnv) readyBehindAdmittedIngress(p *v1alpha1.Preview) *v1alpha1.Preview {
+	e.t.Helper()
+	p = e.untilSlot(p.Name)
+	e.step(p.Name)
+	e.admitIngress(p)
+	e.step(p.Name)
+	e.startPod(p, 0, "old", true, corev1.ConditionTrue)
+	if p = e.step(p.Name); p.Status.Phase != v1alpha1.PreviewReady {
+		e.t.Fatalf("phase = %s, want Ready", p.Status.Phase)
+	}
+	return p
+}
+
+// moveSpecHead plays the Preview writer moving the first component's
+// revision: a new spec generation.
+func (e *testEnv) moveSpecHead(p *v1alpha1.Preview, sha string) {
+	e.t.Helper()
+	p.Spec.Components[0].Revision = sha
+	p.Generation++
+	if err := e.c.Update(context.Background(), p); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// assertRefused holds a refused Preview to the failure it always had:
+// Failed, serving nothing, its Ingress withdrawn.
+func (e *testEnv) assertRefused(p *v1alpha1.Preview) {
+	e.t.Helper()
+	if p.Status.Phase != v1alpha1.PreviewFailed || p.Status.URL != "" || p.Status.Serving != nil {
+		e.t.Fatalf("status = %+v, want Failed", p.Status)
+	}
+	if err := e.slotObject(resourceName(p), &networkingv1.Ingress{}); !kerrors.IsNotFound(err) {
+		e.t.Fatalf("Ingress kept for a refused spec: %v", err)
+	}
+}
+
+// assertWaited holds a Preview whose spec trails its Intent to the wait:
+// requeued, still Ready at its accepted head with no retry spent, its Ingress
+// kept and its Deployment not rendered anew.
+func (e *testEnv) assertWaited(p *v1alpha1.Preview, res ctrl.Result) {
+	e.t.Helper()
+	if p.Status.Phase != v1alpha1.PreviewReady || p.Status.Retries != 0 || res.RequeueAfter <= 0 {
+		e.t.Fatalf("status = %+v, result %+v; want the wait, requeued", p.Status, res)
+	}
+	if err := e.slotObject(resourceName(p), &networkingv1.Ingress{}); err != nil {
+		e.t.Fatalf("Ingress withdrawn while the spec caught up: %v", err)
+	}
+	var dep appsv1.Deployment
+	if err := e.slotObject(componentName(p, 0), &dep); err != nil {
+		e.t.Fatal(err)
+	}
+	if got := dep.Spec.Template.Spec.Containers[0].Image; !strings.HasSuffix(got, "sha-"+testSHA) {
+		e.t.Fatalf("Deployment image = %s, rendered while the spec waited", got)
 	}
 }

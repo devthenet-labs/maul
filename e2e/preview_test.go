@@ -181,15 +181,13 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	args := []string{
+	cl.controller(t, "preview-controller",
 		"--preview-slot-count", "2",
 		"--preview-image-prefix", "registry.example/maul/previews/",
 		"--preview-host-suffix", "preview.maul.example.com",
 		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
 		"--preview-taint-key", "maul.devthe.net/preview-only",
-		"--preview-poll-interval", "1s", "--preview-target-health",
-	}
-	_, stop := cl.stoppableController(t, "preview-controller", args...)
+		"--preview-poll-interval", "1s", "--preview-target-health")
 	sha := strings.Repeat("a", 40)
 	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 		Spec: v1alpha1.ProjectSpec{
@@ -293,11 +291,10 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 	head := strings.Repeat("b", 40)
 	headImage := "registry.example/maul/previews/demo:sha-" + head
 	// The test writes the Intent's head and the Preview's revision as two
-	// writes, which intent-controller would make; a poll landing between
-	// them sees a Preview that is not the recorded head's and fails it,
-	// withdrawing the Ingress the load balancer admitted (U19's flake). The
-	// controller is stopped across the two writes so it sees only both.
-	stop()
+	// writes, as intent-controller does, and holds the gap between them open
+	// across several one-second polls: a Preview whose accepted spec trails
+	// the Intent's head waits for it, keeping the Ingress the load balancer
+	// admitted, rather than failing (U19's flake).
 	if err := cl.client.Get(ctx, client.ObjectKeyFromObject(in), in); err != nil {
 		t.Fatal(err)
 	}
@@ -305,16 +302,21 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 	if err := cl.client.Status().Update(ctx, in); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(3 * time.Second) // several one-second polls between the writes
 	if err := cl.client.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
 		t.Fatal(err)
+	}
+	if p.Status.Phase != v1alpha1.PreviewReady {
+		t.Fatalf("Preview %s while its spec caught up with the Intent's head, want Ready", p.Status.Phase)
+	}
+	if err := cl.client.Get(ctx, key, &ingress); err != nil {
+		t.Fatalf("Ingress withdrawn while the Preview's spec caught up: %v", err)
 	}
 	p.Spec.Components[0].Revision = head
 	if err := cl.client.Update(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	cl.controller(t, "preview-controller", args...)
-	// The successor leads once the stopped one's lease expires.
-	within(t, 90*time.Second, "a rolling redeploy to the new head, reported as Deploying", func() bool {
+	eventually(t, "a rolling redeploy to the new head, reported as Deploying", func() bool {
 		if cl.client.Get(ctx, key, &dep) != nil || cl.client.Get(ctx, client.ObjectKeyFromObject(p), &current) != nil {
 			return false
 		}
