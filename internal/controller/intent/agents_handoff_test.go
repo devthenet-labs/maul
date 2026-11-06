@@ -83,6 +83,38 @@ func TestAgentsEvaluateHandoff(t *testing.T) {
 		h.Tools.LookAroundRoutes != 0 || !h.Tools.Sandbox {
 		t.Fatalf("tools = %+v, components %+v", h.Tools, h.Components)
 	}
+	// The key is a credential: it reaches the Job's handoff Secret only, never
+	// the run's input ConfigMap (a ConfigMap is not a Secret; SPEC-S2 Q32).
+	run := e.runsOf(name, v1alpha1.IntentStageEvaluate)[0]
+	var cm corev1.ConfigMap
+	if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: testNS, Name: run.Spec.Inputs.ConfigMap},
+		&cm); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(joinedData(cm.Data), toolsKey) {
+		t.Fatal("the evaluate run's input ConfigMap carries the tools key")
+	}
+}
+
+// TestAgentsEvaluateKeyGoneAtLaunch: an evaluate run whose tool pod's key
+// is gone by the time it launches is never launched without it.
+func TestAgentsEvaluateKeyGoneAtLaunch(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	e.reviewReady(name, 4)
+	pv := e.onlyVerification(name)
+	e.toolsSecret(&pv, "")
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	if runs := e.runsOf(name, v1alpha1.IntentStageEvaluate); len(runs) != 1 {
+		t.Fatalf("evaluate runs = %d, want one", len(runs))
+	}
+	if err := e.c.DeleteAllOf(context.Background(), &corev1.Secret{}, client.InNamespace("maul-agents")); err != nil {
+		t.Fatal(err)
+	}
+	e.runRuns()
+	if evals := e.specsOf("evaluate"); len(evals) != 0 {
+		t.Fatalf("evaluate Jobs = %d launched with no key", len(evals))
+	}
 }
 
 // TestSlotEvaluateHandoffHasNoKey: a slot round's handoff is S1's: no

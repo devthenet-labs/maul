@@ -765,7 +765,15 @@ func (r *RunReconciler) launchRole(ctx context.Context, run *v1alpha1.IntentRun,
 		case refusal != nil:
 			return r.settle(ctx, run, *refusal)
 		}
+		handoff, refusal, err := r.withToolsKey(ctx, run, spec.IssueMarkdown)
+		switch {
+		case err != nil:
+			return err
+		case refusal != nil:
+			return r.settle(ctx, run, *refusal)
+		}
 		ev := run.Spec.Evaluation
+		spec.IssueMarkdown = handoff
 		spec.Role, spec.Evaluation = v1alpha1.RoleEvaluator, string(ev.UID)
 		spec.ToolHost = &jobs.HostAlias{Name: jobs.ToolsHostName, IP: ev.ToolIP}
 	} else {

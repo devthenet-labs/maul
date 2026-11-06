@@ -108,22 +108,62 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 }
 
 // agentsTools fills t, an agents round's tools (S2-16, S2-20): its
-// workspace as the round resolved it, no browser and no look-around, and
-// the tool pod's :8090 key, read from the very Secret the tool pod mounts
-// (agentshost.ReadKey: of pv's own UID). A key that cannot be read yet is
-// errNoToolsKey; another failed read is returned.
+// workspace as the round resolved it, no browser and no look-around. The
+// tool pod's :8090 key is a credential, so it is never written into the
+// run's input ConfigMap: here it is only required to be readable (from the
+// very Secret the tool pod mounts, agentshost.ReadKey: of pv's own UID),
+// and launchRole adds it to the Job's handoff Secret (withToolsKey). A key
+// that cannot be read yet is errNoToolsKey; another failed read is
+// returned.
 func (p *pass) agentsTools(ctx context.Context, pv *v1alpha1.PreviewVerification, t *agentrun.EvaluateTools) error {
-	key, err := agentshost.ReadKey(ctx, p.r.APIReader, p.set.AgentNamespace, pv)
-	switch {
+	switch _, err := agentshost.ReadKey(ctx, p.r.APIReader, p.set.AgentNamespace, pv); {
 	case errors.Is(err, agentshost.ErrKeyNotFound):
 		return errNoToolsKey
 	case err != nil:
 		return err
 	}
 	ws := evaluateWorkspace(pv)
-	t.Workspace, t.Key = &ws, key
+	t.Workspace = &ws
 	t.Browser, t.BrowserEntry, t.LookAroundRoutes = false, "", 0
 	return nil
+}
+
+// withToolsKey is an evaluate run's handoff as its Job is handed it: for
+// an agents round, the stored handoff with the tool pod's key read now
+// from the Secret the tool pod mounts (SPEC-S2 Q32: the key travels only
+// in Secrets, never in the run's input ConfigMap); a slot round's as
+// stored. A key gone by launch is a refusal: the evaluator is never
+// launched without it.
+func (r *RunReconciler) withToolsKey(ctx context.Context, run *v1alpha1.IntentRun, handoff string) (string,
+	*result, error) {
+	ev := run.Spec.Evaluation
+	var pv v1alpha1.PreviewVerification
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: ev.Verification},
+		&pv); err != nil {
+		return "", nil, fmt.Errorf("read the run's verification %s: %w", ev.Verification, err)
+	}
+	if !pv.Spec.IsAgents() {
+		return handoff, nil, nil
+	}
+	key, err := agentshost.ReadKey(ctx, r.APIReader, r.Settings.AgentNamespace, &pv)
+	switch {
+	case errors.Is(err, agentshost.ErrKeyNotFound):
+		return "", &result{outcome: OutcomeAborted, detail: "the evaluation is no longer current: its tool " +
+			"pod's key is gone; nothing was launched"}, nil
+	case err != nil:
+		return "", nil, err
+	}
+	var h agentrun.EvaluateHandoff
+	if err := json.Unmarshal([]byte(handoff), &h); err != nil {
+		return "", &result{outcome: OutcomeAborted, detail: "the evaluate handoff cannot be read; nothing was " +
+			"launched"}, nil
+	}
+	h.Tools.Key = key
+	out, err := encodeEvaluateHandoff(h)
+	if err != nil {
+		return "", nil, err
+	}
+	return out, nil, nil
 }
 
 // evaluateWorkspace is an agents round's surface as agent-runner is handed
