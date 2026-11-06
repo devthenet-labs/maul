@@ -91,8 +91,12 @@ argv, the args and the program files:
 - `{{.RunPlaceholder}}` for a fresh token;
 - `{{.ExecMarker}}` for the marker (below).
 
-While you explore with `maul-tool {{if .WS.CLI}}exec{{else}}run{{end}}`, write the paths themselves, and name every
-file, name and value you make up with `{{.RunToken}}` (for example `{{.RunToken}}-beat`).
+While you explore with {{if .WS.CLI}}`maul-tool exec` and {{end}}`maul-tool run`, maul replaces
+{{- if .WS.CLI}} `{{.BinPlaceholder}}` and{{end}} `{{.TreePlaceholder}}` for you,
+but never `{{.RunPlaceholder}}` or `{{.ExecMarker}}`: name every file, name and value you make up with
+`{{.RunToken}}` (for example `{{.RunToken}}-beat`). Each call runs in a fresh working directory under
+`/work/scratch`, but the home directory (`/work/home`) and the writable tree (`/work/tree`) are shared by every call
+at a side and never reset: what one call writes there, every later call and check at that side sees.
 
 ## Your turns
 
@@ -156,12 +160,15 @@ kind:
 
 - A change outcome's check must pass at the head and fail at the base by an assertion: its program printed
   `{{.ExecMarker}} <id>: <what it saw>`, or it exited as `expect` says and its output missed what `expect` asserts.
-  That shows the check tells the change from its absence. A check that passes at the base shows nothing the change
-  did, and one that fails there only by its exit code, a crash or a traceback shows nothing either: neither ever
-  passes its outcome.
+  That shows the check tells the change from its absence. Neither a check that passes at the base nor one that
+  fails there only by its exit code, a crash or a traceback shows anything the change did, and neither ever passes
+  its outcome.
 - A keep outcome's check must pass at both.
-- A check that cannot build or run at the base has no base comparison: it neither helps nor hurts, and its outcome
-  rests on the head and the review alone.
+- A check whose program does not compile against the base tree, or whose base tree cannot be built or built
+  against, has no base comparison: its outcome rests on the head and the review alone. Any other error at the base
+  (a timeout, processes left running, output too long to keep, a bind or connection error) is no base evidence, and
+  the check never passes its outcome: keep a check's output short and leave no
+  process running.
 {{- if .WS.CLI}} A flag or input the base program does not know is not such a case: the
   base program runs and fails, so judge what it wrote, never its exit code.
 
