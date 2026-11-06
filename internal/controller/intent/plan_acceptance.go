@@ -65,8 +65,12 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 		return planAsk{}
 	}
 	outcomes := s.evaluates(p)
+	previews := v1alpha1.EffectivePreviews(p)
+	if len(previews) == 0 && p.Spec.Surfaces.Agents() {
+		return planAsk{verified: true, outcomes: outcomes, targets: planWorkspace(p, outcomes)}
+	}
 	v := &templates.PlanVerification{Outcomes: outcomes}
-	for _, rp := range v1alpha1.EffectivePreviews(p) {
+	for _, rp := range previews {
 		if rp.Name == v1alpha1.PreviewPartTester || rp.Name == v1alpha1.PreviewRoleTools {
 			return planAsk{verified: true, outcomes: outcomes}
 		}
@@ -74,6 +78,45 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 			Key: rp.Name, Path: rp.Path, Readiness: rp.Preview.ReadinessPath})
 	}
 	return planAsk{verified: true, outcomes: outcomes, targets: v.Normalize()}
+}
+
+// planWorkspace is the plan-time ask of a Project with a cli or library
+// surface and no preview (SPEC-S2): outcomes with the surface named and no
+// components, as the tool pod will build it. A Project that also previews
+// a repository (O6) never reaches it: it is asked as its preview is, as
+// the review-time decision (pass.verifies) still verifies it, until both
+// refuse the combination together. nil, so the plan is not asked, when the
+// agent evaluator is off (slice-1 criteria cannot be run there), or when
+// the surface cannot be stated: its repository is not one of the Project's
+// (or is unnamed in a Project of several), or its binary or language is one
+// the plan prompt cannot state (templates.PlanVerification.Normalize).
+func planWorkspace(p *v1alpha1.Project, outcomes bool) *templates.PlanVerification {
+	if !outcomes {
+		return nil
+	}
+	s := p.Spec.Surfaces
+	w := &templates.PlanWorkspace{}
+	var key string
+	switch {
+	case s.CLI != nil:
+		w.Surface, w.Binary, key = templates.SurfaceCLI, s.CLI.Binary, s.CLI.Repository
+	case s.Library != nil:
+		w.Surface, w.Language, key = templates.SurfaceLibrary, string(s.Library.Language), s.Library.Repository
+	}
+	repos := p.Spec.Repositories
+	switch {
+	case len(repos) == 1 && (key == "" || key == repos[0].Name):
+		// The Project's one repository: the prompt does not name it.
+	case key == "":
+		return nil
+	default:
+		i := slices.IndexFunc(repos, func(r v1alpha1.ProjectRepository) bool { return r.Name == key })
+		if i < 0 {
+			return nil
+		}
+		w.Repository = repos[i].URL
+	}
+	return (&templates.PlanVerification{Outcomes: true, Workspace: w}).Normalize()
 }
 
 // asked reports whether the plan is asked for criteria (or outcomes): its
