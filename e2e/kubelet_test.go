@@ -473,6 +473,12 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 	if err := k.waitHeld(ctx, job.Name, rec.Env["MAUL_PHASE"]); err != nil {
 		return err
 	}
+	// A Job deleted while it was held (its run cancelled) never gets a pod.
+	var cur batchv1.Job
+	if err := k.cl.client.Get(ctx, client.ObjectKeyFromObject(job), &cur); apierrors.IsNotFound(err) ||
+		(err == nil && (!cur.DeletionTimestamp.IsZero() || cur.UID != job.UID)) {
+		return nil
+	}
 
 	// The prepare step: the digest-verified working tree, the handoff, then
 	// any trees.

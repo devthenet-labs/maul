@@ -131,6 +131,9 @@ func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationWaitingForCI); changed || err != nil {
 		return changed, err
 	}
+	if changed, err := p.resumeOff(ctx); changed || err != nil {
+		return changed, err
+	}
 	if changed, err := p.settleEvaluation(ctx); changed || err != nil {
 		return changed, err
 	}

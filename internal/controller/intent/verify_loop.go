@@ -85,7 +85,7 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	if !p.verifies() {
-		return p.settleState(ctx, v1alpha1.VerificationOff)
+		return p.switchedOff(ctx)
 	}
 	if p.set.evaluates(p.proj) {
 		// The agent evaluator's outcomes: its own rounds (evaluate_round.go).
@@ -112,6 +112,9 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationWaitingForCI); changed || err != nil {
+		return changed, err
+	}
+	if changed, err := p.resumeOff(ctx); changed || err != nil {
 		return changed, err
 	}
 	return p.settleVerification(ctx)

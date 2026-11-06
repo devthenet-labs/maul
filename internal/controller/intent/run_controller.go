@@ -519,7 +519,9 @@ func runInputKey(run *v1alpha1.IntentRun) types.NamespacedName {
 // that created it, or has ended; a build or revise run whose repository the
 // Project no longer lists (repositoryLeft); and a revise round whose pull
 // request was merged or closed while the Intent's other pull requests stay in
-// review (roundEnded): its Job is deleted and nothing it produces is used.
+// review (roundEnded); and an evaluate run whose round the Intent no longer
+// has in flight (evaluationEnded): its Job is deleted and nothing it produces
+// is used.
 func (r *RunReconciler) intentEnded(ctx context.Context, run *v1alpha1.IntentRun) (bool, error) {
 	var in v1alpha1.Intent
 	err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in)
@@ -538,6 +540,8 @@ func (r *RunReconciler) intentEnded(ctx context.Context, run *v1alpha1.IntentRun
 			detail = repositoryLeftDetail(run)
 		case roundEnded(&in, run):
 			detail = roundEndedDetail(run)
+		case evaluationEnded(&in, run):
+			detail = evaluationEndedDetail
 		default:
 			return false, nil
 		}
