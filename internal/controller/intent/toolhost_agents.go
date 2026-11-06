@@ -393,12 +393,12 @@ func (p *pass) pruneTrees(ctx context.Context, keep ...string) {
 // (reason, a PreviewVerification reason; why, what is missing):
 // Unconfirmed, any request consumed, never a block (O8), recording why
 // (SandboxImageUnavailable, which the hand-off says). Written once; a later
-// pass that finds what was missing runs the round.
+// pass that finds what was missing runs the round. An approver's request
+// always settles, even where an earlier round at these heads left its
+// reference (roundSettled).
 func (p *pass) agentsUnconfirmed(ctx context.Context, reason v1alpha1.PreviewVerificationReason,
 	why string) (bool, error) {
-	v := p.in.Status.Verification
-	if v.Ref != nil || v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil &&
-		v.UnavailableReason == v1alpha1.VerificationUnavailableSandboxImage {
+	if p.roundSettled(v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationUnavailableSandboxImage) {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round cannot run; the verification is unconfirmed",
@@ -414,11 +414,10 @@ func (p *pass) agentsUnconfirmed(ctx context.Context, reason v1alpha1.PreviewVer
 // treesUnavailable settles a due agents round whose trees cannot be had
 // (VerificationReasonTreeUnavailable; why, which tree and how):
 // Unavailable for that reason (TreeUnavailable), any request consumed,
-// until a later pass finds them Ready or the heads move. Written once.
+// until a later pass finds them Ready or the heads move. Written once, and
+// for every request (roundSettled).
 func (p *pass) treesUnavailable(ctx context.Context, why string) (bool, error) {
-	v := p.in.Status.Verification
-	if v.Ref != nil || v.State == v1alpha1.VerificationUnavailable && v.Requested == nil &&
-		v.UnavailableReason == v1alpha1.VerificationUnavailableTree {
+	if p.roundSettled(v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailableTree) {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round's trees are unavailable; the verification is unavailable",
@@ -430,4 +429,17 @@ func (p *pass) treesUnavailable(ctx context.Context, why string) (bool, error) {
 			v1alpha1.VerificationUnavailableTree, nil
 		return nil
 	})
+}
+
+// roundSettled reports a due agents round that cannot run as already
+// settled, so nothing is written: no request is pending and either an
+// earlier round's reference stands at these heads (an automatic round is
+// never due over it; a replay round keeps it) or the verification already
+// records state for reason. A pending request is never settled: it was due
+// (verifyDue), so it is consumed whatever reference is on record, or it
+// would wait, unanswered and unlogged, until the heads move.
+func (p *pass) roundSettled(state v1alpha1.IntentVerificationState,
+	reason v1alpha1.VerificationUnavailableReason) bool {
+	v := p.in.Status.Verification
+	return v.Requested == nil && (v.Ref != nil || v.State == state && v.UnavailableReason == reason)
 }

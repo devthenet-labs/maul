@@ -358,6 +358,44 @@ func TestVerificationGivesUpWaitingForThePreview(t *testing.T) {
 	}
 }
 
+// TestRequestAfterARoundWaitsForThePreview: an approver's /maul verify at
+// heads an earlier round already ran at (its reference still on record)
+// waits for a Preview that is not live as the first round does: waiting
+// with its start recorded, Unavailable (PreviewNotLive) past
+// previewWaitMax, and run once the Preview is live. It was neither recorded
+// nor bounded: the earlier round's reference hid it.
+func TestRequestAfterARoundWaitsForThePreview(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 3)
+	first := e.onlyVerification(name)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		v.State, v.UnavailableReason = v1alpha1.VerificationUnavailable, ""
+		v.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()),
+			CommentID: 99}
+	})
+	e.servePreview(name, v1alpha1.PreviewFailed, "")
+	e.review(name, 3)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil || v.Requested == nil {
+		t.Fatalf("verification = %+v, want the request waiting for the preview, its start recorded", v)
+	}
+	e.clock.Advance(previewWaitMax)
+	e.review(name, 2)
+	if v := e.verification(name); v.State != v1alpha1.VerificationUnavailable ||
+		v.UnavailableReason != v1alpha1.VerificationUnavailablePreviewNotLive || v.Requested == nil {
+		t.Fatalf("verification after the bound = %+v, want Unavailable (PreviewNotLive), the request kept", v)
+	}
+	e.readyPreview(name)
+	e.review(name, 3)
+	vs := e.verifications(name)
+	if v := e.verification(name); len(vs) != 2 || v.Requested != nil || v.Ref == nil || v.Ref.Name == first.Name {
+		t.Fatalf("verification once the preview is live = %+v, verifications %d; want the request run", v, len(vs))
+	}
+}
+
 // TestVerificationWaitsForCI: a named check not yet green at the head holds
 // the verification.
 func TestVerificationWaitsForCI(t *testing.T) {

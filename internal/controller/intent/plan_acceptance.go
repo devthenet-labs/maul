@@ -178,13 +178,14 @@ const (
 // and the list items of issueBody, the request the plan answers, that no
 // outcome quotes in its from (acceptance.NotCovered), at most
 // maxNotCoveredLines of them, each bounded and made visible
-// (untrusted.Visible), the rest counted. nil for any other plan, and
+// (untrusted.Visible), the rest counted; checked in the workspace for a
+// Project with no preview (planWorkspace). nil for any other plan, and
 // without the issue lines when the request cannot be read (issue false).
 func planOutcomes(a planAsk, os []acceptance.PlanOutcome, issueBody string, issue bool) *templates.PlanOutcomes {
 	if !a.outcomes || !a.asked() {
 		return nil
 	}
-	out := &templates.PlanOutcomes{}
+	out := &templates.PlanOutcomes{Workspace: a.targets != nil && a.targets.Workspace != nil}
 	for _, o := range acceptance.NormalizeOutcomes(os) {
 		out.Outcomes = append(out.Outcomes, templates.PlanOutcome{ID: o.ID, Outcome: o.Outcome, From: o.From,
 			Keep: o.Kind == acceptance.OutcomeKindKeep, Manual: o.Manual, Reason: o.Reason})
