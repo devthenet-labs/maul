@@ -67,8 +67,30 @@
 // replay round's finish, else serve until the runner's finish, the wall
 // clock or a stop; every way out closes the ledger.
 //
+// A workspace (Config.Mode ModeWorkspace; SPEC-S2 S2-08, workspace.go,
+// files.go, run.go) is the relay of an agents-namespace tool pod with no
+// preview: one repository's head and base, each in its own sandbox reached
+// over its own exec socket (NewSandboxes), so a run is tagged base only
+// when the base's shim ran it. Every call needs the per-evaluation key
+// (toolwire.KeyHeader, constant time; a refusal is a ledger entry and
+// spends none of the agent's calls); http, browser, logs and events are
+// refused. Run builds both trees in parallel first (entries 1 and 2, verb
+// build, BuildArgs; the head's is the acceptance.RoleBuild part,
+// BuildPart): a head that did not build runs nothing more (build-failed), a
+// base that did not build is never run (its replays and confirmations
+// recorded as errors, base-unbuildable). Each saved check replays, and each
+// confirmed check is confirmed, at the head and then at the base, each
+// alone under fresh tokens, the base run's entry (or, on a confirm, its
+// args) and steps naming the base, at most MaxBaseRuns. files reads the
+// pristine trees through an os.Root; run compiles a Go consumer against the
+// side's writable tree (maul's go.mod, go work init, offline, read-only
+// module files) and runs it; one substitute pass serves every check path
+// ({{marker}}, {{bin}}, {{tree}}, then {{run}}); judgeWorkspace says how a
+// workspace run maps to a result, never a bare exit an assertion.
+//
 // dial.go and, under the e2edial tag only, dial_e2e.go are the e2e
 // suite's seams. The package imports only the standard library,
-// api/v1alpha1 and internal/acceptance, checks, checks/playwright,
-// previewauth, toolexec and toolwire (a test pins that): no Kubernetes client, no credential.
+// api/v1alpha1, internal/acceptance, checks, checks/playwright,
+// previewauth, toolexec and toolwire, and golang.org/x/mod/modfile (a test
+// pins that): no Kubernetes client, no credential.
 package previewtools

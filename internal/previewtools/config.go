@@ -77,7 +77,24 @@ type Config struct {
 	// Browser and Sandbox say which sidecars the pod runs.
 	Browser bool `json:"browser,omitempty"`
 	Sandbox bool `json:"sandbox,omitempty"`
+	// Mode is where the tool pod runs: the slot (empty, or ModeSlot, as
+	// every slice 1 config is) or an agents-namespace workspace
+	// (ModeWorkspace), which has no components, no preview host and no
+	// browser, and holds Workspace.
+	Mode string `json:"mode,omitempty"`
+	// Workspace is what a workspace builds and runs; set exactly when Mode
+	// is ModeWorkspace.
+	Workspace *Workspace `json:"workspace,omitempty"`
 }
+
+// Modes.
+const (
+	ModeSlot      = "slot"
+	ModeWorkspace = "workspace"
+)
+
+// IsWorkspace reports a workspace config.
+func (c Config) IsWorkspace() bool { return c.Mode == ModeWorkspace }
 
 // Component is one previewed component.
 type Component struct {
@@ -141,6 +158,16 @@ func ParseConfig(b []byte) (Config, error) {
 
 // Validate holds a config to what the relay runs.
 func (c Config) Validate() error {
+	switch c.Mode {
+	case "", ModeSlot:
+		if c.Workspace != nil {
+			return errors.New("a slot config has no workspace")
+		}
+	case ModeWorkspace:
+		return c.validateWorkspace()
+	default:
+		return fmt.Errorf("mode %q is not %s or %s", c.Mode, ModeSlot, ModeWorkspace)
+	}
 	if err := validateComponents(c.Components); err != nil {
 		return err
 	}

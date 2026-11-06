@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -59,6 +60,20 @@ type Options struct {
 	Now func() time.Time
 	// TerminationPath receives the summary at finish; empty writes none.
 	TerminationPath string
+
+	// A workspace's (Config.Mode ModeWorkspace; workspace.go): Head and
+	// Base are the two sides' exec shims, Trees the directory holding the
+	// pristine trees (<Trees>/head, <Trees>/base), Key the :8090 key every
+	// call must carry (toolwire.KeyHeader).
+	Head, Base Sandbox
+	Trees      string
+	Key        string
+	// WorkTree is where the sandboxes hold their writable tree, what
+	// {{tree}} stands for; empty is WorkTree (tests replace it).
+	WorkTree string
+	// ReadyWait bounds the wait for a shim before its build; zero is two
+	// minutes.
+	ReadyWait time.Duration
 }
 
 // Relay is the tools container's relay: the agent's tool endpoints, the
@@ -74,6 +89,11 @@ type Relay struct {
 	token    func() string
 	now      func() time.Time
 	termPath string
+	// A workspace's: its sandboxes, trees, key and places.
+	head, base Sandbox
+	trees, key string
+	workTree   string
+	readyWait  time.Duration
 
 	mu        sync.Mutex
 	ledger    *toolwire.Writer
@@ -87,6 +107,13 @@ type Relay struct {
 	reopened  bool // the browser session was reopened once
 	summary   toolwire.Summary
 	done      chan struct{}
+	// A workspace's state: whether each tree built, the base runs spent
+	// (MaxBaseRuns), the base replays and each check's latest base dry run.
+	headBuilt, baseBuilt bool
+	baseRuns             int
+	baseReplays          []toolwire.CheckRunRecord
+	baseDry              map[string]toolwire.CheckRunRecord
+	baseDryOrder         []string
 }
 
 // dryRun is the agent's dry runs of one check.
@@ -119,7 +146,29 @@ func NewRelay(o Options) (*Relay, error) {
 	if r.now == nil {
 		r.now = time.Now
 	}
+	if o.Config.IsWorkspace() {
+		if err := r.workspaceOptions(o); err != nil {
+			return nil, err
+		}
+	}
 	return r, nil
+}
+
+// workspaceOptions takes a workspace relay's sandboxes, trees and key.
+func (r *Relay) workspaceOptions(o Options) error {
+	if o.Head == nil || o.Base == nil || o.Trees == "" || !toolwire.IsKey(o.Key) {
+		return errors.New("previewtools: a workspace needs both sandboxes, the trees and the key")
+	}
+	r.head, r.base, r.trees, r.key = o.Head, o.Base, o.Trees, o.Key
+	r.workTree, r.readyWait = o.WorkTree, o.ReadyWait
+	if r.workTree == "" {
+		r.workTree = WorkTree
+	}
+	if r.readyWait <= 0 {
+		r.readyWait = defaultReadyWait
+	}
+	r.baseDry = map[string]toolwire.CheckRunRecord{}
+	return nil
 }
 
 // randomToken is 16 random lowercase hex characters (crypto/rand).
@@ -141,6 +190,8 @@ type result struct {
 	observed        *toolwire.Observed
 	artifacts       []toolwire.Artifact
 	checkRun        *toolwire.CheckRunRecord
+	// side is the side a workspace call ran at, as recorded: "" or base.
+	side toolwire.Side
 }
 
 func refusal(code, reason string) result { return result{refused: code, reason: reason} }
@@ -168,22 +219,42 @@ func agentCall[T toolwire.Request](verb toolwire.Verb,
 var endpoints = []endpoint{
 	{toolwire.VerbHTTP, toolwire.KindAgent, func() toolwire.Request { return &toolwire.HTTPRequest{} },
 		agentCall(toolwire.VerbHTTP, func(ctx context.Context, r *Relay, req *toolwire.HTTPRequest) result {
+			if r.cfg.IsWorkspace() {
+				return refusal(toolwire.RefusedUnavailable, reasonNoPreview)
+			}
 			return r.http(ctx, req)
 		})},
 	{toolwire.VerbBrowser, toolwire.KindAgent, func() toolwire.Request { return &toolwire.BrowserRequest{} },
 		agentCall(toolwire.VerbBrowser, func(ctx context.Context, r *Relay, req *toolwire.BrowserRequest) result {
+			if r.cfg.IsWorkspace() {
+				return refusal(toolwire.RefusedUnavailable, reasonNoPreview)
+			}
 			return r.browser(ctx, req)
 		})},
 	{toolwire.VerbExec, toolwire.KindAgent, func() toolwire.Request { return &toolwire.ExecRequest{} },
 		agentCall(toolwire.VerbExec, func(ctx context.Context, r *Relay, req *toolwire.ExecRequest) result {
 			return r.exec(ctx, req)
 		})},
+	{toolwire.VerbFiles, toolwire.KindAgent, func() toolwire.Request { return &toolwire.FilesRequest{} },
+		agentCall(toolwire.VerbFiles, func(_ context.Context, r *Relay, req *toolwire.FilesRequest) result {
+			return r.files(req)
+		})},
+	{toolwire.VerbRun, toolwire.KindAgent, func() toolwire.Request { return &toolwire.RunRequest{} },
+		agentCall(toolwire.VerbRun, func(ctx context.Context, r *Relay, req *toolwire.RunRequest) result {
+			return r.runVerb(ctx, req)
+		})},
 	{toolwire.VerbLogs, toolwire.KindAgent, func() toolwire.Request { return &toolwire.LogsRequest{} },
 		agentCall(toolwire.VerbLogs, func(_ context.Context, r *Relay, req *toolwire.LogsRequest) result {
+			if r.cfg.IsWorkspace() {
+				return refusal(toolwire.RefusedUnavailable, reasonNoPreview)
+			}
 			return r.logs(req)
 		})},
 	{toolwire.VerbEvents, toolwire.KindAgent, func() toolwire.Request { return &toolwire.EventsRequest{} },
 		agentCall(toolwire.VerbEvents, func(_ context.Context, r *Relay, _ *toolwire.EventsRequest) result {
+			if r.cfg.IsWorkspace() {
+				return refusal(toolwire.RefusedUnavailable, reasonNoPreview)
+			}
 			return r.events()
 		})},
 	{toolwire.VerbCheckRun, toolwire.KindAgent, func() toolwire.Request { return &toolwire.CheckRunRequest{} },
@@ -208,7 +279,14 @@ func (r *Relay) Handler() http.Handler {
 	mux.HandleFunc("GET "+ReadyPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.HandleFunc("GET /v1/artifacts/{digest}", r.serveArtifact)
+	mux.HandleFunc("GET /v1/artifacts/{digest}", func(w http.ResponseWriter, req *http.Request) {
+		if !r.keyed(req) {
+			writeResponse(w, http.StatusUnauthorized, toolwire.Response{Refused: RefusedKey,
+				Reason: "the per-evaluation key is missing or wrong"})
+			return
+		}
+		r.serveArtifact(w, req)
+	})
 	for _, ep := range endpoints {
 		mux.HandleFunc(toolwire.Path(ep.verb), func(w http.ResponseWriter, req *http.Request) { r.serve(w, req, ep) })
 	}
@@ -231,6 +309,15 @@ func (r *Relay) serve(w http.ResponseWriter, hreq *http.Request, ep endpoint) {
 	if r.finished {
 		writeResponse(w, http.StatusOK, toolwire.Response{Refused: toolwire.RefusedFinished,
 			Reason: "the evaluation has finished"})
+		return
+	}
+	if !r.keyed(hreq) {
+		// Recorded, bounded by the room agent entries have, and spending
+		// none of the agent's calls: a caller without the key cannot use
+		// up the evaluator's.
+		resp := r.recordResult(toolwire.KindAgent, ep.verb, json.RawMessage(`{}`), refusal(RefusedKey,
+			"the per-evaluation key is missing or wrong"))
+		writeResponse(w, http.StatusUnauthorized, resp)
 		return
 	}
 	if ep.kind == toolwire.KindAgent {
@@ -272,7 +359,7 @@ func (r *Relay) recordResult(kind toolwire.Kind, verb toolwire.Verb, args any, r
 		}
 		raw = b
 	}
-	e := toolwire.LedgerEntry{Kind: kind, Verb: verb, Args: raw, Exit: res.exit, Refused: res.refused,
+	e := toolwire.LedgerEntry{Kind: kind, Verb: verb, Side: res.side, Args: raw, Exit: res.exit, Refused: res.refused,
 		Reason: refusedReason(res),
 		Output: res.output, Inline: res.inline, Artifacts: res.artifacts, Locators: res.locators,
 		CheckRun: res.checkRun}
@@ -381,6 +468,12 @@ func exchange(rep reply) string {
 // checkRun answers `maul-tool check run`: validate, then a dry run under
 // a fresh token, recorded against the check's digest.
 func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) result {
+	if r.cfg.IsWorkspace() {
+		return r.workspaceCheckRun(ctx, req)
+	}
+	if req.Side.Recorded() != "" {
+		return refusal(toolwire.RefusedInvalid, reasonOneTree)
+	}
 	c, err := checks.Parse(req.Spec)
 	if err == nil {
 		preview := checks.Preview{Paths: r.cfg.paths(), Components: r.cfg.keys()}
@@ -395,6 +488,12 @@ func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) res
 	if c.Form == checks.FormExec && r.execer == nil {
 		return refusal(toolwire.RefusedUnavailable, reasonNoSandbox)
 	}
+	return r.headDryRun(ctx, c)
+}
+
+// headDryRun is a dry run of c (at the head, the slot's one tree), kept
+// against its digest for confirm.
+func (r *Relay) headDryRun(ctx context.Context, c checks.Check) result {
 	rec := r.runCheck(ctx, c, toolwire.ModeDryRun)
 	d := r.dryRuns[rec.Digest]
 	if _, seen := r.dryRuns[rec.Digest]; !seen {
@@ -409,12 +508,43 @@ func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) res
 	return result{checkRun: &rec, observed: &toolwire.Observed{CheckRun: &rec}}
 }
 
+// workspaceCheckRun is checkRun in a workspace: the check validated for
+// the workspace's surface, then a dry run at the side asked for. Only a
+// head dry run counts towards confirming; a base one is shown and kept,
+// and spends none of the base runs a replay or a confirmation needs
+// (MaxBaseRuns): the agent's calls bound it.
+func (r *Relay) workspaceCheckRun(ctx context.Context, req *toolwire.CheckRunRequest) result {
+	side := req.Side.Recorded()
+	c, err := checks.Parse(req.Spec)
+	if err == nil {
+		err = checks.Validate(c, r.workspaceSurface())
+	}
+	if err != nil {
+		return sideRefusal(side, toolwire.RefusedCheck, err.Error())
+	}
+	if why := r.runnable(side); why != "" {
+		return sideRefusal(side, toolwire.RefusedUnavailable, why)
+	}
+	if side != toolwire.SideBase {
+		return r.headDryRun(ctx, c)
+	}
+	rec := r.runCheckAt(ctx, c, toolwire.ModeDryRun, false, side)
+	if _, seen := r.baseDry[rec.Digest]; !seen {
+		r.baseDryOrder = append(r.baseDryOrder, rec.Digest)
+	}
+	r.baseDry[rec.Digest] = rec
+	return withSide(side, result{checkRun: &rec, observed: &toolwire.Observed{CheckRun: &rec}})
+}
+
 // checkResults answers `maul-tool check results`: the replay, then each
 // dry-run check's latest run.
 func (r *Relay) checkResults(req toolwire.Request) toolwire.Response {
-	runs := slices.Clone(r.replays)
+	runs := slices.Concat(r.replays, r.baseReplays)
 	for _, d := range r.dryOrder {
 		runs = append(runs, r.dryRuns[d].latest)
+	}
+	for _, d := range r.baseDryOrder {
+		runs = append(runs, r.baseDry[d])
 	}
 	resp := r.recordResult(toolwire.KindAgent, toolwire.VerbCheckResults, req, result{})
 	if resp.Refused == "" {
@@ -428,6 +558,9 @@ func (r *Relay) checkResults(req toolwire.Request) toolwire.Response {
 // green dry run; one expected to fail (a check showing a defect) a dry run
 // red by assertion and none green, and its entry records the expectation.
 func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolwire.Response {
+	if why := r.confirmable(); why != "" {
+		return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedUnavailable, why))
+	}
 	for _, d := range req.Digests {
 		dr := r.dryRuns[d]
 		switch red := slices.Contains(req.ExpectFail, d); {
@@ -435,7 +568,9 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
 				"check "+d+" has no dry run in this evaluation that failed an assertion, or one ran green, or it "+
 					"replayed green this round"))
-		case red && checks.ValidateRed(dr.check, dr.redStep) != nil:
+		// The run-data rule is the slot's (SPEC S2-04): a workspace's
+		// writable tree is the side's own, no store other runs share.
+		case red && !r.cfg.IsWorkspace() && checks.ValidateRed(dr.check, dr.redStep) != nil:
 			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedRedRule,
 				"check "+d+" cannot show a defect: "+checks.ValidateRed(dr.check, dr.redStep).Error()))
 		case !red && (!dr.green || r.replayed(d, toolwire.RunFail)):
@@ -460,6 +595,10 @@ func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolw
 				Reason: "the ledger has no room for the confirmation runs"}
 		}
 		runs = append(runs, rec)
+		if err := r.confirmBase(ctx, d); err != nil {
+			return toolwire.Response{Seq: resp.Seq, Refused: toolwire.RefusedToolCalls,
+				Reason: "the ledger has no room for the confirmation runs"}
+		}
 	}
 	resp.Observed = &toolwire.Observed{CheckRuns: runs}
 	return resp
@@ -473,6 +612,54 @@ func (r *Relay) replayed(d string, result toolwire.RunResult) bool {
 		return rec.Digest == d && rec.Result == result
 	})
 }
+
+// confirmBase is a workspace's confirmation of check d at the base (SPEC
+// Q26), its entry's args and steps naming the base; nothing in the slot,
+// nor once MaxBaseRuns are spent. The confirm's response keeps the head's
+// runs.
+func (r *Relay) confirmBase(ctx context.Context, d string) error {
+	if !r.cfg.IsWorkspace() {
+		return nil
+	}
+	base, ok := r.baseRun(ctx, r.dryRuns[d].check, toolwire.ModeConfirm)
+	if !ok {
+		return nil
+	}
+	_, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm,
+		Args: mustArgs(baseConfirmArgs{Digest: d, Side: toolwire.SideBase}), CheckRun: &base})
+	return err
+}
+
+// baseConfirmArgs are the args of a confirmation run at the base: the
+// confirm entry's verb runs in no sandbox of its own, so its side is in its
+// args (and on its steps). No expectation is recorded: a check's base
+// expectation is its outcome's (change or keep), Decide's to judge.
+type baseConfirmArgs struct {
+	Digest string        `json:"digest"`
+	Side   toolwire.Side `json:"side"`
+}
+
+// confirmable is why nothing can be confirmed ("" when it can): a
+// workspace whose head did not build.
+func (r *Relay) confirmable() string {
+	if !r.cfg.IsWorkspace() {
+		return ""
+	}
+	return r.runnable("")
+}
+
+// keyed reports whether a call may reach a tool: always in the slot; in a
+// workspace only with the key, compared in constant time.
+func (r *Relay) keyed(req *http.Request) bool {
+	if !r.cfg.IsWorkspace() {
+		return true
+	}
+	got := req.Header.Get(toolwire.KeyHeader)
+	return subtle.ConstantTimeCompare([]byte(got), []byte(r.key)) == 1
+}
+
+// reasonOneTree refuses a base side in the slot, which has one tree.
+const reasonOneTree = "this tool pod has one tree: the base side is a workspace's"
 
 // Finish reasons, the args of the relay's own finish entry.
 const (

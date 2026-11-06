@@ -22,6 +22,12 @@ const reasonNoSandbox = "this tool pod has no sandbox container"
 // exec answers `maul-tool exec`: argv run in the sandbox. The output is the
 // program's (untrusted); the exit code is maul's measurement.
 func (r *Relay) exec(ctx context.Context, req *toolwire.ExecRequest) result {
+	if r.cfg.IsWorkspace() {
+		return r.workspaceExec(ctx, req)
+	}
+	if req.Side.Recorded() != "" {
+		return refusal(toolwire.RefusedInvalid, reasonOneTree)
+	}
 	if r.execer == nil {
 		return refusal(toolwire.RefusedUnavailable, reasonNoSandbox)
 	}

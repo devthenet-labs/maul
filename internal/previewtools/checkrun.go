@@ -41,9 +41,16 @@ func (r *Relay) runCheck(ctx context.Context, c checks.Check, mode toolwire.Chec
 // browser check is then compiled to wait playwright.PatientExpectTimeoutMS.
 func (r *Relay) runCheckAs(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode,
 	patient bool) toolwire.CheckRunRecord {
+	return r.runCheckAt(ctx, c, mode, patient, "")
+}
+
+// runCheckAt is runCheckAs at side, a workspace's: every step of the run
+// names the side as the ledger records it (only base is written).
+func (r *Relay) runCheckAt(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode, patient bool,
+	side toolwire.Side) toolwire.CheckRunRecord {
 	rec := toolwire.CheckRunRecord{Digest: bareDigestOf(checks.Digest(c)), CheckID: c.ID, Mode: mode}
 	for range 2 {
-		a := r.attempt(ctx, c, patient)
+		a := r.attempt(ctx, c, patient, side.Recorded())
 		rec.Attempts = append(rec.Attempts, a)
 		if a.Result == toolwire.ResultPass {
 			break
@@ -53,16 +60,22 @@ func (r *Relay) runCheckAs(ctx context.Context, c checks.Check, mode toolwire.Ch
 	return rec
 }
 
-// attempt runs c once under a fresh token, patient as runCheckAs says.
-func (r *Relay) attempt(ctx context.Context, c checks.Check, patient bool) toolwire.Attempt {
+// attempt runs c once under a fresh token at side, patient as runCheckAs
+// says. A workspace's steps name the side.
+func (r *Relay) attempt(ctx context.Context, c checks.Check, patient bool, side toolwire.Side) toolwire.Attempt {
 	a := toolwire.Attempt{Run: r.token()}
 	start := time.Now()
-	switch c.Form {
-	case checks.FormHTTP:
+	switch {
+	case r.cfg.IsWorkspace():
+		a.Steps = r.workspaceAttempt(ctx, c, a.Run, side)
+		for i := range a.Steps {
+			a.Steps[i].Side = side
+		}
+	case c.Form == checks.FormHTTP:
 		a.Steps = r.httpAttempt(ctx, *c.HTTP, a.Run)
-	case checks.FormExec:
+	case c.Form == checks.FormExec:
 		a.Steps = r.execAttempt(ctx, *c.Exec, a.Run)
-	case checks.FormBrowser:
+	case c.Form == checks.FormBrowser:
 		a.Steps = r.browserAttempt(ctx, *c.Browser, a.Run, patient)
 	default:
 		a.Steps = []toolwire.StepRecord{{Index: 0, Result: toolwire.ResultError, Detail: reasonNoBrowser}}
@@ -75,6 +88,19 @@ func (r *Relay) attempt(ctx context.Context, c checks.Check, patient bool) toolw
 		}
 	}
 	return a
+}
+
+// workspaceAttempt runs a workspace check's one attempt at side: exec or
+// run, the forms of its surface.
+func (r *Relay) workspaceAttempt(ctx context.Context, c checks.Check, run string,
+	side toolwire.Side) []toolwire.StepRecord {
+	switch c.Form {
+	case checks.FormExec:
+		return r.workspaceExecAttempt(ctx, *c.Exec, run, side)
+	case checks.FormRun:
+		return r.workspaceRunAttempt(ctx, *c.Run, run, side)
+	}
+	return errStep("a " + string(c.Form) + " check is off this workspace's surface")
 }
 
 // httpAttempt runs an http check's steps in order, stopping at the first
@@ -369,14 +395,14 @@ func randomMarkerNonce() string {
 func execRequest(e checks.ExecCheck, run, marker string) (*toolwire.ExecRequest, error) {
 	req := &toolwire.ExecRequest{}
 	for _, a := range e.Argv {
-		s, err := acceptance.Substitute(a, run, nil)
+		s, err := substitute(a, run, "", places{})
 		if err != nil {
 			return nil, err
 		}
 		req.Argv = append(req.Argv, s)
 	}
 	for _, f := range e.Files {
-		s, err := acceptance.Substitute(checks.ExecProgram(f.Content, marker), run, nil)
+		s, err := substitute(f.Content, run, marker, places{})
 		if err != nil {
 			return nil, err
 		}

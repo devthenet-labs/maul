@@ -22,11 +22,15 @@ type Seams struct {
 	AllowLocal bool
 	// ConfigDir is where the tool ConfigMap is mounted.
 	ConfigDir string
+	// ExecDir holds a workspace's exec sockets (<ExecDir>/<side>/sock),
+	// TreesDir its pristine trees (<TreesDir>/<side>).
+	ExecDir, TreesDir string
 }
 
 // SeamsFrom returns the released relay's seams; getenv is unused.
 func SeamsFrom(func(string) string) (Seams, error) {
-	return Seams{TerminationPath: TerminationPath, ListenAddr: listenAddr, ConfigDir: DefaultConfigDir}, nil
+	return Seams{TerminationPath: TerminationPath, ListenAddr: listenAddr, ConfigDir: DefaultConfigDir,
+		ExecDir: DefaultExecDir, TreesDir: DefaultTreesDir}, nil
 }
 
 // Browser is the released relay's browser: the image's (ImageBrowser), its
