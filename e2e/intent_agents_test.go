@@ -558,7 +558,10 @@ func TestIntentAgentsLibraryNewSymbol(t *testing.T) {
 	}
 	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
 	runs := e.kubelet.WorkspaceRuns()
-	if len(runs) != 1 || !strings.Contains(string(runs[0].Stdout), `undefined: lib.ErrTooLong`) {
+	if len(runs) != 1 {
+		t.Fatalf("%d agents tool pods ran, want one", len(runs))
+	}
+	if !strings.Contains(string(runs[0].Stdout), `undefined: lib.ErrTooLong`) {
 		t.Errorf("the ledger does not record the base compile's diagnostic:\n%s", runs[0].Stdout)
 	}
 }
@@ -600,7 +603,11 @@ func TestIntentAgentsHeadBuildFails(t *testing.T) {
 	if st, ok := e.gh.LatestStatus(pr.HeadSHA, acceptanceStatus); ok && st.State == "failure" {
 		t.Errorf("maul/acceptance %+v: a build maul could not run is no failure", st)
 	}
-	for _, r := range e.kubelet.WorkspaceRuns() {
+	runs := e.kubelet.WorkspaceRuns()
+	if len(runs) == 0 {
+		t.Fatal("no agents tool pod ran")
+	}
+	for _, r := range runs {
 		if !strings.Contains(string(r.Stdout), `"result":"failed"`) {
 			t.Errorf("the ledger records no failed head build:\n%s", r.Stdout)
 		}
