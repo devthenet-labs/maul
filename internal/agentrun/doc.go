@@ -44,6 +44,16 @@
 // investigate stage's configuration, and every phase switch names every
 // phase: an unknown one is an error, never another stage.
 //
+// On a Project with no preview (SPEC-S2) the round's tool pod runs in the
+// agents namespace and builds the pull request's head and base: the
+// evaluate handoff then names the surface (EvaluateTools.Workspace) and
+// carries the tool pod's per-evaluation key, which agent-runner stages at
+// input/tools-key (maultool.KeyFile, 0400), sends with its own confirm and
+// finish, and scrubs from the transcript, the event and its logs; the
+// check review handoff carries each check's runs at both sides beside the
+// untrusted program (CheckReviewHandoff.Workspace, CheckReviewItem.Head,
+// .Base).
+//
 // The runner trusts the repository over the agent: a remediation or build
 // report claiming success is downgraded unless commit.sh ran cleanly and
 // left real commits on the branch (or found them already there, a clean tree
