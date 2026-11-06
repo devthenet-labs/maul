@@ -24,7 +24,7 @@ func agentsHostSettings(set intent.Settings, harness string) agentshost.Settings
 	return agentshost.Settings{
 		Namespace: set.Namespace, ToolsImage: set.ToolsImage, MaxToolPods: set.MaxToolPods,
 		BuildTimeoutMax: set.ToolBuildTimeoutMax, Resources: set.ToolResources, PollInterval: set.PollInterval,
-		Harness: harness, CodexHarness: set.Codex.ID,
+		Harness: harness, CodexHarness: set.Codex.ID, Attribution: set.Attribution,
 	}
 }
 

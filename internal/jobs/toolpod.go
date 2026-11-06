@@ -24,6 +24,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/netprofile"
 	"github.com/devthenet-labs/maul/internal/runnerimage"
 	"github.com/devthenet-labs/maul/internal/sandboxprobe"
@@ -224,6 +225,14 @@ type ToolPodSpec struct {
 	Timeout, DeadlineMax time.Duration
 	// Resources replace the defaults field by field.
 	Resources ToolPodResources
+	// AttributedTo is the attributed-to annotation value
+	// (v1alpha1.AnnotationAttributedTo) the Job and its pod template carry:
+	// attribution.ValueOrg under --attribution-mode attribute, empty (no
+	// annotation, exactly as before attribution existed) under off. Nothing
+	// else is admitted: the tool pod is no run's (it has no IntentRun and so
+	// no run stamp), holds no ServiceAccount token, never reaches the egress
+	// broker and spends nothing, so it is never a person's.
+	AttributedTo string
 
 	// build is the build Job the profile comes from (ProfileOf).
 	build *Spec
@@ -406,6 +415,9 @@ func (c *Client) renderToolPod(spec ToolPodSpec, profile *NetworkProfile, tunnel
 		annotationRunnerImage:       spec.Image,
 		annotationRunnerImageSource: v1alpha1.RunnerImageSourceRepository,
 		annotationToolsImage:        spec.ToolsImage,
+	}
+	if spec.AttributedTo != "" {
+		ann[v1alpha1.AnnotationAttributedTo] = spec.AttributedTo
 	}
 	inits := make([]corev1.Container, 0, len(toolInitNames))
 	inits = append(inits, c.toolPrepare(spec, tools))
@@ -673,6 +685,9 @@ func (c *Client) toolPodSpecRefusal(spec ToolPodSpec) error {
 	}
 	if _, _, err := spec.Resources.requirements(); err != nil {
 		refuse("%v", err)
+	}
+	if spec.AttributedTo != "" && spec.AttributedTo != attribution.ValueOrg {
+		refuse("attributed to %q; a tool pod is only ever the org's", spec.AttributedTo)
 	}
 	errs = append(errs, c.toolBuildRefusals(spec)...)
 	if len(errs) == 0 {

@@ -55,7 +55,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -159,6 +159,12 @@ const (
 	// VerificationReasonToolsDeadline: the agents tool pod reached its Job
 	// deadline with no verified summary. Infra.
 	VerificationReasonToolsDeadline PreviewVerificationReason = "tools-deadline"
+	// VerificationReasonToolsRefused: the API server refused to create the
+	// agents tool pod's Job (an admission policy or webhook, RBAC, or the
+	// object invalid; a quota's refusal is quota-refused): no pod ever
+	// existed. Its message is in intent-controller's
+	// log. Infra, never a verdict.
+	VerificationReasonToolsRefused PreviewVerificationReason = "tools-refused"
 )
 
 // VerificationPlacement is where an outcome verification's tool pod runs:

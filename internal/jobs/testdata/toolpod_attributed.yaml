@@ -1,0 +1,406 @@
+metadata:
+  annotations:
+    maul.run/attributed-to: org
+    maul.run/repo: octo/repo
+    maul.run/runner-image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+    maul.run/runner-image-source: repository
+    maul.run/tools-image: ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111
+  labels:
+    app.kubernetes.io/managed-by: maul
+    app.kubernetes.io/name: maul-agent
+    maul.run/kind: intent
+    maul.run/preview-verification: 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
+    maul.run/role: tools
+    maul.run/runner-image-source: repository
+  name: maul-tools-6f1c2d3e4b5a
+  namespace: maul-agents
+spec:
+  activeDeadlineSeconds: 2160
+  backoffLimit: 0
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+        maul.run/attributed-to: org
+        maul.run/repo: octo/repo
+        maul.run/runner-image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+        maul.run/runner-image-source: repository
+        maul.run/tools-image: ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      labels:
+        app.kubernetes.io/managed-by: maul
+        app.kubernetes.io/name: maul-agent
+        maul.run/kind: intent
+        maul.run/preview-verification: 6f1c2d3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f
+        maul.run/role: tools
+        maul.run/runner-image-source: repository
+    spec:
+      activeDeadlineSeconds: 1980
+      automountServiceAccountToken: false
+      containers:
+      - image: ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        imagePullPolicy: IfNotPresent
+        name: tools
+        ports:
+        - containerPort: 8090
+          name: tools
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 1
+          httpGet:
+            path: /readyz
+            port: 8090
+          periodSeconds: 2
+        resources:
+          limits:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+          requests:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/maul-tools
+          name: tools-secret
+          readOnly: true
+        - mountPath: /trees/head
+          name: trees-head
+          readOnly: true
+        - mountPath: /trees/base
+          name: trees-base
+          readOnly: true
+        - mountPath: /run/maul-exec/head
+          name: exec-head
+        - mountPath: /run/maul-exec/base
+          name: exec-base
+        - mountPath: /tmp
+          name: tools-tmp
+        - mountPath: /dev/shm
+          name: shm-tools
+      dnsConfig:
+        nameservers:
+        - 127.0.0.1
+        options:
+        - name: timeout
+          value: "1"
+        - name: attempts
+          value: "1"
+      dnsPolicy: None
+      enableServiceLinks: false
+      hostAliases:
+      - hostnames:
+        - maul-source-controller.maul.svc.cluster.local
+        ip: 10.100.12.7
+      initContainers:
+      - args:
+        - prepare
+        - --head-url=http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/head.tar.gz
+        - --head-sha256=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
+        - --base-url=http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/base.tar.gz
+        - --base-sha256=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2
+        - --trees=/trees
+        - --bin=/maul-bin
+        env:
+        - name: MAUL_SANDBOX_PROBE_TIMEOUT
+          value: 20s
+        - name: MAUL_SANDBOX_PROBE_DNS
+          value: 10.96.0.10:53
+        image: ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        imagePullPolicy: IfNotPresent
+        name: prepare
+        resources:
+          limits:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+          requests:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /trees/head
+          name: trees-head
+        - mountPath: /trees/base
+          name: trees-base
+        - mountPath: /maul-bin
+          name: maul-bin
+        - mountPath: /tmp
+          name: prepare-tmp
+        workingDir: /
+      - args:
+        - seed
+        - --side=head
+        image: ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        imagePullPolicy: IfNotPresent
+        name: seed-head
+        resources:
+          limits:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+          requests:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65540
+          runAsNonRoot: true
+          runAsUser: 65540
+        volumeMounts:
+        - mountPath: /trees/head
+          name: trees-head
+          readOnly: true
+        - mountPath: /work
+          name: work-head
+        workingDir: /
+      - args:
+        - seed
+        - --side=base
+        image: ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        imagePullPolicy: IfNotPresent
+        name: seed-base
+        resources:
+          limits:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+          requests:
+            cpu: 250m
+            ephemeral-storage: 2Gi
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65541
+          runAsNonRoot: true
+          runAsUser: 65541
+        volumeMounts:
+        - mountPath: /trees/base
+          name: trees-base
+          readOnly: true
+        - mountPath: /work
+          name: work-base
+        workingDir: /
+      - args:
+        - --socket=/run/maul-exec/sock
+        - --workdir=/work
+        - --home=/work/home
+        - --cache-dir=/work/cache
+        command:
+        - /maul-bin/tool-exec
+        env:
+        - name: HOME
+          value: /work/home
+        - name: TMPDIR
+          value: /tmp
+        - name: PATH
+          value: /usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: GOCACHE
+          value: /work/cache/go-build
+        - name: NPM_CONFIG_CACHE
+          value: /work/cache/npm
+        - name: GOTOOLCHAIN
+          value: local
+        - name: GOPROXY
+          value: "off"
+        image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+        imagePullPolicy: IfNotPresent
+        name: sandbox-head
+        resources:
+          limits:
+            cpu: "1"
+            ephemeral-storage: 8Gi
+            memory: 2Gi
+          requests:
+            cpu: "1"
+            ephemeral-storage: 8Gi
+            memory: 2Gi
+        restartPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65540
+          runAsNonRoot: true
+          runAsUser: 65540
+        volumeMounts:
+        - mountPath: /work
+          name: work-head
+        - mountPath: /work/cache
+          name: cache-head
+        - mountPath: /work/home
+          name: home-head
+        - mountPath: /tmp
+          name: tmp-head
+        - mountPath: /run/maul-exec
+          name: exec-head
+        - mountPath: /maul-bin
+          name: maul-bin
+          readOnly: true
+        - mountPath: /dev/shm
+          name: shm-head
+        workingDir: /
+      - args:
+        - --socket=/run/maul-exec/sock
+        - --workdir=/work
+        - --home=/work/home
+        - --cache-dir=/work/cache
+        command:
+        - /maul-bin/tool-exec
+        env:
+        - name: HOME
+          value: /work/home
+        - name: TMPDIR
+          value: /tmp
+        - name: PATH
+          value: /usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: GOCACHE
+          value: /work/cache/go-build
+        - name: NPM_CONFIG_CACHE
+          value: /work/cache/npm
+        - name: GOTOOLCHAIN
+          value: local
+        - name: GOPROXY
+          value: "off"
+        image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+        imagePullPolicy: IfNotPresent
+        name: sandbox-base
+        resources:
+          limits:
+            cpu: "1"
+            ephemeral-storage: 8Gi
+            memory: 2Gi
+          requests:
+            cpu: "1"
+            ephemeral-storage: 8Gi
+            memory: 2Gi
+        restartPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65541
+          runAsNonRoot: true
+          runAsUser: 65541
+        volumeMounts:
+        - mountPath: /work
+          name: work-base
+        - mountPath: /work/cache
+          name: cache-base
+        - mountPath: /work/home
+          name: home-base
+        - mountPath: /tmp
+          name: tmp-base
+        - mountPath: /run/maul-exec
+          name: exec-base
+        - mountPath: /maul-bin
+          name: maul-bin
+          readOnly: true
+        - mountPath: /dev/shm
+          name: shm-base
+        workingDir: /
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: default
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: tools-secret
+        secret:
+          defaultMode: 292
+          secretName: maul-tools-6f1c2d3e4b5a-tools
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: tools-tmp
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: shm-tools
+      - emptyDir:
+          sizeLimit: 512Mi
+        name: prepare-tmp
+      - emptyDir:
+          sizeLimit: 64Mi
+        name: maul-bin
+      - emptyDir:
+          sizeLimit: 512Mi
+        name: trees-head
+      - emptyDir:
+          sizeLimit: 1536Mi
+        name: work-head
+      - emptyDir:
+          sizeLimit: 3584Mi
+        name: cache-head
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: home-head
+      - emptyDir:
+          sizeLimit: 2Gi
+        name: tmp-head
+      - emptyDir:
+          sizeLimit: 1Mi
+        name: exec-head
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: shm-head
+      - emptyDir:
+          sizeLimit: 512Mi
+        name: trees-base
+      - emptyDir:
+          sizeLimit: 1536Mi
+        name: work-base
+      - emptyDir:
+          sizeLimit: 3584Mi
+        name: cache-base
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: home-base
+      - emptyDir:
+          sizeLimit: 2Gi
+        name: tmp-base
+      - emptyDir:
+          sizeLimit: 1Mi
+        name: exec-base
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: shm-base
+status: {}
