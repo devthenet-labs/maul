@@ -34,6 +34,10 @@ const (
 	// verification when the acceptance was given (or is not now), so maul
 	// cannot tell which commits the approver checked.
 	VerifyAcceptMoved VerifyOutcome = "accept-moved"
+	// VerifyAcceptNotChecked: VerifyAcceptMoved for a Project with no
+	// preview (SPEC-S2): maul was not checking the commits under
+	// verification when the approver commented.
+	VerifyAcceptNotChecked VerifyOutcome = "accept-not-checked"
 	// VerifyApplied: the command was applied before; this is its reply
 	// again, its effect since consumed or superseded.
 	VerifyApplied VerifyOutcome = "applied"
@@ -178,6 +182,10 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return fmt.Sprintf("%s does nothing: the preview was not running %s, the commits maul verifies, when you "+
 			"commented, so maul cannot tell which commits you checked. Check the preview once it runs them and "+
 			"accept again.", cmd, joinCode(n.Heads)), "", nil
+	case VerifyAcceptNotChecked:
+		return fmt.Sprintf("%s does nothing: maul was not checking %s, the commits it verifies, when you "+
+			"commented, so it cannot tell which commits you checked. Accept again once maul checks them.", cmd,
+			joinCode(n.Heads)), "", nil
 	case VerifyStopped:
 		return stoppedText(n, actor), "", nil
 	case VerifyDefectConfirmed:
