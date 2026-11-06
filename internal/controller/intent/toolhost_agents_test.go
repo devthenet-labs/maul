@@ -4,7 +4,9 @@
 package intent
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -535,5 +537,81 @@ func TestAgentsUnrunnableRoundHandsOff(t *testing.T) {
 	e.review(name, 3)
 	if got := e.get(name).ResourceVersion; got != rv {
 		t.Fatalf("the intent was written again (%s -> %s) with nothing changed", rv, got)
+	}
+}
+
+// TestAgentsRequestAfterARoundSettlesWhenTheRoundCannotRun: an approver's
+// /maul verify at heads an earlier round already ran at (its reference
+// still on record) settles, as the first round does, when the round cannot
+// run: with no accepted image Unconfirmed (SandboxImageUnavailable), with
+// no fetchable tree Unavailable (TreeUnavailable); the request is consumed,
+// the hand-off released as couldn't confirm, and a line logged. S2-B2: the
+// request stayed pending, silently, for ever.
+func TestAgentsRequestAfterARoundSettlesWhenTheRoundCannotRun(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		remove func(t *testing.T, e *env)
+		state  v1alpha1.IntentVerificationState
+		reason v1alpha1.VerificationUnavailableReason
+		log    string
+	}{
+		{"no accepted image", dropRunnerImages, v1alpha1.VerificationUnconfirmed,
+			v1alpha1.VerificationUnavailableSandboxImage, "the agents round cannot run"},
+		{"no fetchable tree", func(_ *testing.T, e *env) {
+			e.gh.failNext("MergeBase", ghError(http.StatusNotFound, "No common ancestor"))
+		}, v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailableTree,
+			"the agents round's trees are unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, name := newAgentsEnv(t, repoImage)
+			e.reviewReady(name, 4)
+			pv := e.onlyVerification(name)
+			// The earlier round settled without a judgement; its reference
+			// stays on record at these heads.
+			e.setStatus(name, func(in *v1alpha1.Intent) {
+				v := in.Status.Verification
+				v.State, v.UnavailableReason = v1alpha1.VerificationUnavailable, ""
+				v.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()),
+					CommentID: 99}
+			})
+			tc.remove(t, e)
+			var logs bytes.Buffer
+			e.intent.Log = slog.New(slog.NewTextHandler(&logs, nil))
+			e.review(name, 3)
+
+			v := e.verification(name)
+			if v.Requested != nil || v.State != tc.state || v.UnavailableReason != tc.reason {
+				t.Fatalf("verification = %+v, want %s (%s) with the request consumed", v, tc.state, tc.reason)
+			}
+			if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {
+				t.Fatalf("hand-off = %+v, want released as couldn't confirm", h)
+			}
+			if vs := e.verifications(name); len(vs) != 1 || vs[0].Name != pv.Name {
+				t.Fatalf("verifications = %+v, want only the earlier round", vs)
+			}
+			if !strings.Contains(logs.String(), tc.log) {
+				t.Fatalf("logs do not say why the request settled:\n%s", logs.String())
+			}
+			if in := e.get(name); in.Status.Phase != v1alpha1.IntentInReview {
+				t.Fatalf("phase = %s, want InReview", in.Status.Phase)
+			}
+		})
+	}
+}
+
+// dropRunnerImages clears every Repository's accepted runner image.
+func dropRunnerImages(t *testing.T, e *env) {
+	t.Helper()
+	var list v1alpha1.RepositoryList
+	if err := e.c.List(context.Background(), &list, client.InNamespace(testNS)); err != nil {
+		t.Fatal(err)
+	}
+	for i := range list.Items {
+		if r := &list.Items[i]; r.Status.RunnerImage != nil {
+			r.Status.RunnerImage = nil
+			if err := e.c.Status().Update(context.Background(), r); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }

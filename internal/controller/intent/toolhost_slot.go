@@ -117,11 +117,11 @@ func (p *pass) livePreview(ctx context.Context, v *v1alpha1.IntentVerification) 
 // Past it the verification is Unavailable (PreviewNotLive) and stays so,
 // reported as an error, until the Preview is live (the gate then verifies)
 // or the heads move. A verification in flight or judged stands, as in
-// waitVerification.
+// waitVerification, unless an approver's request waits.
 func (p *pass) waitPreview(ctx context.Context) (bool, error) {
 	v := p.in.Status.Verification
 	switch {
-	case v.Ref != nil, previewNotLive(v):
+	case v.Ref != nil && v.Requested == nil, previewNotLive(v):
 		return false, nil
 	case v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil:
 		since := metav1.NewTime(p.now)
