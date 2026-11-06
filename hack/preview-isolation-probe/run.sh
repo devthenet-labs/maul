@@ -750,6 +750,8 @@ metadata:
   namespace: $1
   labels:
 $(evaluator_labels '    ')
+  annotations:
+$(probe_job_annotations '    ')
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: $timeout
@@ -757,6 +759,8 @@ spec:
     metadata:
       labels:
 $(evaluator_labels '        ')
+      annotations:
+$(probe_job_annotations '        ')
     spec:
       restartPolicy: Never
       serviceAccountName: default
@@ -788,6 +792,17 @@ $(evaluator_labels '        ')
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
 EOF
+}
+
+# probe_job_annotations INDENT: the annotations every Job intent-controller
+# creates in the agents namespace must carry under the chart's admission
+# policies, each line indented: the attribution (attribution.mode attribute,
+# maul-attribution-jobs) and a run budget (egressBroker.limits.unit cost,
+# maul-budget-jobs). The probe pod is no one's run: "org", and the smallest
+# budget, one micro-USD. It holds no ServiceAccount token, so the broker
+# never serves it either way; with those modes off nothing reads them.
+probe_job_annotations() {
+    printf '%smaul.run/attributed-to: org\n%smaul.run/budget-micro-usd: "1"\n' "$1" "$1"
 }
 
 # evaluator_labels INDENT: the probe Job's labels, each line indented.
@@ -1391,6 +1406,8 @@ metadata:
   namespace: $1
   labels:
 $(agents_labels '    ')
+  annotations:
+$(probe_job_annotations '    ')
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: $timeout
@@ -1398,6 +1415,8 @@ spec:
     metadata:
       labels:
 $(agents_labels '        ')
+      annotations:
+$(probe_job_annotations '        ')
     spec:
       restartPolicy: Never
       serviceAccountName: default

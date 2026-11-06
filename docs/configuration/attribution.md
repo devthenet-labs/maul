@@ -69,7 +69,9 @@ No one is attributed a run on the strength of a login alone.
 **On the Job.** Every agent Job, and the pod template its pods are made from, carries the annotation
 `maul.run/attributed-to`. Its value is `org`, or `github-id:<id>` for a person. The launching controller takes it from
 the run's own stamp. A run with no stamp (one created before the mode was turned on) is annotated `org`.
-investigation-controller only ever writes `org`.
+investigation-controller only ever writes `org`. The agent evaluator's agents-namespace tool pod is annotated `org` too,
+whoever approved the plan: it is no run's (it has no run stamp to copy), holds no ServiceAccount token, never reaches
+the egress broker and spends nothing. The evaluate run that uses it is attributed as the table says.
 
 **On the issue.** The intent issue's status comment gains a line beside the cost:
 `Attributed to: @login (reason), for the latest run`, or the organisation. The login is shown as code, like every login

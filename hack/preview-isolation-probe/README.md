@@ -276,7 +276,10 @@ Each run, in a free slot:
    `maul.run/role: evaluator` and a `maul.run/preview-verification` UID of the probe's own, on the Job and its Pod
    alike, with no resolver (`dnsPolicy: None`). The `maul-evaluator-labels` admission policy admits those labels from
    intent-controller alone, and the Pod only from the Job controller, so the caller needs the right to impersonate that
-   ServiceAccount (cluster-admin has it); nothing else is created as it;
+   ServiceAccount (cluster-admin has it); nothing else is created as it. Like every Job intent-controller creates in the
+   agents namespace, it carries `maul.run/attributed-to: org` and `maul.run/budget-micro-usd: "1"` on the Job and its
+   Pod alike, which the attribution and budget Job policies require under `attribution.mode: attribute` and
+   `egressBroker.limits.unit: cost` (with those off nothing reads them; the Pod holds no token either way);
 4. the Job runs `netprobe --as evaluator`, which first waits up to a minute to reach the broker on 8080 (`REACHED`;
    otherwise `NOT_REACHED`, a failure: a policy not yet programmed proves nothing) and only then makes the egress run's
    burst (four workers, four attempts) at the internet (`1.1.1.1:443`), the cluster resolver (the `kube-dns` Service on
@@ -402,8 +405,8 @@ calls go through the same relay as the evaluator's, one at a time, and are recor
 The tool pod admits no ephemeral container, so nothing is added to it. PR code's vantage is reached the way PR code and
 the evaluator's programs reach it: through the relay's `exec` verb, in the real sandboxes, under their own UIDs, through
 the real exec shim. A Job labelled as an evaluator Job is (created **as intent-controller's ServiceAccount**, as in the
-evaluator run, with a verification UID of the probe's own) mounts only the `tools-key` file of the tool Job's
-`<job>-tools` Secret, so the script never reads the key. It runs `netprobe --as agents`, which:
+evaluator run, with a verification UID of the probe's own and the same two annotations) mounts only the `tools-key` file
+of the tool Job's `<job>-tools` Secret, so the script never reads the key. It runs `netprobe --as agents`, which:
 
 1. reaches the tool pod's `:8090` (the control), is served a `files ls` with the key, and must be refused the same call
    with no key, with a well-formed key of no evaluation's and with a malformed one: an evaluator holding another
