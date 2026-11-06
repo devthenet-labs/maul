@@ -455,8 +455,8 @@ func TestStoreCandidates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pv := &v1alpha1.PreviewVerification{}
 			pv.Status.Confirmed, pv.Status.Confirmations = tt.confirmed, tt.runs
-			got := storeCandidates(pv, outcomes, tt.stored, checks.Preview{Paths: []string{"/"},
-				Components: []string{"app"}}, func(string, v1alpha1.SavedCheck, string) {})
+			got := storeCandidates(pv, outcomes, tt.stored, checks.Context{Preview: &checks.Preview{
+				Paths: []string{"/"}, Components: []string{"app"}}}, func(string, v1alpha1.SavedCheck, string) {})
 			var digests []string
 			for _, c := range got {
 				digests = append(digests, c.check.Digest)

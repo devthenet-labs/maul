@@ -561,13 +561,24 @@ func (p *pass) settleVerification(ctx context.Context) (bool, error) {
 // It is never charged to the intent: the round's next attempt is due
 // (verifyRetry), or after the last the verification is Unavailable until
 // the heads move or an approver asks again.
-func (p *pass) unjudged(ctx context.Context) error {
+func (p *pass) unjudged(ctx context.Context) error { return p.unjudgedFor(ctx, nil) }
+
+// unjudgedFor is unjudged for pv, the round that settled unjudged (nil when
+// it is gone or was dropped): an agents round whose every attempt ended
+// with the tool pod unable to build the head CI built green is Unconfirmed
+// for that reason (SPEC-S2 S2-20), never Unavailable and never a fail.
+func (p *pass) unjudgedFor(ctx context.Context, pv *v1alpha1.PreviewVerification) error {
+	buildFailed := pv != nil && pv.Spec.IsAgents() && pv.Status.Reason == v1alpha1.VerificationReasonToolsBuildFailed
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if nv.Attempt >= v1alpha1.MaxVerificationAttempts {
 			nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, ""
+			if buildFailed {
+				nv.State, nv.UnavailableReason = v1alpha1.VerificationUnconfirmed,
+					v1alpha1.VerificationUnavailableToolsBuildFailed
+			}
 			return nil
 		}
 		nv.Ref = nil

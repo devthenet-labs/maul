@@ -82,7 +82,7 @@ func (p *pass) reviewChecks(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 			slog.String("intent", p.in.Name), slog.Any("error", err))
 		return false, false, nil
 	}
-	cands := storeCandidates(pv, acc.Outcomes, stored, p.checkPreview(pv),
+	cands := storeCandidates(pv, acc.Outcomes, stored, p.checkContext(pv),
 		func(reason string, c v1alpha1.SavedCheck, detail string) {
 			p.r.log().LogAttrs(ctx, slog.LevelInfo, "a confirmed check is not stored: "+reason,
 				slog.String("intent", p.in.Name), slog.String("verification", pv.Name),
@@ -174,17 +174,25 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	if err != nil {
 		return false, err
 	}
-	h := agentrun.CheckReviewHandoff{Request: request, Components: p.evaluateComponents(pv)}
+	h := agentrun.CheckReviewHandoff{Request: request}
+	if pv.Spec.IsAgents() {
+		h.Workspace = &agentrun.CheckReviewWorkspace{EvaluateWorkspace: evaluateWorkspace(pv),
+			BaseUnbuildable: pv.Status.Base != nil && pv.Status.Base.Unbuildable}
+	} else {
+		h.Components = p.evaluateComponents(pv)
+	}
 	for _, c := range pending {
-		it := agentrun.CheckReviewItem{CheckDigest: c.check.Digest, OutcomeDigest: outcomeDigest(c.outcome),
-			Outcome: reviewOutcomeText(c.outcome), From: untrusted.Visible(c.outcome.From, reviewFromMaxBytes),
-			Kind: reviewKind(c.outcome), Check: c.check.Body}
-		if c.red() {
-			// The red question, naming the assertion maul's own run failed.
-			it.Expect, it.FailedStep = string(v1alpha1.CheckExpectFail), int(c.check.FailedStep)
-			it.FailedAssertion = c.check.FailedAssertion
+		it, why := reviewItem(pv, c, h.Workspace)
+		if why != "" {
+			p.r.log().LogAttrs(ctx, slog.LevelInfo, "a confirmed check is not reviewed: "+why,
+				slog.String("intent", p.in.Name), slog.String("verification", pv.Name),
+				slog.String("check", c.check.Digest))
+			continue
 		}
 		h.Reviews = append(h.Reviews, it)
+	}
+	if len(h.Reviews) == 0 {
+		return false, nil
 	}
 	handoff, err := encodeCheckReviewHandoff(h)
 	if err != nil {
@@ -199,6 +207,71 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 		slog.String("intent", p.in.Name), slog.String("verification", pv.Name), slog.String("run", run.Name),
 		slog.Int("checks", len(h.Reviews)))
 	return true, nil
+}
+
+// reviewItem is c's review, with, on a workspace round (ws), its runs at
+// each side as agent-runner holds them (S2-16): the head's as confirmed
+// (green: its pass; red: its fail by the assertion it was confirmed
+// failing; a stored check asked the green question again: its replay's
+// pass), and the base's unless the base did not build. why says why c is
+// not reviewed: a red check with no failed assertion (a bare exit code
+// never counts, SPEC-S2), or a workspace check with no head run to hand.
+func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate,
+	ws *agentrun.CheckReviewWorkspace) (agentrun.CheckReviewItem, string) {
+	it := agentrun.CheckReviewItem{CheckDigest: c.check.Digest, OutcomeDigest: outcomeDigest(c.outcome),
+		Outcome: reviewOutcomeText(c.outcome), From: untrusted.Visible(c.outcome.From, reviewFromMaxBytes),
+		Kind: reviewKind(c.outcome), Check: c.check.Body}
+	if c.red() {
+		if c.check.FailedAssertion == "" || c.check.FailedStep == 0 {
+			return it, "it is red with no failed assertion"
+		}
+		// The red question, naming the assertion maul's own run failed.
+		it.Expect, it.FailedStep = string(v1alpha1.CheckExpectFail), int(c.check.FailedStep)
+		it.FailedAssertion = c.check.FailedAssertion
+	}
+	if ws == nil {
+		return it, ""
+	}
+	runs := pv.Status.Confirmations
+	if c.green {
+		runs = pv.Status.Replay
+	}
+	head := latestRun(runs, c.check.Digest, v1alpha1.TreeHead)
+	switch {
+	case head == nil:
+		return it, "no run of it at the head"
+	case !c.red() && head.Result != v1alpha1.CheckRunPass,
+		c.red() && (!head.RedByAssertion() || head.AssertionID != c.check.FailedAssertion):
+		return it, "its run at the head is not the one it was confirmed by"
+	}
+	it.Head = reviewRun(*head)
+	if b := pv.Status.Base; b != nil && !ws.BaseUnbuildable {
+		if base := latestRun(b.Runs, c.check.Digest, v1alpha1.TreeBase); base != nil {
+			it.Base = reviewRun(*base)
+		}
+	}
+	return it, ""
+}
+
+// latestRun is the last of runs of check digest at side, nil for none.
+func latestRun(runs []v1alpha1.CheckRun, digest string, side v1alpha1.TreeSide) *v1alpha1.CheckRun {
+	var out *v1alpha1.CheckRun
+	for i := range runs {
+		if r := &runs[i]; r.CheckDigest == digest && r.Side() == side {
+			out = r
+		}
+	}
+	return out
+}
+
+// reviewRun is r as the reviewer reads it: its result, and for a fail red
+// by assertion that assertion.
+func reviewRun(r v1alpha1.CheckRun) *agentrun.ReviewRun {
+	out := &agentrun.ReviewRun{Result: string(r.Result)}
+	if r.RedByAssertion() {
+		out.Assertion = r.AssertionID
+	}
+	return out
 }
 
 // recordReviews caches run's answers for pending's keys, each naming run

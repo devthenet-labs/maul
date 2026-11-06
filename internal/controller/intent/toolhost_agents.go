@@ -391,30 +391,34 @@ func (p *pass) pruneTrees(ctx context.Context, keep ...string) {
 
 // agentsUnconfirmed settles a due agents round that cannot run at all
 // (reason, a PreviewVerification reason; why, what is missing):
-// Unconfirmed, any request consumed, never a block (O8). Written once; a
-// later pass that finds what was missing runs the round.
+// Unconfirmed, any request consumed, never a block (O8), recording why
+// (SandboxImageUnavailable, which the hand-off says). Written once; a later
+// pass that finds what was missing runs the round.
 func (p *pass) agentsUnconfirmed(ctx context.Context, reason v1alpha1.PreviewVerificationReason,
 	why string) (bool, error) {
 	v := p.in.Status.Verification
-	if v.Ref != nil || v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil {
+	if v.Ref != nil || v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil &&
+		v.UnavailableReason == v1alpha1.VerificationUnavailableSandboxImage {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round cannot run; the verification is unconfirmed",
 		slog.String("intent", p.in.Name), slog.String("reason", string(reason)), slog.String("detail", why))
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnconfirmed, "", nil
+		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnconfirmed,
+			v1alpha1.VerificationUnavailableSandboxImage, nil
 		return nil
 	})
 }
 
 // treesUnavailable settles a due agents round whose trees cannot be had
 // (VerificationReasonTreeUnavailable; why, which tree and how):
-// Unavailable, any request consumed, until a later pass finds them Ready or
-// the heads move. Written once.
+// Unavailable for that reason (TreeUnavailable), any request consumed,
+// until a later pass finds them Ready or the heads move. Written once.
 func (p *pass) treesUnavailable(ctx context.Context, why string) (bool, error) {
 	v := p.in.Status.Verification
-	if v.Ref != nil || v.State == v1alpha1.VerificationUnavailable && v.Requested == nil {
+	if v.Ref != nil || v.State == v1alpha1.VerificationUnavailable && v.Requested == nil &&
+		v.UnavailableReason == v1alpha1.VerificationUnavailableTree {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round's trees are unavailable; the verification is unavailable",
@@ -422,7 +426,8 @@ func (p *pass) treesUnavailable(ctx context.Context, why string) (bool, error) {
 		slog.String("detail", why))
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable, "", nil
+		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable,
+			v1alpha1.VerificationUnavailableTree, nil
 		return nil
 	})
 }
