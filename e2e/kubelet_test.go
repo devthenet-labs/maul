@@ -487,6 +487,10 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 		prep = func() error { return prepareRole(workspace, &secret) }
 	}
 	if err := prep(); err != nil {
+		if ctx.Err() != nil {
+			// The test ended mid-fetch (U19): no pod to record, no failure.
+			return ctx.Err()
+		}
 		k.t.Errorf("kubelet: job %s: prepare: %v", job.Name, err)
 		prepareExit = 1
 	}

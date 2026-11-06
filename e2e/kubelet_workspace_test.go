@@ -143,6 +143,20 @@ func (k *kubelet) WorkspaceRuns() []workspaceRun {
 	return append([]workspaceRun(nil), k.workspace.runs...)
 }
 
+// toolPodIP is the address of the one tool pod running now, "" for none or
+// several.
+func toolPodIP(k *kubelet) string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.tools == nil || len(k.tools.byIP) != 1 {
+		return ""
+	}
+	for ip := range k.tools.byIP {
+		return ip
+	}
+	return ""
+}
+
 // isWorkspaceToolJob reports an agents tool Job, which the agent loop
 // leaves alone.
 func isWorkspaceToolJob(job *batchv1.Job) bool {
