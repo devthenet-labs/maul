@@ -16,6 +16,10 @@ type Resolved struct {
 	Image string
 	// SearchPath is the sanitized PATH the pod is given (SanitizePath).
 	SearchPath []string
+	// GoEnv is the Go toolchain directories the image config bakes
+	// (GoEnv: GOMODCACHE, GOPATH, GOROOT), nil when it bakes none or an
+	// index's runnable manifests disagree on them.
+	GoEnv map[string]string
 	// Verified is true when a signature was verified against Image's digest.
 	Verified bool
 }

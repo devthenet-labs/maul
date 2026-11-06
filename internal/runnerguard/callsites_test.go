@@ -14,10 +14,12 @@ import (
 	"testing"
 )
 
-// TestProfileCallSites: Guard.Profile is asked in exactly two places, the
-// remediation launch and the intent run scheduler's stage spec (a build or
-// revise run), so no other Job (investigate, plan, evaluation) can ever
-// request a profile. jobs.Create refuses one on those Jobs anyway; this
+// TestProfileCallSites: Guard.Profile is asked in exactly three places, the
+// remediation launch, the intent run scheduler's stage spec (a build or
+// revise run) and the agents host's re-derivation of that very build spec
+// for the tool pod (jobs.ToolPodSpec.ProfileOf, which takes a build Job's
+// profile and nothing wider), so no other Job (investigate, plan,
+// evaluation) can ever request a profile. jobs.Create refuses one on those Jobs anyway; this
 // keeps the request out of their code paths too. It scans every non-test
 // file of internal/ and cmd/ for a call of a method named Profile.
 func TestProfileCallSites(t *testing.T) {
@@ -55,6 +57,7 @@ func TestProfileCallSites(t *testing.T) {
 	}
 	slices.Sort(found)
 	want := []string{
+		"internal/controller/intent/agentshost/start.go",
 		"internal/controller/intent/run_controller.go",
 		"internal/controller/remediation/remediation_controller.go",
 	}

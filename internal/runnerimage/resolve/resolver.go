@@ -125,7 +125,7 @@ func (r *Resolver) Resolve(ctx context.Context, ref imageref.Ref) (runnerimage.R
 	var resolved runnerimage.Resolved
 	if err == nil {
 		resolved = runnerimage.Resolved{Image: pinned, SearchPath: rep.Manifests[0].SearchPath,
-			Verified: rep.SignatureChecked}
+			GoEnv: rep.goEnv(), Verified: rep.SignatureChecked}
 	}
 	if err == nil || runnerimage.IsRejection(err) {
 		r.cache.put(pinned, resolved, err)

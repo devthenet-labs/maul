@@ -234,6 +234,23 @@ spec:
                       Declared is the reference exactly as the declaring file names it, in
                       tag or digest form.
                     type: string
+                  goEnv:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      GoEnv is the Go toolchain directories the image config bakes, by
+                      name (GOMODCACHE, GOPATH, GOROOT; runnerimage.GoEnv): each one clean
+                      absolute directory. The agents tool pod passes them to the programs
+                      it runs in the image, which see none of the image's own environment,
+                      so a Go build with no network profile finds the image's module
+                      cache. Empty when the image bakes none.
+                    maxProperties: 3
+                    type: object
+                    x-kubernetes-validations:
+                    - message: goEnv names only GOMODCACHE, GOPATH and GOROOT, each
+                        an absolute directory of at most 4096 characters
+                      rule: self.all(k, k in ['GOMODCACHE', 'GOPATH', 'GOROOT'] &&
+                        self[k].startsWith('/') && size(self[k]) <= 4096)
                   image:
                     description: |-
                       Image is the digest-pinned reference (name@sha256:...) that was

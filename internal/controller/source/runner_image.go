@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -229,6 +230,7 @@ func (r *RepositoryReconciler) resolveRunnerImage(
 		Manifest:   decl.Manifest,
 		Image:      res.Image,
 		SearchPath: strings.Join(res.SearchPath, ":"),
+		GoEnv:      maps.Clone(res.GoEnv),
 		Verified:   res.Verified,
 	}, nil
 }

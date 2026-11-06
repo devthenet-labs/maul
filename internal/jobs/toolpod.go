@@ -131,6 +131,17 @@ const (
 	toolBaseUID        = int64(65541)
 )
 
+// The containers a tool pod's observer reads by name: the tools container
+// (its log and termination message are the ledger), the prepare init
+// (exit ExitSandboxUnenforced on open egress) and each side's sandbox.
+const (
+	ToolsContainer   = toolsContainerName
+	PrepareContainer = initContainerName
+)
+
+// ToolSandbox is side's sandbox container's name.
+func ToolSandbox(side string) string { return "sandbox-" + side }
+
 // sideUID is a side's sandbox (and seed) UID.
 var sideUID = map[string]int64{ToolSideHead: toolHeadUID, ToolSideBase: toolBaseUID}
 
@@ -279,6 +290,26 @@ func (c *Client) CreateToolPod(ctx context.Context, spec ToolPodSpec) (string, e
 		slog.String("head", spec.tree(ToolSideHead).BaseSHA),
 		slog.String("base", spec.tree(ToolSideBase).BaseSHA))
 	return created.Name, nil
+}
+
+// ToolPodSandboxEnv is the environment both of spec's sandboxes are
+// rendered with: the search path, the sandbox's own places and the build's
+// network profile (ProfileOf), exactly as CreateToolPod renders them. The
+// relay's config carries it (previewtools.Workspace.Env), since the exec
+// shim passes a program none of its own environment, so spec's Data is not
+// yet written: everything else CreateToolPod would refuse is refused.
+// Nothing is created.
+func (c *Client) ToolPodSandboxEnv(spec ToolPodSpec) ([]corev1.EnvVar, error) {
+	probe := spec
+	probe.Data = map[string]string{toolsConfigFile: "{}"}
+	if err := c.toolPodSpecRefusal(probe); err != nil {
+		return nil, err
+	}
+	profile, tunnel, err := c.toolProfile(*spec.build)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrToolPodRefused, err)
+	}
+	return toolSandbox(spec, ToolSideHead, profile, tunnel, corev1.ResourceRequirements{}).Env, nil
 }
 
 // tree is the spec's tree of side, or the zero Tree.
@@ -477,7 +508,7 @@ func toolSandbox(spec ToolPodSpec, side string, profile *NetworkProfile, tunnel 
 		env = applyProfileEnv(env, profile, tunnel)
 	}
 	return corev1.Container{
-		Name: "sandbox-" + side, Image: spec.Image, ImagePullPolicy: corev1.PullIfNotPresent,
+		Name: ToolSandbox(side), Image: spec.Image, ImagePullPolicy: corev1.PullIfNotPresent,
 		Command: []string{toolExecBin},
 		Args: []string{
 			"--socket=" + toolExecDir + "/" + toolExecSocket, "--workdir=" + toolWorkDir,

@@ -9,6 +9,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -189,6 +190,21 @@ func TestRunnerImageDeclarations(t *testing.T) {
 				t.Errorf("artifact/sha = %+v/%q, want both pinned", repo.Status.Artifact, repo.Status.ResolvedSHA)
 			}
 		})
+	}
+}
+
+// TestRunnerImageGoEnv: the image's Go directories are recorded beside its
+// search path (SPEC-S2 S2-13 step 0).
+func TestRunnerImageGoEnv(t *testing.T) {
+	resolved := runnerimage.Resolved{Image: "ghcr.io/acme/go-env@sha256:" + strings.Repeat("cd", 32),
+		SearchPath: []string{"/usr/bin"}, GoEnv: map[string]string{"GOMODCACHE": "/opt/go/pkg/mod"}}
+	gh := &fakeForgeClient{defaultBranch: "main", headSHA: "abc123",
+		tarball: tarball(t, map[string]string{runnerimage.AgentYAMLPath: yamlDecl})}
+	r, c := imageHarness(t, gh, &fakeResolver{resolved: resolved})
+	reconcile(t, r)
+	ri := getRepo(t, c).Status.RunnerImage
+	if ri == nil || ri.Image != resolved.Image || !maps.Equal(ri.GoEnv, resolved.GoEnv) {
+		t.Fatalf("runnerImage = %+v, want the image's go env %v", ri, resolved.GoEnv)
 	}
 }
 
