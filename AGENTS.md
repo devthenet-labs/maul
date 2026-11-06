@@ -812,8 +812,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `KindBuild` in the side's tree, 10m by default and at most 20m, keeping a 256 KiB output tail, `AllowedEnv` (the
   search path and the build's network profile, refusing a variable the shim sets itself: `HOME`, `TMPDIR`, `GOCACHE`,
   `GOTOOLCHAIN`, the npm cache), the UID-wide sweep before every answer (`Result.Unclean` when something survives,
-  nothing more runs until a sweep is clean), `Result.NetError`, UID 0 refused) and `cmd/maul-tool` (the CLI: `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into
-  `shots/` under the scratch directory only). Each imports only the stdlib, `toolwire` and, for the shim,
+  nothing more runs until a sweep is clean), `Result.NetError`, UID 0 refused) and `cmd/maul-tool` (the CLI:
+  `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into `shots/` under the scratch
+  directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
   `api/v1alpha1`, `acceptance` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
