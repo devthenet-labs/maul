@@ -44,6 +44,14 @@ The `--repository-image-*` flags take effect only with `--repository-images`; se
 - **Repository reconciler** — created by the investigation-controller's gate, a `Repository` is resolved to its Forge,
   its head SHA pinned **once**, and the tarball downloaded at exactly that commit. The pin is what guarantees
   investigation and remediation see the same code.
+- **Commit Repositories** — a Repository whose `spec.ref.commit` names a full 40-hex commit (exclusive with
+  `ref.branch`, and immutable: set at creation or never) is pinned to exactly that commit and downloaded at it, and
+  never has a runner image read from it, since its tree may be a pull request's head. The API server refuses a status
+  that pins such a Repository to another SHA or to an image, so a source-controller older than commit refs cannot write
+  one. intent-controller creates them for [the agents tool pod](intent-controller.md#the-agents-tool-pod)'s head and
+  base trees. When GitHub answers the archive-link request 404, the commit does not exist there or is not visible to the
+  Forge's credential (GitHub answers both alike): the Repository is `Stalled` with reason `CommitNotFound`, and is not
+  retried. A 404 from the download that link redirects to is retried as any failed download is.
 - **Artifact server** — serves the stored tarballs on `--artifact-addr`. The Deployment stores them in an `emptyDir`:
   they are reproducible from the pinned SHA, so a pod restart just re-downloads. The Service is in-cluster only by
   design, and the NetworkPolicies restrict the port to the agent namespace.
@@ -89,9 +97,12 @@ with `--repository-images` on the [investigation](investigation-controller.md#ag
   (or does not answer within three minutes) leaves `Ready=False` / `RunnerImageResolveFailed` and backs off. Verdicts
   are cached for ten minutes by digest, never by tag.
 - **Outcomes.** An accepted image records `declared`, `manifest` (the declaring file), `image` (`name@sha256:…`),
-  `searchPath` and `verified`. A devcontainer.json maul cannot honour (it builds its image, adds features, or names no
-  usable `image`) is not a declaration: `manifest` and `message` record why, and the default runner image runs. A
-  deterministic failure is a rejection: `rejected` carries the reason label and `message` the explanation (the guide's
+  `searchPath` and `verified`, and `goEnv`: the Go directories its config bakes (`GOMODCACHE`, `GOPATH`, `GOROOT`, each
+  only when one clean absolute directory). The agents tool pod's programs see none of the image's own environment, so it
+  passes them `GOMODCACHE` and `GOPATH` from there (never `GOROOT`). A Repository pinned before `goEnv` existed has
+  none. A devcontainer.json maul cannot honour (it builds its image, adds features, or names no usable `image`) is not a
+  declaration: `manifest` and `message` record why, and the default runner image runs. A deterministic failure is a
+  rejection: `rejected` carries the reason label and `message` the explanation (the guide's
   [troubleshooting table](../integrations/agent-images.md#troubleshooting) lists every label). Under
   `--repository-image-on-reject default` the Repository stays `Ready` and the finding runs on the default runner image;
   under `handoff` it is `Stalled` / `RunnerImageRejected` and the investigation gate parks the finding `HandedOff` with

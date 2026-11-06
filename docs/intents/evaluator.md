@@ -31,6 +31,9 @@ acceptance criteria, as [Acceptance verification](acceptance.md#without-the-eval
 | The check reviewer      | a `checkreview` IntentRun, one per round                                | The round's new checks as maul renders them; the outcome texts, the issue line each answers and its kind; the request, as the evaluator gets it (on the green question only); and the previewed components. Never the application, a step's name or the evaluator's notes and verdicts. Reaches only the broker         |
 | Log and event capture   | preview-controller                                                      | Bounded, redacted log tails of each component and the slot's pod events since the round began, handed to `tools`. Neither the evaluator nor the tool pod has any Kubernetes access                                                                                                                                      |
 
+A Project with no preview but a command-line program or a Go library has its tool pod in the agents namespace instead:
+see [Without a preview: a CLI or a library](#without-a-preview-a-cli-or-a-library).
+
 The evaluator acts only through one shell command, `maul-tool`:
 
 | Command                                          | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -429,6 +432,135 @@ budget and the 20 minutes. Raise the cost budget and the timeout before the turn
 Nothing of the evaluator reaches a build or fix agent beyond the reproduction above: not its prompt, its notes, the
 check store or its transcript.
 
+## Without a preview: a CLI or a library
+
+A Project with no preview is evaluated too when it says what to build: a command-line program (`surfaces.cli`) or a Go
+library (`surfaces.library`). The evaluator is the same run, judged by the same rules; what changes is where its hands
+are and one rule more. intent-controller runs the round's tool pod itself, in the agents namespace, and that pod builds
+the pull request **twice**, in the repository's accepted runner image: at its head, and at its **base**, the merge base
+of the head and the repository's default branch (read from GitHub when the round starts, so a merge of the default
+branch into the pull request moves it). Every check runs at both, and a check of a `change` outcome counts only if it
+tells the change from its absence.
+
+It is off by default: chart `intentController.verification.agents.enabled` (intent-controller
+`--intent-evaluator-agents`), beside the evaluator, with repository images on; previews need not be. Off, such a Project
+carries `VerificationOff` (reason `AgentsToolPodNotEnabled`) and its plans are not asked for outcomes. The operator's
+side (the pod, its privileges, capacity and rollback) is in
+[the agents tool pod](../configuration/intent-controller.md#the-agents-tool-pod).
+
+```yaml
+spec:
+  repositories:
+    - name: render
+      url: https://github.com/acme/bbrender
+  verification:
+    enabled: true
+  surfaces:
+    cli:
+      repository: render # optional when the Project has one repository
+      build: [go, build, -o, /work/bin/bbrender, ./cmd/bbrender] # run at the tree's root; writes under /work/bin
+      binary: /work/bin/bbrender # at most two names below /work/bin
+      buildTimeout: 10m # each tree's build, 1m to 20m, never above the chart's buildTimeoutMax
+    # or, in place of cli:
+    # library: { repository: render, language: go }
+```
+
+- **One surface, no preview.** A Project has at most one of `cli` and `library`, never beside `surfaces.browser`, and
+  never with `spec.preview` or a repository's `preview` (the API server refuses each; a Project that combines them
+  anyway is `VerificationOff`, `SurfaceCombinationUnsupported`). One repository per tool pod: outcomes about another
+  repository get no tools. `language` is `go` only.
+- **The build.** `build` is 1 to 16 arguments, run in the tree's writable copy under the build's own
+  [network profile](../configuration/intent-controller.md#network-profiles), and one of them must name `/work/bin` as a
+  directory. A library's build is `go build ./...`. `maul check project` checks the surface, the build and the profile
+  before anything runs (checks `surface`, `surface-build`, `surface-profile`).
+- **The image.** Both sandboxes run the image the repository's latest build ran in (its accepted pin), never one the
+  pull request declares. A repository with no accepted image is never evaluated: the round settles "maul couldn't
+  confirm this: the repository has no accepted runner image to build the pull request in", never a block, and while
+  `--repository-images` is off the Project shows `RepositoryImageRequired` from the start. Only `GOMODCACHE` and
+  `GOPATH` from the image's own environment reach the programs (a network profile's own win); everything else in it,
+  `GOFLAGS` or `GOPROXY` say, does not.
+
+### What the evaluator can do there
+
+The tool pod has no preview, so `http`, `browser`, `logs` and `events` are refused. Every call carries the tool pod's
+per-evaluation key, which agent-runner stages where the model's own file tools cannot read it; a call without it is
+refused and recorded.
+
+| Command                                         | Does                                                                                                                                                                                                                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maul-tool exec [--base] [--file f]... -- argv` | Runs a program in the head's sandbox (or the base's), in a fresh scratch directory of its own; `{{bin}}` (the built binary) and `{{tree}}` (the tree's writable copy, `/work/tree`) are substituted                                               |
+| `maul-tool files ls`, `grep`, `read` `[--base]` | Looks at the tree as fetched, never as a build rewrote it: a listing, a literal-substring search (at most 200 hits) or the first 64 KiB of one file. Nothing reaches outside the tree                                                             |
+| `maul-tool run <dir> [--base] [-- args]`        | Compiles the Go program in `<dir>` (at most 8 `.go` files at its top, no subdirectories) against the side's tree, then runs it: how a library is used, or a checker that reads what the binary wrote                                              |
+| `maul-tool check run [--base] <file>`           | A dry run of a check the evaluator wrote, as on a preview. A cli check runs the binary (an `exec` whose `argv[0]` is `{{bin}}`, or a `run` whose program names it), a library check is a `run`, and each asserts on its standard output's content |
+
+A `run` program is compiled offline against the tree's own module graph: maul writes a minimal `go.mod` (module
+`maulcheck`, the tree's `go` line) beside the program and makes a `go work` workspace of it and the tree, then builds
+with no module proxy, the module files read-only and no user `go env` file, so the compile never reaches the network and
+never changes the tree's `go.mod` or `go.sum`. A tree with a `vendor` directory, a `replace` by an absolute path or a
+directory outside the tree, or no `go.mod` maul can read refuses every `run` by name. Each exploratory call gets a fresh
+scratch directory, but `HOME` and the writable tree are shared by every call at that side and never reset while the
+evaluator explores; maul's own runs of a check get a fresh scratch directory and run token each.
+
+### Head and base
+
+The pod builds both trees first, in parallel, each in its own sandbox, under its own user, with its own tree, caches and
+socket: code at the head cannot touch the base's files, and nothing a program leaves behind survives into the next run
+(the sandbox kills every process of its user before it answers). Then:
+
+- **A head that does not build** runs nothing more. CI built that head green, so it is maul's trouble, never the
+  change's: every outcome is unsure ("its own build of the pull request did not finish"), and no fix round starts.
+- **A base that does not build** is the base's fact (it built and failed): every check's base run is recorded as having
+  no base, and a pass rests on the other rules, marked **no base comparison**. A base build that timed out or that maul
+  could not run is not that: it gives no base evidence (below).
+- **Every check runs at both**, the head then the base, each alone under its own fresh run token: the replay of every
+  saved check, and the confirmation of every proposed one. A check has no side: the same text runs at both. At most 80
+  base runs are recorded per round.
+
+How a check's base runs count, for an outcome a check passed at the head by every other rule:
+
+| At the base, the check...                                                                                                             | `change` outcome                     | `keep` outcome |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------- |
+| failed by assertion (its stdout lacked what it asserts, or the program printed its marker)                                            | **tells the change apart**: may pass | no pass        |
+| passed                                                                                                                                | no pass: it does not tell them apart | may pass       |
+| could not run there for a reason of the base tree itself: the program did not compile, or the base did not build                      | **no base comparison**: may pass     | may pass       |
+| failed with no assertion (a wrong exit, a crash), timed out, left processes behind, cut its output, or hit a bind or connection error | no pass                              | may pass       |
+| has no run at the base (the round's base runs were spent)                                                                             | no pass                              | no pass        |
+| passed on one attempt and failed on another, or is quarantined                                                                        | no pass                              | no pass        |
+
+A "no pass" here is unsure with the reason `no-base-evidence`, never a fail. **"Did not compile" is narrow on purpose.**
+A compile counts as the base tree's only when the Go compiler ran to its end and refused the program's own files: a
+clean exit 1, output that is not cut, the `# maulcheck` header first, and then only diagnostics located in the program's
+own `.go` files (and their continuation lines), with no sign of anything else (a killed compiler, memory, disk, the
+module cache, the network, the toolchain). Anything else gives no base evidence, so a pass is never resting on an
+environmental failure. The cost: a check whose program imports a package the change adds fails to load at the base
+(`cannot find module providing package`), which is not a compile refusal, so it leaves its outcome unsure. Prefer a
+check that uses the new symbol from a package that already exists at the base, or an `exec` of the binary.
+
+A check run that errs at the base carries its cause (`compile`, `vendored-tree`, `replace-outside-tree`, `no-module`,
+`base-unbuildable`) on the request's `status.base.runs`, the cause the check reviewer sees too. Only those causes mean
+no base comparison; an error without one means no base evidence.
+
+### What changes for people
+
+- **No link.** The hand-off holds maul's word, not a link: the status comment says maul is checking the approved
+  outcomes "in its own build of the pull request" and holds its hand-off to the reviewers until it has. A review asking
+  for changes, `/maul revise` or a push maul did not make hands it over at once; `/maul preview` does nothing, and says
+  so.
+- **Accepting an outcome.** `/maul accept <id>` binds only when maul had started a round at exactly those heads before
+  the comment; otherwise maul replies that it was not checking those commits when the approver commented.
+- **Couldn't confirm** has three more reasons: "its own build of the pull request did not finish" (the head did not
+  build in the tool pod), "the repository has no accepted runner image to build the pull request in", and "it could not
+  fetch the source of the pull request or of its base" (a tree did not become ready within 15 minutes, or GitHub has no
+  such commit or does not let maul see it). The intent's `status.verification.unavailableReason` records the last as
+  `TreeUnavailable` (the round is retried while the heads stay), the first two as `ToolsBuildFailed` and
+  `SandboxImageUnavailable` beside the state `Unconfirmed`.
+- **In the cluster.** The round is a `PreviewVerification` with `spec.placement: agents` and its `spec.workspace` (the
+  repository, the head and base commits and their Repositories, the image, the network profile, the surface). Its status
+  carries the builds (`status.ledger.builds`), the base side (`status.base`: whether a base was required, whether it was
+  unbuildable, each base run with `tree: base`), and the full ledger in `<verification>-ledger`; there are no
+  screenshots. The two trees are Intent-owned Repositories pinned to exact commits (`spec.ref.commit`). The status page
+  shows the tree of each run, the builds and the base runs.
+
 ## codex: built, not verified
 
 The evaluator is verified live on claude. A codex Project's intents are evaluated on codex only with
@@ -450,10 +582,15 @@ scripted codex, but no live run has proved it yet, screenshot viewing included: 
 | Hand-off wait               | 60 minutes                                                         | `verification.handoffMax`, chart `handoffMax`                                                                                    |
 | Saved checks                | 40 per intent, 8 KiB each, 30 steps                                | fixed                                                                                                                            |
 | Captured logs               | a bounded tail per component per round; 40 lines in a reproduction | fixed                                                                                                                            |
+| Agents tool pods at once    | 2; at the bound a round waits, never a verdict                     | `--intent-max-tool-pods`, chart `verification.agents.maxToolPods`                                                                |
+| One tree's build (agents)   | 10 minutes, 1 to 20                                                | `surfaces.cli.buildTimeout`, capped by chart `verification.agents.buildTimeoutMax`                                               |
+| Base runs (agents)          | 80 per round                                                       | fixed                                                                                                                            |
 
 A tool pod lives as long as its evaluate run plus five minutes, under the slot's verification deadline
 (`preview.verification.deadlineMaxSeconds`), and needs about 2.5 CPU and 2 GiB beside the Preview: see
-[the preview-controller](../configuration/preview-controller.md#the-agent-evaluators-tool-pod).
+[the preview-controller](../configuration/preview-controller.md#the-agent-evaluators-tool-pod). An agents tool pod lives
+as long as its evaluate run, plus one tree's build, plus five minutes, at most 75 minutes, and needs about 2.25 CPU and
+4.25 GiB: see [the agents tool pod](../configuration/intent-controller.md#the-agents-tool-pod).
 
 ## Known limits
 
@@ -474,5 +611,15 @@ A tool pod lives as long as its evaluate run plus five minutes, under the slot's
   above was not run on codex or on a larger model.
 - **After a preview-controller restart,** a browser round's captured logs and events stop refreshing and stay as last
   written, because the key that redacts them is not recoverable from memory. Status keeps updating.
+- **Head and base share one pod's loopback and IPC.** Kubernetes cannot give two containers of one pod their own
+  loopback or their own POSIX message queues and SysV IPC. A process the head left listening on a loopback port could
+  make a base run fail, which would read as "fails at base". So the sandbox kills every process of its user before it
+  answers, a run naming a bind or connection error is an error (no base evidence, never a failure by assertion), and the
+  isolation probe checks a leftover head listener is gone before the base runs. Base code would have to open a name the
+  head chose to meet it over IPC, which Go builds and maul's check forms do not do. The full fix is one pod per side.
+- **A program can lie about its own output.** It runs as its sandbox's user, as the shim does; it cannot write the
+  `tools` container's log, the ledger, or the other side's files. The check reviewer reads every program in full.
+- **A compile refusal that leaves no trace.** A base compile the compiler ended for an environmental reason that left
+  nothing of it in the output would still read as a compile refusal (no base comparison). None is known.
 - **The evaluation ceiling counts toward the hourly limit.** With the evaluator on, the default \$6 ceiling counts
   toward `RunBudgetOverHourlyLimit`: a broker `costPerHour` below \$12 keeps such a Project from Ready.

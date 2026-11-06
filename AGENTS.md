@@ -37,7 +37,12 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   each Repository's head SHA once, downloads the tarball archive at that SHA (pure HTTP, no git binary), and
   serves it from the artifact endpoint (`:9790`) agent pods fetch credential-lessly. With
   `--repository-images` on, it also reads the tree's runner-image declaration out of that stored tarball and
-  pins the image to a digest exactly once beside the SHA (`status.runnerImage`, its only writer).
+  pins the image to a digest exactly once beside the SHA (`status.runnerImage`, its only writer; with the image's
+  baked Go directories as `goEnv`: `GOMODCACHE`, `GOPATH`, `GOROOT`, `runnerimage.GoEnv`). A commit Repository
+  (`spec.ref.commit`, 40-hex, exclusive with `branch`, immutable) is pinned to exactly that commit and never reads a
+  runner image (a root CEL rule refuses a status that does); a 404 at the archive-link request
+  (`ghclient.ErrArchiveNotFound`: the commit does not exist or is not visible) is terminal `CommitNotFound`, a 404 from
+  the redirected download a `FetchFailed` retry.
 - `cmd/context-controller` — runs the enhancer chain (CMDB placeholder + the Cloud Asset Inventory lookup, whose
   config is the `cloudAssetInventory` block on the `google-cloud` Integration, + the AWS and Azure resource-tags
   lookups, whose configs are the `resourceTags` blocks on the `aws` and `azure` Integrations, + the generic HTTP
@@ -219,6 +224,22 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `--intent-handoff-max`, `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
   `limits.maxEvaluateCostMicroUSD`); a codex Project is evaluated only with `--intent-evaluate-codex`, else its hand-off
   is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes.
+  A round runs on a host behind the `toolHost` port (`toolhost.go`: `placement`, `verifies`, `heads`, `gate`, whose
+  `place` fills the host's spec fields): `slotHost` (`toolhost_slot.go`, S1, preview-controller's slot tool pod) or,
+  with `--intent-evaluator-agents` (slice S2, default off; chart `intentController.verification.agents.enabled`, which
+  needs repository images; previews then optional; `--intent-tools-image`, `--intent-max-tool-pods` 2,
+  `--intent-tool-build-timeout-max` 20m, `--intent-tool-resources` JSON) `agentsHost` (`toolhost_agents.go`) for a
+  Project with `surfaces.cli` or `surfaces.library` and no preview (one host per Project: a preview beside one is
+  `VerificationOff` `SurfaceCombinationUnsupported`; the tool pod off, `AgentsToolPodNotEnabled`; repository images
+  off, condition `RepositoryImageRequired`). Its gate: checks green, the latest build run's accepted image and profile
+  (`agentshost.LatestBuildRun`, `PinFor`, `requestProfile`; none: Unconfirmed `SandboxImageUnavailable`, never a
+  block), the merge base with the default branch (compare), and two Intent-owned commit Repositories of head and base
+  Ready (15m from creation, else `Unavailable` `TreeUnavailable`); the PV is `spec.placement: agents` with
+  `spec.workspace`, timeout evaluate + build + 5m (at most 75m). Its status has one writer, the agents host
+  (`controller/intent/agentshost`, below), never preview-controller. The evaluate handoff's tools key is read from the
+  tool pod's Secret only when the evaluate Job is created (`RunReconciler.withToolsKey`, `agentshost.ReadKey`), never
+  written to the input ConfigMap; an agents `/maul accept` binds only to heads a round had started at
+  (`VerifyAcceptNotChecked`), `/maul preview` answers `VerifyPreviewNone`, and the hand-off is link-less.
 - `cmd/preview-controller` — OPTIONAL (default-off): renders one `Preview` per eligible Intent PR into a fixed,
   isolated slot namespace. It uses only the Kubernetes API, with namespaced Roles and no GitHub, AWS, ECR or Secret
   access. It owns Preview status, fixed Deployment/Service/Ingress objects, bounded retries, slot cleanup and a
@@ -261,15 +282,24 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `internal/previewtools`. It serves the `toolwire` verbs on 8090 (refusing local callers), runs every tool call and
   check, and writes the ledger v2 (`MAUL-TOOLS:` entries, count and sha256 in the summary line and the termination
   message) on its stdout, which only it writes. The image adds Node and the exactly pinned `@playwright/cli`,
-  `playwright-core` and `@playwright/test`.
+  `playwright-core` and `@playwright/test`, and (S2) the static `tool-exec`. The same image is the agents tool pod's:
+  with `Config.Mode` `workspace` the relay drives two workspace shims (head, base) instead of a preview, and two
+  subcommands (`prepare.go`, `seed.go`, engine `internal/previewtools/prepare`; an unknown first argument exits 2) are
+  its trusted inits: `prepare` fetches both trees from the artifact server, verifies each digest, extracts through
+  `os.Root`, copies `tool-exec` into `maul-bin` (0555) and runs the strict probe in-process over
+  `internet,k8s,imds,dns`; `seed` copies one side's pristine tree into its work volume under that side's UID only.
 - `cmd/cdp-shim` — OPTIONAL (with the evaluator; `Dockerfile.preview-browser`, beside Chromium): the `browser`
   container's keyed CDP shim over `internal/cdpshim`. Chromium speaks CDP only over a pipe; the shim serves it to a
   caller presenting the per-verification key and no `Origin`, one Chromium per connection.
-- `cmd/tool-exec` — OPTIONAL (with the evaluator; `Dockerfile.preview-toolbox`): the `sandbox` container's exec shim
-  over `internal/toolexec`, on a unix socket only `tools` shares; agent-written programs run here, holding nothing.
+- `cmd/tool-exec` — OPTIONAL (with the evaluator; `Dockerfile.preview-toolbox`, and since S2 `Dockerfile.preview-tools`
+  too): the `sandbox` container's exec shim over `internal/toolexec`, on a unix socket only `tools` shares;
+  agent-written programs run here, holding nothing. In the agents tool pod it is the workspace shim of `sandbox-head`
+  and `sandbox-base`, run from the read-only `maul-bin` copy inside the repository's own image; it refuses UID 0.
 - `cmd/maul-tool` — the evaluator's one shell CLI (`internal/maultool`), shipped in the claude and codex agent-runner
-  images: `maul-tool http|browser|exec|logs|events|check run|check results`, sent to its tool pod over `toolwire`
-  (`MAUL_TOOLS_URL`, no key). Not deployed on its own.
+  images: `maul-tool http|browser|exec|logs|events|check run|check results`, and for an agents round
+  `files ls|grep|read [--base]`, `run <dir> [--base] [-- args]` and `--base` on `exec` and `check run`, sent to its
+  tool pod over `toolwire` (`MAUL_TOOLS_URL`; the per-evaluation key from `/work/input/tools-key`,
+  `maultool.KeyFile`, when it exists, as `X-Maul-Tools-Key`, never printed). Not deployed on its own.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded SPA +
   JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration `spec.replay`;
@@ -382,7 +412,10 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   class or an `alb` class leaves TLS to the edge (ingress-nginx or Traefik on EKS gets the Certificate).
   `check project` is `check image`'s cluster-reading sibling: a read-only Project preflight (engine in
   `cmd/maul/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves every repository over the Forge CRs,
-  and judges agent and preview images with the caller's own credentials; its preview DNS, TLS and sign-in checks are
+  and judges agent and preview images with the caller's own credentials (for a cli or library surface also
+  `surface`, `surface-build` and `surface-profile`: the surface's shape and repository, a build writing under
+  `/work/bin` with a valid binary and timeout, and the network profile that repository's build, and so the tool pod,
+  gets; that repository's agent image is then always required); its preview DNS, TLS and sign-in checks are
   `cmd/maul/internal/previewcheck` (`Checker.Host`, `Checker.Auth`, `LoadSettings`), shared with the install-level
   `check previews` so the two cannot drift. Those judge DNS and TLS and, while the chart's
   `previewAuth` is on, the relay's discovery, Dex's acceptance of the relay's one redirect URI and (once sign-in is
@@ -487,6 +520,22 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     the Job's pod pays with the person's key, replace and delete take
                     effect within the cap. pipeline_test.go asserts a codex Job holds no
                     SecretKeyRef and mounts the projected broker token.
+                    intent_agents_test.go runs the no-preview evaluator (S2) end to end:
+                    a cli pass (gated link-less hand-off, a foreign key refused, the
+                    evaluator only after status.tools, preview-controller never touching
+                    the agents PV), an agents fix round, a library new symbol (compile
+                    error at base: no base comparison), a head build failure
+                    (Unconfirmed, no fix), a base connect error (unsure,
+                    no-base-evidence) and a running tool pod deleted when its heads
+                    move. kubelet_workspace_test.go is the kubelet's part for role=tools
+                    Jobs: the real prepare engine (no strict probe: envtest hosts have
+                    open egress) and seeds, the real toolexec workspace servers
+                    in-process behind a socket filter standing in for the mount
+                    namespace, and the real preview-tools built with e2edial
+                    (MAUL_E2E_TREES_DIR, MAUL_E2E_EXEC_DIR), its stdout and termination
+                    file the tools container's. fakegithub's compare returns
+                    merge_base_commit, and ServeCommitTrees makes each pushed commit's
+                    tarball its own tree. The suite's timeout is 45m (hack/e2e.sh).
 docs/ overrides/    Zensical docs site (zensical.toml at the root; maul-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it
@@ -521,13 +570,31 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   the single-writer table and the durable-settle rules; `go_requirements.go` reads the root go.mod at the build's base
   and pushed commit with `x/mod/modfile` for the PR body's requirements section, a refused, missing or non-inline
   go.mod (`ghclient.ErrNotInline`) leaving the body as before; `planBuildProfiles` hands a plan Job its builds'
-  profiles as `MAUL_BUILD_NETWORK_PROFILES`, a fact for the prompt, never a profile of its own),
+  profiles as `MAUL_BUILD_NETWORK_PROFILES`, a fact for the prompt, never a profile of its own; the `toolHost`
+  port and its slot and agents adapters, above),
+  `controller/intent/agentshost` (the agents host, intent-controller's second reconciler, registered only with
+  `--intent-evaluator --intent-evaluator-agents`; single writer of an agents PV's status and `<pv>-ledger`; imports
+  nothing of `intent`: it re-checks the request each pass (one that no longer holds is Stale), waits at
+  `--intent-max-tool-pods` live unfinished tool Jobs (`tool-pods-saturated`; a finished one lingering holds none),
+  re-derives the build's image and profile through `PinFor`, `Profile` and the Forge check on the latest build run's
+  Repository (`start.go`, the third `Guard.Profile` call site; a Forge-list read failure retries, Infra
+  `tools-not-ready` only past the timeout; only a refused profile is Stale), renders the relay's environment from
+  `jobs.ToolPodSandboxEnv` plus `goEnv`'s `GOMODCACHE`/`GOPATH` (`GOROOT` never), creates `<job>-tools` and the Job
+  through `jobs.CreateToolPod` (Job named after the PV when a DNS label of at most 57, else `tools-<hash>`), writes
+  `status.tools` once `tools` and both sandboxes are Ready, maps prepare exit 78 to `sandbox-unenforced` (breaker),
+  evictions to `tools-evicted`, `DeadlineExceeded` to `tools-deadline`; collects only the `tools` log via
+  `toolledger.Parse` (a log holding the key is `ledger-mismatch`), writes builds, the head's runs, confirmed checks,
+  `status.base` from `toolledger.BaseRuns` (unbuildable only when a base build ran and failed) and the head build's
+  `previewtools.BuildPart` (not built: Infra `tools-build-failed`); tears down at settle, a finished Job after the
+  10-minute `linger` for the isolation probe, a running one at once, an orphan Secret with its settled PV; the
+  `Sweeper` is always registered and, with the host off, deletes every `role: tools` Job: the rollback lever),
   `controller/preview` (fixed slot workload renderer,
   bounded rollout, cleanup and orphan sweep; no forge access; with `--preview-auth-required`, default off, it renders
   each slot's pinned sign-in annotations from the chart's JSON, the one the slot admission policy compares, and the
   sweep reports a slot Ingress without the current or previous generation's set (auth-session-timeout judged, as the
   policy judges it, as a ceiling), deleting it only after three poll
-  intervals; an Ingress write refused at admission or by RBAC waits and requeues, never spending a retry).
+  intervals; an Ingress write refused at admission or by RBAC waits and requeues, never spending a retry; every PV
+  read skips agents PVs through `IsAgents()`, so it never touches one).
 - `kube` — the controller-runtime manager wrapper: scheme, kubeconfig/in-cluster config, leader election,
   multi-namespace cache, health probes, logr↔slog bridge. Secrets are never cached; a controller that needs only
   its own ConfigMaps confines their informer by label (`ConfigMapSelector`; intent-controller does, so the Finding
@@ -567,7 +634,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   lists the root go.mod requirements a build added or changed, marking any at another version than the plan's
   `new_dependencies` and any direct one the plan did not name (#200; sanitised and defanged, agent-written), and the
   plan prompt states which network profile each repository's build would get (`BuildProfile`,
-  `Encode`/`DecodeBuildProfiles`, carried as `MAUL_BUILD_NETWORK_PROFILES`).
+  `Encode`/`DecodeBuildProfiles`, carried as `MAUL_BUILD_NETWORK_PROFILES`). For a Project with no preview (S2) the
+  evaluate prompt is its own template (`prompt_evaluate_workspace.md.tmpl`, `EvaluateWorkspace`; shared sections in
+  `prompt_evaluate_parts.md.tmpl`), the check review and plan prompts take `ReviewWorkspace` and `PlanWorkspace`, the
+  reproduction of an agents round uses the workspace wording (`VerifyReproduction.Workspace`), and the hand-off is
+  link-less (`Workspace` on `IntentPreview`/`IntentPreviewComment`; `HandoffWhyOfVerification` maps the tool pod's
+  reasons to "couldn't confirm" words); S1's slot prompts and comments are byte-identical.
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
 - `attribution` — run attribution's pure core (per-user credentials design, L1): the `--attribution-mode` switch
@@ -680,31 +752,78 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   the six pass rules
   of DESIGN 4.3, the dispute rule, failed only on a deterministic check failure the evaluator agrees with, unsure
   otherwise, anomalies and a failing environment downgrading the hand-off; seeded property: no pass without all six).
-  `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`).
+  `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`). For S2, `Decide` takes `BaseRuns{Runs, Required,
+  Unbuildable}` and rule 5 discriminates: a `change` outcome's check must be red by assertion at base, or err there only
+  for a `RunCause` that `NoComparison` admits (`compile`, `vendored-tree`, `replace-outside-tree`, `no-module`,
+  `base-unbuildable`); a pass, a bare fail, and any error without a cause (timeout, unclean, cut output, bind/connect,
+  refusal) give no base evidence, as does a missing run of a required base: unsure `no-base-evidence`. A `keep`
+  outcome's check fails rule 5 only red by assertion at base. `RoleBuild` (a head build part built only `Completed`,
+  exit 0) failing makes every outcome unsure `tools-build-failed`; a program form (`exec`, `CheckFormRun`) failing other
+  than by assertion is unsure `not-asserted` in both placements (O4).
 - `checks` (+ `checks/playwright`) — the evaluator's saved-check grammar, pure: a check is bound to one outcome and is
   `http` (slice 1's steps plus `$range`, `$includes`, header presence), `browser` (a JSON step grammar: `goto`,
   `waitForURL`, `click`, `fill`, `select`, `press`, `scroll`; scoped locators, never a snapshot ref; assertions
   `visible`, `legible`, `text`, `count`, `url`, the box relations, `size`, `clickable`; never a colour literal) or
-  `exec` (an argv run in the sandbox). `Canonical`/`Digest` key a check however it was spelled; `Validate` refuses with
-  a named rule (not substantive, unscoped to `{{run}}` data, too many steps, over 8 KiB). `checks/playwright` compiles a
+  `exec` (an argv run in the sandbox), or (S2) `run` (`run.go`: a Go consumer program of at most 8 files, args, an
+  optional timeout, judged as exec is). `Canonical`/`Digest` key a check however it was spelled; `Validate(c,
+  Context{Preview|Workspace})` refuses with a named rule (not substantive, unscoped to `{{run}}` data, too many steps,
+  over 8 KiB, `RuleOffSurface`; an empty or double context refuses every check); a workspace refuses http and browser,
+  a cli check runs `{{bin}}` (`BinPlaceholder`), a library check is a `run`, each asserting on stdout content;
+  `{{tree}}` (`TreePlaceholder`) is the writable tree. `checks/playwright` compiles a
   browser check to a readable `.spec.ts` at a fixed 1280x800, maul's page functions (`pagefns.js`) judging human
   visibility, WCAG contrast and hit-tested clicks, indeterminate as a check error, never a fail.
 - `toolwire` — the evaluator's tool wire and ledger v2, stdlib only: one endpoint per verb (`POST /v1/<verb>`), typed
   requests held to their bounds, one `Response` keeping the application's bytes (`Untrusted`) apart from maul's
   measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`), evidence lines and the `Summary` (count and sha256)
   that is also the termination message; `Verify` holds a log to it. The contract between `maul-tool`, agent-runner,
-  `preview-tools` and the controllers, and the capture's shared key names.
+  `preview-tools` and the controllers, and the capture's shared key names. S2 adds `files` (ls, literal grep, read;
+  pristine tree, capped) and `run`, the relay-internal `VerbBuild` (no endpoint), `Side` (`""` head, the only recorded
+  spelling, or `base`, accepted only on exec/run/files/build/check-run; write it through `Side.Recorded()`),
+  `StepCause` (`Known`), and `KeyHeader` (`X-Maul-Tools-Key`, 64 lower-case hex, `IsKey`).
 - `previewtools` — `cmd/preview-tools`'s engine: the `Relay` (one call at a time; `http` through the gateway's header
   hygiene, `browser` through the pinned Playwright CLI with an allowlist and a pre-opened session, `exec` through the
   exec shim, `logs`/`events` from the captured files, `check run`/`results`, and agent-runner's `confirm` and `finish`),
   the replay of saved checks each alone with a fresh run token, artifacts served by sha256, and `GuardListener`
-  refusing loopback and own-pod callers. `previewtools/node` is the pinned Node side.
+  refusing loopback and own-pod callers. `previewtools/node` is the pinned Node side. Workspace mode (S2,
+  `workspace.go`, `files.go`, `run.go`; `Config.Workspace{Build, Binary, Language, BuildTimeoutSeconds, SearchPath,
+  Env}`): every call needs the key (constant time; a refusal is a ledger entry, `key-refused`), the key file fixed at
+  `<configDir>/tools-key` (`KeyFile`, pinned to `jobs.ToolsKeyFile`); http, browser, logs and events are refused. Entries
+  1-2 are the head and base builds in parallel (verb build, `BuildArgs`; `ledgerTail` keeps a build output's end under
+  the entry cap); `BuildPart` is the head's `RoleBuild` part; a head that did not build refuses everything after
+  (`build-failed`), a base that did not build answers its runs unbuilt (`base-unbuildable`). Every saved check replays,
+  and every proposed one is confirmed, at head then base, each alone under fresh tokens (at most `MaxBaseRuns`). `run`
+  writes a minimal consumer `go.mod` (`module maulcheck`, the pristine tree's `go` line), runs
+  `go work init . /work/tree` and `go build` under `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `GOENV=off` (the shim sets
+  `GOTOOLCHAIN=local`); a vendored tree, a replace leaving the tree or an unreadable go.mod refuses it with that cause.
+  `CauseCompile` only for a clean exit 1, uncut, the `# maulcheck` header first and then only diagnostics in the
+  program's own top-level files (`compilerRefused`), with no environmental marker anywhere; else no cause.
+  `judgeWorkspace`: no answer, refused, unclean or timed out is an error, the marker a fail by assertion, cut output an
+  error, a wrong exit a bare fail, a stdout content miss after the expected exit a fail by assertion; a non-pass naming
+  a bind or connection error (`NetError`) is an error. Substitution order `{{marker}}`, `{{bin}}`, `{{tree}}`,
+  `{{run}}`; exploratory calls substitute only `{{bin}}` and `{{tree}}`, each in a fresh scratch dir, `HOME` and the
+  writable tree shared within a side. `previewtools/prepare` (stdlib only) is the trusted inits' engine: a
+  digest-verified fetch into unlinked temp files, extraction refusing absolute or `..` paths, hard links, devices,
+  fifos, links leaving the tree, entries through a link, duplicates, oversize (480 MiB) and a non-empty destination,
+  then a+rX, `Install` of tool-exec, and `Seed`.
 - `cdpshim`, `toolexec`, `maultool` — the engines of `cmd/cdp-shim` (keyed CDP over Chromium's pipe, one browser per
   connection, at most two live, idle 10 minutes, never logs the key), `cmd/tool-exec` (one program at a time under the
   sandbox's UID, files only under the scratch directory through `os.Root`, a fixed environment, bounded output and
-  time) and `cmd/maul-tool` (the CLI: `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into
+  time; its workspace mode, `Options.Work`, is an agents sandbox: per-run scratch `/work/scratch/<token>`, a build
+  `KindBuild` in the side's tree, 10m by default and at most 20m, keeping a 256 KiB output tail, `AllowedEnv` (the
+  search path and the build's network profile, refusing a variable the shim sets itself: `HOME`, `TMPDIR`, `GOCACHE`,
+  `GOTOOLCHAIN`, the npm cache), the UID-wide sweep before every answer (`Result.Unclean` when something survives,
+  nothing more runs until a sweep is clean), `Result.NetError`, UID 0 refused) and `cmd/maul-tool` (the CLI: `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into
   `shots/` under the scratch directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
+- `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
+  `api/v1alpha1`, `acceptance` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
+  `ReplayRuns`, `ConfirmationRuns`, `ConfirmedChecks` (bodies from the ledger's own dry-run records), the dry-run
+  lookups and `Readiness`, all skipping base entries so they return the head's runs only, `BaseRuns` (base replays and
+  base confirmations tagged `tree: base`, capped at `MaxBaseRuns`, the only source of `status.base.runs`),
+  `ConfigMapData` (oldest outputs dropped first) and `Key`. Its trust root: a log that does not hold is Infra
+  `ledger-mismatch`, never a verdict.
+- `toolpod` — what both hosts render alike, values only (pin: stdlib, core/v1, `api/v1alpha1`, `previewtools`):
+  `Security(uid)`, `Deadlines` (Job, pod and relay wall clock), `NewKey`, `ConfigData`.
 - **Verification flow** (default off; `--intent-verification`, `--intent-verify-timeout-max`; chart
   `preview.verification`, whose `deadlineMaxSeconds` drives both controllers' deadline flags): intent-controller reads
   the approved plan's criteria into `status.acceptance` on the first review pass, and at the gate (CI green, no human
@@ -757,7 +876,13 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `/work/input`, the `SandboxEvaluate` posture in `/work/scratch`, then `confirm` and `finish` sent to the tool pod;
   its envelope is only the model's claim) and `checkreview` (`checkreview.go`: one fresh session per new check,
   answering `proves`, `does_not_prove` or `unclear`) run on maul's image with no tree; `report.Evaluation` and
-  `report.CheckReview` are their reports, the plan report gains `acceptance` outcomes.
+  `report.CheckReview` are their reports, the plan report gains `acceptance` outcomes. On an agents round the evaluate
+  handoff names the surface (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and carries `Tools.Key`,
+  which agent-runner writes to `input/tools-key` (0400, `maultool.KeyFile`) before the model runs, adds to the
+  scrubber, and sends with its own `confirm` and `finish` (a key on a slot round is refused); the check review handoff
+  carries `Workspace{surface, binary, language, build, base_unbuildable}` and each item's `head`/`base` run (result,
+  assertion, the base run's `cause`): a green item's head run must be `pass`, a red one's `fail` by its
+  `failed_assertion`.
 - `jobs` — the Kubernetes Job the agent runs in. The isolation model lives here, and it STRENGTHENED with the
   broker: a brokered (claude, codex) pod holds no credential of any kind — its projected SA token (audience-bound,
   agent container only, never the init) is an identity document, not a capability; claude's fixed, non-secret
@@ -773,8 +898,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   collector decodes its own events from; both report `ErrLogsGone` for a finished Job whose log can never be read
   (deleted pod, removed container, a line too long to scan, or every read failing for `LogReadGrace` from the first
   failure this process saw), which every collector settles as
-  its no-result outcome instead of retrying. The one exception to "no network beyond the artifact server and the
-  broker" is an operator network profile (`network.go`): only on a `(remediate, remediation)` or `(build, intent)`
+  its no-result outcome instead of retrying. The exceptions to "no network beyond the artifact server and the
+  broker" are the agents tool pod (`toolpod.go`, below: the artifact server and its build's profile, never the broker)
+  and an operator network profile (`network.go`): only on a `(remediate, remediation)` or `(build, intent)`
   Job that injects an accepted repository image, behind `Config.NetworkProfiles`, it adds the profile label, the
   egress proxy in hostAliases under `dns: none`, and the proxy-first go environment (every go variable non-empty);
   any other pair is refused (`ErrNetworkProfileRefused`), and `Create` reports the profile from the Job's label.
@@ -791,6 +917,21 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   artifact fetch, no network profile, no resolver whatever `Config.DNS` says (the broker and the tool pod are host
   entries), `maul.run/role` on Job and pod, and for the evaluator `maul.run/preview-verification` plus a prepare ending
   in the strict probe over every target, DNS included (`Config.SandboxProbeDNS`).
+  `toolpod.go` is the agents tool pod (S2; imports `toolpod`, and through it `previewtools`): `CreateToolPod`
+  (`ToolPodSpec`), its own builder that never calls `buildJob`, `podVolumes` or `agentEnv`, so no path reaches a broker
+  token, a model credential or the handoff Secret. One Job (`maul.run/kind: intent`, `maul.run/role: tools`, no owner
+  label, `runner-image-source: repository`) with Secret `<job>-tools` (`ToolsSecretSuffix`; key file `ToolsKeyFile`;
+  the Job name at most `ToolPodNameMax`, 57): inits `prepare` (preview-tools, UID 65532), `seed-head` (65540),
+  `seed-base` (65541), main `tools` (65532), native sidecars `sandbox-head`/`sandbox-base` in the repository's accepted
+  image running tool-exec from read-only `maul-bin`, each side its own work, cache, home, tmp, exec-socket and
+  `/dev/shm` volumes; `workingDir: /`, `shareProcessNamespace: false`, no SA token, DNS none (artifact server and
+  profile proxy as host entries), no Service links, seccomp `RuntimeDefault`, no preview toleration.
+  `ProfileOf(buildSpec)` is the only profile source. `toolPodShapeRefusal` checks every render (no credential channel,
+  no side-crossing mount, a pristine tree writable only in `prepare`, a stale tools Secret refused;
+  `ErrToolPodRefused`). `ToolResources`/`ToolPodResources` (flat `cpu`, `memory`, `ephemeralStorage`, limits =
+  requests; `DefaultToolsResources` 250m, 256Mi, 2Gi, `DefaultSandboxResources` 1, 2Gi, 8Gi), `ToolPodSandboxEnv`
+  (render-only, the one place the sandbox environment is rendered) and `ToolsContainer`, `PrepareContainer`,
+  `ToolSandbox(side)` are exported for the agents host, the sweeper and the e2e kubelet.
 - `sandboxprobe` — the negative-connectivity check behind `agent-runner sandbox-probe`, stdlib only: dial the targets
   (`internet` 1.1.1.1:443, `k8s` from `KUBERNETES_SERVICE_HOST`, `imds` 169.254.169.254:80) until three consecutive
   rounds find all closed or the window (`MAUL_SANDBOX_PROBE_TIMEOUT`, 20s) ends. `ModeStrict` (no arguments; every
@@ -912,6 +1053,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `Resolver` seam and `Rejection`); `resolve` is the go-containerregistry implementation source-controller
   wires in (one HEAD then digest-only calls, index enumeration, host-selected keychain, in-process cosign
   verification in bundle and legacy forms, a digest-keyed verdict cache). No Kubernetes types in either.
+  `GoEnv` (`goenv.go`) reads the image config's `GOMODCACHE`, `GOPATH`, `GOROOT` (each a clean absolute directory, else
+  left out, never rejected), recorded as `status.runnerImage.goEnv`.
 - `runnerguard` — the job controllers' side of repository-declared images, shared by investigation,
   remediation and intent: whether a launch may run the Repository's pin (kill switch, not revived by a human, sandbox
   breaker), the pull fail-fast gated on the Job's `runner-image-source` annotation (never on config), and the
