@@ -363,10 +363,15 @@ Each round's verification may take the evaluate timeout plus one build's timeout
 
 **Rollback.** Set `intentController.verification.agents.enabled: false`. intent-controller restarts without the agents
 host, its sweep deletes every tool Job on its next pass, and each Project with a cli or library surface carries
-`VerificationOff` (`AgentsToolPodNotEnabled`) again; Projects with a preview are unaffected. The chart stops rendering
-the tool pod's admission policy, network policy and status grant. To keep the agents host and stop only the image its
-rounds build in, turn repository images off on intent-controller instead: each agents round then settles "maul couldn't
-confirm this" (no accepted runner image), never a block. That needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` beside
+`VerificationOff` (`AgentsToolPodNotEnabled`) again; Projects with a preview are unaffected. A round left open settles
+`Unavailable`, never a pass or a fail and no fix round: its unsettled verification is deleted, its evaluator is
+cancelled, the issue's verification comment says maul could not run the checks, and the hand-off is released as "maul
+couldn't confirm this". The Project's other intents show `Off`. When the agents host is switched back on, an intent left
+`Off` starts over at its heads (a round is due as for heads never verified); one whose round was settled `Unavailable`
+starts its next round on the next push or an approver's `/maul verify`. The chart stops rendering the tool pod's
+admission policy, network policy and status grant. To keep the agents host and stop only the image its rounds build in,
+turn repository images off on intent-controller instead: each agents round then settles "maul couldn't confirm this" (no
+accepted runner image), never a block. That needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` beside
 `MAUL_REPOSITORY_IMAGES: "false"` while the egress proxy is on
 ([repository-declared images](#repository-declared-images)), or intent-controller does not start.
 

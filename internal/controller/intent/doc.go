@@ -171,7 +171,8 @@
 // the evaluate IntentRun pinning it (createRoleRun, the lease, under the
 // evaluation ceiling, which only evaluate and checkreview spend counts
 // against); the RunReconciler launches it only while that verification is
-// still the Intent's at its heads (evaluationCurrent, read uncached) and
+// still the Intent's at its heads (evaluationCurrent, read uncached), stops
+// it once the Intent no longer has it in flight (evaluationEnded) and
 // keeps its report, the evaluator's claims, on run status; the
 // IntentReconciler collects the round from the run's status and the
 // verification's (the facts) and judges it. Before judging, the
