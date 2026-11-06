@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.16](https://github.com/devthenet-labs/maul/compare/v0.13.15...v0.13.16) (2026-11-06)
+
+
+### Bug Fixes
+
+* **intent:** admit the agents tool Job under attribution and cost budgets (S2-B1) ([#351](https://github.com/devthenet-labs/maul/issues/351)) ([e1286ee](https://github.com/devthenet-labs/maul/commit/e1286ee024bc2712dedc8a0f57b5ff3619d68128))
+* **intent:** settle /maul verify on an unrunnable agents round; workspace wording; kill-switch docs ([#350](https://github.com/devthenet-labs/maul/issues/350)) ([b902cc0](https://github.com/devthenet-labs/maul/commit/b902cc032fc8b9710935e0ed1a08abcbdb9548ce))
+
 ## [0.13.15](https://github.com/devthenet-labs/maul/compare/v0.13.14...v0.13.15) (2026-11-06)
 
 
