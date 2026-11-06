@@ -216,6 +216,12 @@ func (p *pass) syncHandoff(ctx context.Context) (bool, error) {
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the preview link is handed over",
 		slog.String("intent", p.in.Name), slog.String("reason", string(reason)))
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		// A link held before any evaluation recorded its hand-off (a round
+		// that could not start: no Preview in time, no accepted image, no
+		// trees) gets its record here, so the release is written once and
+		// the next pass goes on, never rewriting a hand-off that is not
+		// there.
+		p.recordHeld(cur.Status.Verification)
 		releaseHandoff(cur.Status.Verification, reason, metav1.NewTime(p.now), false)
 		return nil
 	})

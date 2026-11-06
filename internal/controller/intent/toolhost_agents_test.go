@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -428,5 +429,110 @@ func TestAgentsWorkspaceSurface(t *testing.T) {
 				t.Fatalf("timeout = %s, want %s", pv.Spec.Timeout.Duration, want)
 			}
 		})
+	}
+}
+
+// TestVerifiesProjectAgreesWithVerificationOff: the predicate the plan
+// (planAsk), the review (pass.verifies) and the hand-off share says a
+// Project verifies exactly when its VerificationOff condition is absent, so
+// a cli Project with the agents tool pod off is never asked for outcomes
+// (nor told "not asked") while its condition says AgentsToolPodNotEnabled,
+// whatever previews say.
+func TestVerifiesProjectAgreesWithVerificationOff(t *testing.T) {
+	projects := map[string]func(*v1alpha1.Project){
+		"preview": func(*v1alpha1.Project) {},
+		"cli":     cliSurface,
+		"library": func(p *v1alpha1.Project) {
+			p.Spec.Preview = nil
+			p.Spec.Surfaces = &v1alpha1.ProjectSurfaces{Library: &v1alpha1.LibrarySurface{
+				Language: v1alpha1.LibraryLanguageGo}}
+		},
+	}
+	for name, mutate := range projects {
+		for _, verification := range []bool{false, true} {
+			for _, previews := range []bool{false, true} {
+				for _, evaluator := range []bool{false, true} {
+					for _, agents := range []bool{false, true} {
+						p := testProject()
+						p.Spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
+						mutate(p)
+						s := Settings{Verification: verification, Previews: previews, Evaluator: evaluator,
+							EvaluatorAgents: agents && evaluator}
+						off, _ := s.verificationOff(p)
+						if got, want := s.verifiesProject(p), verification && off == ""; got != want {
+							t.Errorf("%s, verification %v, previews %v, evaluator %v, agents %v: verifiesProject = %v, "+
+								"VerificationOff %q", name, verification, previews, evaluator, agents, got, off)
+						}
+						if ask := s.planAsk(p); !s.verifiesProject(p) && ask.verified {
+							t.Errorf("%s: planAsk = %+v for a Project that does not verify", name, ask)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestAgentsWorkspaceGetsTheBuildsProfile: the tool pod's network profile
+// is the one the build of the surface's repository got (7.8: never wider),
+// read through the same guard; a repository no profile matches gets none
+// (checkWorkspace's case).
+func TestAgentsWorkspaceGetsTheBuildsProfile(t *testing.T) {
+	e := newVerifyEnv(t, outcomesPlan, cliSurface)
+	e.evaluatorOn(0.4)
+	e.agentsOn(true)
+	withProfiles(t, e, "acme/app")
+	name := e.awaiting()
+	e.gh.label(1, "maul:approved", approver)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	e.reviewReady(name, 4)
+	pv := e.onlyVerification(name)
+	builds := e.runsOf(name, v1alpha1.IntentStageBuild)
+	if len(builds) != 1 || builds[0].Status.RunnerImage == nil || builds[0].Status.RunnerImage.NetworkProfile != "go" {
+		t.Fatalf("build runs = %+v, want one on the go profile", builds)
+	}
+	if ws := pv.Spec.Workspace; ws == nil || ws.NetworkProfile != "go" || ws.SandboxImage != repoImage {
+		t.Fatalf("workspace = %+v, want the build's image and its go profile", ws)
+	}
+}
+
+// TestAgentsMergeBaseRefusedIsUnavailable: GitHub refusing the compare
+// (here a 404: the head is not in the repository) leaves the round with no
+// base to build, so the verification is Unavailable, never failed, and no
+// tree or PreviewVerification is made; a later pass that can read the
+// merge base runs the round.
+func TestAgentsMergeBaseRefusedIsUnavailable(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	e.gh.failNext("MergeBase", ghError(http.StatusNotFound, "No common ancestor"))
+	e.review(name, 3)
+	if v := e.verification(name); v.State != v1alpha1.VerificationUnavailable || v.Ref != nil ||
+		len(e.verifications(name)) != 0 {
+		t.Fatalf("verification = %+v, %d verifications; want Unavailable and none", v, len(e.verifications(name)))
+	}
+	e.reviewReady(name, 4)
+	if pv := e.onlyVerification(name); !pv.Spec.IsAgents() {
+		t.Fatalf("verification = %+v, want the agents round once the merge base reads", pv.Spec)
+	}
+}
+
+// TestAgentsUnrunnableRoundHandsOff: a round that cannot run before any
+// evaluation was made (no accepted image) hands the pull request over as
+// couldn't confirm, once, and then writes nothing more: the pass goes on to
+// the review's own rounds instead of rewriting a hand-off that was never
+// recorded.
+func TestAgentsUnrunnableRoundHandsOff(t *testing.T) {
+	e, name := newAgentsEnv(t, "", func(p *v1alpha1.Project) { p.Spec.RequireRepositoryImage = new(false) })
+	e.reviewReady(name, 4)
+	in := e.get(name)
+	v := in.Status.Verification
+	if v.State != v1alpha1.VerificationUnconfirmed || v.Handoff == nil || !v.Handoff.Released ||
+		v.Handoff.Reason != v1alpha1.HandoffReasonUnconfirmed {
+		t.Fatalf("verification = %+v (hand-off %+v), want Unconfirmed and the hand-off released", v, v.Handoff)
+	}
+	e.review(name, 3) // the status comment catches up
+	rv := e.get(name).ResourceVersion
+	e.review(name, 3)
+	if got := e.get(name).ResourceVersion; got != rv {
+		t.Fatalf("the intent was written again (%s -> %s) with nothing changed", rv, got)
 	}
 }
