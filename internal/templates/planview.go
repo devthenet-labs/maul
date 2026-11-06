@@ -199,6 +199,11 @@ type PlanOutcomes struct {
 	NotCovered []string
 	// NotCoveredMore counts the further issue lines the caller left out.
 	NotCoveredMore int
+	// Workspace: the Project has no preview (a cli or library surface), so
+	// the outcomes are checked in the workspace the tool pod builds at the
+	// pull request's head and its merge base, and the lead says so; false
+	// is a running preview's.
+	Workspace bool
 	// omitted: the list did not fit in the comment beside the plan, so a
 	// pointer to the plan stands in its place (fitOutcomes).
 	omitted bool
@@ -231,8 +236,13 @@ func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered, shared, 
 		return "", nil, nil, nil, nil
 	case o.omitted:
 		return outcomesOmitted, nil, nil, nil, nil
+	case len(o.Outcomes) == 0 && o.Workspace:
+		lead = "The plan states no acceptance outcomes, so maul's evaluator checks nothing in the workspace."
 	case len(o.Outcomes) == 0:
 		lead = "The plan states no acceptance outcomes, so maul's evaluator checks nothing in the preview."
+	case o.Workspace:
+		lead = "maul's evaluator checks each outcome below in a workspace it builds at the pull request's head " +
+			"and its merge base; a manual one is left to an approver."
 	default:
 		lead = "maul's evaluator checks each outcome below in the running preview; a manual one is left to an " +
 			"approver."

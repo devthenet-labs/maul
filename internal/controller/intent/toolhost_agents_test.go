@@ -599,6 +599,40 @@ func TestAgentsRequestAfterARoundSettlesWhenTheRoundCannotRun(t *testing.T) {
 	}
 }
 
+// TestAgentsPlanCommentSaysTheWorkspace: the plan comment of a Project with
+// no preview says its outcomes are checked in the workspace the tool pod
+// builds, never in a running preview; a previewed Project's still says the
+// preview.
+func TestAgentsPlanCommentSaysTheWorkspace(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		env       func(t *testing.T) *env
+		want, not string
+	}{
+		{"agents", func(t *testing.T) *env {
+			e, _ := newAgentsEnv(t, repoImage)
+			return e
+		}, "in a workspace it builds at the pull request's head and its merge base", "running preview"},
+		{"slot", func(t *testing.T) *env {
+			e := newVerifyEnv(t, outcomesPlan)
+			e.evaluatorOn(0.4)
+			e.reviewing()
+			return e
+		}, "in the running preview", "workspace"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := tc.env(t)
+			plans := e.gh.withMarker("maul:plan")
+			if len(plans) == 0 {
+				t.Fatal("no plan comment")
+			}
+			if body := plans[0].Body; !strings.Contains(body, tc.want) || strings.Contains(body, tc.not) {
+				t.Fatalf("plan comment does not say %q (or says %q):\n%s", tc.want, tc.not, body)
+			}
+		})
+	}
+}
+
 // dropRunnerImages clears every Repository's accepted runner image.
 func dropRunnerImages(t *testing.T, e *env) {
 	t.Helper()

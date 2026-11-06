@@ -30,6 +30,16 @@ func TestPlanOutcomesGoldens(t *testing.T) {
 		o    *PlanOutcomes
 	}{
 		{"intent_plan_outcomes.md", testOutcomes()},
+		// A Project with no preview (a cli or library surface): the
+		// outcomes are checked in the workspace the tool pod builds, never
+		// a running preview.
+		{"intent_plan_outcomes_workspace.md", func() *PlanOutcomes {
+			o := testOutcomes()
+			o.Workspace = true
+			return o
+		}()},
+		{"intent_plan_outcomes_workspace_none.md", &PlanOutcomes{Workspace: true,
+			NotCovered: []string{"Rows scroll together"}}},
 		// No outcome at all: the evaluator checks nothing, and every issue
 		// line is listed.
 		{"intent_plan_outcomes_none.md", &PlanOutcomes{
