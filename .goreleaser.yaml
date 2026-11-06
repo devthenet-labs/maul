@@ -662,10 +662,11 @@ dockers_v2:
           org.opencontainers.image.version: "{{ .Version }}"
     # The preview tools (cmd/preview-tools plus the pinned Playwright CLI
     # and test runner, installed from internal/previewtools/node's lockfile):
-    # the tools container of a slot tool pod. The chart takes it only by
-    # digest.
+    # the tools container of a slot tool pod, and of an agents-namespace
+    # tool pod, whose prepare init copies the image's tool-exec into the
+    # sandboxes' maul-bin volume. The chart takes it only by digest.
     - id: preview-tools
-      ids: [preview-tools]
+      ids: [preview-tools, tool-exec]
       dockerfile: Dockerfile.preview-tools
       extra_files:
           - internal/previewtools/node/package.json
