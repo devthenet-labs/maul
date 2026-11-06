@@ -229,9 +229,13 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 // (a disputed check retired for a confirmed, proven replacement:
 // status.verification.disputed) as due at the same heads, within the
 // automatic bounds: it counts against maxVerifications like any round.
+// Only the judgement of the current round at the current heads asks for
+// one: a round that settled unjudged after it (the replay round itself,
+// its tool pod unable to build the head) is not still awaiting a replay
+// (S2-B3).
 func (p *pass) replayDue(v *v1alpha1.IntentVerification) bool {
 	return v.State == v1alpha1.VerificationUnconfirmed && len(v.Disputed) > 0 && v.Ref != nil &&
-		v.Requested == nil && p.verifyBounded(v)
+		v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) && v.Requested == nil && p.verifyBounded(v)
 }
 
 // evaluationRung is the rung a new round runs (SPEC Q17): replay, with no

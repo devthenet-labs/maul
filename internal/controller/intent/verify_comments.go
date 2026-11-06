@@ -225,12 +225,19 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 // with its result as reported now (an approver's acceptance at the heads
 // included), maul's line on the check it rests on and, for a failure, the
 // application's output from pv's ledger; and the look-around anomalies.
+// Only the judgement of the current round at the current heads is shown
+// (JudgedOutcomes): a round that settled unjudged shows none of an earlier
+// round's results.
 func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, pv *v1alpha1.PreviewVerification) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	results := v.JudgedOutcomes()
+	if !verifyJudged(v.State) {
+		results = nil
+	}
 	for _, o := range acc.Outcomes {
 		row := templates.VerifyOutcomeResult{ID: o.ID, Statement: o.Outcome, Result: templates.OutcomeResultUnsure}
-		i := slices.IndexFunc(v.Outcomes, func(r v1alpha1.OutcomeResult) bool { return r.ID == o.ID })
-		if i < 0 || !verifyJudged(v.State) {
+		i := slices.IndexFunc(results, func(r v1alpha1.OutcomeResult) bool { return r.ID == o.ID })
+		if i < 0 {
 			if o.Manual {
 				row.Reason = "manual"
 			}
@@ -240,7 +247,7 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 			s.Outcomes = append(s.Outcomes, row)
 			continue
 		}
-		r := v.Outcomes[i]
+		r := results[i]
 		row.Result, row.Reason, row.Check = string(effectiveResult(acc, v, r)), r.Reason, r.Line
 		if rec := acceptedAt(acc, o.ID, v.HeadSetDigest); rec != nil && row.Result == templates.OutcomeResultAccepted {
 			row.AcceptedAt = firstHead(rec)
@@ -251,6 +258,9 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		s.Outcomes = append(s.Outcomes, row)
 	}
 	for _, a := range v.Anomalies {
+		if results == nil {
+			break
+		}
 		s.Anomalies = append(s.Anomalies, templates.VerifyAnomaly{Summary: a.Summary, Route: a.Route})
 	}
 	s.Suspected = p.suspectedView(ctx, pv)

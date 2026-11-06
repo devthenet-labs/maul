@@ -140,23 +140,18 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 	}
 	ver := in.Status.Verification
 	out.Current = ver != nil && ver.Ref != nil && ver.Ref.UID == pv.UID
-	decided := map[string]v1alpha1.OutcomeResult{}
-	disputed := map[string]bool{}
-	if out.Current {
-		for _, o := range ver.Outcomes {
-			decided[o.ID] = o
-		}
-		for _, d := range ver.Disputed {
-			disputed[d] = true
-		}
-		for _, a := range ver.Anomalies {
-			out.Anomalies = append(out.Anomalies, EvaluationAnomaly{Summary: intentview.Text(a.Summary,
-				maxEvaluationText), Route: intentview.Text(a.Route, maxEvaluationText), Ledger: a.Ledger})
-		}
-		if h := ver.Handoff; h != nil {
-			out.Handoff = &EvaluationHandoff{Mode: string(h.Mode), Released: h.Released,
-				ReleasedAt: stampPtr(h.ReleasedAt), Reason: string(h.Reason)}
-		}
+	// The Intent's results, anomalies and disputes are this round's only
+	// when its judgement wrote them: a current round that settled unjudged
+	// shows none of an earlier round's (S2-B3).
+	judged := out.Current && ver.OutcomesJudgedAt(pv.Spec.Round, pv.Spec.HeadSetDigest)
+	decided, disputed := map[string]v1alpha1.OutcomeResult{}, map[string]bool{}
+	if judged {
+		decided, disputed, out.Anomalies = judgedRound(ver)
+	}
+	if out.Current && ver.Handoff != nil {
+		h := ver.Handoff
+		out.Handoff = &EvaluationHandoff{Mode: string(h.Mode), Released: h.Released,
+			ReleasedAt: stampPtr(h.ReleasedAt), Reason: string(h.Reason)}
 	}
 	var claims *report.Evaluation
 	if tier == authz.TierTranscripts && run.Status.Report != "" {
@@ -184,7 +179,7 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 	}
 	out.Checks = evaluationChecks(pv, disputed)
 	agentsView(&out, pv)
-	out.Disputes = evaluationDisputes(ver, out.Current, claims)
+	out.Disputes = evaluationDisputes(ver, judged, claims)
 	if l := pv.Status.Ledger; l != nil {
 		out.Ledger = &EvaluationLedger{Count: l.Count, SHA256: l.SHA256, Entries: []EvaluationLedgerEntry{}}
 		for _, e := range l.Entries {
@@ -315,8 +310,27 @@ func compiledSpec(body, token string) (string, string) {
 	return "", ""
 }
 
+// judgedRound is what ver's judgement decided: each outcome's result by id,
+// the checks it disputed, and its anomalies as the view shows them.
+func judgedRound(ver *v1alpha1.IntentVerification) (map[string]v1alpha1.OutcomeResult, map[string]bool,
+	[]EvaluationAnomaly) {
+	decided, disputed := map[string]v1alpha1.OutcomeResult{}, map[string]bool{}
+	anomalies := make([]EvaluationAnomaly, 0, len(ver.Anomalies))
+	for _, o := range ver.Outcomes {
+		decided[o.ID] = o
+	}
+	for _, d := range ver.Disputed {
+		disputed[d] = true
+	}
+	for _, a := range ver.Anomalies {
+		anomalies = append(anomalies, EvaluationAnomaly{Summary: intentview.Text(a.Summary,
+			maxEvaluationText), Route: intentview.Text(a.Route, maxEvaluationText), Ledger: a.Ledger})
+	}
+	return decided, disputed, anomalies
+}
+
 // evaluationDisputes are the round's disputed checks: the Intent's disputed
-// digests while the round is current, and (tier 2) the evaluator's own
+// digests while the round is current and judged, and (tier 2) the evaluator's own
 // disputes with their reasons.
 func evaluationDisputes(ver *v1alpha1.IntentVerification, current bool,
 	claims *report.Evaluation) []EvaluationDispute {

@@ -227,7 +227,7 @@ func outcomeAccepters(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 		if r.HeadSetDigest != v.HeadSetDigest || slices.Contains(out, r.By) {
 			continue
 		}
-		passed := slices.ContainsFunc(v.Outcomes, func(o v1alpha1.OutcomeResult) bool {
+		passed := slices.ContainsFunc(v.JudgedOutcomes(), func(o v1alpha1.OutcomeResult) bool {
 			return o.ID == r.ID && o.Result == v1alpha1.OutcomePassed
 		})
 		if !passed && slices.ContainsFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == r.ID }) {
