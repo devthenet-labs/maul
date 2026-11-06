@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.13.15](https://github.com/devthenet-labs/maul/compare/v0.13.14...v0.13.15) (2026-11-06)
+
+
+### Features
+
+* **acceptance:** S2-03 judge base runs, head builds and unasserted program fails ([#326](https://github.com/devthenet-labs/maul/issues/326)) ([61b556e](https://github.com/devthenet-labs/maul/commit/61b556e81813b5bc96c0ad902aef02e0daf93845))
+* **agentrun:** S2-16 workspace handoff and tools key ([#339](https://github.com/devthenet-labs/maul/issues/339)) ([e1dab52](https://github.com/devthenet-labs/maul/commit/e1dab5296135fccb39d8941ac4c3decc49ec8b2c))
+* **api:** S2-01 agents-namespace verification schema ([#325](https://github.com/devthenet-labs/maul/issues/325)) ([ca6c4d9](https://github.com/devthenet-labs/maul/commit/ca6c4d9ad88b7c8a4b845c6e816f76a0692c9b46))
+* **api:** S2-01b CheckForm run enum ([#331](https://github.com/devthenet-labs/maul/issues/331)) ([32ad93e](https://github.com/devthenet-labs/maul/commit/32ad93e33d14539d76661abdd3e99cf05a5ce920))
+* **chart:** S2-12 agents-namespace tool pod values, policies, VAPs and RBAC ([#336](https://github.com/devthenet-labs/maul/issues/336)) ([95d9e36](https://github.com/devthenet-labs/maul/commit/95d9e3651492072fa311071f29af4ed76d4fc599))
+* **check:** S2-18 maul check project preflights cli and library surfaces ([#332](https://github.com/devthenet-labs/maul/issues/332)) ([c75d96f](https://github.com/devthenet-labs/maul/commit/c75d96fda6489c711cabc744a4c92bbe50c8ef58))
+* **checks:** S2-04 surface context, run form, workspace placeholders ([#324](https://github.com/devthenet-labs/maul/issues/324)) ([0b21c21](https://github.com/devthenet-labs/maul/commit/0b21c21bce4ea7f06e08f7634f8d6e10f01c6936))
+* **e2e:** S2-22 the no-Preview evaluator suite ([#347](https://github.com/devthenet-labs/maul/issues/347)) ([c943258](https://github.com/devthenet-labs/maul/commit/c94325885486a7675e5f80ce486e60b19d86e463))
+* **evaluator:** S2-02 extract toolledger and toolpod ([#323](https://github.com/devthenet-labs/maul/issues/323)) ([ccc7c72](https://github.com/devthenet-labs/maul/commit/ccc7c72133bbb899c57afce40bc6edeb1217dc26))
+* **intent:** S2-13 the agents host reconciler ([#344](https://github.com/devthenet-labs/maul/issues/344)) ([82dd6a6](https://github.com/devthenet-labs/maul/commit/82dd6a6f72b6a89b419b79afffd45cf5f4da2681))
+* **intent:** S2-14 the toolHost port and the agents gate ([#340](https://github.com/devthenet-labs/maul/issues/340)) ([fa27cd8](https://github.com/devthenet-labs/maul/commit/fa27cd87d70f446cbdd4d80a9ec053d4ef1b68b7))
+* **intent:** S2-17 plan side: outcomes with the cli/library surface named ([#338](https://github.com/devthenet-labs/maul/issues/338)) ([e43ee1d](https://github.com/devthenet-labs/maul/commit/e43ee1d07e9ce4558806b2e4334d5910a87a6ec6))
+* **intent:** S2-20 judge, review and hand-off wiring for agents rounds ([#345](https://github.com/devthenet-labs/maul/issues/345)) ([aa069f1](https://github.com/devthenet-labs/maul/commit/aa069f1867750a1d92ccd479f0f4adf0cb02b120))
+* **intent:** S2-20b compile cause and workspace wording ([#346](https://github.com/devthenet-labs/maul/issues/346)) ([0c54c75](https://github.com/devthenet-labs/maul/commit/0c54c75b772adf08dede5c138cea61be211e1bd9))
+* **jobs:** S2-10 jobs.ToolPod, the agents-namespace tool pod ([#334](https://github.com/devthenet-labs/maul/issues/334)) ([894268e](https://github.com/devthenet-labs/maul/commit/894268ed169e2f0ff8fbe478f466ba078cb282be))
+* **preview:** S2-11 fence agents verifications out of preview-controller ([#330](https://github.com/devthenet-labs/maul/issues/330)) ([e28b703](https://github.com/devthenet-labs/maul/commit/e28b703db40a873e9f257497d99b7fa298cb7158))
+* **previewtools:** S2-08 relay workspace mode ([#341](https://github.com/devthenet-labs/maul/issues/341)) ([85fe455](https://github.com/devthenet-labs/maul/commit/85fe4552b7ee40f7b41544d7e9d8e3658de42606))
+* **previewtools:** S2-09 preview-tools prepare and seed, tool-exec in the image ([#343](https://github.com/devthenet-labs/maul/issues/343)) ([ce3b458](https://github.com/devthenet-labs/maul/commit/ce3b458b7d74869ca3f8c19b93ac71185085af09))
+* **probe:** S2-21 isolation probe: agents rows ([#342](https://github.com/devthenet-labs/maul/issues/342)) ([e10f61c](https://github.com/devthenet-labs/maul/commit/e10f61cee7bc8298acce815a33b2ca854f93f3f8))
+* **source:** S2-06 commit-pinned Repositories ([#337](https://github.com/devthenet-labs/maul/issues/337)) ([dae86ea](https://github.com/devthenet-labs/maul/commit/dae86ea0c749fcecb4b6917e984821bc2fc20427))
+* **templates:** S2-15 workspace prompts and link-less hand-off ([#335](https://github.com/devthenet-labs/maul/issues/335)) ([8ac5a8a](https://github.com/devthenet-labs/maul/commit/8ac5a8a163ac979f1e5cb0ea114055862d7760db))
+* **toolexec:** S2-07 workspace shim for a repository image ([#333](https://github.com/devthenet-labs/maul/issues/333)) ([bda8fef](https://github.com/devthenet-labs/maul/commit/bda8feff4b3fbb0b8fc69440b9078cd60d49bb41))
+* **toolwire:** S2-05 files and run verbs, sides, tools key ([#322](https://github.com/devthenet-labs/maul/issues/322)) ([074cd0d](https://github.com/devthenet-labs/maul/commit/074cd0d9ae8b6e5d30be4cb499d6ab1471985624))
+* **web:** S2-19 placement-aware evaluation evidence ([#329](https://github.com/devthenet-labs/maul/issues/329)) ([b1d35a2](https://github.com/devthenet-labs/maul/commit/b1d35a2db5f5c1f2d91d9a83b9ebca732b8342ca))
+
+
+### Bug Fixes
+
+* **preview:** wait for a Preview's spec to catch up with a moved PR head ([#348](https://github.com/devthenet-labs/maul/issues/348)) ([ffba81b](https://github.com/devthenet-labs/maul/commit/ffba81b6c877a6a794f42e4f172da517ea3ca7ee))
+
 ## [0.13.14](https://github.com/devthenet-labs/maul/compare/v0.13.13...v0.13.14) (2026-11-05)
 
 
