@@ -5,6 +5,7 @@ package chart_test
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/yaml"
 
 	"github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/kube"
@@ -40,9 +42,11 @@ const (
 	tpCredent   = "agents tool pods carry no credential"
 	tpVolumes   = "agents tool pods mount only emptyDirs and their own <job>-tools Secret"
 	tpShm       = "agents tool pods give tools, sandbox-head and sandbox-base each their own memory-backed /dev/shm"
-	tpSides     = "the head and base sides of an agents tool pod share no writable volume"
+	tpSides     = "the head and base sides of an agents tool pod share no volume but the sandboxes' read-only"
 	tpToolsSide = "tools shares no writable volume with a seed or sandbox but that sandbox's exec-socket directory"
 	tpTolerate  = "agents tool pods tolerate neither the preview taint nor every taint"
+	tpSeccomp   = "agents tool pods run under the runtime's default seccomp profile"
+	tpSeeds     = "each agents tool pod seed mounts exactly its pristine tree, read-only, and its sandbox's work volume"
 	pvByPlace   = "preview-controller writes a slot verification's results; intent-controller an agents verification's"
 	tpRepoImage = "registry.example/acme/render-agent@sha256:" +
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -278,6 +282,43 @@ func checkAgentsToolJobs(t *testing.T, admin, ic client.Client) {
 		{"an exec directory in a seed", func(p *corev1.PodSpec) {
 			mount(p, "seed-base", corev1.VolumeMount{Name: "exec-base", MountPath: "/run/maul-exec"})
 		}, tpToolsSide},
+		// jobs.toolSideRefusals and podSecured (S2-10), mirrored at admission
+		// (S2-21): a side reads nothing of the other, a seed mounts nothing
+		// but its tree and work volume, only prepare writes a pristine tree,
+		// and nothing runs outside the default seccomp profile.
+		{"the base pristine tree read-only in the head sandbox", func(p *corev1.PodSpec) {
+			mount(p, "sandbox-head", corev1.VolumeMount{Name: "pristine-base", MountPath: "/base", ReadOnly: true})
+		}, tpSides},
+		{"the head pristine tree read-only in the base seed", func(p *corev1.PodSpec) {
+			mount(p, "seed-base", corev1.VolumeMount{Name: "pristine-head", MountPath: "/head", ReadOnly: true})
+		}, tpSides},
+		{"a cache in a seed", func(p *corev1.PodSpec) {
+			mount(p, "seed-head", corev1.VolumeMount{Name: "cache-head", MountPath: "/work/cache"})
+		}, tpSeeds},
+		{"maul-bin in a seed", func(p *corev1.PodSpec) {
+			mount(p, "seed-base", corev1.VolumeMount{Name: "maul-bin", MountPath: "/maul-bin", ReadOnly: true})
+		}, tpSides},
+		{"maul-bin in the seed of its own side alone", func(p *corev1.PodSpec) {
+			unmount(p, "sandbox-head", "maul-bin")
+			mount(p, "seed-base", corev1.VolumeMount{Name: "maul-bin", MountPath: "/maul-bin", ReadOnly: true})
+		}, tpSeeds},
+		{"a seed writing its pristine tree", func(p *corev1.PodSpec) {
+			unmount(p, "seed-head", "pristine-head")
+			mount(p, "seed-head", corev1.VolumeMount{Name: "pristine-head", MountPath: "/pristine"})
+		}, tpToolsSide},
+		{"a seed without its work volume", func(p *corev1.PodSpec) { unmount(p, "seed-base", "work-base") }, tpSeeds},
+		{"an Unconfined sandbox", func(p *corev1.PodSpec) {
+			container(p, "sandbox-head").SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeUnconfined}
+		}, tpSeccomp},
+		{"a Localhost profile in tools", func(p *corev1.PodSpec) {
+			container(p, "tools").SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeLocalhost, LocalhostProfile: ptrTo("profiles/open.json")}
+		}, tpSeccomp},
+		{"no pod seccomp profile", func(p *corev1.PodSpec) { p.SecurityContext.SeccompProfile = nil }, tpSeccomp},
+		{"an Unconfined pod", func(p *corev1.PodSpec) {
+			p.SecurityContext.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined}
+		}, tpSeccomp},
 		{"tolerating every taint", func(p *corev1.PodSpec) {
 			p.Tolerations = []corev1.Toleration{{Operator: corev1.TolerationOpExists}}
 		}, tpTolerate},
@@ -297,11 +338,19 @@ func checkAgentsToolJobs(t *testing.T, admin, ic client.Client) {
 			refusedAs(t, ic, j, tc.want, tc.name)
 		})
 	}
-	// Shared read-only, the repository's tool-exec copy is no channel.
-	admittedAs(t, ic, mutateJob(agentsToolJob("shared-ro"), func(j *batchv1.Job) {
-		mount(&j.Spec.Template.Spec, "seed-base", corev1.VolumeMount{Name: "maul-bin", MountPath: "/maul-bin",
-			ReadOnly: true})
+	// Shared read-only by the two sandboxes, the repository's tool-exec
+	// copy is no channel; a container's own RuntimeDefault is the pod's.
+	admittedAs(t, ic, mutateJob(agentsToolJob("explicit-seccomp"), func(j *batchv1.Job) {
+		for _, n := range []string{"tools", "sandbox-head"} {
+			container(&j.Spec.Template.Spec, n).SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeRuntimeDefault}
+		}
 	}))
+	// The tool pods jobs.CreateToolPod renders (its goldens) are admitted as
+	// they are: the policy refuses no shape the builder makes.
+	for _, golden := range []string{"toolpod_default", "toolpod_profile_go_tunnel"} {
+		admittedAs(t, ic, builderToolJob(t, golden))
+	}
 	// An ordinary agent Job in the agents namespace is not a tool pod.
 	admittedAs(t, ic, evJob(egressAgents, "ordinary", nil, nil))
 }
@@ -531,6 +580,25 @@ func agentsToolPod(name string, owners []metav1.OwnerReference) *corev1.Pod {
 			Volumes: volumes,
 		},
 	}
+}
+
+// builderToolJob is the tool pod Job internal/jobs pins as its golden
+// name, in the agents namespace.
+func builderToolJob(t *testing.T, name string) *batchv1.Job {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "jobs", "testdata", name+".yaml"))
+	if err != nil {
+		t.Fatalf("read the jobs golden %s: %v", name, err)
+	}
+	var j batchv1.Job
+	if err := yaml.UnmarshalStrict(raw, &j); err != nil {
+		t.Fatalf("decode the jobs golden %s: %v", name, err)
+	}
+	if j.Namespace != egressAgents || j.Spec.Template.Spec.Containers[0].Image != toolsImage {
+		t.Fatalf("the jobs golden %s is in %s on %s, not %s on %s", name, j.Namespace,
+			j.Spec.Template.Spec.Containers[0].Image, egressAgents, toolsImage)
+	}
+	return &j
 }
 
 // volume is the pod's volume named n.

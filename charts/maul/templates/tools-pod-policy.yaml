@@ -26,14 +26,17 @@ SPDX-License-Identifier: MIT
 #
 # under three distinct UIDs (tools and prepare share one; a sandbox never
 # runs as tools, nor as the other sandbox), each container non-root with a
-# read-only root, no privilege escalation and every capability dropped, the
-# inits and sandboxes starting in /. It mounts no ServiceAccount token and
+# read-only root, no privilege escalation and every capability dropped,
+# under the runtime's default seccomp profile, the inits and sandboxes
+# starting in /. It mounts no ServiceAccount token and
 # runs as the default ServiceAccount, holds no credential (no envFrom, no
 # Secret reference in env, no model credential or gateway variable), mounts
 # only emptyDirs beside its own <job>-tools Secret (tools alone), gives
 # tools and each sandbox their own memory-backed /dev/shm, lets the head
-# and base sides share no writable volume, and lets tools share one with a
-# side only as that side's exec-socket directory. It shares no host or process
+# and base sides share no volume but the sandboxes' read-only tool-exec copy,
+# lets each seed mount only its pristine tree (read-only) and its sandbox's
+# work volume, and lets tools share a writable volume with a side only as
+# that side's exec-socket directory. It shares no host or process
 # namespace, runs no ephemeral container, has no resolver, and tolerates
 # neither the preview taint nor every taint. Only intent-controller creates
 # the Job, and only the Kubernetes Job controller its Pod. Fail closed.
@@ -200,6 +203,14 @@ spec:
               escalation and every capability dropped
           reason: Forbidden
         - expression: >-
+              variables.pod.?securityContext.?seccompProfile.?type.orValue('') == 'RuntimeDefault' &&
+              variables.all.all(c,
+                c.?securityContext.?seccompProfile.?type.orValue('RuntimeDefault') == 'RuntimeDefault')
+          message: >-
+              agents tool pods run under the runtime's default seccomp profile, the pod's and every
+              container's
+          reason: Forbidden
+        - expression: >-
               size(variables.toolsUID) == 1 && size(variables.headUID) == 1 && size(variables.baseUID) == 1 &&
               variables.prepareUID == variables.toolsUID &&
               variables.seedHeadUID == variables.headUID && variables.seedBaseUID == variables.baseUID &&
@@ -238,13 +249,19 @@ spec:
                     d.?volumeMounts.orValue([]).all(n, n.name != m.name))))
           message: agents tool pods give tools, sandbox-head and sandbox-base each their own memory-backed /dev/shm
           reason: Forbidden
+        # The two sides share nothing either writes, and nothing at all but a
+        # volume both sandboxes mount read-only (the tool-exec copy): no side
+        # reads the other's tree, work, caches or socket.
         - expression: >-
               variables.all.filter(c, c.name in {{ $head | toJson }}).all(c,
                 c.?volumeMounts.orValue([]).all(m,
                   variables.all.filter(d, d.name in {{ $base | toJson }}).all(d,
                     d.?volumeMounts.orValue([]).all(n, n.name != m.name ||
-                      (m.?readOnly.orValue(false) && n.?readOnly.orValue(false))))))
-          message: the head and base sides of an agents tool pod share no writable volume
+                      (m.?readOnly.orValue(false) && n.?readOnly.orValue(false) &&
+                        c.name.startsWith('sandbox-') && d.name.startsWith('sandbox-'))))))
+          message: >-
+              the head and base sides of an agents tool pod share no volume but the sandboxes' read-only
+              tool-exec copy
           reason: Forbidden
         # What the relay reads from a side (its pristine tree) neither side
         # can write, and the relay writes into neither side: the one volume
@@ -257,6 +274,22 @@ spec:
                     (m.?readOnly.orValue(false) && t.?readOnly.orValue(false)) ||
                     (c.name.startsWith('sandbox-') && m.name == c.name.replace('sandbox-', 'exec-')))))
           message: tools shares no writable volume with a seed or sandbox but that sandbox's exec-socket directory
+          reason: Forbidden
+        # A seed copies its pristine tree into its sandbox's work volume and
+        # mounts nothing else: the tree read-only (prepare's, written by it
+        # alone), the work volume where its sandbox mounts /work.
+        - expression: >-
+              variables.inits.filter(c, c.name in ['seed-head', 'seed-base']).all(c,
+                size(c.?volumeMounts.orValue([])) == 2 &&
+                c.volumeMounts.all(m,
+                  variables.inits.exists(s, s.name == c.name.replace('seed-', 'sandbox-') &&
+                    s.?volumeMounts.orValue([]).exists(n, n.name == m.name && n.mountPath == '/work')) !=
+                  (m.?readOnly.orValue(false) && variables.inits.exists(p, p.name == 'prepare' &&
+                    p.?volumeMounts.orValue([]).exists(n, n.name == m.name && !n.?readOnly.orValue(false))))) &&
+                c.volumeMounts.exists_one(m, m.?readOnly.orValue(false)))
+          message: >-
+              each agents tool pod seed mounts exactly its pristine tree, read-only, and its sandbox's work
+              volume
           reason: Forbidden
         - expression: >-
               variables.pod.?tolerations.orValue([]).all(t,
