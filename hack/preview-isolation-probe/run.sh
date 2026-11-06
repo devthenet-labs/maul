@@ -1204,9 +1204,10 @@ PROBE_PAGE_WAIT_SECONDS=$timeout" page || page_status=$?
 #     --other-tool-pod, another evaluation's tool pod refuses this key;
 #   - sends the sandbox program (cmd/netprobe/sandboxprog) to the exec verb,
 #     `go run probe.go`, at the head, the base, the head again, then the
-#     head's network: the side walls, /dev/shm, the exec-socket directory,
-#     the leftover loopback listener, :8090 from inside, and the tool pod's
-#     egress (the artifact server and its profile's proxy only).
+#     tool pod's network from the base: the side walls, /dev/shm, the
+#     exec-socket directory, the leftover loopback listener, :8090 from
+#     inside, and the tool pod's egress (the artifact server and its
+#     profile's proxy only).
 #
 # Then cmd/agentscheck (run from this checkout with go) holds the tool pod's
 # spec to its shape and, once the evaluation finishes, the tools container's
@@ -1357,7 +1358,7 @@ rows:
              volume, its own /dev/shm, files planted in its exec directory, a leftover listener, :8090 refused
   base       --as sandbox-base at the base: the same, and the head's /dev/shm file and listener gone
   head-2     --as sandbox-head again: the base's /dev/shm file and listener gone
-  network    --as tools-agents at the head
+  network    --as tools-agents at the base (after which each exec directory has been dialled again)
              REACHED: artifact server :9790$(if [[ -n $proxy_port ]]; then echo ", the egress proxy :$proxy_port"; fi)
              BLOCKED: broker :8080, DNS :53, API server, IMDS, internet$(if [[ -n $other_tool ]]; then echo ", the other tool pod :8090"; fi)
   pod        agentscheck pod: shareProcessNamespace false, UIDs 65532/65540/65541, no token, no ephemeral

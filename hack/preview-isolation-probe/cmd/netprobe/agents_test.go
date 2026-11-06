@@ -135,8 +135,9 @@ func TestAgentsDriverPasses(t *testing.T) {
 }
 
 // checkExecs: the program runs head, base, head, then the network from the
-// head, each a go run of its one file, each run planting under its own
-// nonce and looking for the other side's last.
+// base (so each side's exec directory, planted by its last side run, is
+// dialled once more), each a go run of its one file, each run planting
+// under its own nonce and looking for the other side's last.
 func checkExecs(t *testing.T, execs []map[string]any) {
 	t.Helper()
 	order := make([]string, 0, len(execs))
@@ -155,7 +156,7 @@ func checkExecs(t *testing.T, execs []map[string]any) {
 			t.Errorf("file %v", file)
 		}
 	}
-	want := []string{"sandbox-head@head", "sandbox-base@base", "sandbox-head@head", "tools-agents@head"}
+	want := []string{"sandbox-head@head", "sandbox-base@base", "sandbox-head@head", "tools-agents@base"}
 	if !slices.Equal(order, want) {
 		t.Fatalf("exec order %v, want %v", order, want)
 	}
@@ -193,7 +194,7 @@ func TestAgentsDriverPropagatesAProgramFailure(t *testing.T) {
 	}{
 		{"base", "sandbox-base", "base", `{"name":"dev-shm","outcome":"BROKEN"}` + "\n" +
 			`{"name":"summary","outcome":"SECURITY_FAILURE"}`, outcomeSecurityFailure},
-		{"network", "tools-agents", "head", `{"name":"artifact-server","outcome":"NOT_REACHED"}` + "\n" +
+		{"network", "tools-agents", "base", `{"name":"artifact-server","outcome":"NOT_REACHED"}` + "\n" +
 			`{"name":"summary","outcome":"NOT_REACHED"}`, outcomeNotReached},
 		{"head-1", "sandbox-head", "head", "go: cannot find GOROOT", outcomeInconclusive},
 	} {

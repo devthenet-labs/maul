@@ -292,6 +292,24 @@ func checkAgentsToolJobs(t *testing.T, admin, ic client.Client) {
 		{"the head pristine tree read-only in the base seed", func(p *corev1.PodSpec) {
 			mount(p, "seed-base", corev1.VolumeMount{Name: "pristine-head", MountPath: "/head", ReadOnly: true})
 		}, tpSides},
+		// Both sandboxes reading the head's pristine tree read-only, its
+		// seed seeding from another of prepare's volumes: the read-only
+		// exception is the tool-exec copy alone, at /maul-bin in prepare and
+		// both sandboxes.
+		{"the head pristine tree read-only in both sandboxes", func(p *corev1.PodSpec) {
+			p.Volumes = append(p.Volumes, corev1.Volume{Name: "extra", VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+			mount(p, "prepare", corev1.VolumeMount{Name: "extra", MountPath: "/extra"})
+			unmount(p, "seed-head", "pristine-head")
+			mount(p, "seed-head", corev1.VolumeMount{Name: "extra", MountPath: "/pristine", ReadOnly: true})
+			for _, c := range []string{"sandbox-head", "sandbox-base"} {
+				mount(p, c, corev1.VolumeMount{Name: "pristine-head", MountPath: "/head", ReadOnly: true})
+			}
+		}, tpSides},
+		{"maul-bin elsewhere in the base sandbox", func(p *corev1.PodSpec) {
+			unmount(p, "sandbox-base", "maul-bin")
+			mount(p, "sandbox-base", corev1.VolumeMount{Name: "maul-bin", MountPath: "/work/bin", ReadOnly: true})
+		}, tpSides},
 		{"a cache in a seed", func(p *corev1.PodSpec) {
 			mount(p, "seed-head", corev1.VolumeMount{Name: "cache-head", MountPath: "/work/cache"})
 		}, tpSeeds},

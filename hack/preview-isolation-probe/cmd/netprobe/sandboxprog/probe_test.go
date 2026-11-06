@@ -205,7 +205,8 @@ func TestToolsAPIRows(t *testing.T) {
 	}{
 		{"closed at accept, as GuardListener does", serve(func(c net.Conn) { _ = c.Close() }), outcomeBlocked},
 		{"a refusal status", serve(answer("401 Unauthorized")), outcomeBlocked},
-		{"served", serve(answer("200 OK")), outcomeReached},
+		{"served: the wall is down", serve(answer("200 OK")), outcomeReachable},
+		{"redirected is served too", serve(answer("302 Found")), outcomeReachable},
 		{"a server error proves nothing", serve(answer("502 Bad Gateway")), outcomeInconclusive},
 		{"nothing listening proves nothing", gonePort, outcomeInconclusive},
 	} {

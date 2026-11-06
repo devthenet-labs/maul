@@ -38,7 +38,9 @@ import (
 //  4. sends the sandbox program (sandboxprog/probe.go, embedded) to the exec
 //     verb as PR code would run: `go run probe.go --as sandbox-head` at the
 //     head, `--as sandbox-base` at the base, the head again, then `--as
-//     tools-agents` at the head for the tool pod's network. Each run plants
+//     tools-agents` at the base for the tool pod's network (the pod's one
+//     network; at the base, so each side's exec directory is dialled again
+//     after its last side run planted in it). Each run plants
 //     under its own nonce and looks for the other side's last one, so the
 //     base run sees what the first head run left and the second head run
 //     what the base left.
@@ -292,7 +294,7 @@ func runAgents(cfg agentsConfig, emit func(result)) (string, int) {
 	if cfg.refusals {
 		args = append(args, refusedIsBlocked)
 	}
-	runStep(cfg, "network", "head", args, row)
+	runStep(cfg, "network", "base", args, row)
 	return finish()
 }
 

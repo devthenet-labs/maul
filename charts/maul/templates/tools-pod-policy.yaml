@@ -249,16 +249,21 @@ spec:
                     d.?volumeMounts.orValue([]).all(n, n.name != m.name))))
           message: agents tool pods give tools, sandbox-head and sandbox-base each their own memory-backed /dev/shm
           reason: Forbidden
-        # The two sides share nothing either writes, and nothing at all but a
-        # volume both sandboxes mount read-only (the tool-exec copy): no side
-        # reads the other's tree, work, caches or socket.
+        # The two sides share nothing either writes, and nothing at all but
+        # the tool-exec copy: the volume prepare writes at /maul-bin, which
+        # both sandboxes mount read-only at /maul-bin. No side reads the
+        # other's tree (a pristine tree is prepare's too, so the mount path
+        # is what tells the copy apart), work, caches or socket.
         - expression: >-
               variables.all.filter(c, c.name in {{ $head | toJson }}).all(c,
                 c.?volumeMounts.orValue([]).all(m,
                   variables.all.filter(d, d.name in {{ $base | toJson }}).all(d,
                     d.?volumeMounts.orValue([]).all(n, n.name != m.name ||
                       (m.?readOnly.orValue(false) && n.?readOnly.orValue(false) &&
-                        c.name.startsWith('sandbox-') && d.name.startsWith('sandbox-'))))))
+                        c.name.startsWith('sandbox-') && d.name.startsWith('sandbox-') &&
+                        m.mountPath == '/maul-bin' && n.mountPath == '/maul-bin' &&
+                        variables.inits.exists(p, p.name == 'prepare' &&
+                          p.?volumeMounts.orValue([]).exists(x, x.name == m.name && x.mountPath == '/maul-bin')))))))
           message: >-
               the head and base sides of an agents tool pod share no volume but the sandboxes' read-only
               tool-exec copy

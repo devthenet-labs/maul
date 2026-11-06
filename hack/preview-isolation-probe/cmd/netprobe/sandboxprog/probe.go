@@ -331,8 +331,9 @@ func goneRow(port int) string {
 
 // toolsAPI makes one GET of /readyz to addr with key (none when empty), with
 // no Origin, over a bare connection: a close (how GuardListener refuses a
-// local caller), a 4xx or no answer is blocked; a 2xx or 3xx reached; a
-// refused connection or a 5xx proves nothing.
+// local caller), a 4xx or no answer is blocked; a 2xx or 3xx is REACHABLE,
+// the wall broken (a sandbox must never be served by :8090); a refused
+// connection or a 5xx proves nothing.
 func toolsAPI(addr, key string, within time.Duration) string {
 	c, err := net.DialTimeout("tcp4", addr, within)
 	if err != nil {
@@ -365,7 +366,7 @@ func toolsAPI(addr, key string, within time.Duration) string {
 	case status >= 400:
 		return outcomeBlocked
 	}
-	return outcomeReached
+	return outcomeReachable
 }
 
 // podIPv4 is the pod's own address, the second way to :8090.
