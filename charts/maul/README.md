@@ -269,7 +269,9 @@ intent-controller runs one tool pod per round in the agents namespace, the relay
 tool pod's exact shape: images, UIDs, volumes, no token, no credential, no resolver), the tool pod's network policy (the
 artifact server out, an evaluator on 8090 in; its build's network profile through that profile's own policy) and
 intent-controller's grant to write an agents verification's results, which `maul-preview-verifications` holds to it
-alone. Roll back by setting it `false`.
+alone. Roll back by setting it `false`: intent-controller's sweep, which runs whether or not the tool pod is on, then
+deletes every tool Job. The pod, its privileges and its capacity are in
+[the agents tool pod](../../docs/configuration/intent-controller.md#the-agents-tool-pod).
 
 ## Preview sign-in (opt-in, off by default)
 

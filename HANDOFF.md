@@ -11,13 +11,18 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## In flight: the agent evaluator (branch `feature/agent-evaluator`, not released)
+## In flight: the agent evaluator, slice S2 (on main, not released)
 
-Design `.claude/plans/agent-evaluator/DESIGN.md`. Landed on the branch: the evaluate and checkreview stages, the tool
-pod and its gateway, the verification ledger, the status-page evidence view (S1-23), the isolation probe's code (S1-25)
-and the intent-controller gaps (S1-29). Still to come: the e2e cases (S1-24) and the live demo and probe run (S1-28,
-needs owner approval to deploy). Calibration D12 failed for `claude-sonnet-5`: a model-judged screenshot is never
-support, only `unsure` (docs/intents/evaluator.md, Known limits). Replan from InReview and codex verification are open.
+Design `.claude/plans/agent-evaluator/DESIGN.md`; S1 (the slot tool pod) shipped in 0.13.13 and 0.13.14. S2, the
+agents-namespace tool pod for a Project with no preview (`surfaces.cli` or `surfaces.library`), is merged on main (S2-01
+to S2-22, S2-20b; spec `.claude/plans/agent-evaluator/SPEC-S2.md`), off by default
+(`intentController.verification.agents.enabled`): people's guide
+[docs/intents/evaluator.md](docs/intents/evaluator.md#without-a-preview-a-cli-or-a-library), operator's
+[docs/configuration/intent-controller.md](docs/configuration/intent-controller.md#the-agents-tool-pod). Still to come:
+the release candidate with the S1 regression check (S2-25) and the live gate (S2-26: the isolation probe's agents rows,
+the confirm-rate bar of 80% on correct CLI and library builds, the `bbcount` fixture's owner AWS step). Rollback: the
+flag off; the always-on sweep deletes every tool Job. Calibration D12 failed for `claude-sonnet-5`: a model-judged
+screenshot is never support, only `unsure`. Replan from InReview and codex verification are open.
 
 ## Current checkpoint — 2026-10-18: 0.12.40 on the desktop, EKS down
 

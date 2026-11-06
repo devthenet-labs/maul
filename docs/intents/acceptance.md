@@ -37,14 +37,18 @@ Each switch fails closed: with one off, no acceptance state is written anywhere.
    [its flags](../configuration/intent-controller.md#flags)). Off, its plans carry no acceptance prompt and no state is
    written. Without `--intent-previews-enabled` the controller still starts, logs a warning and leaves verification
    `Off`: each verifying Project carries the condition `VerificationOff` (reason `PreviewsDisabled`), and each of its
-   intents in review says so in its status comment.
+   intents in review says so in its status comment; with the agents tool pod on (step 3), every one but a Project with a
+   cli or library surface.
 3. **The evaluator** (optional). `intentController.verification.evaluator: true`, with the three tool pod images in
    `preview.verification.tools` pinned by digest, switches intent-controller (`--intent-evaluator`) and
    preview-controller (`--preview-evaluator`) to outcomes, and renders the evaluator's admission and network policies.
    It needs Kubernetes 1.30+ and `agent.networkPolicy.create`, and is refused under `agent.networkPolicy.mode: istio`.
    Its chart settings are in
    [the chart's README](https://github.com/devthenet-labs/maul/blob/main/charts/maul/README.md); the tool pod's side is
-   in [the preview-controller](../configuration/preview-controller.md#the-agent-evaluators-tool-pod).
+   in [the preview-controller](../configuration/preview-controller.md#the-agent-evaluators-tool-pod). With
+   `intentController.verification.agents.enabled` as well, the evaluator also checks Projects with no preview that
+   declare a command-line program or a Go library, previews on or off: see
+   [Without a preview](evaluator.md#without-a-preview-a-cli-or-a-library).
 4. **The Project**, per Project:
 
 ```yaml

@@ -258,6 +258,92 @@ one at another version than the approved plan's new dependencies name, and each 
 chart stamps the three flags above from `egressProxy` and `agent.networkProfiles`; `egressProxy.suspendProfiles` turns
 them off from the next Job.
 
+## The agents tool pod
+
+With `--intent-evaluator-agents` (chart `intentController.verification.agents.enabled`, default off) the
+[agent evaluator](../intents/evaluator.md#without-a-preview-a-cli-or-a-library) also evaluates a Project with a
+`surfaces.cli` or `surfaces.library` and no preview. There is no slot, so intent-controller runs the round's tool pod
+itself: a reconciler of its own, the **agents host**, renders, watches and collects one tool pod per round in the agents
+namespace, and is the only writer of that round's `PreviewVerification` status (`spec.placement: agents`, immutable).
+preview-controller never touches such a request, and with the agents tool pod on the chart's
+`maul-preview-verifications` holds each placement's results to its own writer.
+
+- **Switching it on.** It needs `--intent-evaluator` and `--intent-verification`; `--intent-previews-enabled` is then
+  optional (without it only Projects with a cli or library surface verify). `--intent-tools-image` is the digest-pinned
+  preview-tools image. The chart refuses it without the evaluator or `agent.repositoryImages.enabled` (both sandboxes
+  run the repository's accepted image), takes the image from `preview.verification.tools.image` even with previews off,
+  and needs Kubernetes 1.30+ for its admission policy.
+- **The trees.** When a round is due, intent-controller reads the merge base of the pull request's head and the
+  repository's default branch, and creates two Repositories the Intent owns, pinned to exactly those commits
+  (`spec.ref.commit`; source-controller fetches each archive and never reads a runner image from it). A round waits up
+  to 15 minutes from a tree's creation for both to be Ready, then is `Unavailable` (`TreeUnavailable`) and retried each
+  poll while the heads stay; a commit source-controller reports `CommitNotFound` for is `Unavailable` at once.
+- **The image and the network** are the repository's latest build's, re-derived before the pod is created through the
+  calls a build launch makes (`PinFor` on that build's own Repository, then its network profile and the Forge check),
+  and held to what the round recorded: a different image or profile ends the round `Stale`. A Forge list that cannot be
+  read is retried as a build launch retries it, and becomes `Infra` (`tools-not-ready`) only past the round's own
+  timeout; only a profile the check actually refuses is `Stale`. No accepted image ends the round `Unconfirmed` before
+  any pod exists.
+- **The pod.** One Job per round, named after its `PreviewVerification` when that is a DNS label of at most 57
+  characters (else `tools-` and a hash), with one Secret `<job>-tools` holding the relay's configuration, the outcomes,
+  the saved checks and the `:8090` key, mounted in `tools` alone. The init `prepare` (maul's preview-tools image,
+  UID 65532) fetches both trees from the artifact server, verifies each against its digest before unpacking it, extracts
+  it into a read-only pristine volume (refusing absolute or `..` paths, links leaving the tree, entries through a link,
+  devices, duplicates and oversize trees), copies `tool-exec` into a read-only `maul-bin` volume, and ends with the
+  strict sandbox probe over the internet, the API server, metadata and DNS (exit 78 on any open). `seed-head` and
+  `seed-base` copy each side's tree into that side's own work volume under its sandbox's UID. Then `tools` (UID 65532)
+  runs the relay, beside two native sidecars in the repository's accepted image, `sandbox-head` (UID 65540) and
+  `sandbox-base` (UID 65541), each running `tool-exec` from `maul-bin` with its own tree, caches, home, scratch, exec
+  socket and `/dev/shm`.
+- **What it holds, and what it does not.** No ServiceAccount token (the default ServiceAccount, nothing mounted or
+  projected), no model credential or gateway variable, no `envFrom` and no Secret reference in an environment variable,
+  no resolver (`dnsPolicy: None`; the artifact server and any profile proxy are host entries), no Service links, no
+  shared host or process namespace, no ephemeral container, no capability, a read-only root and the runtime's default
+  seccomp profile in every container, and no preview toleration or node selector (it schedules like any agent pod, so
+  the repository image must be pullable on any node). The head and base share no volume but the read-only `maul-bin`.
+  `maul-tools-pod-shape` admits exactly this shape, only from intent-controller, and its Pod only from the Job
+  controller.
+- **Its network** is its build's and never wider: out, the artifact server on 9790 and, when the build gets an
+  [operator network profile](#network-profiles), that profile's port on the egress proxy (the same label, host entry and
+  package-manager environment the build gets, in the sandboxes only); in, only an evaluator on 8090, which must also
+  present the round's key. The programs see only the search path and that profile's environment, the sandbox's own
+  places (`HOME`, `TMPDIR`, `GOCACHE`, the npm cache, `GOTOOLCHAIN=local`), and, from the image's environment, only
+  `GOMODCACHE` and `GOPATH` (recorded by source-controller as `status.runnerImage.goEnv`; `GOROOT` is recorded but never
+  passed). A Repository pinned before this release has no `goEnv` until a new build creates a fresh one.
+- **Watching it.** `status.tools` is written only once `tools` and both sandboxes are Ready; the evaluator is created
+  only then. A prepare exit 78 is `sandbox-unenforced` and trips the sandbox breaker; an eviction (`tools-evicted`), a
+  pod that will not schedule or pull, a crash loop or the Job's deadline (`tools-deadline`) is `Infra`. At
+  `--intent-max-tool-pods` live tool pods a round waits (`tool-pods-saturated`), and only past its own timeout is it
+  `Infra`, never a verdict.
+- **The result.** Once the pod finishes, the agents host reads only the `tools` container's log, holds it to the count
+  and sha256 of its termination message, and writes the index, the two builds, the head's replay and confirmations, the
+  confirmed checks, `status.base` (each base run with `tree: base`) and the head build's fact, and keeps the full ledger
+  in `<verification>-ledger`. A log that does not hold, or that holds the round's key, is `Infra` (`ledger-mismatch`); a
+  head that did not build is `Infra` (`tools-build-failed`), never a fail. Only a base build that ran and failed marks
+  the base unbuildable; a base timeout or a build maul could not run does not.
+- **Teardown.** Once the round settles, its Job and Secret are deleted: at once for a pod still running, after 10
+  minutes for a finished one, so the isolation probe can still read its ledger. A finished Job holds no
+  `--intent-max-tool-pods` place while it lingers. A tool Secret left without its Job (written before a crash, say) goes
+  with its settled round, when its label names that round. A sweep, registered whether or not the agents host is on,
+  deletes tool Jobs and their Secrets (selected by `maul.run/role: tools`, never by kind) whose round is gone or settled
+  past the linger, and, while the agents host is off, every tool Job.
+
+**Capacity.** Requests equal limits: `tools` 250m, 256Mi, 2Gi of ephemeral storage (prepare and the seeds run within it,
+so it holds both pristine trees), each sandbox 1 CPU, 2Gi, 8Gi (about 3.5 GB of Go caches for a large tree, plus the
+tree, home and `/tmp`), about 2.25 CPU and 4.25 GiB a pod (`--intent-tool-resources`, chart
+`intentController.verification.agents.resources`). Measured on a 16-CPU desktop: a pod started in 3 seconds with its
+images cached; a mid-sized Go tree built cold at both sides in parallel in 13 seconds, warm in under 0.1, with `go vet`
+and the tests 6 to 10 seconds and a 383 MiB memory peak; a heavy cold build (`go build -a std cmd`) took 108 seconds per
+side at 1 CPU, with a 1.3 GiB working set. **CPU is the tight dimension**: two tool pods, an evaluator and three preview
+slots at their limits take 14.5 of 16 CPU, so a third tool pod does not fit, and the default `--intent-max-tool-pods`
+is 2. For big cold builds raise the sandbox CPU before the build timeout (a cold build scales about linearly with it).
+Each round's verification may take the evaluate timeout plus one build's timeout plus five minutes, at most 75 minutes.
+
+**Rollback.** Set `intentController.verification.agents.enabled: false`. intent-controller restarts without the agents
+host, its sweep deletes every tool Job on its next pass, and each Project with a cli or library surface carries
+`VerificationOff` (`AgentsToolPodNotEnabled`) again; Projects with a preview are unaffected. The chart stops rendering
+the tool pod's admission policy, network policy and status grant.
+
 ## Projects
 
 A Project is operator configuration, written through the maul-config chart's `projects` array (see
@@ -591,8 +677,12 @@ intent-controller is the second code path that writes to a forge (remediation-co
     Repositories (create, read, delete), Forges (read), ConfigMaps (create, read, update), leases and events; with
     `previewController.enabled`, previews too (create, get, update, delete: the spec it writes, and the status it reads
     for the preview link), never list or watch; with `preview.verification.enabled`, `previewverifications` too (create,
-    get, list, watch, delete: the requests it writes and the results it reads);
-  - in the agents namespace, its own copy of the agent-jobs Role;
+    get, list, watch, delete: the requests it writes and the results it reads); with
+    `intentController.verification.agents.enabled`, the same with or without previews, plus
+    `previewverifications/status` update for the results of an agents round, which `maul-preview-verifications` lets it
+    write on no other;
+  - in the agents namespace, its own copy of the agent-jobs Role (the tool pod's Job, its Secret, its pod and the
+    `tools` container's log among them);
   - no ClusterRole.
 - **Network:** egress to DNS, the Kubernetes API server and GitHub on 443. It never dials the artifact server or an
   agent pod.
