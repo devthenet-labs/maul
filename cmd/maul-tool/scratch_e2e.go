@@ -5,7 +5,11 @@
 
 package main
 
-import "github.com/devthenet-labs/maul/internal/maultool"
+import (
+	"path/filepath"
+
+	"github.com/devthenet-labs/maul/internal/maultool"
+)
 
 // scratchEnv names the e2e suite's scratch directory. The suite's fake
 // kubelet runs the evaluator in a temporary workspace, where /work/scratch
@@ -19,4 +23,14 @@ func scratchDir(getenv func(string) string) string {
 		return d
 	}
 	return maultool.ScratchDir
+}
+
+// keyFile is the per-evaluation key's file: beside the scratch directory
+// scratchEnv names, where the pod's sits beside /work/scratch
+// (<workspace>/input/tools-key, which agent-runner writes), else the pod's.
+func keyFile(getenv func(string) string) string {
+	if d := getenv(scratchEnv); d != "" {
+		return filepath.Join(filepath.Dir(d), "input", "tools-key")
+	}
+	return maultool.KeyFile
 }

@@ -11,3 +11,7 @@ import "github.com/devthenet-labs/maul/internal/maultool"
 // released maul-tool's is the evaluator pod's fixed /work/scratch, whatever
 // its environment says (scratch_e2e.go is the e2e suite's seam).
 func scratchDir(func(string) string) string { return maultool.ScratchDir }
+
+// keyFile is the per-evaluation key's file: a released maul-tool's is the
+// evaluator pod's fixed /work/input/tools-key.
+func keyFile(func(string) string) string { return maultool.KeyFile }
