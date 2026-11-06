@@ -26,11 +26,19 @@ import (
 // verifies Project p's intents: the Project asks for it
 // (spec.verification.enabled), and the controller runs with
 // --intent-verification and --intent-previews-enabled, without which every
-// verifying Project's intents are Off (VerificationWithoutPreviews). Both
-// the plan-time decision (planAsk) and the review-time one (pass.verifies,
-// which adds the Intent's own Preview) are derived from it.
+// verifying Project's intents are Off (VerificationWithoutPreviews). A
+// Project the agents tool pod evaluates (agentsProject) needs no previews
+// (SPEC-S2 Q33), only none of its own beside its surface (O6). Both the
+// plan-time decision (planAsk) and the review-time one (pass.verifies,
+// which adds the Intent's tool host) are derived from it.
 func (s Settings) verifiesProject(p *v1alpha1.Project) bool {
-	return s.Verification && s.Previews && p.Spec.VerificationEnabled()
+	if !s.Verification || !p.Spec.VerificationEnabled() {
+		return false
+	}
+	if s.agentsProject(p) {
+		return !previewed(p)
+	}
+	return s.Previews
 }
 
 // evaluates reports that the agent evaluator verifies Project p's intents

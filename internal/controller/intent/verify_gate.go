@@ -9,17 +9,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"time"
 
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The verification gate: what must hold before the intent reconciler asks
@@ -64,27 +60,6 @@ type headSet struct {
 	heads  []v1alpha1.VerificationHead
 }
 
-// previewHeadSet is the head set of the Preview derived from in's records
-// (v1alpha1.DesiredPreviewComponents), each component with its repository's
-// URL. ok is false when in has no Preview.
-func previewHeadSet(proj *v1alpha1.Project, in *v1alpha1.Intent) (headSet, bool) {
-	desired, ok := v1alpha1.DesiredPreviewComponents(proj, in)
-	if !ok {
-		return headSet{}, false
-	}
-	previews := v1alpha1.EffectivePreviews(proj)
-	heads := make([]v1alpha1.VerificationHead, 0, len(desired))
-	for _, d := range desired {
-		i := slices.IndexFunc(previews, func(rp v1alpha1.RepositoryPreview) bool { return rp.Name == d.Name })
-		if i < 0 {
-			return headSet{}, false
-		}
-		heads = append(heads, v1alpha1.VerificationHead{Component: d.Name, Repository: previews[i].URL,
-			Revision: d.Revision})
-	}
-	return headSet{digest: headSetDigest(heads), heads: heads}, true
-}
-
 // headSetDigest is "sha256:" and the hex sha256 of the JSON list of the
 // heads' [repository, revision] pairs, sorted: it binds the combined change
 // and nothing of the order or the component names it was listed under.
@@ -122,15 +97,10 @@ func automatable(cs []v1alpha1.AcceptanceCriterion) []v1alpha1.AcceptanceCriteri
 
 // verifies reports whether this pass's Intent is verified: its Project is
 // (Settings.verifiesProject, the predicate the plan-time planAsk shares),
-// and the Intent's Preview is verification-capable
-// (v1alpha1.DesiredPreviewEnvironment, the derivation preview-controller
-// re-checks).
+// and its tool host can verify it (toolHost.verifies: for the slot, the
+// Intent's Preview is verification-capable).
 func (p *pass) verifies() bool {
-	if !p.set.verifiesProject(p.proj) {
-		return false
-	}
-	_, ok := v1alpha1.DesiredPreviewEnvironment(p.proj, p.in)
-	return ok
+	return p.set.verifiesProject(p.proj) && p.toolHost().verifies(p)
 }
 
 // verifyKind is why a verification is due.
@@ -227,31 +197,6 @@ func unrunnable(cs []v1alpha1.AcceptanceCriterion, hs headSet) string {
 		}
 	}
 	return ""
-}
-
-// livePreview reads the Intent's Preview (uncached) and returns it when a
-// verification may run against it now: it is live at exactly the heads
-// derived from the Intent's records (viewPreview), verification-capable
-// (spec.environment), and its parts were restarted for the latest reset the
-// Intent records. nil otherwise, a failed read included.
-func (p *pass) livePreview(ctx context.Context, v *v1alpha1.IntentVerification) *v1alpha1.Preview {
-	var pv v1alpha1.Preview
-	err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: p.in.Namespace, Name: p.in.Name}, &pv)
-	if err != nil {
-		if !kerrors.IsNotFound(err) {
-			p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the intent's preview; no verification this pass",
-				slog.String("intent", p.in.Name), slog.Any("error", err))
-		}
-		return nil
-	}
-	if viewPreview(p.proj, p.in, &pv).state != templates.PreviewLive ||
-		pv.Spec.Environment == nil || !pv.Spec.Environment.Verification {
-		return nil
-	}
-	if reset := v.Reset.Generation; pv.Spec.ResetGeneration != reset || pv.Status.ObservedResetGeneration != reset {
-		return nil
-	}
-	return &pv
 }
 
 // checksGreen reports whether every open pull request of the Intent has the

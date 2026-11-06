@@ -25,6 +25,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/cli"
 	"github.com/devthenet-labs/maul/internal/controller/intent"
 	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/runnercfg"
 )
 
@@ -518,7 +519,9 @@ func TestChartEvaluatorKeysAreFlags(t *testing.T) {
 	for _, key := range []string{"MAUL_INTENT_EVALUATOR", "MAUL_INTENT_EVALUATE_MODEL",
 		"MAUL_INTENT_CHECKREVIEW_MODEL", "MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF",
 		"MAUL_INTENT_HANDOFF_MAX", "MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX",
-		"MAUL_INTENT_MAX_TOOL_CALLS", "MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS"} {
+		"MAUL_INTENT_MAX_TOOL_CALLS", "MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS",
+		"MAUL_INTENT_EVALUATOR_AGENTS", "MAUL_INTENT_TOOLS_IMAGE", "MAUL_INTENT_MAX_TOOL_PODS",
+		"MAUL_INTENT_TOOL_BUILD_TIMEOUT_MAX", "MAUL_INTENT_TOOL_RESOURCES"} {
 		if serve.Flags().Lookup(flagName(key)) == nil {
 			t.Errorf("the chart sets %s, and --%s is not a flag", key, flagName(key))
 		}
@@ -571,6 +574,93 @@ func TestDependenciesFlagReachesSettings(t *testing.T) {
 		if err != nil || s.IgnoreDependencies != tc.wantIgnore {
 			t.Errorf("MAUL_INTENT_DEPENDENCIES=%s: IgnoreDependencies = %v, %v; want %v", tc.value,
 				s.IgnoreDependencies, err, tc.wantIgnore)
+		}
+	}
+}
+
+// toolsImage is a digest-pinned preview-tools image.
+const toolsImage = "registry.example/maul-preview-tools@sha256:" +
+	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// TestAgentsSettings: --intent-evaluator-agents runs the evaluator without
+// previews (Q33), with the tool pod's image, bound, build ceiling and
+// resources as the chart sets them (MAUL_INTENT_TOOL_RESOURCES is flat JSON
+// of strings); off, none of it reaches the settings and the evaluator still
+// needs previews.
+func TestAgentsSettings(t *testing.T) {
+	load := loadSettings
+	s, err := load(t, "--intent-tools-image", toolsImage)
+	if err != nil || s.EvaluatorAgents || s.ToolsImage != "" || s.MaxToolPods != 0 {
+		t.Fatalf("agents off: settings %+v, %v; want none of it", s, err)
+	}
+	on := agentsOnFlags()
+	s, err = load(t, append(on, "--intent-max-tool-pods", "3", "--intent-tool-build-timeout-max", "15m",
+		"--intent-tool-resources", `{"tools":{"cpu":"500m","memory":"512Mi","ephemeralStorage":"3Gi"},`+
+			`"sandbox":{"cpu":"2","memory":"4Gi","ephemeralStorage":"10Gi"}}`)...)
+	if err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	want := jobs.ToolPodResources{
+		Tools:   jobs.ToolResources{CPU: "500m", Memory: "512Mi", EphemeralStorage: "3Gi"},
+		Sandbox: jobs.ToolResources{CPU: "2", Memory: "4Gi", EphemeralStorage: "10Gi"},
+	}
+	if !s.Evaluator || !s.EvaluatorAgents || s.Previews || s.ToolsImage != toolsImage || s.MaxToolPods != 3 ||
+		s.ToolBuildTimeoutMax != 15*time.Minute || s.ToolResources != want {
+		t.Errorf("settings = %+v", s)
+	}
+	// The chart's rendering of its defaults, read from the environment.
+	t.Setenv("MAUL_INTENT_TOOL_RESOURCES", `{"sandbox":{"cpu":"1","ephemeralStorage":"8Gi","memory":"2Gi"},`+
+		`"tools":{"cpu":"250m","ephemeralStorage":"2Gi","memory":"256Mi"}}`)
+	if s, err = load(t, on...); err != nil || s.ToolResources != (jobs.ToolPodResources{
+		Tools: jobs.DefaultToolsResources, Sandbox: jobs.DefaultSandboxResources}) {
+		t.Errorf("chart resources: settings %+v, %v; want the jobs defaults", s.ToolResources, err)
+	}
+	t.Setenv("MAUL_INTENT_TOOL_RESOURCES", "")
+	s, err = load(t, on...)
+	if err != nil || s.MaxToolPods != 2 || s.ToolBuildTimeoutMax != v1alpha1.MaxCLIBuildTimeout ||
+		s.ToolResources != (jobs.ToolPodResources{}) {
+		t.Errorf("defaults: settings %+v, %v; want 2 tool pods, a 20m build ceiling, the default resources", s, err)
+	}
+}
+
+// loadSettings executes the serve command over args and reads its settings.
+func loadSettings(t *testing.T, args ...string) (intent.Settings, error) {
+	t.Helper()
+	opts, root, _ := command(t, args...)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	return settings(opts, "maul", "maul-agents")
+}
+
+// agentsOnFlags turn the evaluator and its agents tool pod on.
+func agentsOnFlags() []string {
+	return []string{"--intent-verification", "--intent-evaluator", "--intent-evaluator-agents",
+		"--intent-tools-image", toolsImage}
+}
+
+// TestAgentsSettingsRefused: the agents tool pod needs the evaluator and
+// verification, a digest-pinned tools image, at least one tool pod, a build
+// ceiling between 1m and 20m, and resources of string quantities under the
+// two known containers; anything else stops startup.
+func TestAgentsSettingsRefused(t *testing.T) {
+	on := agentsOnFlags()
+	for _, args := range [][]string{
+		{"--intent-evaluator-agents", "--intent-tools-image", toolsImage},
+		{"--intent-verification", "--intent-evaluator-agents", "--intent-tools-image", toolsImage},
+		{"--intent-verification", "--intent-evaluator", "--intent-evaluator-agents"},
+		append(on[:4:4], "--intent-tools-image", "registry.example/maul-preview-tools:latest"),
+		append(on, "--intent-max-tool-pods", "0"),
+		append(on, "--intent-tool-build-timeout-max", "30s"),
+		append(on, "--intent-tool-build-timeout-max", "21m"),
+		append(on, "--intent-tool-resources", "{"),
+		append(on, "--intent-tool-resources", `{"tools":{"cpu":"lots"}}`),
+		append(on, "--intent-tool-resources", `{"tools":{"cpu":1}}`),
+		append(on, "--intent-tool-resources", `{"tools":{"gpu":"1"}}`),
+		append(on, "--intent-tool-resources", `{"builder":{}}`),
+	} {
+		if _, err := loadSettings(t, args...); err == nil {
+			t.Errorf("settings(%v) succeeded, want an error", args)
 		}
 	}
 }

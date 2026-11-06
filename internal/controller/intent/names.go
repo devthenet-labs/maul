@@ -19,6 +19,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/credgate"
 	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/model"
 	"github.com/devthenet-labs/maul/internal/provider"
 )
@@ -259,6 +260,28 @@ type Settings struct {
 	// verification.timeout gives a tester Job (verifyTimeout). Zero is
 	// DefaultVerifyTimeoutMax.
 	VerifyTimeoutMax time.Duration
+	// EvaluatorAgents is --intent-evaluator-agents (SPEC-S2 Q33): the
+	// evaluator also verifies Projects with a cli or library surface and no
+	// Preview, through an agents-namespace tool pod that builds the pull
+	// request's head and its merge base (toolhost_agents.go); such a Project
+	// verifies without --intent-previews-enabled. serve refuses it without
+	// Evaluator. Off (the default), a cli or library Project's verification
+	// is Off (AgentsToolPodNotEnabled) and nothing of it is read.
+	EvaluatorAgents bool
+	// ToolsImage is --intent-tools-image, maul's digest-pinned preview-tools
+	// image the agents tool pod's prepare, seeds and tools run; set under
+	// EvaluatorAgents only.
+	ToolsImage string
+	// MaxToolPods is --intent-max-tool-pods, the most live agents tool pods
+	// (SPEC-S2 Q31); set under EvaluatorAgents only.
+	MaxToolPods int
+	// ToolBuildTimeoutMax is --intent-tool-build-timeout-max, the longest a
+	// cli surface's buildTimeout gives each tree's build; set under
+	// EvaluatorAgents only.
+	ToolBuildTimeoutMax time.Duration
+	// ToolResources is --intent-tool-resources, the tool pod's containers'
+	// requests and limits; empty fields keep the jobs defaults.
+	ToolResources jobs.ToolPodResources
 	// Codex is the codex harness intents may run on (--intent-codex): the
 	// harness id and the canonical model of each stage. The zero value, the
 	// default, runs no intent on codex: a Project asking for it is not Ready

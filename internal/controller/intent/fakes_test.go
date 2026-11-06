@@ -226,8 +226,12 @@ type fakeGitHub struct {
 	patch       string
 	// compared records each ComparePatch call as "repo base...head".
 	compared []string
-	checks   map[string][]ghclient.CheckRun
-	statuses map[string][]ghclient.CommitStatus
+	// mergeBase is MergeBase's answer (baseSHA when empty); mergeBases
+	// records each call as "repo base...head".
+	mergeBase  string
+	mergeBases []string
+	checks     map[string][]ghclient.CheckRun
+	statuses   map[string][]ghclient.CommitStatus
 	// nextStatusID numbers the statuses CreateCommitStatus posts, from a
 	// range clear of the ids tests seed.
 	nextStatusID int64
@@ -1257,6 +1261,21 @@ func (f *fakeGitHub) ComparePatch(_ context.Context, repoURL, base, head string)
 	return f.patch, f.call("ComparePatch")
 }
 
+// MergeBase is the fake's merge base (mergeBase, else baseSHA), recording
+// the compare.
+func (f *fakeGitHub) MergeBase(_ context.Context, repoURL, base, head string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mergeBases = append(f.mergeBases, repoSlug(repoURL)+" "+base+"..."+head)
+	if err := f.call("MergeBase"); err != nil {
+		return "", err
+	}
+	if f.mergeBase != "" {
+		return f.mergeBase, nil
+	}
+	return baseSHA, nil
+}
+
 func (f *fakeGitHub) RequestReviewers(_ context.Context, repoURL string, number int64, logins []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1808,6 +1827,19 @@ func (e *env) readyEach(imageOf func(*v1alpha1.Repository) string) {
 			continue
 		}
 		sha := baseSHA
+		if commit := repo.Spec.Ref.Commit; commit != "" {
+			// source-controller pins a commit Repository to its commit and
+			// never reads a runner image for it.
+			repo.Status.ResolvedSHA = commit
+			repo.Status.Artifact = &v1alpha1.Artifact{URL: "http://artifacts/" + repo.Name + ".tar.gz",
+				Digest: strings.TrimPrefix(digest([]byte(repo.Name)), "sha256:")}
+			repo.Status.Conditions = []metav1.Condition{{Type: v1alpha1.ConditionReady,
+				Status: metav1.ConditionTrue, Reason: "Ready", LastTransitionTime: metav1.NewTime(e.clock.Now())}}
+			if err := e.c.Status().Update(ctx, repo); err != nil {
+				e.t.Fatal(err)
+			}
+			continue
+		}
 		if repo.Spec.Ref.Branch != "" {
 			var err error
 			sha, err = e.gh.HeadSHA(ctx, repo.Spec.URL, repo.Spec.Ref.Branch)

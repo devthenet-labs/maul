@@ -738,8 +738,9 @@ func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullR
 		}
 		return p.waitVerification(ctx, v1alpha1.VerificationWaitingForCI)
 	}
-	return true, p.createVerification(ctx, kind, preview, hs, v1alpha1.VerificationVerifying,
+	return true, p.createVerification(ctx, kind, hs, v1alpha1.VerificationVerifying,
 		func(spec *v1alpha1.PreviewVerificationSpec) error {
+			slotPlace(preview)(spec)
 			spec.Criteria, spec.CriteriaDigest = criteria, p.in.Status.Acceptance.Digest
 			spec.Timeout = metav1.Duration{Duration: p.set.verifyTimeout(p.proj)}
 			return nil
@@ -755,36 +756,6 @@ func (p *pass) waitVerification(ctx context.Context, state v1alpha1.IntentVerifi
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		cur.Status.Verification.State = state
-		return nil
-	})
-}
-
-// waitPreview records that a due verification waits for the Preview to be
-// live at its heads, for at most previewWaitMax from when the wait began.
-// Past it the verification is Unavailable (PreviewNotLive) and stays so,
-// reported as an error, until the Preview is live (the gate then verifies)
-// or the heads move. A verification in flight or judged stands, as in
-// waitVerification.
-func (p *pass) waitPreview(ctx context.Context) (bool, error) {
-	v := p.in.Status.Verification
-	switch {
-	case v.Ref != nil, previewNotLive(v):
-		return false, nil
-	case v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil:
-		since := metav1.NewTime(p.now)
-		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			cur.Status.Verification.State = v1alpha1.VerificationWaitingForPreview
-			cur.Status.Verification.PreviewWaitSince = &since
-			return nil
-		})
-	case p.now.Sub(v.PreviewWaitSince.Time) < previewWaitMax:
-		return false, nil
-	}
-	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the preview was not live at the heads in time; verification unavailable",
-		slog.String("intent", p.in.Name), slog.Duration("waited", p.now.Sub(v.PreviewWaitSince.Time)))
-	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailablePreviewNotLive
 		return nil
 	})
 }
@@ -815,14 +786,15 @@ func (p *pass) needsReplan(ctx context.Context, id string) error {
 	})
 }
 
-// createVerification creates the next PreviewVerification against preview
-// at hs and records it in state (Verifying for slice 1's criteria,
-// Evaluating for the evaluator's outcomes): a retry is its round's next
-// attempt, anything else a new round's first. fill completes the spec with
-// what it runs and its timeout; an error from it creates nothing. One that
-// already exists under the name (a status write lost after its create) is
-// adopted when it is this Intent's at hs.
-func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview *v1alpha1.Preview, hs headSet,
+// createVerification creates the next PreviewVerification at hs and
+// records it in state (Verifying for slice 1's criteria, Evaluating for the
+// evaluator's outcomes): a retry is its round's next attempt, anything else
+// a new round's first. fill completes the spec with where it runs (the
+// Preview it pins, or an agents workspace), what it runs and its timeout;
+// an error from it creates nothing. One that already exists under the name
+// (a status write lost after its create) is adopted when it is this
+// Intent's at hs.
+func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headSet,
 	state v1alpha1.IntentVerificationState, fill func(*v1alpha1.PreviewVerificationSpec) error) error {
 	v := p.in.Status.Verification
 	round, attempt := v.Round+1, int32(1)
@@ -852,9 +824,8 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 			OwnerReferences: []metav1.OwnerReference{intentOwner(p.in)},
 		},
 		Spec: v1alpha1.PreviewVerificationSpec{
-			IntentRef:         v1alpha1.ObjectReference{Name: p.in.Name, UID: p.in.UID},
-			PreviewRef:        v1alpha1.ObjectReference{Name: preview.Name, UID: preview.UID},
-			PreviewGeneration: preview.Generation, HeadSetDigest: hs.digest, Heads: slices.Clone(hs.heads),
+			IntentRef:     v1alpha1.ObjectReference{Name: p.in.Name, UID: p.in.UID},
+			HeadSetDigest: hs.digest, Heads: slices.Clone(hs.heads),
 			Round: round, Attempt: attempt, Run: run,
 		},
 	}

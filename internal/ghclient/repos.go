@@ -6,6 +6,7 @@ package ghclient
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/google/go-github/v90/github"
 )
@@ -40,6 +41,28 @@ func (c *Client) CompareStatus(ctx context.Context, repo Repo, base, head string
 	}
 	return cmp.GetStatus(), nil
 }
+
+// MergeBase is the merge base of head and base in repo's history, as the
+// compare API reports it (merge_base_commit): the commit a pull request of
+// head into base forked from, correct after base was merged into head. One
+// commit per page, as in CompareStatus. A missing or malformed SHA is an
+// error, never a base.
+func (c *Client) MergeBase(ctx context.Context, repo Repo, base, head string) (string, error) {
+	cmp, _, err := c.gh.Repositories.CompareCommits(ctx, repo.Owner, repo.Name, base, head,
+		&github.ListOptions{PerPage: 1})
+	if err != nil {
+		return "", fmt.Errorf("ghclient: compare %s...%s in %s: %w", base, head, repo, err)
+	}
+	sha := cmp.GetMergeBaseCommit().GetSHA()
+	if !fullSHA.MatchString(sha) {
+		return "", fmt.Errorf("ghclient: compare %s...%s in %s: merge base %q is not a commit SHA", base, head,
+			repo, sha)
+	}
+	return sha, nil
+}
+
+// fullSHA is a full, lowercase commit SHA.
+var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // CreatePR opens a pull request.
 func (c *Client) CreatePR(ctx context.Context, repo Repo, req PRRequest) (*PR, error) {
