@@ -206,11 +206,19 @@ func TestDecide(t *testing.T) {
 			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
 		},
 		{
-			name: "rule 5: a check that cannot run at base is n/a",
+			name: "rule 5: a check that cannot compile at base is n/a",
+			in: with(confirmedPass(), func(in *Input) {
+				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunError, Token: "b", Seq: 1,
+					Cause: CauseCompile}}}
+			}),
+			result: ResultPassed, reason: ReasonConfirmed, basis: dg("a"), handoff: HandoffReady,
+		},
+		{
+			name: "rule 5: a check that errs at base for no recorded cause does not discriminate",
 			in: with(confirmedPass(), func(in *Input) {
 				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunError, Token: "b", Seq: 1}}}
 			}),
-			result: ResultPassed, reason: ReasonConfirmed, basis: dg("a"), handoff: HandoffReady,
+			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "rule 5: no base run is n/a",
@@ -801,7 +809,8 @@ func oracleRedReview(in Input, digest string, o OutcomeRef) bool {
 // a run of the check unless it could not be built; a change outcome's check
 // is met only red by assertion at base (never green, quarantined or failing
 // with no assertion there), a keep outcome's never red by assertion or
-// quarantined there; errors and refusals are n/a. Either way a pass with no
+// quarantined there; for a keep outcome errors and refusals are n/a, for a
+// change outcome only an error of an admitted cause (noComparisonCause). Either way a pass with no
 // run token, or a pass beside a fail, at base is no evidence: not met.
 func oracleRule5(in Input, o OutcomeRef, basis string) error {
 	if in.Base == nil {
@@ -843,8 +852,26 @@ func oracleBaseRun(o OutcomeRef, run CheckRun) error {
 		return fmt.Errorf("rule 5: change check failed at base with no assertion")
 	case asserted && o.Keep:
 		return fmt.Errorf("rule 5: keep check red by assertion at base")
+	case (run.Result == RunError || run.Result == RunRefused) && !o.Keep && !noComparisonCause(run):
+		// The base-error rule (S2-20): only an admitted cause is n/a.
+		return fmt.Errorf("rule 5: change check rests on a base %s with no base comparison cause (%q)",
+			run.Result, run.Cause)
 	}
 	return nil
+}
+
+// noComparisonCause restates the admitted causes: an error run that could
+// not compile against the base tree, a tree a program cannot be built
+// against, or a base that did not build.
+func noComparisonCause(run CheckRun) bool {
+	if run.Result != RunError {
+		return false
+	}
+	switch run.Cause {
+	case "compile", "vendored-tree", "replace-outside-tree", "no-module", "base-unbuildable":
+		return true
+	}
+	return false
 }
 
 // oracleBareFail reports a counted fail of digest this round that is not

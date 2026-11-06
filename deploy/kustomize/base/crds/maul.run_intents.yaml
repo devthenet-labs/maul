@@ -2378,10 +2378,16 @@ spec:
                     description: |-
                       UnavailableReason says why the state is Unavailable: PreviewNotLive
                       when the Preview was not live at the heads within the bound (Failed,
-                      expired, or never served); empty when maul's own machinery failed
-                      every attempt. Read only with state Unavailable.
+                      expired, or never served), TreeUnavailable when an agents round's
+                      trees could not be fetched; empty when maul's own machinery failed
+                      every attempt. With state Unconfirmed it says why an agents round
+                      settled without a judgement (SandboxImageUnavailable,
+                      ToolsBuildFailed). Read only with those states.
                     enum:
                     - PreviewNotLive
+                    - SandboxImageUnavailable
+                    - TreeUnavailable
+                    - ToolsBuildFailed
                     type: string
                 type: object
               verifyFixes:

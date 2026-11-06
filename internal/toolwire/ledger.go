@@ -272,6 +272,67 @@ type StepRecord struct {
 	// (browser: one assertion per step). A run is red by assertion only when
 	// every attempt failed the same step and id.
 	AssertionID string `json:"assertionID,omitempty"`
+	// Cause is, on a step that errored, why, when it shows the tree lacks
+	// what the check needs rather than that the run was cut short or
+	// disturbed (StepCause); empty otherwise, and on every S1 step.
+	Cause StepCause `json:"cause,omitempty"`
+}
+
+// StepCause is why a workspace step errored, recorded by the tools relay
+// only for an error that is a property of the tree (SPEC-S2 S2-20): the
+// only errors at the base that leave a check with no base comparison
+// (acceptance.RunCause). A timeout, processes left behind, output cut, a
+// bind or connection error or a sandbox that refused or did not answer is
+// recorded with none: it gives no evidence about the tree.
+type StepCause string
+
+// Step causes.
+const (
+	// CauseCompile: the run program did not compile against the tree (the
+	// compiler ran to its end and refused it).
+	CauseCompile StepCause = "compile"
+	// CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule: a tree a
+	// run program cannot be built against (SPEC Q25).
+	CauseVendoredTree       StepCause = "vendored-tree"
+	CauseReplaceOutsideTree StepCause = "replace-outside-tree"
+	CauseNoModule           StepCause = "no-module"
+	// CauseBaseUnbuildable: the base tree did not build, so nothing ran.
+	CauseBaseUnbuildable StepCause = "base-unbuildable"
+)
+
+// Known reports one of the step causes.
+func (c StepCause) Known() bool {
+	switch c {
+	case CauseCompile, CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule, CauseBaseUnbuildable:
+		return true
+	}
+	return false
+}
+
+// Cause is why a run errored: the one cause every attempt errored for, and
+// only of a run that errored at every attempt, each at a step of that same
+// cause; "" for any other run (one that failed, passed or quarantined, an
+// attempt with no cause or another).
+func (r CheckRunRecord) Cause() StepCause {
+	if r.Result != RunError || len(r.Attempts) == 0 {
+		return ""
+	}
+	var cause StepCause
+	for _, a := range r.Attempts {
+		if a.Result != ResultError {
+			return ""
+		}
+		for _, s := range a.Steps {
+			switch {
+			case s.Result == ResultPass:
+				continue
+			case s.Result != ResultError || s.Cause == "" || (cause != "" && s.Cause != cause):
+				return ""
+			}
+			cause = s.Cause
+		}
+	}
+	return cause
 }
 
 // MaxAssertionIDBytes bounds a StepRecord's AssertionID.
@@ -424,6 +485,9 @@ func (a Attempt) check() error {
 		}
 		if s.Assertion && s.Result != ResultFail {
 			return errors.New("a step that did not fail is marked an assertion")
+		}
+		if s.Cause != "" && (!s.Cause.Known() || s.Result != ResultError) {
+			return errors.New("a step's cause is not an error's known cause")
 		}
 		if s.Assertion != (s.AssertionID != "") || len(s.AssertionID) > MaxAssertionIDBytes ||
 			!utf8.ValidString(s.AssertionID) || strings.ContainsAny(s.AssertionID, "\r\n") {

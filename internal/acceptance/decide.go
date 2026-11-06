@@ -105,6 +105,40 @@ const (
 	RunRefused     RunResult = "refused"
 )
 
+// RunCause is why a run errored, recorded by the tools relay only when the
+// error shows the tree lacks what the check needs rather than that the run
+// was cut short or disturbed (slice S2, the agents placement).
+type RunCause string
+
+// Run causes: the only base errors that count as "no base comparison"
+// (n/a, SPEC-S2 S2-20, decided 2026-11-05: zero false passes outranks the
+// confirmed rate). Every other error at base (a timeout, processes left
+// behind, output cut, a bind or connection error, a refused or unanswered
+// call) carries no cause: it gives no base evidence.
+const (
+	// CauseCompile: the check's program did not compile against the tree
+	// (the compiler ran to its end and refused it).
+	CauseCompile RunCause = "compile"
+	// CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule: a tree a
+	// run program cannot be built against (SPEC Q25).
+	CauseVendoredTree       RunCause = "vendored-tree"
+	CauseReplaceOutsideTree RunCause = "replace-outside-tree"
+	CauseNoModule           RunCause = "no-module"
+	// CauseBaseUnbuildable: the base tree did not build, so nothing ran
+	// there.
+	CauseBaseUnbuildable RunCause = "base-unbuildable"
+)
+
+// NoComparison reports a cause that leaves a check with no base
+// comparison: n/a for rule 5, never a discrimination of its own.
+func (c RunCause) NoComparison() bool {
+	switch c {
+	case CauseCompile, CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule, CauseBaseUnbuildable:
+		return true
+	}
+	return false
+}
+
 // CheckRun is one run of a check, read from the tools ledger of this
 // round's PreviewVerification, at its heads.
 type CheckRun struct {
@@ -123,6 +157,9 @@ type CheckRun struct {
 	AssertionID string
 	// ExpectFail: a confirmation of a check proposed to show a defect.
 	ExpectFail bool
+	// Cause is, for an error run, why it errored when the relay recorded
+	// one (RunCause); read only at base.
+	Cause RunCause
 }
 
 // ReviewAnswer is the check reviewer's answer.
@@ -369,6 +406,9 @@ type Decision struct {
 // runs aggregates one check's runs this round.
 type runs struct {
 	pass, fail, quarantined, other bool
+	// na: an error of a cause that leaves no base comparison
+	// (RunCause.NoComparison); other holds every other error and refusal.
+	na bool
 	// untrusted: a pass with no tools run token.
 	untrusted bool
 	// asserted: a fail red by assertion; bare: a fail that is not (a
@@ -377,7 +417,9 @@ type runs struct {
 	failSeq        int32
 }
 
-func (r runs) clean() bool { return r.pass && !r.fail && !r.quarantined && !r.other && !r.untrusted }
+func (r runs) clean() bool {
+	return r.pass && !r.fail && !r.quarantined && !r.other && !r.na && !r.untrusted
+}
 
 func aggregate(rs []CheckRun) map[string]runs {
 	out := map[string]runs{}
@@ -397,6 +439,8 @@ func aggregate(rs []CheckRun) map[string]runs {
 			a.bare = a.bare || run.AssertionStep <= 0
 		case run.Result == RunQuarantined:
 			a.quarantined = true
+		case run.Result == RunError && run.Cause.NoComparison():
+			a.na = true
 		default:
 			a.other = true
 		}
@@ -510,8 +554,9 @@ func (d *decider) replayRuns() []CheckRun {
 // (StoredCheck.Narrowed).
 //
 // With a base (slice S2), rule 5 is met for a change outcome's check only
-// red by assertion at base, for a keep outcome's only not red by assertion
-// there; a required base with no run of the check is not met. A program
+// red by assertion at base (or, n/a, where it could not compile or be built
+// there: no other base error counts), for a keep outcome's only not red by
+// assertion there; a required base with no run of the check is not met. A program
 // check (exec, run) failing other than by assertion never fails its outcome
 // (O4), and a head the tool pod could not build (a RoleBuild part) leaves
 // every outcome unsure.
@@ -868,12 +913,16 @@ func (d decider) passes(c StoredCheck, o OutcomeRef) bool {
 
 // discriminates is rule 5. With no base it is n/a: true. A required base
 // with no run of the check is not met, unless the base could not be built
-// (n/a). A run that could not run the check there (an error, a refusal: a
-// compile failure and a timeout are errors in the agents placement) is n/a.
-// A change outcome's check is met only red by assertion at base: a pass, a
-// quarantine or a fail with no assertion (exit only) is not. A keep
-// outcome's is met by a clean pass at base and not met red by assertion
-// there; a fail with no assertion is n/a.
+// (n/a). A change outcome's check is met only red by assertion at base, or
+// where every run there errored for a cause that leaves no base comparison
+// (RunCause.NoComparison: it did not compile against the base tree, a tree
+// a program cannot be built against, a base that did not build): a pass, a
+// quarantine, a fail with no assertion (exit only), and any other error or
+// refusal (a timeout, leftover processes, cut output, a bind or connection
+// error: no base evidence; SPEC-S2 S2-20, zero false passes) is not, and
+// one of them beside a red run spoils it. A keep outcome's is met by a
+// clean pass at base and not met red by assertion there; a fail with no
+// assertion, an error or a refusal is n/a.
 func (d decider) discriminates(c StoredCheck, o OutcomeRef) bool {
 	if d.base == nil {
 		return true
@@ -887,7 +936,8 @@ func (d decider) discriminates(c StoredCheck, o OutcomeRef) bool {
 	case o.Keep:
 		return !b.asserted
 	}
-	return !b.pass && !b.bare // change: red by assertion, or only errors or refusals (n/a)
+	// change: red by assertion, or only errors with no base comparison (n/a)
+	return !b.pass && !b.bare && !b.other
 }
 
 // replacements are the disputed checks whose replacement is stored for the

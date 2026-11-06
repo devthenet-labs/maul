@@ -887,6 +887,18 @@ spec:
                           maximum: 64
                           minimum: 1
                           type: integer
+                        cause:
+                          description: |-
+                            Cause is, for an error run at the base of an agents verification,
+                            why it errored, when the error is the tree's (CheckRunCause); unset
+                            for every other run, and on every slot run.
+                          enum:
+                          - compile
+                          - vendored-tree
+                          - replace-outside-tree
+                          - no-module
+                          - base-unbuildable
+                          type: string
                         checkDigest:
                           description: CheckDigest is the check's digest.
                           pattern: ^sha256:[0-9a-f]{64}$
@@ -1028,6 +1040,18 @@ spec:
                       maximum: 64
                       minimum: 1
                       type: integer
+                    cause:
+                      description: |-
+                        Cause is, for an error run at the base of an agents verification,
+                        why it errored, when the error is the tree's (CheckRunCause); unset
+                        for every other run, and on every slot run.
+                      enum:
+                      - compile
+                      - vendored-tree
+                      - replace-outside-tree
+                      - no-module
+                      - base-unbuildable
+                      type: string
                     checkDigest:
                       description: CheckDigest is the check's digest.
                       pattern: ^sha256:[0-9a-f]{64}$
@@ -1710,6 +1734,18 @@ spec:
                       maximum: 64
                       minimum: 1
                       type: integer
+                    cause:
+                      description: |-
+                        Cause is, for an error run at the base of an agents verification,
+                        why it errored, when the error is the tree's (CheckRunCause); unset
+                        for every other run, and on every slot run.
+                      enum:
+                      - compile
+                      - vendored-tree
+                      - replace-outside-tree
+                      - no-module
+                      - base-unbuildable
+                      type: string
                     checkDigest:
                       description: CheckDigest is the check's digest.
                       pattern: ^sha256:[0-9a-f]{64}$

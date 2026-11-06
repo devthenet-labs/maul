@@ -212,8 +212,9 @@ func atBase(e toolwire.LedgerEntry) bool {
 }
 
 // BaseRuns are a workspace relay's replays and confirmations at the base,
-// in order, each tagged tree base (status.base.runs); the agent's base dry
-// runs are not among them.
+// in order, each tagged tree base (status.base.runs), an error run with its
+// cause (toolwire.CheckRunRecord.Cause); the agent's base dry runs are not
+// among them.
 func BaseRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
 	var out []v1alpha1.CheckRun
 	for _, e := range entries {
@@ -222,7 +223,9 @@ func BaseRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
 			continue
 		}
 		if run, ok := checkRunOf(e); ok {
-			run.Tree = v1alpha1.TreeBase
+			// Why an error run errored, when it is the base tree's: the only
+			// base errors with no base comparison (SPEC-S2 S2-20).
+			run.Tree, run.Cause = v1alpha1.TreeBase, v1alpha1.CheckRunCause(e.CheckRun.Cause())
 			out = append(out, run)
 		}
 	}

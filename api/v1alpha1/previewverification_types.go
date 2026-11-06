@@ -967,6 +967,29 @@ const (
 	CheckRunRefused     CheckRunResult = "refused"
 )
 
+// CheckRunCause is why an error run errored, recorded only when the error
+// is a property of the tree it ran against rather than a run cut short or
+// disturbed (SPEC-S2 S2-20): only these base errors leave a check with no
+// base comparison. A timeout, processes left behind, output cut, a bind or
+// connection error or a sandbox that refused or did not answer carries
+// none (toolwire.StepCause, acceptance.RunCause).
+// +kubebuilder:validation:Enum=compile;vendored-tree;replace-outside-tree;no-module;base-unbuildable
+type CheckRunCause string
+
+// Check run causes.
+const (
+	// CheckRunCauseCompile: the run program did not compile against the
+	// tree (the compiler ran to its end and refused it).
+	CheckRunCauseCompile CheckRunCause = "compile"
+	// CheckRunCauseVendoredTree, CheckRunCauseReplaceOutsideTree and
+	// CheckRunCauseNoModule: a tree a run program cannot be built against.
+	CheckRunCauseVendoredTree       CheckRunCause = "vendored-tree"
+	CheckRunCauseReplaceOutsideTree CheckRunCause = "replace-outside-tree"
+	CheckRunCauseNoModule           CheckRunCause = "no-module"
+	// CheckRunCauseBaseUnbuildable: the base did not build.
+	CheckRunCauseBaseUnbuildable CheckRunCause = "base-unbuildable"
+)
+
 // CheckRun is one run of one check, as the ledger recorded it.
 type CheckRun struct {
 	// CheckDigest is the check's digest.
@@ -1013,6 +1036,11 @@ type CheckRun struct {
 	// unset is head (Side), and a slot verification never sets it.
 	// +optional
 	Tree TreeSide `json:"tree,omitempty"`
+	// Cause is, for an error run at the base of an agents verification,
+	// why it errored, when the error is the tree's (CheckRunCause); unset
+	// for every other run, and on every slot run.
+	// +optional
+	Cause CheckRunCause `json:"cause,omitempty"`
 }
 
 // RedByAssertion reports a run red by assertion (AssertionStep).
