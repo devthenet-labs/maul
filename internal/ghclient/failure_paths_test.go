@@ -430,8 +430,9 @@ func TestTarballNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// An unknown ref answers 404 at the link; a link that expired or was
-	// withdrawn answers 404 at the download.
+	// An unknown ref answers 404 at the link. A 404 at the download comes
+	// after the API resolved the ref and redirected, so the commit exists:
+	// the link failed, which is a retry, never ErrArchiveNotFound.
 	mux.HandleFunc("GET /repos/o/r/tarball/nolink", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 	})
@@ -446,7 +447,7 @@ func TestTarballNotFound(t *testing.T) {
 		http.Error(w, `{"message":"Gone"}`, http.StatusGone)
 	})
 
-	for ref, want := range map[string]bool{"nolink": true, "nodl": true, "gone": false} {
+	for ref, want := range map[string]bool{"nolink": true, "nodl": false, "gone": false} {
 		_, err := c.Tarball(context.Background(), testRepo, ref)
 		if err == nil {
 			t.Fatalf("Tarball(%s) = nil error", ref)

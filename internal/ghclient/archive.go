@@ -13,9 +13,10 @@ import (
 	"github.com/google/go-github/v90/github"
 )
 
-// ErrArchiveNotFound marks a Tarball the forge answered 404 for: the ref does
-// not exist, or the credential cannot see the repository (GitHub answers a
-// private repository's missing access the same way).
+// ErrArchiveNotFound marks a Tarball whose archive link the forge answered
+// 404 for: the ref does not exist, or the credential cannot see the
+// repository (GitHub answers a private repository's missing access the same
+// way). A 404 from the download the link redirects to is not one.
 var ErrArchiveNotFound = errors.New("archive not found")
 
 // Tarball streams the repository's tarball archive at ref (a SHA, branch, or
@@ -44,11 +45,9 @@ func (c *Client) Tarball(ctx context.Context, repo Repo, ref string) (io.ReadClo
 		return nil, fmt.Errorf("ghclient: download archive for %s@%s: %w", repo, ref, err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		// A 404 here is not ErrArchiveNotFound: the API resolved the ref
+		// before redirecting, so the link failed, which is worth a retry.
 		_ = resp.Body.Close()
-		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("ghclient: download archive for %s@%s: status %d: %w",
-				repo, ref, resp.StatusCode, ErrArchiveNotFound)
-		}
 		return nil, fmt.Errorf("ghclient: download archive for %s@%s: status %d", repo, ref, resp.StatusCode)
 	}
 	return resp.Body, nil
