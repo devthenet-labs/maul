@@ -340,8 +340,9 @@ preview-controller never touches such a request, and with the agents tool pod on
   and sha256 of its termination message, and writes the index, the two builds, the head's replay and confirmations, the
   confirmed checks, `status.base` (each base run with `tree: base`) and the head build's fact, and keeps the full ledger
   in `<verification>-ledger`. A log that does not hold, or that holds the round's key, is `Infra` (`ledger-mismatch`); a
-  head that did not build is `Infra` (`tools-build-failed`), never a fail. Only a base build that ran and failed marks
-  the base unbuildable; a base timeout or a build maul could not run does not.
+  head that did not build is `Infra` (`tools-build-failed`), never a fail: its relay finishes after the two builds
+  without ever becoming ready, so `status.tools` is never written and no evaluate run is launched. Only a base build
+  that ran and failed marks the base unbuildable; a base timeout or a build maul could not run does not.
 - **Teardown.** Once the round settles, its Job and Secret are deleted: at once for a pod still running, after 10
   minutes for a finished one, so the isolation probe can still read its ledger. A finished Job holds no
   `--intent-max-tool-pods` place while it lingers. A tool Secret left without its Job (written before a crash, say) goes

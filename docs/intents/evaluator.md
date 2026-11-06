@@ -509,8 +509,9 @@ The pod builds both trees first, in parallel, each in its own sandbox, under its
 socket: code at the head cannot touch the base's files, and nothing a program leaves behind survives into the next run
 (the sandbox kills every process of its user before it answers). Then:
 
-- **A head that does not build** runs nothing more. CI built that head green, so it is maul's trouble, never the
-  change's: every outcome is unsure ("its own build of the pull request did not finish"), and no fix round starts.
+- **A head that does not build** runs nothing more: the pod finishes there, before it is ready, so no evaluator is
+  launched and none is paid for. CI built that head green, so it is maul's trouble, never the change's: every outcome is
+  unsure ("its own build of the pull request did not finish"), and no fix round starts.
 - **A base that does not build** is the base's fact (it built and failed): every check's base run is recorded as having
   no base, and a pass rests on the other rules, marked **no base comparison**. A base build that timed out or that maul
   could not run is not that: it gives no base evidence (below).

@@ -76,7 +76,9 @@
 // spends none of the agent's calls); http, browser, logs and events are
 // refused. Run builds both trees in parallel first (entries 1 and 2, verb
 // build, BuildArgs; the head's is the acceptance.RoleBuild part,
-// BuildPart): a head that did not build runs nothing more (build-failed), a
+// BuildPart): a head that did not build runs nothing more, Run finishing
+// there (FinishBuildFailed) before its readiness path ever answers, so no
+// evaluator is launched for it (S2-B5); a
 // base that did not build is never run (its replays and confirmations
 // recorded as errors, base-unbuildable). Each saved check replays, and each
 // confirmed check is confirmed, at the head and then at the base, each

@@ -574,8 +574,9 @@ func main() { fmt.Println("hello from tally") }
 
 // TestIntentAgentsHeadBuildFails (case 4): the head does not build in
 // maul's sandbox, while its CI is green (the fake reports no checks). The
-// relay refuses every later run (build-failed), the round can neither fail
-// nor pass, and maul says it could not confirm the work because its own
+// relay finishes after its builds without ever becoming ready, so no
+// evaluator is launched (S2-B5), the round can neither fail nor pass, and
+// maul says it could not confirm the work because its own
 // build did not finish: Unconfirmed, ToolsBuildFailed, the hand-off
 // released, and no fix round, which only a failed outcome starts.
 func TestIntentAgentsHeadBuildFails(t *testing.T) {
@@ -600,6 +601,9 @@ func TestIntentAgentsHeadBuildFails(t *testing.T) {
 	consistently(t, "no fix round on a build maul could not run", func() bool {
 		return len(e.verifyRuns(t, name)) == 0
 	})
+	if evals := e.stageRuns(t, name, v1alpha1.IntentStageEvaluate); len(evals) != 0 {
+		t.Errorf("%d evaluate runs launched on a head that did not build, want none", len(evals))
+	}
 	if st, ok := e.gh.LatestStatus(pr.HeadSHA, acceptanceStatus); ok && st.State == "failure" {
 		t.Errorf("maul/acceptance %+v: a build maul could not run is no failure", st)
 	}

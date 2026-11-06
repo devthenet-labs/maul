@@ -667,6 +667,10 @@ const (
 	FinishReplayOnly  = "replay-only"
 	FinishUnreachable = "components-unreachable"
 	FinishStopped     = "stopped"
+	// FinishBuildFailed: a workspace's head did not build, so the relay
+	// never serves (S2-B5): no evaluator is launched for a round that
+	// cannot be judged.
+	FinishBuildFailed = ReasonBuildFailed
 )
 
 // finish records the finish entry, emits the cited evidence, closes the

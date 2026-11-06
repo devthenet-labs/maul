@@ -47,6 +47,9 @@ type RunOptions struct {
 //     whose args are {"readiness": …} and whose output is the
 //     acceptance.TargetWait list); a component still unreachable finishes
 //     the round there (FinishUnreachable), no check run;
+//     in a workspace, build the head and the base instead (the first two
+//     entries); a head that did not build finishes the round there
+//     (FinishBuildFailed), never serving its readiness path;
 //  2. replay every stored check, each alone with fresh run tokens, one
 //     relay check-run entry each;
 //  3. a replay round finishes there (FinishReplayOnly);
@@ -83,8 +86,13 @@ func Run(ctx context.Context, o RunOptions) (toolwire.Summary, error) {
 
 	switch {
 	case o.Config.IsWorkspace():
-		// No components: the two trees' builds are the first entries.
-		r.buildTrees(dctx)
+		// No components: the two trees' builds are the first entries. A
+		// head that did not build finishes the round there, before the
+		// readiness path ever answers: no evaluator is launched (S2-B5).
+		if r.buildTrees(dctx); !r.headBuilt {
+			r.finishRelay(stopReason(ctx, dctx, FinishBuildFailed))
+			return r.result()
+		}
 	case !r.awaitComponents(dctx, window):
 		r.finishRelay(stopReason(ctx, dctx, FinishUnreachable))
 		return r.result()

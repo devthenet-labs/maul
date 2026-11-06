@@ -793,7 +793,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   Env}`): every call needs the key (constant time; a refusal is a ledger entry, `key-refused`), the key file fixed at
   `<configDir>/tools-key` (`KeyFile`, pinned to `jobs.ToolsKeyFile`); http, browser, logs and events are refused. Entries
   1-2 are the head and base builds in parallel (verb build, `BuildArgs`; `ledgerTail` keeps a build output's end under
-  the entry cap); `BuildPart` is the head's `RoleBuild` part; a head that did not build refuses everything after
+  the entry cap); `BuildPart` is the head's `RoleBuild` part; a head that did not build finishes the relay there
+  (`FinishBuildFailed`) before it is ever Ready, so no evaluator is launched (S2-B5), and refuses everything after
   (`build-failed`), a base that did not build answers its runs unbuilt (`base-unbuildable`). Every saved check replays,
   and every proposed one is confirmed, at head then base, each alone under fresh tokens (at most `MaxBaseRuns`). `run`
   writes a minimal consumer `go.mod` (`module maulcheck`, the pristine tree's `go` line), runs
