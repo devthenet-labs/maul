@@ -123,7 +123,6 @@ func TestRunnerImageDeclarations(t *testing.T) {
 	resolved := runnerimage.Resolved{
 		Image:      "ghcr.io/acme/go-env@sha256:" + strings.Repeat("cd", 32),
 		SearchPath: []string{"/usr/local/go/bin", "/usr/bin"},
-		GoEnv:      map[string]string{"GOMODCACHE": "/opt/go/pkg/mod"},
 		Verified:   true,
 	}
 	cases := []struct {
@@ -172,9 +171,6 @@ func TestRunnerImageDeclarations(t *testing.T) {
 			if tc.wantImage != "" && (ri.SearchPath != "/usr/local/go/bin:/usr/bin" || !ri.Verified) {
 				t.Errorf("searchPath/verified = %q/%v", ri.SearchPath, ri.Verified)
 			}
-			if tc.wantImage != "" && !maps.Equal(ri.GoEnv, resolved.GoEnv) {
-				t.Errorf("goEnv = %v, want the image's %v", ri.GoEnv, resolved.GoEnv)
-			}
 			if ri.ResolvedAt == nil || !ri.ResolvedAt.Time.Equal(r.Now()) {
 				t.Errorf("resolvedAt = %v, want the clock seam's time", ri.ResolvedAt)
 			}
@@ -194,6 +190,21 @@ func TestRunnerImageDeclarations(t *testing.T) {
 				t.Errorf("artifact/sha = %+v/%q, want both pinned", repo.Status.Artifact, repo.Status.ResolvedSHA)
 			}
 		})
+	}
+}
+
+// TestRunnerImageGoEnv: the image's Go directories are recorded beside its
+// search path (SPEC-S2 S2-13 step 0).
+func TestRunnerImageGoEnv(t *testing.T) {
+	resolved := runnerimage.Resolved{Image: "ghcr.io/acme/go-env@sha256:" + strings.Repeat("cd", 32),
+		SearchPath: []string{"/usr/bin"}, GoEnv: map[string]string{"GOMODCACHE": "/opt/go/pkg/mod"}}
+	gh := &fakeForgeClient{defaultBranch: "main", headSHA: "abc123",
+		tarball: tarball(t, map[string]string{runnerimage.AgentYAMLPath: yamlDecl})}
+	r, c := imageHarness(t, gh, &fakeResolver{resolved: resolved})
+	reconcile(t, r)
+	ri := getRepo(t, c).Status.RunnerImage
+	if ri == nil || ri.Image != resolved.Image || !maps.Equal(ri.GoEnv, resolved.GoEnv) {
+		t.Fatalf("runnerImage = %+v, want the image's go env %v", ri, resolved.GoEnv)
 	}
 }
 

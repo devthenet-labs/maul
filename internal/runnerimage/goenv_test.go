@@ -49,7 +49,7 @@ func TestGoEnvProperty(t *testing.T) {
 	names := []string{"GOMODCACHE", "GOPATH", "GOROOT", "GOFLAGS", "PATH", "gomodcache", ""}
 	parts := []string{"/", "a", "..", ".", ":", "\x00", "\n", "go", "pkg", "mod", " ", " "}
 	for i := range 5000 {
-		var env []string
+		env := make([]string, 0, 4)
 		for range r.Intn(5) {
 			var v strings.Builder
 			for range r.Intn(8) {

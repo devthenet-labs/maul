@@ -787,7 +787,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 
-	runner := intent.NewJobRunner(cs, jobs.Config{
+	jobsCfg := jobs.Config{
 		Namespace:      agentNS,
 		ServiceAccount: opts.String("agent-service-account"),
 		Deadline:       opts.Duration("intent-job-deadline"),
@@ -805,7 +805,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		DNS:                   agentDNS,
 		NetworkProfiles:       sizes.profilesOn,
 		SandboxProbeDNS:       probeDNS,
-	}, log)
+	}
+	runner := intent.NewJobRunner(cs, jobsCfg, log)
 	// Forges come from the cache; their Secrets are never cached, so the
 	// manager's client reads each one live.
 	forges := forge.NewStore(mgr.GetClient())
@@ -854,6 +855,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := (&intent.TTLReconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), TTL: opts.Duration("intent-ttl"), Log: log,
 	}).SetupWithManager(mgr); err != nil {
+		return err
+	}
+	if err := setupAgentsHost(mgr, set, cs, jobs.New(cs, jobsCfg, log), images, harnessID, log); err != nil {
 		return err
 	}
 	if opts.Bool("intent-previews-enabled") {

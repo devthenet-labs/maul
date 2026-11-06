@@ -144,6 +144,13 @@
 //	                     controller's agents host (SPEC S2 O1); the
 //	                     IntentReconciler only reads it, one uncached get per
 //	                     pass, and judges
+//	agents tool pod      agentshost.Reconciler: creates the Job and its
+//	                     <job>-tools Secret, writes the agents verification's
+//	                     status and <pv>-ledger, and deletes the Job once that
+//	                     status is settled (a finished Job after a linger,
+//	                     so the isolation probe can read it, never at the
+//	                     first terminal event); agentshost.Sweeper deletes
+//	                     orphans (role tools, never by kind)
 //
 // With --intent-verification, status.acceptance and status.verification are
 // the IntentReconciler's like the rest of Intent status (verify_loop.go): the
