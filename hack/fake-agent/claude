@@ -99,6 +99,30 @@
 #                              takes a snapshot and a screenshot, and passes
 #                              every outcome on the screenshot alone,
 #                              proposing nothing.
+#                              On a Project with no preview (the workspace
+#                              prompt): "cli-pass" runs the built program
+#                              (the path the prompt names) with
+#                              MAUL_FAKE_CLAUDE_CLI_ARGS (space-separated,
+#                              default --help), then writes an exec check of
+#                              {{bin}} with those args whose stdout contains
+#                              MAUL_FAKE_CLAUDE_CHECK_TEXT, dry-runs it at the
+#                              head and with --base, and, green at the head,
+#                              passes the outcome on both runs and proposes it,
+#                              else unsure; "cli-fail" writes and dry-runs the
+#                              same check at the head and, red by assertion,
+#                              fails the outcome on that run and proposes the
+#                              check with expect: fail, else unsure;
+#                              "lib-newsymbol" reads the tree's go.mod (files
+#                              read), runs a Go program referring to the
+#                              library's MAUL_FAKE_CLAUDE_SYMBOL (default
+#                              ErrTooLong; of package MAUL_FAKE_CLAUDE_PACKAGE
+#                              under the module, default its root) at the
+#                              head and the base, then writes it as a run
+#                              check printing "<run> found", dry-runs it at
+#                              the head and with --base (where a new symbol
+#                              does not compile), and passes the outcome and
+#                              proposes the check when it ran green at the
+#                              head, else unsure.
 #   MAUL_FAKE_CLAUDE_ANOMALY   set: the report also carries one look-around
 #                              anomaly with this summary, on the first
 #                              component's path, citing `check results`.
@@ -262,6 +286,34 @@ browser_check() {
     "$1" "$2" "$entry" "$testid" "$testid" "$size" "$size" "$testid"
 }
 
+# cli_check <id> <outcome> — an exec check of the built program ({{bin}})
+# with MAUL_FAKE_CLAUDE_CLI_ARGS, its stdout containing
+# MAUL_FAKE_CLAUDE_CHECK_TEXT.
+cli_check() {
+  argv='"{{bin}}"'
+  for a in ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}; do
+    argv="$argv,\"$a\""
+  done
+  printf '{"id":"%s","outcome":"%s","form":"exec","exec":{"argv":[%s],"expect":{"exit":0,"stdoutContains":"%s"}}}' \
+    "$1" "$2" "$argv" "${MAUL_FAKE_CLAUDE_CHECK_TEXT:-ok}"
+}
+
+# library_program <import path> <symbol> — a Go program that refers to the
+# library's symbol, so it compiles only where the symbol exists, and prints
+# "<its first argument> found".
+library_program() {
+  printf 'package main\n\nimport (\n    "fmt"\n    "os"\n\n    lib "%s"\n)\n\nvar _ = lib.%s\n\n' "$1" "$2"
+  printf 'func main() { fmt.Println(os.Args[1], "found") }\n'
+}
+
+# run_check <id> <outcome> <file> — a go run check of the program in <file>
+# with the run token as its argument, its stdout "<run> found".
+run_check() {
+  content=$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' "$3" | awk '{ printf "%s\\n", $0 }')
+  printf '{"id":"%s","outcome":"%s","form":"run","run":{"language":"go","files":[{"path":"main.go","content":"%s"}],"args":["{{run}}"],"expect":{"exit":0,"stdoutContains":"{{run}} found"}}}' \
+    "$1" "$2" "$content"
+}
+
 if [ "$MAUL_PHASE" = checkreview ]; then
   out_report=$(report_path)
   answer=${MAUL_FAKE_CLAUDE_REVIEW:-proves}
@@ -291,6 +343,8 @@ if [ "$MAUL_PHASE" = evaluate ]; then
   # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
   path=${MAUL_FAKE_CLAUDE_CHECK_PATH:-$(printf '%s\n' "$prompt" | sed -n 's/^- `[a-z0-9-]*`: served under `\(.*\)`$/\1/p' | head -n 1)}
   text=${MAUL_FAKE_CLAUDE_CHECK_TEXT:-ok}
+  # shellcheck disable=SC2016 # the backticks are the prompt's, matched literally
+  bin=$(printf '%s\n' "$prompt" | sed -n 's/.*which writes the program to `\([^`]*\)`:$/\1/p' | head -n 1)
   entry=${MAUL_FAKE_CLAUDE_BROWSER_ENTRY:-/}
   testid=${MAUL_FAKE_CLAUDE_BROWSER_TESTID:-vote}
   size=${MAUL_FAKE_CLAUDE_BROWSER_SIZE:-32}
@@ -444,6 +498,82 @@ if [ "$MAUL_PHASE" = evaluate ]; then
   - id: $o
     verdict: pass
     ledger: [$seq]"
+      ;;
+    cli-pass)
+      # shellcheck disable=SC2086 # the args are split as given
+      tool exec -- "$bin" ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}
+      explored=$seq
+      cli_check "$o" "$o" >"checks/$o.json"
+      tool check run "checks/$o.json"
+      head=$seq digest=$(green_digest dry-run)
+      tool check run --base "checks/$o.json"
+      if [ -n "$digest" ]; then
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: pass
+    ledger: [$explored, $head, $seq]"
+        proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    file: \"checks/$o.json\""
+      else
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: unsure
+    ledger: [$head, $seq]"
+      fi
+      ;;
+    cli-fail)
+      cli_check "$o" "$o" >"checks/$o.json"
+      tool check run "checks/$o.json"
+      if printf '%s\n' "$out" | grep -q '^\[observed\] red by assertion at step '; then
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: fail
+    ledger: [$seq]
+    note: \"The program does not print what the outcome states.\""
+        proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    file: \"checks/$o.json\"
+    expect: fail"
+      else
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: unsure
+    ledger: [$seq]"
+      fi
+      ;;
+    lib-newsymbol)
+      tool files read go.mod
+      read_mod=$seq
+      module=$(printf '%s\n' "$out" | sed -n 's/^module \([^ ]*\).*/\1/p' | head -n 1)
+      import=$module${MAUL_FAKE_CLAUDE_PACKAGE:+/$MAUL_FAKE_CLAUDE_PACKAGE}
+      mkdir -p "prog-$o"
+      library_program "$import" "${MAUL_FAKE_CLAUDE_SYMBOL:-ErrTooLong}" >"prog-$o/main.go"
+      tool run "prog-$o" -- explore
+      explored=$seq
+      tool run "prog-$o" --base -- explore
+      run_check "$o" "$o" "prog-$o/main.go" >"checks/$o.json"
+      tool check run "checks/$o.json"
+      head=$seq digest=$(green_digest dry-run)
+      tool check run --base "checks/$o.json"
+      if [ -n "$digest" ]; then
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: pass
+    ledger: [$read_mod, $explored, $head, $seq]
+    note: \"The symbol is new, so the base does not compile: there is no base comparison.\""
+        proposed="$proposed
+  - id: \"$o\"
+    outcome: $o
+    file: \"checks/$o.json\""
+      else
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: unsure
+    ledger: [$head, $seq]"
+      fi
       ;;
     esac
   done

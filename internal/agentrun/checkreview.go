@@ -45,10 +45,33 @@ const (
 // Components the previewed components: context every review of the round
 // shares (coverage design C1), so a reviewer judges the application's own
 // words by the request. Never the evaluator's notes or verdicts.
+//
+// Workspace is a round on a Project with no preview (SPEC-S2): its
+// surface and whether its base built, maul's own facts every review of the
+// round shares, beside each item's runs at the head and the base. Such a
+// round has no component. nil is a preview round, as before.
 type CheckReviewHandoff struct {
-	Reviews    []CheckReviewItem   `json:"reviews"`
-	Request    string              `json:"request,omitempty"`
-	Components []EvaluateComponent `json:"components,omitempty"`
+	Reviews    []CheckReviewItem     `json:"reviews"`
+	Request    string                `json:"request,omitempty"`
+	Components []EvaluateComponent   `json:"components,omitempty"`
+	Workspace  *CheckReviewWorkspace `json:"workspace,omitempty"`
+}
+
+// CheckReviewWorkspace is a workspace round's surface as the reviewer is
+// told it (templates.ReviewWorkspace), and BaseUnbuildable when the base
+// did not build, so no check ran there.
+type CheckReviewWorkspace struct {
+	EvaluateWorkspace
+	BaseUnbuildable bool `json:"base_unbuildable,omitempty"`
+}
+
+// ReviewRun is one side's confirmation run of a check under review on a
+// workspace (templates.ReviewRun): Result a v1alpha1.CheckRunResult, and
+// for a fail red by assertion that assertion (toolwire.StepRecord.
+// AssertionID, at most checkReviewAssertionMaxBytes, one line), else "".
+type ReviewRun struct {
+	Result    string `json:"result"`
+	Assertion string `json:"assertion,omitempty"`
 }
 
 // CheckReviewItem is one review: a check and its outcome's text, each keyed
@@ -78,6 +101,12 @@ type CheckReviewItem struct {
 	FailedStep int    `json:"failed_step,omitempty"`
 	// FailedAssertion is at most checkReviewAssertionMaxBytes.
 	FailedAssertion string `json:"failed_assertion,omitempty"`
+	// Head and Base are the check's runs at each side on a workspace round
+	// (only there): Head always, as confirmed (green a pass, red the fail by
+	// FailedAssertion); Base nil when it did not run there, and always on a
+	// round whose base did not build.
+	Head *ReviewRun `json:"head,omitempty"`
+	Base *ReviewRun `json:"base,omitempty"`
 }
 
 // checkReviewAssertionMaxBytes bounds an item's FailedAssertion (the
@@ -85,17 +114,72 @@ type CheckReviewItem struct {
 const checkReviewAssertionMaxBytes = 512
 
 // checkSteps is how many steps c has as a reviewer reads it: an http or
-// browser check's steps, an exec check's one program run.
+// browser check's steps, an exec or run check's one program run.
 func checkSteps(c checks.Check) int {
 	switch {
 	case c.HTTP != nil:
 		return len(c.HTTP.Steps)
 	case c.Browser != nil:
 		return len(c.Browser.Steps)
-	case c.Exec != nil:
+	case c.Exec != nil, c.Run != nil:
 		return 1
 	}
 	return 0
+}
+
+// validRuns holds a review's runs to its round: none on a preview round; on
+// a workspace round a head run as the check was confirmed (green a pass,
+// red a fail by its FailedAssertion), and a base run only where the base
+// built. Each run's result is a v1alpha1.CheckRunResult, an assertion only
+// on a fail.
+func validRuns(it CheckReviewItem, ws *CheckReviewWorkspace) error {
+	if ws == nil {
+		if it.Head != nil || it.Base != nil {
+			return errors.New("head and base runs are a workspace round's, and this round has no workspace")
+		}
+		return nil
+	}
+	var errs []error
+	switch {
+	case it.Head == nil:
+		errs = append(errs, errors.New("head: a workspace review carries the check's run at the head"))
+	case it.Expect == "" && v1alpha1.CheckRunResult(it.Head.Result) != v1alpha1.CheckRunPass:
+		errs = append(errs, errors.New("head: a check confirmed green passed at the head"))
+	case it.Expect == "fail" && (v1alpha1.CheckRunResult(it.Head.Result) != v1alpha1.CheckRunFail ||
+		it.Head.Assertion != it.FailedAssertion):
+		errs = append(errs, errors.New("head: a check confirmed red failed at the head by its failed_assertion"))
+	default:
+		if err := validRun(*it.Head); err != nil {
+			errs = append(errs, fmt.Errorf("head: %w", err))
+		}
+	}
+	switch {
+	case it.Base == nil:
+	case ws.BaseUnbuildable:
+		errs = append(errs, errors.New("base: the base did not build, so the check has no run there"))
+	default:
+		if err := validRun(*it.Base); err != nil {
+			errs = append(errs, fmt.Errorf("base: %w", err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validRun holds one run to its grammar.
+func validRun(r ReviewRun) error {
+	switch v1alpha1.CheckRunResult(r.Result) {
+	case v1alpha1.CheckRunPass, v1alpha1.CheckRunQuarantined, v1alpha1.CheckRunError, v1alpha1.CheckRunRefused:
+		if r.Assertion != "" {
+			return fmt.Errorf("a %s run has no assertion", r.Result)
+		}
+	case v1alpha1.CheckRunFail:
+		if len(r.Assertion) > checkReviewAssertionMaxBytes || strings.ContainsAny(r.Assertion, "\r\n") {
+			return errors.New("the assertion is not one line of at most 512 bytes")
+		}
+	default:
+		return fmt.Errorf("result %q is not a check run's", r.Result)
+	}
+	return nil
 }
 
 // validExpectation holds an item's expectation: none, or fail with the
@@ -145,13 +229,28 @@ func (a *Agent) checkReviewInput() (checkReviewRound, error) {
 		return checkReviewRound{}, fmt.Errorf("input handoff: the request is %d bytes, over %d", len(h.Request),
 			checkReviewRequestMaxBytes)
 	}
-	items, err := validReviews(h.Reviews)
+	if h.Workspace != nil && len(h.Components) > 0 {
+		return checkReviewRound{}, errors.New("input handoff: a workspace round has no component")
+	}
+	items, err := validReviews(h.Reviews, h.Workspace)
 	if err != nil {
 		return checkReviewRound{}, fmt.Errorf("input handoff: %w", err)
 	}
-	r := checkReviewRound{items: items, request: h.Request}
+	r := checkReviewRound{items: items, request: h.Request, workspace: h.Workspace}
 	for _, c := range h.Components {
 		r.components = append(r.components, templates.EvaluateComponent{Key: c.Key, Path: c.Path})
+	}
+	// On a workspace round each review's prompt must render, its workspace
+	// and its check's form held together by the template
+	// (templates.RenderCheckReviewPrompt), so a contradiction is refused
+	// before any session. A preview round renders each in turn, as before.
+	if r.workspace == nil {
+		return r, nil
+	}
+	for i, it := range items {
+		if _, err := templates.RenderCheckReviewPrompt(r.prompt(it, "", templates.StageLimits{})); err != nil {
+			return checkReviewRound{}, fmt.Errorf("input handoff: reviews[%d]: %w", i, err)
+		}
 	}
 	return r, nil
 }
@@ -162,11 +261,50 @@ type checkReviewRound struct {
 	items      []checkReviewItem
 	request    string
 	components []templates.EvaluateComponent
+	workspace  *CheckReviewWorkspace
 }
 
-// validReviews holds a handoff's reviews to their bounds and parses each
-// check.
-func validReviews(in []CheckReviewItem) ([]checkReviewItem, error) {
+// prompt is item's review as the check review prompt's data, with its
+// report path and the session's limits.
+func (r checkReviewRound) prompt(item checkReviewItem, path string,
+	limits templates.StageLimits) templates.CheckReviewPrompt {
+	p := templates.CheckReviewPrompt{
+		ReportPath:      path,
+		Limits:          limits,
+		Outcome:         item.Outcome,
+		From:            item.From,
+		Kind:            acceptance.OutcomeKind(item.Kind),
+		Request:         r.request,
+		Components:      r.components,
+		Check:           item.check,
+		ExpectFail:      item.Expect == "fail",
+		FailedStep:      item.FailedStep,
+		FailedAssertion: item.FailedAssertion,
+	}
+	if ws := r.workspace; ws != nil {
+		w := ws.EvaluateWorkspace
+		p.Workspace = &templates.ReviewWorkspace{
+			EvaluateWorkspace: templates.EvaluateWorkspace{Surface: w.Surface, Binary: w.Binary,
+				Language: w.Language, Build: w.Build},
+			BaseUnbuildable: ws.BaseUnbuildable,
+			Head:            reviewRun(item.Head),
+			Base:            reviewRun(item.Base),
+		}
+	}
+	return p
+}
+
+// reviewRun is a side's run as the prompt states it; nil did not run.
+func reviewRun(r *ReviewRun) templates.ReviewRun {
+	if r == nil {
+		return templates.ReviewRun{}
+	}
+	return templates.ReviewRun{Result: r.Result, Assertion: r.Assertion}
+}
+
+// validReviews holds a handoff's reviews to their bounds and to the round's
+// workspace (validRuns), and parses each check.
+func validReviews(in []CheckReviewItem, ws *CheckReviewWorkspace) ([]checkReviewItem, error) {
 	switch {
 	case len(in) == 0:
 		return nil, errors.New("the check review handoff has no reviews")
@@ -217,6 +355,9 @@ func validReviews(in []CheckReviewItem) ([]checkReviewItem, error) {
 				refuse("check's digest is %s, not its check_digest", checks.Digest(c))
 			default:
 				if err := validExpectation(it, c); err != nil {
+					refuse("%v", err)
+				}
+				if err := validRuns(it, ws); err != nil {
 					refuse("%v", err)
 				}
 			}
@@ -290,21 +431,9 @@ func (a *Agent) checkReview(ctx context.Context, round checkReviewRound) *envelo
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fail(envelope.OutcomeRuntimeError, session(err.Error()))
 		}
-		prompt, err := templates.RenderCheckReviewPrompt(templates.CheckReviewPrompt{
-			ReportPath: path,
-			Limits: templates.StageLimits{
-				MaxTurns: firstTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
-			},
-			Outcome:         item.Outcome,
-			From:            item.From,
-			Kind:            acceptance.OutcomeKind(item.Kind),
-			Request:         round.request,
-			Components:      round.components,
-			Check:           item.check,
-			ExpectFail:      item.Expect == "fail",
-			FailedStep:      item.FailedStep,
-			FailedAssertion: item.FailedAssertion,
-		})
+		prompt, err := templates.RenderCheckReviewPrompt(round.prompt(item, path, templates.StageLimits{
+			MaxTurns: firstTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
+		}))
 		if err != nil {
 			return fail(envelope.OutcomeRuntimeError, session(err.Error()))
 		}

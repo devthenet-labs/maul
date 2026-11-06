@@ -249,6 +249,11 @@ func (c Config) commitScript() string { return filepath.Join(c.Workspace, "commi
 func (c Config) planPath() string  { return filepath.Join(c.Workspace, "reports", "plan.md") }
 func (c Config) buildPath() string { return filepath.Join(c.Workspace, "reports", "build.md") }
 
+// toolsKeyPath is where the evaluate stage stages a workspace round's
+// :8090 key (maultool.KeyFile in the pod), beside its handoff and outside
+// the scratch directory its agent's file tools reach.
+func (c Config) toolsKeyPath() string { return filepath.Join(c.Workspace, "input", "tools-key") }
+
 // scratchDir is a role stage's working directory, the only one its agent's
 // file tools reach; the stage's reports are written there.
 func (c Config) scratchDir() string { return filepath.Join(c.Workspace, "scratch") }

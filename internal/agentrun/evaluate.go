@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -20,6 +21,8 @@ import (
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/runner"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/toolwire"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // evaluateHandoffMaxBytes bounds the evaluate stage's handoff
@@ -108,6 +111,28 @@ type EvaluateTools struct {
 	Sandbox          bool   `json:"sandbox,omitempty"`
 	MaxToolCalls     int    `json:"max_tool_calls"`
 	LookAroundRoutes int    `json:"look_around_routes,omitempty"`
+	// Workspace is a round on a Project with no preview (SPEC-S2): its tool
+	// pod built the pull request's head and base in the agents namespace,
+	// and the prompt is the workspace variant. Such a round has no
+	// component, browser or look-around. nil is a preview round, as before.
+	Workspace *EvaluateWorkspace `json:"workspace,omitempty"`
+	// Key is the tool pod's per-evaluation :8090 key (toolwire.IsKey,
+	// SPEC Q28), which a workspace round must carry and a preview round
+	// never does. agent-runner stages it where maul-tool reads it
+	// (maultool.KeyFile, 0400), sends it with its own confirm and finish,
+	// and keeps it out of the prompt, the event, the transcript and its
+	// logs.
+	Key string `json:"key,omitempty"`
+}
+
+// EvaluateWorkspace is a workspace round's surface, maul's own
+// (templates.EvaluateWorkspace): a cli names its Build argv and its Binary,
+// a library its Language (go) and neither.
+type EvaluateWorkspace struct {
+	Surface  string   `json:"surface"`
+	Binary   string   `json:"binary,omitempty"`
+	Language string   `json:"language,omitempty"`
+	Build    []string `json:"build,omitempty"`
 }
 
 // ChangedPath is one file a pull request changes, with its added and
@@ -204,7 +229,35 @@ func (a *Agent) evaluateInput() (evaluateInput, error) {
 	if err != nil {
 		return evaluateInput{}, fmt.Errorf("the evaluator's tool pod: %w", err)
 	}
+	if key := h.Tools.Key; key != "" {
+		// Scrubbed from every run's transcript and detail from here on.
+		a.scrub = append(a.scrub, key)
+		if err := a.stageToolsKey(key, tools); err != nil {
+			return evaluateInput{}, fmt.Errorf("the evaluator's tool pod: %w", err)
+		}
+	}
 	return evaluateInput{handoff: h, tools: tools}, nil
+}
+
+// stageToolsKey writes a workspace round's key where maul-tool reads it
+// (Config.toolsKeyPath, maultool.KeyFile in the pod), read-only to its
+// owner, replacing a file an earlier container of the pod left, and loads
+// it into tools from that file, so agent-runner's own calls carry exactly
+// what maul-tool's do. No error quotes the key.
+func (a *Agent) stageToolsKey(key string, tools *maultool.Client) error {
+	path := a.cfg.toolsKeyPath()
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return errors.New("the tools key file cannot be replaced")
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o400)
+	if err != nil {
+		return errors.New("the tools key file cannot be written")
+	}
+	_, werr := f.WriteString(key)
+	if cerr := f.Close(); werr != nil || cerr != nil {
+		return errors.New("the tools key file cannot be written")
+	}
+	return tools.LoadKey(path)
 }
 
 // validEvaluateHandoff holds a handoff to what the prompt needs: a round,
@@ -224,6 +277,7 @@ func validEvaluateHandoff(h EvaluateHandoff) error {
 	if h.Tools.MaxToolCalls < 1 {
 		errs = append(errs, fmt.Errorf("max_tool_calls %d is not 1 or more", h.Tools.MaxToolCalls))
 	}
+	errs = append(errs, validWorkspaceTools(h)...)
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -231,6 +285,34 @@ func validEvaluateHandoff(h EvaluateHandoff) error {
 		return err
 	}
 	return nil
+}
+
+// validWorkspaceTools holds a handoff's key to its placement: a workspace
+// round carries a key (toolwire.IsKey) and none of a preview's tools, a
+// preview round no key. The workspace's own shape is the prompt's to judge
+// (templates.RenderEvaluatePrompt). No refusal quotes the key.
+func validWorkspaceTools(h EvaluateHandoff) []error {
+	t := h.Tools
+	if t.Workspace == nil {
+		if t.Key != "" {
+			return []error{errors.New("tools.key is set on a preview round, which has no key")}
+		}
+		return nil
+	}
+	var errs []error
+	if !toolwire.IsKey(t.Key) {
+		errs = append(errs, errors.New("tools.key is not the workspace round's 256-bit hex key"))
+	}
+	if len(h.Components) > 0 {
+		errs = append(errs, errors.New("a workspace round has no component"))
+	}
+	if t.Browser || t.BrowserEntry != "" {
+		errs = append(errs, errors.New("a workspace round has no browser"))
+	}
+	if t.LookAroundRoutes != 0 {
+		errs = append(errs, errors.New("a workspace round has no look-around"))
+	}
+	return errs
 }
 
 // prompt is the handoff as the evaluate prompt's data, with maul's own
@@ -245,6 +327,10 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 			MaxToolCalls: h.Tools.MaxToolCalls, LookAroundRoutes: h.Tools.LookAroundRoutes,
 		},
 		Request: h.Request, Outcomes: h.Outcomes, FixDiff: h.FixDiff, PriorRound: h.PriorRound,
+	}
+	if w := h.Tools.Workspace; w != nil {
+		p.Workspace = &templates.EvaluateWorkspace{Surface: w.Surface, Binary: w.Binary, Language: w.Language,
+			Build: w.Build}
 	}
 	for _, v := range h.PriorVerdicts {
 		p.PriorVerdicts = append(p.PriorVerdicts, templates.PriorVerdict{Outcome: v.Outcome, Result: v.Result,
@@ -275,7 +361,29 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 func (a *Agent) evaluate(ctx context.Context, in evaluateInput) *envelope.Evaluation {
 	ev, accepted := a.explore(ctx, in.handoff)
 	ev.Cited = a.closeTools(ctx, in.tools, accepted)
-	return ev
+	return redactEvaluation(ev, in.handoff.Tools.Key)
+}
+
+// redactEvaluation replaces key, wherever the event's text carries it (the
+// report is the model's, and quoted verbatim), with the transcript's
+// redaction mark: the key goes to the tool pod as a header and nowhere
+// else. The model cannot read the key file, so this is a backstop, never
+// the path a run takes; an event that cannot be redacted is reduced to its
+// stage's identity and a runtime error rather than sent with the key.
+func redactEvaluation(ev *envelope.Evaluation, key string) *envelope.Evaluation {
+	if key == "" {
+		return ev
+	}
+	raw, err := json.Marshal(ev)
+	if err == nil && !bytes.Contains(raw, []byte(key)) {
+		return ev
+	}
+	var out envelope.Evaluation
+	if err != nil || json.Unmarshal(bytes.ReplaceAll(raw, []byte(key), []byte(transcript.Redacted)), &out) != nil {
+		return &envelope.Evaluation{Stage: envelope.Stage{Harness: ev.Harness, Model: ev.Model,
+			Outcome: envelope.OutcomeRuntimeError, Detail: "the evaluation could not be redacted"}}
+	}
+	return &out
 }
 
 // explore runs the evaluate stage under the evaluate posture, in the

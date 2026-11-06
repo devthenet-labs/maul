@@ -125,6 +125,8 @@ type fakeTools struct {
 type toolsCall struct {
 	verb toolwire.Verb
 	body []byte
+	// key is the call's toolwire.KeyHeader, "" for none.
+	key string
 }
 
 // useTools points cfg at a new fakeTools and returns it.
@@ -142,7 +144,7 @@ func (f *fakeTools) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var body bytes.Buffer
 	_, _ = body.ReadFrom(r.Body)
 	f.mu.Lock()
-	f.calls = append(f.calls, toolsCall{verb: verb, body: body.Bytes()})
+	f.calls = append(f.calls, toolsCall{verb: verb, body: body.Bytes(), key: r.Header.Get(toolwire.KeyHeader)})
 	f.seq++
 	resp := toolwire.Response{Seq: 100 + f.seq, Refused: f.refuse[verb]}
 	f.mu.Unlock()
@@ -160,6 +162,17 @@ func (f *fakeTools) verbs() []toolwire.Verb {
 	out := make([]toolwire.Verb, 0, len(f.calls))
 	for _, c := range f.calls {
 		out = append(out, c.verb)
+	}
+	return out
+}
+
+// keys are the toolwire.KeyHeader values the calls carried, in order.
+func (f *fakeTools) keys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.calls))
+	for _, c := range f.calls {
+		out = append(out, c.key)
 	}
 	return out
 }
