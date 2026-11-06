@@ -1708,6 +1708,7 @@ spec:
                 - tool-pods-saturated
                 - tools-evicted
                 - tools-deadline
+                - tools-refused
                 type: string
               replay:
                 description: |-

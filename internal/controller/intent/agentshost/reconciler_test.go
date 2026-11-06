@@ -4,8 +4,11 @@
 package agentshost
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -13,10 +16,12 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
@@ -624,5 +629,73 @@ func TestRelayEnv(t *testing.T) {
 		{Name: "GOPATH", Value: "/go"}}
 	if !slices.Equal(got, want) {
 		t.Errorf("relayEnv = %v, want %v", got, want)
+	}
+}
+
+// TestStartAttributesTheToolPodToTheOrg (S2-B1): under --attribution-mode
+// attribute the tool pod is the org's, whoever approved the plan (it is no
+// run's, holds no token and spends nothing), so the chart's Job policy
+// admits it; off it carries no attribution at all.
+func TestStartAttributesTheToolPodToTheOrg(t *testing.T) {
+	for _, tc := range []struct {
+		mode attribution.Mode
+		want string
+	}{{attribution.ModeOff, ""}, {"", ""}, {attribution.ModeAttribute, attribution.ValueOrg}} {
+		w := newWorld(t)
+		w.intent.Status.Approval = &v1alpha1.IntentApproval{By: "octocat", ByID: 42}
+		h := newHarness(t, w)
+		h.r.Settings.Attribution = tc.mode
+		h.reconcile(t)
+		if len(h.tools.created) != 1 {
+			t.Fatalf("mode %q: created %d tool pods, want 1", tc.mode, len(h.tools.created))
+		}
+		if got := h.tools.created[0].AttributedTo; got != tc.want {
+			t.Errorf("mode %q: AttributedTo %q, want %q", tc.mode, got, tc.want)
+		}
+	}
+}
+
+// TestStartReportsTheAPIRefusal (S2-B1): the API server refusing the tool
+// Job at admission is Infra tools-refused, never tools-unscheduled (nothing
+// was scheduled), and its message is logged, bounded; a quota's refusal is
+// quota-refused. Either is Infra: never a verdict.
+func TestStartReportsTheAPIRefusal(t *testing.T) {
+	gr := batchv1.Resource("jobs")
+	policy := "ValidatingAdmissionPolicy 'maul-attribution-jobs' with binding 'maul-attribution-jobs' " +
+		"denied request: job " + pvName + " is launched by a maul controller and must carry the " +
+		"maul.run/attributed-to annotation" + strings.Repeat(" and more", 200)
+	for _, tc := range []struct {
+		name   string
+		err    error
+		reason v1alpha1.PreviewVerificationReason
+		logged string
+	}{
+		{"admission policy", kerrors.NewForbidden(gr, pvName, errors.New(policy)),
+			v1alpha1.VerificationReasonToolsRefused, "denied request: job " + pvName},
+		{"invalid", kerrors.NewInvalid(batchv1.SchemeGroupVersion.WithKind("Job").GroupKind(), pvName, nil),
+			v1alpha1.VerificationReasonToolsRefused, "is invalid"},
+		{"quota", kerrors.NewForbidden(gr, pvName, errors.New("exceeded quota: agents, requested: cpu=2")),
+			v1alpha1.VerificationReasonQuotaRefused, "exceeded quota"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, newWorld(t))
+			var log bytes.Buffer
+			h.r.Log = slog.New(slog.NewTextHandler(&log, nil))
+			h.tools.createFn = func(jobs.ToolPodSpec) error {
+				return fmt.Errorf("jobs: create job %s: %w", pvName, tc.err)
+			}
+			h.reconcile(t)
+			pv := h.pv(t)
+			if pv.Status.Phase != v1alpha1.VerificationInfra || pv.Status.Reason != tc.reason {
+				t.Fatalf("status = %s %s, want Infra %s", pv.Status.Phase, pv.Status.Reason, tc.reason)
+			}
+			out := log.String()
+			if !strings.Contains(out, tc.logged) || !strings.Contains(out, "reason="+string(tc.reason)) {
+				t.Errorf("log %q lacks the refusal %q and its reason", out, tc.logged)
+			}
+			if len(out) > refusalLogMax+1024 {
+				t.Errorf("logged %d bytes, want the API message bounded to %d", len(out), refusalLogMax)
+			}
+		})
 	}
 }

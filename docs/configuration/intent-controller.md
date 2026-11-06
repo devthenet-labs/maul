@@ -148,7 +148,8 @@ Project that needs more.
   recorded on its immutable IntentRun spec (`spec.grant.budgetMicroUSD`) and stamped on its Job and pod as the
   `maul.run/budget-micro-usd` annotation. The broker ends the run's model traffic at the smaller of it and its
   `--cost-per-pod` ([cost limits](egress-broker.md#cost-limits)); the run settles `budget_exceeded`. Under the token
-  unit, the default, no run records a budget and no Job carries one.
+  unit, the default, no run records a budget and no Job carries one. The agents tool pod's Job is no run's and spends
+  nothing, so it never carries one; the budget policy refuses one that does.
 - The Project's per-intent `limits.maxCostMicroUSD` is checked against the intent's recorded spend before every run is
   created: a plan or build launch, a review, `/maul revise` or check-fix round, a retry attempt of any of them, and the
   run a block's lifting launches. At or over it, the intent is `Blocked` (`BudgetExhausted`, `CostCeilingReached`) and
@@ -329,9 +330,12 @@ preview-controller never touches such a request, and with the agents tool pod on
   passed). A Repository pinned before this release has no `goEnv` until a new build creates a fresh one.
 - **Watching it.** `status.tools` is written only once `tools` and both sandboxes are Ready; the evaluator is created
   only then. A prepare exit 78 is `sandbox-unenforced` and trips the sandbox breaker; an eviction (`tools-evicted`), a
-  pod that will not schedule or pull, a crash loop or the Job's deadline (`tools-deadline`) is `Infra`. At
-  `--intent-max-tool-pods` live tool pods a round waits (`tool-pods-saturated`), and only past its own timeout is it
-  `Infra`, never a verdict.
+  pod that will not schedule or pull, a crash loop or the Job's deadline (`tools-deadline`) is `Infra`. A Job the API
+  server refuses to create is `Infra` too: `quota-refused` for a quota, `tools-refused` for anything else (an admission
+  policy or webhook, an invalid object), its message in intent-controller's log (`the tool pod was refused`). Under
+  [`attribution.mode: attribute`](attribution.md) the tool Job and its pod template carry `maul.run/attributed-to: org`,
+  which the attribution Job policy requires of every Job intent-controller creates. At `--intent-max-tool-pods` live
+  tool pods a round waits (`tool-pods-saturated`), and only past its own timeout is it `Infra`, never a verdict.
 - **The result.** Once the pod finishes, the agents host reads only the `tools` container's log, holds it to the count
   and sha256 of its termination message, and writes the index, the two builds, the head's replay and confirmations, the
   confirmed checks, `status.base` (each base run with `tree: base`) and the head build's fact, and keeps the full ledger

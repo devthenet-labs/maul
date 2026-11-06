@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
@@ -60,6 +61,10 @@ type Settings struct {
 	// Harness and CodexHarness are the runner IDs a build runs on: claude's
 	// and, with --intent-codex, codex's.
 	Harness, CodexHarness string
+	// Attribution is --attribution-mode: under attribute every tool pod is
+	// annotated the org's (jobs.ToolPodSpec.AttributedTo), as the chart's
+	// Job policy requires of every Job intent-controller creates; off, none.
+	Attribution attribution.Mode
 }
 
 // Reconciler runs agents PreviewVerifications (the package doc). Its

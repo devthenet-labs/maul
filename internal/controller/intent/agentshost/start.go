@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -21,12 +22,14 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/forge"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/runnerimage"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolpod"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
 // kindIntent is the intent Jobs' maul.run/kind, which a build Job's spec
@@ -152,6 +155,11 @@ func (r *Reconciler) toolPodSpec(ctx context.Context, pv *v1alpha1.PreviewVerifi
 		Timeout:     pv.Spec.Timeout.Duration,
 		DeadlineMax: v1alpha1.MaxAgentsVerificationTimeout + deadlineMargin,
 		Resources:   r.Settings.Resources,
+		// The org's, never the approver's: the tool pod is no run's (no
+		// IntentRun, so no run stamp to copy), holds no token, never reaches
+		// the broker and spends nothing. A constant, so nothing the PR's code
+		// or the Intent says can move it. "" under --attribution-mode off.
+		AttributedTo: r.Settings.Attribution.Annotation(attribution.Org()),
 	}
 	spec.ProfileOf(build)
 	return spec, repo.Status.RunnerImage.GoEnv, "", nil
@@ -236,8 +244,8 @@ func (r *Reconciler) buildRepository(ctx context.Context, in *v1alpha1.Intent, r
 // pod. The key of a Secret an earlier pass created is kept (CreateToolPod
 // refuses a Secret whose data differs), so a retry adopts what is there;
 // a Secret of another verification under the name is deleted first. A spec
-// the builder refuses is stale-criteria, an API refusal (a quota, an
-// admission policy) tools-unscheduled; any other failure is an error.
+// the builder refuses is stale-criteria, the API server's refusal
+// quota-refused or tools-refused (refused); any other failure is an error.
 func (r *Reconciler) create(ctx context.Context, pv *v1alpha1.PreviewVerification, spec jobs.ToolPodSpec,
 	goEnv map[string]string) (v1alpha1.PreviewVerificationReason, error) {
 	key, uid, found, err := r.Tools.Key(ctx, spec.Name)
@@ -268,23 +276,31 @@ func (r *Reconciler) create(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 }
 
 // refused maps a tool pod creation failure: a refused spec is
-// stale-criteria, the API server's refusal tools-unscheduled, anything
-// else an error to retry.
+// stale-criteria; the API server's refusal quota-refused for a quota,
+// tools-refused for anything else it refused (an admission policy or
+// webhook, an invalid object), its message logged, bounded; anything else
+// an error to retry. Nothing was scheduled, so neither is tools-unscheduled.
 func (r *Reconciler) refused(ctx context.Context, pv *v1alpha1.PreviewVerification, err error) (
 	v1alpha1.PreviewVerificationReason, error) {
 	reason := v1alpha1.PreviewVerificationReason("")
 	switch {
 	case errors.Is(err, jobs.ErrToolPodRefused):
 		reason = v1alpha1.VerificationReasonStaleCriteria
+	case kerrors.IsForbidden(err) && strings.Contains(err.Error(), "exceeded quota"):
+		reason = v1alpha1.VerificationReasonQuotaRefused
 	case kerrors.IsForbidden(err) || kerrors.IsInvalid(err):
-		reason = v1alpha1.VerificationReasonToolsUnscheduled
+		reason = v1alpha1.VerificationReasonToolsRefused
 	default:
 		return "", err
 	}
 	r.log().LogAttrs(ctx, slog.LevelWarn, "the tool pod was refused", slog.String("verification", pv.Name),
-		slog.String("reason", string(reason)), slog.Any("error", err))
+		slog.String("reason", string(reason)), slog.String("error", untrusted.Visible(err.Error(), refusalLogMax)))
 	return reason, nil
 }
+
+// refusalLogMax bounds the refusal's message in the log: an admission
+// policy's message is the API server's, but it can be long.
+const refusalLogMax = 1024
 
 // relayData is the relay's data: its workspace config (validated as the
 // relay validates it) and the outcomes under evaluation.

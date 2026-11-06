@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,14 +147,16 @@ func evaluatorArgs(extra ...string) []string {
 type probeJob struct {
 	Kind     string `json:"kind"`
 	Metadata struct {
-		Namespace string            `json:"namespace"`
-		Labels    map[string]string `json:"labels"`
+		Namespace   string            `json:"namespace"`
+		Labels      map[string]string `json:"labels"`
+		Annotations map[string]string `json:"annotations"`
 	} `json:"metadata"`
 	Spec struct {
 		BackoffLimit *int `json:"backoffLimit"`
 		Template     struct {
 			Metadata struct {
-				Labels map[string]string `json:"labels"`
+				Labels      map[string]string `json:"labels"`
+				Annotations map[string]string `json:"annotations"`
 			} `json:"metadata"`
 			Spec struct {
 				DNSPolicy                    string `json:"dnsPolicy"`
@@ -372,5 +375,30 @@ func TestEvaluatorValidatesAndDryRunCallsNothing(t *testing.T) {
 		len(jobsIn(t, run.stdout)) != 1 || !strings.Contains(run.stdout, "namespace: maul-preview-1") ||
 		!strings.Contains(run.stdout, "namespace: maul-agents") {
 		t.Errorf("--print-manifests: exit %d, %d calls, stdout:\n%s", run.code, len(run.calls), run.stdout)
+	}
+}
+
+// TestProbeJobsCarryTheAdmissionAnnotations (S2-B1): both Jobs the probe
+// creates as intent-controller in the agents namespace (the evaluator run's
+// and the agents run's) carry, on the Job and its pod template alike, the
+// org's attribution and a one micro-USD budget, which the chart's
+// attribution and budget Job policies require of every Job
+// intent-controller creates there (charts/maul's
+// TestAgentsToolPodUnderAttributionAgainstAPIServer admits them).
+func TestProbeJobsCarryTheAdmissionAnnotations(t *testing.T) {
+	want := map[string]string{"maul.run/attributed-to": "org", "maul.run/budget-micro-usd": "1"}
+	for name, stdout := range map[string]string{
+		"evaluator": runEvaluatorProbe(t, nil, evaluatorArgs("--print-manifests")...).stdout,
+		"agents":    runAgentsProbe(t, nil, agentsArgs("--print-manifests")...).stdout,
+	} {
+		jobs := jobsIn(t, stdout)
+		if len(jobs) != 1 {
+			t.Fatalf("%s: %d Jobs, want 1:\n%s", name, len(jobs), stdout)
+		}
+		j := jobs[0]
+		if !maps.Equal(j.Metadata.Annotations, want) || !maps.Equal(j.Spec.Template.Metadata.Annotations, want) {
+			t.Errorf("%s: Job annotations %v, pod template %v; want %v on both", name, j.Metadata.Annotations,
+				j.Spec.Template.Metadata.Annotations, want)
+		}
 	}
 }

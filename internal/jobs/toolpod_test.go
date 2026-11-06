@@ -86,6 +86,15 @@ func toolPodSpec() ToolPodSpec {
 	return s
 }
 
+// toolPodSpecAttributed is toolPodSpec as intent-controller renders it
+// under --attribution-mode attribute: the chart envtest admits its golden
+// through the attribution, budget and tool pod shape policies together.
+func toolPodSpecAttributed() ToolPodSpec {
+	s := toolPodSpec()
+	s.AttributedTo = "org"
+	return s
+}
+
 // toolPodSpecWith is toolPodSpec with its profile taken from a build that
 // asks for p.
 func toolPodSpecWith(p *NetworkProfile) ToolPodSpec {
@@ -144,6 +153,7 @@ func TestGoldenToolPod(t *testing.T) {
 	}{
 		{"toolpod_default", toolPodSpec()},
 		{"toolpod_profile_go_tunnel", toolPodSpecWith(goTunnelProfile())},
+		{"toolpod_attributed", toolPodSpecAttributed()},
 	} {
 		t.Run(tt.golden, func(t *testing.T) {
 			job, secret := renderToolPod(t, toolPodConfig(), tt.spec)
@@ -890,5 +900,41 @@ func TestCreateToolPodJobFailure(t *testing.T) {
 	if _, err := cs.CoreV1().Secrets("maul-agents").Get(context.Background(), toolPodName+"-tools",
 		metav1.GetOptions{}); err == nil {
 		t.Error("the Secret outlived the failed Job")
+	}
+}
+
+// TestToolPodAttribution: under --attribution-mode attribute the tool pod's
+// Job and pod template both carry the attributed-to annotation "org" (the
+// tool pod is no run's and spends nothing; S2-B1: the chart's Job policy
+// refuses an intent-controller Job without it); off, neither carries it,
+// exactly as before attribution existed. A person, or anything outside the
+// grammar, is refused before anything is created.
+func TestToolPodAttribution(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  string // "" none
+	}{{"", ""}, {"org", "org"}} {
+		spec := toolPodSpec()
+		spec.AttributedTo = tc.value
+		job, _ := renderToolPod(t, toolPodConfig(), spec)
+		for what, ann := range map[string]map[string]string{"job": job.Annotations,
+			"pod template": job.Spec.Template.Annotations} {
+			got, ok := ann[v1alpha1.AnnotationAttributedTo]
+			if got != tc.want || ok != (tc.want != "") {
+				t.Errorf("AttributedTo %q: the %s carries %q (%v), want %q", tc.value, what, got, ok, tc.want)
+			}
+		}
+	}
+	for _, bad := range []string{"github-id:42", "github:alice", "Org", " org"} {
+		spec := toolPodSpec()
+		spec.AttributedTo = bad
+		cs := fake.NewClientset()
+		if _, err := New(cs, toolPodConfig(), nil).CreateToolPod(context.Background(), spec); !errors.Is(err,
+			ErrToolPodRefused) {
+			t.Errorf("AttributedTo %q: err %v, want ErrToolPodRefused", bad, err)
+		}
+		if n := len(cs.Actions()); n != 0 {
+			t.Errorf("AttributedTo %q: %d API calls before the refusal", bad, n)
+		}
 	}
 }

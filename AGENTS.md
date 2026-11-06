@@ -582,7 +582,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `jobs.ToolPodSandboxEnv` plus `goEnv`'s `GOMODCACHE`/`GOPATH` (`GOROOT` never), creates `<job>-tools` and the Job
   through `jobs.CreateToolPod` (Job named after the PV when a DNS label of at most 57, else `tools-<hash>`), writes
   `status.tools` once `tools` and both sandboxes are Ready, maps prepare exit 78 to `sandbox-unenforced` (breaker),
-  evictions to `tools-evicted`, `DeadlineExceeded` to `tools-deadline`; collects only the `tools` log via
+  evictions to `tools-evicted`, `DeadlineExceeded` to `tools-deadline`, the API server's refusal of the Job to
+  `quota-refused` or `tools-refused` (its message logged, bounded; never `tools-unscheduled`); under
+  `--attribution-mode attribute` the tool Job is annotated `org` (`Settings.Attribution`, `ToolPodSpec.AttributedTo`,
+  which refuses any other value) and carries no budget, which the budget Job policy exempts a tool Job from (and
+  refuses on one) while the agents tool pod is on; collects only the `tools` log via
   `toolledger.Parse` (a log holding the key is `ledger-mismatch`), writes builds, the head's runs, confirmed checks,
   `status.base` from `toolledger.BaseRuns` (unbuildable only when a base build ran and failed) and the head build's
   `previewtools.BuildPart` (not built: Infra `tools-build-failed`); tears down at settle, a finished Job after the
