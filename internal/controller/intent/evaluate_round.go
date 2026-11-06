@@ -107,7 +107,7 @@ func evaluable(os []v1alpha1.AcceptanceOutcome) bool {
 // round in flight (settleEvaluation).
 func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	acc := p.in.Status.Acceptance
-	hs, ok := previewHeadSet(p.proj, p.in)
+	hs, ok := p.toolHost().heads(p)
 	if !evaluable(acc.Outcomes) {
 		if ok {
 			if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationNotDeclared); changed || err != nil {
@@ -160,15 +160,17 @@ func (p *pass) settleUnverified(ctx context.Context) (bool, error) {
 	})
 }
 
-// startEvaluation is startVerification's evaluator shape: the kept gate,
-// then the outcome PreviewVerification (createEvaluation), or, past the
-// evaluation ceiling, Unconfirmed (evaluationExhausted).
+// startEvaluation is startVerification's evaluator shape: the kept gate
+// (its tool host's part, toolHost.gate), then the outcome
+// PreviewVerification (createEvaluation), or, past the evaluation ceiling,
+// Unconfirmed (evaluationExhausted).
 func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	if !evaluable(acc.Outcomes) || p.set.evaluatorUnverified(p.proj) {
 		return false, nil
 	}
-	hs, ok := previewHeadSet(p.proj, p.in)
+	host := p.toolHost()
+	hs, ok := host.heads(p)
 	if !ok || hs.digest != v.HeadSetDigest {
 		return false, nil
 	}
@@ -187,16 +189,9 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 			return nil
 		})
 	}
-	preview := p.livePreview(ctx, v)
-	if preview == nil {
-		return p.waitPreview(ctx)
-	}
-	green, err := p.checksGreen(ctx, prs)
-	if err != nil || !green {
-		if err != nil {
-			return false, err
-		}
-		return p.waitVerification(ctx, v1alpha1.VerificationWaitingForCI)
+	place, changed, err := host.gate(ctx, p, v, prs)
+	if place == nil {
+		return changed, err
 	}
 	if p.atEvaluationCeiling() {
 		return p.evaluationExhausted(ctx)
@@ -209,7 +204,7 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 			slog.String("intent", p.in.Name), slog.Any("error", err))
 		return false, nil
 	}
-	return true, p.createEvaluation(ctx, kind, preview, hs, checks, digest)
+	return true, p.createEvaluation(ctx, kind, place, hs, checks, digest)
 }
 
 // evaluationExhausted records that the intent's evaluations spent their
@@ -252,13 +247,15 @@ func evaluationRung(v *v1alpha1.IntentVerification, checks []v1alpha1.SavedCheck
 // createEvaluation creates the round's outcome PreviewVerification: the
 // approved outcomes and their digest, the saved checks and theirs, the rung,
 // the tool pod's tools and its wall clock (the evaluate run's timeout plus
-// EvaluationToolsMargin, within a verification's hour).
-func (p *pass) createEvaluation(ctx context.Context, kind verifyKind, preview *v1alpha1.Preview, hs headSet,
-	checks []v1alpha1.SavedCheck, checksDigest string) error {
+// EvaluationToolsMargin, within a verification's hour), then where it runs
+// (place, its tool host's: toolHost.gate), which may narrow the tools and
+// set its own wall clock.
+func (p *pass) createEvaluation(ctx context.Context, kind verifyKind, place func(*v1alpha1.PreviewVerificationSpec),
+	hs headSet, checks []v1alpha1.SavedCheck, checksDigest string) error {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	evaluate := p.set.grant(p.proj, v1alpha1.IntentStageEvaluate)
 	timeout := min(msDuration(evaluate.TimeoutMilliseconds)+EvaluationToolsMargin, maxVerificationTimeout)
-	return p.createVerification(ctx, kind, preview, hs, v1alpha1.VerificationEvaluating,
+	return p.createVerification(ctx, kind, hs, v1alpha1.VerificationEvaluating,
 		func(spec *v1alpha1.PreviewVerificationSpec) error {
 			spec.Outcomes, spec.OutcomesDigest = slices.Clone(acc.Outcomes), acc.OutcomesDigest
 			if len(checks) > 0 {
@@ -272,6 +269,7 @@ func (p *pass) createEvaluation(ctx context.Context, kind verifyKind, preview *v
 				LookAroundRoutes: v1alpha1.MaxLookAroundRoutes,
 			}
 			spec.Timeout = metav1.Duration{Duration: max(timeout, minVerificationTimeout)}
+			place(spec)
 			return nil
 		})
 }

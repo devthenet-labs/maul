@@ -5,15 +5,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -100,6 +104,23 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Int("intent-max-tool-calls", int(v1alpha1.DefaultMaxToolCalls),
 		"the most tool calls one evaluation may make, between 50 and 300, whatever its Project's "+
 			"verification.maxToolCalls says")
+	f.Bool("intent-evaluator-agents", false,
+		"also evaluate Projects with a cli or library surface and no Preview, through an agents-namespace tool "+
+			"pod that builds the pull request's head and its merge base in the repository's accepted runner image "+
+			"(needs --intent-evaluator and --intent-verification, not --intent-previews-enabled); off, such a "+
+			"Project's verification is Off (AgentsToolPodNotEnabled)")
+	f.String("intent-tools-image", "",
+		"maul's digest-pinned preview-tools image the agents tool pod runs (--intent-evaluator-agents)")
+	f.Int("intent-max-tool-pods", 2,
+		"the most agents tool pods live at once; at the bound a round waits, never a verdict "+
+			"(--intent-evaluator-agents)")
+	f.Duration("intent-tool-build-timeout-max", v1alpha1.MaxCLIBuildTimeout,
+		"the longest a cli surface's buildTimeout gives each tree's build in the agents tool pod, between 1m "+
+			"and 20m (--intent-evaluator-agents)")
+	f.String("intent-tool-resources", "",
+		`the agents tool pod's requests and limits (equal) as JSON {"tools":{"cpu","memory","ephemeralStorage"},`+
+			`"sandbox":{...}}, every value a string quantity; an unset one keeps the default `+
+			"(--intent-evaluator-agents)")
 	f.Bool("intent-dependencies", true,
 		"hold an intent whose issue GitHub records as blocked by other issues in Pending until every blocker is "+
 			"closed as completed (an approver's /maul start overrides); off, intents start as soon as their "+
@@ -284,16 +305,23 @@ func verification(opts *cli.Options, s *intent.Settings) error {
 }
 
 // evaluator reads the agent evaluator's switch and, when it is on, its
-// settings, each held to its bounds. It is refused without verification and
-// previews: the evaluator judges each intent's Preview. Off, nothing of it
-// reaches the settings, so slice 1 runs exactly as before.
+// settings, each held to its bounds. It is refused without verification,
+// and without previews unless the agents-namespace tool pod is on (Q33):
+// the evaluator judges each intent's Preview, or its workspace. Off, nothing
+// of it reaches the settings, so slice 1 runs exactly as before.
 func evaluator(opts *cli.Options, s *intent.Settings) error {
 	if !opts.Bool("intent-evaluator") {
+		if opts.Bool("intent-evaluator-agents") {
+			return errors.New("--intent-evaluator-agents needs --intent-evaluator: the tool pod is the evaluator's")
+		}
 		return nil
 	}
-	if !s.Verification || !s.Previews {
-		return errors.New("--intent-evaluator needs --intent-verification and --intent-previews-enabled: the " +
-			"evaluator judges each intent's Preview")
+	if !s.Verification || (!s.Previews && !opts.Bool("intent-evaluator-agents")) {
+		return errors.New("--intent-evaluator needs --intent-verification and --intent-previews-enabled (or " +
+			"--intent-evaluator-agents): the evaluator judges each intent's Preview, or its workspace")
+	}
+	if err := agents(opts, s); err != nil {
+		return err
 	}
 	timeout := opts.Duration("intent-evaluate-timeout")
 	if timeout < time.Minute || timeout > intent.MaxEvaluateTimeout {
@@ -334,6 +362,91 @@ func evaluator(opts *cli.Options, s *intent.Settings) error {
 	s.CheckReview = intent.StageCeiling{MaxTurns: reviewTurns,
 		TokenBudget: intent.DefaultCheckReviewTokenBudget, Timeout: intent.DefaultCheckReviewTimeout}
 	return nil
+}
+
+// logVerificationOff says, at startup, which verifying Projects set's
+// verification without previews leaves Off: every one, or with the agents
+// tool pod on, every one without a cli or library surface.
+func logVerificationOff(ctx context.Context, log *slog.Logger, set intent.Settings) {
+	switch {
+	case !set.VerificationWithoutPreviews():
+	case set.EvaluatorAgents:
+		log.LogAttrs(ctx, slog.LevelInfo, "--intent-evaluator-agents without --intent-previews-enabled: only "+
+			"Projects with a cli or library surface are verified; each other verifying Project says so in its "+
+			"VerificationOff condition")
+	default:
+		log.LogAttrs(ctx, slog.LevelWarn, "--intent-verification without --intent-previews-enabled: verification "+
+			"runs against the intent's Preview, so it is off; each verifying Project says so in its VerificationOff "+
+			"condition")
+	}
+}
+
+// agents reads the agents-namespace tool pod's settings when
+// --intent-evaluator-agents is on, each held to its bounds; off, none of
+// them reaches the settings.
+func agents(opts *cli.Options, s *intent.Settings) error {
+	if !opts.Bool("intent-evaluator-agents") {
+		return nil
+	}
+	image := opts.String("intent-tools-image")
+	if !digestImage.MatchString(image) {
+		return fmt.Errorf("--intent-tools-image %q must be an image pinned by digest (name@sha256:<64 hex>)", image)
+	}
+	pods := opts.Int("intent-max-tool-pods")
+	if pods < 1 {
+		return fmt.Errorf("--intent-max-tool-pods %d must be at least 1", pods)
+	}
+	build := opts.Duration("intent-tool-build-timeout-max")
+	if build < time.Minute || build > v1alpha1.MaxCLIBuildTimeout {
+		return fmt.Errorf("--intent-tool-build-timeout-max %s must be between 1m and %s", build,
+			v1alpha1.MaxCLIBuildTimeout)
+	}
+	res, err := toolResources(opts.String("intent-tool-resources"))
+	if err != nil {
+		return fmt.Errorf("--intent-tool-resources: %w", err)
+	}
+	s.EvaluatorAgents, s.ToolsImage, s.MaxToolPods, s.ToolBuildTimeoutMax, s.ToolResources = true, image, pods,
+		build, res
+	return nil
+}
+
+// digestImage is an image reference pinned by digest.
+var digestImage = regexp.MustCompile(`^[a-z0-9][^@\s]*@sha256:[0-9a-f]{64}$`)
+
+// toolResources parses --intent-tool-resources: JSON
+// {"tools":{"cpu","memory","ephemeralStorage"},"sandbox":{...}}, every value
+// a string Kubernetes quantity, unknown keys refused. Empty is the defaults.
+func toolResources(raw string) (jobs.ToolPodResources, error) {
+	if strings.TrimSpace(raw) == "" {
+		return jobs.ToolPodResources{}, nil
+	}
+	type container struct {
+		CPU              string `json:"cpu"`
+		Memory           string `json:"memory"`
+		EphemeralStorage string `json:"ephemeralStorage"`
+	}
+	var in struct {
+		Tools   container `json:"tools"`
+		Sandbox container `json:"sandbox"`
+	}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		return jobs.ToolPodResources{}, err
+	}
+	for name, q := range map[string]string{
+		"tools.cpu": in.Tools.CPU, "tools.memory": in.Tools.Memory, "tools.ephemeralStorage": in.Tools.EphemeralStorage,
+		"sandbox.cpu": in.Sandbox.CPU, "sandbox.memory": in.Sandbox.Memory,
+		"sandbox.ephemeralStorage": in.Sandbox.EphemeralStorage,
+	} {
+		if q == "" {
+			continue
+		}
+		if v, err := resource.ParseQuantity(q); err != nil || v.Sign() <= 0 {
+			return jobs.ToolPodResources{}, fmt.Errorf("%s %q is not a positive quantity", name, q)
+		}
+	}
+	return jobs.ToolPodResources{Tools: jobs.ToolResources(in.Tools), Sandbox: jobs.ToolResources(in.Sandbox)}, nil
 }
 
 // stageTurns reads a role stage's turn ceiling flag, held to what a run's
@@ -711,7 +824,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	if err := (&intent.ProjectReconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), GitHub: gh, Settings: set, Classes: sizes.classes,
-		Nudger: nudger, Log: log,
+		Nudger: nudger, RepositoryImagesOff: !sizes.repositoryImages, Log: log,
 	}).SetupWithManager(mgr); err != nil {
 		return err
 	}
@@ -751,11 +864,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		}
 	}
 
-	if set.VerificationWithoutPreviews() {
-		log.LogAttrs(ctx, slog.LevelWarn, "--intent-verification without --intent-previews-enabled: verification "+
-			"runs against the intent's Preview, so it is off; each verifying Project says so in its VerificationOff "+
-			"condition")
-	}
+	logVerificationOff(ctx, log, set)
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),
@@ -768,6 +877,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Bool("verification", set.Verification),
 		slog.Bool("evaluator", set.Evaluator),
 		slog.Bool("evaluate_codex", set.EvaluateCodex),
+		slog.Bool("evaluator_agents", set.EvaluatorAgents),
+		slog.Int("max_tool_pods", set.MaxToolPods),
 		slog.String("attribution_mode", string(set.Attribution)),
 		slog.String("user_credentials", string(set.UserCredentials)),
 		slog.Bool("usage_measurement", meter.On()),

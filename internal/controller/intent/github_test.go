@@ -151,6 +151,7 @@ var tokenUses = map[string][]string{
 	"ReactPullRequestComment": {onAppRepository}, "ListPullRequestReviews": {onAppRepository},
 	"ListPullRequestReviewComments": {onAppRepository}, "ReviewEdited": {onAppRepository},
 	"ReviewCommentEdited": {onAppRepository}, "ComparePatch": {onAppRepository},
+	"MergeBase":        {onAppRepository},
 	"RequestReviewers": {onAppRepository},
 
 	// maul's commit status: written, and listed at a head for an impostor,

@@ -97,6 +97,9 @@ type GitHub interface {
 	ReviewEdited(ctx context.Context, repoURL, nodeID string) (bool, error)
 	ReviewCommentEdited(ctx context.Context, repoURL, nodeID string) (bool, error)
 	ComparePatch(ctx context.Context, repoURL, base, head string) (string, error)
+	// MergeBase is the merge base of head and the branch base
+	// (ghclient.MergeBase): an agents verification's base tree (O3).
+	MergeBase(ctx context.Context, repoURL, base, head string) (string, error)
 	RequestReviewers(ctx context.Context, repoURL string, number int64, logins []string) error
 	ListCheckRuns(ctx context.Context, repoURL, sha string) ([]ghclient.CheckRun, error)
 	ListCheckAnnotations(ctx context.Context, repoURL string, id int64, limit int) ([]ghclient.CheckAnnotation, error)
@@ -642,6 +645,14 @@ func (g *forgeGitHub) ComparePatch(ctx context.Context, repoURL, base, head stri
 		return "", err
 	}
 	return c.ComparePatch(ctx, repo, base, head)
+}
+
+func (g *forgeGitHub) MergeBase(ctx context.Context, repoURL, base, head string) (string, error) {
+	c, repo, err := g.client(ctx, repoURL, contentsRead)
+	if err != nil {
+		return "", err
+	}
+	return c.MergeBase(ctx, repo, base, head)
 }
 
 func (g *forgeGitHub) RequestReviewers(ctx context.Context, repoURL string, number int64, logins []string) error {

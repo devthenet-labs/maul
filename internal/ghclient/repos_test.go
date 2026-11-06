@@ -205,3 +205,34 @@ func TestIsGone(t *testing.T) {
 		})
 	}
 }
+
+// TestMergeBase: the merge base is the compare API's merge_base_commit,
+// read from one commit per page; one that is not a full commit SHA, or
+// none, is an error, never a base.
+func TestMergeBase(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"the merge base", `{"status":"ahead","merge_base_commit":{"sha":"` + sha + `"}}`, sha},
+		{"none", `{"status":"diverged"}`, ""},
+		{"not a sha", `{"merge_base_commit":{"sha":"HEAD"}}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mux, c := newFakeClient(t)
+			mux.HandleFunc("GET /repos/o/r/compare/{spec}", func(w http.ResponseWriter, r *http.Request) {
+				if got, want := r.PathValue("spec"), "main..."+sha; got != want {
+					t.Errorf("compare spec = %q, want %q", got, want)
+				}
+				if got := r.URL.Query().Get("per_page"); got != "1" {
+					t.Errorf("per_page = %q, want 1", got)
+				}
+				writeJSON(t, w, tc.body)
+			})
+			got, err := c.MergeBase(context.Background(), testRepo, "main", sha)
+			if got != tc.want || (err == nil) != (tc.want != "") {
+				t.Errorf("MergeBase() = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}

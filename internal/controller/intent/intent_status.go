@@ -119,8 +119,8 @@ func (p *pass) statusComment(ctx context.Context) templates.IntentStatusComment 
 	// Verification runs against the Preview: without the preview
 	// projection a verifying Project's intent in review is Off, and the
 	// comment says why.
-	c.VerificationNeedsPreviews = p.set.VerificationWithoutPreviews() && p.proj.Spec.VerificationEnabled() &&
-		verifyPhase(st.Phase)
+	off, _ := p.set.verificationOff(p.proj)
+	c.VerificationNeedsPreviews = off == ReasonPreviewsDisabled && verifyPhase(st.Phase)
 	c.AgentsPaused = p.agentsPaused()
 	c.Attribution = p.latestAttribution()
 	switch st.Phase {

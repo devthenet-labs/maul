@@ -80,8 +80,20 @@ const ConditionAcceptanceStatusUnavailable = "AcceptanceStatusUnavailable"
 const ConditionVerificationOff = "VerificationOff"
 
 // ReasonPreviewsDisabled is VerificationOff's reason: verification is on
-// without the preview projection it runs against.
+// without the preview projection it runs against. A Project with a cli or
+// library surface is Off for reasons of its own instead:
+// v1alpha1.ReasonAgentsToolPodNotEnabled (the agents tool pod is off) or
+// v1alpha1.ReasonSurfaceCombinationUnsupported (a preview beside the
+// surface, O6).
 const ReasonPreviewsDisabled = "PreviewsDisabled"
+
+// ConditionRepositoryImageRequired marks a Project the agents tool pod
+// evaluates while this controller runs with repository images off: its
+// sandboxes run only the repository's accepted runner image (O8), so every
+// evaluation of its intents ends unconfirmed. Never part of Ready. Set True
+// with v1alpha1.ReasonRepositoryImageRequired; absent otherwise. A round
+// whose repository has no accepted image is Unconfirmed on its own.
+const ConditionRepositoryImageRequired = "RepositoryImageRequired"
 
 // AcceptanceStatusUnavailable reasons.
 const (
@@ -121,8 +133,11 @@ type ProjectReconciler struct {
 	Classes resourceclass.Set
 	// Nudger hands a trigger on an ended Intent's issue to that Intent.
 	Nudger *Nudger
-	Now    func() time.Time
-	Log    *slog.Logger
+	// RepositoryImagesOff is --repository-images=false: a Project the
+	// agents tool pod evaluates says so (ConditionRepositoryImageRequired).
+	RepositoryImagesOff bool
+	Now                 func() time.Time
+	Log                 *slog.Logger
 
 	mu    sync.Mutex
 	polls map[string]*projectPoll
@@ -208,6 +223,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// builds of its repository alone, so discovery and plans go on.
 	setResourceClasses(cur, r.Classes)
 	setVerificationOff(cur, settings)
+	setRepositoryImageRequired(cur, settings, r.RepositoryImagesOff)
 	setEvaluatorUnverified(cur, settings)
 	cur.Status.ObservedGeneration = p.Generation
 
@@ -323,19 +339,63 @@ func (r *ProjectReconciler) proveOptional(ctx context.Context, p, cur *v1alpha1.
 }
 
 // setVerificationOff sets cur's VerificationOff condition: True on a
-// Project that verifies while s cannot (VerificationWithoutPreviews),
-// absent otherwise. It depends on the spec and the controller's flags only.
+// Project that verifies while s cannot (verificationOff), absent otherwise.
+// It depends on the spec and the controller's flags only.
 func setVerificationOff(cur *v1alpha1.Project, s Settings) {
-	if !cur.Spec.VerificationEnabled() || !s.VerificationWithoutPreviews() {
+	reason, msg := s.verificationOff(cur)
+	if reason == "" {
 		meta.RemoveStatusCondition(&cur.Status.Conditions, ConditionVerificationOff)
 		return
 	}
 	meta.SetStatusCondition(&cur.Status.Conditions, metav1.Condition{Type: ConditionVerificationOff,
-		Status: metav1.ConditionTrue, Reason: ReasonPreviewsDisabled, ObservedGeneration: cur.Generation,
-		Message: "spec.verification.enabled is set, but intent-controller runs with --intent-verification and " +
-			"without --intent-previews-enabled (chart previewController.enabled), and verification runs " +
-			"against the intent's Preview: this Project's intents are not verified (state Off) until previews " +
-			"are enabled"})
+		Status: metav1.ConditionTrue, Reason: reason, ObservedGeneration: cur.Generation, Message: msg})
+}
+
+// verificationOff is why Project p, which asks for verification, is not
+// verified by s, "" when it is (or does not ask, or s does not verify at
+// all): a cli or library surface beside a preview
+// (SurfaceCombinationUnsupported, O6, whatever the flags) or while the
+// agents tool pod is off (AgentsToolPodNotEnabled), otherwise verification
+// without previews (PreviewsDisabled).
+func (s Settings) verificationOff(p *v1alpha1.Project) (reason, msg string) {
+	if !s.Verification || !p.Spec.VerificationEnabled() {
+		return "", ""
+	}
+	switch {
+	case p.Spec.Surfaces.Agents() && previewed(p):
+		return v1alpha1.ReasonSurfaceCombinationUnsupported, "this Project sets a preview beside its cli or " +
+			"library surface, and one host is evaluated per Project: its intents are not verified (state Off) " +
+			"until the preview or the surface is removed"
+	case p.Spec.Surfaces.Agents() && !s.agentsProject(p):
+		return v1alpha1.ReasonAgentsToolPodNotEnabled, "spec.verification.enabled is set with a cli or library " +
+			"surface, which the evaluator verifies through an agents-namespace tool pod, and intent-controller " +
+			"runs without --intent-evaluator and --intent-evaluator-agents (chart " +
+			"intentController.verification.agents.enabled): this Project's intents are not verified (state Off) " +
+			"until the tool pod is enabled"
+	case !p.Spec.Surfaces.Agents() && s.VerificationWithoutPreviews():
+		return ReasonPreviewsDisabled, "spec.verification.enabled is set, but intent-controller runs with " +
+			"--intent-verification and without --intent-previews-enabled (chart previewController.enabled), and " +
+			"verification runs against the intent's Preview: this Project's intents are not verified (state Off) " +
+			"until previews are enabled"
+	}
+	return "", ""
+}
+
+// setRepositoryImageRequired sets cur's RepositoryImageRequired condition:
+// True on a Project the agents tool pod evaluates while repository images
+// are off (imagesOff), absent otherwise.
+func setRepositoryImageRequired(cur *v1alpha1.Project, s Settings, imagesOff bool) {
+	if !imagesOff || !s.agentsProject(cur) || !s.verifiesProject(cur) {
+		meta.RemoveStatusCondition(&cur.Status.Conditions, ConditionRepositoryImageRequired)
+		return
+	}
+	meta.SetStatusCondition(&cur.Status.Conditions, metav1.Condition{Type: ConditionRepositoryImageRequired,
+		Status: metav1.ConditionTrue, Reason: v1alpha1.ReasonRepositoryImageRequired,
+		ObservedGeneration: cur.Generation,
+		Message: "the cli or library surface's tool pod runs the repository's accepted runner image and nothing " +
+			"else, and intent-controller runs with repository images off (--repository-images): every " +
+			"evaluation of this Project's intents ends unconfirmed until they are on and the repository " +
+			"declares an accepted image"})
 }
 
 // refusal is why this controller's own settings keep p from being Ready,

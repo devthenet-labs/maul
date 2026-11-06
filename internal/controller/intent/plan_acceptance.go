@@ -26,11 +26,19 @@ import (
 // verifies Project p's intents: the Project asks for it
 // (spec.verification.enabled), and the controller runs with
 // --intent-verification and --intent-previews-enabled, without which every
-// verifying Project's intents are Off (VerificationWithoutPreviews). Both
-// the plan-time decision (planAsk) and the review-time one (pass.verifies,
-// which adds the Intent's own Preview) are derived from it.
+// verifying Project's intents are Off (VerificationWithoutPreviews). A
+// Project with a cli or library surface needs no previews (SPEC-S2 Q33)
+// but the agents tool pod (agentsProject), and none of its own beside its
+// surface (O6). It is exactly "no VerificationOff" (verificationOff), so the
+// Project's condition never disagrees with what is verified. Both the
+// plan-time decision (planAsk) and the review-time one (pass.verifies,
+// which adds the Intent's tool host) are derived from it.
 func (s Settings) verifiesProject(p *v1alpha1.Project) bool {
-	return s.Verification && s.Previews && p.Spec.VerificationEnabled()
+	if !s.Verification || !p.Spec.VerificationEnabled() {
+		return false
+	}
+	off, _ := s.verificationOff(p)
+	return off == ""
 }
 
 // evaluates reports that the agent evaluator verifies Project p's intents
@@ -83,9 +91,10 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 // planWorkspace is the plan-time ask of a Project with a cli or library
 // surface and no preview (SPEC-S2): outcomes with the surface named and no
 // components, as the tool pod will build it. A Project that also previews
-// a repository (O6) never reaches it: it is asked as its preview is, as
-// the review-time decision (pass.verifies) still verifies it, until both
-// refuse the combination together. nil, so the plan is not asked, when the
+// a repository (O6) never reaches it: it is not verified at all
+// (SurfaceCombinationUnsupported), at plan time as at review time. Nor is
+// one under a controller without the agents tool pod
+// (AgentsToolPodNotEnabled). nil, so the plan is not asked, when the
 // agent evaluator is off (slice-1 criteria cannot be run there), or when
 // the surface cannot be stated: its repository is not one of the Project's
 // (or is unnamed in a Project of several), or its binary or language is one
