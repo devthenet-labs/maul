@@ -87,7 +87,9 @@ func TestAgentsJudgementTable(t *testing.T) {
 			Answer: v1alpha1.ReviewProves, Run: "r"}}}
 	pass := &report.Evaluation{Verdicts: []report.OutcomeVerdict{{ID: "count", Verdict: report.VerdictPass,
 		Ledger: []int32{3}}}}
-	runs := func(rs ...v1alpha1.CheckRun) *v1alpha1.BaseStatus { return &v1alpha1.BaseStatus{Required: true, Runs: rs} }
+	runs := func(rs ...v1alpha1.CheckRun) *v1alpha1.BaseStatus {
+		return &v1alpha1.BaseStatus{Required: true, Runs: rs}
+	}
 	tests := []struct {
 		name   string
 		base   *v1alpha1.BaseStatus
