@@ -28,6 +28,7 @@ func TestImports(t *testing.T) {
 		"github.com/devthenet-labs/maul/internal/previewauth",
 		"github.com/devthenet-labs/maul/internal/toolexec",
 		"github.com/devthenet-labs/maul/internal/toolwire",
+		"golang.org/x/mod/modfile",
 	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {

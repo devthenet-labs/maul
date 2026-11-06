@@ -81,7 +81,11 @@ func Run(ctx context.Context, o RunOptions) (toolwire.Summary, error) {
 		defer func() { _ = front.Close() }()
 	}
 
-	if !r.awaitComponents(dctx, window) {
+	switch {
+	case o.Config.IsWorkspace():
+		// No components: the two trees' builds are the first entries.
+		r.buildTrees(dctx)
+	case !r.awaitComponents(dctx, window):
 		r.finishRelay(stopReason(ctx, dctx, FinishUnreachable))
 		return r.result()
 	}
@@ -155,6 +159,9 @@ func (r *Relay) awaitComponents(ctx context.Context, window time.Duration) bool 
 func (r *Relay) replay(ctx context.Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.cfg.IsWorkspace() && !r.headBuilt {
+		return // a head that did not build runs nothing
+	}
 	for _, s := range r.cfg.Checks {
 		if ctx.Err() != nil {
 			return
@@ -169,5 +176,18 @@ func (r *Relay) replay(ctx context.Context) {
 			return
 		}
 		r.replays = append(r.replays, rec)
+		if !r.cfg.IsWorkspace() {
+			continue
+		}
+		// In a workspace the same check replays at the base, tagged base.
+		base, ok := r.baseRun(ctx, c, toolwire.ModeReplay)
+		if !ok {
+			continue
+		}
+		if _, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun,
+			Side: toolwire.SideBase, Args: mustArgs(map[string]string{"digest": base.Digest}), CheckRun: &base}); err != nil {
+			return
+		}
+		r.baseReplays = append(r.baseReplays, base)
 	}
 }

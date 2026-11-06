@@ -5,7 +5,12 @@
 // evaluator's tool pod. preview-controller runs it beside the browser and
 // sandbox sidecars, with the tool ConfigMap mounted at
 // /etc/maul-tools: the components' Service addresses, the saved checks to
-// replay, the tool-call cap and the wall clock. It waits for the
+// replay, the tool-call cap and the wall clock. In an agents-namespace tool
+// pod (the config's mode workspace) intent-controller runs it instead, with
+// the config and the :8090 key (/etc/maul-tools/tools-key) from its one
+// Secret: it builds the head and base trees in their sandboxes (over
+// /run/maul-exec/<side>/sock), replays every saved check at each side, and
+// serves exec, files, run and checks only to callers holding the key. It waits for the
 // components, replays every saved check alone under fresh run tokens, then
 // serves the evaluator's maul-tool calls on :8090, refusing callers on
 // loopback or the pod's own addresses, until agent-runner's finish or its
@@ -72,6 +77,15 @@ func run(ctx context.Context, s previewtools.Seams, stdout, stderr io.Writer) in
 			Client: previewtools.NewClient(previewtools.ClientOptions{Dial: s.Dial}),
 		},
 		Listener: ln,
+	}
+	if cfg.IsWorkspace() {
+		key, err := previewtools.LoadKey(s.ConfigDir)
+		if err != nil {
+			log.Error("the per-evaluation key is refused", "dir", s.ConfigDir, "err", err)
+			return 2
+		}
+		opts.Head, opts.Base = previewtools.NewSandboxes(s.ExecDir)
+		opts.Trees, opts.Key = s.TreesDir, key
 	}
 	if cfg.Browser {
 		front, err := withBrowser(&opts, s)

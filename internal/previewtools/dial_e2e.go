@@ -43,6 +43,8 @@ type Seams struct {
 	ListenAddr      string
 	AllowLocal      bool
 	ConfigDir       string
+	// ExecDir and TreesDir are a workspace's sockets and trees (dial.go).
+	ExecDir, TreesDir string
 	// BrowserDir, when set, is the scripted browser's working directory.
 	BrowserDir string
 }
@@ -57,7 +59,8 @@ func (s Seams) Browser() (*BrowserOptions, ArtifactKeeper, net.Listener, error) 
 
 // SeamsFrom reads the e2e seams from the environment.
 func SeamsFrom(getenv func(string) string) (Seams, error) {
-	s := Seams{TerminationPath: TerminationPath, ListenAddr: listenAddr, ConfigDir: DefaultConfigDir}
+	s := Seams{TerminationPath: TerminationPath, ListenAddr: listenAddr, ConfigDir: DefaultConfigDir,
+		ExecDir: DefaultExecDir, TreesDir: DefaultTreesDir}
 	if d := getenv(ConfigDirEnv); d != "" {
 		s.ConfigDir = d
 	}

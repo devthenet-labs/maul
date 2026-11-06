@@ -20,6 +20,15 @@ import (
 // entries a pass rests on.
 const reservedEntries = toolwire.MaxConfirm + 2
 
+// reserved is the room this relay keeps: a workspace confirms each check
+// at the base too, so it keeps a second confirmation's room per check.
+func (r *Relay) reserved() int {
+	if r.cfg.IsWorkspace() {
+		return reservedEntries + toolwire.MaxConfirm
+	}
+	return reservedEntries
+}
+
 // ArtifactStore holds the bytes of the artifacts entries record (the
 // browser relay's screenshots), by sha256. Only cited ones leave the tools
 // container, as evidence lines at finish.
@@ -33,7 +42,7 @@ var errNoRoom = errors.New("the ledger keeps its remaining room for confirmation
 // record appends e to the ledger, stamped now; the caller holds r.mu. It
 // returns the entry's seq.
 func (r *Relay) record(e toolwire.LedgerEntry) (int64, error) {
-	if e.Kind == toolwire.KindAgent && r.entries >= toolwire.MaxEntries-reservedEntries {
+	if e.Kind == toolwire.KindAgent && r.entries >= toolwire.MaxEntries-r.reserved() {
 		return 0, errNoRoom
 	}
 	e.TS = r.now()
