@@ -14,6 +14,13 @@ import (
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
+// goEnvImage is image with goEnv recorded.
+func goEnvImage(image *maulv1.RunnerImage, goEnv map[string]string) *maulv1.RunnerImage {
+	ri := image.DeepCopy()
+	ri.GoEnv = goEnv
+	return ri
+}
+
 // testCommitRepositoryStatus: a commit Repository's status may only pin that
 // commit and never a runner image, so a source-controller that predates
 // commit refs (pinning the default branch's head, or an image) is refused by
@@ -43,6 +50,18 @@ func testCommitRepositoryStatus(ctx context.Context, t *testing.T, c client.Clie
 			maulv1.RepositoryStatus{ResolvedSHA: head, RunnerImage: image}, true},
 		{"default branch with a runner image", maulv1.RepositoryRef{},
 			maulv1.RepositoryStatus{ResolvedSHA: head, RunnerImage: image}, true},
+		{"runner image with its go env", maulv1.RepositoryRef{},
+			maulv1.RepositoryStatus{ResolvedSHA: head, RunnerImage: goEnvImage(image, map[string]string{
+				"GOMODCACHE": "/opt/go/pkg/mod", "GOPATH": "/go", "GOROOT": "/usr/local/go"})}, true},
+		{"go env naming another variable", maulv1.RepositoryRef{},
+			maulv1.RepositoryStatus{ResolvedSHA: head, RunnerImage: goEnvImage(image,
+				map[string]string{"GOFLAGS": "/x"})}, false},
+		{"go env with a relative directory", maulv1.RepositoryRef{},
+			maulv1.RepositoryStatus{ResolvedSHA: head, RunnerImage: goEnvImage(image,
+				map[string]string{"GOMODCACHE": "pkg/mod"})}, false},
+		{"go env over its bound", maulv1.RepositoryRef{},
+			maulv1.RepositoryStatus{ResolvedSHA: head, RunnerImage: goEnvImage(image,
+				map[string]string{"GOMODCACHE": "/" + strings.Repeat("m", 4096)})}, false},
 	} {
 		t.Run("status of repository "+tt.name, func(t *testing.T) {
 			r := &maulv1.Repository{

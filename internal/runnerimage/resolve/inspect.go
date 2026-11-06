@@ -6,6 +6,7 @@ package resolve
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -64,6 +65,9 @@ type Manifest struct {
 	ConfigRead bool
 	// SearchPath is the sanitized image PATH (runnerimage.SanitizePath).
 	SearchPath []string
+	// GoEnv is the Go toolchain directories the config bakes
+	// (runnerimage.GoEnv).
+	GoEnv map[string]string
 
 	// Size: the compressed layers are over the size limit.
 	Size error
@@ -110,6 +114,22 @@ func (r Report) Err() error {
 		return r.Signature
 	}
 	return nil
+}
+
+// goEnv is the Go toolchain directories every runnable manifest bakes
+// alike, nil when they disagree: unlike the search path, a difference is
+// no rejection, only nothing recorded (a program that needed them fails to
+// build, a run error, never a verdict).
+func (r Report) goEnv() map[string]string {
+	if len(r.Manifests) == 0 {
+		return nil
+	}
+	for _, m := range r.Manifests[1:] {
+		if !maps.Equal(m.GoEnv, r.Manifests[0].GoEnv) {
+			return nil
+		}
+	}
+	return maps.Clone(r.Manifests[0].GoEnv)
 }
 
 // PathMismatch reports, as the rejection Resolve would return, runnable
@@ -272,6 +292,7 @@ func (r *Resolver) inspectChild(ctx context.Context, repo name.Repository, c chi
 	if out.Env != nil && !all {
 		return out, nil
 	}
+	out.GoEnv = runnerimage.GoEnv(cf.Config.Env)
 	out.SearchPath, err = runnerimage.SanitizePath(cf.Config.Env)
 	out.Path = inChild(labeled("EmptyPath", err), c)
 	return out, nil

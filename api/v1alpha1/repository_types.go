@@ -92,6 +92,16 @@ type RunnerImage struct {
 	// The Job prepends its own binary directory to it.
 	// +optional
 	SearchPath string `json:"searchPath,omitempty"`
+	// GoEnv is the Go toolchain directories the image config bakes, by
+	// name (GOMODCACHE, GOPATH, GOROOT; runnerimage.GoEnv): each one clean
+	// absolute directory. The agents tool pod passes them to the programs
+	// it runs in the image, which see none of the image's own environment,
+	// so a Go build with no network profile finds the image's module
+	// cache. Empty when the image bakes none.
+	// +optional
+	// +kubebuilder:validation:MaxProperties=3
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k in ['GOMODCACHE', 'GOPATH', 'GOROOT'] && self[k].startsWith('/') && size(self[k]) <= 4096)",message="goEnv names only GOMODCACHE, GOPATH and GOROOT, each an absolute directory of at most 4096 characters"
+	GoEnv map[string]string `json:"goEnv,omitempty"`
 	// Verified reports that a signature by the operator's cosign key was
 	// checked against Image; false when the operator allows unsigned images.
 	// +optional

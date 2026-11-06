@@ -9,6 +9,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -122,6 +123,7 @@ func TestRunnerImageDeclarations(t *testing.T) {
 	resolved := runnerimage.Resolved{
 		Image:      "ghcr.io/acme/go-env@sha256:" + strings.Repeat("cd", 32),
 		SearchPath: []string{"/usr/local/go/bin", "/usr/bin"},
+		GoEnv:      map[string]string{"GOMODCACHE": "/opt/go/pkg/mod"},
 		Verified:   true,
 	}
 	cases := []struct {
@@ -169,6 +171,9 @@ func TestRunnerImageDeclarations(t *testing.T) {
 			}
 			if tc.wantImage != "" && (ri.SearchPath != "/usr/local/go/bin:/usr/bin" || !ri.Verified) {
 				t.Errorf("searchPath/verified = %q/%v", ri.SearchPath, ri.Verified)
+			}
+			if tc.wantImage != "" && !maps.Equal(ri.GoEnv, resolved.GoEnv) {
+				t.Errorf("goEnv = %v, want the image's %v", ri.GoEnv, resolved.GoEnv)
 			}
 			if ri.ResolvedAt == nil || !ri.ResolvedAt.Time.Equal(r.Now()) {
 				t.Errorf("resolvedAt = %v, want the clock seam's time", ri.ResolvedAt)
