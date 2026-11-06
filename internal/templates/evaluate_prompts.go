@@ -124,6 +124,11 @@ type EvaluatePrompt struct {
 	Components []EvaluateComponent
 	// Tools are what the round's tool pod offers.
 	Tools EvaluateTools
+	// Workspace is a round on a Project with no preview (SPEC-S2): the tool
+	// pod built the pull request's head and its base, and the prompt is the
+	// workspace variant, with no preview, browser or look-around, and no
+	// Components. nil is a preview round, the prompt exactly as before.
+	Workspace *EvaluateWorkspace
 	// Request is the intent's issue, quoted as context.
 	Request string
 	// Outcomes are the approved outcomes, in plan order: at least one.
@@ -188,6 +193,61 @@ type EvaluateTools struct {
 	LookAroundRoutes int
 }
 
+// Workspace surfaces, as EvaluateWorkspace and ReviewWorkspace name them.
+const (
+	SurfaceCLI     = "cli"
+	SurfaceLibrary = "library"
+)
+
+// EvaluateWorkspace is what the agents-namespace tool pod built (SPEC-S2):
+// the Project's surface, maul's own and stated as fact. A cli names its
+// Build argv and its Binary (v1alpha1.ValidCLIBuild, ValidCLIBinary); a
+// library its Language, go (checks.LanguageGo), and no build.
+type EvaluateWorkspace struct {
+	// Surface is SurfaceCLI or SurfaceLibrary.
+	Surface  string
+	Binary   string
+	Language string
+	Build    []string
+}
+
+// validate refuses a workspace that is not exactly a valid cli or a go
+// library.
+func (w EvaluateWorkspace) validate() error {
+	switch w.Surface {
+	case SurfaceCLI:
+		if !v1alpha1.ValidCLIBinary(w.Binary) || !v1alpha1.ValidCLIBuild(w.Build) || w.Language != "" {
+			return fmt.Errorf("a cli workspace names a build writing under %s and a binary there, and no language",
+				v1alpha1.CLIBinDir)
+		}
+	case SurfaceLibrary:
+		if w.Language != checks.LanguageGo || w.Binary != "" || len(w.Build) > 0 {
+			return fmt.Errorf("a library workspace names language %s and no build or binary", checks.LanguageGo)
+		}
+	default:
+		return fmt.Errorf("workspace surface %q is not %s or %s", w.Surface, SurfaceCLI, SurfaceLibrary)
+	}
+	return nil
+}
+
+// workspaceView is EvaluateWorkspace as the templates read it: Build one
+// code span.
+type workspaceView struct {
+	CLI    bool
+	Binary string
+	Build  string
+}
+
+// buildSpan is a cli's build argv as one code span, every character shown.
+func buildSpan(argv []string) string { return code(shown(strings.Join(argv, " "))) }
+
+// The workspace placeholders (SPEC-S2 Q23), for the templates.
+func (evaluateView) BinPlaceholder() string     { return checks.BinPlaceholder }
+func (evaluateView) TreePlaceholder() string    { return checks.TreePlaceholder }
+func (evaluateView) RunPlaceholder() string     { return checks.RunPlaceholder }
+func (checkReviewView) BinPlaceholder() string  { return checks.BinPlaceholder }
+func (checkReviewView) TreePlaceholder() string { return checks.TreePlaceholder }
+
 // ChangedPath is one file a pull request changes, with its added and
 // deleted line counts.
 type ChangedPath struct {
@@ -207,6 +267,8 @@ type evaluateView struct {
 	PriorBlock    string
 	RefusedBlock  string
 	Examples      evaluateExamples
+	// WS is the workspace, on a round with no preview.
+	WS workspaceView
 	// LookAroundCalls is LookAroundToolCalls, for the template.
 	LookAroundCalls int
 	// ReportBy is the turn by which the prompt asks for the report
@@ -263,6 +325,8 @@ func reportBy(maxTurns int) int {
 // which the package's tests hold to the grammar and the report parser.
 type evaluateExamples struct {
 	HTTP, Browser, Exec, Report string
+	// Run is a workspace's run check example.
+	Run string
 }
 
 // RenderEvaluatePrompt renders the evaluate-stage prompt.
@@ -273,19 +337,55 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 	if !runToken.MatchString(p.RunToken) {
 		return "", fmt.Errorf("render evaluate prompt: run token %q is not %s", p.RunToken, runToken)
 	}
+	if p.Workspace != nil {
+		return renderEvaluateWorkspace(p)
+	}
 	if p.Tools.BrowserEntry != "" && (!p.Tools.Browser || !v1alpha1.ValidBrowserEntry(p.Tools.BrowserEntry)) {
 		return "", fmt.Errorf("render evaluate prompt: browser entry %q is not a path on a preview with a browser",
 			p.Tools.BrowserEntry)
 	}
 	p.Components = boundEvaluateComponents(p.Components)
 	p.Tools.LookAroundRoutes = min(max(p.Tools.LookAroundRoutes, 0), 8)
+	v := newEvaluateView(p)
+	v.Examples = evaluateExamples{HTTP: ExampleHTTPCheck, Browser: ExampleBrowserCheck, Exec: ExampleExecCheck,
+		Report: ExampleEvaluationReport}
+	return render("prompt_evaluate.md.tmpl", v)
+}
+
+// renderEvaluateWorkspace renders the evaluate prompt of a round on a
+// Project with no preview (SPEC-S2): the two builds, files, exec and run,
+// the placeholders and the head-and-base rule; no component, browser or
+// look-around, which such a round never has.
+func renderEvaluateWorkspace(p EvaluatePrompt) (string, error) {
+	w := *p.Workspace
+	if err := w.validate(); err != nil {
+		return "", fmt.Errorf("render evaluate prompt: %w", err)
+	}
+	if p.Tools.Browser || p.Tools.BrowserEntry != "" {
+		return "", errors.New("render evaluate prompt: a workspace has no browser")
+	}
+	p.Components, p.Tools.LookAroundRoutes = nil, 0
+	v := newEvaluateView(p)
+	v.WS = workspaceView{CLI: w.Surface == SurfaceCLI, Binary: w.Binary}
+	if v.WS.CLI {
+		v.WS.Build = buildSpan(w.Build)
+		v.Examples = evaluateExamples{Exec: ExampleCLIExecCheck, Run: ExampleCLIRunCheck,
+			Report: ExampleCLIEvaluationReport}
+	} else {
+		v.Examples = evaluateExamples{Run: ExampleLibraryRunCheck, Report: ExampleLibraryEvaluationReport}
+	}
+	return render("prompt_evaluate_workspace.md.tmpl", v)
+}
+
+// newEvaluateView is p as both evaluate prompts read it, every untrusted
+// value rendered into the block that quotes it; the caller adds the
+// examples.
+func newEvaluateView(p EvaluatePrompt) evaluateView {
 	v := evaluateView{
-		EvaluatePrompt: p,
-		RequestBlock:   strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
-		OutcomesBlock:  outcomesBlock(p.Outcomes),
-		ChangedBlock:   changedBlock(p.ChangedPaths),
-		Examples: evaluateExamples{HTTP: ExampleHTTPCheck, Browser: ExampleBrowserCheck, Exec: ExampleExecCheck,
-			Report: ExampleEvaluationReport},
+		EvaluatePrompt:  p,
+		RequestBlock:    strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
+		OutcomesBlock:   outcomesBlock(p.Outcomes),
+		ChangedBlock:    changedBlock(p.ChangedPaths),
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
@@ -297,7 +397,7 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
 	}
 	v.RefusedBlock = refusedBlock(p.PriorRefused)
-	return render("prompt_evaluate.md.tmpl", v)
+	return v
 }
 
 // refusedBlock lists the checks the reviewer refused, as priorBlock lists a
@@ -452,6 +552,62 @@ type CheckReviewPrompt struct {
 	ExpectFail      bool
 	FailedStep      int
 	FailedAssertion string
+	// Workspace is a check of a Project with no preview (SPEC-S2): an exec
+	// or run check, reviewed beside maul's own record of the build and of
+	// its runs at the head and the base. nil is a preview's check, the
+	// prompt exactly as before.
+	Workspace *ReviewWorkspace
+}
+
+// ReviewWorkspace is what maul recorded of a check under review on a
+// Project with no preview, all maul's own and stated as fact: the surface
+// and its build, whether the base built, and the check's confirmation runs
+// at each side.
+type ReviewWorkspace struct {
+	EvaluateWorkspace
+	// BaseUnbuildable: the base did not build, so the check never ran
+	// there.
+	BaseUnbuildable bool
+	// Head and Base are the check's runs at each side.
+	Head, Base ReviewRun
+}
+
+// ReviewRun is one side's run of the check under review: Result a
+// v1alpha1.CheckRunResult ("" for none), and for a fail the assertion
+// (toolwire.StepRecord.AssertionID) it was red by, "" for none.
+type ReviewRun struct {
+	Result, Assertion string
+}
+
+// sentence is r as maul states it, after "it ran at the head" or "at the
+// base"; an unknown result is unknown, never the text it carried.
+func (r ReviewRun) sentence() string {
+	switch v1alpha1.CheckRunResult(r.Result) {
+	case v1alpha1.CheckRunPass:
+		return "passed"
+	case v1alpha1.CheckRunFail:
+		if a := quotedLine(r.Assertion, 512); a != "" {
+			return "failed by its assertion " + code(a)
+		}
+		return "failed without an assertion: by its exit code, a crash or missing output"
+	case v1alpha1.CheckRunError:
+		return "could not build or run: an error, not a result"
+	case v1alpha1.CheckRunQuarantined:
+		return "passed only on retry"
+	case v1alpha1.CheckRunRefused:
+		return "was refused by maul"
+	case "":
+		return "did not run"
+	}
+	return "ended in a result maul does not know"
+}
+
+// reviewWorkspaceView is ReviewWorkspace as the template reads it.
+type reviewWorkspaceView struct {
+	workspaceView
+	Head, Base string
+	// NoBase: the base did not build.
+	NoBase bool
 }
 
 // ExampleCheckReviewReport is the report the check reviewer's prompt
@@ -491,6 +647,8 @@ type checkReviewView struct {
 	LayoutRead bool
 	// Viewport is the fixed window a browser check runs in.
 	Viewport playwright.Viewport
+	// WS is the workspace, for a check of a Project with no preview.
+	WS *reviewWorkspaceView
 }
 
 // reviewFile is one exec program file as the reviewer reads it.
@@ -502,8 +660,9 @@ type reviewFile struct {
 // RenderCheckReviewPrompt renders the check reviewer's prompt.
 func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	shown, files := reviewedCheck(p.Check)
-	if shown.Form != checks.FormHTTP && shown.Form != checks.FormBrowser && shown.Form != checks.FormExec {
-		return "", fmt.Errorf("render check review prompt: check form %q is not http, browser or exec", shown.Form)
+	ws, err := reviewWorkspace(p.Workspace, shown.Form)
+	if err != nil {
+		return "", fmt.Errorf("render check review prompt: %w", err)
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -534,12 +693,41 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		v.KindSentence = "It is a keep: something the change must leave true."
 	}
 	v.Components = boundEvaluateComponents(p.Components)
-	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok && shown.Form == checks.FormExec {
+	if v.WS = ws; ws != nil {
+		v.Components = nil
+	}
+	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok &&
+		(shown.Form == checks.FormExec || shown.Form == checks.FormRun) {
 		v.Marker = checks.ExecMarkerPlaceholder + " " + quotedLine(id, 64) + ":"
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
 	return render("prompt_checkreview.md.tmpl", v)
+}
+
+// reviewWorkspace is w as the check review template reads it, for a check
+// of form f: a preview's check is http, browser or exec, with no
+// workspace; a workspace's is exec (a cli's) or run, with a valid one.
+func reviewWorkspace(w *ReviewWorkspace, f checks.Form) (*reviewWorkspaceView, error) {
+	if w == nil {
+		if f != checks.FormHTTP && f != checks.FormBrowser && f != checks.FormExec {
+			return nil, fmt.Errorf("check form %q is not http, browser or exec", f)
+		}
+		return nil, nil
+	}
+	if err := w.validate(); err != nil {
+		return nil, err
+	}
+	cli := w.Surface == SurfaceCLI
+	if f != checks.FormRun && (f != checks.FormExec || !cli) {
+		return nil, fmt.Errorf("check form %q is not one a %s workspace runs", f, w.Surface)
+	}
+	v := &reviewWorkspaceView{workspaceView: workspaceView{CLI: cli, Binary: w.Binary},
+		Head: w.Head.sentence(), Base: w.Base.sentence(), NoBase: w.BaseUnbuildable}
+	if cli {
+		v.Build = buildSpan(w.Build)
+	}
+	return v, nil
 }
 
 // shownCheck is a check as a reviewer is shown it: its form and body,
@@ -549,11 +737,21 @@ type shownCheck struct {
 	HTTP    *checks.HTTPCheck    `json:"http,omitempty"`
 	Browser *checks.BrowserCheck `json:"browser,omitempty"`
 	Exec    *checks.ExecCheck    `json:"exec,omitempty"`
+	Run     *shownRun            `json:"run,omitempty"`
+}
+
+// shownRun is a run check as a reviewer is shown it: its program files are
+// shown apart, each whole.
+type shownRun struct {
+	Language string            `json:"language"`
+	Args     []string          `json:"args,omitempty"`
+	Timeout  string            `json:"timeout,omitempty"`
+	Expect   checks.ExecExpect `json:"expect"`
 }
 
 // reviewedCheck is c as a reviewer is shown it: a deep copy without its id,
-// its outcome id or any http step's name, and with an exec check's program
-// files taken out to be shown whole, each in its own block.
+// its outcome id or any http step's name, and with an exec or run check's
+// program files taken out to be shown whole, each in its own block.
 func reviewedCheck(c checks.Check) (shownCheck, []reviewFile) {
 	shown := shownCheck{Form: c.Form}
 	var files []reviewFile
@@ -569,15 +767,26 @@ func reviewedCheck(c checks.Check) (shownCheck, []reviewFile) {
 		shown.Browser = &b
 	case c.Exec != nil:
 		e := *c.Exec
-		for _, f := range e.Files {
-			files = append(files, reviewFile{Path: quotedLine(f.Path, 300),
-				Content:    strings.Trim(untrusted.Visible(f.Content, checks.MaxProgramBytes), "\n"),
-				Executable: f.Executable})
-		}
+		files = reviewFiles(e.Files)
 		e.Files = nil
 		shown.Exec = &e
+	case c.Run != nil:
+		files = reviewFiles(c.Run.Files)
+		shown.Run = &shownRun{Language: c.Run.Language, Args: slices.Clone(c.Run.Args), Timeout: c.Run.Timeout,
+			Expect: c.Run.Expect}
 	}
 	return shown, files
+}
+
+// reviewFiles are a program's files as a reviewer reads them, each whole.
+func reviewFiles(fs []checks.File) []reviewFile {
+	files := make([]reviewFile, 0, len(fs))
+	for _, f := range fs {
+		files = append(files, reviewFile{Path: quotedLine(f.Path, 300),
+			Content:    strings.Trim(untrusted.Visible(f.Content, checks.MaxProgramBytes), "\n"),
+			Executable: f.Executable})
+	}
+	return files
 }
 
 // The examples the evaluate prompt shows: one check of each form and a

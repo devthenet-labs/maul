@@ -46,6 +46,11 @@ var outcomeReasonWords = map[string]string{
 	"no-confirmed-check":  "no check maul re-ran covers it",
 	"evaluator-saw-failure": "a check passed, but the evaluator saw the outcome as worded fail, " +
 		"so the check tests less than the outcome",
+	// Slice S2's (SPEC-S2 S2-15): a program check that failed without
+	// asserting (O4), and the tool pod's own build of the head that did not
+	// finish, which is maul's, never the change's.
+	"not-asserted":       "the program failed without asserting anything about the change",
+	"tools-build-failed": "couldn't confirm: the build did not finish",
 }
 
 // Bounds on what an outcome's detail shows.

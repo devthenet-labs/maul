@@ -47,7 +47,7 @@ The preview serves these components:
 {{- end}}
 {{- end}}
 
-The check, a{{if ne .Form "browser"}}n{{end}} `{{.Form}}` check, as maul runs it:
+The check, a{{if or (eq .Form "http") (eq .Form "exec")}}n{{end}} `{{.Form}}` check, as maul runs it:
 
 {{fence .CheckBlock | chomp}}
 {{- range .Files}}
@@ -62,19 +62,60 @@ in order, and fails the check unless the response matches its `expect`; `capture
 later steps.{{else if eq .Form "browser"}}the steps run in order in a fresh browser on the running preview, its
 window always {{.Viewport.Width}} by {{.Viewport.Height}} CSS pixels, each an action or an assertion; `visible` means a
 person can see the element, `legible` that a person can read its text, and `clickable` that it, not something covering
-it, receives a click.{{else}}the program runs without a shell in a
+it, receives a click.{{else if and .WS (eq .Form "exec")}}the program the Project builds,
+`{{.BinPlaceholder}}`, runs without a shell in a fresh working directory holding the check's files, and the check fails
+unless its exit code and output match its `expect`. It also fails whenever a line of its output starts with what
+`{{.ExecMarker}}` in its program files stands for, a secret maul draws afresh for every run and gives only the
+program, whatever its exit code and whatever else it prints; a run whose output is too long to keep whole never
+passes.{{else if .WS}}maul builds the program against the tree, with
+a `go.mod` it writes itself from the tree's own so that the program uses the tree and nothing in its place, and runs
+it with the check's `args` in a fresh working directory; the check fails unless its exit code and output match its
+`expect`. It also fails whenever a line of its output starts with what `{{.ExecMarker}}` in its program files stands
+for, a secret maul draws afresh for every run and gives only the program, whatever its exit code and whatever else it
+prints; a run whose output is too long to keep whole never passes.{{else}}the program runs without a shell in a
 sandbox that can reach the running preview, and the check fails unless its exit code and output match its
 `expect`. It also fails whenever a line of its output starts with what `{{.ExecMarker}}` in its program files stands
 for, a secret maul draws afresh for every run and gives only the program, whatever its exit code and whatever else it
 prints; a run whose output is too long to keep whole never passes.{{end}}
 Every `{{"{{"}}run{{"}}"}}` is replaced by a fresh token on every run, so the data a check creates is its own.
+{{- with .WS}}
+
+## What maul recorded
+
+These are maul's own records, not the other agent's words. There is no running application: maul built the pull
+request's head, and its base without the change, in the repository's own image, each in a sandbox of its own.
+{{if .CLI}}
+- The Project's build, run in each, writes the program the check runs as `{{$.BinPlaceholder}}`, `{{.Binary}}`:
+  {{.Build}}.
+{{- end}}
+- In both, `{{$.TreePlaceholder}}` is the tree, `/work/tree`.
+- At the head the check {{.Head}}.
+{{- if .NoBase}}
+- The base did not build, so the check did not run there: there is no base comparison.
+{{- else}}
+- At the base it {{.Base}}.
+{{- end}}
+
+maul itself counts a change outcome's check only if it does not pass at the base: it fails there by an assertion,
+or cannot build or run there, which leaves no base comparison. It counts a keep outcome's check unless it fails there
+by an assertion. That rule is not yours to judge: read the two runs as evidence of what the program exercises.
+{{- end}}
 
 ## How to judge
 {{- if .ExpectFail}}
+{{- if .WS}}
+
+This check failed on the build under review: maul ran it itself, each time in a fresh working directory under a
+fresh run token, and it failed each time at step {{.FailedStep}}, on its assertion `{{.Assertion}}`. But only the
+working directory was fresh: the tree and the caches are shared by every run at that side, and may hold what earlier
+runs or the other agent's exploration wrote there.
+{{- else}}
 
 This check failed on the build under review: maul ran it itself, each time in a fresh browser or session under a
 fresh run token, and it failed each time at step {{.FailedStep}}, on its assertion `{{.Assertion}}`.
-{{- if .Layout}}
+{{- end}}
+{{- if .WS}}
+{{- else if .Layout}}
 This check writes nothing and that assertion measures the page's layout, so the rule that a check use only data it
 created does not apply: a layout read needs no data of its own, and whether an element is the size or in the place the
 outcome promises does not depend on whose rows or records are on the page. Do not refuse it for data it did not
@@ -120,6 +161,19 @@ Answer `does_not_prove` if any of them does not hold, and `unclear` if you canno
 {{- if .LayoutRead}}
 
 {{.LayoutReadRule}}
+{{- end}}
+{{- end}}
+{{- with .WS}}
+
+{{if .CLI -}}
+The program is the check: read it whole. Answer `does_not_prove` if it does not run the program the Project builds
+(`{{$.BinPlaceholder}}`) on inputs it sets up itself, or if it prints a hard-coded expectation: what its `expect` looks
+for, printed whatever it observed. Ask of every value it prints whether it came from what that program wrote or
+printed.
+{{- else -}}
+The program is the check: read it whole. Answer `does_not_prove` if it does not call the library's exported API on
+inputs it sets up itself, or if it prints a hard-coded expectation: what its `expect` looks for, printed whatever it
+observed. Ask of every value it prints whether it came from what the library returned.
 {{- end}}
 {{- end}}
 

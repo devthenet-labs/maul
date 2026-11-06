@@ -4,16 +4,21 @@ edited in place as the preview changes, and last to say it was removed. The
 sentence is built in Go from plain values: the host is linked only while the
 preview is live, and in code; the preview controller's own words are never
 shown. One line per paragraph: GitHub renders a line break inside a comment as
-a hard break. */ -}}
+a hard break. A Project with no preview gets the pull request's evaluation
+comment under the same marker instead: never a link (SPEC-S2). */ -}}
 {{ .Marker }}
-### maul: preview
+{{ if .Evaluation }}### maul: evaluation{{ else }}### maul: preview{{ end }}
 
 {{ .Sentence }}
 {{- with .Verify }}
 
 {{ . }}
 {{- end }}
-{{- if not .Removed }}
+{{- if .Removed }}
+{{- else if .Evaluation }}
+
+_maul updates this comment as it checks the change._
+{{- else }}
 
 _maul updates this comment as the preview changes, and removes the preview when the intent ends._
 {{- end }}

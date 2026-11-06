@@ -188,7 +188,77 @@ Each field has a type and hard limits, and a frontmatter that breaks any of them
 Escape a double quote inside a string as `\"`. Unquoted prose containing a colon is invalid YAML and is refused, and
 so is a YAML-tagged value (`!!binary`, `!!str`). To correct the report once it is written, Edit it in place rather than
 writing it again.
-{{- if .Outcomes }}
+{{- if and .Outcomes .Workspace }}{{ with .Workspace }}
+
+### Acceptance outcomes
+
+{{ if eq .Surface "cli" -}}
+This Project's changes are evaluated before a human reviews them: an agent builds each pull request's change, and the
+commit its branch started from, runs the command-line program the build writes,
+`{{ .Binary }}`, and checks that the outcomes the approved plan states hold, saving the checks it writes. Nothing
+runs in a preview. Add one more frontmatter field after `estimated_token_budget`, `acceptance`, a list of at most 20
+outcomes: each one thing the change must make true, or must leave true, in plain words a person could check by
+running the program. Write no steps, commands or checks: the evaluator decides how to check each outcome. Omit the
+field when nothing the change does can be seen that way.
+{{- else -}}
+This Project's changes are evaluated before a human reviews them: an agent builds each pull request's change, and the
+commit its branch started from, calls the Go library from programs of its own, and checks that the outcomes the
+approved plan states hold, saving the checks it writes. Nothing runs in a preview. Add one more frontmatter field
+after `estimated_token_budget`, `acceptance`, a list of at most 20 outcomes: each one thing the change must make true,
+or must leave true, in plain words a person could check by calling the library. Write no steps, commands or checks:
+the evaluator decides how to check each outcome. Omit the field when nothing the change does can be seen that way.
+{{- end }}
+{{- with .Repository }}
+
+The evaluator builds {{ code . }}; an outcome about another repository is not checked.
+{{- end }}
+
+```yaml
+{{ if eq .Surface "cli" }}{{ $.CLIOutcomesExample }}{{ else }}{{ $.LibraryOutcomesExample }}{{ end }}
+```
+
+Rules the outcomes keep to:
+
+- `id`: lowercase letters, digits and hyphens, starting with a letter; at most 32; unique.
+{{- if eq .Surface "cli" }}
+- `outcome`: what must hold, one line of at most 500 characters, stated as what a person sees the program print or
+  write, never as how the code does it.
+{{- else }}
+- `outcome`: what must hold, one line of at most 500 characters, stated as what a caller sees the library return,
+  never as how the code does it.
+{{- end }}
+- `from`: the line of the request the outcome answers, copied exactly and whole, never shortened with "...": at most
+  300 characters, so for a longer line copy its first 300 characters exactly. Give every outcome that answers the
+  request its line, so the approver sees which lines no outcome covers.
+- `kind`: `change` (the default) for what the change makes true, `keep` for what it must not break.
+- `manual: true`, with a `reason` of at most 120 characters, for what only a person can judge.
+- Put `outcome`, `from` and `reason` in double quotes, and escape a double quote inside one as `\"`: an unquoted
+  colon is invalid YAML, and the whole report is refused.
+
+How to word an outcome so the evaluator can show it:
+
+- The evaluator checks each outcome against the change and against the commit its branch started from, and counts a
+  `change` outcome only if it does not hold there: state what the change makes newly true. A `keep` outcome states
+  what held before the change and must still hold after it.
+- One outcome is one claim a single check can show. Split "X and Y" and "before and after" into separate outcomes;
+  several outcomes may share one `from` line. Aim for about 200 characters.
+{{- if eq .Surface "cli" }}
+- State the command line, with its flags and input other than the defaults, and what the program then prints or
+  writes ("`bbrender --bpm 90 kick.json` writes a WAV whose kick onsets are 667 ms apart"). Name flags and outputs as
+  the program does, or will once changed.
+- A `keep` outcome names one command and what it then prints or writes, never "X still works".
+- An outcome only a person can judge (how a sound sounds, how output reads) is `manual: true`.
+{{- else }}
+- State the exported function, method or type a caller uses, the input, and the value or error it returns
+  ("`pattern.Parse` of a pattern of 65 steps returns an error matching `pattern.ErrTooLong`"). Name them as the code
+  does, or will once changed.
+- The evaluator calls only the library's exported API, from programs of its own: state an outcome through that API,
+  never through unexported code or internals.
+- A `keep` outcome names one call and what it then returns, never "X still works".
+- An outcome only a person can judge (how readable an error message is) is `manual: true`.
+{{- end }}
+{{- end }}
+{{- else if .Outcomes }}
 
 ### Acceptance outcomes
 

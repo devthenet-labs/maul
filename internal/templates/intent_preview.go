@@ -80,6 +80,13 @@ type IntentPreview struct {
 	// a live preview's link is not shown, and once released the link is
 	// labelled. nil (slice 1, and the early hand-off) changes nothing.
 	Handoff *PreviewHandoff
+	// Workspace: the Project has no preview (an agents-namespace
+	// evaluation of a cli or library surface, SPEC-S2), so nothing is
+	// deployed or linked: the line is the evaluation's, saying where its
+	// hand-off and Verify stand, and State, Reason, Host, Resource and
+	// Components are not shown. With neither a Handoff nor a Verify line it
+	// shows nothing.
+	Workspace bool
 }
 
 // IntentPreviewComponent is one repository a preview serves.
@@ -121,6 +128,10 @@ type IntentPreviewComment struct {
 	Verify *VerifySection
 	// Handoff is a gated hand-off's state, as IntentPreview's.
 	Handoff *PreviewHandoff
+	// Workspace: the Project has no preview, as IntentPreview's: the
+	// comment is the pull request's evaluation, never linked, and of State
+	// only PreviewRemoved is read (the intent ended).
+	Workspace bool
 }
 
 // previewHost is a host maul links: lowercase DNS labels, at least two.
@@ -182,14 +193,19 @@ func recordedBy(resource, what string) string {
 	return "; the Preview " + code(resource) + " records " + what
 }
 
-// statusPreview is the status comment's preview line and list.
+// statusPreview is the status comment's preview line and list, under
+// Label.
 type statusPreview struct {
+	Label      string
 	Sentence   string
 	Components []string
 }
 
 // renderStatusPreview is the status comment's preview, nil for none.
 func renderStatusPreview(p *IntentPreview) *statusPreview {
+	if p != nil && p.Workspace {
+		return renderStatusEvaluation(p)
+	}
 	if p == nil || p.State == "" {
 		return nil
 	}
@@ -228,7 +244,7 @@ func renderStatusPreview(p *IntentPreview) *statusPreview {
 			s += " " + line
 		}
 	}
-	out := &statusPreview{Sentence: s}
+	out := &statusPreview{Label: "Preview", Sentence: s}
 	if !single {
 		for _, c := range p.Components {
 			out.Components = append(out.Components, fmt.Sprintf("%s: %s at %s",
@@ -238,9 +254,31 @@ func renderStatusPreview(p *IntentPreview) *statusPreview {
 	return out
 }
 
+// renderStatusEvaluation is the status comment's line for a Project with
+// no preview: where the hand-off and the evaluation stand, never a link;
+// nil with neither.
+func renderStatusEvaluation(p *IntentPreview) *statusPreview {
+	line := ""
+	if p.Verify != nil {
+		line = verifyLine(*p.Verify)
+	}
+	if p.Handoff == nil && line == "" {
+		return nil
+	}
+	s := workspaceStatusSentence(p.Handoff)
+	if line != "" {
+		s += " " + line
+	}
+	return &statusPreview{Label: "Evaluation", Sentence: s}
+}
+
 // RenderIntentPreviewComment renders the sticky preview comment on one pull
-// request.
+// request; for a Project with no preview (Workspace), the pull request's
+// evaluation comment under the same marker.
 func RenderIntentPreviewComment(c IntentPreviewComment) (string, error) {
+	if c.Workspace {
+		return renderEvaluationComment(c)
+	}
 	state, reason := settle(c.State, c.Reason, c.Host)
 	head := "This pull request's head, " + shortRevision(c.Revision) + ","
 	var s string
@@ -273,15 +311,39 @@ func RenderIntentPreviewComment(c IntentPreviewComment) (string, error) {
 			return "", err
 		}
 	}
-	return render("intent_preview.md.tmpl", struct {
-		Marker   string
-		Sentence string
-		Removed  bool
-		Verify   string
-	}{
+	return render("intent_preview.md.tmpl", previewCommentView{
 		Marker:   NoticeMarker(c.Namespace, c.Intent, PreviewKey),
 		Sentence: s,
 		Removed:  state == PreviewRemoved,
 		Verify:   section,
 	})
+}
+
+// previewCommentView is a pull request's preview comment, or its
+// evaluation comment (Evaluation), as the template reads it.
+type previewCommentView struct {
+	Marker     string
+	Evaluation bool
+	Sentence   string
+	Removed    bool
+	Verify     string
+}
+
+// renderEvaluationComment is a pull request's evaluation comment on a
+// Project with no preview: the link-less hand-off and the verification
+// section, until the intent ends.
+func renderEvaluationComment(c IntentPreviewComment) (string, error) {
+	v := previewCommentView{Marker: NoticeMarker(c.Namespace, c.Intent, PreviewKey), Evaluation: true,
+		Removed: c.State == PreviewRemoved}
+	if v.Removed {
+		v.Sentence = "The intent has ended, and maul no longer checks this pull request."
+		return render("intent_preview.md.tmpl", v)
+	}
+	v.Sentence = workspaceCommentSentence(c.Handoff, shortRevision(c.Revision))
+	section, err := renderVerifySection(c.Verify)
+	if err != nil {
+		return "", err
+	}
+	v.Verify = section
+	return render("intent_preview.md.tmpl", v)
 }
