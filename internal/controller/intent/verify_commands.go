@@ -229,6 +229,11 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 // answered and records nothing.
 func (p *pass) releasePreview(ctx context.Context, c verifyCommand,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	if p.set.agentsProject(p.proj) {
+		// No preview, so no link to show: the hand-off is the result's.
+		n.Outcome = templates.VerifyPreviewNone
+		return n, nil
+	}
 	if v := p.in.Status.Verification; v != nil && v.Handoff != nil && v.Handoff.Released {
 		n.Outcome = templates.VerifyPreviewAlready
 		return n, nil
@@ -766,7 +771,7 @@ func (p *pass) settlePRVerifyCommand(ctx context.Context, pr *v1alpha1.IntentPul
 	if !verifyPhase(p.in.Status.Phase) {
 		body, err := templates.RenderNotAvailableNotice(templates.NotAvailableNotice{Namespace: p.in.Namespace,
 			Intent: p.in.Name, Key: key, Surface: command.IntentPR, Verb: a.verb, Phase: string(p.in.Status.Phase),
-			Available: verbs(p.in.Status.Phase, p.set.Verification)})
+			Available: verbs(p.in.Status.Phase, p.set.Verification, !p.set.agentsProject(p.proj))})
 		return p.prReply(ctx, pr, body, err)
 	}
 	n, err := p.applyVerifyCommand(ctx, verifyCommand{surface: command.IntentPR, key: key, id: c.ID, at: c.CreatedAt,

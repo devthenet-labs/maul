@@ -791,7 +791,7 @@ func (p *pass) statusDependencies(ctx context.Context) *templates.IntentDependen
 // availableVerbs are the commands the intent issue admits now: verbs, with
 // start first while the intent waits on its dependencies.
 func (p *pass) availableVerbs(phase v1alpha1.IntentPhase) []string {
-	out := verbs(phase, p.set.Verification)
+	out := verbs(phase, p.set.Verification, !p.set.agentsProject(p.proj))
 	if phase == v1alpha1.IntentPending && p.waitingPoll() {
 		out = append([]string{action.VerbStart}, out...)
 	}

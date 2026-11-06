@@ -188,8 +188,14 @@ func (p *pass) loadPreview(ctx context.Context) (previewView, bool) {
 
 // statusPreview is the status comment's preview: nil when there is none to
 // show. Under a gated hand-off its link is held, then labelled
-// (handoffView).
+// (handoffView). An agents Project's is the link-less evaluation line
+// (Workspace), which shows nothing until a hand-off or a verification
+// stands.
 func (p *pass) statusPreview() *templates.IntentPreview {
+	if p.set.agentsProject(p.proj) {
+		// No preview: the line is the evaluation's, never a link (S2-15).
+		return &templates.IntentPreview{Workspace: true, Handoff: p.handoffView()}
+	}
 	v := p.preview
 	if v.state == "" {
 		return nil

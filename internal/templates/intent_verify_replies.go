@@ -56,6 +56,9 @@ const (
 	VerifyPreviewNotHeld VerifyOutcome = "preview-not-held"
 	// VerifyPreviewAlready: the preview link was released before.
 	VerifyPreviewAlready VerifyOutcome = "preview-already"
+	// VerifyPreviewNone: the Project has no preview (an agents-namespace
+	// evaluation, SPEC-S2), so /maul preview has no link to show.
+	VerifyPreviewNone VerifyOutcome = "preview-none"
 )
 
 // VerifyCommandNotice answers a /maul verify or /maul accept on the intent
@@ -145,6 +148,9 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"preview runs the current commits.", "", nil
 	case VerifyPreviewAlready:
 		return cmd + " does nothing: the preview link was released already.", "", nil
+	case VerifyPreviewNone:
+		return cmd + " does nothing: this project has no preview, so there is no link to show. maul checks the " +
+			"approved outcomes " + workspaceBuild + ", and hands the result to the reviewers once it has.", "", nil
 	case VerifyRequested:
 		return requestedText(n, actor), "", nil
 	case VerifyResetTooSoon:
