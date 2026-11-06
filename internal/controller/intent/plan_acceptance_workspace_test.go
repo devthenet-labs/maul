@@ -20,7 +20,9 @@ func workspaceProject(repos []v1alpha1.ProjectRepository, s *v1alpha1.ProjectSur
 	}}
 }
 
-var evaluating = Settings{Verification: true, Previews: true, Evaluator: true}
+// evaluating runs the evaluator with the agents tool pod, which a cli or
+// library Project's verification needs (SPEC-S2 Q33).
+var evaluating = Settings{Verification: true, Previews: true, Evaluator: true, EvaluatorAgents: true}
 
 // TestPlanAskNamesTheWorkspaceSurface: a Project with no preview and a cli or
 // library surface is asked for outcomes with the surface named, no
@@ -60,6 +62,8 @@ func TestPlanAskNamesTheWorkspaceSurface(t *testing.T) {
 		{"invalid binary", workspaceProject(one, cli("", "/usr/bin/x")), evaluating, nil},
 		{"slice 1 criteria, not outcomes", workspaceProject(one, lib("")),
 			Settings{Verification: true, Previews: true}, nil},
+		{"agents tool pod off", workspaceProject(one, lib("")),
+			Settings{Verification: true, Previews: true, Evaluator: true}, nil},
 		{"no surface", workspaceProject(one, nil), evaluating, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,26 +105,29 @@ func TestPlanJobIsHandedTheWorkspace(t *testing.T) {
 	}
 }
 
-// TestPlanAskBesideAPreviewIsTheSlotAsk: a Project that previews a
-// repository and also declares a cli or library surface (O6) is asked as
-// it would be without the surface, so the plan-time ask keeps agreeing with
-// the review-time one (pass.verifies), which still verifies its preview:
-// not asking would leave the plan with no outcomes and its slot round
-// reporting success with nothing checked.
-func TestPlanAskBesideAPreviewIsTheSlotAsk(t *testing.T) {
+// TestPlanAskBesideAPreviewIsNotAsked: a Project that previews a
+// repository and also declares a cli or library surface (O6) is not
+// verified at all (SurfaceCombinationUnsupported), so its plan is not asked
+// either: the plan-time ask keeps agreeing with the review-time one
+// (pass.verifies), whatever the evaluator and the agents tool pod say.
+func TestPlanAskBesideAPreviewIsNotAsked(t *testing.T) {
 	repos := []v1alpha1.ProjectRepository{{Name: "app", URL: "https://github.com/o/app",
 		Preview: &v1alpha1.ProjectRepositoryPreview{}}}
 	for _, s := range []*v1alpha1.ProjectSurfaces{
 		{Library: &v1alpha1.LibrarySurface{Language: v1alpha1.LibraryLanguageGo}},
 		{CLI: &v1alpha1.CLISurface{Build: []string{"go", "build", "-o", "/work/bin/", "."}, Binary: "/work/bin/x"}},
 	} {
-		for _, set := range []Settings{evaluating, {Verification: true, Previews: true}} {
-			want := set.planAsk(workspaceProject(repos, nil))
-			if !want.asked() {
-				t.Fatalf("the slot Project is not asked: %+v", want)
+		for _, set := range []Settings{evaluating, {Verification: true, Previews: true, Evaluator: true},
+			{Verification: true, Previews: true}} {
+			if !set.planAsk(workspaceProject(repos, nil)).asked() {
+				t.Fatalf("the slot Project is not asked under %+v", set)
 			}
-			if got := set.planAsk(workspaceProject(repos, s)); !reflect.DeepEqual(got, want) {
-				t.Errorf("evaluator %v: planAsk = %+v, want the slot ask %+v", set.Evaluator, got, want)
+			p := workspaceProject(repos, s)
+			if got := set.planAsk(p); got != (planAsk{}) {
+				t.Errorf("%+v: planAsk = %+v, want not asked", set, got)
+			}
+			if off, _ := set.verificationOff(p); off != v1alpha1.ReasonSurfaceCombinationUnsupported {
+				t.Errorf("%+v: VerificationOff = %q, want %s", set, off, v1alpha1.ReasonSurfaceCombinationUnsupported)
 			}
 		}
 	}

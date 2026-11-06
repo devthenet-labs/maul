@@ -353,25 +353,25 @@ func setVerificationOff(cur *v1alpha1.Project, s Settings) {
 
 // verificationOff is why Project p, which asks for verification, is not
 // verified by s, "" when it is (or does not ask, or s does not verify at
-// all): a cli or library surface while the agents tool pod is off
-// (AgentsToolPodNotEnabled) or beside a preview
-// (SurfaceCombinationUnsupported, O6), otherwise verification without
-// previews (PreviewsDisabled).
+// all): a cli or library surface beside a preview
+// (SurfaceCombinationUnsupported, O6, whatever the flags) or while the
+// agents tool pod is off (AgentsToolPodNotEnabled), otherwise verification
+// without previews (PreviewsDisabled).
 func (s Settings) verificationOff(p *v1alpha1.Project) (reason, msg string) {
 	if !s.Verification || !p.Spec.VerificationEnabled() {
 		return "", ""
 	}
 	switch {
+	case p.Spec.Surfaces.Agents() && previewed(p):
+		return v1alpha1.ReasonSurfaceCombinationUnsupported, "this Project sets a preview beside its cli or " +
+			"library surface, and one host is evaluated per Project: its intents are not verified (state Off) " +
+			"until the preview or the surface is removed"
 	case p.Spec.Surfaces.Agents() && !s.agentsProject(p):
 		return v1alpha1.ReasonAgentsToolPodNotEnabled, "spec.verification.enabled is set with a cli or library " +
 			"surface, which the evaluator verifies through an agents-namespace tool pod, and intent-controller " +
 			"runs without --intent-evaluator and --intent-evaluator-agents (chart " +
 			"intentController.verification.agents.enabled): this Project's intents are not verified (state Off) " +
 			"until the tool pod is enabled"
-	case p.Spec.Surfaces.Agents() && previewed(p):
-		return v1alpha1.ReasonSurfaceCombinationUnsupported, "this Project sets a preview beside its cli or " +
-			"library surface, and one host is evaluated per Project: its intents are not verified (state Off) " +
-			"until the preview or the surface is removed"
 	case !p.Spec.Surfaces.Agents() && s.VerificationWithoutPreviews():
 		return ReasonPreviewsDisabled, "spec.verification.enabled is set, but intent-controller runs with " +
 			"--intent-verification and without --intent-previews-enabled (chart previewController.enabled), and " +

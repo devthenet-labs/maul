@@ -91,9 +91,10 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 // planWorkspace is the plan-time ask of a Project with a cli or library
 // surface and no preview (SPEC-S2): outcomes with the surface named and no
 // components, as the tool pod will build it. A Project that also previews
-// a repository (O6) never reaches it: it is asked as its preview is, as
-// the review-time decision (pass.verifies) still verifies it, until both
-// refuse the combination together. nil, so the plan is not asked, when the
+// a repository (O6) never reaches it: it is not verified at all
+// (SurfaceCombinationUnsupported), at plan time as at review time. Nor is
+// one under a controller without the agents tool pod
+// (AgentsToolPodNotEnabled). nil, so the plan is not asked, when the
 // agent evaluator is off (slice-1 criteria cannot be run there), or when
 // the surface cannot be stated: its repository is not one of the Project's
 // (or is unnamed in a Project of several), or its binary or language is one
