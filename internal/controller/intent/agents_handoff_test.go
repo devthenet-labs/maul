@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
@@ -291,5 +292,45 @@ func TestAgentsUnconfirmedReasonsAreRecorded(t *testing.T) {
 	e.review(name, 1)
 	if h := e.prVerifyPass(name).handoffView(); h == nil || h.Why != templates.HandoffWhyTree {
 		t.Errorf("hand-off = %+v, want the trees' reason", h)
+	}
+}
+
+// TestAgentsBuildHandoffNeverReferencesTheToolPod extends
+// TestBuildHandoffNeverReferencesEvaluator to an agents round (S2-20): a
+// reproduced failure of a run check starts a verify-fix round, and neither
+// its revise handoff nor any build's names the tool pod (its -tools Job
+// or Secret), carries its key, or shows a base run.
+func TestAgentsBuildHandoffNeverReferencesTheToolPod(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	e.evaluateReporting(failingReport)
+	check := savedCheck(t, agentsVersionRun)
+	e.storeChecks(name, check)
+	pv := e.agentsEvaluated(name)
+	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: check.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
+		Seq: 2, AssertionStep: 1, AssertionID: "marker version"})
+	cur := e.pvNamed(pv.Name)
+	cur.Status.Base = &v1alpha1.BaseStatus{Required: true, Runs: []v1alpha1.CheckRun{{CheckDigest: check.Digest,
+		Result: v1alpha1.CheckRunFail, Token: "base-sentinel-tok", Seq: 4, AssertionStep: 1,
+		AssertionID: "marker base-sentinel", Tree: v1alpha1.TreeBase}}}
+	if err := e.c.Update(context.Background(), cur); err != nil {
+		t.Fatal(err)
+	}
+	e.settleReviews(name)
+	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
+		t.Fatalf("verification = %s %+v, want Failing on the run check's assertion", v.State, v.Outcomes)
+	}
+	all := e.fixInput(name)
+	for _, run := range e.runsOf(name, v1alpha1.IntentStageBuild) {
+		var cm corev1.ConfigMap
+		if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: testNS, Name: run.Spec.Inputs.ConfigMap},
+			&cm); err == nil {
+			all += joinedData(cm.Data)
+		}
+	}
+	for _, f := range []string{jobs.ToolsSecretSuffix + "\"", agentshost.JobName(&pv) + jobs.ToolsSecretSuffix,
+		toolsKey, "base-sentinel", "base-sentinel-tok", check.Digest} {
+		if strings.Contains(all, f) {
+			t.Errorf("a build or revise handoff carries %q", f)
+		}
 	}
 }

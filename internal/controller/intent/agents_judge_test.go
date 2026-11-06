@@ -4,11 +4,15 @@
 package intent
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // agentsRunCheck is a cli run check of the count outcome: a program that
@@ -139,5 +143,36 @@ func TestAgentsJudgementTable(t *testing.T) {
 				t.Errorf("recorded %+v", r)
 			}
 		})
+	}
+}
+
+// TestAgentsReasonsRendered (S2-20, from wave 0): the agents reasons
+// Decide gives, a program that failed with no assertion (not-asserted)
+// and a head the tool pod could not build (tools-build-failed), reach the
+// verification comment in maul's words.
+func TestAgentsReasonsRendered(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	e.reviewReady(name, 4)
+	d := acceptance.Decision{Env: acceptance.EnvOK, PerOutcome: []acceptance.OutcomeResult{
+		{ID: oVersion, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonNotAsserted},
+		{ID: oHealthy, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonBuildFailed},
+		{ID: oManual, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonManual}}}
+	e.setStatus(name, func(in *v1alpha1.Intent) { applyJudgement(in, roundJudgement{decision: d}, time.Now()) })
+	p := e.prVerifyPass(name)
+	v := p.in.Status.Verification
+	section := p.verifySection(context.Background(), nil)
+	body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: testNS, Intent: name,
+		Round: v.Round, Attempt: v.Attempt, Section: *section})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"the program failed without asserting anything about the change",
+		"couldn't confirm: the build did not finish"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the verification comment does not say %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "preview") {
+		t.Errorf("an agents verification comment mentions a preview:\n%s", body)
 	}
 }
