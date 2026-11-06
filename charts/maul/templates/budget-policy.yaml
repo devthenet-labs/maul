@@ -22,11 +22,19 @@
 {{- $grammar := "^[1-9][0-9]{0,15}$" }}
 {{- $kindLabel := "maul.run/kind" }}
 {{- $intent := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" $ "name" "intent-controller" "vals" .Values.intentController)) }}
+{{- $agents := include "maul.evaluatorAgents" . }}
 {{- /*
 The Job policy. Every Job intent-controller creates is an intent run's and
 carries the budget, on the Job and its pod template alike, in the grammar.
 Nobody else may create a Job carrying it: a Finding Job falls back to the
 broker's costPerPod. No update may set, change or remove it.
+
+The one exception, while the agents-namespace tool pod is on: a tool Job
+(maul.run/role tools on the Job or its pod template) is no run's and spends
+nothing, so it carries no budget at all; a number there would be a grant
+nobody made. maul-tools-pod-shape (tools-pod-policy.yaml), rendered under
+the same switch, judges every Job so labelled and holds it to no
+ServiceAccount token, so it can never reach the broker a budget limits.
 */}}
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -56,9 +64,18 @@ spec:
           expression: "object.metadata.?labels[?'{{ $kindLabel }}'].orValue('')"
         - name: launcher
           expression: "request.userInfo.username == '{{ $intent }}'"
+        # An agents tool pod's Job, as maul-tools-pod-shape matches it.
+        - name: tools
+          expression: >-
+              {{- if $agents }}
+              object.metadata.?labels[?'maul.run/role'].orValue('') == 'tools' ||
+              object.spec.?template.?metadata.?labels[?'maul.run/role'].orValue('') == 'tools'
+              {{- else }}
+              false
+              {{- end }}
     validations:
         - expression: >-
-              oldObject != null || !variables.launcher || (
+              oldObject != null || !variables.launcher || variables.tools || (
                 variables.runKind == 'intent'
                 && variables.job.hasValue() && variables.pod == variables.job
                 && variables.job.value().matches('{{ $grammar }}')
@@ -67,6 +84,14 @@ spec:
               "job " + object.metadata.name + " is launched by intent-controller and must be an intent run's, " +
               "carrying the {{ $key }} annotation on the Job and its pod template alike (a positive number " +
               "of micro-USD)"
+          reason: Forbidden
+        - expression: >-
+              oldObject != null || !variables.launcher || !variables.tools || (
+                variables.runKind == 'intent' && !variables.job.hasValue() && !variables.pod.hasValue()
+              )
+          messageExpression: >-
+              "job " + object.metadata.name + " is an agents tool pod and may carry no {{ $key }} annotation " +
+              "(it is no run's and spends nothing), and must be of run kind intent"
           reason: Forbidden
         - expression: >-
               oldObject != null || variables.launcher || (!variables.job.hasValue() && !variables.pod.hasValue())
