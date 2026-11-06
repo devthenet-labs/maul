@@ -158,7 +158,7 @@ func (r *Reconciler) teardown(ctx context.Context, pv *v1alpha1.PreviewVerificat
 		return ctrl.Result{}, err
 	}
 	if job == nil {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.deleteLoneSecret(ctx, pv, name)
 	}
 	if job.Labels[v1alpha1.LabelPreviewVerification] != string(pv.UID) {
 		return ctrl.Result{}, nil // another verification's: never this one's to delete
@@ -169,6 +169,17 @@ func (r *Reconciler) teardown(ctx context.Context, pv *v1alpha1.PreviewVerificat
 		}
 	}
 	return ctrl.Result{}, r.Tools.Delete(ctx, name)
+}
+
+// deleteLoneSecret deletes pv's tool Secret when no Job holds it (the
+// controller stopped between CreateToolPod's Secret and its Job, so no
+// owner reference takes it with a Job): only pv's own, by its label.
+func (r *Reconciler) deleteLoneSecret(ctx context.Context, pv *v1alpha1.PreviewVerification, name string) error {
+	_, uid, found, err := r.Tools.Key(ctx, name)
+	if err != nil || !found || uid != string(pv.UID) {
+		return err
+	}
+	return r.Tools.Delete(ctx, name)
 }
 
 // fitStatus holds pv to maxObject: log tails go first; one still over is

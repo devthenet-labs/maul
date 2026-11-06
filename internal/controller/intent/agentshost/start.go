@@ -72,23 +72,30 @@ func (r *Reconciler) start(ctx context.Context, pv *v1alpha1.PreviewVerification
 	spec, goEnv, reason, err := r.toolPodSpec(ctx, pv, s)
 	switch {
 	case err != nil:
-		return ctrl.Result{}, err
+		return r.retryOrInfra(ctx, pv, waited, "the tool pod was not rendered", err)
 	case reason != "":
 		return ctrl.Result{}, r.settle(ctx, pv, reasonPhase(reason), reason)
 	}
 	if reason, err := r.create(ctx, pv, spec, goEnv); reason != "" {
 		return ctrl.Result{}, r.settle(ctx, pv, reasonPhase(reason), reason)
 	} else if err != nil {
-		if waited >= pv.Spec.Timeout.Duration+grace {
-			r.log().LogAttrs(ctx, slog.LevelWarn, "the tool pod was not created", slog.String("verification",
-				pv.Name), slog.Any("error", err))
-			return ctrl.Result{}, r.settle(ctx, pv, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsNotReady)
-		}
-		return ctrl.Result{}, err
+		return r.retryOrInfra(ctx, pv, waited, "the tool pod was not created", err)
 	}
 	t := metav1.NewTime(r.now())
 	pv.Status.Phase, pv.Status.Reason, pv.Status.StartedAt = v1alpha1.VerificationRunning, "", &t
 	return r.wait(), r.Status().Update(ctx, pv)
+}
+
+// retryOrInfra returns err for a retry while pv may still run, and past
+// its own timeout settles it Infra tools-not-ready: a failure that keeps
+// recurring never becomes a verdict, nor a wait without end.
+func (r *Reconciler) retryOrInfra(ctx context.Context, pv *v1alpha1.PreviewVerification, waited time.Duration,
+	msg string, err error) (ctrl.Result, error) {
+	if waited < pv.Spec.Timeout.Duration+grace {
+		return ctrl.Result{}, err
+	}
+	r.log().LogAttrs(ctx, slog.LevelWarn, msg, slog.String("verification", pv.Name), slog.Any("error", err))
+	return ctrl.Result{}, r.settle(ctx, pv, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsNotReady)
 }
 
 // reasonPhase is the phase a start-time reason settles in: a request that
@@ -181,8 +188,13 @@ func (r *Reconciler) buildSpec(ctx context.Context, pv *v1alpha1.PreviewVerifica
 		return jobs.Spec{}, nil, fmt.Sprintf("the build now gets network profile %q, the workspace recorded %q",
 			applied, ws.NetworkProfile), nil
 	}
-	if err := r.Images.CheckForges(ctx, pv.Namespace, &spec); err != nil {
+	switch err := r.Images.CheckForges(ctx, pv.Namespace, &spec); {
+	case errors.Is(err, jobs.ErrNetworkProfileRefused):
 		return jobs.Spec{}, nil, "the build's network profile is refused: " + err.Error(), nil
+	case err != nil:
+		// The Forge list could not be read: the build's launch would
+		// retry, so this one does.
+		return jobs.Spec{}, nil, "", err
 	}
 	return spec, repo, "", nil
 }
