@@ -182,8 +182,8 @@ func (r *Reconciler) pendingCatchUp(ctx context.Context, p *v1alpha1.Preview, in
 	return r.now().Sub(start.since) < specCatchUp
 }
 
-// forgetCatchUp drops a Preview's catch-up record once it matches again or
-// fails.
+// forgetCatchUp drops a Preview's catch-up record once it matches again,
+// fails or is deleted.
 func (r *Reconciler) forgetCatchUp(uid types.UID) {
 	r.catchUpMu.Lock()
 	defer r.catchUpMu.Unlock()
@@ -815,6 +815,7 @@ func (r *Reconciler) finalize(ctx context.Context, p *v1alpha1.Preview) (ctrl.Re
 	if !controllerutil.ContainsFinalizer(p, finalizer) {
 		return ctrl.Result{}, nil
 	}
+	r.forgetCatchUp(p.UID)
 	if p.Status.Slot != nil && (*p.Status.Slot < 0 || int(*p.Status.Slot) >= r.Settings.SlotCount) {
 		return ctrl.Result{}, fmt.Errorf("preview %s holds retired slot %d; restore slotCount before finalizer cleanup",
 			p.Name, *p.Status.Slot)
