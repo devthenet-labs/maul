@@ -15,10 +15,12 @@ import (
 )
 
 // TestImports keeps the binary thin: the standard library, its engine and
-// the exec shim's client only.
+// the exec shim's client, and its inits' engine and the sandbox probe only.
 func TestImports(t *testing.T) {
 	allowed := []string{
 		"github.com/devthenet-labs/maul/internal/previewtools",
+		"github.com/devthenet-labs/maul/internal/previewtools/prepare",
+		"github.com/devthenet-labs/maul/internal/sandboxprobe",
 		"github.com/devthenet-labs/maul/internal/toolexec",
 	}
 	files, err := filepath.Glob("*.go")

@@ -24,6 +24,16 @@
 // It holds no Kubernetes client and no credential, and takes no flags.
 // Exit 0 means the ledger was closed; 1 that it could not be; 2 that the
 // config was refused. Engine in internal/previewtools.
+//
+// Two subcommands are an agents-namespace tool pod's trusted inits (SPEC
+// S2-09), run before any PR code: `preview-tools prepare` fetches the head
+// and base tarballs from the artifact server, verifies each against its
+// digest, extracts them into the pristine trees volumes, installs the
+// image's tool-exec into maul-bin and runs the strict sandbox probe over
+// every target (exit 78 on open egress); `preview-tools seed --side` copies
+// one side's pristine tree into its work volume as that side's sandbox UID.
+// Exit 1 means a tree or the shim was refused, 2 that the arguments were.
+// Engine in internal/previewtools/prepare.
 package main
 
 import (
@@ -41,15 +51,31 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := 2
-	seams, err := previewtools.SeamsFrom(os.Getenv)
-	if err != nil {
-		slog.New(slog.NewTextHandler(os.Stderr, nil)).Error("e2e seams refused", "err", err)
-	} else {
-		code = run(ctx, seams, os.Stdout, os.Stderr)
-	}
+	code := dispatch(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
+}
+
+// dispatch runs the relay with no arguments, else the init its first
+// argument names.
+func dispatch(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case prepareCommand:
+			return runPrepare(ctx, args[1:], defaultPrepareDeps(), stderr)
+		case seedCommand:
+			return runSeed(ctx, args[1:], defaultSeedDeps(), stderr)
+		}
+		slog.New(slog.NewTextHandler(stderr, nil)).Error("unknown command; the relay takes no arguments",
+			"command", args[0])
+		return exitMisconfigs
+	}
+	seams, err := previewtools.SeamsFrom(os.Getenv)
+	if err != nil {
+		slog.New(slog.NewTextHandler(stderr, nil)).Error("e2e seams refused", "err", err)
+		return 2
+	}
+	return run(ctx, seams, stdout, stderr)
 }
 
 // run is the binary, its seams and streams injected. stdout carries only
