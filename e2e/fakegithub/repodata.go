@@ -40,33 +40,58 @@ func (s *Server) SetRepoFile(owner, repo, path, content string) {
 	s.repoFiles[key][path] = content
 }
 
+// ServeCommitTrees makes the tarball of a commit pushed to the fake its own
+// tree: the base's (the fixed files and SetRepoFile's) with every commit on
+// its way from the base applied, oldest first, under a top-level directory
+// naming the commit, as GitHub's archive of that commit is. Off (the
+// default), every ref's tarball is the base's tree.
+func (s *Server) ServeCommitTrees(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.commitTrees = on
+}
+
 // tarball serves the archive itself: a deterministic tree-only tar.gz with
 // GitHub's top-level "<owner>-<repo>-<sha7>/" directory, holding the fixed
-// files and then those SetRepoFile added, by path.
+// files and then those SetRepoFile added, by path; with commit trees served,
+// a pushed commit's own changes applied.
 func (s *Server) tarball(w http.ResponseWriter, r *http.Request) {
 	owner, repo := r.PathValue("owner"), r.PathValue("repo")
-	top := fmt.Sprintf("%s-%s-%s/", owner, repo, HeadSHA[:7])
+	s.mu.Lock()
+	tree := map[string]string{
+		"README.md": "# " + owner + "/" + repo + "\n",
+		"app.js":    "vulnerable();\n",
+	}
+	maps.Copy(tree, s.repoFiles[repoKey(owner, repo)])
+	sha := HeadSHA
+	if s.commitTrees {
+		if ref := s.resolve(repoKey(owner, repo), r.PathValue("ref")); s.knownCommit(ref) {
+			sha = ref
+			s.applyCommits(tree, ref)
+		}
+	}
+	s.mu.Unlock()
+	top := fmt.Sprintf("%s-%s-%s/", owner, repo, sha[:7])
 
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	files := []struct {
-		name, body string
-	}{
-		{top + "README.md", "# " + owner + "/" + repo + "\n"},
-		{top + "app.js", "vulnerable();\n"},
+	// The fixed files first, then the rest by path, as before.
+	paths := []string{"README.md", "app.js"}
+	for _, path := range slices.Sorted(maps.Keys(tree)) {
+		if path != "README.md" && path != "app.js" {
+			paths = append(paths, path)
+		}
 	}
-	s.mu.Lock()
-	extra := s.repoFiles[repoKey(owner, repo)]
-	for _, path := range slices.Sorted(maps.Keys(extra)) {
-		files = append(files, struct{ name, body string }{top + path, extra[path]})
-	}
-	s.mu.Unlock()
-	for _, f := range files {
+	for _, path := range paths {
+		body, ok := tree[path]
+		if !ok {
+			continue
+		}
 		_ = tw.WriteHeader(&tar.Header{
-			Name: f.name, Mode: 0o644, Size: int64(len(f.body)), ModTime: time.Unix(0, 0),
+			Name: top + path, Mode: 0o644, Size: int64(len(body)), ModTime: time.Unix(0, 0),
 		})
-		_, _ = tw.Write([]byte(f.body))
+		_, _ = tw.Write([]byte(body))
 	}
 	_ = tw.Close()
 	_ = gz.Close()

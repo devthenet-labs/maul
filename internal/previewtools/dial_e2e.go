@@ -17,7 +17,8 @@ import (
 // so the suite's fake kubelet runs the relay built with the e2edial tag,
 // maps each component's Service address to a loopback listener, names a
 // termination message file and a listen address of its own, calls the
-// relay from loopback, and (no Chromium either) puts the scripted browser
+// relay from loopback, stages a workspace's sockets and trees in
+// directories of its own, and (no Chromium either) puts the scripted browser
 // (browser_e2e.go) in the browser container's place. Never in a released
 // binary.
 
@@ -34,6 +35,11 @@ const (
 	// BrowserEnv, an absolute directory, replaces the image's browser with
 	// the scripted one (browser_e2e.go) working there.
 	BrowserEnv = "MAUL_E2E_BROWSER_DIR"
+	// ExecDirEnv and TreesDirEnv, absolute directories, replace a
+	// workspace's exec-socket and pristine-trees mounts (the e2e kubelet
+	// stages them in directories of its own).
+	ExecDirEnv  = "MAUL_E2E_EXEC_DIR"
+	TreesDirEnv = "MAUL_E2E_TREES_DIR"
 )
 
 // Seams is what only the e2e build can change (see dial.go).
@@ -69,6 +75,14 @@ func SeamsFrom(getenv func(string) string) (Seams, error) {
 			return Seams{}, fmt.Errorf("%s: %q is not an absolute directory", BrowserEnv, d)
 		}
 		s.BrowserDir = d
+	}
+	for env, dst := range map[string]*string{ExecDirEnv: &s.ExecDir, TreesDirEnv: &s.TreesDir} {
+		if d := getenv(env); d != "" {
+			if !filepath.IsAbs(d) {
+				return Seams{}, fmt.Errorf("%s: %q is not an absolute directory", env, d)
+			}
+			*dst = d
+		}
 	}
 	if p := getenv(TerminationEnv); p != "" {
 		s.TerminationPath = p

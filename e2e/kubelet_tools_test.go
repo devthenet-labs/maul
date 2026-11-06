@@ -98,7 +98,12 @@ func (k *kubelet) runTools(t *testing.T, namespaces ...string) {
 	t.Helper()
 	bin := buildTagged(t, "preview-tools", "e2edial")
 	k.mu.Lock()
-	k.tools = &toolSide{bin: bin, namespaces: namespaces, byIP: map[string]string{}}
+	if k.tools == nil {
+		// The agents tool side (runWorkspaceTools) may have it already: one
+		// address map for every tool pod.
+		k.tools = &toolSide{byIP: map[string]string{}}
+	}
+	k.tools.bin, k.tools.namespaces = bin, namespaces
 	k.mu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -252,9 +257,12 @@ type toolPod struct {
 	// dir is the mirrored ConfigMap volume, term the termination message
 	// file, listen the relay's loopback address, ip the pod's address.
 	dir, term, listen, ip string
-	cmd                   *exec.Cmd
-	exited                chan struct{}
-	stdout, stderr        syncBuffer
+	// env is more of the relay's environment (an agents tool pod's
+	// workspace directories).
+	env            []string
+	cmd            *exec.Cmd
+	exited         chan struct{}
+	stdout, stderr syncBuffer
 }
 
 // stop kills the relay and waits for it.
@@ -334,6 +342,7 @@ func (k *kubelet) startRelay(tp *toolPod) error {
 		// (browser_e2e.go), working beside the mirrored config.
 		tp.cmd.Env = append(tp.cmd.Env, "MAUL_E2E_BROWSER_DIR="+tp.dir+".browser")
 	}
+	tp.cmd.Env = append(tp.cmd.Env, tp.env...)
 	tp.cmd.Stdout, tp.cmd.Stderr = &tp.stdout, &tp.stderr
 	if err := tp.cmd.Start(); err != nil {
 		return fmt.Errorf("start preview-tools: %w", err)
@@ -386,6 +395,9 @@ func (k *kubelet) followToolPod(ctx context.Context, tp *toolPod) (bool, error) 
 			if err := k.toolPodRunning(ctx, tp, true); err != nil {
 				return false, err
 			}
+		}
+		if tp.cm.Name == "" {
+			continue // an agents tool pod's Secret volume, written once
 		}
 		if err := k.cl.client.Get(ctx, client.ObjectKeyFromObject(&tp.cm), &tp.cm); err == nil {
 			_ = mirrorConfigMap(tp.dir, &tp.cm)

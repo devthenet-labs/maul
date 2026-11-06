@@ -89,7 +89,73 @@ func (s *Server) compare(w http.ResponseWriter, r *http.Request) {
 	case s.steps(head, base) > 0:
 		status, ahead = "ahead", s.steps(head, base)
 	}
-	writeJSON(w, map[string]any{"status": status, "ahead_by": ahead, "behind_by": behind})
+	out := map[string]any{"status": status, "ahead_by": ahead, "behind_by": behind}
+	if mb := s.mergeBase(atBase(s, base), atBase(s, head)); mb != "" {
+		out["merge_base_commit"] = map[string]any{"sha": mb}
+	}
+	writeJSON(w, out)
+}
+
+// atBase is rev, or the fixed base for a branch never pushed, where every
+// such branch sits (getRef). Callers hold s.mu.
+func atBase(s *Server, rev string) string {
+	if s.knownCommit(rev) {
+		return rev
+	}
+	return BaseSHA
+}
+
+// parentOf is c's first parent: the ancestry SetParents recorded, else the
+// pushed commit's own; "" for none. Callers hold s.mu.
+func (s *Server) parentOf(c string) string {
+	if p, ok := s.parents[c]; ok {
+		return p
+	}
+	if rec, ok := s.git.commits[c]; ok && len(rec.Parents) > 0 {
+		return rec.Parents[0]
+	}
+	return ""
+}
+
+// mergeBase is the newest commit in both a's and b's first-parent history,
+// each included, as GitHub's merge_base_commit; "" when they share none.
+// Callers hold s.mu.
+func (s *Server) mergeBase(a, b string) string {
+	seen := map[string]bool{}
+	for c := a; c != "" && !seen[c]; c = s.parentOf(c) {
+		seen[c] = true
+	}
+	walked := map[string]bool{}
+	for c := b; c != "" && !walked[c]; c = s.parentOf(c) {
+		if seen[c] {
+			return c
+		}
+		walked[c] = true
+	}
+	return ""
+}
+
+// applyCommits writes into tree every pushed commit's changes on the way
+// from the base to sha, oldest first: a blob replaces a path, a deletion
+// removes it. Callers hold s.mu.
+func (s *Server) applyCommits(tree map[string]string, sha string) {
+	var chain []string
+	seen := map[string]bool{}
+	for c := sha; c != "" && !seen[c]; c = s.parentOf(c) {
+		seen[c] = true
+		if _, ok := s.git.commits[c]; ok {
+			chain = append(chain, c)
+		}
+	}
+	for i := len(chain) - 1; i >= 0; i-- {
+		for path, blob := range s.git.trees[s.git.commits[chain[i]].Tree] {
+			if blob == "" {
+				delete(tree, path)
+				continue
+			}
+			tree[path] = string(s.git.blobs[blob])
+		}
+	}
 }
 
 // steps is how many parent hops lead from descendant back to ancestor, or 0

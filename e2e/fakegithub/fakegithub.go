@@ -198,6 +198,9 @@ type Server struct {
 	// repoFiles are files a test added to a repository's tree, by repoKey
 	// then path: served in its tarball beside the fixed ones.
 	repoFiles map[string]map[string]string
+	// commitTrees, when set (ServeCommitTrees), makes a pushed commit's
+	// tarball its own tree rather than the base's.
+	commitTrees bool
 	// rateRemaining is the core budget GET /rate_limit reports.
 	rateRemaining int
 	// blockedBy are each issue's blockers by number (dependencies.go);

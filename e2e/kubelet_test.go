@@ -107,6 +107,9 @@ type kubelet struct {
 	// PATH (useAgentRunner with the evaluate phase).
 	tools    *toolSide
 	maulTool string
+	// workspace is the agents tool pod side (runWorkspaceTools), nil until
+	// a test turns it on.
+	workspace *workspaceSide
 	// containerLogs are logs served for any pod of a namespace's container
 	// with no log of its own (setContainerLog): "<namespace>/<container>".
 	containerLogs map[string][]byte
@@ -423,7 +426,8 @@ func (k *kubelet) loop(ctx context.Context, done chan<- struct{}) {
 			k.mu.Lock()
 			seen := k.ran[job.Name]
 			k.mu.Unlock()
-			if seen || !job.DeletionTimestamp.IsZero() {
+			if seen || !job.DeletionTimestamp.IsZero() || isWorkspaceToolJob(job) {
+				// An agents tool Job is no agent's: runWorkspaceTools runs it.
 				continue
 			}
 			if err := k.run(ctx, job); err != nil {

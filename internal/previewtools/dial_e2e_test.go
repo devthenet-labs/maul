@@ -50,3 +50,25 @@ func TestE2ESeams(t *testing.T) {
 		t.Errorf("unmapped address: %v, want a DNS error", err)
 	}
 }
+
+// TestE2EWorkspaceSeams: the test build takes a workspace's exec-socket and
+// trees directories from its environment, absolute only, as the e2e
+// kubelet stages a workspace tool pod's volumes in directories of its own;
+// unset, they stay the pod's.
+func TestE2EWorkspaceSeams(t *testing.T) {
+	for _, bad := range []map[string]string{{ExecDirEnv: "rel/exec"}, {TreesDirEnv: "rel/trees"}} {
+		if _, err := SeamsFrom(envOf(bad)); err == nil {
+			t.Errorf("accepted %v", bad)
+		}
+	}
+	s, err := SeamsFrom(envOf(map[string]string{ExecDirEnv: "/tmp/e/exec", TreesDirEnv: "/tmp/e/trees"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ExecDir != "/tmp/e/exec" || s.TreesDir != "/tmp/e/trees" {
+		t.Errorf("seams %+v, want the directories given", s)
+	}
+	if s, err = SeamsFrom(envOf(nil)); err != nil || s.ExecDir != DefaultExecDir || s.TreesDir != DefaultTreesDir {
+		t.Errorf("unset: seams %+v, %v; want the pod's directories", s, err)
+	}
+}

@@ -28,7 +28,7 @@ func main() {
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 		Scratch: scratchDir(os.Getenv),
-		KeyFile: maultool.KeyFile,
+		KeyFile: keyFile(os.Getenv),
 	})
 	stop()
 	os.Exit(code)
