@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -49,6 +50,20 @@ type Reconciler struct {
 	// still waits, so it must be idempotent. An error waits for the next
 	// poll.
 	BeforeRelease func(ctx context.Context, p *v1alpha1.Preview) error
+
+	// catchUpMu guards catchUp, which records when each Preview (by UID)
+	// was first seen trailing its Intent's heads at a spec generation
+	// (pendingCatchUp). It is this process's memory only: a restart or a
+	// new leader starts the bound again, never shortens it to nothing.
+	catchUpMu sync.Mutex
+	catchUp   map[types.UID]catchUpStart
+}
+
+// catchUpStart is when a Preview's spec, at generation, was first seen
+// trailing its Intent's recorded heads.
+type catchUpStart struct {
+	generation int64
+	since      time.Time
 }
 
 // beforeRelease runs the BeforeRelease hook, if any.
@@ -65,6 +80,11 @@ func (r *Reconciler) now() time.Time {
 	}
 	return time.Now()
 }
+
+// specCatchUp bounds how long a Preview whose accepted spec trails the
+// Intent's recorded PR heads waits for intent-controller to copy them in
+// (pendingCatchUp) before it fails as any other mismatch does.
+const specCatchUp = 2 * time.Minute
 
 func (r *Reconciler) wait() ctrl.Result { return ctrl.Result{RequeueAfter: r.Settings.PollInterval} }
 
@@ -103,9 +123,71 @@ func (r *Reconciler) reconcilePresent(ctx context.Context, p *v1alpha1.Preview) 
 		return ctrl.Result{}, err
 	}
 	if !matchesApprovedPreview(p, &in, &project) {
+		if r.pendingCatchUp(ctx, p, &in, &project) {
+			return r.wait(), nil
+		}
+		r.forgetCatchUp(p.UID)
 		return r.fail(ctx, p, "Preview spec is not the operator Project and recorded PR head")
 	}
+	r.forgetCatchUp(p.UID)
 	return r.reconcileActive(ctx, p)
+}
+
+// pendingCatchUp reports whether a mismatched Preview is only waiting for
+// intent-controller's second write. The Intent reconciler records a moved
+// PR head in the Intent's status; the Preview writer copies it into the
+// Preview's spec afterwards, in a write of its own. A poll between the two
+// sees the spec this controller accepted (status.observedGeneration is its
+// generation) trailing the Intent, with nothing else changed: it then
+// renders nothing and reports nothing new, but neither withdraws the Ingress
+// nor fails the Preview, which would leave a target-health Ingress the load
+// balancer never admits again. It waits at most specCatchUp per generation,
+// then fails as any mismatch does.
+//
+// The spec is never trusted for the wait: only a generation the re-check
+// already accepted qualifies, and only when every component would match
+// again at the Intent's recorded heads. A new generation, a spec at a head
+// the Intent does not record, or any other difference fails at once.
+func (r *Reconciler) pendingCatchUp(ctx context.Context, p *v1alpha1.Preview, in *v1alpha1.Intent,
+	project *v1alpha1.Project) bool {
+	if p.Status.ObservedGeneration != p.Generation ||
+		p.Status.Phase == v1alpha1.PreviewFailed || p.Status.Phase == v1alpha1.PreviewExpired {
+		return false
+	}
+	want, ok := v1alpha1.DesiredPreviewComponents(project, in)
+	if !ok || len(want) != len(p.Spec.Components) {
+		return false
+	}
+	caughtUp := p.DeepCopy()
+	for i := range caughtUp.Spec.Components {
+		caughtUp.Spec.Components[i].Revision = want[i].Revision
+	}
+	if !matchesApprovedPreview(caughtUp, in, project) {
+		return false
+	}
+	r.catchUpMu.Lock()
+	defer r.catchUpMu.Unlock()
+	start, seen := r.catchUp[p.UID]
+	if !seen || start.generation != p.Generation {
+		start = catchUpStart{generation: p.Generation, since: r.now()}
+		if r.catchUp == nil {
+			r.catchUp = map[types.UID]catchUpStart{}
+		}
+		r.catchUp[p.UID] = start
+		if r.Log != nil {
+			r.Log.LogAttrs(ctx, slog.LevelInfo, "preview spec trails the Intent's recorded heads; waiting",
+				slog.String("preview", p.Name), slog.Int64("generation", p.Generation))
+		}
+	}
+	return r.now().Sub(start.since) < specCatchUp
+}
+
+// forgetCatchUp drops a Preview's catch-up record once it matches again or
+// fails.
+func (r *Reconciler) forgetCatchUp(uid types.UID) {
+	r.catchUpMu.Lock()
+	defer r.catchUpMu.Unlock()
+	delete(r.catchUp, uid)
 }
 
 // matchesApprovedPreview re-derives the Preview from the operator's Project
