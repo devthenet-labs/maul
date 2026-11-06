@@ -1307,6 +1307,54 @@ intentController:
         maxEvaluateCostUSD: 6
         # The evaluator's tool calls per round, 50 to 300.
         maxToolCalls: 300
+        # The agents-namespace tool pod (slice S2): evaluate a Project with no
+        # Preview, a CLI (surfaces.cli) or a Go library (surfaces.library).
+        # intent-controller runs one tool pod per round in the agents
+        # namespace: maul's relay (`tools`, the preview-tools image,
+        # preview.verification.tools.image, required and read even with
+        # previews off) beside two native sidecars, sandbox-head and
+        # sandbox-base, each building and running one tree (the PR head and
+        # its merge base) in the repository's accepted image, so it needs
+        # agent.repositoryImages.enabled. With this on the evaluator no
+        # longer needs previews. It renders the tool pod's admission policy
+        # (maul-tools-pod-shape), its egress (the artifact server, and its
+        # build's network profile, nothing else) and ingress (only the
+        # evaluator, on 8090), and intent-controller's grant to write an
+        # agents verification's results. Off, nothing of it renders.
+        agents:
+            enabled: false
+            # Tool pods at once, counted over live tool Jobs; at the bound a
+            # round waits. 2 fits a 16-CPU desktop beside an evaluator and
+            # three preview slots at these resources (spike SP-6); a third
+            # does not.
+            maxToolPods: 2
+            # The longest a Project's surfaces.cli.buildTimeout may ask for
+            # one build (each side builds once per round), 1m to 20m.
+            buildTimeoutMax: 20m
+            # Requests and limits alike (limits = requests). Each sandbox's
+            # CPU is the build-time lever: a cold build of Go's std and cmd
+            # took 108 s per side at 1 CPU and scales about linearly, so raise
+            # cpu before buildTimeoutMax. 2Gi held a 1.3 GiB working set;
+            # heavier link steps (cgo, Kubernetes-sized binaries) need an
+            # operator override. Each ephemeralStorage must hold the
+            # emptyDirs the tool pod sizes for it: a sandbox's covers its
+            # side's caches (Go build and npm, about 3.5 GB for a maul-sized
+            # tree; the module cache stays the image's own, or a go
+            # profile's under its 2Gi /tmp), its tree and build output and
+            # its home, about 7.3Gi in all; tools' covers the relay's
+            # scratch, prepare's, maul-bin and both pristine trees (prepare
+            # and the seeds run with tools' resources), about 1.8Gi. Lower
+            # either and the kubelet evicts a full build. /dev/shm (16Mi,
+            # memory-backed) counts in memory.
+            resources:
+                tools:
+                    cpu: 250m
+                    memory: 256Mi
+                    ephemeralStorage: 2Gi
+                sandbox:
+                    cpu: "1"
+                    memory: 2Gi
+                    ephemeralStorage: 8Gi
     # Intent dependencies: an intent whose issue GitHub records as blocked by
     # other issues waits in Pending, holding no active slot and starting no
     # Job, until every blocker is closed as completed; an approver's

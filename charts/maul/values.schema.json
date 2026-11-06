@@ -72,6 +72,16 @@
                 "memory": {"$ref": "#/definitions/agentQuantity"}
             }
         },
+        "toolPodQuantities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cpu", "memory", "ephemeralStorage"],
+            "properties": {
+                "cpu": {"$ref": "#/definitions/agentQuantity"},
+                "memory": {"$ref": "#/definitions/agentQuantity"},
+                "ephemeralStorage": {"$ref": "#/definitions/agentQuantity"}
+            }
+        },
         "agentResources": {
             "type": "object",
             "additionalProperties": false,
@@ -839,7 +849,7 @@
                         "tools": {
                             "type": "object",
                             "additionalProperties": false,
-                            "description": "The slot tool pod's images, each pinned by digest; used and required only with intentController.verification.evaluator on, and checked as testerImage is",
+                            "description": "The tool pod's images, each pinned by digest and checked as testerImage is: all three with intentController.verification.evaluator and preview.verification.enabled on, image alone with intentController.verification.agents.enabled on",
                             "properties": {
                                 "image": {"type": "string", "description": "The preview-tools image: the tool pod's main container, maul's relay"},
                                 "browserImage": {"type": "string", "description": "The preview-browser image: the browser sidecar, headless Chromium behind the keyed CDP shim"},
@@ -2091,7 +2101,7 @@
                 },
                 "verification": {
                     "type": "object",
-                    "description": "The agent evaluator. Off by default; on, it renders the maul-evaluator-labels admission policies (Kubernetes 1.30+) and the evaluator and check reviewer egress policies, leaving those roles out of every other agent egress policy (needs agent.networkPolicy.create; refused under mode istio).",
+                    "description": "The agent evaluator. Off by default; on, it renders the maul-evaluator-labels admission policies (Kubernetes 1.30+) and the evaluator and check reviewer egress policies, leaving those roles out of every other agent egress policy (needs agent.networkPolicy.create; refused under mode istio). It evaluates Previews (with preview.verification.enabled), and with agents.enabled also Projects with no Preview.",
                     "additionalProperties": false,
                     "properties": {
                         "evaluator": {
@@ -2148,6 +2158,36 @@
                             "minimum": 50,
                             "maximum": 300,
                             "description": "The evaluator's tool calls per round"
+                        },
+                        "agents": {
+                            "type": "object",
+                            "description": "The agents-namespace tool pod: evaluate Projects with a cli or library surface and no Preview. Needs the evaluator, agent.repositoryImages.enabled and preview.verification.tools.image; the evaluator then no longer needs previews.",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "description": "Turn the agents-namespace tool pod on"
+                                },
+                                "maxToolPods": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 8,
+                                    "description": "Tool pods at once; at the bound a round waits"
+                                },
+                                "buildTimeoutMax": {
+                                    "$ref": "#/definitions/duration",
+                                    "description": "The longest one build may take, 1m to 20m"
+                                },
+                                "resources": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "description": "Requests and limits alike, per container",
+                                    "properties": {
+                                        "tools": {"$ref": "#/definitions/toolPodQuantities"},
+                                        "sandbox": {"$ref": "#/definitions/toolPodQuantities"}
+                                    }
+                                }
+                            }
                         }
                     }
                 },

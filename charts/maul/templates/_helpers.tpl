@@ -118,6 +118,40 @@ yes
 {{- end }}
 
 {{/*
+maul.evaluatorAgents: the agents-namespace tool pod switch
+(intentController.verification.agents.enabled, slice S2). Returns "true" on,
+"" off. On, it needs intent-controller (which runs the tool pod), the
+evaluator (the tool pod is its hands), the repository images (both sandboxes
+run a repository's accepted image), a preview-tools image
+maul.previewMaulImage accepts (the tool pod's relay and init containers,
+read even with previews off) and a buildTimeoutMax of 1m to 20m.
+*/}}
+{{- define "maul.evaluatorAgents" -}}
+{{- $a := dig "verification" "agents" (dict) .Values.intentController -}}
+{{- if $a.enabled -}}
+{{- if not .Values.intentController.enabled }}{{ fail "intentController.verification.agents.enabled requires intentController.enabled: intent-controller runs the agents-namespace tool pod" }}{{ end -}}
+{{- if not (include "maul.evaluatorEnabled" .) }}{{ fail "intentController.verification.agents.enabled requires intentController.verification.evaluator: the agents-namespace tool pod is the evaluator's hands" }}{{ end -}}
+{{- if not (.Values.agent.repositoryImages | default dict).enabled }}{{ fail "intentController.verification.agents.enabled requires agent.repositoryImages.enabled: both sandboxes of the agents-namespace tool pod run the repository's accepted image" }}{{ end -}}
+{{- $_ := include "maul.previewMaulImage" (dict "root" . "key" "tools.image" "what" "the digest-pinned preview-tools image (the agents-namespace tool pod's relay and init containers)" "when" "intentController.verification.agents.enabled=true") -}}
+{{- $build := toString ($a.buildTimeoutMax | default "20m") -}}
+{{- $seconds := int64 (include "maul.durationSeconds" $build) -}}
+{{- if or (lt $seconds 60) (gt $seconds 1200) }}{{ fail (printf "intentController.verification.agents.buildTimeoutMax %s must be a whole number of h, m and s from 1m to 20m" $build) }}{{ end -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+maul.evaluatorConfigured: whether intent-controller runs the evaluator at
+all: on Previews (maul.previewTools) or in the agents namespace
+(maul.evaluatorAgents). Returns "true" or "".
+*/}}
+{{- define "maul.evaluatorConfigured" -}}
+{{- if or (include "maul.previewTools" .) (include "maul.evaluatorAgents" .) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 The selector half every agents-namespace egress policy that selects agent pods
 (maul.agentPodSelector) carries while the evaluator is on: the roles with
 their own egress policies (evaluator-networkpolicy.yaml) are left out of
@@ -132,6 +166,25 @@ matchExpressions:
     - key: maul.run/role
       operator: NotIn
       values: [evaluator, checkreview, tools]
+{{- end -}}
+{{- end }}
+
+{{/*
+maul.profileRoleExclusion: maul.agentRoleExclusion for the network-profile
+policies (networkpolicy-profiles.yaml). With the agents-namespace tool pod on
+(maul.evaluatorAgents) a tool pod carrying a profile label takes that
+profile's proxy port, as its build does (DESIGN 7.8: a tool pod's network is
+never wider than the build's, and never narrower), so only the evaluator and
+the check reviewer stay left out; otherwise exactly maul.agentRoleExclusion.
+*/}}
+{{- define "maul.profileRoleExclusion" -}}
+{{- if include "maul.evaluatorAgents" . -}}
+matchExpressions:
+    - key: maul.run/role
+      operator: NotIn
+      values: [evaluator, checkreview]
+{{- else -}}
+{{- include "maul.agentRoleExclusion" . -}}
 {{- end -}}
 {{- end }}
 

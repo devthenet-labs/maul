@@ -33,7 +33,7 @@ spec:
         matchLabels:
             {{- include "maul.agentPodSelector" $ | nindent 12 }}
             {{ $prefix }}{{ $pname }}: "true"
-        {{- with include "maul.agentRoleExclusion" $ }}
+        {{- with include "maul.profileRoleExclusion" $ }}
         {{- . | nindent 8 }}
         {{- end }}
     policyTypes: [Egress]
