@@ -56,7 +56,7 @@ func TestCheckReviewWorkspaceFacts(t *testing.T) {
 	red.OutcomeDigest = reviewDigest("o", 2)
 	red.Expect, red.FailedStep, red.FailedAssertion = "fail", 1, "marker onsets"
 	red.Head = &ReviewRun{Result: "fail", Assertion: "marker onsets"}
-	red.Base = &ReviewRun{Result: "error"}
+	red.Base = &ReviewRun{Result: "error", Cause: "compile"}
 	tests := []struct {
 		name  string
 		item  CheckReviewItem
@@ -67,7 +67,7 @@ func TestCheckReviewWorkspaceFacts(t *testing.T) {
 			"`go build -o /work/bin/ ./cmd/bbcount`", "failed by its assertion `marker onsets`",
 		}},
 		{"cli exec", wsReviewItem(cliExecCheck), nil, []string{"`/work/bin/bbcount`"}},
-		{"red run", red, nil, []string{"could not build or run"}},
+		{"red run", red, nil, []string{"could not build or run", "the program did not compile against the tree"}},
 		{"base unbuildable", func() CheckReviewItem {
 			it := wsReviewItem(onsetsCheck)
 			it.Base = nil
@@ -149,6 +149,12 @@ func TestCheckReviewWorkspaceRefused(t *testing.T) {
 		{"assertion on a pass", wsReviewHandoff(cliWorkspace(), item(func(it *CheckReviewItem) {
 			it.Head = &ReviewRun{Result: "pass", Assertion: "marker onsets"}
 		}), nil), "head"},
+		{"cause on a fail", wsReviewHandoff(cliWorkspace(), item(func(it *CheckReviewItem) {
+			it.Base = &ReviewRun{Result: "fail", Assertion: "marker onsets", Cause: "compile"}
+		}), nil), "base"},
+		{"unknown cause", wsReviewHandoff(cliWorkspace(), item(func(it *CheckReviewItem) {
+			it.Base = &ReviewRun{Result: "error", Cause: "timeout"}
+		}), nil), "base"},
 		{"assertion on two lines", wsReviewHandoff(cliWorkspace(), item(func(it *CheckReviewItem) {
 			it.Base = &ReviewRun{Result: "fail", Assertion: "marker\nonsets"}
 		}), nil), "base"},

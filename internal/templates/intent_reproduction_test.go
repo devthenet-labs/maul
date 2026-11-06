@@ -38,6 +38,15 @@ const (
 	reproExecCheck = `{"id":"render-ok","outcome":"render-ok","form":"exec","exec":{"argv":["sh","/work/scratch/t.sh"],
 	 "files":[{"path":"t.sh","content":"curl -s http://api/healthz | grep ok\n","executable":true}],
 	 "expect":{"exit":0,"stdoutContains":"ok"}}}`
+	reproWorkspaceExecCheck = `{"id":"count.exec","outcome":"count","form":"exec","exec":{
+	 "argv":["{{bin}}","count","--name","{{run}}","{{tree}}/testdata/two.txt"],"timeout":"30s",
+	 "expect":{"exit":0,"stdoutJSON":{"/count":2}}}}`
+	reproWorkspaceRunCheck = `{"id":"parse.run","outcome":"parse","form":"run","run":{"language":"go","files":[
+	 {"path":"main.go","content":
+	  "package main\n\nimport \"example.com/bb\"\n\nfunc main() { check(bb.Parse(\"{{run}}\")) }\n"},
+	 {"path":"check.go","content":
+	  "package main\n\nimport \"fmt\"\n\nfunc check(n int) { if n != 2 { fmt.Println(\"{{marker}} parse:\", n) } }\n"}],
+	 "args":["{{run}}"],"timeout":"1m","expect":{"exit":0,"stdoutContains":"ok"}}}`
 )
 
 // TestReproductionGoldens pins the fix round's reproduction for each check
@@ -72,6 +81,16 @@ func TestReproductionGoldens(t *testing.T) {
 			Heads: heads[:1], Failures: []ReproductionFailure{{Outcome: "render-ok",
 				Statement: "The renderer exits cleanly.", Check: reproCheck(t, reproExecCheck),
 				Observed: []ReproductionObservation{{Attempt: 1, Step: 1, Result: "error"}, {Attempt: 2, Result: "fail"}}}}}},
+		{"intent_reproduction_workspace_exec.md", VerifyReproduction{Verification: "bb-count-v1-a1", Round: 1,
+			Attempt: 1, Workspace: true, Heads: heads[:1], Failures: []ReproductionFailure{{Outcome: "count",
+				Statement: "count prints the number of lines.", Check: reproCheck(t, reproWorkspaceExecCheck),
+				Observed: []ReproductionObservation{{Attempt: 1, Step: 1, Result: "fail",
+					Detail: "/count: expected 2, got 3"}}}}}},
+		{"intent_reproduction_workspace_run.md", VerifyReproduction{Verification: "bb-parse-v2-a1", Round: 2,
+			Attempt: 1, Workspace: true, Heads: heads[:1], Failures: []ReproductionFailure{{Outcome: "parse",
+				Statement: "Parse counts two beats.", Check: reproCheck(t, reproWorkspaceRunCheck),
+				Observed: []ReproductionObservation{{Attempt: 1, Step: 1, Result: "fail",
+					Detail: "parse: got 3"}}}}}},
 		{"intent_reproduction_unread.md", VerifyReproduction{Verification: "beat-12-v1-a1", Round: 1, Attempt: 1,
 			Heads: heads[:1], Failures: []ReproductionFailure{{Outcome: "winner-rises", Statement: "Winner first."}}}},
 	} {

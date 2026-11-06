@@ -207,6 +207,27 @@ func TestAgentsCheckReviewHandoff(t *testing.T) {
 	}
 }
 
+// TestAgentsCheckReviewBaseCause (S2-20b): the reviewer is told why a
+// base run errored when maul recorded a cause for it.
+func TestAgentsCheckReviewBaseCause(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	check := savedCheck(t, agentsVersionRun)
+	r := &fakeReviewer{}
+	e.reviewChecksWith(r)
+	pv := e.agentsEvaluated(name)
+	e.agentsConfirm(pv.Name, false, greenAtHead, func(c v1alpha1.SavedCheck) *v1alpha1.CheckRun {
+		return &v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunError, Token: "b-tok", Seq: 11,
+			Tree: v1alpha1.TreeBase, Cause: v1alpha1.CheckRunCauseCompile}
+	}, check)
+	e.settleReviews(name)
+	if len(r.handoffs) != 1 {
+		t.Fatalf("check reviews = %d, want one", len(r.handoffs))
+	}
+	if b := r.handoffs[0].Reviews[0].Base; b == nil || b.Result != "error" || b.Cause != "compile" {
+		t.Fatalf("base run = %+v, want an error with cause compile", b)
+	}
+}
+
 // TestAgentsCheckReviewUnbuildableBase: with a base that did not build the
 // reviewer is told so, and no base run is handed over.
 func TestAgentsCheckReviewUnbuildableBase(t *testing.T) {
@@ -352,6 +373,20 @@ func TestAgentsBuildHandoffNeverReferencesTheToolPod(t *testing.T) {
 		t.Fatalf("verification = %s %+v, want Failing on the run check's assertion", v.State, v.Outcomes)
 	}
 	all := e.fixInput(name)
+	// The reproduction is in the workspace's words and shows the run
+	// check's steps (S2-20b).
+	for _, want := range []string{"against maul's builds of these commits", "against the pull request's build",
+		"Steps to reproduce (a Go program",
+		"Write the file `main.go`", "Expected: exit status `0`"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the reproduction lacks %q:\n%s", want, all)
+		}
+	}
+	for _, not := range []string{"the preview of these commits", "against that preview", "cannot show"} {
+		if strings.Contains(all, not) {
+			t.Errorf("the reproduction says %q:\n%s", not, all)
+		}
+	}
 	for _, run := range e.runsOf(name, v1alpha1.IntentStageBuild) {
 		var cm corev1.ConfigMap
 		if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: testNS, Name: run.Spec.Inputs.ConfigMap},

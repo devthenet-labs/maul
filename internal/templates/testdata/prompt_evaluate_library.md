@@ -118,10 +118,11 @@ You may make at most 150 tool calls; past that every call is refused.
   prints the check's digest and result.
 
 **A program of your own** (`maul-tool run`, and a `run` check) is Go, `package main`, in at most 8 files. maul
-writes its `go.mod`: the tree's own `go.mod` with its module renamed `maulcheck`, requiring the tree's module and
-replacing it with the tree itself, beside the tree's `go.sum`. Never write a `go.mod` or a `go.sum`: give only `.go`
-files. It builds offline, so import only the standard library, the tree's own packages by the module path its
-`go.mod` names, and modules that `go.mod` already requires. A program that does not compile is an error, never a
+writes its `go.mod`, a minimal one naming the module `maulcheck` at the tree's Go version, and builds it in a Go
+workspace (`go work init`) of your program's directory and the tree, so the tree's own `go.mod` and `go.sum` decide
+every module's version. Never write a `go.mod`, a `go.sum` or a `go.work`: give only `.go` files. It builds offline,
+so import only the standard library, the tree's own packages by the module path its `go.mod` names, and modules
+that `go.mod` already requires. A program that does not compile is an error, never a
 fail. A tree that vendors its modules (a `vendor` directory at its root) cannot build a program of yours: every run
 there is an error, so such an outcome stays unsure.
 

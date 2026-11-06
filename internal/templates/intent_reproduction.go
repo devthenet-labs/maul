@@ -58,6 +58,9 @@ type VerifyReproduction struct {
 	Round, Attempt int32
 	Heads          []ReproductionHead
 	Failures       []ReproductionFailure
+	// Workspace is an agents round's: the checks ran against maul's builds
+	// of the commits, never a preview (SPEC-S2 S2-20b).
+	Workspace bool
 }
 
 // ReproductionHead is one previewed component at its commit.
@@ -99,7 +102,8 @@ type reproView struct {
 	Verification, Round, Attempt string
 	Heads                        []string
 	Failures                     []reproFailureView
-	Tokens                       bool
+	Tokens, Workspace            bool
+	Placeholders                 []string
 }
 
 type reproFailureView struct {
@@ -116,14 +120,21 @@ type reproLogView struct{ Component, Block string }
 // RenderVerifyReproduction renders r as a fix round's feedback.
 func RenderVerifyReproduction(r VerifyReproduction) (string, error) {
 	v := reproView{Verification: reproCode(r.Verification), Round: strconv.Itoa(int(r.Round)),
-		Attempt: strconv.Itoa(int(r.Attempt))}
+		Attempt: strconv.Itoa(int(r.Attempt)), Workspace: r.Workspace}
 	for _, h := range r.Heads {
 		v.Heads = append(v.Heads, reproCode(h.Component)+" at "+reproCode(h.Revision))
 	}
+	var cs []checks.Check
 	for _, f := range r.Failures {
-		fv := reproFailure(f)
+		fv := reproFailure(f, r.Workspace)
+		if f.Check != nil {
+			cs = append(cs, *f.Check)
+		}
 		v.Tokens = v.Tokens || f.Check != nil && usesRunToken(*f.Check)
 		v.Failures = append(v.Failures, fv)
+	}
+	if r.Workspace {
+		v.Placeholders = workspacePlaceholders(cs)
 	}
 	out, err := render("intent_reproduction.md.tmpl", v)
 	if err != nil {
@@ -132,15 +143,16 @@ func RenderVerifyReproduction(r VerifyReproduction) (string, error) {
 	return strings.TrimRight(out, "\n"), nil
 }
 
-// reproFailure is one failure's view.
-func reproFailure(f ReproductionFailure) reproFailureView {
+// reproFailure is one failure's view, of a workspace's check when
+// workspace.
+func reproFailure(f ReproductionFailure, workspace bool) reproFailureView {
 	fv := reproFailureView{Outcome: reproCode(f.Outcome),
 		Statement: chomp(fence(untrusted.Visible(f.Statement, verifyReproStatementBytes)))}
 	if f.Check == nil {
 		fv.NoSteps = true
 	} else {
 		var steps []string
-		fv.Form, steps = checkSteps(*f.Check)
+		fv.Form, steps = checkSteps(*f.Check, workspace)
 		for i, st := range steps {
 			fv.Steps = append(fv.Steps, fmt.Sprintf("%d. %s", i+1, st))
 		}
@@ -215,14 +227,34 @@ func reproJSON(v any) string {
 }
 
 // usesRunToken reports a check that names the run token.
-func usesRunToken(c checks.Check) bool {
+func usesRunToken(c checks.Check) bool { return names(c, "{{run}}") }
+
+// names reports a check whose body names placeholder.
+func names(c checks.Check, placeholder string) bool {
 	b, err := json.Marshal(c)
-	return err == nil && strings.Contains(string(b), "{{run}}")
+	return err == nil && strings.Contains(string(b), placeholder)
+}
+
+// workspacePlaceholders are the sentences saying what each workspace
+// placeholder the checks name stands for, in a fixed order.
+func workspacePlaceholders(cs []checks.Check) []string {
+	var out []string
+	for _, p := range []struct{ name, means string }{
+		{checks.BinPlaceholder, "stands for the program the Project's build wrote."},
+		{checks.TreePlaceholder, "stands for the sandbox's writable copy of the repository's tree."},
+		{checks.ExecMarkerPlaceholder, "stands for a marker maul picks for every run: the program prints it when " +
+			"one of its own assertions finds the outcome does not hold."},
+	} {
+		if slices.ContainsFunc(cs, func(c checks.Check) bool { return names(c, p.name) }) {
+			out = append(out, "`"+p.name+"` "+p.means)
+		}
+	}
+	return out
 }
 
 // checkSteps are c's form and its steps in maul's words, each with what it
-// expects.
-func checkSteps(c checks.Check) (string, []string) {
+// expects; workspace says c ran against maul's build of a tree.
+func checkSteps(c checks.Check, workspace bool) (string, []string) {
 	switch {
 	case c.HTTP != nil:
 		steps := make([]string, 0, len(c.HTTP.Steps))
@@ -236,8 +268,12 @@ func checkSteps(c checks.Check) (string, []string) {
 			steps = append(steps, browserStep(s))
 		}
 		return "a browser check", steps
+	case c.Exec != nil && workspace:
+		return "a program run in the sandbox of the pull request's build", execSteps(c.Exec)
 	case c.Exec != nil:
 		return "a program run in the sandbox", execSteps(c.Exec)
+	case c.Run != nil:
+		return "a Go program built against the pull request's tree", runSteps(c.Run)
 	}
 	return "a check of a form maul cannot show", nil
 }
@@ -330,8 +366,26 @@ func browserStep(s checks.BrowserStep) string {
 
 // execSteps are an exec check's files, its command and what it expects.
 func execSteps(e *checks.ExecCheck) []string {
-	var out []string
-	for _, f := range e.Files {
+	out := writeFiles(e.Files)
+	return append(out, withExpects("Run "+reproJSON(e.Argv)+timeoutOf(e.Timeout)+".", e.Expect))
+}
+
+// runSteps are a run check's files, its build and run, and what it
+// expects.
+func runSteps(r *checks.RunCheck) []string {
+	out := writeFiles(r.Files)
+	out = append(out, "maul writes the program's `go.mod` and builds it with the tree in a Go workspace.")
+	run := "Run it"
+	if len(r.Args) > 0 {
+		run += " with the arguments " + reproJSON(r.Args)
+	}
+	return append(out, withExpects(run+timeoutOf(r.Timeout)+".", r.Expect))
+}
+
+// writeFiles are the steps writing a check's program files.
+func writeFiles(files []checks.File) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
 		mode := ""
 		if f.Executable {
 			mode = " (executable)"
@@ -339,26 +393,34 @@ func execSteps(e *checks.ExecCheck) []string {
 		out = append(out, "Write the file "+reproCode(f.Path)+mode+":\n\n"+
 			reproIndent(chomp(fence(untrusted.Visible(f.Content, verifyReproFileBytes)))))
 	}
-	run := "Run " + reproJSON(e.Argv)
-	if e.Timeout != "" {
-		run += " (timeout " + reproCode(e.Timeout) + ")"
+	return out
+}
+
+// timeoutOf is a check's timeout as a step's suffix, "" for none.
+func timeoutOf(timeout string) string {
+	if timeout == "" {
+		return ""
 	}
-	run += "."
+	return " (timeout " + reproCode(timeout) + ")"
+}
+
+// withExpects is step followed by what e expects of the program.
+func withExpects(step string, e checks.ExecExpect) string {
 	var expects []string
-	if e.Expect.Exit != nil {
-		expects = append(expects, "exit status "+reproCode(strconv.Itoa(int(*e.Expect.Exit))))
+	if e.Exit != nil {
+		expects = append(expects, "exit status "+reproCode(strconv.Itoa(int(*e.Exit))))
 	}
-	if e.Expect.StdoutContains != "" {
-		expects = append(expects, "standard output contains "+reproCode(e.Expect.StdoutContains))
+	if e.StdoutContains != "" {
+		expects = append(expects, "standard output contains "+reproCode(e.StdoutContains))
 	}
-	for _, k := range slices.Sorted(maps.Keys(e.Expect.StdoutJSON)) {
+	for _, k := range slices.Sorted(maps.Keys(e.StdoutJSON)) {
 		expects = append(expects, "standard output's JSON at "+reproCode(k)+": "+
-			reproCode(e.Expect.StdoutJSON[k].String()))
+			reproCode(e.StdoutJSON[k].String()))
 	}
 	if len(expects) > 0 {
-		run += " Expected: " + strings.Join(expects, "; ") + "."
+		step += " Expected: " + strings.Join(expects, "; ") + "."
 	}
-	return append(out, run)
+	return step
 }
 
 // reproIndent indents every line of s by three spaces, under a list item.

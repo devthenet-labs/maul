@@ -66,12 +66,14 @@ type CheckReviewWorkspace struct {
 }
 
 // ReviewRun is one side's confirmation run of a check under review on a
-// workspace (templates.ReviewRun): Result a v1alpha1.CheckRunResult, and
-// for a fail red by assertion that assertion (toolwire.StepRecord.
-// AssertionID, at most checkReviewAssertionMaxBytes, one line), else "".
+// workspace (templates.ReviewRun): Result a v1alpha1.CheckRunResult, for a
+// fail red by assertion that assertion (toolwire.StepRecord.AssertionID, at
+// most checkReviewAssertionMaxBytes, one line), else "", and for an error
+// the v1alpha1.CheckRunCause maul recorded, else "".
 type ReviewRun struct {
 	Result    string `json:"result"`
 	Assertion string `json:"assertion,omitempty"`
+	Cause     string `json:"cause,omitempty"`
 }
 
 // CheckReviewItem is one review: a check and its outcome's text, each keyed
@@ -167,6 +169,9 @@ func validRuns(it CheckReviewItem, ws *CheckReviewWorkspace) error {
 
 // validRun holds one run to its grammar.
 func validRun(r ReviewRun) error {
+	if r.Cause != "" && !validCause(r) {
+		return fmt.Errorf("cause %q is not an error run's", r.Cause)
+	}
 	switch v1alpha1.CheckRunResult(r.Result) {
 	case v1alpha1.CheckRunPass, v1alpha1.CheckRunQuarantined, v1alpha1.CheckRunError, v1alpha1.CheckRunRefused:
 		if r.Assertion != "" {
@@ -180,6 +185,20 @@ func validRun(r ReviewRun) error {
 		return fmt.Errorf("result %q is not a check run's", r.Result)
 	}
 	return nil
+}
+
+// validCause reports r's cause one of v1alpha1.CheckRunCause's, on an
+// error run.
+func validCause(r ReviewRun) bool {
+	if v1alpha1.CheckRunResult(r.Result) != v1alpha1.CheckRunError {
+		return false
+	}
+	switch v1alpha1.CheckRunCause(r.Cause) {
+	case v1alpha1.CheckRunCauseCompile, v1alpha1.CheckRunCauseVendoredTree, v1alpha1.CheckRunCauseReplaceOutsideTree,
+		v1alpha1.CheckRunCauseNoModule, v1alpha1.CheckRunCauseBaseUnbuildable:
+		return true
+	}
+	return false
 }
 
 // validExpectation holds an item's expectation: none, or fail with the
@@ -299,7 +318,7 @@ func reviewRun(r *ReviewRun) templates.ReviewRun {
 	if r == nil {
 		return templates.ReviewRun{}
 	}
-	return templates.ReviewRun{Result: r.Result, Assertion: r.Assertion}
+	return templates.ReviewRun{Result: r.Result, Assertion: r.Assertion, Cause: r.Cause}
 }
 
 // validReviews holds a handoff's reviews to their bounds and to the round's

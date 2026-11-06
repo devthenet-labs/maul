@@ -51,7 +51,8 @@ var errorLine = regexp.MustCompile(`(?i)\b(panic|fatal|error|exception|traceback
 // on.
 func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerification, acc *v1alpha1.IntentAcceptance,
 	fix *acceptance.FixRequest, cs []v1alpha1.SavedCheck) (string, error) {
-	r := templates.VerifyReproduction{Verification: pv.Name, Round: pv.Spec.Round, Attempt: pv.Spec.Attempt}
+	r := templates.VerifyReproduction{Verification: pv.Name, Round: pv.Spec.Round, Attempt: pv.Spec.Attempt,
+		Workspace: pv.Spec.IsAgents()}
 	var components []string
 	for _, h := range pv.Spec.Heads {
 		r.Heads = append(r.Heads, templates.ReproductionHead{Component: h.Component, Revision: h.Revision})
