@@ -519,3 +519,42 @@ func intentInvariantsHold(t *testing.T, i *Intent) bool {
 	}
 	return true
 }
+
+// TestJudgedOutcomes (S2-B3): a verification's outcome results are shown
+// only for the round and the head set the judgement that wrote them was
+// of; an earlier round's, another head set's, or results with no record of
+// either are none.
+func TestJudgedOutcomes(t *testing.T) {
+	const h1 = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	const h2 = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	results := []OutcomeResult{{ID: "a", Result: OutcomePassed}}
+	tests := []struct {
+		name  string
+		v     *IntentVerification
+		round int32
+		heads string
+		want  bool
+	}{
+		{"nil", nil, 1, h1, false},
+		{"judged this round at these heads", &IntentVerification{Round: 2, HeadSetDigest: h1, Outcomes: results,
+			OutcomesRound: 2, OutcomesHeadSetDigest: h1}, 2, h1, true},
+		{"an earlier round", &IntentVerification{Round: 3, HeadSetDigest: h1, Outcomes: results,
+			OutcomesRound: 2, OutcomesHeadSetDigest: h1}, 3, h1, false},
+		{"heads that moved", &IntentVerification{Round: 2, HeadSetDigest: h2, Outcomes: results,
+			OutcomesRound: 2, OutcomesHeadSetDigest: h1}, 2, h2, false},
+		{"no record of the judgement", &IntentVerification{Round: 2, HeadSetDigest: h1, Outcomes: results},
+			2, h1, false},
+		{"no head set", &IntentVerification{Round: 2, Outcomes: results, OutcomesRound: 2}, 2, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.v.JudgedOutcomes()
+			if (len(got) > 0) != tt.want {
+				t.Errorf("JudgedOutcomes = %+v, want shown %v", got, tt.want)
+			}
+			if at := tt.v.OutcomesJudgedAt(tt.round, tt.heads); at != tt.want {
+				t.Errorf("OutcomesJudgedAt(%d, %s) = %v, want %v", tt.round, tt.heads, at, tt.want)
+			}
+		})
+	}
+}

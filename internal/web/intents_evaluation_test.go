@@ -44,8 +44,9 @@ const (
 )
 
 var (
-	evalShaA = strings.Repeat("a", 64)
-	evalShaB = strings.Repeat("b", 64)
+	evalShaA    = strings.Repeat("a", 64)
+	evalShaB    = strings.Repeat("b", 64)
+	evalHeadSet = "sha256:" + strings.Repeat("c", 64)
 )
 
 func sha256Hex(s []byte) string {
@@ -99,6 +100,7 @@ func evaluationFixture(t *testing.T) []client.Object {
 	released := metav1.NewTime(testClock.Add(-time.Minute))
 	in.Status.Verification = &v1alpha1.IntentVerification{
 		Round: 1, Attempt: 1, Ref: &v1alpha1.ObjectReference{Name: evalPV, UID: evalPVUID},
+		HeadSetDigest: evalHeadSet, OutcomesRound: 1, OutcomesHeadSetDigest: evalHeadSet,
 		Outcomes: []v1alpha1.OutcomeResult{
 			{ID: "rate-battle", Result: v1alpha1.OutcomePassed, Basis: browser.Digest,
 				Line: "opens /battles, names a battle, sees its heading"},
@@ -132,7 +134,7 @@ func evaluationFixture(t *testing.T) []client.Object {
 		ObjectMeta: metav1.ObjectMeta{Name: evalPV, Namespace: "maul", UID: evalPVUID},
 		Spec: v1alpha1.PreviewVerificationSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
-			Round:     1, Attempt: 1, Rung: v1alpha1.VerificationRung("full"),
+			Round:     1, Attempt: 1, Rung: v1alpha1.VerificationRung("full"), HeadSetDigest: evalHeadSet,
 			Outcomes: []v1alpha1.AcceptanceOutcome{
 				{ID: "rate-battle", Outcome: "A rated battle moves the rating"},
 				{ID: "leaderboard", Outcome: "The leaderboard lists the battle", Kind: v1alpha1.OutcomeKindKeep},
@@ -216,6 +218,55 @@ func TestRunEvaluationTierOne(t *testing.T) {
 	checkTierOneOutcomes(t, ev)
 	checkTierOneChecks(t, ev.Checks)
 	checkTierOneLedger(t, ev)
+}
+
+// TestRunEvaluationUnjudgedRound (S2-B3): the current verification's
+// round that settled without a judgement shows none of an earlier round's
+// results, anomalies or disputes as its own: the outcomes are not decided
+// for it.
+func TestRunEvaluationUnjudgedRound(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		move func(v *v1alpha1.IntentVerification, pv *v1alpha1.PreviewVerification)
+	}{
+		{"a later round", func(v *v1alpha1.IntentVerification, pv *v1alpha1.PreviewVerification) {
+			v.Round, pv.Spec.Round = 2, 2
+		}},
+		{"heads that moved", func(v *v1alpha1.IntentVerification, pv *v1alpha1.PreviewVerification) {
+			moved := "sha256:" + strings.Repeat("d", 64)
+			v.HeadSetDigest, pv.Spec.HeadSetDigest = moved, moved
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs := evaluationFixture(t)
+			var pv *v1alpha1.PreviewVerification
+			for _, o := range objs {
+				if p, ok := o.(*v1alpha1.PreviewVerification); ok {
+					pv = p
+				}
+			}
+			pv.Status.Phase, pv.Status.Reason = v1alpha1.VerificationInfra,
+				v1alpha1.VerificationReasonToolsBuildFailed
+			tc.move(findIntent(objs, "alpha-7").Status.Verification, pv)
+			s, _ := intentsServer(t, nil, objs...)
+			code, body := get(t, as(t, s, viewerAlpha), evaluationPath(evalRun))
+			if code != http.StatusOK {
+				t.Fatalf("GET evaluation = %d %s", code, body)
+			}
+			ev := decode[RunEvaluation](t, body)
+			if !ev.Current {
+				t.Fatalf("header = %+v", ev)
+			}
+			for _, o := range ev.Outcomes {
+				if o.Result != "" || o.Line != "" || o.Reason != "" {
+					t.Errorf("outcome %+v shows an earlier round's result", o)
+				}
+			}
+			if len(ev.Anomalies) != 0 || len(ev.Disputes) != 0 {
+				t.Errorf("anomalies %+v, disputes %+v: an earlier round's", ev.Anomalies, ev.Disputes)
+			}
+		})
+	}
 }
 
 // checkTierOneOutcomes holds the hand-off and the decided outcomes, with

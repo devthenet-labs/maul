@@ -86,6 +86,9 @@ type roundJudgement struct {
 	// cleared by verification, the round's.
 	cleared      []string
 	verification string
+	// base is the round's base runs as Decide read them (nil for a slot
+	// round), for the check lines (baseClause).
+	base *acceptance.BaseRuns
 }
 
 // decideRound judges pv, a collected round, with run its evaluate run (nil
@@ -110,7 +113,7 @@ func judgeRound(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification
 	in := decideInput(acc, pv, cs, ev)
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
 		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
-		cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name}
+		cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name, base: in.Base}
 	if ev != nil {
 		j.disputes = resolvedDisputes(ev, pv)
 	}
@@ -490,6 +493,9 @@ func outcomeResults(acc *v1alpha1.IntentAcceptance, headSet string, j roundJudge
 			Reason: r.Reason}
 		if i := slices.IndexFunc(j.checks, func(c v1alpha1.SavedCheck) bool { return c.Digest == r.Basis }); i >= 0 {
 			res.Line = checkLine(j.checks[i])
+			if r.Result == acceptance.ResultPassed && res.Line != "" && changeOutcome(acc, r.ID) {
+				res.Line = withBaseClause(res.Line, j.base, r.Basis)
+			}
 		}
 		if r.Result != acceptance.ResultPassed && outcomeAccepted(acc, r.ID, headSet) {
 			res.Result = v1alpha1.OutcomeAccepted
@@ -562,6 +568,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	nv, acc := cur.Status.Verification, cur.Status.Acceptance
 	clearJudgement(nv)
 	nv.Outcomes = outcomeResults(acc, nv.HeadSetDigest, j)
+	nv.OutcomesRound, nv.OutcomesHeadSetDigest = nv.Round, nv.HeadSetDigest
 	for _, r := range nv.Outcomes {
 		switch r.Result {
 		case v1alpha1.OutcomePassed:
@@ -716,6 +723,48 @@ func checkLine(c v1alpha1.SavedCheck) string {
 	return untrusted.Cut(line, maxCheckLineBytes)
 }
 
+// baseCauseWords say, for a check line, why a run at base leaves no base
+// comparison (acceptance.RunCause.NoComparison).
+var baseCauseWords = map[acceptance.RunCause]string{
+	acceptance.CauseCompile:            "does not compile at base",
+	acceptance.CauseVendoredTree:       "the base tree is vendored",
+	acceptance.CauseReplaceOutsideTree: "the base replaces a module outside its tree",
+	acceptance.CauseNoModule:           "the base has no go.mod",
+	acceptance.CauseBaseUnbuildable:    "the base did not build",
+}
+
+// changeOutcome reports that id is a change outcome of acc: the kind whose
+// check must discriminate at base (rule 5).
+func changeOutcome(acc *v1alpha1.IntentAcceptance, id string) bool {
+	if acc == nil {
+		return false
+	}
+	i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == id })
+	return i >= 0 && acc.Outcomes[i].EffectiveKind() == v1alpha1.OutcomeKindChange
+}
+
+// withBaseClause is line, a passed change outcome's check line, with what
+// its runs at base say (SPEC-S2 Q29, section 7 (c), (d)): that the check
+// discriminates (red by assertion at base) or has no base comparison, and
+// why; line as it is for a round with no base (the slot placement) or a
+// base that says neither. The line is cut first, so the clause is never
+// cut off.
+func withBaseClause(line string, base *acceptance.BaseRuns, digest string) string {
+	var clause string
+	switch cmp, cause := base.Comparison(digest); cmp {
+	case acceptance.BaseDiscriminates:
+		clause = "; discriminates: fails at base by assertion"
+	case acceptance.BaseNoComparison:
+		clause = "; no base comparison"
+		if w := baseCauseWords[cause]; w != "" {
+			clause += ": " + w
+		}
+	default:
+		return line
+	}
+	return untrusted.Cut(line, maxCheckLineBytes-len(clause)) + clause
+}
+
 // stepsLine joins a check's step descriptions, at most maxCheckLineSteps.
 func stepsLine(steps []string) string {
 	if len(steps) > maxCheckLineSteps {
@@ -819,10 +868,11 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 	default:
 		return false
 	}
-	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(v.Outcomes) == 0 {
+	results := v.JudgedOutcomes()
+	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(results) == 0 {
 		return false
 	}
-	for _, r := range v.Outcomes {
+	for _, r := range results {
 		if r.Result != v1alpha1.OutcomePassed && !outcomeAccepted(acc, r.ID, v.HeadSetDigest) {
 			return false
 		}
@@ -840,10 +890,11 @@ func effectiveResult(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificat
 	return r.Result
 }
 
-// confirmedCount counts v's outcomes confirmed or accepted now.
+// confirmedCount counts v's outcomes confirmed or accepted now, of the
+// judgement of its current round at its heads only.
 func confirmedCount(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) int32 {
 	var n int32
-	for _, r := range v.Outcomes {
+	for _, r := range v.JudgedOutcomes() {
 		if res := effectiveResult(acc, v, r); res == v1alpha1.OutcomePassed || res == v1alpha1.OutcomeAccepted {
 			n++
 		}

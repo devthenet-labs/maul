@@ -822,7 +822,7 @@ func (e *env) reviewingWithOutcomes() string {
 				{ID: pendingOutcome, Outcome: "the leaderboard lists votes"},
 			}}
 		in.Status.Verification = &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnconfirmed,
-			HeadSetDigest: hs.digest, Heads: hs.heads,
+			HeadSetDigest: hs.digest, Heads: hs.heads, OutcomesHeadSetDigest: hs.digest,
 			Outcomes: []v1alpha1.OutcomeResult{
 				{ID: passedOutcome, Result: v1alpha1.OutcomePassed},
 				{ID: failedOutcome, Result: v1alpha1.OutcomeFailed, Reason: "the kick lands late"},

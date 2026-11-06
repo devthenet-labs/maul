@@ -101,29 +101,33 @@ func TestAgentsJudgementTable(t *testing.T) {
 		env    []v1alpha1.PartFact
 		result acceptance.Result
 		reason string
+		// line is how the check line ends: what it says of the base.
+		line string
 	}{
 		{"red by assertion at base", runs(baseRunOf(check.Digest, v1alpha1.CheckRunFail, 1, "")),
-			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed},
+			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed, "; discriminates: fails at base by assertion"},
 		{"a compile error at base: no base comparison",
 			runs(baseRunOf(check.Digest, v1alpha1.CheckRunError, 0, v1alpha1.CheckRunCauseCompile)),
-			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed},
+			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed,
+			"; no base comparison: does not compile at base"},
 		{"a vendored base tree: no base comparison",
 			runs(baseRunOf(check.Digest, v1alpha1.CheckRunError, 0, v1alpha1.CheckRunCauseVendoredTree)),
-			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed},
+			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed,
+			"; no base comparison: the base tree is vendored"},
 		{"a base timeout gives no base evidence", runs(baseRunOf(check.Digest, v1alpha1.CheckRunError, 0, "")),
-			nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence},
+			nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence, ""},
 		{"green at base", runs(baseRunOf(check.Digest, v1alpha1.CheckRunPass, 0, "")),
-			nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence},
+			nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence, ""},
 		{"an exit-only fail at base", runs(baseRunOf(check.Digest, v1alpha1.CheckRunFail, 0, "")),
-			nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence},
-		{"no base run", runs(), nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence},
-		{"no base written", nil, nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence},
+			nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence, ""},
+		{"no base run", runs(), nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence, ""},
+		{"no base written", nil, nil, acceptance.ResultUnsure, acceptance.ReasonNoBaseEvidence, ""},
 		{"an unbuildable base", &v1alpha1.BaseStatus{Required: true, Unbuildable: true},
-			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed},
+			nil, acceptance.ResultPassed, acceptance.ReasonConfirmed, "; no base comparison: the base did not build"},
 		{"the head did not build", runs(baseRunOf(check.Digest, v1alpha1.CheckRunFail, 1, "")),
 			[]v1alpha1.PartFact{{Name: "build-head", Role: v1alpha1.PreviewRoleBuild,
 				LastTermination: &v1alpha1.Termination{Reason: "Error", ExitCode: 1}}},
-			acceptance.ResultUnsure, acceptance.ReasonBuildFailed},
+			acceptance.ResultUnsure, acceptance.ReasonBuildFailed, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -142,6 +146,10 @@ func TestAgentsJudgementTable(t *testing.T) {
 			if r := results[0]; string(r.Result) != string(tt.result) || r.Reason != tt.reason ||
 				(tt.result == acceptance.ResultPassed && r.Line == "") {
 				t.Errorf("recorded %+v", r)
+			}
+			want := "run: a go program of 1 file; expects exit 0, stdout" + tt.line
+			if r := results[0]; r.Basis != "" && r.Line != want {
+				t.Errorf("check line = %q, want %q", r.Line, want)
 			}
 		})
 	}

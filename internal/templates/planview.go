@@ -259,7 +259,11 @@ func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered, shared, 
 		}
 		line += ": " + SanitizeInline(out.Outcome)
 		if from := SanitizeInline(out.From); from != "" {
-			line += ". It answers the issue's line: " + from
+			if !strings.HasSuffix(line, ".") && !strings.HasSuffix(line, "?") && !strings.HasSuffix(line, "!") {
+				// An outcome that ends its own sentence gets no second stop.
+				line += "."
+			}
+			line += " It answers the issue's line: " + from
 		}
 		items = append(items, line)
 	}

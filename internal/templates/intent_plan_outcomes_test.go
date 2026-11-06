@@ -244,3 +244,21 @@ func TestPlanOutcomesFlagsAreAdvice(t *testing.T) {
 		t.Errorf("a comment with no flagged outcome is advised:\n%s", got)
 	}
 }
+
+// TestPlanOutcomeEndsItsSentence: an outcome whose text already ends its
+// sentence is not given a second full stop before the issue line it
+// answers (S2 run 2: "exits 0.. It answers").
+func TestPlanOutcomeEndsItsSentence(t *testing.T) {
+	for _, tc := range []struct{ outcome, want string }{
+		{"bb count exits 0", "bb count exits 0. It answers"},
+		{"bb count exits 0.", "bb count exits 0. It answers"},
+		{"does it exit 0?", "does it exit 0? It answers"},
+		{"it exits 0!", "it exits 0! It answers"},
+	} {
+		_, items, _, _, _ := planOutcomesView(&PlanOutcomes{Outcomes: []PlanOutcome{{ID: "exits",
+			Outcome: tc.outcome, From: "exit cleanly"}}})
+		if len(items) != 1 || !strings.Contains(items[0], tc.want) {
+			t.Errorf("outcome %q: items = %q, want %q", tc.outcome, items, tc.want)
+		}
+	}
+}

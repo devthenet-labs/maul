@@ -1383,6 +1383,19 @@ type IntentVerification struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +listType=atomic
 	Outcomes []OutcomeResult `json:"outcomes,omitempty"`
+	// OutcomesRound and OutcomesHeadSetDigest are the round and the head
+	// set the judgement that wrote Outcomes (and Anomalies) was of. Outcomes
+	// outlive their round, as the next round's evaluator is handed them
+	// (prior verdicts), but they describe only that round at those heads:
+	// every view reads them through JudgedOutcomes.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	OutcomesRound int32 `json:"outcomesRound,omitempty"`
+	// OutcomesHeadSetDigest is the head set that judgement was at.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	OutcomesHeadSetDigest string `json:"outcomesHeadSetDigest,omitempty"`
 	// Anomalies are the latest round's look-around anomalies.
 	// +optional
 	// +kubebuilder:validation:MaxItems=10
@@ -1409,6 +1422,26 @@ type IntentVerification struct {
 	// +listType=set
 	// +kubebuilder:validation:items:Pattern=`^sha256:[0-9a-f]{64}$`
 	Disputed []string `json:"disputed,omitempty"`
+}
+
+// OutcomesJudgedAt reports that v's outcome results (and anomalies) were
+// written by the judgement of the round numbered round at the head set
+// headSetDigest: false for an earlier round's, another head set's, or
+// results recorded before the judgement was (S2-B3).
+func (v *IntentVerification) OutcomesJudgedAt(round int32, headSetDigest string) bool {
+	return v != nil && len(v.Outcomes) > 0 && headSetDigest != "" &&
+		v.OutcomesRound == round && v.OutcomesHeadSetDigest == headSetDigest
+}
+
+// JudgedOutcomes are v's outcome results when the judgement of its current
+// round at its current heads wrote them, nil otherwise: what any view may
+// present as maul's results. An earlier round's results are not about the
+// round, or the heads, the verification is about now.
+func (v *IntentVerification) JudgedOutcomes() []OutcomeResult {
+	if v == nil || !v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) {
+		return nil
+	}
+	return v.Outcomes
 }
 
 // IntentStatus is the intent's observed state. Written only by

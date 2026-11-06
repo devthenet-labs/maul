@@ -656,7 +656,7 @@ func (p *pass) acceptable() []string {
 func (p *pass) acceptableOutcomes() []string {
 	result := map[string]v1alpha1.OutcomeResultValue{}
 	if v := p.in.Status.Verification; v != nil {
-		for _, r := range v.Outcomes {
+		for _, r := range v.JudgedOutcomes() {
 			result[r.ID] = r.Result
 		}
 	}

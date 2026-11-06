@@ -182,7 +182,7 @@ func agentsWhy(v *v1alpha1.IntentVerification) string {
 // environmentFailed reports a judgement whose outcomes were left unsure by
 // a failing preview or maul's own machinery.
 func environmentFailed(v *v1alpha1.IntentVerification) bool {
-	for _, r := range v.Outcomes {
+	for _, r := range v.JudgedOutcomes() {
 		if r.Reason == "env-failed" || r.Reason == "infra" {
 			return true
 		}

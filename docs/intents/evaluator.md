@@ -410,7 +410,9 @@ budget and the 20 minutes. Raise the cost budget and the timeout before the turn
   one, **maul's check** in one line it renders itself, such as
   `http to api: POST /api/players, POST /api/battles, GET /api/leaderboard; 3 expectations`. Application output appears
   only in fenced blocks labelled as the application's, and the evaluator's own words (an anomaly, a note) are marked as
-  its words, not checked by maul.
+  its words, not checked by maul. Results are shown only for the round that decided them, at the heads it checked: a
+  round that settles without a judgement (its attempts all failed, or maul's own build of the head did not finish) lists
+  every outcome as `unsure`, with no earlier round's results, and a push clears them until the new heads are judged.
 - **In the cluster.** Each round is a `PreviewVerification` in the release namespace
   (`kubectl get previewverifications -l maul.run/intent=<intent>`; maul keeps the newest three per intent). Its
   `status.ledger` indexes every tool call; its `status.tools` names the round's tool pod. The full ledger is in the
@@ -542,6 +544,10 @@ check that uses the new symbol from a package that already exists at the base, o
 A check run that errs at the base carries its cause (`compile`, `vendored-tree`, `replace-outside-tree`, `no-module`,
 `base-unbuildable`) on the request's `status.base.runs`, the cause the check reviewer sees too. Only those causes mean
 no base comparison; an error without one means no base evidence.
+
+A confirmed `change` outcome's check line says which it rested on: `...; discriminates: fails at base by assertion`, or
+`...; no base comparison: does not compile at base` (or `the base did not build`, `the base tree is vendored`, and so
+on).
 
 ### What changes for people
 

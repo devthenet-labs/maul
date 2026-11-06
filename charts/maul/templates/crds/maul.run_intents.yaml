@@ -2171,6 +2171,22 @@ spec:
                     maxItems: 20
                     type: array
                     x-kubernetes-list-type: atomic
+                  outcomesHeadSetDigest:
+                    description: OutcomesHeadSetDigest is the head set that judgement
+                      was at.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
+                  outcomesRound:
+                    description: |-
+                      OutcomesRound and OutcomesHeadSetDigest are the round and the head
+                      set the judgement that wrote Outcomes (and Anomalies) was of. Outcomes
+                      outlive their round, as the next round's evaluator is handed them
+                      (prior verdicts), but they describe only that round at those heads:
+                      every view reads them through JudgedOutcomes.
+                    format: int32
+                    maximum: 999
+                    minimum: 0
+                    type: integer
                   passed:
                     description: |-
                       The counters and lists below count criteria, or outcomes under the
