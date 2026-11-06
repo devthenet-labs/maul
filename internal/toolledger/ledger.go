@@ -155,7 +155,7 @@ func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step in
 	for i := len(entries) - 1; i >= 0; i-- {
 		e := &entries[i]
 		if e.Seq >= seq || e.Kind != toolwire.KindAgent || e.Verb != toolwire.VerbCheckRun || e.Refused != "" ||
-			e.CheckRun == nil || e.CheckRun.Mode != toolwire.ModeDryRun || e.CheckRun.Digest != digest {
+			e.CheckRun == nil || atBase(*e) || e.CheckRun.Mode != toolwire.ModeDryRun || e.CheckRun.Digest != digest {
 			continue
 		}
 		if at, ok := e.CheckRun.AssertionStep(); ok && at == step && e.CheckRun.FailedAssertionID() == id {
@@ -171,7 +171,7 @@ func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step in
 func greenReplay(entries []toolwire.LedgerEntry, digest string, seq int64) bool {
 	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
 		return e.Seq < seq && e.Kind == toolwire.KindRelay && e.Verb == toolwire.VerbCheckRun && e.CheckRun != nil &&
-			e.CheckRun.Mode == toolwire.ModeReplay && e.CheckRun.Digest == digest &&
+			!atBase(e) && e.CheckRun.Mode == toolwire.ModeReplay && e.CheckRun.Digest == digest &&
 			e.CheckRun.Result == toolwire.RunPass
 	})
 }
@@ -193,11 +193,60 @@ func requiredDryRun(entries []toolwire.LedgerEntry, e toolwire.LedgerEntry) *too
 // runToken is the grammar of a run token status holds (CheckRun.Token).
 var runToken = regexp.MustCompile(`^[A-Za-z0-9-]{1,40}$`)
 
-// ReplayRuns are the relay's replays of the saved checks, in order.
+// atBase reports an entry recording a run at a workspace's base, which
+// none of the head's readers (replay, confirmations, confirmed checks, the
+// dry runs they require) may read as the head's: a replay or dry run names
+// the side on its entry, a confirmation, whose verb carries no side, in its
+// args (previewtools' base confirmation). A slot's ledger has none.
+func atBase(e toolwire.LedgerEntry) bool {
+	if e.Side == toolwire.SideBase {
+		return true
+	}
+	if e.Verb != toolwire.VerbConfirm {
+		return false
+	}
+	var a struct {
+		Side toolwire.Side `json:"side"`
+	}
+	return json.Unmarshal(e.Args, &a) == nil && a.Side == toolwire.SideBase
+}
+
+// BaseRuns are a workspace relay's replays and confirmations at the base,
+// in order, each tagged tree base (status.base.runs); the agent's base dry
+// runs are not among them.
+func BaseRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
+	var out []v1alpha1.CheckRun
+	for _, e := range entries {
+		if e.Kind != toolwire.KindRelay || e.CheckRun == nil || !atBase(e) || len(out) == v1alpha1.MaxBaseRuns ||
+			!relayRun(e) {
+			continue
+		}
+		if run, ok := checkRunOf(e); ok {
+			run.Tree = v1alpha1.TreeBase
+			out = append(out, run)
+		}
+	}
+	return out
+}
+
+// relayRun reports a relay entry's check run in its place: a replay on
+// check-run, a confirmation on confirm.
+func relayRun(e toolwire.LedgerEntry) bool {
+	switch e.Verb {
+	case toolwire.VerbCheckRun:
+		return e.CheckRun.Mode == toolwire.ModeReplay
+	case toolwire.VerbConfirm:
+		return e.CheckRun.Mode == toolwire.ModeConfirm
+	}
+	return false
+}
+
+// ReplayRuns are the relay's replays of the saved checks (a workspace's at
+// its head; BaseRuns has the base's), in order.
 func ReplayRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
 	var out []v1alpha1.CheckRun
 	for _, e := range entries {
-		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbCheckRun || e.CheckRun == nil ||
+		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbCheckRun || e.CheckRun == nil || atBase(e) ||
 			e.CheckRun.Mode != toolwire.ModeReplay || len(out) == v1alpha1.MaxSavedChecks {
 			continue
 		}
@@ -214,21 +263,22 @@ func greenDryRun(entries []toolwire.LedgerEntry, digest string, seq int64) *tool
 	for i := len(entries) - 1; i >= 0; i-- {
 		e := &entries[i]
 		if e.Seq < seq && e.Kind == toolwire.KindAgent && e.Verb == toolwire.VerbCheckRun && e.Refused == "" &&
-			e.CheckRun != nil && e.CheckRun.Mode == toolwire.ModeDryRun && e.CheckRun.Digest == digest &&
-			e.CheckRun.Result == toolwire.RunPass {
+			e.CheckRun != nil && !atBase(*e) && e.CheckRun.Mode == toolwire.ModeDryRun &&
+			e.CheckRun.Digest == digest && e.CheckRun.Result == toolwire.RunPass {
 			return e
 		}
 	}
 	return nil
 }
 
-// ConfirmationRuns are the relay's confirmation runs, in order, each with
+// ConfirmationRuns are the relay's confirmation runs (a workspace's at its
+// head), in order, each with
 // the dry run it required (requiredDryRun) and, for a check proposed to
 // show a defect, its expectation.
 func ConfirmationRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
 	var out []v1alpha1.CheckRun
 	for _, e := range entries {
-		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbConfirm || e.CheckRun == nil ||
+		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbConfirm || e.CheckRun == nil || atBase(e) ||
 			e.CheckRun.Mode != toolwire.ModeConfirm || len(out) == v1alpha1.MaxSavedChecks {
 			continue
 		}
@@ -260,7 +310,7 @@ func ConfirmedChecks(entries []toolwire.LedgerEntry, outcomes []v1alpha1.Accepta
 	var out []v1alpha1.SavedCheck
 	seen := map[string]bool{}
 	for _, e := range entries {
-		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbConfirm || e.CheckRun == nil ||
+		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbConfirm || e.CheckRun == nil || atBase(e) ||
 			e.CheckRun.Mode != toolwire.ModeConfirm || seen[e.CheckRun.Digest] || len(out) == v1alpha1.MaxSavedChecks {
 			continue
 		}

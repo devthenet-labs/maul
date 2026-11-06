@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -288,11 +289,29 @@ func (r *Relay) buildTrees(ctx context.Context) {
 		b    built
 	}{{toolwire.SideHead, head}, {toolwire.SideBase, base}} {
 		_, _ = r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbBuild,
-			Side: b.side.Recorded(), Args: mustArgs(b.b.args), Exit: b.b.res.Exit, Output: b.b.res.Output})
+			Side: b.side.Recorded(), Args: mustArgs(b.b.args), Exit: b.b.res.Exit, Output: ledgerTail(b.b.res.Output)})
 	}
 	r.headBuilt = head.args.Result == maulv1.BuildBuilt
 	r.baseBuilt = base.args.Result == maulv1.BuildBuilt
 }
+
+// ledgerTail is a build's output as its entry can hold it: a build's tail
+// (toolexec.MaxBuildOutputBytes) may be longer than an entry's output
+// (toolwire.MaxOutputBytes), which would leave the build unrecorded; its
+// end, where a build says why it failed, is kept, valid UTF-8.
+func ledgerTail(s string) string {
+	if len(s) <= toolwire.MaxOutputBytes {
+		return s
+	}
+	start := len(s) - (toolwire.MaxOutputBytes - len(buildCutMarker))
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return buildCutMarker + s[start:]
+}
+
+// buildCutMarker opens a build output ledgerTail cut.
+const buildCutMarker = "[maul: the build's output is cut to its end]\n"
 
 // buildSide runs side's build once its shim serves. Only a build that ran
 // and exited 0, leaving nothing behind, built: one that left processes, or
