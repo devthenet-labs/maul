@@ -573,10 +573,21 @@ type ReviewWorkspace struct {
 }
 
 // ReviewRun is one side's run of the check under review: Result a
-// v1alpha1.CheckRunResult ("" for none), and for a fail the assertion
-// (toolwire.StepRecord.AssertionID) it was red by, "" for none.
+// v1alpha1.CheckRunResult ("" for none), for a fail the assertion
+// (toolwire.StepRecord.AssertionID) it was red by, "" for none, and for an
+// error the v1alpha1.CheckRunCause maul recorded, "" for none.
 type ReviewRun struct {
-	Result, Assertion string
+	Result, Assertion, Cause string
+}
+
+// reviewCauses are the causes of an error run in maul's words; one not
+// listed is not shown.
+var reviewCauses = map[v1alpha1.CheckRunCause]string{
+	v1alpha1.CheckRunCauseCompile:            "the program did not compile against the tree",
+	v1alpha1.CheckRunCauseVendoredTree:       "the tree vendors its modules, which a run program cannot build against",
+	v1alpha1.CheckRunCauseReplaceOutsideTree: "the tree replaces a module with a directory outside it",
+	v1alpha1.CheckRunCauseNoModule:           "the tree has no go.mod a run program can build against",
+	v1alpha1.CheckRunCauseBaseUnbuildable:    "the base did not build",
 }
 
 // sentence is r as maul states it, after "it ran at the head" or "at the
@@ -591,6 +602,9 @@ func (r ReviewRun) sentence() string {
 		}
 		return "failed without an assertion: by its exit code, a crash or missing output"
 	case v1alpha1.CheckRunError:
+		if why, ok := reviewCauses[v1alpha1.CheckRunCause(r.Cause)]; ok {
+			return "could not build or run: an error, not a result (" + why + ")"
+		}
 		return "could not build or run: an error, not a result"
 	case v1alpha1.CheckRunQuarantined:
 		return "passed only on retry"

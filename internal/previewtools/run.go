@@ -12,6 +12,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -44,8 +46,11 @@ import (
 // run's token. A compile that fails, whatever
 // the compiler said (an undefined name at base, a package not in std, no
 // module providing an import), is an error: n/a at the base, never a fail.
-// A tree with a vendor directory, a replace leaving the tree, or a go.mod
-// maul cannot read refuses the run by name (ReasonVendoredTree,
+// Only the compiler's own refusal of the program's files records the
+// compile cause (compilerRefused); a load or environmental failure records
+// none, so it is never read as no base comparison. A tree with a vendor
+// directory, a replace leaving the tree, or a go.mod maul cannot read
+// refuses the run by name (ReasonVendoredTree,
 // ReasonReplaceOutsideTree, ReasonNoModule), never widening the network.
 
 // consumerBinary is the compiled program, in its scratch directory.
@@ -190,11 +195,13 @@ func sideName(side toolwire.Side) toolwire.Side {
 	return toolwire.SideHead
 }
 
-// compiled is a program's compile outcome.
+// compiled is a program's compile outcome; files are the program's .go
+// file names.
 type compiled struct {
-	res toolexec.Result
-	err error
-	ok  bool
+	res   toolexec.Result
+	err   error
+	ok    bool
+	files []string
 }
 
 // goBuildFailed is the go command's exit for a build it refused.
@@ -203,15 +210,75 @@ const goBuildFailed = 1
 // cause is a failed compile's cause: CauseCompile only when the compiler
 // ran to its end and refused the program (the sandbox answered, refused
 // nothing, the compile ended on its own, cleanly, with the go command's
-// build failure exit); "" for a compile maul cannot tell was refused (no
-// answer, a refusal, a signal, go not found, cut short or leaving
-// processes): no evidence about the tree (SPEC-S2 S2-20).
+// build failure exit, and its whole output is the compiler's refusal of
+// the program's own files: compilerRefused); "" for a compile maul cannot
+// tell was refused (no answer, a refusal, a signal, go not found, cut
+// short, output cut or leaving processes, a load or environmental
+// failure): no evidence about the tree (SPEC-S2 S2-20, S2-20b).
 func (c compiled) cause() toolwire.StepCause {
-	if c.ok || c.err != nil || c.res.Refused != "" || c.res.TimedOut || c.res.Unclean ||
-		c.res.Exit != goBuildFailed {
+	if c.ok || c.err != nil || c.res.Refused != "" || c.res.TimedOut || c.res.Unclean || c.res.Truncated ||
+		c.res.Exit != goBuildFailed || !compilerRefused(c.res.Output, c.files) {
 		return ""
 	}
 	return toolwire.CauseCompile
+}
+
+// consumerHeader is the line the go command prints before the compiler's
+// diagnostics of the program's package.
+const consumerHeader = "# " + consumerModule
+
+// diagnosticLine is a compiler diagnostic: a file in the build's directory,
+// its line and column, the message.
+var diagnosticLine = regexp.MustCompile(`^(?:\./)?([A-Za-z0-9_][A-Za-z0-9_.-]*\.go):[0-9]+:[0-9]+: \S`)
+
+// environmental are what the go command prints when a build ended for a
+// reason outside the program (a killed compiler or linker, memory, disk,
+// files, the module cache or network, the toolchain), lowercased; one
+// anywhere in a compile's output, even inside a diagnostic, leaves the
+// compile without a cause.
+var environmental = []string{
+	"signal:", "killed", "out of memory", "cannot allocate memory", "no space left on device", "disk quota exceeded",
+	"too many open files", "resource temporarily unavailable", "internal compiler error", "fatal error",
+	"module lookup disabled", "import lookup disabled", "missing go.sum entry", "goproxy", "gomodcache",
+	"toolchain", "requires go", "go: downloading", "dial tcp", "could not import", "no such file or directory",
+	"permission denied", "read-only file system", "input/output error", "checksum mismatch", "verifying ",
+	"cannot find module", "not in std", "no required module",
+}
+
+// compilerRefused reports whether output, a failed `go build` of the
+// program whose .go files are files, is the compiler's refusal of the
+// program itself: the program package's header, then only diagnostics
+// located in the program's own files (file.go:line:col) and their
+// tab-indented continuation lines, at least one diagnostic, and no
+// environmental marker. Anything else (a load failure, which prints no
+// header; another package's header; a diagnostic in the tree's own files;
+// a go command line) is not (SPEC-S2 S2-20b): zero false passes outranks
+// the confirmed rate, so a doubt leaves the base with no evidence.
+func compilerRefused(output string, files []string) bool {
+	if strings.ContainsRune(output, '\r') {
+		return false
+	}
+	lower := strings.ToLower(output)
+	for _, m := range environmental {
+		if strings.Contains(lower, m) {
+			return false
+		}
+	}
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) < 2 || lines[0] != consumerHeader {
+		return false
+	}
+	diagnostics := 0
+	for _, line := range lines[1:] {
+		switch m := diagnosticLine.FindStringSubmatch(line); {
+		case m != nil && slices.Contains(files, m[1]):
+			diagnostics++
+		case strings.HasPrefix(line, "\t") && diagnostics > 0:
+		default:
+			return false
+		}
+	}
+	return diagnostics > 0
 }
 
 // compileProgram compiles p at side in run's scratch directory: its files
@@ -222,13 +289,19 @@ func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run stri
 			Env: r.compileEnv()},
 		{Argv: []string{"go", "build", "-o", consumerBinary, "."}, Side: side, Run: run, Env: r.compileEnv()},
 	}
+	var names []string
+	for _, f := range p.files {
+		if strings.HasSuffix(f.Name, ".go") {
+			names = append(names, f.Name)
+		}
+	}
 	var c compiled
 	for _, req := range steps {
 		if err := req.Check(); err != nil {
 			return compiled{err: err}
 		}
 		res, err := r.sandbox(side).Do(ctx, req)
-		c = compiled{res: res, err: err,
+		c = compiled{res: res, err: err, files: names,
 			ok: err == nil && res.Refused == "" && !res.Unclean && !res.TimedOut && res.Exit == 0}
 		if !c.ok {
 			return c

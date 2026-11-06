@@ -262,9 +262,29 @@ func TestRunGoLive(t *testing.T) {
 	if cr.Refused != "" || cr.Observed.CheckRun.Result != toolwire.RunError {
 		t.Fatalf("a run check that does not compile: %+v", cr)
 	}
+	liveCompileCauses(t, h, check, cr)
 	l := h.finishKeyed()
 	if b := buildEntries(t, l); b[""].Result != "built" {
 		t.Fatalf("the live tree did not build: %+v\n%s", b, l.Entries[0].Output)
+	}
+}
+
+// liveCompileCauses: the real compiler's refusal of the program's own file
+// is the compile cause; an import the go command could not load is no
+// cause (SPEC-S2 S2-20b). check is a run check refused for an undefined
+// name, cr its check run.
+func liveCompileCauses(t *testing.T, h *harness, check string, cr toolwire.Response) {
+	t.Helper()
+	if got := cr.Observed.CheckRun.Cause(); got != toolwire.CauseCompile {
+		t.Errorf("an undefined name: cause %q, want %q (%+v)", got, toolwire.CauseCompile,
+			cr.Observed.CheckRun.Attempts)
+	}
+	unloaded := strings.Replace(strings.Replace(check, "bb.parse", "bb.load", 1), `\"example.com/bb\"`,
+		`\"example.com/bb\"; \"example.com/other/x\"`, 1)
+	unloaded = strings.Replace(unloaded, "bb.Parse()", "bb.Module(nil), x.X()", 1)
+	_, cr = h.callKeyed(toolwire.VerbCheckRun, mustJSON(t, map[string]json.RawMessage{"check": json.RawMessage(unloaded)}))
+	if cr.Refused != "" || cr.Observed.CheckRun.Result != toolwire.RunError || cr.Observed.CheckRun.Cause() != "" {
+		t.Errorf("a run check whose import did not load: %+v", cr)
 	}
 }
 

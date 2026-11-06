@@ -94,6 +94,15 @@ func TestCheckReviewWorkspaceStatesMaulsFacts(t *testing.T) {
 		{"library", ExampleLibraryRunCheck, testReviewLibrary, []string{
 			"At the head the check passed.", "At the base it could not build or run: an error, not a result.",
 			"call the library's exported API", "prints a hard-coded expectation"}},
+		{"base cause", ExampleLibraryRunCheck, ReviewWorkspace{EvaluateWorkspace: testLibraryWorkspace,
+			Head: ReviewRun{Result: string(v1alpha1.CheckRunPass)},
+			Base: ReviewRun{Result: string(v1alpha1.CheckRunError), Cause: string(v1alpha1.CheckRunCauseVendoredTree)}},
+			[]string{"At the base it could not build or run: an error, not a result (the tree vendors its modules, " +
+				"which a run program cannot build against)."}},
+		{"unknown base cause", ExampleLibraryRunCheck, ReviewWorkspace{EvaluateWorkspace: testLibraryWorkspace,
+			Head: ReviewRun{Result: string(v1alpha1.CheckRunPass)},
+			Base: ReviewRun{Result: string(v1alpha1.CheckRunError), Cause: "@octocat"}},
+			[]string{"At the base it could not build or run: an error, not a result."}},
 		{"no base", ExampleLibraryRunCheck, ReviewWorkspace{EvaluateWorkspace: testLibraryWorkspace,
 			BaseUnbuildable: true, Head: ReviewRun{Result: string(v1alpha1.CheckRunPass)}}, []string{
 			"The base did not build, so the check did not run there: there is no base comparison."}},

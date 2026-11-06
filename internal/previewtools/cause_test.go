@@ -50,8 +50,17 @@ func TestBaseErrorCauses(t *testing.T) {
 		want  toolwire.StepCause
 	}{
 		{name: "a compile error", check: cliRunCheck,
-			do:   compileThen(toolexec.Result{Exit: 1, Output: "./main.go:5:9: undefined: bb.Parse"}, ok, nil),
+			do: compileThen(toolexec.Result{Exit: 1, Output: "# maulcheck\n./main.go:5:9: undefined: bb.Parse\n"}, ok,
+				nil),
 			want: toolwire.CauseCompile},
+		{name: "a compile whose imports did not load", check: cliRunCheck,
+			do: compileThen(toolexec.Result{Exit: 1, Output: goOutNewPackage}, ok, nil)},
+		{name: "a compile that ran out of memory", check: cliRunCheck,
+			do: compileThen(toolexec.Result{Exit: 1, Output: goOutKilled}, ok, nil)},
+		{name: "a compile whose output was cut", check: cliRunCheck,
+			do: compileThen(toolexec.Result{Exit: 1, Output: goOutUndefined, Truncated: true}, ok, nil)},
+		{name: "a compile refusing the tree's own file", check: cliRunCheck,
+			do: compileThen(toolexec.Result{Exit: 1, Output: goOutTreeFile}, ok, nil)},
 		{name: "a compile killed by a signal", check: cliRunCheck,
 			do: compileThen(toolexec.Result{Exit: -1, Output: "signal: killed"}, ok, nil)},
 		{name: "a compile that timed out", check: cliRunCheck,

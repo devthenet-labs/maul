@@ -264,12 +264,15 @@ func latestRun(runs []v1alpha1.CheckRun, digest string, side v1alpha1.TreeSide) 
 	return out
 }
 
-// reviewRun is r as the reviewer reads it: its result, and for a fail red
-// by assertion that assertion.
+// reviewRun is r as the reviewer reads it: its result, for a fail red by
+// assertion that assertion, and for an error the cause maul recorded.
 func reviewRun(r v1alpha1.CheckRun) *agentrun.ReviewRun {
 	out := &agentrun.ReviewRun{Result: string(r.Result)}
 	if r.RedByAssertion() {
 		out.Assertion = r.AssertionID
+	}
+	if r.Result == v1alpha1.CheckRunError {
+		out.Cause = string(r.Cause)
 	}
 	return out
 }

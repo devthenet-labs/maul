@@ -87,7 +87,11 @@ func TestEvaluateWorkspacePromptStatesTheRules(t *testing.T) {
 		"A bare exit code never counts as a failed assertion",
 		"`{{marker}} <id>: <what it saw>`",
 		// maul renders the go.mod; a vendored tree is n/a.
-		"Never write a `go.mod` or a `go.sum`", "A tree that vendors its modules",
+		"Never write a `go.mod`, a `go.sum` or a `go.work`", "A tree that vendors its modules",
+		// The program's module and the workspace, as tools builds them
+		// since S2-08 (S2-20b).
+		"a minimal one naming the module `maulcheck` at the tree's Go version",
+		"a Go workspace (`go work init`) of your program's directory and the tree",
 		"A program that does not compile is an error, never a fail.",
 		"never a fail: give a `timeout`",
 	}
@@ -121,7 +125,8 @@ func TestEvaluateWorkspacePromptStatesTheRules(t *testing.T) {
 				}
 			}
 			for _, gone := range append([]string{"preview", "browser", "Look around", "`http`", "maul-tool http",
-				"maul-tool logs", "maul-tool events", "component"}, tt.not...) {
+				"maul-tool logs", "maul-tool events", "component", "with its module renamed",
+				"beside the tree's `go.sum`"}, tt.not...) {
 				if strings.Contains(got, gone) {
 					t.Errorf("the prompt says %q", gone)
 				}
