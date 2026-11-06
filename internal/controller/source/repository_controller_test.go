@@ -30,9 +30,15 @@ type fakeForgeClient struct {
 	tarball       string
 	headCalls     int
 	tarballCalls  int
+	branchCalls   int
+	// tarballErr, when set, is returned by Tarball; tarballRefs records the
+	// refs it was asked for.
+	tarballErr  error
+	tarballRefs []string
 }
 
 func (f *fakeForgeClient) DefaultBranch(context.Context, ghclient.Repo) (string, error) {
+	f.branchCalls++
 	return f.defaultBranch, nil
 }
 
@@ -41,8 +47,12 @@ func (f *fakeForgeClient) HeadSHA(context.Context, ghclient.Repo, string) (strin
 	return f.headSHA, nil
 }
 
-func (f *fakeForgeClient) Tarball(context.Context, ghclient.Repo, string) (io.ReadCloser, error) {
+func (f *fakeForgeClient) Tarball(_ context.Context, _ ghclient.Repo, ref string) (io.ReadCloser, error) {
 	f.tarballCalls++
+	f.tarballRefs = append(f.tarballRefs, ref)
+	if f.tarballErr != nil {
+		return nil, f.tarballErr
+	}
 	return io.NopCloser(strings.NewReader(f.tarball)), nil
 }
 

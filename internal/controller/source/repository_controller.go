@@ -106,18 +106,11 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Pin the SHA exactly once: investigation and remediation must see the
 	// same tree, and it is the eventual push base.
-	sha := repo.Status.ResolvedSHA
-	if sha == "" {
-		branch := repo.Spec.Ref.Branch
-		if branch == "" {
-			if branch, err = gh.DefaultBranch(ctx, res.Repo); err != nil {
-				return ctrl.Result{}, r.fail(ctx, &repo, "ResolveFailed", err)
-			}
-		}
-		if sha, err = gh.HeadSHA(ctx, res.Repo, branch); err != nil {
-			return ctrl.Result{}, r.fail(ctx, &repo, "ResolveFailed", err)
-		}
+	sha, err := r.pinSHA(ctx, gh, res, &repo)
+	if err != nil {
+		return ctrl.Result{}, r.fail(ctx, &repo, "ResolveFailed", err)
 	}
+	pinned := repo.Spec.Ref.Commit != ""
 
 	info, ok := r.Artifacts.Get(req.String())
 	fetched := false
@@ -126,6 +119,9 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			var tooBig *tooLargeError
 			if errors.As(err, &tooBig) {
 				return ctrl.Result{}, r.stall(ctx, &repo, sha, "ArtifactTooLarge", tooBig)
+			}
+			if pinned && errors.Is(err, ghclient.ErrArchiveNotFound) {
+				return ctrl.Result{}, r.stall(ctx, &repo, sha, v1alpha1.ReasonCommitNotFound, err)
 			}
 			return ctrl.Result{}, r.fail(ctx, &repo, "FetchFailed", err)
 		}
@@ -142,8 +138,10 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		LastFetchedAt: &fetchedAt,
 	}
 	// Pin the runner image exactly once, beside the SHA, with the artifact
-	// already in hand so resolution never costs a re-download.
-	if r.Images != nil {
+	// already in hand so resolution never costs a re-download. A commit
+	// Repository never pins one: its tree can be a pull request head, which
+	// must not choose an environment.
+	if r.Images != nil && !pinned {
 		if result, done, err := r.pinRunnerImage(ctx, &repo, sha, req.String()); done {
 			return result, err
 		}
@@ -172,6 +170,28 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	r.log().LogAttrs(ctx, slog.LevelInfo, "repository artifact ready", attrs...)
 	return ctrl.Result{}, nil
+}
+
+// pinSHA is the commit the artifact is pinned to, decided exactly once:
+// ref.commit as written, else the recorded status, else the head of the
+// branch (the default branch when none is named), resolved now.
+func (r *RepositoryReconciler) pinSHA(
+	ctx context.Context, gh forgeClient, res *forge.Resolved, repo *v1alpha1.Repository,
+) (string, error) {
+	if commit := repo.Spec.Ref.Commit; commit != "" {
+		return commit, nil
+	}
+	if sha := repo.Status.ResolvedSHA; sha != "" {
+		return sha, nil
+	}
+	branch := repo.Spec.Ref.Branch
+	if branch == "" {
+		var err error
+		if branch, err = gh.DefaultBranch(ctx, res.Repo); err != nil {
+			return "", err
+		}
+	}
+	return gh.HeadSHA(ctx, res.Repo, branch)
 }
 
 // fetchedAt is the artifact's LastFetchedAt: now when this pass downloaded

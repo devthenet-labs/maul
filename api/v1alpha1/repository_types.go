@@ -7,6 +7,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ReasonCommitNotFound is the Stalled (and Ready=False) reason of a commit
+// Repository whose archive the forge answered 404 for: the commit does not
+// exist there, or the credential cannot see it. Terminal.
+const ReasonCommitNotFound = "CommitNotFound"
+
 // RepositoryRef pins what to clone: a branch, an exact commit, or neither
 // (the default branch).
 // +kubebuilder:validation:XValidation:rule="!(has(self.branch) && has(self.commit))",message="ref.branch and ref.commit are exclusive"
@@ -148,6 +153,12 @@ type RepositoryStatus struct {
 // repository with Forge credentials and serves it as a tarball that agent
 // jobs fetch credential-lessly. Owned by a Finding and garbage-collected
 // with it.
+//
+// A commit Repository (spec.ref.commit) is pinned to exactly that commit and
+// never to a runner image; the rule below makes the API server refuse a
+// source-controller that predates commit refs, which would otherwise pin the
+// default branch's head or an image to it.
+// +kubebuilder:validation:XValidation:rule="!(has(self.spec.ref) && has(self.spec.ref.commit)) || !has(self.status) || ((!has(self.status.resolvedSHA) || self.status.resolvedSHA == self.spec.ref.commit) && !has(self.status.runnerImage))",message="a commit Repository is pinned to that commit and never to a runner image"
 type Repository struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

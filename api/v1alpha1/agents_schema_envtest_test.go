@@ -30,6 +30,7 @@ func testAgentsSchema(ctx context.Context, t *testing.T, c client.Client) {
 	testAgentsStatusSchema(ctx, t, c)
 	testAgentsProjectSchema(ctx, t, c)
 	testCommitRepositorySchema(ctx, t, c)
+	testCommitRepositoryStatus(ctx, t, c)
 }
 
 // schemaWorkspace is a valid cli workspace.
