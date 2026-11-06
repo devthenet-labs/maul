@@ -51,6 +51,9 @@ var outcomeReasonWords = map[string]string{
 	// finish, which is maul's, never the change's.
 	"not-asserted":       "the program failed without asserting anything about the change",
 	"tools-build-failed": "couldn't confirm: the build did not finish",
+	// S2-20: rule 5 alone withheld the pass (its base runs failed by no
+	// assertion, timed out, or are missing).
+	"no-base-evidence": "its check passed, but its runs at the base do not tell the change from its absence",
 }
 
 // Bounds on what an outcome's detail shows.

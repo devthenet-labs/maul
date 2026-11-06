@@ -169,7 +169,9 @@ func atBase(keep, required, unbuildable bool, runs ...CheckRun) Input {
 func TestDecideBaseRuns(t *testing.T) {
 	const change, keep = false, true
 	passed := func(in Input) (Input, Result, string) { return in, ResultPassed, ReasonConfirmed }
-	unsure := func(in Input) (Input, Result, string) { return in, ResultUnsure, ReasonModelOnlyPass }
+	// A check that passes every other rule but does not discriminate at
+	// base leaves its outcome unsure, saying so (no-base-evidence).
+	unsure := func(in Input) (Input, Result, string) { return in, ResultUnsure, ReasonNoBaseEvidence }
 	tests := []struct {
 		name   string
 		build  func() (Input, Result, string)

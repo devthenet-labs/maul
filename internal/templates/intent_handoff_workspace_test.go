@@ -189,6 +189,9 @@ func TestOutcomeReasonWordsS2(t *testing.T) {
 	for reason, want := range map[string]string{
 		acceptance.ReasonNotAsserted: "the program failed without asserting anything about the change",
 		acceptance.ReasonBuildFailed: "couldn't confirm: the build did not finish",
+		// S2-20: a check that passed, withheld by its base runs alone.
+		acceptance.ReasonNoBaseEvidence: "its check passed, but its runs at the base do not tell the change " +
+			"from its absence",
 	} {
 		d, ok := outcomeDetailOf(VerifyOutcomeResult{ID: "a", Result: OutcomeResultUnsure, Reason: reason}, "`a`",
 			outcomeResultWords[OutcomeResultUnsure])

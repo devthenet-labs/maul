@@ -335,6 +335,12 @@ const (
 	// error, a timeout, a wrong exit with no marker): what a broken check
 	// shows too, so neither a fail nor a pass (owner decision O4).
 	ReasonNotAsserted = "not-asserted"
+	// ReasonNoBaseEvidence: a check passes the outcome by every other rule,
+	// but its runs at the base do not tell the change from its absence
+	// (rule 5, slice S2): a change outcome's check did not fail there by an
+	// assertion, nor could it not compile or be built there; a keep
+	// outcome's failed there by one; or a required base has no run of it.
+	ReasonNoBaseEvidence = "no-base-evidence"
 	// ReasonBuildFailed: the tool pod could not build the head (slice S2):
 	// maul's Infra, so the round has no fail and no pass whatever its runs
 	// show (the PreviewVerification reason of the same name).
@@ -683,10 +689,15 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 	if failing := d.failing(bound); len(failing) > 0 {
 		return d.failure(o, res, failing)
 	}
-	if basis, withheld := d.passBasis(o, bound); basis != "" {
+	basis, withheld, noBase := d.passBasis(o, bound)
+	switch {
+	case basis != "":
 		return OutcomeResult{ID: o.ID, Result: ResultPassed, Basis: basis, Reason: ReasonConfirmed}, nil
-	} else if withheld {
+	case withheld:
 		res.Reason = ReasonEvaluatorSawFailure
+		return res, nil
+	case noBase:
+		res.Reason = ReasonNoBaseEvidence
 		return res, nil
 	}
 	if slices.ContainsFunc(bound, func(c StoredCheck) bool { return d.notReproduced[c.Digest] }) {
@@ -711,19 +722,25 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 
 // passBasis is the first of bound that passes o (rules 1-6), "" for none;
 // withheld reports a check that would have but for the saw-failure guard:
-// the evaluator saw o fail this round, or the check was narrowed earlier.
-func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, withheld bool) {
+// the evaluator saw o fail this round, or the check was narrowed earlier;
+// noBase a check that would have but for rule 5 (it does not discriminate
+// at the base).
+func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, withheld, noBase bool) {
 	for _, c := range bound {
-		if d.notReproduced[c.Digest] || !d.passes(c, o) || !d.runs[c.Digest].clean() || !d.discriminates(c, o) {
+		if d.notReproduced[c.Digest] || !d.passes(c, o) || !d.runs[c.Digest].clean() {
+			continue
+		}
+		if !d.discriminates(c, o) {
+			noBase = true
 			continue
 		}
 		if d.sawFailure(o) || (d.guard && c.Narrowed) {
 			withheld = true
 			continue
 		}
-		return c.Digest, false
+		return c.Digest, false, false
 	}
-	return "", withheld
+	return "", withheld, noBase
 }
 
 // sawFailure reports the evaluator saying it saw o fail this round: a fail

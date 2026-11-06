@@ -179,7 +179,7 @@ func TestDecide(t *testing.T) {
 			in: with(confirmedPass(), func(in *Input) {
 				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunPass, Token: "b", Seq: 1}}}
 			}),
-			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonNoBaseEvidence, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "rule 5: a keep outcome's check red by assertion at base does not",
@@ -188,7 +188,7 @@ func TestDecide(t *testing.T) {
 				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunFail, Token: "b", Seq: 1,
 					AssertionStep: 1, AssertionID: "json /a"}}}
 			}),
-			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonNoBaseEvidence, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "rule 5: a keep outcome's check passing at base",
@@ -203,7 +203,7 @@ func TestDecide(t *testing.T) {
 			in: with(confirmedPass(), func(in *Input) {
 				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunQuarantined, Token: "b", Seq: 1}}}
 			}),
-			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonNoBaseEvidence, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "rule 5: a check that cannot compile at base is n/a",
@@ -218,7 +218,7 @@ func TestDecide(t *testing.T) {
 			in: with(confirmedPass(), func(in *Input) {
 				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunError, Token: "b", Seq: 1}}}
 			}),
-			result: ResultUnsure, reason: ReasonModelOnlyPass, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonNoBaseEvidence, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "rule 5: no base run is n/a",
