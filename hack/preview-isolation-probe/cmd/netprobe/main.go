@@ -190,6 +190,11 @@ func asMode(args []string) (handled bool, code int) {
 			return true, usageAs()
 		}
 		return true, runRole(role, len(flags) == 1)
+	case agentsRole:
+		if len(flags) > 1 || (len(flags) == 1 && flags[0] != refusedIsBlocked) {
+			return true, usageAs()
+		}
+		return true, agentsMode(len(flags) == 1)
 	case sandboxRole:
 		if len(flags) != 0 {
 			return true, usageAs()

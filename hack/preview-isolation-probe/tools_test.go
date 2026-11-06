@@ -48,7 +48,7 @@ var toolsAddrs = map[string]string{
 	"SVC_maul_egress_broker": "10.43.1.2", "SVC_kubernetes": "10.43.0.1", "SVC_kube_dns": "10.43.0.10",
 	"SVC_maul_source_controller": "10.43.1.4",
 	"POD_tool":                   "10.42.0.5", "POD_evaluator": "10.42.1.6", "POD_component": "10.42.0.7",
-	"POD_other_tool": "10.42.2.8", "POD_other_slot": "10.42.3.9", "POD_agents_tool": "10.42.1.10",
+	"POD_other_tool": "10.42.2.8", "POD_other_slot": "10.42.3.9",
 }
 
 func toolsArgs(extra ...string) []string {
@@ -121,20 +121,20 @@ func debugCalls(run edgesRun) map[string][]string {
 }
 
 func TestToolsRunsEveryRow(t *testing.T) {
-	run := runToolsProbe(t, nil, toolsArgs("--agents-tool-pod", "maul-agents/agents-tool")...)
+	run := runToolsProbe(t, nil, toolsArgs()...)
 	if run.code != 0 {
 		t.Fatalf("exit %d, stderr:\n%s", run.code, run.stderr)
 	}
 	calls := debugCalls(run)
 	for _, want := range []string{
-		"evaluator@evaluator", "peers@component", "tools@tool", "sandbox@tool", "page@tool", "tools@agents-tool",
+		"evaluator@evaluator", "peers@component", "tools@tool", "sandbox@tool", "page@tool",
 	} {
 		if _, ok := calls[want]; !ok {
 			t.Errorf("no ephemeral container for %s; have %v", want, slices.Collect(mapsKeys(calls)))
 		}
 	}
-	if len(calls) != 6 {
-		t.Errorf("%d probe containers, want 6", len(calls))
+	if len(calls) != 5 {
+		t.Errorf("%d probe containers, want 5", len(calls))
 	}
 	ev := strings.Join(calls["evaluator@evaluator"], " ")
 	for _, want := range []string{
@@ -157,11 +157,6 @@ func TestToolsRunsEveryRow(t *testing.T) {
 	}
 	if sb := strings.Join(calls["sandbox@tool"], " "); !strings.Contains(sb, "--env=PROBE_POD_IP=10.42.0.5") {
 		t.Errorf("sandbox row: %s", sb)
-	}
-	agents := strings.Join(calls["tools@agents-tool"], " ")
-	if !strings.Contains(agents, "PROBE_REACH=artifact-server=10.43.1.4:9790") ||
-		!strings.Contains(agents, "maul-egress-broker=10.43.1.2:8080") {
-		t.Errorf("agents row: %s", agents)
 	}
 	checkBrowsed(t, run)
 	if !strings.Contains(run.stderr, "Tool-pod isolation passed") {
@@ -200,10 +195,14 @@ func mapsKeys(m map[string][]string) func(func(string) bool) {
 	}
 }
 
-func TestToolsAgentsRowOnlyWhenAsked(t *testing.T) {
-	run := runToolsProbe(t, nil, toolsArgs()...)
-	if run.code != 0 || len(debugCalls(run)) != 5 {
-		t.Errorf("exit %d with %d probe containers; want 0 and 5\n%s", run.code, len(debugCalls(run)), run.stderr)
+// An agents-namespace tool pod admits no ephemeral container
+// (maul-tools-pod-shape), so the tools run has no row there: the agents run
+// (agents_test.go) has its rows.
+func TestToolsHasNoAgentsRow(t *testing.T) {
+	run := runToolsProbe(t, nil, toolsArgs("--agents-tool-pod", "maul-agents/agents-tool")...)
+	if run.code != 2 || len(run.calls) != 0 {
+		t.Errorf("--agents-tool-pod: exit %d, %d calls; want a usage error\n%s", run.code, len(run.calls),
+			run.stderr)
 	}
 }
 
@@ -329,23 +328,19 @@ func TestToolsValidatesAndDryRunCallsNothing(t *testing.T) {
 			t.Errorf("%q: exit %d, %d calls; want a usage error", args, run.code, len(run.calls))
 		}
 	}
-	run := runToolsProbe(t, nil, toolsArgs("--dry-run", "--agents-tool-pod", "maul-agents/agents-tool")...)
+	run := runToolsProbe(t, nil, toolsArgs("--dry-run")...)
 	if run.code != 0 || len(run.calls) != 0 || !strings.Contains(run.stdout, "dry run: nothing was called") {
 		t.Fatalf("--dry-run: exit %d, %d calls, stdout:\n%s", run.code, len(run.calls), run.stdout)
 	}
 	for _, want := range []string{
 		"netprobe --as evaluator in maul-agents/evaluator", "netprobe --as peers in maul-preview-0/component",
 		"netprobe --as tools in maul-preview-0/tool", "netprobe --as sandbox in maul-preview-0/tool",
-		"netprobe --as page in maul-preview-0/tool", "netprobe --as tools in maul-agents/agents-tool",
+		"netprobe --as page in maul-preview-0/tool",
 		"REACHED: broker :8080, its own tool pod :8090", "BLOCKED: page JS fetching :8090 and the CDP shim",
 	} {
 		if !strings.Contains(run.stdout, want) {
 			t.Errorf("--dry-run lacks %q:\n%s", want, run.stdout)
 		}
-	}
-	run = runToolsProbe(t, nil, toolsArgs("--dry-run")...)
-	if strings.Contains(run.stdout, "in maul-agents/agents-tool") {
-		t.Errorf("--dry-run shows an agents row nobody asked for:\n%s", run.stdout)
 	}
 }
 
