@@ -37,9 +37,6 @@ func TestPlanAskNamesTheWorkspaceSurface(t *testing.T) {
 		return &v1alpha1.ProjectSurfaces{Library: &v1alpha1.LibrarySurface{
 			Repository: repo, Language: v1alpha1.LibraryLanguageGo}}
 	}
-	previewed := slices.Clone(one)
-	previewed[0].Preview = &v1alpha1.ProjectRepositoryPreview{}
-
 	for _, tt := range []struct {
 		name string
 		p    *v1alpha1.Project
@@ -61,7 +58,6 @@ func TestPlanAskNamesTheWorkspaceSurface(t *testing.T) {
 		{"unnamed repository of two", workspaceProject(two, lib("")), evaluating, nil},
 		{"unknown repository", workspaceProject(one, lib("nope")), evaluating, nil},
 		{"invalid binary", workspaceProject(one, cli("", "/usr/bin/x")), evaluating, nil},
-		{"beside a preview", workspaceProject(previewed, lib("")), evaluating, nil},
 		{"slice 1 criteria, not outcomes", workspaceProject(one, lib("")),
 			Settings{Verification: true, Previews: true}, nil},
 		{"no surface", workspaceProject(one, nil), evaluating, nil},
@@ -102,5 +98,30 @@ func TestPlanJobIsHandedTheWorkspace(t *testing.T) {
 	r.Settings.Evaluator = false
 	if s := r.planVerification(p); s != "" {
 		t.Errorf("without the evaluator the plan is handed %s, want nothing", s)
+	}
+}
+
+// TestPlanAskBesideAPreviewIsTheSlotAsk: a Project that previews a
+// repository and also declares a cli or library surface (O6) is asked as
+// it would be without the surface, so the plan-time ask keeps agreeing with
+// the review-time one (pass.verifies), which still verifies its preview:
+// not asking would leave the plan with no outcomes and its slot round
+// reporting success with nothing checked.
+func TestPlanAskBesideAPreviewIsTheSlotAsk(t *testing.T) {
+	repos := []v1alpha1.ProjectRepository{{Name: "app", URL: "https://github.com/o/app",
+		Preview: &v1alpha1.ProjectRepositoryPreview{}}}
+	for _, s := range []*v1alpha1.ProjectSurfaces{
+		{Library: &v1alpha1.LibrarySurface{Language: v1alpha1.LibraryLanguageGo}},
+		{CLI: &v1alpha1.CLISurface{Build: []string{"go", "build", "-o", "/work/bin/", "."}, Binary: "/work/bin/x"}},
+	} {
+		for _, set := range []Settings{evaluating, {Verification: true, Previews: true}} {
+			want := set.planAsk(workspaceProject(repos, nil))
+			if !want.asked() {
+				t.Fatalf("the slot Project is not asked: %+v", want)
+			}
+			if got := set.planAsk(workspaceProject(repos, s)); !reflect.DeepEqual(got, want) {
+				t.Errorf("evaluator %v: planAsk = %+v, want the slot ask %+v", set.Evaluator, got, want)
+			}
+		}
 	}
 }

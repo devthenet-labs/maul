@@ -65,11 +65,12 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 		return planAsk{}
 	}
 	outcomes := s.evaluates(p)
-	if p.Spec.Surfaces.Agents() {
+	previews := v1alpha1.EffectivePreviews(p)
+	if len(previews) == 0 && p.Spec.Surfaces.Agents() {
 		return planAsk{verified: true, outcomes: outcomes, targets: planWorkspace(p, outcomes)}
 	}
 	v := &templates.PlanVerification{Outcomes: outcomes}
-	for _, rp := range v1alpha1.EffectivePreviews(p) {
+	for _, rp := range previews {
 		if rp.Name == v1alpha1.PreviewPartTester || rp.Name == v1alpha1.PreviewRoleTools {
 			return planAsk{verified: true, outcomes: outcomes}
 		}
@@ -80,15 +81,17 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 }
 
 // planWorkspace is the plan-time ask of a Project with a cli or library
-// surface (SPEC-S2): outcomes with the surface named and no components, as
-// the tool pod will build it. nil, so the plan is not asked, when the
-// agent evaluator is off (slice-1 criteria cannot be run there), when the
-// Project previews anything (the combination is refused, O6), or when the
-// surface cannot be stated: its repository is not one of the Project's
+// surface and no preview (SPEC-S2): outcomes with the surface named and no
+// components, as the tool pod will build it. A Project that also previews
+// a repository (O6) never reaches it: it is asked as its preview is, as
+// the review-time decision (pass.verifies) still verifies it, until both
+// refuse the combination together. nil, so the plan is not asked, when the
+// agent evaluator is off (slice-1 criteria cannot be run there), or when
+// the surface cannot be stated: its repository is not one of the Project's
 // (or is unnamed in a Project of several), or its binary or language is one
 // the plan prompt cannot state (templates.PlanVerification.Normalize).
 func planWorkspace(p *v1alpha1.Project, outcomes bool) *templates.PlanVerification {
-	if !outcomes || len(v1alpha1.EffectivePreviews(p)) > 0 {
+	if !outcomes {
 		return nil
 	}
 	s := p.Spec.Surfaces
