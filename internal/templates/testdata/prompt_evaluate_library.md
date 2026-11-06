@@ -132,8 +132,11 @@ argv, the args and the program files:
 - `{{run}}` for a fresh token;
 - `{{marker}}` for the marker (below).
 
-While you explore with `maul-tool run`, write the paths themselves, and name every
-file, name and value you make up with `v1a1-3f9c2a` (for example `v1a1-3f9c2a-beat`).
+While you explore with `maul-tool run`, maul replaces `{{tree}}` for you,
+but never `{{run}}` or `{{marker}}`: name every file, name and value you make up with
+`v1a1-3f9c2a` (for example `v1a1-3f9c2a-beat`). Each call runs in a fresh working directory under
+`/work/scratch`, but the home directory (`/work/home`) and the writable tree (`/work/tree`) are shared by every call
+at a side and never reset: what one call writes there, every later call and check at that side sees.
 
 ## Your turns
 
@@ -192,12 +195,15 @@ kind:
 
 - A change outcome's check must pass at the head and fail at the base by an assertion: its program printed
   `{{marker}} <id>: <what it saw>`, or it exited as `expect` says and its output missed what `expect` asserts.
-  That shows the check tells the change from its absence. A check that passes at the base shows nothing the change
-  did, and one that fails there only by its exit code, a crash or a traceback shows nothing either: neither ever
-  passes its outcome.
+  That shows the check tells the change from its absence. Neither a check that passes at the base nor one that
+  fails there only by its exit code, a crash or a traceback shows anything the change did, and neither ever passes
+  its outcome.
 - A keep outcome's check must pass at both.
-- A check that cannot build or run at the base has no base comparison: it neither helps nor hurts, and its outcome
-  rests on the head and the review alone. A program that calls a function, type or error the change
+- A check whose program does not compile against the base tree, or whose base tree cannot be built or built
+  against, has no base comparison: its outcome rests on the head and the review alone. Any other error at the base
+  (a timeout, processes left running, output too long to keep, a bind or connection error) is no base evidence, and
+  the check never passes its outcome: keep a check's output short and leave no
+  process running. A program that calls a function, type or error the change
   adds is always such a check, since it does not compile at the base: write it as a whole program that calls that
   API the way the outcome says, since its run at the head is all maul has.
 

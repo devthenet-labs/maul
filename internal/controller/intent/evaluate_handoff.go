@@ -6,6 +6,7 @@ package intent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
@@ -61,12 +63,17 @@ func evaluationRunToken(pv *v1alpha1.PreviewVerification) string {
 	return fmt.Sprintf("ev%da%d-%s", pv.Spec.Round, pv.Spec.Attempt, pv.Spec.Run)
 }
 
+// errNoToolsKey is an agents round whose tool pod's key cannot be read
+// yet: its evaluator waits, never launched without it.
+var errNoToolsKey = errors.New("the agents tool pod's key is not readable yet")
+
 // evaluateHandoff renders pv's evaluate handoff from the intent's records:
 // the round and its run token, the request (the input snapshot's issue
 // text), the approved outcomes, the previewed components at pv's heads,
-// the tool pod's tools, the files the open pull requests change with
-// their line counts (SPEC Q15), and on a round after a judged one, that
-// round's results and the diff since its heads (previousRound).
+// the tool pod's tools (for an agents round its workspace and key,
+// agentsTools, and no component), the files the open pull requests change
+// with their line counts (SPEC Q15), and on a round after a judged one,
+// that round's results and the diff since its heads (previousRound).
 func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerification) (string, error) {
 	outcomes, err := crdconv.OutcomesFromCRD(pv.Spec.Outcomes)
 	if err != nil {
@@ -82,7 +89,13 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 			MaxToolCalls: int(t.MaxToolCalls), LookAroundRoutes: int(t.LookAroundRoutes)}
 		h.Tools.BrowserEntry = p.browserEntry(t.Browser)
 	}
-	h.Components = p.evaluateComponents(pv)
+	if pv.Spec.IsAgents() {
+		if err := p.agentsTools(ctx, pv, &h.Tools); err != nil {
+			return "", err
+		}
+	} else {
+		h.Components = p.evaluateComponents(pv)
+	}
 	if h.Request, err = p.requestText(ctx); err != nil {
 		return "", err
 	}
@@ -92,6 +105,80 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	}
 	h.PriorRefused = p.priorRefused()
 	return encodeEvaluateHandoff(h)
+}
+
+// agentsTools fills t, an agents round's tools (S2-16, S2-20): its
+// workspace as the round resolved it, no browser and no look-around. The
+// tool pod's :8090 key is a credential, so it is never written into the
+// run's input ConfigMap: here it is only required to be readable (from the
+// very Secret the tool pod mounts, agentshost.ReadKey: of pv's own UID),
+// and launchRole adds it to the Job's handoff Secret (withToolsKey). A key
+// that cannot be read yet is errNoToolsKey; another failed read is
+// returned.
+func (p *pass) agentsTools(ctx context.Context, pv *v1alpha1.PreviewVerification, t *agentrun.EvaluateTools) error {
+	switch _, err := agentshost.ReadKey(ctx, p.r.APIReader, p.set.AgentNamespace, pv); {
+	case errors.Is(err, agentshost.ErrKeyNotFound):
+		return errNoToolsKey
+	case err != nil:
+		return err
+	}
+	ws := evaluateWorkspace(pv)
+	t.Workspace = &ws
+	t.Browser, t.BrowserEntry, t.LookAroundRoutes = false, "", 0
+	return nil
+}
+
+// withToolsKey is an evaluate run's handoff as its Job is handed it: for
+// an agents round, the stored handoff with the tool pod's key read now
+// from the Secret the tool pod mounts (SPEC-S2 Q32: the key travels only
+// in Secrets, never in the run's input ConfigMap); a slot round's as
+// stored. A key gone by launch is a refusal: the evaluator is never
+// launched without it.
+func (r *RunReconciler) withToolsKey(ctx context.Context, run *v1alpha1.IntentRun, handoff string) (string,
+	*result, error) {
+	ev := run.Spec.Evaluation
+	var pv v1alpha1.PreviewVerification
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: ev.Verification},
+		&pv); err != nil {
+		return "", nil, fmt.Errorf("read the run's verification %s: %w", ev.Verification, err)
+	}
+	if !pv.Spec.IsAgents() {
+		return handoff, nil, nil
+	}
+	key, err := agentshost.ReadKey(ctx, r.APIReader, r.Settings.AgentNamespace, &pv)
+	switch {
+	case errors.Is(err, agentshost.ErrKeyNotFound):
+		return "", &result{outcome: OutcomeAborted, detail: "the evaluation is no longer current: its tool " +
+			"pod's key is gone; nothing was launched"}, nil
+	case err != nil:
+		return "", nil, err
+	}
+	var h agentrun.EvaluateHandoff
+	if err := json.Unmarshal([]byte(handoff), &h); err != nil {
+		return "", &result{outcome: OutcomeAborted, detail: "the evaluate handoff cannot be read; nothing was " +
+			"launched"}, nil
+	}
+	h.Tools.Key = key
+	out, err := encodeEvaluateHandoff(h)
+	if err != nil {
+		return "", nil, err
+	}
+	return out, nil, nil
+}
+
+// evaluateWorkspace is an agents round's surface as agent-runner is handed
+// it: a cli's build argv and binary, or a library's language.
+func evaluateWorkspace(pv *v1alpha1.PreviewVerification) agentrun.EvaluateWorkspace {
+	var out agentrun.EvaluateWorkspace
+	if ws := pv.Spec.Workspace; ws != nil {
+		switch sf := ws.Surface; {
+		case sf.CLI != nil:
+			out = agentrun.EvaluateWorkspace{Surface: "cli", Binary: sf.CLI.Binary, Build: slices.Clone(sf.CLI.Build)}
+		case sf.Library != nil:
+			out = agentrun.EvaluateWorkspace{Surface: "library", Language: string(sf.Library.Language)}
+		}
+	}
+	return out
 }
 
 // evaluateComponents are the previewed components at pv's heads, by the

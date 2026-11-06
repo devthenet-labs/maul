@@ -69,21 +69,23 @@ type consumer struct {
 func renderConsumer(treeDir, workTree string) (consumer, error) {
 	root, err := os.OpenRoot(treeDir)
 	if err != nil {
+		// maul's own failure, not the tree's: no cause.
 		return consumer{}, fmt.Errorf("%s: the tree cannot be read", ReasonNoModule)
 	}
 	defer func() { _ = root.Close() }()
 	if _, err := root.Lstat("vendor"); err == nil {
-		return consumer{}, fmt.Errorf("%s: the tree vendors its modules, which a run program cannot build against",
-			ReasonVendoredTree)
+		return consumer{}, treeRefusal(toolwire.CauseVendoredTree, fmt.Errorf(
+			"%s: the tree vendors its modules, which a run program cannot build against", ReasonVendoredTree))
 	}
 	data, err := readBounded(root, "go.mod", maxGoModBytes)
 	if err != nil {
-		return consumer{}, fmt.Errorf("%s: the tree has no go.mod maul can read", ReasonNoModule)
+		return consumer{}, treeRefusal(toolwire.CauseNoModule, fmt.Errorf("%s: the tree has no go.mod maul can read",
+			ReasonNoModule))
 	}
 	f, err := modfile.Parse("go.mod", data, nil)
 	if err != nil || f.Module == nil || f.Module.Mod.Path == "" || f.Module.Mod.Path == consumerModule {
-		return consumer{}, fmt.Errorf("%s: the tree's go.mod does not name a module maul can build against",
-			ReasonNoModule)
+		return consumer{}, treeRefusal(toolwire.CauseNoModule, fmt.Errorf(
+			"%s: the tree's go.mod does not name a module maul can build against", ReasonNoModule))
 	}
 	for _, rep := range f.Replace {
 		if rep.New.Version != "" {
@@ -91,13 +93,13 @@ func renderConsumer(treeDir, workTree string) (consumer, error) {
 		}
 		p := rep.New.Path
 		if filepath.IsAbs(p) || path.IsAbs(p) {
-			return consumer{}, fmt.Errorf("%s: %s is replaced by an absolute path", ReasonReplaceOutsideTree,
-				rep.Old.Path)
+			return consumer{}, treeRefusal(toolwire.CauseReplaceOutsideTree, fmt.Errorf(
+				"%s: %s is replaced by an absolute path", ReasonReplaceOutsideTree, rep.Old.Path))
 		}
 		joined := path.Join(workTree, filepath.ToSlash(p))
 		if joined != workTree && !strings.HasPrefix(joined, workTree+"/") {
-			return consumer{}, fmt.Errorf("%s: %s is replaced by a directory outside the tree",
-				ReasonReplaceOutsideTree, rep.Old.Path)
+			return consumer{}, treeRefusal(toolwire.CauseReplaceOutsideTree, fmt.Errorf(
+				"%s: %s is replaced by a directory outside the tree", ReasonReplaceOutsideTree, rep.Old.Path))
 		}
 	}
 	mod := "module " + consumerModule + "\n"
@@ -105,6 +107,32 @@ func renderConsumer(treeDir, workTree string) (consumer, error) {
 		mod += "\ngo " + f.Go.Version + "\n"
 	}
 	return consumer{goMod: []byte(mod)}, nil
+}
+
+// treeError is a tree a run program cannot be built against: a property
+// of the tree itself, which the ledger records as the step's cause
+// (toolwire.StepCause).
+type treeError struct {
+	cause toolwire.StepCause
+	err   error
+}
+
+func (e *treeError) Error() string { return e.err.Error() }
+func (e *treeError) Unwrap() error { return e.err }
+
+// treeRefusal is err, a refusal of the tree, with its cause.
+func treeRefusal(cause toolwire.StepCause, err error) error {
+	return &treeError{cause: cause, err: err}
+}
+
+// causeOf is the cause err records, "" for an error that is not the
+// tree's.
+func causeOf(err error) toolwire.StepCause {
+	var te *treeError
+	if errors.As(err, &te) {
+		return te.cause
+	}
+	return ""
 }
 
 // readBounded reads name under root, a regular file of at most limit bytes.
@@ -167,6 +195,23 @@ type compiled struct {
 	res toolexec.Result
 	err error
 	ok  bool
+}
+
+// goBuildFailed is the go command's exit for a build it refused.
+const goBuildFailed = 1
+
+// cause is a failed compile's cause: CauseCompile only when the compiler
+// ran to its end and refused the program (the sandbox answered, refused
+// nothing, the compile ended on its own, cleanly, with the go command's
+// build failure exit); "" for a compile maul cannot tell was refused (no
+// answer, a refusal, a signal, go not found, cut short or leaving
+// processes): no evidence about the tree (SPEC-S2 S2-20).
+func (c compiled) cause() toolwire.StepCause {
+	if c.ok || c.err != nil || c.res.Refused != "" || c.res.TimedOut || c.res.Unclean ||
+		c.res.Exit != goBuildFailed {
+		return ""
+	}
+	return toolwire.CauseCompile
 }
 
 // compileProgram compiles p at side in run's scratch directory: its files
@@ -266,14 +311,14 @@ func (r *Relay) workspaceRunAttempt(ctx context.Context, rc checks.RunCheck, run
 	}
 	p, err := r.prepareProgram(side, files, args)
 	if err != nil {
-		return errStep("the program cannot be built against the tree: " + err.Error())
+		return causedStep(causeOf(err), "the program cannot be built against the tree: "+err.Error())
 	}
 	if c := r.compileProgram(ctx, side, run, p); !c.ok {
 		if c.res.Unclean || c.res.TimedOut {
 			return errStep("the program's compile did not end cleanly, so maul cannot judge the run")
 		}
-		return errStep(fmt.Sprintf("the program did not compile (exit %d): a compile failure is no evidence about "+
-			"the outcome", c.res.Exit))
+		return causedStep(c.cause(), fmt.Sprintf("the program did not compile (exit %d): a compile failure is no "+
+			"evidence about the outcome", c.res.Exit))
 	}
 	ctx, cancel := withCheckTimeout(ctx, rc.Timeout)
 	defer cancel()

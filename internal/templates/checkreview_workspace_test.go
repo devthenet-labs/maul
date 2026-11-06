@@ -143,10 +143,16 @@ func TestCheckReviewWorkspaceStatesRulesExactly(t *testing.T) {
 		want, gone []string
 	}{
 		{"green", testWorkspaceReview(t, ExampleLibraryRunCheck, testReviewLibrary),
-			[]string{"or cannot build or run there, which leaves no base comparison"},
-			[]string{"only if it fails at the base by an assertion"}},
+			// The base-error rule (S2-20, decided): only a compile error, a tree
+			// a program cannot be built against and an unbuildable base are no
+			// base comparison; any other error is no base evidence.
+			[]string{"or where its program does not compile against the base tree or the base tree cannot be " +
+				"built or built against, which leaves no base comparison", "is no base evidence, and the check " +
+				"does not count"},
+			[]string{"or cannot build or run there", "only if it fails at the base by an assertion"}},
 		{"red", red,
-			[]string{"only the working directory was fresh", "the tree and the caches are shared by every run"},
+			[]string{"only the working directory was fresh", "the home directory (`/work/home`) and the caches " +
+				"are shared by every run at that side and never reset"},
 			[]string{"left behind was there"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

@@ -86,12 +86,17 @@ type previewRecord struct {
 // failed read of the Preview changes nothing (loadPreview). changed reports
 // a status write; only errConflict and a render error are returned.
 func (p *pass) syncPreviewComments(ctx context.Context) (changed, retry bool, err error) {
-	if !p.set.Previews || len(p.in.Status.PullRequests) == 0 {
+	agents := p.set.agentsProject(p.proj)
+	if !p.set.Previews && !agents || len(p.in.Status.PullRequests) == 0 {
 		return false, false, nil
 	}
-	view, ok := p.loadPreview(ctx)
-	if !ok {
-		return false, true, nil
+	var view previewView
+	if !agents {
+		v, ok := p.loadPreview(ctx)
+		if !ok {
+			return false, true, nil
+		}
+		view = v
 	}
 	var records []previewRecord
 	for _, pr := range p.in.Status.PullRequests {
@@ -135,19 +140,8 @@ func (p *pass) syncPreviewComment(ctx context.Context, view previewView, pr v1al
 		}
 		refused = n.refused[key]
 	})
-	previews := v1alpha1.EffectivePreviews(p.proj)
-	var rp *v1alpha1.RepositoryPreview
-	if i := slices.IndexFunc(previews, func(rp v1alpha1.RepositoryPreview) bool {
-		return sameRepo(rp.URL, pr.Repository)
-	}); i >= 0 {
-		rp = &previews[i]
-	}
-	if rp == nil && id == 0 || p.leftProject(pr.Repository) {
-		return nil, false, nil
-	}
-	c := p.previewComment(view, pr, rp, len(previews) > 1, terminal(p.in.Status.Phase))
-	c.Verify = p.previewVerifySection(ctx, pr, rp != nil, c.State)
-	if id == 0 && c.State != templates.PreviewLive {
+	c, ok := p.commentFor(ctx, view, pr, id)
+	if !ok || id == 0 && c.State != templates.PreviewLive {
 		return nil, false, nil // posted only once live
 	}
 	body, err := templates.RenderIntentPreviewComment(c)
@@ -198,6 +192,61 @@ func (p *pass) previewWriteFailed(ctx context.Context, pr v1alpha1.IntentPullReq
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "write the preview comment; retried at the next poll", attrs...)
 	return true
+}
+
+// commentFor is the comment pr calls for now, id its comment's when there
+// is one: ok is false when pr has none (its repository not previewed and
+// no comment of it, or left the Project). An agents Project's is the pull
+// request's link-less evaluation comment (evaluationComment).
+func (p *pass) commentFor(ctx context.Context, view previewView, pr v1alpha1.IntentPullRequest,
+	id int64) (templates.IntentPreviewComment, bool) {
+	if p.leftProject(pr.Repository) {
+		return templates.IntentPreviewComment{}, false
+	}
+	if p.set.agentsProject(p.proj) {
+		return p.evaluationComment(ctx, pr, id)
+	}
+	previews := v1alpha1.EffectivePreviews(p.proj)
+	var rp *v1alpha1.RepositoryPreview
+	if i := slices.IndexFunc(previews, func(rp v1alpha1.RepositoryPreview) bool {
+		return sameRepo(rp.URL, pr.Repository)
+	}); i >= 0 {
+		rp = &previews[i]
+	}
+	if rp == nil && id == 0 {
+		return templates.IntentPreviewComment{}, false
+	}
+	c := p.previewComment(view, pr, rp, len(previews) > 1, terminal(p.in.Status.Phase))
+	c.Verify = p.previewVerifySection(ctx, pr, rp != nil, c.State)
+	return c, true
+}
+
+// evaluationComment is the link-less comment (Workspace, SPEC-S2) on pr,
+// the pull request of an agents Project's surface repository: where its
+// hand-off and evaluation stand, at its head; removed once the intent has
+// ended. It is shown (posted, then kept as the preview comment is once
+// live) as soon as a hand-off or a verification stands; ok is false while
+// neither does and nothing is posted yet, and for another repository's
+// pull request.
+func (p *pass) evaluationComment(ctx context.Context, pr v1alpha1.IntentPullRequest,
+	id int64) (templates.IntentPreviewComment, bool) {
+	repo, _ := surfaceRepository(p.proj)
+	if !sameRepo(pr.Repository, repo.URL) && id == 0 {
+		return templates.IntentPreviewComment{}, false
+	}
+	c := templates.IntentPreviewComment{Namespace: p.in.Namespace, Intent: p.in.Name, Resource: p.in.Name,
+		Revision: pr.HeadSHA, Workspace: true}
+	if terminal(p.in.Status.Phase) {
+		c.State = templates.PreviewRemoved
+		return c, true
+	}
+	c.Handoff = p.handoffView()
+	c.Verify = p.verifySection(ctx, &pr)
+	if c.Handoff == nil && c.Verify == nil {
+		return c, id != 0
+	}
+	c.State = templates.PreviewLive
+	return c, true
 }
 
 // previewComment is the preview comment pr calls for now: removed once the

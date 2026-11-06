@@ -38,9 +38,11 @@ func (genAgentsRound) Generate(r *rand.Rand, _ int) reflect.Value {
 			}
 			for range r.Intn(3) {
 				in.Base.Runs = append(in.Base.Runs, CheckRun{CheckDigest: c,
-					Result: pickOf(r, []RunResult{RunFail, RunFail, RunPass, RunError, RunRefused, RunQuarantined}),
-					Token:  pickOf(r, []string{"tok-b", "tok-b", ""}), Seq: int32(1 + r.Intn(20)),
-					AssertionStep: int32(r.Intn(2)), AssertionID: "stdout"})
+					Result: pickOf(r, []RunResult{RunFail, RunFail, RunPass, RunError, RunError, RunRefused,
+						RunQuarantined}),
+					Token: pickOf(r, []string{"tok-b", "tok-b", ""}), Seq: int32(1 + r.Intn(20)),
+					AssertionStep: int32(r.Intn(2)), AssertionID: "stdout",
+					Cause: pickOf(r, []RunCause{"", "", CauseCompile, CauseVendoredTree, "timeout"})})
 			}
 		}
 		v := EvaluatorVerdict{Outcome: id, Claim: pickOf(r, []Claim{ClaimPass, ClaimPass, ClaimFail, ClaimUnsure}),
@@ -92,6 +94,64 @@ func baseRun(result RunResult, assertionStep int32) CheckRun {
 	return run
 }
 
+// causedRun is an error run of check "a" at base, with cause.
+func causedRun(cause RunCause) CheckRun {
+	r := baseRun(RunError, 0)
+	r.Cause = cause
+	return r
+}
+
+// TestDecideBaseErrorCauses is the base-error rule (SPEC-S2 S2-20, decided
+// 2026-11-05: zero false passes outranks the confirmed rate), one row per
+// cause the relay records: only a run that could not compile against the
+// base tree, a tree a run program cannot be built against (vendored,
+// replaced outside itself, no module) and a base that did not build are "no
+// base comparison" (n/a). Any other error at base (a timeout, processes
+// left behind, output cut, a bind or connection error, a refused or
+// unanswered call: none of them recorded with a cause) gives no base
+// evidence, and a change outcome resting on it is unsure, never passed and
+// never failed. A keep outcome counts unless red by assertion at base, so
+// an error leaves it as before.
+func TestDecideBaseErrorCauses(t *testing.T) {
+	tests := []struct {
+		cause        RunCause
+		noComparison bool
+	}{
+		{CauseCompile, true},
+		{CauseVendoredTree, true},
+		{CauseReplaceOutsideTree, true},
+		{CauseNoModule, true},
+		{CauseBaseUnbuildable, true},
+		{"", false},
+		{"timeout", false},
+		{"unclean", false},
+		{"cut-output", false},
+		{"net-error", false},
+		{"sandbox", false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.cause), func(t *testing.T) {
+			if got := tt.cause.NoComparison(); got != tt.noComparison {
+				t.Errorf("NoComparison() = %v, want %v", got, tt.noComparison)
+			}
+			for _, keep := range []bool{false, true} {
+				d := Decide(atBase(keep, true, false, causedRun(tt.cause)))
+				got := d.PerOutcome[0]
+				want := ResultPassed
+				if !keep && !tt.noComparison {
+					want = ResultUnsure
+				}
+				if got.Result != want {
+					t.Errorf("keep %v: got %+v, want %s", keep, got, want)
+				}
+				if got.Result == ResultFailed || d.Fix != nil {
+					t.Errorf("keep %v: a base error failed the outcome: %+v", keep, d)
+				}
+			}
+		})
+	}
+}
+
 // atBase is confirmedPass with a base: the given runs, required or not.
 func atBase(keep, required, unbuildable bool, runs ...CheckRun) Input {
 	return with(confirmedPass(), func(in *Input) {
@@ -109,7 +169,9 @@ func atBase(keep, required, unbuildable bool, runs ...CheckRun) Input {
 func TestDecideBaseRuns(t *testing.T) {
 	const change, keep = false, true
 	passed := func(in Input) (Input, Result, string) { return in, ResultPassed, ReasonConfirmed }
-	unsure := func(in Input) (Input, Result, string) { return in, ResultUnsure, ReasonModelOnlyPass }
+	// A check that passes every other rule but does not discriminate at
+	// base leaves its outcome unsure, saying so (no-base-evidence).
+	unsure := func(in Input) (Input, Result, string) { return in, ResultUnsure, ReasonNoBaseEvidence }
 	tests := []struct {
 		name   string
 		build  func() (Input, Result, string)
@@ -142,14 +204,26 @@ func TestDecideBaseRuns(t *testing.T) {
 			build: func() (Input, Result, string) {
 				return unsure(atBase(change, true, false, baseRun(RunFail, 1), baseRun(RunFail, 0)))
 			}},
-		{name: "change: red by assertion beside an error at base",
+		{name: "change: red by assertion beside an error with no base comparison",
 			build: func() (Input, Result, string) {
-				return passed(atBase(change, true, false, baseRun(RunFail, 1), baseRun(RunError, 0)))
+				return passed(atBase(change, true, false, baseRun(RunFail, 1), causedRun(CauseCompile)))
 			}},
-		{name: "change: a compile error or timeout at base (an error) is n/a",
-			build: func() (Input, Result, string) { return passed(atBase(change, true, false, baseRun(RunError, 0))) }},
-		{name: "change: a refusal at base is n/a",
-			build: func() (Input, Result, string) { return passed(atBase(change, true, false, baseRun(RunRefused, 0))) }},
+		{name: "change: red by assertion beside an error that gives no base evidence",
+			build: func() (Input, Result, string) {
+				return unsure(atBase(change, true, false, baseRun(RunFail, 1), baseRun(RunError, 0)))
+			}},
+		{name: "change: a compile error at base is n/a",
+			build: func() (Input, Result, string) { return passed(atBase(change, true, false, causedRun(CauseCompile))) }},
+		{name: "change: an error with no cause at base (a timeout, cut output) is no discrimination",
+			build: func() (Input, Result, string) { return unsure(atBase(change, true, false, baseRun(RunError, 0))) }},
+		{name: "change: a refusal at base is no discrimination",
+			build: func() (Input, Result, string) { return unsure(atBase(change, true, false, baseRun(RunRefused, 0))) }},
+		{name: "change: a cause on a run that did not error is not n/a",
+			build: func() (Input, Result, string) {
+				r := baseRun(RunFail, 0)
+				r.Cause = CauseCompile
+				return unsure(atBase(change, true, false, r))
+			}},
 		{name: "change: a required base with no run of the check is not met",
 			build: func() (Input, Result, string) { return unsure(atBase(change, true, false)) }},
 		{name: "change: a required base run of another check does not count",
@@ -172,6 +246,8 @@ func TestDecideBaseRuns(t *testing.T) {
 			build: func() (Input, Result, string) { return passed(atBase(keep, true, false, baseRun(RunFail, 0))) }},
 		{name: "keep: an error at base is n/a",
 			build: func() (Input, Result, string) { return passed(atBase(keep, true, false, baseRun(RunError, 0))) }},
+		{name: "keep: a compile error at base is n/a",
+			build: func() (Input, Result, string) { return passed(atBase(keep, true, false, causedRun(CauseCompile))) }},
 		{name: "keep: quarantined at base",
 			build: func() (Input, Result, string) { return unsure(atBase(keep, true, false, baseRun(RunQuarantined, 0))) }},
 		{name: "keep: a required base with no run is not met",

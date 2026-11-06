@@ -82,9 +82,11 @@ request's head, and its base without the change, in the repository's own image, 
 - At the head the check passed.
 - At the base it could not build or run: an error, not a result.
 
-maul itself counts a change outcome's check only if it does not pass at the base: it fails there by an assertion,
-or cannot build or run there, which leaves no base comparison. It counts a keep outcome's check unless it fails there
-by an assertion. That rule is not yours to judge: read the two runs as evidence of what the program exercises.
+maul itself counts a change outcome's check only where it fails at the base by an assertion, or where its program
+does not compile against the base tree or the base tree cannot be built or built against, which leaves no base
+comparison. Any other error at the base (a timeout, processes left running, output too long to keep, a bind or
+connection error) is no base evidence, and the check does not count. It counts a keep outcome's check unless it fails
+there by an assertion. That rule is not yours to judge: read the two runs as evidence of what the program exercises.
 
 ## How to judge
 

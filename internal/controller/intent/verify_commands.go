@@ -229,6 +229,11 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 // answered and records nothing.
 func (p *pass) releasePreview(ctx context.Context, c verifyCommand,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	if p.set.agentsProject(p.proj) {
+		// No preview, so no link to show: the hand-off is the result's.
+		n.Outcome = templates.VerifyPreviewNone
+		return n, nil
+	}
 	if v := p.in.Status.Verification; v != nil && v.Handoff != nil && v.Handoff.Released {
 		n.Outcome = templates.VerifyPreviewAlready
 		return n, nil
@@ -502,6 +507,9 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 	heads := shortHeads(v.Heads)
 	if saw, err := p.liveWhenGiven(ctx, v, c.at); err != nil || !saw {
 		n.Outcome, n.Heads = templates.VerifyAcceptMoved, heads
+		if p.set.agentsProject(p.proj) {
+			n.Outcome = templates.VerifyAcceptNotChecked
+		}
 		return n, err
 	}
 	note := acceptNote(c.body)
@@ -555,6 +563,9 @@ func acceptNote(body string) string {
 // to ones recorded or deployed after they commented. A Preview not found is
 // not live; any other failed read is returned, deciding nothing.
 func (p *pass) liveWhenGiven(ctx context.Context, v *v1alpha1.IntentVerification, at time.Time) (bool, error) {
+	if p.set.agentsProject(p.proj) {
+		return p.checkedWhenGiven(ctx, v, at)
+	}
 	if hs, ok := previewHeadSet(p.proj, p.in); !ok || hs.digest != v.HeadSetDigest {
 		return false, nil
 	}
@@ -569,6 +580,25 @@ func (p *pass) liveWhenGiven(ctx context.Context, v *v1alpha1.IntentVerification
 	deployed := pv.Status.LastDeployedAt
 	return viewPreview(p.proj, p.in, &pv).state == templates.PreviewLive && deployed != nil &&
 		at.After(deployed.Time), nil
+}
+
+// checkedWhenGiven is liveWhenGiven for an agents Project, which has no
+// Preview (SPEC-S2): the workspace heads its tool host derives now
+// (toolHost.heads) are v's, and maul had started checking exactly them (a
+// round of the Intent's at that head set was created) before at. An
+// acceptance is bound to the commits that were judged, never to ones
+// recorded or checked after the approver commented.
+func (p *pass) checkedWhenGiven(ctx context.Context, v *v1alpha1.IntentVerification, at time.Time) (bool, error) {
+	if hs, ok := p.toolHost().heads(p); !ok || hs.digest != v.HeadSetDigest {
+		return false, nil
+	}
+	pvs, err := p.ownVerifications(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read the intent's verifications: %w", err)
+	}
+	return slices.ContainsFunc(pvs, func(pv v1alpha1.PreviewVerification) bool {
+		return pv.Spec.IsAgents() && pv.Spec.HeadSetDigest == v.HeadSetDigest && at.After(pv.CreationTimestamp.Time)
+	}), nil
 }
 
 // rememberApplied records in in's status that the acceptance command in
@@ -766,7 +796,7 @@ func (p *pass) settlePRVerifyCommand(ctx context.Context, pr *v1alpha1.IntentPul
 	if !verifyPhase(p.in.Status.Phase) {
 		body, err := templates.RenderNotAvailableNotice(templates.NotAvailableNotice{Namespace: p.in.Namespace,
 			Intent: p.in.Name, Key: key, Surface: command.IntentPR, Verb: a.verb, Phase: string(p.in.Status.Phase),
-			Available: verbs(p.in.Status.Phase, p.set.Verification)})
+			Available: verbs(p.in.Status.Phase, p.set.Verification, !p.set.agentsProject(p.proj))})
 		return p.prReply(ctx, pr, body, err)
 	}
 	n, err := p.applyVerifyCommand(ctx, verifyCommand{surface: command.IntentPR, key: key, id: c.ID, at: c.CreatedAt,

@@ -199,6 +199,7 @@ func TestEvaluatorCreatedAfterToolsStatusAgents(t *testing.T) {
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, false)
 	e.review(name, 2)
 	noEvaluator("tool pod not ready")
+	e.toolsSecret(&pv, "")
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
 	e.checkEvaluateRun(name, &pv)

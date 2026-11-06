@@ -117,6 +117,9 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 	if outcomesReady(acc, v) {
 		return ""
 	}
+	if why := agentsWhy(v); why != "" {
+		return why
+	}
 	switch v.State {
 	case v1alpha1.VerificationUnconfirmed:
 		switch {
@@ -152,6 +155,28 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 		return templates.HandoffWhyUnavailable
 	}
 	return ""
+}
+
+// agentsWhy is why an agents round settled without a judgement, as the
+// hand-off says it (templates.HandoffWhyOfVerification of the reason the
+// verification recorded: no accepted image, trees not fetched, the head not
+// built); "" for any other state or reason.
+func agentsWhy(v *v1alpha1.IntentVerification) string {
+	if v.State != v1alpha1.VerificationUnconfirmed && v.State != v1alpha1.VerificationUnavailable {
+		return ""
+	}
+	var reason v1alpha1.PreviewVerificationReason
+	switch v.UnavailableReason {
+	case v1alpha1.VerificationUnavailableSandboxImage:
+		reason = v1alpha1.VerificationReasonSandboxImageUnavailable
+	case v1alpha1.VerificationUnavailableTree:
+		reason = v1alpha1.VerificationReasonTreeUnavailable
+	case v1alpha1.VerificationUnavailableToolsBuildFailed:
+		reason = v1alpha1.VerificationReasonToolsBuildFailed
+	default:
+		return ""
+	}
+	return templates.HandoffWhyOfVerification(reason)
 }
 
 // environmentFailed reports a judgement whose outcomes were left unsure by

@@ -813,13 +813,25 @@ func (p *pass) feedbackGivenAt(ctx context.Context, run *v1alpha1.IntentRun,
 	return at, nil
 }
 
+// fixable reports a repository an acceptance fix may run in: a previewed
+// component of proj, or the repository its cli or library surface builds.
+func fixable(proj *v1alpha1.Project, repoURL string) bool {
+	if surface, ok := surfaceRepository(proj); ok && sameRepo(surface.URL, repoURL) {
+		return true
+	}
+	return slices.ContainsFunc(v1alpha1.EffectivePreviews(proj), func(rp v1alpha1.RepositoryPreview) bool {
+		return sameRepo(rp.URL, repoURL)
+	})
+}
+
 // verifyRunRefusal is the run scheduler's check of an acceptance-fix run
 // before it launches, against its Intent as last written and its Project:
 // one the Intent cancelled for a human's round settles superseded, never
 // launched (H5); one whose plan revision has no recorded criteria, or whose
-// repository is not a previewed component of the Project, is aborted
-// (fail closed: it could only have been handed evidence that is not the
-// approved plan's). nil to launch, and for any other run.
+// repository is neither a previewed component of the Project nor the
+// repository its cli or library surface builds (an agents round's, SPEC-S2),
+// is aborted (fail closed: it could only have been handed evidence that is
+// not the approved plan's). nil to launch, and for any other run.
 func verifyRunRefusal(in *v1alpha1.Intent, proj *v1alpha1.Project, run *v1alpha1.IntentRun) *result {
 	if roundKindOf(run.Spec.Trigger) != roundVerify {
 		return nil
@@ -838,9 +850,7 @@ func verifyRunRefusal(in *v1alpha1.Intent, proj *v1alpha1.Project, run *v1alpha1
 		return &result{outcome: OutcomeAborted, detail: fmt.Sprintf("plan revision %d's acceptance criteria "+
 			"are not recorded on the intent; nothing was launched", run.Spec.Inputs.PlanRevision)}
 	}
-	if !slices.ContainsFunc(v1alpha1.EffectivePreviews(proj), func(rp v1alpha1.RepositoryPreview) bool {
-		return sameRepo(rp.URL, run.Spec.Repository.URL)
-	}) {
+	if !fixable(proj, run.Spec.Repository.URL) {
 		return &result{outcome: OutcomeAborted, detail: "the acceptance fix's repository " +
 			repoSlug(run.Spec.Repository.URL) + " is not a previewed component of the project; nothing was launched"}
 	}

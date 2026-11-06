@@ -545,6 +545,13 @@ func errStep(detail string) []toolwire.StepRecord {
 	return []toolwire.StepRecord{{Result: toolwire.ResultError, Detail: detail}}
 }
 
+// causedStep is errStep recording cause (toolwire.StepCause), "" for none.
+func causedStep(cause toolwire.StepCause, detail string) []toolwire.StepRecord {
+	steps := errStep(detail)
+	steps[0].Cause = cause
+	return steps
+}
+
 // judgeWorkspace judges a workspace program's run against x (DESIGN 4.3,
 // SPEC-S2 O4 and 7.10). How a run maps to a result, by the first that
 // holds:
@@ -636,7 +643,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 // no shim is asked, and the run is an error (n/a), so a Required base still
 // has its run and reads unbuildable, never missing.
 func baseUnbuiltRun(c checks.Check, mode toolwire.CheckRunMode) toolwire.CheckRunRecord {
-	steps := errStep(ReasonBaseUnbuildable + ": the base tree did not build")
+	steps := causedStep(toolwire.CauseBaseUnbuildable, ReasonBaseUnbuildable+": the base tree did not build")
 	steps[0].Side = toolwire.SideBase
 	a := toolwire.Attempt{Result: toolwire.ResultError, Steps: steps}
 	return toolwire.CheckRunRecord{Digest: bareDigestOf(checks.Digest(c)), CheckID: c.ID, Mode: mode,

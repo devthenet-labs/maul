@@ -308,7 +308,7 @@ func TestRedCheckWithoutRunDataIsNotStored(t *testing.T) {
 	}}
 	var reasons []string
 	got := storeCandidates(pv, []v1alpha1.AcceptanceOutcome{{ID: "still-healthy", Outcome: "it answers"}}, nil,
-		checks.Preview{Paths: []string{"/"}, Components: []string{"app"}},
+		checks.Context{Preview: &checks.Preview{Paths: []string{"/"}, Components: []string{"app"}}},
 		func(reason string, _ v1alpha1.SavedCheck, _ string) { reasons = append(reasons, reason) })
 	if len(got) != 0 || len(reasons) != 1 {
 		t.Errorf("candidates %+v (refusals %v), want the red check refused", got, reasons)

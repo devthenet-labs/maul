@@ -199,9 +199,10 @@ func (r *Reconciler) buildSpec(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	return spec, repo, "", nil
 }
 
-// buildRepository is the latest build run of repoURL among in's, and the
-// Repository it was built on, its runner-image anchor: nil when it has
-// none, or one that run does not own.
+// buildRepository is the latest build run of repoURL among in's
+// (LatestBuildRun, the gate's own choice), and the Repository it was built
+// on, its runner-image anchor: nil when it has none, or one that run does
+// not own.
 func (r *Reconciler) buildRepository(ctx context.Context, in *v1alpha1.Intent, repoURL string) (
 	*v1alpha1.IntentRun, *v1alpha1.Repository, error) {
 	var list v1alpha1.IntentRunList
@@ -209,17 +210,14 @@ func (r *Reconciler) buildRepository(ctx context.Context, in *v1alpha1.Intent, r
 		client.MatchingLabels{v1alpha1.LabelIntent: in.Name}); err != nil {
 		return nil, nil, err
 	}
-	runs := slices.DeleteFunc(list.Items, func(run v1alpha1.IntentRun) bool {
-		return run.Spec.Stage != v1alpha1.IntentStageBuild || !sameRepo(run.Spec.Repository.URL, repoURL) ||
-			run.Spec.IntentRef.UID != in.UID || !controlledBy(run.OwnerReferences, in.UID)
-	})
-	if len(runs) == 0 {
+	runs := make([]*v1alpha1.IntentRun, 0, len(list.Items))
+	for i := range list.Items {
+		runs = append(runs, &list.Items[i])
+	}
+	run := LatestBuildRun(in, repoURL, runs)
+	if run == nil {
 		return nil, nil, nil
 	}
-	slices.SortStableFunc(runs, func(a, b v1alpha1.IntentRun) int {
-		return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
-	})
-	run := &runs[len(runs)-1]
 	var repo v1alpha1.Repository
 	key := types.NamespacedName{Namespace: in.Namespace, Name: run.Spec.Repository.RepositoryRef.Name}
 	switch err := r.APIReader.Get(ctx, key, &repo); {

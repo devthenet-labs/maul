@@ -126,9 +126,10 @@ type reviewKey struct {
 // outcome and form whose digest it is, valid under the saved-check grammar
 // against the preview, its confirmation a clean pass with a run token (for
 // a check proposed to show a defect: red by assertion, confirmedRed), and
-// not already stored. Each refusal is reported with its reason.
+// not already stored. surface is the round's (checkContext): its preview,
+// or an agents round's workspace. Each refusal is reported with its reason.
 func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
-	stored []v1alpha1.SavedCheck, preview checks.Preview,
+	stored []v1alpha1.SavedCheck, surface checks.Context,
 	refused func(reason string, c v1alpha1.SavedCheck, detail string)) []storeCandidate {
 	var out []storeCandidate
 	seen := map[string]bool{}
@@ -144,7 +145,7 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 			refused("not bound to an outcome maul evaluates", c, c.Outcome)
 			continue
 		}
-		if reason, detail := savedCheckRefusal(c, preview); reason != "" {
+		if reason, detail := savedCheckRefusal(c, surface); reason != "" {
 			refused(reason, c, detail)
 			continue
 		}
@@ -197,9 +198,9 @@ func confirmedRed(runs []v1alpha1.CheckRun, c v1alpha1.SavedCheck) bool {
 	return seen
 }
 
-// savedCheckRefusal is why c cannot be stored by its own bytes (rules 1-2),
-// with a detail, or "" when it can.
-func savedCheckRefusal(c v1alpha1.SavedCheck, preview checks.Preview) (string, string) {
+// savedCheckRefusal is why c cannot be stored by its own bytes (rules 1-2)
+// on surface, with a detail, or "" when it can.
+func savedCheckRefusal(c v1alpha1.SavedCheck, surface checks.Context) (string, string) {
 	if len(c.Body) > v1alpha1.MaxSavedCheckBytes {
 		return "over the saved-check cap", fmt.Sprintf("%d bytes, over %d", len(c.Body),
 			v1alpha1.MaxSavedCheckBytes)
@@ -215,7 +216,7 @@ func savedCheckRefusal(c v1alpha1.SavedCheck, preview checks.Preview) (string, s
 	case parsed.ID != c.ID || parsed.Outcome != c.Outcome || string(parsed.Form) != string(c.Form):
 		return "its body names another check", ""
 	}
-	if err := checks.Validate(parsed, checks.Context{Preview: &preview}); err != nil {
+	if err := checks.Validate(parsed, surface); err != nil {
 		return "refused by the saved-check rules", err.Error()
 	}
 	return "", ""
@@ -235,6 +236,27 @@ func confirmedClean(runs []v1alpha1.CheckRun, d string) bool {
 		pass = true
 	}
 	return pass
+}
+
+// checkContext is the surface pv's checks are held to, as its tool pod
+// validates them: an agents round's workspace (its cli binary or its
+// library's language), else the slot's preview (checkPreview). Every caller
+// names its surface: checks.Validate refuses every check on none.
+func (p *pass) checkContext(pv *v1alpha1.PreviewVerification) checks.Context {
+	if !pv.Spec.IsAgents() {
+		preview := p.checkPreview(pv)
+		return checks.Context{Preview: &preview}
+	}
+	var ws checks.Workspace
+	if w := pv.Spec.Workspace; w != nil {
+		switch {
+		case w.Surface.CLI != nil:
+			ws.Binary = w.Surface.CLI.Binary
+		case w.Surface.Library != nil:
+			ws.Language = string(w.Surface.Library.Language)
+		}
+	}
+	return checks.Context{Workspace: &ws}
 }
 
 // checkPreview is what pv's checks may reach: its components' keys and

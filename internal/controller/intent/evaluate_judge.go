@@ -20,6 +20,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
@@ -309,7 +310,8 @@ func judgedChecks(pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck
 // valid checks are ever stored), the tools ledger's runs, the cached
 // reviews, the checks narrowed in an earlier round, and the evaluator's
 // claims with the ledger entries it cites that the round's ledger holds (its
-// contrary entries as written). Base runs: none in S1.
+// contrary entries as written), and an agents round's base (baseRuns; none
+// on a slot round, S1's).
 func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, cs []v1alpha1.SavedCheck,
 	ev *report.Evaluation) acceptance.Input {
 	var in acceptance.Input
@@ -325,6 +327,7 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 			Narrowed: narrowedBefore(acc, c.Digest, pv.Name)})
 	}
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
+	in.Base = baseRuns(pv)
 	for _, r := range acc.Reviews {
 		in.Reviews = append(in.Reviews, acceptance.CheckReview{CheckDigest: r.CheckDigest,
 			OutcomeDigest: r.OutcomeDigest, Answer: acceptance.ReviewAnswer(r.Answer),
@@ -390,12 +393,44 @@ func proposedDigest(p report.ProposedCheck, pv *v1alpha1.PreviewVerification) st
 	return pv.Status.Confirmed[i].Digest
 }
 
-// checkRuns are a verification's check runs as Decide reads them.
+// baseRuns is an agents round's base as Decide reads it (rule 5, SPEC-S2
+// S2-20): always required, since every check of the round was to run at
+// the base too; unbuildable as the agents host recorded it (only a base
+// build that ran and failed); and the runs at the base tree, each with its
+// cause. A round whose base was never written has a required base with no
+// run, which passes nothing. nil for a slot round, which has no base.
+func baseRuns(pv *v1alpha1.PreviewVerification) *acceptance.BaseRuns {
+	if !pv.Spec.IsAgents() {
+		return nil
+	}
+	out := &acceptance.BaseRuns{Required: true}
+	b := pv.Status.Base
+	if b == nil {
+		return out
+	}
+	out.Unbuildable = b.Unbuildable
+	var at []v1alpha1.CheckRun
+	for _, r := range b.Runs {
+		if r.Side() == v1alpha1.TreeBase {
+			at = append(at, r)
+		}
+	}
+	out.Runs = checkRuns(at)
+	return out
+}
+
+// checkRuns are a verification's check runs as Decide reads them: only
+// runs carrying the run token tools generated (the schema requires one; a
+// run without it is no run of tools').
 func checkRuns(rs []v1alpha1.CheckRun) []acceptance.CheckRun {
 	out := make([]acceptance.CheckRun, 0, len(rs))
 	for _, r := range rs {
+		if r.Token == "" {
+			continue
+		}
 		run := acceptance.CheckRun{CheckDigest: r.CheckDigest, Result: acceptance.RunResult(r.Result),
-			Token: r.Token, Seq: r.Seq, ExpectFail: r.Expect == v1alpha1.CheckExpectFail}
+			Token: r.Token, Seq: r.Seq, ExpectFail: r.Expect == v1alpha1.CheckExpectFail,
+			Cause: acceptance.RunCause(r.Cause)}
 		if r.RedByAssertion() {
 			run.AssertionStep, run.AssertionID = r.AssertionStep, r.AssertionID
 		}
@@ -672,6 +707,8 @@ func checkLine(c v1alpha1.SavedCheck) string {
 		line = browserLine(parsed.Browser)
 	case parsed.Exec != nil:
 		line = execLine(parsed.Exec)
+	case parsed.Run != nil:
+		line = runLine(parsed.Run)
 	default:
 		return ""
 	}
@@ -738,17 +775,28 @@ func execLine(e *checks.ExecCheck) string {
 	if len(e.Argv) > 0 {
 		program = e.Argv[0]
 	}
+	return expectsLine("exec: "+program, e.Expect)
+}
+
+// runLine: "run: a go program of 2 files; expects exit 0, stdout".
+func runLine(r *checks.RunCheck) string {
+	return expectsLine(fmt.Sprintf("run: a %s program of %d %s", r.Language, len(r.Files),
+		pluralWord(len(r.Files), "file", "files")), r.Expect)
+}
+
+// expectsLine is head and what x asserts.
+func expectsLine(head string, x checks.ExecExpect) string {
 	var expects []string
-	if e.Expect.Exit != nil {
-		expects = append(expects, fmt.Sprintf("exit %d", *e.Expect.Exit))
+	if x.Exit != nil {
+		expects = append(expects, fmt.Sprintf("exit %d", *x.Exit))
 	}
-	if e.Expect.StdoutContains != "" || len(e.Expect.StdoutJSON) > 0 {
+	if x.StdoutContains != "" || len(x.StdoutJSON) > 0 {
 		expects = append(expects, "stdout")
 	}
 	if len(expects) == 0 {
-		return "exec: " + program
+		return head
 	}
-	return "exec: " + program + "; expects " + strings.Join(expects, ", ")
+	return head + "; expects " + strings.Join(expects, ", ")
 }
 
 // pluralWord is one when n is 1, else many.
@@ -804,8 +852,9 @@ func confirmedCount(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificati
 }
 
 // keyLedgerLines is the data key of a verification's full ledger
-// (<pv>-ledger, preview-controller's): one JSON line per entry.
-const keyLedgerLines = "ledger.jsonl"
+// (<pv>-ledger, its host's: preview-controller's or the agents host's): one
+// JSON line per entry.
+const keyLedgerLines = toolledger.Key
 
 // maxAppOutputBytes bounds the application output a failure shows.
 const maxAppOutputBytes = 2 << 10

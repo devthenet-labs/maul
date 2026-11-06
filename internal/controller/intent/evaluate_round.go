@@ -365,7 +365,7 @@ func (p *pass) settleEvaluation(ctx context.Context) (bool, error) {
 		}
 		return true, p.unjudged(ctx)
 	case v1alpha1.VerificationInfra, v1alpha1.VerificationStale:
-		return true, p.unjudged(ctx)
+		return true, p.unjudgedFor(ctx, pv)
 	}
 	return false, nil
 }
@@ -451,6 +451,11 @@ func (p *pass) launchEvaluator(ctx context.Context, pv *v1alpha1.PreviewVerifica
 		return held, err
 	}
 	handoff, err := p.evaluateHandoff(ctx, pv)
+	if errors.Is(err, errNoToolsKey) {
+		p.r.log().LogAttrs(ctx, slog.LevelInfo, "the agents tool pod's key cannot be read yet; the evaluator waits",
+			slog.String("intent", p.in.Name), slog.String("verification", pv.Name))
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}

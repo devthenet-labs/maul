@@ -994,8 +994,9 @@ type HandoffState struct {
 	Reason HandoffReason `json:"reason,omitempty"`
 }
 
-// VerificationUnavailableReason says why a verification is Unavailable.
-// +kubebuilder:validation:Enum=PreviewNotLive
+// VerificationUnavailableReason says why a verification is Unavailable,
+// or, for an agents round, why it settled Unconfirmed without a judgement.
+// +kubebuilder:validation:Enum=PreviewNotLive;SandboxImageUnavailable;TreeUnavailable;ToolsBuildFailed
 type VerificationUnavailableReason string
 
 // Unavailable reasons. None (empty) is maul's machinery failing every
@@ -1004,6 +1005,18 @@ const (
 	// VerificationUnavailablePreviewNotLive: the Preview was not live at
 	// exactly the heads within the wait bound.
 	VerificationUnavailablePreviewNotLive VerificationUnavailableReason = "PreviewNotLive"
+	// VerificationUnavailableSandboxImage: an agents round could not run at
+	// all, for the repository has no accepted runner image to build in
+	// (PreviewVerification reason sandbox-image-unavailable); the state is
+	// Unconfirmed.
+	VerificationUnavailableSandboxImage VerificationUnavailableReason = "SandboxImageUnavailable"
+	// VerificationUnavailableTree: an agents round's head or base tree
+	// could not be fetched (tree-unavailable); the state is Unavailable.
+	VerificationUnavailableTree VerificationUnavailableReason = "TreeUnavailable"
+	// VerificationUnavailableToolsBuildFailed: every attempt of an agents
+	// round ended with the tool pod unable to build the head CI built green
+	// (tools-build-failed); the state is Unconfirmed, never a fail.
+	VerificationUnavailableToolsBuildFailed VerificationUnavailableReason = "ToolsBuildFailed"
 )
 
 // VerdictOutcome is acceptance.Judge's verdict on one criterion: pass,
@@ -1357,8 +1370,11 @@ type IntentVerification struct {
 	PreviewWaitSince *metav1.Time `json:"previewWaitSince,omitempty"`
 	// UnavailableReason says why the state is Unavailable: PreviewNotLive
 	// when the Preview was not live at the heads within the bound (Failed,
-	// expired, or never served); empty when maul's own machinery failed
-	// every attempt. Read only with state Unavailable.
+	// expired, or never served), TreeUnavailable when an agents round's
+	// trees could not be fetched; empty when maul's own machinery failed
+	// every attempt. With state Unconfirmed it says why an agents round
+	// settled without a judgement (SandboxImageUnavailable,
+	// ToolsBuildFailed). Read only with those states.
 	// +optional
 	UnavailableReason VerificationUnavailableReason `json:"unavailableReason,omitempty"`
 	// Outcomes are the decided results of the approved outcomes, in plan
