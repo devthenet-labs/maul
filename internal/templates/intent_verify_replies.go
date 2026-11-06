@@ -134,13 +134,39 @@ func RenderVerifyCommandNotice(n VerifyCommandNotice) (string, error) {
 
 // verifyNoticeText is the notice's sentence and, where it asks for one, the
 // help.
+// ownNoticeText is the reply with words of its own: an acceptance of an
+// outcome (outcomeAcceptText), or a Project with no preview's
+// (workspaceNoticeText); ok is false for any other.
+func ownNoticeText(n VerifyCommandNotice, cmd, actor string) (string, bool) {
+	if text, ok := outcomeAcceptText(n, cmd, actor); ok {
+		return text, true
+	}
+	return workspaceNoticeText(n, cmd)
+}
+
+// workspaceNoticeText is the reply of a Project with no preview (an agents
+// evaluation, SPEC-S2) where it differs from a preview's: ok is false for
+// any other outcome.
+func workspaceNoticeText(n VerifyCommandNotice, cmd string) (string, bool) {
+	switch n.Outcome {
+	case VerifyPreviewNone:
+		return cmd + " does nothing: this project has no preview, so there is no link to show. maul checks the " +
+			"approved outcomes " + workspaceBuild + ", and hands the result to the reviewers once it has.", true
+	case VerifyAcceptNotChecked:
+		return fmt.Sprintf("%s does nothing: maul was not checking %s, the commits it verifies, when you "+
+			"commented, so it cannot tell which commits you checked. Accept again once maul checks them.", cmd,
+			joinCode(n.Heads)), true
+	}
+	return "", false
+}
+
 func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, help string, err error) {
 	cmd := slashCommand(n.Verb)
 	if n.Verb == action.VerbAccept && n.Criterion != "" {
 		cmd = slashCommand(n.Verb + " " + n.Criterion)
 	}
 	actor := code(oneLine(n.Actor))
-	if text, ok := outcomeAcceptText(n, cmd, actor); ok {
+	if text, ok := ownNoticeText(n, cmd, actor); ok {
 		return text, "", nil
 	}
 	switch n.Outcome {
@@ -152,9 +178,7 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"preview runs the current commits.", "", nil
 	case VerifyPreviewAlready:
 		return cmd + " does nothing: the preview link was released already.", "", nil
-	case VerifyPreviewNone:
-		return cmd + " does nothing: this project has no preview, so there is no link to show. maul checks the " +
-			"approved outcomes " + workspaceBuild + ", and hands the result to the reviewers once it has.", "", nil
+
 	case VerifyRequested:
 		return requestedText(n, actor), "", nil
 	case VerifyResetTooSoon:
@@ -182,10 +206,6 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return fmt.Sprintf("%s does nothing: the preview was not running %s, the commits maul verifies, when you "+
 			"commented, so maul cannot tell which commits you checked. Check the preview once it runs them and "+
 			"accept again.", cmd, joinCode(n.Heads)), "", nil
-	case VerifyAcceptNotChecked:
-		return fmt.Sprintf("%s does nothing: maul was not checking %s, the commits it verifies, when you "+
-			"commented, so it cannot tell which commits you checked. Accept again once maul checks them.", cmd,
-			joinCode(n.Heads)), "", nil
 	case VerifyStopped:
 		return stoppedText(n, actor), "", nil
 	case VerifyDefectConfirmed:

@@ -24,8 +24,9 @@ func tsRecordKeys(t *testing.T, src, name string) []string {
 	body := src[start:]
 	body = body[strings.Index(body, "{")+1 : strings.Index(body, "};")]
 	key := regexp.MustCompile(`(?m)^\s*"?([a-z-]+)"?:`)
-	var out []string
-	for _, m := range key.FindAllStringSubmatch(body, -1) {
+	matches := key.FindAllStringSubmatch(body, -1)
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
 		out = append(out, m[1])
 	}
 	return out

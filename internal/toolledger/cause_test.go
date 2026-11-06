@@ -67,17 +67,17 @@ func baseReplay(seq int64, cause toolwire.StepCause, fail bool) toolwire.LedgerE
 // keeps it on status.base.runs; one with no cause, and a run that failed,
 // carry none; a head run never does.
 func TestBaseRunsRecordTheCause(t *testing.T) {
-	entries := []toolwire.LedgerEntry{
-		baseReplay(3, toolwire.CauseCompile, false),
-		baseReplay(4, "", false),
-		baseReplay(5, toolwire.CauseCompile, true),
-	}
 	head := baseReplay(6, toolwire.CauseCompile, false)
 	head.Side = ""
 	for i := range head.CheckRun.Attempts {
 		head.CheckRun.Attempts[i].Steps[0].Side = ""
 	}
-	entries = append(entries, head)
+	entries := []toolwire.LedgerEntry{
+		baseReplay(3, toolwire.CauseCompile, false),
+		baseReplay(4, "", false),
+		baseReplay(5, toolwire.CauseCompile, true),
+		head,
+	}
 	got := BaseRuns(entries)
 	want := []v1alpha1.CheckRunCause{v1alpha1.CheckRunCauseCompile, "", ""}
 	if len(got) != len(want) {

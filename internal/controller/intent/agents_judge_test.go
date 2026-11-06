@@ -37,7 +37,8 @@ func agentsPV(digest string, base *v1alpha1.BaseStatus) *v1alpha1.PreviewVerific
 }
 
 // baseRunOf is a run of digest at the base tree.
-func baseRunOf(digest string, result v1alpha1.CheckRunResult, step int32, cause v1alpha1.CheckRunCause) v1alpha1.CheckRun {
+func baseRunOf(digest string, result v1alpha1.CheckRunResult, step int32,
+	cause v1alpha1.CheckRunCause) v1alpha1.CheckRun {
 	r := v1alpha1.CheckRun{CheckDigest: digest, Result: result, Token: "tok-b", Seq: 5, Tree: v1alpha1.TreeBase,
 		Cause: cause}
 	if step > 0 {

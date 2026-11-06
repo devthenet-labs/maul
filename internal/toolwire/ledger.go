@@ -479,20 +479,30 @@ func (a Attempt) check() error {
 		return errors.New("an attempt is out of bounds")
 	}
 	for _, s := range a.Steps {
-		if !s.Side.recorded() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
-			len(s.Detail) > maxDetailBytes || !utf8.ValidString(s.Detail) {
-			return errors.New("a step record is out of bounds")
+		if err := s.check(); err != nil {
+			return err
 		}
-		if s.Assertion && s.Result != ResultFail {
-			return errors.New("a step that did not fail is marked an assertion")
-		}
-		if s.Cause != "" && (!s.Cause.Known() || s.Result != ResultError) {
-			return errors.New("a step's cause is not an error's known cause")
-		}
-		if s.Assertion != (s.AssertionID != "") || len(s.AssertionID) > MaxAssertionIDBytes ||
-			!utf8.ValidString(s.AssertionID) || strings.ContainsAny(s.AssertionID, "\r\n") {
-			return errors.New("a step's assertion id is not its assertion's")
-		}
+	}
+	return nil
+}
+
+// check holds a step record to its bounds: a recorded side, a bounded
+// index and detail, an assertion only on a fail with its id, and a cause
+// only on an error, one of the known.
+func (s StepRecord) check() error {
+	if !s.Side.recorded() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
+		len(s.Detail) > maxDetailBytes || !utf8.ValidString(s.Detail) {
+		return errors.New("a step record is out of bounds")
+	}
+	if s.Assertion && s.Result != ResultFail {
+		return errors.New("a step that did not fail is marked an assertion")
+	}
+	if s.Cause != "" && (!s.Cause.Known() || s.Result != ResultError) {
+		return errors.New("a step's cause is not an error's known cause")
+	}
+	if s.Assertion != (s.AssertionID != "") || len(s.AssertionID) > MaxAssertionIDBytes ||
+		!utf8.ValidString(s.AssertionID) || strings.ContainsAny(s.AssertionID, "\r\n") {
+		return errors.New("a step's assertion id is not its assertion's")
 	}
 	return nil
 }
