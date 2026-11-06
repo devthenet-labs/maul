@@ -113,3 +113,37 @@ func TestUnjudgedRoundAtTheSameHeadsShowsNoEarlierResults(t *testing.T) {
 	}
 	e.checkNothingConfirmed(name)
 }
+
+// TestUnjudgedReplayRoundIsNotStillChecking (S2-B3 review): a judgement
+// that disputed a check asks for one replay round at the same heads; when
+// that round settles unjudged (the tool pod cannot build the head), the
+// earlier judgement's disputes are not this round's: no further replay is
+// due, so the commit status never says maul is still checking a round
+// nothing will start.
+func TestUnjudgedReplayRoundIsNotStillChecking(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	e.reviewReady(name, 4)
+	disputed := confirmedTwo
+	disputed.Retire, disputed.ReplayRound = []string{"sha256:" + strings.Repeat("d", 64)}, true
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		applyJudgement(in, roundJudgement{decision: disputed}, time.Now())
+	})
+	if p := e.prVerifyPass(name); !p.replayDue(p.in.Status.Verification) {
+		t.Fatalf("verification = %+v, want its replay round due", p.in.Status.Verification)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		v.Round++
+		v.Attempt = v1alpha1.MaxVerificationAttempts
+		v.State, v.UnavailableReason = v1alpha1.VerificationUnconfirmed,
+			v1alpha1.VerificationUnavailableToolsBuildFailed
+	})
+	p := e.prVerifyPass(name)
+	if p.replayDue(p.in.Status.Verification) {
+		t.Error("an unjudged replay round still asks for a replay of the earlier judgement")
+	}
+	if st, _, ok := p.acceptanceStatus(); ok && st.state == statusPending {
+		t.Errorf("commit status = %+v: still checking a round nothing will start", st)
+	}
+	e.checkNothingConfirmed(name)
+}
