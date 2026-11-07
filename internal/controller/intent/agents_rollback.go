@@ -22,27 +22,51 @@ import (
 // scheduler cancels the round's evaluator once the Intent no longer has its
 // verification in flight (evaluationEnded).
 //
+// A round already settled at the current heads is not the rollback's to
+// undo (S2-B7): it stays as recorded while the host is off (settledAtHeads),
+// so once the host returns the intent goes on as if it had never gone, and
+// only a head move or an approver's /maul verify starts its next round.
+//
 // A Project that verifies again never leaves an intent Off (resumeOff): Off
 // at recorded heads would otherwise hold for ever, for neither a round nor
-// an approver's /maul verify starts from it.
+// an approver's /maul verify starts from it. With the agents host off, Off
+// is what an intent with no round settled at its current heads records
+// (none yet, its heads moved, or an Off left by a release before S2-B7):
+// what it was owed before the switch it is owed after.
 
 // switchedOff records an intent of a Project that does not verify: Off
 // (settleState), but with the agents host switched off, an open agents
-// round no host will settle is settled Unavailable (settleStranded), and an
-// Unavailable verification stays Unavailable, its request consumed, so the
-// next head move or an approver's /maul verify after the host returns
-// starts the next round.
+// round no host will settle is settled Unavailable (settleStranded), and a
+// round settled at the current heads keeps its state, its request consumed,
+// so the next head move or an approver's /maul verify after the host
+// returns starts the next round.
 func (p *pass) switchedOff(ctx context.Context) (bool, error) {
 	if reason, _ := p.set.verificationOff(p.proj); reason == v1alpha1.ReasonAgentsToolPodNotEnabled {
 		v := p.in.Status.Verification
 		switch {
 		case v.Ref != nil && v.State == v1alpha1.VerificationEvaluating:
 			return p.settleStranded(ctx)
-		case v.State == v1alpha1.VerificationUnavailable:
-			return p.settleState(ctx, v1alpha1.VerificationUnavailable)
+		case p.settledAtHeads(v):
+			return p.settleState(ctx, v.State)
 		}
 	}
 	return p.settleState(ctx, v1alpha1.VerificationOff)
+}
+
+// settledAtHeads reports an agents verification that records a settled
+// round (judged, being fixed, given up on, or unavailable, a stranded one
+// included) at the surface's current heads, which the host's own head set
+// says while it is off (agentsHost.heads reads only the Project and the
+// Intent).
+func (p *pass) settledAtHeads(v *v1alpha1.IntentVerification) bool {
+	switch v.State {
+	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationFailing,
+		v1alpha1.VerificationFixing, v1alpha1.VerificationExhausted, v1alpha1.VerificationUnavailable:
+	default:
+		return false
+	}
+	hs, ok := agentsHost{}.heads(p)
+	return ok && hs.digest == v.HeadSetDigest
 }
 
 // settleStranded settles the open agents round of an intent whose host is

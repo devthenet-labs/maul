@@ -118,9 +118,10 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 // it is ready only while every outcome is confirmed (or accepted), and
 // otherwise maul couldn't confirm it, for why it gave up or else because
 // it could not run its checks; never held or still checking. A round
-// settled before the switch is Off from then on, its judgement kept, so it
-// is ready while that judgement is (judgementReady) and the pull request
-// is still at the heads it judged: nothing supersedes the record while the
+// settled before the switch keeps its state (S2-B7) and its judgement,
+// and an Off left by an earlier release keeps the judgement too, so it is
+// ready while that judgement is (judgementReady) and the pull request is
+// still at the heads it judged: nothing supersedes the record while the
 // host is off, so a push is never shown ready. nil without a verification
 // of the approved plan's outcomes.
 func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
