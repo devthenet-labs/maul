@@ -366,14 +366,20 @@ host, its sweep deletes every tool Job on its next pass, and each Project with a
 `VerificationOff` (`AgentsToolPodNotEnabled`) again; Projects with a preview are unaffected. A round left open settles
 `Unavailable`, never a pass or a fail and no fix round: its unsettled verification is deleted, its evaluator is
 cancelled, the issue's verification comment says maul could not run the checks, and the hand-off is released as "maul
-couldn't confirm this". The Project's other intents show `Off`. When the agents host is switched back on, an intent left
-`Off` starts over at its heads (a round is due as for heads never verified); one whose round was settled `Unavailable`
-starts its next round on the next push or an approver's `/maul verify`. The chart stops rendering the tool pod's
-admission policy, network policy and status grant. To keep the agents host and stop only the image its rounds build in,
-turn repository images off on intent-controller instead: each agents round then settles "maul couldn't confirm this" (no
-accepted runner image), never a block. That needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` beside
-`MAUL_REPOSITORY_IMAGES: "false"` while the egress proxy is on
-([repository-declared images](#repository-declared-images)), or intent-controller does not start.
+couldn't confirm this". An intent whose round had already settled at its current heads (passed, unconfirmed, failing,
+being fixed, out of fixes or unavailable) keeps that state; any other intent of the Project shows `Off` (no round yet,
+or its heads moved while the host was off). When the agents host is switched back on, nothing is re-verified that was
+already settled: an intent that kept its state goes on as if the host had never gone, and its next round starts only on
+the next push or an approver's `/maul verify`. That includes a round the rollback left `Unavailable`: it is not
+restarted by itself, for the hand-off was already released as "maul couldn't confirm this", nobody waits on it, and a
+rollback is often taken because rounds were going wrong. An intent left `Off` starts over at its heads (a round is due
+as for heads never verified), which is also what an intent left `Off` by a release before 0.13.18 does once, whatever it
+had recorded. The `maul/acceptance` status reads "verification switched off" while the host is off and returns to the
+kept state's once it is back. The chart stops rendering the tool pod's admission policy, network policy and status
+grant. To keep the agents host and stop only the image its rounds build in, turn repository images off on
+intent-controller instead: each agents round then settles "maul couldn't confirm this" (no accepted runner image), never
+a block. That needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` beside `MAUL_REPOSITORY_IMAGES: "false"` while the egress
+proxy is on ([repository-declared images](#repository-declared-images)), or intent-controller does not start.
 
 While the agents host is off, a Project with a cli or library surface still has no preview, and its intents' views say
 so: the issue's status comment keeps its **Evaluation** line and each pull request keeps its evaluation comment, both

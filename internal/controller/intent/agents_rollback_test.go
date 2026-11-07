@@ -118,23 +118,99 @@ func TestAgentsBackOnAfterRollback(t *testing.T) {
 	}
 }
 
-// TestAgentsOffIntentResumesWhenTheHostReturns (S2-B4): an intent that was
-// Off at recorded heads while the host was off starts over at those heads
-// once the host returns (a Project that verifies again never leaves it Off,
-// where neither a round nor an approver's /maul verify would ever start).
-func TestAgentsOffIntentResumesWhenTheHostReturns(t *testing.T) {
+// judgedAgentsRound drives an agents intent to a settled round 1 recorded
+// in state at its heads, an outcome judged there, its verification
+// Observed. It returns the intent and the round's verification.
+func judgedAgentsRound(t *testing.T, state v1alpha1.IntentVerificationState) (*env, string,
+	v1alpha1.PreviewVerification) {
+	t.Helper()
 	e, name := newAgentsEnv(t, repoImage)
 	e.reviewReady(name, 4)
 	pv := e.onlyVerification(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
-		v.State, v.Passed = v1alpha1.VerificationPassed, 3
+		v.State, v.Passed = state, 3
+		v.Outcomes = []v1alpha1.OutcomeResult{{ID: "version-shown", Result: v1alpha1.OutcomePassed}}
+		v.OutcomesRound, v.OutcomesHeadSetDigest = v.Round, v.HeadSetDigest
 	})
 	e.playTools(pv.Name, v1alpha1.VerificationObserved, "", false)
+	return e, name, pv
+}
+
+// TestAgentsReturnKeepsAJudgedRound (S2-B7): a round already settled at
+// the current heads when the agents host is switched off stays as it was
+// recorded while the host is off, and once it returns nothing starts by
+// itself at those heads: the rollback costs no round it did not strand. An
+// approver's /maul verify still starts the next one.
+func TestAgentsReturnKeepsAJudgedRound(t *testing.T) {
+	for _, state := range []v1alpha1.IntentVerificationState{v1alpha1.VerificationPassed,
+		v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationExhausted} {
+		t.Run(string(state), func(t *testing.T) {
+			e, name, pv := judgedAgentsRound(t, state)
+			e.agentsOn(false)
+			e.review(name, 2)
+			if v := e.verification(name); v.State != state || v.Passed != 3 || len(v.JudgedOutcomes()) != 1 {
+				t.Fatalf("verification = %+v with the host off, want %s kept", v, state)
+			}
+			e.agentsOn(true)
+			e.reviewReady(name, 6)
+			e.runRuns()
+			if vs := e.verifications(name); len(vs) != 1 || vs[0].Name != pv.Name {
+				t.Fatalf("verifications = %+v, want none started by itself", vs)
+			}
+			if runs := e.runsOf(name, v1alpha1.IntentStageEvaluate); len(runs) != 0 {
+				t.Fatalf("evaluate runs = %d, want none", len(runs))
+			}
+			v := e.verification(name)
+			if v.State != state || v.Round != 1 || v.Ref == nil || v.Ref.Name != pv.Name || v.Passed != 3 ||
+				len(v.JudgedOutcomes()) != 1 {
+				t.Fatalf("verification = %+v, want round 1's %s kept", v, state)
+			}
+			e.gh.comment(approver, "/maul verify")
+			e.settleActions(name)
+			e.reviewReady(name, 6)
+			if v := e.verification(name); v.Round != 2 || v.Ref == nil || v.Ref.Name == pv.Name || v.Requested != nil {
+				t.Fatalf("verification = %+v, want the request's round 2", v)
+			}
+		})
+	}
+}
+
+// TestAgentsHeadMoveWhileOffVerifiesOnReturn (S2-B7): a judged round whose
+// heads move while the agents host is off no longer describes them: the
+// intent is Off, and once the host returns the moved heads are verified.
+func TestAgentsHeadMoveWhileOffVerifiesOnReturn(t *testing.T) {
+	e, name, pv := judgedAgentsRound(t, v1alpha1.VerificationPassed)
 	e.agentsOn(false)
 	e.review(name, 2)
+	moved := strings.Repeat("f", 40)
+	e.pushHead(e.get(name).Status.PullRequests[0].Number, moved)
+	e.review(name, 2)
 	if v := e.verification(name); v.State != v1alpha1.VerificationOff {
-		t.Fatalf("verification = %s with the host off and no round open, want Off", v.State)
+		t.Fatalf("verification = %s once the heads moved with the host off, want Off", v.State)
+	}
+	e.agentsOn(true)
+	e.reviewReady(name, 8)
+	want := headSetDigest([]v1alpha1.VerificationHead{{Component: "app", Repository: appRepoURL, Revision: moved}})
+	v := e.verification(name)
+	if v.HeadSetDigest != want || v.Ref == nil || v.Ref.Name == pv.Name || v.Passed != 0 ||
+		len(v.JudgedOutcomes()) != 0 {
+		t.Fatalf("verification = %+v, want a round at the moved heads", v)
+	}
+}
+
+// TestAgentsOffIntentResumesWhenTheHostReturns (S2-B4): an intent left Off
+// at recorded heads while the host was off (by a release before S2-B7)
+// starts over at those heads once the host returns (a Project that
+// verifies again never leaves it Off, where neither a round nor an
+// approver's /maul verify would ever start).
+func TestAgentsOffIntentResumesWhenTheHostReturns(t *testing.T) {
+	e, name, pv := judgedAgentsRound(t, v1alpha1.VerificationPassed)
+	e.agentsOn(false)
+	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.State = v1alpha1.VerificationOff })
+	e.review(name, 2)
+	if v := e.verification(name); v.State != v1alpha1.VerificationOff {
+		t.Fatalf("verification = %s with the host off, want Off kept", v.State)
 	}
 	e.agentsOn(true)
 	e.reviewReady(name, 6)
