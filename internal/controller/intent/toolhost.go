@@ -64,6 +64,22 @@ func (s Settings) agentsProject(p *v1alpha1.Project) bool {
 	return s.Evaluator && s.EvaluatorAgents && p.Spec.Surfaces.Agents()
 }
 
+// linkless reports a Project whose intents are shown without a preview
+// (the link-less evaluation views, templates' Workspace): one the agents
+// tool pod evaluates, and one it would but is switched off (a cli or
+// library surface and no preview: the rollback, S2-B6), which still has no
+// preview to show, link or offer. Only what is shown follows it; where a
+// round runs is agentsProject's.
+func (s Settings) linkless(p *v1alpha1.Project) bool {
+	return s.agentsProject(p) || p.Spec.Surfaces.Agents() && !previewed(p)
+}
+
+// agentsHostOff reports a linkless Project whose agents host is switched
+// off: nothing evaluates its intents, so nothing is being checked.
+func (s Settings) agentsHostOff(p *v1alpha1.Project) bool {
+	return s.linkless(p) && !s.agentsProject(p)
+}
+
 // previewed reports a Project that sets a preview, on itself or on any of
 // its repositories: one host per Project (O6), so a cli or library surface
 // beside one is not evaluated (SurfaceCombinationUnsupported).

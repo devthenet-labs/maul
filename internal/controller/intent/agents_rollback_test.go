@@ -164,3 +164,58 @@ func TestOffResumesWhenAProjectVerifiesAgain(t *testing.T) {
 		t.Fatalf("verification = %+v, want round 2 verifying at the same heads", v)
 	}
 }
+
+// prEvaluationComment is the body of the sticky comment under the preview
+// marker on name's first pull request, "" when there is none.
+func (e *env) prEvaluationComment(name string) string {
+	pr := e.get(name).Status.PullRequests[0]
+	cs := e.previewComments(name, pr.Number)
+	if len(cs) != 1 {
+		return ""
+	}
+	return cs[0].Body
+}
+
+// TestAgentsRollbackKeepsTheLinklessViews (S2-B6): with the agents host
+// switched off, an agents Project still has no preview, so its status
+// comment and its pull request's comment stay the link-less evaluation
+// views and say the stranded round's real outcome (couldn't confirm: maul
+// could not run its checks): never the slot preview's "There is no preview
+// of this pull request now.", never a /maul preview, never a Preview line.
+func TestAgentsRollbackKeepsTheLinklessViews(t *testing.T) {
+	for _, previews := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without previews", true: "with the preview projection on"}[previews],
+			func(t *testing.T) {
+				e, name, _ := evaluatingAgentsRound(t)
+				e.review(name, 2)
+				if c := e.prEvaluationComment(name); !strings.Contains(c, "maul holds its hand-off") {
+					t.Fatalf("pull request comment before the flip = %q", c)
+				}
+				e.agentsOn(false)
+				for _, s := range []*Settings{&e.project.Settings, &e.intent.Settings, &e.runs.Settings} {
+					s.Previews = previews
+				}
+				e.review(name, 4)
+				e.runRuns()
+				e.review(name, 4)
+
+				const unconfirmed = "maul couldn't confirm this: it could not run its checks."
+				status := e.statusBody()
+				if !strings.Contains(status, "**Evaluation:** "+unconfirmed) ||
+					strings.Contains(status, "/maul preview") || strings.Contains(status, "**Preview:**") {
+					t.Errorf("status comment with the host off:\n%s", status)
+				}
+				c := e.prEvaluationComment(name)
+				if !strings.Contains(c, unconfirmed) || strings.Contains(strings.ToLower(c), "no preview") ||
+					strings.Contains(c, "/maul preview") ||
+					!strings.Contains(c, "Verification unavailable: maul could not run the checks") {
+					t.Errorf("pull request comment with the host off:\n%s", c)
+				}
+				id := e.gh.comment(approver, "/maul preview")
+				e.settleActions(name)
+				if body := e.onlyReply(id); !strings.Contains(body, "has no preview") {
+					t.Errorf("/maul preview reply with the host off = %s", body)
+				}
+			})
+	}
+}

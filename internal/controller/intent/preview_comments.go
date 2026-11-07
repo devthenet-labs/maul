@@ -86,7 +86,7 @@ type previewRecord struct {
 // failed read of the Preview changes nothing (loadPreview). changed reports
 // a status write; only errConflict and a render error are returned.
 func (p *pass) syncPreviewComments(ctx context.Context) (changed, retry bool, err error) {
-	agents := p.set.agentsProject(p.proj)
+	agents := p.set.linkless(p.proj)
 	if !p.set.Previews && !agents || len(p.in.Status.PullRequests) == 0 {
 		return false, false, nil
 	}
@@ -203,7 +203,7 @@ func (p *pass) commentFor(ctx context.Context, view previewView, pr v1alpha1.Int
 	if p.leftProject(pr.Repository) {
 		return templates.IntentPreviewComment{}, false
 	}
-	if p.set.agentsProject(p.proj) {
+	if p.set.linkless(p.proj) {
 		return p.evaluationComment(ctx, pr, id)
 	}
 	previews := v1alpha1.EffectivePreviews(p.proj)

@@ -446,8 +446,9 @@ tells the change from its absence.
 
 It is off by default: chart `intentController.verification.agents.enabled` (intent-controller
 `--intent-evaluator-agents`), beside the evaluator, with repository images on; previews need not be. Off, such a Project
-carries `VerificationOff` (reason `AgentsToolPodNotEnabled`) and its plans are not asked for outcomes. The operator's
-side (the pod, its privileges, capacity and rollback) is in
+carries `VerificationOff` (reason `AgentsToolPodNotEnabled`) and its plans are not asked for outcomes; switched off
+under open intents, their views stay link-less and say "maul couldn't confirm this", never offering a preview. The
+operator's side (the pod, its privileges, capacity and rollback) is in
 [the agents tool pod](../configuration/intent-controller.md#the-agents-tool-pod).
 
 ```yaml

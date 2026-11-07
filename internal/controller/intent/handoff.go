@@ -89,6 +89,9 @@ func (p *pass) linkHeld() bool {
 // confirm" (and why) once the evaluation gave up or ran out of time, and
 // "still checking" otherwise.
 func (p *pass) handoffView() *templates.PreviewHandoff {
+	if p.set.agentsHostOff(p.proj) {
+		return p.hostOffHandoffView()
+	}
 	if !p.handsOff() || p.handoffModeNow() != v1alpha1.HandoffGated {
 		return nil
 	}
@@ -107,6 +110,29 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 		return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: templates.HandoffWhyTime}
 	}
 	return &templates.PreviewHandoff{State: templates.HandoffChecking}
+}
+
+// hostOffHandoffView is handoffView for a link-less Project whose agents
+// host is switched off (S2-B6): nothing checks its intents now, so the
+// gated hand-off on record is ready only while every outcome is confirmed
+// (or accepted), and otherwise maul couldn't confirm it, for why it gave
+// up or else because it could not run its checks; never held or still
+// checking. nil without a gated hand-off on record for the approved
+// outcomes.
+func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
+	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
+	if v == nil || v.Handoff == nil || v.Handoff.Mode != v1alpha1.HandoffGated || !p.acceptanceCurrent() ||
+		!evaluable(acc.Outcomes) {
+		return nil
+	}
+	if outcomesReady(acc, v) {
+		return &templates.PreviewHandoff{State: templates.HandoffReady}
+	}
+	why := p.gaveUp(acc, v)
+	if why == "" {
+		why = templates.HandoffWhyUnavailable
+	}
+	return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
 }
 
 // gaveUp is why the evaluation settled without confirming every outcome

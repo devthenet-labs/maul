@@ -229,7 +229,7 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 // answered and records nothing.
 func (p *pass) releasePreview(ctx context.Context, c verifyCommand,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
-	if p.set.agentsProject(p.proj) {
+	if p.set.linkless(p.proj) {
 		// No preview, so no link to show: the hand-off is the result's.
 		n.Outcome = templates.VerifyPreviewNone
 		return n, nil
@@ -507,7 +507,7 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 	heads := shortHeads(v.Heads)
 	if saw, err := p.liveWhenGiven(ctx, v, c.at); err != nil || !saw {
 		n.Outcome, n.Heads = templates.VerifyAcceptMoved, heads
-		if p.set.agentsProject(p.proj) {
+		if p.set.linkless(p.proj) {
 			n.Outcome = templates.VerifyAcceptNotChecked
 		}
 		return n, err

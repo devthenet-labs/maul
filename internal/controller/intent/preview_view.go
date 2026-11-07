@@ -192,8 +192,9 @@ func (p *pass) loadPreview(ctx context.Context) (previewView, bool) {
 // (Workspace), which shows nothing until a hand-off or a verification
 // stands.
 func (p *pass) statusPreview() *templates.IntentPreview {
-	if p.set.agentsProject(p.proj) {
-		// No preview: the line is the evaluation's, never a link (S2-15).
+	if p.set.linkless(p.proj) {
+		// No preview: the line is the evaluation's, never a link (S2-15),
+		// also while the agents host is switched off (S2-B6).
 		return &templates.IntentPreview{Workspace: true, Handoff: p.handoffView()}
 	}
 	v := p.preview
