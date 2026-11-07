@@ -299,9 +299,9 @@ func TestAgentsRollbackKeepsTheLinklessViews(t *testing.T) {
 
 // TestAgentsRollbackKeepsAReadyRoundReady (S2-B6 review): a round the
 // agents host settled before it was switched off, every outcome confirmed
-// or accepted, is Off from then on with its judgement kept at the same
-// heads, so the link-less views keep saying it is ready, never "maul
-// couldn't confirm this".
+// or accepted, keeps its state and judgement at the same heads (S2-B7), so
+// the link-less views keep saying it is ready, never "maul couldn't
+// confirm this".
 func TestAgentsRollbackKeepsAReadyRoundReady(t *testing.T) {
 	e, name := newAgentsEnv(t, repoImage)
 	e.reviewReady(name, 4)
@@ -321,10 +321,11 @@ func TestAgentsRollbackKeepsAReadyRoundReady(t *testing.T) {
 	if status := e.statusBody(); !strings.Contains(status, ready) {
 		t.Fatalf("status comment before the flip:\n%s", status)
 	}
+	settled := e.verification(name).State
 	e.agentsOn(false)
 	e.review(name, 4)
-	if v := e.verification(name); v.State != v1alpha1.VerificationOff {
-		t.Fatalf("verification = %s with the host off, want Off", v.State)
+	if v := e.verification(name); v.State != settled || !outcomesReady(e.get(name).Status.Acceptance, v) {
+		t.Fatalf("verification = %+v with the host off, want its %s round kept (S2-B7)", v, settled)
 	}
 	if status := e.statusBody(); !strings.Contains(status, "**Evaluation:** "+ready) ||
 		strings.Contains(status, "couldn't confirm") {
@@ -337,7 +338,9 @@ func TestAgentsRollbackKeepsAReadyRoundReady(t *testing.T) {
 	// A push while the host is off moves the heads past what was judged:
 	// nothing checked them, so nothing says ready.
 	e.pushHead(e.get(name).Status.PullRequests[0].Number, strings.Repeat("f", 40))
-	e.review(name, 4)
+	// One pass more than before S2-B7: the moved heads first take the kept
+	// round to Off, then the views are written.
+	e.review(name, 8)
 	if head := e.get(name).Status.PullRequests[0].HeadSHA; head != strings.Repeat("f", 40) {
 		t.Fatalf("pull request head = %s, want the push", head)
 	}
