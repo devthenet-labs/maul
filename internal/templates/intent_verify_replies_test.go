@@ -56,6 +56,11 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.ResetWait = "5 minutes"
 			return n
 		}()},
+		{"intent_notice_verify_reset_too_soon_workspace.md", func() VerifyCommandNotice {
+			n := base(VerifyResetTooSoon, "verify")
+			n.ResetWait, n.Workspace = "5 minutes", true
+			return n
+		}()},
 		{"intent_notice_verify_accepted.md", func() VerifyCommandNotice {
 			n := base(VerifyAccepted, "accept")
 			n.Criterion, n.Heads = "sounds-good", []string{"0123abc", "4567def"}

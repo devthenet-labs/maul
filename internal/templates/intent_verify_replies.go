@@ -220,6 +220,13 @@ func workspaceNoticeText(n VerifyCommandNotice, cmd string) (string, bool) {
 		return fmt.Sprintf("%s does nothing: maul was not checking %s, the commits it verifies, when you "+
 			"commented, so it cannot tell which commits you checked. Accept again once maul checks them.", cmd,
 			joinCode(n.Heads)), true
+	case VerifyResetTooSoon:
+		if !n.Workspace {
+			break
+		}
+		return fmt.Sprintf("%s does nothing: maul was last asked to reset less than %s ago. Use %s to verify "+
+			"without a reset, or try again later.", slashCommand(n.Verb+" "+command.VerifyReset), n.ResetWait,
+			slashCommand(action.VerbVerify)), true
 	}
 	return "", false
 }
