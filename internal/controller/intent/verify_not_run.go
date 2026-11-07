@@ -63,9 +63,11 @@ func (p *pass) offNotRunWhy() string {
 
 // standingJudgement is the round whose judgement of the current heads
 // stands on record (0 when none does): a settled round's reference at the
-// head set, and its outcomes judged by that round at those heads.
+// head set, and its outcomes judged by that round at those heads. A state
+// that records its round could not run (agentsWhy) is no judgement, whatever
+// outcomes it kept: every surface says maul couldn't confirm it.
 func standingJudgement(v *v1alpha1.IntentVerification) int32 {
-	if v.Ref == nil || !v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) {
+	if v.Ref == nil || !v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) || agentsWhy(v) != "" {
 		return 0
 	}
 	switch v.State {

@@ -288,3 +288,37 @@ func TestOutcomesReadyNeverOverAnUnrunnableRound(t *testing.T) {
 		}
 	}
 }
+
+// TestAgentsUnrunnableStateIsNoStandingJudgement (S2-B8 review): a state
+// that records its round could not run (as 0.13.17 left one over round 1's
+// confirmed outcomes) is no judgement that stands: a /maul verify that
+// still cannot run is answered without "result stands", which every other
+// surface contradicts ("couldn't confirm"), and the state keeps its reason.
+func TestAgentsUnrunnableStateIsNoStandingJudgement(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	e.reviewReady(name, 4)
+	pv := e.onlyVerification(name)
+	e.passAgentsRound(name, pv)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		v.State, v.UnavailableReason = v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationUnavailableSandboxImage
+	})
+	e.review(name, 3)
+	dropRunnerImages(t, e)
+
+	e.clock.Advance(time.Minute)
+	e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	e.review(name, 2)
+
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationUnconfirmed ||
+		v.UnavailableReason != v1alpha1.VerificationUnavailableSandboxImage || v.Requested != nil {
+		t.Fatalf("verification = %+v, want Unconfirmed for no image, the request consumed", v)
+	}
+	replies := e.notRunReplies()
+	if len(replies) != 1 || !strings.Contains(replies[0], "did not run: the repository has no accepted runner image") ||
+		strings.Contains(replies[0], "stands") {
+		t.Fatalf("not-run replies = %q, want the reason and no standing result", replies)
+	}
+}
