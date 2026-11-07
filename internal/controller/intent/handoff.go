@@ -113,19 +113,24 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 }
 
 // hostOffHandoffView is handoffView for a link-less Project whose agents
-// host is switched off (S2-B6): nothing checks its intents now, so the
-// gated hand-off on record is ready only while every outcome is confirmed
-// (or accepted), and otherwise maul couldn't confirm it, for why it gave
-// up or else because it could not run its checks; never held or still
-// checking. nil without a gated hand-off on record for the approved
-// outcomes.
+// host is switched off (S2-B6): nothing checks its intents now, so,
+// whatever the hand-off's mode (a nil view would say maul checks them),
+// it is ready only while every outcome is confirmed (or accepted), and
+// otherwise maul couldn't confirm it, for why it gave up or else because
+// it could not run its checks; never held or still checking. A round
+// settled before the switch is Off from then on, its judgement kept, so it
+// is ready while that judgement is (judgementReady) and the pull request
+// is still at the heads it judged: nothing supersedes the record while the
+// host is off, so a push is never shown ready. nil without a verification
+// of the approved plan's outcomes.
 func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
-	if v == nil || v.Handoff == nil || v.Handoff.Mode != v1alpha1.HandoffGated || !p.acceptanceCurrent() ||
-		!evaluable(acc.Outcomes) {
+	if v == nil || !p.acceptanceCurrent() || !evaluable(acc.Outcomes) {
 		return nil
 	}
-	if outcomesReady(acc, v) {
+	hs, ok := agentsHost{}.heads(p)
+	judged := ok && hs.digest == v.HeadSetDigest
+	if judged && (outcomesReady(acc, v) || v.State == v1alpha1.VerificationOff && judgementReady(acc, v)) {
 		return &templates.PreviewHandoff{State: templates.HandoffReady}
 	}
 	why := p.gaveUp(acc, v)

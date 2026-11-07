@@ -377,8 +377,8 @@ accepted runner image), never a block. That needs `MAUL_NETWORK_PROFILES_ENABLED
 
 While the agents host is off, a Project with a cli or library surface still has no preview, and its intents' views say
 so: the issue's status comment keeps its **Evaluation** line and each pull request keeps its evaluation comment, both
-link-less, saying "maul couldn't confirm this" (it could not run its checks) unless every outcome was confirmed, and
-nothing offers `/maul preview`.
+link-less, saying "maul couldn't confirm this" (it could not run its checks) unless every outcome was confirmed at the
+pull request's current head, and nothing offers `/maul preview`.
 
 ## Projects
 
