@@ -21,6 +21,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
+	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
@@ -150,6 +151,9 @@ func (p *pass) settleUnverified(ctx context.Context) (bool, error) {
 		v.Handoff.Reason == v1alpha1.HandoffReasonEvaluatorUnverified {
 		return false, nil
 	}
+	if err := p.answerNotRun(ctx, templates.NotRunHarnessUnverified, 0); err != nil {
+		return false, err
+	}
 	if v.Ref != nil {
 		p.dropInFlight(ctx, *v.Ref)
 	}
@@ -187,6 +191,9 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 	if kind == verifyRequestRefused {
 		p.r.log().LogAttrs(ctx, slog.LevelInfo, "maxVerifications is spent; the verification request is dropped",
 			slog.String("intent", p.in.Name), slog.Int64("comment", v.Requested.CommentID))
+		if err := p.answerNotRun(ctx, templates.NotRunCap, 0); err != nil {
+			return false, err
+		}
 		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 			cur.Status.Verification.Requested = nil
 			return nil
@@ -221,6 +228,14 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the intent's evaluations spent their ceiling; nothing more is evaluated",
 		slog.String("intent", p.in.Name), slog.Int64("spent", p.evaluationSpend()),
 		slog.Int64("ceiling", p.set.evaluationCeiling(p.proj)))
+	if v.Requested != nil && standingJudgement(v) > 0 {
+		// A request at judged heads learns nothing new (S2-B8): the
+		// judgement stands.
+		return p.keepJudgement(ctx, templates.NotRunBudget)
+	}
+	if err := p.answerNotRun(ctx, templates.NotRunBudget, 0); err != nil {
+		return false, err
+	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State, nv.Requested = v1alpha1.VerificationUnconfirmed, nil

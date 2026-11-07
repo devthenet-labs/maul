@@ -875,6 +875,11 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 // every outcome confirmed or accepted, no anomaly and no replay round
 // pending.
 func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
+	if agentsWhy(v) != "" {
+		// The state records a round that could not run (S2-B8): never
+		// ready over outcomes on record, whatever they say.
+		return false
+	}
 	results := v.JudgedOutcomes()
 	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(results) == 0 {
 		return false

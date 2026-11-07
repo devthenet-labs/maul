@@ -63,7 +63,58 @@ const (
 	// VerifyPreviewNone: the Project has no preview (an agents-namespace
 	// evaluation, SPEC-S2), so /maul preview has no link to show.
 	VerifyPreviewNone VerifyOutcome = "preview-none"
+	// VerifyNotRun: the request cannot be acted on, or was consumed
+	// without a run (S2-B8): NotRunWhy says why, and Stands names the
+	// evaluation whose result at the same commits stands.
+	VerifyNotRun VerifyOutcome = "not-run"
 )
+
+// Why a /maul verify did not run (VerifyNotRun), in maul's words
+// (verifyNotRunWords); a reason not listed is said as the generic one.
+const (
+	// NotRunNotEnabled: the Project does not verify its intents.
+	NotRunNotEnabled = "not-enabled"
+	// NotRunToolPodOff: the agents tool pod (--intent-evaluator-agents)
+	// is off, and the Project has a cli or library surface.
+	NotRunToolPodOff = "tool-pod-off"
+	// NotRunSurfaceCombination: the Project sets a preview beside its cli
+	// or library surface.
+	NotRunSurfaceCombination = "surface-combination"
+	// NotRunPreviewsOff: previews are off, and the Project is verified in
+	// its preview.
+	NotRunPreviewsOff = "previews-off"
+	// NotRunHarnessUnverified: the Project's harness has no evaluator maul
+	// verified.
+	NotRunHarnessUnverified = "harness-unverified"
+	// NotRunNothingToCheck: the approved plan has nothing maul checks.
+	NotRunNothingToCheck = "nothing-to-check"
+	// NotRunSandboxImage, NotRunTree: an agents round cannot run: no
+	// accepted runner image, or a tree that cannot be fetched.
+	NotRunSandboxImage = "sandbox-image"
+	NotRunTree         = "tree"
+	// NotRunBudget: the intent's evaluations spent their ceiling.
+	NotRunBudget = "budget"
+	// NotRunCap: the approved plan revision used every verification its
+	// Project allows (spec.limits.maxVerifications) before it ran.
+	NotRunCap = "cap"
+)
+
+// verifyNotRunWords are the reasons a /maul verify did not run, in maul's
+// words; "" is the generic one.
+var verifyNotRunWords = map[string]string{
+	"":               "maul could not run its checks",
+	NotRunNotEnabled: "verification is not enabled for this project",
+	NotRunToolPodOff: "the tool pod that checks a project with no preview is not enabled in this installation",
+	NotRunSurfaceCombination: "this project sets a preview beside its cli or library surface, and maul " +
+		"verifies only one of them",
+	NotRunPreviewsOff:       "previews are not enabled in this installation, and this project is checked in its preview",
+	NotRunHarnessUnverified: "maul does not evaluate intents built on this project's harness",
+	NotRunNothingToCheck:    "the approved plan has nothing maul checks",
+	NotRunSandboxImage:      handoffWhyWords[HandoffWhySandboxImage],
+	NotRunTree:              handoffWhyWords[HandoffWhyTree],
+	NotRunBudget:            "this intent's evaluations spent their budget",
+	NotRunCap:               "this approved plan has used every verification its project allows",
+}
 
 // VerifyCommandNotice answers a /maul verify or /maul accept on the intent
 // issue or one of its pull requests.
@@ -109,6 +160,11 @@ type VerifyCommandNotice struct {
 	// Cancelled: the stop cancelled an automatic fix not yet started;
 	// Running: one already running finishes. For VerifyStopped.
 	Cancelled, Running bool
+	// NotRunWhy is why the request did not run (a NotRun constant), and
+	// Stands the evaluation whose result at the same commits stands (0:
+	// none), for VerifyNotRun.
+	NotRunWhy string
+	Stands    int32
 }
 
 // RenderVerifyCommandNotice renders a VerifyCommandNotice.
@@ -134,10 +190,14 @@ func RenderVerifyCommandNotice(n VerifyCommandNotice) (string, error) {
 
 // verifyNoticeText is the notice's sentence and, where it asks for one, the
 // help.
-// ownNoticeText is the reply with words of its own: an acceptance of an
-// outcome (outcomeAcceptText), or a Project with no preview's
-// (workspaceNoticeText); ok is false for any other.
+// ownNoticeText is the reply with words of its own: a request that did not
+// run (notRunText), an acceptance of an outcome (outcomeAcceptText), or a
+// Project with no preview's (workspaceNoticeText); ok is false for any
+// other.
 func ownNoticeText(n VerifyCommandNotice, cmd, actor string) (string, bool) {
+	if n.Outcome == VerifyNotRun {
+		return notRunText(n, actor), true
+	}
 	if text, ok := outcomeAcceptText(n, cmd, actor); ok {
 		return text, true
 	}
@@ -249,6 +309,31 @@ func requestedText(n VerifyCommandNotice, actor string) string {
 	}
 	if n.Fix {
 		b.WriteString(" maul may fix failing criteria on its own again.")
+	}
+	return b.String()
+}
+
+// notRunText is the reply to a /maul verify from actor that did not run:
+// why, in maul's words, what stands instead, and when to ask again.
+func notRunText(n VerifyCommandNotice, actor string) string {
+	cmd := slashCommand(n.Verb)
+	if n.Fix {
+		cmd = slashCommand(n.Verb + " " + command.VerifyFix)
+	}
+	if n.Reset {
+		cmd = slashCommand(n.Verb + " " + command.VerifyReset)
+	}
+	words, ok := verifyNotRunWords[n.NotRunWhy]
+	if !ok {
+		words = verifyNotRunWords[""]
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s from %s did not run: %s.", cmd, actor, words)
+	if n.Stands > 0 {
+		fmt.Fprintf(&b, " Evaluation %d's result at these commits stands.", n.Stands)
+	}
+	if n.NotRunWhy != NotRunNothingToCheck {
+		fmt.Fprintf(&b, " Nothing was checked; send %s again once that changes.", cmd)
 	}
 	return b.String()
 }
