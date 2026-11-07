@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.18](https://github.com/devthenet-labs/maul/compare/v0.13.17...v0.13.18) (2026-11-07)
+
+
+### Bug Fixes
+
+* **intent:** S2-B6 keep an agents Project's views link-less while its host is off ([#357](https://github.com/devthenet-labs/maul/issues/357)) ([998d627](https://github.com/devthenet-labs/maul/commit/998d6279a27155a53765d29a7295e5e42e02993d))
+* **intent:** S2-B7 keep an agents round settled at its heads through a rollback ([#358](https://github.com/devthenet-labs/maul/issues/358)) ([106d1e3](https://github.com/devthenet-labs/maul/commit/106d1e3458ecc0d111675dfc5118061128533813))
+* **intent:** S2-B8 a /maul verify that cannot run says so and changes no judgement ([#359](https://github.com/devthenet-labs/maul/issues/359)) ([da97245](https://github.com/devthenet-labs/maul/commit/da9724519b3600c43cec2094de9410b7de02a806))
+
 ## [0.13.17](https://github.com/devthenet-labs/maul/compare/v0.13.16...v0.13.17) (2026-11-06)
 
 
