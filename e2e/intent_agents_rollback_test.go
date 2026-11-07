@@ -100,4 +100,37 @@ func TestIntentAgentsRollback(t *testing.T) {
 	e.waitEval(t, name, "the request's round to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.Round == 2 && v.State == v1alpha1.VerificationPassed
 	})
+	e.settledRoundSurvivesRollback(t, name, pr.HeadSHA)
+}
+
+// settledRoundSurvivesRollback (S2-B7, the live S2-26 run 3 cycle): the
+// agents host switched off and on again with intent's round 2 Passed at
+// unchanged heads keeps that round through both restarts, and nothing
+// starts by itself once the host is back.
+func (e *evalEnv) settledRoundSurvivesRollback(t *testing.T, name, head string) {
+	t.Helper()
+	evaluates := len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate))
+	kept := func(v *v1alpha1.IntentVerification) bool {
+		return v.Round == 2 && v.State == v1alpha1.VerificationPassed && v.Ref != nil
+	}
+	status := func(state string) func() bool {
+		return func() bool {
+			st, ok := e.gh.LatestStatus(head, acceptanceStatus)
+			return ok && st.State == state
+		}
+	}
+
+	e.restartAgentsIntents(t, false)
+	eventually(t, "maul/acceptance to say verification switched off", status("error"))
+	if in := e.waitEval(t, name, "round 2 kept", kept); in.Status.Verification.Passed == 0 {
+		t.Errorf("verification %+v with the host off, want round 2's pass kept", in.Status.Verification)
+	}
+
+	e.restartAgentsIntents(t, true)
+	eventually(t, "maul/acceptance back to round 2's pass", status("success"))
+	consistently(t, "no round started by itself at unchanged heads", func() bool {
+		v := e.intent(t, name).Status.Verification
+		return v != nil && kept(v) &&
+			len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)) == evaluates
+	})
 }
