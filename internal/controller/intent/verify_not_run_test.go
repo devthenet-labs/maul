@@ -114,7 +114,7 @@ func TestAgentsRequestThatCannotRunKeepsTheJudgement(t *testing.T) {
 			restore := tc.remove(t, e)
 
 			e.clock.Advance(time.Minute)
-			e.gh.comment(approver, "/maul verify")
+			id := e.gh.comment(approver, "/maul verify")
 			e.settleActions(name)
 			e.review(name, 2)
 
@@ -127,6 +127,11 @@ func TestAgentsRequestThatCannotRunKeepsTheJudgement(t *testing.T) {
 				t.Fatalf("verifications = %+v, want only round 1's", vs)
 			}
 			replies := e.notRunReplies()
+			if tc.restore {
+				// Known when acknowledged (S2-B10): the one reply is the
+				// answer to the comment itself.
+				replies = []string{e.onlyReply(id)}
+			}
 			if len(replies) != 1 || !strings.Contains(replies[0], "did not run: "+tc.words) ||
 				!strings.Contains(replies[0], "Evaluation 1's result at these commits stands") {
 				t.Fatalf("not-run replies = %q", replies)
@@ -307,7 +312,7 @@ func TestAgentsUnrunnableStateIsNoStandingJudgement(t *testing.T) {
 	dropRunnerImages(t, e)
 
 	e.clock.Advance(time.Minute)
-	e.gh.comment(approver, "/maul verify")
+	id := e.gh.comment(approver, "/maul verify")
 	e.settleActions(name)
 	e.review(name, 2)
 
@@ -316,8 +321,8 @@ func TestAgentsUnrunnableStateIsNoStandingJudgement(t *testing.T) {
 		v.UnavailableReason != v1alpha1.VerificationUnavailableSandboxImage || v.Requested != nil {
 		t.Fatalf("verification = %+v, want Unconfirmed for no image, the request consumed", v)
 	}
-	replies := e.notRunReplies()
-	if len(replies) != 1 || !strings.Contains(replies[0], "did not run: the repository has no accepted runner image") ||
+	replies := []string{e.onlyReply(id)}
+	if !strings.Contains(replies[0], "did not run: the repository has no accepted runner image") ||
 		strings.Contains(replies[0], "stands") {
 		t.Fatalf("not-run replies = %q, want the reason and no standing result", replies)
 	}
