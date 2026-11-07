@@ -287,6 +287,12 @@ func (p *pass) previewHeld() (v1alpha1.HandoffMode, bool) {
 // maxVerifications nothing is recorded and the reply says so.
 func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args command.VerifyArgs,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	if why, off := p.offWhy(); off {
+		// Nothing would ever run it: it is not recorded, and the reply
+		// says why (S2-B8), never that it is.
+		n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
+		return n, nil
+	}
 	var cur v1alpha1.IntentVerification
 	if v := p.in.Status.Verification; v != nil {
 		cur = *v

@@ -127,6 +127,21 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 		}()},
 		{"intent_notice_verify_preview_already.md", base(VerifyPreviewAlready, "preview")},
 		{"intent_notice_verify_preview_usage.md", base(VerifyUsage, "preview")},
+		{"intent_notice_verify_not_run_image_stands.md", func() VerifyCommandNotice {
+			n := base(VerifyNotRun, "verify")
+			n.Key, n.NotRunWhy, n.Stands = "verify-unrun-4430", NotRunSandboxImage, 5
+			return n
+		}()},
+		{"intent_notice_verify_not_run_tool_pod_off.md", func() VerifyCommandNotice {
+			n := base(VerifyNotRun, "verify")
+			n.Surface, n.NotRunWhy, n.Fix = command.IntentPR, NotRunToolPodOff, true
+			return n
+		}()},
+		{"intent_notice_verify_not_run_not_enabled.md", func() VerifyCommandNotice {
+			n := base(VerifyNotRun, "verify")
+			n.NotRunWhy, n.Reset = NotRunNotEnabled, true
+			return n
+		}()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,5 +167,29 @@ func TestVerifyNoticeNamesNobody(t *testing.T) {
 	}
 	if _, err := RenderVerifyCommandNotice(VerifyCommandNotice{Verb: "verify", Outcome: "bogus"}); err == nil {
 		t.Error("an unknown outcome rendered")
+	}
+}
+
+// TestVerifyNotRunSaysWhy (S2-B8): a /maul verify that cannot run is
+// answered with maul's own words for every reason, never the reason's
+// code, never "is recorded", and never "passed"; a reason it does not know
+// says only that the check could not run.
+func TestVerifyNotRunSaysWhy(t *testing.T) {
+	for _, why := range []string{NotRunNotEnabled, NotRunToolPodOff, NotRunSurfaceCombination, NotRunPreviewsOff,
+		NotRunHarnessUnverified, NotRunNothingToCheck, NotRunSandboxImage, NotRunTree, NotRunBudget, NotRunCap,
+		"<b>bogus</b>"} {
+		got, err := RenderVerifyCommandNotice(VerifyCommandNotice{Namespace: "maul", Intent: "target-1",
+			Key: "verify-unrun-1", Actor: "@octocat", Verb: "verify", Outcome: VerifyNotRun, NotRunWhy: why})
+		if err != nil {
+			t.Fatalf("%s: %v", why, err)
+		}
+		words, known := verifyNotRunWords[why]
+		if !known {
+			words = verifyNotRunWords[""]
+		}
+		if !strings.Contains(got, "did not run: "+words+".") || strings.Contains(got, "is recorded") ||
+			strings.Contains(got, "passed") || strings.Contains(got, "bogus") || !strings.Contains(got, "`@octocat`") {
+			t.Errorf("%s:\n%s", why, got)
+		}
 	}
 }

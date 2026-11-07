@@ -316,6 +316,13 @@ func (p *pass) settleState(ctx context.Context, state v1alpha1.IntentVerificatio
 	if v.State == state && v.Requested == nil {
 		return false, nil
 	}
+	why := templates.NotRunNothingToCheck
+	if state != v1alpha1.VerificationNotDeclared {
+		why = p.offNotRunWhy()
+	}
+	if err := p.answerNotRun(ctx, why, 0); err != nil {
+		return false, err
+	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		cur.Status.Verification.State = state
 		cur.Status.Verification.Requested = nil
@@ -733,6 +740,9 @@ func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullR
 	if kind == verifyRequestRefused {
 		p.r.log().LogAttrs(ctx, slog.LevelInfo, "maxVerifications is spent; the verification request is dropped",
 			slog.String("intent", p.in.Name), slog.Int64("comment", v.Requested.CommentID))
+		if err := p.answerNotRun(ctx, templates.NotRunCap, 0); err != nil {
+			return false, err
+		}
 		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 			cur.Status.Verification.Requested = nil
 			return nil

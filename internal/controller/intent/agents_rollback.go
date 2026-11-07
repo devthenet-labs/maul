@@ -55,6 +55,9 @@ func (p *pass) settleStranded(ctx context.Context) (bool, error) {
 	ref := *p.in.Status.Verification.Ref
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the agents host is off; its open round settles unavailable",
 		slog.String("intent", p.in.Name), slog.String("verification", ref.Name))
+	if err := p.answerNotRun(ctx, p.offNotRunWhy(), 0); err != nil {
+		return false, err
+	}
 	p.dropInFlight(ctx, ref)
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification

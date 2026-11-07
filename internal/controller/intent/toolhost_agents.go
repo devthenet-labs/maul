@@ -21,6 +21,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // agentsHost is the agents tool host (SPEC-S2): a Project with a cli or
@@ -401,8 +402,14 @@ func (p *pass) agentsUnconfirmed(ctx context.Context, reason v1alpha1.PreviewVer
 	if p.roundSettled(v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationUnavailableSandboxImage) {
 		return false, nil
 	}
+	if p.cannotRerun(ctx, reason, why) {
+		return p.keepJudgement(ctx, templates.NotRunSandboxImage)
+	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round cannot run; the verification is unconfirmed",
 		slog.String("intent", p.in.Name), slog.String("reason", string(reason)), slog.String("detail", why))
+	if err := p.answerNotRun(ctx, templates.NotRunSandboxImage, 0); err != nil {
+		return false, err
+	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnconfirmed,
@@ -420,9 +427,15 @@ func (p *pass) treesUnavailable(ctx context.Context, why string) (bool, error) {
 	if p.roundSettled(v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailableTree) {
 		return false, nil
 	}
+	if p.cannotRerun(ctx, v1alpha1.VerificationReasonTreeUnavailable, why) {
+		return p.keepJudgement(ctx, templates.NotRunTree)
+	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round's trees are unavailable; the verification is unavailable",
 		slog.String("intent", p.in.Name), slog.String("reason", string(v1alpha1.VerificationReasonTreeUnavailable)),
 		slog.String("detail", why))
+	if err := p.answerNotRun(ctx, templates.NotRunTree, 0); err != nil {
+		return false, err
+	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable,
