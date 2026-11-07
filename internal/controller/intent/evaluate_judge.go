@@ -868,6 +868,13 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 	default:
 		return false
 	}
+	return judgementReady(acc, v)
+}
+
+// judgementReady reports v's judgement at its heads, whatever its state:
+// every outcome confirmed or accepted, no anomaly and no replay round
+// pending.
+func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	results := v.JudgedOutcomes()
 	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(results) == 0 {
 		return false

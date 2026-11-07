@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -162,5 +163,141 @@ func TestOffResumesWhenAProjectVerifiesAgain(t *testing.T) {
 	if v.Round != 2 || v.State != v1alpha1.VerificationVerifying || v.Ref == nil || v.Ref.Name == pv.Name ||
 		v.Passed != 0 {
 		t.Fatalf("verification = %+v, want round 2 verifying at the same heads", v)
+	}
+}
+
+// prEvaluationComment is the body of the sticky comment under the preview
+// marker on name's first pull request, "" when there is none.
+func (e *env) prEvaluationComment(name string) string {
+	pr := e.get(name).Status.PullRequests[0]
+	cs := e.previewComments(name, pr.Number)
+	if len(cs) != 1 {
+		return ""
+	}
+	return cs[0].Body
+}
+
+// TestAgentsRollbackKeepsTheLinklessViews (S2-B6): with the agents host
+// switched off, an agents Project still has no preview, so its status
+// comment and its pull request's comment stay the link-less evaluation
+// views and say the stranded round's real outcome (couldn't confirm: maul
+// could not run its checks): never the slot preview's "There is no preview
+// of this pull request now.", never a /maul preview, never a Preview line.
+func TestAgentsRollbackKeepsTheLinklessViews(t *testing.T) {
+	for _, previews := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without previews", true: "with the preview projection on"}[previews],
+			func(t *testing.T) {
+				e, name, _ := evaluatingAgentsRound(t)
+				e.review(name, 2)
+				if c := e.prEvaluationComment(name); !strings.Contains(c, "maul holds its hand-off") {
+					t.Fatalf("pull request comment before the flip = %q", c)
+				}
+				e.agentsOn(false)
+				for _, s := range []*Settings{&e.project.Settings, &e.intent.Settings, &e.runs.Settings} {
+					s.Previews = previews
+				}
+				e.review(name, 4)
+				e.runRuns()
+				e.review(name, 4)
+
+				const unconfirmed = "maul couldn't confirm this: it could not run its checks."
+				status := e.statusBody()
+				if !strings.Contains(status, "**Evaluation:** "+unconfirmed) ||
+					strings.Contains(status, "/maul preview") || strings.Contains(status, "**Preview:**") {
+					t.Errorf("status comment with the host off:\n%s", status)
+				}
+				c := e.prEvaluationComment(name)
+				if !strings.Contains(c, unconfirmed) || strings.Contains(strings.ToLower(c), "no preview") ||
+					strings.Contains(c, "/maul preview") ||
+					!strings.Contains(c, "Verification unavailable: maul could not run the checks") {
+					t.Errorf("pull request comment with the host off:\n%s", c)
+				}
+				id := e.gh.comment(approver, "/maul preview")
+				e.settleActions(name)
+				if body := e.onlyReply(id); !strings.Contains(body, "has no preview") {
+					t.Errorf("/maul preview reply with the host off = %s", body)
+				}
+			})
+	}
+}
+
+// TestAgentsRollbackKeepsAReadyRoundReady (S2-B6 review): a round the
+// agents host settled before it was switched off, every outcome confirmed
+// or accepted, is Off from then on with its judgement kept at the same
+// heads, so the link-less views keep saying it is ready, never "maul
+// couldn't confirm this".
+func TestAgentsRollbackKeepsAReadyRoundReady(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage)
+	e.reviewReady(name, 4)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		applyJudgement(in, roundJudgement{decision: confirmedTwo}, time.Now())
+	})
+	e.clock.Advance(time.Minute)
+	e.gh.comment(approver, "/maul accept "+oManual)
+	e.settleActions(name)
+	e.review(name, 6)
+	const ready = "Ready: maul checked the approved outcomes."
+	if p := e.prVerifyPass(name); !outcomesReady(p.in.Status.Acceptance, p.in.Status.Verification) ||
+		p.in.Status.Verification.Handoff == nil || !p.in.Status.Verification.Handoff.Released {
+		t.Fatalf("verification = %+v, want every outcome confirmed or accepted, the hand-off released",
+			p.in.Status.Verification)
+	}
+	if status := e.statusBody(); !strings.Contains(status, ready) {
+		t.Fatalf("status comment before the flip:\n%s", status)
+	}
+	e.agentsOn(false)
+	e.review(name, 4)
+	if v := e.verification(name); v.State != v1alpha1.VerificationOff {
+		t.Fatalf("verification = %s with the host off, want Off", v.State)
+	}
+	if status := e.statusBody(); !strings.Contains(status, "**Evaluation:** "+ready) ||
+		strings.Contains(status, "couldn't confirm") {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+	if c := e.prEvaluationComment(name); !strings.Contains(c, ready) || strings.Contains(c, "couldn't confirm") {
+		t.Errorf("pull request comment with the host off:\n%s", c)
+	}
+
+	// A push while the host is off moves the heads past what was judged:
+	// nothing checked them, so nothing says ready.
+	e.pushHead(e.get(name).Status.PullRequests[0].Number, strings.Repeat("f", 40))
+	e.review(name, 4)
+	if head := e.get(name).Status.PullRequests[0].HeadSHA; head != strings.Repeat("f", 40) {
+		t.Fatalf("pull request head = %s, want the push", head)
+	}
+	if status := e.statusBody(); strings.Contains(status, ready) {
+		t.Errorf("status comment after a push with the host off:\n%s", status)
+	}
+	if c := e.prEvaluationComment(name); strings.Contains(c, ready) {
+		t.Errorf("pull request comment after a push with the host off:\n%s", c)
+	}
+}
+
+// TestAgentsRollbackNeverSaysMaulChecks (S2-B6 review): with the agents
+// host switched off nothing checks an agents Project's intents, so no view
+// says maul checks them, also under an early hand-off, whose views carry
+// no hand-off while the host is on: they say maul couldn't confirm it.
+func TestAgentsRollbackNeverSaysMaulChecks(t *testing.T) {
+	e, name := newAgentsEnv(t, repoImage, func(p *v1alpha1.Project) {
+		if p.Spec.Verification == nil {
+			p.Spec.Verification = &v1alpha1.ProjectVerification{}
+		}
+		p.Spec.Verification.Handoff = v1alpha1.HandoffEarly
+	})
+	e.reviewReady(name, 4)
+	if v := e.verification(name); v.Handoff == nil || v.Handoff.Mode != v1alpha1.HandoffEarly {
+		t.Fatalf("verification = %+v, want an early hand-off", v)
+	}
+	e.agentsOn(false)
+	e.review(name, 4)
+	e.runRuns()
+	e.review(name, 4)
+	const unconfirmed = "maul couldn't confirm this: it could not run its checks."
+	if status := e.statusBody(); !strings.Contains(status, "**Evaluation:** "+unconfirmed) ||
+		strings.Contains(status, "maul checks") {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+	if c := e.prEvaluationComment(name); !strings.Contains(c, unconfirmed) || strings.Contains(c, "maul checks") {
+		t.Errorf("pull request comment with the host off:\n%s", c)
 	}
 }
