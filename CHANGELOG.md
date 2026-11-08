@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.19](https://github.com/devthenet-labs/maul/compare/v0.13.18...v0.13.19) (2026-11-08)
+
+
+### Bug Fixes
+
+* **intent:** S2-B10 verify acknowledgement names no preview on an agents Project ([#361](https://github.com/devthenet-labs/maul/issues/361)) ([ff00a59](https://github.com/devthenet-labs/maul/commit/ff00a59f7b2ad2c2044547851cdf00c38a57aa21))
+
 ## [0.13.18](https://github.com/devthenet-labs/maul/compare/v0.13.17...v0.13.18) (2026-11-07)
 
 
