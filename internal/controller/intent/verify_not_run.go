@@ -61,6 +61,26 @@ func (p *pass) offNotRunWhy() string {
 	return why
 }
 
+// agentsUnrunnable is why an agents round cannot run now, from what is
+// local to the Project (no accepted sandbox image), as a templates.NotRun
+// constant; "" for a Project the agents host does not evaluate or a round
+// that can run. The gate decides the same thing from the same
+// sandboxImage, so a request is answered once either way (S2-B10).
+func (p *pass) agentsUnrunnable(ctx context.Context) (string, error) {
+	if !p.set.agentsProject(p.proj) {
+		return "", nil
+	}
+	repo, ok := surfaceRepository(p.proj)
+	if !ok {
+		return "", nil
+	}
+	_, why, err := p.sandboxImage(ctx, repo.URL)
+	if err != nil || why == "" {
+		return "", err
+	}
+	return templates.NotRunSandboxImage, nil
+}
+
 // standingJudgement is the round whose judgement of the current heads
 // stands on record (0 when none does): a settled round's reference at the
 // head set, and its outcomes judged by that round at those heads. A state

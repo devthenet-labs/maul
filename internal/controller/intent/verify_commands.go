@@ -175,7 +175,7 @@ func (p *pass) recordedAcceptance(c verifyCommand, n templates.VerifyCommandNoti
 func (p *pass) verifyNoticeFor(surface command.Surface, key string, actor ghclient.Actor,
 	verb string) templates.VerifyCommandNotice {
 	return templates.VerifyCommandNotice{Namespace: p.in.Namespace, Intent: p.in.Name, Key: key, Surface: surface,
-		Actor: actor.Login, Verb: verb}
+		Actor: actor.Login, Verb: verb, Workspace: p.set.linkless(p.proj)}
 }
 
 // verifyNotice posts a verify reply on the intent issue, once.
@@ -296,6 +296,15 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	var cur v1alpha1.IntentVerification
 	if v := p.in.Status.Verification; v != nil {
 		cur = *v
+	}
+	if why, err := p.agentsUnrunnable(ctx); err != nil {
+		return n, err
+	} else if why != "" {
+		// The agents round is known to be unable to run: say so once,
+		// here, rather than acknowledge now and answer later (S2-B10).
+		n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
+		n.Stands = standingJudgement(&cur)
+		return n, nil
 	}
 	if most := p.proj.Spec.Limits.MaxVerificationsLimit(); cur.Automatic >= most {
 		// A request bypasses the interval, never the cap: the gate would

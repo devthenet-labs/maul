@@ -138,6 +138,10 @@ type VerifyCommandNotice struct {
 	Joined bool
 	// AfterRound: a round is running; the verification follows it.
 	AfterRound bool
+	// Workspace: the Project has no preview (an agents evaluation,
+	// SPEC-S2), so a request is checked in maul's own build of the pull
+	// request and no preview is named (VerifyRequested).
+	Workspace bool
 	// Criterion is the id an accept named, already checked against the
 	// criterion id grammar (command.ParseAccept); empty for a verify.
 	Criterion string
@@ -216,6 +220,13 @@ func workspaceNoticeText(n VerifyCommandNotice, cmd string) (string, bool) {
 		return fmt.Sprintf("%s does nothing: maul was not checking %s, the commits it verifies, when you "+
 			"commented, so it cannot tell which commits you checked. Accept again once maul checks them.", cmd,
 			joinCode(n.Heads)), true
+	case VerifyResetTooSoon:
+		if !n.Workspace {
+			break
+		}
+		return fmt.Sprintf("%s does nothing: maul was last asked to reset less than %s ago. Use %s to verify "+
+			"without a reset, or try again later.", slashCommand(n.Verb+" "+command.VerifyReset), n.ResetWait,
+			slashCommand(action.VerbVerify)), true
 	}
 	return "", false
 }
@@ -296,15 +307,18 @@ func requestedText(n VerifyCommandNotice, actor string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s from %s is recorded: maul checks the combined change against the approved acceptance "+
 		"criteria ", cmd, actor)
-	if n.AfterRound {
+	switch {
+	case n.AfterRound:
 		b.WriteString("after the current round.")
-	} else {
+	case n.Workspace:
+		b.WriteString("once its checks are green, " + workspaceBuild + ".")
+	default:
 		b.WriteString("once its checks are green and the preview runs the current commits.")
 	}
 	if n.Joined {
 		b.WriteString(" It joins a verification already waiting.")
 	}
-	if n.Reset {
+	if n.Reset && !n.Workspace {
 		b.WriteString(" The preview restarts with fresh data first.")
 	}
 	if n.Fix {

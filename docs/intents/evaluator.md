@@ -482,11 +482,12 @@ spec:
   `--repository-images` is off the Project shows `RepositoryImageRequired` from the start. An approver's `/maul verify`
   at commits an earlier round already judged changes nothing when the round cannot run (no accepted image, a tree that
   cannot be fetched, the evaluation budget spent): that round's result stands, on every surface, and the reply says the
-  request did not run and why; send it again once that changes. Turning repository images off on intent-controller
-  alone, as a rollback, also needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` while the egress proxy is on, or
-  intent-controller does not start ([how](../configuration/intent-controller.md#repository-declared-images)). Only
-  `GOMODCACHE` and `GOPATH` from the image's own environment reach the programs (a network profile's own win);
-  everything else in it, `GOFLAGS` or `GOPROXY` say, does not.
+  request did not run and why (for a missing image, as the only reply, never after an acknowledgement); send it again
+  once that changes. Turning repository images off on intent-controller alone, as a rollback, also needs
+  `MAUL_NETWORK_PROFILES_ENABLED: "false"` while the egress proxy is on, or intent-controller does not start
+  ([how](../configuration/intent-controller.md#repository-declared-images)). Only `GOMODCACHE` and `GOPATH` from the
+  image's own environment reach the programs (a network profile's own win); everything else in it, `GOFLAGS` or
+  `GOPROXY` say, does not.
 
 ### What the evaluator can do there
 
