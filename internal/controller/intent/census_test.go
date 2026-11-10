@@ -222,3 +222,16 @@ func TestSlice1CensusGauge(t *testing.T) {
 		t.Errorf("gauge = %v, want %v", got, want)
 	}
 }
+
+// TestSlice1CensusPointsUnlisted: PreviewVerifications that could not be
+// listed get no gauge point, never a zero that reads as none found.
+func TestSlice1CensusPointsUnlisted(t *testing.T) {
+	got := Slice1Census{Intents: []string{"a"}, VerificationsUnlisted: true}.points()
+	if want := map[string]int64{"intent": 1}; !maps.Equal(got, want) {
+		t.Errorf("points = %v, want %v", got, want)
+	}
+	got = Slice1Census{}.points()
+	if want := map[string]int64{"intent": 0, "previewverification": 0}; !maps.Equal(got, want) {
+		t.Errorf("points of an empty listed census = %v, want %v", got, want)
+	}
+}

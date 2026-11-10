@@ -6,6 +6,7 @@ package intent
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 
@@ -113,15 +114,23 @@ var slice1Metrics = sync.OnceValue(func() censusMetrics {
 // PreviewVerifications get no point rather than a zero.
 func (c Slice1Census) Report() {
 	cm := slice1Metrics()
-	intents := int64(len(c.Intents))
-	pvs, listed := int64(len(c.Verifications)), !c.VerificationsUnlisted
+	points := c.points()
 	if _, err := cm.meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		o.ObserveInt64(cm.gauge, intents, metric.WithAttributes(attribute.String("kind", "intent")))
-		if listed {
-			o.ObserveInt64(cm.gauge, pvs, metric.WithAttributes(attribute.String("kind", "previewverification")))
+		for _, kind := range slices.Sorted(maps.Keys(points)) {
+			o.ObserveInt64(cm.gauge, points[kind], metric.WithAttributes(attribute.String("kind", kind)))
 		}
 		return nil
 	}, cm.gauge); err != nil {
 		otel.Handle(err)
 	}
+}
+
+// points are the gauge's values by kind: no previewverification point
+// while they could not be listed, which a zero would misreport as none.
+func (c Slice1Census) points() map[string]int64 {
+	points := map[string]int64{"intent": int64(len(c.Intents))}
+	if !c.VerificationsUnlisted {
+		points["previewverification"] = int64(len(c.Verifications))
+	}
+	return points
 }

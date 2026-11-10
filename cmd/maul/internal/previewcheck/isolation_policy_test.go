@@ -401,6 +401,11 @@ func TestJudgeSlotPoliciesToolsSplit(t *testing.T) {
 		"the tool pod's isolation admits the agents": {toolsSplitSlot(nil, func(np *networkingv1.NetworkPolicy) {
 			np.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{rule(namespacePeer("maul-agents"))}
 		}), false},
+		// The one peer preview-isolation may admit is still too much for the
+		// tool pod: its isolation admits nothing at all.
+		"the tool pod's isolation admits the gateway": {toolsSplitSlot(nil, func(np *networkingv1.NetworkPolicy) {
+			np.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{rule(gatewayPeer("maul"))}
+		}), false},
 		"the tool pod's isolation under another name": {toolsSplitSlot(nil, func(np *networkingv1.NetworkPolicy) {
 			np.Name = "tools-isolation"
 		}), false},
