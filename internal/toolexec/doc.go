@@ -36,11 +36,16 @@
 // and nothing more runs until a sweep finds none. Output naming a bind or
 // connection error is marked NetError, which the relay counts an error,
 // never an assertion (SPEC 8a). After a build that built, the shim keeps a
-// copy of the tree and build output beside them and their digest in its
-// memory; a Fresh exec (every program of a check run) runs only on them as
+// copy of the tree, the build output and HOME (at most MaxKeptBytes, else
+// KeepFailed) and each one's digest in its memory, and a manifest of the
+// caches' entries (type, mode, size, inode, change time); a Fresh exec
+// (the first program of every check run) runs only on the kept places as
 // the build left them, put back from the copy when anything changed and
-// held to the digest, else it is refused (fresh.go; review VC-2). A
-// workspace shim never runs as root.
+// held to the digest, else it is refused, on caches pruned to the build's
+// own entries, unchanged (content-addressed, so a removed one is a miss),
+// and with an empty TMPDIR of its own under Options.Tmp, which the run's
+// later requests share; an exploratory program keeps the shared tmp root
+// (fresh.go, cache.go; review VC-2). A workspace shim never runs as root.
 //
 // The shim records nothing: the tools container writes the ledger entry
 // from the Result. Code in sandbox can lie about what its own program

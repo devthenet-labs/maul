@@ -421,7 +421,7 @@ type wsSandbox struct {
 // (the pod's /work) is work, on <execDir>/sock.
 func startSandbox(ws workspaceSide, work, execDir string) (*wsSandbox, error) {
 	srv, err := toolexec.NewServer(toolexec.Options{Work: work, Home: filepath.Join(work, "home"),
-		Cache: filepath.Join(work, "cache"), Procfs: ws.procfs})
+		Cache: filepath.Join(work, "cache"), Tmp: filepath.Join(work, "tmp"), Procfs: ws.procfs})
 	if err != nil {
 		return nil, err
 	}

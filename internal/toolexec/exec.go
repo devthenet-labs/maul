@@ -62,8 +62,8 @@ type Result struct {
 	// or connection error (NetError).
 	NetError bool `json:"netError,omitempty"`
 	// KeepFailed reports, from a workspace shim, a build that built whose
-	// tree and output could not be kept (a full volume, a file the copy
-	// cannot make): no check run can start from it, which is maul's
+	// tree, output and HOME could not be kept (past MaxKeptBytes, a full
+	// volume, a file the copy cannot make): no check run can start from it, which is maul's
 	// trouble, never the tree's.
 	KeepFailed bool `json:"keepFailed,omitempty"`
 }
@@ -82,6 +82,9 @@ type Options struct {
 	// HOME and writable caches. A workspace takes neither Scratch nor Env:
 	// its programs' environment comes with each Request.
 	Work, Home, Cache string
+	// Tmp is a workspace's TMPDIR, absolute: TmpDir when empty. A check
+	// run gets its own empty directory under it (fresh.go).
+	Tmp string
 	// Procfs is the proc filesystem a workspace's sweep reads; the
 	// package's Procfs when empty.
 	Procfs string
@@ -94,22 +97,30 @@ type Server struct {
 	timeout time.Duration
 	// slot holds the one running program's place.
 	slot chan struct{}
-	// work, home and cache are a workspace shim's places; work is empty
-	// on a slot shim.
-	work, home, cache string
+	// work, home, cache and tmp are a workspace shim's places; work is
+	// empty on a slot shim.
+	work, home, cache, tmp string
 	// sweep kills a workspace program's leftovers; unclean is set while
 	// some survive it. Both are used holding slot.
 	sweep   sweeper
 	unclean bool
-	// built is the digest of the tree and build output as the last build
-	// that built left them, kept beside them for a fresh request; "" when
-	// none did (fresh.go). Used holding slot.
-	built string
+	// built are the digests of the kept places (the tree, the build output
+	// and HOME) as the last build that built left them, kept beside them
+	// for a fresh request, and cached the caches' manifest; nil when none
+	// did (fresh.go, cache.go). checkRun names the check run the last fresh
+	// request started, whose later requests share its TMPDIR. All used
+	// holding slot.
+	built    []string
+	cached   manifest
+	checkRun string
+	// keptBound bounds the bytes the kept copy may take; MaxKeptBytes
+	// when zero.
+	keptBound int64
 }
 
 // NewServer returns a Server over opts, its scratch directory created.
 func NewServer(opts Options) (*Server, error) {
-	if opts.Work != "" || opts.Home != "" || opts.Cache != "" {
+	if opts.Work != "" || opts.Home != "" || opts.Cache != "" || opts.Tmp != "" {
 		return newWorkspaceServer(opts)
 	}
 	scratch := opts.Scratch

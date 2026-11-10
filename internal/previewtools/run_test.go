@@ -155,7 +155,7 @@ func newLiveWorkspace(t *testing.T) liveWorkspace {
 		}
 	}
 	s, err := toolexec.NewServer(toolexec.Options{Work: lw.work, Home: filepath.Join(lw.work, "home"),
-		Cache: filepath.Join(lw.work, "cache"), Procfs: filepath.Join(root, "proc")})
+		Cache: filepath.Join(lw.work, "cache"), Tmp: filepath.Join(root, "tmp"), Procfs: filepath.Join(root, "proc")})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
