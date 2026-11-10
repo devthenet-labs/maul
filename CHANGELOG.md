@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.13.21](https://github.com/devthenet-labs/maul/compare/v0.13.20...v0.13.21) (2026-11-10)
+
+
+### Bug Fixes
+
+* **intent:** answer a /maul verify on an expired preview up front (gate D-B5) ([#385](https://github.com/devthenet-labs/maul/issues/385)) ([0332d0f](https://github.com/devthenet-labs/maul/commit/0332d0fbba98f9993ac9863bf451535f69ea09f8))
+* **intent:** ask GitHub conditionally so idle intents stop draining the rate budget (D-B7) ([#387](https://github.com/devthenet-labs/maul/issues/387)) ([23997f9](https://github.com/devthenet-labs/maul/commit/23997f92dded4deb49fa86fff2b4a7429abae32b))
+* **intent:** consistent verify replies and kept reasons with the agents host off (S2 follow-ups) ([#378](https://github.com/devthenet-labs/maul/issues/378)) ([f89cd41](https://github.com/devthenet-labs/maul/commit/f89cd411020ca21fcd444ce67b5f85a69e3218a3))
+* **intent:** lead the hand-off with the outcomes in doubt, anomalies second ([#388](https://github.com/devthenet-labs/maul/issues/388)) ([3cb7b69](https://github.com/devthenet-labs/maul/commit/3cb7b69267cdfa2e26af0670e2f90ac410d91b5c))
+* **intent:** restate a stale maul/acceptance after a lost record write; deflake three tests; rule 5 e2e on the agents path ([#379](https://github.com/devthenet-labs/maul/issues/379)) ([dd42591](https://github.com/devthenet-labs/maul/commit/dd4259147af88a949dc7a9bd3f627fd5f8927597))
+* **intent:** show a red browser text check's reviewer what its element showed (D-B4) ([#389](https://github.com/devthenet-labs/maul/issues/389)) ([ea681dd](https://github.com/devthenet-labs/maul/commit/ea681ddc37ebae6f3a794dd3055fd8c4f8e8cee6))
+* **preview:** let the evaluator run without the tester image ([#380](https://github.com/devthenet-labs/maul/issues/380)) ([8cc1cbb](https://github.com/devthenet-labs/maul/commit/8cc1cbb33a8836d973ef5442685cdd8e91c7b9a6))
+* **previewtools:** check the slot sandbox's exec socket as the workspace sides do (SEC-1 follow-up) ([#375](https://github.com/devthenet-labs/maul/issues/375)) ([c9125ee](https://github.com/devthenet-labs/maul/commit/c9125ee710ccec17c417a19933136f961e163077))
+* **previewtools:** give every check run the post-build HOME and GOCACHE and a fresh TMPDIR ([#386](https://github.com/devthenet-labs/maul/issues/386)) ([eef96ab](https://github.com/devthenet-labs/maul/commit/eef96ab55c485bf293e99152ff871ec7a27d8848))
+* **previewtools:** VC-2 follow-ups: exec check timeout after the restore, kept-copy-failed, 2Gi work volume ([#377](https://github.com/devthenet-labs/maul/issues/377)) ([84c0b9e](https://github.com/devthenet-labs/maul/commit/84c0b9e724ddcda7e6247531448fa9bea7eefdd7))
+* **templates:** list each outcome once, with its own kind, in evaluation comments ([#376](https://github.com/devthenet-labs/maul/issues/376)) ([e485900](https://github.com/devthenet-labs/maul/commit/e48590017aafea1d83308e3fffde32300ca27e35))
+
 ## [0.13.20](https://github.com/devthenet-labs/maul/compare/v0.13.19...v0.13.20) (2026-11-10)
 
 
