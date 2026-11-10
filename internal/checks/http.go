@@ -12,16 +12,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // HTTPCheck is requests to one previewed component, by its key, run in
-// order: slice 1's steps (acceptance.Step), whose expectations may also use
+// order: slice 1's steps (httpstep.Step), whose expectations may also use
 // the matchers below.
 type HTTPCheck struct {
 	// Target is the previewed component's key.
-	Target string            `json:"target"`
-	Steps  []acceptance.Step `json:"steps"`
+	Target string          `json:"target"`
+	Steps  []httpstep.Step `json:"steps"`
 }
 
 var (
@@ -30,7 +30,7 @@ var (
 )
 
 func validateHTTP(h HTTPCheck, p Preview) *Refusal {
-	if len(h.Target) > acceptance.MaxKeyLength || !acceptance.KeyPattern.MatchString(h.Target) {
+	if len(h.Target) > httpstep.MaxKeyLength || !httpstep.KeyPattern.MatchString(h.Target) {
 		return refuse(RuleGrammar, "target %q is not a component key", h.Target)
 	}
 	if len(p.Components) > 0 && !slices.Contains(p.Components, h.Target) {
@@ -53,7 +53,7 @@ func validateHTTP(h HTTPCheck, p Preview) *Refusal {
 			r.Reason = "step " + strconv.Itoa(i+1) + ": " + r.Reason
 			return r
 		}
-		if err := acceptance.ValidateStepShape(st, captured); err != nil {
+		if err := httpstep.ValidateStepShape(st, captured); err != nil {
 			return refuse(RuleGrammar, "step %d: %v", i+1, err)
 		}
 		content = content || contentJSON(st.Expect.JSON) || len(st.Expect.Headers) > 0 || st.Expect.BodyContains != ""
@@ -70,12 +70,12 @@ func validateHTTP(h HTTPCheck, p Preview) *Refusal {
 	return nil
 }
 
-func validateHTTPExpect(e acceptance.Expect, captured map[string]bool) *Refusal {
+func validateHTTPExpect(e httpstep.Expect, captured map[string]bool) *Refusal {
 	if e.Exit != nil || e.StdoutContains != "" || e.StdoutJSON != nil {
 		return refuse(RuleGrammar, "an http expect has status, json, headers and bodyContains only")
 	}
-	if len(e.Status) > acceptance.MaxStatuses {
-		return refuse(RuleGrammar, "more than %d statuses", acceptance.MaxStatuses)
+	if len(e.Status) > httpstep.MaxStatuses {
+		return refuse(RuleGrammar, "more than %d statuses", httpstep.MaxStatuses)
 	}
 	for _, s := range e.Status {
 		if s < 100 || s > 599 {
@@ -91,15 +91,15 @@ func validateHTTPExpect(e acceptance.Expect, captured map[string]bool) *Refusal 
 	if r := checkLine("bodyContains", e.BodyContains); r != nil {
 		return r
 	}
-	if err := acceptance.ValidateMatcher(stringValue(e.BodyContains), captured); err != nil {
+	if err := httpstep.ValidateMatcher(stringValue(e.BodyContains), captured); err != nil {
 		return refuse(RuleGrammar, "bodyContains: %v", err)
 	}
 	return nil
 }
 
-func validateExpectedHeaders(hs map[string]acceptance.Value, captured map[string]bool) *Refusal {
-	if len(hs) > acceptance.MaxExpectHeaders {
-		return refuse(RuleGrammar, "more than %d expected headers", acceptance.MaxExpectHeaders)
+func validateExpectedHeaders(hs map[string]httpstep.Value, captured map[string]bool) *Refusal {
+	if len(hs) > httpstep.MaxExpectHeaders {
+		return refuse(RuleGrammar, "more than %d expected headers", httpstep.MaxExpectHeaders)
 	}
 	seen := map[string]bool{}
 	for name, v := range hs {
@@ -110,7 +110,7 @@ func validateExpectedHeaders(hs map[string]acceptance.Value, captured map[string
 		if presence(v) {
 			continue
 		}
-		if err := acceptance.ValidateHeaderMatcher(v, captured); err != nil {
+		if err := httpstep.ValidateHeaderMatcher(v, captured); err != nil {
 			return refuse(RuleGrammar, "expected header %s: %v; or {$present: true} or {$absent: true}", name, err)
 		}
 	}
@@ -120,12 +120,12 @@ func validateExpectedHeaders(hs map[string]acceptance.Value, captured map[string
 // validateExpectedJSON checks an expected-JSON map (an http step's json, an
 // exec check's stdoutJSON): at most MaxExpectPointers pointers, each to a
 // literal, a slice-1 matcher, {$range: [lo, hi]} or {$includes: v}.
-func validateExpectedJSON(field string, m map[string]acceptance.Value, captured map[string]bool) *Refusal {
-	if len(m) > acceptance.MaxExpectPointers {
-		return refuse(RuleGrammar, "%s: more than %d pointers", field, acceptance.MaxExpectPointers)
+func validateExpectedJSON(field string, m map[string]httpstep.Value, captured map[string]bool) *Refusal {
+	if len(m) > httpstep.MaxExpectPointers {
+		return refuse(RuleGrammar, "%s: more than %d pointers", field, httpstep.MaxExpectPointers)
 	}
 	for ptr, v := range m {
-		if err := acceptance.CheckPointer(ptr); err != nil {
+		if err := httpstep.CheckPointer(ptr); err != nil {
 			return refuse(RuleGrammar, "%s: %v", field, err)
 		}
 		if r := validateJSONMatcher(v, captured); r != nil {
@@ -136,7 +136,7 @@ func validateExpectedJSON(field string, m map[string]acceptance.Value, captured 
 	return nil
 }
 
-func validateJSONMatcher(v acceptance.Value, captured map[string]bool) *Refusal {
+func validateJSONMatcher(v httpstep.Value, captured map[string]bool) *Refusal {
 	obj, _ := v.Decoded().(map[string]any)
 	switch {
 	case obj != nil && obj["$range"] != nil:
@@ -151,18 +151,18 @@ func validateJSONMatcher(v acceptance.Value, captured map[string]bool) *Refusal 
 		if len(obj) != 1 {
 			return refuse(RuleGrammar, "$includes stands alone")
 		}
-		inner, err := acceptance.ValueOf(obj["$includes"])
+		inner, err := httpstep.ValueOf(obj["$includes"])
 		if err != nil {
 			return refuse(RuleGrammar, "$includes: %v", err)
 		}
 		// A literal: no "$" key at any depth, bounded, placeholders known.
-		if err := acceptance.ValidateMatcher(inner, captured); err != nil || hasDollarKeyDeep(obj["$includes"]) {
+		if err := httpstep.ValidateMatcher(inner, captured); err != nil || hasDollarKeyDeep(obj["$includes"]) {
 			return refuse(RuleGrammar, "$includes takes one literal value (an object matches as a subset), "+
 				"holding no matcher")
 		}
 		return nil
 	}
-	if err := acceptance.ValidateMatcher(v, captured); err != nil {
+	if err := httpstep.ValidateMatcher(v, captured); err != nil {
 		return refuse(RuleGrammar, "%v; or {$range: [lo, hi]} or {$includes: v}", err)
 	}
 	return nil
@@ -184,7 +184,7 @@ func hasDollarKeyDeep(v any) bool {
 	return false
 }
 
-func presence(v acceptance.Value) bool {
+func presence(v httpstep.Value) bool {
 	obj, ok := v.Decoded().(map[string]any)
 	if !ok || len(obj) != 1 {
 		return false
@@ -216,20 +216,20 @@ func number(v any) (float64, bool) {
 	return f, err == nil && !math.IsInf(f, 0) && !math.IsNaN(f)
 }
 
-func stringValue(s string) acceptance.Value {
-	v, _ := acceptance.ValueOf(s)
+func stringValue(s string) httpstep.Value {
+	v, _ := httpstep.ValueOf(s)
 	return v
 }
 
 // Matching.
 
 // MatchJSON judges an observed JSON value (canonical JSON text,
-// acceptance.TooLarge, or absent) against one expected value Validate
+// httpstep.TooLarge, or absent) against one expected value Validate
 // admits, under the run token and the captures: {$range: [lo, hi]} a
 // number within it, inclusive; {$includes: v} a list holding an element
 // equal to v, an object v matching any element that has its keys with
 // matching values (recursively); anything else as slice 1 judges it.
-func MatchJSON(expected acceptance.Value, run string, caps map[string]string, raw string, present bool) bool {
+func MatchJSON(expected httpstep.Value, run string, caps map[string]string, raw string, present bool) bool {
 	obj, _ := expected.Decoded().(map[string]any)
 	switch {
 	case obj != nil && obj["$range"] != nil:
@@ -241,24 +241,24 @@ func MatchJSON(expected acceptance.Value, run string, caps map[string]string, ra
 		list, isList := observed(raw, present).([]any)
 		return err == nil && isList && slices.ContainsFunc(list, func(e any) bool { return subset(want, e) })
 	}
-	return acceptance.MatchValue(expected, run, caps, raw, present)
+	return httpstep.MatchValue(expected, run, caps, raw, present)
 }
 
 // MatchHeader judges an observed response header against one expected
 // header Validate admits: {$present: true}, {$absent: true}, or as slice 1
 // judges it (an exact string or {$contains: s}).
-func MatchHeader(expected acceptance.Value, run string, caps map[string]string, raw string, present bool) bool {
+func MatchHeader(expected httpstep.Value, run string, caps map[string]string, raw string, present bool) bool {
 	if presence(expected) {
 		obj, _ := expected.Decoded().(map[string]any)
 		return (obj["$present"] != nil) == present
 	}
-	return acceptance.MatchHeaderValue(expected, run, caps, raw, present)
+	return httpstep.MatchHeaderValue(expected, run, caps, raw, present)
 }
 
 // observed decodes an observed value, nil when absent, too large or not
 // JSON.
 func observed(raw string, present bool) any {
-	if !present || raw == acceptance.TooLarge {
+	if !present || raw == httpstep.TooLarge {
 		return nil
 	}
 	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
@@ -286,9 +286,9 @@ func subset(want, got any) bool {
 		}
 		return true
 	}
-	a, errA := acceptance.ValueOf(want)
-	b, errB := acceptance.ValueOf(got)
-	return errA == nil && errB == nil && acceptance.JSONEqual(a, b)
+	a, errA := httpstep.ValueOf(want)
+	b, errB := httpstep.ValueOf(got)
+	return errA == nil && errB == nil && httpstep.JSONEqual(a, b)
 }
 
 // substituteAny substitutes the run token and captures into every string
@@ -296,7 +296,7 @@ func subset(want, got any) bool {
 func substituteAny(v any, run string, caps map[string]string) (any, error) {
 	switch t := v.(type) {
 	case string:
-		return acceptance.Substitute(t, run, caps)
+		return httpstep.Substitute(t, run, caps)
 	case []any:
 		out := make([]any, len(t))
 		for i, e := range t {

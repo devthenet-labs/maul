@@ -16,12 +16,12 @@
 // no name): a criterion never
 // chooses a host.
 //
-// Client (client.go) sends each request acceptance.BuildRequest built, as
+// Client (client.go) sends each request httpstep.BuildRequest built, as
 // built: plain HTTP to the spec's address, the escaped path and query
 // exactly as observed, never through the environment's proxy, never
 // following a redirect (the redirect is the response), with no cookie jar,
 // no compression, a fresh connection, RequestTimeout per request and the
-// body read to at most acceptance.MaxResponseBytes (too-large past it). A
+// body read to at most httpstep.MaxResponseBytes (too-large past it). A
 // request that gets no response is a transport class, never an error.
 //
 // Run (run.go) first waits, within ReadinessWindow, for every target to

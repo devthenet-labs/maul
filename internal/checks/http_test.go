@@ -6,12 +6,12 @@ package checks
 import (
 	"testing"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
-func value(t *testing.T, s string) acceptance.Value {
+func value(t *testing.T, s string) httpstep.Value {
 	t.Helper()
-	v, err := acceptance.ParseValue([]byte(s))
+	v, err := httpstep.ParseValue([]byte(s))
 	if err != nil {
 		t.Fatalf("ParseValue(%s): %v", s, err)
 	}

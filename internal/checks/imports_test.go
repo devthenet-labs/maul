@@ -13,13 +13,13 @@ import (
 	"testing"
 )
 
-// acceptancePkg is the one non-stdlib import: the slice-1 grammar this one
+// httpstepPkg is the one non-stdlib import: the step grammar this one
 // builds on (itself stdlib-only, pinned by its own test).
-const acceptancePkg = "github.com/devthenet-labs/maul/internal/acceptance"
+const httpstepPkg = "github.com/devthenet-labs/maul/internal/httpstep"
 
 // TestPureImports keeps the saved-check grammar shareable by
 // intent-controller, preview-controller, the tools relay and agent-runner:
-// it may import the standard library and internal/acceptance, nothing
+// it may import the standard library and internal/httpstep, nothing
 // else.
 func TestPureImports(t *testing.T) {
 	files, err := filepath.Glob("*.go")
@@ -42,9 +42,9 @@ func TestPureImports(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			first, _, _ := strings.Cut(path, "/")
-			if strings.Contains(first, ".") && path != acceptancePkg {
+			if strings.Contains(first, ".") && path != httpstepPkg {
 				t.Errorf("%s imports %s: package checks imports only the standard library and %s",
-					name, path, acceptancePkg)
+					name, path, httpstepPkg)
 			}
 		}
 	}

@@ -988,7 +988,7 @@ const (
 // disturbed (SPEC-S2 S2-20): only these base errors leave a check with no
 // base comparison. A timeout, processes left behind, output cut, a bind or
 // connection error or a sandbox that refused or did not answer carries
-// none (toolwire.StepCause, acceptance.RunCause).
+// none (toolwire.StepCause, httpstep.RunCause).
 // +kubebuilder:validation:Enum=compile;vendored-tree;replace-outside-tree;no-module;base-unbuildable
 type CheckRunCause string
 

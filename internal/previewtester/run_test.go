@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 func specFor(t *testing.T, api, web *component) (Spec, *dialer) {
@@ -75,7 +76,7 @@ func TestRunWritesWire(t *testing.T) {
 // controller parses it.
 func TestWriteTermination(t *testing.T) {
 	sum := acceptance.Summary{Count: 2, SHA256: strings.Repeat("ab", 32),
-		Waits: []acceptance.TargetWait{{Target: "api", WaitMs: 1203, Attempts: 4, Refused: 3}}}
+		Waits: []httpstep.TargetWait{{Target: "api", WaitMs: 1203, Attempts: 4, Refused: 3}}}
 	path := filepath.Join(t.TempDir(), "termination-log")
 	if err := WriteTermination(path, sum); err != nil {
 		t.Fatalf("WriteTermination: %v", err)
@@ -152,7 +153,7 @@ func TestRunWithinItsBudget(t *testing.T) {
 			t.Errorf("%s: Judge = %+v, want fail", c.ID, v)
 		}
 		for _, try := range obs[i].Tries {
-			if n := len(try.Steps); n == 0 || try.Steps[n-1].TransportError != acceptance.TransportTimeout {
+			if n := len(try.Steps); n == 0 || try.Steps[n-1].TransportError != httpstep.TransportTimeout {
 				t.Errorf("%s: try %+v, want it to end timed out", c.ID, try)
 			}
 		}

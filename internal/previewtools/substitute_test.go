@@ -12,7 +12,7 @@ import (
 
 // TestSubstitute: one pass, in one order, for every check path: the
 // attempt's marker, the binary, the tree, then the run token through
-// acceptance.Substitute, which still refuses any other placeholder.
+// httpstep.Substitute, which still refuses any other placeholder.
 func TestSubstitute(t *testing.T) {
 	marker := checks.ExecMarker(strings.Repeat("a", 32))
 	cli := places{bin: "/work/bin/bb", tree: "/work/tree"}

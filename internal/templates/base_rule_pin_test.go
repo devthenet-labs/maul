@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // baseRuleCase is one clause of the base rule as the prompts state it,
@@ -26,7 +27,7 @@ type baseRuleCase struct {
 // that did not build leave no base comparison; any other base error is no
 // base evidence), each with what acceptance.Decide does on it.
 func baseRuleCases() []baseRuleCase {
-	run := func(r acceptance.RunResult, step int32, cause acceptance.RunCause) acceptance.BaseRuns {
+	run := func(r acceptance.RunResult, step int32, cause httpstep.RunCause) acceptance.BaseRuns {
 		cr := acceptance.CheckRun{CheckDigest: "sha256:c", Result: r, Token: "b", Seq: 9, AssertionStep: step,
 			Cause: cause}
 		if step > 0 {
@@ -37,10 +38,10 @@ func baseRuleCases() []baseRuleCase {
 	return []baseRuleCase{
 		{clause: "fails at the base by an assertion", base: run(acceptance.RunFail, 1, ""), counts: true},
 		{clause: "its program does not compile against the base tree",
-			base: run(acceptance.RunError, 0, acceptance.CauseCompile), counts: true},
+			base: run(acceptance.RunError, 0, httpstep.CauseCompile), counts: true},
 		{clause: "the base tree cannot be built", base: acceptance.BaseRuns{Required: true, Unbuildable: true},
 			counts: true},
-		{clause: "or built against", base: run(acceptance.RunError, 0, acceptance.CauseVendoredTree), counts: true},
+		{clause: "or built against", base: run(acceptance.RunError, 0, httpstep.CauseVendoredTree), counts: true},
 		{clause: "Any other error at the base (a timeout, processes left running, output too long to keep, a bind " +
 			"or connection error) is no base evidence", base: run(acceptance.RunError, 0, ""), counts: false},
 		{clause: "a check that passes at the base", base: run(acceptance.RunPass, 0, ""), counts: false},

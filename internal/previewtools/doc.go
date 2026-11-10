@@ -75,7 +75,7 @@
 // (toolwire.KeyHeader, constant time; a refusal is a ledger entry and
 // spends none of the agent's calls); http, browser, logs and events are
 // refused. Run builds both trees in parallel first (entries 1 and 2, verb
-// build, BuildArgs; the head's is the acceptance.RoleBuild part,
+// build, BuildArgs; the head's is the httpstep.RoleBuild part,
 // BuildPart): a head that did not build runs nothing more, Run finishing
 // there (FinishBuildFailed) before its readiness path ever answers, so no
 // evaluator is launched for it (S2-B5), as does a tree that built but

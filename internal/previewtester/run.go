@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // TerminationPath is the container's termination message file (the
@@ -49,7 +50,7 @@ func Run(ctx context.Context, s Spec, c *Client, out io.Writer) (acceptance.Summ
 	if err != nil {
 		return acceptance.Summary{}, err
 	}
-	if len(acceptance.Unreached(waits)) > 0 {
+	if len(httpstep.Unreached(waits)) > 0 {
 		return w.Close()
 	}
 	rt := s.RunTokens()

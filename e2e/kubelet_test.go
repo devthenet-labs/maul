@@ -40,6 +40,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtester"
 )
 
@@ -1426,8 +1427,8 @@ func TestKubeletTester(t *testing.T) {
 	spec, err := previewtester.Spec{Round: 1, Attempt: 1, Run: "a1b2c3", BudgetSeconds: 45,
 		Criteria: acceptance.Normalize([]acceptance.Criterion{{ID: "version-served", Kind: acceptance.KindHTTP,
 			Statement: "GET /version answers", Target: "shop",
-			Steps: []acceptance.Step{{Request: acceptance.Request{Method: "GET", Path: "/version"},
-				Expect: acceptance.Expect{Status: acceptance.StatusList{200}}}}}}),
+			Steps: []httpstep.Step{{Request: httpstep.Request{Method: "GET", Path: "/version"},
+				Expect: httpstep.Expect{Status: httpstep.StatusList{200}}}}}}),
 		Targets: map[string]string{"shop": "10.0.0.50:80"}}.Encode()
 	if err != nil {
 		t.Fatal(err)

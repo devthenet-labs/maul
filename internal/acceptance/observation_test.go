@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 func observationsOf(t *testing.T, g genScenario) []CriterionObservation {
@@ -61,7 +63,7 @@ func TestWireRoundTrip(t *testing.T) {
 func TestWireLineDoesNotEscapeHTML(t *testing.T) {
 	value := `"` + strings.Repeat("<>&", 80) + `"`
 	o := CriterionObservation{ID: "home", Tries: []TryObservation{{Run: "v1a1t1-a1b2c3", Steps: []StepObservation{{
-		Method: "GET", Path: "/", Status: 500, TransportError: TransportNone, JSONValid: true,
+		Method: "GET", Path: "/", Status: 500, TransportError: httpstep.TransportNone, JSONValid: true,
 		Pointers: map[string]string{"/a": value},
 	}}}}}
 	var out bytes.Buffer
@@ -84,7 +86,7 @@ func TestWireLineDoesNotEscapeHTML(t *testing.T) {
 
 func TestWireRefusals(t *testing.T) {
 	o := CriterionObservation{ID: "a", Tries: []TryObservation{{Run: "v1a1t1-abcdef", Steps: []StepObservation{{
-		Method: "GET", Path: "/", Status: 200, TransportError: TransportNone,
+		Method: "GET", Path: "/", Status: 200, TransportError: httpstep.TransportNone,
 	}}}}}
 	write := func(obs ...CriterionObservation) string {
 		var b bytes.Buffer
@@ -147,16 +149,16 @@ func TestWireRefusals(t *testing.T) {
 // TestObserveBounds: the observation the tester records is bounded however
 // large or hostile the response.
 func TestObserveBounds(t *testing.T) {
-	v := func(src string) Value { return mustValue(t, src) }
-	c := Criterion{ID: "big", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []Step{{
-		Request: Request{Path: "/"},
-		Expect: Expect{Status: StatusList{200}, JSON: map[string]Value{
+	v := func(src string) httpstep.Value { return mustValue(t, src) }
+	c := Criterion{ID: "big", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []httpstep.Step{{
+		Request: httpstep.Request{Path: "/"},
+		Expect: httpstep.Expect{Status: httpstep.StatusList{200}, JSON: map[string]httpstep.Value{
 			"/exact":    v(`"x"`),
 			"/present":  v(`{"$present":true}`),
 			"/contains": v(`{"$contains":"needle"}`),
 			"/miss":     v(`{"$contains":"needle"}`),
 			"/list":     v(`{"$order":["b","a"],"$by":"/id"}`),
-		}, Headers: map[string]Value{"X-Big": v(`"x"`)}, BodyContains: "tail-marker"},
+		}, Headers: map[string]httpstep.Value{"X-Big": v(`"x"`)}, BodyContains: "tail-marker"},
 		Capture: map[string]string{"big": "/exact", "obj": "/present"},
 	}}}
 	huge := strings.Repeat("y", 4000)
@@ -174,17 +176,17 @@ func TestObserveBounds(t *testing.T) {
 	o := Observe(c, RunTokens{Round: 1, Attempt: 1, Run: "abcdef"}, do)
 	st := o.Tries[0].Steps[0]
 	for k, p := range st.Pointers {
-		if len(p) > MaxValueBytes {
+		if len(p) > httpstep.MaxValueBytes {
 			t.Errorf("pointer %q holds %d bytes", k, len(p))
 		}
 	}
-	if st.Pointers["/exact"] != TooLarge || st.Pointers["/present"] != TooLarge {
+	if st.Pointers["/exact"] != httpstep.TooLarge || st.Pointers["/present"] != httpstep.TooLarge {
 		t.Errorf("large values recorded as %q / %q", st.Pointers["/exact"], st.Pointers["/present"])
 	}
 	if st.Pointers["/contains"] != `"needle"` {
 		t.Errorf("$contains reduced to %q", st.Pointers["/contains"])
 	}
-	if p := st.Pointers["/miss"]; p == TooLarge || strings.Contains(p, "needle") || !json.Valid([]byte(p)) {
+	if p := st.Pointers["/miss"]; p == httpstep.TooLarge || strings.Contains(p, "needle") || !json.Valid([]byte(p)) {
 		t.Errorf("$contains miss reduced to %q", p)
 	}
 	if st.Pointers["/list"] != `["b","a"]` {
@@ -205,10 +207,10 @@ func TestObserveBounds(t *testing.T) {
 // fail its own check (and the tester stop before its summary).
 func TestObserveHeaderContainsBound(t *testing.T) {
 	needle := strings.Repeat("é", 150) // 300 bytes, 150 characters
-	c := Criterion{ID: "hdr", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []Step{{
-		Request: Request{Path: "/"},
-		Expect: Expect{Status: StatusList{200},
-			Headers: map[string]Value{"X-T": mustValue(t, `{"$contains":"`+needle+`"}`)}},
+	c := Criterion{ID: "hdr", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []httpstep.Step{{
+		Request: httpstep.Request{Path: "/"},
+		Expect: httpstep.Expect{Status: httpstep.StatusList{200},
+			Headers: map[string]httpstep.Value{"X-T": mustValue(t, `{"$contains":"`+needle+`"}`)}},
 	}}}
 	do := func(Call) Response {
 		return Response{Status: 200, Body: []byte(`{}`), Header: map[string][]string{"X-T": {"a" + needle}}}
@@ -217,14 +219,14 @@ func TestObserveHeaderContainsBound(t *testing.T) {
 	if err := o.Check(); err != nil {
 		t.Fatalf("Observe produced an observation its own bounds refuse: %v", err)
 	}
-	if got := o.Tries[0].Steps[0].Headers["x-t"]; got != TooLarge {
-		t.Errorf("header recorded as %q, want %q", got, TooLarge)
+	if got := o.Tries[0].Steps[0].Headers["x-t"]; got != httpstep.TooLarge {
+		t.Errorf("header recorded as %q, want %q", got, httpstep.TooLarge)
 	}
 }
 
 func checkBoundedStep(t *testing.T, st StepObservation, bodyLen int) {
 	t.Helper()
-	if len(st.Headers["x-big"]) > MaxHeaderBytes {
+	if len(st.Headers["x-big"]) > httpstep.MaxHeaderBytes {
 		t.Errorf("header holds %d bytes", len(st.Headers["x-big"]))
 	}
 	if _, ok := st.Captures["big"]; ok {
@@ -233,7 +235,7 @@ func checkBoundedStep(t *testing.T, st StepObservation, bodyLen int) {
 	if _, ok := st.Captures["obj"]; ok {
 		t.Error("an object was captured")
 	}
-	if st.TransportError != TransportCaptureMissing {
+	if st.TransportError != httpstep.TransportCaptureMissing {
 		t.Errorf("transport = %q, want capture-missing", st.TransportError)
 	}
 	prefix, err := base64.StdEncoding.DecodeString(st.BodyPrefix)
@@ -246,11 +248,11 @@ func checkBoundedStep(t *testing.T, st StepObservation, bodyLen int) {
 }
 
 func TestObserveCaptures(t *testing.T) {
-	c := Criterion{ID: "cap", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []Step{{
-		Request: Request{Method: "POST", Path: "/"}, Expect: Expect{Status: StatusList{201}},
+	c := Criterion{ID: "cap", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []httpstep.Step{{
+		Request: httpstep.Request{Method: "POST", Path: "/"}, Expect: httpstep.Expect{Status: httpstep.StatusList{201}},
 		Capture: map[string]string{"s": "/s", "n": "/n", "b": "/b"},
 	}, {
-		Request: Request{Path: "/{{capture.s}}/{{capture.n}}/{{capture.b}}"},
+		Request: httpstep.Request{Path: "/{{capture.s}}/{{capture.n}}/{{capture.b}}"},
 	}}}
 	var paths []string
 	do := func(call Call) Response {
@@ -271,7 +273,7 @@ func TestObserveCaptures(t *testing.T) {
 	bad := func(call Call) Response { return Response{Status: 201, Body: []byte(`<html>`)} }
 	o = Observe(c, RunTokens{Round: 1, Attempt: 1, Run: "abcdef"}, bad)
 	first := o.Tries[0].Steps[0]
-	if len(o.Tries) != 2 || first.TransportError != TransportCaptureMissing || first.JSONValid {
+	if len(o.Tries) != 2 || first.TransportError != httpstep.TransportCaptureMissing || first.JSONValid {
 		t.Errorf("non-JSON capture observed as %s", mustJSON(o))
 	}
 	if len(o.Tries[0].Steps) != 1 {

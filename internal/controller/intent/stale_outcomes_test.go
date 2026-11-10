@@ -11,12 +11,13 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // confirmedTwo is a judgement confirming two of outcomesPlan's three
 // outcomes, the manual one left to a human.
-var confirmedTwo = acceptance.Decision{Env: acceptance.EnvOK, PerOutcome: []acceptance.OutcomeResult{
+var confirmedTwo = acceptance.Decision{Env: httpstep.EnvOK, PerOutcome: []acceptance.OutcomeResult{
 	{ID: oVersion, Result: acceptance.ResultPassed, Reason: acceptance.ReasonConfirmed},
 	{ID: oHealthy, Result: acceptance.ResultPassed, Reason: acceptance.ReasonConfirmed},
 	{ID: oManual, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonManual}}}

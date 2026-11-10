@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // RequestTimeout bounds one request, response body included.
@@ -52,7 +53,7 @@ type Options struct {
 // Client sends the tester's requests: plain HTTP to one Service address at
 // a time, never through a proxy, never following a redirect, without a
 // cookie jar, without asking for compression, a fresh connection each time,
-// the body read to at most acceptance.MaxResponseBytes.
+// the body read to at most httpstep.MaxResponseBytes.
 type Client struct {
 	http       *http.Client
 	timeout    time.Duration
@@ -118,7 +119,7 @@ func positiveOr(d, def time.Duration) time.Duration {
 // instant; one whose first got a response that failed an expectation is
 // deterministic and retries at once. Use one Doer per criterion.
 func (c *Client) Doer(ctx context.Context, host string) acceptance.Doer {
-	var last acceptance.Transport
+	var last httpstep.Transport
 	return func(call acceptance.Call) acceptance.Response {
 		if call.Try > 1 && call.Step == 0 && transportFailure(last) {
 			sleep(ctx, c.retryDelay)
@@ -130,16 +131,16 @@ func (c *Client) Doer(ctx context.Context, host string) acceptance.Doer {
 }
 
 // transportFailure reports whether a request got no response at all.
-func transportFailure(t acceptance.Transport) bool {
+func transportFailure(t httpstep.Transport) bool {
 	switch t {
-	case acceptance.TransportRefused, acceptance.TransportTimeout, acceptance.TransportReset,
-		acceptance.TransportDNS, acceptance.TransportTLS:
+	case httpstep.TransportRefused, httpstep.TransportTimeout, httpstep.TransportReset,
+		httpstep.TransportDNS, httpstep.TransportTLS:
 		return true
 	}
 	return false
 }
 
-func (c *Client) do(ctx context.Context, host string, b acceptance.BuiltRequest) acceptance.Response {
+func (c *Client) do(ctx context.Context, host string, b httpstep.BuiltRequest) acceptance.Response {
 	if err := ctx.Err(); err != nil {
 		// The run's budget is spent (or the run stopped): never sent.
 		return acceptance.Response{Transport: classify(err)}
@@ -148,7 +149,7 @@ func (c *Client) do(ctx context.Context, host string, b acceptance.BuiltRequest)
 	if err != nil {
 		// Unreachable for a request BuildRequest built; recorded as never
 		// sent rather than sent differently from what was observed.
-		return acceptance.Response{Transport: acceptance.TransportCaptureMissing}
+		return acceptance.Response{Transport: httpstep.TransportCaptureMissing}
 	}
 	start := time.Now()
 	resp, err := c.http.Do(req)
@@ -156,15 +157,15 @@ func (c *Client) do(ctx context.Context, host string, b acceptance.BuiltRequest)
 		return acceptance.Response{Transport: classify(err), LatencyMs: since(start)}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, acceptance.MaxResponseBytes+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, httpstep.MaxResponseBytes+1))
 	out := acceptance.Response{
 		Status: int32(resp.StatusCode), Header: resp.Header, Body: body, LatencyMs: since(start),
 	}
 	switch {
 	case err != nil:
 		out.Body, out.Transport = nil, classify(err)
-	case len(body) > acceptance.MaxResponseBytes:
-		out.Transport = acceptance.TransportTooLarge
+	case len(body) > httpstep.MaxResponseBytes:
+		out.Transport = httpstep.TransportTooLarge
 	}
 	return out
 }
@@ -172,7 +173,7 @@ func (c *Client) do(ctx context.Context, host string, b acceptance.BuiltRequest)
 // newRequest builds the request structurally: scheme http, the spec's
 // host, and the built request's escaped path and query exactly. A request
 // whose target would differ from what Observe records is refused.
-func (c *Client) newRequest(ctx context.Context, host string, b acceptance.BuiltRequest) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, host string, b httpstep.BuiltRequest) (*http.Request, error) {
 	path, err := url.PathUnescape(b.Path)
 	if err != nil {
 		return nil, err
@@ -203,22 +204,22 @@ func (c *Client) newRequest(ctx context.Context, host string, b acceptance.Built
 }
 
 // classify names how a request failed without a response.
-func classify(err error) acceptance.Transport {
+func classify(err error) httpstep.Transport {
 	var dnsErr *net.DNSError
 	var netErr net.Error
 	var opErr *net.OpError
 	var recErr tls.RecordHeaderError
 	switch {
 	case errors.As(err, &dnsErr):
-		return acceptance.TransportDNS
+		return httpstep.TransportDNS
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
-		return acceptance.TransportTimeout
+		return httpstep.TransportTimeout
 	case errors.Is(err, syscall.ECONNREFUSED), errors.As(err, &opErr) && opErr.Op == "dial":
-		return acceptance.TransportRefused
+		return httpstep.TransportRefused
 	case errors.As(err, &recErr):
-		return acceptance.TransportTLS
+		return httpstep.TransportTLS
 	default:
-		return acceptance.TransportReset
+		return httpstep.TransportReset
 	}
 }
 

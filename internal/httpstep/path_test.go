@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-package acceptance
+package httpstep
 
 import (
 	"encoding/json"
@@ -10,6 +10,10 @@ import (
 	"strings"
 	"testing"
 )
+
+// seed is every property's seed, so the gate is deterministic (as
+// acceptance's).
+const seed = 20261026
 
 func TestCheckPath(t *testing.T) {
 	good := []string{
@@ -109,7 +113,7 @@ func TestResolvePointer(t *testing.T) {
 		{"/a/b~1c/0/deeper", "", false},
 	}
 	for _, c := range cases {
-		v, ok := resolvePointer(doc, c.ptr)
+		v, ok := ResolvePointer(doc, c.ptr)
 		if ok != c.ok {
 			t.Errorf("resolve %q ok = %v, want %v", c.ptr, ok, c.ok)
 			continue

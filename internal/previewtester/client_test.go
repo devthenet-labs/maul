@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // seen is one request a fake component received.
@@ -152,7 +153,7 @@ func TestRequestShape(t *testing.T) {
 		t.Errorf("dialled %v, want only the target", got)
 	}
 	st := lastStep(obs)
-	if st.TransportError != acceptance.TransportNone || st.Status != 201 || st.Path != "/api/battles?mode=fast&tag=x" {
+	if st.TransportError != httpstep.TransportNone || st.Status != 201 || st.Path != "/api/battles?mode=fast&tag=x" {
 		t.Errorf("observation = %+v", st)
 	}
 	if v := acceptance.Judge(c, obs, tokens); v.Outcome != acceptance.OutcomePass {
@@ -188,7 +189,7 @@ func TestPathBuilding(t *testing.T) {
 						t.Fatalf("sent %s", r.RequestURI)
 					}
 				}
-				if got := lastStep(obs).TransportError; got != acceptance.TransportCaptureMissing {
+				if got := lastStep(obs).TransportError; got != httpstep.TransportCaptureMissing {
 					t.Errorf("transport = %q, want capture-missing", got)
 				}
 				return
@@ -222,7 +223,7 @@ func TestRedirectsNotFollowed(t *testing.T) {
 					t.Errorf("dialled %s", a)
 				}
 			}
-			if st := lastStep(obs); st.Status != http.StatusFound || st.TransportError != acceptance.TransportNone {
+			if st := lastStep(obs); st.Status != http.StatusFound || st.TransportError != httpstep.TransportNone {
 				t.Errorf("observation = %+v", st)
 			}
 		})
@@ -235,11 +236,11 @@ func TestBodyCap(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		size int
-		want acceptance.Transport
+		want httpstep.Transport
 	}{
-		{"at the cap", acceptance.MaxResponseBytes, acceptance.TransportNone},
-		{"one past", acceptance.MaxResponseBytes + 1, acceptance.TransportTooLarge},
-		{"huge", 64 << 20, acceptance.TransportTooLarge},
+		{"at the cap", httpstep.MaxResponseBytes, httpstep.TransportNone},
+		{"one past", httpstep.MaxResponseBytes + 1, httpstep.TransportTooLarge},
+		{"huge", 64 << 20, httpstep.TransportTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			comp := newComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
@@ -292,7 +293,7 @@ func TestProxyEnvironmentIgnored(t *testing.T) {
 	comp := newComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) { _, _ = io.WriteString(w, "ok") })
 	c := criterion(t, `{"id":"p","kind":"http","statement":"s","target":"api","request":{"path":"/"}}`)
 	obs, d := observe(t, c, comp)
-	if st := lastStep(obs); st.TransportError != acceptance.TransportNone || st.Status != 200 {
+	if st := lastStep(obs); st.TransportError != httpstep.TransportNone || st.Status != 200 {
 		t.Errorf("observation = %+v", st)
 	}
 	if got := d.addresses(); len(got) != 1 || got[0] != apiTarget {
@@ -317,22 +318,22 @@ func TestTransportClasses(t *testing.T) {
 		name    string
 		handler func(w http.ResponseWriter, r *http.Request, n int)
 		route   func(comp *component) string
-		want    acceptance.Transport
+		want    httpstep.Transport
 	}{
-		{"refused", nil, func(*component) string { return closed() }, acceptance.TransportRefused},
-		{"dns", nil, func(*component) string { return "" }, acceptance.TransportDNS},
+		{"refused", nil, func(*component) string { return closed() }, httpstep.TransportRefused},
+		{"dns", nil, func(*component) string { return "" }, httpstep.TransportDNS},
 		{"timeout", func(w http.ResponseWriter, r *http.Request, _ int) {
 			select {
 			case <-r.Context().Done():
 			case <-time.After(5 * time.Second):
 			}
-		}, listenerAddr, acceptance.TransportTimeout},
+		}, listenerAddr, httpstep.TransportTimeout},
 		{"reset", func(w http.ResponseWriter, _ *http.Request, _ int) {
 			conn, _, err := w.(http.Hijacker).Hijack()
 			if err == nil {
 				_ = conn.Close()
 			}
-		}, listenerAddr, acceptance.TransportReset},
+		}, listenerAddr, httpstep.TransportReset},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := tc.handler

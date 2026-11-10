@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // refusing refuses the first n dials of each address with ECONNREFUSED, as
@@ -278,7 +279,7 @@ func TestRetryIsSpaced(t *testing.T) {
 	start := time.Now()
 	obs = acceptance.Observe(c, tokens, client.Doer(context.Background(), apiTarget))
 	if took := time.Since(start); took < delay || len(obs.Tries) != 2 ||
-		obs.Tries[0].Steps[0].TransportError != acceptance.TransportRefused {
+		obs.Tries[0].Steps[0].TransportError != httpstep.TransportRefused {
 		t.Errorf("a refused try retried after %s (tries %+v), want at least %s", took, obs.Tries, delay)
 	}
 

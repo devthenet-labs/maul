@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // worstTokens are the longest run tokens a verification can carry.
@@ -35,19 +37,20 @@ func maximalPlan() []Criterion {
 	for i := range MaxSteps / MaxStepsPerHTTP {
 		c := Criterion{ID: pad(fmt.Sprintf("c%d-", i), 32), Kind: KindHTTP, Statement: "s", Target: "api"}
 		for s := range MaxStepsPerHTTP {
-			st := Step{
-				Request: Request{Method: "DELETE", Path: pad(fmt.Sprintf("/s%d", s), MaxPathBytes)},
-				Expect: Expect{Status: StatusList{200}, JSON: map[string]Value{}, Headers: map[string]Value{},
-					BodyContains: strings.Repeat(`\`, MaxValueBytes/2-1)},
+			st := httpstep.Step{
+				Request: httpstep.Request{Method: "DELETE", Path: pad(fmt.Sprintf("/s%d", s), httpstep.MaxPathBytes)},
+				Expect: httpstep.Expect{Status: httpstep.StatusList{200}, JSON: map[string]httpstep.Value{},
+					Headers:      map[string]httpstep.Value{},
+					BodyContains: strings.Repeat(`\`, httpstep.MaxValueBytes/2-1)},
 				Capture: map[string]string{},
 			}
-			for k := range MaxExpectPointers {
-				st.Expect.JSON[pad(fmt.Sprintf("/p%d", k), MaxPointerBytes)] = present
+			for k := range httpstep.MaxExpectPointers {
+				st.Expect.JSON[pad(fmt.Sprintf("/p%d", k), httpstep.MaxPointerBytes)] = present
 			}
-			for k := range MaxExpectHeaders {
+			for k := range httpstep.MaxExpectHeaders {
 				st.Expect.Headers[pad(fmt.Sprintf("X-H%d-", k), 64)] = containsX
 			}
-			for k := range MaxCaptures {
+			for k := range httpstep.MaxCaptures {
 				st.Capture[pad(fmt.Sprintf("s%dc%d", s, k), 16)] = fmt.Sprintf("/c%d", k)
 			}
 			c.Steps = append(c.Steps, st)
@@ -57,8 +60,8 @@ func maximalPlan() []Criterion {
 	return cs
 }
 
-func mustParseValue(s string) Value {
-	v, err := ParseValue([]byte(s))
+func mustParseValue(s string) httpstep.Value {
+	v, err := httpstep.ParseValue([]byte(s))
 	if err != nil {
 		panic(err)
 	}
@@ -76,15 +79,15 @@ func worstDoer(c Criterion) Doer {
 		st := c.Steps[call.Step]
 		doc := map[string]any{"needle": st.Expect.BodyContains}
 		for ptr := range st.Expect.JSON {
-			doc[ptr[1:]] = strings.Repeat(`\`, MaxValueBytes/2-1)
+			doc[ptr[1:]] = strings.Repeat(`\`, httpstep.MaxValueBytes/2-1)
 		}
 		for _, ptr := range st.Capture {
-			doc[ptr[1:]] = strings.Repeat("\x01", MaxCaptureBytes)
+			doc[ptr[1:]] = strings.Repeat("\x01", httpstep.MaxCaptureBytes)
 		}
 		body, _ := json.Marshal(doc)
 		headers := map[string][]string{}
 		for name := range st.Expect.Headers {
-			headers[name] = []string{strings.Repeat("\x01", MaxHeaderBytes-1) + "x"}
+			headers[name] = []string{strings.Repeat("\x01", httpstep.MaxHeaderBytes-1) + "x"}
 		}
 		status := int32(200)
 		if call.Step == len(c.Steps)-1 {
@@ -143,17 +146,17 @@ func TestWireWorstCaseMeasured(t *testing.T) {
 // Judge recomputes: the observation is in bounds and passes, and a proof of
 // another needle, a malformed one or none fails.
 func TestBodyContainsRecordsAProof(t *testing.T) {
-	c := Criterion{ID: "a", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []Step{
-		{Request: Request{Method: "GET", Path: "/a"}, Capture: map[string]string{"id": "/id"}},
-		{Request: Request{Method: "GET", Path: "/b"}, Expect: Expect{BodyContains: "id={{capture.id}}"}},
+	c := Criterion{ID: "a", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []httpstep.Step{
+		{Request: httpstep.Request{Method: "GET", Path: "/a"}, Capture: map[string]string{"id": "/id"}},
+		{Request: httpstep.Request{Method: "GET", Path: "/b"}, Expect: httpstep.Expect{BodyContains: "id={{capture.id}}"}},
 	}}
 	if err := Validate([]Criterion{c}); err != nil {
 		t.Fatal(err)
 	}
-	ctl := strings.Repeat("\x01", MaxCaptureBytes)
+	ctl := strings.Repeat("\x01", httpstep.MaxCaptureBytes)
 	obs := Observe(c, worstTokens, func(call Call) Response {
 		if call.Step == 0 {
-			return Response{Status: 200, Body: []byte(`{"id":"` + strings.Repeat(`\u0001`, MaxCaptureBytes) + `"}`)}
+			return Response{Status: 200, Body: []byte(`{"id":"` + strings.Repeat(`\u0001`, httpstep.MaxCaptureBytes) + `"}`)}
 		}
 		return Response{Status: 200, Body: []byte("<<id=" + ctl + ">>")}
 	})
@@ -200,11 +203,12 @@ var adversarialPieces = []string{"\x00", "\x01", "\x1f", "\x7f", `"`, `\`, "<", 
 // adversarialText is text of a length at, just under or just past one of
 // the bounds (or anywhere), built from adversarialPieces.
 func adversarialText(r *rand.Rand) string {
-	limits := []int{MaxCaptureBytes, MaxHeaderBytes, MaxValueBytes, MaxValueBytes / 2, MaxValueBytes / 6,
-		MaxContainsChars, MaxPathBytes}
+	limits := []int{httpstep.MaxCaptureBytes, httpstep.MaxHeaderBytes, httpstep.MaxValueBytes, httpstep.MaxValueBytes / 2,
+		httpstep.MaxValueBytes / 6,
+		httpstep.MaxContainsChars, httpstep.MaxPathBytes}
 	n := limits[r.Intn(len(limits))] + r.Intn(3) - 1
 	if r.Intn(4) == 0 {
-		n = r.Intn(2 * MaxValueBytes)
+		n = r.Intn(2 * httpstep.MaxValueBytes)
 	}
 	var b strings.Builder
 	for b.Len() < n {
@@ -218,7 +222,7 @@ func adversarialText(r *rand.Rand) string {
 func adversarialValue(r *rand.Rand) any {
 	switch r.Intn(6) {
 	case 0:
-		return json.Number(strings.Repeat("9", MaxCaptureBytes-1+r.Intn(3)))
+		return json.Number(strings.Repeat("9", httpstep.MaxCaptureBytes-1+r.Intn(3)))
 	case 1:
 		return []any{adversarialText(r), adversarialText(r)}
 	case 2:
@@ -239,7 +243,8 @@ func adversarialDoer(r *rand.Rand, c Criterion) Doer {
 	return func(call Call) Response {
 		st := c.Steps[call.Step]
 		if r.Intn(10) == 0 {
-			ts := []Transport{TransportRefused, TransportTimeout, TransportReset, TransportDNS, TransportTLS}
+			ts := []httpstep.Transport{httpstep.TransportRefused, httpstep.TransportTimeout, httpstep.TransportReset,
+				httpstep.TransportDNS, httpstep.TransportTLS}
 			return Response{Transport: ts[r.Intn(len(ts))], LatencyMs: int32(r.Intn(1000))}
 		}
 		resp := satisfy(st, call.Run, call.Captures)
@@ -260,13 +265,13 @@ func adversarialDoer(r *rand.Rand, c Criterion) Doer {
 		resp.Body, _ = json.Marshal(doc)
 		switch r.Intn(6) {
 		case 0, 1:
-			if needle, err := Substitute(st.Expect.BodyContains, call.Run, call.Captures); err == nil {
+			if needle, err := httpstep.Substitute(st.Expect.BodyContains, call.Run, call.Captures); err == nil {
 				resp.Body = append([]byte(adversarialText(r)+needle), resp.Body...)
 			}
 		case 2:
 			resp.Body = []byte(adversarialText(r))
 		case 3:
-			resp.Body = bytes.Repeat([]byte("<"), MaxResponseBytes+r.Intn(2))
+			resp.Body = bytes.Repeat([]byte("<"), httpstep.MaxResponseBytes+r.Intn(2))
 		}
 		for name := range resp.Header {
 			if r.Intn(2) == 0 {
@@ -295,19 +300,19 @@ func (genFat) Generate(r *rand.Rand, _ int) reflect.Value {
 	budget := max(n, 1+r.Intn(MaxSteps))
 	for i := range n {
 		c := Criterion{ID: fmt.Sprintf("f%d", i), Kind: KindHTTP, Statement: "s", Target: "api"}
-		captured := make([]string, 0, MaxStepsPerHTTP*MaxCaptures)
+		captured := make([]string, 0, MaxStepsPerHTTP*httpstep.MaxCaptures)
 		steps := max(1, min(1+r.Intn(MaxStepsPerHTTP), budget-(n-1-i)))
 		budget -= steps
 		for s := range steps {
-			st := Step{Request: genRequest(r, captured), Expect: Expect{Status: StatusList{200}}}
-			if n := r.Intn(MaxExpectPointers + 1); n > 0 {
-				st.Expect.JSON = map[string]Value{}
+			st := httpstep.Step{Request: genRequest(r, captured), Expect: httpstep.Expect{Status: httpstep.StatusList{200}}}
+			if n := r.Intn(httpstep.MaxExpectPointers + 1); n > 0 {
+				st.Expect.JSON = map[string]httpstep.Value{}
 				for k := range n {
 					st.Expect.JSON[fmt.Sprintf("/k%d", k)] = genMatcher(r, captured)
 				}
 			}
-			if n := r.Intn(MaxExpectHeaders + 1); n > 0 {
-				st.Expect.Headers = map[string]Value{}
+			if n := r.Intn(httpstep.MaxExpectHeaders + 1); n > 0 {
+				st.Expect.Headers = map[string]httpstep.Value{}
 				for k := range n {
 					st.Expect.Headers[fmt.Sprintf("X-H%d", k)] = jsonValue(map[string]any{"$contains": word(r)})
 				}
@@ -315,9 +320,9 @@ func (genFat) Generate(r *rand.Rand, _ int) reflect.Value {
 			if len(captured) > 0 && r.Intn(2) == 0 {
 				st.Expect.BodyContains = "id={{capture." + captured[r.Intn(len(captured))] + "}}"
 			} else if r.Intn(3) == 0 {
-				st.Expect.BodyContains = strings.Repeat(`"`, MaxContainsChars)
+				st.Expect.BodyContains = strings.Repeat(`"`, httpstep.MaxContainsChars)
 			}
-			if n := r.Intn(MaxCaptures + 1); n > 0 {
+			if n := r.Intn(httpstep.MaxCaptures + 1); n > 0 {
 				st.Capture = map[string]string{}
 				for k := range n {
 					name := fmt.Sprintf("s%dc%d", s, k)
@@ -335,12 +340,13 @@ func (genFat) Generate(r *rand.Rand, _ int) reflect.Value {
 // genWaits is the readiness wait of a run: one to MaxWaitTargets targets,
 // in order, each reached after any number of failed attempts of any class;
 // when unreached is set, at least one target's every attempt failed.
-func genWaits(r *rand.Rand, unreached bool) []TargetWait {
-	waits := make([]TargetWait, 1+r.Intn(MaxWaitTargets))
+func genWaits(r *rand.Rand, unreached bool) []httpstep.TargetWait {
+	waits := make([]httpstep.TargetWait, 1+r.Intn(httpstep.MaxWaitTargets))
 	for i := range waits {
-		w := TargetWait{Target: string(rune('a'+i)) + "pi", WaitMs: int32(r.Intn(MaxWaitMs + 1))}
-		for range 1 + r.Intn(MaxWaitAttempts-1) {
-			w.Record([]Transport{TransportRefused, TransportTimeout, TransportReset, TransportDNS}[r.Intn(4)])
+		w := httpstep.TargetWait{Target: string(rune('a'+i)) + "pi", WaitMs: int32(r.Intn(httpstep.MaxWaitMs + 1))}
+		for range 1 + r.Intn(httpstep.MaxWaitAttempts-1) {
+			w.Record([]httpstep.Transport{httpstep.TransportRefused, httpstep.TransportTimeout, httpstep.TransportReset,
+				httpstep.TransportDNS}[r.Intn(4)])
 		}
 		w.Attempts = w.Failures() + 1
 		waits[i] = w
@@ -388,9 +394,9 @@ func writeObserved(t *testing.T, w *WireWriter, cs []Criterion, rt RunTokens, r 
 // readiness wait the tester made before any request: nothing the
 // application answered changes it, names a target unreachable or drops a
 // wait, forged summary lines included.
-func waitsKept(t *testing.T, sum Summary, waits []TargetWait, observed int) bool {
+func waitsKept(t *testing.T, sum Summary, waits []httpstep.TargetWait, observed int) bool {
 	t.Helper()
-	if !slices.Equal(sum.Waits, waits) || !slices.Equal(sum.Unreachable, Unreached(waits)) ||
+	if !slices.Equal(sum.Waits, waits) || !slices.Equal(sum.Unreachable, httpstep.Unreached(waits)) ||
 		sum.Count != observed {
 		t.Logf("summary %+v, want the waits %+v and %d observations", sum, waits, observed)
 		return false

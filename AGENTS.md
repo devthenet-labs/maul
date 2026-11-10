@@ -270,10 +270,11 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   tool pods at once (0, the slot count).
 - `cmd/preview-tester` — OPTIONAL (default-off with acceptance verification; chart `preview.verification`, a
   digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
-  tester Job preview-controller runs, stdlib plus `internal/acceptance` only, it observes and never judges. It reads
-  `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to `http://<PreviewComponentServiceName>:80` built
-  structurally (no redirects, no cookie jar, 10s and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with
-  a count-and-sha256 summary that preview-controller reads back through `pods/log`, beside the termination message. The
+  tester Job preview-controller runs, stdlib plus `internal/acceptance` and `internal/httpstep` only, it observes and
+  never judges. It reads `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to
+  `http://<PreviewComponentServiceName>:80` built structurally (no redirects, no cookie jar, 10s and 64 KiB per
+  request), and prints a `MAUL-VERIFY:` JSONL stream with a count-and-sha256 summary that preview-controller reads
+  back through `pods/log`, beside the termination message. The
   e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
   Operator guide `docs/configuration/preview-controller.md#acceptance-verification-off-by-default`, the people's guide
   `docs/intents/acceptance.md`. Kept until the evaluator's S4, which deletes it; the evaluator's tool pod replaces it.
@@ -744,12 +745,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   the wire types, pinned to `ui/src/types.ts` (`TestUsageWireTypesMatchTypeScript`).
 - `acceptance`, `untrusted`, `previewtester` — acceptance verification's pure side (the design is
   `.claude/plans/acceptance-verification/SPEC.md`; operator and people's guide `docs/intents/acceptance.md`).
-  `acceptance` (stdlib only, import pin): the plan's criterion grammar (`Validate`, the only `CriterionError` source;
-  `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full list, manual included;
-  `Automatable`), `{{run}}` and `{{capture.x}}` substitution, `Judge`/`JudgeStep` (raw bounded observations in, a
-  `pass`, `quarantined` or `fail` verdict out; no runtime `error`), `Fingerprint` and `ClassifyEnvironment`, and the
-  `MAUL-VERIFY:` wire v1. `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded
-  round-trip. `untrusted` (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
+  `acceptance` (stdlib and `httpstep` only, import pin): the plan's criterion grammar (`Validate`, the only
+  `CriterionError` source; `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full
+  list, manual included; `Automatable`), `Judge`/`JudgeStep` (raw bounded observations in, a `pass`, `quarantined` or
+  `fail` verdict out; no runtime `error`), `Fingerprint`, and the `MAUL-VERIFY:` wire v1.
+  `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded round-trip. `untrusted`
+  (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
   text before a human or model sees it. `previewtester` is the tester binary's engine. For the agent evaluator,
   `acceptance` also holds the plan's outcome grammar (`PlanOutcome`, `ValidateOutcomes`, at most 20, kinds `change` and
   `keep`, `manual`; `report.(*Plan).CheckEvaluator` refuses a criteria plan with `ErrSliceOneCriteria`),
@@ -765,6 +766,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   outcome's check fails rule 5 only red by assertion at base. `RoleBuild` (a head build part built only `Completed`,
   exit 0) failing makes every outcome unsure `tools-build-failed`; a program form (`exec`, `CheckFormRun`) failing other
   than by assertion is unsure `not-asserted` in both placements (O4).
+- `httpstep` — one HTTP step's grammar and the tool facts, PURE (stdlib only, import pin), moved out of `acceptance`
+  for the evaluator: `Step`/`Request`/`Expect`, `Value`, `StatusList`, `NormalizeSteps` (method GET, status [200]),
+  `ValidateStep` and its parts (`CheckPath`, `CheckPointer`, `ValidateMatcher`, `ValidateHeaderMatcher`), `{{run}}` and
+  `{{capture.x}}` substitution (`Substitute`, `BuildRequest`), the matcher engine (`MatchValue`, `MatchHeaderValue`,
+  `JSONEqual`, `Reduce`), `Transport`, `PartFact` and its roles, `ClassifyEnvironment`, `TargetWait` and `RunCause`.
+  Consumers: `acceptance`, `checks`, `previewtools`, `toolledger`, the controllers, `templates`.
 - `checks` (+ `checks/playwright`) — the evaluator's saved-check grammar, pure: a check is bound to one outcome and is
   `http` (slice 1's steps plus `$range`, `$includes`, header presence), `browser` (a JSON step grammar: `goto`,
   `waitForURL`, `click`, `fill`, `select`, `press`, `scroll`; scoped locators, never a snapshot ref; assertions
@@ -829,7 +836,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
-  `api/v1alpha1`, `acceptance` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
+  `api/v1alpha1`, `httpstep` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
   `ReplayRuns`, `ConfirmationRuns`, `ConfirmedChecks` (bodies from the ledger's own dry-run records), the dry-run
   lookups and `Readiness`, all skipping base entries so they return the head's runs only, `BaseRuns` (base replays and
   base confirmations tagged `tree: base`, capped at `MaxBaseRuns`, the only source of `status.base.runs`),

@@ -281,7 +281,7 @@ type StepRecord struct {
 // StepCause is why a workspace step errored, recorded by the tools relay
 // only for an error that is a property of the tree (SPEC-S2 S2-20): the
 // only errors at the base that leave a check with no base comparison
-// (acceptance.RunCause). A timeout, processes left behind, output cut, a
+// (httpstep.RunCause). A timeout, processes left behind, output cut, a
 // bind or connection error or a sandbox that refused or did not answer is
 // recorded with none: it gives no evidence about the tree.
 type StepCause string

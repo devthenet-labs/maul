@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -45,7 +45,7 @@ type RunOptions struct {
 //  1. wait, within the readiness window, for every component to accept a
 //     TCP connection, recorded as the first entry (a relay http entry
 //     whose args are {"readiness": …} and whose output is the
-//     acceptance.TargetWait list); a component still unreachable finishes
+//     httpstep.TargetWait list); a component still unreachable finishes
 //     the round there (FinishUnreachable), no check run;
 //     in a workspace, build the head and the base instead (the first two
 //     entries); a head that did not build finishes the round there
@@ -164,7 +164,7 @@ func (r *Relay) awaitComponents(ctx context.Context, window time.Duration) bool 
 	defer r.mu.Unlock()
 	_, _ = r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbHTTP,
 		Args: mustArgs(map[string]any{"readiness": map[string]any{"targets": r.cfg.keys()}}), Output: string(out)})
-	return len(acceptance.Unreached(waits)) == 0 && ctx.Err() == nil
+	return len(httpstep.Unreached(waits)) == 0 && ctx.Err() == nil
 }
 
 // replay runs every stored check alone, in the config's order, each a

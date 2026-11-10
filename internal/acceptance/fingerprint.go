@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"slices"
 	"sort"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // FingerprintVersion prefixes every fingerprint; a change to what is hashed
@@ -16,10 +18,10 @@ import (
 const FingerprintVersion = "maul-verify-fingerprint/1"
 
 type fingerprintStep struct {
-	Index     int       `json:"i"`
-	Status    int32     `json:"s"`
-	Transport Transport `json:"t"`
-	Matched   []bool    `json:"m"`
+	Index     int                `json:"i"`
+	Status    int32              `json:"s"`
+	Transport httpstep.Transport `json:"t"`
+	Matched   []bool             `json:"m"`
 }
 
 type fingerprintCriterion struct {
@@ -56,7 +58,7 @@ type fingerprintPart struct {
 // healthy parts are left out; so is every actual value, body, latency, run
 // token, restart count and log line, which change from run to run or are
 // the application's to choose.
-func Fingerprint(vs []Verdict, env []PartFact) string {
+func Fingerprint(vs []Verdict, env []httpstep.PartFact) string {
 	var doc struct {
 		Criteria []fingerprintCriterion `json:"c"`
 		Parts    []fingerprintPart      `json:"p"`
@@ -82,10 +84,10 @@ func Fingerprint(vs []Verdict, env []PartFact) string {
 
 // failingParts is the fingerprint of every part of env that is not healthy,
 // sorted by name and role; never nil.
-func failingParts(env []PartFact) []fingerprintPart {
+func failingParts(env []httpstep.PartFact) []fingerprintPart {
 	parts := []fingerprintPart{}
 	for _, p := range env {
-		if partClass(p) == EnvOK {
+		if httpstep.ClassifyEnvironment([]httpstep.PartFact{p}).Clean() {
 			continue
 		}
 		fp := fingerprintPart{Name: p.Name, Role: p.Role, Ready: p.Ready, Waiting: p.Waiting,
@@ -116,7 +118,7 @@ const EvaluationFingerprintVersion = "maul-evaluation-fingerprint/1"
 // failing saved checks' digests (each set sorted, duplicates dropped) and
 // the failing parts of env as Fingerprint takes them. Never a run token,
 // ledger seq, observed value or log line, which change from run to run.
-func EvaluationFingerprint(outcomes, checks []string, env []PartFact) string {
+func EvaluationFingerprint(outcomes, checks []string, env []httpstep.PartFact) string {
 	doc := struct {
 		Outcomes []string          `json:"o"`
 		Checks   []string          `json:"c"`

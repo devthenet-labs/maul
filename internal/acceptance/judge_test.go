@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 func TestRunTokens(t *testing.T) {
@@ -111,7 +113,7 @@ func mutateExpectation(r *rand.Rand, c Criterion) (Criterion, string) {
 	pick := options[r.Intn(len(options))]
 	switch {
 	case pick == "status":
-		st.Expect.Status = StatusList{599}
+		st.Expect.Status = httpstep.StatusList{599}
 	case pick == "method":
 		if st.Request.Method == "GET" {
 			st.Request.Method = "DELETE"
@@ -132,7 +134,7 @@ func mutateExpectation(r *rand.Rand, c Criterion) (Criterion, string) {
 	return out, fmt.Sprintf("step %d %s", i, pick)
 }
 
-func mutateValue(v Value) Value {
+func mutateValue(v httpstep.Value) httpstep.Value {
 	m, err := parseMatcher(v)
 	if err != nil {
 		panic(err)
@@ -171,8 +173,9 @@ func mutateValue(v Value) Value {
 // TestJudgeTransportErrors: every transport failure is a fail, never an
 // error or a pass, whatever else the observation says.
 func TestJudgeTransportErrors(t *testing.T) {
-	for _, tr := range []Transport{TransportRefused, TransportTimeout, TransportReset, TransportDNS,
-		TransportTLS, TransportTooLarge, TransportCaptureMissing, "made-up"} {
+	for _, tr := range []httpstep.Transport{httpstep.TransportRefused, httpstep.TransportTimeout, httpstep.TransportReset,
+		httpstep.TransportDNS,
+		httpstep.TransportTLS, httpstep.TransportTooLarge, httpstep.TransportCaptureMissing, "made-up"} {
 		prop := func(g genScenario) bool {
 			srv := &server{c: g.c}
 			do := func(call Call) Response {
@@ -289,59 +292,6 @@ func TestJudgeNeverPanics(t *testing.T) {
 	}
 }
 
-func TestMatchers(t *testing.T) {
-	cases := []struct {
-		name     string
-		expected string
-		observed string // "" means absent
-		present  bool
-		want     bool
-	}{
-		{"literal equal", `{"a":1}`, `{"a":1}`, true, true},
-		{"literal number forms", `1`, `1.0`, true, true},
-		{"literal number exp", `1000`, `1e3`, true, true},
-		{"literal big ints", `12345678901234567890`, `12345678901234567891`, true, false},
-		{"literal differs", `"a"`, `"b"`, true, false},
-		{"literal absent", `null`, "", false, false},
-		{"literal too large", `"a"`, TooLarge, true, false},
-		{"present", `{"$present":true}`, `null`, true, true},
-		{"present too large", `{"$present":true}`, TooLarge, true, true},
-		{"present absent", `{"$present":true}`, "", false, false},
-		{"absent", `{"$absent":true}`, "", false, true},
-		{"absent present", `{"$absent":true}`, `1`, true, false},
-		{"contains", `{"$contains":"ell"}`, `"hello"`, true, true},
-		{"contains no", `{"$contains":"x"}`, `"hello"`, true, false},
-		{"contains number", `{"$contains":"1"}`, `1`, true, false},
-		{"approx", `{"$approx":10,"$tolerance":1}`, `10.9`, true, true},
-		{"approx out", `{"$approx":10,"$tolerance":1}`, `11.5`, true, false},
-		{"approx list", `{"$approx":[0,500],"$tolerance":5}`, `[2,497]`, true, true},
-		{"approx list len", `{"$approx":[0,500],"$tolerance":5}`, `[2]`, true, false},
-		{"approx list vs scalar", `{"$approx":[0],"$tolerance":5}`, `0`, true, false},
-		{"approx string", `{"$approx":1,"$tolerance":1}`, `"1"`, true, false},
-		{"order", `{"$order":["b","a"]}`, `["b","a"]`, true, true},
-		{"order reversed", `{"$order":["b","a"]}`, `["a","b"]`, true, false},
-		{"order first occurrence", `{"$order":["b","a"]}`, `["a","b","a"]`, true, false},
-		{"order duplicate later", `{"$order":["b","a"]}`, `["b","a","b"]`, true, true},
-		{"order missing", `{"$order":["b","a"]}`, `["b"]`, true, false},
-		{"order not list", `{"$order":["b"]}`, `"b"`, true, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			m, err := parseMatcher(mustValue(t, c.expected))
-			if err != nil {
-				t.Fatal(err)
-			}
-			ok, err := m.substitute("r", nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := ok.match(c.observed, c.present); got != c.want {
-				t.Errorf("match(%q) = %v, want %v", c.observed, got, c.want)
-			}
-		})
-	}
-}
-
 func cloneObservation(o CriterionObservation) CriterionObservation {
 	raw, _ := json.Marshal(o)
 	var out CriterionObservation
@@ -361,16 +311,17 @@ func mustJSON(v any) string {
 // counts as matched, whatever the observation carries, so the fingerprint
 // of a timeout never looks like a half-met response.
 func TestJudgeStepTransportBits(t *testing.T) {
-	st := Step{
-		Request: Request{Path: "/x"},
-		Expect: Expect{Status: StatusList{200}, JSON: map[string]Value{"/a": mustValue(t, `1`)},
-			Headers: map[string]Value{"X-A": mustValue(t, `"v"`)}, BodyContains: "ok"},
+	st := httpstep.Step{
+		Request: httpstep.Request{Path: "/x"},
+		Expect: httpstep.Expect{Status: httpstep.StatusList{200}, JSON: map[string]httpstep.Value{"/a": mustValue(t, `1`)},
+			Headers: map[string]httpstep.Value{"X-A": mustValue(t, `"v"`)}, BodyContains: "ok"},
 		Capture: map[string]string{"id": "/id"},
 	}
-	o := StepObservation{Method: "GET", Path: "/x", Status: 200, TransportError: TransportTimeout, JSONValid: true,
-		Pointers: map[string]string{"/a": "1", KeyBodyContains: bodyContainsProof("ok")},
-		Headers:  map[string]string{"x-a": "v"},
-		Captures: map[string]string{"id": "7"}}
+	o := StepObservation{Method: "GET", Path: "/x", Status: 200, TransportError: httpstep.TransportTimeout,
+		JSONValid: true,
+		Pointers:  map[string]string{"/a": "1", KeyBodyContains: bodyContainsProof("ok")},
+		Headers:   map[string]string{"x-a": "v"},
+		Captures:  map[string]string{"id": "7"}}
 	v := JudgeStep(st, o, "r", nil)
 	if v.Pass || len(v.Matched) != 6 || !v.Matched[0] {
 		t.Fatalf("verdict %+v", v)
@@ -380,7 +331,7 @@ func TestJudgeStepTransportBits(t *testing.T) {
 			t.Errorf("bit %d matched after a timeout", i+1)
 		}
 	}
-	o.TransportError = TransportNone
+	o.TransportError = httpstep.TransportNone
 	if v := JudgeStep(st, o, "r", nil); !v.Pass {
 		t.Errorf("the same observation without the timeout = %+v", v)
 	}

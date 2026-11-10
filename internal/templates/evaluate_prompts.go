@@ -17,6 +17,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/checks/playwright"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -460,7 +461,7 @@ func boundEvaluateComponents(in []EvaluateComponent) []EvaluateComponent {
 	var out []EvaluateComponent
 	for _, c := range in {
 		c = EvaluateComponent{Key: oneLine(c.Key), Path: oneLine(c.Path)}
-		if len(c.Key) > acceptance.MaxKeyLength || !acceptance.KeyPattern.MatchString(c.Key) ||
+		if len(c.Key) > httpstep.MaxKeyLength || !httpstep.KeyPattern.MatchString(c.Key) ||
 			!strings.HasPrefix(c.Path, "/") || len(out) == evaluateComponentsMax {
 			continue
 		}

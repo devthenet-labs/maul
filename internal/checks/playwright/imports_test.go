@@ -14,16 +14,16 @@ import (
 )
 
 // allowedImports are the only non-stdlib imports: the grammar compiled and
-// the slice-1 placeholder rules it substitutes by (both pure, pinned by
-// their own tests).
+// the step grammar's placeholder rules it substitutes by (both pure, pinned
+// by their own tests).
 var allowedImports = map[string]bool{
-	"github.com/devthenet-labs/maul/internal/checks":     true,
-	"github.com/devthenet-labs/maul/internal/acceptance": true,
+	"github.com/devthenet-labs/maul/internal/checks":   true,
+	"github.com/devthenet-labs/maul/internal/httpstep": true,
 }
 
 // TestPureImports keeps the compiler shareable by the tools relay, the
 // controllers and agent-runner: the standard library, internal/checks and
-// internal/acceptance, nothing else.
+// internal/httpstep, nothing else.
 func TestPureImports(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -47,7 +47,7 @@ func TestPureImports(t *testing.T) {
 			first, _, _ := strings.Cut(path, "/")
 			if strings.Contains(first, ".") && !allowedImports[path] {
 				t.Errorf("%s imports %s: package playwright imports only the standard library, "+
-					"internal/checks and internal/acceptance", name, path)
+					"internal/checks and internal/httpstep", name, path)
 			}
 		}
 	}

@@ -10,10 +10,11 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // RoleUnknown is the role a part fact that does not convert is given: a
-// part maul knows nothing of, which acceptance.ClassifyEnvironment treats as
+// part maul knows nothing of, which httpstep.ClassifyEnvironment treats as
 // infrastructure, never charging it to the intent.
 const RoleUnknown = "unknown"
 
@@ -97,7 +98,7 @@ func ObservationFromCRD(o v1alpha1.CriterionObservation) (acceptance.CriterionOb
 
 // WaitsToCRD converts the tester's readiness waits to the CRD mirror. An
 // empty list is nil.
-func WaitsToCRD(waits []acceptance.TargetWait) ([]v1alpha1.TargetWait, error) {
+func WaitsToCRD(waits []httpstep.TargetWait) ([]v1alpha1.TargetWait, error) {
 	if len(waits) == 0 {
 		return nil, nil
 	}
@@ -111,12 +112,12 @@ func WaitsToCRD(waits []acceptance.TargetWait) ([]v1alpha1.TargetWait, error) {
 // PartFacts converts a verification's environment evidence to the
 // grammar's form, one fact per fact, in order. A fact that does not convert
 // keeps its name under RoleUnknown.
-func PartFacts(env []v1alpha1.PartFact) []acceptance.PartFact {
-	out := make([]acceptance.PartFact, 0, len(env))
+func PartFacts(env []v1alpha1.PartFact) []httpstep.PartFact {
+	out := make([]httpstep.PartFact, 0, len(env))
 	for _, f := range env {
-		var a acceptance.PartFact
+		var a httpstep.PartFact
 		if convert(f, &a) != nil {
-			a = acceptance.PartFact{Name: f.Name, Role: RoleUnknown}
+			a = httpstep.PartFact{Name: f.Name, Role: RoleUnknown}
 		}
 		out = append(out, a)
 	}

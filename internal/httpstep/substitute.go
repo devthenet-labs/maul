@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-package acceptance
+package httpstep
 
 import (
 	"errors"
@@ -17,15 +17,15 @@ const MaxBodyBytes = 2 << 10
 // ErrCaptureMissing is a {{capture.<name>}} whose step captured nothing.
 var ErrCaptureMissing = errors.New("capture missing")
 
-// captureName is a capture's name, as declared and as referenced.
-var captureName = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
+// CaptureName is a capture's name, as declared and as referenced.
+var CaptureName = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
 
 // placeholderRef is the text between "{{" and "}}".
 func placeholderRef(inner string) (capture string, err error) {
 	if inner == "run" {
 		return "", nil
 	}
-	if name, ok := strings.CutPrefix(inner, "capture."); ok && captureName.MatchString(name) {
+	if name, ok := strings.CutPrefix(inner, "capture."); ok && CaptureName.MatchString(name) {
 		return name, nil
 	}
 	return "", fmt.Errorf("unknown placeholder {{%s}}: only {{run}} and {{capture.<name>}} exist", inner)
@@ -125,7 +125,7 @@ func (b BuiltRequest) Target() string {
 // holding a control character is refused; the body is held to MaxBodyBytes.
 // A missing capture is ErrCaptureMissing.
 func BuildRequest(st Step, run string, caps map[string]string) (BuiltRequest, error) {
-	st = normalize(Criterion{Kind: KindHTTP, Steps: []Step{st}}).Steps[0]
+	st = NormalizeSteps([]Step{st})[0]
 	out := BuiltRequest{Method: st.Request.Method}
 	tmplPath, tmplQuery, hasQuery := strings.Cut(st.Request.Path, "?")
 	var err error
@@ -199,11 +199,11 @@ func buildBody(r Request, run string, caps map[string]string) ([]byte, error) {
 // keys are left alone); the result is re-encoded, so a capture can never
 // break the value's structure.
 func substituteValue(v Value, run string, caps map[string]string) (Value, error) {
-	out, err := substituteAny(v.decoded(), run, caps)
+	out, err := substituteAny(v.Decoded(), run, caps)
 	if err != nil {
 		return Value{}, err
 	}
-	return valueOf(out)
+	return ValueOf(out)
 }
 
 func substituteAny(v any, run string, caps map[string]string) (any, error) {

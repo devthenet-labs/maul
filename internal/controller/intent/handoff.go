@@ -12,6 +12,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -280,7 +281,7 @@ func unavailableWhy(r v1alpha1.VerificationUnavailableReason) string {
 // was not clean whatever its outcomes' results (review H2).
 func environmentFailed(v *v1alpha1.IntentVerification) bool {
 	results := v.JudgedOutcomes()
-	if len(results) > 0 && v.OutcomesEnvironment != "" && !acceptance.EnvClass(v.OutcomesEnvironment).Clean() {
+	if len(results) > 0 && v.OutcomesEnvironment != "" && !httpstep.EnvClass(v.OutcomesEnvironment).Clean() {
 		return true
 	}
 	for _, r := range results {

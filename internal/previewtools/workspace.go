@@ -18,8 +18,8 @@ import (
 	"unicode/utf8"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -78,7 +78,7 @@ const (
 	// RefusedKey is a call without the per-evaluation key (SPEC O7).
 	RefusedKey = "key-refused"
 	// ReasonBuildFailed: the head did not build, so nothing runs (the
-	// round can neither fail nor pass, acceptance.RoleBuild).
+	// round can neither fail nor pass, httpstep.RoleBuild).
 	ReasonBuildFailed = "build-failed"
 	// ReasonBaseUnbuildable: the base did not build, so nothing runs
 	// there; every base run is n/a (status.base.unbuildable).
@@ -260,19 +260,19 @@ type BuildArgs struct {
 	DurationMs int64              `json:"durationMs"`
 }
 
-// BuildPart is the head build's part fact (acceptance.RoleBuild): it built
+// BuildPart is the head build's part fact (httpstep.RoleBuild): it built
 // only when it terminated Completed with exit 0; a build that failed or
 // timed out terminated otherwise, and one maul could not run has no
 // termination, which acceptance reads as not built.
-func BuildPart(a BuildArgs, exit int) acceptance.PartFact {
-	p := acceptance.PartFact{Name: "build-head", Role: acceptance.RoleBuild}
+func BuildPart(a BuildArgs, exit int) httpstep.PartFact {
+	p := httpstep.PartFact{Name: "build-head", Role: httpstep.RoleBuild}
 	switch a.Result {
 	case maulv1.BuildBuilt:
-		p.LastTermination = &acceptance.Termination{Reason: "Completed"}
+		p.LastTermination = &httpstep.Termination{Reason: "Completed"}
 	case maulv1.BuildFailed:
-		p.LastTermination = &acceptance.Termination{Reason: "Error", ExitCode: int32(nonZero(exit))}
+		p.LastTermination = &httpstep.Termination{Reason: "Error", ExitCode: int32(nonZero(exit))}
 	case maulv1.BuildTimeout:
-		p.LastTermination = &acceptance.Termination{Reason: "DeadlineExceeded", ExitCode: int32(nonZero(exit))}
+		p.LastTermination = &httpstep.Termination{Reason: "DeadlineExceeded", ExitCode: int32(nonZero(exit))}
 	}
 	return p
 }
@@ -451,7 +451,7 @@ func (r *Relay) places() places {
 // substitute is the one placeholder pass of every check path (replay,
 // confirmation, a dry run, a red dry run; SPEC S2-04): the attempt's
 // marker (a program file's only: marker "" elsewhere), then {{bin}}, then
-// {{tree}}, each where p has it, then {{run}} through acceptance.Substitute,
+// {{tree}}, each where p has it, then {{run}} through httpstep.Substitute,
 // which refuses any other placeholder, those p lacks included. Values are
 // maul's and never hold a placeholder.
 func substitute(s, run, marker string, p places) (string, error) {
@@ -464,7 +464,7 @@ func substitute(s, run, marker string, p places) (string, error) {
 	if p.tree != "" {
 		s = strings.ReplaceAll(s, checks.TreePlaceholder, p.tree)
 	}
-	return acceptance.Substitute(s, run, nil)
+	return httpstep.Substitute(s, run, nil)
 }
 
 // explore substitutes {{bin}} and {{tree}} in an agent's own exec or run

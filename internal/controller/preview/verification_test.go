@@ -31,6 +31,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/kube"
 	"github.com/devthenet-labs/maul/internal/previewtester"
 )
@@ -268,12 +269,12 @@ func (e *verifyEnv) finishTester(job *batchv1.Job, pod *corev1.Pod, log []byte, 
 // testerWaits are the readiness waits of a run on spec: every target
 // reached, in key order, those named in unreached after every attempt
 // refused.
-func testerWaits(spec previewtester.Spec, unreached ...string) []acceptance.TargetWait {
-	waits := make([]acceptance.TargetWait, 0, len(spec.Targets))
+func testerWaits(spec previewtester.Spec, unreached ...string) []httpstep.TargetWait {
+	waits := make([]httpstep.TargetWait, 0, len(spec.Targets))
 	for _, key := range slices.Sorted(maps.Keys(spec.Targets)) {
-		w := acceptance.TargetWait{Target: key, WaitMs: 1200, Attempts: 4, Refused: 3}
+		w := httpstep.TargetWait{Target: key, WaitMs: 1200, Attempts: 4, Refused: 3}
 		if slices.Contains(unreached, key) {
-			w = acceptance.TargetWait{Target: key, WaitMs: 60000, Attempts: 66, Refused: 66}
+			w = httpstep.TargetWait{Target: key, WaitMs: 60000, Attempts: 66, Refused: 66}
 		}
 		waits = append(waits, w)
 	}
@@ -281,7 +282,7 @@ func testerWaits(spec previewtester.Spec, unreached ...string) []acceptance.Targ
 }
 
 // newTesterWriter is the tester's wire writer for a run on spec.
-func newTesterWriter(t *testing.T, out *bytes.Buffer, waits []acceptance.TargetWait) *acceptance.WireWriter {
+func newTesterWriter(t *testing.T, out *bytes.Buffer, waits []httpstep.TargetWait) *acceptance.WireWriter {
 	t.Helper()
 	w, err := acceptance.NewWireWriter(out, waits)
 	if err != nil {
@@ -591,7 +592,7 @@ func TestVerificationOutputIsChecked(t *testing.T) {
 		return output{out.Bytes(), sum.TerminationMessage(), 0}
 	}
 	// rewait is good output whose summary records waits instead.
-	rewait := func(t *testing.T, spec previewtester.Spec, waits []acceptance.TargetWait) output {
+	rewait := func(t *testing.T, spec previewtester.Spec, waits []httpstep.TargetWait) output {
 		t.Helper()
 		obs, _, err := acceptance.ParseWire(good(t, spec).log)
 		if err != nil {
@@ -637,7 +638,7 @@ func TestVerificationOutputIsChecked(t *testing.T) {
 			return output{o.log, sum.TerminationMessage(), 0}
 		}, v1alpha1.VerificationReasonSummaryMismatch},
 		{"waits for other targets", func(t *testing.T, spec previewtester.Spec) output {
-			return rewait(t, spec, []acceptance.TargetWait{{Target: "admin", Attempts: 1}, {Target: "api", Attempts: 1}})
+			return rewait(t, spec, []httpstep.TargetWait{{Target: "admin", Attempts: 1}, {Target: "api", Attempts: 1}})
 		}, v1alpha1.VerificationReasonTesterOutputInvalid},
 		{"a target's wait missing", func(t *testing.T, spec previewtester.Spec) output {
 			return rewait(t, spec, testerWaits(spec)[:1])
@@ -749,10 +750,10 @@ func TestVerificationUnreachableIsTheApps(t *testing.T) {
 		t.Errorf("api fact %+v, web fact %+v; want api Ready and unreachable for the 60s window", api, web)
 	}
 	env := crdconv.PartFacts(pv.Status.Environment)
-	if acceptance.ClassifyEnvironment(env) != acceptance.EnvAppFailure ||
-		!slices.Equal(acceptance.AppFailureParts(env), []string{"api"}) {
+	if httpstep.ClassifyEnvironment(env) != httpstep.EnvAppFailure ||
+		!slices.Equal(httpstep.AppFailureParts(env), []string{"api"}) {
 		t.Errorf("environment classifies as %s, failing %v; want the application's, api",
-			acceptance.ClassifyEnvironment(env), acceptance.AppFailureParts(env))
+			httpstep.ClassifyEnvironment(env), httpstep.AppFailureParts(env))
 	}
 	if len(e.jobs()) != 0 {
 		t.Errorf("%d jobs left", len(e.jobs()))
@@ -1298,7 +1299,7 @@ func TestVerificationUnreachableWithDNSFailures(t *testing.T) {
 	e.verify()
 	job := e.testerJob()
 	var out bytes.Buffer
-	sum, err := newTesterWriter(t, &out, []acceptance.TargetWait{
+	sum, err := newTesterWriter(t, &out, []httpstep.TargetWait{
 		{Target: "api", WaitMs: 60000, Attempts: 66, DNS: 66},
 		{Target: "web", WaitMs: 3, Attempts: 1}}).Close()
 	if err != nil {

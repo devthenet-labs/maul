@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // dg is a fixed check digest for a short name, so table rows read.
@@ -60,7 +62,7 @@ func TestDecide(t *testing.T) {
 		replay      bool
 		retire      []string
 		handoff     Handoff
-		env         EnvClass
+		env         httpstep.EnvClass
 		fixFailures []FixFailure
 	}{
 		{
@@ -209,7 +211,7 @@ func TestDecide(t *testing.T) {
 			name: "rule 5: a check that cannot compile at base is n/a",
 			in: with(confirmedPass(), func(in *Input) {
 				in.Base = &BaseRuns{Runs: []CheckRun{{CheckDigest: dg("a"), Result: RunError, Token: "b", Seq: 1,
-					Cause: CauseCompile}}}
+					Cause: httpstep.CauseCompile}}}
 			}),
 			result: ResultPassed, reason: ReasonConfirmed, basis: dg("a"), handoff: HandoffReady,
 		},
@@ -409,23 +411,24 @@ func TestDecide(t *testing.T) {
 		{
 			name: "an application failure in the window: no fix, unsure",
 			in: with(deterministicFail(ClaimFail, 3), func(in *Input) {
-				in.Env = []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true}}
+				in.Env = []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Ready: true, CrashedDuring: true}}
 			}),
-			result: ResultUnsure, reason: ReasonEnvFailed, env: EnvAppFailure, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonEnvFailed, env: httpstep.EnvAppFailure, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "infrastructure trouble in the window: no fix, unsure",
 			in: with(deterministicFail(ClaimFail, 3), func(in *Input) {
-				in.Env = []PartFact{{Name: "api", Role: RoleComponent, Unschedulable: true}}
+				in.Env = []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Unschedulable: true}}
 			}),
-			result: ResultUnsure, reason: ReasonInfra, env: EnvInfra, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonInfra, env: httpstep.EnvInfra, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "an environment failure leaves a confirmed pass but downgrades the hand-off",
 			in: with(confirmedPass(), func(in *Input) {
-				in.Env = []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true}}
+				in.Env = []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Ready: true, CrashedDuring: true}}
 			}),
-			result: ResultPassed, reason: ReasonConfirmed, basis: dg("a"), env: EnvAppFailure, handoff: HandoffUnconfirmed,
+			result: ResultPassed, reason: ReasonConfirmed, basis: dg("a"), env: httpstep.EnvAppFailure,
+			handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "an anomaly downgrades the hand-off of an all-passing round",
@@ -472,7 +475,7 @@ func TestDecide(t *testing.T) {
 			}
 			wantEnv := tt.env
 			if wantEnv == "" {
-				wantEnv = EnvOK
+				wantEnv = httpstep.EnvOK
 			}
 			if d.Env != wantEnv || d.Handoff != tt.handoff {
 				t.Errorf("Env %s Handoff %s, want %s %s", d.Env, d.Handoff, wantEnv, tt.handoff)
@@ -606,13 +609,14 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 	}
 	switch r.Intn(12) {
 	case 0:
-		in.Env = []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true}}
+		in.Env = []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Ready: true, CrashedDuring: true}}
 	case 1:
-		in.Env = []PartFact{{Name: "api", Role: RoleComponent, Unschedulable: true}}
+		in.Env = []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Unschedulable: true}}
 	case 2:
-		in.Env = []PartFact{failedBuild()}
+		in.Env = []httpstep.PartFact{failedBuild()}
 	case 3:
-		in.Env = []PartFact{{Name: "build-head", Role: RoleBuild, LastTermination: &Termination{Reason: "Completed"}}}
+		in.Env = []httpstep.PartFact{{Name: "build-head", Role: httpstep.RoleBuild,
+			LastTermination: &httpstep.Termination{Reason: "Completed"}}}
 	}
 	return reflect.ValueOf(genDecide{in})
 }
@@ -1047,7 +1051,8 @@ func checkDecision(in Input, d Decision) error {
 	if err := oracleNarrowed(in, d); err != nil {
 		return err
 	}
-	ready := allPassed && len(in.Anomalies) == 0 && ClassifyEnvironment(in.Env) == EnvOK && d.Fix == nil &&
+	ready := allPassed && len(in.Anomalies) == 0 && httpstep.ClassifyEnvironment(in.Env) == httpstep.EnvOK &&
+		d.Fix == nil &&
 		!d.ReplayRound
 	if (d.Handoff == HandoffReady) != ready {
 		return fmt.Errorf("handoff %s, want ready=%v", d.Handoff, ready)
@@ -1059,8 +1064,8 @@ func checkDecision(in Input, d Decision) error {
 // did not complete with exit 0) leaves the round with no fail and no pass,
 // and nothing fixed, retired, replayed or narrowed.
 func oracleHeadBuild(in Input, d Decision) error {
-	failed := slices.ContainsFunc(in.Env, func(p PartFact) bool {
-		return p.Role == RoleBuild && (p.LastTermination == nil || p.LastTermination.ExitCode != 0 ||
+	failed := slices.ContainsFunc(in.Env, func(p httpstep.PartFact) bool {
+		return p.Role == httpstep.RoleBuild && (p.LastTermination == nil || p.LastTermination.ExitCode != 0 ||
 			p.LastTermination.Reason != "Completed" && p.LastTermination.Reason != "")
 	})
 	if !failed {
@@ -1072,7 +1077,7 @@ func oracleHeadBuild(in Input, d Decision) error {
 		}
 	}
 	if d.Fix != nil || d.Suspected != nil || d.ReplayRound || len(d.Retire) > 0 || len(d.Narrowed) > 0 ||
-		d.Env != EnvInfra {
+		d.Env != httpstep.EnvInfra {
 		return fmt.Errorf("head build failed but the decision acts on runs: %+v", d)
 	}
 	return nil
@@ -1210,8 +1215,8 @@ func oracleCleared(in Input, f FixFailure) bool {
 
 func oracleFixRequests(in Input, d Decision) error {
 	if d.Fix != nil {
-		if len(d.Fix.Failures) == 0 || ClassifyEnvironment(in.Env) != EnvOK {
-			return fmt.Errorf("fix %+v in env %s", d.Fix, ClassifyEnvironment(in.Env))
+		if len(d.Fix.Failures) == 0 || httpstep.ClassifyEnvironment(in.Env) != httpstep.EnvOK {
+			return fmt.Errorf("fix %+v in env %s", d.Fix, httpstep.ClassifyEnvironment(in.Env))
 		}
 		for _, f := range d.Fix.Failures {
 			if err := oracleFixable(in, f); err != nil {

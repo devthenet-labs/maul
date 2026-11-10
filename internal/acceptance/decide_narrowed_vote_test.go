@@ -6,6 +6,8 @@ package acceptance
 import (
 	"slices"
 	"testing"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // issue61 is S1 demo bug 14's shape, round 3 (intent #61): outcome
@@ -115,7 +117,7 @@ func TestDecideNarrowedCheckIsNotAVote(t *testing.T) {
 			result: ResultUnsure, reason: ReasonDisputed},
 		{name: "a failing environment: unsure",
 			in: with(issue61(), func(in *Input) {
-				in.Env = []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true}}
+				in.Env = []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Ready: true, CrashedDuring: true}}
 			}),
 			result: ResultUnsure, reason: ReasonEnvFailed},
 		{name: "a proven green check regressing beside the narrowed one, the evaluator agreeing: failed",

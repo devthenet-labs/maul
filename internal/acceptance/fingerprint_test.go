@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 var fingerprintForm = regexp.MustCompile(`^maul-verify-fingerprint/1:[0-9a-f]{64}$`)
@@ -37,8 +39,10 @@ func TestFingerprintIgnoresValues(t *testing.T) {
 		other := g
 		other.rt.Run = "abcdef"
 		b := failing(other, 599, `{"error":"bang","at":"12:09:59","trace":"`+strings.Repeat("x", 300)+`"}`, 900)
-		envA := []PartFact{{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 3, LogTail: "panic: a"}}
-		envB := []PartFact{{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 9, LogTail: "panic: b"}}
+		envA := []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 3,
+			LogTail: "panic: a"}}
+		envB := []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 9,
+			LogTail: "panic: b"}}
 		fa, fb := Fingerprint([]Verdict{a}, envA), Fingerprint([]Verdict{b}, envB)
 		return a.Outcome == OutcomeFail && fa == fb && fingerprintForm.MatchString(fa)
 	}
@@ -58,13 +62,14 @@ func TestFingerprintSensitive(t *testing.T) {
 			return false
 		}
 		// A different failing part, waiting reason or exit code.
-		envs := [][]PartFact{
-			{{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff"}},
-			{{Name: "web", Role: RoleComponent, Waiting: "CrashLoopBackOff"}},
-			{{Name: "api", Role: RoleComponent, Waiting: "ImagePullBackOff"}},
-			{{Name: "api", Role: RoleComponent, LastTermination: &Termination{Reason: "Error", ExitCode: 1}}},
-			{{Name: "api", Role: RoleComponent, LastTermination: &Termination{Reason: "Error", ExitCode: 2}}},
-			{{Name: "api", Role: RoleComponent, LastTermination: &Termination{Reason: "OOMKilled", ExitCode: 137}}},
+		envs := [][]httpstep.PartFact{
+			{{Name: "api", Role: httpstep.RoleComponent, Waiting: "CrashLoopBackOff"}},
+			{{Name: "web", Role: httpstep.RoleComponent, Waiting: "CrashLoopBackOff"}},
+			{{Name: "api", Role: httpstep.RoleComponent, Waiting: "ImagePullBackOff"}},
+			{{Name: "api", Role: httpstep.RoleComponent, LastTermination: &httpstep.Termination{Reason: "Error", ExitCode: 1}}},
+			{{Name: "api", Role: httpstep.RoleComponent, LastTermination: &httpstep.Termination{Reason: "Error", ExitCode: 2}}},
+			{{Name: "api", Role: httpstep.RoleComponent,
+				LastTermination: &httpstep.Termination{Reason: "OOMKilled", ExitCode: 137}}},
 		}
 		seen := map[string]bool{fa: true}
 		for _, env := range envs {
@@ -90,7 +95,7 @@ func TestFingerprintMatchedBits(t *testing.T) {
 		t.Error("matched bits do not reach the fingerprint")
 	}
 	transport := base
-	transport.Steps = []StepVerdict{{Index: 0, Transport: TransportTimeout, Matched: []bool{true, true, false}}}
+	transport.Steps = []StepVerdict{{Index: 0, Transport: httpstep.TransportTimeout, Matched: []bool{true, true, false}}}
 	if Fingerprint([]Verdict{base}, nil) == Fingerprint([]Verdict{transport}, nil) {
 		t.Error("the transport class does not reach the fingerprint")
 	}
@@ -112,15 +117,15 @@ func TestFingerprintSetSemantics(t *testing.T) {
 	if ab == Fingerprint([]Verdict{a}, nil) {
 		t.Error("a criterion that stopped failing does not change the fingerprint")
 	}
-	healthy := []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 4}}
+	healthy := []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Ready: true, Restarts: 4}}
 	if ab != Fingerprint([]Verdict{a, b}, healthy) {
 		t.Error("a healthy part reaches the fingerprint")
 	}
-	env := []PartFact{
-		{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff"},
-		{Name: "web", Role: RoleComponent, Evicted: true},
+	env := []httpstep.PartFact{
+		{Name: "api", Role: httpstep.RoleComponent, Waiting: "CrashLoopBackOff"},
+		{Name: "web", Role: httpstep.RoleComponent, Evicted: true},
 	}
-	rev := []PartFact{env[1], env[0]}
+	rev := []httpstep.PartFact{env[1], env[0]}
 	if Fingerprint(nil, env) != Fingerprint(nil, rev) {
 		t.Error("fingerprint depends on part order")
 	}
@@ -135,10 +140,11 @@ var evaluationFingerprintForm = regexp.MustCompile(`^maul-evaluation-fingerprint
 // failing outcomes, the failing check digests and the failing parts, in
 // any order, and nothing that changes from run to run.
 func TestEvaluationFingerprint(t *testing.T) {
-	crash := []PartFact{{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 3, LogTail: "panic: a"}}
-	crashAgain := []PartFact{{Name: "api", Role: RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 9,
+	crash := []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 3,
+		LogTail: "panic: a"}}
+	crashAgain := []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Waiting: "CrashLoopBackOff", Restarts: 9,
 		LogTail: "panic: b"}}
-	healthy := []PartFact{{Name: "web", Role: RoleComponent, Ready: true}}
+	healthy := []httpstep.PartFact{{Name: "web", Role: httpstep.RoleComponent, Ready: true}}
 	base := EvaluationFingerprint([]string{"elo", "rank"}, []string{"sha256:a", "sha256:b"}, crash)
 	if !evaluationFingerprintForm.MatchString(base) {
 		t.Fatalf("fingerprint %q has the wrong form", base)
@@ -147,7 +153,7 @@ func TestEvaluationFingerprint(t *testing.T) {
 		name     string
 		outcomes []string
 		checks   []string
-		env      []PartFact
+		env      []httpstep.PartFact
 	}
 	same := []args{
 		{"order of outcomes and checks", []string{"rank", "elo"}, []string{"sha256:b", "sha256:a"}, crash},
