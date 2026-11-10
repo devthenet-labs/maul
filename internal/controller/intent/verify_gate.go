@@ -82,19 +82,6 @@ func headSetDigest(heads []v1alpha1.VerificationHead) string {
 	return digest(b)
 }
 
-// automatable are the criteria this slice (acceptance slice 1) runs, in
-// plan order: http, as acceptance.Automatable(cs, 1) selects them. command
-// criteria are recorded and reported as not run until slice 2.
-func automatable(cs []v1alpha1.AcceptanceCriterion) []v1alpha1.AcceptanceCriterion {
-	var out []v1alpha1.AcceptanceCriterion
-	for _, c := range cs {
-		if c.Kind == v1alpha1.AcceptanceHTTP {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 // verifies reports whether this pass's Intent is verified: its Project is
 // (Settings.verifiesProject, the predicate the plan-time planAsk shares),
 // and its tool host can verify it (toolHost.verifies: for the slot, the
@@ -185,18 +172,6 @@ func (p *pass) lastRequestAt(ctx context.Context) (time.Time, error) {
 		}
 	}
 	return last, nil
-}
-
-// unrunnable names the first criterion that cannot run as approved against
-// hs: its target is not one of the Preview's components, so no Service name
-// can be derived for it. "" when every one can.
-func unrunnable(cs []v1alpha1.AcceptanceCriterion, hs headSet) string {
-	for _, c := range cs {
-		if !slices.ContainsFunc(hs.heads, func(h v1alpha1.VerificationHead) bool { return h.Component == c.Target }) {
-			return c.ID
-		}
-	}
-	return ""
 }
 
 // checksGreen reports whether every open pull request of the Intent has the

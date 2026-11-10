@@ -81,7 +81,7 @@ func TestPlanOutcomesGoldens(t *testing.T) {
 func TestPlanOutcomesAbsentChangesNothing(t *testing.T) {
 	for _, pc := range []PlanComment{testPlanComment(testPlan), func() PlanComment {
 		pc := testPlanComment(testPlan)
-		pc.Acceptance = &PlanAcceptance{Automated: 1}
+		pc.Acceptance = &PlanAcceptance{NotAsked: true}
 		return pc
 	}()} {
 		want, err := RenderPlanComment(pc)
@@ -147,25 +147,24 @@ func TestPlanOutcomesFit(t *testing.T) {
 	}
 }
 
-// TestPlanVerificationOutcomes: a plan Job is told the evaluator asks for
-// outcomes beside the components; without it the handoff is byte for byte
-// what it was, and with no component nothing is handed at all.
+// TestPlanVerificationOutcomes: a plan Job is told the components its
+// outcomes are checked on; with no component nothing is handed at all,
+// and the slice-1-era "outcomes" switch is no longer part of the wire.
 func TestPlanVerificationOutcomes(t *testing.T) {
-	in := &PlanVerification{Components: []PlanVerifyComponent{{Key: "web", Path: "/"}}, Outcomes: true}
+	in := &PlanVerification{Components: []PlanVerifyComponent{{Key: "web", Path: "/"}}}
 	enc := EncodePlanVerification(in)
-	if want := `{"components":[{"key":"web","path":"/"}],"outcomes":true}`; enc != want {
+	if want := `{"components":[{"key":"web","path":"/"}]}`; enc != want {
 		t.Errorf("EncodePlanVerification = %s, want %s", enc, want)
 	}
 	got, err := DecodePlanVerification(enc)
-	if err != nil || got == nil || !got.Outcomes || len(got.Components) != 1 {
+	if err != nil || got == nil || len(got.Components) != 1 {
 		t.Errorf("round trip = %+v, %v", got, err)
 	}
-	in.Outcomes = false
-	if enc := EncodePlanVerification(in); strings.Contains(enc, "outcomes") {
-		t.Errorf("without the evaluator the handoff names outcomes: %s", enc)
+	if got, err := DecodePlanVerification(`{"components":[{"key":"web","path":"/"}],"outcomes":true}`); err == nil {
+		t.Errorf("the removed outcomes switch decoded: %+v", got)
 	}
-	if enc := EncodePlanVerification(&PlanVerification{Outcomes: true}); enc != "" {
-		t.Errorf("outcomes with no component = %q, want none", enc)
+	if enc := EncodePlanVerification(&PlanVerification{}); enc != "" {
+		t.Errorf("no component = %q, want none", enc)
 	}
 }
 

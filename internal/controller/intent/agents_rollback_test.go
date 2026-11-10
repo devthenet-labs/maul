@@ -228,19 +228,17 @@ func TestAgentsOffIntentResumesWhenTheHostReturns(t *testing.T) {
 // loop's, not the agents host's: a slot intent left Off at its recorded
 // heads, on a pass that verifies it again, starts over at those heads.
 func TestOffResumesWhenAProjectVerifiesAgain(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name, _ := e.judged(answering(200))
+	e, name := passedEvaluation(t)
 	pv := e.onlyVerification(name)
-	if v := e.verification(name); v.State != v1alpha1.VerificationPassed {
-		t.Fatalf("verification = %s, want Passed", v.State)
-	}
+	heads := e.verification(name).HeadSetDigest
 	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.State = v1alpha1.VerificationOff })
 	e.review(name, 4)
 	v := e.verification(name)
-	if v.Round != 2 || v.State != v1alpha1.VerificationVerifying || v.Ref == nil || v.Ref.Name == pv.Name ||
-		v.Passed != 0 {
-		t.Fatalf("verification = %+v, want round 2 verifying at the same heads", v)
+	if v.Round != 2 || v.State != v1alpha1.VerificationEvaluating || v.Ref == nil || v.Ref.Name == pv.Name ||
+		v.Passed != 0 || v.HeadSetDigest != heads {
+		t.Fatalf("verification = %+v, want round 2 evaluating at the same heads", v)
 	}
+	outcomeRequest(t, e.pvNamed(v.Ref.Name))
 }
 
 // prEvaluationComment is the body of the sticky comment under the preview

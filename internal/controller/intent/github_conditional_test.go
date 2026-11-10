@@ -79,8 +79,7 @@ var idleAdmin = []string{"BotLogin", "RateRemaining"}
 // until it is listed there, and proven conditional.
 func TestIdleReviewPassReads(t *testing.T) {
 	const passes = 30
-	e := newVerifyEnv(t, acceptancePlan)
-	name, _ := e.judged(answering(200))
+	e, name := passedEvaluation(t)
 	e.review(name, 3)
 	e.gh.mu.Lock()
 	e.gh.calls = map[string]int{}
@@ -118,6 +117,28 @@ func TestIdleReviewPassReads(t *testing.T) {
 	if !maps.Equal(got, want) {
 		t.Fatalf("GitHub reads over %d idle passes:\n got  %v\n want %v", passes, got, want)
 	}
+}
+
+// passedEvaluation is an intent in review whose first evaluation round
+// passed: both saved checks replayed green, the manual outcome accepted,
+// the hand-off released. It returns the env and the intent.
+func passedEvaluation(t *testing.T) (*env, string) {
+	t.Helper()
+	e, name := newEvaluatorEnv(t, 0.4)
+	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	e.storeChecks(name, version, health)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Accepted = append(in.Status.Acceptance.Accepted, v1alpha1.AcceptanceRecord{ID: oManual,
+			By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()), CommentID: 99,
+			HeadSetDigest: in.Status.Verification.HeadSetDigest})
+	})
+	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+	if v := e.verification(name); v.State != v1alpha1.VerificationPassed || pv.Name != v.Ref.Name {
+		t.Fatalf("verification = %s %+v, want the round Passed", v.State, v.Outcomes)
+	}
+	return e, name
 }
 
 // conditionalGitHub is a GitHub API answering every GET the way GitHub

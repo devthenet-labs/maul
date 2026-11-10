@@ -335,7 +335,7 @@ func (p *pass) planComment(revision int32, raw []byte, issue *snapshot) (templat
 		Summary: parsed.Summary, NewDependencies: parsed.NewDependencies, Questions: parsed.Questions,
 		ApproveLabel: approveLabel(p.proj), TriggerLabel: p.trigger(),
 		Repositories: repositorySlugs(repos), NetworkProfiles: profiles, NetworkRoutes: routes,
-		Acceptance: planAcceptance(ask, parsed.Acceptance),
+		Acceptance: planAcceptance(ask),
 		Outcomes:   planOutcomes(ask, parsed.Outcomes, body, issue != nil),
 	}, nil
 }
@@ -498,7 +498,7 @@ func (p *pass) writeBack(ctx context.Context, run *v1alpha1.IntentRun) (bool, er
 // answers: read only when the plan was asked for outcomes, nil otherwise or
 // when the snapshot is gone.
 func (p *pass) planIssue(ctx context.Context) (*snapshot, error) {
-	if in := p.in.Status.Input; in != nil && p.set.planAsk(p.proj).outcomes {
+	if in := p.in.Status.Input; in != nil && p.set.planAsk(p.proj).verified {
 		return p.inputSnapshot(ctx, in)
 	}
 	return nil, nil

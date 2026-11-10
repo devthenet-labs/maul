@@ -88,40 +88,13 @@ const (
 	FixHalted  = "halted"
 )
 
-// Criterion outcomes as a comment shows them.
-const (
-	VerifyOutcomePass        = "pass"
-	VerifyOutcomeFail        = "fail"
-	VerifyOutcomeQuarantined = "quarantined"
-	VerifyOutcomeNotRun      = "not-run"
-	VerifyOutcomeManual      = "manual"
-	VerifyOutcomeAccepted    = "accepted"
-)
-
-// verifyOutcomeWords are the outcomes in maul's words; an outcome not listed
-// shows as unknown, never as the text it carried.
-var verifyOutcomeWords = map[string]string{
-	VerifyOutcomePass:        "passed",
-	VerifyOutcomeFail:        "failed",
-	VerifyOutcomeQuarantined: "quarantined: passed only on retry, not counted as passed",
-	VerifyOutcomeNotRun:      "not run yet",
-	VerifyOutcomeManual:      "needs a human",
-	VerifyOutcomeAccepted:    "accepted by a human, not re-checked",
-}
-
 // Bounds on what a comment quotes.
 const (
-	// VerifyEvidenceMaxBytes bounds one failure's expected, observed and
-	// body prefix together.
-	VerifyEvidenceMaxBytes = 2048
-	// verifyValueMaxBytes bounds the expected and the observed value each.
-	verifyValueMaxBytes = 512
 	// VerifyLogMaxBytes bounds one component's log tail; verifyLogsMax the
 	// tails a comment carries.
 	VerifyLogMaxBytes = 3072
 	verifyLogsMax     = 8
-	// verifyReasonMaxBytes bounds an auto-fix reason and a manual
-	// criterion's reason.
+	// verifyReasonMaxBytes bounds an auto-fix reason.
 	verifyReasonMaxBytes = 120
 )
 
@@ -301,80 +274,18 @@ func plural(n int32, one, many string) string {
 	return many
 }
 
-// VerifyCriterion is one acceptance criterion's state.
-type VerifyCriterion struct {
-	// ID, Kind and Statement are the approved criterion's.
-	ID, Kind, Statement string
-	// Outcome is a VerifyOutcome constant.
-	Outcome string
-	// Expected, Observed and Body describe a failure: maul-rendered
-	// expected and observed values, and a prefix of the response body.
-	Expected, Observed, Body string
-	// Mismatches are the parts of the failing step that did not hold.
-	Mismatches []VerifyMismatch
-	// AcceptedAt is the head set a human accepted the criterion at.
-	AcceptedAt string
-}
-
-// VerifyMismatch is one part of a failing step that did not hold: its kind
-// (one of the Mismatch constants), the pointer, header or capture it names,
-// and the expected and observed values, observed text being the
-// application's, shown inert and bounded.
-type VerifyMismatch struct {
-	Kind, Key, Expected, Observed string
-	// Absent: nothing was observed there at all.
-	Absent bool
-}
-
-// Mismatch kinds, as a failure names them.
-const (
-	MismatchRequest = "request"
-	MismatchJSON    = "JSON"
-	MismatchHeader  = "header"
-	MismatchBody    = "body"
-	MismatchCapture = "capture"
-)
-
-// Bounds on the mismatches a failure lists.
-const (
-	verifyMismatchesMax         = 8
-	verifyMismatchValueMaxBytes = 256
-)
-
-// mismatchLine is one mismatch in maul's words; "" for an unknown kind.
-func mismatchLine(m VerifyMismatch) string {
-	val := func(s string) string { return code(shown(cutRunes(visibleText(s), verifyMismatchValueMaxBytes))) }
-	switch m.Kind {
-	case MismatchBody:
-		return "body: expected it to contain " + val(m.Expected) + "."
-	case MismatchRequest, MismatchJSON, MismatchHeader, MismatchCapture:
-	default:
-		return ""
-	}
-	head := m.Kind
-	if k := shown(cutRunes(visibleText(m.Key), verifyMismatchValueMaxBytes)); k != "" {
-		head += " " + code(k)
-	}
-	line := head + ": expected " + val(m.Expected)
-	if m.Absent {
-		return line + ", observed nothing there."
-	}
-	return line + ", observed " + val(m.Observed) + "."
-}
-
 // VerifyLog is one component's log tail (already redacted by the caller).
 type VerifyLog struct {
 	Part, Tail string
 }
 
 // VerifySection is the verification as a comment shows it. A zero Progress
-// and no criteria show nothing.
+// and no outcomes show nothing.
 type VerifySection struct {
 	Progress VerifyProgress
-	Criteria []VerifyCriterion
 	// Outcomes are the agent evaluator's approved outcomes with their
-	// decided results, in plan order (in place of Criteria); Anomalies are
-	// its look-around anomalies.
+	// decided results, in plan order; Anomalies are its look-around
+	// anomalies.
 	Outcomes  []VerifyOutcomeResult
 	Anomalies []VerifyAnomaly
 	// Logs are shown only when the caller passes them: the issue always,
@@ -505,7 +416,7 @@ func noDefectNote(n *VerifyNoDefect) string {
 }
 
 func (s *VerifySection) empty() bool {
-	return s == nil || (s.Progress.State == "" && len(s.Criteria) == 0 && len(s.Outcomes) == 0)
+	return s == nil || (s.Progress.State == "" && len(s.Outcomes) == 0)
 }
 
 // VerifyComment is the verification comment on the intent's issue: one per
@@ -519,100 +430,30 @@ type VerifyComment struct {
 
 type verifyRow struct{ ID, Kind, IDCell, KindCell, Outcome, OutcomeCell, Statement string }
 
-type verifyFailure struct {
-	ID, Expected, Observed, Body string
-	Mismatches                   []string
-}
-
 type verifyLogView struct{ Part, Block string }
 
 // verifyView is a section as the templates print it.
 type verifyView struct {
-	Line     string
-	Rows     []verifyRow
-	Failures []verifyFailure
-	Notes    []string
-	Logs     []verifyLogView
-	LogsCut  bool
+	Line    string
+	Rows    []verifyRow
+	Notes   []string
+	Logs    []verifyLogView
+	LogsCut bool
 	// Outcomes are the outcomes' details, Anomalies the look-around's.
 	Outcomes  []outcomeDetail
 	Anomalies []string
-	// Omitted counts the pieces of failure evidence left out to keep the
-	// comment within its evidence budget (budgetEvidence).
-	Omitted int
 }
 
-// Bounds on a whole comment. verifyCommentEvidenceBytes is the one budget
-// a comment's failure evidence shares (expected and observed values,
-// mismatch lines and body prefixes, as rendered); verifySectionMaxBytes the
-// most a pull request's preview comment gives its verification section
-// before its log tails are left out. Both keep each comment, with every
-// criterion's verdict, under MaxCommentBytes.
-const (
-	verifyCommentEvidenceBytes = 24 << 10
-	verifySectionMaxBytes      = 48 << 10
-)
-
-// budgetEvidence keeps the failures' evidence within
-// verifyCommentEvidenceBytes, in plan order: each failure's expected and
-// observed values, then its mismatch lines, then its body prefix, each kept
-// only while it fits; what does not is left out and counted. The verdicts
-// (the table, and each failure's own line) are never cut. Deterministic: the
-// same failures always keep the same evidence.
-func budgetEvidence(fs []verifyFailure) ([]verifyFailure, int) {
-	left, omitted := verifyCommentEvidenceBytes, 0
-	take := func(n int) bool {
-		if n > left {
-			omitted++
-			return false
-		}
-		left -= n
-		return true
-	}
-	out := make([]verifyFailure, len(fs))
-	for i, f := range fs {
-		if (f.Expected != "" || f.Observed != "") && !take(len(f.Expected)+len(f.Observed)+32) {
-			f.Expected, f.Observed = "", ""
-		}
-		var kept []string
-		for _, m := range f.Mismatches {
-			if take(len(m) + 4) {
-				kept = append(kept, m)
-			}
-		}
-		f.Mismatches = kept
-		if f.Body != "" && !take(len(f.Body)+2) {
-			f.Body = ""
-		}
-		out[i] = f
-	}
-	return out, omitted
-}
+// verifySectionMaxBytes is the most a pull request's preview comment gives
+// its verification section before its log tails are left out, keeping each
+// comment, with every outcome's verdict, under MaxCommentBytes.
+const verifySectionMaxBytes = 48 << 10
 
 // cell keeps a value inside one table cell.
 func cell(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
 
 func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 	v := verifyView{Line: verifyLine(s.Progress)}
-	for _, c := range s.Criteria {
-		out, ok := verifyOutcomeWords[c.Outcome]
-		if !ok {
-			out = "unknown"
-		}
-		if c.Outcome == VerifyOutcomeAccepted && shown(c.AcceptedAt) != "" {
-			out = "accepted by a human at " + shortRevision(c.AcceptedAt) + ", not re-checked"
-		}
-		v.Rows = append(v.Rows, verifyRow{
-			ID: code(shown(c.ID)), Kind: code(shown(c.Kind)), Outcome: out, Statement: SanitizeInline(c.Statement),
-			IDCell: cell(code(shown(c.ID))), KindCell: cell(code(shown(c.Kind))), OutcomeCell: cell(out),
-		})
-		if c.Outcome == VerifyOutcomeFail {
-			if f, ok := failureView(c); ok {
-				v.Failures = append(v.Failures, f)
-			}
-		}
-	}
-	v.Failures, v.Omitted = budgetEvidence(v.Failures)
 	outcomeViews(&v, s)
 	if s.StatusNotPosted {
 		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
@@ -642,41 +483,6 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 		}
 	}
 	return v
-}
-
-// failureView bounds one failure's evidence: the expected and observed
-// values each, then the body prefix in what is left of the budget.
-func failureView(c VerifyCriterion) (verifyFailure, bool) {
-	exp := shown(cutRunes(visibleText(c.Expected), verifyValueMaxBytes))
-	obs := shown(cutRunes(visibleText(c.Observed), verifyValueMaxBytes))
-	left := VerifyEvidenceMaxBytes - len(exp) - len(obs)
-	body := ""
-	if left > 0 {
-		body = strings.TrimSpace(cutRunes(visibleText(c.Body), left))
-	}
-	var mismatches []string
-	for _, m := range c.Mismatches {
-		if len(mismatches) == verifyMismatchesMax {
-			break
-		}
-		if line := mismatchLine(m); line != "" {
-			mismatches = append(mismatches, line)
-		}
-	}
-	if exp == "" && obs == "" && body == "" && len(mismatches) == 0 {
-		return verifyFailure{}, false
-	}
-	f := verifyFailure{ID: code(shown(c.ID)), Mismatches: mismatches}
-	if exp != "" {
-		f.Expected = code(exp)
-	}
-	if obs != "" {
-		f.Observed = code(obs)
-	}
-	if body != "" {
-		f.Body = fence(body)
-	}
-	return f, true
 }
 
 // renderVerifySection renders the section for a pull request's preview
@@ -723,82 +529,40 @@ func RenderVerifyComment(c VerifyComment) (string, error) {
 		c.Round, MaxCommentBytes)
 }
 
-// PlanAcceptance is a plan's acceptance criteria as the plan comment's header
-// counts them, from the parsed frontmatter only. nil omits the line, and the
-// comment is exactly the comment before the field existed.
+// PlanAcceptance is the plan comment's acceptance line, for a plan that was
+// not asked for outcomes. nil omits the line, and the comment is exactly
+// the comment before the field existed.
 type PlanAcceptance struct {
-	// Off: verification is off for the Project.
-	Off bool
-	// NotAsked: the Project verifies, but previews no repository a
-	// criterion could target, so the planner was not asked for criteria.
+	// NotAsked: the Project verifies, but previews no repository its
+	// outcomes could be checked on, so the planner was not asked for them.
 	NotAsked bool
-	// Automated counts the criteria maul checks (http); NotRun the ones it
-	// parses and shows but does not run until their slice (command).
-	Automated, NotRun int
-	// Manual are the criteria that need a human.
-	Manual []PlanManualCriterion
 }
 
-// PlanManualCriterion is a criterion a human closes.
-type PlanManualCriterion struct{ ID, Reason string }
-
-// planAcceptanceLine is the acceptance line's text, "" for nil.
+// planAcceptanceLine is the acceptance line's text, "" for nil or for
+// nothing to say.
 func planAcceptanceLine(a *PlanAcceptance) string {
-	if a == nil {
+	if a == nil || !a.NotAsked {
 		return ""
 	}
-	if a.Off {
-		return "not checked: verification is off for this Project."
-	}
-	if a.NotAsked {
-		return "not asked for: this Project verifies, but previews no repository a criterion could target, so " +
-			"maul could not ask the planner for criteria and none will be checked."
-	}
-	var parts []string
-	if a.Automated > 0 {
-		parts = append(parts, fmt.Sprintf("%d checked automatically", a.Automated))
-	}
-	if a.NotRun > 0 {
-		parts = append(parts, fmt.Sprintf("%d not run until command checks ship", a.NotRun))
-	}
-	if n := len(a.Manual); n > 0 {
-		items := make([]string, n)
-		for i, m := range a.Manual {
-			items[i] = SanitizeInline(m.ID)
-			if r := SanitizeInline(cutRunes(visibleText(m.Reason), verifyReasonMaxBytes)); r != "" {
-				items[i] += " (" + r + ")"
-			}
-		}
-		need := "1 needs you: "
-		if n > 1 {
-			need = fmt.Sprintf("%d need you: ", n)
-		}
-		parts = append(parts, need+strings.Join(items, ", "))
-	}
-	if len(parts) == 0 {
-		return "the plan declares no acceptance criteria."
-	}
-	return strings.Join(parts, ", ") + "."
+	return "not asked for: this Project verifies, but previews no repository a criterion could target, so " +
+		"maul could not ask the planner for criteria and none will be checked."
 }
 
-// PlanVerification is the Project's verification, as the plan prompt states
-// it so the planner can write acceptance criteria. nil omits the section,
-// and the prompt is exactly the prompt without it. intent-controller hands
-// it to a plan Job as MAUL_PLAN_VERIFICATION (EncodePlanVerification), and
-// agent-runner reads it back (DecodePlanVerification).
+// PlanVerification is the Project's verification by the agent evaluator,
+// as the plan prompt states it so the planner can write acceptance
+// outcomes, plain statements of what must hold (intent-controller's
+// planAsk; SPEC S1-11). nil omits the section, and the prompt is exactly
+// the prompt without it. intent-controller hands it to a plan Job as
+// MAUL_PLAN_VERIFICATION (EncodePlanVerification), and agent-runner reads
+// it back (DecodePlanVerification).
 type PlanVerification struct {
-	// Components are the previewed repositories criteria can target.
+	// Components are the previewed repositories the outcomes are checked
+	// on.
 	Components []PlanVerifyComponent `json:"components"`
-	// Outcomes: the Project is verified by the agent evaluator, so the
-	// plan is asked for acceptance outcomes, plain statements of what must
-	// hold, rather than slice-1 criteria (intent-controller's planAsk;
-	// SPEC S1-11). false omits it from the JSON, which is then exactly the
-	// JSON before the field existed.
-	Outcomes bool `json:"outcomes,omitempty"`
 	// Workspace: the Project has no preview, and its outcomes are checked
 	// on a cli or library surface the tool pod builds (SPEC-S2). It is
-	// stated only with Outcomes and no Components; nil omits it from the
-	// JSON, which is then exactly the JSON before the field existed.
+	// stated only with no Components; nil omits it from the JSON, which is
+	// then exactly the JSON before the field existed.
 	Workspace *PlanWorkspace `json:"workspace,omitempty"`
 }
 
@@ -828,8 +592,8 @@ func (w *PlanWorkspace) valid() bool {
 	return false
 }
 
-// PlanVerifyComponent is one previewed repository: the key a criterion's
-// target names, where it is served and its readiness path.
+// PlanVerifyComponent is one previewed repository: its key, where it is
+// served and its readiness path.
 type PlanVerifyComponent struct {
 	Key       string `json:"key"`
 	Path      string `json:"path"`
@@ -839,19 +603,18 @@ type PlanVerifyComponent struct {
 // Normalize is what of v a plan can be told, the one normaliser behind both
 // the handoff (EncodePlanVerification) and the prompt (RenderPlanPrompt):
 // each field on one line, only the components with a key and a path, at
-// most planVerificationMaxComponents, in order, and Outcomes as set; nil
-// when no component is left, and the prompt then has no acceptance section.
-// A valid Workspace under Outcomes is kept alone, with no component; an
-// invalid one is dropped.
+// most planVerificationMaxComponents, in order; nil when no component is
+// left, and the prompt then has no acceptance section. A valid Workspace
+// is kept alone, with no component; an invalid one is dropped.
 func (v *PlanVerification) Normalize() *PlanVerification {
 	if v == nil {
 		return nil
 	}
-	if v.Outcomes && v.Workspace.valid() {
+	if v.Workspace.valid() {
 		// A Project with no preview: its workspace, never components
 		// (SPEC-S2 O6).
 		w := *v.Workspace
-		return &PlanVerification{Outcomes: true, Workspace: &w}
+		return &PlanVerification{Workspace: &w}
 	}
 	var out *PlanVerification
 	for _, c := range v.Components {
@@ -860,7 +623,7 @@ func (v *PlanVerification) Normalize() *PlanVerification {
 			continue
 		}
 		if out == nil {
-			out = &PlanVerification{Outcomes: v.Outcomes}
+			out = &PlanVerification{}
 		}
 		if len(out.Components) < planVerificationMaxComponents {
 			out.Components = append(out.Components, c)
@@ -890,7 +653,7 @@ func EncodePlanVerification(v *PlanVerification) string {
 // unknown fields, trailing data, no component or more than
 // planVerificationMaxComponents, and a component without a key or a path or
 // with a field that is not plain one-line text; and a workspace beside a
-// component, without outcomes, or not valid.
+// component, or not valid.
 func DecodePlanVerification(s string) (*PlanVerification, error) {
 	if s == "" {
 		return nil, nil
@@ -905,8 +668,8 @@ func DecodePlanVerification(s string) (*PlanVerification, error) {
 		return nil, errors.New("plan verification: trailing data after the object")
 	}
 	if v.Workspace != nil {
-		if !v.Outcomes || len(v.Components) > 0 || !v.Workspace.valid() {
-			return nil, errors.New("plan verification: a workspace is stated alone, under outcomes, as a cli with " +
+		if len(v.Components) > 0 || !v.Workspace.valid() {
+			return nil, errors.New("plan verification: a workspace is stated alone, as a cli with " +
 				"its binary or a go library")
 		}
 		return &v, nil

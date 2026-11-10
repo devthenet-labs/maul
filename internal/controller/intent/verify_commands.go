@@ -161,7 +161,7 @@ func (p *pass) recordedAcceptance(c verifyCommand, n templates.VerifyCommandNoti
 	for _, r := range acc.Accepted {
 		if r.CommentID == c.id {
 			n.Outcome, n.Criterion, n.Heads = templates.VerifyAccepted, r.ID, r.Heads
-			n.NoCriteria = r.ID == acceptAll && len(acc.Criteria) == 0 && !n.Outcomes
+			n.NoCriteria = r.ID == acceptAll && !n.Outcomes
 			n.Accepted = append(n.Accepted, r.ID)
 		}
 	}
@@ -461,20 +461,17 @@ const acceptAll = command.AcceptAll
 
 // acceptCriterion records /maul accept <id> in status.acceptance.accepted,
 // bound to the combined change being verified (status.verification's head
-// set), replacing any earlier acceptance of the criterion. Only a manual
-// criterion, one maul does not run yet (command), or one quarantined (it
-// passed only on retry) is accepted by hand, and for a plan with no
-// criteria, all: one maul checks and judged outright is never overridden by
-// a human saying so. A plan that declares outcomes is acceptOutcome's.
+// set). A plan that declares outcomes is acceptOutcome's; for a plan that
+// declares none, only all is accepted, the approver's word that the change
+// needs none.
 func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	acc := p.in.Status.Acceptance
 	n.Acceptable = p.acceptable()
-	var crit *v1alpha1.AcceptanceCriterion
 	mode := p.mode()
 	if mode == modeNone {
-		// Criteria on record from another plan revision are never
-		// accepted for the approved one.
+		// A record of another plan revision, or a criteria-era one, is
+		// never accepted for the approved one.
 		n.Acceptable, n.Outcome = nil, templates.VerifyAcceptNotYet
 		return n, nil
 	}
@@ -482,25 +479,18 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 		return p.acceptOutcome(ctx, c, id, n)
 	}
 	if mode == modeMismatch {
-		// No outcomes, and a record nothing verifies (a criteria-era one
-		// pruned of its criteria): it declares nothing an approver could
-		// check, so nothing is accepted, all least of all.
+		// No outcomes, and a record nothing verifies (one the evaluator
+		// does not verify, or a criteria-era one): nothing is accepted,
+		// all least of all.
 		n.Acceptable, n.Outcome = nil, templates.VerifyAcceptNotYet
 		return n, nil
 	}
-	if i := slices.IndexFunc(acc.Criteria, func(c v1alpha1.AcceptanceCriterion) bool { return c.ID == id }); i >= 0 {
-		crit = &acc.Criteria[i]
-	}
-	switch {
-	case crit == nil && (id != acceptAll || len(acc.Criteria) != 0):
+	if id != acceptAll {
 		n.Outcome = templates.VerifyAcceptUnknown
-		return n, nil
-	case !slices.Contains(n.Acceptable, id):
-		n.Outcome = templates.VerifyAcceptAutomatic
 		return n, nil
 	}
 	n, err := p.recordAcceptance(ctx, c, []string{id}, n)
-	n.NoCriteria = n.Outcome == templates.VerifyAccepted && crit == nil
+	n.NoCriteria = n.Outcome == templates.VerifyAccepted
 	return n, err
 }
 
@@ -664,10 +654,10 @@ func rememberApplied(in *v1alpha1.Intent, id int64) {
 	c.Applied = out
 }
 
-// acceptable are the criteria an approver can accept by hand, in plan
-// order: the manual ones, those maul does not run yet and the quarantined;
-// for a plan with no criteria, all; for a plan that declares outcomes, the
-// outcomes acceptableOutcomes names.
+// acceptable are what an approver can accept by hand: for a plan that
+// declares outcomes, the outcomes acceptableOutcomes names; for a plan
+// that declares none, all; nothing for a criteria-era record, or one the
+// evaluator does not verify.
 func (p *pass) acceptable() []string {
 	acc := p.in.Status.Acceptance
 	if acc == nil {
@@ -676,23 +666,10 @@ func (p *pass) acceptable() []string {
 	if len(acc.Outcomes) > 0 {
 		return p.acceptableOutcomes()
 	}
-	if p.mode() == modeMismatch {
+	if p.mode() == modeMismatch || recordOf(acc) != recordOutcomes {
 		return nil // acceptCriterion's: nothing an approver could check
 	}
-	if len(acc.Criteria) == 0 {
-		return []string{acceptAll}
-	}
-	var quarantined []string
-	if v := p.in.Status.Verification; v != nil {
-		quarantined = v.QuarantinedIDs
-	}
-	var out []string
-	for _, c := range acc.Criteria {
-		if byHand(c) || slices.Contains(quarantined, c.ID) {
-			out = append(out, c.ID)
-		}
-	}
-	return out
+	return []string{acceptAll}
 }
 
 // acceptableOutcomes are the outcomes an approver can close by hand, in plan

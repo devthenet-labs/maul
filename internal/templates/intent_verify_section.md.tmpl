@@ -1,27 +1,10 @@
 {{- /* The verification section of a previewed pull request's preview
-comment: the progress sentence, one line per criterion with its approved
+comment: the progress sentence, one line per outcome with its approved
 statement, then the shared detail. Built in Go from plain values; the only
 agent or application text is a statement (sanitised) and the evidence in
 code spans and fences no line of it can close. One line per paragraph: GitHub
 renders a line break inside a comment as a hard break. */ -}}
 {{- define "verify_detail" }}
-{{- range .Failures }}
-
-**{{ .ID }} failed.**{{ with .Expected }} Expected {{ . }}.{{ end }}{{ with .Observed }} Observed {{ . }}.{{ end }}
-{{- with .Mismatches }}
-{{ range . }}
-- {{ . }}
-{{- end }}
-{{- end }}
-{{- with .Body }}
-
-{{ . | chomp }}
-{{- end }}
-{{- end }}
-{{- with .Omitted }}
-
-Evidence left out: {{ . }} more not shown, to keep this comment within GitHub's size limit.
-{{- end }}
 {{- range .Outcomes }}
 
 {{ .Lead }}

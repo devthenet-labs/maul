@@ -8,9 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/jobs"
@@ -52,54 +49,6 @@ func (e *env) onAcceptanceFix(out func(jobs.Spec) jobs.RunOutput) {
 	}
 }
 
-// TestVerifyFixNoDefect: an acceptance-fix round whose agent concludes,
-// explicitly, that the code has no defect completes as no_defect: no
-// retry, no push, automatic fixes halted (FixFoundNoDefect), the round
-// counted against maxVerifyFixes, and the issue's verification comment
-// shows the agent's reason, says it may be wrong and how to verify again.
-// The round's Job was told it is an acceptance fix.
-func TestVerifyFixNoDefect(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	e.onAcceptanceFix(func(spec jobs.Spec) jobs.RunOutput { return reportOnly(spec, noDefectReport) })
-	name, _ := e.failingVerification()
-	e.review(name, 1)
-	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
-	runs := e.verifyRuns(name)
-	if len(runs) != 1 {
-		t.Fatalf("verify runs = %d, want 1: a round that found no defect is not retried", len(runs))
-	}
-	run := runs[0]
-	if run.Status.Phase != v1alpha1.RunComplete || run.Status.Outcome != OutcomeNoDefect ||
-		run.Status.PushedCommit != "" || !strings.Contains(run.Status.Detail, "network policy") {
-		t.Fatalf("verify run = %s %s %q pushed %q", run.Status.Phase, run.Status.Outcome, run.Status.Detail,
-			run.Status.PushedCommit)
-	}
-	fixJob := false
-	for _, spec := range e.jobs.launched() {
-		fixJob = fixJob || spec.AcceptanceFix
-	}
-	if !fixJob {
-		t.Error("no Job was told it is an acceptance-fix round")
-	}
-	v := in.Status.Verification
-	if v.AutoFix.State != v1alpha1.AutoFixHalted || v.AutoFix.Reason != v1alpha1.AutoFixFixFoundNoDefect ||
-		v.State != v1alpha1.VerificationFailing {
-		t.Fatalf("verification = %+v, want failing with automatic fixes halted for no defect", v)
-	}
-	if in.Status.VerifyFixes != 1 || in.Status.Revisions != 0 {
-		t.Errorf("counters verify %d revisions %d, want 1 and 0", in.Status.VerifyFixes, in.Status.Revisions)
-	}
-	p := e.prVerifyPass(name)
-	if got := p.verifyFixRounds(); got != 1 {
-		t.Errorf("verifyFixRounds = %d, want the round counted", got)
-	}
-	if c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionVerifyFailing); c == nil ||
-		c.Status != metav1.ConditionTrue || c.Reason != string(v1alpha1.AutoFixFixFoundNoDefect) {
-		t.Errorf("VerifyFailing = %+v, want True FixFoundNoDefect", c)
-	}
-	e.checkNoDefectReported(name)
-}
-
 // checkNoDefectReported: the comments show the agent's reason, that it may
 // be wrong and how to verify again, never a push, and more passes start no
 // round.
@@ -120,55 +69,6 @@ func (e *env) checkNoDefectReported(name string) {
 	e.review(name, 3)
 	if n := len(e.verifyRuns(name)); n != 1 {
 		t.Errorf("verify runs = %d after more passes, want still 1", n)
-	}
-}
-
-// TestVerifyFixWithoutAChangeStillFails: an acceptance-fix round that
-// changed nothing without saying no_defect fails and is retried, as
-// before: the live round that wrote no commit.sh (commit_failed), and one
-// that reported the plan not built.
-func TestVerifyFixWithoutAChangeStillFails(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		out     func(jobs.Spec) jobs.RunOutput
-		outcome string
-	}{
-		{"commit_failed", func(spec jobs.Spec) jobs.RunOutput {
-			out := reportOnly(spec, buildReport)
-			out.Events[0].Remediation.Outcome = envelope.OutcomeCommitFailed
-			out.Events[0].Remediation.Detail = "commit.sh missing despite success report"
-			return out
-		}, string(envelope.OutcomeCommitFailed)},
-		{"not built", func(spec jobs.Spec) jobs.RunOutput { return reportOnly(spec, nothingBuiltReport) },
-			OutcomeNotBuilt},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newVerifyEnv(t, acceptancePlan)
-			e.onAcceptanceFix(tc.out)
-			name, _ := e.failingVerification()
-			e.review(name, 1)
-			for range 12 {
-				e.mustIntent(name)
-				e.readyRepositories(repoImage)
-				e.runRuns()
-			}
-			runs := e.verifyRuns(name)
-			if len(runs) < 2 {
-				t.Fatalf("verify runs = %d, want the failed attempt retried", len(runs))
-			}
-			for _, r := range runs {
-				if r.Status.Phase == v1alpha1.RunComplete {
-					t.Errorf("run %s completed (%s): a round that changed nothing without saying so failed",
-						r.Name, r.Status.Outcome)
-				}
-			}
-			if r := runs[0]; r.Status.Phase != v1alpha1.RunFailed || r.Status.Outcome != tc.outcome {
-				t.Errorf("first attempt = %s %s, want Failed %s", r.Status.Phase, r.Status.Outcome, tc.outcome)
-			}
-			if v := e.verification(name); v.AutoFix.Reason == v1alpha1.AutoFixFixFoundNoDefect {
-				t.Errorf("verification = %+v, halted for no defect", v)
-			}
-		})
 	}
 }
 

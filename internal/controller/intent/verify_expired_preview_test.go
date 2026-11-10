@@ -202,33 +202,24 @@ func TestExpiredPreviewWhileRevising(t *testing.T) {
 }
 
 // TestMovedSinceJudged (gate D-B5): a waiting round's status says the
-// combined change moved only when it did. Under outcomes the judged head
-// set is on record; under criteria a request on a still-referenced round
-// waits at its heads (a move clears the reference).
+// combined change moved only when it did: the judged head set is on record.
 func TestMovedSinceJudged(t *testing.T) {
-	outcomes := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{{ID: "version-shown"}}}
-	criteria := &v1alpha1.IntentAcceptance{}
 	ref := &v1alpha1.ObjectReference{Name: "r1"}
 	req := &v1alpha1.VerifyRequest{By: approver, CommentID: 9}
 	for _, tc := range []struct {
 		name string
-		acc  *v1alpha1.IntentAcceptance
 		v    v1alpha1.IntentVerification
 		want bool
 	}{
-		{"outcomes judged at other heads", outcomes,
+		{"outcomes judged at other heads",
 			v1alpha1.IntentVerification{HeadSetDigest: "b", OutcomesHeadSetDigest: "a"}, true},
-		{"outcomes judged at these heads, a request", outcomes,
+		{"outcomes judged at these heads, a request",
 			v1alpha1.IntentVerification{HeadSetDigest: "a", OutcomesHeadSetDigest: "a", Ref: ref, Requested: req}, false},
-		{"outcomes judged at these heads, a retry or resume", outcomes,
+		{"outcomes judged at these heads, a retry or resume",
 			v1alpha1.IntentVerification{HeadSetDigest: "a", OutcomesHeadSetDigest: "a"}, false},
-		{"outcomes never judged", outcomes, v1alpha1.IntentVerification{HeadSetDigest: "a"}, false},
-		{"criteria superseded", criteria, v1alpha1.IntentVerification{HeadSetDigest: "b"}, true},
-		{"criteria judged, no request", criteria, v1alpha1.IntentVerification{HeadSetDigest: "b", Ref: ref}, true},
-		{"criteria, a request on the referenced round", criteria,
-			v1alpha1.IntentVerification{HeadSetDigest: "a", Ref: ref, Requested: req}, false},
+		{"outcomes never judged", v1alpha1.IntentVerification{HeadSetDigest: "a"}, false},
 	} {
-		if got := movedSinceJudged(tc.acc, &tc.v); got != tc.want {
+		if got := movedSinceJudged(&tc.v); got != tc.want {
 			t.Errorf("%s: moved = %v, want %v", tc.name, got, tc.want)
 		}
 	}

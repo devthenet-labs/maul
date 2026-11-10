@@ -5,20 +5,14 @@ package intent
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
-	"sort"
-	"strconv"
-	"strings"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/ghclient"
-	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -84,19 +78,6 @@ func (p *pass) verifyFixesUsed() (used, most int32) {
 	return min(p.verifyFixRounds(), most), most
 }
 
-// openQuarantined counts the criteria that passed only on retry and no
-// approver has accepted at the current head set (D7: never counted as
-// passed until a human accepts them or a clean run passes them).
-func openQuarantined(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) int32 {
-	var n int32
-	for _, id := range v.QuarantinedIDs {
-		if acceptedAt(acc, id, v.HeadSetDigest) == nil {
-			n++
-		}
-	}
-	return n
-}
-
 // acceptedAt is an approver's acceptance of criterion id at the head set
 // headSet, nil when there is none.
 func acceptedAt(acc *v1alpha1.IntentAcceptance, id, headSet string) *v1alpha1.AcceptanceRecord {
@@ -134,50 +115,18 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 	if p.resultMoved(v) {
 		return &templates.VerifyProgress{State: templates.VerifyHeadsMoved, Outcomes: len(acc.Outcomes) > 0}
 	}
-	used, most := p.verifyFixesUsed()
-	out := &templates.VerifyProgress{Verification: v.Round, FixesUsed: used, MaxFixes: most, ManualOpen: v.ManualOpen}
-	total := int32(len(automatable(acc.Criteria)))
 	if len(acc.Outcomes) > 0 {
-		return p.evaluationProgress(out)
+		used, most := p.verifyFixesUsed()
+		return p.evaluationProgress(&templates.VerifyProgress{Verification: v.Round, FixesUsed: used,
+			MaxFixes: most, ManualOpen: v.ManualOpen})
 	}
-	switch v.State {
-	case v1alpha1.VerificationNotDeclared:
-		out = &templates.VerifyProgress{State: templates.VerifyNotDeclared}
-		if len(acc.Criteria) > 0 {
-			out.State = templates.VerifyNotChecked
-			out.ManualOpen = handClosed(acc, v).open
-		}
-	case v1alpha1.VerificationWaitingForCI:
-		out.State = templates.VerifyWaitingForCI
-	case v1alpha1.VerificationWaitingForPreview:
-		out.State = templates.VerifyWaiting
-	case v1alpha1.VerificationVerifying:
-		out.State = templates.VerifyRunning
-	case v1alpha1.VerificationPassed:
-		out.State, out.Passing, out.Total = templates.VerifyPassed, v.Passed, total
-		out.Quarantined = openQuarantined(acc, v)
-	case v1alpha1.VerificationFailing:
-		out.State, out.Passing, out.Total = templates.VerifyFailing, v.Passed, total
-		if v.AutoFix.State == v1alpha1.AutoFixHalted {
-			out.AutoFix, out.AutoFixReason = templates.FixHalted, string(v.AutoFix.Reason)
-		}
-	case v1alpha1.VerificationFixing:
-		out.State, out.Passing, out.Total = templates.VerifyFailing, v.Passed, total
-		out.AutoFix = templates.FixRunning
-	case v1alpha1.VerificationExhausted:
-		out.State, out.Passing, out.Total = templates.VerifyExhausted, v.Passed, total
-	case v1alpha1.VerificationNeedsReplan:
-		out.State = templates.VerifyNeedsReplan
-	case v1alpha1.VerificationUnavailable:
-		out.State = templates.VerifyUnavailable
-		if previewNotLive(v) {
-			out.State = templates.VerifyPreviewNotLive
-		}
-	default:
-		// Off, or no state yet: nothing to say.
+	// A plan that declares no outcome is only ever NotDeclared
+	// (syncEvaluation): nothing is evaluated. Off, or no state yet, says
+	// nothing.
+	if v.State != v1alpha1.VerificationNotDeclared {
 		return nil
 	}
-	return out
+	return &templates.VerifyProgress{State: templates.VerifyNotDeclared}
 }
 
 // evaluationProgress is verifyProgress for the agent evaluator's outcomes
@@ -352,7 +301,7 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 	}
 	s := &templates.VerifySection{Progress: *prog, StatusNotPosted: p.statusesUnavailable()}
 	if p.verifyStopped() != "" {
-		// The criteria on record, if any, are not the approved ones.
+		// Nothing of the approved revision is on record.
 		return s
 	}
 	if prog.State == templates.VerifyHeadsMoved {
@@ -361,13 +310,8 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 		s.Impostor = p.impostor(pr)
 		return s
 	}
-	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	pv := p.judgedVerification(ctx)
-	judged := verifyJudged(v.State) && v.Passed+v.Failed+v.Quarantined > 0
-	for _, c := range acc.Criteria {
-		s.Criteria = append(s.Criteria, criterionView(c, acc, v, pv, judged))
-	}
-	if len(acc.Outcomes) > 0 {
+	if len(p.in.Status.Acceptance.Outcomes) > 0 {
 		p.outcomeSection(ctx, s, pv)
 	}
 	if pv != nil {
@@ -391,214 +335,6 @@ func (p *pass) noDefectView() *templates.VerifyNoDefect {
 		return nil
 	}
 	return &templates.VerifyNoDefect{Run: v.NoDefect.Run, Reason: v.NoDefect.Reason}
-}
-
-// criterionView is one criterion as a comment shows it.
-func criterionView(c v1alpha1.AcceptanceCriterion, acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification,
-	pv *v1alpha1.PreviewVerification, judged bool) templates.VerifyCriterion {
-	out := templates.VerifyCriterion{ID: c.ID, Kind: string(c.Kind), Statement: c.Statement,
-		Outcome: templates.VerifyOutcomeNotRun}
-	switch c.Kind {
-	case v1alpha1.AcceptanceManual:
-		out.Outcome = templates.VerifyOutcomeManual
-		if acceptedAt(acc, c.ID, v.HeadSetDigest) != nil {
-			out.Outcome = templates.VerifyOutcomeAccepted
-		} else if r := latestAcceptance(acc, c.ID); r != nil && len(r.Heads) > 0 {
-			// Accepted at other commits: shown as such, and still open.
-			out.Outcome, out.AcceptedAt = templates.VerifyOutcomeAccepted, r.Heads[0]
-		}
-	case v1alpha1.AcceptanceHTTP:
-		switch {
-		case slices.ContainsFunc(v.Failing, func(f v1alpha1.CriterionState) bool { return f.ID == c.ID }):
-			out.Outcome = templates.VerifyOutcomeFail
-			if pv != nil {
-				out.Expected, out.Observed, out.Body = failureEvidence(c, pv.Status.Observations)
-				out.Mismatches = failureMismatches(c, pv)
-			}
-		case slices.Contains(v.QuarantinedIDs, c.ID):
-			out.Outcome = templates.VerifyOutcomeQuarantined
-			if acceptedAt(acc, c.ID, v.HeadSetDigest) != nil {
-				out.Outcome = templates.VerifyOutcomeAccepted
-			}
-		case judged:
-			out.Outcome = templates.VerifyOutcomePass
-		}
-	case v1alpha1.AcceptanceCommand:
-		// Not run until command checks ship: open until a human accepts it.
-		if acceptedAt(acc, c.ID, v.HeadSetDigest) != nil {
-			out.Outcome = templates.VerifyOutcomeAccepted
-		}
-	}
-	return out
-}
-
-// latestAcceptance is the latest acceptance of criterion id, at any head
-// set, nil when there is none.
-func latestAcceptance(acc *v1alpha1.IntentAcceptance, id string) *v1alpha1.AcceptanceRecord {
-	var latest *v1alpha1.AcceptanceRecord
-	for i := range acc.Accepted {
-		if r := &acc.Accepted[i]; r.ID == id && (latest == nil || !r.At.Before(&latest.At)) {
-			latest = r
-		}
-	}
-	return latest
-}
-
-// failureEvidence renders a failed http criterion's evidence in maul's
-// words from its one observation: the request and the statuses the step
-// that failed expected, what came back (a status or how the request
-// failed), and the response body's prefix. Nothing of the observation is
-// shown but a status number, a transport class from the fixed vocabulary
-// and the body prefix, which the templates show only as inert code.
-func failureEvidence(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObservation) (expected, observed,
-	body string) {
-	i := slices.IndexFunc(obs, func(o v1alpha1.CriterionObservation) bool { return o.ID == c.ID })
-	if i >= 0 && obs[i].TooLarge {
-		return "", "responses too large to record", ""
-	}
-	if i < 0 || len(obs[i].Tries) == 0 {
-		return "", "not observed", ""
-	}
-	try := obs[i].Tries[len(obs[i].Tries)-1]
-	if len(try.Steps) == 0 {
-		return "", "not observed", ""
-	}
-	n := len(try.Steps) - 1
-	step := try.Steps[n]
-	if cs, err := crdconv.CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{c}); err == nil && len(cs) == 1 &&
-		n < len(cs[0].Steps) {
-		expected = expectedOf(cs[0].Steps[n])
-	}
-	switch t := httpstep.Transport(string(step.TransportError)); t {
-	case httpstep.TransportNone, "":
-		observed = "status " + strconv.Itoa(int(step.Status))
-	case httpstep.TransportRefused, httpstep.TransportTimeout, httpstep.TransportReset,
-		httpstep.TransportDNS, httpstep.TransportTLS, httpstep.TransportTooLarge,
-		httpstep.TransportCaptureMissing:
-		observed = "no response: " + string(t)
-	default:
-		observed = "no response"
-	}
-	if raw, err := base64.StdEncoding.DecodeString(step.BodyPrefix); err == nil {
-		body = string(raw)
-	}
-	return expected, observed, body
-}
-
-// failureMismatches are the parts of a failed http criterion's failing
-// step that did not hold, as judged (judgeOne) from its one observation of
-// the deciding try: each JSON pointer, header, bodyContains and capture
-// whose matched bit is false, with what was expected and what was
-// observed, and the request when it was not sent as declared. The status
-// is the failure's own line (failureEvidence). None when the step got no
-// response, or when its bits cannot be read against the step.
-func failureMismatches(c v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerification) []templates.VerifyMismatch {
-	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
-	v := judgeOne(c, pv.Status.Observations, rt)
-	if v.Outcome != acceptance.OutcomeFail || len(v.Steps) == 0 {
-		return nil
-	}
-	sv := v.Steps[len(v.Steps)-1]
-	cs, err := crdconv.CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{c})
-	i := slices.IndexFunc(pv.Status.Observations, func(o v1alpha1.CriterionObservation) bool { return o.ID == c.ID })
-	if err != nil || len(cs) != 1 || sv.Index >= len(cs[0].Steps) || i < 0 || len(pv.Status.Observations[i].Tries) == 0 {
-		return nil
-	}
-	try := pv.Status.Observations[i].Tries[len(pv.Status.Observations[i].Tries)-1]
-	if sv.Index >= len(try.Steps) {
-		return nil
-	}
-	return stepMismatches(cs[0].Steps[sv.Index], try.Steps[sv.Index], sv.Matched)
-}
-
-// stepMismatches reads matched, acceptance.StepVerdict's bits in their
-// fixed order (request, status, pointers, headers, bodyContains, captures),
-// against st and what o observed.
-func stepMismatches(st httpstep.Step, o v1alpha1.StepObservation, matched []bool) []templates.VerifyMismatch {
-	pointers, headers, captures := sortedKeys(st.Expect.JSON), sortedFold(st.Expect.Headers), sortedKeys(st.Capture)
-	want := 2 + len(pointers) + len(headers) + len(captures)
-	if st.Expect.BodyContains != "" {
-		want++
-	}
-	if len(matched) != want || o.Status == 0 {
-		return nil
-	}
-	var out []templates.VerifyMismatch
-	if !matched[0] {
-		method := st.Request.Method
-		if method == "" {
-			method = "GET"
-		}
-		out = append(out, templates.VerifyMismatch{Kind: templates.MismatchRequest,
-			Expected: method + " " + st.Request.Path, Observed: o.Method + " " + o.Path})
-	}
-	bit := 2
-	for _, ptr := range pointers {
-		if !matched[bit] {
-			raw, ok := o.Pointers[ptr]
-			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchJSON, Key: ptr,
-				Expected: st.Expect.JSON[ptr].String(), Observed: raw, Absent: !ok})
-		}
-		bit++
-	}
-	for _, name := range headers {
-		if !matched[bit] {
-			raw, ok := o.Headers[strings.ToLower(name)]
-			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchHeader, Key: name,
-				Expected: st.Expect.Headers[name].String(), Observed: raw, Absent: !ok})
-		}
-		bit++
-	}
-	if st.Expect.BodyContains != "" {
-		if !matched[bit] {
-			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchBody, Expected: st.Expect.BodyContains})
-		}
-		bit++
-	}
-	for _, name := range captures {
-		if !matched[bit] {
-			val, ok := o.Captures[name]
-			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchCapture, Key: name,
-				Expected: "a value at " + st.Capture[name], Observed: val, Absent: !ok})
-		}
-		bit++
-	}
-	return out
-}
-
-// sortedKeys are m's keys in order; sortedFold header names sorted
-// case-insensitively, ties broken bytewise: the orders acceptance.Judge
-// sets its matched bits in.
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedFold[V any](m map[string]V) []string {
-	out := sortedKeys(m)
-	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
-	return out
-}
-
-// expectedOf is what a step expects, as a failure names it: its request
-// and its acceptable statuses (200 when it lists none).
-func expectedOf(st httpstep.Step) string {
-	method := st.Request.Method
-	if method == "" {
-		method = "GET"
-	}
-	statuses := make([]string, 0, len(st.Expect.Status))
-	for _, s := range st.Expect.Status {
-		statuses = append(statuses, strconv.Itoa(int(s)))
-	}
-	if len(statuses) == 0 {
-		statuses = []string{"200"}
-	}
-	return fmt.Sprintf("%s %s: status %s", method, st.Request.Path, strings.Join(statuses, " or "))
 }
 
 // verifyLogs are the component log tails of pv's environment a comment

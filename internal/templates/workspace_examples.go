@@ -131,7 +131,7 @@ const (
 // Workspace is the Project's cli or library surface when its outcomes are
 // checked there (SPEC-S2), for the plan prompt's template; nil otherwise.
 func (p PlanPrompt) Workspace() *PlanWorkspace {
-	if !p.Outcomes || p.Verification == nil {
+	if p.Verification == nil {
 		return nil
 	}
 	return p.Verification.Workspace

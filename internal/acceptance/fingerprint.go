@@ -13,24 +13,6 @@ import (
 	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
-// FingerprintVersion prefixes every fingerprint; a change to what is hashed
-// is a new version, so a stored signature is never compared across one.
-const FingerprintVersion = "maul-verify-fingerprint/1"
-
-type fingerprintStep struct {
-	Index     int                `json:"i"`
-	Status    int32              `json:"s"`
-	Transport httpstep.Transport `json:"t"`
-	Matched   []bool             `json:"m"`
-}
-
-type fingerprintCriterion struct {
-	ID      string            `json:"id"`
-	Outcome Outcome           `json:"o"`
-	Reason  string            `json:"r"`
-	Steps   []fingerprintStep `json:"steps"`
-}
-
 type fingerprintPart struct {
 	Name          string `json:"n"`
 	Role          string `json:"role"`
@@ -46,40 +28,6 @@ type fingerprintPart struct {
 	Crashed     bool `json:"cr,omitempty"`
 	Disrupted   bool `json:"dis,omitempty"`
 	Unreachable bool `json:"unr,omitempty"`
-}
-
-// Fingerprint names a verification's failure for RepeatedFailure detection
-// (critique fix 10): sha256 over the failing criteria, by id, each with its
-// outcome, reason and, per step, the index, status, transport class and the
-// matched bit of every declared expectation; and over the failing parts, by
-// name, each with its readiness, waiting reason, termination reason and exit
-// code, eviction and schedulability, and whether it restarted during the
-// attempt, was disrupted during it or was unreachable from the tester. Passing and quarantined criteria and
-// healthy parts are left out; so is every actual value, body, latency, run
-// token, restart count and log line, which change from run to run or are
-// the application's to choose.
-func Fingerprint(vs []Verdict, env []httpstep.PartFact) string {
-	var doc struct {
-		Criteria []fingerprintCriterion `json:"c"`
-		Parts    []fingerprintPart      `json:"p"`
-	}
-	doc.Criteria = []fingerprintCriterion{}
-	for _, v := range vs {
-		if v.Outcome != OutcomeFail {
-			continue
-		}
-		fc := fingerprintCriterion{ID: v.ID, Outcome: v.Outcome, Reason: v.Reason, Steps: []fingerprintStep{}}
-		for _, s := range v.Steps {
-			fc.Steps = append(fc.Steps, fingerprintStep{Index: s.Index, Status: s.Status, Transport: s.Transport,
-				Matched: append([]bool{}, s.Matched...)})
-		}
-		doc.Criteria = append(doc.Criteria, fc)
-	}
-	doc.Parts = failingParts(env)
-	sort.Slice(doc.Criteria, func(i, j int) bool { return doc.Criteria[i].ID < doc.Criteria[j].ID })
-	b, _ := json.Marshal(doc) // plain structs: cannot fail
-	sum := sha256.Sum256(b)
-	return FingerprintVersion + ":" + hex.EncodeToString(sum[:])
 }
 
 // failingParts is the fingerprint of every part of env that is not healthy,
@@ -109,15 +57,18 @@ func failingParts(env []httpstep.PartFact) []fingerprintPart {
 }
 
 // EvaluationFingerprintVersion prefixes every evaluator fingerprint. It is
-// not FingerprintVersion: an evaluation round's failure is never compared
-// with a slice-1 tester's.
+// not slice 1's maul-verify-fingerprint/1: an evaluation round's failure is
+// never compared with a slice-1 tester's.
 const EvaluationFingerprintVersion = "maul-evaluation-fingerprint/1"
 
 // EvaluationFingerprint names an evaluator round's failure for
 // RepeatedFailure detection: sha256 over the failing outcomes' ids, the
 // failing saved checks' digests (each set sorted, duplicates dropped) and
-// the failing parts of env as Fingerprint takes them. Never a run token,
-// ledger seq, observed value or log line, which change from run to run.
+// the failing parts of env (failingParts: by name, each with its
+// readiness, waiting reason, termination reason and exit code, eviction
+// and schedulability, and whether it restarted during the attempt, was
+// disrupted during it or was unreachable). Never a run token, ledger seq,
+// observed value, restart count or log line, which change from run to run.
 func EvaluationFingerprint(outcomes, checks []string, env []httpstep.PartFact) string {
 	doc := struct {
 		Outcomes []string          `json:"o"`

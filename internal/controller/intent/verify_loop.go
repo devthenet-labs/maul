@@ -21,7 +21,6 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/ghclient"
-	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -79,49 +78,20 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 	if changed, err := p.syncAcceptance(ctx); changed || err != nil {
 		return changed, err
 	}
-	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	if v == nil {
+	if p.in.Status.Verification == nil {
 		return false, nil
 	}
 	switch p.mode() {
-	case modeNone:
-		// Criteria on record from another plan revision are never run
-		// against the approved one's code.
-		return false, nil
 	case modeOff, modeMismatch:
 		return p.switchedOff(ctx)
 	case modeOutcomes:
 		// The agent evaluator's outcomes: its own rounds (evaluate_round.go).
 		return p.syncEvaluation(ctx)
-	case modeCriteria:
+	case modeNone:
+		// A record of another plan revision is never run against the
+		// approved one's code.
 	}
-	if len(automatable(acc.Criteria)) == 0 {
-		// Nothing runs, but an approver's acceptance binds to the head set,
-		// so it is tracked all the same.
-		if hs, ok := previewHeadSet(p.proj, p.in); ok {
-			if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationNotDeclared); changed || err != nil {
-				return changed, err
-			}
-		}
-		return p.settleState(ctx, v1alpha1.VerificationNotDeclared)
-	}
-	if reason := p.humanRoundHalt(); reason != "" {
-		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			p.haltHuman(cur.Status.Verification, reason)
-			return nil
-		})
-	}
-	hs, ok := previewHeadSet(p.proj, p.in)
-	if !ok {
-		return false, nil
-	}
-	if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationWaitingForCI); changed || err != nil {
-		return changed, err
-	}
-	if changed, err := p.resumeOff(ctx); changed || err != nil {
-		return changed, err
-	}
-	return p.settleVerification(ctx)
+	return false, nil
 }
 
 // syncAcceptance records the approved plan revision's acceptance criteria,
@@ -239,11 +209,12 @@ func (p *pass) stopUnreadable(ctx context.Context, ap *v1alpha1.IntentApproval) 
 }
 
 // approvedAcceptance reads the approved plan's bytes from its ConfigMap,
-// holds them to the approval's digest, and returns its acceptance criteria
+// holds them to the approval's digest, and returns its acceptance outcomes
 // as the Intent records them: normalised, with the digest of the list as
-// the plan declared it. Under the agent evaluator it returns the plan's
-// outcomes the same way (normalised, OutcomesDigest), or, for a plan
-// stating slice-1 criteria, report.ErrSliceOneCriteria.
+// the plan declared it (OutcomesDigest; Digest, a required field, holds
+// the empty criteria list's). For a plan stating slice-1 criteria it
+// returns report.ErrSliceOneCriteria under the agent evaluator, else a
+// record of their digest alone, which nothing verifies.
 func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApproval) (*v1alpha1.IntentAcceptance,
 	error) {
 	var cm corev1.ConfigMap
@@ -260,23 +231,23 @@ func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApprov
 	if err != nil {
 		return nil, fmt.Errorf("parse plan r%d: %w", ap.PlanRevision, err)
 	}
-	if p.set.evaluates(p.proj) {
-		if err := parsed.CheckEvaluator(); err != nil {
+	if err := parsed.CheckEvaluator(); err != nil {
+		if p.set.evaluates(p.proj) {
 			return nil, fmt.Errorf("plan r%d: %w", ap.PlanRevision, err)
 		}
-		outcomes, err := crdconv.OutcomesToCRD(acceptance.NormalizeOutcomes(parsed.Outcomes))
-		if err != nil {
-			return nil, err
-		}
-		return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision, Digest: emptyCriteriaDigest,
-			Outcomes: outcomes, OutcomesDigest: acceptance.OutcomesDigest(parsed.Outcomes)}, nil
+		// Not verified: a criteria-era record by its digest alone, as the
+		// API server's pruning leaves one (recordPrunedCriteria): never
+		// run, judged or accepted, and read again for a replan should the
+		// evaluator come to verify the Project.
+		return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision,
+			Digest: acceptance.Digest(parsed.Acceptance)}, nil
 	}
-	criteria, err := crdconv.CriteriaToCRD(acceptance.Normalize(parsed.Acceptance))
+	outcomes, err := crdconv.OutcomesToCRD(acceptance.NormalizeOutcomes(parsed.Outcomes))
 	if err != nil {
 		return nil, err
 	}
-	return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision, Digest: acceptance.Digest(parsed.Acceptance),
-		Criteria: criteria}, nil
+	return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision, Digest: emptyCriteriaDigest,
+		Outcomes: outcomes, OutcomesDigest: acceptance.OutcomesDigest(parsed.Outcomes)}, nil
 }
 
 // stopForReplan stops verification of an approved plan revision that
@@ -492,8 +463,8 @@ func clearJudgement(v *v1alpha1.IntentVerification) {
 	v.Failing, v.QuarantinedIDs = nil, nil
 }
 
-// countManual counts the manual criteria (or outcomes) accepted at v's head
-// set and those still open, and the criteria this slice cannot run.
+// countManual counts the manual outcomes accepted at v's head set and those
+// still open.
 func countManual(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance) {
 	v.ManualOpen, v.ManualAccepted, v.NotRun = 0, 0, 0
 	if acc == nil {
@@ -508,73 +479,6 @@ func countManual(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance)
 			v.ManualOpen++
 		}
 	}
-	for _, c := range acc.Criteria {
-		switch c.Kind {
-		case v1alpha1.AcceptanceManual:
-			if slices.ContainsFunc(acc.Accepted, func(r v1alpha1.AcceptanceRecord) bool {
-				return r.ID == c.ID && r.HeadSetDigest == v.HeadSetDigest
-			}) {
-				v.ManualAccepted++
-			} else {
-				v.ManualOpen++
-			}
-		case v1alpha1.AcceptanceCommand:
-			v.NotRun++
-		case v1alpha1.AcceptanceHTTP:
-		}
-	}
-}
-
-// settleVerification reads the latest PreviewVerification while it is in
-// flight and settles it once preview-controller has: judged (Observed, or
-// EnvFailed charged to the application), or, for an attempt that ended
-// without a judgement, the round's next attempt, or Unavailable after the
-// last.
-func (p *pass) settleVerification(ctx context.Context) (bool, error) {
-	v := p.in.Status.Verification
-	if v.Ref == nil || v.State != v1alpha1.VerificationVerifying {
-		return false, nil
-	}
-	pv, err := p.readVerification(ctx, *v.Ref)
-	if err != nil {
-		p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the intent's verification; judged next pass",
-			slog.String("intent", p.in.Name), slog.String("verification", v.Ref.Name), slog.Any("error", err))
-		return false, nil
-	}
-	if pv != nil && (pv.Spec.HeadSetDigest != v.HeadSetDigest ||
-		pv.Spec.CriteriaDigest != p.in.Status.Acceptance.Digest) {
-		p.dropInFlight(ctx, *v.Ref)
-		pv = nil
-	}
-	if pv == nil {
-		return true, p.unjudged(ctx)
-	}
-	switch pv.Status.Phase {
-	case v1alpha1.VerificationObserved:
-		j := judge(p.in.Status.Acceptance.Criteria, pv)
-		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			j.apply(cur.Status.Verification)
-			countManual(cur.Status.Verification, cur.Status.Acceptance)
-			return nil
-		})
-	case v1alpha1.VerificationEnvFailed:
-		parts := crdconv.PartFacts(pv.Status.Environment)
-		if httpstep.ClassifyEnvironment(parts) == httpstep.EnvAppFailure {
-			return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-				nv := cur.Status.Verification
-				clearJudgement(nv)
-				nv.State = v1alpha1.VerificationFailing
-				countManual(nv, cur.Status.Acceptance)
-				return nil
-			})
-		}
-		return true, p.unjudged(ctx)
-	case v1alpha1.VerificationInfra, v1alpha1.VerificationStale:
-		return true, p.unjudged(ctx)
-	case v1alpha1.VerificationPending, v1alpha1.VerificationRunning, "":
-		return false, nil
-	}
-	return false, nil
 }
 
 // unjudged settles an attempt that ended without a judgement: maul's own
@@ -657,130 +561,14 @@ func (p *pass) deleteVerification(ctx context.Context, pv *v1alpha1.PreviewVerif
 	}
 }
 
-// judgement is acceptance.Judge's verdicts on a verification's
-// observations, counted.
-type judgement struct {
-	passed, failed, quarantined int32
-	failing                     []v1alpha1.CriterionState
-	quarantinedIDs              []string
-}
-
-// judge judges pv's observations of the approved automatable criteria in
-// plan order. Each criterion is judged against its own one observation,
-// under pv's run tokens; a criterion with no observation, or more than one,
-// or one that does not convert, fails (acceptance.Judge's id check).
-func judge(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerification) judgement {
-	var j judgement
-	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
-	for _, c := range automatable(approved) {
-		v := judgeOne(c, pv.Status.Observations, rt)
-		switch v.Outcome {
-		case acceptance.OutcomePass:
-			j.passed++
-		case acceptance.OutcomeQuarantined:
-			j.quarantined++
-			j.quarantinedIDs = append(j.quarantinedIDs, c.ID)
-		case acceptance.OutcomeFail:
-			j.failed++
-			j.failing = append(j.failing, v1alpha1.CriterionState{ID: c.ID, Outcome: v1alpha1.VerdictFail,
-				Fingerprint: acceptance.Fingerprint([]acceptance.Verdict{v}, nil)})
-		}
-	}
-	return j
-}
-
-// judgeOne judges one criterion against its observation in obs.
-func judgeOne(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObservation,
-	rt acceptance.RunTokens) acceptance.Verdict {
-	failed := acceptance.Verdict{ID: c.ID, Outcome: acceptance.OutcomeFail, Reason: acceptance.ReasonNotObservable}
-	cs, err := crdconv.CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{c})
-	if err != nil || len(cs) != 1 {
-		return failed
-	}
-	var found []v1alpha1.CriterionObservation
-	for _, o := range obs {
-		if o.ID == c.ID {
-			found = append(found, o)
-		}
-	}
-	var o acceptance.CriterionObservation
-	if len(found) == 1 {
-		if converted, err := crdconv.ObservationFromCRD(found[0]); err == nil {
-			o = converted
-		}
-	}
-	return acceptance.Judge(cs[0], o, rt)
-}
-
-// apply writes j onto v as its judged state: Passed when nothing failed
-// (quarantined criteria included, never counted as passed), else Failing.
-func (j judgement) apply(v *v1alpha1.IntentVerification) {
-	v.Passed, v.Failed, v.Quarantined = j.passed, j.failed, j.quarantined
-	v.Failing, v.QuarantinedIDs = j.failing, j.quarantinedIDs
-	v.State = v1alpha1.VerificationPassed
-	if j.failed > 0 {
-		v.State = v1alpha1.VerificationFailing
-	}
-}
-
 // startVerification is the gate (startRound's last step, nothing else
-// started): when a verification is due at the recorded head set, it checks
-// the criteria can run as approved, the Preview is live at exactly the
-// heads and every named check is green, and creates the PreviewVerification;
-// otherwise it records what it waits for.
+// started): under the agent evaluator, startEvaluation creates the next
+// PreviewVerification when one is due; nothing else is verified.
 func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
-	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	if v == nil {
+	if p.in.Status.Verification == nil || p.mode() != modeOutcomes {
 		return false, nil
 	}
-	switch p.mode() {
-	case modeOutcomes:
-		return p.startEvaluation(ctx, prs)
-	case modeCriteria:
-	default:
-		return false, nil
-	}
-	criteria := automatable(acc.Criteria)
-	hs, ok := previewHeadSet(p.proj, p.in)
-	if len(criteria) == 0 || !ok || hs.digest != v.HeadSetDigest {
-		return false, nil
-	}
-	kind, err := p.verifyDue(ctx, v)
-	if err != nil || kind == verifyNotDue {
-		return false, err
-	}
-	if kind == verifyRequestRefused {
-		p.r.log().LogAttrs(ctx, slog.LevelInfo, "maxVerifications is spent; the verification request is dropped",
-			slog.String("intent", p.in.Name), slog.Int64("comment", v.Requested.CommentID))
-		if err := p.answerNotRun(ctx, templates.NotRunCap, 0); err != nil {
-			return false, err
-		}
-		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			cur.Status.Verification.Requested = nil
-			return nil
-		})
-	}
-	if id := unrunnable(criteria, hs); id != "" {
-		return true, p.needsReplan(ctx, id)
-	}
-	preview := p.livePreview(ctx, v)
-	if preview == nil {
-		return p.waitPreview(ctx)
-	}
-	green, err := p.checksGreen(ctx, prs)
-	if err != nil || !green {
-		if err != nil {
-			return false, err
-		}
-		return p.waitVerification(ctx, v1alpha1.VerificationWaitingForCI)
-	}
-	return true, p.createVerification(ctx, kind, hs, v1alpha1.VerificationVerifying,
-		func(spec *v1alpha1.PreviewVerificationSpec) error {
-			slotPlace(preview)(spec)
-			spec.Criteria, spec.CriteriaDigest = criteria, p.in.Status.Acceptance.Digest
-			spec.Timeout = metav1.Duration{Duration: p.set.verifyTimeout(p.proj)}
-			return nil
-		})
+	return p.startEvaluation(ctx, prs)
 }
 
 // waitVerification records what a due verification waits for, unless a
@@ -803,28 +591,8 @@ func previewNotLive(v *v1alpha1.IntentVerification) bool {
 		v.UnavailableReason == v1alpha1.VerificationUnavailablePreviewNotLive
 }
 
-// needsReplan records that criterion id can no longer run as approved: no
-// fix round can change an approved criterion, so automatic fixes halt
-// (CriterionError) and only a replan helps. A pending request is consumed.
-func (p *pass) needsReplan(ctx context.Context, id string) error {
-	p.r.log().LogAttrs(ctx, slog.LevelInfo, "an acceptance criterion's target is not previewed; it needs a replan",
-		slog.String("intent", p.in.Name), slog.String("criterion", id))
-	return p.update(ctx, func(cur *v1alpha1.Intent) error {
-		nv := cur.Status.Verification
-		nv.State, nv.Requested = v1alpha1.VerificationNeedsReplan, nil
-		halt(nv, v1alpha1.AutoFixCriterionError, metav1.NewTime(p.now))
-		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue,
-			string(v1alpha1.AutoFixCriterionError),
-			"an approved acceptance criterion's target is not a previewed component of this Project, so it "+
-				"cannot run as approved; the plan cannot change while its pull requests are open: /maul cancel and "+
-				"a new issue start over")
-		return nil
-	})
-}
-
 // createVerification creates the next PreviewVerification at hs and
-// records it in state (Verifying for slice 1's criteria, Evaluating for the
-// evaluator's outcomes): a retry is its round's next attempt, anything else
+// records it in state (Evaluating, for the evaluator's outcomes): a retry is its round's next attempt, anything else
 // a new round's first. fill completes the spec with where it runs (the
 // Preview it pins, or an agents workspace), what it runs and its timeout;
 // an error from it creates nothing. One that already exists under the name

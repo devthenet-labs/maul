@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
@@ -49,38 +48,40 @@ func (e *env) postStatus(sha string, s ghclient.CommitStatus) {
 	e.gh.statuses[sha] = append([]ghclient.CommitStatus{s}, e.gh.statuses[sha]...)
 }
 
-// judged drives a new verifying intent to InReview, its Preview live, its
-// first verification observed with do, and judged; it returns the intent
-// and its pull request's head.
-func (e *env) judged(do acceptance.Doer) (string, string) {
-	e.t.Helper()
-	name := e.reviewing()
-	e.readyPreview(name)
+// evaluating is a new intent under the evaluator in review, its Preview
+// live, its version and health checks stored, and its first round created
+// and evaluating; it returns the env, the intent, its pull request's head
+// and the two checks.
+func evaluatingIntent(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, string, string, v1alpha1.SavedCheck,
+	v1alpha1.SavedCheck) {
+	t.Helper()
+	e, name := newEvaluatorEnv(t, 0.4, mutate...)
+	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	e.storeChecks(name, version, health)
 	e.review(name, 3)
-	e.observe(e.onlyVerification(name).Name, v1alpha1.VerificationObserved, do)
-	e.review(name, 8)
-	return name, e.get(name).Status.PullRequests[0].HeadSHA
+	if v := e.verification(name); v.State != v1alpha1.VerificationEvaluating {
+		t.Fatalf("verification = %+v, want Evaluating", v)
+	}
+	return e, name, e.get(name).Status.PullRequests[0].HeadSHA, version, health
 }
 
 // TestAcceptanceStatusFollowsTheVerification: maul/acceptance is pending
-// while the verification runs and settles with it, on the pull request's
+// while the evaluation runs and settles with it, on the pull request's
 // head, recorded on its record and posted once per state: further passes
-// post nothing. A pass with a manual criterion open is pending, never
-// green; once an approver accepts it, success, naming them.
+// post nothing. A pass with a manual outcome open is never green; once an
+// approver accepts it, success, naming them.
 func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name := e.reviewing()
-	e.readyPreview(name)
-	e.review(name, 6)
-	head := e.get(name).Status.PullRequests[0].HeadSHA
-	if s := e.latestAcceptance(head); s.State != "pending" || !strings.HasPrefix(s.Description, "verifying") {
-		t.Fatalf("while verifying: %+v", s)
+	e, name, head, version, health := evaluatingIntent(t)
+	e.review(name, 1)
+	if s := e.latestAcceptance(head); s.State != statusPending || !strings.HasPrefix(s.Description,
+		"maul is checking this") {
+		t.Fatalf("while evaluating: %+v", s)
 	}
-	e.observe(e.onlyVerification(name).Name, v1alpha1.VerificationObserved, answering(200))
-	e.review(name, 8)
+	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+	e.review(name, 3)
 	s := e.latestAcceptance(head)
-	if s.State != "pending" || s.Description != "1/1 automated passed, 1 to accept by hand" {
-		t.Fatalf("once passed: %+v", s)
+	if s.State == statusSuccess || !strings.Contains(s.Description, "2/3 outcomes confirmed") {
+		t.Fatalf("once passed with the manual outcome open: %+v", s)
 	}
 	pr := e.get(name).Status.PullRequests[0]
 	if pr.AcceptanceStatusID != s.ID || pr.AcceptanceHead != head || pr.AcceptanceDigest == "" {
@@ -91,39 +92,39 @@ func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
 	if got := len(e.acceptanceStatuses(head)); got != n {
 		t.Fatalf("an unchanged status was posted again: %d statuses, had %d", got, n)
 	}
-	e.gh.comment(approver, "/maul accept sounds-good")
+	e.gh.comment(approver, "/maul accept "+oManual)
 	e.settleActions(name)
 	e.review(name, 2)
-	if s := e.latestAcceptance(head); s.State != "success" ||
-		s.Description != "1/1 automated passed; 1 accepted by hand by "+approver {
-		t.Fatalf("once the manual criterion is accepted: %+v", s)
+	if s := e.latestAcceptance(head); s.State != statusSuccess || !strings.Contains(s.Description, approver) {
+		t.Fatalf("once the manual outcome is accepted: %+v", s)
 	}
 }
 
-// TestAcceptanceStatusStates: what each judged result posts. A failure is
-// failure, and stays failure while the automatic fix it starts on the next
-// pass runs, numbered as the first of the Project's maxVerifyFixes; a pass
-// only on retry stays pending (never green); an open manual criterion keeps
-// it pending, manualGatesStatus or not.
+// TestAcceptanceStatusStates: what a judged result posts. A reproduced
+// failure is failure, and stays failure while the automatic fix it starts
+// on the next pass runs, numbered as the first of the Project's
+// maxVerifyFixes; a pass with a manual outcome open is never green,
+// manualGatesStatus or not.
 func TestAcceptanceStatusStates(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		do          acceptance.Doer
-		gates       bool
-		state, desc string
-	}{
-		{"failure, fix running", answering(500), false, "failure", "0/1 automated passed; automatic fix 1 of 2 running"},
-		{"quarantined", flaky, false, "pending", "1 passed only on retry"},
-		{"manual gates", answering(200), true, "pending", "1/1 automated passed, 1 to accept by hand"},
-		{"manual open", answering(200), false, "pending", "1/1 automated passed, 1 to accept by hand"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newVerifyEnv(t, acceptancePlan, func(p *v1alpha1.Project) {
-				p.Spec.Verification.ManualGatesStatus = tc.gates
+	t.Run("failure, fix running", func(t *testing.T) {
+		e, name, _ := failingEvaluation(t)
+		head := e.get(name).Status.PullRequests[0].HeadSHA
+		e.reviewUntil(name, func() bool { return len(e.verifyRuns(name)) > 0 })
+		e.review(name, 1)
+		if s := e.latestAcceptance(head); s.State != statusFailure ||
+			!strings.HasSuffix(s.Description, "; automatic fix 1 of 2 running") {
+			t.Fatalf("status = %+v, want failure with the first fix running", s)
+		}
+	})
+	for _, gates := range []bool{true, false} {
+		t.Run(map[bool]string{true: "manual gates", false: "manual open"}[gates], func(t *testing.T) {
+			e, name, head, version, health := evaluatingIntent(t, func(p *v1alpha1.Project) {
+				p.Spec.Verification.ManualGatesStatus = gates
 			})
-			_, head := e.judged(tc.do)
-			if s := e.latestAcceptance(head); s.State != tc.state || s.Description != tc.desc {
-				t.Fatalf("status = %+v, want %s %q", s, tc.state, tc.desc)
+			e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+			e.review(name, 3)
+			if s := e.latestAcceptance(head); s.State == statusSuccess {
+				t.Fatalf("status = %+v, want never success with the manual outcome open", s)
 			}
 		})
 	}
@@ -132,17 +133,16 @@ func TestAcceptanceStatusStates(t *testing.T) {
 // TestAcceptanceStatusUnavailable: when maul could not run the checks the
 // status is error, never success.
 func TestAcceptanceStatusUnavailable(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name := e.reviewing()
-	e.readyPreview(name)
-	e.review(name, 3)
-	for attempt := int32(1); attempt <= v1alpha1.MaxVerificationAttempts; attempt++ {
-		e.observe(v1alpha1.PreviewVerificationName(name, 1, attempt), v1alpha1.VerificationInfra, nil)
+	e, name, head, _, _ := evaluatingIntent(t)
+	for range v1alpha1.MaxVerificationAttempts {
+		e.playTools(e.verification(name).Ref.Name, v1alpha1.VerificationInfra, "", false)
 		e.review(name, 3)
 	}
-	e.review(name, 6)
-	head := e.get(name).Status.PullRequests[0].HeadSHA
-	if s := e.latestAcceptance(head); s.State != "error" {
+	if v := e.verification(name); v.State != v1alpha1.VerificationUnavailable {
+		t.Fatalf("verification = %+v, want Unavailable", v)
+	}
+	e.review(name, 2)
+	if s := e.latestAcceptance(head); s.State != statusError {
 		t.Fatalf("status = %+v, want error", s)
 	}
 }
@@ -156,11 +156,13 @@ func TestAcceptanceStatusNotPosted(t *testing.T) {
 		e    func(*testing.T) *env
 	}{
 		{"project off", func(t *testing.T) *env {
-			return newVerifyEnv(t, acceptancePlan, func(p *v1alpha1.Project) { p.Spec.Verification = nil })
+			e := newVerifyEnv(t, outcomesPlan, func(p *v1alpha1.Project) { p.Spec.Verification = nil })
+			e.evaluatorOn(0.4)
+			return e
 		}},
 		{"controller off", func(t *testing.T) *env {
-			e := newVerifyEnv(t, acceptancePlan)
-			e.intent.Settings.Verification = false
+			e := newVerifyEnv(t, outcomesPlan)
+			e.verifying(false, true)
 			return e
 		}},
 	} {
@@ -177,34 +179,38 @@ func TestAcceptanceStatusNotPosted(t *testing.T) {
 	}
 }
 
-// manualOnlyPlan is acceptancePlan without its http criterion: one manual
-// criterion, nothing maul checks.
-var manualOnlyPlan = strings.Replace(acceptancePlan,
-	"  - id: health\n    kind: http\n    statement: the app answers its health check\n    target: app\n"+
-		"    request: {method: GET, path: /healthz}\n    expect: {status: 200}\n", "", 1)
+// manualOnlyPlan is outcomesPlan with its manual outcome alone: nothing maul
+// checks.
+var manualOnlyPlan = strings.Replace(validPlan, "estimated_token_budget: 200000\n",
+	"estimated_token_budget: 200000\n"+
+		"acceptance:\n"+
+		"  - id: looks-right\n"+
+		"    outcome: the version page looks right\n"+
+		"    manual: true\n"+
+		"    reason: only a human can judge it\n", 1)
 
 // TestAcceptanceStatusWithNothingToCheck is the regression test for a
 // required maul/acceptance that blocked an intent forever: a plan with no
-// criteria, or only manual ones, got no status at all. A verifying Project
+// outcomes, or only manual ones, got no status at all. A verifying Project
 // now posts one on every open head: pending until an approver accepts what
-// only a human can (each manual criterion, or with no criteria
-// "/maul accept all"), then success naming them, and never green before.
+// only a human can (each manual outcome, or with none "/maul accept all"),
+// then success naming them, and never green before.
 func TestAcceptanceStatusWithNothingToCheck(t *testing.T) {
 	for _, tc := range []struct {
 		name, plan, accept, pending, success string
 	}{
-		{"no criteria", "", "/maul accept all", "no acceptance criteria declared; an approver may /maul accept all",
+		{"no outcomes", validPlan, "/maul accept all",
+			"no acceptance criteria declared; an approver may /maul accept all",
 			"no acceptance criteria declared; accepted by " + approver},
-		{"manual only", manualOnlyPlan, "/maul accept sounds-good", "0/1 accepted by hand",
-			"1/1 accepted by hand by " + approver},
+		{"manual only", manualOnlyPlan, "/maul accept looks-right", "0/1 outcomes accepted by hand",
+			"1/1 outcomes accepted by hand by " + approver},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newVerifyEnv(t, tc.plan)
-			name := e.reviewing()
+			e, name := evaluatorReviewing(t, tc.plan)
 			e.readyPreview(name)
 			e.review(name, 6)
 			head := e.get(name).Status.PullRequests[0].HeadSHA
-			if s := e.latestAcceptance(head); s.State != "pending" || s.Description != tc.pending {
+			if s := e.latestAcceptance(head); s.State != statusPending || s.Description != tc.pending {
 				t.Fatalf("before acceptance: %+v, want pending %q", s, tc.pending)
 			}
 			if len(e.verifications(name)) != 0 {
@@ -213,7 +219,7 @@ func TestAcceptanceStatusWithNothingToCheck(t *testing.T) {
 			e.gh.comment(approver, tc.accept)
 			e.settleActions(name)
 			e.review(name, 2)
-			if s := e.latestAcceptance(head); s.State != "success" || s.Description != tc.success {
+			if s := e.latestAcceptance(head); s.State != statusSuccess || s.Description != tc.success {
 				t.Fatalf("after acceptance: %+v, want success %q", s, tc.success)
 			}
 		})
@@ -222,8 +228,8 @@ func TestAcceptanceStatusWithNothingToCheck(t *testing.T) {
 
 // TestAcceptanceStatusSwitchedOff: when verification is switched off for an
 // intent maul posted statuses for (the Project stops verifying, or the
-// controller's verification is turned off), its last status is replaced by
-// a final error rather than left pending or green forever.
+// controller's verification, the evaluator, is turned off), its last status
+// is replaced by a final error rather than left pending or green forever.
 func TestAcceptanceStatusSwitchedOff(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -236,20 +242,17 @@ func TestAcceptanceStatusSwitchedOff(t *testing.T) {
 				e.t.Fatal(err)
 			}
 		}},
-		{"controller", func(e *env) { e.intent.Settings.Verification = false }},
+		{"controller", func(e *env) { e.verifying(false, true); e.evaluating(false) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newVerifyEnv(t, acceptancePlan)
-			name := e.reviewing()
-			e.readyPreview(name)
-			e.review(name, 6)
-			head := e.get(name).Status.PullRequests[0].HeadSHA
-			if s := e.latestAcceptance(head); s.State != "pending" {
-				t.Fatalf("while verifying: %+v", s)
+			e, name, head, _, _ := evaluatingIntent(t)
+			e.review(name, 1)
+			if s := e.latestAcceptance(head); s.State != statusPending {
+				t.Fatalf("while evaluating: %+v", s)
 			}
 			tc.off(e)
 			e.review(name, 4)
-			if s := e.latestAcceptance(head); s.State != "error" || s.Description != "verification switched off" {
+			if s := e.latestAcceptance(head); s.State != statusError || s.Description != switchedOff.description {
 				t.Fatalf("once switched off: %+v", s)
 			}
 			n := len(e.acceptanceStatuses(head))
@@ -268,21 +271,18 @@ func TestAcceptanceStatusSwitchedOff(t *testing.T) {
 func TestAcceptanceStatusSwitchedOffStaysOff(t *testing.T) {
 	for _, creator := range []string{testBot, "mallory"} {
 		t.Run(creator, func(t *testing.T) {
-			e := newVerifyEnv(t, acceptancePlan)
-			name := e.reviewing()
-			e.readyPreview(name)
-			e.review(name, 6)
-			head := e.get(name).Status.PullRequests[0].HeadSHA
-			e.intent.Settings.Verification = false
+			e, name, head, _, _ := evaluatingIntent(t)
+			e.review(name, 1)
+			e.evaluating(false)
 			e.review(name, 4)
-			if s := e.latestAcceptance(head); s.State != "error" {
+			if s := e.latestAcceptance(head); s.State != statusError {
 				t.Fatalf("once switched off: %+v", s)
 			}
-			e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: "success",
+			e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: statusSuccess,
 				Description: "1/1 outcomes confirmed", Creator: creator})
 			e.review(name, 2)
 			s := e.latestAcceptance(head)
-			if s.Creator != testBot || s.State != "error" || s.Description != "verification switched off" {
+			if s.Creator != testBot || s.State != statusError || s.Description != switchedOff.description {
 				t.Fatalf("a later green stood on a switched-off intent: %+v", s)
 			}
 			if pr := e.get(name).Status.PullRequests[0]; pr.AcceptanceStatusID != s.ID {
@@ -298,13 +298,14 @@ func TestAcceptanceStatusSwitchedOffStaysOff(t *testing.T) {
 // once per poll interval, so a second impostor within it stands until the
 // next.
 func TestAcceptanceStatusImpostor(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name, head := e.judged(answering(500))
-	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: "success",
+	e, name, _ := failingEvaluation(t)
+	head := e.get(name).Status.PullRequests[0].HeadSHA
+	e.review(name, 2)
+	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: statusSuccess,
 		Description: "all good", Creator: "mallory"})
 	e.review(name, 2)
 	s := e.latestAcceptance(head)
-	if s.Creator == "mallory" || s.State != "failure" {
+	if s.Creator == "mallory" || s.State != statusFailure {
 		t.Fatalf("the impostor's status was not answered: %+v", s)
 	}
 	if pr := e.get(name).Status.PullRequests[0]; pr.AcceptanceStatusID != s.ID {
@@ -314,13 +315,13 @@ func TestAcceptanceStatusImpostor(t *testing.T) {
 	if body := e.onePreviewComment(name, n).Body; !strings.Contains(body, "`mallory`") {
 		t.Fatalf("the preview comment does not name the impostor:\n%s", body)
 	}
-	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: "success", Creator: "mallory"})
+	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: statusSuccess, Creator: "mallory"})
 	e.mustIntent(name)
 	if s := e.latestAcceptance(head); s.Creator != "mallory" {
 		t.Fatalf("re-asserted twice within one poll interval: %+v", s)
 	}
 	e.review(name, 1)
-	if s := e.latestAcceptance(head); s.Creator == "mallory" || s.State != "failure" {
+	if s := e.latestAcceptance(head); s.Creator == "mallory" || s.State != statusFailure {
 		t.Fatalf("not re-asserted after the poll interval: %+v", s)
 	}
 }
@@ -330,8 +331,8 @@ func TestAcceptanceStatusImpostor(t *testing.T) {
 // not an impostor's: in maul's own state, nothing is re-posted and no one
 // is named (in another, TestAcceptanceStatusOwnLostWriteIsRestated).
 func TestAcceptanceStatusOwnLaterStatusIsNoImpostor(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name, head := e.judged(answering(200))
+	e, name, head, _, _ := evaluatingIntent(t)
+	e.review(name, 2)
 	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: e.latestAcceptance(head).State,
 		Creator: testBot})
 	n := len(e.acceptanceStatuses(head))
@@ -349,15 +350,22 @@ func TestAcceptanceStatusOwnLaterStatusIsNoImpostor(t *testing.T) {
 func TestAcceptanceStatusOwnLostWriteIsRestated(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
-		do          acceptance.Doer
+		failing     bool
 		want, stale string
 	}{
-		{"stale green", answering(500), "failure", "success"},
-		{"stale red", answering(200), "pending", "failure"},
+		{"stale green", true, statusFailure, statusSuccess},
+		{"stale red", false, statusPending, statusFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newVerifyEnv(t, acceptancePlan)
-			name, head := e.judged(tc.do)
+			var e *env
+			var name string
+			if tc.failing {
+				e, name, _ = failingEvaluation(t)
+			} else {
+				e, name, _, _, _ = evaluatingIntent(t)
+			}
+			head := e.get(name).Status.PullRequests[0].HeadSHA
+			e.review(name, 2)
 			if s := e.latestAcceptance(head); s.State != tc.want {
 				t.Fatalf("judged: %+v, want %s", s, tc.want)
 			}
@@ -383,8 +391,9 @@ func TestAcceptanceStatusOwnLostWriteIsRestated(t *testing.T) {
 // the combined change, so a sibling's move re-posts it on a head that did
 // not move.
 func TestAcceptanceStatusRepostsWhenTheHeadSetMoves(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name, head := e.judged(answering(200))
+	e, name, _ := failingEvaluation(t)
+	head := e.get(name).Status.PullRequests[0].HeadSHA
+	e.review(name, 1)
 	n := len(e.acceptanceStatuses(head))
 	in := e.get(name)
 	in.Status.Verification.HeadSetDigest = digest([]byte("a sibling moved"))
@@ -399,7 +408,7 @@ func TestAcceptanceStatusRepostsWhenTheHeadSetMoves(t *testing.T) {
 		t.Fatal(err)
 	}
 	ss := e.acceptanceStatuses(head)
-	if len(ss) != n+1 || ss[0].State != "pending" || ss[0].Description != "combined change moved: re-verifying" {
+	if len(ss) != n+1 || ss[0].State != statusPending || ss[0].Description != headsMoved.description {
 		t.Fatalf("statuses = %+v", ss)
 	}
 }
@@ -410,18 +419,27 @@ func TestAcceptanceStatusRepostsWhenTheHeadSetMoves(t *testing.T) {
 // the verification comment and the pull request's verification section say
 // why.
 func TestAcceptanceStatusWithoutStatusesWrite(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	e.gh.refused = map[ghclient.TokenPerms]error{{Statuses: ghclient.PermWrite}: ghError(http.StatusUnprocessableEntity,
-		"The permissions requested are not granted to this installation.")}
+	refuse := func(e *env) {
+		e.gh.refused = map[ghclient.TokenPerms]error{{Statuses: ghclient.PermWrite}: ghError(
+			http.StatusUnprocessableEntity, "The permissions requested are not granted to this installation.")}
+	}
+	e, name := newEvaluatorEnv(t, 0.4)
+	refuse(e)
 	e.reconcileProject()
 	if conds := e.getProject().Status.Conditions; !meta.IsStatusConditionTrue(conds, v1alpha1.ConditionReady) ||
 		!meta.IsStatusConditionTrue(conds, ConditionAcceptanceStatusUnavailable) {
 		t.Fatalf("project conditions = %+v", conds)
 	}
-	name, head := e.judged(answering(500))
+	e.evaluateReporting(failingReport)
+	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	e.storeChecks(name, version, health)
+	e.review(name, 3)
+	e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	e.review(name, 2)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing && v.State != v1alpha1.VerificationFixing {
 		t.Fatalf("not verified: %+v", v)
 	}
+	head := e.get(name).Status.PullRequests[0].HeadSHA
 	if ss := e.acceptanceStatuses(head); len(ss) != 0 {
 		t.Fatalf("statuses posted without statuses write: %+v", ss)
 	}

@@ -18,8 +18,7 @@ import (
 // it never blocks the intent (D2): the round ends, automatic fixes halt on
 // CostCeiling with VerifyFailing, and the intent is back in review.
 func TestCostCeilingEndsVerifyRetry(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name, _ := e.failingVerification()
+	e, name, _ := failingEvaluation(t)
 	e.jobs.output = notBuilt(notBuiltReport("")) // the attempt fails, retryably
 	// Lease the round below the ceiling, then reach the ceiling before its
 	// attempt fails.
@@ -34,10 +33,12 @@ func TestCostCeilingEndsVerifyRetry(t *testing.T) {
 	if n := len(e.verifyRuns(name)); n != 1 || in.Status.Phase != v1alpha1.IntentRevising {
 		t.Fatalf("verify runs = %d, phase %s; want the acceptance-fix round entered", n, in.Status.Phase)
 	}
-	if in.Status.Usage.CostMicroUSD <= 0 {
-		t.Fatalf("spend %d: the ceiling cannot be reached", in.Status.Usage.CostMicroUSD)
+	// The ceiling holds the spend less the evaluations' (sharedSpend).
+	shared := e.prVerifyPass(name).sharedSpend()
+	if shared <= 0 {
+		t.Fatalf("spend %d: the ceiling cannot be reached", shared)
 	}
-	e.setCeiling(in.Status.Usage.CostMicroUSD)
+	e.setCeiling(shared)
 
 	in = e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionBudgetExhausted) {

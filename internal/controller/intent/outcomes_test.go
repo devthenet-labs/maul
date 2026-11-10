@@ -58,8 +58,8 @@ func (e *env) awaitingWith(body string) string {
 }
 
 // TestEvaluatorAsksThePlanForOutcomes: under the evaluator a verifying
-// Project's plan Job is told to state outcomes; without it the handoff is
-// slice 1's, naming none.
+// Project's plan Job is told to state outcomes; without it nothing is
+// verified (S4), so the plan Job is handed nothing to state them against.
 func TestEvaluatorAsksThePlanForOutcomes(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		e := newVerifyEnv(t, outcomesPlan)
@@ -71,16 +71,17 @@ func TestEvaluatorAsksThePlanForOutcomes(t *testing.T) {
 			t.Fatal("no plan Job launched")
 		}
 		got, err := templates.DecodePlanVerification(plans[0].PlanVerification)
-		if err != nil || got == nil || got.Outcomes != on {
-			t.Errorf("evaluator %t: plan Job handed %q (%v), want outcomes %t", on, plans[0].PlanVerification, err, on)
+		if err != nil || (got != nil) != on {
+			t.Errorf("evaluator %t: plan Job handed %q (%v), want a verification %t", on, plans[0].PlanVerification,
+				err, on)
 		}
 	}
 }
 
 // TestEvaluatorPlanCommentListsOutcomes: the plan comment shows each
 // outcome with the issue line it answers and lists the issue lines none
-// answers, in place of slice 1's acceptance line. Evaluator off, the same
-// plan's comment is slice 1's, with no outcome section.
+// answers, in place of slice 1's acceptance line. Evaluator off, nothing is
+// verified (S4): the same plan's comment has no acceptance at all.
 func TestEvaluatorPlanCommentListsOutcomes(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		e := newVerifyEnv(t, outcomesPlan)
@@ -93,8 +94,8 @@ func TestEvaluatorPlanCommentListsOutcomes(t *testing.T) {
 		}
 		body := plans[0].Body
 		if !on {
-			if strings.Contains(body, "Acceptance outcomes") || !strings.Contains(body, noneLine) {
-				t.Errorf("evaluator off: comment is not slice 1's:\n%s", body)
+			if strings.Contains(body, "Acceptance") {
+				t.Errorf("evaluator off: comment speaks of acceptance:\n%s", body)
 			}
 			continue
 		}
@@ -118,8 +119,8 @@ func TestEvaluatorPlanCommentListsOutcomes(t *testing.T) {
 
 // TestEvaluatorRecordsTheApprovedOutcomes: once in review, the approved
 // plan's outcomes are recorded, normalised (every kind explicit) and
-// digested as declared, with no criteria; evaluator off, the same plan
-// records neither.
+// digested as declared, with no criteria; evaluator off, verification is
+// off with it (S4) and nothing is recorded.
 func TestEvaluatorRecordsTheApprovedOutcomes(t *testing.T) {
 	e := newVerifyEnv(t, outcomesPlan)
 	e.evaluating(true)
@@ -155,10 +156,12 @@ func TestEvaluatorRecordsTheApprovedOutcomes(t *testing.T) {
 	}
 
 	off := newVerifyEnv(t, outcomesPlan)
+	off.verifying(false, true)
 	name = off.reviewing()
 	off.review(name, 2)
-	if acc := off.get(name).Status.Acceptance; acc == nil || len(acc.Outcomes) != 0 || acc.OutcomesDigest != "" {
-		t.Fatalf("evaluator off: acceptance = %+v, want slice 1's record", acc)
+	if in := off.get(name); in.Status.Acceptance != nil || in.Status.Verification != nil {
+		t.Fatalf("evaluator off: acceptance = %+v, verification %+v, want none", in.Status.Acceptance,
+			in.Status.Verification)
 	}
 }
 
@@ -233,18 +236,27 @@ func (e *env) checkStoppedForReplan(name string) string {
 }
 
 // TestEvaluatorMigratesAnApprovedCriteriaPlan: an intent in review whose
-// approved plan states slice-1 criteria, when the evaluator is switched on,
-// gets one replan notice, however many passes follow; nothing is verified
-// against its criteria, which are no longer on record, the Intent says why
-// and maul/acceptance is an error. Switched off again, slice 1 reads the
-// criteria afresh and verification resumes.
+// approved plan states slice-1 criteria, recorded with them by a release
+// before S4, when the evaluator verifies its Project, gets one replan
+// notice, however many passes follow; nothing is verified against its
+// criteria, which are no longer on record, the Intent says why and
+// maul/acceptance is an error. Switched off again, nothing runs the
+// criteria (S4): the plan is recorded by its criteria's digest alone,
+// verification is Off and the replan condition is gone.
 func TestEvaluatorMigratesAnApprovedCriteriaPlan(t *testing.T) {
 	e := newVerifyEnv(t, acceptancePlan)
 	name := e.reviewing()
 	e.review(name, 2)
-	if acc := e.get(name).Status.Acceptance; acc == nil || len(acc.Criteria) != 2 {
-		t.Fatalf("slice 1 recorded %+v", acc)
+	if acc := e.get(name).Status.Acceptance; acc == nil || recordOf(acc) != recordPrunedCriteria {
+		t.Fatalf("recorded %+v, want the criteria by their digest alone", acc)
 	}
+	// What a release before S4 recorded: the criteria themselves.
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Criteria = []v1alpha1.AcceptanceCriterion{
+			{ID: "sounds-good", Kind: v1alpha1.AcceptanceManual, Statement: "it sounds good"},
+			{ID: "health", Kind: v1alpha1.AcceptanceHTTP, Statement: "the app answers its health check",
+				Target: "app"}}
+	})
 	e.evaluating(true)
 	e.readyPreview(name)
 	e.review(name, 6)
@@ -264,12 +276,16 @@ func TestEvaluatorMigratesAnApprovedCriteriaPlan(t *testing.T) {
 		t.Fatalf("replan notices = %d after more passes, want 1", n)
 	}
 
-	// Switched off: slice 1 runs unchanged.
+	// Switched off: nothing runs the criteria.
 	e.evaluating(false)
 	e.review(name, 3)
 	in := e.get(name)
-	if acc := in.Status.Acceptance; acc == nil || len(acc.Criteria) != 2 {
-		t.Fatalf("evaluator off again: acceptance = %+v", acc)
+	if acc := in.Status.Acceptance; acc == nil || recordOf(acc) != recordPrunedCriteria {
+		t.Fatalf("evaluator off again: acceptance = %+v, want the criteria by their digest alone", acc)
+	}
+	if v := in.Status.Verification; v == nil || v.State != v1alpha1.VerificationOff || len(e.verifications(name)) != 0 {
+		t.Fatalf("evaluator off again: verification = %+v, verifications %d, want Off and none", v,
+			len(e.verifications(name)))
 	}
 	if c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionVerifyFailing); c != nil &&
 		c.Reason == reasonCriteriaReplan {
@@ -292,8 +308,8 @@ func TestEvaluatorReplanToOutcomes(t *testing.T) {
 		return defaultOutput(spec)
 	}
 	name := e.awaitingWith(outcomesIssue)
-	if body := e.gh.withMarker("maul:plan")[0].Body; !strings.Contains(body, splitLine) {
-		t.Fatalf("the criteria plan was not posted as slice 1's:\n%s", body)
+	if body := e.gh.withMarker("maul:plan")[0].Body; strings.Contains(body, "Acceptance") {
+		t.Fatalf("the criteria plan was posted with acceptance while nothing verifies it:\n%s", body)
 	}
 
 	e.evaluating(true)
@@ -308,10 +324,10 @@ func TestEvaluatorReplanToOutcomes(t *testing.T) {
 	asked := 0
 	for _, spec := range e.specsOf("plan") {
 		v, err := templates.DecodePlanVerification(spec.PlanVerification)
-		if err != nil || v == nil {
+		if err != nil {
 			t.Fatalf("plan Job %s handed %q (%v)", spec.Finding, spec.PlanVerification, err)
 		}
-		if v.Outcomes {
+		if v != nil {
 			asked++
 		}
 	}

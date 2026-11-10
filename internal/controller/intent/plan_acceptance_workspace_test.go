@@ -46,16 +46,16 @@ func TestPlanAskNamesTheWorkspaceSurface(t *testing.T) {
 		want *templates.PlanVerification // nil: not asked
 	}{
 		{"cli, one repository", workspaceProject(one, cli("", "/work/bin/bbcount")), evaluating,
-			&templates.PlanVerification{Outcomes: true, Workspace: &templates.PlanWorkspace{
+			&templates.PlanVerification{Workspace: &templates.PlanWorkspace{
 				Surface: templates.SurfaceCLI, Binary: "/work/bin/bbcount"}}},
 		{"cli, named repository of two", workspaceProject(two, cli("lib", "/work/bin/x")), evaluating,
-			&templates.PlanVerification{Outcomes: true, Workspace: &templates.PlanWorkspace{
+			&templates.PlanVerification{Workspace: &templates.PlanWorkspace{
 				Surface: templates.SurfaceCLI, Repository: "https://github.com/o/lib", Binary: "/work/bin/x"}}},
 		{"library, one repository", workspaceProject(one, lib("")), evaluating,
-			&templates.PlanVerification{Outcomes: true, Workspace: &templates.PlanWorkspace{
+			&templates.PlanVerification{Workspace: &templates.PlanWorkspace{
 				Surface: templates.SurfaceLibrary, Language: "go"}}},
 		{"library, named repository of two", workspaceProject(two, lib("app")), evaluating,
-			&templates.PlanVerification{Outcomes: true, Workspace: &templates.PlanWorkspace{
+			&templates.PlanVerification{Workspace: &templates.PlanWorkspace{
 				Surface: templates.SurfaceLibrary, Repository: "https://github.com/o/app", Language: "go"}}},
 		{"unnamed repository of two", workspaceProject(two, lib("")), evaluating, nil},
 		{"unknown repository", workspaceProject(one, lib("nope")), evaluating, nil},
@@ -74,8 +74,8 @@ func TestPlanAskNamesTheWorkspaceSurface(t *testing.T) {
 			if tt.want == nil {
 				return
 			}
-			if !a.outcomes || !reflect.DeepEqual(a.targets, tt.want) {
-				t.Errorf("targets = %+v (outcomes %v), want %+v", a.targets, a.outcomes, tt.want)
+			if !a.verified || !reflect.DeepEqual(a.targets, tt.want) {
+				t.Errorf("targets = %+v (verified %v), want %+v", a.targets, a.verified, tt.want)
 			}
 			enc := templates.EncodePlanVerification(a.targets)
 			if enc == "" {
@@ -95,7 +95,7 @@ func TestPlanJobIsHandedTheWorkspace(t *testing.T) {
 		&v1alpha1.ProjectSurfaces{Library: &v1alpha1.LibrarySurface{Language: v1alpha1.LibraryLanguageGo}})
 	r := &RunReconciler{Settings: evaluating}
 	got, err := templates.DecodePlanVerification(r.planVerification(p))
-	if err != nil || got == nil || !got.Outcomes || len(got.Components) != 0 || got.Workspace == nil ||
+	if err != nil || got == nil || len(got.Components) != 0 || got.Workspace == nil ||
 		got.Workspace.Surface != templates.SurfaceLibrary {
 		t.Errorf("MAUL_PLAN_VERIFICATION decodes to %+v, %v", got, err)
 	}
@@ -117,8 +117,7 @@ func TestPlanAskBesideAPreviewIsNotAsked(t *testing.T) {
 		{Library: &v1alpha1.LibrarySurface{Language: v1alpha1.LibraryLanguageGo}},
 		{CLI: &v1alpha1.CLISurface{Build: []string{"go", "build", "-o", "/work/bin/", "."}, Binary: "/work/bin/x"}},
 	} {
-		for _, set := range []Settings{evaluating, {Verification: true, Previews: true, Evaluator: true},
-			{Verification: true, Previews: true}} {
+		for _, set := range []Settings{evaluating, {Verification: true, Previews: true, Evaluator: true}} {
 			if !set.planAsk(workspaceProject(repos, nil)).asked() {
 				t.Fatalf("the slot Project is not asked under %+v", set)
 			}

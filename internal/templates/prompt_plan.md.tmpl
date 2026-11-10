@@ -188,7 +188,7 @@ Each field has a type and hard limits, and a frontmatter that breaks any of them
 Escape a double quote inside a string as `\"`. Unquoted prose containing a colon is invalid YAML and is refused, and
 so is a YAML-tagged value (`!!binary`, `!!str`). To correct the report once it is written, Edit it in place rather than
 writing it again.
-{{- if and .Outcomes .Workspace }}{{ with .Workspace }}
+{{- if .Workspace }}{{ with .Workspace }}
 
 ### Acceptance outcomes
 
@@ -258,7 +258,7 @@ How to word an outcome so the evaluator can show it:
 - An outcome only a person can judge (how readable an error message is) is `manual: true`.
 {{- end }}
 {{- end }}
-{{- else if .Outcomes }}
+{{- else if .Verification }}
 
 ### Acceptance outcomes
 
@@ -318,60 +318,7 @@ The preview serves these components:
 - `{{ .Key }}`, under `{{ .Path }}`
 {{- end }}
 {{- end }}
-{{- else }}{{ with .Verification }}
-
-### Acceptance criteria
-
-This Project verifies each pull request's change running in a live preview before a human reviews it. Add one more
-frontmatter field after `estimated_token_budget`, `acceptance`, a list of at most 16 criteria (at most 48 steps in
-total, and few enough expectations that what the checks record fits maul's size budget) that state, checkably, what
-the approved plan must deliver. Write only criteria a request to the running
-preview can decide; for what only a person can judge, write a `manual` criterion. Omit the field when nothing can be
-checked.
-
-```yaml
-acceptance:
-  - id: leaderboard          # lowercase letters, digits and hyphens, starting with a letter; at most 32; unique
-    kind: http               # http | manual (command is accepted but not run yet)
-    statement: a leaderboard ranks patterns by votes    # one line, at most 200 characters
-    target: <component key>  # one of the keys below
-    steps:                   # 1 to 8
-      - name: create
-        request: {method: POST, path: /api/battles, json: {name: "maul-{{"{{"}}run{{"}}"}}"}}
-        expect: {status: 201}
-        capture: {battle: /id}          # at most 4 per step: name -> JSON pointer into the response
-      - request: {method: GET, path: "/api/battles/{{"{{"}}capture.battle{{"}}"}}"}
-        expect: {status: 200, json: {/name: "maul-{{"{{"}}run{{"}}"}}"}}
-  - id: sounds-good
-    kind: manual
-    statement: it sounds good
-    reason: only a human can judge how it sounds    # at most 120 characters
-```
-
-Rules the checks keep to:
-
-- A request has a `method` (GET, HEAD, POST, PUT, PATCH or DELETE), a `path` that starts with one `/` (no `//`, `..`,
-  `@` or `://`), and optionally `json` or `body` (not both), and at most 8 `headers`. The path is sent unchanged to the
-  component, so write it as the component serves it.
-- `expect` holds `status` (a number or a list of numbers), `json` (at most 8 entries, a JSON pointer to a literal or to
-  one matcher: `{$present: true}`, `{$absent: true}`, `{$contains: "text"}`, `{$approx: n, $tolerance: n}`, or
-  `{$order: [...], $by: <pointer>}`), `headers` and `bodyContains` (at most 200 characters).
-- `{{"{{"}}run{{"}}"}}` and `{{"{{"}}capture.<name>{{"}}"}}` are the only substitutions.
-- The preview's data persists across verifications: maul never resets it between them, so every check runs against
-  whatever the earlier ones left, its own earlier runs included. A check must therefore create its own data, named with
-  `{{"{{"}}run{{"}}"}}`, and assert only on that data. Read it back scoped to what it created (by the id it captured,
-  or filtered by its `{{"{{"}}run{{"}}"}}` name), and to check an ordering use `$order` restricted to the ids the check
-  created. Assert never a global ranking, a global count, the first or last item of a global list, or a tie-break
-  against rows the check did not create: data an earlier verification left can win that tie, and the check then fails
-  on every later verification however correct the change is.
-- A capture is usable only by later steps, and its name is lowercase letters and digits, at most 16.
-- A criterion is unverifiable if it needs something the preview does not serve: target only these components.
-
-Previewed components a criterion's `target` can name:
-{{ range .Components }}
-- `{{ .Key }}`: served under `{{ .Path }}`{{ with .Readiness }}, ready when `{{ . }}` answers{{ end }}
 {{- end }}
-{{- end }}{{ end }}
 
 After the frontmatter, write the plan in markdown under the headings Approach, Steps, Test plan and Risks, in at most
 48 KiB; the whole report, frontmatter included, is at most 56 KiB. It is posted to the request for a human to

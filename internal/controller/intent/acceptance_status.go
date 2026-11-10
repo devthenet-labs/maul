@@ -112,59 +112,38 @@ var headsMoved = acceptanceState{statusPending, "combined change moved: re-verif
 
 // movedSinceJudged reports whether a verification waiting for a new round
 // waits because the combined change moved (gate D-B5), so its status may
-// say so; otherwise it says only what it waits for. Under outcomes, only
-// when outcomes were judged at a head set other than the recorded one: a
-// request at the judged heads, an infrastructure retry or a resume from
-// Off moves nothing. Under criteria, which record no judged head set,
-// unless an approver's request waits on a round still referenced (a move
-// supersedes the reference, syncHeadSet).
-func movedSinceJudged(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
-	if len(acc.Outcomes) > 0 {
-		return v.OutcomesHeadSetDigest != "" && v.OutcomesHeadSetDigest != v.HeadSetDigest
-	}
-	return v.Ref == nil || v.Requested == nil
+// say so; otherwise it says only what it waits for: only when outcomes
+// were judged at a head set other than the recorded one. A request at the
+// judged heads, an infrastructure retry or a resume from Off moves
+// nothing.
+func movedSinceJudged(v *v1alpha1.IntentVerification) bool {
+	return v.OutcomesHeadSetDigest != "" && v.OutcomesHeadSetDigest != v.HeadSetDigest
 }
 
 // verifyingStatus is the status of a verifying intent's recorded
 // verification; ok is false in a state it is about to leave (none yet, or
-// Off on a Project that verifies again).
+// Off on a Project that verifies again), and in a state no evaluation of
+// the record's outcomes reached (a plan stating none is only ever
+// NotDeclared).
 func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	total := int32(len(automatable(acc.Criteria)))
-	used, most := p.verifyFixesUsed()
 	if len(acc.Outcomes) > 0 {
 		if st, ok := p.evaluationStatus(); ok {
 			return st, true
 		}
 	}
-	passed := fmt.Sprintf("%d/%d automated passed", v.Passed, total)
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
+		// No outcomes: evaluationStatus answers every NotDeclared with any.
 		return notCheckedStatus(acc, v), true
 	case v1alpha1.VerificationWaitingForCI, v1alpha1.VerificationWaitingForPreview:
-		if v.Round > 0 && movedSinceJudged(acc, v) {
+		if v.Round > 0 && movedSinceJudged(v) {
 			return headsMoved, true
 		}
 		if v.State == v1alpha1.VerificationWaitingForCI {
 			return acceptanceState{statusPending, "waiting for the pull requests' checks"}, true
 		}
 		return acceptanceState{statusPending, "waiting for the preview"}, true
-	case v1alpha1.VerificationVerifying:
-		return acceptanceState{statusPending, fmt.Sprintf("verifying: verification %d, %d %s, %d of %d automatic %s used",
-			v.Round, total, plural(total, "check", "checks"), used, most, plural(most, "fix", "fixes"))}, true
-	case v1alpha1.VerificationPassed:
-		return passedStatus(passed, acc, v), true
-	case v1alpha1.VerificationFailing:
-		if v.AutoFix.State == v1alpha1.AutoFixHalted {
-			return acceptanceState{statusFailure, passed + "; automatic fixes halted"}, true
-		}
-		return acceptanceState{statusFailure, fmt.Sprintf("%s, %d failing", passed, v.Failed)}, true
-	case v1alpha1.VerificationFixing:
-		// The running fix is already one of verifyFixRounds.
-		return acceptanceState{statusFailure, fmt.Sprintf("%s; automatic fix %d of %d running", passed,
-			used, most)}, true
-	case v1alpha1.VerificationExhausted:
-		return acceptanceState{statusFailure, passed + "; no automatic fix left"}, true
 	case v1alpha1.VerificationNeedsReplan:
 		return acceptanceState{statusError, "a check cannot run as approved: its target is not previewed"}, true
 	case v1alpha1.VerificationUnavailable:
@@ -173,7 +152,9 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 				"checks could not run", int(previewWaitMax.Minutes()))}, true
 		}
 		return acceptanceState{statusError, "maul could not run the checks"}, true
-	case v1alpha1.VerificationOff:
+	case v1alpha1.VerificationOff, v1alpha1.VerificationVerifying, v1alpha1.VerificationPassed,
+		v1alpha1.VerificationFailing, v1alpha1.VerificationFixing, v1alpha1.VerificationExhausted,
+		v1alpha1.VerificationEvaluating, v1alpha1.VerificationUnconfirmed:
 	}
 	return acceptanceState{}, false
 }
@@ -289,91 +270,15 @@ func outcomeAccepters(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 	return out
 }
 
-// passedStatus is the status of a verification that found no failure: a
-// pass only on retry holds it pending until a human accepts it or a clean
-// run passes it (D7); so does any criterion only a human closes (manual, or
-// not run in this slice) until an approver accepts it. Success names who
-// accepted what was closed by hand.
-func passedStatus(passed string, acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) acceptanceState {
-	if q := openQuarantined(acc, v); q > 0 {
-		return acceptanceState{statusPending, fmt.Sprintf("%d passed only on retry", q)}
-	}
-	h := handClosed(acc, v)
-	switch {
-	case h.open > 0:
-		return acceptanceState{statusPending, fmt.Sprintf("%s, %d to accept by hand", passed, h.open)}
-	case h.total > 0:
-		return acceptanceState{statusSuccess, fmt.Sprintf("%s; %d accepted by hand %s", passed, h.total,
-			acceptedBy(h.accepters))}
-	}
-	return acceptanceState{statusSuccess, passed}
-}
-
-// notCheckedStatus is the status of a plan with nothing maul checks: with
-// no criteria at all, pending until an approver's /maul accept all; with
-// only criteria a human closes, pending until an approver accepted each at
-// the current head set. Success names who accepted.
+// notCheckedStatus is the status of a plan that declares nothing maul
+// checks, no outcome at all: pending until an approver's /maul accept all
+// at the current head set. Success names who accepted.
 func notCheckedStatus(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) acceptanceState {
 	const none = "no acceptance criteria declared"
-	if len(acc.Criteria) == 0 {
-		if r := acceptedAt(acc, acceptAll, v.HeadSetDigest); r != nil {
-			return acceptanceState{statusSuccess, none + "; accepted " + acceptedBy([]string{r.By})}
-		}
-		return acceptanceState{statusPending, none + "; an approver may /maul accept all"}
+	if r := acceptedAt(acc, acceptAll, v.HeadSetDigest); r != nil {
+		return acceptanceState{statusSuccess, none + "; accepted " + acceptedBy([]string{r.By})}
 	}
-	h := handClosed(acc, v)
-	if h.open > 0 {
-		return acceptanceState{statusPending, fmt.Sprintf("%d/%d accepted by hand", h.total-h.open, h.total)}
-	}
-	return acceptanceState{statusSuccess, fmt.Sprintf("%d/%d accepted by hand %s", h.total, h.total,
-		acceptedBy(h.accepters))}
-}
-
-// handTally is what only a human closes at a verification's head set.
-type handTally struct {
-	// total and open count the criteria only a human closes, and those no
-	// approver has accepted at the head set.
-	total, open int32
-	// accepters are the approvers who accepted the others, latest first.
-	accepters []string
-}
-
-// handClosed tallies the criteria only a human closes at v's head set: the
-// manual ones and those maul does not run in this slice (command). A
-// quarantined criterion is openQuarantined's.
-func handClosed(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) handTally {
-	var h handTally
-	var accepted []*v1alpha1.AcceptanceRecord
-	for _, c := range acc.Criteria {
-		if !byHand(c) {
-			continue
-		}
-		h.total++
-		if r := acceptedAt(acc, c.ID, v.HeadSetDigest); r != nil {
-			accepted = append(accepted, r)
-		} else {
-			h.open++
-		}
-	}
-	for _, id := range v.QuarantinedIDs {
-		if r := acceptedAt(acc, id, v.HeadSetDigest); r != nil {
-			h.total++
-			accepted = append(accepted, r)
-		}
-	}
-	slices.SortStableFunc(accepted, func(a, b *v1alpha1.AcceptanceRecord) int { return b.At.Compare(a.At.Time) })
-	for _, r := range accepted {
-		if !slices.Contains(h.accepters, r.By) {
-			h.accepters = append(h.accepters, r.By)
-		}
-	}
-	return h
-}
-
-// byHand reports a criterion only a human closes: manual, or of a kind maul
-// does not run in this slice.
-func byHand(c v1alpha1.AcceptanceCriterion) bool {
-	return c.Kind == v1alpha1.AcceptanceManual || c.Kind == v1alpha1.AcceptanceCommand
+	return acceptanceState{statusPending, none + "; an approver may /maul accept all"}
 }
 
 // acceptedBy names the approvers who accepted, latest first, as a status
