@@ -55,6 +55,8 @@ func oneFixEnv(t *testing.T, fix func(*env)) (*env, string) {
 
 // TestOutcomeVerifyFixAfterNoDefectAndRearm twins
 // TestVerifyFixAfterNoDefectAndRearm.
+// Its re-arm floor, which the skip below leaves unreached, is held by
+// TestOutcomeVerifyFixAfterRepeatedFailureAndRearm.
 func TestOutcomeVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
 	e.onAcceptanceFix(func(spec jobs.Spec) jobs.RunOutput { return reportOnly(spec, noDefectReport) })
@@ -92,6 +94,33 @@ func TestOutcomeVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 	}
 	if p := e.prVerifyPass(name); p.noDefectView() != nil {
 		t.Error("the note outlived the new fix round")
+	}
+}
+
+// TestOutcomeVerifyFixAfterRepeatedFailureAndRearm holds, on outcomes,
+// the subject of TestVerifyFixAfterNoDefectAndRearm that its twin above
+// cannot reach while it skips: a round at or before an approver's re-arm is
+// no prior fix to compare with (priorVerifyFailure's autoFix.rearm floor).
+// A fix pushed and the round after it failed the same way (RepeatedFailure);
+// the approver comments /maul verify fix, and that same failure is then
+// fixed again, not halted as another RepeatedFailure.
+func TestOutcomeVerifyFixAfterRepeatedFailureAndRearm(t *testing.T) {
+	e, name, _ := failingEvaluation(t)
+	v := e.fixedAndFailingAgain(name, versionFails(t, healthCheck)...)
+	if n := len(e.verifyRuns(name)); n != 1 || v.AutoFix.Reason != v1alpha1.AutoFixRepeatedFailure {
+		t.Fatalf("verify runs %d, verification %+v; want halted RepeatedFailure after one fix", n, v)
+	}
+	e.gh.comment(approver, "/maul verify fix")
+	e.settleActions(name)
+	e.review(name, 4)
+	runs, v := e.verifyRuns(name), e.verification(name)
+	if len(runs) != 2 || v.AutoFix.State != v1alpha1.AutoFixArmed || v.AutoFix.Rearm == nil {
+		t.Fatalf("verify runs %d, verification %+v; want a second fix round after the re-arm", len(runs), v)
+	}
+	if r := runs[1]; r.Spec.Round <= v.AutoFix.Rearm.Round || r.Spec.Inputs.VerificationRef == nil ||
+		r.Spec.Inputs.VerificationRef.Name != v.Ref.Name {
+		t.Fatalf("second fix = round %d inputs %+v, want after the re-arm's round %d on verification %s",
+			r.Spec.Round, r.Spec.Inputs, v.AutoFix.Rearm.Round, v.Ref.Name)
 	}
 }
 
