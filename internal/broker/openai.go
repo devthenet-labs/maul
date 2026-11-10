@@ -319,13 +319,13 @@ func walkOpenAIReferences(v any) error {
 		if raw, ok := x["image_url"]; ok && raw != nil && !inlineImage(raw) {
 			return errors.New("image URLs are not brokered; send the image inline as a data: URI")
 		}
-		// A tools list anywhere but a namespace (whose list its parent
-		// checks) is held to the top-level rule: codex 0.167 declares a
-		// GPT-6 model's tools in an additional_tools input item, and a
-		// server tool there would reach the internet as surely as one in
-		// "tools".
-		if tools, ok := x["tools"].([]any); ok && typ != openaiNamespaceTool {
-			if err := checkOpenAITools(tools, true); err != nil {
+		// Every tools list is held to the top-level rule, a namespace's to
+		// the rule inside one: codex 0.167 declares a GPT-6 model's tools
+		// in an additional_tools input item, and a server tool there, or in
+		// a namespace standing anywhere, would reach the internet as surely
+		// as one in "tools".
+		if tools, ok := x["tools"].([]any); ok {
+			if err := checkOpenAITools(tools, typ != openaiNamespaceTool); err != nil {
 				return err
 			}
 		}

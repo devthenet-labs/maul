@@ -310,6 +310,10 @@ func TestInspectOpenAIBody(t *testing.T) {
 			`server tool "mcp"`, "", 0},
 		{"tools list in any item", `{"input":[{"type":"message","role":"user","content":[],` +
 			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"namespace outside any tools list", `{"input":[{"type":"namespace","name":"x",` +
+			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"nested namespace outside any tools list", `{"input":[{"type":"namespace","name":"x",` +
+			`"tools":[{"type":"namespace","name":"y","tools":[]}]}]}`, `server tool "namespace"`, "", 0},
 		{"tools list in a function's parameters", `{"model":"m","tools":[{"type":"function","name":"x",` +
 			`"parameters":{"tools":[{"type":"web_search"}]}}]}`, "", "m", 0},
 	}

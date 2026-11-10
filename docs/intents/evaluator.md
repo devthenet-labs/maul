@@ -687,8 +687,8 @@ as long as its evaluate run, plus one tree's build, plus five minutes, at most 7
   over with a new plan, an approver comments `/maul cancel` on the intent's issue (the pull requests are left as they
   are) and opens a new issue. Replanning from review is an owner decision, deferred to a later release; until then the
   options in review are `/maul revise`, a verify fix and `/maul cancel`.
-- **A model judging a screenshot is never support.** The evaluate model (`claude-sonnet-5`) was calibrated on
-  screenshots of known defects and failed: it called 5 of 15 defect runs a pass, with confident evidence it invented,
+- **A model judging a screenshot is never support.** The evaluate model of the time (`claude-sonnet-5`) was calibrated
+  on screenshots of known defects and failed: it called 5 of 15 defect runs a pass, with confident evidence it invented,
   and failed 3 of 18 correct builds. It was right on gross structure (steps 14.8 px against 32 px, rows visibly offset
   after a swipe) and a coin flip below about 3 px (30 against 32 px, a label overlapping by 1.3 px). So a screenshot
   judged by the model alone never turns an outcome green: the answer is `unsure`. Pixel facts belong to the
