@@ -380,3 +380,43 @@ func TestAgentsRollbackNeverSaysMaulChecks(t *testing.T) {
 		t.Errorf("pull request comment with the host off:\n%s", c)
 	}
 }
+
+// TestAgentsRollbackOffersOnlyWhatCanRun (S2 follow-up): with the agents
+// host switched off nothing checks an agents Project's intents and no
+// acceptance can bind to a check (none runs), so the status comment
+// offers neither /maul verify nor /maul accept, only what still works; a
+// /maul verify sent all the same is still answered that it did not run,
+// and why. Back on, both are offered again.
+func TestAgentsRollbackOffersOnlyWhatCanRun(t *testing.T) {
+	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnconfirmed)
+	e.review(name, 6)
+	if status := e.statusBody(); !strings.Contains(status, "`/maul verify`") ||
+		!strings.Contains(status, "`/maul accept`") {
+		t.Fatalf("status comment with the host on:\n%s", status)
+	}
+	e.agentsOn(false)
+	e.review(name, 4)
+	status := e.statusBody()
+	if strings.Contains(status, "`/maul verify`") || strings.Contains(status, "`/maul accept`") ||
+		!strings.Contains(status, "`/maul cancel`") {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+	e.clock.Advance(time.Minute)
+	id := e.gh.comment(approver, "/maul accept "+oManual)
+	e.settleActions(name)
+	if reply := e.onlyReply(id); !strings.Contains(reply, "does nothing") {
+		t.Errorf("/maul accept with the host off = %s, want it to do nothing", reply)
+	}
+	id = e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	if reply := e.onlyReply(id); !strings.Contains(reply,
+		"did not run: the tool pod that checks a project with no preview is not enabled") {
+		t.Errorf("/maul verify with the host off = %s", reply)
+	}
+	e.agentsOn(true)
+	e.review(name, 2)
+	if status := e.statusBody(); !strings.Contains(status, "`/maul verify`") ||
+		!strings.Contains(status, "`/maul accept`") {
+		t.Errorf("status comment with the host back on:\n%s", status)
+	}
+}

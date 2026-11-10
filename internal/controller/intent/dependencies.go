@@ -789,9 +789,12 @@ func (p *pass) statusDependencies(ctx context.Context) *templates.IntentDependen
 }
 
 // availableVerbs are the commands the intent issue admits now: verbs, with
-// start first while the intent waits on its dependencies.
+// start first while the intent waits on its dependencies. With the agents
+// host switched off nothing checks an agents Project's intents, so neither
+// /maul verify nor /maul accept can do anything and neither is offered (a
+// /maul verify sent all the same is answered that it did not run, and why).
 func (p *pass) availableVerbs(phase v1alpha1.IntentPhase) []string {
-	out := verbs(phase, p.set.Verification, !p.set.linkless(p.proj))
+	out := verbs(phase, p.set.Verification && !p.set.agentsHostOff(p.proj), !p.set.linkless(p.proj))
 	if phase == v1alpha1.IntentPending && p.waitingPoll() {
 		out = append([]string{action.VerbStart}, out...)
 	}
