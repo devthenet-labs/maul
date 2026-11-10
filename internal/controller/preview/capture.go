@@ -55,6 +55,12 @@ const (
 	maxCaptureEventBytes = 64 << 10
 	maxCaptureMessage    = 1 << 10
 
+	// componentLogLimit and componentLogLines bound a component's log read;
+	// maxLogTail is the tail of it kept (PartFact.LogTail's maxLength).
+	componentLogLimit = 16 << 10
+	componentLogLines = 200
+	maxLogTail        = 4 << 10
+
 	// redactedMark replaces every redacted value.
 	redactedMark = "[redacted]"
 	// minRedactedKey is the shortest key redacted: a shorter one would only
@@ -415,4 +421,167 @@ func (c slotCapture) summary(prev *v1alpha1.CaptureSummary) *v1alpha1.CaptureSum
 		s.Components = append(s.Components, entry)
 	}
 	return s
+}
+
+// environment captures each part of the slot: every component, from its
+// current Pod (the one running it as the spec renders it, else its newest),
+// with its log tail since the attempt started, and the tester when it has a
+// Pod. What happened to each component during the tester's run (crashed,
+// evicted, disrupted: componentCause, disruption.go) is read from Pods read
+// live, its finished and deleting ones included. A Pod list that fails is
+// an error, never a part without a Pod: that would charge the intent for
+// the API server's trouble.
+func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
+	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
+	w := attemptWindow{start: attemptStart(tester, pv), end: attemptEnd(tester, v.now())}
+	keys, keyUnknown := v.captureKeys(pv)
+	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
+	for i, c := range p.Spec.Components {
+		all, err := v.allComponentPods(ctx, p, i, slot)
+		if err != nil {
+			return nil, err
+		}
+		fact := v.componentFact(ctx, p, c, all, w, startedAt(pv), keys)
+		if keyUnknown {
+			fact.LogTail = ""
+		}
+		facts = append(facts, fact)
+	}
+	switch {
+	case tester != nil && len(pv.Spec.Outcomes) > 0:
+		facts = append(facts, podFact(tester, toolsPart, toolsContainer, v1alpha1.PreviewRoleToolPod))
+	case tester != nil:
+		facts = append(facts, podFact(tester, v1alpha1.PreviewPartTester, testerContainer, v1alpha1.PreviewRoleTester))
+	}
+	return facts, nil
+}
+
+// componentFact is component c's fact from all its Pods: its current
+// one's container facts, and what happened to it during the attempt w
+// (componentCause), which alone sets crashedDuring, evicted and disrupted.
+// A component not Ready with no evidence of the application's is disrupted
+// (disruption.go has why that is safe).
+func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.Preview,
+	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time, keys []string) v1alpha1.PartFact {
+	fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
+	live := slices.DeleteFunc(slices.Clone(all), func(pod corev1.Pod) bool { return !livePod(&pod) })
+	pod := currentPod(live, p, c)
+	if pod != nil {
+		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
+		fact.LogTail = v.logTail(ctx, pod, c.Name, since, keys)
+	}
+	cause := componentCause(all, pod, p, c, w)
+	if cause == causeNone && !fact.Ready {
+		// Not Ready with no evidence of the application's.
+		cause = causeDisrupted
+	}
+	fact.CrashedDuring = cause == causeCrashed
+	fact.Evicted = cause == causeEvicted
+	fact.Disrupted = cause == causeDisrupted
+	return fact
+}
+
+// currentPod is the Pod running component c as the spec renders it, the
+// newest such; else the newest Pod of the component at all.
+func currentPod(pods []corev1.Pod, p *v1alpha1.Preview, c v1alpha1.PreviewComponent) *corev1.Pod {
+	newest := func(a, b corev1.Pod) int {
+		return cmp.Or(b.CreationTimestamp.Compare(a.CreationTimestamp.Time), strings.Compare(a.Name, b.Name))
+	}
+	slices.SortFunc(pods, newest)
+	for i := range pods {
+		if runsComponent(&pods[i], p, c) {
+			return &pods[i]
+		}
+	}
+	if len(pods) > 0 {
+		return &pods[0]
+	}
+	return nil
+}
+
+// podFact is the part's fact from its Pod and its container's status. A
+// Job's container (the tester's) reports its current termination, a
+// component's its last one.
+func podFact(pod *corev1.Pod, name, container string, role v1alpha1.PreviewPartRole) v1alpha1.PartFact {
+	f := v1alpha1.PartFact{Name: name, Role: role, Evicted: pod.Status.Reason == "Evicted",
+		Unschedulable: unschedulable(pod)}
+	i := slices.IndexFunc(pod.Status.ContainerStatuses, func(s corev1.ContainerStatus) bool {
+		return s.Name == container
+	})
+	if i < 0 {
+		return f
+	}
+	s := pod.Status.ContainerStatuses[i]
+	f.Ready = s.Ready && podCondition(pod, corev1.PodReady)
+	f.Restarts = max(s.RestartCount, 0)
+	if s.State.Waiting != nil {
+		f.Waiting = kubeletWord(s.State.Waiting.Reason)
+	}
+	term := s.LastTerminationState.Terminated
+	if role != v1alpha1.PreviewRoleComponent {
+		term = s.State.Terminated
+	}
+	if term != nil {
+		f.LastTermination = &v1alpha1.Termination{Reason: kubeletWord(term.Reason), ExitCode: term.ExitCode}
+	}
+	return f
+}
+
+// kubeletWord keeps a kubelet reason within the schema's grammar: letters
+// and digits, at most 64. Anything else is not a reason the kubelet gives.
+func kubeletWord(s string) string {
+	if len(s) > 64 || strings.IndexFunc(s, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	}) >= 0 {
+		return "Unknown"
+	}
+	return s
+}
+
+// logTail is the end of a component's log since the verification started:
+// at most componentLogLines lines and componentLogLimit bytes read, the last
+// maxLogTail bytes of it kept, as valid UTF-8. Untrusted and opaque; a log
+// that cannot be read leaves none.
+func (v *VerificationReconciler) logTail(ctx context.Context, pod *corev1.Pod, container string,
+	since time.Time, keys []string) string {
+	if v.Logs == nil {
+		return ""
+	}
+	lines := int64(componentLogLines)
+	opts := LogOptions{LimitBytes: componentLogLimit, TailLines: &lines}
+	if !since.IsZero() {
+		opts.SinceTime = &since
+	}
+	b, err := v.Logs.ReadLog(ctx, pod.Namespace, pod.Name, container, opts)
+	if err != nil {
+		return ""
+	}
+	return lastValidUTF8([]byte(redact(strings.ToValidUTF8(string(b), "�"), keys)), maxLogTail)
+}
+
+// captureKeys are the secrets pv's tool pod holds, to redact from a log tail
+// kept in status, and whether a browser tool pod's CDP key is unknown to this
+// process (restarted since writing it), in which case no tail may be kept.
+func (v *VerificationReconciler) captureKeys(pv *v1alpha1.PreviewVerification) (keys []string, unknown bool) {
+	v.toolsMu.Lock()
+	st := v.toolStates[pv.UID]
+	v.toolsMu.Unlock()
+	if st == nil {
+		st = &toolState{}
+	}
+	return st.redactions(), st.keyUnknown(pv)
+}
+
+// lastValidUTF8 is the last at most n bytes of b, cut on a rune boundary,
+// invalid sequences replaced.
+func lastValidUTF8(b []byte, n int) string {
+	s := strings.ToValidUTF8(string(b), "�")
+	if len(s) <= n {
+		return s
+	}
+	cut := len(s) - n
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return s[cut:]
 }

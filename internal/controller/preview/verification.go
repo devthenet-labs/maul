@@ -6,20 +6,15 @@ package preview
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"maps"
 	"math"
-	"net"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -68,11 +63,6 @@ const (
 	// (acceptance.MaxWireBytes, below it) keeps every accepted plan's output
 	// within it whatever the application answers.
 	maxTesterLog = acceptance.MaxTesterLogBytes
-	// componentLogLimit and componentLogLines bound a component's log read;
-	// maxLogTail is the tail of it kept (PartFact.LogTail's maxLength).
-	componentLogLimit = 16 << 10
-	componentLogLines = 200
-	maxLogTail        = 4 << 10
 	// maxVerificationObject caps a PreviewVerification as written.
 	maxVerificationObject = 256 << 10
 	// acceptanceSlice is the slice whose criteria kinds the tester runs.
@@ -129,16 +119,6 @@ type verifySubject struct {
 	slot     int32
 	// outcomes marks an outcome verification: the slot tool pod's.
 	outcomes bool
-}
-
-// settled reports whether a phase is final: nothing writes it again.
-func settled(phase v1alpha1.PreviewVerificationPhase) bool {
-	switch phase {
-	case v1alpha1.VerificationObserved, v1alpha1.VerificationEnvFailed, v1alpha1.VerificationInfra,
-		v1alpha1.VerificationStale:
-		return true
-	}
-	return false
 }
 
 func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -364,35 +344,6 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 	return v.wait(), v.Status().Update(ctx, pv)
 }
 
-// errNoClusterIP is a component Service with no ClusterIP to render the
-// tester's target from: maul's render error.
-var errNoClusterIP = errors.New("component Service has no ClusterIP")
-
-// serviceTargets maps each component to its Service's ClusterIP on the
-// Service port, read live: the tester dials it and resolves no name, so
-// cluster DNS, which every Pod on the node shares, cannot keep it from a
-// component. A Service that is missing, headless or not yet allocated is
-// errNoClusterIP.
-func (v *VerificationReconciler) serviceTargets(ctx context.Context, p *v1alpha1.Preview,
-	slot int32) (map[string]string, error) {
-	targets := make(map[string]string, len(p.Spec.Components))
-	for i, c := range p.Spec.Components {
-		var svc corev1.Service
-		key := types.NamespacedName{Namespace: v.Settings.slotName(slot), Name: v1alpha1.PreviewComponentServiceName(p, i)}
-		if err := v.Get(ctx, key, &svc); kerrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: %s", errNoClusterIP, key.Name)
-		} else if err != nil {
-			return nil, err
-		}
-		ip := svc.Spec.ClusterIP
-		if ip == "" || ip == corev1.ClusterIPNone || net.ParseIP(ip) == nil {
-			return nil, fmt.Errorf("%w: %s", errNoClusterIP, key.Name)
-		}
-		targets[c.Name] = net.JoinHostPort(ip, strconv.Itoa(int(v1alpha1.PreviewServicePort)))
-	}
-	return targets, nil
-}
-
 // renderedSpec is the spec a tester Job was rendered with, read back from
 // its container's environment.
 func renderedSpec(job *batchv1.Job) (previewtester.Spec, error) {
@@ -441,58 +392,11 @@ func (v *VerificationReconciler) renderTester(ctx context.Context, pv *v1alpha1.
 	return job, "", nil
 }
 
-// rolloutSettled reports whether every live Pod of each component runs it as
-// the Preview's spec renders it now: no Pod of an earlier revision (or
-// reset) is left to answer the tester.
-func (v *VerificationReconciler) rolloutSettled(ctx context.Context, p *v1alpha1.Preview, slot int32) (bool, error) {
-	for i, c := range p.Spec.Components {
-		pods, err := v.componentPods(ctx, p, i, slot)
-		if err != nil {
-			return false, err
-		}
-		for j := range pods {
-			if !runsComponent(&pods[j], p, c) {
-				return false, nil
-			}
-		}
-	}
-	return true, nil
-}
-
-// componentPods are component i's live Pods: not deleting, not finished.
-func (v *VerificationReconciler) componentPods(ctx context.Context, p *v1alpha1.Preview, i int,
-	slot int32) ([]corev1.Pod, error) {
-	pods, err := v.allComponentPods(ctx, p, i, slot)
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(pods, func(pod corev1.Pod) bool { return !livePod(&pod) }), nil
-}
-
-// allComponentPods are every Pod of component i, finished and deleting
-// ones included. The reconciler's Client reads the API server directly
-// (preview-controller wires it uncached), so this is the live state.
-func (v *VerificationReconciler) allComponentPods(ctx context.Context, p *v1alpha1.Preview, i int,
-	slot int32) ([]corev1.Pod, error) {
-	var pods corev1.PodList
-	if err := v.List(ctx, &pods, client.InNamespace(v.Settings.slotName(slot)),
-		client.MatchingLabels(componentLabels(p, i))); err != nil {
-		return nil, err
-	}
-	return pods.Items, nil
-}
-
-// livePod reports whether a Pod is neither deleting nor finished.
-func livePod(pod *corev1.Pod) bool {
-	return pod.DeletionTimestamp.IsZero() && pod.Status.Phase != corev1.PodSucceeded &&
-		pod.Status.Phase != corev1.PodFailed
-}
-
 // observe follows a running tester: it waits, bounded, for the Job to
 // finish, then reads and settles what it observed.
 func (v *VerificationReconciler) observe(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject) (ctrl.Result, error) {
-	job, err := v.liveTesterJob(ctx, pv, s.preview, s.slot)
+	job, err := v.liveJob(ctx, pv, s.preview, s.slot)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -500,8 +404,8 @@ func (v *VerificationReconciler) observe(ctx context.Context, pv *v1alpha1.Previ
 		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
 			v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
-	pod, err := v.testerPod(ctx, job)
-	if errors.Is(err, errTesterPods) {
+	pod, err := v.jobPod(ctx, job)
+	if errors.Is(err, errJobPods) {
 		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
 			v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
@@ -596,26 +500,6 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 	return v.settleWith(ctx, pv, phase, reason)
 }
 
-// markUnreachable marks each component the tester never reached, for its
-// whole readiness window, on its environment fact. A Ready component the
-// tester could not connect to for the whole window refused it: the window
-// absorbs maul's slot policy being programmed, and past it only the
-// application can be the cause (internal/previewtester/readiness.go), so
-// the environment classifies it as the application's failure, however its
-// attempts failed: the tester dials a ClusterIP and resolves no name.
-func markUnreachable(facts []v1alpha1.PartFact, waits []httpstep.TargetWait) {
-	for _, w := range waits {
-		if w.Reached() {
-			continue
-		}
-		for i := range facts {
-			if facts[i].Role == v1alpha1.PreviewRoleComponent && facts[i].Name == w.Target {
-				facts[i].UnreachableForMs = max(w.WaitMs, 1)
-			}
-		}
-	}
-}
-
 // logOutcome logs what an operator needs from a tester's output that the
 // status's fixed vocabulary cannot carry: the targets never reached, and
 // both versions of a wire version mismatch.
@@ -634,60 +518,6 @@ func (v *VerificationReconciler) logOutcome(ctx context.Context, pv *v1alpha1.Pr
 			slog.String("verification", pv.Name), slog.Any("unreachable", out.sum.Unreachable),
 			slog.String("phase", string(phase)), slog.String("reason", string(reason)))
 	}
-}
-
-// errTesterPods is a tester Job with more than one Pod, which a run-once
-// Job never has.
-var errTesterPods = errors.New("tester Job has more than one Pod")
-
-// liveTesterJob is the request's tester Job, nil when it is gone or not the
-// one rendered for it.
-func (v *VerificationReconciler) liveTesterJob(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	p *v1alpha1.Preview, slot int32) (*batchv1.Job, error) {
-	var job batchv1.Job
-	key := types.NamespacedName{Namespace: v.Settings.slotName(slot), Name: testerJobName(p, pv)}
-	if err := v.Get(ctx, key, &job); err != nil {
-		if kerrors.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if !ownedBy(&job, p) || job.Labels[labelVerificationUID] != string(pv.UID) || !job.DeletionTimestamp.IsZero() {
-		return nil, nil
-	}
-	return &job, nil
-}
-
-// testerPod is the Pod the Job's controller created for it (by the Job's
-// UID, as its controller reference), nil before there is one.
-func (v *VerificationReconciler) testerPod(ctx context.Context, job *batchv1.Job) (*corev1.Pod, error) {
-	var pods corev1.PodList
-	if err := v.List(ctx, &pods, client.InNamespace(job.Namespace),
-		client.MatchingLabels{labelVerificationUID: job.Labels[labelVerificationUID]}); err != nil {
-		return nil, err
-	}
-	var found *corev1.Pod
-	for i := range pods.Items {
-		owner := metav1.GetControllerOf(&pods.Items[i])
-		if owner == nil || owner.Kind != "Job" || owner.UID != job.UID {
-			continue
-		}
-		if found != nil {
-			return nil, errTesterPods
-		}
-		found = &pods.Items[i]
-	}
-	return found, nil
-}
-
-// jobFinished reports whether the Job has completed or failed, and when.
-func jobFinished(job *batchv1.Job) (time.Time, bool) {
-	for _, c := range job.Status.Conditions {
-		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-			return c.LastTransitionTime.Time, true
-		}
-	}
-	return time.Time{}, false
 }
 
 // testerStuck is why a running tester will not finish, past its grace: no
@@ -712,24 +542,6 @@ func (v *VerificationReconciler) testerStuck(pv *v1alpha1.PreviewVerification,
 	return ""
 }
 
-// startedAt is when the tester was rendered.
-func startedAt(pv *v1alpha1.PreviewVerification) time.Time {
-	if pv.Status.StartedAt != nil {
-		return pv.Status.StartedAt.Time
-	}
-	return pv.CreationTimestamp.Time
-}
-
-func unschedulable(pod *corev1.Pod) bool {
-	for _, c := range pod.Status.Conditions {
-		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse &&
-			c.Reason == corev1.PodReasonUnschedulable {
-			return true
-		}
-	}
-	return false
-}
-
 func imagePullWaiting(pod *corev1.Pod) bool {
 	for _, s := range pod.Status.ContainerStatuses {
 		if s.State.Waiting != nil && imagePullReason(s.State.Waiting.Reason) {
@@ -737,34 +549,6 @@ func imagePullWaiting(pod *corev1.Pod) bool {
 		}
 	}
 	return false
-}
-
-func imagePullReason(reason string) bool {
-	switch reason {
-	case "ImagePullBackOff", "ErrImagePull", "InvalidImageName", "ErrImageNeverPull":
-		return true
-	}
-	return false
-}
-
-// terminationMessageOf is container's termination message.
-func terminationMessageOf(pod *corev1.Pod, container string) string {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == container && s.State.Terminated != nil {
-			return s.State.Terminated.Message
-		}
-	}
-	return ""
-}
-
-// imageIDOf is the image container ran, as the kubelet reports it.
-func imageIDOf(pod *corev1.Pod, container string) string {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == container && len(s.ImageID) <= 512 {
-			return s.ImageID
-		}
-	}
-	return ""
 }
 
 // parsedOutput is what parseTesterOutput read: the observations and the
@@ -843,265 +627,19 @@ func ownsObservations(obs []acceptance.CriterionObservation, rt acceptance.RunTo
 	return true
 }
 
-// route settles an attempt from its environment and its output: a part of
-// the change failing is the intent's (EnvFailed); trouble the change cannot
-// cause is maul's (Infra), as is output that does not hold; else Observed.
-// The classification is httpstep.ClassifyEnvironment's, the one
-// intent-controller applies to the same facts.
-func route(facts []v1alpha1.PartFact,
-	outReason v1alpha1.PreviewVerificationReason) (v1alpha1.PreviewVerificationPhase, v1alpha1.PreviewVerificationReason) {
-	parts := crdconv.PartFacts(facts)
-	switch httpstep.ClassifyEnvironment(parts) {
-	case httpstep.EnvAppFailure:
-		return v1alpha1.VerificationEnvFailed, appFailureReason(facts, httpstep.AppFailureParts(parts))
-	case httpstep.EnvInfra:
-		return v1alpha1.VerificationInfra, infraReason(facts, outReason)
-	}
-	if outReason != "" {
-		return v1alpha1.VerificationInfra, outReason
-	}
-	return v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK
-}
-
-// appFailureReason names how the first failing part failed.
-func appFailureReason(facts []v1alpha1.PartFact, failing []string) v1alpha1.PreviewVerificationReason {
-	i := slices.IndexFunc(facts, func(f v1alpha1.PartFact) bool { return len(failing) > 0 && f.Name == failing[0] })
-	if i < 0 {
-		return v1alpha1.VerificationReasonComponentNotReady
-	}
-	f := facts[i]
-	switch {
-	case f.CrashedDuring && f.LastTermination != nil && f.LastTermination.Reason == "OOMKilled":
-		return v1alpha1.VerificationReasonComponentOOM
-	case imagePullReason(f.Waiting):
-		return v1alpha1.VerificationReasonComponentImagePull
-	case f.Waiting != "":
-		return v1alpha1.VerificationReasonComponentCrashLoop
-	case f.Evicted:
-		return v1alpha1.VerificationReasonComponentEvicted
-	case !f.Ready:
-		return v1alpha1.VerificationReasonComponentNotReady
-	case f.CrashedDuring:
-		return v1alpha1.VerificationReasonComponentCrashed
-	case f.UnreachableForMs > 0:
-		return v1alpha1.VerificationReasonComponentUnreachable
-	}
-	return v1alpha1.VerificationReasonComponentNotReady
-}
-
-// infraReason names maul's trouble: the tester not scheduled or its image
-// not pulled, else what was wrong with its output, else a part no node
-// would take.
-func infraReason(facts []v1alpha1.PartFact,
-	outReason v1alpha1.PreviewVerificationReason) v1alpha1.PreviewVerificationReason {
-	for _, f := range facts {
-		tools := f.Role == v1alpha1.PreviewRoleToolPod
-		if f.Role != v1alpha1.PreviewRoleTester && !tools {
-			continue
-		}
-		switch {
-		case f.Unschedulable && tools:
-			return v1alpha1.VerificationReasonToolsUnscheduled
-		case f.Unschedulable:
-			return v1alpha1.VerificationReasonTesterUnscheduled
-		case imagePullReason(f.Waiting) && tools:
-			return v1alpha1.VerificationReasonToolsImagePull
-		case imagePullReason(f.Waiting):
-			return v1alpha1.VerificationReasonTesterImagePull
-		}
-	}
-	for _, f := range facts {
-		if f.Disrupted && f.Role == v1alpha1.PreviewRoleComponent {
-			return v1alpha1.VerificationReasonComponentDisrupted
-		}
-	}
-	if outReason != "" {
-		return outReason
-	}
-	for _, f := range facts {
-		if f.Unschedulable && f.Role == v1alpha1.PreviewRoleComponent {
-			return v1alpha1.VerificationReasonComponentNotReady
-		}
-	}
-	return v1alpha1.VerificationReasonTesterOutputInvalid
-}
-
-// environment captures each part of the slot: every component, from its
-// current Pod (the one running it as the spec renders it, else its newest),
-// with its log tail since the attempt started, and the tester when it has a
-// Pod. What happened to each component during the tester's run (crashed,
-// evicted, disrupted: componentCause, disruption.go) is read from Pods read
-// live, its finished and deleting ones included. A Pod list that fails is
-// an error, never a part without a Pod: that would charge the intent for
-// the API server's trouble.
-func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
-	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
-	w := attemptWindow{start: attemptStart(tester, pv), end: attemptEnd(tester, v.now())}
-	keys, keyUnknown := v.captureKeys(pv)
-	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
-	for i, c := range p.Spec.Components {
-		all, err := v.allComponentPods(ctx, p, i, slot)
-		if err != nil {
-			return nil, err
-		}
-		fact := v.componentFact(ctx, p, c, all, w, startedAt(pv), keys)
-		if keyUnknown {
-			fact.LogTail = ""
-		}
-		facts = append(facts, fact)
-	}
-	switch {
-	case tester != nil && len(pv.Spec.Outcomes) > 0:
-		facts = append(facts, podFact(tester, toolsPart, toolsContainer, v1alpha1.PreviewRoleToolPod))
-	case tester != nil:
-		facts = append(facts, podFact(tester, v1alpha1.PreviewPartTester, testerContainer, v1alpha1.PreviewRoleTester))
-	}
-	return facts, nil
-}
-
-// componentFact is component c's fact from all its Pods: its current
-// one's container facts, and what happened to it during the attempt w
-// (componentCause), which alone sets crashedDuring, evicted and disrupted.
-// A component not Ready with no evidence of the application's is disrupted
-// (disruption.go has why that is safe).
-func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.Preview,
-	c v1alpha1.PreviewComponent, all []corev1.Pod, w attemptWindow, since time.Time, keys []string) v1alpha1.PartFact {
-	fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
-	live := slices.DeleteFunc(slices.Clone(all), func(pod corev1.Pod) bool { return !livePod(&pod) })
-	pod := currentPod(live, p, c)
-	if pod != nil {
-		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
-		fact.LogTail = v.logTail(ctx, pod, c.Name, since, keys)
-	}
-	cause := componentCause(all, pod, p, c, w)
-	if cause == causeNone && !fact.Ready {
-		// Not Ready with no evidence of the application's.
-		cause = causeDisrupted
-	}
-	fact.CrashedDuring = cause == causeCrashed
-	fact.Evicted = cause == causeEvicted
-	fact.Disrupted = cause == causeDisrupted
-	return fact
-}
-
-// currentPod is the Pod running component c as the spec renders it, the
-// newest such; else the newest Pod of the component at all.
-func currentPod(pods []corev1.Pod, p *v1alpha1.Preview, c v1alpha1.PreviewComponent) *corev1.Pod {
-	newest := func(a, b corev1.Pod) int {
-		return cmp.Or(b.CreationTimestamp.Compare(a.CreationTimestamp.Time), strings.Compare(a.Name, b.Name))
-	}
-	slices.SortFunc(pods, newest)
-	for i := range pods {
-		if runsComponent(&pods[i], p, c) {
-			return &pods[i]
-		}
-	}
-	if len(pods) > 0 {
-		return &pods[0]
-	}
-	return nil
-}
-
-// podFact is the part's fact from its Pod and its container's status. A
-// Job's container (the tester's) reports its current termination, a
-// component's its last one.
-func podFact(pod *corev1.Pod, name, container string, role v1alpha1.PreviewPartRole) v1alpha1.PartFact {
-	f := v1alpha1.PartFact{Name: name, Role: role, Evicted: pod.Status.Reason == "Evicted",
-		Unschedulable: unschedulable(pod)}
-	i := slices.IndexFunc(pod.Status.ContainerStatuses, func(s corev1.ContainerStatus) bool {
-		return s.Name == container
-	})
-	if i < 0 {
-		return f
-	}
-	s := pod.Status.ContainerStatuses[i]
-	f.Ready = s.Ready && podCondition(pod, corev1.PodReady)
-	f.Restarts = max(s.RestartCount, 0)
-	if s.State.Waiting != nil {
-		f.Waiting = kubeletWord(s.State.Waiting.Reason)
-	}
-	term := s.LastTerminationState.Terminated
-	if role != v1alpha1.PreviewRoleComponent {
-		term = s.State.Terminated
-	}
-	if term != nil {
-		f.LastTermination = &v1alpha1.Termination{Reason: kubeletWord(term.Reason), ExitCode: term.ExitCode}
-	}
-	return f
-}
-
-// kubeletWord keeps a kubelet reason within the schema's grammar: letters
-// and digits, at most 64. Anything else is not a reason the kubelet gives.
-func kubeletWord(s string) string {
-	if len(s) > 64 || strings.IndexFunc(s, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
-	}) >= 0 {
-		return "Unknown"
-	}
-	return s
-}
-
-// logTail is the end of a component's log since the verification started:
-// at most componentLogLines lines and componentLogLimit bytes read, the last
-// maxLogTail bytes of it kept, as valid UTF-8. Untrusted and opaque; a log
-// that cannot be read leaves none.
-func (v *VerificationReconciler) logTail(ctx context.Context, pod *corev1.Pod, container string,
-	since time.Time, keys []string) string {
-	if v.Logs == nil {
-		return ""
-	}
-	lines := int64(componentLogLines)
-	opts := LogOptions{LimitBytes: componentLogLimit, TailLines: &lines}
-	if !since.IsZero() {
-		opts.SinceTime = &since
-	}
-	b, err := v.Logs.ReadLog(ctx, pod.Namespace, pod.Name, container, opts)
-	if err != nil {
-		return ""
-	}
-	return lastValidUTF8([]byte(redact(strings.ToValidUTF8(string(b), "�"), keys)), maxLogTail)
-}
-
-// captureKeys are the secrets pv's tool pod holds, to redact from a log tail
-// kept in status, and whether a browser tool pod's CDP key is unknown to this
-// process (restarted since writing it), in which case no tail may be kept.
-func (v *VerificationReconciler) captureKeys(pv *v1alpha1.PreviewVerification) (keys []string, unknown bool) {
-	v.toolsMu.Lock()
-	st := v.toolStates[pv.UID]
-	v.toolsMu.Unlock()
-	if st == nil {
-		st = &toolState{}
-	}
-	return st.redactions(), st.keyUnknown(pv)
-}
-
-// lastValidUTF8 is the last at most n bytes of b, cut on a rune boundary,
-// invalid sequences replaced.
-func lastValidUTF8(b []byte, n int) string {
-	s := strings.ToValidUTF8(string(b), "�")
-	if len(s) <= n {
-		return s
-	}
-	cut := len(s) - n
-	for cut < len(s) && !utf8.RuneStart(s[cut]) {
-		cut++
-	}
-	return s[cut:]
-}
-
 // capture settles a running verification whose Preview is being released
 // (it failed, expired or retries) from what the slot shows now: a failing
 // part of the change is the intent's, with its own reason; else the
 // Preview's failure is.
 func (v *VerificationReconciler) capture(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	p *v1alpha1.Preview, slot int32) error {
-	job, err := v.liveTesterJob(ctx, pv, p, slot)
+	job, err := v.liveJob(ctx, pv, p, slot)
 	if err != nil {
 		return err
 	}
 	var tester *corev1.Pod
 	if job != nil {
-		if tester, err = v.testerPod(ctx, job); err != nil && !errors.Is(err, errTesterPods) {
+		if tester, err = v.jobPod(ctx, job); err != nil && !errors.Is(err, errJobPods) {
 			return err
 		}
 	}
@@ -1144,36 +682,6 @@ func (v *VerificationReconciler) BeforeRelease(ctx context.Context, p *v1alpha1.
 		}
 	}
 	return nil
-}
-
-// settle writes a final phase with no observations of its own.
-func (v *VerificationReconciler) settle(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	phase v1alpha1.PreviewVerificationPhase, reason v1alpha1.PreviewVerificationReason) error {
-	return v.settleWith(ctx, pv, phase, reason)
-}
-
-// settleWith writes the attempt's final phase and reason, held to the size
-// cap, then deletes its tester Job, or its tool pod and what it owns.
-func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	phase v1alpha1.PreviewVerificationPhase, reason v1alpha1.PreviewVerificationReason) error {
-	t := metav1.NewTime(v.now())
-	pv.Status.Phase = phase
-	pv.Status.Reason = reason
-	pv.Status.CompletedAt = &t
-	if len(pv.Spec.Outcomes) > 0 {
-		fitToolStatus(pv)
-	} else {
-		fitStatus(pv)
-	}
-	if err := v.Status().Update(ctx, pv); err != nil {
-		return err
-	}
-	if v.Log != nil {
-		v.Log.LogAttrs(ctx, slog.LevelInfo, "preview verification settled",
-			slog.String("verification", pv.Name), slog.String("phase", string(pv.Status.Phase)),
-			slog.String("reason", string(pv.Status.Reason)))
-	}
-	return v.teardown(ctx, pv)
 }
 
 // fitStatus holds the object to maxVerificationObject, so an application
@@ -1308,39 +816,6 @@ func objectSize(pv *v1alpha1.PreviewVerification) int {
 		return n
 	}
 	return maxVerificationObject + 1
-}
-
-// jsonSize is v's length as json.Marshal writes it, as objectSize counts
-// it; -1 when it does not encode.
-func jsonSize(v any) int {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return -1
-	}
-	return len(b)
-}
-
-// deleteTesterJobs deletes, in the background, every tester Job rendered
-// for the verification in any slot: a settled attempt frees the slot's Job
-// quota for the next.
-func (v *VerificationReconciler) deleteTesterJobs(ctx context.Context, pv *v1alpha1.PreviewVerification) error {
-	for slot := range v.Settings.SlotCount {
-		var jobs batchv1.JobList
-		if err := v.List(ctx, &jobs, client.InNamespace(v.Settings.slotName(int32(slot))),
-			client.MatchingLabels{labelManagedBy: managedBy, labelVerificationUID: string(pv.UID),
-				labelPreviewUID: string(pv.Spec.PreviewRef.UID)}); err != nil {
-			return err
-		}
-		for i := range jobs.Items {
-			if !renderedName(&jobs.Items[i]) {
-				continue
-			}
-			if err := deleteJob(ctx, v.Client, &jobs.Items[i]); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (v *VerificationReconciler) logRefusal(ctx context.Context, pv *v1alpha1.PreviewVerification, msg string,
