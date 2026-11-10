@@ -102,7 +102,10 @@ func standingJudgement(v *v1alpha1.IntentVerification) int32 {
 // not run (why, a templates.NotRun constant; stands, the round whose
 // judgement stands, 0 for none), once, on the intent issue. The modifiers
 // are not named: a fix re-arm or a reset took effect when the request was
-// recorded; only the check did not run.
+// recorded; only the check did not run. A pending request was acknowledged
+// as recorded, so on a Project with no preview, whose round can be found
+// unable to run only after that (a tree that cannot be fetched), the answer
+// says it replaces the acknowledgement; a previewed Project's is unchanged.
 func (p *pass) answerNotRun(ctx context.Context, why string, stands int32) error {
 	req := p.in.Status.Verification.Requested
 	if req == nil {
@@ -111,7 +114,7 @@ func (p *pass) answerNotRun(ctx context.Context, why string, stands int32) error
 	key := notRunKeyPrefix + strconv.FormatInt(req.CommentID, 10)
 	body, err := templates.RenderVerifyCommandNotice(templates.VerifyCommandNotice{Namespace: p.in.Namespace,
 		Intent: p.in.Name, Key: key, Actor: req.By, Verb: action.VerbVerify, Outcome: templates.VerifyNotRun,
-		NotRunWhy: why, Stands: stands})
+		NotRunWhy: why, Stands: stands, Superseded: p.set.linkless(p.proj)})
 	return p.notice(ctx, key, req.At.Time, body, err)
 }
 

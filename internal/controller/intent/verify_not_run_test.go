@@ -128,12 +128,14 @@ func TestAgentsRequestThatCannotRunKeepsTheJudgement(t *testing.T) {
 				t.Fatalf("verifications = %+v, want only round 1's", vs)
 			}
 			replies := e.notRunReplies()
+			// Found after the acknowledgement: the answer replaces it.
+			said := "was recorded, but did not run after all: " + tc.words
 			if tc.restore {
 				// Known when acknowledged (S2-B10): the one reply is the
 				// answer to the comment itself.
-				replies = []string{e.onlyReply(id)}
+				replies, said = []string{e.onlyReply(id)}, "did not run: "+tc.words
 			}
-			if len(replies) != 1 || !strings.Contains(replies[0], "did not run: "+tc.words) ||
+			if len(replies) != 1 || !strings.Contains(replies[0], said) ||
 				!strings.Contains(replies[0], "Evaluation 1's result at these commits stands") {
 				t.Fatalf("not-run replies = %q", replies)
 			}
@@ -273,7 +275,8 @@ func TestPendingRequestDroppedByTheRollbackIsAnswered(t *testing.T) {
 		t.Fatalf("verification = %+v, want Unavailable with the request consumed", v)
 	}
 	replies := e.notRunReplies()
-	if len(replies) != 1 || !strings.Contains(replies[0], "did not run: the tool pod") {
+	if len(replies) != 1 || !strings.Contains(replies[0], "was recorded, but did not run after all: the tool pod") ||
+		!strings.Contains(replies[0], "This replaces maul's earlier reply.") {
 		t.Fatalf("not-run replies = %q", replies)
 	}
 }

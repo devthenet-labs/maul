@@ -162,6 +162,11 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.NotRunWhy, n.Reset = NotRunNotEnabled, true
 			return n
 		}()},
+		{"intent_notice_verify_not_run_tree_superseded.md", func() VerifyCommandNotice {
+			n := base(VerifyNotRun, "verify")
+			n.Key, n.NotRunWhy, n.Stands, n.Superseded = "verify-unrun-4431", NotRunTree, 2, true
+			return n
+		}()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
