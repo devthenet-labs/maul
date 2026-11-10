@@ -277,18 +277,20 @@ never deletes the chart's placeholder Ingress. The Events use the `events.k8s.io
 
 ## Acceptance verification (off by default)
 
-With `preview.verification.enabled` (chart; needs `preview.enabled`, `previewController.enabled` and a
-`preview.verification.testerImage` pinned by digest, unless the agent evaluator below is on) preview-controller also
-answers `PreviewVerification` requests from intent-controller: it runs the approved acceptance criteria of an intent
-against that intent's own Preview, from a tester Job inside the Preview's slot. See
+With the agent evaluator on (chart `intentController.verification.evaluator`, verification's one switch, with
+`preview.enabled` and `previewController.enabled`) preview-controller also answers `PreviewVerification` requests from
+intent-controller, from Jobs inside the intent's own Preview slot: the evaluator's
+[tool pod](#the-agent-evaluators-tool-pod) below. The former switch, `preview.verification.enabled`, is removed, and
+slice 1's criteria, which a tester Job ran, no longer run; what follows describes the tester path, kept until a later
+release removes it ([Migrating from slice 1](../intents/evaluator.md#migrating-from-slice-1)). See
 [Acceptance verification](../intents/acceptance.md) for what people see. The controller's side:
 
-- **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`; empty, the default, is verification off unless
-  `--preview-evaluator` is on) is the digest-pinned `preview-tester` image, never under the preview image prefix or an
-  agent image registry. `--preview-verify-deadline-max` (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is
-  the most a tester Job may run; a longer request is clamped. The chart sets it from
-  `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800), the bound the slot Job admission policy
-  enforces, and renders the same value as intent-controller's `--intent-verify-timeout-max`.
+- **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`; empty by default) is the digest-pinned
+  `preview-tester` image, never under the preview image prefix or an agent image registry; set without
+  `--preview-evaluator`, startup is refused (slice 1 alone no longer runs). `--preview-verify-deadline-max`
+  (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is the most a tester Job may run; a longer request is
+  clamped. The chart sets it from `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800), the bound the
+  slot Job admission policy enforces, and renders the same value as intent-controller's `--intent-verify-timeout-max`.
 - **Re-checks before anything runs.** The request must name this Preview's UID and generation, which must be Ready at
   exactly the requested heads with its rollout settled (no pod of the Preview still on an older image); the criteria
   must equal the automatable criteria of the Intent's approved list, by digest and in order; and the Preview's
@@ -312,7 +314,7 @@ against that intent's own Preview, from a tester Job inside the Preview's slot. 
 
 ### Grants
 
-Everything below renders only under `preview.verification.enabled`, and each is fenced by an admission policy
+Everything below renders only with the evaluator and previews on, and each is fenced by an admission policy
 (`maul-preview-jobs`, `maul-preview-networkpolicies`, `maul-preview-verifications`):
 
 | Where                 | Resource                                                       | Verbs                             |
@@ -332,10 +334,10 @@ without creating a pod.
 
 ## The agent evaluator's tool pod
 
-With the [agent evaluator](../intents/evaluator.md) on as well (chart `intentController.verification.evaluator: true`
-beside `preview.verification.enabled`), an outcome verification does not run the tester. preview-controller runs the
-slot **tool pod** instead: the hands of the evaluator, which itself runs in the agents namespace with no route to the
-application. Off, an outcome verification is `Infra` and renders nothing.
+With the [agent evaluator](../intents/evaluator.md) on (chart `intentController.verification.evaluator: true`, with
+`previewController.enabled`), an outcome verification does not run the tester. preview-controller runs the slot **tool
+pod** instead: the hands of the evaluator, which itself runs in the agents namespace with no route to the application.
+Off, an outcome verification is `Infra` and renders nothing.
 
 - **Flags**, all set by the chart under the evaluator. `--preview-evaluator` (`MAUL_PREVIEW_EVALUATOR`, default `false`)
   turns verification on by itself: it needs the three images and `--preview-agents-namespace`, not

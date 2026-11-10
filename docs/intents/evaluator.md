@@ -11,11 +11,13 @@ This page explains how a round works, how to read what it found, what a dispute 
 people. [Acceptance verification](acceptance.md) covers how to turn it on, what a plan declares, the commit status and
 the commands.
 
-It is off by default (`intentController.verification.evaluator: false` in the chart). Off, verification runs slice 1's
-acceptance criteria, as [Acceptance verification](acceptance.md#without-the-evaluator-acceptance-criteria) describes.
-Switched off as a rollback, an open intent whose approved plan states outcomes is not verified at all (state `Off`): its
-`maul/acceptance` becomes the final error "verification switched off", never a green, until the evaluator is back (maul
-starts over at the current heads) or a plan stating criteria is approved.
+It is off by default (`intentController.verification.evaluator: false` in the chart), and it is verification's one
+switch: off, verification is off. No intent is verified, a Project that asks for verification carries `VerificationOff`
+(reason `EvaluatorOff`), and each intent's status comment says verification is off and links its preview at once (the
+early hand-off). Slice 1's acceptance criteria no longer run: see [Migrating from slice 1](#migrating-from-slice-1).
+Switched off as a rollback, an open intent whose approved plan states outcomes is not verified at all: its
+`maul/acceptance` becomes the final error "verification switched off", never a green, and its preview link is handed
+over at once, until the evaluator is back on.
 
 !!! note "What the evaluator's word is worth"
 
@@ -684,3 +686,33 @@ as long as its evaluate run, plus one tree's build, plus five minutes, at most 7
   nothing of it in the output would still read as a compile refusal (no base comparison). None is known.
 - **The evaluation ceiling counts toward the hourly limit.** With the evaluator on, the default \$6 ceiling counts
   toward `RunBudgetOverHourlyLimit`: a broker `costPerHour` below \$12 keeps such a Project from Ready.
+
+## Migrating from slice 1
+
+Slice 1 verified the plan's acceptance **criteria** (scripted HTTP steps) from a tester Job in the preview's slot. It is
+retired: the agent evaluator is the only way maul verifies an intent, and its switch,
+`intentController.verification.evaluator`, is verification's only switch. What changed for the operator:
+
+| Before                                                                 | Now                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chart `preview.verification.enabled` turned verification on            | Removed. Set at all, `true` or `false`, the render fails naming `intentController.verification.evaluator`. Drop the key: with the evaluator on, verification runs in the preview slots whenever `previewController.enabled` is true |
+| intent-controller `--intent-verification` (`MAUL_INTENT_VERIFICATION`) | Removed. Set to true, intent-controller refuses to start with a message naming this section; `--intent-evaluator` turns verification on                                                                                             |
+| preview-controller `--preview-tester-image` alone ran criteria         | Refused without `--preview-evaluator`. Beside the evaluator it is optional (and checked); the chart passes it only with the evaluator on, so a stamped `preview.verification.testerImage` without it is inert                       |
+| Evaluator off meant slice 1's criteria                                 | Evaluator off means verification is off: a verifying Project carries `VerificationOff` (`EvaluatorOff`), its intents are not verified, and their status comments say so and link the preview at once                                |
+
+To move a slice-1 install: drop `preview.verification.enabled` from the chart values (and `--intent-verification` from
+any kustomize or hand-written configuration), set `intentController.verification.evaluator: true` with the three
+`preview.verification.tools` images (the release stamps them), and upgrade. A plan approved before the evaluator states
+criteria, which the evaluator does not run: such an open intent stops for a replan (its `maul/acceptance` the error "the
+approved plan states criteria, not outcomes: nothing is verified"), and an approver approves a new plan, which states
+outcomes. With the evaluator left off, nothing is verified.
+
+**The startup census.** Before it starts its controllers, intent-controller counts the records slice 1 left in its
+namespace, reading only: every open (non-terminal) intent whose acceptance on record states criteria, or did before the
+API server pruned them, and every PreviewVerification asking criteria. It logs them by name and reports the count as the
+`maul.intent.slice1_records` gauge (`kind` `intent` or `previewverification`), and starts anyway. Its line reads
+"slice-1 census: these records still state acceptance criteria"; without the evaluator its role may not list
+PreviewVerifications, and the line says `previewverifications_unlisted`. A later release removes the criteria fields
+from the CRDs, which prunes them from every stored object: before upgrading to it, bring the census to zero by
+replanning or closing each listed intent and deleting each listed PreviewVerification (its spec cannot change). A closed
+or merged intent's record is never judged again and is not counted.

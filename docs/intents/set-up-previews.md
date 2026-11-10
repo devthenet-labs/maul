@@ -125,10 +125,11 @@ It ends with a rollback section for the recipe, all by deletion in reverse order
 
 ## Checking what an intent builds
 
-Once previews are up, they can also be put to work: with `preview.verification.enabled` in the chart's values, maul runs
-the approved plan's acceptance criteria against each intent's preview and reports them as the `maul/acceptance` commit
-status. It needs nothing from the edge recipes above, but it does add NetworkPolicies, a Job and the tester image to
-every slot, and the App's Commit statuses write permission. Turn it on only after `check previews` passes. See
+Once previews are up, they can also be put to work: with `intentController.verification.evaluator` in the chart's
+values, maul's agent evaluator checks the approved plan's acceptance outcomes against each intent's preview and reports
+them as the `maul/acceptance` commit status. It needs nothing from the edge recipes above, but it does add
+NetworkPolicies, a tool pod Job and its images to every slot, and the App's Commit statuses write permission. Turn it on
+only after `check previews` passes. See [The agent evaluator](evaluator.md) and
 [Acceptance verification](acceptance.md).
 
 ### Applying it for you

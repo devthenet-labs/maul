@@ -11,8 +11,10 @@ What the plan states depends on one chart switch, `intentController.verification
   check them. An [agent evaluator](evaluator.md) explores the live preview and writes its own checks, and maul trusts an
   outcome only once a check it re-ran itself, and a reviewer confirmed, proves it. By default the preview link reaches
   people only once the outcomes are confirmed, or once maul gives up and says so.
-- **Without it** (off, the default): the plan states **acceptance criteria**, HTTP steps a tester Job runs against the
-  preview. See [Without the evaluator](#without-the-evaluator-acceptance-criteria).
+- **Without it** (off, the default): nothing is verified. A Project that asks for verification carries `VerificationOff`
+  (reason `EvaluatorOff`), and each intent's status comment says so and links its preview at once. Slice 1's
+  **acceptance criteria**, HTTP steps a tester Job ran against the preview, no longer run: see
+  [Migrating from slice 1](evaluator.md#migrating-from-slice-1).
 
 Verification is off by default, and it never blocks anything. A failure is a red `maul/acceptance` commit status and a
 `VerifyFailing` condition: the intent stays in review, and a human's review, command or push always wins.
@@ -27,29 +29,26 @@ Verification is off by default, and it never blocks anything. A failure is a red
 
 Each switch fails closed: with one off, no acceptance state is written anywhere.
 
-1. **The slots.** `preview.verification.enabled: true` in the chart, with `preview.verification.testerImage` pinned by
-   digest, renders the tester's admission rules, the per-part NetworkPolicy and Job policies and the slot quota for
-   them, and the grants in
+1. **The evaluator.** `intentController.verification.evaluator: true`, verification's one switch, with the three tool
+   pod images in `preview.verification.tools` pinned by digest, switches intent-controller (`--intent-evaluator`) and,
+   with `previewController.enabled`, preview-controller (`--preview-evaluator`) on, and renders the evaluator's
+   admission and network policies and, in the slots, the request channel, the tool pod's admission rules, the per-part
+   NetworkPolicy and Job policies, the slot quota for them, and the grants in
    [preview-controller](../configuration/preview-controller.md#acceptance-verification-off-by-default).
-   `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800) bounds the tester Job and also sets both
-   controllers' deadline flags, so no request can ask for a Job the slot policy refuses.
-2. **intent-controller.** `--intent-verification` (needs `--intent-previews-enabled`; see
-   [its flags](../configuration/intent-controller.md#flags)). Off, its plans carry no acceptance prompt and no state is
-   written. Without `--intent-previews-enabled` the controller still starts, logs a warning and leaves verification
-   `Off`: each verifying Project carries the condition `VerificationOff` (reason `PreviewsDisabled`), and each of its
-   intents in review says so in its status comment; with the agents tool pod on (step 3), every one but a Project with a
-   cli or library surface.
-3. **The evaluator** (optional). `intentController.verification.evaluator: true`, with the three tool pod images in
-   `preview.verification.tools` pinned by digest, switches intent-controller (`--intent-evaluator`) and
-   preview-controller (`--preview-evaluator`) to outcomes, and renders the evaluator's admission and network policies.
-   It needs Kubernetes 1.30+ and `agent.networkPolicy.create`, and is refused under `agent.networkPolicy.mode: istio`.
+   `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800) bounds a slot Job and also sets both
+   controllers' deadline flags, so no request can ask for a Job the slot policy refuses. Without previews
+   (`--intent-previews-enabled` off) the evaluator runs only with its agents tool pod (below), and every other verifying
+   Project carries the condition `VerificationOff` (reason `PreviewsDisabled`), as each of its intents in review says in
+   its status comment. The evaluator needs Kubernetes 1.30+ and `agent.networkPolicy.create`, and is refused under
+   `agent.networkPolicy.mode: istio`. The former switches, chart `preview.verification.enabled` and intent-controller
+   `--intent-verification`, are removed and refused: see [Migrating from slice 1](evaluator.md#migrating-from-slice-1).
    Its chart settings are in
    [the chart's README](https://github.com/devthenet-labs/maul/blob/main/charts/maul/README.md); the tool pod's side is
    in [the preview-controller](../configuration/preview-controller.md#the-agent-evaluators-tool-pod). With
    `intentController.verification.agents.enabled` as well, the evaluator also checks Projects with no preview that
    declare a command-line program or a Go library, previews on or off: see
    [Without a preview](evaluator.md#without-a-preview-a-cli-or-a-library).
-4. **The Project**, per Project:
+2. **The Project**, per Project:
 
 ```yaml
 spec:
@@ -163,8 +162,13 @@ decides.
 
 ## Without the evaluator: acceptance criteria
 
-With `intentController.verification.evaluator` off, verification is slice 1's: the plan states criteria, and a tester
-Job runs them. The evaluator's tool pod, prompts and hand-off are not used.
+!!! warning "Retired"
+
+    Slice 1's criteria no longer run: with `intentController.verification.evaluator` off nothing is verified, and a plan
+    approved under the evaluator never states criteria. This section is kept until a later release removes the
+    criteria fields; see [Migrating from slice 1](evaluator.md#migrating-from-slice-1).
+
+Slice 1 verified the plan's criteria with a tester Job. The evaluator's tool pod, prompts and hand-off were not used.
 
 ### The criteria a plan declares
 
