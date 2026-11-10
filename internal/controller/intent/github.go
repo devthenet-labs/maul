@@ -157,6 +157,11 @@ var (
 	pullsCreate = ghclient.TokenPerms{PullRequests: ghclient.PermWrite, Contents: ghclient.PermRead}
 )
 
+// etagCacheBytes bounds the answers forgeGitHub keeps for its conditional
+// GETs: an idle intent's poll keeps a few small answers per issue and pull
+// request.
+const etagCacheBytes = 16 << 20
+
 // rateCacheTTL is how long one rate-limit reading stands for its
 // installation: the floor is a coarse guard, and asking before every poll
 // would double the requests it guards.
@@ -166,6 +171,11 @@ const rateCacheTTL = time.Minute
 // Forge through the shared forge store, takes a token scoped to that
 // repository and the call's one permission (forge.Store.TokenWith), and makes
 // the call with a client built on that token alone.
+//
+// Every client asks its GETs conditionally on one shared ghclient.ETagCache
+// (etags): an intent polls its issue and pull requests every minute, and an
+// unchanged answer, GitHub's 304, costs the installation no rate budget
+// (D-B7). Each poll still asks GitHub, so no change is seen later.
 //
 // The token and the Forge's proxy URL are kept per (Forge, repository,
 // permissions), because the store reads the Forge's Secret live, uncached,
@@ -178,6 +188,7 @@ type forgeGitHub struct {
 	forges    *forge.Store
 	namespace string
 	now       func() time.Time
+	etags     *ghclient.ETagCache
 
 	mu        sync.Mutex
 	clients   map[clientKey]cachedClient
@@ -232,6 +243,7 @@ func NewForgeGitHub(forges *forge.Store, namespace string) GitHub {
 		forges:    forges,
 		namespace: namespace,
 		now:       time.Now,
+		etags:     ghclient.NewETagCache(etagCacheBytes),
 		clients:   map[clientKey]cachedClient{},
 		rates:     map[string]rateReading{},
 		creds:     map[credKey]cachedCred{},
@@ -305,7 +317,8 @@ func (g *forgeGitHub) client(ctx context.Context, repoURL string, perms ghclient
 	if c, ok := g.clients[key]; ok {
 		return c.client, res.Repo, nil
 	}
-	c, err := ghclient.NewToken(cred.token, res.Forge.Spec.BaseURL, ghclient.WithProxy(cred.proxy))
+	c, err := ghclient.NewToken(cred.token, res.Forge.Spec.BaseURL, ghclient.WithProxy(cred.proxy),
+		ghclient.WithETagCache(g.etags))
 	if err != nil {
 		return nil, ghclient.Repo{}, err
 	}

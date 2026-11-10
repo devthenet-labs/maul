@@ -785,15 +785,19 @@ intent dependencies.
 ## Polling cost
 
 Each active intent reads about three GitHub resources per interval (its issue, its events, and its comments since the
-newest one it has already read). An intent in review also reads its pull request. A plan run, as it is created, also
-reads at most two resources for each of up to five other intents' open pull requests (the pull request and one page of
-its files). A conditional listing that has not changed returns 304, which costs nothing against the installation's rate
-limit. The rate-limit floor pauses all intent polling, pull requests included, while the installation's remaining core
-budget is below it, so intents can never starve the security flow of the requests it shares with them. Each poll checks
-the installation of the repository it reads: the intent repository and an app repository may be covered by two
-installations, and the app repository's is the one the Finding flow shares, so its pull request and a blocked build's
-default branch wait on its floor, the issue on the intent repository's. The headers GitHub reports are not consistent
-from one response to the next, so the floor is a coarse guard, not an exact budget.
+newest one it has already read). An intent in review also reads, per pull request interval, each open pull request, its
+comments, its reviews and the statuses at its head: seven requests a minute for an intent with one pull request at the
+defaults, about 4,200 an hour for ten of them, most of an installation's hourly budget. A plan run, as it is created,
+also reads at most two resources for each of up to five other intents' open pull requests (the pull request and one page
+of its files). intent-controller asks every read conditionally on GitHub's last answer to it (its entity tag), and one
+that has not changed returns 304, which costs nothing against the installation's rate limit, so an idle intent costs
+next to nothing; every read still reaches GitHub, so a change is seen at the next poll. The rate-limit floor pauses all
+intent polling, pull requests included, while the installation's remaining core budget is below it, so intents can never
+starve the security flow of the requests it shares with them. Each poll checks the installation of the repository it
+reads: the intent repository and an app repository may be covered by two installations, and the app repository's is the
+one the Finding flow shares, so its pull request and a blocked build's default branch wait on its floor, the issue on
+the intent repository's. The headers GitHub reports are not consistent from one response to the next, so the floor is a
+coarse guard, not an exact budget.
 
 With [intent dependencies](#intent-dependencies) on, an intent's first decision also lists its issue's blockers (one
 request), and a waiting intent polls every five poll intervals: its issue, its events, its comments and a conditional

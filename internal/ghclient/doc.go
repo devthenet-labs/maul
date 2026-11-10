@@ -11,4 +11,7 @@
 // Every client shares a rate-limit-aware transport that waits out GitHub's
 // advertised primary and secondary rate-limit delays before retrying, so
 // callers never see a bare 403/429 that a short pause would have cured.
+// A token client built WithETagCache also asks every GET conditionally on
+// GitHub's last answer to it, so an unchanged one (a 304) costs no rate
+// budget (ETagCache).
 package ghclient
