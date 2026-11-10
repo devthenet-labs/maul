@@ -410,7 +410,12 @@ func logSlice1Census(ctx context.Context, log *slog.Logger, r client.Reader, nam
 	attrs := []slog.Attr{slog.Int("count", census.Count()), slog.Any("intents", census.Intents),
 		slog.Any("previewverifications", census.Verifications),
 		slog.Bool("previewverifications_unlisted", census.VerificationsUnlisted)}
-	if census.Count() == 0 {
+	switch {
+	case census.Count() == 0 && census.VerificationsUnlisted:
+		log.LogAttrs(ctx, slog.LevelInfo, "slice-1 census: no open intent records acceptance criteria; "+
+			"PreviewVerifications could not be listed (no grant without the evaluator)", attrs...)
+		return
+	case census.Count() == 0:
 		log.LogAttrs(ctx, slog.LevelInfo, "slice-1 census: no open intent or verification records acceptance "+
 			"criteria", attrs...)
 		return
