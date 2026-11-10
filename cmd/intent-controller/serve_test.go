@@ -437,7 +437,7 @@ func TestUsageMeasurementReachesMeter(t *testing.T) {
 
 // TestEvaluatorSettings: --intent-evaluator reaches the settings with its
 // models, hand-off, ceilings and bounds, the evaluate timeout and the
-// check reviewer's defaults; it is refused without verification and
+// check reviewer's defaults, and turns verification on; it is refused without
 // previews, and each of its values outside its bounds stops startup. Off,
 // nothing of it reaches the settings.
 func TestEvaluatorSettings(t *testing.T) {
@@ -453,7 +453,7 @@ func TestEvaluatorSettings(t *testing.T) {
 	if err != nil || s.Evaluator || s.Evaluate != (intent.StageCeiling{}) || s.EvaluateModel != "" {
 		t.Fatalf("evaluator off: settings %+v, %v; want none of it", s, err)
 	}
-	on := []string{"--intent-verification", "--intent-previews-enabled", "--intent-evaluator"}
+	on := []string{"--intent-previews-enabled", "--intent-evaluator"}
 	s, err = load(t, append(on, "--intent-evaluate-timeout", "30m", "--intent-default-handoff", "early",
 		"--intent-handoff-max", "2h", "--intent-evaluate-codex", "--intent-evaluation-cost-max", "4000000",
 		"--intent-max-tool-calls", "120", "--intent-checkreview-model", "anthropic/claude-haiku-5",
@@ -461,7 +461,7 @@ func TestEvaluatorSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if !s.Evaluator || s.EvaluateModel != "anthropic/claude-sonnet-5" ||
+	if !s.Evaluator || !s.Verification || s.EvaluateModel != "anthropic/claude-sonnet-5" ||
 		s.CheckReviewModel != "anthropic/claude-haiku-5" || s.DefaultHandoff != v1alpha1.HandoffEarly ||
 		s.HandoffMax != 2*time.Hour || !s.EvaluateCodex || s.EvaluationCostMax != 4000000 || s.MaxToolCalls != 120 {
 		t.Errorf("settings = %+v", s)
@@ -473,8 +473,6 @@ func TestEvaluatorSettings(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"--intent-evaluator"},
-		{"--intent-evaluator", "--intent-verification"},
-		{"--intent-evaluator", "--intent-previews-enabled"},
 		append(on, "--intent-evaluate-timeout", "56m"),
 		append(on, "--intent-evaluate-timeout", "30s"),
 		append(on, "--intent-default-handoff", "late"),
@@ -501,7 +499,7 @@ func TestEvaluatorSettings(t *testing.T) {
 // clock ends the session (S1 bug 3), checkreview's so each review keeps
 // the turns for one repair of its report (S1 bug 8).
 func TestEvaluatorTurnDefaults(t *testing.T) {
-	opts, root, _ := command(t, "--intent-verification", "--intent-previews-enabled", "--intent-evaluator")
+	opts, root, _ := command(t, "--intent-previews-enabled", "--intent-evaluator")
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -635,21 +633,20 @@ func loadSettings(t *testing.T, args ...string) (intent.Settings, error) {
 
 // agentsOnFlags turn the evaluator and its agents tool pod on.
 func agentsOnFlags() []string {
-	return []string{"--intent-verification", "--intent-evaluator", "--intent-evaluator-agents",
+	return []string{"--intent-evaluator", "--intent-evaluator-agents",
 		"--intent-tools-image", toolsImage}
 }
 
-// TestAgentsSettingsRefused: the agents tool pod needs the evaluator and
-// verification, a digest-pinned tools image, at least one tool pod, a build
+// TestAgentsSettingsRefused: the agents tool pod needs the evaluator,
+// a digest-pinned tools image, at least one tool pod, a build
 // ceiling between 1m and 20m, and resources of string quantities under the
 // two known containers; anything else stops startup.
 func TestAgentsSettingsRefused(t *testing.T) {
 	on := agentsOnFlags()
 	for _, args := range [][]string{
 		{"--intent-evaluator-agents", "--intent-tools-image", toolsImage},
-		{"--intent-verification", "--intent-evaluator-agents", "--intent-tools-image", toolsImage},
-		{"--intent-verification", "--intent-evaluator", "--intent-evaluator-agents"},
-		append(on[:4:4], "--intent-tools-image", "registry.example/maul-preview-tools:latest"),
+		{"--intent-evaluator", "--intent-evaluator-agents"},
+		append(on[:2:2], "--intent-tools-image", "registry.example/maul-preview-tools:latest"),
 		append(on, "--intent-max-tool-pods", "0"),
 		append(on, "--intent-tool-build-timeout-max", "30s"),
 		append(on, "--intent-tool-build-timeout-max", "21m"),

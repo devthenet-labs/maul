@@ -27,7 +27,7 @@ import (
 )
 
 // The verification loop (acceptance verification, slice 1), with
-// --intent-verification on. In review, and in a round of it, every pass:
+// verification on. In review, and in a round of it, every pass:
 //
 //  1. records the approved plan's acceptance criteria once per approved
 //     plan revision (syncAcceptance), from the plan bytes re-read under the

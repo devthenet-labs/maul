@@ -214,13 +214,17 @@ type Settings struct {
 	// JobDeadlineMargin fits under.
 	JobDeadline    time.Duration
 	JobDeadlineMax time.Duration
-	// Verification is --intent-verification: an intent in review whose
+	// Verification turns the verify loop on: an intent in review whose
 	// Project verifies (spec.verification.enabled) has its approved plan's
-	// acceptance criteria recorded and run against its Preview
-	// (verify_loop.go), which needs Previews: without them the intent's
-	// verification is Off (VerificationWithoutPreviews). Off (the default)
-	// the intent reconciler writes no acceptance or verification state and
-	// creates no PreviewVerification, whatever the Project says.
+	// acceptance recorded and verified against its Preview (verify_loop.go),
+	// which needs Previews: without them the intent's verification is Off
+	// (VerificationWithoutPreviews). serve sets it exactly when Evaluator is
+	// (the removed --intent-verification is refused): slice 1's criteria no
+	// longer run, and a Settings with Verification but not Evaluator reaches
+	// them only in this package's tests, until S4 deletes them. Off (the
+	// default) the intent reconciler writes no acceptance or verification
+	// state and creates no PreviewVerification, and a verifying Project and
+	// its intents' issues say verification is Off (ReasonEvaluatorOff).
 	Verification bool
 	// Evaluator is --intent-evaluator (SPEC Q11): a verifying Project's
 	// plans are asked for acceptance outcomes, which the agent evaluator
@@ -229,8 +233,8 @@ type Settings struct {
 	// round at a time (evaluate_round.go); an open intent whose approved
 	// plan states slice-1 criteria gets one replan notice and is not
 	// verified until a new plan is approved (DESIGN 7.6). Off (the default)
-	// slice 1 runs unchanged. serve refuses it without Verification and
-	// Previews.
+	// nothing is verified. serve refuses it without Previews unless
+	// EvaluatorAgents is on, and sets Verification with it.
 	Evaluator bool
 	// EvaluateModel and CheckReviewModel are the canonical models a claude
 	// Project's evaluate and checkreview runs run on
@@ -355,11 +359,12 @@ func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
 	return StageCeiling{}
 }
 
-// VerificationWithoutPreviews reports --intent-verification without
-// --intent-previews-enabled: verification runs against the Preview only the
-// preview projection writes, so every verifying Project's intents are Off,
-// and the Project (ConditionVerificationOff) and the issue's status comment
-// say why. serve warns of it rather than refusing to start.
+// VerificationWithoutPreviews reports verification without
+// --intent-previews-enabled (the evaluator with only its agents tool pod):
+// verification runs against the Preview only the preview projection writes,
+// so every verifying Project's intents without a cli or library surface are
+// Off, and the Project (ConditionVerificationOff) and the issue's status
+// comment say why. serve logs it rather than refusing to start.
 func (s Settings) VerificationWithoutPreviews() bool {
 	return s.Verification && !s.Previews
 }

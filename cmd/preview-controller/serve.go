@@ -63,8 +63,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("preview-auth-annotations", "", "JSON object of slot namespace to its pinned auth annotations, "+
 		"the current key generation's, exactly as the chart renders it for the slot admission policy")
 	f.String("preview-tester-image", "", "digest-pinned preview-tester image (<repository>@sha256:<64 hex>, "+
-		"never under the preview image prefix); set, it turns acceptance verification on: per-part "+
-		"NetworkPolicies for verification-capable Previews and the PreviewVerification tester Jobs")
+		"never under the preview image prefix) for slice 1's criteria verifications; needs --preview-evaluator, "+
+		"refused without it (optional with it, and removed in a later release)")
 	f.Duration("preview-verify-deadline-max", 30*time.Minute, "the most a tester Job may run (its "+
 		"activeDeadlineSeconds), the bound the slot Job admission policy holds it to (chart "+
 		"preview.verification.deadlineMaxSeconds); a verification asking more is clamped. 1m to 1h")
@@ -127,6 +127,13 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	settings.Auth = auth
 	if err := settings.Validate(); err != nil {
 		return err
+	}
+	if settings.TesterImage != "" && !settings.Evaluator {
+		// Slice 1 alone (S4): intent-controller no longer writes criteria
+		// verifications, so the tester would only turn on a path nothing uses.
+		return errors.New("--preview-tester-image (MAUL_PREVIEW_TESTER_IMAGE) needs --preview-evaluator: slice 1's " +
+			"acceptance criteria no longer run, and the agent evaluator is verification's one switch; turn the " +
+			"evaluator on or drop the tester image, see docs/intents/evaluator.md#migrating-from-slice-1")
 	}
 	deadlineMax := opts.Duration("preview-verify-deadline-max")
 	if deadlineMax < time.Minute || deadlineMax > time.Hour {

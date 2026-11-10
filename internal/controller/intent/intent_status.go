@@ -116,11 +116,12 @@ func (p *pass) statusComment(ctx context.Context) templates.IntentStatusComment 
 		// runs against; nil when it is not reported.
 		c.Preview.Verify = p.verifyProgress()
 	}
-	// Verification runs against the Preview: without the preview
-	// projection a verifying Project's intent in review is Off, and the
+	// Without the evaluator, or without the preview projection it verifies
+	// against, a verifying Project's intent in review is Off, and the
 	// comment says why.
 	off, _ := p.set.verificationOff(p.proj)
 	c.VerificationNeedsPreviews = off == ReasonPreviewsDisabled && verifyPhase(st.Phase)
+	c.VerificationNeedsEvaluator = off == ReasonEvaluatorOff && verifyPhase(st.Phase)
 	c.AgentsPaused = p.agentsPaused()
 	c.Attribution = p.latestAttribution()
 	switch st.Phase {

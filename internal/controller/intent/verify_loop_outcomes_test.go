@@ -123,6 +123,52 @@ func TestOutcomeVerificationWithoutPreviews(t *testing.T) {
 	}
 }
 
+// TestVerificationOffWithoutTheEvaluator (S4, owner decision 2): the agent
+// evaluator is verification's one switch, so with it off a Project that
+// asks for verification is told it is Off (EvaluatorOff, never part of
+// Ready), and its intent in review is not verified: nothing of acceptance
+// is written, no request is made, no maul/acceptance is posted, the issue's
+// status comment says so, and the preview is linked at once, never held.
+func TestVerificationOffWithoutTheEvaluator(t *testing.T) {
+	e := newVerifyEnv(t, outcomesPlan)
+	e.verifying(false, true)
+	e.reconcileProject()
+	conds := e.getProject().Status.Conditions
+	c := meta.FindStatusCondition(conds, ConditionVerificationOff)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != ReasonEvaluatorOff ||
+		!strings.Contains(c.Message, "--intent-evaluator") ||
+		!meta.IsStatusConditionTrue(conds, v1alpha1.ConditionReady) {
+		t.Fatalf("project conditions = %+v", conds)
+	}
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 4)
+	in := e.get(name)
+	if in.Status.Acceptance != nil || in.Status.Verification != nil || len(e.verifications(name)) != 0 {
+		t.Fatalf("acceptance %+v verification %+v verifications %d", in.Status.Acceptance,
+			in.Status.Verification, len(e.verifications(name)))
+	}
+	if ss := e.acceptanceStatuses(in.Status.PullRequests[0].HeadSHA); len(ss) != 0 {
+		t.Fatalf("statuses posted with the evaluator off: %+v", ss)
+	}
+	body := e.statusBody()
+	for _, want := range []string{"**Verification:** off", "`--intent-evaluator`", previewHostOf(name)} {
+		if !strings.Contains(body, want) {
+			t.Errorf("status comment lacks %q:\n%s", want, body)
+		}
+	}
+	// A Project that does not ask for verification is told nothing.
+	proj := e.project0()
+	proj.Spec.Verification = nil
+	if err := e.c.Update(context.Background(), proj); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcileProject()
+	if c := meta.FindStatusCondition(e.getProject().Status.Conditions, ConditionVerificationOff); c != nil {
+		t.Fatalf("%s on a Project that does not verify: %+v", ConditionVerificationOff, c)
+	}
+}
+
 // TestOutcomeVerificationWaitsForThePreview twins
 // TestVerificationWaitsForThePreview.
 func TestOutcomeVerificationWaitsForThePreview(t *testing.T) {

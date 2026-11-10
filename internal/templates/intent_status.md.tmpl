@@ -44,9 +44,12 @@ inside an issue comment as a hard break. */ -}}
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if .NoVerification }}
+{{- if .NoEvaluator }}
 
-**Verification:** off: intent-controller runs with `--intent-verification` but without `--intent-previews-enabled`, and verification runs against the intent's preview, so its acceptance criteria are not checked. The Project's `VerificationOff` condition says the same.
+**Verification:** off: intent-controller runs without the agent evaluator (`--intent-evaluator`), which is what verifies intents, so its acceptance outcomes are not checked and its preview is handed over at once. The Project's `VerificationOff` condition says the same.
+{{- else if .NoVerification }}
+
+**Verification:** off: intent-controller runs the agent evaluator without `--intent-previews-enabled`, and verification runs against the intent's preview, so its acceptance outcomes are not checked. The Project's `VerificationOff` condition says the same.
 {{- end }}
 {{- if .MaxRevisions }}
 

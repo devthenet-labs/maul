@@ -331,28 +331,32 @@ func TestCodexHarnessAndDNS(t *testing.T) {
 	}
 }
 
-// TestSettingsVerificationFlags: --intent-verify-timeout-max carries
-// through within the bounds a PreviewVerification's timeout has (1m to 1h).
-// --intent-verification without the preview projection it runs against
-// does not stop the controller: it starts with verification off
-// (VerificationWithoutPreviews, which serve warns of and the Projects and
-// issues explain).
+// TestSettingsVerificationFlags: the agent evaluator is verification's one
+// switch: off (the default) nothing is verified, on it turns verification
+// on, and the agents tool pod alone verifies without previews
+// (VerificationWithoutPreviews, which serve logs and the Projects and issues
+// explain). --intent-verify-timeout-max carries through within the bounds a
+// PreviewVerification's timeout has (1m to 1h).
 func TestSettingsVerificationFlags(t *testing.T) {
 	s, err := settings(resolved(t), "p", "a")
 	if err != nil || s.Verification || s.VerifyTimeoutMax != intent.DefaultVerifyTimeoutMax {
 		t.Fatalf("defaults: verification %v, timeout max %s, err %v", s.Verification, s.VerifyTimeoutMax, err)
 	}
-	s, err = settings(resolved(t, "--intent-previews-enabled", "--intent-verification",
+	s, err = settings(resolved(t, "--intent-previews-enabled"), "p", "a")
+	if err != nil || s.Verification || s.Evaluator {
+		t.Fatalf("previews without the evaluator: settings %+v, err %v; want verification off", s, err)
+	}
+	s, err = settings(resolved(t, "--intent-previews-enabled", "--intent-evaluator",
 		"--intent-verify-timeout-max", "12m"), "p", "a")
-	if err != nil || !s.Verification || s.VerifyTimeoutMax != 12*time.Minute {
+	if err != nil || !s.Verification || !s.Evaluator || s.VerifyTimeoutMax != 12*time.Minute {
 		t.Fatalf("on: verification %v, timeout max %s, err %v", s.Verification, s.VerifyTimeoutMax, err)
 	}
 	if s.VerificationWithoutPreviews() {
 		t.Fatal("verification with previews reads as without")
 	}
-	s, err = settings(resolved(t, "--intent-verification"), "p", "a")
-	if err != nil || !s.VerificationWithoutPreviews() {
-		t.Fatalf("verification without previews: settings %+v, err %v; want it started, verification off", s, err)
+	s, err = settings(resolved(t, agentsOnFlags()...), "p", "a")
+	if err != nil || !s.Verification || !s.VerificationWithoutPreviews() {
+		t.Fatalf("the agents tool pod without previews: settings %+v, err %v; want it verifying", s, err)
 	}
 	for _, args := range [][]string{
 		{"--intent-previews-enabled", "--intent-verify-timeout-max", "30s"},
@@ -361,5 +365,41 @@ func TestSettingsVerificationFlags(t *testing.T) {
 		if _, err := settings(resolved(t, args...), "p", "a"); err == nil {
 			t.Errorf("settings %v accepted", args)
 		}
+	}
+}
+
+// TestVerificationFlagRemoved: --intent-verification is removed (S4): set,
+// from the command line or the environment, with or without the evaluator,
+// it stops startup with the migration it names; it is hidden from the help.
+// Unset or false, it changes nothing.
+func TestVerificationFlagRemoved(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  string
+		args []string
+	}{
+		{"alone", "", []string{"--intent-verification"}},
+		{"with previews", "", []string{"--intent-verification", "--intent-previews-enabled"}},
+		{"with the evaluator", "", []string{"--intent-verification", "--intent-previews-enabled",
+			"--intent-evaluator"}},
+		{"from the environment", "true", []string{"--intent-previews-enabled", "--intent-evaluator"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env != "" {
+				t.Setenv("MAUL_INTENT_VERIFICATION", tc.env)
+			}
+			_, err := settings(resolved(t, tc.args...), "p", "a")
+			if err == nil || !strings.Contains(err.Error(), "--intent-verification") ||
+				!strings.Contains(err.Error(), "docs/intents/evaluator.md#migrating-from-slice-1") {
+				t.Fatalf("settings(%v) = %v, want the removal and its migration", tc.args, err)
+			}
+		})
+	}
+	if _, err := settings(resolved(t, "--intent-verification=false"), "p", "a"); err != nil {
+		t.Errorf("--intent-verification=false: %v, want it ignored", err)
+	}
+	_, _, serve := command(t)
+	if f := serve.Flags().Lookup("intent-verification"); f == nil || !f.Hidden {
+		t.Errorf("--intent-verification = %+v, want it registered and hidden", f)
 	}
 }

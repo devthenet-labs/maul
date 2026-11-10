@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/changeset"
@@ -63,18 +64,21 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"project opted-in, open intent PRs into Preview resources, beside the default-branch head (read once at "+
 			"review start) of each previewed repository an intent did not change; requires a separately enabled "+
 			"preview-controller")
-	f.Bool("intent-verification", false,
-		"run the approved plan's acceptance criteria against each intent's Preview for Projects with "+
-			"spec.verification.enabled (PreviewVerification requests a separately enabled preview-controller "+
-			"answers); needs --intent-previews-enabled, without which verification is Off and each verifying "+
-			"Project says why. Off, no acceptance or verification state is written")
+	// --intent-verification is REMOVED: the agent evaluator is verification's
+	// one switch. It stays registered, hidden, only so a leftover value meets
+	// the migration message (verification) rather than an unknown-flag error
+	// or, from the environment, silence.
+	f.Bool("intent-verification", false, "REMOVED: --intent-evaluator turns verification on")
+	_ = f.MarkHidden("intent-verification") // registered just above
 	f.Duration("intent-verify-timeout-max", intent.DefaultVerifyTimeoutMax,
 		"the most a Project's verification.timeout gives a tester Job, between 1m and 1h; keep it at or under "+
 			"preview-controller's tester deadline maximum (chart preview.verification.deadlineMaxSeconds)")
 	f.Bool("intent-evaluator", false,
 		"verify the approved plan's acceptance outcomes with the agent evaluator, which explores each intent's "+
-			"Preview through a slot tool pod and writes its own checks (needs --intent-verification and "+
-			"--intent-previews-enabled). Off, slice 1's acceptance criteria run unchanged")
+			"Preview through a slot tool pod and writes its own checks, for Projects with "+
+			"spec.verification.enabled (needs --intent-previews-enabled or --intent-evaluator-agents). Off, no "+
+			"intent is verified: each verifying Project and its intents' issues say so, and each preview is "+
+			"handed to people at once")
 	f.String("intent-evaluate-model", "anthropic/claude-sonnet-5",
 		"canonical model a claude Project's evaluate runs run (--intent-evaluator)")
 	f.String("intent-checkreview-model", "anthropic/claude-sonnet-5",
@@ -107,7 +111,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("intent-evaluator-agents", false,
 		"also evaluate Projects with a cli or library surface and no Preview, through an agents-namespace tool "+
 			"pod that builds the pull request's head and its merge base in the repository's accepted runner image "+
-			"(needs --intent-evaluator and --intent-verification, not --intent-previews-enabled); off, such a "+
+			"(needs --intent-evaluator, not --intent-previews-enabled); off, such a "+
 			"Project's verification is Off (AgentsToolPodNotEnabled)")
 	f.String("intent-tools-image", "",
 		"maul's digest-pinned preview-tools image the agents tool pod runs (--intent-evaluator-agents)")
@@ -289,14 +293,22 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 	return s, nil
 }
 
-// verification reads the acceptance-verification switch and the tester
-// timeout ceiling, held to a PreviewVerification's own timeout bounds.
-// Verification runs against the Preview the preview projection writes;
-// without it the controller still starts, with verification Off
-// (Settings.VerificationWithoutPreviews: serve warns, and the Projects and
-// issues say why), rather than taking intents down with it.
+// verificationMigration is where an operator of the removed slice-1
+// configuration reads how to move to the evaluator.
+const verificationMigration = "see docs/intents/evaluator.md#migrating-from-slice-1"
+
+// verification refuses the removed --intent-verification and reads the
+// verification timeout ceiling, held to a PreviewVerification's own timeout
+// bounds. Verification itself is the agent evaluator's (evaluator): slice
+// 1's acceptance criteria no longer run, so the switch that turned them on
+// stops startup rather than leave an operator believing intents are
+// verified the old way.
 func verification(opts *cli.Options, s *intent.Settings) error {
-	s.Verification = opts.Bool("intent-verification")
+	if opts.Bool("intent-verification") {
+		return errors.New("--intent-verification (MAUL_INTENT_VERIFICATION) is removed: the agent evaluator " +
+			"(--intent-evaluator, chart intentController.verification.evaluator) turns verification on, and " +
+			"without it no intent is verified; drop the flag, " + verificationMigration)
+	}
 	s.VerifyTimeoutMax = opts.Duration("intent-verify-timeout-max")
 	if s.VerifyTimeoutMax < time.Minute || s.VerifyTimeoutMax > time.Hour {
 		return fmt.Errorf("--intent-verify-timeout-max %s must be between 1m and 1h", s.VerifyTimeoutMax)
@@ -305,10 +317,12 @@ func verification(opts *cli.Options, s *intent.Settings) error {
 }
 
 // evaluator reads the agent evaluator's switch and, when it is on, its
-// settings, each held to its bounds. It is refused without verification,
-// and without previews unless the agents-namespace tool pod is on (Q33):
-// the evaluator judges each intent's Preview, or its workspace. Off, nothing
-// of it reaches the settings, so slice 1 runs exactly as before.
+// settings, each held to its bounds; on, it is what turns verification on
+// (Settings.Verification). It is refused without previews unless the
+// agents-namespace tool pod is on (Q33): the evaluator judges each intent's
+// Preview, or its workspace. Off, nothing of it reaches the settings and no
+// intent is verified (each verifying Project says so,
+// intent.ReasonEvaluatorOff).
 func evaluator(opts *cli.Options, s *intent.Settings) error {
 	if !opts.Bool("intent-evaluator") {
 		if opts.Bool("intent-evaluator-agents") {
@@ -316,9 +330,9 @@ func evaluator(opts *cli.Options, s *intent.Settings) error {
 		}
 		return nil
 	}
-	if !s.Verification || (!s.Previews && !opts.Bool("intent-evaluator-agents")) {
-		return errors.New("--intent-evaluator needs --intent-verification and --intent-previews-enabled (or " +
-			"--intent-evaluator-agents): the evaluator judges each intent's Preview, or its workspace")
+	if !s.Previews && !opts.Bool("intent-evaluator-agents") {
+		return errors.New("--intent-evaluator needs --intent-previews-enabled (or --intent-evaluator-agents): " +
+			"the evaluator judges each intent's Preview, or its workspace")
 	}
 	if err := agents(opts, s); err != nil {
 		return err
@@ -352,7 +366,7 @@ func evaluator(opts *cli.Options, s *intent.Settings) error {
 	if err != nil {
 		return err
 	}
-	s.Evaluator = true
+	s.Verification, s.Evaluator = true, true
 	s.EvaluateModel, s.CheckReviewModel = opts.String("intent-evaluate-model"), opts.String("intent-checkreview-model")
 	s.DefaultHandoff, s.HandoffMax = handoff, handoffMax
 	s.EvaluateCodex = opts.Bool("intent-evaluate-codex")
@@ -364,21 +378,48 @@ func evaluator(opts *cli.Options, s *intent.Settings) error {
 	return nil
 }
 
-// logVerificationOff says, at startup, which verifying Projects set's
-// verification without previews leaves Off: every one, or with the agents
-// tool pod on, every one without a cli or library surface.
+// logVerificationOff says, at startup, which verifying Projects set leaves
+// Off: every one without the evaluator, or, with the agents tool pod on and
+// previews off, every one without a cli or library surface.
 func logVerificationOff(ctx context.Context, log *slog.Logger, set intent.Settings) {
 	switch {
-	case !set.VerificationWithoutPreviews():
-	case set.EvaluatorAgents:
+	case !set.Verification:
+		log.LogAttrs(ctx, slog.LevelInfo, "--intent-evaluator is off: no intent is verified; each verifying "+
+			"Project says so in its VerificationOff condition, and each preview is handed to people at once")
+	case set.VerificationWithoutPreviews():
 		log.LogAttrs(ctx, slog.LevelInfo, "--intent-evaluator-agents without --intent-previews-enabled: only "+
 			"Projects with a cli or library surface are verified; each other verifying Project says so in its "+
 			"VerificationOff condition")
-	default:
-		log.LogAttrs(ctx, slog.LevelWarn, "--intent-verification without --intent-previews-enabled: verification "+
-			"runs against the intent's Preview, so it is off; each verifying Project says so in its VerificationOff "+
-			"condition")
 	}
+}
+
+// logSlice1Census takes the slice-1 census (intent.TakeSlice1Census) through
+// r, which can only read, reports it as the maul.intent.slice1_records
+// gauge and logs it: each record by name, with what clears it. It never
+// stops startup: mode() stops such an Intent for a replan, and a criteria
+// PreviewVerification is never run again. A census that cannot list is
+// logged, and the gauge is left unreported rather than read as zero.
+func logSlice1Census(ctx context.Context, log *slog.Logger, r client.Reader, namespace string) {
+	census, err := intent.TakeSlice1Census(ctx, r, namespace)
+	if err != nil {
+		log.LogAttrs(ctx, slog.LevelWarn, "the slice-1 census could not run; starting anyway",
+			slog.Any("error", err))
+		return
+	}
+	census.Report()
+	attrs := []slog.Attr{slog.Int("count", census.Count()), slog.Any("intents", census.Intents),
+		slog.Any("previewverifications", census.Verifications),
+		slog.Bool("previewverifications_unlisted", census.VerificationsUnlisted)}
+	if census.Count() == 0 {
+		log.LogAttrs(ctx, slog.LevelInfo, "slice-1 census: no open intent or verification records acceptance "+
+			"criteria", attrs...)
+		return
+	}
+	log.LogAttrs(ctx, slog.LevelWarn, "slice-1 census: these records still state acceptance criteria, which no "+
+		"longer run: such an open intent is never verified again (under the evaluator it stops for a replan), "+
+		"and such a PreviewVerification is never run again; replan or close the intents and delete the "+
+		"verifications before upgrading past the release that removes the criteria fields, "+
+		verificationMigration, attrs...)
 }
 
 // agents reads the agents-namespace tool pod's settings when
@@ -869,6 +910,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	logVerificationOff(ctx, log, set)
+	// Read-only, uncached, before the manager starts: the API reader.
+	logSlice1Census(ctx, log, mgr.GetAPIReader(), namespace)
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),

@@ -25,7 +25,7 @@ import (
 // verifiesProject is the Project-level half of whether this controller
 // verifies Project p's intents: the Project asks for it
 // (spec.verification.enabled), and the controller runs with
-// --intent-verification and --intent-previews-enabled, without which every
+// the evaluator (Verification) and --intent-previews-enabled, without which every
 // verifying Project's intents are Off (VerificationWithoutPreviews). A
 // Project with a cli or library surface needs no previews (SPEC-S2 Q33)
 // but the agents tool pod (agentsProject), and none of its own beside its

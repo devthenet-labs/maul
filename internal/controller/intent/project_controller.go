@@ -72,12 +72,17 @@ const (
 const ConditionAcceptanceStatusUnavailable = "AcceptanceStatusUnavailable"
 
 // ConditionVerificationOff marks a Project that verifies
-// (spec.verification.enabled) while this controller cannot: it runs with
-// --intent-verification but without --intent-previews-enabled, and
-// verification runs against the intent's Preview, which only the preview
-// projection writes. Never part of Ready: the Project's intents go on with
-// verification Off. Set True with ReasonPreviewsDisabled; absent otherwise.
+// (spec.verification.enabled) while this controller cannot (verificationOff):
+// it runs without the agent evaluator (ReasonEvaluatorOff), or with it but
+// without what the Project's intents are verified on. Never part of Ready:
+// the Project's intents go on with verification Off. Absent otherwise.
 const ConditionVerificationOff = "VerificationOff"
+
+// ReasonEvaluatorOff is VerificationOff's reason while the controller runs
+// without the agent evaluator (--intent-evaluator), verification's one
+// switch since slice 1's criteria were retired (S4): no intent is verified,
+// and each preview is handed to people at once.
+const ReasonEvaluatorOff = "EvaluatorOff"
 
 // ReasonPreviewsDisabled is VerificationOff's reason: verification is on
 // without the preview projection it runs against. A Project with a cli or
@@ -352,16 +357,21 @@ func setVerificationOff(cur *v1alpha1.Project, s Settings) {
 }
 
 // verificationOff is why Project p, which asks for verification, is not
-// verified by s, "" when it is (or does not ask, or s does not verify at
-// all): a cli or library surface beside a preview
-// (SurfaceCombinationUnsupported, O6, whatever the flags) or while the
-// agents tool pod is off (AgentsToolPodNotEnabled), otherwise verification
-// without previews (PreviewsDisabled).
+// verified by s, "" when it is (or does not ask): s runs without the
+// evaluator (EvaluatorOff), a cli or library surface beside a preview
+// (SurfaceCombinationUnsupported, O6) or while the agents tool pod is off
+// (AgentsToolPodNotEnabled), otherwise verification without previews
+// (PreviewsDisabled).
 func (s Settings) verificationOff(p *v1alpha1.Project) (reason, msg string) {
-	if !s.Verification || !p.Spec.VerificationEnabled() {
+	if !p.Spec.VerificationEnabled() {
 		return "", ""
 	}
 	switch {
+	case !s.Verification:
+		return ReasonEvaluatorOff, "spec.verification.enabled is set, but intent-controller runs without the " +
+			"agent evaluator (--intent-evaluator, chart intentController.verification.evaluator), which is what " +
+			"verifies intents: this Project's intents are not verified (state Off) and each preview is handed to " +
+			"people at once, until the evaluator is enabled"
 	case p.Spec.Surfaces.Agents() && previewed(p):
 		return v1alpha1.ReasonSurfaceCombinationUnsupported, "this Project sets a preview beside its cli or " +
 			"library surface, and one host is evaluated per Project: its intents are not verified (state Off) " +
@@ -373,10 +383,10 @@ func (s Settings) verificationOff(p *v1alpha1.Project) (reason, msg string) {
 			"intentController.verification.agents.enabled): this Project's intents are not verified (state Off) " +
 			"until the tool pod is enabled"
 	case !p.Spec.Surfaces.Agents() && s.VerificationWithoutPreviews():
-		return ReasonPreviewsDisabled, "spec.verification.enabled is set, but intent-controller runs with " +
-			"--intent-verification and without --intent-previews-enabled (chart previewController.enabled), and " +
-			"verification runs against the intent's Preview: this Project's intents are not verified (state Off) " +
-			"until previews are enabled"
+		return ReasonPreviewsDisabled, "spec.verification.enabled is set, but intent-controller runs the " +
+			"evaluator without --intent-previews-enabled (chart previewController.enabled), and verification runs " +
+			"against the intent's Preview: this Project's intents are not verified (state Off) until previews are " +
+			"enabled"
 	}
 	return "", ""
 }
