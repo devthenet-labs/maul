@@ -515,12 +515,13 @@ func withSide(side toolwire.Side, res result) result {
 
 // workspaceExecAttempt runs an exec check once at side: argv and files
 // substituted (the marker in the files only), in the attempt's own
-// scratch directory, judged here.
+// scratch directory, on the tree and build output as the build left them
+// (fresh, review VC-2), judged here.
 func (r *Relay) workspaceExecAttempt(ctx context.Context, e checks.ExecCheck, run string,
 	side toolwire.Side) []toolwire.StepRecord {
 	marker := checks.ExecMarker(randomMarkerNonce())
 	p := r.places()
-	req := &toolexec.Request{Side: side, Run: run, Env: r.programEnv()}
+	req := &toolexec.Request{Side: side, Run: run, Env: r.programEnv(), Fresh: true}
 	for _, a := range e.Argv {
 		s, err := substitute(a, run, "", p)
 		if err != nil {

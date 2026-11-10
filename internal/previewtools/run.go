@@ -282,11 +282,14 @@ func compilerRefused(output string, files []string) bool {
 }
 
 // compileProgram compiles p at side in run's scratch directory: its files
-// written by the workspace's init, then the build.
-func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run string, p program) compiled {
+// written by the workspace's init, then the build. A check's compile is
+// fresh: it starts from the tree and build output as the build left them
+// (review VC-2), and neither step after it runs the tree's code.
+func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run string, p program,
+	fresh bool) compiled {
 	steps := []*toolexec.Request{
 		{Argv: []string{"go", "work", "init", ".", r.workTree}, Files: p.files, Side: side, Run: run,
-			Env: r.compileEnv()},
+			Env: r.compileEnv(), Fresh: fresh},
 		{Argv: []string{"go", "build", "-o", consumerBinary, "."}, Side: side, Run: run, Env: r.compileEnv()},
 	}
 	var names []string
@@ -346,7 +349,7 @@ func (r *Relay) runVerb(ctx context.Context, req *toolwire.RunRequest) result {
 		return sideRefusal(side, code, err.Error())
 	}
 	run := r.token()
-	c := r.compileProgram(ctx, side, run, p)
+	c := r.compileProgram(ctx, side, run, p, false)
 	if !c.ok {
 		res := programResult(c.res, c.err, "the sandbox refused the compile")
 		if res.refused == "" {
@@ -386,7 +389,10 @@ func (r *Relay) workspaceRunAttempt(ctx context.Context, rc checks.RunCheck, run
 	if err != nil {
 		return causedStep(causeOf(err), "the program cannot be built against the tree: "+err.Error())
 	}
-	if c := r.compileProgram(ctx, side, run, p); !c.ok {
+	if c := r.compileProgram(ctx, side, run, p, true); !c.ok {
+		if c.err == nil && c.res.Refused != "" {
+			return errStep("the sandbox refused the program's compile, so maul cannot judge the run")
+		}
 		if c.res.Unclean || c.res.TimedOut {
 			return errStep("the program's compile did not end cleanly, so maul cannot judge the run")
 		}

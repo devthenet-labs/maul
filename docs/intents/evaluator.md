@@ -511,8 +511,13 @@ A `run` program is compiled offline against the tree's own module graph: maul wr
 with no module proxy, the module files read-only and no user `go env` file, so the compile never reaches the network and
 never changes the tree's `go.mod` or `go.sum`. A tree with a `vendor` directory, a `replace` by an absolute path or a
 directory outside the tree, or no `go.mod` maul can read refuses every `run` by name. Each exploratory call gets a fresh
-scratch directory, but `HOME` and the writable tree are shared by every call at that side and never reset while the
-evaluator explores; maul's own runs of a check get a fresh scratch directory and run token each.
+scratch directory, but `HOME` and the writable tree are shared by every call at that side while the evaluator explores.
+maul's own runs of a check (a dry run, a replay, a confirmation, at either side) get a fresh scratch directory and run
+token each, and start from the tree and the build output exactly as that side's build left them: after the build the
+sandbox keeps a copy of both and their digest, and before each check run it puts them back unless they still match. What
+exploration or an earlier check changed there never reaches a check. When the copy itself no longer matches the digest
+(or the build's output could not be kept) the check run does not run: it is an error, which can never pass. `HOME` and
+the caches are not put back.
 
 ### Head and base
 

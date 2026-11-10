@@ -96,6 +96,10 @@ type Server struct {
 	// some survive it. Both are used holding slot.
 	sweep   sweeper
 	unclean bool
+	// built is the digest of the tree and build output as the last build
+	// that built left them, kept beside them for a fresh request; "" when
+	// none did (fresh.go). Used holding slot.
+	built string
 }
 
 // NewServer returns a Server over opts, its scratch directory created.

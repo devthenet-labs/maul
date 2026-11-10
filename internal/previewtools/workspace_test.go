@@ -828,6 +828,10 @@ func TestRunCheckRequests(t *testing.T) {
 		len(compile.Files) != 0 {
 		t.Fatalf("init %q, compile %q, run %q", winit.Argv, compile.Argv, run.Argv)
 	}
+	if !winit.Fresh || compile.Fresh || run.Fresh {
+		t.Fatalf("fresh: init %t, compile %t, run %t; want only the attempt's first", winit.Fresh, compile.Fresh,
+			run.Fresh)
+	}
 	assertProgram(t, winit, compile, cfg.Workspace.SearchPath)
 }
 

@@ -160,9 +160,11 @@ func TestCheckReviewWorkspaceStatesRulesExactly(t *testing.T) {
 				"does not count"},
 			[]string{"or cannot build or run there", "only if it fails at the base by an assertion"}},
 		{"red", red,
-			[]string{"only the working directory was fresh", "the home directory (`/work/home`) and the caches " +
-				"are shared by every run at that side and never reset"},
-			[]string{"left behind was there"}},
+			// Each run starts from the build's tree and output (review VC-2).
+			[]string{"put the writable tree (`/work/tree`) and the build output (`/work/bin`) back as the build " +
+				"left them", "the home directory (`/work/home`) and the caches are shared by every run at that " +
+				"side and never reset"},
+			[]string{"left behind was there", "only the working directory was fresh"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := RenderCheckReviewPrompt(tt.p)
