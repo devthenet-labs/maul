@@ -283,13 +283,23 @@ offenders=$(jq -r --arg rel "$release_ns" '
         ((.spec.policyTypes // []) | length == 2 and index("Ingress") != null and index("Egress") != null) and
         all(.spec.ingress[]?; ((.from // []) | length > 0) and ports_ok and all(.from[]; peer_ok($uid))) and
         all(.spec.egress[]?; ((.to // []) | length > 0) and ports_ok and all(.to[]; peer_ok($uid)));
+    # With the agent evaluator on, preview-isolation selects every Pod but the
+    # slot tool pod, which preview-tools-isolation alone selects, admitting
+    # nothing in either direction: together still every Pod of the slot.
+    def tools_split: (.spec.podSelector // {}) == {"matchExpressions": [{"key": "maul.run/preview-role",
+        "operator": "NotIn", "values": ["tools"]}]};
+    ([.items[] | select(.metadata.name == "preview-tools-isolation" and
+        (.spec.podSelector // {}) == {"matchLabels": {"maul.run/preview-role": "tools"}} and
+        ((.spec.policyTypes // ["Ingress"]) | index("Ingress") != null) and
+        ((.spec.ingress // []) | length == 0))] | length > 0) as $tools_isolated |
     .items[] | .metadata.name as $n |
     if edge_named then
         (if edge_shaped then empty else "\($n) is a preview edge policy of a shape preview-controller may not write" +
             " (one part of one Preview, both directions, peers of that Preview by part on numeric TCP ports): " +
             "\(.spec | tojson)" end)
     else
-    (if $n == "preview-isolation" and ((.spec.podSelector // {}) != {}) then
+    (if $n == "preview-isolation" and ((.spec.podSelector // {}) != {}) and
+        ((tools_split and $tools_isolated) | not) then
         "\($n) selects only some of the slot'"'"'s Pods (its podSelector is not {})" else empty end),
     (if $n == "preview-isolation" and ((.spec.policyTypes // ["Ingress"]) | index("Ingress") == null) then
         "\($n) does not govern ingress (its policyTypes lack Ingress)" else empty end),

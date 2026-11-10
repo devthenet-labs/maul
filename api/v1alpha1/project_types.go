@@ -426,11 +426,12 @@ type ProjectChecks struct {
 	RerunFailed bool `json:"rerunFailed,omitempty"`
 }
 
-// ProjectVerification configures acceptance verification: maul runs the
-// approved plan's automatable acceptance criteria against the intent's
-// Preview and reports the result as the maul/acceptance commit status on
-// every open pull request. It needs previews (spec.preview or
-// repositories[].preview) and intent-controller's --intent-verification.
+// ProjectVerification configures acceptance verification: maul's agent
+// evaluator checks the approved plan's acceptance outcomes against the
+// intent's Preview (or, for a cli or library surface, its workspace) and
+// reports the result as the maul/acceptance commit status on every open
+// pull request. It needs intent-controller's --intent-evaluator and
+// previews (spec.preview or repositories[].preview) or a surface.
 // Every field is optional: unset means off, or the stated default, never a
 // schema default.
 type ProjectVerification struct {

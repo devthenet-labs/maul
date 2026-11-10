@@ -255,20 +255,20 @@ these keys renders and the ConfigMap is as it was.
 {{- $agents := include "maul.evaluatorAgents" $root }}
 {{- if or (include "maul.previewVerification" $root) $agents }}
 {{- /*
-Acceptance verification (preview.verification.enabled, or the agents-namespace
-tool pod): intent-controller writes PreviewVerification requests, each
-timeout clamped to the slot Job deadline bound preview-controller and
-maul-preview-jobs hold it to. Off, no key renders and the ConfigMap is as it
-was.
+Acceptance verification (the agent evaluator, on previews or with the
+agents-namespace tool pod): intent-controller writes PreviewVerification
+requests, each timeout clamped to the slot Job deadline bound
+preview-controller and maul-preview-jobs hold it to. Off, no key renders and
+the ConfigMap is as it was. The evaluator alone turns verification on
+(MAUL_INTENT_VERIFICATION is removed; intent-controller refuses it).
 */}}
-{{- $_ := set $data "MAUL_INTENT_VERIFICATION" "true" }}
 {{- $_ := set $data "MAUL_INTENT_VERIFY_TIMEOUT_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
 {{- if include "maul.evaluatorConfigured" $root }}
 {{- /*
-The agent evaluator (intentController.verification.evaluator, with
-verification on or the agents-namespace tool pod): rounds, their stages and
-the hand-off. The cost ceiling is in micro-USD, as every cost flag takes it.
-Off, no key renders.
+The agent evaluator (intentController.verification.evaluator, on previews or
+with the agents-namespace tool pod): rounds, their stages and the hand-off.
+The cost ceiling is in micro-USD, as every cost flag takes it. Off, no key
+renders.
 */}}
 {{- $ev := $root.Values.intentController.verification }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATOR" "true" }}

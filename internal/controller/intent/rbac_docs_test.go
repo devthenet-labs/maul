@@ -56,7 +56,8 @@ func TestPreviewVerificationGrantsAreDocumented(t *testing.T) {
 		header = append(header, strings.TrimPrefix(line, "#"))
 	}
 	prose := strings.Join(strings.Fields(strings.Join(header, " ")), " ")
-	for _, want := range []string{"preview.verification.enabled", "jobs", "networkpolicies", "pods (delete", "pods/log",
+	for _, want := range []string{"intentController.verification.evaluator", "jobs", "networkpolicies",
+		"pods (delete", "pods/log",
 		"previewverifications", "previewverifications/status"} {
 		if !strings.Contains(prose, want) {
 			t.Errorf("the preview-controller header does not state %q", want)
@@ -69,15 +70,18 @@ func TestPreviewVerificationGrantsAreDocumented(t *testing.T) {
 func TestPreviewVerificationDocsStateTheGrantsAndCommands(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	for path, wants := range map[string][]string{
-		"docs/configuration/preview-controller.md": {"preview.verification.enabled", "`jobs`", "`networkpolicies`",
+		"docs/configuration/preview-controller.md": {"intentController.verification.evaluator", "`jobs`",
+			"`networkpolicies`",
 			"`pods` (delete", "`pods/log`", "`previewverifications`", "`previewverifications/status`",
 			"--preview-tester-image", "--preview-verify-deadline-max", "preview.verification.deadlineMaxSeconds"},
-		"docs/configuration/intent-controller.md": {"--intent-verification", "--intent-verify-timeout-max",
+		"docs/configuration/intent-controller.md": {"--intent-evaluator", "--intent-verify-timeout-max",
 			"previewverifications", "maul/acceptance"},
 		"docs/intents/acceptance.md": {"maul/acceptance", "/maul verify", "/maul verify fix", "/maul verify --reset",
 			"/maul accept", "maxVerifyFixes", "maxVerifications", "manualGatesStatus", "not an attestation",
 			"cancelled for your review", "Commit statuses", "{{run}}"},
-		"docs/intents/set-up-previews.md": {"acceptance.md", "preview.verification.enabled"},
+		"docs/intents/set-up-previews.md": {"evaluator.md", "intentController.verification.evaluator"},
+		"docs/intents/evaluator.md": {"## Migrating from slice 1", "--intent-verification", "preview.verification.enabled",
+			"--preview-tester-image", "maul.intent.slice1_records"},
 	} {
 		t.Run(path, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join(root, path))

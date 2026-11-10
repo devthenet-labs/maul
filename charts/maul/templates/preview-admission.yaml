@@ -52,7 +52,7 @@ is evaluated like any other.
 */}}
 {{- $unchangedForLB := "request.operation != 'UPDATE' || !(object.spec == oldObject.spec && has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations))" }}
 {{- /*
-Acceptance verification (preview.verification.enabled, helpers in
+Acceptance verification (the agent evaluator with previews, helpers in
 preview-verification-policy.yaml): a tester Job runs in the slot, so the pod
 rules gain a jobs kind (every rule below applies to a Job's pod template,
 under the Job rules of its own), the pod and Job image rules admit the

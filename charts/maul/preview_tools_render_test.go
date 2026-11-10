@@ -55,8 +55,9 @@ var toolConfigKeys = map[string][]string{
 		"MAUL_INTENT_MAX_TOOL_CALLS", "MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS"},
 }
 
-// TestPreviewToolsOffRendersNothing: verification without the evaluator, and
-// the evaluator without verification, render none of the tool pod's slot
+// TestPreviewToolsOffRendersNothing: previews without the evaluator (a
+// stamped tester image alone included: slice 1 no longer runs), and the
+// evaluator without preview-controller, render none of the tool pod's slot
 // pieces: today's isolation selector, LimitRange, grants and Job roles, and
 // no evaluator setting for either controller.
 func TestPreviewToolsOffRendersNothing(t *testing.T) {
@@ -64,9 +65,12 @@ func TestPreviewToolsOffRendersNothing(t *testing.T) {
 		t.Skip("helm not on PATH")
 	}
 	for name, args := range map[string][]string{
-		"verification only": verificationArgs,
-		"evaluator only": append(append([]string{}, previewRuntimeArgs...),
-			"--set", "intentController.verification.evaluator=true"),
+		"a tester image alone": append(append([]string{}, previewRuntimeArgs...),
+			"--set", "preview.verification.testerImage="+testerImage),
+		"evaluator without preview-controller": {
+			"-f", "../../hack/testdata/chart-render/preview-foundation.yaml",
+			"-f", "../../hack/testdata/chart-render/intent-controller.yaml",
+			"--set", "intentController.verification.evaluator=true"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			objs := renderObjects(t, args)

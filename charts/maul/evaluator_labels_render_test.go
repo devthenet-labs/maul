@@ -43,8 +43,7 @@ func TestEvaluatorLabelsPolicyRenders(t *testing.T) {
 			nil, nil},
 		{"off with previews", previewRuntimeArgs, false, nil, nil},
 		{"on, agents namespace only", evaluatorOnArgs, true, []string{egressAgents}, []string{saIntent}},
-		{"on with previews", append(append([]string{}, previewRuntimeArgs...),
-			"--set", "intentController.verification.evaluator=true"), true,
+		{"on with previews", append(append([]string{}, previewRuntimeArgs...), evaluatorSwitchArgs...), true,
 			append([]string{egressAgents}, slots...), []string{saIntent, saPreview}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

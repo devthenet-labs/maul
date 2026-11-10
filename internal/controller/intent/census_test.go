@@ -56,9 +56,10 @@ func TestSlice1Census(t *testing.T) {
 	criteria := &v1alpha1.IntentAcceptance{Digest: "sha256:" + strings.Repeat("a", 64),
 		Criteria: []v1alpha1.AcceptanceCriterion{{ID: "version-served"}}}
 	pruned := &v1alpha1.IntentAcceptance{Digest: "sha256:" + strings.Repeat("a", 64)}
-	mixed := &v1alpha1.IntentAcceptance{Digest: "sha256:" + strings.Repeat("a", 64), OutcomesDigest: "sha256:" + strings.Repeat("b", 64),
+	criteriaDigest, outcomesDigest := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)
+	mixed := &v1alpha1.IntentAcceptance{Digest: criteriaDigest, OutcomesDigest: outcomesDigest,
 		Criteria: []v1alpha1.AcceptanceCriterion{{ID: "version-served"}}}
-	outcomes := &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest, OutcomesDigest: "sha256:" + strings.Repeat("b", 64)}
+	outcomes := &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest, OutcomesDigest: outcomesDigest}
 	empty := &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest}
 	other := censusIntent("elsewhere", v1alpha1.IntentInReview, criteria)
 	other.Namespace = "other"

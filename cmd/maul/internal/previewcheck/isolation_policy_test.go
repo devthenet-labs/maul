@@ -137,18 +137,35 @@ func oracleAccepts(c policyCase, gw, block networkingv1.NetworkPolicyPeer) bool 
 	return ok && found && admits
 }
 
-// TestJudgeSlotPoliciesAcceptsTheChart: the slot policy the chart renders
-// for the setup command's gateway-only values is accepted, and the static
-// check is no stricter than the chart itself.
+// TestJudgeSlotPoliciesAcceptsTheChart: the slot policies the chart renders
+// for the setup command's gateway-only values, with the agent evaluator off
+// and on (the tool pod's own isolation beside preview-isolation), are
+// accepted, and the static check is no stricter than the chart itself.
 func TestJudgeSlotPoliciesAcceptsTheChart(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
-	out, err := exec.CommandContext(t.Context(), "helm", "template", "maul", "../../../../charts/maul",
+	digest := strings.Repeat("1", 64)
+	for name, extra := range map[string][]string{
+		"evaluator off": nil,
+		"evaluator on": {"--set", "intentController.verification.evaluator=true",
+			"--set", "preview.verification.tools.image=ghcr.io/acme/maul/preview-tools@sha256:" + digest,
+			"--set", "preview.verification.tools.browserImage=ghcr.io/acme/maul/preview-browser@sha256:" + digest,
+			"--set", "preview.verification.tools.toolboxImage=ghcr.io/acme/maul/preview-toolbox@sha256:" + digest},
+	} {
+		t.Run(name, func(t *testing.T) { checkChartSlotPolicies(t, extra) })
+	}
+}
+
+// checkChartSlotPolicies renders the gateway-only install with extra and
+// judges every slot's NetworkPolicies.
+func checkChartSlotPolicies(t *testing.T, extra []string) {
+	t.Helper()
+	out, err := exec.CommandContext(t.Context(), "helm", append([]string{"template", "maul", "../../../../charts/maul",
 		"-n", "maul", "-f", "../../../../hack/testdata/chart-render/intent-controller.yaml",
 		"-f", "../previewsetup/testdata/golden/cloudflare-tunnel-k3s/maul-previews.values.yaml",
 		"--set", "previewAuth.keys.renderOffline=true",
-		"--set", "previewController.config.apiServerCIDR=10.43.0.1/32").Output()
+		"--set", "previewController.config.apiServerCIDR=10.43.0.1/32"}, extra...)...).Output()
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
@@ -331,6 +348,91 @@ func TestEdgePolicyJudgementMatchesIngressSh(t *testing.T) {
 			shErr := cmd.Run()
 			if (goErr == nil) != (shErr == nil) {
 				t.Errorf("the CLI says %v, ingress.sh says %v:\n%s", goErr, shErr, stderr.String())
+			}
+		})
+	}
+}
+
+// toolsSplitSlot is an evaluator install's slot: preview-isolation over
+// every Pod but the slot tool pod, admitting the gateway, beside
+// preview-tools-isolation over the tool pod alone, denying both directions,
+// each edited by its mutate (nil: as the chart renders it).
+func toolsSplitSlot(split, tools func(*networkingv1.NetworkPolicy)) []networkingv1.NetworkPolicy {
+	iso := policyWith(slotPolicyName, rule(gatewayPeer("maul")))
+	iso.Spec.PodSelector = metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+		Key: "maul.run/preview-role", Operator: metav1.LabelSelectorOpNotIn, Values: []string{"tools"}}}}
+	iso.Spec.PolicyTypes = []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress}
+	tp := policyWith(toolsPolicyName)
+	tp.Spec.PodSelector = metav1.LabelSelector{MatchLabels: map[string]string{"maul.run/preview-role": "tools"}}
+	tp.Spec.PolicyTypes = []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress}
+	if split != nil {
+		split(iso)
+	}
+	if tools != nil {
+		tools(tp)
+	}
+	return []networkingv1.NetworkPolicy{*iso, *tp}
+}
+
+// TestJudgeSlotPoliciesToolsSplit: with the agent evaluator on the chart
+// splits a slot's isolation in two, preview-isolation over every Pod but
+// the slot tool pod and preview-tools-isolation over that pod alone,
+// admitting nothing. The static check accepts exactly that pair as
+// governing every Pod: the split without the tool pod's own isolation, or
+// beside one that selects another set, leaves no ingress, or admits a peer,
+// is refused. ingress.sh --check-policies reaches the same verdict on each.
+func TestJudgeSlotPoliciesToolsSplit(t *testing.T) {
+	notTools := func(np *networkingv1.NetworkPolicy) {
+		np.Spec.PodSelector.MatchExpressions[0].Values = []string{"tools", "web"}
+	}
+	cases := map[string]struct {
+		policies []networkingv1.NetworkPolicy
+		ok       bool
+	}{
+		"the chart's split":       {toolsSplitSlot(nil, nil), true},
+		"the split alone":         {toolsSplitSlot(nil, nil)[:1], false},
+		"the split excludes more": {toolsSplitSlot(notTools, nil), false},
+		"the tool pod's isolation selects another role": {toolsSplitSlot(nil, func(np *networkingv1.NetworkPolicy) {
+			np.Spec.PodSelector.MatchLabels["maul.run/preview-role"] = "tester"
+		}), false},
+		"the tool pod's isolation governs egress only": {toolsSplitSlot(nil, func(np *networkingv1.NetworkPolicy) {
+			np.Spec.PolicyTypes = []networkingv1.PolicyType{networkingv1.PolicyTypeEgress}
+		}), false},
+		"the tool pod's isolation admits the agents": {toolsSplitSlot(nil, func(np *networkingv1.NetworkPolicy) {
+			np.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{rule(namespacePeer("maul-agents"))}
+		}), false},
+		"the tool pod's isolation under another name": {toolsSplitSlot(nil, func(np *networkingv1.NetworkPolicy) {
+			np.Name = "tools-isolation"
+		}), false},
+	}
+	for _, tool := range []string{"bash", "jq"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not on PATH")
+		}
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "kubectl"), []byte(ingressStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, goErr := judgeSlotPolicies(append([]networkingv1.NetworkPolicy(nil), tc.policies...),
+				"maul-preview-0", "maul", false)
+			if (goErr == nil) != tc.ok {
+				t.Errorf("judgeSlotPolicies = %v, want accepted %v", goErr, tc.ok)
+			}
+			list, err := json.Marshal(networkingv1.NetworkPolicyList{Items: tc.policies})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", ingressSh, "--check-policies", "--image",
+				"registry.example/maul/previews/netprobe:sha-"+strings.Repeat("a", 40), "--no-node-isolation")
+			cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"STUB_POLICIES="+string(list))
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if shErr := cmd.Run(); (shErr == nil) != tc.ok {
+				t.Errorf("ingress.sh = %v, want accepted %v:\n%s", shErr, tc.ok, stderr.String())
 			}
 		})
 	}

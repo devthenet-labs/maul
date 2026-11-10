@@ -274,7 +274,6 @@ func TestAgentsToolPodConfig(t *testing.T) {
 		[]string{"--set", "intentController.verification.agents.resources.sandbox.cpu=2"}))["maul-intent-controller-config"]
 	for key, want := range map[string]string{
 		"MAUL_INTENT_PREVIEWS_ENABLED":       "false",
-		"MAUL_INTENT_VERIFICATION":           "true",
 		"MAUL_INTENT_EVALUATOR":              "true",
 		"MAUL_INTENT_EVALUATOR_AGENTS":       "true",
 		"MAUL_INTENT_TOOLS_IMAGE":            toolsImage,
