@@ -260,11 +260,10 @@ its value, it fails the render naming this key
 | `intentController.verification.agents.resources.tools`   | `250m`, `256Mi`, `2Gi`      | The relay's `cpu`, `memory` and `ephemeralStorage`, requests and limits alike; prepare and the seeds run with them, so the storage holds both pristine trees                                                                                                                                                                         |
 | `intentController.verification.agents.resources.sandbox` | `1`, `2Gi`, `8Gi`           | Each sandbox's `cpu`, `memory` and `ephemeralStorage`, requests and limits alike. CPU is the build-time lever (a cold Go `std` and `cmd` build took 108 s at 1 CPU, about linear): raise it before `buildTimeoutMax`                                                                                                                 |
 
-The three `preview.verification.tools` images are required with the evaluator and previews on, pinned by digest like
-`testerImage`; the release workflow stamps them. `preview.verification.testerImage` is optional and used only with the
-evaluator on: left empty, no tester image is admitted in a slot or given to preview-controller (without the evaluator a
-stamped one is inert). The slot quota grows by one tool pod (about 2.5 CPU and 2 GiB) beside a full Preview, so preview
-nodes need that room per concurrently evaluated slot. Roll back by setting
+The three `preview.verification.tools` images are required with the evaluator and previews on, pinned by digest; the
+release workflow stamps them. `preview.verification.testerImage` is removed with the preview tester: set, whatever its
+value, it fails the render with the migration (drop the key). The slot quota grows by one tool pod (about 2.5 CPU and 2
+GiB) beside a full Preview, so preview nodes need that room per concurrently evaluated slot. Roll back by setting
 `intentController.verification.evaluator: false`: verification is then off, not slice 1's criteria; an open intent's
 `maul/acceptance` becomes the final error "verification switched off", never a green, and its preview link is handed
 over at once. See the [preview-controller](../../docs/configuration/preview-controller.md#the-agent-evaluators-tool-pod)

@@ -5,11 +5,11 @@
 # ConfigMap, namespace or cluster-scoped permissions. The separate
 # preview.enabled foundation must be present before any workload can run.
 # Acceptance verification (intentController.verification.evaluator, off by default) adds,
-# in each slot, batch jobs (create, get, list, delete: the tester Job),
+# in each slot, batch jobs (create, get, list, delete: the tool Job),
 # networking.k8s.io networkpolicies (create, get, list, update, delete: one
-# edge policy per part), pods (delete beside list: the sweep removes a tester
-# pod whose Job is gone) and pods/log (get: the tester's result and component
-# log tails), and in the release namespace previewverifications (get, list,
+# edge policy per part), pods (delete beside list: the sweep removes a
+# verification pod whose Job is gone) and pods/log (get: the tool pod's
+# ledger and component log tails), and in the release namespace previewverifications (get, list,
 # watch: the requests) and previewverifications/status (update: the
 # results). Admission fences each: maul-preview-jobs,
 # maul-preview-networkpolicies and maul-preview-verifications.
@@ -127,7 +127,7 @@ rules:
       resources: [replicasets]
       verbs: [list]
     {{- if $verify }}
-    # Acceptance verification: the tester Job (maul-preview-jobs), its edge
+    # Acceptance verification: the tool Job (maul-preview-jobs), its edge
     # policies (maul-preview-networkpolicies) and the logs it reads results
     # and evidence from.
     - apiGroups: [batch]

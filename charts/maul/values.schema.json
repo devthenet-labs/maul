@@ -844,12 +844,12 @@
                     "additionalProperties": false,
                     "properties": {
                         "enabled": {"type": "boolean", "description": "REMOVED: the agent evaluator (intentController.verification.evaluator) is verification's one switch; set, whatever its value, this key fails the render naming it (kept in the schema only so the render can say so, for one release)"},
-                        "testerImage": {"type": "string", "description": "The preview-tester image, pinned by digest; optional, used only with intentController.verification.evaluator on; the render checks its grammar and that it lies under neither the preview prefix nor an agent registry"},
+                        "testerImage": {"type": "string", "description": "REMOVED with the preview tester: the agent evaluator's tool pod (preview.verification.tools) verifies; set, whatever its value, this key fails the render naming it (kept in the schema only so the render can say so, for one release)"},
                         "deadlineMaxSeconds": {"type": "integer", "minimum": 60, "maximum": 3600, "description": "The longest activeDeadlineSeconds a slot Job may carry; also rendered as preview-controller's --preview-verify-deadline-max and intent-controller's --intent-verify-timeout-max, which accept 1m to 1h"},
                         "tools": {
                             "type": "object",
                             "additionalProperties": false,
-                            "description": "The tool pod's images, each pinned by digest and checked as testerImage is: all three with intentController.verification.evaluator and previewController.enabled on, image alone with intentController.verification.agents.enabled on",
+                            "description": "The tool pod's images, each pinned by digest and lying under neither the preview prefix nor an agent registry: all three with intentController.verification.evaluator and previewController.enabled on, image alone with intentController.verification.agents.enabled on",
                             "properties": {
                                 "image": {"type": "string", "description": "The preview-tools image: the tool pod's main container, maul's relay"},
                                 "browserImage": {"type": "string", "description": "The preview-browser image: the browser sidecar, headless Chromium behind the keyed CDP shim"},

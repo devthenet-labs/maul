@@ -61,8 +61,9 @@
 {{- $slots := list }}
 {{- range $i := until (int $p.slotCount) }}{{ $slots = append $slots (printf "maul-preview-%d" $i) }}{{ end }}
 {{- /* The slot quota: preview.quota over the defaults, today's without
-       acceptance verification and with it room for the tester (§5.7 of the
-       acceptance design; the defaults are to be measured on a live slot).
+       acceptance verification and with it room for a verification Job (§5.7
+       of the acceptance design; the defaults are to be measured on a live
+       slot), which the tool pod's own room adds to.
        The Job and NetworkPolicy counts render with verification on, or
        where set. */}}
 {{- $verify := include "maul.previewVerification" . }}
@@ -213,8 +214,8 @@ spec:
     # Sized for one Preview of up to four components: a Service each plus
     # slot 0's placeholder, and room for every component's rolling update
     # to start its new Pod (maxSurge 1) beside the one still serving. With
-    # acceptance verification, also its tester Job's pod and one edge policy
-    # per part beside preview-isolation (preview.quota sets each).
+    # acceptance verification, also a verification Job's pod and one edge
+    # policy per part beside preview-isolation (preview.quota sets each).
     hard:
         pods: {{ $quota.pods | toString | quote }}
         requests.cpu: {{ $quota.requests.cpu | toString | quote }}

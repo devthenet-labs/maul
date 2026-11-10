@@ -153,14 +153,13 @@ func testIngressProbePods(t *testing.T, env *envtest.Environment, placement ...s
 }
 
 // probeArgs render the chart as a gateway-only k3s install with acceptance
-// verification on (the agent evaluator, with a tester image beside it): the
+// verification on (the agent evaluator): the
 // shape the desktop live gate runs the probes on.
 var probeArgs = append([]string{
 	"-f", "../../hack/testdata/chart-render/intent-controller.yaml",
 	"-f", "../../cmd/maul/internal/previewsetup/testdata/golden/cloudflare-tunnel-k3s/maul-previews.values.yaml",
 	"--set", "previewAuth.keys.renderOffline=true",
 	"--set", "previewController.config.apiServerCIDR=10.43.0.1/32",
-	"--set", "preview.verification.testerImage=" + testerImage,
 }, evaluatorSwitchArgs...)
 
 // probeImage is a netprobe image under that install's preview prefix.

@@ -17,48 +17,28 @@ maul.previewVerification: the slot verification switch, checked once for
 every template that renders a piece of it. Returns "true" with it on, "" off.
 The agent evaluator is verification's one switch (S4): on with
 previewController.enabled (which needs the slot foundation and
-intent-controller), and its tool images maul.previewTools checks; the tester
-image is optional and checked only when set (maul.previewTester; the
-release stamps it, so without the evaluator it is inert, never refused).
-The removed preview.verification.enabled fails the render, whatever its
-value, naming the key that replaced it: slice 1 alone (verification without
-the evaluator) no longer runs.
+intent-controller), and its tool images maul.previewTools checks. Two
+removed keys fail the render, whatever their value, each naming what
+replaced it: preview.verification.enabled (slice 1 alone, verification
+without the evaluator, no longer runs) and preview.verification.testerImage
+(the preview tester is deleted, and its image is no slot's).
 */}}
 {{- define "maul.previewVerification" -}}
 {{- $v := .Values.preview.verification | default dict -}}
 {{- if hasKey $v "enabled" }}{{ fail "preview.verification.enabled is removed: the agent evaluator is verification's one switch. Drop the key and set intentController.verification.evaluator: true (verification then runs in the preview slots whenever previewController.enabled is true), or leave the evaluator off for no verification; see docs/intents/evaluator.md#migrating-from-slice-1" }}{{ end -}}
+{{- if hasKey $v "testerImage" }}{{ fail "preview.verification.testerImage is removed: the preview tester is deleted, slice 1's acceptance criteria no longer run, and the agent evaluator's tool pod (preview.verification.tools, stamped by the release) verifies. Drop the key, and any step that stamps it; see docs/intents/evaluator.md#migrating-from-slice-1" }}{{ end -}}
 {{- if and (include "maul.evaluatorEnabled" .) .Values.previewController.enabled -}}
-{{- $_ := include "maul.previewTester" . -}}
 true
 {{- end -}}
 {{- end }}
 {{- /*
-maul.previewTester: the tester image the slot policies admit and
-preview-controller runs criteria verifications with, checked, or "" when
-none is set. Call it only with verification on.
-*/}}
-{{- define "maul.previewTester" -}}
-{{- if (.Values.preview.verification | default dict).testerImage -}}
-{{- include "maul.previewTesterImage" . -}}
-{{- end -}}
-{{- end }}
-{{- /*
-maul.previewTesterImage: preview.verification.testerImage, checked. The slot
-policies admit it by this exact reference beside the preview prefix, so it
-must be pinned by digest and must be neither a preview runtime image (under
-the preview image prefix: built from an unreviewed pull request) nor under
-an agent registry (invariant 17 made symmetric: no image is both a slot
-workload and an agent sandbox). Compared on segment boundaries through
-maul.registryPathKey, as the prefix overlap check is.
-*/}}
-{{- define "maul.previewTesterImage" -}}
-{{- include "maul.previewMaulImage" (dict "root" . "key" "testerImage" "what" "the digest-pinned preview-tester image" "when" "preview.verification.testerImage is set") -}}
-{{- end }}
-{{- /*
 maul.previewMaulImage: one of maul's own slot images, preview.verification.<key>
-(dict root, key, what, when), checked as the tester's always was: pinned by
-digest, the registry named, and under neither the preview image prefix nor
-an agent registry. Returns the reference.
+(dict root, key, what, when), checked: pinned by digest, the registry named,
+and under neither the preview image prefix (built from unreviewed pull
+requests) nor an agent registry (invariant 17 made symmetric: no image is
+both a slot workload and an agent sandbox), compared on segment boundaries
+through maul.registryPathKey, as the prefix overlap check is. Returns the
+reference.
 */}}
 {{- define "maul.previewMaulImage" -}}
 {{- $root := .root -}}
@@ -124,7 +104,7 @@ maul.previewVerifyDeadlineSeconds: preview.verification.deadlineMaxSeconds
 on a slot Job's activeDeadlineSeconds, preview-controller's
 --preview-verify-deadline-max and intent-controller's
 --intent-verify-timeout-max (maul.previewVerifyDeadlineMax renders it as a
-Go duration). A request's timeout, so its tester Job's deadline, can then
+Go duration). A request's timeout, so its tool Job's deadline, can then
 never exceed what admission allows. The schema holds it to [60, 3600], the
 range both flags accept.
 */}}

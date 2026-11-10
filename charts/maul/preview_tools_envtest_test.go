@@ -133,7 +133,9 @@ func startToolsEnvWith(t *testing.T, helmArgs []string) (*envtest.Environment, c
 // agent evaluator's tool pod adds, as the identities they judge: only
 // preview-controller's Job runs it, with exactly the three images in their
 // own containers, its key Secret and tool ConfigMap mounted where they
-// belong, and every other slot pod rule unchanged; its per-verification
+// belong, and every other slot pod rule unchanged; a Job or pod in the
+// retired tester's image, whatever its role, is refused, since no exact
+// image is admitted beside the preview prefix; its per-verification
 // ingress policy admits exactly its own evaluator; nothing in the slot
 // reaches it; preview-controller's new Secret and ConfigMap grants reach
 // only its own objects; and the isolation probe's evaluator run is
@@ -151,34 +153,6 @@ func TestPreviewToolPodPoliciesAgainstAPIServer(t *testing.T) {
 	t.Run("isolation probe evaluator run", func(t *testing.T) { checkEvaluatorProbeObjects(t, admin, as(saIntent)) })
 }
 
-// TestPreviewToolPodPoliciesWithoutTheTester drives the slot policies of an
-// evaluator-only install (no tester image): preview-controller's tool Job
-// and the pod the Job controller makes of it are admitted under exactly the
-// tool rules, while a Job or pod in the tester's image, whatever its role,
-// is refused, since no exact image is admitted beside the preview prefix.
-func TestPreviewToolPodPoliciesWithoutTheTester(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS not set; run via mise run envtest")
-	}
-	_, admin, as := startToolsEnvWith(t, append(append([]string{}, evaluatorOnlyArgs...),
-		"--set", "intentController.verification.evaluateTimeout=5m"))
-	pc := as(saPreview)
-	admittedAs(t, pc, toolJob("tools"))
-	admittedAs(t, pc, mutateJob(toolJob("no-sidecars"), func(j *batchv1.Job) {
-		j.Spec.Template.Spec.InitContainers = nil
-	}))
-	refusedAs(t, pc, testerJob("tester"), jobImage, "a tester Job without a tester image")
-	refusedAs(t, pc, mutateJob(toolJob("tester-in-tools"), func(j *batchv1.Job) {
-		j.Spec.Template.Spec.Containers[0].Image = testerImage
-	}), toolShapeDenied, "a tool Job in the tester image")
-	j := testerJob("pod")
-	refusedAs(t, admin, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "tester-pod", Namespace: "maul-preview-0",
-		Labels: j.Spec.Template.Labels}, Spec: j.Spec.Template.Spec}, jobImage, "a tester pod without a tester image")
-	t.Run("pods", func(t *testing.T) { checkToolPods(t, admin, as(saJobController)) })
-	t.Run("networkpolicies", func(t *testing.T) { checkToolPolicies(t, admin, pc) })
-	t.Run("secrets and configmaps", func(t *testing.T) { checkToolObjects(t, admin, pc) })
-}
-
 func checkToolJobs(t *testing.T, admin, pc client.Client) {
 	admittedAs(t, pc, toolJob("tools"))
 	admittedAs(t, pc, mutateJob(toolJob("no-sidecars"), func(j *batchv1.Job) {
@@ -188,6 +162,13 @@ func checkToolJobs(t *testing.T, admin, pc client.Client) {
 		j.Spec.Template.Spec.InitContainers = j.Spec.Template.Spec.InitContainers[:1]
 	}))
 	admittedAs(t, pc, testerJob("tester"))
+	retired := func(j *batchv1.Job) { j.Spec.Template.Spec.Containers[0].Image = testerImage }
+	refusedAs(t, pc, mutateJob(testerJob("retired-tester"), retired), jobImage, "a Job in the retired tester image")
+	refusedAs(t, pc, mutateJob(toolJob("tester-in-tools"), retired), toolShapeDenied,
+		"a tool Job in the retired tester image")
+	retiredPod := testerPodNamed("retired-tester-pod")
+	retiredPod.Spec.Containers[0].Image = testerImage
+	refusedAs(t, admin, retiredPod, jobImage, "a pod in the retired tester image")
 	// maul-evaluator-labels refuses it too; either refusal will do.
 	if err := admin.Create(t.Context(), toolJob("operator"), client.DryRunAll); !deniedWith(err, jobOnlyPC,
 		evWriterDenied) {
@@ -273,14 +254,15 @@ func checkToolJobs(t *testing.T, admin, pc client.Client) {
 	}
 }
 
-// toTester relabels a tool Job as a tester Job in the tester's image.
+// toTester relabels a tool Job as a Job of another role (testerJob's), in
+// an image under the preview prefix, which today's rules judge.
 func toTester(j *batchv1.Job) {
 	for _, l := range []map[string]string{j.Labels, j.Spec.Template.Labels} {
 		delete(l, evEvaluation)
 		l[evPreviewRole] = "tester"
 	}
 	j.Spec.Template.Labels["maul.run/preview-part"] = "tester"
-	j.Spec.Template.Spec.Containers[0].Image = testerImage
+	j.Spec.Template.Spec.Containers[0].Image = previewImage
 }
 
 // checkToolPods: the pod the Job controller creates for a tool Job is
