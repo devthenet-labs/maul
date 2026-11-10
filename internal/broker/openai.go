@@ -307,7 +307,8 @@ func inspectOpenAIBody(body []byte, _ []string) (inspection, error) {
 func walkOpenAIReferences(v any) error {
 	switch x := v.(type) {
 	case map[string]any:
-		if typ, _ := x["type"].(string); typ == "item_reference" {
+		typ, _ := x["type"].(string)
+		if typ == "item_reference" {
 			return errors.New("item references are not brokered; send the item itself")
 		}
 		for _, key := range []string{"file_id", "file_url"} {
@@ -317,6 +318,16 @@ func walkOpenAIReferences(v any) error {
 		}
 		if raw, ok := x["image_url"]; ok && raw != nil && !inlineImage(raw) {
 			return errors.New("image URLs are not brokered; send the image inline as a data: URI")
+		}
+		// A tools list anywhere but a namespace (whose list its parent
+		// checks) is held to the top-level rule: codex 0.167 declares a
+		// GPT-6 model's tools in an additional_tools input item, and a
+		// server tool there would reach the internet as surely as one in
+		// "tools".
+		if tools, ok := x["tools"].([]any); ok && typ != openaiNamespaceTool {
+			if err := checkOpenAITools(tools, true); err != nil {
+				return err
+			}
 		}
 		for key, child := range x {
 			if openaiCallerData(x, key) {

@@ -131,9 +131,13 @@ claude run (with `attribution.mode: attribute`, which turns usage measurement on
   model is used. Under `egressBroker.limits.unit: cost`, an OpenAI model the registry does not price is charged at the
   dearest rate, as for claude.
 - **Refusals.** A limit refusal reaches codex as a 429 in OpenAI's envelope (`insufficient_quota`), and codex ends its
-  turn after its one request. Codex (rust-v0.153.4) reports only the status, not the broker's message, so the stage
-  reads `runtime_error`, not `budget_exceeded`; the broker's audit line has the reason
+  turn after its one request. Codex (rust-v0.167.0) reports only `Quota exceeded`, not the broker's message, so the
+  stage reads `runtime_error`, not `budget_exceeded`; the broker's audit line has the reason
   ([agent-runner](agent-runner.md#codex-runs-brokered)).
+- **Models.** The GPT-5.6 and GPT-6 models (`gpt-5.6-*`, `gpt-6-astra`) run tools only through codex's code mode,
+  whose host (`codex-code-mode-host`) the codex runner image does not carry: on them codex's one shell tool fails
+  closed, so a codex run on them can run no command. Use `openai/gpt-5.3-codex`, the default, on codex until
+  the image carries that host.
 
 ## Verifying codex live
 

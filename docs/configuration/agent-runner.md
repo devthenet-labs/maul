@@ -287,8 +287,8 @@ command line. Every codex run also sets `analytics.enabled=false`, `otel.metrics
 `.codex/config.toml` cannot set `model_provider` or `model_providers`, so it cannot point codex away from the broker,
 and the pod's network policy admits nothing else anyway. Codex's runs are measured by the broker (their usage settles
 `measured`, priced from the registry's OpenAI rates) and count toward its limits. A spend-limit refusal ends codex's
-turn after its one request, but codex (rust-v0.153.4) reports only the status
-(`exceeded retry limit, last status: 429 Too Many Requests`), not the broker's message, so such a stage reads
+turn after its one request, but codex (rust-v0.167.0) reports only what the error code means
+(`Quota exceeded. Check your plan and billing details.`), not the broker's message, so such a stage reads
 `runtime_error`, not `budget_exceeded`.
 
 **Migration.** Codex used to run with the OpenAI key in the pod (`--codex-secret`, `--codex-secret-key`,

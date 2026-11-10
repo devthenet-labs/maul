@@ -164,7 +164,9 @@ func builtins() []Model {
 			// tokens). GPT-6 also bills cache writes, at 1.25x input for a
 			// 30-minute write and 2.5x for a 12-hour one, which the broker's
 			// Responses dialect does not yet read apart from fresh input, so
-			// a write is priced at the base input rate there.
+			// a write is priced at the base input rate there. Like GPT-5.6,
+			// codex runs it in code mode only, whose host the codex runner
+			// image does not carry, so on maul's codex it runs no command.
 			ID: "openai/gpt-6-astra", ProviderID: ProviderOpenAI, Name: "GPT-6 Astra",
 			InputUSD: usd(10.00), CachedInputUSD: usd(1.00), OutputUSD: usd(50.00),
 			Supported: map[string]string{HarnessCodex: "gpt-6-astra", HarnessCopilot: "gpt-6-astra"},

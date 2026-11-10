@@ -4,6 +4,7 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -295,6 +296,22 @@ func TestInspectOpenAIBody(t *testing.T) {
 			`"output":[{"type":"item_reference","id":"msg_1"}]}]}`, "item references", "", 0},
 		{"item_reference in a function's parameters", `{"model":"m","tools":[{"type":"function","name":"x",` +
 			`"parameters":{"type":"item_reference","properties":{}}}]}`, "", "m", 0},
+		// GPT-6 models on codex 0.167 declare tools in an additional_tools
+		// input item rather than in "tools": held to the same rule.
+		{"additional_tools of namespaced functions", `{"model":"m","input":[{"type":"additional_tools",` +
+			`"role":"developer","tools":[{"type":"namespace","name":"functions","tools":[` + fn + `]}]}]}`,
+			"", "m", 0},
+		{"additional_tools with a server tool", `{"input":[{"type":"additional_tools","role":"developer",` +
+			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"additional_tools with a connector", `{"input":[{"type":"additional_tools","tools":[` +
+			`{"type":"function","name":"x","connector_id":"c"}]}]}`, `tool field "connector_id"`, "", 0},
+		{"additional_tools namespace with a server tool", `{"input":[{"type":"additional_tools","tools":[` +
+			`{"type":"namespace","name":"n","tools":[{"type":"mcp","server_label":"x"}]}]}]}`,
+			`server tool "mcp"`, "", 0},
+		{"tools list in any item", `{"input":[{"type":"message","role":"user","content":[],` +
+			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"tools list in a function's parameters", `{"model":"m","tools":[{"type":"function","name":"x",` +
+			`"parameters":{"tools":[{"type":"web_search"}]}}]}`, "", "m", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -703,21 +720,35 @@ func TestOpenAICutStreamChargesOutputBound(t *testing.T) {
 }
 
 // TestInspectOpenAICodexRequest runs a request the real codex CLI sent
-// (rust-v0.153.4, the release Dockerfile.codex-agent-runner pins, pointed
+// (rust-v0.167.0, the release Dockerfile.codex-agent-runner pins, pointed
 // at a recording server through the brokered provider config; instructions
 // and message texts elided) through the inspection: codex sends its
 // sub-agent tools as a namespace, which the route must forward, or every
-// brokered codex run would be refused at its first request.
+// brokered codex run would be refused at its first request. On gpt-6-astra
+// it sends no "tools" at all but an additional_tools input item of
+// namespaces, which is forwarded under the same rule.
 func TestInspectOpenAICodexRequest(t *testing.T) {
-	body, err := os.ReadFile("testdata/codex-0.153.4-responses-request.json")
+	for file, model := range map[string]string{
+		"testdata/codex-0.167.0-responses-request.json":             "gpt-5.3-codex",
+		"testdata/codex-0.167.0-gpt-6-astra-responses-request.json": "gpt-6-astra",
+	} {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		insp, err := inspectOpenAIBody(body, nil)
+		if err != nil {
+			t.Fatalf("%s: a recorded codex request is refused: %v", file, err)
+		}
+		if insp.model != model || insp.maxTokens != 0 {
+			t.Fatalf("%s: inspection = %+v", file, insp)
+		}
+	}
+	astra, err := os.ReadFile("testdata/codex-0.167.0-gpt-6-astra-responses-request.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	insp, err := inspectOpenAIBody(body, nil)
-	if err != nil {
-		t.Fatalf("a recorded codex request is refused: %v", err)
-	}
-	if insp.model != "gpt-5.3-codex" || insp.maxTokens != 0 {
-		t.Fatalf("inspection = %+v", insp)
+	if !bytes.Contains(astra, []byte(`"additional_tools"`)) {
+		t.Fatal("the gpt-6-astra fixture lost its additional_tools item: re-record it")
 	}
 }
