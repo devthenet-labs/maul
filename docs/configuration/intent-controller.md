@@ -342,9 +342,9 @@ preview-controller never touches such a request, and with the agents tool pod on
   in `<verification>-ledger`. A log that does not hold, or that holds the round's key, is `Infra` (`ledger-mismatch`); a
   head that did not build is `Infra` (`tools-build-failed`), never a fail: its relay finishes after the two builds
   without ever becoming ready, so `status.tools` is never written and no evaluate run is launched. A tree that built but
-  whose sandbox could not keep the copy of its tree and build output every check run starts from (a full work volume, as
-  a rule) is `Infra` (`kept-copy-failed`) the same way: its relay finishes after the two builds. A replay round whose
-  relay finished before its replay's end (its wall clock, or its container told to stop) is `Infra`
+  whose sandbox could not keep the copy of its tree, build output and `HOME` every check run starts from (together over
+  768 MiB, or a full work volume) is `Infra` (`kept-copy-failed`) the same way: its relay finishes after the two builds.
+  A replay round whose relay finished before its replay's end (its wall clock, or its container told to stop) is `Infra`
   (`replay-incomplete`). Only a base build that ran and failed marks the base unbuildable; a base timeout or a build
   maul could not run does not.
 - **Teardown.** Once the round settles, its Job and Secret are deleted: at once for a pod still running, after 10
@@ -356,15 +356,15 @@ preview-controller never touches such a request, and with the agents tool pod on
 
 **Capacity.** Requests equal limits: `tools` 250m, 256Mi, 2Gi of ephemeral storage (prepare and the seeds run within it,
 so it holds both pristine trees), each sandbox 1 CPU, 2Gi, 8Gi (about 3.5 GB of Go caches for a large tree, plus the
-tree, its build output and the copy of both its check runs start from in a 2Gi work volume, home and `/tmp`), about 2.25
-CPU and 4.25 GiB a pod (`--intent-tool-resources`, chart `intentController.verification.agents.resources`). Measured on
-a 16-CPU desktop: a pod started in 3 seconds with its images cached; a mid-sized Go tree built cold at both sides in
-parallel in 13 seconds, warm in under 0.1, with `go vet` and the tests 6 to 10 seconds and a 383 MiB memory peak; a
-heavy cold build (`go build -a std cmd`) took 108 seconds per side at 1 CPU, with a 1.3 GiB working set. **CPU is the
-tight dimension**: two tool pods, an evaluator and three preview slots at their limits take 14.5 of 16 CPU, so a third
-tool pod does not fit, and the default `--intent-max-tool-pods` is 2. For big cold builds raise the sandbox CPU before
-the build timeout (a cold build scales about linearly with it). Each round's verification may take the evaluate timeout
-plus one build's timeout plus five minutes, at most 75 minutes.
+tree, its build output and the copy of both and of home its check runs start from in a 2Gi work volume, home and
+`/tmp`), about 2.25 CPU and 4.25 GiB a pod (`--intent-tool-resources`, chart
+`intentController.verification.agents.resources`). Measured on a 16-CPU desktop: a pod started in 3 seconds with its
+images cached; a mid-sized Go tree built cold at both sides in parallel in 13 seconds, warm in under 0.1, with `go vet`
+and the tests 6 to 10 seconds and a 383 MiB memory peak; a heavy cold build (`go build -a std cmd`) took 108 seconds per
+side at 1 CPU, with a 1.3 GiB working set. **CPU is the tight dimension**: two tool pods, an evaluator and three preview
+slots at their limits take 14.5 of 16 CPU, so a third tool pod does not fit, and the default `--intent-max-tool-pods`
+is 2. For big cold builds raise the sandbox CPU before the build timeout (a cold build scales about linearly with it).
+Each round's verification may take the evaluate timeout plus one build's timeout plus five minutes, at most 75 minutes.
 
 **Rollback.** Set `intentController.verification.agents.enabled: false`. intent-controller restarts without the agents
 host, its sweep deletes every tool Job on its next pass, and each Project with a cli or library surface carries

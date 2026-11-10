@@ -1344,8 +1344,8 @@ intentController:
             # side's caches (Go build and npm, about 3.5 GB for a maul-sized
             # tree; the module cache stays the image's own, or a go
             # profile's under its 2Gi /tmp), its tree and build output with
-            # the copy of both its check runs start from (2Gi) and its
-            # home, about 7.8Gi in all; tools' covers the relay's
+            # the copy of both and of its home its check runs start from
+            # (2Gi) and its home, about 7.8Gi in all; tools' covers the relay's
             # scratch, prepare's, maul-bin and both pristine trees (prepare
             # and the seeds run with tools' resources), about 1.8Gi. Lower
             # either and the kubelet evicts a full build. /dev/shm (16Mi,

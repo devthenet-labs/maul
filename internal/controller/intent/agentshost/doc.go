@@ -40,7 +40,8 @@
 //     status.base, the head build's part (previewtools.BuildPart) and the
 //     <pv>-ledger ConfigMap; a head that did not build is Infra
 //     tools-build-failed, never a fail, and a tree built but not kept for
-//     its check runs Infra kept-copy-failed;
+//     its check runs (its tree, output and HOME over toolexec.MaxKeptBytes,
+//     or a full work volume) Infra kept-copy-failed;
 //   - tears the Job and its Secret down once the verification is settled,
 //     after a linger for a finished pod so the isolation probe's ledger row
 //     can still read it (S2-21), and at once for one still running.
