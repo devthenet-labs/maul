@@ -257,9 +257,11 @@ pod, writes its own checks, and holds the preview link until it has confirmed th
 | `intentController.verification.agents.resources.sandbox` | `1`, `2Gi`, `8Gi`           | Each sandbox's `cpu`, `memory` and `ephemeralStorage`, requests and limits alike. CPU is the build-time lever (a cold Go `std` and `cmd` build took 108 s at 1 CPU, about linear): raise it before `buildTimeoutMax`                                                                                                                 |
 
 The three `preview.verification.tools` images are required with the evaluator and verification on, pinned by digest like
-`testerImage`; the release workflow stamps them. The slot quota then grows by one tool pod (about 2.5 CPU and 2 GiB)
-beside a full Preview, so preview nodes need that room per concurrently evaluated slot. Roll back by setting
-`intentController.verification.evaluator: false`: verification returns to criteria. See the
+`testerImage`; the release workflow stamps them. With the evaluator on, `preview.verification.testerImage` is optional:
+left empty, no tester image is admitted in a slot or given to preview-controller. The slot quota then grows by one tool
+pod (about 2.5 CPU and 2 GiB) beside a full Preview, so preview nodes need that room per concurrently evaluated slot.
+Roll back by setting `intentController.verification.evaluator: false`: verification returns to criteria, which needs
+`testerImage` set again. See the
 [preview-controller](../../docs/configuration/preview-controller.md#the-agent-evaluators-tool-pod) for the tool pod's
 grants and policies.
 
