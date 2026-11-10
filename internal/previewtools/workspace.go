@@ -277,6 +277,12 @@ func BuildPart(a BuildArgs, exit int) acceptance.PartFact {
 	return p
 }
 
+// RefusalExit reports an exit a build can refuse its tree with: a normal
+// exit of 1 to 125. -1 is a signal; a shell reports what ended its child by
+// exit code alone, 126 and 127 a command it could not run and 128+N signal
+// N, which is no evidence about the tree (review VC-1).
+func RefusalExit(exit int) bool { return exit >= 1 && exit <= 125 }
+
 // nonZero is exit, or 1 for an exit of 0 that did not build.
 func nonZero(exit int) int {
 	if exit == 0 {
@@ -333,7 +339,7 @@ const buildCutMarker = "[maul: the build's output is cut to its end]\n"
 
 // buildSide runs side's build once its shim serves. Only a build that ran
 // and exited 0, leaving nothing behind, built. Only one that ran to its own
-// end and refused the tree failed: a normal exit of 1 or more, clean, its
+// end and refused the tree failed: a normal exit (RefusalExit), clean, its
 // output whole and no environmental marker in it (environmentalFailure, the
 // compile cause's screen). Anything else (left processes, a signal, output
 // cut, an environmental failure, a build maul could not run) is an error:
@@ -362,7 +368,7 @@ func (r *Relay) buildSide(ctx context.Context, side toolwire.Side) built {
 		res.Output += "\nmaul: processes the build started outlived it"
 	case res.Exit == 0:
 		args.Result = maulv1.BuildBuilt
-	case res.Exit >= 1 && !res.Truncated && !environmentalFailure(res.Output):
+	case RefusalExit(res.Exit) && !res.Truncated && !environmentalFailure(res.Output):
 		args.Result = maulv1.BuildFailed
 	}
 	return built{args: args, res: res}

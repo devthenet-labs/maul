@@ -344,7 +344,7 @@ func checkLedgerConfigMap(t *testing.T, h *harness) {
 // is not a normal one) is not, and its runs carry no cause (a base run is
 // then unsure, never n/a: review VC-1).
 func TestCollectBuilds(t *testing.T) {
-	signal := -1
+	signal, shellSignal := -1, 139
 	for _, tc := range []struct {
 		head, base  v1alpha1.BuildResult
 		baseExit    *int
@@ -361,6 +361,8 @@ func TestCollectBuilds(t *testing.T) {
 		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, nil, v1alpha1.VerificationObserved,
 			v1alpha1.VerificationReasonOK, true},
 		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, &signal, v1alpha1.VerificationObserved,
+			v1alpha1.VerificationReasonOK, false},
+		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, &shellSignal, v1alpha1.VerificationObserved,
 			v1alpha1.VerificationReasonOK, false},
 		{v1alpha1.BuildBuilt, v1alpha1.BuildTimeout, nil, v1alpha1.VerificationObserved,
 			v1alpha1.VerificationReasonOK, false},

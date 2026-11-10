@@ -251,7 +251,7 @@ func TestLibraryBuild(t *testing.T) {
 }
 
 // TestBuildResults: each side's build result. A build failed only when it
-// ran to its own end and refused the tree (a normal exit of 1 or more,
+// ran to its own end and refused the tree (a normal exit of 1 to 125,
 // clean, its output whole, no environmental marker); anything else is
 // maul's error, never failed, since a failed base is unbuildable and that
 // waives rule 5 (review VC-1).
@@ -275,6 +275,14 @@ func TestBuildResults(t *testing.T) {
 		{"left processes", false, toolexec.Result{Unclean: true}, nil, maulv1.BuildError},
 		{"left processes after failing", false, toolexec.Result{Exit: 2, Unclean: true}, nil, maulv1.BuildError},
 		{"killed by a signal", false, toolexec.Result{Exit: -1}, nil, maulv1.BuildError},
+		// A shell reports what ended its child by exit code alone: 126 and
+		// 127 a command it could not run, 128+N signal N.
+		{"a shell's child segfaulted", false, toolexec.Result{Exit: 139,
+			Output: "sh: line 1:    12 Segmentation fault      go build ./...\n"}, nil, maulv1.BuildError},
+		{"a shell's command not found", false, toolexec.Result{Exit: 127, Output: "sh: 1: make: not found\n"}, nil,
+			maulv1.BuildError},
+		{"a shell's command not executable", false, toolexec.Result{Exit: 126}, nil, maulv1.BuildError},
+		{"failed at the highest plain exit", false, toolexec.Result{Exit: 125}, nil, maulv1.BuildFailed},
 		{"output cut", false, toolexec.Result{Exit: 1, Truncated: true, Output: toolexec.TailMarker + "x.go:1:1: no"},
 			nil, maulv1.BuildError},
 		{"could not start", false, toolexec.Result{Exit: 127,

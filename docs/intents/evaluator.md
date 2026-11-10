@@ -531,10 +531,11 @@ maul's calls refused, never answered by the other side, so the outcomes it touch
   launched and none is paid for. CI built that head green, so it is maul's trouble, never the change's: every outcome is
   unsure ("its own build of the pull request did not finish"), and no fix round starts.
 - **A base that does not build** is the base's fact (its build ran to its own end and refused the tree: a normal exit of
-  1 or more, nothing left running, its output whole, and no sign of an environmental failure such as a killed compiler,
-  memory, disk or a module fetch): every check's base run is recorded as having no base, and a pass rests on the other
-  rules, marked **no base comparison**. A base build that timed out, was killed, failed for an environmental reason or
-  that maul could not run is not that: it gives no base evidence (below).
+  1 to 125 (a shell reports a killed child as 128 or more), nothing left running, its output whole, and no sign of an
+  environmental failure such as a killed compiler, memory, disk or a module fetch): every check's base run is recorded
+  as having no base, and a pass rests on the other rules, marked **no base comparison**. A base build that timed out,
+  was killed, failed for an environmental reason or that maul could not run is not that: it gives no base evidence
+  (below).
 - **Every check runs at both**, the head then the base, each alone under its own fresh run token: the replay of every
   saved check, and the confirmation of every proposed one. A check has no side: the same text runs at both. At most 80
   base runs are recorded per round.
