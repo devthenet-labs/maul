@@ -102,6 +102,9 @@ type kubelet struct {
 	// testers is the preview tester side (runTesters), nil until a test
 	// turns it on.
 	testers *testerSide
+	// components are the fake preview components' loopback addresses by
+	// key (serveComponent), shared by the tester and tool sides.
+	components map[string]string
 	// tools is the slot tool pod side (runTools), nil until a test turns
 	// it on; maulTool is maul-tool built with e2edial, on an evaluator's
 	// PATH (useAgentRunner with the evaluate phase).
@@ -1023,8 +1026,6 @@ type testerSide struct {
 	bin        string
 	namespaces []string
 
-	// components are the fake components' loopback addresses by key.
-	components map[string]string
 	// faults are the outcomes the next runs are forced to, in order
 	// (testerNoSummary); an empty queue runs the tester.
 	faults []string
@@ -1051,7 +1052,7 @@ func (k *kubelet) runTesters(t *testing.T, namespaces ...string) {
 	t.Helper()
 	bin := buildTagged(t, "preview-tester", "e2edial")
 	k.mu.Lock()
-	k.testers = &testerSide{bin: bin, namespaces: namespaces, components: map[string]string{}}
+	k.testers = &testerSide{bin: bin, namespaces: namespaces}
 	k.mu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -1063,14 +1064,18 @@ func (k *kubelet) runTesters(t *testing.T, namespaces ...string) {
 }
 
 // serveComponent serves h as the preview component of key: every tester
-// request to the Service of that component reaches it.
+// or tool pod request to the Service of that component reaches it. It
+// needs neither side on: each reads the address when it runs a Job.
 func (k *kubelet) serveComponent(t *testing.T, key string, h http.Handler) {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.testers.components[key] = srv.Listener.Addr().String()
+	if k.components == nil {
+		k.components = map[string]string{}
+	}
+	k.components[key] = srv.Listener.Addr().String()
 }
 
 // failNextTester forces the next tester run's outcome (testerNoSummary).
@@ -1204,7 +1209,7 @@ func (k *kubelet) execTester(ctx context.Context, spec string) ([]byte, string, 
 	dial := map[string]string{}
 	k.mu.Lock()
 	for key, addr := range parsed.Targets {
-		if to, ok := k.testers.components[key]; ok {
+		if to, ok := k.components[key]; ok {
 			dial[addr] = to
 		}
 	}

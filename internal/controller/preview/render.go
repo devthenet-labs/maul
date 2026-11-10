@@ -123,16 +123,17 @@ type Settings struct {
 	// Ingress renders exactly as it did before the relay existed.
 	Auth AuthSettings
 	// TesterImage is the digest-pinned preview-tester image, and turns
-	// verification on: the per-part NetworkPolicies of a verification-
-	// capable Preview and its tester Jobs. Empty, the controller never
-	// reads or writes a NetworkPolicy or a Job (the chart grants neither),
-	// and a Preview's environment renders no edge, so its slot stays as
-	// closed as preview-isolation leaves it.
+	// verification on for criteria verifications, run as tester Jobs. With
+	// it or the evaluator on (Verifying), the controller writes the per-part
+	// NetworkPolicies of a verification-capable Preview and its slot Jobs.
+	// With neither, it never reads or writes a NetworkPolicy or a Job (the
+	// chart grants neither), and a Preview's environment renders no edge, so
+	// its slot stays as closed as preview-isolation leaves it.
 	TesterImage string
 	// Evaluator runs outcome verifications on the slot tool pod (the agent
-	// evaluator, --preview-evaluator). It needs verification on and the
-	// three tool images below; off, an outcome verification is maul's
-	// trouble (Infra) and renders nothing.
+	// evaluator, --preview-evaluator), and turns verification on by itself.
+	// It needs the three tool images below, not a tester image; off, an
+	// outcome verification is maul's trouble (Infra) and renders nothing.
 	Evaluator bool
 	// ToolsImage, BrowserImage and ToolboxImage are the tool pod's three
 	// images (the tools relay, the Chromium sidecar, the sandbox sidecar),
@@ -153,14 +154,22 @@ type Settings struct {
 var testerImagePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?` +
 	`(/[a-z0-9]+([._-][a-z0-9]+)*)+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
 
-// verifying reports whether verification is on.
-func (s Settings) verifying() bool { return s.TesterImage != "" }
+// verifying reports whether verification is on: a tester image for
+// criteria verifications, or the evaluator for outcome ones.
+func (s Settings) verifying() bool { return s.testing() || s.evaluating() }
+
+// Verifying reports whether verification is on, so whether the
+// PreviewVerification reconciler runs.
+func (s Settings) Verifying() bool { return s.verifying() }
+
+// testing reports whether criteria verifications run: a tester image.
+func (s Settings) testing() bool { return s.TesterImage != "" }
 
 // validateTesterImage refuses a tester image that is not pinned by digest,
 // or that lies under the preview image prefix, whose repositories an
 // application's own CI publishes.
 func (s Settings) validateTesterImage() error {
-	if !s.verifying() {
+	if !s.testing() {
 		return nil
 	}
 	if !testerImagePattern.MatchString(s.TesterImage) {

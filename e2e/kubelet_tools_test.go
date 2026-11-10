@@ -92,8 +92,8 @@ type toolRun struct {
 }
 
 // runTools turns the tool side on for Jobs in the slot namespaces given,
-// from now on, until the test ends. It needs the tester side (runTesters)
-// for the fake components.
+// from now on, until the test ends. Its relays reach the fake components
+// serveComponent serves; it needs no tester side.
 func (k *kubelet) runTools(t *testing.T, namespaces ...string) {
 	t.Helper()
 	bin := buildTagged(t, "preview-tools", "e2edial")
@@ -320,10 +320,8 @@ func (k *kubelet) startRelay(tp *toolPod) error {
 	k.tools.nextIP++
 	tp.ip = fmt.Sprintf("10.244.7.%d", k.tools.nextIP)
 	for _, c := range tp.cfg.Components {
-		if k.testers != nil {
-			if to, ok := k.testers.components[c.Key]; ok {
-				dial[c.Addr] = to
-			}
+		if to, ok := k.components[c.Key]; ok {
+			dial[c.Addr] = to
 		}
 	}
 	k.mu.Unlock()

@@ -110,7 +110,7 @@ func TestEvaluatorSettings(t *testing.T) {
 		{"off needs nothing", func(s *Settings) {
 			s.Evaluator, s.ToolsImage, s.BrowserImage, s.ToolboxImage, s.AgentsNamespace = false, "", "", "", ""
 		}, true},
-		{"no verification", func(s *Settings) { s.TesterImage = "" }, false},
+		{"no tester image", func(s *Settings) { s.TesterImage = "" }, true},
 		{"no browser image", func(s *Settings) { s.BrowserImage = "" }, false},
 		{"tag only", func(s *Settings) { s.ToolsImage = "ghcr.io/devthenet-labs/maul-preview-tools:v1" }, false},
 		{"under the prefix", func(s *Settings) {
@@ -124,6 +124,59 @@ func TestEvaluatorSettings(t *testing.T) {
 		if err := s.Validate(); (err == nil) != tc.ok {
 			t.Errorf("%s: Validate = %v, want ok %v", tc.name, err, tc.ok)
 		}
+	}
+}
+
+// The evaluator turns verification on by itself: a tester image adds the
+// criteria path beside it, and the evaluator needs all three of its images.
+func TestVerificationSwitches(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		mut                          func(*Settings)
+		verifying, testing, evaluate bool
+	}{
+		{"off", func(s *Settings) { *s = testSettings() }, false, false, false},
+		{"tester only", func(s *Settings) { *s = verifySettings() }, true, true, false},
+		{"evaluator only", func(s *Settings) { s.TesterImage = "" }, true, false, true},
+		{"both", func(*Settings) {}, true, true, true},
+		{"evaluator without its images", func(s *Settings) {
+			s.TesterImage, s.ToolsImage, s.BrowserImage, s.ToolboxImage = "", "", "", ""
+		}, false, false, false},
+		{"evaluator without a browser image", func(s *Settings) { s.TesterImage, s.BrowserImage = "", "" },
+			false, false, false},
+	} {
+		s := evalSettings()
+		tc.mut(&s)
+		if s.verifying() != tc.verifying || s.Verifying() != tc.verifying || s.testing() != tc.testing ||
+			s.evaluating() != tc.evaluate {
+			t.Errorf("%s: verifying %v, testing %v, evaluating %v; want %v, %v, %v", tc.name, s.verifying(),
+				s.testing(), s.evaluating(), tc.verifying, tc.testing, tc.evaluate)
+		}
+	}
+}
+
+// An evaluator-only install renders a verification-capable Preview's edge
+// policies and its tool Job exactly as one with a tester image does, and
+// refuses to render a tester Job.
+func TestEvaluatorOnlyRendersAsWithTheTester(t *testing.T) {
+	_, p := verifyPreview(t, time.Now())
+	both, only := evalSettings(), evalSettings()
+	only.TesterImage = ""
+	want, got := both.networkPolicies(p, 1), only.networkPolicies(p, 1)
+	if len(want) == 0 || !equality.Semantic.DeepEqual(got, want) {
+		t.Fatalf("evaluator-only policies %+v, want %+v", got, want)
+	}
+	pv := toolVerification(t, p)
+	wantJob, err := both.toolJob(p, pv, 1, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotJob, err := only.toolJob(p, pv, 1, 30*time.Minute)
+	if err != nil || !equality.Semantic.DeepEqual(gotJob, wantJob) {
+		t.Fatalf("evaluator-only tool Job differs (%v)", err)
+	}
+	if _, err := only.testerJob(p, pv, 1, []byte("{}")); err == nil || !strings.Contains(err.Error(), "no tester image") {
+		t.Errorf("evaluator-only tester Job: %v, want refused", err)
 	}
 }
 

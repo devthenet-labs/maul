@@ -439,6 +439,37 @@ func TestToolsObserved(t *testing.T) {
 	}
 }
 
+// The evaluator needs no tester image: an evaluator-only install renders,
+// observes and settles an outcome verification exactly as one with both.
+func TestToolsObservedWithoutTheTester(t *testing.T) {
+	e := newToolEnv(t)
+	e.v.Settings.TesterImage, e.r.Settings.TesterImage = "", ""
+	e.verify()
+	job := e.testerJob()
+	if job.Spec.Template.Labels[labelRole] != v1alpha1.PreviewRoleTools {
+		t.Fatalf("rendered %s, not the tool pod", job.Name)
+	}
+	if err := e.slotObject(evaluatorPolicyName(e.p, e.pv), &networkingv1.NetworkPolicy{}); err != nil {
+		t.Errorf("ingress policy: %v", err)
+	}
+	pod := e.startToolPod(job, true)
+	e.verify()
+	shot := testPNG(t, 2560, 40)
+	log, msg := toolLedger(t, shot)
+	e.finishToolPod(job, pod, log, msg)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
+		t.Fatalf("phase %s %s, want Observed ok", pv.Status.Phase, pv.Status.Reason)
+	}
+	var sum toolwire.Summary
+	_ = json.Unmarshal([]byte(msg), &sum)
+	checkToolsStatus(t, pv, sum, shot)
+	checkToolsConfigMaps(t, e, pv, shot)
+	if !e.slotGone(job.Name, &batchv1.Job{}) || !e.slotGone(evaluatorPolicyName(e.p, pv), &networkingv1.NetworkPolicy{}) {
+		t.Error("the tool Job or its ingress policy survived the settle")
+	}
+}
+
 // checkToolsStatus holds an Observed tool verification's status to the
 // toolLedger it was collected from.
 func checkToolsStatus(t *testing.T, pv *v1alpha1.PreviewVerification, sum toolwire.Summary, shot []byte) {

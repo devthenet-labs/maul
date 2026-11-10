@@ -312,6 +312,12 @@ func approvedSubset(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) ([]ac
 // by verifyGrace from the request's creation.
 func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject) (ctrl.Result, error) {
+	if !v.Settings.testing() {
+		// An evaluator-only install runs no tester: a criteria request is
+		// not this install's, so it is answered stale and nothing renders.
+		v.logRefusal(ctx, pv, "criteria verification not run: no tester image", nil)
+		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria)
+	}
 	ready, err := v.rolloutSettled(ctx, s.preview, s.slot)
 	if err == nil && ready {
 		ready, err = v.workload().policiesInPlace(ctx, s.preview, s.slot)

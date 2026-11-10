@@ -71,8 +71,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("preview-auth-previous-annotations", "", "the previous key generation's pinned auth annotations "+
 		"during a rotation's overlap (same JSON shape); an Ingress still on them is not unauthenticated")
 	f.Bool("preview-evaluator", false, "run outcome verifications on the slot tool pod for the agent "+
-		"evaluator (chart intentController.verification.evaluator); needs --preview-tester-image, the three tool "+
-		"images and --preview-agents-namespace. Off, an outcome verification is Infra and renders nothing")
+		"evaluator (chart intentController.verification.evaluator); turns verification on by itself, needing "+
+		"the three tool images and --preview-agents-namespace (no --preview-tester-image). Off, an outcome "+
+		"verification is Infra and renders nothing")
 	f.String("preview-tools-image", "", "digest-pinned preview-tools image, the tool pod's relay "+
 		"(<repository>@sha256:<64 hex>, never under the preview image prefix)")
 	f.String("preview-browser-image", "", "digest-pinned preview-browser image, the tool pod's CDP shim and "+
@@ -148,7 +149,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	recorder := mgr.GetEventRecorder("maul-preview-controller")
 	reconciler := &preview.Reconciler{Client: direct, Settings: settings, Log: prov.Logger, Events: recorder}
-	if settings.TesterImage != "" {
+	if settings.Verifying() {
 		verifier, err := newVerifier(mgr, direct, settings, deadlineMax, prov.Logger)
 		if err != nil {
 			return err
@@ -171,7 +172,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	prov.Logger.LogAttrs(ctx, slog.LevelInfo, "preview-controller starting",
 		slog.Int("slot_count", settings.SlotCount), slog.String("namespace", namespace),
 		slog.Bool("auth_required", settings.Auth.Required), slog.Bool("legacy_ingress", !settings.NoLegacyIngress),
-		slog.Bool("verification", settings.TesterImage != ""), slog.Bool("evaluator", settings.Evaluator))
+		slog.Bool("verification", settings.Verifying()), slog.Bool("tester", settings.TesterImage != ""),
+		slog.Bool("evaluator", settings.Evaluator))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
