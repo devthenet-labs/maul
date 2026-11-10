@@ -182,7 +182,7 @@ func TestJudgementRoutes(t *testing.T) {
 			manualResult: v1alpha1.OutcomeAccepted},
 		{name: "environment failed with an anomaly",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
-			healthy: pass(oHealthy), env: acceptance.EnvAppFailure, anomaly: true, acceptManual: true,
+			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, anomaly: true, acceptManual: true,
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment, anomalySecond: true,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
@@ -190,7 +190,7 @@ func TestJudgementRoutes(t *testing.T) {
 		// not to hold: it stays the reason, the anomaly second.
 		{name: "model only fail in a failing environment",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
-			healthy: pass(oHealthy), env: acceptance.EnvAppFailure, anomaly: true, acceptManual: true,
+			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, anomaly: true, acceptManual: true,
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment, anomalySecond: true,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
