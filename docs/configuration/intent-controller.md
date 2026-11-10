@@ -247,10 +247,12 @@ evaluator's two only under `--intent-evaluator`), or one `--intent-model-allowli
 
 At startup each allowlisted model must be in the model registry and resolve to claude (or the fake harness in dev), or
 to codex under `--intent-codex`; on brokered claude the provider's model map must cover it too. Otherwise the controller
-does not start. A Project naming a model that is not admitted for its harness is not Ready (`ModelNotAllowed`, the
-message naming the field, the model and what is admitted), so none of its intents is discovered. An intent of it already
-open is held `Blocked` (`ModelNotAllowed`) from whatever phase it is in, and no run of it is created. A Job already
-running finishes. The block lifts once the Project names an admitted model, or none.
+does not start. Without `--intent-evaluator` no evaluate or check review run is created, so `evaluate` and `checkReview`
+are not judged, and turning the evaluator off stops no Project. A Project naming a model that is not admitted for its
+harness is not Ready (`ModelNotAllowed`, the message naming the field, the model and what is admitted), so none of its
+intents is discovered. An intent of it already open is held `Blocked` (`ModelNotAllowed`) from whatever phase it is in,
+and no run of it is created. A Job already running finishes. The block lifts once the Project names an admitted model,
+or none.
 
 Each IntentRun records the model its Project chose for it when it was created (`spec.model`, immutable; empty when the
 Project chose none, so the run runs the stage flag), and launches on it, so changing a Project's models affects its new

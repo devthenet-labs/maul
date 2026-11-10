@@ -73,20 +73,27 @@ func (s Settings) modelAdmitted(h v1alpha1.ProjectHarness, id string) bool {
 }
 
 // projectModelFields are spec.models' fields by name, in the Project's
-// order.
-func projectModelFields(m *v1alpha1.ProjectModels) [][2]string {
+// order: evaluate and checkReview only with the agent evaluator on, since
+// without it no run of either stage is ever created.
+func projectModelFields(m *v1alpha1.ProjectModels, evaluator bool) [][2]string {
 	if m == nil {
 		return nil
 	}
-	return [][2]string{{"plan", m.Plan}, {"build", m.Build}, {"evaluate", m.Evaluate}, {"checkReview", m.CheckReview}}
+	fields := [][2]string{{"plan", m.Plan}, {"build", m.Build}}
+	if evaluator {
+		fields = append(fields, [2]string{"evaluate", m.Evaluate}, [2]string{"checkReview", m.CheckReview})
+	}
+	return fields
 }
 
 // modelRefusal is why p's spec.models keeps it from being Ready, "" when
 // every model it names (it may name none) is one this controller admits
-// for its harness. Every field it sets is judged, whether or not its stage
-// runs now (an evaluate model with the evaluator off), so a choice that
+// for its harness. Every field whose stage this controller can run is
+// judged, whether or not this Project's runs reach it now, so a choice that
 // could never run is reported when it is made, not when it is first used.
-// A Project on a harness this controller runs no intent on is refused for
+// With the agent evaluator off, evaluate and checkReview are not judged: no
+// run of theirs is created, and turning the evaluator off (its rollback)
+// must stop no Project. A Project on a harness this controller runs no intent on is refused for
 // that alone (HarnessNotEnabled), its runs waiting Pending, never held for
 // its models.
 func (s Settings) modelRefusal(p *v1alpha1.Project) string {
@@ -98,7 +105,7 @@ func (s Settings) modelRefusal(p *v1alpha1.Project) string {
 		harness = v1alpha1.ProjectHarnessClaude
 	}
 	admitted := s.admittedModels(p.Spec.Harness)
-	for _, f := range projectModelFields(p.Spec.Models) {
+	for _, f := range projectModelFields(p.Spec.Models, s.Evaluator) {
 		if f[1] == "" || slices.Contains(admitted, f[1]) {
 			continue
 		}

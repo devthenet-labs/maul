@@ -28,6 +28,12 @@ func modelSettings() Settings {
 	return s
 }
 
+// evaluatorOff turns the agent evaluator off as serve does without
+// --intent-evaluator: no evaluator models either.
+func evaluatorOff(s *Settings) {
+	s.Evaluator, s.EvaluateModel, s.CheckReviewModel = false, "", ""
+}
+
 // TestStageModel: a stage the Project chooses no model for runs the
 // install's flag, exactly as before; a chosen one runs the choice. A revise
 // run takes the build choice; a codex Project's role runs take its build
@@ -104,6 +110,15 @@ func TestModelRefusal(t *testing.T) {
 		{name: "the evaluator's model with the evaluator off", set: func(s *Settings) { s.Evaluator = false },
 			models:   &v1alpha1.ProjectModels{Plan: "anthropic/claude-haiku-4-5"},
 			wantPart: "spec.models.plan is anthropic/claude-haiku-4-5"},
+		// With the evaluator off no evaluate or checkreview run is ever
+		// created, so those two choices are not judged: turning the
+		// evaluator off (or never on, the default) stops no Project.
+		{name: "the evaluator's choices with the evaluator off", set: evaluatorOff,
+			models: &v1alpha1.ProjectModels{Evaluate: "anthropic/claude-sonnet-4",
+				CheckReview: "anthropic/claude-haiku-4-5"}},
+		{name: "a plan choice with the evaluator off is still judged", set: evaluatorOff,
+			models:   &v1alpha1.ProjectModels{Plan: "anthropic/claude-sonnet-4", CheckReview: "anthropic/claude-haiku-4-5"},
+			wantPart: "spec.models.plan is anthropic/claude-sonnet-4"},
 		{name: "a model nobody allowlisted", models: &v1alpha1.ProjectModels{Evaluate: "anthropic/claude-haiku-4-5",
 			CheckReview: "anthropic/claude-sonnet-4"}, wantPart: "spec.models.checkReview is anthropic/claude-sonnet-4"},
 		{name: "codex's model on claude", models: &v1alpha1.ProjectModels{Build: "openai/gpt-5.6-luna"},
