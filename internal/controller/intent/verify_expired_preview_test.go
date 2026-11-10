@@ -249,3 +249,31 @@ func TestOutcomeStatusSaysMovedOnAPush(t *testing.T) {
 		t.Fatalf("maul/acceptance on the pushed head = %+v, want %q", st, headsMoved.description)
 	}
 }
+
+// TestVerifyFixOnAnExpiredPreviewFixesAStandingFailure (gate D-B5 review):
+// a /maul verify fix at heads whose failing judgement stands re-arms
+// automatic fixes, and the fix round it starts pushes, which deploys the
+// expired preview again: so the request is recorded and the round starts,
+// never answered that nothing would run it.
+func TestVerifyFixOnAnExpiredPreviewFixesAStandingFailure(t *testing.T) {
+	e, name, _ := failingEvaluation(t)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted,
+			Reason: v1alpha1.AutoFixHumanReview}
+	})
+	e.servePreview(name, v1alpha1.PreviewExpired, "")
+	e.review(name, 2)
+	if n := len(e.verifyRuns(name)); n != 0 {
+		t.Fatalf("verify runs before the request = %d, want none while halted", n)
+	}
+	e.clock.Advance(time.Minute)
+	id := e.gh.comment(approver, "/maul verify fix")
+	e.settleActions(name)
+	if body := e.onlyReply(id); strings.Contains(body, "did not run") {
+		t.Fatalf("reply = %s, want the fix request recorded", body)
+	}
+	e.review(name, 3)
+	if n := len(e.verifyRuns(name)); n != 1 {
+		t.Fatalf("verify runs after /maul verify fix = %d, want the fix round started", n)
+	}
+}
