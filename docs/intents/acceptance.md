@@ -370,7 +370,9 @@ with a final `error`, so a required status never stays pending or green. No stat
 verified, or once the intent has ended. The status is re-posted on **every** pull request when any sibling's head moves,
 so a green is never stale: from the pass that sees a new head until a round is about the new heads, it reads "combined
 change moved: re-verifying". About once per poll interval maul also lists the statuses at each head: if another account
-posted `maul/acceptance` after maul's, maul posts its own again and names that account in the verification section.
+posted `maul/acceptance` after maul's, maul posts its own again and names that account in the verification section, also
+once verification is switched off. A later status of maul's own App in another state (posted by a pass the controller
+restarted during, before it recorded the post) is posted again too, naming no one.
 
 With the evaluator the same states count **outcomes**: `pending` while maul evaluates, or a dispute's replay round is
 due ("maul is checking this: evaluation 1, 3 outcomes, 0 of 2 automatic fixes used"); `error` once maul could not

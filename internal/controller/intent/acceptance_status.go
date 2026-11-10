@@ -48,7 +48,10 @@ import (
 //   - Impostors (critique fix 5): at most once per poll interval per head,
 //     the statuses at the head are listed; a later maul/acceptance someone
 //     other than the App posted is answered by maul's own posted again, and
-//     the account is named in the pull request's verification section.
+//     the account is named in the pull request's verification section; a
+//     later one of the App's own in another state (a pass posted it and lost
+//     its record write) is answered too, naming no one. Both are answered
+//     once verification is switched off as well.
 
 // acceptanceContext is the commit status context maul posts under.
 const acceptanceContext = "maul/acceptance"
@@ -418,7 +421,7 @@ func (p *pass) syncAcceptanceStatuses(ctx context.Context) (bool, error) {
 			continue
 		}
 		d := acceptanceDigest(pr.HeadSHA, headSet, st)
-		if d == pr.AcceptanceDigest && (postedOnly || !p.impostorLatest(ctx, pr)) {
+		if d == pr.AcceptanceDigest && !p.impostorLatest(ctx, pr, st.state) {
 			continue
 		}
 		if above, err := p.rateOK(ctx, pr.Repository); err != nil || !above {
@@ -476,11 +479,14 @@ type statusCheck struct {
 
 // impostorLatest reports that the latest maul/acceptance at pr's head is
 // someone else's: a later status (by id) than maul's recorded one, posted
-// by an account other than the App's bot. The statuses are listed at most
+// by an account other than the App's bot, or by the App's own in another
+// state than want: a pass posted it and lost its record write (a restart
+// between the two), and the record no longer says what GitHub shows. The
+// statuses are listed at most
 // once per poll interval per head, under the repository's rate floor; a
 // failed listing reports none. The account is remembered for the
 // verification section.
-func (p *pass) impostorLatest(ctx context.Context, pr v1alpha1.IntentPullRequest) bool {
+func (p *pass) impostorLatest(ctx context.Context, pr v1alpha1.IntentPullRequest, want string) bool {
 	if pr.AcceptanceStatusID == 0 || pr.AcceptanceHead != pr.HeadSHA {
 		return false
 	}
@@ -504,10 +510,10 @@ func (p *pass) impostorLatest(ctx context.Context, pr v1alpha1.IntentPullRequest
 		return false
 	}
 	var latestID int64
-	var creator string
+	var creator, state string
 	for _, s := range statuses {
 		if s.Context == acceptanceContext && s.ID > latestID {
-			latestID, creator = s.ID, s.Creator
+			latestID, creator, state = s.ID, s.Creator, s.State
 		}
 	}
 	if latestID <= pr.AcceptanceStatusID {
@@ -515,10 +521,14 @@ func (p *pass) impostorLatest(ctx context.Context, pr v1alpha1.IntentPullRequest
 	}
 	bot, err := p.r.GitHub.BotLogin(ctx, pr.Repository)
 	switch {
-	case err != nil || strings.EqualFold(creator, bot):
-		// The App's own (a write lost after posting), or unknown: never
-		// named as someone else's.
+	case err != nil:
+		// Unknown: never named as someone else's.
 		return false
+	case strings.EqualFold(creator, bot):
+		// The App's own, posted by a pass that lost its record write:
+		// never named as someone else's, and restated only when it says
+		// another state than maul's.
+		return state != want
 	case bot == "":
 		// A personal access token posts as its user, whose own statuses
 		// cannot be told from another's: maul's state is posted again,

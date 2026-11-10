@@ -120,14 +120,16 @@ func (e *evalEnv) settledRoundSurvivesRollback(t *testing.T, name, head string) 
 		}
 	}
 
+	// Each restart first waits out the stopped controller's leader lease,
+	// about half of eventually's deadline: within a round's.
 	e.restartAgentsIntents(t, false)
-	eventually(t, "maul/acceptance to say verification switched off", status("error"))
+	within(t, roundTimeout, "maul/acceptance to say verification switched off", status("error"))
 	if in := e.waitEval(t, name, "round 2 kept", kept); in.Status.Verification.Passed == 0 {
 		t.Errorf("verification %+v with the host off, want round 2's pass kept", in.Status.Verification)
 	}
 
 	e.restartAgentsIntents(t, true)
-	eventually(t, "maul/acceptance back to round 2's pass", status("success"))
+	within(t, roundTimeout, "maul/acceptance back to round 2's pass", status("success"))
 	consistently(t, "no round started by itself at unchanged heads", func() bool {
 		v := e.intent(t, name).Status.Verification
 		return v != nil && kept(v) &&
