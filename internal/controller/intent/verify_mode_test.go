@@ -221,6 +221,13 @@ func (c modeCase) check(t *testing.T, base *pass, rng *rand.Rand, results []v1al
 	if got := p.mode(); got != want {
 		t.Fatalf("%s: mode = %d, want %d", label, got, want)
 	}
+	if p.handsOff() && want != modeOutcomes {
+		// Only the evaluator's outcomes govern the preview link.
+		t.Fatalf("%s: mode %d hands off", label, want)
+	}
+	if _, held := p.previewHeld(); held && want == modeNone {
+		t.Fatalf("%s: mode %d holds the preview", label, want)
+	}
 	st, _, ok := p.acceptanceStatus()
 	if !ok {
 		return
