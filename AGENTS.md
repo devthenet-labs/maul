@@ -807,11 +807,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   error, a wrong exit a bare fail, a stdout content miss after the expected exit a fail by assertion; a non-pass naming
   a bind or connection error (`NetError`) is an error. Substitution order `{{marker}}`, `{{bin}}`, `{{tree}}`,
   `{{run}}`; exploratory calls substitute only `{{bin}}` and `{{tree}}`, each in a fresh scratch dir, `HOME`, the
-  caches, the tmp root and the writable tree shared within a side, all of which every check run starts from as the
-  build left them (its `TMPDIR` its own, empty). `previewtools/prepare` (stdlib only) is the trusted inits' engine: a
-  digest-verified fetch into unlinked temp files, extraction refusing absolute or `..` paths, hard links, devices,
-  fifos, links leaving the tree, entries through a link, duplicates, oversize (480 MiB) and a non-empty destination,
-  then a+rX, `Install` of tool-exec, and `Seed`.
+  caches, the tmp root and the writable tree shared within a side; every check run starts from the tree, `HOME` and
+  the caches as the build left them, with an empty `TMPDIR` of its own (the tmp root itself is not reset).
+  `previewtools/prepare` (stdlib only) is the trusted inits' engine: a digest-verified fetch into unlinked temp files,
+  extraction refusing absolute or `..` paths, hard links, devices, fifos, links leaving the tree, entries through a
+  link, duplicates, oversize (480 MiB) and a non-empty destination, then a+rX, `Install` of tool-exec, and `Seed`.
 - `cdpshim`, `toolexec`, `maultool` — the engines of `cmd/cdp-shim` (keyed CDP over Chromium's pipe, one browser per
   connection, at most two live, idle 10 minutes, never logs the key), `cmd/tool-exec` (one program at a time under the
   sandbox's UID, files only under the scratch directory through `os.Root`, a fixed environment, bounded output and
