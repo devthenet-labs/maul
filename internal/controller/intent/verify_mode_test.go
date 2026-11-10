@@ -56,6 +56,53 @@ func TestRecordOf(t *testing.T) {
 	}
 }
 
+// TestVerifyModeHoldsOneEra: over every input, slice 1's mode holds no
+// outcomes and the evaluator's no criteria, so a fork inside either on the
+// record's own lists (len(acc.Outcomes) > 0) cannot cross eras, and a
+// record pruned of its criteria or holding both is never verified.
+func TestVerifyModeHoldsOneEra(t *testing.T) {
+	for _, verifies := range []bool{true, false} {
+		for _, evaluates := range []bool{true, false} {
+			for rec := recordNone; rec <= recordMixed; rec++ {
+				m := verifyModeOf(verifies, evaluates, rec)
+				switch {
+				case m == modeCriteria && rec != recordCriteria && rec != recordEmpty,
+					m == modeOutcomes && rec != recordOutcomes && rec != recordEmpty,
+					(m == modeCriteria || m == modeOutcomes) && !verifies,
+					m == modeCriteria && evaluates, m == modeOutcomes && !evaluates:
+					t.Errorf("verifyModeOf(%v, %v, %d) = %d", verifies, evaluates, rec, m)
+				}
+			}
+		}
+	}
+}
+
+// TestNoOutcomesPlanSwitchedOffIsNoSuccess: a plan approved under the
+// evaluator that states no outcomes, accepted whole, then the evaluator
+// switched off: its record (an outcomes digest, no outcomes) is nothing
+// slice 1 verifies, so the intent is Off and its maul/acceptance the
+// switched-off error, never the green the acceptance gave it.
+func TestNoOutcomesPlanSwitchedOffIsNoSuccess(t *testing.T) {
+	e, name := evaluatorReviewing(t, validPlan)
+	e.readyPreview(name)
+	e.review(name, 3)
+	e.gh.comment(approver, "/maul accept all")
+	e.settleActions(name)
+	e.review(name, 2)
+	head := e.get(name).Status.PullRequests[0].HeadSHA
+	if st := e.latestAcceptance(head); st.State != statusSuccess {
+		t.Fatalf("maul/acceptance accepted whole under the evaluator = %+v, want success", st)
+	}
+	e.evaluating(false)
+	e.review(name, 3)
+	if v := e.verification(name); v.State != v1alpha1.VerificationOff {
+		t.Errorf("verification = %s, want Off", v.State)
+	}
+	if st := e.latestAcceptance(head); st.State != statusError || st.Description != switchedOff.description {
+		t.Errorf("maul/acceptance with the evaluator off = %+v, want %+v", st, switchedOff)
+	}
+}
+
 // modeRecord is one record the property puts on the approved revision.
 type modeRecord int
 
@@ -157,11 +204,10 @@ func (c modeCase) check(t *testing.T, base *pass, rng *rand.Rand, results []v1al
 			p.proj.Spec.Repositories[i].Preview = nil
 		}
 	}
-	if p.verifies() != c.verifies || p.set.evaluates(p.proj) != (c.evaluates && p.set.verifiesProject(p.proj)) {
+	if p.verifies() != c.verifies || p.set.evaluates(p.proj) != c.evaluates {
 		t.Fatalf("%s: verifies %v, evaluates %v: the setup did not take", label, p.verifies(),
 			p.set.evaluates(p.proj))
 	}
-	evaluates := p.set.evaluates(p.proj)
 	acc := c.record(p.in.Status.Acceptance, p.in.Status.Approval.PlanRevision)
 	p.in.Status.Acceptance = acc
 	heads := "sha256:" + strings.Repeat("d", 64)
@@ -171,7 +217,7 @@ func (c modeCase) check(t *testing.T, base *pass, rng *rand.Rand, results []v1al
 	v := c.verification(rng, acc, heads, results)
 	p.in.Status.Verification = v
 
-	want := wantMode(c.verifies, evaluates, c.current, c.rec)
+	want := wantMode(c.verifies, c.evaluates, c.current, c.rec)
 	if got := p.mode(); got != want {
 		t.Fatalf("%s: mode = %d, want %d", label, got, want)
 	}
@@ -179,10 +225,12 @@ func (c modeCase) check(t *testing.T, base *pass, rng *rand.Rand, results []v1al
 	if !ok {
 		return
 	}
-	checking := strings.HasPrefix(st.description, "maul is checking this")
 	switch want {
 	case modeNone, modeOff, modeMismatch:
-		if st.state == statusSuccess || checking {
+		// Never success, never "maul is checking this", never a pending
+		// that waits on a round nothing will run: only the error saying
+		// nothing is verified.
+		if st.state != statusError {
 			t.Fatalf("%s: mode %d posts %+v", label, want, st)
 		}
 		return
