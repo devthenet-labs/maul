@@ -29,8 +29,9 @@ const manualOutcome = `
 // TestIntentVerifyAgentPlansCriteria: the plan of a verifying Project runs
 // on the REAL agent-runner, with hack/fake-agent/claude as the model, which
 // states acceptance only when its prompt asks for it, as a model would. The
-// plan Job carries the Project's previewed components and the evaluator's
-// ask, the prompt the agent receives teaches the acceptance outcomes field
+// plan Job carries the Project's previewed components (handed only while
+// the evaluator verifies it), the prompt the agent receives teaches the
+// acceptance outcomes field
 // (never criteria), the posted plan comment shows the approver the
 // outcomes, and the planned outcomes are recorded and confirmed against
 // the preview.
@@ -43,7 +44,7 @@ func TestIntentEvaluateAgentPlansOutcomes(t *testing.T) {
 		t.Fatalf("plan agent-runner exited %d:\n%s", r.ExitCode, r.Stdout)
 	}
 	if got, want := r.Env["MAUL_PLAN_VERIFICATION"],
-		`{"components":[{"key":"shop","path":"/","readiness":"/healthz"}],"outcomes":true}`; got != want {
+		`{"components":[{"key":"shop","path":"/","readiness":"/healthz"}]}`; got != want {
 		t.Errorf("plan Job MAUL_PLAN_VERIFICATION = %q, want %q", got, want)
 	}
 	prompt, err := os.ReadFile(filepath.Join(r.Workspace, ".fake-claude", "prompt-plan"))
