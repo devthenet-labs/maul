@@ -272,7 +272,6 @@ func TestWorkspaceRequestRefused(t *testing.T) {
 		{"an exec with no run", Request{Argv: touch}},
 		{"a run that is not a name", Request{Argv: touch, Run: "../x"}},
 		{"a run with a slash", Request{Argv: touch, Run: "a/b"}},
-		{"an exec with a timeout", Request{Argv: touch, Run: "r", TimeoutMs: 1000}},
 		{"a build with files", Request{Kind: KindBuild, Argv: touch, Files: []toolwire.File{{Name: "x"}}}},
 		{"a build with a run", Request{Kind: KindBuild, Argv: touch, Run: "r"}},
 		{"a build past the ceiling", Request{Kind: KindBuild, Argv: touch,
@@ -311,6 +310,37 @@ func TestSlotRefusesWorkspace(t *testing.T) {
 	}
 	if got := s.Do(context.Background(), &Request{Argv: []string{"echo", "ok"}}); got.Output != "ok\n" {
 		t.Errorf("a plain exec: %+v", got)
+	}
+}
+
+// TestWorkspaceExecTimeout: an exec's own timeout bounds its program from
+// the program's start, after any restore (a check's timeout, review VC-2),
+// and never past the exec bound.
+func TestWorkspaceExecTimeout(t *testing.T) {
+	s, _ := newWorkspace(t)
+	s.timeout = 400 * time.Millisecond
+	tests := []struct {
+		name      string
+		argv      []string
+		timeoutMs int64
+		timedOut  bool
+	}{
+		{"within its timeout", []string{"sh", "-c", "sleep 0.1; echo ok"}, 300, false},
+		{"past its timeout", []string{"sleep", "2"}, 100, true},
+		{"a timeout past the exec bound keeps the bound", []string{"sleep", "2"}, 5000, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Now()
+			got := s.Do(context.Background(), &Request{Argv: tc.argv, Run: "r", Env: pathEnv(),
+				TimeoutMs: tc.timeoutMs})
+			if got.Refused != "" || got.TimedOut != tc.timedOut {
+				t.Fatalf("timed out %v, want %v: %+v", got.TimedOut, tc.timedOut, got)
+			}
+			if took := time.Since(start); tc.timedOut && took > 1500*time.Millisecond {
+				t.Errorf("killed after %v", took)
+			}
+		})
 	}
 }
 

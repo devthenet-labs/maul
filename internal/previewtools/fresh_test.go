@@ -124,3 +124,35 @@ func TestCheckRunsStartFromTheBuild(t *testing.T) {
 		}
 	}
 }
+
+// timedExecCheck is cliExecCheck with a timeout of its own.
+const timedExecCheck = `{"id":"count.timed","outcome":"count","form":"exec","exec":{
+ "argv":["{{bin}}","--count","{{tree}}/x"],"timeout":"200ms","expect":{"exit":0,"stdoutContains":"count=3"}}}`
+
+// TestExecCheckTimeoutStartsWithTheProgram (VC-2 follow-up): an exec
+// check's timeout bounds its program, which the shim starts after the
+// restore, never the wait for the restore: a check whose restore outlasts
+// its timeout still runs, and the shim gets the timeout to hold the
+// program to.
+func TestExecCheckTimeoutStartsWithTheProgram(t *testing.T) {
+	for _, side := range []toolwire.Side{"", toolwire.SideBase} {
+		t.Run("side "+string(side.Recorded()), func(t *testing.T) {
+			head := &fakeSandbox{do: printing("count=3", 0), delay: 400 * time.Millisecond}
+			base := &fakeSandbox{do: printing("count=3", 0), delay: 400 * time.Millisecond}
+			h := newWorkspaceHarness(t, wsConfig(), head, base)
+			_, resp := h.dryRunKeyed(timedExecCheck, side)
+			if resp.Refused != "" || resp.Observed == nil || resp.Observed.CheckRun == nil ||
+				resp.Observed.CheckRun.Result != toolwire.RunPass {
+				t.Fatalf("a check whose restore outlasts its timeout: %+v", resp)
+			}
+			sb := head
+			if side == toolwire.SideBase {
+				sb = base
+			}
+			reqs := sb.nonBuilds()
+			if len(reqs) != 1 || reqs[0].TimeoutMs != 200 {
+				t.Fatalf("the shim was not given the check's timeout: %+v", reqs)
+			}
+		})
+	}
+}
