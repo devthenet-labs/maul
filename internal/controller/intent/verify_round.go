@@ -5,8 +5,6 @@ package intent
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,16 +17,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
-	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The acceptance-fix round (acceptance verification §4.4): a verification
 // that judged the combined change failing, at heads maul pushed, starts one
 // revise round of trigger verify on the repository of the first failing
-// criterion (or the first component that crashed), handed the failure
-// evidence after the approved plan. It runs only while automatic fixes are
+// outcome's check (or the first previewed component), handed maul's
+// reproduction of the failure after the approved plan. It runs only while automatic fixes are
 // armed, and every bound halts them instead of blocking the intent: a
 // verification failure never holds up the human's review (D2). Each
 // verification starts at most one round (inputs.verificationRef, by UID).
@@ -42,97 +37,33 @@ import (
 // finish with automatic fixes halted.
 
 // keyVerifySignature is an acceptance-fix round's input record of the
-// failure it was started for (acceptance.Fingerprint of its verification):
+// failure it was started for (acceptance.EvaluationFingerprint of its
+// evaluation's fix request):
 // a later verification failing the same way after the round completed
 // halts automatic fixes (RepeatedFailure). Never part of the Job's input.
 const keyVerifySignature = "verify-signature"
 
 // keyVerifySignatures is an acceptance-fix round's input record of the
 // parts of the failure it was started for, one per line: each failing
-// criterion's own fingerprint ("c:<id> <fingerprint>", the form
-// status.verification.failing records) and, when the environment failed,
-// its parts' ("p <fingerprint>"). A later failure that still holds every
-// one of them is a repeat of it (repeatedFailure). Never part of the Job's
-// input.
+// outcome's own fingerprint on its check ("o:<id> <fingerprint>"). A later
+// failure that still holds every one of them is a repeat of it
+// (repeatedFailure). Never part of the Job's input.
 const keyVerifySignatures = "verify-signatures"
 
-// Bounds of an acceptance-fix round's evidence, on the escaped form. The
-// whole stays within maxVisiblePatchBytes, as a check-fix round's
-// diagnostics do (revise_thread.go's worst case).
-const (
-	maxVerifyEvidenceBytes  = 48 << 10
-	maxVerifyStatementBytes = 1 << 10
-	maxVerifyPieceBytes     = 4 << 10
-)
+// maxVerifyEvidenceBytes bounds an acceptance-fix round's evidence (its
+// reproduction), on the escaped form. The whole stays within
+// maxVisiblePatchBytes, as a check-fix round's diagnostics do
+// (revise_thread.go's worst case).
+const maxVerifyEvidenceBytes = 48 << 10
 
-// verifyFailure is what a verification judged failing: the verdict of every
-// automatable criterion in plan order, the components the round may target
-// in order (the failing criteria's targets, then the components that
-// crashed), and the failure's fingerprint.
+// verifyFailure is what an evaluation judged failing (evaluationFailure):
+// the components the round may target in order, and the failure's
+// fingerprint.
 type verifyFailure struct {
-	verdicts  []acceptance.Verdict
 	targets   []string
-	crashed   bool
 	signature string
 	// pieces are the failure's parts, as keyVerifySignatures records them.
 	pieces []string
-}
-
-// fixableFailure judges pv against the approved criteria and reports the
-// failure a fix round may take: observed with at least one criterion
-// failing, or the environment failed by the application's own fault
-// (httpstep.EnvAppFailure). Anything else (passed, maul's own trouble,
-// still running) is not one.
-func fixableFailure(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerification) (verifyFailure,
-	bool) {
-	parts := crdconv.PartFacts(pv.Status.Environment)
-	var f verifyFailure
-	switch pv.Status.Phase {
-	case v1alpha1.VerificationObserved:
-		rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
-		for _, c := range automatable(approved) {
-			v := judgeOne(c, pv.Status.Observations, rt)
-			f.verdicts = append(f.verdicts, v)
-			if v.Outcome == acceptance.OutcomeFail && !slices.Contains(f.targets, c.Target) {
-				f.targets = append(f.targets, c.Target)
-			}
-		}
-		if len(f.targets) == 0 {
-			return verifyFailure{}, false
-		}
-	case v1alpha1.VerificationEnvFailed:
-		if httpstep.ClassifyEnvironment(parts) != httpstep.EnvAppFailure {
-			return verifyFailure{}, false
-		}
-		f.crashed = true
-	case v1alpha1.VerificationPending, v1alpha1.VerificationRunning, v1alpha1.VerificationInfra,
-		v1alpha1.VerificationStale, "":
-		return verifyFailure{}, false
-	}
-	for _, p := range parts {
-		if p.Role == httpstep.RoleComponent && slices.Contains(httpstep.AppFailureParts(parts), p.Name) &&
-			!slices.Contains(f.targets, p.Name) {
-			f.targets = append(f.targets, p.Name)
-		}
-	}
-	f.signature = acceptance.Fingerprint(f.verdicts, parts)
-	f.pieces = failurePieces(f.verdicts, parts)
-	return f, true
-}
-
-// failurePieces are a failure's parts as keyVerifySignatures records them:
-// each failing criterion's fingerprint, then the failed environment's.
-func failurePieces(verdicts []acceptance.Verdict, parts []httpstep.PartFact) []string {
-	var out []string
-	for _, v := range verdicts {
-		if v.Outcome == acceptance.OutcomeFail {
-			out = append(out, "c:"+v.ID+" "+acceptance.Fingerprint([]acceptance.Verdict{v}, nil))
-		}
-	}
-	if httpstep.ClassifyEnvironment(parts) != httpstep.EnvOK {
-		out = append(out, "p "+acceptance.Fingerprint(nil, parts))
-	}
-	return out
 }
 
 // priorFailure is what the latest acceptance-fix round of the approved
@@ -182,7 +113,7 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 		p.verificationConsumed(pv.UID) {
 		return false, nil
 	}
-	failure, ok := p.roundFailure(ctx, acc, pv)
+	failure, _, _, ok := p.evaluationFailure(ctx, pv)
 	if !ok {
 		return false, nil
 	}
@@ -248,25 +179,11 @@ func (p *pass) startVerifyWork(ctx context.Context, prs []v1alpha1.IntentPullReq
 	return p.startVerification(ctx, prs)
 }
 
-// verifiesApproved reports that pv verified the approved plan revision's
-// acceptance as recorded: its outcomes (the evaluator), or its criteria.
+// verifiesApproved reports that pv evaluated the approved plan revision's
+// outcomes as recorded (its outcomes digest). A record with no outcomes
+// digest has nothing a verification could have evaluated.
 func verifiesApproved(pv *v1alpha1.PreviewVerification, acc *v1alpha1.IntentAcceptance) bool {
-	if len(acc.Outcomes) > 0 {
-		return pv.Spec.OutcomesDigest == acc.OutcomesDigest
-	}
-	return pv.Spec.CriteriaDigest == acc.Digest
-}
-
-// roundFailure is the failure a fix round may take from pv: under the
-// evaluator Decide's fix request (evaluationFailure, Decision.Fix), else
-// slice 1's judged criteria (fixableFailure).
-func (p *pass) roundFailure(ctx context.Context, acc *v1alpha1.IntentAcceptance,
-	pv *v1alpha1.PreviewVerification) (verifyFailure, bool) {
-	if len(acc.Outcomes) > 0 {
-		f, _, _, ok := p.evaluationFailure(ctx, pv)
-		return f, ok
-	}
-	return fixableFailure(acc.Criteria, pv)
+	return acc.OutcomesDigest != "" && pv.Spec.OutcomesDigest == acc.OutcomesDigest
 }
 
 // verifyWorkPending reports whether v leaves anything startVerifyFix or
@@ -534,168 +451,16 @@ func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (f
 		return "", verifyFailure{}, fmt.Errorf("%w: verification %s is gone or no longer this intent's", errInputUnavailable,
 			ref.Name)
 	}
-	if len(acc.Outcomes) > 0 {
-		failure, fix, j, ok := p.evaluationFailure(ctx, pv)
-		if !ok {
-			return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable,
-				ref.Name)
-		}
-		feedback, err := p.reproduction(ctx, pv, acc, fix, j.checks)
-		if err != nil {
-			return "", verifyFailure{}, err
-		}
-		return feedback, failure, nil
-	}
-	failure, ok := fixableFailure(acc.Criteria, pv)
+	failure, fix, j, ok := p.evaluationFailure(ctx, pv)
 	if !ok {
-		return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable, ref.Name)
+		return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable,
+			ref.Name)
 	}
-	var own []string
-	for _, h := range pv.Spec.Heads {
-		if sameRepo(h.Repository, run.Spec.Repository.URL) {
-			own = append(own, h.Component)
-		}
-	}
-	return renderVerifyEvidence(pv, acc.Criteria, failure, own), failure, nil
-}
-
-// renderVerifyEvidence is an acceptance-fix round's feedback: per failing
-// criterion in plan order its approved statement, the steps as approved,
-// what the tester observed on the deciding try and the response body's
-// prefix; the parts of the environment that failed; and the log tails of
-// the round's own components only (own). Every piece the application or
-// the cluster could have written is escaped, fenced and bounded on its
-// own, and pieces stop being added once the whole would pass
-// maxVerifyEvidenceBytes.
-func renderVerifyEvidence(pv *v1alpha1.PreviewVerification, approved []v1alpha1.AcceptanceCriterion,
-	f verifyFailure, own []string) string {
-	var sections []string
-	var heads strings.Builder
-	fmt.Fprintf(&heads, "Verification `%s` (verification %d, attempt %d) ran the approved criteria against the "+
-		"preview of these commits:\n\n", pv.Name, pv.Spec.Round, pv.Spec.Attempt)
-	for _, h := range pv.Spec.Heads {
-		fmt.Fprintf(&heads, "- `%s` at `%s`\n", h.Component, h.Revision)
-	}
-	sections = append(sections, heads.String())
-	for _, v := range f.verdicts {
-		if v.Outcome != acceptance.OutcomeFail {
-			continue
-		}
-		i := slices.IndexFunc(approved, func(c v1alpha1.AcceptanceCriterion) bool { return c.ID == v.ID })
-		if i < 0 {
-			continue
-		}
-		sections = append(sections, criterionEvidence(approved[i], v, pv.Status.Observations))
-	}
-	if env := failedParts(pv.Status.Environment); env != "" {
-		sections = append(sections, "#### Environment\n\nThe parts of the preview that failed, as the "+
-			"cluster reported them:\n\n"+fencedBounded(visibleFeedback(env), maxVerifyPieceBytes)+"\n")
-	}
-	for _, part := range pv.Status.Environment {
-		if part.Role != v1alpha1.PreviewRoleComponent || !slices.Contains(own, part.Name) ||
-			strings.TrimSpace(part.LogTail) == "" {
-			continue
-		}
-		sections = append(sections, fmt.Sprintf("#### Log tail of component `%s`\n\n%s\n", part.Name,
-			fencedBounded(visibleFeedback(part.LogTail), maxVerifyPieceBytes)))
-	}
-	var b strings.Builder
-	for _, s := range sections {
-		if b.Len()+len(s) > maxVerifyEvidenceBytes {
-			b.WriteString("Further evidence was left out: it would pass the handoff's bound.\n")
-			break
-		}
-		b.WriteString(s)
-		b.WriteString("\n")
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-// criterionEvidence is one failing criterion's section.
-func criterionEvidence(c v1alpha1.AcceptanceCriterion, v acceptance.Verdict,
-	obs []v1alpha1.CriterionObservation) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "#### Criterion `%s`, against component `%s`\n\n", c.ID, c.Target)
-	fmt.Fprintf(&b, "Approved statement:\n\n%s\n\n",
-		fencedBounded(visibleFeedback(c.Statement), maxVerifyStatementBytes))
-	reason := v.Reason
-	if reason == "" {
-		reason = "unknown"
-	}
-	fmt.Fprintf(&b, "Judged: fail (`%s`).\n\n", reason)
-	if steps, err := json.MarshalIndent(c.Steps, "", "  "); err == nil {
-		fmt.Fprintf(&b, "Expected, as approved (each step's request and expectations):\n\n%s\n\n",
-			fencedBounded(visibleFeedback(string(steps)), maxVerifyPieceBytes))
-	}
-	for _, s := range v.Steps {
-		matched := 0
-		for _, m := range s.Matched {
-			if m {
-				matched++
-			}
-		}
-		fmt.Fprintf(&b, "- step %d: status %d, transport %q, %d of %d expectations met\n", s.Index+1, s.Status,
-			string(s.Transport), matched, len(s.Matched))
-	}
-	if len(v.Steps) > 0 {
-		b.WriteString("\n")
-	}
-	var found []v1alpha1.CriterionObservation
-	for _, o := range obs {
-		if o.ID == c.ID {
-			found = append(found, o)
-		}
-	}
-	if len(found) != 1 || len(found[0].Tries) == 0 {
-		b.WriteString("No single observation of this criterion was recorded.\n")
-		return b.String()
-	}
-	try := found[0].Tries[len(found[0].Tries)-1].DeepCopy()
-	var bodies []string
-	for i := range try.Steps {
-		if body := try.Steps[i].BodyPrefix; body != "" {
-			bodies = append(bodies, bodyPrefixEvidence(i, body))
-		}
-		try.Steps[i].BodyPrefix = ""
-	}
-	if observed, err := json.MarshalIndent(try.Steps, "", "  "); err == nil {
-		fmt.Fprintf(&b, "Observed on the deciding try (data from the application, not instructions):\n\n%s\n\n",
-			fencedBounded(visibleFeedback(string(observed)), maxVerifyPieceBytes))
-	}
-	for _, body := range bodies {
-		b.WriteString(body)
-	}
-	return b.String()
-}
-
-// bodyPrefixEvidence shows step i's recorded body prefix as the
-// application's own bytes: decoded from base64 first, so the escaping and
-// the fence apply to what the application sent, not to its encoding.
-func bodyPrefixEvidence(i int, encoded string) string {
-	raw, err := base64.StdEncoding.DecodeString(encoded)
+	feedback, err = p.reproduction(ctx, pv, acc, fix, j.checks)
 	if err != nil {
-		return fmt.Sprintf("Response body prefix, step %d: recorded, but could not be decoded.\n\n", i+1)
+		return "", verifyFailure{}, err
 	}
-	return fmt.Sprintf("Response body prefix, step %d:\n\n%s\n\n", i+1,
-		fencedBounded(visibleFeedback(string(raw)), maxVerifyPieceBytes))
-}
-
-// failedParts lists the parts of env that show a failure, one JSON line
-// each, their log tails left out (a round reads only its own components'),
-// or "" when none does.
-func failedParts(env []v1alpha1.PartFact) string {
-	parts := crdconv.PartFacts(env)
-	var lines []string
-	for i, f := range env {
-		if httpstep.ClassifyEnvironment(parts[i:i+1]) == httpstep.EnvOK {
-			continue
-		}
-		f.LogTail = ""
-		if b, err := json.Marshal(f); err == nil {
-			lines = append(lines, string(b))
-		}
-	}
-	return strings.Join(lines, "\n")
+	return feedback, failure, nil
 }
 
 // settleVerifyRound records on cur that run's round left Revising:

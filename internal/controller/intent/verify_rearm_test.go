@@ -15,15 +15,13 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
-// rearmEnv is an intent in review whose verification ran at maul's own
-// heads, with automatic fixes halted for an approver's earlier review: the
-// state an approver re-arms from with /maul verify fix.
+// rearmEnv is an intent in review whose evaluation ran at maul's own heads
+// (outcomeEnv: its evaluator reports the version outcome failing, both
+// outcomes' checks stored), with automatic fixes halted for an approver's
+// earlier review: the state an approver re-arms from with /maul verify fix.
 func rearmEnv(t *testing.T) (*env, string) {
 	t.Helper()
-	e := newVerifyEnv(t, acceptancePlan)
-	name := e.reviewing()
-	e.readyPreview(name)
-	e.review(name, 3)
+	e, name, _, _ := outcomeEnv(t)
 	if v := e.verification(name); v.HeadSetDigest == "" {
 		t.Fatalf("verification = %+v, want its head set recorded", v)
 	}
@@ -95,7 +93,8 @@ func TestVerifyFixAfterAPushFixesOnTheHumansHead(t *testing.T) {
 			e.review(name, 2)
 			e.readyPreview(name)
 			e.reviewUntil(name, func() bool { return e.verification(name).Ref != nil && movedTo(e.verification(name), moved) })
-			e.observe(e.verification(name).Ref.Name, v1alpha1.VerificationObserved, answering(500))
+			version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+			e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
 			e.review(name, 2)
 			v := e.verification(name)
 			if v.State != v1alpha1.VerificationFailing && len(e.verifyRuns(name)) == 0 {

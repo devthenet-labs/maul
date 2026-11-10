@@ -4,6 +4,7 @@
 package templates
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -18,86 +19,41 @@ func testVerifyProgress() VerifyProgress {
 	return VerifyProgress{State: VerifyRunning, Verification: 1, FixesUsed: 0, MaxFixes: 2, Passing: 3, Total: 4}
 }
 
+// testVerifySection is an outcome round failing, with its notes: an
+// impostor's status, a no-defect conclusion (its mention and markup made
+// inert) and a component's log tail.
 func testVerifySection() VerifySection {
 	return VerifySection{
-		Progress: VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 0, MaxFixes: 2, Passing: 2, Total: 4,
-			Quarantined: 1, ManualOpen: 1, AutoFix: FixQueued},
-		Criteria: []VerifyCriterion{
-			{ID: "render", Kind: "http", Statement: "the home page renders", Outcome: VerifyOutcomePass},
-			{ID: "battle-leaderboard", Kind: "http", Statement: "a leaderboard ranks patterns by votes",
-				Outcome:  VerifyOutcomeFail,
-				Expected: "GET /api/battles/b1/leaderboard: status 200, /0/id = p2",
-				Observed: "status 500", Body: "{\"error\":\"boom\"}"},
-			{ID: "flaky", Kind: "http", Statement: "a flaky one", Outcome: VerifyOutcomeQuarantined},
-			{ID: "kick-onsets", Kind: "command", Statement: "kicks land on the beat", Outcome: VerifyOutcomeNotRun},
-			{ID: "sounds-good", Kind: "manual", Statement: "it sounds good", Outcome: VerifyOutcomeManual},
+		Progress: VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 1, MaxFixes: 2, Passing: 1,
+			Total: 2, AutoFix: FixHalted, AutoFixReason: "FixFoundNoDefect", Outcomes: true},
+		Outcomes: []VerifyOutcomeResult{
+			{ID: "home-renders", Kind: "keep", Statement: "the home page still renders", Result: OutcomeResultPassed,
+				Check: "http to web: GET /; 1 expectation"},
+			{ID: "leaderboard-ranks", Kind: "change", Statement: "a leaderboard ranks patterns by votes",
+				Result: OutcomeResultFailed, Check: "http to api: GET /api/battles/{{run}}/leaderboard; 2 expectations",
+				AppOutput: "{\"error\":\"boom\"}"},
 		},
+		Logs:     []VerifyLog{{Part: "beatbattle-api", Tail: "listening on :8080\npanic: boom"}},
+		Impostor: "mallory",
+		NoDefect: &VerifyNoDefect{Run: "marigold-3-rev2-api-a1",
+			Reason: "each outcome holds when replayed by hand; @octocat the <b>network policy</b> was late"},
 	}
 }
 
 func TestVerifyGoldens(t *testing.T) {
-	withLogs := testVerifySection()
-	withLogs.Logs = []VerifyLog{{Part: "beatbattle-api", Tail: "listening on :8080\npanic: boom"}}
-	withLogs.Impostor = "mallory"
-	passed := VerifySection{
-		Progress: VerifyProgress{State: VerifyPassed, Verification: 2, FixesUsed: 1, MaxFixes: 2, Passing: 2, Total: 2},
-		Criteria: []VerifyCriterion{
-			{ID: "a", Kind: "http", Statement: "a", Outcome: VerifyOutcomePass},
-			{ID: "b", Kind: "manual", Statement: "b", Outcome: VerifyOutcomeAccepted, AcceptedAt: testWebHead},
-		},
-	}
 	tests := []struct {
 		name   string
 		render func() (string, error)
 	}{
-		{"intent_verify_issue.md", func() (string, error) {
+		// The shared notes of a verification comment, on an outcome round.
+		{"intent_verify_outcomes_issue_notes.md", func() (string, error) {
 			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 1, Attempt: 2,
 				Section: testVerifySection()})
 		}},
-		{"intent_verify_issue_logs.md", func() (string, error) {
-			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 1, Attempt: 1,
-				Section: withLogs})
-		}},
-		{"intent_verify_issue_passed.md", func() (string, error) {
-			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 2, Attempt: 1,
-				Section: passed})
-		}},
-		// An acceptance fix that found no defect: the agent's reason, its
-		// mention and markup made inert, then maul's words on what next.
-		{"intent_verify_issue_no_defect.md", func() (string, error) {
-			s := testVerifySection()
-			s.Progress.AutoFix, s.Progress.AutoFixReason = FixHalted, "FixFoundNoDefect"
-			s.NoDefect = &VerifyNoDefect{Run: "marigold-3-rev2-api-a1",
-				Reason: "each criterion passes when replayed by hand; @octocat the <b>network policy</b> was late"}
-			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 1, Attempt: 1,
-				Section: s})
-		}},
-		// A step with the right status and the wrong JSON: each failing part
-		// named, the observed values inert however they are written.
-		{"intent_verify_issue_mismatch.md", func() (string, error) {
-			s := VerifySection{Progress: VerifyProgress{State: VerifyFailing, Verification: 2, FixesUsed: 1,
-				MaxFixes: 2, Total: 1}, Criteria: []VerifyCriterion{{ID: "ratings-order", Kind: "http",
-				Statement: "the top rated pattern comes first", Outcome: VerifyOutcomeFail,
-				Expected: "GET /api/ratings: status 200", Observed: "status 200",
-				Mismatches: []VerifyMismatch{
-					{Kind: MismatchJSON, Key: "/0/id", Expected: `"p_mine"`, Observed: "\"p_4e1013 ``@octocat``\""},
-					{Kind: MismatchHeader, Key: "Content-Type", Expected: `"application/json"`, Absent: true},
-					{Kind: MismatchBody, Expected: "p_mine"},
-					{Kind: MismatchCapture, Key: "battle", Expected: "a value at /id", Absent: true},
-					{Kind: "bogus", Expected: "never shown"},
-				}}}}
-			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "beatbattle-44", Round: 2,
-				Attempt: 1, Section: s})
-		}},
-		{"intent_preview_live_verify.md", func() (string, error) {
+		{"intent_preview_live_verify_outcomes_notes.md", func() (string, error) {
 			c := testPreviewComment(PreviewLive, "", "/api")
 			s := testVerifySection()
 			c.Verify = &s
-			return RenderIntentPreviewComment(c)
-		}},
-		{"intent_preview_live_verify_passed.md", func() (string, error) {
-			c := testPreviewComment(PreviewLive, "", "")
-			c.Verify = &passed
 			return RenderIntentPreviewComment(c)
 		}},
 		{"intent_status_preview_verifying.md", func() (string, error) {
@@ -107,31 +63,10 @@ func TestVerifyGoldens(t *testing.T) {
 			p.Verify = &v
 			return RenderIntentStatusComment(testInReview(p))
 		}},
-		{"intent_plan_acceptance.md", func() (string, error) {
-			pc := testPlanComment(testPlan)
-			pc.Acceptance = &PlanAcceptance{Automated: 2, NotRun: 1,
-				Manual: []PlanManualCriterion{{ID: "sounds-good", Reason: "only a human can judge how it sounds"}}}
-			return RenderPlanComment(pc)
-		}},
-		{"intent_plan_acceptance_off.md", func() (string, error) {
-			pc := testPlanComment(testPlan)
-			pc.Acceptance = &PlanAcceptance{Off: true}
-			return RenderPlanComment(pc)
-		}},
 		{"intent_plan_acceptance_not_asked.md", func() (string, error) {
 			pc := testPlanComment(testPlan)
 			pc.Acceptance = &PlanAcceptance{NotAsked: true}
 			return RenderPlanComment(pc)
-		}},
-		{"prompt_plan_verification.md", func() (string, error) {
-			return RenderPlanPrompt(PlanPrompt{
-				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
-				Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
-				Verification: &PlanVerification{Components: []PlanVerifyComponent{
-					{Key: "web", Path: "/", Readiness: "/healthz"},
-					{Key: "api", Path: "/api", Readiness: "/api/healthz"},
-				}},
-			})
 		}},
 	}
 	for _, tt := range tests {
@@ -265,14 +200,16 @@ func assertInert(t *testing.T, name, out string) {
 func TestVerifyTextInert(t *testing.T) {
 	sec := VerifySection{
 		Progress: VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 0, MaxFixes: 2, Passing: 1, Total: 2,
-			AutoFix: FixHalted, AutoFixReason: hostileText},
-		Criteria: []VerifyCriterion{
-			{ID: hostileText, Kind: hostileText, Statement: hostileText, Outcome: VerifyOutcomeFail,
-				Expected: hostileText, Observed: hostileText, Body: hostileText + "\n```\n@octocat\n```````"},
-			{ID: "m", Kind: "manual", Statement: hostileText, Outcome: VerifyOutcomeAccepted, AcceptedAt: hostileText},
+			AutoFix: FixHalted, AutoFixReason: hostileText, Outcomes: true},
+		Outcomes: []VerifyOutcomeResult{
+			{ID: hostileText, Kind: hostileText, Statement: hostileText, Result: OutcomeResultFailed,
+				Reason: hostileText, Check: hostileText, AppOutput: hostileText + "\n```\n@octocat\n```````"},
+			{ID: "m", Kind: "keep", Statement: hostileText, Result: OutcomeResultAccepted, AcceptedAt: hostileText},
 		},
-		Logs:     []VerifyLog{{Part: hostileText, Tail: hostileText + "\n````\n#4"}},
-		Impostor: hostileText,
+		Anomalies: []VerifyAnomaly{{Summary: hostileText, Route: hostileText}},
+		Logs:      []VerifyLog{{Part: hostileText, Tail: hostileText + "\n````\n#4"}},
+		Impostor:  hostileText,
+		NoDefect:  &VerifyNoDefect{Run: hostileText, Reason: hostileText},
 	}
 	issue, err := RenderVerifyComment(VerifyComment{Namespace: "n", Intent: "i", Round: 1, Attempt: 1, Section: sec})
 	if err != nil {
@@ -296,25 +233,17 @@ func TestVerifyTextInert(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertInert(t, "status", st)
-	pc := testPlanComment(testPlan)
-	pc.Acceptance = &PlanAcceptance{Manual: []PlanManualCriterion{{ID: hostileText, Reason: hostileText}}}
-	plan, err := RenderPlanComment(pc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	head, _, _ := strings.Cut(plan, "### The plan")
-	assertInert(t, "plan header", head)
 }
 
-// TestVerifyEvidenceBounded: evidence is cut per criterion and the comment
+// TestVerifyEvidenceBounded: evidence is cut per outcome and the comment
 // stays under GitHub's limit, dropping log tails first.
 func TestVerifyEvidenceBounded(t *testing.T) {
 	big := strings.Repeat("x", 100_000)
 	sec := VerifySection{Progress: VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 0, MaxFixes: 1,
-		Total: 16}}
+		Total: 16, Outcomes: true}}
 	for i := range 16 {
-		sec.Criteria = append(sec.Criteria, VerifyCriterion{ID: "c" + string(rune('a'+i)), Kind: "http",
-			Statement: "s", Outcome: VerifyOutcomeFail, Expected: big, Observed: big, Body: big})
+		sec.Outcomes = append(sec.Outcomes, VerifyOutcomeResult{ID: "o" + string(rune('a'+i)), Kind: "change",
+			Statement: "s", Result: OutcomeResultFailed, Check: big, AppOutput: big})
 	}
 	for i := range 8 {
 		sec.Logs = append(sec.Logs, VerifyLog{Part: "p" + string(rune('a'+i)), Tail: big})
@@ -337,8 +266,32 @@ func TestVerifyEvidenceBounded(t *testing.T) {
 	if len(pr) > MaxCommentBytes {
 		t.Errorf("pr comment is %d bytes, over the limit", len(pr))
 	}
-	if strings.Count(pr, strings.Repeat("x", VerifyEvidenceMaxBytes+1)) != 0 {
-		t.Errorf("evidence is not cut at %d bytes", VerifyEvidenceMaxBytes)
+	if strings.Count(pr, strings.Repeat("x", VerifyAppOutputMaxBytes+1)) != 0 {
+		t.Errorf("evidence is not cut at %d bytes", VerifyAppOutputMaxBytes)
+	}
+}
+
+// TestVerifyLogsBounded: a comment carries at most verifyLogsMax log
+// tails, in order, and none for a part whose tail is empty once made
+// visible.
+func TestVerifyLogsBounded(t *testing.T) {
+	sec := testVerifySection()
+	sec.Logs = []VerifyLog{{Part: "blank", Tail: " \n\t"}}
+	for i := range verifyLogsMax + 1 {
+		sec.Logs = append(sec.Logs, VerifyLog{Part: fmt.Sprintf("part-%d", i), Tail: fmt.Sprintf("tail %d", i)})
+	}
+	out, err := RenderVerifyComment(VerifyComment{Namespace: "n", Intent: "i", Round: 1, Attempt: 1, Section: sec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "`blank`") {
+		t.Errorf("a blank tail is shown:\n%s", out)
+	}
+	for i := range verifyLogsMax + 1 {
+		shown := strings.Contains(out, fmt.Sprintf("tail %d", i))
+		if want := i < verifyLogsMax-1; shown != want {
+			t.Errorf("tail %d shown %v, want %v:\n%s", i, shown, want, out)
+		}
 	}
 }
 
@@ -379,6 +332,13 @@ func TestVerifyLineStates(t *testing.T) {
 				"why it is not."},
 		{VerifyProgress{State: VerifyHeadsMoved, Outcomes: true}, "The pull requests moved to new commits: maul " +
 			"is checking the new commits, and the last result, about earlier commits, is not shown."},
+		{VerifyProgress{State: VerifyExhausted, Verification: 3, FixesUsed: 2, MaxFixes: 2, Passing: 1, Total: 3,
+			Outcomes: true}, "Evaluation 3 failing: 1/3 outcomes confirmed, no automatic fix left."},
+		{VerifyProgress{State: VerifyUnavailable, Verification: 2, MaxFixes: 2, Outcomes: true},
+			"Verification unavailable: maul could not run the checks."},
+		{VerifyProgress{State: VerifyFailing, Verification: 1, MaxFixes: 2, Passing: 1, Total: 3, Outcomes: true,
+			DefectConfirmed: true, AutoFix: FixQueued},
+			"Evaluation 1: a person confirmed the defect maul found: 1/3 outcomes confirmed; a fix is queued."},
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)

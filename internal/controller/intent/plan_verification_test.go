@@ -20,12 +20,11 @@ func (e *env) verifying(verification, previews bool) {
 }
 
 // TestPlanJobIsToldItsVerification: the plan Job of a Project that verifies,
-// under a controller that verifies, is handed the components a criterion
-// can target (key, path, readiness), so the plan prompt asks for acceptance
-// criteria. Live, no plan Job was ever handed them: no plan declared a
-// criterion, and verification never ran. A Project that does not verify,
-// or a controller with verification or previews off (verification Off),
-// hands the plan Job nothing.
+// under a controller that verifies (the agent evaluator, which verification
+// comes with), is handed the components its outcomes are checked on (key,
+// path, readiness), so the plan prompt asks for acceptance outcomes. A
+// Project that does not verify, or a controller with verification or
+// previews off (verification Off), hands the plan Job nothing.
 func TestPlanJobIsToldItsVerification(t *testing.T) {
 	verify := func(p *v1alpha1.Project) *v1alpha1.Project {
 		p.Spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
@@ -62,6 +61,7 @@ func TestPlanJobIsToldItsVerification(t *testing.T) {
 				e.jobs.output = multiOutput
 			}
 			e.verifying(tt.verification, tt.previews)
+			e.evaluating(tt.verification)
 			e.awaiting()
 			plans := e.specsOf("plan")
 			if len(plans) == 0 {

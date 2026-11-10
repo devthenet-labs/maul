@@ -19,9 +19,9 @@ import (
 )
 
 // The verification gate: what must hold before the intent reconciler asks
-// preview-controller to run the approved acceptance criteria against the
-// intent's Preview (a PreviewVerification), and the pure pieces both the
-// gate and the loop (verify_loop.go) share: the head set and the bounds.
+// for an evaluation of the approved outcomes at the intent's heads (a
+// PreviewVerification), and the pure pieces both the gate and the loop
+// (verify_loop.go) share: the head set and the bounds.
 
 // verifyInterval spaces verifications: an automatic one while automatic
 // fixes are halted (a human pushing repeatedly is not re-verified on every
@@ -80,19 +80,6 @@ func headSetDigest(heads []v1alpha1.VerificationHead) string {
 		b = []byte("!unencodable")
 	}
 	return digest(b)
-}
-
-// automatable are the criteria this slice (acceptance slice 1) runs, in
-// plan order: http, as acceptance.Automatable(cs, 1) selects them. command
-// criteria are recorded and reported as not run until slice 2.
-func automatable(cs []v1alpha1.AcceptanceCriterion) []v1alpha1.AcceptanceCriterion {
-	var out []v1alpha1.AcceptanceCriterion
-	for _, c := range cs {
-		if c.Kind == v1alpha1.AcceptanceHTTP {
-			out = append(out, c)
-		}
-	}
-	return out
 }
 
 // verifies reports whether this pass's Intent is verified: its Project is
@@ -185,18 +172,6 @@ func (p *pass) lastRequestAt(ctx context.Context) (time.Time, error) {
 		}
 	}
 	return last, nil
-}
-
-// unrunnable names the first criterion that cannot run as approved against
-// hs: its target is not one of the Preview's components, so no Service name
-// can be derived for it. "" when every one can.
-func unrunnable(cs []v1alpha1.AcceptanceCriterion, hs headSet) string {
-	for _, c := range cs {
-		if !slices.ContainsFunc(hs.heads, func(h v1alpha1.VerificationHead) bool { return h.Component == c.Target }) {
-			return c.ID
-		}
-	}
-	return ""
 }
 
 // checksGreen reports whether every open pull request of the Intent has the

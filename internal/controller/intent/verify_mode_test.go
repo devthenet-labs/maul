@@ -41,7 +41,7 @@ func TestRecordOf(t *testing.T) {
 		want recordKind
 	}{
 		{"none", nil, recordNone},
-		{"plan declaring nothing", &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest}, recordEmpty},
+		{"plan declaring nothing", &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest}, recordOutcomes},
 		{"criteria", &v1alpha1.IntentAcceptance{Digest: other, Criteria: criteria}, recordCriteria},
 		{"pruned criteria", &v1alpha1.IntentAcceptance{Digest: other}, recordPrunedCriteria},
 		{"outcomes", &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest, OutcomesDigest: other,
@@ -57,20 +57,22 @@ func TestRecordOf(t *testing.T) {
 	}
 }
 
-// TestVerifyModeHoldsOneEra: over every input, slice 1's mode holds no
-// outcomes and the evaluator's no criteria, so a fork inside either on the
-// record's own lists (len(acc.Outcomes) > 0) cannot cross eras, and a
-// record pruned of its criteria or holding both is never verified.
+// TestVerifyModeHoldsOneEra: over every input, only the evaluator's
+// outcomes are ever verified (S4): modeOutcomes holds an outcomes record of
+// an Intent the evaluator verifies, and a criteria-era record (criteria,
+// pruned of them, or holding both) is never verified nor settled Off as
+// if it were the evaluator's.
 func TestVerifyModeHoldsOneEra(t *testing.T) {
 	for _, verifies := range []bool{true, false} {
 		for _, evaluates := range []bool{true, false} {
 			for rec := recordNone; rec <= recordMixed; rec++ {
 				m := verifyModeOf(verifies, evaluates, rec)
+				criteriaEra := rec == recordCriteria || rec == recordPrunedCriteria || rec == recordMixed
 				switch {
-				case m == modeCriteria && rec != recordCriteria && rec != recordEmpty,
-					m == modeOutcomes && rec != recordOutcomes && rec != recordEmpty,
-					(m == modeCriteria || m == modeOutcomes) && !verifies,
-					m == modeCriteria && evaluates, m == modeOutcomes && !evaluates:
+				case m == modeOutcomes && (rec != recordOutcomes || !verifies || !evaluates),
+					m == modeOff && (criteriaEra || !evaluates || verifies),
+					m == modeMismatch && evaluates,
+					m == modeNone && rec != recordNone && (!evaluates || !criteriaEra):
 					t.Errorf("verifyModeOf(%v, %v, %d) = %d", verifies, evaluates, rec, m)
 				}
 			}
@@ -81,8 +83,8 @@ func TestVerifyModeHoldsOneEra(t *testing.T) {
 // TestNoOutcomesPlanSwitchedOffIsNoSuccess: a plan approved under the
 // evaluator that states no outcomes, accepted whole, then the evaluator
 // switched off: its record (an outcomes digest, no outcomes) is nothing
-// slice 1 verifies, so the intent is Off and its maul/acceptance the
-// switched-off error, never the green the acceptance gave it.
+// verified, so the intent is Off and its maul/acceptance the switched-off
+// error, never the green the acceptance gave it.
 func TestNoOutcomesPlanSwitchedOffIsNoSuccess(t *testing.T) {
 	e, name := evaluatorReviewing(t, validPlan)
 	e.readyPreview(name)
@@ -114,27 +116,25 @@ const (
 	propOutcomes
 )
 
-// wantMode is the property's own truth table (S4 plan, PR 4), written apart
-// from verifyModeOf: a record of another revision, or a criteria-era one
-// under the evaluator, is read again; a record the evaluator switch
-// disagrees with otherwise, or one pruned of its criteria, is a mismatch;
-// a matching record of an intent not verified is Off.
+// wantMode is the property's own truth table (S4 plan, PRs 4 and 6),
+// written apart from verifyModeOf: a record of another revision, or a
+// criteria-era one under the evaluator, is read again; any record while
+// the evaluator does not verify the Project is a mismatch; the evaluator's
+// record of an intent its tool host cannot verify is Off.
 func wantMode(verifies, evaluates, current bool, rec modeRecord) verifyMode {
 	if !current || rec == propNone {
 		return modeNone
 	}
 	criteriaEra := rec == propCriteria || rec == propPrunedCriteria
 	switch {
-	case evaluates && criteriaEra:
-		return modeNone
-	case !evaluates && rec != propCriteria:
+	case !evaluates:
 		return modeMismatch
+	case criteriaEra:
+		return modeNone
 	case !verifies:
 		return modeOff
-	case evaluates:
-		return modeOutcomes
 	}
-	return modeCriteria
+	return modeOutcomes
 }
 
 // TestVerifyModeSeeded is a seeded property over every combination of
@@ -143,10 +143,9 @@ func wantMode(verifies, evaluates, current bool, rec modeRecord) verifyMode {
 // the recorded head set at the pull requests' heads or not, and random
 // judgements and acceptances: the pass's mode is the truth table's; a
 // record nothing verifies (none, Off, mismatch) never gets a success or a
-// "maul is checking this" maul/acceptance; and success on the evaluator's
-// outcomes needs a judgement (or every outcome accepted by hand) standing
-// at the current heads. Slice 1's criteria may still post success until
-// they are deleted (S4 PR 6), and only at the current heads.
+// "maul is checking this" maul/acceptance; success is posted only in
+// modeOutcomes, and only with a judgement (or every outcome accepted by
+// hand) standing at the current heads.
 func TestVerifyModeSeeded(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
@@ -242,14 +241,19 @@ func (c modeCase) check(t *testing.T, base *pass, rng *rand.Rand, results []v1al
 			t.Fatalf("%s: mode %d posts %+v", label, want, st)
 		}
 		return
+	case modeOutcomes:
 	}
 	if st.state != statusSuccess {
 		return
 	}
+	if want != modeOutcomes {
+		// Only the evaluator's outcomes are ever green (S4).
+		t.Fatalf("%s: mode %d posts success %+v", label, want, st)
+	}
 	if !p.atHeads(v) {
 		t.Fatalf("%s: success %+v at other heads than the pull requests'", label, st)
 	}
-	if want == modeOutcomes && !outcomesStand(acc, v) {
+	if !outcomesStand(acc, v) {
 		t.Fatalf("%s: success %+v with no judgement standing at the heads: %+v", label, st, v)
 	}
 }
@@ -348,16 +352,7 @@ func TestPrunedCriteriaRecordSettlesOnce(t *testing.T) {
 		state     v1alpha1.IntentVerificationState
 	}{{"evaluator off", false, v1alpha1.VerificationOff}, {"evaluator on", true, v1alpha1.VerificationUnavailable}} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newVerifyEnv(t, acceptancePlan)
-			name := e.reviewing()
-			e.readyPreview(name)
-			e.review(name, 3)
-			e.observe(e.onlyVerification(name).Name, v1alpha1.VerificationObserved, answering(200))
-			e.review(name, 2)
-			if tc.evaluator {
-				e.evaluatorOn(0.4)
-			}
-			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Acceptance.Criteria = nil })
+			e, name, _ := prunedCriteriaIntent(t, tc.evaluator)
 			e.review(name, 4)
 			settled := e.get(name)
 			if v := settled.Status.Verification; v == nil || v.State != tc.state {

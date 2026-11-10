@@ -103,18 +103,13 @@ type PlanPrompt struct {
 	// itself carries no profile. None omits the paragraph, and the prompt
 	// is exactly the prompt without it.
 	BuildProfiles []BuildProfile
-	// Verification is the Project's acceptance verification: set only while
-	// it is enabled, it teaches the planner the optional `acceptance`
-	// frontmatter list and names the previewed components criteria can
-	// target. nil omits the section, and the prompt is exactly the prompt
-	// without it.
+	// Verification is the Project's acceptance verification by the agent
+	// evaluator: set only while it is enabled, it teaches the planner the
+	// optional `acceptance` frontmatter list of outcomes
+	// (acceptance.PlanOutcome) and names the previewed components, or the
+	// workspace, they are checked on. nil omits the section, and the prompt
+	// is exactly the prompt without it.
 	Verification *PlanVerification
-	// Outcomes says the Project's changes are judged by the agent
-	// evaluator: the prompt then teaches the outcome form of the
-	// `acceptance` list (acceptance.PlanOutcome) instead of slice 1's
-	// criteria, and Verification is not stated. False, the zero value, is
-	// the prompt exactly as without it.
-	Outcomes bool
 }
 
 // BuildProfile is one repository whose build gets an operator network

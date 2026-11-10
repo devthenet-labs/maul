@@ -84,8 +84,10 @@ func TestOutcomeVerifyLogTailsOnlyWhereAllowed(t *testing.T) {
 		e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
 		e.review(name, 3)
 		pv := e.pvNamed(e.onlyVerification(name).Name)
+		// The tool pod's own part is never a component's log: never shown.
 		pv.Status.Environment = []v1alpha1.PartFact{{Name: "app", Role: v1alpha1.PreviewRoleComponent,
-			Waiting: "CrashLoopBackOff", Restarts: 4, LogTail: "panic: nil map"}}
+			Waiting: "CrashLoopBackOff", Restarts: 4, LogTail: "panic: nil map"},
+			{Name: "tools", Role: v1alpha1.PreviewRoleTools, Ready: true, LogTail: "tool pod line"}}
 		if err := e.c.Update(t.Context(), pv); err != nil {
 			t.Fatal(err)
 		}
@@ -96,8 +98,12 @@ func TestOutcomeVerifyLogTailsOnlyWhereAllowed(t *testing.T) {
 			t.Fatalf("postLogs %t: issue comments %+v", postLogs, cs)
 		}
 		n := e.get(name).Status.PullRequests[0].Number
-		if got := strings.Contains(e.onePreviewComment(name, n).Body, "panic: nil map"); got != postLogs {
+		pr := e.onePreviewComment(name, n).Body
+		if got := strings.Contains(pr, "panic: nil map"); got != postLogs {
 			t.Fatalf("postLogs %t: the pull request shows the log tail: %t", postLogs, got)
+		}
+		if strings.Contains(cs[0].Body, "tool pod line") || strings.Contains(pr, "tool pod line") {
+			t.Fatalf("postLogs %t: a part that is no component's log is shown", postLogs)
 		}
 	}
 }

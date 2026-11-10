@@ -1250,11 +1250,11 @@ func (r *RunReconciler) planBuildProfiles(run *v1alpha1.IntentRun) string {
 
 // planVerification is what a plan Job is told of its Project's verification
 // (jobs.Spec.PlanVerification, MAUL_PLAN_VERIFICATION): the previewed
-// components its acceptance criteria can target, each by the key a
-// criterion's target names, the path it is served under and its readiness
-// path, from the Project's operator configuration alone (planAsk). Only
-// when the plan is asked for criteria (planAsk.asked): the plan prompt then
-// asks for them, and otherwise says nothing of them. "" for none.
+// components its acceptance outcomes are checked on, each by its key, the
+// path it is served under and its readiness path, or the workspace, from
+// the Project's operator configuration alone (planAsk). Only when the plan
+// is asked for outcomes (planAsk.asked): the plan prompt then asks for
+// them, and otherwise says nothing of them. "" for none.
 func (r *RunReconciler) planVerification(proj *v1alpha1.Project) string {
 	a := r.Settings.planAsk(proj)
 	if !a.asked() {
@@ -1767,11 +1767,6 @@ func (r *RunReconciler) collectPlan(ctx context.Context, run *v1alpha1.IntentRun
 		}
 		if bad := criteriaUnderEvaluator(r.Settings.planAsk(proj), plan.Acceptance); bad != "" {
 			res.outcome, res.detail = string(envelope.OutcomeReportInvalid), bad
-			break
-		}
-		if bad := unpreviewedTarget(r.Settings.planAsk(proj), proj, plan.Acceptance); bad != "" {
-			res.outcome = string(envelope.OutcomeReportInvalid)
-			res.detail = "the plan's acceptance " + bad
 			break
 		}
 		res.outcome, res.complete, res.report = string(envelope.OutcomeOK), true, plan.Report

@@ -261,8 +261,9 @@ type Settings struct {
 	// verification.maxToolCalls says; zero leaves the Project's alone.
 	MaxToolCalls int32
 	// VerifyTimeoutMax is --intent-verify-timeout-max: the most a Project's
-	// verification.timeout gives a tester Job (verifyTimeout). Zero is
-	// DefaultVerifyTimeoutMax.
+	// verification.timeout gave slice 1's tester Job. Nothing reads it
+	// since S4 deleted the criteria runtime; it is kept, validated, until
+	// the tester's chart keys go (S4 PR 8).
 	VerifyTimeoutMax time.Duration
 	// EvaluatorAgents is --intent-evaluator-agents (SPEC-S2 Q33): the
 	// evaluator also verifies Projects with a cli or library surface and no
@@ -367,16 +368,6 @@ func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
 // comment say why. serve logs it rather than refusing to start.
 func (s Settings) VerificationWithoutPreviews() bool {
 	return s.Verification && !s.Previews
-}
-
-// verifyTimeout is a verification's tester wall clock for Project p: its
-// verification.timeout (or the default), never more than VerifyTimeoutMax.
-func (s Settings) verifyTimeout(p *v1alpha1.Project) time.Duration {
-	limit := s.VerifyTimeoutMax
-	if limit <= 0 {
-		limit = DefaultVerifyTimeoutMax
-	}
-	return min(p.Spec.VerificationTimeout(), limit)
 }
 
 // stageLimits are the Project's limits for stage; an unknown stage's are

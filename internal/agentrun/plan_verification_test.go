@@ -20,10 +20,10 @@ const testPlanVerification = `{"components":[{"key":"web","path":"/","readiness"
 
 // TestPlanPromptTeachesAcceptance: a plan Job handed its Project's
 // verification (MAUL_PLAN_VERIFICATION) renders the plan prompt's acceptance
-// section, naming every component a criterion can target, on claude and on
-// codex alike; a plan Job handed none says nothing of acceptance, as before.
-// Without this a verifying Project's planner was never asked for criteria,
-// and verification never ran.
+// outcomes section, naming every component its outcomes are checked on, on
+// claude and on codex alike; a plan Job handed none says nothing of
+// acceptance, as before. Without this a verifying Project's planner was
+// never asked for outcomes, and verification never ran.
 func TestPlanPromptTeachesAcceptance(t *testing.T) {
 	for _, h := range []string{"claude", "codex"} {
 		for _, tt := range []struct {
@@ -61,7 +61,7 @@ func TestPlanPromptTeachesAcceptance(t *testing.T) {
 					t.Fatalf("event = %+v, want an ok plan", ev)
 				}
 				prompt := strings.Join(fx.specs[0].Argv, "\n")
-				taught := strings.Contains(prompt, "### Acceptance criteria")
+				taught := strings.Contains(prompt, "### Acceptance outcomes")
 				if taught != (tt.handoff != "") {
 					t.Fatalf("prompt teaches acceptance = %v, want %v:\n%s", taught, tt.handoff != "", prompt)
 				}
@@ -72,9 +72,9 @@ func TestPlanPromptTeachesAcceptance(t *testing.T) {
 					return
 				}
 				for _, want := range []string{
-					"- `web`: served under `/`, ready when `/healthz` answers",
-					"- `api`: served under `/api`, ready when `/api/healthz` answers",
-					"- `render`: served under `/render`\n",
+					"- `web`, under `/`",
+					"- `api`, under `/api`",
+					"- `render`, under `/render`",
 				} {
 					if !strings.Contains(prompt, want) {
 						t.Errorf("prompt lacks %q:\n%s", want, prompt)
@@ -88,7 +88,9 @@ func TestPlanPromptTeachesAcceptance(t *testing.T) {
 // TestPlanVerificationRefused: a handoff that does not decode is a
 // configuration error naming it, not a plan silently asked for nothing.
 func TestPlanVerificationRefused(t *testing.T) {
-	for _, raw := range []string{"not json", `{"components":[]}`, `{"components":[{"key":"web"}]}`} {
+	// The last is slice 1's era's switch, which no controller writes any more.
+	for _, raw := range []string{"not json", `{"components":[]}`, `{"components":[{"key":"web"}]}`,
+		strings.Replace(testPlanVerification, `{"components"`, `{"outcomes":true,"components"`, 1)} {
 		env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_PLAN_VERIFICATION": raw}
 		if _, err := FromEnv(func(k string) string { return env[k] }); err == nil ||
 			!strings.Contains(err.Error(), "MAUL_PLAN_VERIFICATION") {
@@ -98,16 +100,14 @@ func TestPlanVerificationRefused(t *testing.T) {
 }
 
 // TestPlanPromptAsksForOutcomes: a plan Job whose Project is judged by the
-// agent evaluator (MAUL_PLAN_VERIFICATION's outcomes) asks the planner for
-// acceptance outcomes, not slice-1 criteria; without it, criteria as before.
+// agent evaluator (MAUL_PLAN_VERIFICATION) asks the planner for acceptance
+// outcomes, never slice-1 criteria, which nothing runs any more.
 func TestPlanPromptAsksForOutcomes(t *testing.T) {
-	outcomes := strings.Replace(testPlanVerification, `{"components"`, `{"outcomes":true,"components"`, 1)
 	for _, tt := range []struct {
 		name, handoff      string
 		outcomes, criteria bool
 	}{
-		{"evaluator", outcomes, true, false},
-		{"slice 1", testPlanVerification, false, true},
+		{"evaluator", testPlanVerification, true, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "target-1-plan-r1-a1",

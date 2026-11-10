@@ -71,8 +71,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("intent-verification", false, "REMOVED: --intent-evaluator turns verification on")
 	_ = f.MarkHidden("intent-verification") // registered just above
 	f.Duration("intent-verify-timeout-max", intent.DefaultVerifyTimeoutMax,
-		"the most a Project's verification.timeout gives a tester Job, between 1m and 1h; keep it at or under "+
-			"preview-controller's tester deadline maximum (chart preview.verification.deadlineMaxSeconds)")
+		"no effect since slice 1's criteria no longer run (was the most a Project's verification.timeout gave a "+
+			"tester Job); still between 1m and 1h until it is removed with the tester's chart keys")
 	f.Bool("intent-evaluator", false,
 		"verify the approved plan's acceptance outcomes with the agent evaluator, which explores each intent's "+
 			"Preview through a slot tool pod and writes its own checks, for Projects with "+

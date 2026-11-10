@@ -23,11 +23,7 @@ const (
 	// recordNone: nothing of the approved revision: no record, or another
 	// revision's.
 	recordNone recordKind = iota
-	// recordEmpty: a plan that declared nothing, of either era: the
-	// empty-list digest, and neither criteria nor outcomes nor an outcomes
-	// digest.
-	recordEmpty
-	// recordCriteria: slice-1 criteria.
+	// recordCriteria: slice-1 criteria, which nothing runs any more.
 	recordCriteria
 	// recordPrunedCriteria: a criteria-era record the API server pruned of
 	// its criteria: a digest of criteria (not emptyCriteriaDigest), and
@@ -35,7 +31,8 @@ const (
 	// can be run, judged or accepted.
 	recordPrunedCriteria
 	// recordOutcomes: the agent evaluator's outcomes (an outcomes digest,
-	// or outcomes).
+	// or outcomes), or a plan that declared nothing (the empty-list digest
+	// and nothing else), which is the evaluator's with nothing to evaluate.
 	recordOutcomes
 	// recordMixed: criteria and outcomes both; never written, never
 	// verified.
@@ -52,14 +49,12 @@ func recordOf(acc *v1alpha1.IntentAcceptance) recordKind {
 	switch {
 	case outcomes && criteria:
 		return recordMixed
-	case outcomes:
-		return recordOutcomes
 	case criteria:
 		return recordCriteria
-	case acc.Digest != "" && acc.Digest != emptyCriteriaDigest:
+	case !outcomes && acc.Digest != "" && acc.Digest != emptyCriteriaDigest:
 		return recordPrunedCriteria
 	}
-	return recordEmpty
+	return recordOutcomes
 }
 
 // record is what the approved plan revision's acceptance on record holds:
@@ -76,32 +71,30 @@ func (p *pass) record() recordKind {
 // verify site branches on (S4, review CX-1), from whether the Intent is
 // verified (pass.verifies), whether the agent evaluator verifies its
 // Project (Settings.evaluates) and what the approved revision's record
-// holds (pass.record). Where the evaluator switch and the record disagree
-// nothing is verified, judged or reported as passing.
+// holds (pass.record). Only the evaluator verifies (S4): where it does not
+// verify the Project, nothing is verified, judged or reported as passing.
 type verifyMode int
 
 const (
-	// modeNone: nothing on record for the approved revision as the switch
-	// records it: none, another revision's, or a criteria-era record (its
-	// criteria, or pruned of them) while the evaluator verifies the
-	// Project. syncAcceptance reads the approved plan again: an evaluator
-	// refuses a criteria plan, which stops for a replan (stopForReplan,
-	// Unavailable).
+	// modeNone: nothing on record for the approved revision as the
+	// evaluator records it: none, another revision's, or a criteria-era
+	// record (its criteria, or pruned of them) while the evaluator
+	// verifies the Project. syncAcceptance reads the approved plan again:
+	// the evaluator refuses a criteria plan, which stops for a replan
+	// (stopForReplan, Unavailable).
 	modeNone verifyMode = iota
-	// modeOff: the approved revision's record matches the switch, but the
-	// Intent is not verified (its Project, the controller or its tool host
-	// does not verify it): settled Off.
+	// modeOff: the evaluator verifies the Project, but the Intent's tool
+	// host cannot verify it (pass.verifies): settled Off.
 	modeOff
-	// modeCriteria: slice 1 verifies the approved plan's criteria.
-	modeCriteria
 	// modeOutcomes: the agent evaluator verifies the approved plan's
 	// outcomes.
 	modeOutcomes
-	// modeMismatch: a record the evaluator, switched off (or its agents
-	// host off), cannot verify: outcomes, or a criteria-era record pruned
-	// of its criteria. Nothing runs it: settled Off, its maul/acceptance
-	// the switched-off error, until the evaluator is back or a plan is
-	// approved again.
+	// modeMismatch: a record of the approved revision while the evaluator
+	// does not verify the Project (switched off, or the Project not
+	// verified): its outcomes, a plan that declared nothing, or a
+	// criteria-era record. Nothing runs it: settled Off, its
+	// maul/acceptance the switched-off error, and nothing is accepted,
+	// until the evaluator verifies it or a plan is approved again.
 	modeMismatch
 )
 
@@ -112,17 +105,15 @@ func verifyModeOf(verifies, evaluates bool, rec recordKind) verifyMode {
 	switch {
 	case rec == recordNone:
 		return modeNone
-	case evaluates && (rec == recordCriteria || rec == recordPrunedCriteria || rec == recordMixed):
+	case !evaluates:
+		return modeMismatch
+	case rec != recordOutcomes:
 		// Read again: slice-1 criteria the evaluator does not run.
 		return modeNone
-	case !evaluates && (rec == recordOutcomes || rec == recordPrunedCriteria || rec == recordMixed):
-		return modeMismatch
 	case !verifies:
 		return modeOff
-	case evaluates:
-		return modeOutcomes
 	}
-	return modeCriteria
+	return modeOutcomes
 }
 
 // mode is this pass's verifyMode. It is computed on every call, from the

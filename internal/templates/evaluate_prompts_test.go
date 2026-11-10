@@ -135,8 +135,6 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 			return RenderPlanPrompt(PlanPrompt{
 				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
 				Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
-				Outcomes: true,
-				// Outcomes win: slice 1's criteria section is not stated.
 				Verification: &PlanVerification{Components: []PlanVerifyComponent{{Key: "api", Path: "/api"}}},
 			})
 		}},
@@ -531,7 +529,7 @@ func TestBuildAndFixPromptsReferenceNoEvaluator(t *testing.T) {
 func TestPlanPromptOutcomes(t *testing.T) {
 	got, err := RenderPlanPrompt(PlanPrompt{IssuePath: "/workspace/input/issue.md",
 		ReportPath: "/workspace/reports/plan.md", Intent: testPlanRequest, BuildMaxTurns: 150,
-		BuildTokenBudget: 800000, Limits: testPlanLimits, Outcomes: true,
+		BuildTokenBudget: 800000, Limits: testPlanLimits,
 		Verification: &PlanVerification{Components: []PlanVerifyComponent{{Key: "api", Path: "/api"}}}})
 	if err != nil {
 		t.Fatal(err)

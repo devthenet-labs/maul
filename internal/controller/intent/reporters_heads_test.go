@@ -189,7 +189,7 @@ func (e *env) movedHeadsChecks(name, judged string) {
 		if s == nil {
 			t.Fatal("no verification section")
 		}
-		if s.Progress.State != templates.VerifyHeadsMoved || len(s.Criteria) != 0 || len(s.Outcomes) != 0 ||
+		if s.Progress.State != templates.VerifyHeadsMoved || len(s.Outcomes) != 0 ||
 			len(s.Logs) != 0 || s.Suspected != nil || s.NoDefect != nil {
 			t.Errorf("section with the head moved = %+v, want the moved line alone", s)
 		}
@@ -237,19 +237,11 @@ func TestCommentsRefuseAPassAtOtherHeads(t *testing.T) {
 	e.movedHeadsChecks(name, "passed")
 }
 
-// TestCommentsRefuseAFailureAtOtherHeads (review SM-1): slice 1's criteria
+// TestCommentsRefuseAFailureAtOtherHeads (review SM-1): an evaluation
 // judged failing at head A, then a push of B recorded on the pull request
 // alone: no comment shows A's failure as B's.
 func TestCommentsRefuseAFailureAtOtherHeads(t *testing.T) {
-	e := newVerifyEnv(t, acceptancePlan)
-	name := e.reviewing()
-	e.readyPreview(name)
-	e.review(name, 3)
-	e.observe(e.onlyVerification(name).Name, v1alpha1.VerificationObserved, answering(500))
-	e.review(name, 1)
-	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
-		t.Fatalf("verification = %+v, want Failing", v)
-	}
+	e, name, _ := failingEvaluation(t)
 	if prog := e.prVerifyPass(name).verifyProgress(); prog == nil || prog.State != templates.VerifyFailing {
 		t.Fatalf("progress at the judged heads = %+v, want failing", prog)
 	}

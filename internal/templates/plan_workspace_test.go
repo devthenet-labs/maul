@@ -21,7 +21,7 @@ var (
 func testWorkspacePlanPrompt(w *PlanWorkspace) PlanPrompt {
 	return PlanPrompt{IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
 		Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
-		Outcomes: true, Verification: &PlanVerification{Outcomes: true, Workspace: w}}
+		Verification: &PlanVerification{Workspace: w}}
 }
 
 // TestPlanPromptWorkspaceGoldens: a Project with no preview asks for
@@ -110,45 +110,43 @@ func TestPlanOutcomesWorkspaceExamplesHold(t *testing.T) {
 // written is refused, and an invalid workspace is never stated.
 func TestPlanVerificationWorkspaceWire(t *testing.T) {
 	for _, w := range []*PlanWorkspace{testPlanCLI, testPlanLibrary} {
-		in := &PlanVerification{Outcomes: true, Workspace: w,
+		in := &PlanVerification{Workspace: w,
 			Components: []PlanVerifyComponent{{Key: "api", Path: "/api"}}}
 		enc := EncodePlanVerification(in)
 		got, err := DecodePlanVerification(enc)
 		if err != nil {
 			t.Fatalf("decode %s: %v", enc, err)
 		}
-		want := &PlanVerification{Outcomes: true, Workspace: w}
+		want := &PlanVerification{Workspace: w}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("round trip of %+v = %+v, want %+v (components dropped)", in, got, want)
 		}
 	}
 	for name, s := range map[string]string{
-		"with components": `{"components":[{"key":"api","path":"/api"}],"outcomes":true,` +
+		"with components": `{"components":[{"key":"api","path":"/api"}],` +
 			`"workspace":{"surface":"library","language":"go"}}`,
-		"without outcomes": `{"components":null,"workspace":{"surface":"library","language":"go"}}`,
-		"node library":     `{"components":null,"outcomes":true,"workspace":{"surface":"library","language":"node"}}`,
-		"binary outside":   `{"components":null,"outcomes":true,"workspace":{"surface":"cli","binary":"/bin/sh"}}`,
-		"unknown surface":  `{"components":null,"outcomes":true,"workspace":{"surface":"worker"}}`,
-		"unknown field":    `{"components":null,"outcomes":true,"workspace":{"surface":"library","language":"go","x":1}}`,
-		"repository breaks": `{"components":null,"outcomes":true,` +
+		"node library":    `{"components":null,"workspace":{"surface":"library","language":"node"}}`,
+		"binary outside":  `{"components":null,"workspace":{"surface":"cli","binary":"/bin/sh"}}`,
+		"unknown surface": `{"components":null,"workspace":{"surface":"worker"}}`,
+		"unknown field":   `{"components":null,"workspace":{"surface":"library","language":"go","x":1}}`,
+		"repository breaks": `{"components":null,` +
 			`"workspace":{"surface":"library","language":"go","repository":"a\nb"}}`,
 	} {
 		if _, err := DecodePlanVerification(s); err == nil {
 			t.Errorf("%s: decoded %s", name, s)
 		}
 	}
-	// An invalid workspace, or one without outcomes, is never stated: the
+	// An invalid workspace is never stated: the
 	// preview's components stand, as before the field existed.
 	for _, in := range []*PlanVerification{
-		{Outcomes: true, Workspace: &PlanWorkspace{Surface: SurfaceCLI, Binary: "/bin/sh"},
+		{Workspace: &PlanWorkspace{Surface: SurfaceCLI, Binary: "/bin/sh"},
 			Components: []PlanVerifyComponent{{Key: "api", Path: "/api"}}},
-		{Workspace: testPlanLibrary, Components: []PlanVerifyComponent{{Key: "api", Path: "/api"}}},
 	} {
 		if enc := EncodePlanVerification(in); strings.Contains(enc, "workspace") || enc == "" {
 			t.Errorf("EncodePlanVerification(%+v) = %s", in, enc)
 		}
 	}
-	if enc := EncodePlanVerification(&PlanVerification{Outcomes: true,
+	if enc := EncodePlanVerification(&PlanVerification{
 		Workspace: &PlanWorkspace{Surface: "worker"}}); enc != "" {
 		t.Errorf("an invalid workspace with no component encoded: %s", enc)
 	}

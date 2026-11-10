@@ -4,7 +4,6 @@
 package intent
 
 import (
-	"fmt"
 	"slices"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -14,13 +13,13 @@ import (
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
-// A plan's acceptance criteria, before approval. One decision, planAsk,
-// says whether a plan of a Project is asked for criteria and against which
-// components; the plan Job's handoff (planVerification), the plan comment's
-// acceptance line (planAcceptance) and the plan-time refusal of a criterion
-// aimed at nothing (unpreviewedTarget) all read it, so the three cannot
-// disagree. Acceptance verification is optional: nothing here ever refuses
-// a plan of a Project whose intents are not verified.
+// A plan's acceptance outcomes, before approval. One decision, planAsk,
+// says whether a plan of a Project is asked for outcomes and against which
+// components or workspace; the plan Job's handoff (planVerification), the
+// plan comment's acceptance lines (planAcceptance, planOutcomes) and the
+// plan-time refusal of slice-1 criteria (criteriaUnderEvaluator) all read
+// it, so they cannot disagree. Acceptance verification is optional: nothing
+// here ever refuses a plan of a Project whose intents are not verified.
 
 // verifiesProject is the Project-level half of whether this controller
 // verifies Project p's intents: the Project asks for it
@@ -49,43 +48,40 @@ func (s Settings) evaluates(p *v1alpha1.Project) bool {
 	return s.Evaluator && s.verifiesProject(p)
 }
 
-// planAsk is how a plan of a Project is asked for acceptance criteria, or,
-// under the agent evaluator, outcomes.
+// planAsk is how a plan of a Project is asked for acceptance outcomes.
 type planAsk struct {
-	// verified: the Project's intents are verified (verifiesProject).
+	// verified: the agent evaluator verifies the Project's intents
+	// (evaluates), so the plan states outcomes, never criteria.
 	verified bool
-	// outcomes: the agent evaluator verifies them (evaluates), so the plan
-	// states outcomes, never criteria.
-	outcomes bool
-	// targets are the previewed components a criterion can target, as the
-	// plan is told of them (templates.PlanVerification.Normalize, which
-	// carries outcomes too); nil when there is none, or the Project is not
-	// verified.
+	// targets are the previewed components (or, with no preview, the
+	// workspace) the outcomes are checked on, as the plan is told of them
+	// (templates.PlanVerification.Normalize); nil when there is none, or
+	// the Project is not verified.
 	targets *templates.PlanVerification
 }
 
-// planAsk is the plan-time decision for Project p: verified, and the
-// components of every Preview of it (v1alpha1.EffectivePreviews). A
-// component named like the tester or the tool pod part gives none, as
-// v1alpha1.DesiredPreviewEnvironment fails closed on it.
+// planAsk is the plan-time decision for Project p: verified by the agent
+// evaluator, and the components of every Preview of it
+// (v1alpha1.EffectivePreviews). A component named like the tester or the
+// tool pod part gives none, as v1alpha1.DesiredPreviewEnvironment fails
+// closed on it.
 func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
-	if !s.verifiesProject(p) {
+	if !s.evaluates(p) {
 		return planAsk{}
 	}
-	outcomes := s.evaluates(p)
 	previews := v1alpha1.EffectivePreviews(p)
 	if len(previews) == 0 && p.Spec.Surfaces.Agents() {
-		return planAsk{verified: true, outcomes: outcomes, targets: planWorkspace(p, outcomes)}
+		return planAsk{verified: true, targets: planWorkspace(p)}
 	}
-	v := &templates.PlanVerification{Outcomes: outcomes}
+	v := &templates.PlanVerification{}
 	for _, rp := range previews {
 		if rp.Name == v1alpha1.PreviewPartTester || rp.Name == v1alpha1.PreviewRoleTools {
-			return planAsk{verified: true, outcomes: outcomes}
+			return planAsk{verified: true}
 		}
 		v.Components = append(v.Components, templates.PlanVerifyComponent{
 			Key: rp.Name, Path: rp.Path, Readiness: rp.Preview.ReadinessPath})
 	}
-	return planAsk{verified: true, outcomes: outcomes, targets: v.Normalize()}
+	return planAsk{verified: true, targets: v.Normalize()}
 }
 
 // planWorkspace is the plan-time ask of a Project with a cli or library
@@ -95,14 +91,10 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 // (SurfaceCombinationUnsupported), at plan time as at review time. Nor is
 // one under a controller without the agents tool pod
 // (AgentsToolPodNotEnabled). nil, so the plan is not asked, when the
-// agent evaluator is off (slice-1 criteria cannot be run there), or when
-// the surface cannot be stated: its repository is not one of the Project's
+// surface cannot be stated: its repository is not one of the Project's
 // (or is unnamed in a Project of several), or its binary or language is one
 // the plan prompt cannot state (templates.PlanVerification.Normalize).
-func planWorkspace(p *v1alpha1.Project, outcomes bool) *templates.PlanVerification {
-	if !outcomes {
-		return nil
-	}
+func planWorkspace(p *v1alpha1.Project) *templates.PlanVerification {
 	s := p.Spec.Surfaces
 	w := &templates.PlanWorkspace{}
 	var key string
@@ -125,45 +117,23 @@ func planWorkspace(p *v1alpha1.Project, outcomes bool) *templates.PlanVerificati
 		}
 		w.Repository = repos[i].URL
 	}
-	return (&templates.PlanVerification{Outcomes: true, Workspace: w}).Normalize()
+	return (&templates.PlanVerification{Workspace: w}).Normalize()
 }
 
-// asked reports whether the plan is asked for criteria (or outcomes): its
-// Project is verified and previews at least one component they can target.
-// Only then will an approved plan's criteria be run.
+// asked reports whether the plan is asked for outcomes: its Project is
+// verified and previews at least one component (or states a workspace)
+// they are checked on. Only then will an approved plan's outcomes be run.
 func (a planAsk) asked() bool { return a.verified && a.targets != nil }
 
-// planAcceptance is the plan comment's acceptance line for a plan declaring
-// cs, so the approver sees what maul will check and what is theirs before
-// approving (design D1): the split when the plan was asked (one with none
-// says it declares none); "not asked for", and why, when the Project
-// verifies but previews nothing a criterion could target; "not checked"
-// when criteria are declared for a Project that is not verified, kept
-// rather than refused; nil, no line, when none of these, or when the plan
-// was asked for outcomes, which planOutcomes lists instead.
-func planAcceptance(a planAsk, cs []acceptance.Criterion) *templates.PlanAcceptance {
-	switch {
-	case a.verified && !a.asked():
+// planAcceptance is the plan comment's acceptance line: "not asked for",
+// and why, when the Project is verified but previews nothing its outcomes
+// could be checked on; nil, no line, otherwise (an asked plan's outcomes
+// are planOutcomes' to list).
+func planAcceptance(a planAsk) *templates.PlanAcceptance {
+	if a.verified && !a.asked() {
 		return &templates.PlanAcceptance{NotAsked: true}
-	case a.outcomes:
-		return nil
-	case !a.verified && len(cs) == 0:
-		return nil
-	case !a.verified:
-		return &templates.PlanAcceptance{Off: true}
 	}
-	out := &templates.PlanAcceptance{}
-	for _, c := range cs {
-		switch c.Kind {
-		case acceptance.KindHTTP:
-			out.Automated++
-		case acceptance.KindCommand:
-			out.NotRun++
-		case acceptance.KindManual:
-			out.Manual = append(out.Manual, templates.PlanManualCriterion{ID: c.ID, Reason: c.Reason})
-		}
-	}
-	return out
+	return nil
 }
 
 // The bounds of the issue lines a plan comment lists as answered by no
@@ -174,7 +144,7 @@ const (
 )
 
 // planOutcomes is the plan comment's outcomes section for a plan asked for
-// outcomes (a.outcomes and a.asked()): each outcome as the plan states it,
+// outcomes (a.asked()): each outcome as the plan states it,
 // and the list items of issueBody, the request the plan answers, that no
 // outcome quotes in its from (acceptance.NotCovered), at most
 // maxNotCoveredLines of them, each bounded and made visible
@@ -182,7 +152,7 @@ const (
 // Project with no preview (planWorkspace). nil for any other plan, and
 // without the issue lines when the request cannot be read (issue false).
 func planOutcomes(a planAsk, os []acceptance.PlanOutcome, issueBody string, issue bool) *templates.PlanOutcomes {
-	if !a.outcomes || !a.asked() {
+	if !a.asked() {
 		return nil
 	}
 	out := &templates.PlanOutcomes{Workspace: a.targets != nil && a.targets.Workspace != nil}
@@ -208,47 +178,11 @@ func planOutcomes(a planAsk, os []acceptance.PlanOutcome, issueBody string, issu
 // evaluator never runs (report.Plan.CheckEvaluator). Such a plan is refused
 // when its run is collected, and the next attempt is told why.
 func criteriaUnderEvaluator(a planAsk, cs []acceptance.Criterion) string {
-	if !a.outcomes {
+	if !a.verified {
 		return ""
 	}
 	if err := (&report.Plan{Acceptance: cs}).CheckEvaluator(); err != nil {
 		return err.Error()
-	}
-	return ""
-}
-
-// unpreviewedTarget says which of cs is aimed at nothing ("" when none is),
-// only for a plan that was asked (a.asked()): an http criterion whose
-// target, or a command criterion whose component, is not one of the
-// components the plan was told of, or a command criterion whose repository
-// is not one of p's. Such a plan is refused when its run is collected: an
-// approved criterion cannot change, and one aimed at nothing could only end
-// in NeedsReplan. A plan of a Project that is not verified keeps its
-// criteria, shown as not checked (planAcceptance).
-func unpreviewedTarget(a planAsk, p *v1alpha1.Project, cs []acceptance.Criterion) string {
-	if !a.asked() {
-		return ""
-	}
-	previewed := func(key string) bool {
-		return slices.ContainsFunc(a.targets.Components,
-			func(c templates.PlanVerifyComponent) bool { return c.Key == key })
-	}
-	repository := func(key string) bool {
-		return slices.ContainsFunc(p.Spec.Repositories,
-			func(r v1alpha1.ProjectRepository) bool { return r.Name == key })
-	}
-	for _, c := range cs {
-		switch {
-		case c.Kind == acceptance.KindHTTP && !previewed(c.Target):
-			return fmt.Sprintf("criterion %s targets %s, which is not a previewed repository of the project",
-				c.ID, c.Target)
-		case c.Kind == acceptance.KindCommand && c.In != nil && c.In.Component != "" && !previewed(c.In.Component):
-			return fmt.Sprintf("criterion %s runs in component %s, which is not a previewed repository of the "+
-				"project", c.ID, c.In.Component)
-		case c.Kind == acceptance.KindCommand && c.In != nil && c.In.Repository != "" && !repository(c.In.Repository):
-			return fmt.Sprintf("criterion %s runs in repository %s, which is not a repository of the project",
-				c.ID, c.In.Repository)
-		}
 	}
 	return ""
 }
