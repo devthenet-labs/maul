@@ -46,7 +46,7 @@
 # harness's stand-in for a model deciding that only some of them must
 # change), exactly those. When MAUL_FAKE_PLAN_ACCEPTANCE is set (YAML
 # lines), the plan's frontmatter also declares that acceptance block, the
-# criteria a model would write. A build is handed the
+# outcomes a model would write. A build is handed the
 # approved plan alone (input/investigation.md) with an empty request; a
 # request beside it is a fatal event, as agent-runner makes it. The
 # changeset stays clear of .github, .maul and .devcontainer, which an
@@ -58,7 +58,7 @@
 # sets MAUL_ACCEPTANCE_FIX=true) concludes that the code has no defect, as
 # agent-runner reports it: success false, no changeset, and a report
 # saying no_defect with its reason (a stand-in for a model that replayed
-# the failing criteria and found them holding). Any other build ignores it.
+# the failing checks and found them holding). Any other build ignores it.
 #
 # A multi-repository intent keeps two more of agent-runner's guards. A plan
 # Job handed a repositories manifest (input/repositories, one
@@ -270,7 +270,7 @@ plan)
 
   # The plan exactly as report.ParsePlan wants it: strict frontmatter, then
   # the plan in visible text the approver reads verbatim.
-  # The plan's acceptance criteria, when a harness declares them in the
+  # The plan's acceptance outcomes, when a harness declares them in the
   # model's place: MAUL_FAKE_PLAN_ACCEPTANCE is the frontmatter's
   # acceptance block as YAML lines, escaped here for the JSON string.
   acceptance=''
@@ -312,7 +312,7 @@ build)
   fi
 
   # An acceptance-fix round that finds no defect: it replays the failing
-  # criteria, changes nothing, and says so (report.Build's no_defect).
+  # checks, changes nothing, and says so (report.Build's no_defect).
   if [ "${MAUL_ACCEPTANCE_FIX:-}" = true ] && [ -n "${MAUL_FAKE_FIX_NO_DEFECT:-}" ]; then
     turn system notice '' 'session 00000000-0000-4000-8000-000000000004 started'
     turn assistant tool_use Read 'input/investigation.md'

@@ -11,9 +11,11 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/e2e/fakegithub"
@@ -28,12 +30,22 @@ import (
 // intent_verify_no_defect_test.go); here every round is an outcome round
 // on the slot tool pod, and no tester ever runs.
 
-// checkNoTester asserts the whole run used no slice-1 tester: every round
-// was an outcome round.
+// checkNoTester asserts the whole run used no slice-1 tester: every
+// verification Job left in a slot is a tool Job, and every round was an
+// outcome round.
 func (e *evalEnv) checkNoTester(t *testing.T, name string) {
 	t.Helper()
-	if n := len(e.kubelet.TesterRuns()); n != 0 {
-		t.Errorf("%d tester runs, want none on the evaluator", n)
+	for _, slot := range []string{"maul-preview-0", "maul-preview-1"} {
+		var jobs batchv1.JobList
+		if err := e.cl.client.List(context.Background(), &jobs, client.InNamespace(slot)); err != nil {
+			t.Fatal(err)
+		}
+		for i := range jobs.Items {
+			if j := &jobs.Items[i]; !isToolJob(j) {
+				t.Errorf("%s: Job %s is not a tool Job (role %q)", slot, j.Name,
+					j.Spec.Template.Labels[labelPreviewRole])
+			}
+		}
 	}
 	for _, pv := range e.verifications(t, name) {
 		if len(pv.Spec.Criteria) != 0 || len(pv.Spec.Outcomes) == 0 {

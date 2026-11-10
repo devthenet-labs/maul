@@ -30,10 +30,6 @@ import (
 // maul/acceptance status, the PreviewVerifications and the fix runs.
 
 const (
-	// testerImage is the digest-pinned preview-tester image
-	// preview-controller renders (never run: the kubelet runs the binary).
-	testerImage = "registry.example/maul/preview-tester@sha256:" +
-		"5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 	// acceptanceStatus is the commit status context maul posts.
 	acceptanceStatus = "maul/acceptance"
 	// shopLeaf is the application's preview image leaf.
