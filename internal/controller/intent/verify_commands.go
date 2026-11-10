@@ -12,9 +12,7 @@ import (
 	"strings"
 	"time"
 
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/action"
@@ -305,17 +303,17 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		// The agents round is known to be unable to run: say so once,
 		// here, rather than acknowledge now and answer later (S2-B10).
 		n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
-		n.Stands = standingJudgement(&cur)
+		n.Stands = p.standingJudgement(&cur)
 		return n, nil
 	}
-	if !args.Reset && !fixesStanding(args, &cur) && p.previewExpired(ctx, cur.Reset.Generation) {
+	if !args.Reset && !p.fixesStanding(args, &cur) && p.previewExpired(ctx, cur.Reset.Generation) {
 		// Nothing deploys the preview again at these commits: say so now
 		// rather than acknowledge a wait for nothing (gate D-B5). A reset
 		// changes the Preview's spec, which deploys it again, and so does
 		// the push of a fix round a fix request starts from a failing
 		// judgement (fixesStanding).
 		n.Outcome, n.NotRunWhy, n.Fix = templates.VerifyNotRun, templates.NotRunPreviewExpired, args.Fix
-		n.Stands = standingJudgement(&cur)
+		n.Stands = p.standingJudgement(&cur)
 		return n, nil
 	}
 	if most := p.proj.Spec.Limits.MaxVerificationsLimit(); cur.Automatic >= most {
@@ -364,8 +362,8 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 // fix round without a new evaluation: its push deploys an expired preview
 // again, so the request is recorded as before. Should no round start, the
 // gate answers the request then (waitPreview).
-func fixesStanding(args command.VerifyArgs, v *v1alpha1.IntentVerification) bool {
-	return args.Fix && v.State == v1alpha1.VerificationFailing && standingJudgement(v) != 0
+func (p *pass) fixesStanding(args command.VerifyArgs, v *v1alpha1.IntentVerification) bool {
+	return args.Fix && v.State == v1alpha1.VerificationFailing && p.standingJudgement(v) != 0
 }
 
 // confirmSuspected records an approver's /maul verify fix as the
@@ -530,7 +528,7 @@ func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
 // recordAcceptance records an approver's acceptance of ids in
 // status.acceptance.accepted, each replacing any earlier acceptance of the
 // same id, bound to the head set under verification, and only when the
-// Preview ran it when the approver commented (liveWhenGiven).
+// heads were checked when the approver commented (acceptedNow).
 func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []string,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	v := p.in.Status.Verification
@@ -539,7 +537,7 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 		return n, nil
 	}
 	heads := shortHeads(v.Heads)
-	if saw, err := p.liveWhenGiven(ctx, v, c.at); err != nil || !saw {
+	if saw, err := p.acceptedNow(ctx, v, c.at); err != nil || !saw {
 		n.Outcome, n.Heads = templates.VerifyAcceptMoved, heads
 		if p.set.linkless(p.proj) {
 			n.Outcome = templates.VerifyAcceptNotChecked
@@ -587,52 +585,6 @@ func acceptNote(body string) string {
 		note = strings.TrimPrefix(note, id)
 	}
 	return untrusted.Cap(strings.TrimSpace(note), v1alpha1.MaxAcceptanceNoteBytes)
-}
-
-// liveWhenGiven reports that the Preview ran the recorded head set v when an
-// acceptance was given at at, and still does: it is live at exactly the
-// heads the Intent's records derive, those are v's, and it went live at them
-// (status.lastDeployedAt, cleared by every new deployment) before at. An
-// acceptance is bound to the commits the approver could have checked, never
-// to ones recorded or deployed after they commented. A Preview not found is
-// not live; any other failed read is returned, deciding nothing.
-func (p *pass) liveWhenGiven(ctx context.Context, v *v1alpha1.IntentVerification, at time.Time) (bool, error) {
-	if p.set.agentsProject(p.proj) {
-		return p.checkedWhenGiven(ctx, v, at)
-	}
-	if hs, ok := previewHeadSet(p.proj, p.in); !ok || hs.digest != v.HeadSetDigest {
-		return false, nil
-	}
-	var pv v1alpha1.Preview
-	err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: p.in.Namespace, Name: p.in.Name}, &pv)
-	switch {
-	case kerrors.IsNotFound(err):
-		return false, nil
-	case err != nil:
-		return false, fmt.Errorf("read the intent's preview: %w", err)
-	}
-	deployed := pv.Status.LastDeployedAt
-	return viewPreview(p.proj, p.in, &pv).state == templates.PreviewLive && deployed != nil &&
-		at.After(deployed.Time), nil
-}
-
-// checkedWhenGiven is liveWhenGiven for an agents Project, which has no
-// Preview (SPEC-S2): the workspace heads its tool host derives now
-// (toolHost.heads) are v's, and maul had started checking exactly them (a
-// round of the Intent's at that head set was created) before at. An
-// acceptance is bound to the commits that were judged, never to ones
-// recorded or checked after the approver commented.
-func (p *pass) checkedWhenGiven(ctx context.Context, v *v1alpha1.IntentVerification, at time.Time) (bool, error) {
-	if hs, ok := p.toolHost().heads(p); !ok || hs.digest != v.HeadSetDigest {
-		return false, nil
-	}
-	pvs, err := p.ownVerifications(ctx)
-	if err != nil {
-		return false, fmt.Errorf("read the intent's verifications: %w", err)
-	}
-	return slices.ContainsFunc(pvs, func(pv v1alpha1.PreviewVerification) bool {
-		return pv.Spec.IsAgents() && pv.Spec.HeadSetDigest == v.HeadSetDigest && at.After(pv.CreationTimestamp.Time)
-	}), nil
 }
 
 // rememberApplied records in in's status that the acceptance command in

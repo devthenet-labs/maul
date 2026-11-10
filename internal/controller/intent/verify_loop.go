@@ -137,22 +137,6 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 	})
 }
 
-// atHeads reports that v is about the heads the Intent's tool host derives
-// from its records now (toolHost.heads, as its rounds derive them): only
-// then is v's judgement reported (review SM-1). A pull request's head is
-// recorded on the poll that reads it, and the head set follows only on a
-// later pass's syncHeadSet, so in between a reporter would otherwise show
-// a judgement of the old heads on the new. With the agents host switched
-// off its rounds' heads are still its own (settledAtHeads reads them so).
-func (p *pass) atHeads(v *v1alpha1.IntentVerification) bool {
-	host := p.toolHost()
-	if p.set.agentsHostOff(p.proj) {
-		host = agentsHost{}
-	}
-	hs, ok := host.heads(p)
-	return ok && hs.digest == v.HeadSetDigest
-}
-
 // verifyStopped is why verification of the approved plan revision is
 // stopped with nothing on record ("" when it is not): its criteria cannot
 // be read (stopUnreadable, reasonCriteriaUnreadable), or they are slice-1

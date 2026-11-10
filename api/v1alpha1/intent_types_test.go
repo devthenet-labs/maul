@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"math/rand"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/quick"
 	"time"
@@ -554,6 +555,45 @@ func TestJudgedOutcomes(t *testing.T) {
 			}
 			if at := tt.v.OutcomesJudgedAt(tt.round, tt.heads); at != tt.want {
 				t.Errorf("OutcomesJudgedAt(%d, %s) = %v, want %v", tt.round, tt.heads, at, tt.want)
+			}
+		})
+	}
+}
+
+// TestSameRound: a PreviewVerification is the round of a verification only
+// at its round, its head set and the approved outcome list, all three; never
+// with no head set or no approved list.
+func TestSameRound(t *testing.T) {
+	hs, other := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)
+	od, otherOD := "sha256:"+strings.Repeat("c", 64), "sha256:"+strings.Repeat("d", 64)
+	v := &IntentVerification{Round: 2, HeadSetDigest: hs}
+	spec := func(mut func(*PreviewVerificationSpec)) *PreviewVerificationSpec {
+		s := &PreviewVerificationSpec{Round: 2, HeadSetDigest: hs, OutcomesDigest: od}
+		if mut != nil {
+			mut(s)
+		}
+		return s
+	}
+	for _, tt := range []struct {
+		name     string
+		v        *IntentVerification
+		spec     *PreviewVerificationSpec
+		outcomes string
+		want     bool
+	}{
+		{"the same round", v, spec(nil), od, true},
+		{"another round", v, spec(func(s *PreviewVerificationSpec) { s.Round = 1 }), od, false},
+		{"other heads", v, spec(func(s *PreviewVerificationSpec) { s.HeadSetDigest = other }), od, false},
+		{"another outcome list", v, spec(nil), otherOD, false},
+		{"no approved list", v, spec(func(s *PreviewVerificationSpec) { s.OutcomesDigest = "" }), "", false},
+		{"no head set", &IntentVerification{Round: 2},
+			spec(func(s *PreviewVerificationSpec) { s.HeadSetDigest = "" }), od, false},
+		{"no verification", nil, spec(nil), od, false},
+		{"no spec", v, nil, od, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.v.SameRound(tt.spec, tt.outcomes); got != tt.want {
+				t.Errorf("SameRound = %v, want %v", got, tt.want)
 			}
 		})
 	}

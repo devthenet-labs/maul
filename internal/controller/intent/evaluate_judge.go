@@ -870,7 +870,9 @@ func pluralWord(n int, one, many string) string {
 func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	switch v.State {
 	case v1alpha1.VerificationPassed:
-		return true
+		// Written only with its round's judgement at its heads
+		// (applyJudgement); never ready over any other record.
+		return judgedAtRecord(v)
 	case v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationFailing, v1alpha1.VerificationExhausted:
 	default:
 		return false
@@ -882,9 +884,10 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 // every outcome confirmed or accepted, no anomaly, no replay round pending,
 // and a clean environment, as Decide's hand-off needs (review H2).
 func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
-	if agentsWhy(v) != "" {
-		// The state records a round that could not run (S2-B8): never
-		// ready over outcomes on record, whatever they say.
+	if !judgedAtRecord(v) {
+		// No judgement of its round at its heads, or the state records a
+		// round that could not run (S2-B8): never ready over outcomes on
+		// record, whatever they say.
 		return false
 	}
 	results := v.JudgedOutcomes()
