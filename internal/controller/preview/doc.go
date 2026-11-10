@@ -3,8 +3,8 @@
 
 // Package preview deploys an intent's immutable runtime images, one to four
 // components behind one host, into a fixed, chart-guarded namespace slot. It
-// has no GitHub, ECR, cloud, namespace or RBAC client. With
-// verification on (a tester image) it also writes, in its slots only, one
+// has no GitHub, ECR, cloud, namespace or RBAC client. With verification on
+// (a tester image, or the evaluator) it also writes, in its slots only, one
 // NetworkPolicy per part of a verification-capable Preview, admitting
 // exactly the edges re-derived from the operator's Project beside the
 // chart's preview-isolation, and runs the tester as a Job; off, it never

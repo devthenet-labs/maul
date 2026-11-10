@@ -32,7 +32,7 @@ import (
 
 // Reconciler reads and writes Preview and Intent in the release namespace,
 // and only Deployments, Services, Ingresses, Pods and ReplicaSets in slots,
-// plus NetworkPolicies and Jobs with verification on (Settings.TesterImage).
+// plus NetworkPolicies and Jobs with verification on (Settings.Verifying).
 // Client is deliberately uncached for slots and lease decisions. The chart's
 // Roles, not this Go client, enforce the cross-namespace boundary.
 type Reconciler struct {

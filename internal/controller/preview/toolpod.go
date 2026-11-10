@@ -92,8 +92,12 @@ const toolShm = "256Mi"
 
 var errToolImages = errors.New("the evaluator needs the tools, browser and toolbox images")
 
-// evaluating reports whether outcome verifications run on the tool pod.
-func (s Settings) evaluating() bool { return s.Evaluator && s.verifying() }
+// evaluating reports whether outcome verifications run on the tool pod:
+// the evaluator on with its three images (Validate holds them to their
+// grammar). It needs no tester image.
+func (s Settings) evaluating() bool {
+	return s.Evaluator && s.ToolsImage != "" && s.BrowserImage != "" && s.ToolboxImage != ""
+}
 
 // maxEvaluations is MaxEvaluations, or SlotCount when unset.
 func (s Settings) maxEvaluations() int {
@@ -103,18 +107,16 @@ func (s Settings) maxEvaluations() int {
 	return s.SlotCount
 }
 
-// validateEvaluator refuses an evaluator without verification, without
-// each of its three images digest-pinned outside the preview image prefix,
-// or without the agents namespace its ingress policy admits.
+// validateEvaluator refuses an evaluator without each of its three images
+// digest-pinned outside the preview image prefix, or without the agents
+// namespace its ingress policy admits. It needs no tester image: the
+// evaluator turns verification on by itself.
 func (s Settings) validateEvaluator() error {
 	if s.MaxEvaluations < 0 {
 		return errors.New("max evaluations is negative")
 	}
 	if !s.Evaluator {
 		return nil
-	}
-	if !s.verifying() {
-		return errors.New("the evaluator needs verification on (a tester image)")
 	}
 	if s.ToolsImage == "" || s.BrowserImage == "" || s.ToolboxImage == "" {
 		return errToolImages

@@ -217,8 +217,8 @@ func evaluatorArgs(extra ...string) []string {
 }
 
 // TestEvaluatorFlags: the evaluator is off unless the operator turns it
-// on, and on it needs verification, its three digest-pinned images and the
-// agents namespace.
+// on, and on it needs its three digest-pinned images and the agents
+// namespace, but no tester image: it turns verification on by itself.
 func TestEvaluatorFlags(t *testing.T) {
 	t.Setenv("POD_NAMESPACE", "")
 	opts := serveOpts(t, validArgs()...)
@@ -232,9 +232,10 @@ func TestEvaluatorFlags(t *testing.T) {
 		wantErr string
 	}{
 		{name: "on reaches the manager", args: evaluatorArgs("--kubeconfig", missing), wantErr: "kubeconfig"},
-		{name: "no verification", args: validArgs("--preview-evaluator", "--preview-tools-image", toolsImage,
-			"--preview-browser-image", browserImage, "--preview-toolbox-image", toolboxImage,
-			"--preview-agents-namespace", "maul-agents"), wantErr: "verification on"},
+		{name: "no tester image reaches the manager", args: validArgs("--preview-evaluator",
+			"--preview-tools-image", toolsImage, "--preview-browser-image", browserImage,
+			"--preview-toolbox-image", toolboxImage, "--preview-agents-namespace", "maul-agents",
+			"--kubeconfig", missing), wantErr: "kubeconfig"},
 		{name: "no toolbox image", args: evaluatorArgs("--preview-toolbox-image", ""), wantErr: "toolbox"},
 		{name: "a tag", args: evaluatorArgs("--preview-browser-image", "ghcr.io/x/browser:v1"),
 			wantErr: "not pinned by digest"},

@@ -371,6 +371,27 @@ func TestVerificationRendersTheTester(t *testing.T) {
 	}
 }
 
+// An evaluator-only install runs no tester: a criteria verification is
+// answered stale-criteria at once and nothing renders in the slot.
+func TestVerificationCriteriaWithoutTheTester(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	s := evalSettings()
+	s.TesterImage = ""
+	e.v.Settings, e.r.Settings = s, s
+	pv, res := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStaleCriteria ||
+		res.RequeueAfter != 0 {
+		t.Fatalf("status %+v, requeue %v; want Stale stale-criteria", pv.Status, res.RequeueAfter)
+	}
+	if n := len(e.jobs()); n != 0 {
+		t.Errorf("%d Jobs rendered without a tester image", n)
+	}
+	again, _ := e.verify()
+	if again.ResourceVersion != pv.ResourceVersion {
+		t.Error("a settled verification changed")
+	}
+}
+
 func TestVerificationObserved(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
 	e.verify()

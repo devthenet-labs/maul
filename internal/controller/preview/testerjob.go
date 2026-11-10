@@ -62,8 +62,8 @@ func (s Settings) testerJob(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerificatio
 	input []byte) (*batchv1.Job, error) {
 	timeout := pv.Spec.Timeout.Duration
 	switch {
-	case !s.verifying():
-		return nil, fmt.Errorf("verification is off: no tester image")
+	case !s.testing():
+		return nil, fmt.Errorf("criteria verification is off: no tester image")
 	case p.Spec.Environment == nil || !p.Spec.Environment.Verification:
 		return nil, fmt.Errorf("preview %s is not verification-capable", p.Name)
 	case pv.UID == "" || pv.Spec.PreviewRef.Name != p.Name || pv.Spec.PreviewRef.UID != p.UID:
