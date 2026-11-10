@@ -77,12 +77,12 @@ data:
     # *_IDLE_TIMEOUT ends a run of its stage that makes no progress (no model
     # turn, no tool result) for that long, as a timeout naming the command it
     # waited on; "0s" disables it.
-    MAUL_INTENT_PLAN_MODEL: anthropic/claude-sonnet-5
+    MAUL_INTENT_PLAN_MODEL: anthropic/claude-sonnet-5-5
     MAUL_INTENT_PLAN_MAX_TURNS: "40"
     MAUL_INTENT_PLAN_TOKEN_BUDGET: "200000"
     MAUL_INTENT_PLAN_TIMEOUT: 20m
     MAUL_INTENT_PLAN_IDLE_TIMEOUT: 20m
-    MAUL_INTENT_BUILD_MODEL: anthropic/claude-sonnet-5
+    MAUL_INTENT_BUILD_MODEL: anthropic/claude-sonnet-5-5
     MAUL_INTENT_BUILD_MAX_TURNS: "150"
     MAUL_INTENT_BUILD_TOKEN_BUDGET: "800000"
     MAUL_INTENT_BUILD_TIMEOUT: 60m

@@ -40,7 +40,7 @@ tokens are not.
      runners:
        codex:
          enabled: true
-     modelAllowlist: anthropic/claude-sonnet-5,anthropic/claude-opus-5,openai/gpt-5.3-codex
+     modelAllowlist: anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5,openai/gpt-5.3-codex
    ```
 
    For codex intents, set `intentController.codex.enabled: true` as well (or instead). Either one deploys the broker,
@@ -134,10 +134,10 @@ claude run (with `attribution.mode: attribute`, which turns usage measurement on
   turn after its one request. Codex (rust-v0.167.0) reports only `Quota exceeded`, not the broker's message, so the
   stage reads `runtime_error`, not `budget_exceeded`; the broker's audit line has the reason
   ([agent-runner](agent-runner.md#codex-runs-brokered)).
-- **Models.** The GPT-5.6 and GPT-6 models (`gpt-5.6-*`, `gpt-6-astra`) run tools only through codex's code mode,
-  whose host (`codex-code-mode-host`) the codex runner image does not carry: on them codex's one shell tool fails
-  closed, so a codex run on them can run no command. Use `openai/gpt-5.3-codex`, the default, on codex until
-  the image carries that host.
+- **Models.** The GPT-5.6 and GPT-6 models (`gpt-5.6-*`, `gpt-6-astra`) run tools only through codex's code mode, whose
+  host (`codex-code-mode-host`) the codex runner image does not carry: on them codex's one shell tool fails closed, so a
+  codex run on them can run no command. Use `openai/gpt-5.3-codex`, the default, on codex until the image carries that
+  host.
 
 ## Verifying codex live
 

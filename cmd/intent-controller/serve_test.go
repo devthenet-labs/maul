@@ -462,7 +462,7 @@ func TestEvaluatorSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if !s.Evaluator || s.EvaluateModel != "anthropic/claude-sonnet-5" ||
+	if !s.Evaluator || s.EvaluateModel != "anthropic/claude-sonnet-5-5" ||
 		s.CheckReviewModel != "anthropic/claude-haiku-5" || s.DefaultHandoff != v1alpha1.HandoffEarly ||
 		s.HandoffMax != 2*time.Hour || !s.EvaluateCodex || s.EvaluationCostMax != 4000000 || s.MaxToolCalls != 120 {
 		t.Errorf("settings = %+v", s)

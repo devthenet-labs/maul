@@ -80,9 +80,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"spec.verification.enabled (needs --intent-previews-enabled or --intent-evaluator-agents). Off, no "+
 			"intent is verified: each verifying Project and its intents' issues say so, and each preview is "+
 			"handed to people at once")
-	f.String("intent-evaluate-model", "anthropic/claude-sonnet-5",
+	f.String("intent-evaluate-model", "anthropic/claude-sonnet-5-5",
 		"canonical model a claude Project's evaluate runs run (--intent-evaluator)")
-	f.String("intent-checkreview-model", "anthropic/claude-sonnet-5",
+	f.String("intent-checkreview-model", "anthropic/claude-sonnet-5-5",
 		"canonical model a claude Project's checkreview runs run (--intent-evaluator)")
 	f.Duration("intent-evaluate-timeout", intent.DefaultEvaluateTimeout,
 		"wall-clock limit of an evaluate run, between 1m and 55m (its tool pod lives 5m longer, within the "+
@@ -171,8 +171,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("intent-revise-timeout", 45*time.Minute, "wall-clock limit of a revise or check-fix run")
 	f.Duration("intent-revise-idle-timeout", 20*time.Minute,
 		"end a revise or check-fix run that makes no progress (no model turn, no tool result) for this long; 0 disables")
-	f.String("intent-plan-model", "anthropic/claude-sonnet-5", "canonical model the plan stage runs")
-	f.String("intent-build-model", "anthropic/claude-sonnet-5", "canonical model the build stage runs")
+	f.String("intent-plan-model", "anthropic/claude-sonnet-5-5", "canonical model the plan stage runs")
+	f.String("intent-build-model", "anthropic/claude-sonnet-5-5", "canonical model the build stage runs")
 	f.String("intent-model-allowlist", "",
 		"comma-separated canonical models a Project may choose per stage (spec.models) beside the stage flags' "+
 			"own, each on the harness it resolves to (claude, or codex under --intent-codex); a Project naming "+

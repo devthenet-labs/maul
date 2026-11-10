@@ -1234,13 +1234,13 @@ intentController:
         # that long, as a timeout naming the command it waited on; "0s"
         # disables it.
         plan:
-            model: anthropic/claude-sonnet-5
+            model: anthropic/claude-sonnet-5-5
             maxTurns: 40
             tokenBudget: 200000
             timeout: 20m
             idleTimeout: 20m
         build:
-            model: anthropic/claude-sonnet-5
+            model: anthropic/claude-sonnet-5-5
             maxTurns: 150
             tokenBudget: 800000
             timeout: 60m
@@ -1301,8 +1301,8 @@ intentController:
         # Project gets the early hand-off (EvaluatorUnverified).
         codexEvaluator: false
         # The evaluator's and check reviewer's models (claude Projects).
-        evaluateModel: anthropic/claude-sonnet-5
-        checkReviewModel: anthropic/claude-sonnet-5
+        evaluateModel: anthropic/claude-sonnet-5-5
+        checkReviewModel: anthropic/claude-sonnet-5-5
         # One evaluation round's wall clock. Its slot tool Job must fit under
         # preview.verification.deadlineMaxSeconds, so this must be shorter.
         evaluateTimeout: 20m
@@ -2086,9 +2086,9 @@ agent:
     # waited on; "0s" disables it. 20m is twice the longest a healthy claude
     # command can run (its Bash tool's 10m maximum), so it only ends a run
     # waiting on something that will not return.
-    modelAllowlist: anthropic/claude-sonnet-5,anthropic/claude-opus-5
+    modelAllowlist: anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5
     investigate:
-        model: anthropic/claude-sonnet-5
+        model: anthropic/claude-sonnet-5-5
         timeout: 15m
         idleTimeout: 20m
         maxTurns: 25
@@ -2096,7 +2096,7 @@ agent:
     remediate:
         # The default model when the investigation report's suggestion is
         # missing or off the allowlist.
-        model: anthropic/claude-sonnet-5
+        model: anthropic/claude-sonnet-5-5
         timeout: 45m
         idleTimeout: 20m
         # Unattended: what a fix gets with nobody watching.

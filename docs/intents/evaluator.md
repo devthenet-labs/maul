@@ -423,9 +423,9 @@ tokens) that reserves \$0.32 and \$0.08 a request. A run budget under twice that
 (`RunBudgetUnderRequestReserve`, naming the stage and the least budget it needs): on sonnet at least \$0.64 for evaluate
 and \$0.16 for checkreview, on claude-opus-5-5 \$1.28 and \$0.33, on claude-haiku-5-5 \$0.16 and \$0.04. The example
 above (\$1.50 and \$0.30) fits sonnet; on opus raise the checkreview budget. Without the bound a request reserves the
-CLI's default (128000 tokens on the 5.5 models, \$1.28 on sonnet), and a \$1 checkreview run was once refused after
-four calls. A codex run gets no such bound and is
-not judged: a request that sets no `max_output_tokens` reserves the broker's `--max-tokens-ceiling`, if any.
+CLI's default (128000 tokens on the 5.5 models, \$1.28 on sonnet), and a \$1 checkreview run was once refused after four
+calls. A codex run gets no such bound and is not judged: a request that sets no `max_output_tokens` reserves the
+broker's `--max-tokens-ceiling`, if any.
 
 **Turns come first.** Every tool call is one agent turn, so an evaluate run's turn cap (`--intent-evaluate-max-turns`,
 chart `evaluateMaxTurns`, default 100; a Project's `limits.evaluate.maxTurns` only lowers it) is what it runs out of,

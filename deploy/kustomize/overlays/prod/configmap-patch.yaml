@@ -22,9 +22,9 @@ data:
     # a GitHub token rather than a model API key, so read the note on
     # MAUL_COPILOT_SECRET in the base ConfigMap before enabling it in prod.
     MAUL_HARNESSES: claude
-    MAUL_INVESTIGATE_MODEL: anthropic/claude-sonnet-5
-    MAUL_REMEDIATE_MODEL: anthropic/claude-sonnet-5
-    MAUL_MODEL_ALLOWLIST: anthropic/claude-sonnet-5,anthropic/claude-opus-5
+    MAUL_INVESTIGATE_MODEL: anthropic/claude-sonnet-5-5
+    MAUL_REMEDIATE_MODEL: anthropic/claude-sonnet-5-5
+    MAUL_MODEL_ALLOWLIST: anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5
     MAUL_CONFIDENCE_THRESHOLD: "0.75"
     MAUL_MAX_ATTEMPTS: "2"
 

@@ -58,10 +58,10 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterUsageFlags(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
-	f.String("model-allowlist", "anthropic/claude-sonnet-5,anthropic/claude-opus-5",
+	f.String("model-allowlist", "anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5",
 		"canonical model ids the investigation may request for remediation")
 
-	f.String("investigate-model", "anthropic/claude-sonnet-5",
+	f.String("investigate-model", "anthropic/claude-sonnet-5-5",
 		"canonical model id the analysis stage runs on (its harness is derived)")
 	f.Duration("investigate-timeout", 15*time.Minute, "wall-clock limit for the analysis stage")
 	f.Duration("investigate-idle-timeout", 20*time.Minute,
