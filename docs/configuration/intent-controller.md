@@ -356,14 +356,15 @@ preview-controller never touches such a request, and with the agents tool pod on
 
 **Capacity.** Requests equal limits: `tools` 250m, 256Mi, 2Gi of ephemeral storage (prepare and the seeds run within it,
 so it holds both pristine trees), each sandbox 1 CPU, 2Gi, 8Gi (about 3.5 GB of Go caches for a large tree, plus the
-tree, home and `/tmp`), about 2.25 CPU and 4.25 GiB a pod (`--intent-tool-resources`, chart
-`intentController.verification.agents.resources`). Measured on a 16-CPU desktop: a pod started in 3 seconds with its
-images cached; a mid-sized Go tree built cold at both sides in parallel in 13 seconds, warm in under 0.1, with `go vet`
-and the tests 6 to 10 seconds and a 383 MiB memory peak; a heavy cold build (`go build -a std cmd`) took 108 seconds per
-side at 1 CPU, with a 1.3 GiB working set. **CPU is the tight dimension**: two tool pods, an evaluator and three preview
-slots at their limits take 14.5 of 16 CPU, so a third tool pod does not fit, and the default `--intent-max-tool-pods`
-is 2. For big cold builds raise the sandbox CPU before the build timeout (a cold build scales about linearly with it).
-Each round's verification may take the evaluate timeout plus one build's timeout plus five minutes, at most 75 minutes.
+tree, its build output and the copy of both its check runs start from in a 2Gi work volume, home and `/tmp`), about 2.25
+CPU and 4.25 GiB a pod (`--intent-tool-resources`, chart `intentController.verification.agents.resources`). Measured on
+a 16-CPU desktop: a pod started in 3 seconds with its images cached; a mid-sized Go tree built cold at both sides in
+parallel in 13 seconds, warm in under 0.1, with `go vet` and the tests 6 to 10 seconds and a 383 MiB memory peak; a
+heavy cold build (`go build -a std cmd`) took 108 seconds per side at 1 CPU, with a 1.3 GiB working set. **CPU is the
+tight dimension**: two tool pods, an evaluator and three preview slots at their limits take 14.5 of 16 CPU, so a third
+tool pod does not fit, and the default `--intent-max-tool-pods` is 2. For big cold builds raise the sandbox CPU before
+the build timeout (a cold build scales about linearly with it). Each round's verification may take the evaluate timeout
+plus one build's timeout plus five minutes, at most 75 minutes.
 
 **Rollback.** Set `intentController.verification.agents.enabled: false`. intent-controller restarts without the agents
 host, its sweep deletes every tool Job on its next pass, and each Project with a cli or library surface carries

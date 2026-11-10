@@ -163,7 +163,7 @@ var toolSizes = map[string]string{
 	"prepare-tmp": "512Mi",
 	"maul-bin":    "64Mi",
 	"trees":       "512Mi",
-	"work":        "1536Mi",
+	"work":        "2Gi",
 	"cache":       "3584Mi",
 	"home":        "256Mi",
 	"tmp":         "2Gi",
