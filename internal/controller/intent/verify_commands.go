@@ -200,6 +200,13 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 		if args.Stop {
 			return p.stopAutoFix(ctx, c, n)
 		}
+		if why, off := p.offWhy(); off {
+			// Nothing would ever run it, nor a fix round a confirmation
+			// starts: nothing is recorded, and the reply says why (S2-B8),
+			// never that it is.
+			n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
+			return n, nil
+		}
 		if args.Fix && !args.Reset && suspectedConfirmable(p.in.Status.Verification, c.at) {
 			return p.confirmSuspected(ctx, c, n)
 		}
@@ -284,15 +291,10 @@ func (p *pass) previewHeld() (v1alpha1.HandoffMode, bool) {
 // reset was under verifyResetInterval before it; fix also re-arms automatic
 // fixes from the current round (a human round after it, or a human push,
 // halts them again). Once the approved plan revision has used the Project's
-// maxVerifications nothing is recorded and the reply says so.
+// maxVerifications nothing is recorded and the reply says so. One made while
+// verification is off is answered before this (applyVerifyCommand).
 func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args command.VerifyArgs,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
-	if why, off := p.offWhy(); off {
-		// Nothing would ever run it: it is not recorded, and the reply
-		// says why (S2-B8), never that it is.
-		n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
-		return n, nil
-	}
 	var cur v1alpha1.IntentVerification
 	if v := p.in.Status.Verification; v != nil {
 		cur = *v

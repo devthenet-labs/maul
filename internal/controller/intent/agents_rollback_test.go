@@ -496,3 +496,79 @@ func TestAgentsOffKeepsTheRecordedUnavailableReason(t *testing.T) {
 		})
 	}
 }
+
+// TestAgentsOffDropsAReasonRecordedAtOtherHeads (review of S2-LEFTOVERS):
+// a reason a round recorded for not running is about the heads it was
+// recorded at. Once a push moves the head set, with the host still on and
+// no round yet at the new heads, and the host is then switched off, maul
+// says it could not run its checks: never the old heads' reason (here, a
+// tree that could not be fetched) for heads nothing tried to fetch.
+func TestAgentsOffDropsAReasonRecordedAtOtherHeads(t *testing.T) {
+	const tree = "it could not fetch the source"
+	const notRun = "maul couldn't confirm this: it could not run its checks."
+	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnavailable)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.UnavailableReason = v1alpha1.VerificationUnavailableTree
+	})
+	before := e.verification(name).HeadSetDigest
+	e.pushHead(e.get(name).Status.PullRequests[0].Number, strings.Repeat("f", 40))
+	for range 4 {
+		if e.verification(name).HeadSetDigest != before {
+			break
+		}
+		e.review(name, 1)
+	}
+	v := e.verification(name)
+	if v.HeadSetDigest == before {
+		t.Fatalf("head set never followed the push: %+v", v)
+	}
+	if v.UnavailableReason != "" {
+		t.Errorf("verification at the new heads = %s with reason %q, want the old heads' reason dropped",
+			v.State, v.UnavailableReason)
+	}
+	e.agentsOn(false)
+	e.review(name, 6)
+	if status := e.statusBody(); strings.Contains(status, tree) || !strings.Contains(status, notRun) {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+}
+
+// agentsSuspectedRound is judgedAgentsRound Failing with a suspected
+// defect in version-shown, recorded an hour ago and not yet confirmed.
+func agentsSuspectedRound(t *testing.T) (*env, string) {
+	t.Helper()
+	e, name, pv := judgedAgentsRound(t, v1alpha1.VerificationFailing)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		v.Outcomes = []v1alpha1.OutcomeResult{{ID: "version-shown", Result: v1alpha1.OutcomeFailed}}
+		v.Suspected = &v1alpha1.SuspectedDefect{Verification: pv.Name, HeadSetDigest: v.HeadSetDigest,
+			RecordedAt: metav1.NewTime(e.clock.Now().Add(-time.Hour)), Outcomes: []string{"version-shown"}}
+	})
+	return e, name
+}
+
+// TestAgentsOffVerifyFixConfirmsNothing (review of S2-LEFTOVERS): with the
+// agents host switched off no fix round can start, so an approver's
+// /maul verify fix on a suspected defect kept at its heads is answered
+// that it did not run, and why, and confirms nothing: never "maul starts a
+// fix round" for a round that never starts.
+func TestAgentsOffVerifyFixConfirmsNothing(t *testing.T) {
+	e, name := agentsSuspectedRound(t)
+	e.agentsOn(false)
+	e.review(name, 4)
+	e.clock.Advance(time.Minute)
+	id := e.gh.comment(approver, "/maul verify fix")
+	e.settleActions(name)
+	e.review(name, 4)
+	if reply := e.onlyReply(id); !strings.Contains(reply,
+		"did not run: the tool pod that checks a project with no preview is not enabled") {
+		t.Errorf("/maul verify fix with the host off = %s", reply)
+	}
+	if v := e.verification(name); v.Suspected == nil || v.Suspected.Confirmed != nil ||
+		v.AutoFix.Rearm != nil {
+		t.Errorf("verification = %+v, want the suspected defect unconfirmed and fixes not re-armed", v)
+	}
+	if runs := e.runsOf(name, v1alpha1.IntentStageRevise); len(runs) != 0 {
+		t.Errorf("revise runs = %d, want none", len(runs))
+	}
+}
