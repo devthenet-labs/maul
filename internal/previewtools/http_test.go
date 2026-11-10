@@ -127,6 +127,38 @@ func TestClientNoCookieJar(t *testing.T) {
 	}
 }
 
+// TestClientNoCompressionFreshConnections: the client never asks for a
+// compressed body (slice 1's tester pinned that in its request-shape test),
+// so the body cap bounds the bytes the application sent, and every request
+// dials a connection of its own, so no request rides on another's.
+func TestClientNoCompressionFreshConnections(t *testing.T) {
+	comp := newFakeComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) { _, _ = io.WriteString(w, "ok") })
+	rt := routes{clientTarget: comp.srv.Listener.Addr().String()}
+	var mu sync.Mutex
+	dials := 0
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		mu.Lock()
+		dials++
+		mu.Unlock()
+		return rt.dial(ctx, network, addr)
+	}
+	c := NewClient(ClientOptions{Dial: dial})
+	for _, target := range []string{"/a", "/b", "/c"} {
+		if _, err := c.send(context.Background(), outbound{Addr: clientTarget, Method: http.MethodGet,
+			Target: target}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range comp.requests() {
+		if got := r.Header.Get("Accept-Encoding"); got != "" {
+			t.Errorf("%s carried Accept-Encoding %q: the relay must not ask for a compressed body", r.RequestURI, got)
+		}
+	}
+	if dials != 3 {
+		t.Errorf("three requests dialled %d connections, want one each", dials)
+	}
+}
+
 // TestClientProxyEnvironmentIgnored: an HTTP_PROXY in the pod's
 // environment cannot route the relay's requests anywhere else. net/http
 // reads the proxy environment once per process, so the transport's
