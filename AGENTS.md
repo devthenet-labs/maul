@@ -752,7 +752,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `acceptance` (stdlib and `httpstep` only, import pin): the plan's criterion grammar (`Validate`, the only
   `CriterionError` source; `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full
   list, manual included; `Automatable`), `Judge`/`JudgeStep` (raw bounded observations in, a `pass`, `quarantined` or
-  `fail` verdict out; no runtime `error`), `Fingerprint`, and the `MAUL-VERIFY:` wire v1.
+  `fail` verdict out; no runtime `error`), and the `MAUL-VERIFY:` wire v1, which only preview-controller's tester path
+  and the tester still use (S4 deletes them with it); `EvaluationFingerprint` is the evaluator's fix fingerprint.
   `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded round-trip. `untrusted`
   (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
   text before a human or model sees it. `previewtester` is the tester binary's engine. For the agent evaluator,
@@ -848,20 +849,26 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `ledger-mismatch`, never a verdict.
 - `toolpod` — what both hosts render alike, values only (pin: stdlib, core/v1, `api/v1alpha1`, `previewtools`):
   `Security(uid)`, `Deadlines` (Job, pod and relay wall clock), `NewKey`, `ConfigData`.
-- **Verification flow** (default off; the evaluator's switch, `--intent-verify-timeout-max`; chart
-  `preview.verification`, whose `deadlineMaxSeconds` drives both controllers' deadline flags; before its manager
-  starts, intent-controller takes a read-only census of slice-1 records through the API reader, `census.go`, logged by
-  name and reported as `maul.intent.slice1_records`, never refusing startup; preview-controller refuses
-  `--preview-tester-image` without `--preview-evaluator`): intent-controller reads
-  the approved plan's criteria into `status.acceptance` on the first review pass, and at the gate (CI green, no human
-  round pending, the Preview Live at exactly the PR heads, the bounds) creates an immutable `PreviewVerification`
-  (`ic/verify_*.go`); preview-controller's `VerificationReconciler` re-checks it and writes observations only; the intent
-  side judges them. A failure starts a verify-fix round (a `revise` run, trigger `verify`, own `verifyFixRounds()`
-  counter, `maxVerifyFixes`, `RepeatedFailure` stop by fingerprint, never a block); the human always wins (`humanPending`
-  halts auto-fix; a Pending fix is cancelled through `status.verification.cancelRun`). It posts the `maul/acceptance`
-  commit status on every open head of a verifying Project (statuses write: `intentperm.CommitStatus`, an Optional grant,
-  never part of Ready; without it the Project's `AcceptanceStatusUnavailable` and no status; success only when every
-  criterion passed or an approver accepted it, a final error once verification is switched off; digest-deduped,
+- **Verification flow** (default off; the evaluator's switch; chart `preview.verification`, whose
+  `deadlineMaxSeconds` drives both controllers' deadline flags (`--intent-verify-timeout-max`, slice 1's tester wall
+  clock, has had no effect since S4 PR 6); before its manager starts, intent-controller takes a read-only census of
+  slice-1 records through the API reader, `census.go`, logged by name and reported as `maul.intent.slice1_records`,
+  never refusing startup; preview-controller refuses `--preview-tester-image` without `--preview-evaluator`): only the
+  agent evaluator verifies. Every verify site branches on one mode per pass (`verify_mode.go`: `none`, `off`,
+  `outcomes`, `mismatch`), from whether the evaluator verifies the Project, the tool host verifies the intent and what
+  the approved revision's record holds; a criteria-era record (criteria, or pruned of them: a digest other than the
+  empty list's with no outcomes digest) is never run, judged or accepted: read again for a replan under the evaluator,
+  `mismatch` (settled Off, the switched-off error) otherwise. intent-controller reads the approved plan's outcomes
+  into `status.acceptance` on the first review pass (a plan stating criteria: `ErrSliceOneCriteria`, a replan notice
+  under the evaluator, else a record of their digest alone), and at the gate (CI green, no human round pending, the
+  heads, the bounds) creates an immutable outcome `PreviewVerification` (`ic/verify_*.go`, `evaluate_*.go`). A
+  reproduced failure starts a verify-fix round (a `revise` run, trigger `verify`, own `verifyFixRounds()` counter,
+  `maxVerifyFixes`, `RepeatedFailure` stop by fingerprint, never a block); the human always wins (`humanPending` halts
+  auto-fix; a Pending fix is cancelled through `status.verification.cancelRun`). It posts the `maul/acceptance` commit
+  status on every open head of a verifying Project (statuses write: `intentperm.CommitStatus`, an Optional grant,
+  never part of Ready; without it the Project's `AcceptanceStatusUnavailable` and no status; success only in the
+  `outcomes` mode, when every outcome is confirmed or an approver accepted it at the current heads, or for a plan
+  declaring none an approver's `/maul accept all`; a final error once verification is switched off; digest-deduped,
   impostor-checked once per poll), a verification comment, a sticky-comment section, and settles
   `/maul verify [fix|--reset]` and `/maul accept <id>|all` from both surfaces (`verify_commands.go`). `VerifyFailing`
   is a condition, never in `blockingConditions`.
