@@ -100,9 +100,11 @@ projects:
 ```
 
 Its plan and build then run on brokered codex (`openai/gpt-5.3-codex` by default, `intentController.codex.planModel` and
-`buildModel`). Each run records the harness it was created with, so changing a Project's harness affects only its new
-runs. With the switch off, a codex Project is not Ready (`HarnessNotEnabled`). Codex cannot hold a plan read-only,
-repair a refused report in its session, or stream a running command's output; see
+`buildModel`; the Project may choose its own codex models in `spec.models`, see
+[Choosing models per Project](intent-controller.md#choosing-models-per-project)). Each run records the harness it was
+created with, so changing a Project's harness affects only its new runs. With the switch off, a codex Project is not
+Ready (`HarnessNotEnabled`). Codex cannot hold a plan read-only, repair a refused report in its session, or stream a
+running command's output; see
 [Brokered claude, and brokered codex by choice](intent-controller.md#brokered-claude-and-brokered-codex-by-choice).
 
 ## Per-user OpenAI keys

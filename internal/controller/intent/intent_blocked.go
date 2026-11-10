@@ -23,7 +23,7 @@ var blockingConditions = []string{
 	v1alpha1.ConditionBudgetExhausted, v1alpha1.ConditionImageRequired, v1alpha1.ConditionBranchConflict,
 	v1alpha1.ConditionRevisionLimitReached, v1alpha1.ConditionChecksFailing,
 	v1alpha1.ConditionUnsupportedRepositories, v1alpha1.ConditionResourcesUnavailable,
-	v1alpha1.ConditionCredentialRequired,
+	v1alpha1.ConditionCredentialRequired, v1alpha1.ConditionModelNotAllowed,
 }
 
 // BranchConflict reasons.
@@ -109,6 +109,31 @@ func (p *pass) holdMultiRepo(ctx context.Context) (stop bool, err error) {
 	})
 }
 
+// holdModels blocks an Intent whose Project names a model this controller
+// does not admit (Settings.modelRefusal), from whatever phase it is in, as
+// holdMultiRepo does, so no run is created on a model that could never
+// launch: a run records its model and is immutable, and the Project, not the
+// run, is what the operator fixes. A Blocked one only gains the condition,
+// once, when it lacks it. stop reports a status write.
+func (p *pass) holdModels(ctx context.Context) (stop bool, err error) {
+	msg := p.set.modelRefusal(p.proj)
+	if msg == "" {
+		return false, nil
+	}
+	if p.in.Status.Phase != v1alpha1.IntentBlocked {
+		p.r.log().LogAttrs(ctx, slog.LevelWarn, "the project names a model intent-controller does not admit; "+
+			"the intent is held", slog.String("intent", p.in.Name), slog.String("project", p.proj.Name))
+		return true, p.block(ctx, v1alpha1.ConditionModelNotAllowed, ReasonModelNotAllowed, msg)
+	}
+	if meta.IsStatusConditionTrue(p.in.Status.Conditions, v1alpha1.ConditionModelNotAllowed) {
+		return false, nil
+	}
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		setCondition(cur, v1alpha1.ConditionModelNotAllowed, metav1.ConditionTrue, ReasonModelNotAllowed, msg)
+		return nil
+	})
+}
+
 // block moves the Intent to Blocked with the condition saying why, in one
 // status write, and remembers the Project generation it was blocked under.
 func (p *pass) block(ctx context.Context, condition, reason, msg string) error {
@@ -166,21 +191,15 @@ func (p *pass) blocked(ctx context.Context) (bool, error) {
 	if p.set.multiRepoOff(p.proj) {
 		return p.holdMultiRepo(ctx)
 	}
+	if p.set.modelRefusal(p.proj) != "" {
+		return p.holdModels(ctx)
+	}
 	holds, err := p.blockHolds(ctx)
 	if err != nil {
 		return false, err
 	}
 	if holds {
-		// The flag is on again (or the Project lists one repository) while
-		// another block still holds: only that one is left to explain it.
-		if !p.unsupportedFor(ReasonMultiRepositoryOff) {
-			return false, nil
-		}
-		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			setCondition(cur, v1alpha1.ConditionUnsupportedRepositories, metav1.ConditionFalse, "Resolved",
-				"the project's intents run again")
-			return nil
-		})
+		return p.resolveProjectHolds(ctx)
 	}
 	from := v1alpha1.IntentBlockedFrom(p.in)
 	var active *v1alpha1.IntentRun
@@ -258,6 +277,30 @@ func (p *pass) roundInFlight() bool {
 		return v1alpha1.IntentBlockedFrom(p.in) == v1alpha1.IntentRevising
 	}
 	return false
+}
+
+// resolveProjectHolds marks the Project's own holds resolved once they have
+// lifted while another block still holds the Intent, so only that one is
+// left to explain it: multi-repository intents on again (or the Project
+// listing one repository), and the Project naming admitted models. changed
+// reports a status write.
+func (p *pass) resolveProjectHolds(ctx context.Context) (changed bool, err error) {
+	multiRepo := p.unsupportedFor(ReasonMultiRepositoryOff)
+	models := meta.IsStatusConditionTrue(p.in.Status.Conditions, v1alpha1.ConditionModelNotAllowed)
+	if !multiRepo && !models {
+		return false, nil
+	}
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		if multiRepo {
+			setCondition(cur, v1alpha1.ConditionUnsupportedRepositories, metav1.ConditionFalse, "Resolved",
+				"the project's intents run again")
+		}
+		if models {
+			setCondition(cur, v1alpha1.ConditionModelNotAllowed, metav1.ConditionFalse, "Resolved",
+				"the project's models are admitted again")
+		}
+		return nil
+	})
 }
 
 // resumePlan launches the plan round's next attempt for a resume, unless its

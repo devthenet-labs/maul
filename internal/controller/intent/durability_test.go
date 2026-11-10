@@ -26,8 +26,7 @@ func (e *env) restart() {
 	e.intent = &IntentReconciler{Client: e.c, APIReader: e.c, GitHub: e.gh, Settings: s, Images: e.intent.Images,
 		Nudger: e.nudger, Now: e.clock.Now}
 	e.runs = &RunReconciler{Client: e.c, APIReader: e.c, Jobs: e.jobs, GitHub: e.gh, Settings: s,
-		MaxConcurrent: 1, Harness: "claude", PlanModel: e.runs.PlanModel, BuildModel: e.runs.BuildModel,
-		Images: e.runs.Images, Now: e.clock.Now}
+		MaxConcurrent: 1, Harness: "claude", Images: e.runs.Images, Now: e.clock.Now}
 }
 
 // tolerantDrive is drive for a world that fails: every error is tolerated

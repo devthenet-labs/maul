@@ -536,6 +536,7 @@ func (p *pass) createRoleRun(ctx context.Context, stage v1alpha1.IntentStage, ro
 			Grant:        p.set.grant(p.proj, stage),
 			AttributedTo: attributedTo,
 			Harness:      p.proj.Spec.Harness,
+			Model:        chosenModel(p.proj, stage),
 			Evaluation:   evaluation,
 		},
 	}

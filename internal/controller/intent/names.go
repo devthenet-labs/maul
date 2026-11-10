@@ -287,6 +287,12 @@ type Settings struct {
 	// ToolResources is --intent-tool-resources, the tool pod's containers'
 	// requests and limits; empty fields keep the jobs defaults.
 	ToolResources jobs.ToolPodResources
+	// Claude is the claude harness every Project not asking for codex runs
+	// on (brokered claude, or the fake harness in dev and tests), with the
+	// canonical model of each stage (--intent-plan-model,
+	// --intent-build-model) and the models --intent-model-allowlist adds
+	// for it.
+	Claude RunHarness
 	// Codex is the codex harness intents may run on (--intent-codex): the
 	// harness id and the canonical model of each stage. The zero value, the
 	// default, runs no intent on codex: a Project asking for it is not Ready
@@ -306,11 +312,15 @@ type Settings struct {
 
 // RunHarness is a harness intent runs launch on: its harness id (claude,
 // codex, or fake in dev and tests) and the canonical model each stage runs.
-// A revise or check-fix run runs the build model.
+// A revise or check-fix run runs the build model. Allowed are the models
+// --intent-model-allowlist adds that resolved to this harness at startup:
+// beside PlanModel and BuildModel, what a Project on it may choose in
+// spec.models (admittedModels).
 type RunHarness struct {
 	ID         string
 	PlanModel  string
 	BuildModel string
+	Allowed    ModelList
 }
 
 // harnessOff reports whether h is a harness intents of this controller do
@@ -578,7 +588,8 @@ var roleOutputBounds = map[v1alpha1.IntentStage]int{
 // budget less one reservation, and a budget under two would end the run's
 // model traffic before it had spent half of it (S1 bug 6: four calls and
 // $0.044 of a $1 budget). It judges the evaluate and checkreview stages of
-// a claude Project the evaluator verifies, on their models and output
+// a claude Project the evaluator verifies, on the models its runs run
+// (stageModel: its own choice, else the flags) and their output
 // bounds (roleOutputBounds); a model the registry cannot price, or a codex
 // run, whose CLI gets no output bound of maul's, is not judged. Nothing is
 // reported unless the broker counts cost.
@@ -587,10 +598,7 @@ func (s Settings) budgetUnderReserve(p *v1alpha1.Project) reserveShortfall {
 		return reserveShortfall{}
 	}
 	for _, stage := range []v1alpha1.IntentStage{v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview} {
-		id := s.EvaluateModel
-		if stage == v1alpha1.IntentStageCheckReview {
-			id = s.CheckReviewModel
-		}
+		id := s.stageModel(p, stage)
 		tokens := roleOutputBounds[stage]
 		reserve, ok := outputReserve(id, tokens)
 		if !ok {

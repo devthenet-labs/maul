@@ -452,6 +452,7 @@ func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v
 			PreviousAttempt: prev,
 			AttributedTo:    attributedTo,
 			Harness:         p.proj.Spec.Harness,
+			Model:           chosenModel(p.proj, stage),
 		},
 	}
 	if stage == v1alpha1.IntentStagePlan {

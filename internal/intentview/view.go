@@ -250,7 +250,7 @@ var BlockingConditions = []string{
 	v1alpha1.ConditionBudgetExhausted, v1alpha1.ConditionImageRequired, v1alpha1.ConditionBranchConflict,
 	v1alpha1.ConditionRevisionLimitReached, v1alpha1.ConditionChecksFailing,
 	v1alpha1.ConditionUnsupportedRepositories, v1alpha1.ConditionResourcesUnavailable,
-	v1alpha1.ConditionCredentialRequired,
+	v1alpha1.ConditionCredentialRequired, v1alpha1.ConditionModelNotAllowed,
 }
 
 // blockText is the public wording per blocking condition and reason; the ""
@@ -281,6 +281,9 @@ var blockText = map[string]map[string]string{
 		"MultiRepositoryOff":   "the project lists several repositories, and multi-repository intents are off",
 		"RepositoryKeyChanged": "the project's repository keys changed during a build",
 		"":                     "the project's repositories are not supported as configured",
+	},
+	v1alpha1.ConditionModelNotAllowed: {
+		"": "the project chooses a model the cluster does not run its intents on",
 	},
 	v1alpha1.ConditionResourcesUnavailable: {
 		"UnknownResourceClass": "the repository asks for a resource class the cluster does not define",

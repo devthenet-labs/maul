@@ -93,6 +93,7 @@ other binary binds, so the shared kustomize ConfigMap cannot set one by accident
 | `--intent-plan-timeout`                         | `MAUL_INTENT_PLAN_TIMEOUT`                            | `20m`                                      | Wall-clock limit of a plan run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `--intent-plan-idle-timeout`                    | `MAUL_INTENT_PLAN_IDLE_TIMEOUT`                       | `20m`                                      | End a plan run that makes no progress for this long; `0s` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `--intent-build-model`                          | `MAUL_INTENT_BUILD_MODEL`                             | `anthropic/claude-sonnet-5`                | Canonical model the build stage runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `--intent-model-allowlist`                      | `MAUL_INTENT_MODEL_ALLOWLIST`                         | empty                                      | Canonical models a Project may choose per stage (`spec.models`) beside the stage flags' own ([Choosing models per Project](#choosing-models-per-project))                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `--intent-build-max-turns`                      | `MAUL_INTENT_BUILD_MAX_TURNS`                         | `150`                                      | Most agent turns a build run may take                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `--intent-build-token-budget`                   | `MAUL_INTENT_BUILD_TOKEN_BUDGET`                      | `800000`                                   | Most output tokens a build run may spend                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `--intent-build-timeout`                        | `MAUL_INTENT_BUILD_TIMEOUT`                           | `60m`                                      | Wall-clock limit of a build run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -217,6 +218,51 @@ launched and measured on that harness, so changing a Project's harness affects i
   only the artifact server and the broker reachable, nothing but the report collected) is the boundary.
 - Codex cannot repair a refused report in its session, nor stream a running command's output to the run panel; a refused
   report ends the stage, which retries as any failed run does, and the run logs both.
+
+### Choosing models per Project
+
+The stage flags set the models every Project runs on. A Project can choose its own for each stage, within its one
+harness, in `spec.models`:
+
+```yaml
+spec:
+  models:
+    plan: anthropic/claude-opus-5 # the plan stage
+    build: anthropic/claude-sonnet-5 # build, and every revise round: review, command, check-fix, acceptance-fix
+    evaluate: anthropic/claude-sonnet-5 # the agent evaluator
+    checkReview: anthropic/claude-haiku-4-5 # the check reviewer
+```
+
+A field left unset runs the stage flag, exactly as before: `--intent-plan-model`, `--intent-build-model`,
+`--intent-evaluate-model` and `--intent-checkreview-model`, or on codex `--intent-codex-plan-model` and
+`--intent-codex-build-model`. A codex Project's evaluate and check review runs (only under `--intent-evaluate-codex`)
+run its build model, chosen or the flag, unless it chooses theirs.
+
+A Project may choose only a model the controller admits for its harness: one of that harness's stage flag models (the
+evaluator's two only under `--intent-evaluator`), or one `--intent-model-allowlist` adds:
+
+| Flag                       | Default | Meaning                                                                                                                                                      |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--intent-model-allowlist` | empty   | Comma-separated canonical models a Project may choose in `spec.models` beside the stage flags' own (chart `intentController.config.modelAllowlist`, a list). |
+
+At startup each allowlisted model must be in the model registry and resolve to claude (or the fake harness in dev), or
+to codex under `--intent-codex`; on brokered claude the provider's model map must cover it too. Otherwise the controller
+does not start. A Project naming a model that is not admitted for its harness is not Ready (`ModelNotAllowed`, the
+message naming the field, the model and what is admitted), so none of its intents is discovered. An intent of it already
+open is held `Blocked` (`ModelNotAllowed`) from whatever phase it is in, and no run of it is created. A Job already
+running finishes. The block lifts once the Project names an admitted model, or none.
+
+Each IntentRun records the model its Project chose for it when it was created (`spec.model`, immutable; empty when the
+Project chose none, so the run runs the stage flag), and launches on it, so changing a Project's models affects its new
+runs only. A recorded model the controller no longer admits (the allowlist changed at a restart) is not launched: the
+run ends `launch_refused`, and the next attempt runs what the Project chooses then. Usage is measured per model the
+broker observed, so each run's spend is priced at the model it ran. Under `--broker-limit-unit cost` the request-reserve
+check judges a Project's evaluate and check review budgets at the models it chose. `maul get projects -o wide` shows
+each Project's harness and chosen plan and build models, `maul get intentruns -o wide` each run's model, and
+`maul describe project` the whole choice.
+
+If the egress broker restricts models (`egressBroker.limits.modelAllowlist`), list every allowlisted model there too, or
+the broker refuses its runs' requests.
 
 ### Repository-declared images
 

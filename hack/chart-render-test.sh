@@ -1913,6 +1913,13 @@ if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
   "$(get intent-multi "$it | .metadata.annotations[\"checksum/config\"]")" ]; then
   fail "intent-multi: checksum/config did not change, so turning multiRepo on would not roll the controller"
 fi
+# A Project may choose only the stage models unless the operator allowlists
+# more: unset renders no key, a list renders it joined.
+cm intent intent-controller MAUL_INTENT_MODEL_ALLOWLIST null
+render intent-models -f "$ifx" --set 'intentController.config.modelAllowlist={anthropic/claude-opus-5,anthropic/claude-haiku-4-5}'
+cm intent-models intent-controller MAUL_INTENT_MODEL_ALLOWLIST anthropic/claude-opus-5,anthropic/claude-haiku-4-5
+expect_fail "a model allowlist entry that is not a canonical id" "modelAllowlist" -f "$ifx" \
+  --set 'intentController.config.modelAllowlist={Claude Opus}'
 # Intent dependencies are honoured unless turned off, and turning them off
 # (the rollback lever) rolls the controller.
 cm intent intent-controller MAUL_INTENT_DEPENDENCIES true
@@ -3803,6 +3810,15 @@ expect_fail_cfg "credentials in a repository url" "projects/0/spec/repositories/
   --set-json "projects=[$(project '.spec.repositories[0].url = "https://x:token@github.com/acme/t"')]"
 expect_fail_cfg "cost ceiling past its cap" "projects/0/spec/limits/maxCostMicroUSD" \
   --set-json "projects=[$(project '.spec.limits.maxCostMicroUSD = 1000000001')]"
+# A Project's per-stage models: rendered verbatim, each a canonical id
+# client-side. Whether intent-controller admits one is its own (Ready).
+render_cfg cfg-models --set-json "projects=[$(project '.spec.models = {"plan": "anthropic/claude-opus-5", "build": "anthropic/claude-sonnet-5"}')]"
+expect cfg-models 'select(.kind == "Project") | .spec.models.plan + " " + .spec.models.build' \
+  "anthropic/claude-opus-5 anthropic/claude-sonnet-5"
+expect_fail_cfg "a model that is not a canonical id" "projects/0/spec/models/plan" \
+  --set-json "projects=[$(project '.spec.models.plan = "Claude Opus"')]"
+expect_fail_cfg "an unknown models field" "projects/0/spec/models" \
+  --set-json "projects=[$(project '.spec.models.revise = "anthropic/claude-opus-5"')]"
 # Per-repository previews (slice 3): rendered verbatim, their fields
 # checked client-side. The CEL rules (at most four, distinct paths, no
 # shorthand beside them) are the API server's; the schema envtest covers them.

@@ -1156,6 +1156,7 @@ func (p *pass) leaseReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReques
 		Grant:        p.set.grant(p.proj, v1alpha1.IntentStageRevise),
 		AttributedTo: p.set.Attribution.Stamp(attributed),
 		Harness:      p.proj.Spec.Harness,
+		Model:        chosenModel(p.proj, v1alpha1.IntentStageRevise),
 	}
 	run := &v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{
 		Name: name, Namespace: p.in.Namespace,

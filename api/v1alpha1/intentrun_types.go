@@ -420,6 +420,18 @@ type IntentRunSpec struct {
 	// Project says later. Immutable with the rest of the spec.
 	// +optional
 	Harness ProjectHarness `json:"harness,omitempty"`
+	// Model is the canonical model the run launches on, copied at creation
+	// from its Project's spec.models choice for the stage (a revise run's is
+	// the build choice; a codex evaluate or checkreview run's, unless the
+	// Project chooses its own, too). Unset when the Project chooses none, as
+	// on every run created before Projects chose: the run then runs
+	// intent-controller's stage flag. A recorded model intent-controller no
+	// longer admits is not launched (launch_refused). Immutable with the
+	// rest of the spec.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
+	Model string `json:"model,omitempty"`
 	// Evaluation is the PreviewVerification an evaluate run judges through,
 	// pinned by UID, with its tool pod's address. Set on every evaluate run
 	// and on no other (CEL-enforced); immutable with the rest of the spec.
@@ -554,6 +566,7 @@ type IntentRunStatus struct {
 // +kubebuilder:printcolumn:name="Outcome",type=string,JSONPath=`.status.outcome`
 // +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.repository.url`,priority=1
 // +kubebuilder:printcolumn:name="Trigger",type=string,JSONPath=`.spec.trigger`,priority=1
+// +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`,priority=1,description="The model the Project chose for the run; empty runs the install's"
 // +kubebuilder:printcolumn:name="Cost",type=string,JSONPath=`.status.usage.costUSD`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

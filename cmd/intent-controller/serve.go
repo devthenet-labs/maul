@@ -173,6 +173,10 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"end a revise or check-fix run that makes no progress (no model turn, no tool result) for this long; 0 disables")
 	f.String("intent-plan-model", "anthropic/claude-sonnet-5", "canonical model the plan stage runs")
 	f.String("intent-build-model", "anthropic/claude-sonnet-5", "canonical model the build stage runs")
+	f.String("intent-model-allowlist", "",
+		"comma-separated canonical models a Project may choose per stage (spec.models) beside the stage flags' "+
+			"own, each on the harness it resolves to (claude, or codex under --intent-codex); a Project naming "+
+			"another is not Ready (ModelNotAllowed); empty admits only the stage flags' models")
 	f.Bool("intent-codex", false,
 		"also run intents on brokered codex: a Project with spec.harness codex plans and builds on it (needs the "+
 			"codex runner, --codex-agent-image with --broker-url, and codex in --harnesses); off, such a Project "+
@@ -674,8 +678,12 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 			BuildModel: opts.String("intent-codex-build-model")}
 		models = append(models, codex.PlanModel, codex.BuildModel)
 	}
+	// The models a Project may choose are allowlisted with the stage
+	// flags', so each must be runnable and, on brokered claude, covered by
+	// the provider's model map at startup, never mid-run.
+	allowlist := runnercfg.SplitList(opts.String("intent-model-allowlist"))
 	enabled, err := runnercfg.ResolveWithoutBrokerProbe(ctx, opts, cs, agentNS, runners, runnercfg.Restrict(opts),
-		models, models...)
+		append(slices.Clone(models), allowlist...), models...)
 	if err != nil {
 		return intent.RunHarness{}, intent.RunHarness{}, err
 	}
@@ -702,6 +710,9 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 				"resolves to %s", claude.ID, m, id)
 		}
 	}
+	if claude.Allowed, codex.Allowed, err = allowedModels(allowlist, enabled, claude.ID, codexOn); err != nil {
+		return intent.RunHarness{}, intent.RunHarness{}, err
+	}
 	if !codexOn {
 		return claude, intent.RunHarness{}, nil
 	}
@@ -718,6 +729,31 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 			"--intent-codex-build-model must resolve to the codex harness, and they resolve to %s", id)
 	}
 	return claude, codex, nil
+}
+
+// allowedModels splits --intent-model-allowlist by the intent harness each
+// entry resolves to: claude's (claudeID: brokered claude, or the fake
+// harness) and, under --intent-codex, codex's. An entry that resolves to
+// neither is refused: no Project could run on it.
+func allowedModels(allowlist, enabled []string, claudeID string, codexOn bool) (claude, codex intent.ModelList,
+	err error) {
+	var forClaude, forCodex []string
+	for _, id := range allowlist {
+		h, _, err := runnercfg.ResolveHarness(id, enabled)
+		if err != nil {
+			return "", "", err
+		}
+		switch {
+		case h == claudeID:
+			forClaude = append(forClaude, id)
+		case codexOn && h == model.HarnessCodex:
+			forCodex = append(forCodex, id)
+		default:
+			return "", "", fmt.Errorf("--intent-model-allowlist names %s, which runs on %s, and intents run on %s "+
+				"(and on codex only with --intent-codex)", id, h, claudeID)
+		}
+	}
+	return intent.NewModelList(forClaude...), intent.NewModelList(forCodex...), nil
 }
 
 // stageHarness is the one harness both of h's stage models resolve to.
@@ -833,7 +869,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
-	set.Codex = codex
+	set.Claude, set.Codex = claude, codex
 	harnessID := claude.ID
 	probeDNS, err := evaluatorProbeDNS(set, resolvConf(os.Getenv))
 	if err != nil {
@@ -897,8 +933,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := (&intent.RunReconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Jobs: runner, GitHub: gh, Settings: set,
 		MaxConcurrent: opts.Int("intent-max-concurrent-runs"), Harness: harnessID,
-		Paused:    opts.Bool(runnercfg.AgentsPausedFlag),
-		PlanModel: claude.PlanModel, BuildModel: claude.BuildModel,
+		Paused: opts.Bool(runnercfg.AgentsPausedFlag),
 		Images: images, Classes: sizes.classes, MaxChangesetEntries: opts.Int("changeset-max-entries"),
 		Meter: meter, Usage: usagerollup.New(mgr.GetClient(), mgr.GetAPIReader(), set.Namespace, meter.On(), log),
 		Log: log,

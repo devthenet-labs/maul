@@ -403,3 +403,54 @@ func TestVerificationFlagRemoved(t *testing.T) {
 		t.Errorf("--intent-verification = %+v, want it registered and hidden", f)
 	}
 }
+
+// TestModelAllowlist: --intent-model-allowlist adds the models a Project may
+// choose (spec.models) to the harness each resolves to, beside the stage
+// flags', and refuses one no intent harness runs. Empty, the harnesses
+// admit nothing more, as before.
+func TestModelAllowlist(t *testing.T) {
+	codexOn := []string{"--claude-agent-image", "claude:1", "--codex-agent-image", "codex:1",
+		"--broker-url", "http://broker.invalid", "--intent-codex"}
+	claudeOnly := []string{"--claude-agent-image", "claude:1", "--broker-url", "http://broker.invalid"}
+	for _, tt := range []struct {
+		name                  string
+		args                  []string
+		wantClaude, wantCodex intent.ModelList
+		wantErr               string
+	}{
+		{name: "unset", args: claudeOnly},
+		{name: "claude models", args: append(slices.Clone(claudeOnly), "--intent-model-allowlist",
+			"anthropic/claude-opus-5, anthropic/claude-haiku-4-5"),
+			wantClaude: "anthropic/claude-opus-5,anthropic/claude-haiku-4-5"},
+		{name: "split by harness", args: append(slices.Clone(codexOn), "--intent-model-allowlist",
+			"anthropic/claude-opus-5,openai/gpt-5.6-sol"),
+			wantClaude: "anthropic/claude-opus-5", wantCodex: "openai/gpt-5.6-sol"},
+		{name: "a codex model while --intent-codex is off", args: []string{"--claude-agent-image", "claude:1",
+			"--codex-agent-image", "codex:1", "--broker-url", "http://broker.invalid",
+			"--intent-model-allowlist", "openai/gpt-5.6-sol"},
+			wantErr: "--intent-model-allowlist names openai/gpt-5.6-sol, which runs on codex"},
+		{name: "an unknown model", args: append(slices.Clone(claudeOnly), "--intent-model-allowlist", "acme/model-1"),
+			wantErr: "acme/model-1"},
+		{name: "a model no harness runs", args: append(slices.Clone(claudeOnly), "--intent-model-allowlist",
+			"openai/gpt-5.6-sol"), wantErr: "openai/gpt-5.6-sol"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := resolved(t, tt.args...)
+			runners, err := runnercfg.Runners(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claude, codex, err := harnesses(t.Context(), opts, fake.NewClientset(openAISecret()), "maul-agents", runners)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("harnesses = %+v, %+v, %v; want an error containing %q", claude, codex, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || claude.Allowed != tt.wantClaude || codex.Allowed != tt.wantCodex {
+				t.Fatalf("allowed = %q, %q (%v); want %q, %q", claude.Allowed, codex.Allowed, err, tt.wantClaude,
+					tt.wantCodex)
+			}
+		})
+	}
+}

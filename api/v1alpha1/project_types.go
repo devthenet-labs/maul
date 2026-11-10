@@ -764,6 +764,16 @@ type ProjectSpec struct {
 	// with (IntentRun spec.harness), so a change applies to new runs only.
 	// +optional
 	Harness ProjectHarness `json:"harness,omitempty"`
+	// Models chooses the model each of the Project's run stages runs on,
+	// within its harness (ProjectModels). Unset, and for every stage it
+	// leaves unset, the run runs intent-controller's stage flag, as before.
+	// A model must be one intent-controller admits for the Project's
+	// harness (a stage flag's, or on --intent-model-allowlist); otherwise
+	// the Project is not Ready (ModelNotAllowed) and no run of its intents
+	// is created. Each run records the model it was created with (IntentRun
+	// spec.model), so a change applies to new runs only.
+	// +optional
+	Models *ProjectModels `json:"models,omitempty"`
 	// Verification configures acceptance verification of the Project's
 	// intents (ProjectVerification). Unset means off.
 	// +optional
@@ -772,6 +782,39 @@ type ProjectSpec struct {
 	// (ProjectSurfaces). Unset means http only.
 	// +optional
 	Surfaces *ProjectSurfaces `json:"surfaces,omitempty"`
+}
+
+// ProjectModels names, per stage, the canonical model (provider/name, as
+// in the model registry, e.g. anthropic/claude-opus-5) a Project's runs run
+// on. An unset field leaves that stage on intent-controller's own flag.
+type ProjectModels struct {
+	// Plan is the plan stage's model (--intent-plan-model, or
+	// --intent-codex-plan-model on codex, when unset).
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
+	Plan string `json:"plan,omitempty"`
+	// Build is the build stage's model, and so every revise run's: review,
+	// command, check-fix and acceptance-fix rounds alike
+	// (--intent-build-model, or --intent-codex-build-model on codex, when
+	// unset).
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
+	Build string `json:"build,omitempty"`
+	// Evaluate is the agent evaluator's model (--intent-evaluate-model when
+	// unset). A codex Project, which intent-controller evaluates only under
+	// --intent-evaluate-codex, evaluates on its build model when unset.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
+	Evaluate string `json:"evaluate,omitempty"`
+	// CheckReview is the check reviewer's model (--intent-checkreview-model
+	// when unset; a codex Project's build model, as for Evaluate).
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
+	CheckReview string `json:"checkReview,omitempty"`
 }
 
 // ProjectHarness is the coding agent an intent's runs use.
@@ -874,6 +917,9 @@ type ProjectStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Active",type=integer,JSONPath=`.status.activeIntents`,description="Non-terminal intents"
 // +kubebuilder:printcolumn:name="Suspend",type=boolean,JSONPath=`.spec.suspend`,priority=1
+// +kubebuilder:printcolumn:name="Harness",type=string,JSONPath=`.spec.harness`,priority=1
+// +kubebuilder:printcolumn:name="PlanModel",type=string,JSONPath=`.spec.models.plan`,priority=1,description="The plan model the Project chooses; empty runs the install's"
+// +kubebuilder:printcolumn:name="BuildModel",type=string,JSONPath=`.spec.models.build`,priority=1,description="The build model the Project chooses; empty runs the install's"
 // +kubebuilder:printcolumn:name="Polled",type=date,JSONPath=`.status.lastPolledAt`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

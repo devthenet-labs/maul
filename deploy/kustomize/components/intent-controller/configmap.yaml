@@ -87,6 +87,12 @@ data:
     MAUL_INTENT_BUILD_TOKEN_BUDGET: "800000"
     MAUL_INTENT_BUILD_TIMEOUT: 60m
     MAUL_INTENT_BUILD_IDLE_TIMEOUT: 20m
+    # A Project may choose its stages' models (spec.models) among the stage
+    # models and these (comma-separated, each resolving to claude, or codex
+    # under MAUL_INTENT_CODEX); a Project naming another is not Ready
+    # (ModelNotAllowed). Unset, it chooses among the stage models only.
+    #
+    # MAUL_INTENT_MODEL_ALLOWLIST: anthropic/claude-opus-5
     # Codex for intents is off: a Project with spec.harness codex is not
     # Ready (HarnessNotEnabled) and a codex run waits Pending. To turn it on,
     # give the controller the brokered codex runner (MAUL_CODEX_AGENT_IMAGE,

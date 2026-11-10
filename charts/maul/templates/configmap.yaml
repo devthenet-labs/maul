@@ -312,6 +312,9 @@ string. Off, no key renders.
 {{- with $own.jobDeadlineMax }}
 {{- $_ := set $data "MAUL_INTENT_JOB_DEADLINE_MAX" . }}
 {{- end }}
+{{- with $own.modelAllowlist }}
+{{- $_ := set $data "MAUL_INTENT_MODEL_ALLOWLIST" (join "," .) }}
+{{- end }}
 {{- range $stage := list "plan" "build" }}
 {{- $s := index $own $stage }}
 {{- $prefix := printf "MAUL_INTENT_%s_" (upper $stage) }}

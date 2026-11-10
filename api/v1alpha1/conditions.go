@@ -128,6 +128,14 @@ const (
 	// so a build cannot take its name; the block lifts once the Project
 	// changes.
 	ConditionUnsupportedRepositories = "UnsupportedRepositories"
+	// ConditionModelNotAllowed marks a Blocked Intent whose Project chooses
+	// a model (spec.models) intent-controller does not admit: one that is
+	// neither a stage flag's model nor on --intent-model-allowlist, or one
+	// that does not run on the Project's harness. The Project is not Ready
+	// (reason ModelNotAllowed) and no run of its intents is created; a Job
+	// already running finishes. The block lifts once the Project names an
+	// admitted model, or none, or the allowlist admits it.
+	ConditionModelNotAllowed = "ModelNotAllowed"
 	// ConditionResourcesUnavailable blocks an Intent whose run cannot get
 	// the CPU and memory it needs. Reason UnknownResourceClass: the Project
 	// picks a resource class (spec.repositories[].agentResourceClass)
