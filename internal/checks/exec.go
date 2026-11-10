@@ -4,6 +4,7 @@
 package checks
 
 import (
+	"fmt"
 	"path"
 	"regexp"
 	"strings"
@@ -65,8 +66,15 @@ func validMarker(marker string) bool {
 		strings.HasSuffix(marker, ":")
 }
 
+// MaxExecAssertionIDLen bounds a marker's assertion id: lowercase letters,
+// digits and hyphens, starting with a letter. It is no outcome or check id,
+// so it is not held to their 32; an evaluator names an assertion after what
+// it judges, and an id past the bound silently stopped counting (gate
+// D-B2). "marker <id>" stays well inside toolwire.MaxAssertionIDBytes.
+const MaxExecAssertionIDLen = 128
+
 // execAssertionID is a marker's assertion id.
-var execAssertionID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+var execAssertionID = regexp.MustCompile(fmt.Sprintf(`^[a-z][a-z0-9-]{0,%d}$`, MaxExecAssertionIDLen-1))
 
 // ExecAssertion is the id of the assertion a program's output says failed:
 // the first line that starts with the attempt's marker and goes on

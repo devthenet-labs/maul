@@ -31,6 +31,14 @@ import (
 // with no browser.
 const reasonNoBrowser = "the browser is unavailable in this tool pod"
 
+// markedWithoutID is the detail of a run whose program printed its marker
+// with no valid assertion id after it (checks.ExecAssertion): a fail, but
+// not by assertion, which the evaluator is told so it can fix the id
+// (gate D-B2).
+var markedWithoutID = fmt.Sprintf("the program printed its assertion marker but no valid assertion id after it "+
+	"(<marker> <id>: <what>, the id lowercase letters, digits and hyphens, starting with a letter, at most %d), "+
+	"so the run is not red by assertion", checks.MaxExecAssertionIDLen)
+
 // runCheck runs c and returns its record; mode says why it ran.
 func (r *Relay) runCheck(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode) toolwire.CheckRunRecord {
 	return r.runCheckAs(ctx, c, mode, false)
@@ -358,6 +366,9 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	case checks.ExecMarked(res.Output, marker):
 		// The program said the outcome does not hold: never a pass,
 		// whatever it went on to print or exit with (S1 demo #57).
+		if !asserted {
+			return fail(markedWithoutID)
+		}
 		return fail("the program printed its assertion marker")
 	case res.Truncated:
 		// A marker past the cut would be lost (PR #320 review F3): a

@@ -266,7 +266,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 approved, which would pass on a build where the outcome holds, and fails on this one. Never bend a check to make it
 fail: it asserts exactly what the outcome states. Its `maul-tool check run` must fail by an assertion of the outcome
 itself: its program printed `{{marker}} <id>: <what it saw>` at the start of a line of its output (stdout and
-stderr), the id naming that assertion (lowercase letters, digits and hyphens), or it exited as `expect` says and its
+stderr), the id naming that assertion (lowercase letters, digits and hyphens, starting with a letter, at most
+128 characters), or it exited as `expect` says and its
 output missed what `expect` asserts. Write `{{marker}}` as it is in the program file: maul replaces it on every
 run with a secret line start only that run's program is given, so nothing the change prints can pass for it. Print
 it for the final judgement of an assertion and nothing else, never inside a retry or poll, on an error starting a

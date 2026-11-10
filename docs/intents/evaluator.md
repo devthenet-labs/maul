@@ -208,14 +208,16 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to keep. The
      check may list only success statuses.
    - `exec`: only a program that says so itself, printing `{{marker}} <id>: <what it saw>` at the start of a line of its
-     output (stdout and stderr combined), `<id>` naming the assertion. maul replaces `{{marker}}` in the program's
-     files, and nowhere else, with a line start drawn afresh for every attempt (`MAUL-ASSERTION-FAILED-` and 32 random
-     hex characters), so text the application answers with that the program echoes (a body, a traceback) can never pass
-     for one; only lines carrying that attempt's own marker count, the first with a valid id naming the assertion. A
-     line that starts with the marker fails the check whatever its exit code and its expectation, so a program that
-     prints it and goes on to exit 0 is never a pass. A run whose output is cut at its 64 KiB bound is never a pass
-     either (a marker past the cut would be lost): it errs, unless a marker was kept. An exit code alone, a crash, `127`
-     or a traceback never makes a check red by assertion.
+     output (stdout and stderr combined), `<id>` naming the assertion (lowercase letters, digits and hyphens, starting
+     with a letter, at most 128 characters). maul replaces `{{marker}}` in the program's files, and nowhere else, with a
+     line start drawn afresh for every attempt (`MAUL-ASSERTION-FAILED-` and 32 random hex characters), so text the
+     application answers with that the program echoes (a body, a traceback) can never pass for one; only lines carrying
+     that attempt's own marker count, the first with a valid id naming the assertion. A line that starts with the marker
+     fails the check whatever its exit code and its expectation, so a program that prints it and goes on to exit 0 is
+     never a pass. A run whose output is cut at its 64 KiB bound is never a pass either (a marker past the cut would be
+     lost): it errs, unless a marker was kept. An exit code alone, a crash, `127` or a traceback never makes a check red
+     by assertion. Neither does a marker line with no valid id after it: the run fails, and its detail says the marker
+     named no valid assertion id, so the evaluator can rename it.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
      or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
      `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,

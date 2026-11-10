@@ -314,6 +314,10 @@ func replayedGreen(replays []PriorReplay) map[string]bool {
 func (evaluateView) ExecMarker() string    { return checks.ExecMarkerPlaceholder }
 func (checkReviewView) ExecMarker() string { return checks.ExecMarkerPlaceholder }
 
+// ExecAssertionIDMax is checks.MaxExecAssertionIDLen, for the templates:
+// a marker naming a longer id is no assertion (gate D-B2).
+func (evaluateView) ExecAssertionIDMax() int { return checks.MaxExecAssertionIDLen }
+
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
 // have written its report: a tenth of its turns, at least 2, kept back for
 // it, and never before turn 1.
@@ -712,7 +716,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	}
 	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok &&
 		(shown.Form == checks.FormExec || shown.Form == checks.FormRun) {
-		v.Marker = checks.ExecMarkerPlaceholder + " " + quotedLine(id, 64) + ":"
+		v.Marker = checks.ExecMarkerPlaceholder + " " + quotedLine(id, checks.MaxExecAssertionIDLen) + ":"
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
