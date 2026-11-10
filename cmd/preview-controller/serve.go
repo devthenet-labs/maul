@@ -62,9 +62,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"grace period delete, a slot Ingress without them")
 	f.String("preview-auth-annotations", "", "JSON object of slot namespace to its pinned auth annotations, "+
 		"the current key generation's, exactly as the chart renders it for the slot admission policy")
-	f.String("preview-tester-image", "", "digest-pinned preview-tester image (<repository>@sha256:<64 hex>, "+
-		"never under the preview image prefix), checked and unused: slice 1's criteria no longer run; needs "+
-		"--preview-evaluator, refused without it (optional with it, and removed in a later release)")
+	f.String("preview-tester-image", "", "REMOVED with the preview tester: the agent evaluator's tool pod "+
+		"verifies; set, it stops startup")
+	_ = f.MarkHidden("preview-tester-image") // registered just above
 	f.Duration("preview-verify-deadline-max", 30*time.Minute, "the most a verification's Job may run (its "+
 		"activeDeadlineSeconds), the bound the slot Job admission policy holds it to (chart "+
 		"preview.verification.deadlineMaxSeconds); a verification asking more is clamped. 1m to 1h")
@@ -72,7 +72,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"during a rotation's overlap (same JSON shape); an Ingress still on them is not unauthenticated")
 	f.Bool("preview-evaluator", false, "run outcome verifications on the slot tool pod for the agent "+
 		"evaluator (chart intentController.verification.evaluator); turns verification on by itself, needing "+
-		"the three tool images and --preview-agents-namespace (no --preview-tester-image). Off, an outcome "+
+		"the three tool images and --preview-agents-namespace. Off, an outcome "+
 		"verification is Infra and renders nothing")
 	f.String("preview-tools-image", "", "digest-pinned preview-tools image, the tool pod's relay "+
 		"(<repository>@sha256:<64 hex>, never under the preview image prefix)")
@@ -107,7 +107,6 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		MaxRetries:      int32(opts.Int("preview-max-retries")),
 		TargetHealth:    opts.Bool("preview-target-health"),
 		NoLegacyIngress: !opts.Bool("preview-legacy-ingress"),
-		TesterImage:     opts.String("preview-tester-image"),
 		Evaluator:       opts.Bool("preview-evaluator"),
 		ToolsImage:      opts.String("preview-tools-image"),
 		BrowserImage:    opts.String("preview-browser-image"),
@@ -125,15 +124,15 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	settings.Auth = auth
+	if opts.String("preview-tester-image") != "" {
+		// The preview tester is deleted (S4): its image is no slot's, and an
+		// operator who still sets it is told so rather than ignored.
+		return errors.New("--preview-tester-image (MAUL_PREVIEW_TESTER_IMAGE) is removed with the preview tester: " +
+			"slice 1's acceptance criteria no longer run, and the agent evaluator's tool pod verifies; drop the " +
+			"flag (chart: drop preview.verification.testerImage), see docs/intents/evaluator.md#migrating-from-slice-1")
+	}
 	if err := settings.Validate(); err != nil {
 		return err
-	}
-	if settings.TesterImage != "" && !settings.Evaluator {
-		// Slice 1 alone (S4): intent-controller no longer writes criteria
-		// verifications, so the tester would only turn on a path nothing uses.
-		return errors.New("--preview-tester-image (MAUL_PREVIEW_TESTER_IMAGE) needs --preview-evaluator: slice 1's " +
-			"acceptance criteria no longer run, and the agent evaluator is verification's one switch; turn the " +
-			"evaluator on or drop the tester image, see docs/intents/evaluator.md#migrating-from-slice-1")
 	}
 	deadlineMax := opts.Duration("preview-verify-deadline-max")
 	if deadlineMax < time.Minute || deadlineMax > time.Hour {
@@ -179,7 +178,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	prov.Logger.LogAttrs(ctx, slog.LevelInfo, "preview-controller starting",
 		slog.Int("slot_count", settings.SlotCount), slog.String("namespace", namespace),
 		slog.Bool("auth_required", settings.Auth.Required), slog.Bool("legacy_ingress", !settings.NoLegacyIngress),
-		slog.Bool("verification", settings.Verifying()), slog.Bool("tester", settings.TesterImage != ""),
+		slog.Bool("verification", settings.Verifying()),
 		slog.Bool("evaluator", settings.Evaluator))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err

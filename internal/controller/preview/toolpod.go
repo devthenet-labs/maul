@@ -99,7 +99,7 @@ var errToolImages = errors.New("the evaluator needs the tools, browser and toolb
 
 // evaluating reports whether outcome verifications run on the tool pod:
 // the evaluator on with its three images (Validate holds them to their
-// grammar). It needs no tester image.
+// grammar).
 func (s Settings) evaluating() bool {
 	return s.Evaluator && s.ToolsImage != "" && s.BrowserImage != "" && s.ToolboxImage != ""
 }
@@ -114,8 +114,8 @@ func (s Settings) maxEvaluations() int {
 
 // validateEvaluator refuses an evaluator without each of its three images
 // digest-pinned outside the preview image prefix, or without the agents
-// namespace its ingress policy admits. It needs no tester image: the
-// evaluator turns verification on by itself.
+// namespace its ingress policy admits. The evaluator turns verification on
+// by itself.
 func (s Settings) validateEvaluator() error {
 	if s.MaxEvaluations < 0 {
 		return errors.New("max evaluations is negative")
@@ -127,7 +127,7 @@ func (s Settings) validateEvaluator() error {
 		return errToolImages
 	}
 	for _, img := range []string{s.ToolsImage, s.BrowserImage, s.ToolboxImage} {
-		if !testerImagePattern.MatchString(img) {
+		if !digestImagePattern.MatchString(img) {
 			return fmt.Errorf("tool image %q is not pinned by digest (<repository>@sha256:<64 hex>)", img)
 		}
 		if strings.HasPrefix(img, s.ImagePrefix) {

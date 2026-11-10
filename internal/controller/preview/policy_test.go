@@ -29,13 +29,18 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
+// testTesterImage is the retired preview tester's image, which a tester Job
+// an earlier release left in a slot still runs (legacyTesterJob).
 const testTesterImage = "ghcr.io/devthenet-labs/maul-preview-tester@sha256:" +
 	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-// verifySettings are testSettings with verification on: a tester image.
+// verifySettings are testSettings with verification on: the agent
+// evaluator, verification's one switch, with its three images.
 func verifySettings() Settings {
 	s := testSettings()
-	s.TesterImage = testTesterImage
+	s.Evaluator = true
+	s.ToolsImage, s.BrowserImage, s.ToolboxImage = testToolsImage, testBrowserImage, testToolboxImage
+	s.AgentsNamespace = "maul-agents"
 	return s
 }
 
@@ -184,7 +189,7 @@ func TestVerificationLabels(t *testing.T) {
 		t.Errorf("template labels = %v", tmpl)
 	}
 	svc := s.service(p, 0, 0)
-	tools, err := evalSettings().toolJob(p, toolVerification(t, p), 0, time.Hour)
+	tools, err := verifySettings().toolJob(p, toolVerification(t, p), 0, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

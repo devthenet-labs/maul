@@ -233,7 +233,7 @@ func slotPods(t *testing.T, s Settings, p *v1alpha1.Preview, ns string) map[stri
 		pods[c.Name] = npPod{name: c.Name, namespace: ns, labels: maps.Clone(d.Spec.Template.Labels),
 			nsLabels: nsLabels, ports: ports}
 	}
-	job, err := evalSettings().toolJob(p, toolVerification(t, p), 0, time.Hour)
+	job, err := verifySettings().toolJob(p, toolVerification(t, p), 0, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -122,18 +122,15 @@ type Settings struct {
 	// Auth puts every preview Ingress behind the sign-in relay; off, the
 	// Ingress renders exactly as it did before the relay existed.
 	Auth AuthSettings
-	// TesterImage is the digest-pinned preview-tester image, and turns
-	// verification on for criteria verifications, run as tester Jobs. With
-	// it or the evaluator on (Verifying), the controller writes the per-part
-	// NetworkPolicies of a verification-capable Preview and its slot Jobs.
-	// With neither, it never reads or writes a NetworkPolicy or a Job (the
-	// chart grants neither), and a Preview's environment renders no edge, so
-	// its slot stays as closed as preview-isolation leaves it.
-	TesterImage string
 	// Evaluator runs outcome verifications on the slot tool pod (the agent
-	// evaluator, --preview-evaluator), and turns verification on by itself.
-	// It needs the three tool images below, not a tester image; off, an
-	// outcome verification is maul's trouble (Infra) and renders nothing.
+	// evaluator, --preview-evaluator), and is verification's one switch:
+	// on (Verifying), the controller writes the per-part NetworkPolicies of
+	// a verification-capable Preview and its slot Jobs. Off, it never reads
+	// or writes a NetworkPolicy or a Job (the chart grants neither), a
+	// Preview's environment renders no edge, so its slot stays as closed as
+	// preview-isolation leaves it, and an outcome verification is maul's
+	// trouble (Infra) and renders nothing. It needs the three tool images
+	// below.
 	Evaluator bool
 	// ToolsImage, BrowserImage and ToolboxImage are the tool pod's three
 	// images (the tools relay, the Chromium sidecar, the sandbox sidecar),
@@ -149,37 +146,18 @@ type Settings struct {
 	MaxEvaluations int
 }
 
-// testerImagePattern is a digest-pinned image reference: a lowercase
+// digestImagePattern is a digest-pinned image reference: a lowercase
 // registry and repository, an optional tag, and an exact sha256 digest.
-var testerImagePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?` +
+var digestImagePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?` +
 	`(/[a-z0-9]+([._-][a-z0-9]+)*)+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
 
-// verifying reports whether verification is on: a tester image for
-// criteria verifications, or the evaluator for outcome ones.
-func (s Settings) verifying() bool { return s.testing() || s.evaluating() }
+// verifying reports whether verification is on: the evaluator, for
+// outcome verifications.
+func (s Settings) verifying() bool { return s.evaluating() }
 
 // Verifying reports whether verification is on, so whether the
 // PreviewVerification reconciler runs.
 func (s Settings) Verifying() bool { return s.verifying() }
-
-// testing reports whether criteria verifications run: a tester image.
-func (s Settings) testing() bool { return s.TesterImage != "" }
-
-// validateTesterImage refuses a tester image that is not pinned by digest,
-// or that lies under the preview image prefix, whose repositories an
-// application's own CI publishes.
-func (s Settings) validateTesterImage() error {
-	if !s.testing() {
-		return nil
-	}
-	if !testerImagePattern.MatchString(s.TesterImage) {
-		return fmt.Errorf("tester image %q is not pinned by digest (<repository>@sha256:<64 hex>)", s.TesterImage)
-	}
-	if strings.HasPrefix(s.TesterImage, s.ImagePrefix) {
-		return fmt.Errorf("tester image %q lies under the preview image prefix", s.TesterImage)
-	}
-	return nil
-}
 
 // Validate refuses settings the controller must not run with. The image
 // prefix is checked for its shape only, never for a fixed path: which path
@@ -196,9 +174,6 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("invalid preview-controller settings")
 	}
 	if err := s.validateNodeIsolation(); err != nil {
-		return fmt.Errorf("invalid preview-controller settings: %w", err)
-	}
-	if err := s.validateTesterImage(); err != nil {
 		return fmt.Errorf("invalid preview-controller settings: %w", err)
 	}
 	if err := s.validateEvaluator(); err != nil {

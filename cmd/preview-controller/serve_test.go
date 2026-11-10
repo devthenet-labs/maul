@@ -139,16 +139,10 @@ func TestServeStartupErrors(t *testing.T) {
 			"--preview-image-prefix", "registry.example/maul/previews/", "--preview-host-suffix", "previews.example.com",
 			"--preview-node-isolation", "none", "--kubeconfig", missing},
 			wantErr: "kubeconfig"},
-		{name: "tester image without a digest", args: validArgs("--preview-tester-image",
-			"ghcr.io/devthenet-labs/maul-preview-tester:v1"), wantErr: "not pinned by digest"},
 		{name: "verify deadline under a minute", args: evaluatorArgs("--preview-verify-deadline-max", "30s"),
 			wantErr: "preview-verify-deadline-max"},
 		{name: "verify deadline over an hour", args: evaluatorArgs("--preview-verify-deadline-max", "2h"),
 			wantErr: "preview-verify-deadline-max"},
-		// Slice 1 alone (S4): a tester image without the evaluator would run
-		// criteria nothing writes any more, so it stops startup.
-		{name: "a tester image without the evaluator", args: validArgs("--preview-tester-image", testerImage,
-			"--kubeconfig", missing), wantErr: "docs/intents/evaluator.md#migrating-from-slice-1"},
 		{name: "verification reaches the manager", args: evaluatorArgs("--kubeconfig", missing),
 			wantErr: "kubeconfig"},
 		{name: "namespace from the pod", env: "maul", args: validArgs("--namespace", "", "--kubeconfig", missing),
@@ -181,26 +175,61 @@ func TestLegacyIngressFlag(t *testing.T) {
 	}
 }
 
+// testerImage is a digest-pinned image of the retired preview tester.
 const testerImage = "ghcr.io/devthenet-labs/maul-preview-tester@sha256:" +
 	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-// TestVerificationFlags: verification is off (no tester image) unless the
-// operator sets one, and the tester deadline bound defaults to the chart's
-// preview.verification.deadlineMaxSeconds default, 30 minutes.
+// TestVerificationFlags: the verification deadline bound defaults to the
+// chart's preview.verification.deadlineMaxSeconds default, 30 minutes, and
+// the environment sets it.
 func TestVerificationFlags(t *testing.T) {
-	opts := serveOpts(t, validArgs()...)
-	if opts.String("preview-tester-image") != "" {
-		t.Error("a tester image by default; verification must be opt-in")
-	}
-	if got := opts.Duration("preview-verify-deadline-max"); got != 30*time.Minute {
+	if got := serveOpts(t, validArgs()...).Duration("preview-verify-deadline-max"); got != 30*time.Minute {
 		t.Errorf("--preview-verify-deadline-max defaults to %s, want 30m", got)
 	}
-	t.Setenv("MAUL_PREVIEW_TESTER_IMAGE", testerImage)
-	t.Setenv("MAUL_PREVIEW_VERIFY_DEADLINE_MAX", "1800s")
-	opts = serveOpts(t, validArgs()...)
-	if opts.String("preview-tester-image") != testerImage ||
-		opts.Duration("preview-verify-deadline-max") != 30*time.Minute {
-		t.Error("MAUL_PREVIEW_TESTER_IMAGE or MAUL_PREVIEW_VERIFY_DEADLINE_MAX not honoured")
+	t.Setenv("MAUL_PREVIEW_VERIFY_DEADLINE_MAX", "1200s")
+	if got := serveOpts(t, validArgs()...).Duration("preview-verify-deadline-max"); got != 20*time.Minute {
+		t.Errorf("MAUL_PREVIEW_VERIFY_DEADLINE_MAX not honoured: %s", got)
+	}
+}
+
+// TestTesterImageFlagRemoved: --preview-tester-image is removed with the
+// preview tester (S4): set, from the command line or the environment, with
+// or without the evaluator, digest-pinned or not, it stops startup with the
+// migration it names; it is hidden from the help. Unset or empty, it
+// changes nothing.
+func TestTesterImageFlagRemoved(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "")
+	missing := filepath.Join(t.TempDir(), "absent")
+	for _, tc := range []struct {
+		name string
+		env  string
+		args []string
+	}{
+		{"alone", "", validArgs("--preview-tester-image", testerImage, "--kubeconfig", missing)},
+		{"with the evaluator", "", evaluatorArgs("--preview-tester-image", testerImage, "--kubeconfig", missing)},
+		{"by tag", "", evaluatorArgs("--preview-tester-image", "ghcr.io/devthenet-labs/maul-preview-tester:v1",
+			"--kubeconfig", missing)},
+		{"from the environment", testerImage, evaluatorArgs("--kubeconfig", missing)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env != "" {
+				t.Setenv("MAUL_PREVIEW_TESTER_IMAGE", tc.env)
+			}
+			err := serve(t.Context(), serveOpts(t, tc.args...))
+			if err == nil || !strings.Contains(err.Error(), "--preview-tester-image") ||
+				!strings.Contains(err.Error(), "preview.verification.testerImage") ||
+				!strings.Contains(err.Error(), "docs/intents/evaluator.md#migrating-from-slice-1") {
+				t.Fatalf("serve(%v) = %v, want the removal and its migration", tc.args, err)
+			}
+		})
+	}
+	if err := serve(t.Context(), serveOpts(t, evaluatorArgs("--preview-tester-image", "",
+		"--kubeconfig", missing)...)); err == nil || !strings.Contains(err.Error(), "kubeconfig") {
+		t.Errorf("an empty --preview-tester-image: %v, want it ignored (reaching the manager)", err)
+	}
+	cmd := newServeCmd(cli.NewOptions())
+	if f := cmd.Flags().Lookup("preview-tester-image"); f == nil || !f.Hidden {
+		t.Errorf("--preview-tester-image = %+v, want it registered and hidden", f)
 	}
 }
 
@@ -215,14 +244,14 @@ const (
 
 // evaluatorArgs turns the evaluator on with every value it needs.
 func evaluatorArgs(extra ...string) []string {
-	return validArgs(append([]string{"--preview-tester-image", testerImage, "--preview-evaluator",
+	return validArgs(append([]string{"--preview-evaluator",
 		"--preview-tools-image", toolsImage, "--preview-browser-image", browserImage,
 		"--preview-toolbox-image", toolboxImage, "--preview-agents-namespace", "maul-agents"}, extra...)...)
 }
 
 // TestEvaluatorFlags: the evaluator is off unless the operator turns it
 // on, and on it needs its three digest-pinned images and the agents
-// namespace, but no tester image: it turns verification on by itself.
+// namespace: it turns verification on by itself.
 func TestEvaluatorFlags(t *testing.T) {
 	t.Setenv("POD_NAMESPACE", "")
 	opts := serveOpts(t, validArgs()...)
@@ -236,10 +265,6 @@ func TestEvaluatorFlags(t *testing.T) {
 		wantErr string
 	}{
 		{name: "on reaches the manager", args: evaluatorArgs("--kubeconfig", missing), wantErr: "kubeconfig"},
-		{name: "no tester image reaches the manager", args: validArgs("--preview-evaluator",
-			"--preview-tools-image", toolsImage, "--preview-browser-image", browserImage,
-			"--preview-toolbox-image", toolboxImage, "--preview-agents-namespace", "maul-agents",
-			"--kubeconfig", missing), wantErr: "kubeconfig"},
 		{name: "no toolbox image", args: evaluatorArgs("--preview-toolbox-image", ""), wantErr: "toolbox"},
 		{name: "a tag", args: evaluatorArgs("--preview-browser-image", "ghcr.io/x/browser:v1"),
 			wantErr: "not pinned by digest"},

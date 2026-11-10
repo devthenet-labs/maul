@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -45,23 +44,12 @@ var chartToolValues = []string{
 	"-f", "../../../hack/testdata/chart-render/preview-foundation.yaml",
 	"-f", "../../../hack/testdata/chart-render/intent-controller.yaml",
 	"-f", "../../../hack/testdata/chart-render/preview-controller.yaml",
-	"--set", "preview.verification.testerImage=ghcr.io/devthenet-labs/maul/preview-tester@sha256:" +
-		strings.Repeat("4", 64),
 	"--set", "intentController.verification.evaluator=true",
 	"--set", "preview.verification.tools.image=" + testToolsImage,
 	"--set", "preview.verification.tools.browserImage=" + testBrowserImage,
 	"--set", "preview.verification.tools.toolboxImage=" + testToolboxImage,
 	"--set", "intentController.verification.evaluateTimeout=5m",
 }
-
-// chartEvaluatorOnlyValues are chartToolValues with no tester image: the
-// evaluator turns verification on by itself.
-var chartEvaluatorOnlyValues = func() []string {
-	i := slices.IndexFunc(chartToolValues, func(v string) bool {
-		return strings.HasPrefix(v, "preview.verification.testerImage=")
-	})
-	return slices.Delete(slices.Clone(chartToolValues), i-1, i+1) // the --set and its value
-}()
 
 // TestRenderedToolObjectsAdmittedByTheChart (SPEC W3): every object
 // preview-controller itself renders for an outcome verification, as
@@ -82,30 +70,17 @@ func TestRenderedToolObjectsAdmittedByTheChart(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
-	for _, tc := range []struct {
-		name   string
-		values []string
-		tester bool
-	}{
-		{"with the tester", chartToolValues, true},
-		{"evaluator only", chartEvaluatorOnlyValues, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) { checkRenderedToolObjects(t, tc.values, tc.tester) })
-	}
-}
-
-// checkRenderedToolObjects is TestRenderedToolObjectsAdmittedByTheChart for
-// the chart rendered with values, with a tester image or without one.
-func checkRenderedToolObjects(t *testing.T, values []string, tester bool) {
-	as, cm := startChartTools(t, values)
+	as, cm := startChartTools(t, chartToolValues)
 	ctx := t.Context()
 	s, deadlineMax := chartSettings(t, cm)
 	if err := s.Validate(); err != nil {
 		t.Fatalf("preview-controller refuses the chart's settings: %v", err)
 	}
-	if !s.Verifying() || !s.evaluating() || s.testing() != tester {
-		t.Fatalf("chart settings verifying %v, evaluating %v, testing %v; want true, true, %v", s.Verifying(),
-			s.evaluating(), s.testing(), tester)
+	if !s.Verifying() || !s.evaluating() {
+		t.Fatalf("chart settings verifying %v, evaluating %v; want both", s.Verifying(), s.evaluating())
+	}
+	if v, ok := cm["MAUL_PREVIEW_TESTER_IMAGE"]; ok {
+		t.Errorf("preview-controller is given the removed tester image %q", v)
 	}
 	pc, jc := as(chartPreviewSA), as(chartJobControl)
 
@@ -305,8 +280,7 @@ func chartSettings(t *testing.T, cm map[string]string) (Settings, time.Duration)
 		NodePool: cm["MAUL_PREVIEW_NODE_POOL"], NodeClass: cm["MAUL_PREVIEW_NODE_CLASS"],
 		TaintKey: cm["MAUL_PREVIEW_TAINT_KEY"], NodeIsolation: cm["MAUL_PREVIEW_NODE_ISOLATION"],
 		RolloutTimeout: dur("MAUL_PREVIEW_ROLLOUT_TIMEOUT"), PollInterval: dur("MAUL_PREVIEW_POLL_INTERVAL"),
-		MaxRetries:  int32(atoi("MAUL_PREVIEW_MAX_RETRIES")),
-		TesterImage: cm["MAUL_PREVIEW_TESTER_IMAGE"], Evaluator: cm["MAUL_PREVIEW_EVALUATOR"] == "true",
+		MaxRetries: int32(atoi("MAUL_PREVIEW_MAX_RETRIES")), Evaluator: cm["MAUL_PREVIEW_EVALUATOR"] == "true",
 		ToolsImage: cm["MAUL_PREVIEW_TOOLS_IMAGE"], BrowserImage: cm["MAUL_PREVIEW_BROWSER_IMAGE"],
 		ToolboxImage: cm["MAUL_PREVIEW_TOOLBOX_IMAGE"], AgentsNamespace: cm["MAUL_PREVIEW_AGENTS_NAMESPACE"],
 	}

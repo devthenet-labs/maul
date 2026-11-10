@@ -30,7 +30,7 @@ func TestSweepEvaluatorPolicyOfGoneVerification(t *testing.T) {
 	_, live := verifyPreview(t, now)
 	slot := int32(0)
 	live.Status.Slot = &slot
-	s := evalSettings()
+	s := verifySettings()
 	pv := toolVerification(t, live)
 	kept := s.evaluatorPolicy(live, pv, 0)
 	gone := pv.DeepCopy()
@@ -73,7 +73,7 @@ func TestSweepClearsABurstOfDeletedVerifications(t *testing.T) {
 	_, live := verifyPreview(t, start)
 	slot := int32(0)
 	live.Status.Slot = &slot
-	s := evalSettings()
+	s := verifySettings()
 	objs := make([]client.Object, 0, 4)
 	objs = append(objs, live)
 	policies := make([]*networkingv1.NetworkPolicy, 0, 3)
