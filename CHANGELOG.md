@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.20](https://github.com/devthenet-labs/maul/compare/v0.13.19...v0.13.20) (2026-11-10)
+
+
+### Bug Fixes
+
+* **acceptance:** no pass on a check the round never replayed, nor ready in a failing environment (review VC-3, H2) ([#366](https://github.com/devthenet-labs/maul/issues/366)) ([402c75d](https://github.com/devthenet-labs/maul/commit/402c75df8f65abe50a667a0955a5f7cd8ce68ed3))
+* **checks:** count an exec marker's assertion id up to 128 characters (gate D-B2) ([#371](https://github.com/devthenet-labs/maul/issues/371)) ([1443d0d](https://github.com/devthenet-labs/maul/commit/1443d0d18f3131187d710c0c6bbd51e47b761601))
+* **intent:** never report a judgement nothing made (review CX-1, SM-1) ([#364](https://github.com/devthenet-labs/maul/issues/364)) ([73f6892](https://github.com/devthenet-labs/maul/commit/73f68928f388713bf00105948ad5176e629e27ea))
+* **intent:** show no old round's result on a moved head in comments (gate SM-1) ([#370](https://github.com/devthenet-labs/maul/issues/370)) ([cb6038a](https://github.com/devthenet-labs/maul/commit/cb6038a4c285803a72d442954a162b45dce65c83))
+* **previewtools:** count a base unbuildable only when its build refused the tree (review VC-1) ([#365](https://github.com/devthenet-labs/maul/issues/365)) ([5e2a85c](https://github.com/devthenet-labs/maul/commit/5e2a85c61258bf1a8e4a7cc110d76cc3bc6eba3b))
+* **previewtools:** hold each side's exec socket to its own UID (review SEC-1) ([#363](https://github.com/devthenet-labs/maul/issues/363)) ([28cc156](https://github.com/devthenet-labs/maul/commit/28cc156babd352627fefd8660e170b1ab3553f70))
+* **previewtools:** keep a marked program's own line in the failing step (gate D-B1) ([#369](https://github.com/devthenet-labs/maul/issues/369)) ([4ea74eb](https://github.com/devthenet-labs/maul/commit/4ea74eb29d77894452cdad6d09155e941c2c8d0d))
+* **previewtools:** start every check run from the build's tree and output (review VC-2) ([#367](https://github.com/devthenet-labs/maul/issues/367)) ([5a31adf](https://github.com/devthenet-labs/maul/commit/5a31adfca038d21173097993f5929ce17834ec30))
+* **templates:** claim a hold only while in force, and name why an all-confirmed round is unconfirmed (gate D-B3) ([#372](https://github.com/devthenet-labs/maul/issues/372)) ([10f4303](https://github.com/devthenet-labs/maul/commit/10f430303466b2af30f2988ad26c575e62ad841a))
+
 ## [0.13.19](https://github.com/devthenet-labs/maul/compare/v0.13.18...v0.13.19) (2026-11-08)
 
 
