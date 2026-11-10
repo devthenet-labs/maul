@@ -51,6 +51,7 @@ func TestRoundReason(t *testing.T) {
 			v1alpha1.VerificationReasonEvaluatorNotRun},
 		{"full, never told where the tools were", v1alpha1.RungFull, relay, false, false,
 			v1alpha1.VerificationReasonToolsNotReady},
+		{"full, the evaluator called though tools were never written", v1alpha1.RungFull, agent, false, false, ""},
 		{"full, no ledger", v1alpha1.RungFull, nil, true, true, v1alpha1.VerificationReasonEvaluatorNotRun},
 		{"replay finished", v1alpha1.RungReplay, relay, false, true, ""},
 		{"replay cut short", v1alpha1.RungReplay, relay, true, false, v1alpha1.VerificationReasonReplayIncomplete},

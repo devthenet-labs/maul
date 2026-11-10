@@ -408,9 +408,10 @@ func TestCollectBuilds(t *testing.T) {
 // Infra, never a verdict, and keep no ledger.
 func TestCollectRefusesTheLedger(t *testing.T) {
 	for name, tc := range map[string]struct {
-		mutate func(h *harness, log []byte, msg string) ([]byte, string)
-		opts   ledgerOpts
-		reason v1alpha1.PreviewVerificationReason
+		mutate   func(h *harness, log []byte, msg string) ([]byte, string)
+		opts     ledgerOpts
+		notReady bool
+		reason   v1alpha1.PreviewVerificationReason
 	}{
 		"tampered log": {mutate: func(_ *harness, log []byte, msg string) ([]byte, string) {
 			return []byte(strings.Replace(string(log), "usage", "USAGE", 1)), msg
@@ -425,9 +426,18 @@ func TestCollectRefusesTheLedger(t *testing.T) {
 		}, reason: v1alpha1.VerificationReasonLedgerMismatch},
 		"no evaluator": {opts: ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt,
 			noEvaluator: true}, reason: v1alpha1.VerificationReasonEvaluatorNotRun},
+		"no evaluator, the tools never ready": {opts: ledgerOpts{headBuild: v1alpha1.BuildBuilt,
+			baseBuild: v1alpha1.BuildBuilt, noEvaluator: true}, notReady: true,
+			reason: v1alpha1.VerificationReasonToolsNotReady},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := running(t, newWorld(t))
+			var h *harness
+			if tc.notReady {
+				h = newHarness(t, newWorld(t))
+				h.reconcile(t)
+			} else {
+				h = running(t, newWorld(t))
+			}
 			opts := tc.opts
 			if opts.headBuild == "" {
 				opts = ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt}
