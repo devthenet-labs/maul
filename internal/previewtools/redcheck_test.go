@@ -177,13 +177,15 @@ func TestExecAssertionFailures(t *testing.T) {
 // TestExecLongAssertionID (gate D-B2, PV bbcount-74-v2-a1): a marker id
 // longer than 32 characters still makes the run red by assertion, up to
 // checks.MaxExecAssertionIDLen; one past it is a fail whose detail tells
-// the evaluator its marker named no valid id. %M is the attempt's marker.
+// the evaluator its marker named no valid id. A valid id's detail keeps the
+// program's line (gate D-B1). %M is the attempt's marker.
 func TestExecLongAssertionID(t *testing.T) {
 	const long = "first-json-is-usage-error-first-alone"
 	for _, tc := range []struct {
 		name, out, id, detail string
 	}{
-		{"37 characters", "%M " + long + ": exit 0\n", "marker " + long, "the program printed its assertion marker"},
+		{"37 characters", "%M " + long + ": exit 0\n", "marker " + long,
+			"the program printed its assertion marker: " + long + ": exit 0"},
 		{"past the bound", "%M " + strings.Repeat("a", checks.MaxExecAssertionIDLen+1) + ": x\n", "",
 			markedWithoutID},
 		{"no id", "%M the stake was 1\n", "", markedWithoutID},
