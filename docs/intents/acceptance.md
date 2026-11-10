@@ -396,6 +396,9 @@ the status, so a plan with manual items or no criteria needs an approver's `/mau
   status.
 - Each **previewed pull request's sticky comment** gets a verification section; log tails appear there only with
   `postLogs`.
+- After a push, from the pass that sees it until a verification is about the new heads, the status comment and the
+  sticky comments say maul is checking the new commits and show no result; the last verification comment is left as it
+  stood, about the heads it checked.
 - Notices: auto-fix halted (with the reason), "automatic fix cancelled for your review", infrastructure unavailable and
   `NeedsReplan`.
 

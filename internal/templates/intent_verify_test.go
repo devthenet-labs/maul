@@ -377,6 +377,8 @@ func TestVerifyLineStates(t *testing.T) {
 			"Verification unavailable: the preview did not become live at the pull requests' heads in time, so the " +
 				"checks could not run. Verification resumes once the preview is live; `kubectl get preview` says " +
 				"why it is not."},
+		{VerifyProgress{State: VerifyHeadsMoved, Outcomes: true}, "The pull requests moved to new commits: maul " +
+			"is checking the new commits, and the last result, about earlier commits, is not shown."},
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)

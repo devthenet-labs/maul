@@ -194,9 +194,14 @@ func (p *pass) outcomesUnevaluated() bool {
 // then is v's judgement reported (review SM-1). A pull request's head is
 // recorded on the poll that reads it, and the head set follows only on a
 // later pass's syncHeadSet, so in between a reporter would otherwise show
-// a judgement of the old heads on the new.
+// a judgement of the old heads on the new. With the agents host switched
+// off its rounds' heads are still its own (settledAtHeads reads them so).
 func (p *pass) atHeads(v *v1alpha1.IntentVerification) bool {
-	hs, ok := p.toolHost().heads(p)
+	host := p.toolHost()
+	if p.set.agentsHostOff(p.proj) {
+		host = agentsHost{}
+	}
+	hs, ok := host.heads(p)
 	return ok && hs.digest == v.HeadSetDigest
 }
 
