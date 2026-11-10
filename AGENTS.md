@@ -23,7 +23,7 @@ in priority order into pull requests, everything else routes to humans. Complete
 `FindingRollup` resources keep the all-time statistics, and (under `attribution.mode: attribute`) `UsageRollup`
 resources each person's, Project's and the org's usage by day and month.
 
-Nineteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
+Eighteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
 
 - `cmd/integration-controller` — the single internet-facing entry point, driven by `Integration` CRs: validates
   provider webhooks (`/github/webhooks` HMAC, `/google-cloud/webhooks` Pub/Sub OIDC, `/wiz/webhooks` bearer
@@ -265,23 +265,15 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`. With
   `--preview-evaluator` (chart: the agent evaluator with verification on) an outcome verification runs the slot tool
   pod (`toolpod.go`, `toolpolicy.go`, `toolrun.go`; a slice-1 criteria one is answered `Stale` `stale-criteria` before
-  anything is read, nothing rendered, an earlier release's tester Job deleted): a Job of `tools` (preview-tools) with
+  anything is read, nothing rendered, an earlier release's tester Job deleted; the tester binary, its image and
+  `--preview-tester-image` are gone, the flag hidden and refused, the chart's `preview.verification.testerImage` a
+  render failure): a Job of `tools` (preview-tools) with
   `browser` (cdp-shim, only for a Project with `surfaces.browser`) and `sandbox` (tool-exec) native sidecars, its CDP
   key Secret and tool ConfigMap (owned by the Job, never read back), and one ingress policy admitting exactly its
   evaluator on 8090; it writes `status.tools` once `tools` is Ready, refreshes the redacted log tails and slot events
   each poll (`capture.go`), then verifies the `tools` log against its termination message and keeps the ledger and
   cited evidence in `<pv>-ledger`/`<pv>-evidence` (`ledger.go`, `evidence.go`). `--preview-max-evaluations` bounds
   tool pods at once (0, the slot count).
-- `cmd/preview-tester` — OPTIONAL (default-off with acceptance verification; chart `preview.verification`, a
-  digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
-  tester Job preview-controller ran (it renders none since S4), stdlib plus `internal/acceptance` and
-  `internal/httpstep` only, it observes and never judges. It reads `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http`
-  criterion's steps to `http://<PreviewComponentServiceName>:80` built structurally (no redirects, no cookie jar, 10s
-  and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with a count-and-sha256 summary that
-  preview-controller read back through `pods/log`, beside the termination message. The
-  e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
-  Operator guide `docs/configuration/preview-controller.md#acceptance-verification-off-by-default`, the people's guide
-  `docs/intents/acceptance.md`. Kept until the evaluator's S4, which deletes it; the evaluator's tool pod replaces it.
 - `cmd/preview-tools` — OPTIONAL (with the agent evaluator; `Dockerfile.preview-tools`, a digest-pinned image, chart
   `preview.verification.tools.image`): the `tools` container of the evaluator's slot tool pod, maul's relay over
   `internal/previewtools`. It serves the `toolwire` verbs on 8090 (refusing local callers), runs every tool call and
@@ -750,17 +742,17 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   day stacked by Project (plus a "no project" remainder) and by run kind, top intents from month buckets, trusted,
   notional, unmetered and reported figures apart. Seeded conservation property over `stats.ApplyUsage`. Its types are
   the wire types, pinned to `ui/src/types.ts` (`TestUsageWireTypesMatchTypeScript`).
-- `acceptance`, `untrusted`, `previewtester` — acceptance verification's pure side (the design is
+- `acceptance`, `untrusted` — acceptance verification's pure side (the design is
   `.claude/plans/acceptance-verification/SPEC.md`; operator and people's guide `docs/intents/acceptance.md`).
   `acceptance` (stdlib and `httpstep` only, import pin): the plan's criterion grammar (`Validate`, the only
   `CriterionError` source; `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full
   list, manual included; `Automatable`), `Judge`/`JudgeStep` (raw bounded observations in, a `pass`, `quarantined` or
-  `fail` verdict out; no runtime `error`), and the `MAUL-VERIFY:` wire v1, which only the tester still writes (S4
-  deletes them with it; `Judge` and `crdconv`'s criteria and observation converters are already reachable from no
-  binary); `EvaluationFingerprint` is the evaluator's fix fingerprint.
+  `fail` verdict out; no runtime `error`), and the `MAUL-VERIFY:` wire v1, which no binary writes since the tester was
+  deleted (a later S4 PR deletes them; `Judge` and `crdconv`'s criteria and observation converters are reachable from
+  no binary either); `EvaluationFingerprint` is the evaluator's fix fingerprint.
   `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded round-trip. `untrusted`
   (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
-  text before a human or model sees it. `previewtester` is the tester binary's engine. For the agent evaluator,
+  text before a human or model sees it. For the agent evaluator,
   `acceptance` also holds the plan's outcome grammar (`PlanOutcome`, `ValidateOutcomes`, at most 20, kinds `change` and
   `keep`, `manual`; `report.(*Plan).CheckEvaluator` refuses a criteria plan with `ErrSliceOneCriteria`),
   `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and `Decide` (`decide.go`:
@@ -862,7 +854,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `deadlineMaxSeconds` drives both controllers' deadline flags (`--intent-verify-timeout-max`, slice 1's tester wall
   clock, has had no effect since S4 PR 6); before its manager starts, intent-controller takes a read-only census of
   slice-1 records through the API reader, `census.go`, logged by name and reported as `maul.intent.slice1_records`,
-  never refusing startup; preview-controller refuses `--preview-tester-image` without `--preview-evaluator`): only the
+  never refusing startup; preview-controller refuses the removed `--preview-tester-image` whatever its value): only the
   agent evaluator verifies. Every verify site branches on one mode per pass (`verify_mode.go`: `none`, `off`,
   `outcomes`, `mismatch`), from whether the evaluator verifies the Project, the tool host verifies the intent and what
   the approved revision's record holds; a criteria-era record (criteria, or pruned of them: a digest other than the

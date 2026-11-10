@@ -281,14 +281,13 @@ With the agent evaluator on (chart `intentController.verification.evaluator`, ve
 `preview.enabled` and `previewController.enabled`) preview-controller also answers `PreviewVerification` requests from
 intent-controller, from Jobs inside the intent's own Preview slot: the evaluator's
 [tool pod](#the-agent-evaluators-tool-pod) below. The former switch, `preview.verification.enabled`, is removed, and
-slice 1's criteria, which a tester Job ran, no longer run: preview-controller renders no tester Job
-([Migrating from slice 1](../intents/evaluator.md#migrating-from-slice-1)). See
-[Acceptance verification](../intents/acceptance.md) for what people see. The controller's side:
+slice 1's criteria are gone with the tester Job that ran them: preview-controller renders no tester Job, and the
+`preview-tester` image is no longer built ([Migrating from slice 1](../intents/evaluator.md#migrating-from-slice-1)).
+See [Acceptance verification](../intents/acceptance.md) for what people see. The controller's side:
 
-- **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`; empty by default) is the digest-pinned
-  `preview-tester` image, never under the preview image prefix or an agent image registry; set without
-  `--preview-evaluator`, startup is refused (slice 1 alone no longer runs); beside it, it is checked and runs nothing.
-  `--preview-verify-deadline-max` (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is the most a
+- **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`) is removed with the tester and hidden: set to
+  anything, startup is refused with the migration (the chart's `preview.verification.testerImage` fails the render the
+  same way). `--preview-verify-deadline-max` (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is the most a
   verification's Job may run; a longer request is clamped. The chart sets it from
   `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800), the bound the slot Job admission policy
   enforces, and renders the same value as intent-controller's `--intent-verify-timeout-max`.
@@ -298,8 +297,9 @@ slice 1's criteria, which a tester Job ran, no longer run: preview-controller re
   Project. Otherwise the verification is `Stale` and nothing renders.
 - **Per-part NetworkPolicies.** A Preview created with `spec.environment` (set once, immutable) gets one NetworkPolicy
   per part, `preview-<project>-<issue>-np-<part>`, admitting only the edges derived from the Project beside the chart's
-  `preview-isolation`, which it never touches. In this release the one edge is the tester to each component, on its
-  numeric port. A Preview without an environment renders exactly what it always did.
+  `preview-isolation`, which it never touches. In this release the one edge is the tool pod's part (`tester`, slice 1's
+  name for it) to each component, on its numeric port. A Preview without an environment renders exactly what it always
+  did.
 - **Slice 1's criteria.** A request for criteria (one with no outcomes) is answered `Stale` (`stale-criteria`) at once,
   whatever the flags, before anything else is read, and nothing renders. A tester Job, `preview-<…>-vt-<hash>`, that an
   earlier release left running for one is deleted when it settles, and the sweep removes any left orphaned.
@@ -335,15 +335,14 @@ without creating a pod.
 ## The agent evaluator's tool pod
 
 With the [agent evaluator](../intents/evaluator.md) on (chart `intentController.verification.evaluator: true`, with
-`previewController.enabled`), an outcome verification does not run the tester. preview-controller runs the slot **tool
-pod** instead: the hands of the evaluator, which itself runs in the agents namespace with no route to the application.
-Off, an outcome verification is `Infra` and renders nothing.
+`previewController.enabled`), preview-controller runs an outcome verification on the slot **tool pod**: the hands of the
+evaluator, which itself runs in the agents namespace with no route to the application. Off, an outcome verification is
+`Infra` and renders nothing.
 
 - **Flags**, all set by the chart under the evaluator. `--preview-evaluator` (`MAUL_PREVIEW_EVALUATOR`, default `false`)
-  turns verification on by itself: it needs the three images and `--preview-agents-namespace`, not
-  `--preview-tester-image`. With no tester image the chart renders no `MAUL_PREVIEW_TESTER_IMAGE` and the slot image
-  rules admit no exact image beside the preview prefix. A criteria request is answered `Stale` (`stale-criteria`)
-  without rendering anything, with a tester image or without. `--preview-tools-image`, `--preview-browser-image` and
+  turns verification on by itself: it needs the three images and `--preview-agents-namespace`. The slot image rules
+  admit no exact image beside the preview prefix: the tool images have rules of their own. A criteria request is
+  answered `Stale` (`stale-criteria`) without rendering anything. `--preview-tools-image`, `--preview-browser-image` and
   `--preview-toolbox-image` (`MAUL_PREVIEW_TOOLS_IMAGE`, `MAUL_PREVIEW_BROWSER_IMAGE`, `MAUL_PREVIEW_TOOLBOX_IMAGE`) are
   the digest-pinned `preview-tools` (maul's relay, Node and the pinned Playwright CLI), `preview-browser` (Chromium
   behind maul's keyed CDP shim) and `preview-toolbox` (the sandbox: curl, grpcurl, websocat, node, python, go, and
@@ -353,21 +352,22 @@ Off, an outcome verification is `Infra` and renders nothing.
   tool pod admits its evaluator from. `--preview-max-evaluations` (`MAUL_PREVIEW_MAX_EVALUATIONS`, default `0`, meaning
   the slot count) bounds the tool pods running at once; a verification waiting past its own timeout for room is `Infra`
   (`tools-not-ready`).
-- **Re-checks.** As for criteria, plus: the outcomes must equal the Intent's approved outcomes under their digest, and
-  the saved checks the check store's, each valid and bound to an approved outcome.
-- **The pod.** A Job named as a tester Job is (so the cleanup and the sweep cover it), whose main container `tools` runs
-  the relay, with `browser` (only when the Project declares `surfaces.browser`) and `sandbox` as native sidecars. Each
-  container runs as its own user, read-only, with no capability, no service-account token and no host namespace. Only
-  `tools` mounts the tool ConfigMap (its configuration, the outcomes and saved checks, the captured logs and events);
-  only `tools` and `browser` mount the per-verification CDP key Secret; `tools` and `sandbox` share only the exec shim's
-  socket. The Secret and ConfigMap are owned by the Job and never read back. Requests equal limits: 500m/384Mi for
-  `tools` and `sandbox`, 1500m/1280Mi for `browser`, about **2.5 CPU and 2 GiB** in all.
-- **Network.** The pod is the slot's tester part with role `tools` (`maul.run/preview-role`), so the Preview's edge
-  policies give it exactly the tester's edges to the components. The chart's `preview-tools-isolation` (kept, Helm's)
-  isolates role `tools` both ways with no rule of its own, and `preview-isolation` no longer selects it, so it has no
-  DNS and no gateway. preview-controller adds one ingress policy per verification, admitting on port 8090 only pods of
-  role `evaluator` carrying this verification's UID in `maul.run/preview-verification`, from the agents namespace;
-  `maul-preview-networkpolicies` admits no other shape.
+- **Re-checks.** Those above, plus: the outcomes must equal the Intent's approved outcomes under their digest, and the
+  saved checks the check store's, each valid and bound to an approved outcome.
+- **The pod.** A Job named `preview-<…>-vt-<hash>`, as slice 1's tester Jobs were (so the cleanup and the sweep cover
+  it), whose main container `tools` runs the relay, with `browser` (only when the Project declares `surfaces.browser`)
+  and `sandbox` as native sidecars. Each container runs as its own user, read-only, with no capability, no
+  service-account token and no host namespace. Only `tools` mounts the tool ConfigMap (its configuration, the outcomes
+  and saved checks, the captured logs and events); only `tools` and `browser` mount the per-verification CDP key Secret;
+  `tools` and `sandbox` share only the exec shim's socket. The Secret and ConfigMap are owned by the Job and never read
+  back. Requests equal limits: 500m/384Mi for `tools` and `sandbox`, 1500m/1280Mi for `browser`, about **2.5 CPU and 2
+  GiB** in all.
+- **Network.** The pod is the slot's `tester` part (slice 1's name for it) with role `tools` (`maul.run/preview-role`),
+  so the Preview's edge policies give it exactly that part's edges to the components. The chart's
+  `preview-tools-isolation` (kept, Helm's) isolates role `tools` both ways with no rule of its own, and
+  `preview-isolation` no longer selects it, so it has no DNS and no gateway. preview-controller adds one ingress policy
+  per verification, admitting on port 8090 only pods of role `evaluator` carrying this verification's UID in
+  `maul.run/preview-verification`, from the agents namespace; `maul-preview-networkpolicies` admits no other shape.
 - **`status.tools`.** Once `tools` is Ready, and every sidecar the round asks for (`browser`, `sandbox`) is running and
   Ready, the controller writes the pod's address and port to the request's `status.tools`; intent-controller creates the
   evaluator only then, because the evaluator reaches it through a host entry fixed when its pod starts.
