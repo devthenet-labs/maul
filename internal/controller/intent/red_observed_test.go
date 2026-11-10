@@ -57,6 +57,7 @@ func TestRedCheckReviewGetsWhatItsElementShowed(t *testing.T) {
 			[]string{"{{run}}-v · v1.0", "{{run}}-v · v1.0"}},
 		{"another run's token stays as it was", true, []string{"TOKEN-v · v1.0", "cf-a1-v · v1.0"},
 			[]string{"{{run}}-v · v1.0", "cf-a1-v · v1.0"}},
+		{"a page showing the placeholder itself", true, []string{"{{run}}-v · v1.0", "TOKEN-v · v1.0"}, nil},
 		{"a run with no text", true, []string{"TOKEN-v · v1.0", ""}, nil},
 		{"a text the reviewer would refuse", true, []string{"TOKEN-v\nv1.0", "TOKEN-v · v1.0"}, nil},
 		{"no ledger", false, nil, nil},

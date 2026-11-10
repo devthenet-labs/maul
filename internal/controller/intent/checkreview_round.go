@@ -263,8 +263,8 @@ func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate,
 // checks.RunPlaceholder so a reviewer can tell the run's own data from
 // another run's. It is the application's text, UNTRUSTED: agent-runner
 // holds it to its bounds and the prompt quotes it as data. nil unless every
-// run has one, and when the run or the ledger cannot be read: the red
-// question is then asked as before.
+// run has one, when a text already holds the placeholder, and when the run
+// or the ledger cannot be read: the red question is then asked as before.
 func (p *pass) observed(ctx context.Context, pv *v1alpha1.PreviewVerification, c storeCandidate) []string {
 	run := latestRun(pv.Status.Confirmations, c.check.Digest, v1alpha1.TreeHead)
 	if run == nil || run.Expect != v1alpha1.CheckExpectFail || !run.RedByAssertion() ||
@@ -281,7 +281,9 @@ func (p *pass) observed(ctx context.Context, pv *v1alpha1.PreviewVerification, c
 	out := make([]string, 0, len(rec.Attempts))
 	for _, a := range rec.Attempts {
 		s := a.Steps[len(a.Steps)-1] // AssertionStep: the failing step is each attempt's last
-		if s.Received == "" || a.Run == "" {
+		// A page showing the placeholder itself could pass for a run's
+		// token written back: keep none.
+		if s.Received == "" || a.Run == "" || strings.Contains(s.Received, checks.RunPlaceholder) {
 			return nil
 		}
 		out = append(out, strings.ReplaceAll(s.Received, a.Run, checks.RunPlaceholder))
