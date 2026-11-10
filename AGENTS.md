@@ -806,8 +806,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `judgeWorkspace`: no answer, refused, unclean or timed out is an error, the marker a fail by assertion, cut output an
   error, a wrong exit a bare fail, a stdout content miss after the expected exit a fail by assertion; a non-pass naming
   a bind or connection error (`NetError`) is an error. Substitution order `{{marker}}`, `{{bin}}`, `{{tree}}`,
-  `{{run}}`; exploratory calls substitute only `{{bin}}` and `{{tree}}`, each in a fresh scratch dir, `HOME` and the
-  writable tree shared within a side. `previewtools/prepare` (stdlib only) is the trusted inits' engine: a
+  `{{run}}`; exploratory calls substitute only `{{bin}}` and `{{tree}}`, each in a fresh scratch dir, `HOME`, the
+  caches, the tmp root and the writable tree shared within a side, all of which every check run starts from as the
+  build left them (its `TMPDIR` its own, empty). `previewtools/prepare` (stdlib only) is the trusted inits' engine: a
   digest-verified fetch into unlinked temp files, extraction refusing absolute or `..` paths, hard links, devices,
   fifos, links leaving the tree, entries through a link, duplicates, oversize (480 MiB) and a non-empty destination,
   then a+rX, `Install` of tool-exec, and `Seed`.
@@ -818,9 +819,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `KindBuild` in the side's tree, 10m by default and at most 20m, keeping a 256 KiB output tail, `AllowedEnv` (the
   search path and the build's network profile, refusing a variable the shim sets itself: `HOME`, `TMPDIR`, `GOCACHE`,
   `GOTOOLCHAIN`, the npm cache), the UID-wide sweep before every answer (`Result.Unclean` when something survives,
-  nothing more runs until a sweep is clean), `Result.NetError`, `Request.Fresh` (every check run's program: the tree
-  and `/work/bin` put back from the copy `/work/kept` taken after the build and held to its in-memory digest, refused
-  when they cannot be; `fresh.go`), UID 0 refused) and `cmd/maul-tool` (the CLI:
+  nothing more runs until a sweep is clean), `Result.NetError`, `Request.Fresh` (every check run's first program: the
+  tree, `/work/bin` and `HOME` put back from the copy `/work/kept` taken after the build (at most `MaxKeptBytes`, else
+  `KeepFailed`) and held to their in-memory digests, refused when they cannot be; the caches (GOCACHE, npm's) pruned to
+  the build's own entries by an in-memory manifest of type, mode, size, inode and ctime, never copied, a removed entry
+  only a miss; an empty `TMPDIR` of the run's own under `Options.Tmp`, shared by its later requests; `fresh.go`,
+  `cache.go`), UID 0 refused) and `cmd/maul-tool` (the CLI:
   `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into `shots/` under the scratch
   directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
