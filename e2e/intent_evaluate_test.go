@@ -167,7 +167,6 @@ func startEvaluate(t *testing.T, o evalOptions) *evalEnv {
 	gh.SetDefaultComparePatch("diff --git a/VERSION b/VERSION\n+0.1.0\n")
 	app := &evalApp{status: http.StatusOK, version: "0.1.0"}
 	slots := []string{"maul-preview-0", "maul-preview-1"}
-	e.kubelet.runTesters(t, slots...)
 	e.kubelet.runTools(t, slots...)
 	var component http.Handler = app
 	if o.component != nil {
@@ -192,8 +191,9 @@ func startEvaluate(t *testing.T, o evalOptions) *evalEnv {
 }
 
 // startEvaluatingPreviewController runs preview-controller over two fixed
-// slots with the tester image and the evaluator's tool images: outcome
-// verifications run on the slot tool pod.
+// slots with the evaluator's tool images and no tester image (extra may add
+// one): outcome verifications run on the slot tool pod, and the evaluator
+// alone turns verification on.
 func startEvaluatingPreviewController(t *testing.T, cl *cluster, extra ...string) {
 	t.Helper()
 	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
@@ -209,7 +209,6 @@ func startEvaluatingPreviewController(t *testing.T, cl *cluster, extra ...string
 		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
 		"--preview-taint-key", "maul.devthe.net/preview-only",
 		"--preview-poll-interval", "1s",
-		"--preview-tester-image", testerImage,
 		"--preview-evaluator",
 		"--preview-tools-image", toolsImage,
 		"--preview-browser-image", browserImage,
@@ -447,6 +446,40 @@ func TestIntentEvaluatePasses(t *testing.T) {
 		err := e.cl.client.Get(context.Background(), client.ObjectKeyFromObject(&tool.Job), &cur)
 		return apierrors.IsNotFound(err) || (err == nil && !cur.DeletionTimestamp.IsZero())
 	})
+}
+
+// TestIntentEvaluatePassesWithTheTester: an install that also sets the
+// tester image (a slice-1 upgrade that keeps it stamped) evaluates the same
+// way: the outcome verification runs on the tool pod, no tester Job is ever
+// rendered, and the hand-off is ready once both outcomes are confirmed.
+func TestIntentEvaluatePassesWithTheTester(t *testing.T) {
+	e := startEvaluate(t, evalOptions{previewArgs: []string{"--preview-tester-image", testerImage}})
+	_, name, pr := e.toEvaluating(t)
+	in := e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	checkConfirmedReady(t, in.Status.Verification)
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	runs := e.kubelet.ToolRuns()
+	if len(runs) == 0 {
+		t.Fatal("no tool Job ran")
+	}
+	for _, r := range runs {
+		if img := r.Job.Spec.Template.Spec.Containers[0].Image; img != toolsImage {
+			t.Errorf("tool Job %s runs %s, want %s", r.Job.Name, img, toolsImage)
+		}
+	}
+	for _, slot := range []string{"maul-preview-0", "maul-preview-1"} {
+		var list batchv1.JobList
+		if err := e.cl.client.List(context.Background(), &list, client.InNamespace(slot)); err != nil {
+			t.Fatal(err)
+		}
+		for _, j := range list.Items {
+			if j.Spec.Template.Spec.Containers[0].Image == testerImage {
+				t.Errorf("%s: tester Job %s rendered for an outcome verification", slot, j.Name)
+			}
+		}
+	}
 }
 
 // TestIntentEvaluateTurnCap (S1 bug 3): every live evaluator ran out of
