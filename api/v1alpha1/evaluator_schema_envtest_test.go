@@ -248,6 +248,25 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 		}
 		sameJSON(t, "intent status", fresh(t).Status, full())
 	})
+	// A plan approved under the evaluator that states no outcomes (its
+	// prompt says to omit the field when nothing can be seen running) is
+	// recorded as intent-controller's approvedAcceptance writes it: the
+	// outcomes digest of the empty list alone, an empty list being omitted.
+	// The rule once required both or neither and refused it, so every
+	// status write of such an intent failed and it stopped moving.
+	t.Run("an outcomes plan stating none is admitted", func(t *testing.T) {
+		i := fresh(t)
+		i.Status = full()
+		i.Status.Acceptance = &maulv1.IntentAcceptance{PlanRevision: 1, Digest: schemaDigest,
+			OutcomesDigest: schemaDigest}
+		i.Status.Verification = &maulv1.IntentVerification{State: maulv1.VerificationNotDeclared}
+		if err := c.Status().Update(ctx, i); err != nil {
+			t.Fatalf("Status().Update(no outcomes) = %v", err)
+		}
+		if got := fresh(t).Status.Acceptance; got.OutcomesDigest != schemaDigest || len(got.Outcomes) != 0 {
+			t.Errorf("acceptance = %+v, want the outcomes digest alone", got)
+		}
+	})
 	t.Run("the evaluating state is admitted", func(t *testing.T) {
 		i := fresh(t)
 		i.Status = full()
@@ -262,7 +281,6 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 	}{
 		{"both criteria and outcomes", func(s *maulv1.IntentStatus) { s.Acceptance.Criteria = schemaCriteria() }},
 		{"outcomes without their digest", func(s *maulv1.IntentStatus) { s.Acceptance.OutcomesDigest = "" }},
-		{"an outcomes digest without outcomes", func(s *maulv1.IntentStatus) { s.Acceptance.Outcomes = nil }},
 		{"21 outcomes", func(s *maulv1.IntentStatus) {
 			for i := len(s.Acceptance.Outcomes); i < 21; i++ {
 				o := s.Acceptance.Outcomes[0]

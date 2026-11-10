@@ -751,8 +751,8 @@ spec:
                 x-kubernetes-validations:
                 - message: an approved plan declares criteria or outcomes, never both
                   rule: '!has(self.criteria) || !has(self.outcomes)'
-                - message: outcomes and outcomesDigest are set together
-                  rule: has(self.outcomes) == has(self.outcomesDigest)
+                - message: outcomes need their outcomesDigest
+                  rule: '!has(self.outcomes) || has(self.outcomesDigest)'
               activeRun:
                 description: |-
                   ActiveRun points at the IntentRun currently holding the run lease
