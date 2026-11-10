@@ -124,6 +124,8 @@ type evalEnv struct {
 type evalOptions struct {
 	// outcomes is the plan's acceptance (versionOutcomes when empty).
 	outcomes string
+	// noOutcomes: the plan states no acceptance at all (outcomes unused).
+	noOutcomes bool
 	// mode is MAUL_FAKE_CLAUDE_EVALUATE, review MAUL_FAKE_CLAUDE_REVIEW
 	// (empty: their defaults, pass and proves).
 	mode, review string
@@ -181,7 +183,10 @@ func startEvaluate(t *testing.T, o evalOptions) *evalEnv {
 	e.kubelet.serveComponent(t, appRepo, component)
 	e.kubelet.useAgentRunner(t, append([]string{"evaluate", "checkreview"}, o.agentRunner...)...)
 	outcomes := o.outcomes
-	if outcomes == "" {
+	switch {
+	case o.noOutcomes:
+		outcomes = ""
+	case outcomes == "":
 		outcomes = versionOutcomes
 	}
 	e.kubelet.setAgentEnv("MAUL_FAKE_PLAN_ACCEPTANCE", outcomes)
@@ -223,11 +228,11 @@ func startEvaluatingPreviewController(t *testing.T, cl *cluster, extra ...string
 	}, extra...)...)
 }
 
-// evaluatorArgs turn the evaluator on in intent-controller, beside
-// verification and previews. A role Job pins the broker in its hosts file
+// evaluatorArgs turn the evaluator, verification's one switch, on in
+// intent-controller, beside previews. A role Job pins the broker in its hosts file
 // (it runs with no resolver), so the broker's host must resolve here: this
 // machine's localhost, as the DNS tests pin it.
-var evaluatorArgs = []string{"--intent-previews-enabled", "--intent-verification", "--intent-evaluator",
+var evaluatorArgs = []string{"--intent-previews-enabled", "--intent-evaluator",
 	"--broker-url", "http://localhost:8080"}
 
 // withEvaluatingIntents is withIntentsFor with intent-controller built with
