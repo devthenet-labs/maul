@@ -519,6 +519,14 @@ func TestSweepToolPodOrphans(t *testing.T) {
 	}
 }
 
+// TestSandboxUIDIsTheRelays: the relay accepts only an exec shim served by
+// previewtools.SlotSandboxUID, so the sandbox must run as exactly that UID.
+func TestSandboxUIDIsTheRelays(t *testing.T) {
+	if sandboxUID != previewtools.SlotSandboxUID {
+		t.Errorf("the sandbox runs as %d, the relay expects %d", sandboxUID, previewtools.SlotSandboxUID)
+	}
+}
+
 // TestToolImagesTraversableByTheirUID holds each tool image's private
 // directories to the UID the renderer runs its container as: a directory
 // others cannot enter, owned by another UID, leaves the container unable to

@@ -41,3 +41,16 @@ func (r *Relay) exec(ctx context.Context, req *toolwire.ExecRequest) result {
 	exit := res.Exit
 	return result{output: res.Output, inline: res.Output, exit: exit, observed: &toolwire.Observed{Exit: &exit}}
 }
+
+// SlotSandboxUID is the UID a slot tool pod's sandbox runs its exec shim
+// as (preview-controller's toolpod.go, a test pins it).
+const SlotSandboxUID = 65534
+
+// NewSlotSandbox is the client of a slot tool pod's exec shim at socket,
+// served by uid. The socket's directory is a volume the sandbox writes, so
+// the client refuses a socket that is a link or is served by another UID
+// (toolexec.NewSideClient): the call errs, the relay's "unavailable",
+// never a result of a process of another UID.
+func NewSlotSandbox(socket string, uid int) Execer {
+	return toolexec.NewSideClient(socket, uid)
+}

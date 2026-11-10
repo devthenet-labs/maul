@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -114,8 +115,12 @@ func workspaceSeams(t *testing.T, key string) (previewtools.Seams, *fakeShim, *f
 
 // TestRunWorkspaceRound: a workspace's replay round builds both trees,
 // replays the check at each, each over its own socket, and closes the
-// ledger.
+// ledger. Its side clients read the shims' peer credentials, which only
+// linux gives (toolexec.NewSideClient refuses every dial elsewhere).
 func TestRunWorkspaceRound(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("side clients read peer credentials on linux only")
+	}
 	s, head, base := workspaceSeams(t, wsKey+"\n")
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), s, &stdout, &stderr); code != 0 {
