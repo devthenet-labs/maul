@@ -42,6 +42,14 @@ const (
 	WorkTree        = toolexec.WorkDir + "/tree"
 )
 
+// HeadSandboxUID and BaseSandboxUID are the UIDs each side's shim runs as
+// in the tool pod (jobs.CreateToolPod's, a test pins them): a side's client
+// accepts only a shim served by its side's UID.
+const (
+	HeadSandboxUID = 65540
+	BaseSandboxUID = 65541
+)
+
 // A workspace's bounds. The CRD's markers repeat them (a test pins them).
 const (
 	// MinBuildTimeoutSeconds and MaxBuildTimeoutSeconds bound a tree's
@@ -199,11 +207,15 @@ type Sandbox interface {
 }
 
 // NewSandboxes are the clients of the head's and the base's shims, at
-// <execDir>/<side>/sock. A client only dials its socket: the relay does
-// nothing else under a socket's directory, which a sandbox can write.
-func NewSandboxes(execDir string) (head, base Sandbox) {
-	return toolexec.NewClient(filepath.Join(execDir, string(toolwire.SideHead), "sock")),
-		toolexec.NewClient(filepath.Join(execDir, string(toolwire.SideBase), "sock"))
+// <execDir>/<side>/sock, served by headUID and baseUID. A client only dials
+// its socket: the relay does nothing else under a socket's directory, which
+// a sandbox can write. A sandbox can replace its socket there, so a client
+// refuses a socket that is a link or is served by another UID than its
+// side's (toolexec.NewSideClient): the call errs, never a result of the
+// other side's shim.
+func NewSandboxes(execDir string, headUID, baseUID int) (head, base Sandbox) {
+	return toolexec.NewSideClient(filepath.Join(execDir, string(toolwire.SideHead), "sock"), headUID),
+		toolexec.NewSideClient(filepath.Join(execDir, string(toolwire.SideBase), "sock"), baseUID)
 }
 
 // LoadKey reads the :8090 key from dir's KeyFile: one key

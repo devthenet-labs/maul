@@ -514,7 +514,9 @@ evaluator explores; maul's own runs of a check get a fresh scratch directory and
 
 The pod builds both trees first, in parallel, each in its own sandbox, under its own user, with its own tree, caches and
 socket: code at the head cannot touch the base's files, and nothing a program leaves behind survives into the next run
-(the sandbox kills every process of its user before it answers). Then:
+(the sandbox kills every process of its user before it answers). maul reaches each side only through a socket that
+side's user serves: code that swaps its socket for a link to the other side's, or for a socket of another user, gets
+maul's calls refused, never answered by the other side, so the outcomes it touches are unsure, never judged. Then:
 
 - **A head that does not build** runs nothing more: the pod finishes there, before it is ready, so no evaluator is
   launched and none is paid for. CI built that head green, so it is maul's trouble, never the change's: every outcome is

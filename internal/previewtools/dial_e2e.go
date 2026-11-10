@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strconv"
 )
 
 // The e2e suite's seams: envtest has no kubelet, kube-proxy or cluster DNS,
@@ -40,6 +41,9 @@ const (
 	// stages them in directories of its own).
 	ExecDirEnv  = "MAUL_E2E_EXEC_DIR"
 	TreesDirEnv = "MAUL_E2E_TREES_DIR"
+	// SandboxUIDEnv, a UID, replaces both sides' shim UIDs: the e2e kubelet
+	// serves both shims in its own process.
+	SandboxUIDEnv = "MAUL_E2E_SANDBOX_UID"
 )
 
 // Seams is what only the e2e build can change (see dial.go).
@@ -51,6 +55,9 @@ type Seams struct {
 	ConfigDir       string
 	// ExecDir and TreesDir are a workspace's sockets and trees (dial.go).
 	ExecDir, TreesDir string
+	// HeadUID and BaseUID are the UIDs each side's shim is served by
+	// (dial.go); SandboxUIDEnv replaces both.
+	HeadUID, BaseUID int
 	// BrowserDir, when set, is the scripted browser's working directory.
 	BrowserDir string
 }
@@ -66,7 +73,7 @@ func (s Seams) Browser() (*BrowserOptions, ArtifactKeeper, net.Listener, error) 
 // SeamsFrom reads the e2e seams from the environment.
 func SeamsFrom(getenv func(string) string) (Seams, error) {
 	s := Seams{TerminationPath: TerminationPath, ListenAddr: listenAddr, ConfigDir: DefaultConfigDir,
-		ExecDir: DefaultExecDir, TreesDir: DefaultTreesDir}
+		ExecDir: DefaultExecDir, TreesDir: DefaultTreesDir, HeadUID: HeadSandboxUID, BaseUID: BaseSandboxUID}
 	if d := getenv(ConfigDirEnv); d != "" {
 		s.ConfigDir = d
 	}
@@ -83,6 +90,13 @@ func SeamsFrom(getenv func(string) string) (Seams, error) {
 			}
 			*dst = d
 		}
+	}
+	if u := getenv(SandboxUIDEnv); u != "" {
+		uid, err := strconv.Atoi(u)
+		if err != nil || uid < 0 {
+			return Seams{}, fmt.Errorf("%s: %q is not a UID", SandboxUIDEnv, u)
+		}
+		s.HeadUID, s.BaseUID = uid, uid
 	}
 	if p := getenv(TerminationEnv); p != "" {
 		s.TerminationPath = p

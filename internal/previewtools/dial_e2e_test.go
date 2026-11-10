@@ -68,7 +68,17 @@ func TestE2EWorkspaceSeams(t *testing.T) {
 	if s.ExecDir != "/tmp/e/exec" || s.TreesDir != "/tmp/e/trees" {
 		t.Errorf("seams %+v, want the directories given", s)
 	}
-	if s, err = SeamsFrom(envOf(nil)); err != nil || s.ExecDir != DefaultExecDir || s.TreesDir != DefaultTreesDir {
-		t.Errorf("unset: seams %+v, %v; want the pod's directories", s, err)
+	if s, err = SeamsFrom(envOf(nil)); err != nil || s.ExecDir != DefaultExecDir || s.TreesDir != DefaultTreesDir ||
+		s.HeadUID != HeadSandboxUID || s.BaseUID != BaseSandboxUID {
+		t.Errorf("unset: seams %+v, %v; want the pod's directories and UIDs", s, err)
+	}
+	for _, bad := range []string{"x", "-1"} {
+		if _, err := SeamsFrom(envOf(map[string]string{SandboxUIDEnv: bad})); err == nil {
+			t.Errorf("accepted sandbox UID %q", bad)
+		}
+	}
+	if s, err = SeamsFrom(envOf(map[string]string{SandboxUIDEnv: "1000"})); err != nil || s.HeadUID != 1000 ||
+		s.BaseUID != 1000 {
+		t.Errorf("sandbox UID: seams %+v, %v; want both sides' 1000", s, err)
 	}
 }

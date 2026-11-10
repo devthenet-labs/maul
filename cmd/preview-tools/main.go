@@ -110,7 +110,7 @@ func run(ctx context.Context, s previewtools.Seams, stdout, stderr io.Writer) in
 			log.Error("the per-evaluation key is refused", "dir", s.ConfigDir, "err", err)
 			return 2
 		}
-		opts.Head, opts.Base = previewtools.NewSandboxes(s.ExecDir)
+		opts.Head, opts.Base = previewtools.NewSandboxes(s.ExecDir, s.HeadUID, s.BaseUID)
 		opts.Trees, opts.Key = s.TreesDir, key
 	}
 	if cfg.Browser {

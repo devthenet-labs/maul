@@ -323,7 +323,7 @@ func TestExecSocketDirsUntouched(t *testing.T) {
 		return b.String()
 	}
 	was := snap()
-	head, base := NewSandboxes(dir)
+	head, base := NewSandboxes(dir, os.Getuid(), os.Getuid())
 	h := newHarness(t, wsConfig(), routes{}, func(o *Options) {
 		o.Head, o.Base, o.Trees, o.Key, o.ReadyWait = head, base, t.TempDir(), wsKey, 100*time.Millisecond
 	})

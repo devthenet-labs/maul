@@ -108,7 +108,8 @@ func workspaceSeams(t *testing.T, key string) (previewtools.Seams, *fakeShim, *f
 		shims[side] = serveShim(t, filepath.Join(short, side, "sock"), out)
 	}
 	return previewtools.Seams{ConfigDir: dir, TerminationPath: filepath.Join(t.TempDir(), "termination-log"),
-		ListenAddr: "127.0.0.1:0", ExecDir: short, TreesDir: trees}, shims["head"], shims["base"]
+			ListenAddr: "127.0.0.1:0", ExecDir: short, TreesDir: trees, HeadUID: os.Getuid(), BaseUID: os.Getuid()},
+		shims["head"], shims["base"]
 }
 
 // TestRunWorkspaceRound: a workspace's replay round builds both trees,
