@@ -174,6 +174,36 @@ func TestExecAssertionFailures(t *testing.T) {
 	}
 }
 
+// TestExecLongAssertionID (gate D-B2, PV bbcount-74-v2-a1): a marker id
+// longer than 32 characters still makes the run red by assertion, up to
+// checks.MaxExecAssertionIDLen; one past it is a fail whose detail tells
+// the evaluator its marker named no valid id. %M is the attempt's marker.
+func TestExecLongAssertionID(t *testing.T) {
+	const long = "first-json-is-usage-error-first-alone"
+	for _, tc := range []struct {
+		name, out, id, detail string
+	}{
+		{"37 characters", "%M " + long + ": exit 0\n", "marker " + long, "the program printed its assertion marker"},
+		{"past the bound", "%M " + strings.Repeat("a", checks.MaxExecAssertionIDLen+1) + ": x\n", "",
+			markedWithoutID},
+		{"no id", "%M the stake was 1\n", "", markedWithoutID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {
+				return toolexec.Result{Exit: 1, Output: strings.ReplaceAll(tc.out, "%M", attemptMarker(t, req))}, nil
+			}}
+			h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
+			rec := h.relay.runCheck(context.Background(), parseCheck(t, markedExecCheck), toolwire.ModeDryRun)
+			if rec.Result != toolwire.RunFail || rec.FailedAssertionID() != tc.id {
+				t.Fatalf("got %s by %q, want fail by %q (%+v)", rec.Result, rec.FailedAssertionID(), tc.id, rec)
+			}
+			if d := rec.Attempts[0].Steps[0].Detail; d != tc.detail {
+				t.Errorf("detail %q, want %q", d, tc.detail)
+			}
+		})
+	}
+}
+
 // TestExecMarkerFailsTheCheck (S1 demo #57; PR #320 F1, F3): a program
 // that prints its attempt's marker has said the outcome does not hold, so
 // the check fails whatever its exit code and its expect. Only that marker

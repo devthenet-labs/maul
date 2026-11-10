@@ -654,6 +654,9 @@ func TestWorkspaceExecJudging(t *testing.T) {
 		m := strings.SplitN(string(req.Files[0].Content), " ", 2)[0]
 		return m + "count-is-three: the count was 2\n"
 	}
+	markedID := func(req *toolexec.Request, id string) string {
+		return strings.SplitN(string(req.Files[0].Content), " ", 2)[0] + " " + id + ": the count was 2\n"
+	}
 	const markerCheck = `{"id":"count.marker","outcome":"count","form":"exec","exec":{"argv":["{{bin}}","check.txt"],
  "files":[{"path":"check.txt","content":"{{marker}} rest"}],"expect":{"exit":0,"stdoutContains":"count=3"}}}`
 	tests := []struct {
@@ -684,6 +687,14 @@ func TestWorkspaceExecJudging(t *testing.T) {
 		{"the marker", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
 			return toolexec.Result{Output: marked(req), Exit: 1}, nil
 		}, toolwire.ResultFail, "marker count-is-three"},
+		// Gate D-B2: an id over 32 characters still names the assertion.
+		{"the marker with a long id", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: markedID(req, "first-json-is-usage-error-first-alone"), Exit: 1}, nil
+		}, toolwire.ResultFail, "marker first-json-is-usage-error-first-alone"},
+		{"the marker with an id past the bound", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: markedID(req, strings.Repeat("a", checks.MaxExecAssertionIDLen+1)),
+				Exit: 1}, nil
+		}, toolwire.ResultFail, ""},
 		{"the marker beside a connection error", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
 			return toolexec.Result{Output: marked(req), Exit: 1, NetError: true}, nil
 		}, toolwire.ResultError, ""},
@@ -727,6 +738,11 @@ func TestWorkspaceExecJudging(t *testing.T) {
 			s := a.Steps[len(a.Steps)-1]
 			if a.Result != tt.result || s.AssertionID != tt.id || s.Assertion != (tt.id != "") {
 				t.Fatalf("attempt %+v, want %s with assertion %q", a, tt.result, tt.id)
+			}
+			// A marker naming no valid id says so, so the evaluator can
+			// rename it (gate D-B2).
+			if strings.Contains(tt.name, "past the bound") && s.Detail != markedWithoutID {
+				t.Errorf("detail %q, want %q", s.Detail, markedWithoutID)
 			}
 		})
 	}

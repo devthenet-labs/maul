@@ -4,6 +4,7 @@
 package templates
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -81,6 +82,24 @@ func TestEvaluatePromptAsksForChecksThatCanGoRed(t *testing.T) {
 	}
 	if strings.Contains(noBrowser, "a `count` of 0") {
 		t.Error("a preview with no browser is told to write a browser count")
+	}
+}
+
+// TestExecAssertionIDRuleIsStated (gate D-B2): both evaluate prompts state
+// the marker id's whole grammar, its bound checks.MaxExecAssertionIDLen
+// included, so an evaluator never names an assertion maul cannot count.
+func TestExecAssertionIDRuleIsStated(t *testing.T) {
+	want := fmt.Sprintf("the id naming that assertion (lowercase letters, digits and hyphens, starting with a "+
+		"letter, at most %d characters)", checks.MaxExecAssertionIDLen)
+	for name, p := range map[string]EvaluatePrompt{"slot": testEvaluatePrompt(),
+		"cli": testWorkspacePrompt(testCLIWorkspace), "library": testWorkspacePrompt(testLibraryWorkspace)} {
+		got, err := RenderEvaluatePrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(flat(got), want) {
+			t.Errorf("%s evaluate prompt lacks %q", name, want)
+		}
 	}
 }
 

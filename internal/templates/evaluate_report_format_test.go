@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/report"
 )
 
@@ -177,5 +178,14 @@ func TestCheckReviewPromptExecMarker(t *testing.T) {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the exec red prompt lacks %q:\n%s", want, got)
 		}
+	}
+	// Gate D-B2: an id up to checks.MaxExecAssertionIDLen is shown whole.
+	long := strings.Repeat("a", checks.MaxExecAssertionIDLen)
+	p.FailedAssertion = "marker " + long
+	if got, err = RenderCheckReviewPrompt(p); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "`{{marker}} "+long+":`") {
+		t.Errorf("the exec red prompt cuts a %d-character assertion id:\n%s", len(long), got)
 	}
 }

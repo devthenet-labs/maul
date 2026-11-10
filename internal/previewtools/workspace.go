@@ -635,7 +635,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 	if checks.ExecMarked(res.Output, marker) {
 		id, asserted := checks.ExecAssertion(res.Output, marker)
 		if !asserted {
-			return fail("the program printed its assertion marker", "")
+			return fail(markedWithoutID, "")
 		}
 		return fail("the program printed its assertion marker", "marker "+id)
 	}

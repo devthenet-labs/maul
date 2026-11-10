@@ -3,7 +3,10 @@
 
 package checks
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestWritesRunData (reviews, finding 3): a check saved to show a defect
 // must WRITE data under its own run token (an http POST, PUT or PATCH whose
@@ -56,6 +59,9 @@ func TestWritesRunData(t *testing.T) {
 // testMarker is the line start one attempt's {{marker}} stands for.
 var testMarker = ExecMarker("0123456789abcdef0123456789abcdef")
 
+// longID is an assertion id of exactly MaxExecAssertionIDLen characters.
+var longID = "a" + strings.Repeat("b-", (MaxExecAssertionIDLen-1)/2) + strings.Repeat("c", (MaxExecAssertionIDLen-1)%2)
+
 // TestExecAssertion (second review, 2B; PR #320 F1, F6): the exec marker
 // names the assertion that failed, "<marker> <id>: <what>", at the start of
 // a line, the marker being this attempt's own; the first line that carries
@@ -75,6 +81,11 @@ func TestExecAssertion(t *testing.T) {
 		{"MAUL-ASSERTION-FAILED: upset-stake: from the application\n", "", false},
 		{other + " upset-stake: another attempt's\n", "", false},
 		{"nothing\n", "", false},
+		// Gate D-B2: an id longer than 32 characters names its assertion,
+		// up to MaxExecAssertionIDLen; past it, none.
+		{testMarker + " first-json-is-usage-error-first-alone: x\n", "first-json-is-usage-error-first-alone", true},
+		{testMarker + " " + longID + ": x\n", longID, true},
+		{testMarker + " " + longID + "x: x\n", "", false},
 	} {
 		id, ok := ExecAssertion(tc.out, testMarker)
 		if id != tc.id || ok != tc.ok {

@@ -234,7 +234,8 @@ that is there with another value, or text missing from a body that is not an HTM
 such a check, a 500 included (it can be the check's own malformed request), and a JSON pointer or a header that
 resolves to nothing is not one either. An `exec` check's program must say so itself: where it finds the outcome does
 not hold it prints `{{marker}} <id>: <what it saw>` at the start of a line of its output (stdout and stderr), the
-id naming that assertion (lowercase letters, digits and hyphens). Write `{{marker}}` as it is in the program file:
+id naming that assertion (lowercase letters, digits and hyphens, starting with a letter, at most
+128 characters). Write `{{marker}}` as it is in the program file:
 maul replaces it on every run with a secret line start only that run's program is given, so nothing the application
 answers can pass for it. Print it for the final judgement of an assertion and nothing else, never inside a retry or
 poll, on a connection error, a status code or an exception. An exit code alone, a crash or a traceback never shows a defect. A
