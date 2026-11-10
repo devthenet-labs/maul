@@ -87,13 +87,7 @@ func judgeSlotPolicies(policies []networkingv1.NetworkPolicy, slotNS, releaseNS 
 		}
 		if np.Name == slotPolicyName {
 			found = true
-			selects := len(np.Spec.PodSelector.MatchLabels) > 0 || len(np.Spec.PodSelector.MatchExpressions) > 0
-			if selects && !(split && toolsSplit(np)) {
-				problems = append(problems, where+" selects only some of the slot's Pods (its podSelector is not {})")
-			}
-			if len(np.Spec.PolicyTypes) > 0 && !slices.Contains(np.Spec.PolicyTypes, networkingv1.PolicyTypeIngress) {
-				problems = append(problems, where+" does not govern ingress (its policyTypes lack Ingress)")
-			}
+			problems = append(problems, slotPolicyShape(np, where, split)...)
 		}
 		for _, rule := range np.Spec.Ingress {
 			if len(rule.From) == 0 {
@@ -130,6 +124,22 @@ func judgeSlotPolicies(policies []networkingv1.NetworkPolicy, slotNS, releaseNS 
 	}
 	slices.Sort(blocks)
 	return slices.Compact(blocks), nil
+}
+
+// slotPolicyShape is what is wrong with preview-isolation np (at where)
+// itself: it must govern ingress for every Pod of the slot, alone or, on an
+// evaluator install (split: the chart's preview-tools-isolation is there),
+// as the toolsSplit over every Pod but the tool pod.
+func slotPolicyShape(np *networkingv1.NetworkPolicy, where string, split bool) []string {
+	var problems []string
+	selects := len(np.Spec.PodSelector.MatchLabels) > 0 || len(np.Spec.PodSelector.MatchExpressions) > 0
+	if selects && (!split || !toolsSplit(np)) {
+		problems = append(problems, where+" selects only some of the slot's Pods (its podSelector is not {})")
+	}
+	if len(np.Spec.PolicyTypes) > 0 && !slices.Contains(np.Spec.PolicyTypes, networkingv1.PolicyTypeIngress) {
+		problems = append(problems, where+" does not govern ingress (its policyTypes lack Ingress)")
+	}
+	return problems
 }
 
 // previewRoleLabel and toolsRole select the agent evaluator's slot tool pod.

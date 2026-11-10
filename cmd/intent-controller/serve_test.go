@@ -437,8 +437,9 @@ func TestUsageMeasurementReachesMeter(t *testing.T) {
 
 // TestEvaluatorSettings: --intent-evaluator reaches the settings with its
 // models, hand-off, ceilings and bounds, the evaluate timeout and the
-// check reviewer's defaults, and turns verification on; it is refused without
-// previews, and each of its values outside its bounds stops startup. Off,
+// check reviewer's defaults (TestSettingsVerificationFlags: it turns
+// verification on); it is refused without previews, and each of its values
+// outside its bounds stops startup. Off,
 // nothing of it reaches the settings.
 func TestEvaluatorSettings(t *testing.T) {
 	load := func(t *testing.T, args ...string) (intent.Settings, error) {
@@ -461,7 +462,7 @@ func TestEvaluatorSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if !s.Evaluator || !s.Verification || s.EvaluateModel != "anthropic/claude-sonnet-5" ||
+	if !s.Evaluator || s.EvaluateModel != "anthropic/claude-sonnet-5" ||
 		s.CheckReviewModel != "anthropic/claude-haiku-5" || s.DefaultHandoff != v1alpha1.HandoffEarly ||
 		s.HandoffMax != 2*time.Hour || !s.EvaluateCodex || s.EvaluationCostMax != 4000000 || s.MaxToolCalls != 120 {
 		t.Errorf("settings = %+v", s)
