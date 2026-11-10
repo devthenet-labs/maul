@@ -4,6 +4,9 @@
 package preview
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,9 +14,11 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/previewtools"
@@ -135,6 +140,36 @@ func (s Settings) validateEvaluator() error {
 	return nil
 }
 
+// testerInfix separates a verification Job's name from its verification's
+// hash: slice 1's tester Jobs were named so, and the tool pod's Job is, so
+// the slot cleanup and the sweep cover both.
+const testerInfix = "-vt-"
+
+// verifyTimeoutMin and verifyTimeoutMax bound a verification's timeout, as
+// the PreviewVerification schema does.
+const (
+	verifyTimeoutMin = time.Minute
+	verifyTimeoutMax = time.Hour
+)
+
+// testerJobName names verification pv's Job in Preview p's slot:
+// preview-<p>-vt-<the first 10 hex of sha256(pv's UID)>. A new attempt is a
+// new PreviewVerification, so a new Job.
+func testerJobName(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) string {
+	sum := sha256.Sum256([]byte(pv.UID))
+	return "preview-" + p.Name + testerInfix + hex.EncodeToString(sum[:])[:10]
+}
+
+// deleteJob deletes a Job and, in the background, its Pods: a Job deleted
+// without a propagation policy orphans them.
+func deleteJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
+	err := c.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if kerrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
 // toolName names one of verification pv's tool objects in Preview p's slot
 // by its infix, as testerJobName names the Job.
 func toolName(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification, infix string) string {
@@ -158,9 +193,9 @@ func (s Settings) toolJob(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification,
 		return nil, fmt.Errorf("verification %s is not preview %s's", pv.Name, p.Name)
 	case len(pv.Spec.Outcomes) == 0 || pv.Spec.Tools == nil:
 		return nil, fmt.Errorf("verification %s evaluates no outcomes", pv.Name)
-	case timeout < testerTimeoutMin || timeout > testerTimeoutMax:
-		return nil, fmt.Errorf("verification timeout %s is outside [%s, %s]", timeout, testerTimeoutMin,
-			testerTimeoutMax)
+	case timeout < verifyTimeoutMin || timeout > verifyTimeoutMax:
+		return nil, fmt.Errorf("verification timeout %s is outside [%s, %s]", timeout, verifyTimeoutMin,
+			verifyTimeoutMax)
 	}
 	name := testerJobName(p, pv)
 	if len(toolName(p, pv, toolConfigInfix)) > maxObjectName {

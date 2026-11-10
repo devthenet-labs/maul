@@ -118,7 +118,7 @@ func (v *VerificationReconciler) forgetTools(uid types.UID) {
 
 // deadlineMax is the slot Job deadline bound in force.
 func (v *VerificationReconciler) deadlineMax() time.Duration {
-	return cmp.Or(v.DeadlineMax, testerTimeoutMax)
+	return cmp.Or(v.DeadlineMax, verifyTimeoutMax)
 }
 
 // approvedOutcomes holds an outcome verification to its Intent: exactly
@@ -710,18 +710,14 @@ func (v *VerificationReconciler) settle(ctx context.Context, pv *v1alpha1.Previe
 }
 
 // settleWith writes the attempt's final phase and reason, held to the size
-// cap, then deletes its tester Job, or its tool pod and what it owns.
+// cap, then deletes its Job and what its tool pod owns.
 func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	phase v1alpha1.PreviewVerificationPhase, reason v1alpha1.PreviewVerificationReason) error {
 	t := metav1.NewTime(v.now())
 	pv.Status.Phase = phase
 	pv.Status.Reason = reason
 	pv.Status.CompletedAt = &t
-	if len(pv.Spec.Outcomes) > 0 {
-		fitToolStatus(pv)
-	} else {
-		fitStatus(pv)
-	}
+	fitToolStatus(pv)
 	if err := v.Status().Update(ctx, pv); err != nil {
 		return err
 	}
@@ -733,9 +729,10 @@ func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.Pr
 	return v.teardown(ctx, pv)
 }
 
-// deleteJobs deletes, in the background, every tester Job rendered
-// for the verification in any slot: a settled attempt frees the slot's Job
-// quota for the next.
+// deleteJobs deletes, in the background, every Job rendered for the
+// verification in any slot (its tool pod's, or a tester Job an earlier
+// release rendered for a slice-1 one): a settled attempt frees the slot's
+// Job quota for the next.
 func (v *VerificationReconciler) deleteJobs(ctx context.Context, pv *v1alpha1.PreviewVerification) error {
 	for slot := range v.Settings.SlotCount {
 		var jobs batchv1.JobList
@@ -832,12 +829,12 @@ func (v *VerificationReconciler) serviceTargets(ctx context.Context, p *v1alpha1
 	return targets, nil
 }
 
-// errJobPods is a tester Job with more than one Pod, which a run-once
-// Job never has.
-var errJobPods = errors.New("tester Job has more than one Pod")
+// errJobPods is a verification's Job with more than one Pod, which a
+// run-once Job never has.
+var errJobPods = errors.New("verification Job has more than one Pod")
 
-// liveJob is the request's tester Job, nil when it is gone or not the
-// one rendered for it.
+// liveJob is the request's Job (its tool pod's), nil when it is gone or
+// not the one rendered for it.
 func (v *VerificationReconciler) liveJob(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	p *v1alpha1.Preview, slot int32) (*batchv1.Job, error) {
 	var job batchv1.Job
@@ -854,7 +851,7 @@ func (v *VerificationReconciler) liveJob(ctx context.Context, pv *v1alpha1.Previ
 	return &job, nil
 }
 
-// testerPod is the Pod the Job's controller created for it (by the Job's
+// jobPod is the Pod the Job's controller created for it (by the Job's
 // UID, as its controller reference), nil before there is one.
 func (v *VerificationReconciler) jobPod(ctx context.Context, job *batchv1.Job) (*corev1.Pod, error) {
 	var pods corev1.PodList
@@ -886,7 +883,7 @@ func jobFinished(job *batchv1.Job) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// startedAt is when the tester was rendered.
+// startedAt is when the tool pod was rendered.
 func startedAt(pv *v1alpha1.PreviewVerification) time.Time {
 	if pv.Status.StartedAt != nil {
 		return pv.Status.StartedAt.Time
@@ -932,13 +929,13 @@ func imageIDOf(pod *corev1.Pod, container string) string {
 	return ""
 }
 
-// markUnreachable marks each component the tester never reached, for its
+// markUnreachable marks each component the relay never reached, for its
 // whole readiness window, on its environment fact. A Ready component the
-// tester could not connect to for the whole window refused it: the window
+// relay could not connect to for the whole window refused it: the window
 // absorbs maul's slot policy being programmed, and past it only the
-// application can be the cause (internal/previewtester/readiness.go), so
-// the environment classifies it as the application's failure, however its
-// attempts failed: the tester dials a ClusterIP and resolves no name.
+// application can be the cause, so the environment classifies it as the
+// application's failure, however its attempts failed: the relay dials a
+// ClusterIP and resolves no name.
 func markUnreachable(facts []v1alpha1.PartFact, waits []httpstep.TargetWait) {
 	for _, w := range waits {
 		if w.Reached() {
@@ -998,25 +995,20 @@ func appFailureReason(facts []v1alpha1.PartFact, failing []string) v1alpha1.Prev
 	return v1alpha1.VerificationReasonComponentNotReady
 }
 
-// infraReason names maul's trouble: the tester not scheduled or its image
-// not pulled, else what was wrong with its output, else a part no node
-// would take.
+// infraReason names maul's trouble: the tool pod not scheduled or an
+// image of it not pulled, else what was wrong with its output, else a part
+// no node would take.
 func infraReason(facts []v1alpha1.PartFact,
 	outReason v1alpha1.PreviewVerificationReason) v1alpha1.PreviewVerificationReason {
 	for _, f := range facts {
-		tools := f.Role == v1alpha1.PreviewRoleToolPod
-		if f.Role != v1alpha1.PreviewRoleTester && !tools {
+		if f.Role != v1alpha1.PreviewRoleToolPod {
 			continue
 		}
 		switch {
-		case f.Unschedulable && tools:
-			return v1alpha1.VerificationReasonToolsUnscheduled
 		case f.Unschedulable:
-			return v1alpha1.VerificationReasonTesterUnscheduled
-		case imagePullReason(f.Waiting) && tools:
-			return v1alpha1.VerificationReasonToolsImagePull
+			return v1alpha1.VerificationReasonToolsUnscheduled
 		case imagePullReason(f.Waiting):
-			return v1alpha1.VerificationReasonTesterImagePull
+			return v1alpha1.VerificationReasonToolsImagePull
 		}
 	}
 	for _, f := range facts {
@@ -1035,8 +1027,8 @@ func infraReason(facts []v1alpha1.PartFact,
 	return v1alpha1.VerificationReasonTesterOutputInvalid
 }
 
-// jsonSize is v's length as json.Marshal writes it, as objectSize counts
-// it; -1 when it does not encode.
+// jsonSize is v's length as json.Marshal writes it, as the API machinery
+// sends and stores it; -1 when it does not encode.
 func jsonSize(v any) int {
 	b, err := json.Marshal(v)
 	if err != nil {

@@ -156,8 +156,8 @@ func TestVerificationSwitches(t *testing.T) {
 }
 
 // An evaluator-only install renders a verification-capable Preview's edge
-// policies and its tool Job exactly as one with a tester image does, and
-// refuses to render a tester Job.
+// policies and its tool Job exactly as one with a tester image does (no
+// tester Job renders under either: TestVerificationCriteriaNoLongerRun).
 func TestEvaluatorOnlyRendersAsWithTheTester(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
 	both, only := evalSettings(), evalSettings()
@@ -174,9 +174,6 @@ func TestEvaluatorOnlyRendersAsWithTheTester(t *testing.T) {
 	gotJob, err := only.toolJob(p, pv, 1, 30*time.Minute)
 	if err != nil || !equality.Semantic.DeepEqual(gotJob, wantJob) {
 		t.Fatalf("evaluator-only tool Job differs (%v)", err)
-	}
-	if _, err := only.testerJob(p, pv, 1, []byte("{}")); err == nil || !strings.Contains(err.Error(), "no tester image") {
-		t.Errorf("evaluator-only tester Job: %v, want refused", err)
 	}
 }
 

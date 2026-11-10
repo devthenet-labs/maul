@@ -4,19 +4,14 @@
 package preview
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"log/slog"
-	"maps"
-	"math"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,45 +23,36 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/httpstep"
-	"github.com/devthenet-labs/maul/internal/previewtester"
 )
 
 // The verification reconciler runs one PreviewVerification at a time in its
 // Preview's slot and writes what it observed, never a verdict. Before it
-// renders the tester it re-checks the request against everything it can see
-// (spec section 5.6): the Intent owns it, the Preview is the Intent's, Ready
-// at the requested generation and heads, its environment re-derives from the
-// Project, and the criteria are exactly the automatable subset, in plan
-// order, of the Intent's approved list under its digest. Any mismatch is
-// Stale and renders nothing. It then waits, bounded, for the rollout to
-// settle and the edge policies to be in place, renders the tester Job, and
-// once it has finished reads the tester's log (LogReader, bounded), checks it
-// against its summary and termination message and holds it to the spec's
-// criteria ids and run tokens, captures each part's container facts and log
-// tail, and settles the attempt: Observed, EnvFailed (the application's
-// environment failed, charged to the intent), Infra (maul's own trouble,
-// retried by intent-controller as a new attempt) or Stale. A settled
-// attempt's tester Job is deleted, so the slot's one Job of quota is free for
-// the next.
+// renders the slot tool pod (toolrun.go) it re-checks the request against
+// everything it can see (spec section 5.6): the Intent owns it, the Preview
+// is the Intent's, Ready at the requested generation and heads, its
+// environment re-derives from the Project, and the outcomes and saved checks
+// are exactly the Intent's approved ones. Any mismatch is Stale and renders
+// nothing. It then waits, bounded, for the rollout to settle and the edge
+// policies to be in place, renders the tool pod, and once it has finished
+// reads its ledger, captures each part's container facts and log tail, and
+// settles the attempt: Observed, EnvFailed (the application's environment
+// failed, charged to the intent), Infra (maul's own trouble, retried by
+// intent-controller as a new attempt) or Stale. A settled attempt's Job is
+// deleted, so the slot's one Job of quota is free for the next.
+//
+// A verification of slice 1's criteria (spec.criteria, no outcomes) is no
+// longer run (S4): it is answered Stale stale-criteria before anything else
+// is read, and a tester Job an earlier release rendered for it is deleted
+// with it.
 
 const (
 	// verifyGrace bounds each wait that is not the application's: the
-	// rollout settling and the policies landing before the tester starts,
-	// the tester's Pod being created, scheduled and its image pulled, its
-	// log becoming readable after it finished, and the Job's own deadline.
+	// rollout settling and the policies landing before the tool pod starts,
+	// its Pod being created, scheduled and its images pulled, its log
+	// becoming readable after it finished, and the Job's own deadline.
 	verifyGrace = 2 * time.Minute
-	// maxTesterLog is the most of the tester's log read. It is the grammar's
-	// own bound, so acceptance.Validate's plan-wide budget
-	// (acceptance.MaxWireBytes, below it) keeps every accepted plan's output
-	// within it whatever the application answers.
-	maxTesterLog = acceptance.MaxTesterLogBytes
-	// maxVerificationObject caps a PreviewVerification as written.
-	maxVerificationObject = 256 << 10
-	// acceptanceSlice is the slice whose criteria kinds the tester runs.
-	acceptanceSlice = 1
 )
 
 // VerificationReconciler runs PreviewVerifications in the release
@@ -77,9 +63,9 @@ const (
 type VerificationReconciler struct {
 	client.Client
 	Settings Settings
-	// Logs reads the tester's output and the components' log tails.
+	// Logs reads the tool pod's ledger and the components' log tails.
 	Logs LogReader
-	// DeadlineMax bounds the tester Job's deadline, the bound the slot Job
+	// DeadlineMax bounds the tool Job's deadline, the bound the slot Job
 	// admission policy holds it to (chart preview.verification.
 	// deadlineMaxSeconds); a request asking more is clamped. Zero is the
 	// schema's own bound.
@@ -112,13 +98,10 @@ func (v *VerificationReconciler) workload() *Reconciler {
 
 // verifySubject is what a request was re-checked against.
 type verifySubject struct {
-	intent   *v1alpha1.Intent
-	preview  *v1alpha1.Preview
-	project  *v1alpha1.Project
-	criteria []acceptance.Criterion
-	slot     int32
-	// outcomes marks an outcome verification: the slot tool pod's.
-	outcomes bool
+	intent  *v1alpha1.Intent
+	preview *v1alpha1.Preview
+	project *v1alpha1.Project
+	slot    int32
 }
 
 func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -130,12 +113,17 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil // the agents host's: no slot, no Preview to judge it against
 	}
 	if !pv.DeletionTimestamp.IsZero() {
-		// Its tester or tool Job and its evaluator ingress policy, if any,
+		// Its Job and its evaluator ingress policy, if any,
 		// are the sweep's: its verification is gone.
 		return ctrl.Result{}, nil
 	}
 	if settled(pv.Status.Phase) {
 		return ctrl.Result{}, v.teardown(ctx, &pv)
+	}
+	if sliceOne(&pv) {
+		v.logRefusal(ctx, &pv, "slice-1 criteria verification not run: criteria no longer run, "+
+			"see docs/intents/evaluator.md#migrating-from-slice-1", nil)
+		return ctrl.Result{}, v.settle(ctx, &pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria)
 	}
 	s, reason, err := v.check(ctx, &pv)
 	switch {
@@ -145,14 +133,16 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, v.capture(ctx, &pv, s.preview, s.slot)
 	case reason != "":
 		return ctrl.Result{}, v.settle(ctx, &pv, v1alpha1.VerificationStale, reason)
-	case pv.Status.Phase == v1alpha1.VerificationRunning && s.outcomes:
-		return v.observeTools(ctx, &pv, s)
 	case pv.Status.Phase == v1alpha1.VerificationRunning:
-		return v.observe(ctx, &pv, s)
-	case s.outcomes:
-		return v.startTools(ctx, &pv, s)
+		return v.observeTools(ctx, &pv, s)
 	}
-	return v.start(ctx, &pv, s)
+	return v.startTools(ctx, &pv, s)
+}
+
+// sliceOne reports a verification of slice 1's criteria: one with no
+// outcomes (the schema admits exactly one of criteria and outcomes).
+func sliceOne(pv *v1alpha1.PreviewVerification) bool {
+	return len(pv.Spec.Outcomes) == 0
 }
 
 // check re-checks the request against its Intent, Preview and Project
@@ -184,18 +174,9 @@ func (v *VerificationReconciler) check(ctx context.Context,
 	if reason != "" {
 		return s, reason, nil
 	}
-	if len(pv.Spec.Outcomes) > 0 {
-		if !approvedOutcomes(pv, s.intent) {
-			return s, v1alpha1.VerificationReasonStaleCriteria, nil
-		}
-		s.outcomes = true
-		return s, "", nil
-	}
-	criteria, ok := approvedSubset(pv, s.intent)
-	if !ok {
+	if !approvedOutcomes(pv, s.intent) {
 		return s, v1alpha1.VerificationReasonStaleCriteria, nil
 	}
-	s.criteria = criteria
 	return s, "", nil
 }
 
@@ -261,372 +242,6 @@ func headsMatch(heads []v1alpha1.VerificationHead, p *v1alpha1.Preview, project 
 	return true
 }
 
-// approvedSubset decodes the request's criteria and holds them to the
-// Intent's approved list: the list digests to its recorded digest and to the
-// request's, and the request carries exactly its automatable criteria, in
-// plan order, each valid. API objects are compared by their canonical JSON
-// (acceptance.Digest), never byte for byte.
-func approvedSubset(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) ([]acceptance.Criterion, bool) {
-	a := in.Status.Acceptance
-	if a == nil {
-		return nil, false
-	}
-	approved, err := crdconv.CriteriaFromCRD(a.Criteria)
-	if err != nil {
-		return nil, false
-	}
-	requested, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
-	if err != nil || len(requested) == 0 || acceptance.Validate(requested) != nil {
-		return nil, false
-	}
-	digest := acceptance.Digest(approved)
-	auto := acceptance.Automatable(approved, acceptanceSlice)
-	if digest != a.Digest || digest != pv.Spec.CriteriaDigest || len(auto) != len(requested) ||
-		acceptance.Digest(auto) != acceptance.Digest(requested) {
-		return nil, false
-	}
-	return acceptance.Normalize(requested), true
-}
-
-// start renders the tester once the rollout has settled and the edge
-// policies are in place (spec section 5.6 pre-check 3), each wait bounded
-// by verifyGrace from the request's creation.
-func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	s *verifySubject) (ctrl.Result, error) {
-	if !v.Settings.testing() {
-		// An evaluator-only install runs no tester: a criteria request is
-		// not this install's, so it is answered stale and nothing renders.
-		v.logRefusal(ctx, pv, "criteria verification not run: no tester image", nil)
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria)
-	}
-	ready, err := v.rolloutSettled(ctx, s.preview, s.slot)
-	if err == nil && ready {
-		ready, err = v.workload().policiesInPlace(ctx, s.preview, s.slot)
-	}
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if !ready {
-		if v.now().Sub(pv.CreationTimestamp.Time) >= verifyGrace {
-			return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
-				v1alpha1.VerificationReasonRolloutUnsettled)
-		}
-		return v.wait(), nil
-	}
-	job, reason, err := v.renderTester(ctx, pv, s)
-	switch {
-	case reason == v1alpha1.VerificationReasonServiceNoClusterIP:
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra, reason)
-	case reason != "":
-		v.logRefusal(ctx, pv, "tester not rendered", err)
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, reason)
-	case err != nil:
-		return ctrl.Result{}, err
-	}
-	if err := v.Create(ctx, job); err != nil && !kerrors.IsAlreadyExists(err) {
-		if quotaExceeded(err) {
-			return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
-				v1alpha1.VerificationReasonQuotaRefused)
-		}
-		if admissionRefused(err) || kerrors.IsInvalid(err) {
-			// The vocabulary has no reason for a refused Job; the tester was
-			// never scheduled.
-			v.logRefusal(ctx, pv, "tester Job refused", err)
-			return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
-				v1alpha1.VerificationReasonTesterUnscheduled)
-		}
-		return ctrl.Result{}, err
-	}
-	t := metav1.NewTime(v.now())
-	pv.Status.Phase = v1alpha1.VerificationRunning
-	pv.Status.Reason = ""
-	pv.Status.StartedAt = &t
-	return v.wait(), v.Status().Update(ctx, pv)
-}
-
-// renderedSpec is the spec a tester Job was rendered with, read back from
-// its container's environment.
-func renderedSpec(job *batchv1.Job) (previewtester.Spec, error) {
-	for _, c := range job.Spec.Template.Spec.Containers {
-		if c.Name != testerContainer {
-			continue
-		}
-		for _, e := range c.Env {
-			if e.Name == previewtester.EnvSpec {
-				return previewtester.ParseSpec([]byte(e.Value))
-			}
-		}
-	}
-	return previewtester.Spec{}, errors.New("tester Job carries no spec")
-}
-
-// renderTester renders the request's tester Job: the spec the tester reads
-// (its criteria, run tokens and, per component, its Service's ClusterIP on
-// the Service port, serviceTargets) and its budget below the Job's
-// deadline, under a deadline clamped to DeadlineMax. A component Service
-// with no ClusterIP is the reason service-no-cluster-ip, no Job.
-func (v *VerificationReconciler) renderTester(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	s *verifySubject) (*batchv1.Job, v1alpha1.PreviewVerificationReason, error) {
-	targets, err := v.serviceTargets(ctx, s.preview, s.slot)
-	if errors.Is(err, errNoClusterIP) {
-		v.logRefusal(ctx, pv, "tester not rendered", err)
-		return nil, v1alpha1.VerificationReasonServiceNoClusterIP, nil
-	}
-	if err != nil {
-		return nil, "", err
-	}
-	clamped := pv.DeepCopy()
-	if limit := cmp.Or(v.DeadlineMax, testerTimeoutMax); clamped.Spec.Timeout.Duration > limit {
-		clamped.Spec.Timeout.Duration = limit
-	}
-	input, err := previewtester.Spec{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run,
-		BudgetSeconds: previewtester.BudgetFor(clamped.Spec.Timeout.Duration),
-		Criteria:      s.criteria, Targets: targets}.Encode()
-	if err != nil {
-		return nil, v1alpha1.VerificationReasonStaleCriteria, err
-	}
-	job, err := v.Settings.testerJob(s.preview, clamped, s.slot, input)
-	if err != nil {
-		return nil, v1alpha1.VerificationReasonStaleCriteria, err
-	}
-	return job, "", nil
-}
-
-// observe follows a running tester: it waits, bounded, for the Job to
-// finish, then reads and settles what it observed.
-func (v *VerificationReconciler) observe(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	s *verifySubject) (ctrl.Result, error) {
-	job, err := v.liveJob(ctx, pv, s.preview, s.slot)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if job == nil {
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
-			v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	pod, err := v.jobPod(ctx, job)
-	if errors.Is(err, errJobPods) {
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
-			v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	finishedAt, finished := jobFinished(job)
-	if !finished {
-		if reason := v.testerStuck(pv, pod); reason != "" {
-			return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra, reason)
-		}
-		return v.wait(), nil
-	}
-	if pod == nil {
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
-			v1alpha1.VerificationReasonDeadlineNoSummary)
-	}
-	log, err := v.Logs.ReadLog(ctx, pod.Namespace, pod.Name, testerContainer,
-		LogOptions{LimitBytes: maxTesterLog + 1})
-	if err != nil {
-		if !kerrors.IsNotFound(err) && v.now().Sub(finishedAt) < verifyGrace {
-			v.logRefusal(ctx, pv, "tester log not read yet", err)
-			return v.wait(), nil
-		}
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
-			v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	return ctrl.Result{}, v.record(ctx, pv, s, job, pod, log)
-}
-
-// record settles a finished tester's attempt from its output and the
-// slot's environment. The targets its readiness waits are held to are the
-// ones its Job was rendered with, read back from the Job; a rendered spec
-// that no longer matches the Preview means the Preview changed under the
-// attempt (stale-preview).
-func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	s *verifySubject, job *batchv1.Job, pod *corev1.Pod, log []byte) error {
-	spec, err := renderedSpec(job)
-	if errors.Is(err, previewtester.ErrNameTarget) {
-		// A tester Job an older preview-controller rendered, its targets
-		// Service names: run the attempt again under this one.
-		v.logRefusal(ctx, pv, "tester Job rendered in the format before ClusterIP targets", err)
-		return v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview)
-	}
-	if err != nil {
-		v.logRefusal(ctx, pv, "tester Job spec unreadable", err)
-		return v.settle(ctx, pv, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	live, err := v.serviceTargets(ctx, s.preview, s.slot)
-	if err != nil && !errors.Is(err, errNoClusterIP) {
-		return err
-	}
-	if err != nil || !maps.Equal(spec.Targets, live) {
-		return v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview)
-	}
-	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
-	ids := make([]string, len(s.criteria))
-	for i, c := range s.criteria {
-		ids[i] = c.ID
-	}
-	targets := slices.Sorted(maps.Keys(spec.Targets))
-	out := parseTesterOutput(log, terminationMessageOf(pod, testerContainer), rt, ids, targets)
-	facts, err := v.environment(ctx, s.preview, s.slot, pod, pv)
-	if err != nil {
-		return err
-	}
-	held := out.reason == ""
-	if held {
-		markUnreachable(facts, out.sum.Waits)
-	}
-	phase, reason := route(facts, out.reason)
-	v.logOutcome(ctx, pv, out, phase, reason)
-	if out.reason == v1alpha1.VerificationReasonTesterVersionMismatch {
-		pv.Status.TesterWireVersion = int32(min(max(out.version, 0), math.MaxInt32))
-	}
-	if held {
-		if pv.Status.Readiness, err = crdconv.WaitsToCRD(out.sum.Waits); err != nil {
-			phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid
-		}
-	}
-	obs, sum, outReason := out.obs, out.sum, out.reason
-	if outReason == "" {
-		converted, err := crdconv.ObservationsToCRD(obs)
-		if err != nil {
-			phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid
-		}
-		pv.Status.Observations = converted
-		pv.Status.SummarySHA256 = sum.SHA256
-	}
-	pv.Status.Environment = facts
-	pv.Status.TesterImageID = imageIDOf(pod, testerContainer)
-	return v.settleWith(ctx, pv, phase, reason)
-}
-
-// logOutcome logs what an operator needs from a tester's output that the
-// status's fixed vocabulary cannot carry: the targets never reached, and
-// both versions of a wire version mismatch.
-func (v *VerificationReconciler) logOutcome(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	out parsedOutput, phase v1alpha1.PreviewVerificationPhase, reason v1alpha1.PreviewVerificationReason) {
-	if v.Log == nil {
-		return
-	}
-	switch {
-	case out.reason == v1alpha1.VerificationReasonTesterVersionMismatch:
-		v.Log.LogAttrs(ctx, slog.LevelWarn, "tester wire version mismatch: the tester image and preview-controller disagree",
-			slog.String("verification", pv.Name), slog.Int("testerVersion", out.version),
-			slog.Int("controllerVersion", acceptance.WireVersion))
-	case out.sum.Unreached():
-		v.Log.LogAttrs(ctx, slog.LevelWarn, "unreachable from the tester for its whole readiness window while Ready",
-			slog.String("verification", pv.Name), slog.Any("unreachable", out.sum.Unreachable),
-			slog.String("phase", string(phase)), slog.String("reason", string(reason)))
-	}
-}
-
-// testerStuck is why a running tester will not finish, past its grace: no
-// Pod created (the slot quota), none scheduled, its image not pulled, or the
-// Job's deadline long past. "" while it may yet.
-func (v *VerificationReconciler) testerStuck(pv *v1alpha1.PreviewVerification,
-	pod *corev1.Pod) v1alpha1.PreviewVerificationReason {
-	since := v.now().Sub(startedAt(pv))
-	if since < verifyGrace {
-		return ""
-	}
-	switch {
-	case pod == nil:
-		return v1alpha1.VerificationReasonQuotaRefused
-	case unschedulable(pod):
-		return v1alpha1.VerificationReasonTesterUnscheduled
-	case imagePullWaiting(pod):
-		return v1alpha1.VerificationReasonTesterImagePull
-	case since >= pv.Spec.Timeout.Duration+verifyGrace:
-		return v1alpha1.VerificationReasonDeadlineNoSummary
-	}
-	return ""
-}
-
-func imagePullWaiting(pod *corev1.Pod) bool {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.State.Waiting != nil && imagePullReason(s.State.Waiting.Reason) {
-			return true
-		}
-	}
-	return false
-}
-
-// parsedOutput is what parseTesterOutput read: the observations and the
-// summary, the reason the output does not hold ("" when it does), and the
-// wire version the tester wrote when that is the reason.
-type parsedOutput struct {
-	obs     []acceptance.CriterionObservation
-	sum     acceptance.Summary
-	reason  v1alpha1.PreviewVerificationReason
-	version int
-}
-
-// parseTesterOutput reads the tester's MAUL-VERIFY log: of the controller's
-// wire version (tester-version-mismatch otherwise), its lines verified
-// against their summary and the termination message, then held to the
-// request: a readiness wait for exactly the targets it was given (its
-// rendered spec's, in name order), and, when every one was reached, exactly
-// one observation per requested criterion, in the request's order, each
-// with at least one try, each try under the run token it was given (id
-// ownership). Output that ended at its readiness wait, a target never
-// reached, holds with no observation: the environment says whose failure
-// that is (markUnreachable).
-func parseTesterOutput(log []byte, msg string, rt acceptance.RunTokens, ids []string,
-	targets []string) parsedOutput {
-	bad := func(sum acceptance.Summary, r v1alpha1.PreviewVerificationReason) parsedOutput {
-		return parsedOutput{sum: sum, reason: r}
-	}
-	if len(log) > maxTesterLog {
-		return bad(acceptance.Summary{}, v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	obs, sum, err := acceptance.ParseWire(log)
-	var ve *acceptance.WireVersionError
-	switch {
-	case errors.As(err, &ve):
-		return parsedOutput{reason: v1alpha1.VerificationReasonTesterVersionMismatch, version: ve.Got}
-	case errors.Is(err, acceptance.ErrNoSummary):
-		return bad(sum, v1alpha1.VerificationReasonDeadlineNoSummary)
-	case errors.Is(err, acceptance.ErrSummaryMismatch):
-		return bad(sum, v1alpha1.VerificationReasonSummaryMismatch)
-	case err != nil:
-		return bad(sum, v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	if term, err := acceptance.ParseSummary(msg); err != nil || !term.Equal(sum) {
-		return bad(sum, v1alpha1.VerificationReasonSummaryMismatch)
-	}
-	if !slices.EqualFunc(sum.Waits, targets, func(w httpstep.TargetWait, t string) bool { return w.Target == t }) {
-		return bad(sum, v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	if sum.Unreached() {
-		// The parser holds an unreachable summary to no observation.
-		return parsedOutput{sum: sum}
-	}
-	if !ownsObservations(obs, rt, ids) {
-		return bad(sum, v1alpha1.VerificationReasonTesterOutputInvalid)
-	}
-	return parsedOutput{obs: obs, sum: sum}
-}
-
-// ownsObservations reports whether obs are exactly one observation per
-// requested criterion, in order, each with at least one try, each try under
-// the run token it was given.
-func ownsObservations(obs []acceptance.CriterionObservation, rt acceptance.RunTokens, ids []string) bool {
-	if len(obs) != len(ids) {
-		return false
-	}
-	for i, o := range obs {
-		if o.ID != ids[i] || len(o.Tries) == 0 {
-			return false
-		}
-		for t, try := range o.Tries {
-			if try.Run != rt.Token(t+1) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 // capture settles a running verification whose Preview is being released
 // (it failed, expired or retries) from what the slot shows now: a failing
 // part of the change is the intent's, with its own reason; else the
@@ -637,13 +252,13 @@ func (v *VerificationReconciler) capture(ctx context.Context, pv *v1alpha1.Previ
 	if err != nil {
 		return err
 	}
-	var tester *corev1.Pod
+	var pod *corev1.Pod
 	if job != nil {
-		if tester, err = v.jobPod(ctx, job); err != nil && !errors.Is(err, errJobPods) {
+		if pod, err = v.jobPod(ctx, job); err != nil && !errors.Is(err, errJobPods) {
 			return err
 		}
 	}
-	facts, err := v.environment(ctx, p, slot, tester, pv)
+	facts, err := v.environment(ctx, p, slot, pod, pv)
 	if err != nil {
 		return err
 	}
@@ -674,148 +289,14 @@ func (v *VerificationReconciler) BeforeRelease(ctx context.Context, p *v1alpha1.
 	for i := range list.Items {
 		pv := &list.Items[i]
 		if pv.Spec.IsAgents() || pv.Spec.PreviewRef.UID != p.UID || pv.Status.Phase != v1alpha1.VerificationRunning ||
-			!pv.DeletionTimestamp.IsZero() {
-			continue
+			!pv.DeletionTimestamp.IsZero() || sliceOne(pv) {
+			continue // a slice-1 verification is its own pass's to settle stale
 		}
 		if err := v.capture(ctx, pv, p, *p.Status.Slot); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// fitStatus holds the object to maxVerificationObject, so an application
-// cannot turn its own failure into maul's by answering with large values.
-// In order, while it is over: body prefixes go, from the last step back (a
-// step whose body prefix was dropped still records its body's length), then
-// log tails, then the pointer, header and capture values whose judgement
-// cannot change (shrinkValues), then whole criteria, largest first, each
-// replaced by its TooLarge marker (dropLargest), which acceptance.Judge
-// fails as observation-too-large: the application's failure, never a pass,
-// and every other criterion keeps its verdict. Markers are a few dozen bytes
-// and log tails are gone by then, so no observation content can keep the
-// object over; one that somehow still does keeps no observations and is
-// maul's trouble.
-func fitStatus(pv *v1alpha1.PreviewVerification) {
-	excess := objectSize(pv) - maxVerificationObject
-	if excess <= 0 {
-		return
-	}
-	obs := pv.Status.Observations
-	for i := len(obs) - 1; i >= 0 && excess > 0; i-- {
-		for j := len(obs[i].Tries) - 1; j >= 0 && excess > 0; j-- {
-			steps := obs[i].Tries[j].Steps
-			for k := len(steps) - 1; k >= 0 && excess > 0; k-- {
-				excess -= len(steps[k].BodyPrefix)
-				steps[k].BodyPrefix = ""
-			}
-		}
-	}
-	for i := len(pv.Status.Environment) - 1; i >= 0 && objectSize(pv) > maxVerificationObject; i-- {
-		pv.Status.Environment[i].LogTail = ""
-	}
-	if excess := objectSize(pv) - maxVerificationObject; excess > 0 {
-		shrinkValues(pv, excess)
-	}
-	dropLargest(pv)
-	if objectSize(pv) > maxVerificationObject {
-		pv.Status.Observations = nil
-		pv.Status.SummarySHA256 = ""
-		pv.Status.Phase = v1alpha1.VerificationInfra
-		pv.Status.Reason = v1alpha1.VerificationReasonTesterOutputInvalid
-	}
-}
-
-// shrinkValues saves up to excess bytes by replacing recorded pointer,
-// header and capture values with httpstep.TooLarge, from the last
-// criterion, try and step back, keeping each replacement only when the
-// criterion's judgement (acceptance.Judge, as intent-controller judges it)
-// stays exactly what it was: a $present value, one that did not match
-// anyway, or a capture no later step's request or expectation is built
-// from. A value the verdict depends on is never touched, and an observation
-// whose criterion is not in the request is left as it is.
-func shrinkValues(pv *v1alpha1.PreviewVerification, excess int) {
-	cs, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
-	if err != nil {
-		return
-	}
-	byID := make(map[string]acceptance.Criterion, len(cs))
-	for _, c := range cs {
-		byID[c.ID] = c
-	}
-	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
-	obs := pv.Status.Observations
-	for i := len(obs) - 1; i >= 0 && excess > 0; i-- {
-		if c, ok := byID[obs[i].ID]; ok {
-			excess -= shrinkObservation(c, &obs[i], rt, excess)
-		}
-	}
-}
-
-// shrinkObservation replaces o's values with TooLarge where c's verdict
-// over o does not change, until excess bytes are saved; it returns the
-// bytes saved.
-func shrinkObservation(c acceptance.Criterion, o *v1alpha1.CriterionObservation, rt acceptance.RunTokens,
-	excess int) int {
-	judged, err := crdconv.ObservationFromCRD(*o)
-	if err != nil || len(judged.Tries) != len(o.Tries) {
-		return 0
-	}
-	want := acceptance.Judge(c, judged, rt)
-	saved := 0
-	for j := len(o.Tries) - 1; j >= 0; j-- {
-		for k := len(o.Tries[j].Steps) - 1; k >= 0; k-- {
-			step, mirror := &o.Tries[j].Steps[k], &judged.Tries[j].Steps[k]
-			for _, m := range [][2]map[string]string{
-				{step.Pointers, mirror.Pointers}, {step.Headers, mirror.Headers}, {step.Captures, mirror.Captures},
-			} {
-				for _, key := range slices.Sorted(maps.Keys(m[0])) {
-					gain := jsonSize(m[0][key]) - jsonSize(httpstep.TooLarge)
-					if gain <= 0 {
-						continue
-					}
-					m[1][key] = httpstep.TooLarge
-					if !reflect.DeepEqual(acceptance.Judge(c, judged, rt), want) {
-						m[1][key] = m[0][key]
-						continue
-					}
-					m[0][key] = httpstep.TooLarge
-					if saved += gain; saved >= excess {
-						return saved
-					}
-				}
-			}
-		}
-	}
-	return saved
-}
-
-// dropLargest replaces the largest criterion observation with its
-// TooLarge marker, one at a time, until the object fits or every
-// observation is a marker.
-func dropLargest(pv *v1alpha1.PreviewVerification) {
-	obs := pv.Status.Observations
-	for objectSize(pv) > maxVerificationObject {
-		worst, worstSize := -1, 0
-		for i := range obs {
-			if n := jsonSize(obs[i]); !obs[i].TooLarge && n > worstSize {
-				worst, worstSize = i, n
-			}
-		}
-		if worst < 0 {
-			return
-		}
-		obs[worst] = v1alpha1.CriterionObservation{ID: obs[worst].ID, TooLarge: true}
-	}
-}
-
-// objectSize is the object's size as the API machinery sends and stores
-// it: encoding/json, HTML-escaped, as json.Marshal writes it.
-func objectSize(pv *v1alpha1.PreviewVerification) int {
-	if n := jsonSize(pv); n >= 0 {
-		return n
-	}
-	return maxVerificationObject + 1
 }
 
 func (v *VerificationReconciler) logRefusal(ctx context.Context, pv *v1alpha1.PreviewVerification, msg string,

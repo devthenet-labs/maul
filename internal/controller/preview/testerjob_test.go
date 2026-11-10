@@ -7,7 +7,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,69 +23,9 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
-func TestTesterJob(t *testing.T) {
-	_, p := verifyPreview(t, time.Now())
-	s := verifySettings()
-	pv := testVerification(p)
-	input := []byte(`{"criteria":[]}`)
-	job, err := s.testerJob(p, pv, 1, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, check := range slices.Concat(testerJobChecks(p, pv, job), testerPodChecks(s, p, pv, job, input)) {
-		if !check.ok {
-			t.Errorf("tester Job %s wrong: %+v", check.name, job)
-		}
-	}
-}
-
 type namedCheck struct {
 	name string
 	ok   bool
-}
-
-// testerJobChecks: the Job's name, labels and run-once shape.
-func testerJobChecks(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification, job *batchv1.Job) []namedCheck {
-	spec := job.Spec
-	return []namedCheck{
-		{"name", job.Name == testerJobName(p, pv) && strings.HasPrefix(job.Name, "preview-shop-1-vt-") &&
-			len(job.Name) == len("preview-shop-1-vt-")+10},
-		{"namespace", job.Namespace == "maul-preview-1"},
-		{"run once", spec.BackoffLimit != nil && *spec.BackoffLimit == 0 && *spec.Parallelism == 1 &&
-			*spec.Completions == 1},
-		{"never self-deleting or retried", spec.TTLSecondsAfterFinished == nil && spec.PodFailurePolicy == nil &&
-			spec.ManualSelector == nil && spec.Suspend == nil},
-		{"job deadline", spec.ActiveDeadlineSeconds != nil && *spec.ActiveDeadlineSeconds == 300},
-		{"job labels", job.Labels[labelVerificationUID] == string(pv.UID) && ownedBy(job, p)},
-	}
-}
-
-// testerPodChecks: the Pod's placement, posture, input and labels.
-func testerPodChecks(s Settings, p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification, job *batchv1.Job,
-	input []byte) []namedCheck {
-	pod := job.Spec.Template.Spec
-	c := pod.Containers[0]
-	l := job.Spec.Template.Labels
-	sc := pod.SecurityContext
-	return []namedCheck{
-		{"pod deadline", pod.ActiveDeadlineSeconds != nil && *pod.ActiveDeadlineSeconds == 300},
-		{"restart never", pod.RestartPolicy == corev1.RestartPolicyNever},
-		{"no token", pod.ServiceAccountName == "default" && pod.AutomountServiceAccountToken != nil &&
-			!*pod.AutomountServiceAccountToken},
-		{"one container, no volumes", len(pod.Containers) == 1 && len(pod.InitContainers) == 0 && len(pod.Volumes) == 0},
-		{"placement", pod.NodeSelector["karpenter.sh/nodepool"] == s.NodePool && len(pod.Tolerations) == 1},
-		{"non-root", sc != nil && sc.RunAsNonRoot != nil && *sc.RunAsNonRoot},
-		{"image", c.Image == testTesterImage},
-		{"input literal", len(c.Env) == 1 && c.Env[0].Name == "MAUL_VERIFY_SPEC" && c.Env[0].Value == string(input) &&
-			c.Env[0].ValueFrom == nil},
-		{"no ports", len(c.Ports) == 0},
-		{"restricted container", c.SecurityContext != nil && !*c.SecurityContext.AllowPrivilegeEscalation &&
-			*c.SecurityContext.ReadOnlyRootFilesystem},
-		{"termination message", c.TerminationMessagePolicy == corev1.TerminationMessageReadFile},
-		{"pod labels", l[labelPreviewUID] == string(p.UID) && l[labelPart] == v1alpha1.PreviewPartTester &&
-			l[labelRole] == string(v1alpha1.PreviewRoleTester) && l[labelVerificationUID] == string(pv.UID)},
-		{"no component label", l[labelComponent] == ""},
-	}
 }
 
 // The tester image must be pinned by digest and lie outside the preview
@@ -114,46 +53,9 @@ func TestTesterImageSettings(t *testing.T) {
 	}
 }
 
-// The tester Job renders only for a verification of this Preview, when
-// verification is on and the Preview verification-capable, within bounds.
-func TestTesterJobRefusals(t *testing.T) {
-	_, p := verifyPreview(t, time.Now())
-	pv := testVerification(p)
-	for _, tc := range []struct {
-		name   string
-		mutate func(*Settings, *v1alpha1.Preview, *v1alpha1.PreviewVerification)
-		inputN int
-	}{
-		{"verification off", func(s *Settings, _ *v1alpha1.Preview, _ *v1alpha1.PreviewVerification) {
-			s.TesterImage = ""
-		}, 2},
-		{"no environment", func(_ *Settings, p *v1alpha1.Preview, _ *v1alpha1.PreviewVerification) {
-			p.Spec.Environment = nil
-		}, 2},
-		{"input too large", func(*Settings, *v1alpha1.Preview, *v1alpha1.PreviewVerification) {}, maxTesterInput + 1},
-		{"another Preview's verification", func(_ *Settings, _ *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) {
-			pv.Spec.PreviewRef.UID = "someone-else"
-		}, 2},
-		{"timeout under a minute", func(_ *Settings, _ *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) {
-			pv.Spec.Timeout.Duration = 30 * time.Second
-		}, 2},
-		{"timeout over an hour", func(_ *Settings, _ *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) {
-			pv.Spec.Timeout.Duration = 2 * time.Hour
-		}, 2},
-		{"no verification UID", func(_ *Settings, _ *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) {
-			pv.UID = ""
-		}, 2},
-	} {
-		s, cp, cpv := verifySettings(), p.DeepCopy(), pv.DeepCopy()
-		tc.mutate(&s, cp, cpv)
-		if _, err := s.testerJob(cp, cpv, 0, []byte(strings.Repeat("x", tc.inputN))); err == nil {
-			t.Errorf("%s: rendered", tc.name)
-		}
-	}
-}
-
 // TestGoldenVerificationPreview pins every object a verification-capable
-// two-component Preview renders into its slot, the tester Job included.
+// two-component Preview renders into its slot (its tool pod's are pinned by
+// TestGoldenToolPod).
 func TestGoldenVerificationPreview(t *testing.T) {
 	_, p := verifyPreview(t, time.Date(2026, 10, 3, 7, 0, 0, 0, time.UTC))
 	p.Spec.ResetGeneration = 2
@@ -168,11 +70,6 @@ func TestGoldenVerificationPreview(t *testing.T) {
 	for _, np := range s.networkPolicies(p, 0) {
 		objects = append(objects, np)
 	}
-	job, err := s.testerJob(p, testVerification(p), 0, []byte(`{"v":1}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	objects = append(objects, job)
 	docs := make([]string, 0, len(objects))
 	for _, obj := range objects {
 		docs = append(docs, renderYAML(t, obj))
@@ -193,6 +90,29 @@ func TestGoldenVerificationPreview(t *testing.T) {
 	}
 }
 
+// legacyTesterJob is a tester Job of verification pv in Preview p's slot 0 as
+// preview-controller rendered one for slice 1's criteria before S4 (its
+// name, labels and run-once shape), which it no longer renders: one may be
+// left in a slot by an earlier release, for the settle, the sweep and the
+// slot cleanup to remove.
+func legacyTesterJob(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) *batchv1.Job {
+	meta := labelsFor(p)
+	meta[labelVerificationUID] = string(pv.UID)
+	pod := labelsFor(p)
+	pod[labelVerificationUID] = string(pv.UID)
+	pod[labelPart] = v1alpha1.PreviewPartTester
+	pod[labelRole] = string(v1alpha1.PreviewRoleTester)
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: testerJobName(p, pv), Namespace: testSettings().slotName(0),
+			Labels: meta},
+		Spec: batchv1.JobSpec{BackoffLimit: ptr(int32(0)), Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Labels: pod},
+			Spec: corev1.PodSpec{RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr(false),
+				Containers: []corev1.Container{{Name: "tester", Image: testTesterImage}}},
+		}},
+	}
+}
+
 // testerPod is the pod the Job controller would start for job.
 func testerPod(job *batchv1.Job, name string) *corev1.Pod {
 	l := map[string]string{"batch.kubernetes.io/job-name": job.Name}
@@ -206,8 +126,9 @@ func testerPod(job *batchv1.Job, name string) *corev1.Pod {
 }
 
 // Cleanup deletes the Preview's Jobs (in the background, so no Pod is left
-// behind by an orphaning delete) and policies, and holds the slot until the
-// tester's Pod is gone too.
+// behind by an orphaning delete), a tester Job an earlier release left
+// included, and policies, and holds the slot until the tester's Pod is gone
+// too.
 func TestCleanupDeletesJobsAndPolicies(t *testing.T) {
 	at := time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC)
 	in, p := verifyPreview(t, at)
@@ -230,10 +151,7 @@ func TestCleanupDeletesJobsAndPolicies(t *testing.T) {
 	p = e.untilSlot(p.Name)
 	e.step(p.Name)
 	ctx := context.Background()
-	job, err := e.r.Settings.testerJob(p, testVerification(p), 0, []byte(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	job := legacyTesterJob(p, testVerification(p))
 	if err := e.c.Create(ctx, job); err != nil {
 		t.Fatal(err)
 	}
@@ -277,10 +195,7 @@ func TestCleanupDeletesJobsAndPolicies(t *testing.T) {
 func TestLeftoverJobOrPolicyHoldsSlot(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
 	s := verifySettings()
-	job, err := s.testerJob(p, testVerification(p), 0, []byte(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	job := legacyTesterJob(p, testVerification(p))
 	for _, obj := range []client.Object{job, s.networkPolicies(p, 0)[0]} {
 		e := newTestEnv(t, obj)
 		e.r.Settings = s
@@ -308,10 +223,7 @@ func TestSweepVerificationOrphans(t *testing.T) {
 	goneLivePV := testVerification(live)
 	goneLivePV.UID = "pv-gone"
 	mk := func(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification, uid types.UID) *batchv1.Job {
-		job, err := s.testerJob(p, pv, 0, []byte(`{}`))
-		if err != nil {
-			t.Fatal(err)
-		}
+		job := legacyTesterJob(p, pv)
 		job.UID = uid
 		return job
 	}

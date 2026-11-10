@@ -425,15 +425,15 @@ func (c slotCapture) summary(prev *v1alpha1.CaptureSummary) *v1alpha1.CaptureSum
 
 // environment captures each part of the slot: every component, from its
 // current Pod (the one running it as the spec renders it, else its newest),
-// with its log tail since the attempt started, and the tester when it has a
-// Pod. What happened to each component during the tester's run (crashed,
+// with its log tail since the attempt started, and the tool pod when it has
+// one. What happened to each component during the attempt (crashed,
 // evicted, disrupted: componentCause, disruption.go) is read from Pods read
 // live, its finished and deleting ones included. A Pod list that fails is
 // an error, never a part without a Pod: that would charge the intent for
 // the API server's trouble.
 func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
-	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
-	w := attemptWindow{start: attemptStart(tester, pv), end: attemptEnd(tester, v.now())}
+	tools *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
+	w := attemptWindow{start: attemptStart(tools, pv), end: attemptEnd(tools, v.now())}
 	keys, keyUnknown := v.captureKeys(pv)
 	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
 	for i, c := range p.Spec.Components {
@@ -447,11 +447,8 @@ func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Pr
 		}
 		facts = append(facts, fact)
 	}
-	switch {
-	case tester != nil && len(pv.Spec.Outcomes) > 0:
-		facts = append(facts, podFact(tester, toolsPart, toolsContainer, v1alpha1.PreviewRoleToolPod))
-	case tester != nil:
-		facts = append(facts, podFact(tester, v1alpha1.PreviewPartTester, testerContainer, v1alpha1.PreviewRoleTester))
+	if tools != nil {
+		facts = append(facts, podFact(tools, toolsPart, toolsContainer, v1alpha1.PreviewRoleToolPod))
 	}
 	return facts, nil
 }
@@ -500,7 +497,7 @@ func currentPod(pods []corev1.Pod, p *v1alpha1.Preview, c v1alpha1.PreviewCompon
 }
 
 // podFact is the part's fact from its Pod and its container's status. A
-// Job's container (the tester's) reports its current termination, a
+// Job's container (the tool pod's) reports its current termination, a
 // component's its last one.
 func podFact(pod *corev1.Pod, name, container string, role v1alpha1.PreviewPartRole) v1alpha1.PartFact {
 	f := v1alpha1.PartFact{Name: name, Role: role, Evicted: pod.Status.Reason == "Evicted",

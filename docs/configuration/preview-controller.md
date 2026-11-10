@@ -281,36 +281,36 @@ With the agent evaluator on (chart `intentController.verification.evaluator`, ve
 `preview.enabled` and `previewController.enabled`) preview-controller also answers `PreviewVerification` requests from
 intent-controller, from Jobs inside the intent's own Preview slot: the evaluator's
 [tool pod](#the-agent-evaluators-tool-pod) below. The former switch, `preview.verification.enabled`, is removed, and
-slice 1's criteria, which a tester Job ran, no longer run; what follows describes the tester path, kept until a later
-release removes it ([Migrating from slice 1](../intents/evaluator.md#migrating-from-slice-1)). See
+slice 1's criteria, which a tester Job ran, no longer run: preview-controller renders no tester Job
+([Migrating from slice 1](../intents/evaluator.md#migrating-from-slice-1)). See
 [Acceptance verification](../intents/acceptance.md) for what people see. The controller's side:
 
 - **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`; empty by default) is the digest-pinned
   `preview-tester` image, never under the preview image prefix or an agent image registry; set without
-  `--preview-evaluator`, startup is refused (slice 1 alone no longer runs). `--preview-verify-deadline-max`
-  (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is the most a tester Job may run; a longer request is
-  clamped. The chart sets it from `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800), the bound the
-  slot Job admission policy enforces, and renders the same value as intent-controller's `--intent-verify-timeout-max`.
+  `--preview-evaluator`, startup is refused (slice 1 alone no longer runs); beside it, it is checked and runs nothing.
+  `--preview-verify-deadline-max` (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is the most a
+  verification's Job may run; a longer request is clamped. The chart sets it from
+  `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800), the bound the slot Job admission policy
+  enforces, and renders the same value as intent-controller's `--intent-verify-timeout-max`.
 - **Re-checks before anything runs.** The request must name this Preview's UID and generation, which must be Ready at
-  exactly the requested heads with its rollout settled (no pod of the Preview still on an older image); the criteria
-  must equal the automatable criteria of the Intent's approved list, by digest and in order; and the Preview's
-  `environment` must re-derive from the Project. Otherwise the verification is `Stale` and nothing renders.
+  exactly the requested heads with its rollout settled (no pod of the Preview still on an older image); the outcomes and
+  saved checks must be the Intent's approved ones, by digest; and the Preview's `environment` must re-derive from the
+  Project. Otherwise the verification is `Stale` and nothing renders.
 - **Per-part NetworkPolicies.** A Preview created with `spec.environment` (set once, immutable) gets one NetworkPolicy
   per part, `preview-<project>-<issue>-np-<part>`, admitting only the edges derived from the Project beside the chart's
   `preview-isolation`, which it never touches. In this release the one edge is the tester to each component, on its
   numeric port. A Preview without an environment renders exactly what it always did.
-- **The tester Job**, `preview-<…>-vt-<hash>`: one pod, `backoffLimit: 0`, `activeDeadlineSeconds` the clamped timeout,
-  no service-account token, restricted security context, small requests and limits, a termination message in a file. It
-  requests only `http://<component Service>:80`, built from the declared component, never from criterion text.
-- **The result.** The controller reads the tester's log through `pods/log`, accepts only a well-formed `MAUL-VERIFY:`
-  stream whose summary count and hash match, and writes observations, never verdicts, to the PreviewVerification's
-  status, with component container facts (restarts, waiting reasons) and bounded, redacted log tails. A Preview that
-  fails while a verification runs has its failure written onto the request before the slot is released. Unclear output
-  is `Infra`, not a pass.
+- **Slice 1's criteria.** A request for criteria (one with no outcomes) is answered `Stale` (`stale-criteria`) at once,
+  whatever the flags, before anything else is read, and nothing renders. A tester Job, `preview-<…>-vt-<hash>`, that an
+  earlier release left running for one is deleted when it settles, and the sweep removes any left orphaned.
+- **The result.** The controller reads the tool pod's ledger through `pods/log` and writes what it observed, never
+  verdicts, to the PreviewVerification's status, with component container facts (restarts, waiting reasons) and bounded,
+  redacted log tails ([below](#the-agent-evaluators-tool-pod)). A Preview that fails while a verification runs has its
+  failure written onto the request before the slot is released. Unclear output is `Infra`, not a pass.
 - **Cleanup.** Jobs and NetworkPolicies are found and removed by the Preview's UID label like every rendered object, and
-  the orphan sweep removes a tester pod whose Job is gone. It also removes the Job of a request that is gone and, once
-  it is 30 seconds old, an evaluator ingress policy whose request is gone (intent-controller deletes a request in flight
-  when its evaluate run fails, and no owner reference can reach the policy across namespaces), logging each.
+  the orphan sweep removes a verification pod whose Job is gone. It also removes the Job of a request that is gone and,
+  once it is 30 seconds old, an evaluator ingress policy whose request is gone (intent-controller deletes a request in
+  flight when its evaluate run fails, and no owner reference can reach the policy across namespaces), logging each.
 
 ### Grants
 
@@ -342,8 +342,8 @@ Off, an outcome verification is `Infra` and renders nothing.
 - **Flags**, all set by the chart under the evaluator. `--preview-evaluator` (`MAUL_PREVIEW_EVALUATOR`, default `false`)
   turns verification on by itself: it needs the three images and `--preview-agents-namespace`, not
   `--preview-tester-image`. With no tester image the chart renders no `MAUL_PREVIEW_TESTER_IMAGE` and the slot image
-  rules admit no exact image beside the preview prefix, and a criteria request, which only the tester can run, is
-  answered `Stale` (`stale-criteria`) without rendering anything. `--preview-tools-image`, `--preview-browser-image` and
+  rules admit no exact image beside the preview prefix. A criteria request is answered `Stale` (`stale-criteria`)
+  without rendering anything, with a tester image or without. `--preview-tools-image`, `--preview-browser-image` and
   `--preview-toolbox-image` (`MAUL_PREVIEW_TOOLS_IMAGE`, `MAUL_PREVIEW_BROWSER_IMAGE`, `MAUL_PREVIEW_TOOLBOX_IMAGE`) are
   the digest-pinned `preview-tools` (maul's relay, Node and the pinned Playwright CLI), `preview-browser` (Chromium
   behind maul's keyed CDP shim) and `preview-toolbox` (the sandbox: curl, grpcurl, websocat, node, python, go, and

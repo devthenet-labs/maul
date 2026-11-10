@@ -63,9 +63,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("preview-auth-annotations", "", "JSON object of slot namespace to its pinned auth annotations, "+
 		"the current key generation's, exactly as the chart renders it for the slot admission policy")
 	f.String("preview-tester-image", "", "digest-pinned preview-tester image (<repository>@sha256:<64 hex>, "+
-		"never under the preview image prefix) for slice 1's criteria verifications; needs --preview-evaluator, "+
-		"refused without it (optional with it, and removed in a later release)")
-	f.Duration("preview-verify-deadline-max", 30*time.Minute, "the most a tester Job may run (its "+
+		"never under the preview image prefix), checked and unused: slice 1's criteria no longer run; needs "+
+		"--preview-evaluator, refused without it (optional with it, and removed in a later release)")
+	f.Duration("preview-verify-deadline-max", 30*time.Minute, "the most a verification's Job may run (its "+
 		"activeDeadlineSeconds), the bound the slot Job admission policy holds it to (chart "+
 		"preview.verification.deadlineMaxSeconds); a verification asking more is clamped. 1m to 1h")
 	f.String("preview-auth-previous-annotations", "", "the previous key generation's pinned auth annotations "+
@@ -189,7 +189,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 // newVerifier sets up the PreviewVerification reconciler: it watches the
 // requests in the release namespace through the manager's cache, reads and
-// writes through the direct client, and reads the tester's output and the
+// writes through the direct client, and reads the tool pod's ledger and the
 // components' log tails through pods/log.
 func newVerifier(mgr ctrl.Manager, direct client.Client, settings preview.Settings, deadlineMax time.Duration,
 	log *slog.Logger) (*preview.VerificationReconciler, error) {
