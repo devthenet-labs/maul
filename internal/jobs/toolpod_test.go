@@ -288,6 +288,12 @@ func TestToolPodVolumesFit(t *testing.T) {
 	if toolsSum > limit("tools") {
 		t.Errorf("tools-side volumes %d bytes exceed the tools limit %d", toolsSum, limit("tools"))
 	}
+	// The work volume holds the tree's copy and the build output, and the
+	// copy of both a check run starts from (toolexec's fresh.go).
+	if sizes["work-head"] < 2<<30 {
+		t.Errorf("work %d bytes is under the 2 GiB the tree, its output and their kept copy need",
+			sizes["work-head"])
+	}
 	if sizes["cache-head"] < 3<<30+512<<20 {
 		t.Errorf("cache %d bytes is under the 3.5 GB a maul-scale tree needs", sizes["cache-head"])
 	}

@@ -85,7 +85,9 @@ type Request struct {
 	// the shim's own environment.
 	Env []EnvVar `json:"env,omitempty"`
 	// TimeoutMs is a build's timeout, at most MaxBuildTimeout; zero is
-	// DefaultBuildTimeout. An exec takes none.
+	// DefaultBuildTimeout. An exec's is its program's own (a check's
+	// timeout), never past the exec bound; zero is the bound. Either
+	// starts with the program, after any restore (review VC-2).
 	TimeoutMs int64 `json:"timeoutMs,omitempty"`
 	// Fresh runs an exec on the tree and build output exactly as the last
 	// build that built left them, whatever an earlier program changed
@@ -145,6 +147,15 @@ func (r *Request) buildTimeout() time.Duration {
 	return time.Duration(r.TimeoutMs) * time.Millisecond
 }
 
+// execTimeout is an exec request's timeout: its own within bound, else
+// bound.
+func (r *Request) execTimeout(bound time.Duration) time.Duration {
+	if d := time.Duration(r.TimeoutMs) * time.Millisecond; d > 0 && d < bound {
+		return d
+	}
+	return bound
+}
+
 // allowedEnv names the variables tools may pass: the search path and the
 // build's network profile as jobs renders it for a (build, intent) Job
 // (go, npm, pip and the tunnel's client presets). allowedEnvPrefixes are
@@ -191,8 +202,8 @@ func (s *Server) checkWorkspace(r *Request) error {
 		if len(r.Files) > 0 || r.Run != "" || r.Fresh {
 			return errors.New("a build takes no files, no run and no fresh tree")
 		}
-	} else if r.Run == "" || r.TimeoutMs != 0 {
-		return errors.New("an exec takes a run and no timeout")
+	} else if r.Run == "" {
+		return errors.New("an exec takes a run")
 	}
 	for _, e := range r.Env {
 		if !AllowedEnv(e.Name) {
@@ -362,7 +373,8 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 		if err != nil {
 			return refused(toolwire.RefusedInvalid, err.Error())
 		}
-		res = s.execute(ctx, req.Argv, dir, s.workspaceEnv(req), s.timeout, &capWriter{limit: MaxOutputBytes})
+		res = s.execute(ctx, req.Argv, dir, s.workspaceEnv(req), req.execTimeout(s.timeout),
+			&capWriter{limit: MaxOutputBytes})
 	}
 	if err := s.sweep.run(); err != nil {
 		s.unclean = true
@@ -370,6 +382,7 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 	}
 	if req.build() && res.Exit == 0 && !res.TimedOut && !res.Unclean {
 		if err := s.keep(); err != nil {
+			res.KeepFailed = true
 			res.Output += "\nmaul: the build's tree and output could not be kept, so no check can run: " + err.Error()
 		}
 	}

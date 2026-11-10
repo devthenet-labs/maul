@@ -51,7 +51,8 @@ type builds struct {
 // does not carry the tools key is indexed onto status with its builds, its
 // head's runs and confirmed checks, the base's runs and the head build's
 // part, and stored whole in <pv>-ledger. A head that did not build is
-// Infra tools-build-failed; a full round no evaluator called is Infra
+// Infra tools-build-failed; a tree built but not kept for its check runs is
+// Infra kept-copy-failed; a full round no evaluator called is Infra
 // evaluator-not-run; a replay round cut short is Infra replay-incomplete; a
 // ledger that does not hold is Infra, never a verdict (collectedAs).
 func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerification, pod *corev1.Pod,
@@ -91,7 +92,9 @@ func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerificati
 
 // collectedAs is the phase and reason a collected attempt settles at: Infra
 // for a ledger that does not hold (out.Reason), a head that did not build, a
-// full round no evaluator called, and a replay round its relay finished
+// tree its sandbox could not keep for its check runs (the relay's
+// FinishKeptCopyFailed), a full round no evaluator called, and a replay
+// round its relay finished
 // before its replay's end (review VC-3: a saved check may never have run);
 // Observed ok otherwise.
 func collectedAs(pv *v1alpha1.PreviewVerification, out toolledger.Output, b builds) (
@@ -101,6 +104,8 @@ func collectedAs(pv *v1alpha1.PreviewVerification, out toolledger.Output, b buil
 		return v1alpha1.VerificationInfra, out.Reason
 	case !b.headBuilt:
 		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsBuildFailed
+	case previewtools.KeptCopyFailed(out.Ledger.Entries):
+		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonKeptCopyFailed
 	case pv.Spec.Rung == v1alpha1.RungFull && !evaluatorCalled(out.Ledger.Entries):
 		if pv.Status.Tools == nil {
 			return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsNotReady

@@ -23,7 +23,10 @@ import (
 // is launched (nor paid for); it finishes at once on its own account
 // (FinishBuildFailed) after the two build entries, so the round settles
 // Infra tools-build-failed without waiting for the deadline. A head that
-// built serves as before, whatever the base did.
+// built serves as before, whatever the base did. A side that built but
+// whose sandbox could not keep its tree and output (VC-2 follow-up) gives
+// no check run anything to start from: the relay finishes there too
+// (FinishKeptCopyFailed), its build recorded as built.
 func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 	timesOut := func(req *toolexec.Request, _ int) (toolexec.Result, error) {
 		if req.Kind == toolexec.KindBuild {
@@ -34,18 +37,25 @@ func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 	refused := func(req *toolexec.Request, _ int) (toolexec.Result, error) {
 		return toolexec.Result{Refused: "busy"}, nil
 	}
+	keepFails := func(req *toolexec.Request, _ int) (toolexec.Result, error) {
+		return toolexec.Result{KeepFailed: true}, nil
+	}
 	for _, tc := range []struct {
 		name       string
 		head, base func(*toolexec.Request, int) (toolexec.Result, error)
 		headResult maulv1.BuildResult
 		serves     bool
+		finish     string
 	}{
-		{"head fails", buildsFail, nil, maulv1.BuildFailed, false},
-		{"head times out", timesOut, nil, maulv1.BuildTimeout, false},
-		{"head not run", refused, nil, maulv1.BuildError, false},
-		{"both fail", buildsFail, buildsFail, maulv1.BuildFailed, false},
-		{"base fails", nil, buildsFail, maulv1.BuildBuilt, true},
-		{"both build", nil, nil, maulv1.BuildBuilt, true},
+		{"head fails", buildsFail, nil, maulv1.BuildFailed, false, FinishBuildFailed},
+		{"head times out", timesOut, nil, maulv1.BuildTimeout, false, FinishBuildFailed},
+		{"head not run", refused, nil, maulv1.BuildError, false, FinishBuildFailed},
+		{"both fail", buildsFail, buildsFail, maulv1.BuildFailed, false, FinishBuildFailed},
+		{"base fails", nil, buildsFail, maulv1.BuildBuilt, true, ""},
+		{"both build", nil, nil, maulv1.BuildBuilt, true, ""},
+		{"head not kept", keepFails, nil, maulv1.BuildBuilt, false, FinishKeptCopyFailed},
+		{"base not kept", nil, keepFails, maulv1.BuildBuilt, false, FinishKeptCopyFailed},
+		{"head fails, base not kept", buildsFail, keepFails, maulv1.BuildFailed, false, FinishBuildFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			trees := t.TempDir()
@@ -81,13 +91,13 @@ func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 					t.Fatalf("Run: %v", err)
 				}
 			case <-time.After(10 * time.Second):
-				t.Fatal("Run did not return: a head that did not build waits for the deadline")
+				t.Fatal("Run did not return: a round that cannot run waits for the deadline")
 			}
 			if !tc.serves {
 				c := http.Client{Timeout: 200 * time.Millisecond}
 				if resp, err := c.Get("http://" + ln.Addr().String() + ReadyPath); err == nil {
 					_ = resp.Body.Close()
-					t.Errorf("the readiness path answered %d on a head that did not build", resp.StatusCode)
+					t.Errorf("the readiness path answered %d on a round that cannot run", resp.StatusCode)
 				}
 			}
 			led := l.verify(t)
@@ -105,8 +115,11 @@ func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 			if len(led.Entries) != 3 {
 				t.Errorf("%d entries, want the two builds and finish: %+v", len(led.Entries), led.Entries)
 			}
-			if r := finishReason(t, last); r != FinishBuildFailed {
-				t.Errorf("finish reason %q, want %q", r, FinishBuildFailed)
+			if r := finishReason(t, last); r != tc.finish {
+				t.Errorf("finish reason %q, want %q", r, tc.finish)
+			}
+			if got := KeptCopyFailed(led.Entries); got != (tc.finish == FinishKeptCopyFailed) {
+				t.Errorf("KeptCopyFailed = %v", got)
 			}
 		})
 	}

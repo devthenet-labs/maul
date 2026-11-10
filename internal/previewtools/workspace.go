@@ -317,6 +317,7 @@ func (r *Relay) buildTrees(ctx context.Context) {
 	r.headBuilt = head.args.Result == maulv1.BuildBuilt
 	r.baseBuilt = base.args.Result == maulv1.BuildBuilt
 	r.baseUnbuildable = base.args.Result == maulv1.BuildFailed
+	r.keptCopyFailed = (r.headBuilt && head.res.KeepFailed) || (r.baseBuilt && base.res.KeepFailed)
 }
 
 // ledgerTail is a build's output as its entry can hold it: a build's tail
@@ -535,12 +536,15 @@ func withSide(side toolwire.Side, res result) result {
 // workspaceExecAttempt runs an exec check once at side: argv and files
 // substituted (the marker in the files only), in the attempt's own
 // scratch directory, on the tree and build output as the build left them
-// (fresh, review VC-2), judged here.
+// (fresh, review VC-2), judged here. The check's timeout goes to the shim,
+// which starts it with the program, after the restore: a restore of a large
+// tree is never charged to the check.
 func (r *Relay) workspaceExecAttempt(ctx context.Context, e checks.ExecCheck, run string,
 	side toolwire.Side) []toolwire.StepRecord {
 	marker := checks.ExecMarker(randomMarkerNonce())
 	p := r.places()
-	req := &toolexec.Request{Side: side, Run: run, Env: r.programEnv(), Fresh: true}
+	req := &toolexec.Request{Side: side, Run: run, Env: r.programEnv(), Fresh: true,
+		TimeoutMs: timeoutMs(e.Timeout)}
 	for _, a := range e.Argv {
 		s, err := substitute(a, run, "", p)
 		if err != nil {
@@ -558,10 +562,18 @@ func (r *Relay) workspaceExecAttempt(ctx context.Context, e checks.ExecCheck, ru
 	if err := req.Check(); err != nil {
 		return errStep("the program could not be built: " + err.Error())
 	}
-	ctx, cancel := withCheckTimeout(ctx, e.Timeout)
-	defer cancel()
 	res, err := r.sandbox(side).Do(ctx, req)
 	return judgeWorkspace(res, err, e.Expect, marker, run, p)
+}
+
+// timeoutMs is a check's timeout, which checks.Validate admitted, in whole
+// milliseconds rounded up; 0, the shim's own bound, for none.
+func timeoutMs(timeout string) int64 {
+	d, err := time.ParseDuration(timeout)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return int64((d + time.Millisecond - 1) / time.Millisecond)
 }
 
 // withCheckTimeout bounds ctx by a check's timeout, which checks.Validate

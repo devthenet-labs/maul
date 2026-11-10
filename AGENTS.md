@@ -589,7 +589,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   refuses on one) while the agents tool pod is on; collects only the `tools` log via
   `toolledger.Parse` (a log holding the key is `ledger-mismatch`), writes builds, the head's runs, confirmed checks,
   `status.base` from `toolledger.BaseRuns` (unbuildable only when a base build ran and failed) and the head build's
-  `previewtools.BuildPart` (not built: Infra `tools-build-failed`); tears down at settle, a finished Job after the
+  `previewtools.BuildPart` (not built: Infra `tools-build-failed`; built but its kept copy failed, the relay's
+  `FinishKeptCopyFailed`: Infra `kept-copy-failed`); tears down at settle, a finished Job after the
   10-minute `linger` for the isolation probe, a running one at once, an orphan Secret with its settled PV; the
   `Sweeper` is always registered and, with the host off, deletes every `role: tools` Job: the rollback lever),
   `controller/preview` (fixed slot workload renderer,

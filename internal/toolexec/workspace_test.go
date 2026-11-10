@@ -272,7 +272,6 @@ func TestWorkspaceRequestRefused(t *testing.T) {
 		{"an exec with no run", Request{Argv: touch}},
 		{"a run that is not a name", Request{Argv: touch, Run: "../x"}},
 		{"a run with a slash", Request{Argv: touch, Run: "a/b"}},
-		{"an exec with a timeout", Request{Argv: touch, Run: "r", TimeoutMs: 1000}},
 		{"a build with files", Request{Kind: KindBuild, Argv: touch, Files: []toolwire.File{{Name: "x"}}}},
 		{"a build with a run", Request{Kind: KindBuild, Argv: touch, Run: "r"}},
 		{"a build past the ceiling", Request{Kind: KindBuild, Argv: touch,
@@ -311,6 +310,53 @@ func TestSlotRefusesWorkspace(t *testing.T) {
 	}
 	if got := s.Do(context.Background(), &Request{Argv: []string{"echo", "ok"}}); got.Output != "ok\n" {
 		t.Errorf("a plain exec: %+v", got)
+	}
+}
+
+// TestWorkspaceExecTimeout: an exec's own timeout bounds its program from
+// the program's start, after any restore (a check's timeout, review VC-2),
+// and never past the exec bound; a fresh exec, as a check run sends, takes
+// it too.
+func TestWorkspaceExecTimeout(t *testing.T) {
+	s, _ := newWorkspace(t)
+	if got := s.Do(context.Background(), &Request{Kind: KindBuild, Argv: []string{"true"},
+		Env: pathEnv()}); got.Exit != 0 || got.KeepFailed {
+		t.Fatalf("build: %+v", got)
+	}
+	// Each row's exec bound is far from its own timeout, so a shim that
+	// kept only one of the two would time a row out at the wrong moment:
+	// a program outliving its own timeout but not the bound ends on its
+	// own (not timed out), and one killed at the bound is killed late.
+	tests := []struct {
+		name      string
+		argv      []string
+		bound     time.Duration
+		timeoutMs int64
+		fresh     bool
+		timedOut  bool
+	}{
+		{"within its timeout", []string{"sh", "-c", "sleep 0.1; echo ok"}, 5 * time.Second, 300, false, false},
+		{"past its timeout", []string{"sleep", "2"}, 5 * time.Second, 100, false, true},
+		{"a timeout past the exec bound keeps the bound", []string{"sleep", "2"}, 400 * time.Millisecond, 5000,
+			false, true},
+		{"no timeout keeps the bound", []string{"sleep", "2"}, 400 * time.Millisecond, 0, false, true},
+		{"a fresh exec within its timeout", []string{"sh", "-c", "sleep 0.1; echo ok"}, 5 * time.Second, 300,
+			true, false},
+		{"a fresh exec past its timeout", []string{"sleep", "2"}, 5 * time.Second, 100, true, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s.timeout = tc.bound
+			start := time.Now()
+			got := s.Do(context.Background(), &Request{Argv: tc.argv, Run: "r", Env: pathEnv(),
+				TimeoutMs: tc.timeoutMs, Fresh: tc.fresh})
+			if got.Refused != "" || got.TimedOut != tc.timedOut {
+				t.Fatalf("timed out %v, want %v: %+v", got.TimedOut, tc.timedOut, got)
+			}
+			if took := time.Since(start); tc.timedOut && took > 1500*time.Millisecond {
+				t.Errorf("killed after %v", took)
+			}
+		})
 	}
 }
 

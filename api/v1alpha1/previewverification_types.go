@@ -55,7 +55,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete;kept-copy-failed
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -170,6 +170,11 @@ const (
 	// stop), so a saved check may never have run at these heads (review
 	// VC-3). Infra, never a verdict.
 	VerificationReasonReplayIncomplete PreviewVerificationReason = "replay-incomplete"
+	// VerificationReasonKeptCopyFailed: an agents tool pod's tree built,
+	// but its sandbox could not keep the tree and build output every check
+	// run starts from (a full work volume, as a rule), so no check could
+	// run there. Infra, never a verdict.
+	VerificationReasonKeptCopyFailed PreviewVerificationReason = "kept-copy-failed"
 )
 
 // VerificationPlacement is where an outcome verification's tool pod runs:

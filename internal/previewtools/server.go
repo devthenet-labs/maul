@@ -108,10 +108,13 @@ type Relay struct {
 	summary   toolwire.Summary
 	done      chan struct{}
 	// A workspace's state: whether each tree built, whether the base's
-	// build failed (unbuildable, not merely not built), the base runs spent
-	// (MaxBaseRuns), the base replays and each check's latest base dry run.
+	// build failed (unbuildable, not merely not built), whether a side that
+	// built could not be kept (no check run can start from it), the base
+	// runs spent (MaxBaseRuns), the base replays and each check's latest
+	// base dry run.
 	headBuilt, baseBuilt bool
 	baseUnbuildable      bool
+	keptCopyFailed       bool
 	baseRuns             int
 	baseReplays          []toolwire.CheckRunRecord
 	baseDry              map[string]toolwire.CheckRunRecord
@@ -673,6 +676,12 @@ const (
 	// never serves (S2-B5): no evaluator is launched for a round that
 	// cannot be judged.
 	FinishBuildFailed = ReasonBuildFailed
+	// FinishKeptCopyFailed: a workspace's tree built, but its sandbox
+	// could not keep the tree and build output a check run starts from
+	// (review VC-2: a full volume, a file the copy cannot make), so every
+	// check run there would be an error with no cause. The relay never
+	// serves; the round is maul's trouble, never judged.
+	FinishKeptCopyFailed = "kept-copy-failed"
 )
 
 // ReplayFinished reports a ledger the relay finished on its own account at
@@ -683,14 +692,29 @@ const (
 // checks unreplayed, and its round is maul's trouble, never judged (review
 // VC-3).
 func ReplayFinished(entries []toolwire.LedgerEntry) bool {
+	return relayFinish(entries) == FinishReplayOnly
+}
+
+// KeptCopyFailed reports a ledger the relay finished on its own account
+// because a sandbox could not keep a built tree (FinishKeptCopyFailed).
+func KeptCopyFailed(entries []toolwire.LedgerEntry) bool {
+	return relayFinish(entries) == FinishKeptCopyFailed
+}
+
+// relayFinish is the reason of the ledger's first finish entry when it is
+// the relay's own and reads; "" otherwise.
+func relayFinish(entries []toolwire.LedgerEntry) string {
 	i := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Verb == toolwire.VerbFinish })
 	if i < 0 || entries[i].Kind != toolwire.KindRelay {
-		return false
+		return ""
 	}
 	var args struct {
 		Reason string `json:"reason"`
 	}
-	return json.Unmarshal(entries[i].Args, &args) == nil && args.Reason == FinishReplayOnly
+	if json.Unmarshal(entries[i].Args, &args) != nil {
+		return ""
+	}
+	return args.Reason
 }
 
 // finish records the finish entry, emits the cited evidence, closes the

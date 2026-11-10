@@ -36,13 +36,23 @@ type fakeSandbox struct {
 	reqs     []toolexec.Request
 	notReady bool
 	do       func(req *toolexec.Request, n int) (toolexec.Result, error)
+	// delay, when set, is the time a fresh request takes before it answers
+	// (the shim's restore), honouring the request's context.
+	delay time.Duration
 }
 
-func (f *fakeSandbox) Do(_ context.Context, req *toolexec.Request) (toolexec.Result, error) {
+func (f *fakeSandbox) Do(ctx context.Context, req *toolexec.Request) (toolexec.Result, error) {
 	f.mu.Lock()
 	n := len(f.reqs)
 	f.reqs = append(f.reqs, *req)
 	f.mu.Unlock()
+	if req.Fresh && f.delay > 0 {
+		select {
+		case <-ctx.Done():
+			return toolexec.Result{}, ctx.Err()
+		case <-time.After(f.delay):
+		}
+	}
 	if f.do == nil {
 		return toolexec.Result{}, nil
 	}

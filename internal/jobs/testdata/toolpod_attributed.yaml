@@ -363,7 +363,7 @@ spec:
           sizeLimit: 512Mi
         name: trees-head
       - emptyDir:
-          sizeLimit: 1536Mi
+          sizeLimit: 2Gi
         name: work-head
       - emptyDir:
           sizeLimit: 3584Mi
@@ -385,7 +385,7 @@ spec:
           sizeLimit: 512Mi
         name: trees-base
       - emptyDir:
-          sizeLimit: 1536Mi
+          sizeLimit: 2Gi
         name: work-base
       - emptyDir:
           sizeLimit: 3584Mi
