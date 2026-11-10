@@ -109,9 +109,10 @@ While you explore with `maul-tool exec` and `maul-tool run`, maul replaces `{{bi
 but never `{{run}}` or `{{marker}}`: name every file, name and value you make up with
 `v1a1-3f9c2a` (for example `v1a1-3f9c2a-beat`). Each call runs in a fresh working directory under
 `/work/scratch`, but the home directory (`/work/home`) and the writable tree (`/work/tree`) are shared by every call
-at a side: what one call writes there, every later call at that side sees. A check run does not: before every check
-maul runs, yours included, it puts the tree and the build output (`/work/bin`) back as the build left them, so no
-check sees what you or an earlier check changed there, and a check that needs a change must make it itself.
+at a side: what one call writes there, later calls at that side see, until a check runs there. A check run does not:
+before every check maul runs, yours included, it puts the tree and the build output (`/work/bin`) back as the build
+left them, so no check sees what you or an earlier check changed there, a check that needs a change must make it
+itself, and after a check your own changes to the tree and the build output are gone.
 
 ## Your turns
 
