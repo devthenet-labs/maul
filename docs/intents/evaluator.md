@@ -179,12 +179,13 @@ check of the outcome as approved, which would pass where the outcome holds and f
 
 **maul never fixes a defect found this way on its own.** A wrong fail starts a fix of code that works, and four
 independent reviews kept finding ways a correct build could still look red, so such an outcome is judged **unsure**, a
-_suspected defect_, and the commit status and the hand-off treat it as unsure. maul holds the gated hand-off and shows
-the evidence on the issue: the check it saved, maul's reproduction and that the evaluator reported the outcome fails,
-saying maul believes this is a defect and a person should confirm it. The evidence stays on the issue whatever else the
-round found: beside another outcome that is failing, too. An approver's `/maul verify fix` then starts the fix round
-exactly as an automatic one would, handed that reproduction and any failure of a check saved green the round found
-beside it; the commit status and the status comment then say a person confirmed the defect and a fix is running. Only a
+_suspected defect_, and the commit status and the hand-off treat it as unsure. maul holds the gated hand-off (the note
+says so only while it is held: once released, by a person or `handoffMax`, it no longer claims a hold) and shows the
+evidence on the issue: the check it saved, maul's reproduction and that the evaluator reported the outcome fails, saying
+maul believes this is a defect and a person should confirm it. The evidence stays on the issue whatever else the round
+found: beside another outcome that is failing, too. An approver's `/maul verify fix` then starts the fix round exactly
+as an automatic one would, handed that reproduction and any failure of a check saved green the round found beside it;
+the commit status and the status comment then say a person confirmed the defect and a fix is running. Only a
 `/maul verify fix` created after maul recorded the suspected defect confirms it: one written earlier (say, while the
 round was still being evaluated) keeps its earlier meaning, a request that re-arms automatic fixes, so no fix starts
 before a person can have seen the evidence. `/maul verify` and `/maul verify fix --reset` never confirm it; nor does
@@ -356,6 +357,10 @@ heads maul judged: after a push it reads as still being checked until a round is
 | its sandbox was not enforced                    | the evaluator's strict probe found DNS, the API server, metadata or the internet open |
 | the preview failed while it was checked         | a component crashed, was evicted or ran out of memory during the round                |
 | it could not run its checks                     | maul's own machinery failed every attempt                                             |
+
+When every outcome was confirmed or accepted and only an anomaly or a failing environment kept the round unconfirmed,
+the commit status and the progress line name that cause instead of reading as all confirmed, for example "maul couldn't
+confirm this: 3/3 outcomes confirmed, but it noticed something odd while it looked around".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
 not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.
@@ -590,7 +595,10 @@ on).
   fetch the source of the pull request or of its base" (a tree did not become ready within 15 minutes, or GitHub has no
   such commit or does not let maul see it). The intent's `status.verification.unavailableReason` records the last as
   `TreeUnavailable` (the round is retried while the heads stay), the first two as `ToolsBuildFailed` and
-  `SandboxImageUnavailable` beside the state `Unconfirmed`.
+  `SandboxImageUnavailable` beside the state `Unconfirmed`. A failing environment there reads "its own checking tools
+  failed while it checked", never a preview.
+- **A suspected defect's note** names the held hand-off, not a preview link, and only while it is held; its known limits
+  are those of the exec and run checks a workspace runs.
 - **In the cluster.** The round is a `PreviewVerification` with `spec.placement: agents` and its `spec.workspace` (the
   repository, the head and base commits and their Repositories, the image, the network profile, the surface). Its status
   carries the builds (`status.ledger.builds`), the base side (`status.base`: whether a base was required, whether it was

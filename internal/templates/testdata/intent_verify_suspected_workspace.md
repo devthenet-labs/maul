@@ -1,0 +1,9 @@
+maul believes `echo-kept` has a defect: the evaluator reported the outcome fails, and maul's own runs of the check it saved to show it, each alone under a fresh run token, failed the same assertion. maul does not fix a defect found this way on its own: a person should confirm it. An approver's `/maul verify fix` starts a fix round, handed the reproduction below; until then maul holds its hand-off to the reviewers. Known limits: an exec or run check's failed assertion is whatever its program reports, so a program that reports every failure that way can look like this.
+
+maul's reproduction:
+
+```text
+POST /notes {"name":"tok-v"} answered 201
+GET /version?q=tok answered {"note":"old"}
+See # 12 and @ octocat.
+```

@@ -144,17 +144,37 @@ func TestSuspectedNotConfirmedOnceTheHeadsMoved(t *testing.T) {
 }
 
 // TestSuspectedReleasedByTheHandoffLimit: a held suspected defect does not
-// hold the link past the hand-off's time limit.
+// hold the link past the hand-off's time limit, and its note says the link
+// is held only while it is (gate D-B3).
 func TestSuspectedReleasedByTheHandoffLimit(t *testing.T) {
 	e, name := suspectedRound(t)
 	if h := e.verification(name).Handoff; h == nil || h.Released {
 		t.Fatalf("hand-off = %+v, want held", h)
+	}
+	const held = "until then the preview link stays held"
+	e.review(name, 4)
+	if note := e.suspectedNoteOf(name); !strings.Contains(note, held) {
+		t.Errorf("the held note does not say %q:\n%s", held, note)
 	}
 	e.clock.Advance(time.Hour + time.Minute) // handoffMax, an hour here
 	e.review(name, 2)
 	if h := e.verification(name).Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonOutOfTime {
 		t.Fatalf("hand-off = %+v, want released, out of time", h)
 	}
+	if note := e.suspectedNoteOf(name); !strings.Contains(note, "maul believes") || strings.Contains(note, "held") {
+		t.Errorf("the note once the link is released claims a hold:\n%s", note)
+	}
+}
+
+// suspectedNoteOf is the current round's verification comment on intent
+// name, as maul last wrote it.
+func (e *env) suspectedNoteOf(name string) string {
+	e.t.Helper()
+	cs := e.verifyComments(name, e.verification(name).Round)
+	if len(cs) == 0 {
+		e.t.Fatalf("no verification comment for round %d", e.verification(name).Round)
+	}
+	return cs[len(cs)-1].Body
 }
 
 // bothReport: the version outcome fails on the red check, and the health

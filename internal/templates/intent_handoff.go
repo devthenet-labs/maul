@@ -44,6 +44,10 @@ const (
 	HandoffWhyBuildFailed  = "build-failed"
 	HandoffWhySandboxImage = "sandbox-image"
 	HandoffWhyTree         = "tree"
+
+	// HandoffWhyReplay: a replay round's tool pod finished before the end
+	// of its replay, so a saved check may never have run (review VC-3).
+	HandoffWhyReplay = "replay"
 )
 
 // handoffWhyWords are the reasons in maul's words; one not listed shows as
@@ -62,11 +66,33 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyBuildFailed:  "its own build of the pull request did not finish",
 	HandoffWhySandboxImage: "the repository has no accepted runner image to build the pull request in",
 	HandoffWhyTree:         "it could not fetch the source of the pull request or of its base",
+	// Review VC-3.
+	HandoffWhyReplay: "it could not re-run every check it saved",
+}
+
+// workspaceEnvironmentWords is HandoffWhyEnvironment on a Project with no
+// preview: what failed is maul's own tool pod, never a preview.
+const workspaceEnvironmentWords = "its own checking tools failed while it checked"
+
+// UnconfirmedCause is why a round whose every outcome was confirmed (or
+// accepted) is still not confirmed, in maul's words, for the two causes
+// that withhold it whatever the outcomes show (review H2): an anomaly and
+// an environment that was not clean; workspace is a Project with no
+// preview. "" for any other reason, which the counts already explain.
+func UnconfirmedCause(why string, workspace bool) string {
+	switch {
+	case why == HandoffWhyEnvironment && workspace:
+		return workspaceEnvironmentWords
+	case why == HandoffWhyAnomaly, why == HandoffWhyEnvironment:
+		return handoffWhyWords[why]
+	}
+	return ""
 }
 
 // HandoffWhyOfVerification is why maul could not confirm, as an
 // unconfirmed hand-off says it, for a PreviewVerification that settled for
-// a reason of the agents-namespace tool pod (SPEC-S2); "" for any other
+// a reason of the agents-namespace tool pod (SPEC-S2) or a replay cut short
+// (review VC-3); "" for any other
 // reason, and for a saturated tool pod bound, which waits and never gives
 // up.
 func HandoffWhyOfVerification(reason v1alpha1.PreviewVerificationReason) string {
@@ -81,6 +107,8 @@ func HandoffWhyOfVerification(reason v1alpha1.PreviewVerificationReason) string 
 		return HandoffWhySandbox
 	case v1alpha1.VerificationReasonToolsEvicted, v1alpha1.VerificationReasonToolsDeadline:
 		return HandoffWhyUnavailable
+	case v1alpha1.VerificationReasonReplayIncomplete:
+		return HandoffWhyReplay
 	}
 	return ""
 }
@@ -161,10 +189,14 @@ func workspaceRelease() string {
 
 // workspaceLabel is a released workspace hand-off's label, ending in a
 // full stop: the linked label, except that nothing is shown while maul is
-// still checking; "" for a held one.
+// still checking and a failing environment names no preview; "" for a
+// held one.
 func workspaceLabel(h PreviewHandoff) string {
-	if h.State == HandoffChecking {
+	switch {
+	case h.State == HandoffChecking:
 		return "Handed to its reviewers while maul is still checking the approved outcomes " + workspaceBuild + "."
+	case h.State == HandoffUnconfirmed && h.Why == HandoffWhyEnvironment:
+		return "maul couldn't confirm this: " + workspaceEnvironmentWords + "."
 	}
 	return handoffLabel(h)
 }
