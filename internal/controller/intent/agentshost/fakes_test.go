@@ -348,6 +348,9 @@ type ledgerOpts struct {
 	baseExit    *int
 	noEvaluator bool
 	extraOutput string
+	// relayFinish, when set, ends the ledger with the relay's own finish
+	// for that reason, as a replay round's does (no evaluator).
+	relayFinish string
 }
 
 // toolsLog is what a workspace relay writes for a full round: the two
@@ -411,7 +414,11 @@ func toolsLog(t *testing.T, o ledgerOpts) ([]byte, string) {
 				Mode: toolwire.ModeReplay, Result: toolwire.RunError, Attempts: []toolwire.Attempt{
 					{Result: toolwire.ResultError, Steps: []toolwire.StepRecord{step}}}}})
 	}
-	if !o.noEvaluator {
+	if o.relayFinish != "" {
+		args, _ := json.Marshal(map[string]string{"reason": o.relayFinish})
+		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbFinish, Args: args})
+	}
+	if !o.noEvaluator && o.relayFinish == "" {
 		add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbExec,
 			Args: json.RawMessage(`{"argv":["{{bin}}","--help"]}`), Output: "usage" + o.extraOutput})
 		add(toolwire.LedgerEntry{Kind: toolwire.KindRunner, Verb: toolwire.VerbFinish, Args: json.RawMessage(`{}`)})

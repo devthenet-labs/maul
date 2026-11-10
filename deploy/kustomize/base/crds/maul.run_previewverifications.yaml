@@ -1705,6 +1705,7 @@ spec:
                 - tools-evicted
                 - tools-deadline
                 - tools-refused
+                - replay-incomplete
                 type: string
               replay:
                 description: |-

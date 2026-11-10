@@ -22,6 +22,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
@@ -445,6 +446,47 @@ func TestCollectRefusesTheLedger(t *testing.T) {
 			if tc.reason == v1alpha1.VerificationReasonLedgerMismatch &&
 				(pv.Status.Ledger != nil || pv.Status.Base != nil || pv.Status.Replay != nil) {
 				t.Errorf("a refused ledger kept on status: %+v", pv.Status)
+			}
+		})
+	}
+}
+
+// TestCollectReplayCutShort (review VC-3): a replay round's relay that
+// finished at the end of its replay is Observed; one it finished at its
+// wall clock, or because its container was told to stop, may have left
+// saved checks unreplayed, so it is Infra replay-incomplete, never judged.
+func TestCollectReplayCutShort(t *testing.T) {
+	for _, tc := range []struct {
+		finish string
+		phase  v1alpha1.PreviewVerificationPhase
+		reason v1alpha1.PreviewVerificationReason
+	}{
+		{previewtools.FinishReplayOnly, v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK},
+		{previewtools.FinishDeadline, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete},
+		{previewtools.FinishStopped, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete},
+	} {
+		t.Run(tc.finish, func(t *testing.T) {
+			w := newWorld(t)
+			// A replay round replays the saved checks of the Intent's store.
+			c, err := checks.Parse([]byte(checkBody))
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := "sha256:" + strings.Repeat("c", 64)
+			w.pv.Spec.Rung, w.pv.Spec.ChecksDigest = v1alpha1.RungReplay, store
+			w.pv.Spec.Checks = []v1alpha1.SavedCheck{{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form),
+				Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}}
+			w.intent.Status.Acceptance.Checks = &v1alpha1.CheckStoreRef{ConfigMap: intentName + "-checks-1",
+				Digest: store, Count: 1}
+			h := running(t, w)
+			log, msg := toolsLog(t, ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt,
+				relayFinish: tc.finish})
+			finish(h.tools.job, h.now)
+			h.tools.pod, h.tools.log = terminated(readyPod(), msg), log
+			h.reconcile(t)
+			pv := h.pv(t)
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("status = %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
 			}
 		})
 	}

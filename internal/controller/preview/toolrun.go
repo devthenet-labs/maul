@@ -557,6 +557,12 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 			reason = v1alpha1.VerificationReasonToolsNotReady
 		}
 	}
+	if phase == v1alpha1.VerificationObserved && pv.Spec.Rung == v1alpha1.RungReplay &&
+		!previewtools.ReplayFinished(out.Ledger.Entries) {
+		// Its relay finished before its replay's end (review VC-3): a saved
+		// check may never have run at these heads.
+		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete
+	}
 	if out.Reason == "" {
 		if err := v.storeLedger(ctx, pv, out, finishedAt); err != nil {
 			return err

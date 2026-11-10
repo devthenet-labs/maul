@@ -1396,6 +1396,13 @@ type IntentVerification struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	OutcomesHeadSetDigest string `json:"outcomesHeadSetDigest,omitempty"`
+	// OutcomesEnvironment is the environment's class in that judgement, as
+	// the pass rules read it (OK, AppFailure or Infra): a judgement is ready
+	// only on a clean one, whatever its outcomes' results (review H2). Empty
+	// for a judgement recorded before it was, which is never ready on it.
+	// +optional
+	// +kubebuilder:validation:Enum=OK;AppFailure;Infra
+	OutcomesEnvironment string `json:"outcomesEnvironment,omitempty"`
 	// Anomalies are the latest round's look-around anomalies.
 	// +optional
 	// +kubebuilder:validation:MaxItems=10

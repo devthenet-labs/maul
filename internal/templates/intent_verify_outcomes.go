@@ -54,6 +54,8 @@ var outcomeReasonWords = map[string]string{
 	// S2-20: rule 5 alone withheld the pass (its base runs failed by no
 	// assertion, timed out, or are missing).
 	"no-base-evidence": "its check passed, but its runs at the base do not tell the change from its absence",
+	// Review VC-3: a saved check of it was not re-run this round.
+	"not-replayed": "a saved check of it was not re-run at these heads",
 }
 
 // Bounds on what an outcome's detail shows.

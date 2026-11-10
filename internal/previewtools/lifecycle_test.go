@@ -146,6 +146,37 @@ func TestRunFinishesAtItsDeadline(t *testing.T) {
 	if r := finishReason(t, led.Entries[len(led.Entries)-1]); r != FinishDeadline {
 		t.Errorf("finish reason %q", r)
 	}
+	if ReplayFinished(led.Entries) {
+		t.Error("ReplayFinished = true for a relay finished at its deadline")
+	}
+}
+
+// TestReplayFinished (review VC-3): only the relay's own finish at the end
+// of a replay round's replay says every saved check had its turn; a finish
+// at the wall clock, on a stop, the runner's, none at all, or one whose
+// reason does not read, does not.
+func TestReplayFinished(t *testing.T) {
+	relay := func(args string) toolwire.LedgerEntry {
+		return toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbFinish, Args: json.RawMessage(args)}
+	}
+	run := toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`)}
+	for _, tc := range []struct {
+		name    string
+		entries []toolwire.LedgerEntry
+		want    bool
+	}{
+		{"replay-only", []toolwire.LedgerEntry{run, relay(`{"reason":"replay-only"}`)}, true},
+		{"deadline", []toolwire.LedgerEntry{run, relay(`{"reason":"deadline"}`)}, false},
+		{"stopped", []toolwire.LedgerEntry{run, relay(`{"reason":"stopped"}`)}, false},
+		{"no finish entry", []toolwire.LedgerEntry{run}, false},
+		{"the runner's finish", []toolwire.LedgerEntry{run, {Kind: toolwire.KindRunner, Verb: toolwire.VerbFinish,
+			Args: json.RawMessage(`{"reason":"replay-only"}`)}}, false},
+		{"unreadable", []toolwire.LedgerEntry{run, relay(`"replay-only"`)}, false},
+	} {
+		if got := ReplayFinished(tc.entries); got != tc.want {
+			t.Errorf("%s: ReplayFinished = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }
 
 func TestRunServesUntilTheRunnerFinishes(t *testing.T) {

@@ -380,13 +380,15 @@ application. Off, an outcome verification is `Infra` and renders nothing.
   1280 pixels wide) to `<verification>-evidence`, both in the release namespace and owned by the request. A ledger that
   does not hold is `Infra` (`ledger-mismatch`), never a verdict. So is a full round whose ledger holds no call from the
   evaluator (no agent entry, no agent-runner finish), as when the Job ran to its deadline with no evaluator:
-  `tools-not-ready` when `status.tools` was never written, else `evaluator-not-run`. A pod that is never created,
-  scheduled or pulled is `Infra` past its bound (`tools-not-ready`, `tools-unscheduled`, `tools-image-pull`; a quota
-  refusal `quota-refused`). So is one whose container, a browser or sandbox sidecar above all, keeps exiting in error
-  (`CrashLoopBackOff`, or three restarts with the last exit non-zero): `tools-crashloop`, settled past the same bound
-  rather than at the Job's deadline, its `status.environment` fact naming the container, its last termination and, as
-  its `logTail`, the redacted termination message (also logged as `preview tool pod container crash-looping`). Settling
-  deletes the Job, its Secret and ConfigMap, and the ingress policy.
+  `tools-not-ready` when `status.tools` was never written, else `evaluator-not-run`. A replay round whose relay finished
+  before its replay's end (its wall clock, or its container told to stop) is `Infra` too (`replay-incomplete`): a saved
+  check may never have run. A pod that is never created, scheduled or pulled is `Infra` past its bound
+  (`tools-not-ready`, `tools-unscheduled`, `tools-image-pull`; a quota refusal `quota-refused`). So is one whose
+  container, a browser or sandbox sidecar above all, keeps exiting in error (`CrashLoopBackOff`, or three restarts with
+  the last exit non-zero): `tools-crashloop`, settled past the same bound rather than at the Job's deadline, its
+  `status.environment` fact naming the container, its last termination and, as its `logTail`, the redacted termination
+  message (also logged as `preview tool pod container crash-looping`). Settling deletes the Job, its Secret and
+  ConfigMap, and the ingress policy.
 - **Timing.** A round's request asks for the evaluate timeout plus five minutes. The chart refuses
   `intentController.verification.evaluateTimeout` unless it is shorter than `preview.verification.deadlineMaxSeconds`,
   so the slot Job policy never refuses the tool pod.

@@ -585,6 +585,14 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 		in.Base = &BaseRuns{Runs: genRuns(r), Required: r.Intn(2) == 0, Unbuildable: r.Intn(6) == 0}
 	}
 	genBiased(r, &in)
+	if r.Intn(2) == 0 {
+		// The checks the round was to replay (VC-3): most of the stored ones.
+		for _, c := range in.Checks {
+			if r.Intn(4) != 0 {
+				in.ReplayRequired = append(in.ReplayRequired, c.Digest)
+			}
+		}
+	}
 	for range r.Intn(4) {
 		in.Reviews = append(in.Reviews, CheckReview{CheckDigest: pickOf(r, genDigests),
 			OutcomeDigest: od(pickOf(r, genOutcomes)), Answer: pickOf(r, genAnswers), ExpectFail: r.Intn(3) == 0})
@@ -747,7 +755,8 @@ func oracleProves(in Input, digest string, o OutcomeRef) bool {
 // basis check, bound to o, clear rules 1-6 this round, with the outcome
 // neither manual, retired from nor disputed this round?
 func oracleSixRules(in Input, o OutcomeRef, basis string) error {
-	for _, rule := range []func(Input, OutcomeRef, string) error{oracleRules1To4, oracleRule5, oracleRule6, oracleRound} {
+	for _, rule := range []func(Input, OutcomeRef, string) error{oracleRules1To4, oracleRule5, oracleRule6, oracleRound,
+		oracleReplayed} {
 		if err := rule(in, o, basis); err != nil {
 			return err
 		}
@@ -929,6 +938,9 @@ type decideStats struct {
 	// Slice S2: passes at a required base, passes on a check red by
 	// assertion there, outcomes O4 made unsure, failed head builds.
 	requiredPasses, assertedBasePasses, notAsserted, buildFailed int
+	// VC-3: passes with a required replay set, outcomes left unsure by a
+	// required check with no replay run.
+	replayRequiredPasses, notReplayed int
 }
 
 func (s *decideStats) add(in Input, d Decision) {
@@ -943,8 +955,13 @@ func (s *decideStats) add(in Input, d Decision) {
 			}) {
 				s.assertedBasePasses++
 			}
+			if len(in.ReplayRequired) > 0 {
+				s.replayRequiredPasses++
+			}
 		}
 		switch r.Reason {
+		case ReasonNotReplayed:
+			s.notReplayed++
 		case ReasonNotAsserted:
 			s.notAsserted++
 		case ReasonBuildFailed:
@@ -989,7 +1006,8 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 		t.Error(err)
 	}
 	if stats.passed == 0 || stats.fixes == 0 || stats.clearedFixes == 0 || stats.suspected == 0 ||
-		stats.replays == 0 || stats.ready == 0 || stats.notAsserted == 0 || stats.buildFailed == 0 {
+		stats.replays == 0 || stats.ready == 0 || stats.notAsserted == 0 || stats.buildFailed == 0 ||
+		stats.replayRequiredPasses == 0 || stats.notReplayed == 0 {
 		t.Errorf("the generator is too weak: %+v", stats)
 	}
 }

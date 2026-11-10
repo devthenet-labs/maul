@@ -52,7 +52,8 @@ type builds struct {
 // head's runs and confirmed checks, the base's runs and the head build's
 // part, and stored whole in <pv>-ledger. A head that did not build is
 // Infra tools-build-failed; a full round no evaluator called is Infra
-// evaluator-not-run; a ledger that does not hold is Infra, never a verdict.
+// evaluator-not-run; a replay round cut short is Infra replay-incomplete; a
+// ledger that does not hold is Infra, never a verdict (collectedAs).
 func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerification, pod *corev1.Pod,
 	log []byte) error {
 	msg := terminationMessage(pod)
@@ -78,18 +79,7 @@ func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerificati
 			out.Reason = v1alpha1.VerificationReasonLedgerMismatch
 		}
 	}
-	phase, reason := v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK
-	switch {
-	case out.Reason != "":
-		phase, reason = v1alpha1.VerificationInfra, out.Reason
-	case !b.headBuilt:
-		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsBuildFailed
-	case pv.Spec.Rung == v1alpha1.RungFull && !evaluatorCalled(out.Ledger.Entries):
-		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun
-		if pv.Status.Tools == nil {
-			reason = v1alpha1.VerificationReasonToolsNotReady
-		}
-	}
+	phase, reason := collectedAs(pv, out, b)
 	if out.Reason == "" {
 		if err := r.storeLedger(ctx, pv, out, b); err != nil {
 			return err
@@ -97,6 +87,29 @@ func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerificati
 	}
 	pv.Status.TesterImageID = imageIDOf(pod, toolsContainer)
 	return r.settle(ctx, pv, phase, reason)
+}
+
+// collectedAs is the phase and reason a collected attempt settles at: Infra
+// for a ledger that does not hold (out.Reason), a head that did not build, a
+// full round no evaluator called, and a replay round its relay finished
+// before its replay's end (review VC-3: a saved check may never have run);
+// Observed ok otherwise.
+func collectedAs(pv *v1alpha1.PreviewVerification, out toolledger.Output, b builds) (
+	v1alpha1.PreviewVerificationPhase, v1alpha1.PreviewVerificationReason) {
+	switch {
+	case out.Reason != "":
+		return v1alpha1.VerificationInfra, out.Reason
+	case !b.headBuilt:
+		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsBuildFailed
+	case pv.Spec.Rung == v1alpha1.RungFull && !evaluatorCalled(out.Ledger.Entries):
+		if pv.Status.Tools == nil {
+			return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsNotReady
+		}
+		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun
+	case pv.Spec.Rung == v1alpha1.RungReplay && !previewtools.ReplayFinished(out.Ledger.Entries):
+		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete
+	}
+	return v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK
 }
 
 // workspaceBuilds reads the relay's build entries: at most one of each

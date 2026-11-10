@@ -237,9 +237,9 @@ func toolLedger(t *testing.T, shot []byte, unreached ...string) ([]byte, string)
 	return out.Bytes(), sum.TerminationMessage()
 }
 
-// deadlineLedger is the ledger of a tool pod no evaluator ever called:
-// the relay's readiness wait, then its own finish at the wall clock.
-func deadlineLedger(t *testing.T) ([]byte, string) {
+// relayFinishLedger is the ledger of a tool pod no evaluator ever called:
+// the relay's readiness wait, then its own finish for reason.
+func relayFinishLedger(t *testing.T, reason string) ([]byte, string) {
 	t.Helper()
 	var out bytes.Buffer
 	w := toolwire.NewWriter(&out)
@@ -249,7 +249,8 @@ func deadlineLedger(t *testing.T) ([]byte, string) {
 	for _, e := range []toolwire.LedgerEntry{
 		{Kind: toolwire.KindRelay, Verb: toolwire.VerbHTTP, TS: at,
 			Args: json.RawMessage(`{"readiness":{"targets":["api","web"]}}`), Output: string(readiness)},
-		{Kind: toolwire.KindRelay, Verb: toolwire.VerbFinish, TS: at, Args: json.RawMessage(`{"reason":"deadline"}`)},
+		{Kind: toolwire.KindRelay, Verb: toolwire.VerbFinish, TS: at,
+			Args: json.RawMessage(`{"reason":"` + reason + `"}`)},
 	} {
 		if _, err := w.Append(e); err != nil {
 			t.Fatal(err)
@@ -724,20 +725,29 @@ func TestToolsStatusNeedsItsSidecars(t *testing.T) {
 // A full round whose tool Job ran to its deadline with no evaluator call
 // in its ledger (no agent entry, no runner finish) is maul's trouble, never
 // Observed ok: tools-not-ready when the pod was never published,
-// evaluator-not-run when it was. A replay round has no evaluator to miss.
+// evaluator-not-run when it was. A replay round has no evaluator to miss,
+// but one its relay finished other than at the replay's end (its wall
+// clock, or its container told to stop) may have left saved checks
+// unreplayed: replay-incomplete, never judged (review VC-3).
 func TestToolsNoEvaluatorIsInfra(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		replay    bool
 		published bool
+		finish    string
 		phase     v1alpha1.PreviewVerificationPhase
 		reason    v1alpha1.PreviewVerificationReason
 	}{
 		{name: "never published", phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonToolsNotReady},
 		{name: "published, never called", published: true, phase: v1alpha1.VerificationInfra,
 			reason: v1alpha1.VerificationReasonEvaluatorNotRun},
-		{name: "replay round", replay: true, published: true, phase: v1alpha1.VerificationObserved,
-			reason: v1alpha1.VerificationReasonOK},
+		{name: "replay round", replay: true, published: true, finish: previewtools.FinishReplayOnly,
+			phase: v1alpha1.VerificationObserved, reason: v1alpha1.VerificationReasonOK},
+		{name: "replay round cut short at its deadline", replay: true, published: true,
+			finish: previewtools.FinishDeadline, phase: v1alpha1.VerificationInfra,
+			reason: v1alpha1.VerificationReasonReplayIncomplete},
+		{name: "replay round stopped", replay: true, published: true, finish: previewtools.FinishStopped,
+			phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonReplayIncomplete},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newToolEnv(t)
@@ -753,7 +763,11 @@ func TestToolsNoEvaluatorIsInfra(t *testing.T) {
 			if pv, _ := e.verify(); (pv.Status.Tools != nil) != tc.published {
 				t.Fatalf("status.tools %+v", pv.Status.Tools)
 			}
-			log, msg := deadlineLedger(t)
+			finish := tc.finish
+			if finish == "" {
+				finish = previewtools.FinishDeadline
+			}
+			log, msg := relayFinishLedger(t, finish)
 			e.finishToolPod(job, pod, log, msg)
 			pv, _ := e.verify()
 			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {

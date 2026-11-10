@@ -675,6 +675,24 @@ const (
 	FinishBuildFailed = ReasonBuildFailed
 )
 
+// ReplayFinished reports a ledger the relay finished on its own account at
+// the end of a replay round's replay (FinishReplayOnly): only then did every
+// saved check get its turn. A replay round's relay that finished at its wall
+// clock or because its container was told to stop (FinishDeadline,
+// FinishStopped), or whose finish entry did not fit, may have left saved
+// checks unreplayed, and its round is maul's trouble, never judged (review
+// VC-3).
+func ReplayFinished(entries []toolwire.LedgerEntry) bool {
+	i := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Verb == toolwire.VerbFinish })
+	if i < 0 || entries[i].Kind != toolwire.KindRelay {
+		return false
+	}
+	var args struct {
+		Reason string `json:"reason"`
+	}
+	return json.Unmarshal(entries[i].Args, &args) == nil && args.Reason == FinishReplayOnly
+}
+
 // finish records the finish entry, emits the cited evidence, closes the
 // ledger and writes the termination message. kind is the runner's or the
 // relay's own; the caller holds r.mu.
