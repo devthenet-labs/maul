@@ -270,8 +270,8 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   tool pods at once (0, the slot count).
 - `cmd/preview-tester` — OPTIONAL (default-off with acceptance verification; chart `preview.verification`, a
   digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
-  tester Job preview-controller runs, stdlib plus `internal/acceptance` only, it observes and never judges. It reads
-  `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to `http://<PreviewComponentServiceName>:80` built
+  tester Job preview-controller runs, stdlib plus `internal/acceptance` and `internal/httpstep` only, it observes and
+  never judges. It reads `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to `http://<PreviewComponentServiceName>:80` built
   structurally (no redirects, no cookie jar, 10s and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with
   a count-and-sha256 summary that preview-controller reads back through `pods/log`, beside the termination message. The
   e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
@@ -834,7 +834,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
-  `api/v1alpha1`, `acceptance` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
+  `api/v1alpha1`, `httpstep` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
   `ReplayRuns`, `ConfirmationRuns`, `ConfirmedChecks` (bodies from the ledger's own dry-run records), the dry-run
   lookups and `Readiness`, all skipping base entries so they return the head's runs only, `BaseRuns` (base replays and
   base confirmations tagged `tree: base`, capped at `MaxBaseRuns`, the only source of `status.base.runs`),

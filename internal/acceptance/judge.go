@@ -153,7 +153,7 @@ func judgeTry(c Criterion, try TryObservation, run string) ([]StepVerdict, strin
 // the steps before it. The tester uses it only to decide whether to stop a
 // try and retry; the controller re-judges the whole criterion with Judge.
 func JudgeStep(st httpstep.Step, o StepObservation, run string, caps map[string]string) StepVerdict {
-	st = normalize(Criterion{Kind: KindHTTP, Steps: []httpstep.Step{st}}).Steps[0]
+	st = httpstep.NormalizeSteps([]httpstep.Step{st})[0]
 	transportOK := o.TransportError == httpstep.TransportNone || o.TransportError == ""
 	v := StepVerdict{Status: o.Status, Transport: o.TransportError}
 	if v.Transport == "" {
