@@ -12,7 +12,7 @@ import (
 )
 
 // stampScript is the release step that pins this binary's image, and the
-// slot tool pod's three, into the chart (.github/workflows/helm.yaml).
+// slot tool pod's other two, into the chart (.github/workflows/helm.yaml).
 const stampScript = "../../hack/stamp-preview-images.sh"
 
 const stampValues = `# head comment
@@ -20,10 +20,9 @@ image:
     repository: ghcr.io/devthenet-labs/maul
 
 preview:
-    # the tester, by digest only
+    # the tool pod, by digest only
     verification:
-        enabled: false
-        testerImage: "" # x-maul-preview-tester-image
+        deadlineMaxSeconds: 1800
         tools:
             image: "" # x-maul-preview-tools-image
             browserImage: "" # x-maul-preview-browser-image
@@ -33,7 +32,6 @@ preview:
 // stampKeys are the images the script stamps: the name it is called with,
 // the values line it rewrites and that line's marker.
 var stampKeys = []struct{ name, key, marker string }{
-	{"tester", "testerImage", "# x-maul-preview-tester-image"},
 	{"tools", "image", "# x-maul-preview-tools-image"},
 	{"browser", "browserImage", "# x-maul-preview-browser-image"},
 	{"toolbox", "toolboxImage", "# x-maul-preview-toolbox-image"},
@@ -98,7 +96,7 @@ func TestStampScript(t *testing.T) {
 	}
 	for name, args := range map[string][]string{
 		"an unknown image": {"agent", "ghcr.io/devthenet-labs/maul/agent", digest},
-		"no image name":    {"ghcr.io/devthenet-labs/maul/preview-tester", digest},
+		"no image name":    {"ghcr.io/devthenet-labs/maul/preview-tools", digest},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := stamp(t, stampValues, args...); err == nil {
@@ -106,6 +104,15 @@ func TestStampScript(t *testing.T) {
 			}
 		})
 	}
+	// The preview tester is deleted: its image is no longer stamped, even
+	// into values that still mark its line.
+	t.Run("the retired tester", func(t *testing.T) {
+		values := strings.Replace(stampValues, "        tools:\n",
+			"        testerImage: \"\" # x-maul-preview-tester-image\n        tools:\n", 1)
+		if _, err := stamp(t, values, "tester", "ghcr.io/devthenet-labs/maul/preview-tester", digest); err == nil {
+			t.Error("stamp accepted the retired tester")
+		}
+	})
 }
 
 // TestStampChartValues: the shipped chart holds each marked line the

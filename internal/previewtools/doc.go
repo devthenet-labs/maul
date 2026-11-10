@@ -3,9 +3,9 @@
 
 // Package previewtools is the engine of cmd/preview-tools, the relay in
 // the tools container of the agent evaluator's tool pod (DESIGN 2.1, 2.2,
-// 2.7, 2.9, 4.2; SPEC S1-06, Q1, Q7, Q18). It replaces slice 1's tester:
-// its HTTP client and readiness wait come from internal/previewtester,
-// which stays until S4.
+// 2.7, 2.9, 4.2; SPEC S1-06, Q1, Q7, Q18). It replaced slice 1's tester
+// (deleted in S4), whose HTTP client and readiness wait it carries
+// (http.go).
 //
 // Config (config.go) is its one input, the tool ConfigMap preview-
 // controller mounts at DefaultConfigDir: ConfigFile holds the components

@@ -66,8 +66,8 @@ jobs:
                   # empty ref falls through to checkout's default (the triggering ref)
                   ref: ${{ inputs.ref }}
 
-            # The preview tester and the slot tool pod's three images (tools,
-            # browser, toolbox) run inside preview slots, whose admission
+            # The slot tool pod's three images (tools, browser, toolbox) run
+            # inside preview slots, whose admission
             # policies admit each only by exact digest, so the chart carries
             # them by digest, never by tag (tools is also the agents-namespace
             # tool pod's prepare, seed and relay image, which its
@@ -87,7 +87,7 @@ jobs:
                   docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin <<<"${GITHUB_TOKEN}"
                   registry="$(yq -r '.image.repository' charts/maul/values.yaml)"
                   version="$(yq -r '.appVersion' charts/maul/Chart.yaml)"
-                  for name in tester tools browser toolbox; do
+                  for name in tools browser toolbox; do
                       repository="${registry}/preview-${name}"
                       digest="$(docker buildx imagetools inspect "${repository}:v${version}" --format '{{ .Manifest.Digest }}')"
                       hack/stamp-preview-images.sh charts/maul/values.yaml "${name}" "${repository}" "${digest}"
