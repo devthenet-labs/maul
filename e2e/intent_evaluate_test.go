@@ -139,6 +139,9 @@ type evalOptions struct {
 	beforeIntents func(*cluster) []string
 	// component, when set, is served as the application in evalApp's place.
 	component http.Handler
+	// github, when set, shapes the fake GitHub before any controller
+	// reads it (a permission the installation does not hold).
+	github func(*fakegithub.Server)
 }
 
 // startEvaluate runs the evaluator stack for a Project whose one
@@ -147,6 +150,9 @@ type evalOptions struct {
 func startEvaluate(t *testing.T, o evalOptions) *evalEnv {
 	t.Helper()
 	cl, gh, registry := startSourceStack(t, appRepo)
+	if o.github != nil {
+		o.github(gh)
+	}
 	startEvaluatingPreviewController(t, cl, o.previewArgs...)
 	spec := v1alpha1.ProjectSpec{
 		IntentRepository: intentRepoURL,
