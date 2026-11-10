@@ -189,8 +189,11 @@ are not brokered.
   inline `data:` URI. `max_output_tokens` is the request's output bound and is held to `--max-tokens-ceiling`.
 - **Usage.** Usage arrives once, in the terminal `response.completed`, `response.incomplete` or `response.failed` event
   (or a JSON body's `usage`). Cached input (`input_tokens_details.cached_tokens`) is charged as cache reads and the rest
-  of `input_tokens` as input; `output_tokens` (reasoning included) as output. OpenAI reports no separate cache writes,
-  so there are none. The terminal event carries the whole response, so its line may be up to 8 MiB (the Anthropic routes
+  of `input_tokens` as input; `output_tokens` (reasoning included) as output. Cache writes
+  (`input_tokens_details.cache_write_tokens`, billed from GPT-5.6 on) are charged as five-minute cache writes, whose
+  1.25x is OpenAI's 30-minute rate; a request asking for another cache TTL (`prompt_cache_options` or a
+  `prompt_cache_breakpoint` whose `ttl` is not `30m`, such as the 12-hour one at 2.5x) is refused (403), since no ledger
+  class prices it. The terminal event carries the whole response, so its line may be up to 8 MiB (the Anthropic routes
   skip lines over 64 KiB); a larger one, a stream cut before its terminal event, or a terminal event without usage is
   charged its worst case, bounded by `max_output_tokens`. Dated snapshots (`gpt-5.3-codex-2026-02-05`) are priced as
   their model, at its registry rates.

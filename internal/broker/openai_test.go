@@ -144,34 +144,43 @@ func TestOpenAIUsageScannerChunkingProperty(t *testing.T) {
 }
 
 // TestOpenAIUsageConservationProperty (seeded): the Responses mapping
-// conserves the reported totals. Fresh input plus cache reads is exactly
-// input_tokens, output is output_tokens, no cache write is ever invented,
-// and the total every limit counts is input_tokens + output_tokens, for
-// any figures the upstream reports, malformed ones included (a cached
-// count over the input, a negative one).
+// conserves the reported totals. Fresh input plus cache reads plus cache
+// writes is exactly input_tokens, output is output_tokens, no one-hour write
+// is ever invented, and the total every limit counts is input_tokens +
+// output_tokens, for any figures the upstream reports, malformed ones
+// included (a cached or written count over the input, a negative one).
 func TestOpenAIUsageConservationProperty(t *testing.T) {
 	cfg := quickConfig()
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
 		in := r.Int63n(1 << 40)
 		cached := r.Int63n(in + 1)
-		switch r.Intn(6) {
+		written := r.Int63n(in - cached + 1)
+		switch r.Intn(8) {
 		case 0:
 			cached = in + 1 + r.Int63n(1000) // more cached than input
 		case 1:
 			cached = -r.Int63n(1000)
+		case 2:
+			written = in + 1 + r.Int63n(1000) // more written than input
+		case 3:
+			written = -r.Int63n(1000)
 		}
 		args[0] = reflect.ValueOf(in)
 		args[1] = reflect.ValueOf(cached)
-		args[2] = reflect.ValueOf(r.Int63n(1 << 40))
+		args[2] = reflect.ValueOf(written)
+		args[3] = reflect.ValueOf(r.Int63n(1 << 40))
 	}
-	prop := func(in, cached, out int64) bool {
+	prop := func(in, cached, written, out int64) bool {
+		raw := fmt.Sprintf(`{"input_tokens":%d,"input_tokens_details":{"cached_tokens":%d,"cache_write_tokens":%d},`+
+			`"output_tokens":%d}`, in, cached, written, out)
 		var j openaiUsageJSON
-		if err := json.Unmarshal([]byte(openaiUsageObject(in, cached, out)), &j); err != nil {
+		if err := json.Unmarshal([]byte(raw), &j); err != nil {
 			return false
 		}
 		u := j.usage()
-		return u.input+u.cacheRead == in && u.output == out && u.cacheCreation == 0 && u.cacheWrite1h == 0 &&
-			u.input >= 0 && u.cacheRead >= 0 && u.cacheRead <= in && u.total() == in+out
+		return u.input+u.cacheRead+u.cacheCreation == in && u.output == out && u.cacheWrite1h == 0 &&
+			u.input >= 0 && u.cacheRead >= 0 && u.cacheCreation >= 0 && u.cacheRead <= in &&
+			u.total() == in+out
 	}
 	if err := quick.Check(prop, cfg); err != nil {
 		t.Fatal(err)
@@ -190,6 +199,15 @@ func TestOpenAIUsageMapping(t *testing.T) {
 		{openaiUsageObject(100, -5, 7), usage{input: 100, output: 7}},
 		{`{"input_tokens":-3,"output_tokens":-1}`, usage{}},
 		{`{}`, usage{}},
+		// GPT-5.6 and later bill a cache write at 1.25x input (a 30-minute
+		// write, the only TTL the broker forwards): part of input_tokens,
+		// apart from the cache reads, in the five-minute class.
+		{`{"input_tokens":100,"input_tokens_details":{"cached_tokens":40,"cache_write_tokens":30},` +
+			`"output_tokens":7}`, usage{input: 30, cacheRead: 40, cacheCreation: 30, output: 7}},
+		{`{"input_tokens":100,"input_tokens_details":{"cached_tokens":40,"cache_write_tokens":90},` +
+			`"output_tokens":7}`, usage{cacheRead: 40, cacheCreation: 60, output: 7}},
+		{`{"input_tokens":100,"input_tokens_details":{"cache_write_tokens":-4},"output_tokens":7}`,
+			usage{input: 100, output: 7}},
 	}
 	for _, tt := range tests {
 		var j openaiUsageJSON
@@ -314,6 +332,16 @@ func TestInspectOpenAIBody(t *testing.T) {
 			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
 		{"nested namespace outside any tools list", `{"input":[{"type":"namespace","name":"x",` +
 			`"tools":[{"type":"namespace","name":"y","tools":[]}]}]}`, `server tool "namespace"`, "", 0},
+		// A cache write is priced at 1.25x input, the 30-minute rate; the
+		// 12-hour one (2.5x) has no class in the ledger, so it is refused.
+		{"30-minute cache", `{"model":"m","prompt_cache_options":{"ttl":"30m"},"input":[{"type":"message",` +
+			`"content":[{"type":"input_text","text":"x","prompt_cache_breakpoint":{"ttl":"30m"}}]}]}`, "", "m", 0},
+		{"cache options without a ttl", `{"model":"m","prompt_cache_options":{}}`, "", "m", 0},
+		{"12-hour cache", `{"prompt_cache_options":{"ttl":"12h"}}`, "cache TTL is brokered", "", 0},
+		{"12-hour breakpoint", `{"input":[{"type":"message","content":[{"type":"input_text","text":"x",` +
+			`"prompt_cache_breakpoint":{"ttl":"12h"}}]}]}`, "cache TTL", "", 0},
+		{"unknown cache ttl", `{"prompt_cache_options":{"ttl":"1h"}}`, "cache TTL", "", 0},
+		{"non-string cache ttl", `{"prompt_cache_options":{"ttl":12}}`, "cache TTL", "", 0},
 		{"tools list in a function's parameters", `{"model":"m","tools":[{"type":"function","name":"x",` +
 			`"parameters":{"tools":[{"type":"web_search"}]}}]}`, "", "m", 0},
 	}

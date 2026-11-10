@@ -82,9 +82,8 @@ func builtins() []Model {
 			// per MTok for prompts up to 100K tokens, rising to $0.50 / $2.50
 			// above. The registry holds one rate per token class, so it
 			// carries the long-prompt tier: a run is then never undercounted,
-			// only overcounted below 100K. The long tier's cache read is not
-			// published; it is taken as a tenth of that tier's input, the
-			// ratio the other Anthropic models keep.
+			// only overcounted below 100K. Its cache read is a tenth of that
+			// tier's input, as Anthropic publishes for both tiers.
 			ID: "anthropic/claude-haiku-5-5", ProviderID: ProviderAnthropic, Name: "Claude Haiku 5.5",
 			InputUSD: usd(0.50), CachedInputUSD: usd(0.05), OutputUSD: usd(2.50),
 			Supported: map[string]string{HarnessClaude: "claude-haiku-5-5", HarnessCopilot: "claude-haiku-5.5"},
@@ -160,13 +159,14 @@ func builtins() []Model {
 			Preferred: HarnessCodex,
 		},
 		{
-			// OpenAI's published standard-tier rates (prompts up to 272K
-			// tokens). GPT-6 also bills cache writes, at 1.25x input for a
-			// 30-minute write and 2.5x for a 12-hour one, which the broker's
-			// Responses dialect does not yet read apart from fresh input, so
-			// a write is priced at the base input rate there. Like GPT-5.6,
-			// codex runs it in code mode only, whose host the codex runner
-			// image does not carry, so on maul's codex it runs no command.
+			// OpenAI's published short-context rates (prompts up to 272K
+			// tokens). Above 272K it lists $20 / $2 / $75, which this entry
+			// does not carry, so such a prompt is undercounted. A 30-minute
+			// cache write bills at 1.25x input, which the broker records in
+			// the five-minute class; a 12-hour one (2.5x) is refused there.
+			// Like GPT-5.6, codex runs it in code mode only, whose host the
+			// codex runner image does not carry, so on maul's codex it runs
+			// no command.
 			ID: "openai/gpt-6-astra", ProviderID: ProviderOpenAI, Name: "GPT-6 Astra",
 			InputUSD: usd(10.00), CachedInputUSD: usd(1.00), OutputUSD: usd(50.00),
 			Supported: map[string]string{HarnessCodex: "gpt-6-astra", HarnessCopilot: "gpt-6-astra"},

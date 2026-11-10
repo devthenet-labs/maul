@@ -533,11 +533,24 @@ agent:
         name: foundry
         resource: my-foundry
         modelMap:
-          anthropic/claude-sonnet-5: my-sonnet-deployment
-          anthropic/claude-opus-5: my-opus-deployment
+          anthropic/claude-sonnet-5-5: my-sonnet-deployment
+          anthropic/claude-opus-5-5: my-opus-deployment
 egressBroker:
   foundrySecret: maul-foundry # omit for Entra via Azure Workload Identity
 ```
+
+!!! note "Upgrading to the Claude Sonnet 5.5 defaults"
+
+    The default models moved from `anthropic/claude-sonnet-5` to `anthropic/claude-sonnet-5-5` (every stage, the
+    evaluator and the check reviewer included), and the default `agent.modelAllowlist` to
+    `anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5`. Check three settings before upgrading:
+
+    - A **Foundry** `modelMap` must name a deployment for each of these models, or the controllers refuse to start.
+      To stay on the 5-series instead, pin the old models in `agent.modelAllowlist`, `agent.investigate.model`,
+      `agent.remediate.model` and the `intentController` stage models.
+    - A non-empty `egressBroker.limits.modelAllowlist` must admit the new models, or the broker refuses their requests.
+    - On the 5.5 models the claude CLI asks for 128000 output tokens per request by default, up from 64000, so an
+      `egressBroker.limits.maxTokensCeiling` below 128000 refuses every plan, build, investigate and remediate request.
 
 Scope the cloud role to Invoke only: `bedrock:InvokeModel*`, `aiplatform.endpoints.predict`, Cognitive Services User.
 
