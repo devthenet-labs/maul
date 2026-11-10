@@ -846,10 +846,15 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `ReplayRuns`, `ConfirmationRuns`, `ConfirmedChecks` (bodies from the ledger's own dry-run records), the dry-run
   lookups and `Readiness`, all skipping base entries so they return the head's runs only, `BaseRuns` (base replays and
   base confirmations tagged `tree: base`, capped at `MaxBaseRuns`, the only source of `status.base.runs`),
-  `ConfigMapData` (oldest outputs dropped first) and `Key`. Its trust root: a log that does not hold is Infra
+  `ConfigMapData` (oldest outputs dropped first) and `Key`; `ApplyStatus` (the one ledger-to-status write both hosts
+  make: replay, confirmations, confirmed checks, and the summary the host names its ConfigMaps on), `EvaluatorCalled`
+  and `RoundReason` (full round with no evaluator call: `evaluator-not-run`, or `tools-not-ready` with no
+  `status.tools`; replay round cut short: `replay-incomplete`). Its trust root: a log that does not hold is Infra
   `ledger-mismatch`, never a verdict.
 - `toolpod` — what both hosts render alike, values only (pin: stdlib, core/v1, `api/v1alpha1`, `previewtools`):
-  `Security(uid)`, `Deadlines` (Job, pod and relay wall clock), `NewKey`, `ConfigData`.
+  `Security(uid)`, `Deadlines` (Job, pod and relay wall clock), `NewKey`, `ConfigData`. `toolpod/podstate` (pin:
+  stdlib, core/v1) is how both hosts read a tool pod: `TerminationMessage`, `ImageID` (empty past the status field's
+  512 characters), `CrashLooping` (bound `RestartBound`), `ImagePullWaiting`/`ImagePullReason`, `Unschedulable`.
 - **Verification flow** (default off; the evaluator's switch; chart `preview.verification`, whose
   `deadlineMaxSeconds` drives both controllers' deadline flags (`--intent-verify-timeout-max`, slice 1's tester wall
   clock, has had no effect since S4 PR 6); before its manager starts, intent-controller takes a read-only census of

@@ -408,9 +408,10 @@ func TestCollectBuilds(t *testing.T) {
 // Infra, never a verdict, and keep no ledger.
 func TestCollectRefusesTheLedger(t *testing.T) {
 	for name, tc := range map[string]struct {
-		mutate func(h *harness, log []byte, msg string) ([]byte, string)
-		opts   ledgerOpts
-		reason v1alpha1.PreviewVerificationReason
+		mutate   func(h *harness, log []byte, msg string) ([]byte, string)
+		opts     ledgerOpts
+		notReady bool
+		reason   v1alpha1.PreviewVerificationReason
 	}{
 		"tampered log": {mutate: func(_ *harness, log []byte, msg string) ([]byte, string) {
 			return []byte(strings.Replace(string(log), "usage", "USAGE", 1)), msg
@@ -425,9 +426,18 @@ func TestCollectRefusesTheLedger(t *testing.T) {
 		}, reason: v1alpha1.VerificationReasonLedgerMismatch},
 		"no evaluator": {opts: ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt,
 			noEvaluator: true}, reason: v1alpha1.VerificationReasonEvaluatorNotRun},
+		"no evaluator, the tools never ready": {opts: ledgerOpts{headBuild: v1alpha1.BuildBuilt,
+			baseBuild: v1alpha1.BuildBuilt, noEvaluator: true}, notReady: true,
+			reason: v1alpha1.VerificationReasonToolsNotReady},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := running(t, newWorld(t))
+			var h *harness
+			if tc.notReady {
+				h = newHarness(t, newWorld(t))
+				h.reconcile(t)
+			} else {
+				h = running(t, newWorld(t))
+			}
 			opts := tc.opts
 			if opts.headBuild == "" {
 				opts = ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt}
@@ -446,6 +456,40 @@ func TestCollectRefusesTheLedger(t *testing.T) {
 			if tc.reason == v1alpha1.VerificationReasonLedgerMismatch &&
 				(pv.Status.Ledger != nil || pv.Status.Base != nil || pv.Status.Replay != nil) {
 				t.Errorf("a refused ledger kept on status: %+v", pv.Status)
+			}
+		})
+	}
+}
+
+// TestCollectGuardsTheImageID: an image ID longer than the status field's
+// 512-character bound is left off status, as the slot host leaves it, so
+// the settle's status write is never refused for it; the round's verdict
+// stands.
+func TestCollectGuardsTheImageID(t *testing.T) {
+	long := "ghcr.io/devthenet-labs/maul/preview-tools@sha256:" + strings.Repeat("1", 512)
+	for _, tc := range []struct {
+		name, imageID, want string
+	}{
+		{"within the bound", "ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111",
+			"ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111"},
+		{"exactly 512", strings.Repeat("a", 512), strings.Repeat("a", 512)},
+		{"over the bound", long, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := running(t, newWorld(t))
+			log, msg := toolsLog(t, ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt})
+			finish(h.tools.job, h.now)
+			pod := terminated(readyPod(), msg)
+			pod.Status.ContainerStatuses[0].ImageID = tc.imageID
+			h.tools.pod, h.tools.log = pod, log
+			h.reconcile(t)
+			pv := h.pv(t)
+			if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
+				t.Fatalf("status = %s %s, want Observed", pv.Status.Phase, pv.Status.Reason)
+			}
+			if pv.Status.TesterImageID != tc.want {
+				t.Errorf("image ID = %q (%d characters), want %q", pv.Status.TesterImageID,
+					len(pv.Status.TesterImageID), tc.want)
 			}
 		})
 	}

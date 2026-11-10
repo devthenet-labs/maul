@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/toolpod/podstate"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -501,7 +502,7 @@ func currentPod(pods []corev1.Pod, p *v1alpha1.Preview, c v1alpha1.PreviewCompon
 // component's its last one.
 func podFact(pod *corev1.Pod, name, container string, role v1alpha1.PreviewPartRole) v1alpha1.PartFact {
 	f := v1alpha1.PartFact{Name: name, Role: role, Evicted: pod.Status.Reason == "Evicted",
-		Unschedulable: unschedulable(pod)}
+		Unschedulable: podstate.Unschedulable(pod)}
 	i := slices.IndexFunc(pod.Status.ContainerStatuses, func(s corev1.ContainerStatus) bool {
 		return s.Name == container
 	})

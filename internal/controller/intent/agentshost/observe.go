@@ -17,6 +17,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
 	"github.com/devthenet-labs/maul/internal/toolpod"
+	"github.com/devthenet-labs/maul/internal/toolpod/podstate"
 )
 
 // observe follows a running tool pod: its sandbox probe refusing (exit 78,
@@ -98,11 +99,11 @@ func (r *Reconciler) stuck(pv *v1alpha1.PreviewVerification, pod *corev1.Pod) v1
 	switch {
 	case pod == nil:
 		return v1alpha1.VerificationReasonToolsNotReady
-	case unschedulable(pod):
+	case podstate.Unschedulable(pod):
 		return v1alpha1.VerificationReasonToolsUnscheduled
-	case imagePullWaiting(pod):
+	case podstate.ImagePullWaiting(pod):
 		return v1alpha1.VerificationReasonToolsImagePull
-	case crashLooping(pod):
+	case podstate.CrashLooping(pod, podstate.RestartBound) != nil:
 		return v1alpha1.VerificationReasonToolsCrashLoop
 	case since >= jobDeadline+grace:
 		return v1alpha1.VerificationReasonToolsDeadline
@@ -147,47 +148,12 @@ func evicted(pod *corev1.Pod) bool {
 func pullStatus(pod *corev1.Pod, start time.Time) jobs.Status {
 	st := jobs.Status{RunnerImageSource: v1alpha1.RunnerImageSourceRepository, AgentStarted: true, Created: start}
 	for _, s := range statuses(pod) {
-		if s.State.Waiting != nil && imagePullReason(s.State.Waiting.Reason) {
+		if s.State.Waiting != nil && podstate.ImagePullReason(s.State.Waiting.Reason) {
 			st.Waiting, st.WaitingMessage, st.AgentStarted = s.State.Waiting.Reason, s.State.Waiting.Message, false
 			break
 		}
 	}
 	return st
-}
-
-// imagePullReason reports a waiting reason of an image that is not pulled.
-func imagePullReason(reason string) bool {
-	switch reason {
-	case "ErrImagePull", "ImagePullBackOff", "InvalidImageName", "ErrImageNeverPull":
-		return true
-	}
-	return false
-}
-
-// imagePullWaiting reports any container waiting on its image.
-func imagePullWaiting(pod *corev1.Pod) bool {
-	return slices.ContainsFunc(statuses(pod), func(s corev1.ContainerStatus) bool {
-		return s.State.Waiting != nil && imagePullReason(s.State.Waiting.Reason)
-	})
-}
-
-// unschedulable reports a pod the scheduler could not place.
-func unschedulable(pod *corev1.Pod) bool {
-	return slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
-		return c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse &&
-			c.Reason == corev1.PodReasonUnschedulable
-	})
-}
-
-// crashLooping reports a container, a sidecar's included, that keeps
-// exiting in error: backed off, or restarted restartBound times with its
-// last exit in error.
-func crashLooping(pod *corev1.Pod) bool {
-	return slices.ContainsFunc(statuses(pod), func(s corev1.ContainerStatus) bool {
-		last := s.LastTerminationState.Terminated
-		return s.State.Waiting != nil && s.State.Waiting.Reason == "CrashLoopBackOff" ||
-			s.RestartCount >= restartBound && last != nil && last.ExitCode != 0
-	})
 }
 
 // toolsReady reports the pod Ready with an address, the tools container
