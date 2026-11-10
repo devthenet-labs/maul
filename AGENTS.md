@@ -823,9 +823,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   tree, `/work/bin` and `HOME` put back from the copy `/work/kept` taken after the build (at most `MaxKeptBytes`, else
   `KeepFailed`) and held to their in-memory digests, refused when they cannot be; the caches (GOCACHE, npm's) pruned to
   the build's own entries by an in-memory manifest of type, mode, size, inode and ctime, never copied (a removed Go entry
-  only a miss, an npm one fetched again or an install error, never another answer); an empty `TMPDIR` of the run's own under `Options.Tmp`, shared by its later requests; `fresh.go`,
-  `cache.go`), UID 0 refused) and `cmd/maul-tool` (the CLI:
-  `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into `shots/` under the scratch
+  only a miss, an npm one fetched again or an install error, never another answer); an empty `TMPDIR` of the run's
+  own under `Options.Tmp`, shared by its later requests; `fresh.go`, `cache.go`), UID 0 refused) and `cmd/maul-tool`
+  (the CLI: `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into `shots/` under the scratch
   directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
