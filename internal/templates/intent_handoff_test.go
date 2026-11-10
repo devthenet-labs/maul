@@ -39,6 +39,14 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_status_handoff_unconfirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyAnomaly}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 2, FixesUsed: 1,
 			MaxFixes: 2, Passing: 2, Total: 3, Outcomes: true})},
+		// Review H2: every outcome confirmed, unsure only for an anomaly or
+		// the preview failing: the line names that cause.
+		{"intent_status_handoff_anomaly_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
+			Why: HandoffWhyAnomaly}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
+			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyAnomaly})},
+		{"intent_status_handoff_environment_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
+			Why: HandoffWhyEnvironment}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
+			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyEnvironment})},
 		{"intent_status_handoff_out_of_time.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyTime}, evaluating)},
 		{"intent_status_handoff_checking.md", status(&PreviewHandoff{State: HandoffChecking}, evaluating)},
@@ -123,6 +131,35 @@ func TestHandoffWhyIsMaulsWords(t *testing.T) {
 	got := handoffLabel(PreviewHandoff{State: HandoffUnconfirmed, Why: "@octocat #3"})
 	if strings.Contains(got, "octocat") || !strings.Contains(got, handoffWhyWords[HandoffWhyUnsure]) {
 		t.Errorf("unknown why = %q", got)
+	}
+}
+
+// TestUnconfirmedCause (review H2): a round whose every outcome was
+// confirmed is named by the one cause that kept it unconfirmed, an anomaly
+// or its environment (a preview only where there is one); any other reason
+// names none, so its line stays as it was.
+func TestUnconfirmedCause(t *testing.T) {
+	for _, tt := range []struct {
+		why       string
+		workspace bool
+		want      string
+	}{
+		{HandoffWhyAnomaly, false, handoffWhyWords[HandoffWhyAnomaly]},
+		{HandoffWhyAnomaly, true, handoffWhyWords[HandoffWhyAnomaly]},
+		{HandoffWhyEnvironment, false, handoffWhyWords[HandoffWhyEnvironment]},
+		{HandoffWhyEnvironment, true, workspaceEnvironmentWords},
+		{HandoffWhyUnsure, false, ""},
+		{HandoffWhyBudget, false, ""},
+		{"", true, ""},
+		{"@octocat", false, ""},
+	} {
+		got := UnconfirmedCause(tt.why, tt.workspace)
+		if got != tt.want {
+			t.Errorf("%q (workspace %v) = %q, want %q", tt.why, tt.workspace, got, tt.want)
+		}
+		if tt.workspace && strings.Contains(got, "preview") {
+			t.Errorf("%q names a preview on a Project with none: %q", tt.why, got)
+		}
 	}
 }
 

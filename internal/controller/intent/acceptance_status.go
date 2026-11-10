@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The maul/acceptance commit status (acceptance verification, slice 1):
@@ -201,7 +202,7 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 			// Final until an approver accepts what maul could not
 			// confirm, or the heads move: never a pending status that
 			// waits for nothing.
-			return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed}, true
+			return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed + p.unconfirmedCause()}, true
 		}
 		if who := outcomeAccepters(acc, v); len(who) > 0 {
 			return acceptanceState{statusSuccess, confirmed + "; some accepted by hand " + acceptedBy(who)}, true
@@ -226,6 +227,21 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 		return acceptanceState{statusFailure, confirmed + "; no automatic fix left"}, true
 	}
 	return acceptanceState{}, false
+}
+
+// unconfirmedCause is ", but" and the cause a round whose every outcome
+// is confirmed or accepted was still not confirmed for (review H2), so its
+// description never reads as all confirmed with nothing wrong; "" while
+// an outcome is not confirmed, which the counts say, or for another cause.
+func (p *pass) unconfirmedCause() string {
+	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	if total := int32(len(acc.Outcomes)); total == 0 || confirmedCount(acc, v) != total {
+		return ""
+	}
+	if cause := templates.UnconfirmedCause(p.gaveUp(acc, v), p.set.linkless(p.proj)); cause != "" {
+		return ", but " + cause
+	}
+	return ""
 }
 
 // checkingStatus is the pending status of an evaluation round under way.

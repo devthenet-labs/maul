@@ -151,6 +151,12 @@ type VerifyProgress struct {
 	// review, 6), so the fix is theirs, never called automatic, and no
 	// failing count is shown for it.
 	DefectConfirmed bool
+	// Why is why an unconfirmed evaluation will not go on (a HandoffWhy
+	// constant, "" for none): with every outcome confirmed, the line names
+	// it in place of the counts' "couldn't confirm every outcome"
+	// (UnconfirmedCause, review H2). Workspace is a Project with no preview.
+	Why       string
+	Workspace bool
 }
 
 // verifyRestingLine is the sentence of a state nothing is checked in:
@@ -239,6 +245,11 @@ func verifyLine(p VerifyProgress) string {
 		head = which + " running: " + join(counts, fixes)
 	case VerifyUnconfirmed:
 		head = which + ": maul couldn't confirm every outcome: " + join(counts, fixes)
+		if cause := UnconfirmedCause(p.Why, p.Workspace); cause != "" && p.Total > 0 && p.Passing == p.Total {
+			// Every outcome confirmed: the cause, not the counts, is why
+			// maul could not confirm the round (review H2).
+			head = which + ": " + counts + ", but maul couldn't confirm this: " + cause + "; " + fixes
+		}
 	case VerifyPassed:
 		head = passed
 	case VerifyFailing:
@@ -392,6 +403,14 @@ type VerifySuspected struct {
 	// ConfirmedBy is the approver whose /maul verify fix confirmed it
 	// (fifth review, 6); "" while it waits for a person.
 	ConfirmedBy string
+	// Held: the hand-off is held while the defect waits for a person, so
+	// the note says so; false says nothing of a hold, which is not in
+	// force once released (gate D-B3).
+	Held bool
+	// Workspace: the Project has no preview (SPEC-S2), so the note names
+	// the held hand-off, not a link, and only the limits of the checks a
+	// workspace runs.
+	Workspace bool
 }
 
 // VerifySuspectedMaxBytes bounds the reproduction a comment shows.
@@ -416,17 +435,39 @@ func suspectedNote(s *VerifySuspected) string {
 		fmt.Fprintf(&b, "maul believes %s %s a defect: the evaluator reported the outcome fails, and maul's own runs "+
 			"of the check it saved to show it, each alone under a fresh run token, failed the same assertion. maul "+
 			"does not fix a defect found this way on its own: a person should confirm it. An approver's "+
-			"`/maul verify fix` starts a fix round, handed the reproduction below; until then the preview link stays "+
-			"held. Known limits: an http or exec check reads right after it writes, so an application that updates "+
-			"asynchronously or serves a cached read for a few seconds can look like this; a `clickable` check judges "+
-			"one moment, so a passing toast or spinner over the element can too; and an exec check's failed "+
-			"assertion is whatever its program reports, so a program that reports every failure that way can look "+
-			"like this too.", strings.Join(ids, ", "), plural(int32(len(ids)), "has", "have"))
+			"`/maul verify fix` starts a fix round, handed the reproduction below%s. Known limits: %s",
+			strings.Join(ids, ", "), plural(int32(len(ids)), "has", "have"), suspectedHold(s), suspectedLimits(s))
 	}
 	if r := strings.TrimSpace(cutRunes(visibleText(s.Reproduction), VerifySuspectedMaxBytes)); r != "" {
 		b.WriteString("\n\nmaul's reproduction:\n\n" + fence(defang(r)))
 	}
 	return b.String()
+}
+
+// suspectedHold is the clause naming the hold a suspected defect keeps,
+// after "handed the reproduction below": the preview link on a slot
+// Project, the hand-off on one with no preview; "" once it is released.
+func suspectedHold(s *VerifySuspected) string {
+	switch {
+	case !s.Held:
+		return ""
+	case s.Workspace:
+		return "; until then maul holds its hand-off to the reviewers"
+	}
+	return "; until then the preview link stays held"
+}
+
+// suspectedLimits are the known limits of the checks that show a suspected
+// defect, ending in a full stop: a workspace runs exec and run checks only.
+func suspectedLimits(s *VerifySuspected) string {
+	if s.Workspace {
+		return "an exec or run check's failed assertion is whatever its program reports, so a program that " +
+			"reports every failure that way can look like this."
+	}
+	return "an http or exec check reads right after it writes, so an application that updates asynchronously or " +
+		"serves a cached read for a few seconds can look like this; a `clickable` check judges one moment, so a " +
+		"passing toast or spinner over the element can too; and an exec check's failed assertion is whatever its " +
+		"program reports, so a program that reports every failure that way can look like this too."
 }
 
 // VerifyNoDefect is an acceptance-fix round's conclusion that the code has

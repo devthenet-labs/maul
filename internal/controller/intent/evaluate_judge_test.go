@@ -48,6 +48,9 @@ type judgeRoute struct {
 	progress, status, held, why string
 	disputed                    int
 	versionResult, manualResult v1alpha1.OutcomeResultValue
+	// description is the maul/acceptance description and line a sentence
+	// of the verification comment, each checked when given (review H2).
+	description, line string
 }
 
 // TestJudgementRoutes: every route a round's decision can take, to the
@@ -91,7 +94,11 @@ func TestJudgementRoutes(t *testing.T) {
 		{name: "anomaly", version: pass(oVersion), healthy: pass(oHealthy), anomaly: true, acceptManual: true,
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyAnomaly, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeAccepted},
+			manualResult: v1alpha1.OutcomeAccepted,
+			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but it noticed something odd while it " +
+				"looked around",
+			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: it noticed something odd " +
+				"while it looked around; 0 of 2 automatic fixes used."},
 		{name: "environment failed",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
 			healthy: pass(oHealthy), env: acceptance.EnvAppFailure, acceptManual: true,
@@ -105,12 +112,18 @@ func TestJudgementRoutes(t *testing.T) {
 			env: acceptance.EnvAppFailure, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeAccepted},
+			manualResult: v1alpha1.OutcomeAccepted,
+			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but the preview failed while it was " +
+				"checked",
+			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: the preview failed while it " +
+				"was checked; 0 of 2 automatic fixes used."},
 		{name: "every outcome passed on failing machinery", version: pass(oVersion), healthy: pass(oHealthy),
 			env: acceptance.EnvInfra, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeAccepted},
+			manualResult: v1alpha1.OutcomeAccepted,
+			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but the preview failed while it was " +
+				"checked"},
 		{name: "quarantined",
 			version: judged(oVersion, acceptance.ResultQuarantined, acceptance.ReasonQuarantined, ""),
 			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
@@ -232,6 +245,19 @@ func checkRouteViews(t *testing.T, p *pass, tc judgeRoute) {
 		Round: v.Round, Attempt: v.Attempt, Section: *section})
 	if err != nil || len(section.Outcomes) != 3 || !strings.Contains(body, "`"+oVersion+"`") {
 		t.Errorf("verification comment = %q, %v", body, err)
+	}
+	checkRouteWords(t, tc, st.description, body)
+}
+
+// checkRouteWords holds the maul/acceptance description and the
+// verification comment's body to the exact words tc gives (review H2).
+func checkRouteWords(t *testing.T, tc judgeRoute, description, body string) {
+	t.Helper()
+	if tc.description != "" && description != tc.description {
+		t.Errorf("maul/acceptance description %q, want %q", description, tc.description)
+	}
+	if tc.line != "" && !strings.Contains(body, tc.line) {
+		t.Errorf("verification comment does not say %q:\n%s", tc.line, body)
 	}
 }
 

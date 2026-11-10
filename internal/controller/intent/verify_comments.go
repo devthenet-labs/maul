@@ -204,6 +204,7 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 		if outcomesReady(acc, v) {
 			return judged(templates.VerifyPassed)
 		}
+		out.Why, out.Workspace = p.gaveUp(acc, v), p.set.linkless(p.proj)
 		return judged(templates.VerifyUnconfirmed)
 	case v1alpha1.VerificationFailing:
 		switch {
@@ -286,7 +287,10 @@ func (p *pass) suspectedView(ctx context.Context, pv *v1alpha1.PreviewVerificati
 	if !suspectedPending(v) && !defectConfirmed(v) || pv == nil || v.Suspected.Verification != pv.Name {
 		return nil
 	}
-	out := &templates.VerifySuspected{Outcomes: slices.Clone(v.Suspected.Outcomes)}
+	// The note claims a hold only while the hand-off shows one (gate D-B3).
+	h := p.handoffView()
+	out := &templates.VerifySuspected{Outcomes: slices.Clone(v.Suspected.Outcomes),
+		Held: h != nil && h.State == templates.HandoffHeld, Workspace: p.set.linkless(p.proj)}
 	if c := v.Suspected.Confirmed; c != nil {
 		out.ConfirmedBy = c.By
 	}
