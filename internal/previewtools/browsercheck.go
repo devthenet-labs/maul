@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/checks/playwright"
@@ -106,7 +107,7 @@ func aboutTheRun(steps []toolwire.StepRecord, b checks.BrowserCheck) []toolwire.
 			a = b.Steps[s.Index].Expect
 		}
 		if a == nil || !checks.LayoutAssertion(a.Assert) && (a.Assert == checks.AssertCount || !marshalsRun(a)) {
-			steps[i].Assertion, steps[i].AssertionID = false, ""
+			steps[i].Assertion, steps[i].AssertionID, steps[i].Received = false, "", ""
 		}
 	}
 	return steps
@@ -172,6 +173,7 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 	rec := toolwire.StepRecord{Index: at, Result: result, Detail: detail, Assertion: assertion}
 	if assertion {
 		rec.AssertionID = "expect" // one assertion per browser step
+		rec.Received = textReceived(res.Errors[0].Message)
 	}
 	return append(out, rec)
 }
@@ -205,7 +207,7 @@ func assertionMessage(msg string) bool {
 	first, _, _ := strings.Cut(msg, "\n")
 	first = strings.TrimPrefix(strings.TrimSpace(first), "Error: ")
 	switch {
-	case strings.Contains(msg, "element(s) not found"), strings.Contains(msg, "strict mode violation"):
+	case elementMissing(msg), strings.Contains(msg, "strict mode violation"):
 		return false
 	case strings.Contains(first, "toHaveCount") && receivedZero.MatchString(msg):
 		// A count over a locator that resolved nothing: a guessed
@@ -269,8 +271,9 @@ func failureDetail(res jsonResult) string {
 		return "a locator matched more than one element"
 	case strings.Contains(first, "toHaveCount"):
 		return "the count expectation was not met"
-	case strings.Contains(first, "toHaveText"), strings.Contains(first, "toContainText"),
-		strings.Contains(first, "toMatch"):
+	case textMatcher(first) && elementMissing(msg):
+		return "the text expectation was not met: no element matched its locator"
+	case textMatcher(first), strings.Contains(first, "toMatch"):
 		return "the text expectation was not met"
 	case strings.Contains(first, "Timeout") || strings.Contains(first, "timeout"):
 		return "an action timed out"
@@ -278,6 +281,66 @@ func failureDetail(res jsonResult) string {
 		return "the browser did not answer"
 	}
 	return "the step failed"
+}
+
+// elementMissing reports a matcher message whose locator resolved no
+// element: Playwright's "element(s) not found", on a line of its own or, in
+// older runners, as the Received value.
+func elementMissing(msg string) bool { return strings.Contains(msg, "element(s) not found") }
+
+// textMatcher reports a matcher message's first line naming a text matcher.
+func textMatcher(first string) bool {
+	return strings.Contains(first, "toHaveText") || strings.Contains(first, "toContainText")
+}
+
+// receivedLine is a text matcher message's Received line (toHaveText's
+// "Received:", toContainText's and a pattern's "Received string:"), its
+// value as the runner quotes it.
+var receivedLine = regexp.MustCompile(`(?m)^Received(?: string)?:[ \t]*"(.*)"[ \t]*$`)
+
+// textReceived is the text a failed text matcher's element showed (D-B4):
+// the value of the message's one Received line, unquoted: the
+// application's own text, UNTRUSTED. It is "" when the message is not a
+// text matcher's on an element that was there, holds no such line or more
+// than one (a text over several lines is printed as a diff, never read),
+// the value is not one the runner quoted, or it is over
+// toolwire.MaxReceivedBytes.
+func textReceived(msg string) string {
+	msg = stripANSI(msg)
+	first, _, _ := strings.Cut(msg, "\n")
+	if !textMatcher(first) || elementMissing(msg) {
+		return ""
+	}
+	m := receivedLine.FindAllStringSubmatch(msg, -1)
+	if len(m) != 1 {
+		return ""
+	}
+	text, ok := unquoteReceived(m[0][1])
+	if !ok || len(text) > toolwire.MaxReceivedBytes || !utf8.ValidString(text) || strings.ContainsAny(text, "\r\n") {
+		return ""
+	}
+	return text
+}
+
+// unquoteReceived undoes the runner's quoting of a string (pretty-format's:
+// a double quote and a backslash each escaped by a backslash, nothing
+// else); ok is false for a value it could not have quoted.
+func unquoteReceived(q string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(q); i++ {
+		switch c := q[i]; {
+		case c == '"':
+			return "", false
+		case c != '\\':
+			b.WriteByte(c)
+		case i+1 < len(q) && (q[i+1] == '"' || q[i+1] == '\\'):
+			i++
+			b.WriteByte(q[i])
+		default:
+			return "", false
+		}
+	}
+	return b.String(), true
 }
 
 // bounded cuts s to 300 bytes on a rune boundary.

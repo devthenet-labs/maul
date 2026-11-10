@@ -395,6 +395,48 @@ func TestLiveBrowser(t *testing.T) {
 	}
 }
 
+// TestLiveBrowserText (D-B4): the pinned test runner's own messages for a
+// failed text assertion. On an element that was there, its text is kept as
+// received, apart from maul's words, for every text matcher; with no
+// element, maul says so and keeps nothing. The expected text names {{run}},
+// so each failure stays an assertion about the run's data.
+func TestLiveBrowserText(t *testing.T) {
+	e := newLiveEnv(t, "correct")
+	h, _ := e.relay(t)
+	text := func(locator, match string) string {
+		return `{"id":"vote-a.text","outcome":"vote","form":"browser","browser":{"steps":[{"goto":"/battles/1"},` +
+			`{"expect":{"assert":"text","locator":` + locator + `,"text":` + match + `}}]}}`
+	}
+	for _, tc := range []struct {
+		name, check, detail, received string
+		assertion                     bool
+	}{
+		{"equals", text(`{"testid":"vote-a"}`, `{"equals":"Vote {{run}}"}`),
+			"the text expectation was not met", "Vote", true},
+		{"contains", text(`{"testid":"vote-a"}`, `{"contains":"Voted {{run}}"}`),
+			"the text expectation was not met", "Vote", true},
+		{"matches", text(`{"testid":"vote-a"}`, `{"matches":"^Voted {{run}}$"}`),
+			"the text expectation was not met", "Vote", true},
+		{"no element", text(`{"testid":"gone"}`, `{"equals":"Vote {{run}}"}`),
+			"the text expectation was not met: no element matched its locator", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := h.relay.runCheck(context.Background(), parseLive(t, tc.check), toolwire.ModeDryRun)
+			if rec.Result != toolwire.RunFail || len(rec.Attempts) != 2 {
+				t.Fatalf("got %+v", rec)
+			}
+			for _, a := range rec.Attempts {
+				last := a.Steps[len(a.Steps)-1]
+				if last.Index != 1 || last.Assertion != tc.assertion || last.Detail != tc.detail ||
+					last.Received != tc.received {
+					t.Errorf("step %+v; want step 1, assertion %v, detail %q, received %q", last, tc.assertion,
+						tc.detail, tc.received)
+				}
+			}
+		})
+	}
+}
+
 func parseLive(t *testing.T, src string) checks.Check {
 	t.Helper()
 	c, err := checks.Parse([]byte(src))

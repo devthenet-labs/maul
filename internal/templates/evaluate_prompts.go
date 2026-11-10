@@ -557,6 +557,13 @@ type CheckReviewPrompt struct {
 	ExpectFail      bool
 	FailedStep      int
 	FailedAssertion string
+	// Observed is, for the red question about a browser text assertion,
+	// the text its element showed in each of maul's runs, the run's token
+	// written as checks.RunPlaceholder (toolwire.StepRecord.Received, D-B4):
+	// UNTRUSTED, the application's own text, quoted as data. Empty when maul
+	// kept none (no element, a text it could not read whole), and then the
+	// red question is asked exactly as before.
+	Observed []string
 	// Workspace is a check of a Project with no preview (SPEC-S2): an exec
 	// or run check, reviewed beside maul's own record of the build and of
 	// its runs at the head and the base. nil is a preview's check, the
@@ -664,6 +671,12 @@ type checkReviewView struct {
 	// LayoutRead: a green question about a layout read (checks.LayoutRead):
 	// the green rule's layout exception is shown beside it.
 	LayoutRead bool
+	// ObservedBlock is Observed as the reviewer reads it, one line per run;
+	// RunScoped, with it, a text assertion on an element the check finds by
+	// its own run data (checks.FailsRunScopedText): other runs' rows on the
+	// page cannot be that element (D-B4).
+	ObservedBlock string
+	RunScoped     bool
 	// Viewport is the fixed window a browser check runs in.
 	Viewport playwright.Viewport
 	// WS is the workspace, for a check of a Project with no preview.
@@ -721,7 +734,36 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
+	if p.ExpectFail && ws == nil && !v.Layout && shown.Form == checks.FormBrowser {
+		v.ObservedBlock = observedBlock(p.Observed)
+		v.RunScoped = v.ObservedBlock != "" && checks.FailsRunScopedText(p.Check, p.FailedStep-1)
+	}
 	return render("prompt_checkreview.md.tmpl", v)
+}
+
+// observedMax bounds the runs and the bytes of each run's text a reviewer
+// is shown: a red check's two attempts, each toolwire.MaxReceivedBytes
+// with room for its token written back.
+const (
+	observedRunsMax  = 2
+	observedBytesMax = 2 << 10
+)
+
+// observedBlock is a red check's observed texts as the reviewer reads them,
+// one escaped line per run; "" unless every run has one.
+func observedBlock(observed []string) string {
+	if len(observed) == 0 || len(observed) > observedRunsMax {
+		return ""
+	}
+	lines := make([]string, 0, len(observed))
+	for i, o := range observed {
+		q := quotedLine(o, observedBytesMax)
+		if q == "" {
+			return ""
+		}
+		lines = append(lines, "run "+strconv.Itoa(i+1)+": "+q)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // reviewWorkspace is w as the check review template reads it, for a check

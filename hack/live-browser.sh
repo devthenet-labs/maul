@@ -14,7 +14,9 @@
 #     the runner's config and a compiled check under tsc --strict, and
 #     TestLiveBrowser: the browser trial's matrix through the relay with no
 #     model (overlap fails clickable, invisible fails visible, correct passes
-#     all, three replays each);
+#     all, three replays each), and TestLiveBrowserText: the runner's own
+#     text-assertion failures, an element's received text kept and a
+#     missing element said;
 #   - with MAUL_LIVE_PAGE_FUNCTIONS=1, internal/checks/playwright
 #     TestLivePageFunctions on the same pinned packages (it launches
 #     Playwright's own Chromium, downloaded first).
@@ -63,7 +65,7 @@ export MAUL_LIVE_BROWSER=1
 
 go test -count=1 -v -run '^TestLiveCDPShim$' ./internal/cdpshim
 go test -count=1 -v -timeout 20m \
-  -run '^(TestPlaywrightCLIFormat|TestFixtureTypechecks|TestLiveBrowser)$' ./internal/previewtools
+  -run '^(TestPlaywrightCLIFormat|TestFixtureTypechecks|TestLiveBrowser|TestLiveBrowserText)$' ./internal/previewtools
 
 if [[ "${MAUL_LIVE_PAGE_FUNCTIONS:-}" == 1 ]]; then
   (cd "$node_dir" && node node_modules/playwright/cli.js install chromium)

@@ -110,6 +110,20 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 			p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 2, "expect"
 			return RenderCheckReviewPrompt(p)
 		}},
+		// D-B4: a red browser text check on the run's own row, with the text
+		// that row showed in maul's runs: the observation and the rule that
+		// other runs' rows cannot be that element.
+		{"prompt_checkreview_red_browser_scoped.md", func() (string, error) {
+			p := testSwingReview(mustCheck(t, swingCheck(`{"css":"li","hasText":"{{run}}-beat1"}`, "swing 20%")))
+			return RenderCheckReviewPrompt(p)
+		}},
+		// D-B4: the same failure on a whole list, the run named only in the
+		// expected text: the observation, and the old rules.
+		{"prompt_checkreview_red_browser_list.md", func() (string, error) {
+			p := testSwingReview(mustCheck(t, swingCheck(`{"css":"#leaderboard"}`, "{{run}}-beat1 · swing 20%")))
+			p.Observed = []string{"other-beat · by bo · 95 bpm · swing 10%", "other-beat · by bo · 95 bpm · swing 10%"}
+			return RenderCheckReviewPrompt(p)
+		}},
 		// A green layout read (coverage design B4): the green rule with its
 		// layout exception.
 		{"prompt_checkreview_layout.md", func() (string, error) {

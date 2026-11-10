@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -103,6 +104,12 @@ type CheckReviewItem struct {
 	FailedStep int    `json:"failed_step,omitempty"`
 	// FailedAssertion is at most checkReviewAssertionMaxBytes.
 	FailedAssertion string `json:"failed_assertion,omitempty"`
+	// Observed is, on a red item, the text the failing assertion's element
+	// showed in each of maul's runs, that run's token written as
+	// checks.RunPlaceholder (toolwire.StepRecord.Received, D-B4), held to
+	// ValidObserved. UNTRUSTED: the application's own text, quoted to the
+	// reviewer as data.
+	Observed []string `json:"observed,omitempty"`
 	// Head and Base are the check's runs at each side on a workspace round
 	// (only there): Head always, as confirmed (green a pass, red the fail by
 	// FailedAssertion); Base nil when it did not run there, and always on a
@@ -114,6 +121,28 @@ type CheckReviewItem struct {
 // checkReviewAssertionMaxBytes bounds an item's FailedAssertion (the
 // ledger's own bound).
 const checkReviewAssertionMaxBytes = 512
+
+// Bounds of an item's Observed: a red check's two runs, each the ledger's
+// toolwire.MaxReceivedBytes with room for its token written back.
+const (
+	checkReviewObservedMax      = 2
+	checkReviewObservedMaxBytes = 2 << 10
+)
+
+// ValidObserved holds an item's Observed to its bounds: at most two runs,
+// each one non-empty line of UTF-8 of at most 2048 bytes. The controller
+// hands over only what holds, so a text that does not never fails a round.
+func ValidObserved(observed []string) error {
+	if len(observed) > checkReviewObservedMax {
+		return fmt.Errorf("observed holds %d runs, over %d", len(observed), checkReviewObservedMax)
+	}
+	for _, o := range observed {
+		if o == "" || len(o) > checkReviewObservedMaxBytes || !utf8.ValidString(o) || strings.ContainsAny(o, "\r\n") {
+			return errors.New("observed is not one line of text of at most 2048 bytes for each run")
+		}
+	}
+	return nil
+}
 
 // checkSteps is how many steps c has as a reviewer reads it: an http or
 // browser check's steps, an exec or run check's one program run.
@@ -202,12 +231,12 @@ func validCause(r ReviewRun) bool {
 }
 
 // validExpectation holds an item's expectation: none, or fail with the
-// step that failed, one of the check's.
+// step that failed, one of the check's, and what its element showed.
 func validExpectation(it CheckReviewItem, c checks.Check) error {
 	switch it.Expect {
 	case "":
-		if it.FailedStep != 0 || it.FailedAssertion != "" {
-			return errors.New("failed_step or failed_assertion is set on a check confirmed green")
+		if it.FailedStep != 0 || it.FailedAssertion != "" || len(it.Observed) > 0 {
+			return errors.New("failed_step, failed_assertion or observed is set on a check confirmed green")
 		}
 		return nil
 	case "fail":
@@ -221,7 +250,7 @@ func validExpectation(it CheckReviewItem, c checks.Check) error {
 		strings.ContainsAny(it.FailedAssertion, "\r\n") {
 		return errors.New("failed_assertion does not name the assertion that failed")
 	}
-	return nil
+	return ValidObserved(it.Observed)
 }
 
 // checkReviewItem is a review as the stage runs it: the handoff's item and
@@ -299,6 +328,7 @@ func (r checkReviewRound) prompt(item checkReviewItem, path string,
 		ExpectFail:      item.Expect == "fail",
 		FailedStep:      item.FailedStep,
 		FailedAssertion: item.FailedAssertion,
+		Observed:        item.Observed,
 	}
 	if ws := r.workspace; ws != nil {
 		w := ws.EvaluateWorkspace

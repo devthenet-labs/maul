@@ -83,6 +83,9 @@ func TestScriptedRunnerMeasures(t *testing.T) {
 		result toolwire.AttemptResult
 		step   int
 		detail string
+		// received is the text the failing text assertion's element
+		// showed, as judgeReport keeps it (D-B4).
+		received string
 	}{
 		{name: "correct", page: votePage(32, nil), check: measuredCheck(), result: toolwire.ResultPass, step: 4},
 		{name: "2px narrow", page: votePage(30, nil), check: measuredCheck(), result: toolwire.ResultFail, step: 2,
@@ -100,7 +103,13 @@ func TestScriptedRunnerMeasures(t *testing.T) {
 				Text: &checks.TextMatch{Matches: "^Vo"}}},
 			{Expect: &checks.Assertion{Assert: checks.AssertText, Locator: &checks.Locator{TestID: "vote"},
 				Text: &checks.TextMatch{Equals: "Voted"}}},
-		}}, result: toolwire.ResultFail, step: 2, detail: "the text expectation was not met"},
+		}}, result: toolwire.ResultFail, step: 2, detail: "the text expectation was not met", received: "Vote"},
+		{name: "text, no element", page: votePage(32, nil), check: checks.BrowserCheck{Steps: []checks.BrowserStep{
+			{Goto: "/battles"},
+			{Expect: &checks.Assertion{Assert: checks.AssertText, Locator: &checks.Locator{TestID: "gone"},
+				Text: &checks.TextMatch{Equals: "Voted"}}},
+		}}, result: toolwire.ResultFail, step: 1,
+			detail: "the text expectation was not met: no element matched its locator"},
 		{name: "css is unread", page: votePage(32, nil), check: checks.BrowserCheck{Steps: []checks.BrowserStep{
 			{Goto: "/battles"},
 			{Expect: &checks.Assertion{Assert: checks.AssertVisible, Locator: &checks.Locator{CSS: "button"}}},
@@ -118,8 +127,10 @@ func TestScriptedRunnerMeasures(t *testing.T) {
 			}
 			steps := judgeReport(report, spec)
 			last := steps[len(steps)-1]
-			if last.Result != tc.result || last.Index != tc.step || (tc.detail != "" && last.Detail != tc.detail) {
-				t.Errorf("steps %+v; want step %d %s %q", steps, tc.step, tc.result, tc.detail)
+			if last.Result != tc.result || last.Index != tc.step || (tc.detail != "" && last.Detail != tc.detail) ||
+				last.Received != tc.received {
+				t.Errorf("steps %+v; want step %d %s %q, received %q", steps, tc.step, tc.result, tc.detail,
+					tc.received)
 			}
 		})
 	}
