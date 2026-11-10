@@ -97,6 +97,10 @@ const (
 	// NotRunCap: the approved plan revision used every verification its
 	// Project allows (spec.limits.maxVerifications) before it ran.
 	NotRunCap = "cap"
+	// NotRunPreviewExpired: the intent's preview expired at the commits
+	// the request would check, and nothing but a new spec (a push, a
+	// reset) deploys it again (gate D-B5).
+	NotRunPreviewExpired = "preview-expired"
 )
 
 // verifyNotRunWords are the reasons a /maul verify did not run, in maul's
@@ -114,6 +118,8 @@ var verifyNotRunWords = map[string]string{
 	NotRunTree:              handoffWhyWords[HandoffWhyTree],
 	NotRunBudget:            "this intent's evaluations spent their budget",
 	NotRunCap:               "this approved plan has used every verification its project allows",
+	NotRunPreviewExpired: "the preview expired after its time to live, and nothing deploys it again at the same " +
+		"commits but a push to a pull request or " + slashCommand(action.VerbVerify+" "+command.VerifyReset),
 }
 
 // VerifyCommandNotice answers a /maul verify or /maul accept on the intent

@@ -8,6 +8,9 @@ import (
 	"log/slog"
 	"strconv"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/action"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -79,6 +82,29 @@ func (p *pass) agentsUnrunnable(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return templates.NotRunSandboxImage, nil
+}
+
+// previewExpired reports whether the intent's Preview is Expired at
+// exactly the spec derived from its records (viewPreview), carrying reset,
+// the reset generation the request would run at (gate D-B5).
+// preview-controller deploys such a Preview again only for a new spec (a
+// push moving a head, or a reset), so a request waiting for it would wait
+// for nothing. False for a Project the agents host evaluates, and on a
+// failed read: the request is then recorded and waits as before.
+func (p *pass) previewExpired(ctx context.Context, reset int64) bool {
+	if p.set.agentsProject(p.proj) {
+		return false
+	}
+	var pv v1alpha1.Preview
+	err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: p.in.Namespace, Name: p.in.Name}, &pv)
+	if err != nil {
+		if !kerrors.IsNotFound(err) {
+			p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the intent's preview for a verify request",
+				slog.String("intent", p.in.Name), slog.Any("error", err))
+		}
+		return false
+	}
+	return viewPreview(p.proj, p.in, &pv).reason == templates.PreviewExpired && pv.Spec.ResetGeneration == reset
 }
 
 // standingJudgement is the round whose judgement of the current heads

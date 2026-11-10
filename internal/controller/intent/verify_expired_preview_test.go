@@ -1,0 +1,168 @@
+// Copyright 2026 Bitwise Media Group Ltd.
+// SPDX-License-Identifier: MIT
+
+package intent
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+)
+
+// expiredWords is how maul says a /maul verify did not run because the
+// intent's preview expired at the commits it would check.
+const expiredWords = "the preview expired after its time to live"
+
+// passedSlotRound is newEvaluatorEnv with its first round judged Passed at
+// the pull requests' heads and settled, maul/acceptance posted for it: what
+// beatbattle-60 was before its /maul verify (gate D-B5). It returns the env,
+// the intent's name, the round and the pull request's head.
+func passedSlotRound(t *testing.T) (*env, string, v1alpha1.PreviewVerification, string) {
+	t.Helper()
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.passAgentsRound(name, pv)
+	e.review(name, 2)
+	head := e.get(name).Status.PullRequests[0].HeadSHA
+	e.reviewUntil(name, func() bool { return e.latestAcceptance(head).State == statusSuccess })
+	if v := e.verification(name); v.State != v1alpha1.VerificationPassed || v.Ref == nil || v.Round != 1 {
+		t.Fatalf("verification = %+v, want round 1 Passed", v)
+	}
+	return e, name, pv, head
+}
+
+// TestVerifyOnAnExpiredPreviewIsAnsweredNotRun (gate D-B5): an approver's
+// /maul verify on an intent whose Preview has Expired at the heads it
+// would check is answered at once that it cannot run and why, and that a
+// push or a reset deploys the preview again: preview-controller never
+// redeploys an Expired Preview at an unchanged spec, so nothing would ever
+// run it. Nothing is recorded and the judgement on record stands: the
+// state stays Passed and maul/acceptance success. Before: the request was
+// acknowledged "recorded", the state waited an hour for a preview that
+// never came, then went Unavailable, and maul/acceptance read pending
+// "combined change moved" meanwhile though nothing had moved. A reset
+// changes the Preview's spec, so it is recorded as before; so is a request
+// while the preview is being deployed, or not expired.
+func TestVerifyOnAnExpiredPreviewIsAnsweredNotRun(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		phase   v1alpha1.PreviewPhase
+		command string
+		notRun  bool
+	}{
+		{"expired", v1alpha1.PreviewExpired, "/maul verify", true},
+		{"expired, fix", v1alpha1.PreviewExpired, "/maul verify fix", true},
+		{"expired, reset", v1alpha1.PreviewExpired, "/maul verify --reset", false},
+		{"failed", v1alpha1.PreviewFailed, "/maul verify", false},
+		{"deploying", v1alpha1.PreviewDeploying, "/maul verify", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, name, pv, head := passedSlotRound(t)
+			e.servePreview(name, tc.phase, "")
+			e.review(name, 2)
+			before := len(e.acceptanceStatuses(head))
+
+			e.clock.Advance(time.Minute)
+			id := e.gh.comment(approver, tc.command)
+			e.settleActions(name)
+			e.review(name, 3)
+
+			v := e.verification(name)
+			body := e.onlyReply(id)
+			if !tc.notRun {
+				if v.Requested == nil && v.Ref.Name == pv.Name {
+					t.Fatalf("verification = %+v, want the request recorded", v)
+				}
+				if strings.Contains(body, "did not run") || strings.Contains(body, expiredWords) {
+					t.Fatalf("reply = %s, want the request acknowledged", body)
+				}
+				return
+			}
+			if v.State != v1alpha1.VerificationPassed || v.Requested != nil || v.Round != 1 ||
+				v.PreviewWaitSince != nil || len(v.JudgedOutcomes()) == 0 {
+				t.Fatalf("verification = %+v, want round 1's Passed standing and nothing recorded", v)
+			}
+			if vs := e.verifications(name); len(vs) != 1 || vs[0].Name != pv.Name {
+				t.Fatalf("verifications = %d, want only round 1's", len(vs))
+			}
+			if !strings.Contains(body, "did not run: "+expiredWords) ||
+				!strings.Contains(body, "Evaluation 1's result at these commits stands") ||
+				!strings.Contains(body, "`/maul verify --reset`") || strings.Contains(body, "is recorded") {
+				t.Fatalf("reply = %s", body)
+			}
+			if ss := e.acceptanceStatuses(head); len(ss) != before || ss[0].State != statusSuccess {
+				t.Fatalf("maul/acceptance after the request = %+v, want success unchanged", ss[0])
+			}
+		})
+	}
+}
+
+// TestPendingRequestOnAnExpiredPreviewIsAnswered (gate D-B5): a request
+// recorded before the Preview was found Expired at the heads (it expired
+// in between, or its read failed when the command was settled) is answered
+// that it did not run, and the judgement on record stands; it never waits
+// an hour for a preview that does not come. A request recorded with a
+// reset the Preview has yet to copy waits for it.
+func TestPendingRequestOnAnExpiredPreviewIsAnswered(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reset bool
+	}{{"plain", false}, {"reset not yet copied", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, name, _, _ := passedSlotRound(t)
+			e.servePreview(name, v1alpha1.PreviewExpired, "")
+			e.setStatus(name, func(in *v1alpha1.Intent) {
+				v := in.Status.Verification
+				v.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()),
+					CommentID: 99, Reset: tc.reset}
+				if tc.reset {
+					v.Reset.Generation++
+				}
+			})
+			// The pass under test, before the preview projection copies a
+			// reset onto the Preview.
+			e.review(name, 1)
+			v := e.verification(name)
+			if tc.reset {
+				if v.Requested == nil || len(e.notRunReplies()) != 0 {
+					t.Fatalf("verification = %+v, replies %q; want the reset request kept", v, e.notRunReplies())
+				}
+				return
+			}
+			if v.State != v1alpha1.VerificationPassed || v.Requested != nil || v.PreviewWaitSince != nil {
+				t.Fatalf("verification = %+v, want round 1's Passed standing and the request consumed", v)
+			}
+			replies := e.notRunReplies()
+			if len(replies) != 1 || !strings.Contains(replies[0], expiredWords) ||
+				!strings.Contains(replies[0], "Evaluation 1's result at these commits stands") {
+				t.Fatalf("not-run replies = %q", replies)
+			}
+		})
+	}
+}
+
+// TestWaitingAtUnchangedHeadsSaysNothingMoved (gate D-B5): a requested
+// round waiting for the preview at the heads the round on record judged
+// (a reset redeploying it) is pending in maul/acceptance without claiming
+// the combined change moved. A move still says so
+// (TestAcceptanceStatusRepostsWhenTheHeadSetMoves).
+func TestWaitingAtUnchangedHeadsSaysNothingMoved(t *testing.T) {
+	e, name, _, head := passedSlotRound(t)
+	e.servePreview(name, v1alpha1.PreviewDeploying, "")
+	e.clock.Advance(time.Minute)
+	e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	e.reviewUntil(name, func() bool { return e.latestAcceptance(head).State == statusPending })
+	if v := e.verification(name); v.State != v1alpha1.VerificationWaitingForPreview || v.Requested == nil {
+		t.Fatalf("verification = %+v, want the request waiting for the preview", v)
+	}
+	if st := e.latestAcceptance(head); strings.Contains(st.Description, "moved") ||
+		!strings.Contains(st.Description, "preview") {
+		t.Fatalf("maul/acceptance = %+v, want it pending for the preview, nothing moved", st)
+	}
+}

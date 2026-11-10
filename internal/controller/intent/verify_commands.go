@@ -308,6 +308,14 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		n.Stands = standingJudgement(&cur)
 		return n, nil
 	}
+	if !args.Reset && p.previewExpired(ctx, cur.Reset.Generation) {
+		// Nothing deploys the preview again at these commits: say so now
+		// rather than acknowledge a wait for nothing (gate D-B5). A reset
+		// changes the Preview's spec, which deploys it again.
+		n.Outcome, n.NotRunWhy, n.Fix = templates.VerifyNotRun, templates.NotRunPreviewExpired, args.Fix
+		n.Stands = standingJudgement(&cur)
+		return n, nil
+	}
 	if most := p.proj.Spec.Limits.MaxVerificationsLimit(); cur.Automatic >= most {
 		// A request bypasses the interval, never the cap: the gate would
 		// drop it unrun, so it is not recorded and the reply says why.
