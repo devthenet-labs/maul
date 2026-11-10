@@ -4,6 +4,7 @@
 package intent
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -83,22 +84,34 @@ func TestVerifyOnAnExpiredPreviewIsAnsweredNotRun(t *testing.T) {
 				}
 				return
 			}
-			if v.State != v1alpha1.VerificationPassed || v.Requested != nil || v.Round != 1 ||
-				v.PreviewWaitSince != nil || len(v.JudgedOutcomes()) == 0 {
-				t.Fatalf("verification = %+v, want round 1's Passed standing and nothing recorded", v)
-			}
-			if vs := e.verifications(name); len(vs) != 1 || vs[0].Name != pv.Name {
-				t.Fatalf("verifications = %d, want only round 1's", len(vs))
-			}
-			if !strings.Contains(body, "did not run: "+expiredWords) ||
-				!strings.Contains(body, "Evaluation 1's result at these commits stands") ||
-				!strings.Contains(body, "`/maul verify --reset`") || strings.Contains(body, "is recorded") {
-				t.Fatalf("reply = %s", body)
-			}
+			e.expiredNotRun(name, pv, tc.command, body)
 			if ss := e.acceptanceStatuses(head); len(ss) != before || ss[0].State != statusSuccess {
 				t.Fatalf("maul/acceptance after the request = %+v, want success unchanged", ss[0])
 			}
 		})
+	}
+}
+
+// expiredNotRun fails unless the request cmd, answered body, did not run
+// on the expired preview of name: round 1 (pv) Passed standing, nothing
+// recorded or re-armed, and the reply saying why and what deploys it.
+func (e *env) expiredNotRun(name string, pv v1alpha1.PreviewVerification, cmd, body string) {
+	e.t.Helper()
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationPassed || v.Requested != nil || v.Round != 1 ||
+		v.PreviewWaitSince != nil || len(v.JudgedOutcomes()) == 0 {
+		e.t.Fatalf("verification = %+v, want round 1's Passed standing and nothing recorded", v)
+	}
+	if vs := e.verifications(name); len(vs) != 1 || vs[0].Name != pv.Name {
+		e.t.Fatalf("verifications = %d, want only round 1's", len(vs))
+	}
+	if v.AutoFix.Rearm != nil {
+		e.t.Fatalf("auto-fix = %+v, want nothing re-armed by a request that did not run", v.AutoFix)
+	}
+	if !strings.Contains(body, "did not run: "+expiredWords) || !strings.Contains(body, "`"+cmd+"`") ||
+		!strings.Contains(body, "Evaluation 1's result at these commits stands") ||
+		!strings.Contains(body, "`/maul verify --reset`") || strings.Contains(body, "is recorded") {
+		e.t.Fatalf("reply = %s", body)
 	}
 }
 
@@ -164,5 +177,75 @@ func TestWaitingAtUnchangedHeadsSaysNothingMoved(t *testing.T) {
 	if st := e.latestAcceptance(head); strings.Contains(st.Description, "moved") ||
 		!strings.Contains(st.Description, "preview") {
 		t.Fatalf("maul/acceptance = %+v, want it pending for the preview, nothing moved", st)
+	}
+}
+
+// TestExpiredPreviewWhileRevising (gate D-B5): while a round revises the
+// intent, its push deploys the preview again, so a request is recorded to
+// run after it, as before; only outside a revision is an expired preview
+// final.
+func TestExpiredPreviewWhileRevising(t *testing.T) {
+	e, name, _, _ := passedSlotRound(t)
+	e.servePreview(name, v1alpha1.PreviewExpired, "")
+	for _, tc := range []struct {
+		phase v1alpha1.IntentPhase
+		want  bool
+	}{{v1alpha1.IntentInReview, true}, {v1alpha1.IntentRevising, false}} {
+		in := e.get(name)
+		in.Status.Phase = tc.phase
+		p := &pass{r: e.intent, set: e.intent.Settings.withDefaults(), in: in, proj: e.getProject(),
+			now: e.clock.Now()}
+		if got := p.previewExpired(context.Background(), in.Status.Verification.Reset.Generation); got != tc.want {
+			t.Errorf("%s: previewExpired = %v, want %v", tc.phase, got, tc.want)
+		}
+	}
+}
+
+// TestMovedSinceJudged (gate D-B5): a waiting round's status says the
+// combined change moved only when it did. Under outcomes the judged head
+// set is on record; under criteria a request on a still-referenced round
+// waits at its heads (a move clears the reference).
+func TestMovedSinceJudged(t *testing.T) {
+	outcomes := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{{ID: "version-shown"}}}
+	criteria := &v1alpha1.IntentAcceptance{}
+	ref := &v1alpha1.ObjectReference{Name: "r1"}
+	req := &v1alpha1.VerifyRequest{By: approver, CommentID: 9}
+	for _, tc := range []struct {
+		name string
+		acc  *v1alpha1.IntentAcceptance
+		v    v1alpha1.IntentVerification
+		want bool
+	}{
+		{"outcomes judged at other heads", outcomes,
+			v1alpha1.IntentVerification{HeadSetDigest: "b", OutcomesHeadSetDigest: "a"}, true},
+		{"outcomes judged at these heads, a request", outcomes,
+			v1alpha1.IntentVerification{HeadSetDigest: "a", OutcomesHeadSetDigest: "a", Ref: ref, Requested: req}, false},
+		{"outcomes judged at these heads, a retry or resume", outcomes,
+			v1alpha1.IntentVerification{HeadSetDigest: "a", OutcomesHeadSetDigest: "a"}, false},
+		{"outcomes never judged", outcomes, v1alpha1.IntentVerification{HeadSetDigest: "a"}, false},
+		{"criteria superseded", criteria, v1alpha1.IntentVerification{HeadSetDigest: "b"}, true},
+		{"criteria judged, no request", criteria, v1alpha1.IntentVerification{HeadSetDigest: "b", Ref: ref}, true},
+		{"criteria, a request on the referenced round", criteria,
+			v1alpha1.IntentVerification{HeadSetDigest: "a", Ref: ref, Requested: req}, false},
+	} {
+		if got := movedSinceJudged(tc.acc, &tc.v); got != tc.want {
+			t.Errorf("%s: moved = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestOutcomeStatusSaysMovedOnAPush (gate D-B5): a push after a judged
+// outcome round still reads "combined change moved" while the new head set
+// waits.
+func TestOutcomeStatusSaysMovedOnAPush(t *testing.T) {
+	e, name, _, _ := passedSlotRound(t)
+	moved := strings.Repeat("e", 40)
+	e.pushHead(e.prNumber(name), moved)
+	e.reviewUntil(name, func() bool { return len(e.acceptanceStatuses(moved)) > 0 })
+	if v := e.verification(name); v.HeadSetDigest == v.OutcomesHeadSetDigest {
+		t.Fatalf("verification = %+v, want it at the pushed head set", v)
+	}
+	if st := e.latestAcceptance(moved); st.State != statusPending || st.Description != headsMoved.description {
+		t.Fatalf("maul/acceptance on the pushed head = %+v, want %q", st, headsMoved.description)
 	}
 }

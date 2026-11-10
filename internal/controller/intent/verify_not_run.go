@@ -89,10 +89,11 @@ func (p *pass) agentsUnrunnable(ctx context.Context) (string, error) {
 // the reset generation the request would run at (gate D-B5).
 // preview-controller deploys such a Preview again only for a new spec (a
 // push moving a head, or a reset), so a request waiting for it would wait
-// for nothing. False for a Project the agents host evaluates, and on a
+// for nothing. False while a round revises the intent (its push deploys
+// the preview again), for a Project the agents host evaluates, and on a
 // failed read: the request is then recorded and waits as before.
 func (p *pass) previewExpired(ctx context.Context, reset int64) bool {
-	if p.set.agentsProject(p.proj) {
+	if p.in.Status.Phase == v1alpha1.IntentRevising || p.set.agentsProject(p.proj) {
 		return false
 	}
 	var pv v1alpha1.Preview
