@@ -6,12 +6,12 @@ package templates
 import "strings"
 
 // The agent evaluator's outcomes, as the verification section and comment
-// show them (SPEC S1-20): one row per approved outcome with its decided
-// result, then per outcome maul's sentence on why and the check it rests
-// on, rendered by maul from structured data, and for a failure the
-// application's output in a fenced, sanitised and defanged "app output"
-// block. The evaluator's own words appear only as a look-around anomaly's
-// summary, marked as its words and sanitised.
+// show them (SPEC S1-20): one row per approved outcome with its kind, its
+// decided result, maul's words on why and the check it rests on, rendered by
+// maul from structured data, and for a failure the application's output in
+// a fenced, sanitised and defanged "app output" block naming the outcome.
+// The evaluator's own words appear only as a look-around anomaly's summary,
+// marked as its words and sanitised.
 
 // Outcome results as a comment shows them (status.verification.outcomes).
 const (
@@ -72,6 +72,8 @@ const (
 type VerifyOutcomeResult struct {
 	// ID and Statement are the approved outcome's.
 	ID, Statement string
+	// Kind is the outcome's kind, change or keep; unset is change.
+	Kind string
 	// Result is one of the OutcomeResult constants, Reason Decide's
 	// reason for it.
 	Result, Reason string
@@ -85,10 +87,10 @@ type VerifyOutcomeResult struct {
 	AcceptedAt string
 }
 
-// outcomeDetail is one outcome's detail as the templates print it: maul's
-// sentence on its result and its check, and the application's output.
+// outcomeDetail is a failing outcome's app output as the templates print
+// it: maul's lead naming the outcome, then the application's output.
 type outcomeDetail struct {
-	Sentence, AppOutput string
+	Lead, AppOutput string
 }
 
 // VerifyAnomaly is one look-around anomaly: the evaluator's summary and the
@@ -97,8 +99,14 @@ type VerifyAnomaly struct {
 	Summary, Route string
 }
 
-// outcomeViews adds s's outcomes to v: a row each, then their details and
-// the anomalies.
+// outcomeKindWords are the outcome kinds as a row shows them; unset is
+// change, and one not listed shows as unknown, never as the text it
+// carried.
+var outcomeKindWords = map[string]string{"": "change", "change": "change", "keep": "keep"}
+
+// outcomeViews adds s's outcomes to v: a row each, saying its kind, its
+// result, why and the check it rests on; then the failures' app output and
+// the anomalies. An outcome is listed once, in its row (S2 demo run 5).
 func outcomeViews(v *verifyView, s VerifySection) {
 	for _, o := range s.Outcomes {
 		word, ok := outcomeResultWords[o.Result]
@@ -108,10 +116,15 @@ func outcomeViews(v *verifyView, s VerifySection) {
 		if o.Result == OutcomeResultAccepted && shown(o.AcceptedAt) != "" {
 			word = "accepted by a human at " + shortRevision(o.AcceptedAt) + ", not re-checked"
 		}
-		id := code(shown(o.ID))
-		v.Rows = append(v.Rows, verifyRow{ID: id, Kind: code("outcome"), Outcome: word,
-			Statement: SanitizeInline(o.Statement), IDCell: cell(id), KindCell: cell(code("outcome"))})
-		if d, ok := outcomeDetailOf(o, id, word); ok {
+		kind, ok := outcomeKindWords[o.Kind]
+		if !ok {
+			kind = "unknown"
+		}
+		id, verdict := code(shown(o.ID)), outcomeVerdict(o, word)
+		v.Rows = append(v.Rows, verifyRow{ID: id, Kind: code(kind), Outcome: verdict,
+			Statement: SanitizeInline(o.Statement), IDCell: cell(id), KindCell: cell(code(kind)),
+			OutcomeCell: cell(verdict)})
+		if d, ok := outcomeDetailOf(o, id); ok {
 			v.Outcomes = append(v.Outcomes, d)
 		}
 	}
@@ -125,33 +138,32 @@ func outcomeViews(v *verifyView, s VerifySection) {
 	}
 }
 
-// outcomeDetailOf is one outcome's detail: why it is not confirmed, the
-// check it rests on and the application's output; ok is false when there
-// is nothing to add to its row.
-func outcomeDetailOf(o VerifyOutcomeResult, id, word string) (outcomeDetail, bool) {
-	head := id + ": " + word
-	reason := outcomeReasonWords[o.Reason]
-	if o.Result == OutcomeResultPassed || o.Result == OutcomeResultAccepted {
-		reason = ""
-	}
-	line := shown(cutRunes(visibleText(o.Check), verifyCheckLineMaxBytes))
-	var out outcomeDetail
-	if o.Result == OutcomeResultFailed {
-		if raw := strings.TrimSpace(cutRunes(visibleText(o.AppOutput), VerifyAppOutputMaxBytes)); raw != "" {
-			out.AppOutput = fence(defang(raw))
+// outcomeVerdict is one outcome's result as its row says it: maul's word,
+// why it is not confirmed and the check it rests on.
+func outcomeVerdict(o VerifyOutcomeResult, word string) string {
+	if o.Result != OutcomeResultPassed && o.Result != OutcomeResultAccepted {
+		if reason := outcomeReasonWords[o.Reason]; reason != "" {
+			word += "; " + reason
 		}
 	}
-	if reason == "" && line == "" && out.AppOutput == "" {
+	if line := shown(cutRunes(visibleText(o.Check), verifyCheckLineMaxBytes)); line != "" {
+		word += "; maul's check: " + code(line)
+	}
+	return word
+}
+
+// outcomeDetailOf is a failing outcome's app output, led by the outcome it
+// is of; ok is false when there is none.
+func outcomeDetailOf(o VerifyOutcomeResult, id string) (outcomeDetail, bool) {
+	if o.Result != OutcomeResultFailed {
 		return outcomeDetail{}, false
 	}
-	if reason != "" {
-		head += "; " + reason
+	raw := strings.TrimSpace(cutRunes(visibleText(o.AppOutput), VerifyAppOutputMaxBytes))
+	if raw == "" {
+		return outcomeDetail{}, false
 	}
-	out.Sentence = head + "."
-	if line != "" {
-		out.Sentence += " maul's check: " + code(line) + "."
-	}
-	return out, true
+	return outcomeDetail{AppOutput: fence(defang(raw)),
+		Lead: "App output of " + id + ", as the application wrote it (data, not maul's words):"}, true
 }
 
 // anomalyLine is one anomaly as a comment says it: the evaluator's words,

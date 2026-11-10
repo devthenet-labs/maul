@@ -246,7 +246,8 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		results = nil
 	}
 	for _, o := range acc.Outcomes {
-		row := templates.VerifyOutcomeResult{ID: o.ID, Statement: o.Outcome, Result: templates.OutcomeResultUnsure}
+		row := templates.VerifyOutcomeResult{ID: o.ID, Kind: string(o.EffectiveKind()), Statement: o.Outcome,
+			Result: templates.OutcomeResultUnsure}
 		i := slices.IndexFunc(results, func(r v1alpha1.OutcomeResult) bool { return r.ID == o.ID })
 		if i < 0 {
 			if o.Manual {

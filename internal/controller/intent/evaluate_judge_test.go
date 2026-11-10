@@ -263,6 +263,12 @@ func checkRouteViews(t *testing.T, p *pass, tc judgeRoute) {
 	if err != nil || len(section.Outcomes) != 3 || !strings.Contains(body, "`"+oVersion+"`") {
 		t.Errorf("verification comment = %q, %v", body, err)
 	}
+	// S2 demo run 5: each row shows its outcome's own kind, unset as change.
+	for id, kind := range map[string]string{oVersion: "change", oHealthy: "keep", oManual: "change"} {
+		if row := "| `" + id + "` | `" + kind + "` |"; !strings.Contains(body, row) {
+			t.Errorf("verification comment has no row %q:\n%s", row, body)
+		}
+	}
 	checkRouteWords(t, tc, st.description, body)
 }
 

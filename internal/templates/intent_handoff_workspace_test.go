@@ -201,10 +201,10 @@ func TestOutcomeReasonWordsS2(t *testing.T) {
 		acceptance.ReasonNoBaseEvidence: "its check passed, but its runs at the base do not tell the change " +
 			"from its absence",
 	} {
-		d, ok := outcomeDetailOf(VerifyOutcomeResult{ID: "a", Result: OutcomeResultUnsure, Reason: reason}, "`a`",
+		got := outcomeVerdict(VerifyOutcomeResult{ID: "a", Result: OutcomeResultUnsure, Reason: reason},
 			outcomeResultWords[OutcomeResultUnsure])
-		if !ok || !strings.Contains(d.Sentence, want) {
-			t.Errorf("%s: %q, want it to say %q", reason, d.Sentence, want)
+		if !strings.Contains(got, want) {
+			t.Errorf("%s: %q, want it to say %q", reason, got, want)
 		}
 	}
 }
