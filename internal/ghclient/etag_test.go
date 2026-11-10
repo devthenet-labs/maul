@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // taggedServer answers every request the way GitHub does: the body set for
@@ -305,5 +306,80 @@ func TestETagThroughTheClient(t *testing.T) {
 	again, err := c.ListIssues(ctx, repo, nil, "open", first.ETag)
 	if err != nil || !again.NotModified {
 		t.Fatalf("ListIssues with its own tag = %+v, %v; want NotModified", again, err)
+	}
+}
+
+// TestETagLaterPageEntryIsSeen: through the client, a walk whose first
+// page is unchanged is served that page from GitHub's 304 with its kept
+// next-page link, so a comment added on the last page is still read, and
+// the unchanged first page costs nothing. Two tokens never share an
+// answer: the second token's first read is not conditional.
+func TestETagLaterPageEntryIsSeen(t *testing.T) {
+	var mu sync.Mutex
+	pages := map[string][]string{"1": nil, "2": {`{"id":101}`}}
+	for i := 1; i <= listPageSize; i++ {
+		pages["1"] = append(pages["1"], fmt.Sprintf(`{"id":%d}`, i))
+	}
+	billed := map[string]int{}
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		page := r.URL.Query().Get("page")
+		body := "[" + strings.Join(pages[page], ",") + "]"
+		sum := sha256.Sum256([]byte(body))
+		tag := `W/"` + hex.EncodeToString(sum[:16]) + `"`
+		w.Header().Set("ETag", tag)
+		asked = append(asked, r.Header.Get("Authorization")+" "+r.Header.Get("If-None-Match"))
+		if r.Header.Get("If-None-Match") == tag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		billed[page]++
+		if page == "1" {
+			q := r.URL.Query()
+			q.Set("page", "2")
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?%s>; rel="next"`, "http://"+r.Host, r.URL.Path, q.Encode()))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	cache := NewETagCache(4 << 20)
+	ctx := context.Background()
+	repo := Repo{Owner: "o", Name: "r"}
+	c, err := NewToken("tok", srv.URL, WithETagCache(cache))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.ListIssueComments(ctx, repo, 1, time.Time{}); err != nil || len(got) != listPageSize+1 {
+		t.Fatalf("first walk: %d comments, %v", len(got), err)
+	}
+	mu.Lock()
+	pages["2"] = append(pages["2"], `{"id":102}`)
+	mu.Unlock()
+	got, err := c.ListIssueComments(ctx, repo, 1, time.Time{})
+	if err != nil || len(got) != listPageSize+2 || got[len(got)-1].ID != 102 {
+		t.Fatalf("second walk: %d comments, %v; want the comment added on page two", len(got), err)
+	}
+	mu.Lock()
+	if billed["1"] != 1 || billed["2"] != 2 {
+		t.Fatalf("billed %v, want page 1 once (its 304 free) and page 2 twice", billed)
+	}
+	asked = nil
+	mu.Unlock()
+	other, err := NewToken("other", srv.URL, WithETagCache(cache))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.ListIssueComments(ctx, repo, 1, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, a := range asked {
+		if a != "Bearer other " {
+			t.Fatalf("another token's read was asked conditionally on the first's answer: %q", a)
+		}
 	}
 }
