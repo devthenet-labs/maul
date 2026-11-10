@@ -42,6 +42,7 @@ type Option func(*settings)
 // settings collects the optional client knobs.
 type settings struct {
 	proxyURL string
+	etags    *ETagCache
 }
 
 // WithProxy routes all of the client's traffic through the HTTP/HTTPS forward
@@ -77,7 +78,9 @@ func ValidateProxy(rawURL string) error {
 }
 
 // NewToken returns a Client authenticated with a personal access token —
-// the dev-mode fallback. baseURL "" means api.github.com.
+// the dev-mode fallback — or with a scoped installation token minted for it.
+// baseURL "" means api.github.com. WithETagCache applies to its API
+// requests, never to a log download.
 func NewToken(token, baseURL string, opts ...Option) (*Client, error) {
 	var s settings
 	for _, opt := range opts {
@@ -88,7 +91,11 @@ func NewToken(token, baseURL string, opts ...Option) (*Client, error) {
 		return nil, err
 	}
 	transport := newRetryTransport(proxy)
-	gh, err := newGitHub(transport, baseURL, github.WithAuthToken(token))
+	var api http.RoundTripper = transport
+	if s.etags != nil {
+		api = &etagTransport{next: transport, cache: s.etags}
+	}
+	gh, err := newGitHub(api, baseURL, github.WithAuthToken(token))
 	if err != nil {
 		return nil, fmt.Errorf("ghclient: token client: %w", err)
 	}
