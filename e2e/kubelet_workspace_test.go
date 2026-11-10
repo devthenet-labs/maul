@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -283,7 +284,8 @@ func (k *kubelet) mountWorkspace(ctx context.Context, job *batchv1.Job) (*wsPod,
 	}
 	wp := &wsPod{toolPod: tp, root: root, exec: execDir, sandboxes: map[string]*wsSandbox{}}
 	tp.env = []string{"MAUL_E2E_EXEC_DIR=" + execDir,
-		"MAUL_E2E_TREES_DIR=" + filepath.Join(root, "trees")}
+		"MAUL_E2E_TREES_DIR=" + filepath.Join(root, "trees"),
+		"MAUL_E2E_SANDBOX_UID=" + strconv.Itoa(os.Getuid())}
 	return wp, nil
 }
 

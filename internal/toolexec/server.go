@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -89,17 +90,63 @@ type Client struct {
 
 // NewClient returns a client of the shim listening at socket.
 func NewClient(socket string) *Client {
-	return &Client{http: unixHTTP(socket)}
+	return &Client{http: unixHTTP(socket, nil)}
 }
 
-func unixHTTP(socket string) *http.Client {
+// NewSideClient returns a client of a workspace sandbox's shim at socket,
+// which only uid serves. The socket's directory is a volume the sandbox
+// writes, so every dial refuses a path that is not a socket itself (a
+// symlink to the other side's socket, say) and a connection whose peer is
+// not uid (ErrForeignPeer): a call never reaches another side's shim.
+func NewSideClient(socket string, uid int) *Client {
+	return &Client{http: unixHTTP(socket, &uid)}
+}
+
+// ErrForeignPeer is a side client's refusal of a shim served by another UID
+// than its side's.
+var ErrForeignPeer = errors.New("toolexec: the socket is served by another UID than its side's")
+
+// unixHTTP dials socket for every request; with a side UID, only a socket
+// that is no link, served by that UID.
+func unixHTTP(socket string, uid *int) *http.Client {
 	var d net.Dialer
 	return &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return d.DialContext(ctx, "unix", socket)
+			if uid == nil {
+				return d.DialContext(ctx, "unix", socket)
+			}
+			return dialSide(ctx, &d, socket, *uid)
 		},
 		DisableKeepAlives: true,
 	}}
+}
+
+// dialSide dials socket, refusing a path that is not a socket (Lstat: a
+// symlink is refused, never followed to its target) and a peer that is not
+// uid. The peer check also covers a path swapped between the Lstat and the
+// connect.
+func dialSide(ctx context.Context, d *net.Dialer, socket string, uid int) (net.Conn, error) {
+	fi, err := os.Lstat(socket)
+	if err != nil {
+		return nil, fmt.Errorf("toolexec: socket: %w", err)
+	}
+	if fi.Mode().Type() != fs.ModeSocket {
+		return nil, fmt.Errorf("toolexec: %s is not a socket (%v)", socket, fi.Mode().Type())
+	}
+	conn, err := d.DialContext(ctx, "unix", socket)
+	if err != nil {
+		return nil, err
+	}
+	got, err := peerUID(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("toolexec: peer credentials: %w", err)
+	}
+	if got != uid {
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: %s is served by UID %d, not %d", ErrForeignPeer, socket, got, uid)
+	}
+	return conn, nil
 }
 
 // Exec runs req in the sandbox. A refusal is a Result with Refused set; an

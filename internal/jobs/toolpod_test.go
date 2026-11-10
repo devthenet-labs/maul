@@ -763,6 +763,15 @@ func profileNames(p *NetworkProfile) []string {
 	return profileOwnedNames(p)
 }
 
+// TestToolPodSandboxUIDs: each side's sandbox runs as the UID the relay's
+// peer check holds that side's socket to (review SEC-1).
+func TestToolPodSandboxUIDs(t *testing.T) {
+	if sideUID[ToolSideHead] != previewtools.HeadSandboxUID || sideUID[ToolSideBase] != previewtools.BaseSandboxUID {
+		t.Errorf("sandbox UIDs %v, the relay's peer check expects head %d, base %d", sideUID,
+			previewtools.HeadSandboxUID, previewtools.BaseSandboxUID)
+	}
+}
+
 // TestToolPodPaths: tools, prepare, the seeds and the sandboxes agree on
 // where everything is, and with the relay and the exec shim's own
 // constants.
