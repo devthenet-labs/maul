@@ -16,8 +16,8 @@ import (
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// How the acceptance verification is reported on GitHub (acceptance
-// verification, slice 1), from the state the verification loop
+// How the acceptance verification is reported on GitHub, from the state
+// the verification loop
 // (verify_loop.go) records and nothing else: maul never reads a status or a
 // comment back as state.
 //
@@ -30,10 +30,11 @@ import (
 //     (acceptance_status.go).
 //
 // Every word is maul's; the only agent or application text shown is an
-// approved criterion's statement, a failure's evidence and a component's
-// log tail, each through the templates' inert rendering. All of it is best
-// effort: a write that fails is logged and tried on a later pass, and never
-// holds up the human's rounds.
+// approved outcome's statement, a failing check's app output, the
+// evaluator's look-around anomalies and a component's log tail, each
+// through the templates' inert rendering. All of it is best effort: a write
+// that fails is logged and tried on a later pass, and never holds up the
+// human's rounds.
 
 // verifyNote is what syncVerifyComment remembers of the issue's latest
 // verification comment: its round, its id and the digest of the body last
@@ -52,8 +53,9 @@ type impostorNote struct {
 
 // verifyReported reports whether this pass reports the verification: the
 // controller verifies, the intent is in review (or a round of it), and the
-// loop has recorded the approved plan revision's criteria and a state, or
-// stopped because they cannot be read (criteriaUnreadable).
+// loop has recorded the approved plan revision's acceptance and a state,
+// or stopped because it cannot be read or states slice-1 criteria
+// (verifyStopped).
 func (p *pass) verifyReported() bool {
 	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Verification != nil &&
 		(p.mode() != modeNone || p.verifyStopped() != "")

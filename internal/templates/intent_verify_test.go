@@ -4,6 +4,7 @@
 package templates
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -270,6 +271,30 @@ func TestVerifyEvidenceBounded(t *testing.T) {
 	}
 }
 
+// TestVerifyLogsBounded: a comment carries at most verifyLogsMax log
+// tails, in order, and none for a part whose tail is empty once made
+// visible.
+func TestVerifyLogsBounded(t *testing.T) {
+	sec := testVerifySection()
+	sec.Logs = []VerifyLog{{Part: "blank", Tail: " \n\t"}}
+	for i := range verifyLogsMax + 1 {
+		sec.Logs = append(sec.Logs, VerifyLog{Part: fmt.Sprintf("part-%d", i), Tail: fmt.Sprintf("tail %d", i)})
+	}
+	out, err := RenderVerifyComment(VerifyComment{Namespace: "n", Intent: "i", Round: 1, Attempt: 1, Section: sec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "`blank`") {
+		t.Errorf("a blank tail is shown:\n%s", out)
+	}
+	for i := range verifyLogsMax + 1 {
+		shown := strings.Contains(out, fmt.Sprintf("tail %d", i))
+		if want := i < verifyLogsMax-1; shown != want {
+			t.Errorf("tail %d shown %v, want %v:\n%s", i, shown, want, out)
+		}
+	}
+}
+
 func TestVerifyKeys(t *testing.T) {
 	if VerifyKey(2) == VerifyKey(3) || VerifyKey(1) == PreviewKey {
 		t.Error("verify keys collide")
@@ -307,6 +332,13 @@ func TestVerifyLineStates(t *testing.T) {
 				"why it is not."},
 		{VerifyProgress{State: VerifyHeadsMoved, Outcomes: true}, "The pull requests moved to new commits: maul " +
 			"is checking the new commits, and the last result, about earlier commits, is not shown."},
+		{VerifyProgress{State: VerifyExhausted, Verification: 3, FixesUsed: 2, MaxFixes: 2, Passing: 1, Total: 3,
+			Outcomes: true}, "Evaluation 3 failing: 1/3 outcomes confirmed, no automatic fix left."},
+		{VerifyProgress{State: VerifyUnavailable, Verification: 2, MaxFixes: 2, Outcomes: true},
+			"Verification unavailable: maul could not run the checks."},
+		{VerifyProgress{State: VerifyFailing, Verification: 1, MaxFixes: 2, Passing: 1, Total: 3, Outcomes: true,
+			DefectConfirmed: true, AutoFix: FixQueued},
+			"Evaluation 1: a person confirmed the defect maul found: 1/3 outcomes confirmed; a fix is queued."},
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)

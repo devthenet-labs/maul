@@ -25,36 +25,33 @@ import (
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// The verification loop (acceptance verification, slice 1), with
-// verification on. In review, and in a round of it, every pass:
+// The verification loop, with verification (the agent evaluator) on. In
+// review, and in a round of it, every pass:
 //
-//  1. records the approved plan's acceptance criteria once per approved
+//  1. records the approved plan's acceptance outcomes once per approved
 //     plan revision (syncAcceptance), from the plan bytes re-read under the
 //     approval's digest, normalised, digested as approved; and re-arms
-//     automatic fixes and the per-revision bounds. Under the agent
-//     evaluator (Settings.evaluates) it records the plan's outcomes
-//     instead, and a plan stating slice-1 criteria is not verified: the
-//     intent gets one notice asking for a replan (stopForReplan, DESIGN
-//     7.6), the one GitHub write here;
-//  2. reports Off for a Project (or Preview) that does not verify and
-//     NotDeclared for a plan with nothing to run, consuming any request
-//     (the latter still records the head set an acceptance binds to);
-//  3. halts automatic fixes once a human round of the approved revision
-//     started after the latest /maul verify fix re-armed them;
-//  4. supersedes (syncHeadSet): when the combined change moved, the
-//     in-flight PreviewVerification is deleted and the state starts over at
-//     the new heads, and a head maul did not push halts automatic fixes;
-//  5. reads the latest PreviewVerification (one uncached get) and judges
-//     what it observed (acceptance.Judge), or retries maul's own failure as
-//     the round's next attempt, at most MaxVerificationAttempts, then
-//     reports it Unavailable.
+//     automatic fixes and the per-revision bounds. A plan stating slice-1
+//     criteria, which nothing runs since S4, is not verified: under the
+//     evaluator the intent gets one notice asking for a replan
+//     (stopForReplan, DESIGN 7.6), the one GitHub write here;
+//  2. branches on the pass's verify mode (verify_mode.go): Off for a
+//     record nothing verifies (switchedOff), else the evaluator's own
+//     rounds (syncEvaluation, evaluate_round.go): NotDeclared for a plan
+//     with nothing to evaluate, consuming any request (it still records
+//     the head set an acceptance binds to), the human-round halt, the head
+//     set (syncHeadSet: when the combined change moved, the in-flight
+//     PreviewVerification is deleted and the state starts over at the new
+//     heads, and a head maul did not push halts automatic fixes), then the
+//     round in flight, retried on maul's own failure at most
+//     MaxVerificationAttempts before it is Unavailable.
 //
 // In review with no round started (startRound's last step) the gate
 // (startVerification) creates the next PreviewVerification when one is due
-// (verifyDue): the Preview live at exactly the heads, every named check
-// green, within the bounds. Nothing else here writes to GitHub or starts a round:
-// the commit statuses and comments, and the verify-fix rounds, read the
-// state this writes.
+// (verifyDue): the heads, every named check green, within the bounds.
+// Nothing else here writes to GitHub or starts a round: the commit
+// statuses and comments, and the verify-fix rounds, read the state this
+// writes.
 
 // reasonCriteriaUnreadable is the VerifyFailing reason of an Intent whose
 // approved plan revision's acceptance criteria cannot be read: nothing is
@@ -94,14 +91,14 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// syncAcceptance records the approved plan revision's acceptance criteria,
+// syncAcceptance records the approved plan revision's acceptance outcomes,
 // once: an approved plan's own, re-read under the approval's digest. A new
 // revision starts verification afresh (H11): automatic fixes armed, the
 // per-revision bounds and the head set cleared, its in-flight request
 // deleted; the round numbering, the reset generation and an approver's
 // pending request carry over. A plan that cannot be read or no longer
 // matches its digest records nothing (logged) and stops verification
-// (stopUnreadable): the criteria on record, if any, are another revision's.
+// (stopUnreadable): the record on record, if any, is another revision's.
 func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 	ap := p.in.Status.Approval
 	if p.mode() != modeNone {
@@ -255,8 +252,9 @@ func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApprov
 // (DESIGN 7.6): it posts, once, the notice asking for a replan (keyed by the
 // revision, so a retry or a restart finds the one it posted), then deletes
 // the in-flight request, consumes any waiting one, drops the criteria on
-// record (the evaluator never runs them; off again, slice 1 reads them
-// afresh), halts automatic fixes and reports Unavailable with the Intent's
+// record (nothing runs them; off again, the plan is recorded by their
+// digest alone, which nothing verifies), halts automatic fixes and reports
+// Unavailable with the Intent's
 // VerifyFailing condition saying why. Nothing is verified until a new plan
 // is approved, whose outcomes syncAcceptance then records.
 func (p *pass) stopForReplan(ctx context.Context, ap *v1alpha1.IntentApproval) (bool, error) {

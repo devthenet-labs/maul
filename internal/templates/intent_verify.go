@@ -110,8 +110,8 @@ type VerifyProgress struct {
 	Verification, FixesUsed, MaxFixes int32
 	// Passing of Total automated checks pass; Total 0 omits the count.
 	Passing, Total int32
-	// Quarantined and ManualOpen count checks held for a human.
-	Quarantined, ManualOpen int32
+	// ManualOpen counts the outcomes held for a human.
+	ManualOpen int32
 	// AutoFix is "", FixQueued, FixRunning or FixHalted; AutoFixReason is
 	// the controller's short fixed reason for a halt.
 	AutoFix       string
@@ -237,9 +237,6 @@ func verifyLine(p VerifyProgress) string {
 		head = "Verification unavailable: maul could not run the checks"
 	default:
 		return ""
-	}
-	if p.Quarantined > 0 {
-		head += fmt.Sprintf(", %d quarantined", p.Quarantined)
 	}
 	if p.ManualOpen > 0 {
 		head += fmt.Sprintf(", %d for a human", p.ManualOpen)

@@ -19,9 +19,9 @@ import (
 )
 
 // The verification gate: what must hold before the intent reconciler asks
-// preview-controller to run the approved acceptance criteria against the
-// intent's Preview (a PreviewVerification), and the pure pieces both the
-// gate and the loop (verify_loop.go) share: the head set and the bounds.
+// for an evaluation of the approved outcomes at the intent's heads (a
+// PreviewVerification), and the pure pieces both the gate and the loop
+// (verify_loop.go) share: the head set and the bounds.
 
 // verifyInterval spaces verifications: an automatic one while automatic
 // fixes are halted (a human pushing repeatedly is not re-verified on every

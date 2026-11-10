@@ -17,23 +17,23 @@ import (
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// The maul/acceptance commit status (acceptance verification, slice 1):
-// what the verification of the combined change says, posted on every open
-// pull request's head of an intent in review whose Project verifies. It is
+// The maul/acceptance commit status: what the agent evaluator's
+// verification of the combined change says, posted on every open pull
+// request's head of an intent in review whose Project verifies. It is
 // maul's word on behavioural evidence, never read back as state.
 //
-//   - success only when every approved criterion passed at the current head
-//     set or an approver accepted it there by hand (/maul accept): a manual
-//     criterion, one maul does not run yet (command), one that passed only
-//     on retry; a plan with no criteria at all only once an approver's
-//     /maul accept all. The description names who accepted. Never a green
-//     tick for work nothing and no one checked.
-//   - pending while maul waits or verifies, and while a result waits for a
-//     human; failure when a check failed; error when maul could not run
-//     them, an approved criterion cannot run as approved, or the approved
-//     criteria cannot be read. Under the agent evaluator (evaluationStatus)
-//     the same states count outcomes; an outcome maul could not confirm is
-//     a final error, never a pending status that waits for nothing.
+//   - success only in the outcomes mode (verify_mode.go), when every
+//     approved outcome is confirmed at the current head set or an approver
+//     accepted it there by hand (/maul accept): a manual outcome, or one
+//     maul could not confirm, found failing or saw pass only on retry; a
+//     plan declaring no outcome only once an approver's /maul accept all.
+//     The description names who accepted. Never a green tick for work
+//     nothing and no one checked.
+//   - pending while maul waits or evaluates (evaluationStatus), and while a
+//     dispute's replay round is due; failure while an outcome fails; error
+//     when maul could not run the checks, could not confirm an outcome
+//     (final, never a pending status that waits for nothing), or the
+//     approved plan cannot be read or states slice-1 criteria.
 //   - When verification is switched off for an intent (the Project, its
 //     Preview or the controller stops verifying), a final error on every pull
 //     request maul posted a status on, so none is left pending or green.
