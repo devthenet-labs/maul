@@ -261,6 +261,37 @@ func TestAcceptanceStatusSwitchedOff(t *testing.T) {
 	}
 }
 
+// TestAcceptanceStatusSwitchedOffStaysOff: a later green at the head of an
+// intent whose verification was switched off, maul's own from a pass that
+// lost its record write or someone else's, does not stand: the final error
+// is posted again.
+func TestAcceptanceStatusSwitchedOffStaysOff(t *testing.T) {
+	for _, creator := range []string{testBot, "mallory"} {
+		t.Run(creator, func(t *testing.T) {
+			e := newVerifyEnv(t, acceptancePlan)
+			name := e.reviewing()
+			e.readyPreview(name)
+			e.review(name, 6)
+			head := e.get(name).Status.PullRequests[0].HeadSHA
+			e.intent.Settings.Verification = false
+			e.review(name, 4)
+			if s := e.latestAcceptance(head); s.State != "error" {
+				t.Fatalf("once switched off: %+v", s)
+			}
+			e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: "success",
+				Description: "1/1 outcomes confirmed", Creator: creator})
+			e.review(name, 2)
+			s := e.latestAcceptance(head)
+			if s.Creator != testBot || s.State != "error" || s.Description != "verification switched off" {
+				t.Fatalf("a later green stood on a switched-off intent: %+v", s)
+			}
+			if pr := e.get(name).Status.PullRequests[0]; pr.AcceptanceStatusID != s.ID {
+				t.Fatalf("record = %d, want the re-posted %d", pr.AcceptanceStatusID, s.ID)
+			}
+		})
+	}
+}
+
 // TestAcceptanceStatusImpostor: a later maul/acceptance someone else posted
 // at the head is answered by maul's own state posted again, and the actor
 // is named in the verification section; the statuses are listed at most
@@ -296,15 +327,55 @@ func TestAcceptanceStatusImpostor(t *testing.T) {
 
 // TestAcceptanceStatusOwnLaterStatusIsNoImpostor: a later maul/acceptance
 // the App's own bot posted (a status write lost after posting) is maul's,
-// not an impostor's: nothing is re-posted and no one is named.
+// not an impostor's: in maul's own state, nothing is re-posted and no one
+// is named (in another, TestAcceptanceStatusOwnLostWriteIsRestated).
 func TestAcceptanceStatusOwnLaterStatusIsNoImpostor(t *testing.T) {
 	e := newVerifyEnv(t, acceptancePlan)
 	name, head := e.judged(answering(200))
-	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: "success", Creator: testBot})
+	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: e.latestAcceptance(head).State,
+		Creator: testBot})
 	n := len(e.acceptanceStatuses(head))
 	e.review(name, 2)
 	if got := len(e.acceptanceStatuses(head)); got != n {
 		t.Fatalf("maul's own status was answered as an impostor's: %d statuses, had %d", got, n)
+	}
+}
+
+// TestAcceptanceStatusOwnLostWriteIsRestated: a later maul/acceptance the
+// App's own bot posted in another state than the verification's (a pass
+// that posted it and lost its record write, as a restart does) is not left
+// standing: maul's state is posted again and recorded, naming no one, so
+// GitHub never keeps a stale green nor a stale red.
+func TestAcceptanceStatusOwnLostWriteIsRestated(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		do          acceptance.Doer
+		want, stale string
+	}{
+		{"stale green", answering(500), "failure", "success"},
+		{"stale red", answering(200), "pending", "failure"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, acceptancePlan)
+			name, head := e.judged(tc.do)
+			if s := e.latestAcceptance(head); s.State != tc.want {
+				t.Fatalf("judged: %+v, want %s", s, tc.want)
+			}
+			e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: tc.stale,
+				Description: "an earlier pass's", Creator: testBot})
+			e.review(name, 2)
+			s := e.latestAcceptance(head)
+			if s.State != tc.want || s.Creator != testBot {
+				t.Fatalf("after maul's own lost write: %+v, want %s restated", s, tc.want)
+			}
+			if pr := e.get(name).Status.PullRequests[0]; pr.AcceptanceStatusID != s.ID {
+				t.Fatalf("record = %d, want the re-posted %d", pr.AcceptanceStatusID, s.ID)
+			}
+			n := e.get(name).Status.PullRequests[0].Number
+			if body := e.onePreviewComment(name, n).Body; strings.Contains(body, "`"+testBot+"`") {
+				t.Fatalf("the preview comment names maul's own bot:\n%s", body)
+			}
+		})
 	}
 }
 

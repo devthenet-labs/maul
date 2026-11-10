@@ -776,7 +776,6 @@ func TestMultiRepoIntentPartialEnding(t *testing.T) {
 		{Name: "api", URL: apiRepoURL, Preview: previewAt("acme-api", "/api/healthz", "/api")},
 		{Name: "lib", URL: libRepoURL},
 	}, []string{"test"}, true, multiRepoArgs...)
-	ctx := context.Background()
 	// The planner decides only the API and the library must change.
 	e.kubelet.setAgentEnv("MAUL_FAKE_PLAN_REPOSITORIES", apiRepoURL+" "+libRepoURL)
 
@@ -859,12 +858,8 @@ func TestMultiRepoIntentPartialEnding(t *testing.T) {
 
 	// The operator lifts the block by changing the Project: every pull
 	// request has settled, not all merged, so the intent ends Closed.
-	p := e.project(t)
 	more := int32(3)
-	p.Spec.Limits.MaxCheckFixes = &more
-	if err := e.cl.client.Update(ctx, p); err != nil {
-		t.Fatalf("update the project: %v", err)
-	}
+	e.updateProject(t, func(p *v1alpha1.Project) { p.Spec.Limits.MaxCheckFixes = &more })
 	in = e.waitFor(t, name, "the intent to end Closed", func(in *v1alpha1.Intent) bool {
 		return in.Status.Phase == v1alpha1.IntentClosed
 	})

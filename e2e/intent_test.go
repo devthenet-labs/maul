@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -177,6 +178,21 @@ func (e *intentEnv) project(t *testing.T) *v1alpha1.Project {
 		t.Fatalf("read the project: %v", err)
 	}
 	return &p
+}
+
+// updateProject applies change to the Project as an operator would: on a
+// fresh read, again when intent-controller's own status write got in between
+// the read and the update.
+func (e *intentEnv) updateProject(t *testing.T, change func(*v1alpha1.Project)) {
+	t.Helper()
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		p := e.project(t)
+		change(p)
+		return e.cl.client.Update(context.Background(), p)
+	})
+	if err != nil {
+		t.Fatalf("update the project: %v", err)
+	}
 }
 
 // restartIntents stops intent-controller and starts it again with
@@ -762,15 +778,10 @@ func (e *intentEnv) exerciseReviseAndCheckFix(t *testing.T, name string, number 
 		t.Errorf("revision ref write = %+v, want non-forcing fast-forward", last)
 	}
 
-	var project v1alpha1.Project
-	if err := e.cl.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: projectName}, &project); err != nil {
-		t.Fatal(err)
-	}
-	project.Spec.Checks.Fix = []string{"test"}
-	project.Spec.Checks.RerunFailed = true
-	if err := e.cl.client.Update(ctx, &project); err != nil {
-		t.Fatal(err)
-	}
+	e.updateProject(t, func(p *v1alpha1.Project) {
+		p.Spec.Checks.Fix = []string{"test"}
+		p.Spec.Checks.RerunFailed = true
+	})
 	head := revise.Status.PushedCommit
 	fixName := v1alpha1.IntentRunName(name, v1alpha1.IntentStageRevise, 2, appRepo, 1)
 	e.gh.SetComparePatch(fakegithub.BaseSHA, head, "diff --git a/VERSION b/VERSION\n+0.1.0\n")
