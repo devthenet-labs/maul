@@ -14,9 +14,12 @@ import (
 
 // The caches (GOCACHE and npm's, under Options.Cache) are too large to
 // copy beside the tree: a large Go tree's build cache is gigabytes, more
-// than the work volume holds. Both are content-addressed, so an entry
-// missing is only a miss, which the tool builds or fetches again, never a
-// different answer. The shim therefore records, after a build that built,
+// than the work volume holds. Both are content-addressed: a Go cache entry
+// missing is only a miss, which the go command builds again, never a
+// different answer; an npm entry missing is fetched again where the
+// network allows, else an install error, never another package. Only an
+// entry a program changed or added is removed, and an exploration's or
+// check's own install leaves nothing the build's did not. The shim records, after a build that built,
 // a manifest of every entry the build left: its type and mode, a file's
 // size, its inode and its change time (ctime), which no program can set.
 // Before a check run it removes every entry the manifest does not hold
@@ -131,7 +134,7 @@ func (m manifest) prune(dir string) error {
 		return emptyDir(dir)
 	}
 	if info.Mode() != root.mode {
-		if err := os.Chmod(dir, root.mode.Perm()); err != nil {
+		if err := chmod(dir, root.mode.Perm()); err != nil {
 			return err
 		}
 	}

@@ -30,6 +30,10 @@ import (
 // copy too, which the digest catches: then nothing runs, never a run on a
 // tree the build did not leave.
 
+// chmod is os.Chmod, which a test replaces to refuse a volume's root as
+// the pod does.
+var chmod = os.Chmod
+
 // keptDir is where the kept places' copies are kept, under the work
 // directory.
 const keptDir = "kept"
@@ -181,8 +185,12 @@ func emptyDir(p string) error {
 		}
 		return os.Mkdir(p, 0o700)
 	}
-	if err := os.Chmod(p, 0o700); err != nil {
-		return err
+	// A volume's root is root's, mode 0777: never chmod it when it needs
+	// none, since the sandbox's UID cannot.
+	if fi.Mode().Perm()&0o700 != 0o700 {
+		if err := chmod(p, 0o700); err != nil {
+			return err
+		}
 	}
 	entries, err := os.ReadDir(p)
 	if err != nil {
@@ -283,7 +291,10 @@ func copyTree(src, dst string) error {
 		return err
 	}
 	for _, d := range slices.Backward(dirs) {
-		if err := os.Chmod(d.path, d.mode); err != nil {
+		if fi, err := os.Lstat(d.path); err == nil && fi.Mode().Perm() == d.mode {
+			continue
+		}
+		if err := chmod(d.path, d.mode); err != nil {
 			return err
 		}
 	}

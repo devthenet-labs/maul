@@ -9,13 +9,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
 // newMountedWorkspace is newWorkspace with HOME, the caches and the tmp
-// root in a directory the shim cannot write, as each is a volume's mount
-// point in the pod: none of them can be removed or replaced, only what is
-// in it.
+// root as each is in the pod, a volume's mount point owned by root, mode
+// 0777: in a directory the shim cannot write, so none of them can be
+// removed or replaced, and refused a chmod.
 func newMountedWorkspace(t *testing.T) (*Server, workspace) {
 	t.Helper()
 	if _, err := exec.LookPath("sh"); err != nil {
@@ -40,9 +41,22 @@ func newMountedWorkspace(t *testing.T) (*Server, workspace) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	for _, d := range []string{ws.home, ws.cache, ws.tmp} {
+		if err := os.Chmod(d, 0o777); err != nil { //nolint:gosec // the mode of an emptyDir's root
+			t.Fatal(err)
+		}
+	}
 	if err := os.Chmod(mnt, 0o555); err != nil {
 		t.Fatal(err)
 	}
+	roots := map[string]bool{ws.home: true, ws.cache: true, ws.tmp: true}
+	chmod = func(p string, mode os.FileMode) error {
+		if roots[filepath.Clean(p)] {
+			return &os.PathError{Op: "chmod", Path: p, Err: syscall.EPERM}
+		}
+		return os.Chmod(p, mode)
+	}
+	t.Cleanup(func() { chmod = os.Chmod })
 	return s, ws
 }
 
@@ -103,6 +117,9 @@ func TestCheckRunsShareNoState(t *testing.T) {
 	for _, mounted := range []bool{false, true} {
 		for _, tc := range tests {
 			t.Run(fmt.Sprintf("%s mounted=%v", tc.name, mounted), func(t *testing.T) {
+				if mounted && tc.name == "HOME made unreadable" {
+					t.Skip("the sandbox's UID cannot chmod a volume's root")
+				}
 				s, ws := newWorkspace(t)
 				if mounted {
 					s, ws = newMountedWorkspace(t)
