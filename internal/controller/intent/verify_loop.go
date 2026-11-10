@@ -84,7 +84,7 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 		// against the approved one's code.
 		return false, nil
 	}
-	if !p.verifies() {
+	if !p.verifies() || p.outcomesUnevaluated() {
 		return p.switchedOff(ctx)
 	}
 	if p.set.evaluates(p.proj) {
@@ -175,6 +175,29 @@ func (p *pass) acceptanceCurrent() bool {
 	acc, ap := p.in.Status.Acceptance, p.in.Status.Approval
 	return acc != nil && ap != nil && acc.PlanRevision == ap.PlanRevision &&
 		(len(acc.Criteria) == 0 || !p.set.evaluates(p.proj))
+}
+
+// outcomesUnevaluated reports an approved plan's outcomes on record while
+// the agent evaluator does not verify the Project (review CX-1: switched
+// off after they were recorded, the documented rollback). Slice 1's
+// criteria path would find nothing to run and read the outcomes as all
+// manual; nothing evaluates them, so the intent is Off (switchedOff) and
+// its maul/acceptance the switched-off error until the evaluator is back
+// (resumeOff) or a plan stating criteria is approved.
+func (p *pass) outcomesUnevaluated() bool {
+	acc := p.in.Status.Acceptance
+	return acc != nil && len(acc.Outcomes) > 0 && !p.set.evaluates(p.proj)
+}
+
+// atHeads reports that v is about the heads the Intent's tool host derives
+// from its records now (toolHost.heads, as its rounds derive them): only
+// then is v's judgement reported (review SM-1). A pull request's head is
+// recorded on the poll that reads it, and the head set follows only on a
+// later pass's syncHeadSet, so in between a reporter would otherwise show
+// a judgement of the old heads on the new.
+func (p *pass) atHeads(v *v1alpha1.IntentVerification) bool {
+	hs, ok := p.toolHost().heads(p)
+	return ok && hs.digest == v.HeadSetDigest
 }
 
 // verifyStopped is why verification of the approved plan revision is

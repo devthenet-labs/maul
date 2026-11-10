@@ -13,6 +13,9 @@ the commands.
 
 It is off by default (`intentController.verification.evaluator: false` in the chart). Off, verification runs slice 1's
 acceptance criteria, as [Acceptance verification](acceptance.md#without-the-evaluator-acceptance-criteria) describes.
+Switched off as a rollback, an open intent whose approved plan states outcomes is not verified at all (state `Off`): its
+`maul/acceptance` becomes the final error "verification switched off", never a green, until the evaluator is back (maul
+starts over at the current heads) or a plan stating criteria is approved.
 
 !!! note "What the evaluator's word is worth"
 
@@ -328,7 +331,8 @@ green at the first pull request heads; past it the link is released as "maul cou
 push maul did not make, or `/maul preview` releases the link at once ("Shown while maul is still checking the approved
 outcomes."), even before the first evaluation has started, and maul goes on checking. A plain comment, `/maul verify`
 and `/maul verify fix` do not release it. The pull requests open as usual, not as drafts, so GitHub still notifies their
-watchers; maul only holds its own words.
+watchers; maul only holds its own words. A released link is labelled "Ready" only while the pull requests are at the
+heads maul judged: after a push it reads as still being checked until a round is about the new heads.
 
 "maul couldn't confirm this" names one reason:
 

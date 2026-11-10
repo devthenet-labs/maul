@@ -78,7 +78,7 @@ func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
 	if !verifyPhase(p.in.Status.Phase) {
 		return acceptanceState{}, false, false
 	}
-	if !p.set.Verification || !p.verifies() {
+	if !p.set.Verification || !p.verifies() || p.outcomesUnevaluated() {
 		return switchedOff, true, true
 	}
 	if !p.verifyReported() {
@@ -93,8 +93,17 @@ func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
 			true
 	}
 	st, ok = p.verifyingStatus()
+	if ok && st.state != statusPending && !p.atHeads(p.in.Status.Verification) {
+		// A judgement of other heads than the pull requests' now (SM-1):
+		// re-verified once the head set follows.
+		st = headsMoved
+	}
 	return st, false, ok
 }
+
+// headsMoved is the status of a verification whose recorded head set is not
+// the pull requests' now.
+var headsMoved = acceptanceState{statusPending, "combined change moved: re-verifying"}
 
 // verifyingStatus is the status of a verifying intent's recorded
 // verification; ok is false in a state it is about to leave (none yet, or
@@ -114,7 +123,7 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 		return notCheckedStatus(acc, v), true
 	case v1alpha1.VerificationWaitingForCI, v1alpha1.VerificationWaitingForPreview:
 		if v.Round > 0 {
-			return acceptanceState{statusPending, "combined change moved: re-verifying"}, true
+			return headsMoved, true
 		}
 		if v.State == v1alpha1.VerificationWaitingForCI {
 			return acceptanceState{statusPending, "waiting for the pull requests' checks"}, true
@@ -165,12 +174,20 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 	confirmed := fmt.Sprintf("%d/%d outcomes confirmed", confirmedCount(acc, v), total)
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
-		if v.ManualOpen > 0 {
-			return acceptanceState{statusPending, fmt.Sprintf("%d/%d outcomes accepted by hand",
-				v.ManualAccepted, v.ManualAccepted+v.ManualOpen)}, true
+		if evaluable(acc.Outcomes) {
+			// Nothing to evaluate is never what an outcome maul evaluates
+			// says (CX-1): no success without its evaluation.
+			return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed}, true
 		}
-		return acceptanceState{statusSuccess, fmt.Sprintf("%d/%d outcomes accepted by hand %s", v.ManualAccepted,
-			v.ManualAccepted, acceptedBy(outcomeAccepters(acc, v)))}, true
+		// Counted now, never from counts a pass may not have made.
+		n := *v
+		countManual(&n, acc)
+		if n.ManualOpen > 0 {
+			return acceptanceState{statusPending, fmt.Sprintf("%d/%d outcomes accepted by hand",
+				n.ManualAccepted, n.ManualAccepted+n.ManualOpen)}, true
+		}
+		return acceptanceState{statusSuccess, fmt.Sprintf("%d/%d outcomes accepted by hand %s", n.ManualAccepted,
+			n.ManualAccepted, acceptedBy(outcomeAccepters(acc, v)))}, true
 	case v1alpha1.VerificationEvaluating:
 		return checkingStatus(v.Round, total, used, most), true
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
