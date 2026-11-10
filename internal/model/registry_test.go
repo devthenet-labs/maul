@@ -102,6 +102,53 @@ func TestCodexModel(t *testing.T) {
 	}
 }
 
+// TestBuiltinRates pins every builtin's published list rates (USD per MTok:
+// input, cache read, output) and its vendor-native CLI id, so a rate cannot
+// drift from the vendor's price page unnoticed. Claude Haiku 5.5 is priced at
+// its long-prompt tier (above 100K input tokens): the registry holds one rate
+// per class, and the higher one never undercounts spend.
+func TestBuiltinRates(t *testing.T) {
+	tests := []struct {
+		id, cli         string
+		in, cached, out float64
+	}{
+		{"anthropic/claude-haiku-4-5", "claude-haiku-4-5", 1.00, 0.10, 5.00},
+		{"anthropic/claude-haiku-5-5", "claude-haiku-5-5", 0.50, 0.05, 2.50},
+		{"anthropic/claude-sonnet-5", "claude-sonnet-5", 2.00, 0.20, 10.00},
+		{"anthropic/claude-sonnet-5-5", "claude-sonnet-5-5", 2.00, 0.10, 10.00},
+		{"anthropic/claude-opus-5", "claude-opus-5", 5.00, 0.50, 25.00},
+		{"anthropic/claude-opus-5-5", "claude-opus-5-5", 4.00, 0.20, 20.00},
+		{"anthropic/claude-fable-5", "claude-fable-5", 10.00, 1.00, 50.00},
+		{"anthropic/claude-fable-5-2", "claude-fable-5-2", 8.00, 0.20, 40.00},
+		{"openai/gpt-5.3-codex", "gpt-5.3-codex", 1.75, 0.175, 14.00},
+		{"openai/gpt-5.6-luna", "gpt-5.6-luna", 1.00, 0.10, 6.00},
+		{"openai/gpt-5.6-terra", "gpt-5.6-terra", 2.50, 0.25, 15.00},
+		{"openai/gpt-5.6-sol", "gpt-5.6-sol", 5.00, 0.50, 30.00},
+		{"openai/gpt-6-astra", "gpt-6-astra", 10.00, 1.00, 50.00},
+	}
+	if n := len(builtins()); n != len(tests) {
+		t.Fatalf("registry has %d models, the rate table covers %d: update both together", n, len(tests))
+	}
+	for _, tt := range tests {
+		m, ok := ModelByID(builtins(), tt.id)
+		if !ok {
+			t.Errorf("%s missing from registry", tt.id)
+			continue
+		}
+		if id, ok := m.CLIModelID(m.Preferred); !ok || id != tt.cli {
+			t.Errorf("%s: %s CLI id = %q, want %q", tt.id, m.Preferred, id, tt.cli)
+		}
+		if m.InputUSD == nil || m.CachedInputUSD == nil || m.OutputUSD == nil {
+			t.Errorf("%s: unpriced", tt.id)
+			continue
+		}
+		if *m.InputUSD != tt.in || *m.CachedInputUSD != tt.cached || *m.OutputUSD != tt.out {
+			t.Errorf("%s: rates = %v/%v/%v, want %v/%v/%v", tt.id,
+				*m.InputUSD, *m.CachedInputUSD, *m.OutputUSD, tt.in, tt.cached, tt.out)
+		}
+	}
+}
+
 // TestCopilotSupportsEveryModel pins Copilot's role in the registry: it brokers
 // both vendors, so every model must name it as a supported harness, and it must
 // never be a model's Preferred — a vendor-native harness always wins when both
@@ -109,14 +156,19 @@ func TestCodexModel(t *testing.T) {
 // Copilot spells Anthropic point releases with a dot.
 func TestCopilotSupportsEveryModel(t *testing.T) {
 	wantCLIID := map[string]string{
-		"anthropic/claude-haiku-4-5": "claude-haiku-4.5",
-		"anthropic/claude-sonnet-5":  "claude-sonnet-5",
-		"anthropic/claude-opus-5":    "claude-opus-5",
-		"anthropic/claude-fable-5":   "claude-fable-5",
-		"openai/gpt-5.3-codex":       "gpt-5.3-codex",
-		"openai/gpt-5.6-luna":        "gpt-5.6-luna",
-		"openai/gpt-5.6-terra":       "gpt-5.6-terra",
-		"openai/gpt-5.6-sol":         "gpt-5.6-sol",
+		"anthropic/claude-haiku-4-5":  "claude-haiku-4.5",
+		"anthropic/claude-haiku-5-5":  "claude-haiku-5.5",
+		"anthropic/claude-sonnet-5":   "claude-sonnet-5",
+		"anthropic/claude-sonnet-5-5": "claude-sonnet-5.5",
+		"anthropic/claude-opus-5":     "claude-opus-5",
+		"anthropic/claude-opus-5-5":   "claude-opus-5.5",
+		"anthropic/claude-fable-5":    "claude-fable-5",
+		"anthropic/claude-fable-5-2":  "claude-fable-5.2",
+		"openai/gpt-5.3-codex":        "gpt-5.3-codex",
+		"openai/gpt-5.6-luna":         "gpt-5.6-luna",
+		"openai/gpt-5.6-terra":        "gpt-5.6-terra",
+		"openai/gpt-5.6-sol":          "gpt-5.6-sol",
+		"openai/gpt-6-astra":          "gpt-6-astra",
 	}
 	models := builtins()
 	if len(models) != len(wantCLIID) {
@@ -139,22 +191,22 @@ func TestCopilotSupportsEveryModel(t *testing.T) {
 }
 
 func TestUsageCostUSD(t *testing.T) {
-	m, _ := ModelByID(builtins(), "anthropic/claude-sonnet-5") // 3 / 0.30 / 15 per MTok
-	// Fresh input and cache writes at 3/MTok, cache reads at the 0.30/MTok
-	// cache-read rate, output at 15/MTok:
-	// (1_000_000 + 200_000)/1e6*3 + 500_000/1e6*0.30 + 100_000/1e6*15
-	//   = 3.6 + 0.15 + 1.5 = 5.25
+	m, _ := ModelByID(builtins(), "anthropic/claude-sonnet-5") // 2 / 0.20 / 10 per MTok
+	// Fresh input and cache writes at 2/MTok, cache reads at the 0.20/MTok
+	// cache-read rate, output at 10/MTok:
+	// (1_000_000 + 200_000)/1e6*2 + 500_000/1e6*0.20 + 100_000/1e6*10
+	//   = 2.4 + 0.1 + 1.0 = 3.5
 	got := UsageCostUSD(m, 1_000_000, 500_000, 200_000, 100_000)
-	if got == nil || *got != 5.25 {
-		t.Errorf("UsageCostUSD = %v, want 5.25", got)
+	if got == nil || *got != 3.5 {
+		t.Errorf("UsageCostUSD = %v, want 3.5", got)
 	}
 
 	// Without a published cache-read rate, cache reads fall back to the base
-	// input rate: (100 + 100)/1e6*3 + 100/1e6*3 + 50/1e6*15 = 0.00165.
+	// input rate: (100 + 100)/1e6*2 + 100/1e6*2 + 50/1e6*10 = 0.0011.
 	noCache := m
 	noCache.CachedInputUSD = nil
-	if got := UsageCostUSD(noCache, 100, 100, 100, 50); got == nil || *got != 0.00165 {
-		t.Errorf("UsageCostUSD(no cached rate) = %v, want 0.00165", got)
+	if got := UsageCostUSD(noCache, 100, 100, 100, 50); got == nil || *got != 0.0011 {
+		t.Errorf("UsageCostUSD(no cached rate) = %v, want 0.0011", got)
 	}
 	// A model without published pricing prices to nil. Every builtin is
 	// priced, so this is the config-override case: a synthetic model whose

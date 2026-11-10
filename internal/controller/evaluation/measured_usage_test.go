@@ -51,7 +51,7 @@ func TestMeasureSettledUnit(t *testing.T) {
 	now = now.Add(usagemeter.DefaultWait)
 	reconcileUnit(t, r, unit.Name)
 	u := getUnit(t, c, unit.Name).Status.Usage
-	if !u.Final || u.Source != v1alpha1.UsageSourcePartial || u.Measured == nil || u.Measured.CostUSD != "3.000000" ||
+	if !u.Final || u.Source != v1alpha1.UsageSourcePartial || u.Measured == nil || u.Measured.CostUSD != "2.000000" ||
 		u.CostUSD != "0.750000" || u.InputTokens != 1000 {
 		t.Fatalf("usage = %+v", u)
 	}

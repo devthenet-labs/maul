@@ -24,13 +24,13 @@ func TestFromStageCost(t *testing.T) {
 	}
 
 	// No reported cost but a priced model: fall back to token pricing.
-	// claude-sonnet-5 is 3/15 per MTok: 1_000_000/1e6*3 + 200_000/1e6*15 = 6.0.
+	// claude-sonnet-5 is 2/10 per MTok: 1_000_000/1e6*2 + 200_000/1e6*10 = 4.0.
 	st = &envelope.Stage{
 		Model: "anthropic/claude-sonnet-5",
 		Usage: envelope.Usage{InputTokens: 1_000_000, OutputTokens: 200_000},
 	}
-	if got := FromStage(st).Usage.CostUSD; got != "6.000000" {
-		t.Errorf("priced fallback = %q, want 6.000000", got)
+	if got := FromStage(st).Usage.CostUSD; got != "4.000000" {
+		t.Errorf("priced fallback = %q, want 4.000000", got)
 	}
 
 	// Codex reports tokens but never a cost, so the fallback is the only thing

@@ -62,13 +62,13 @@ func TestMeasureSettledInvestigation(t *testing.T) {
 	}{
 		{name: "off", meterOff: true, harness: "claude"},
 		{name: "measured", harness: "claude", final: true, wantSrc: v1alpha1.UsageSourceMeasured,
-			wantCost: "3.000000", wantAsked: 1},
+			wantCost: "2.000000", wantAsked: 1},
 		{name: "broker restarted mid-run", harness: "claude", final: true, wantSrc: v1alpha1.UsageSourcePartial,
-			wantCost: "3.000000", wantAsked: 1},
+			wantCost: "2.000000", wantAsked: 1},
 		{name: "in flight", harness: "claude", requeue: true, wantAsked: 1},
 		{name: "not brokered", harness: "copilot", final: true, wantSrc: v1alpha1.UsageSourceReported},
 		{name: "codex, brokered", harness: "codex", final: true, wantSrc: v1alpha1.UsageSourceMeasured,
-			wantCost: "3.000000", wantAsked: 1},
+			wantCost: "2.000000", wantAsked: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runner, fnd, inv := settledInvestigation(jobCreated)
@@ -191,8 +191,8 @@ func TestMeasureDeletedInvestigation(t *testing.T) {
 			}
 			for _, month := range rollup.Status.Months {
 				if month.Runs != 1 || month.ReportedRuns != 0 || month.InputTokens != 1_000_000 ||
-					month.CostMicroUSD != 3_000_000 {
-					t.Errorf("month = %+v, want one measured run of 1M input tokens and $3", month.UsageAggregate)
+					month.CostMicroUSD != 2_000_000 {
+					t.Errorf("month = %+v, want one measured run of 1M input tokens and $2", month.UsageAggregate)
 				}
 			}
 		})

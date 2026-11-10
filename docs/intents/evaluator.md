@@ -418,12 +418,13 @@ Ready (`RunBudgetOverHourlyLimit`).
 spent plus the request's whole output bound, at the model's output price, fits the pod's budget, so a run can spend at
 most its budget less one such reservation. agent-runner therefore bounds what each request of these two stages may
 write: 32000 output tokens for evaluate (its largest response is a Write of its report or an exec check's program, each
-under 64 KiB) and 8192 for checkreview (a review is one short report). On claude-sonnet-5 (\$15 per million output
-tokens) that reserves \$0.48 and \$0.12 a request. A run budget under twice that keeps the Project from Ready
-(`RunBudgetUnderRequestReserve`, naming the stage and the least budget it needs): on sonnet at least \$0.96 for evaluate
-and \$0.25 for checkreview, on claude-opus-5 \$1.60 and \$0.41, on claude-haiku-4-5 \$0.32 and \$0.08. The example above
-(\$1.50 and \$0.30) fits sonnet; on opus raise both. Without the bound a request reserved the CLI's default of 64000
-tokens, \$0.96 on sonnet, and a \$1 checkreview run was refused after four calls. A codex run gets no such bound and is
+under 64 KiB) and 8192 for checkreview (a review is one short report). On claude-sonnet-5-5 (\$10 per million output
+tokens) that reserves \$0.32 and \$0.08 a request. A run budget under twice that keeps the Project from Ready
+(`RunBudgetUnderRequestReserve`, naming the stage and the least budget it needs): on sonnet at least \$0.64 for evaluate
+and \$0.16 for checkreview, on claude-opus-5-5 \$1.28 and \$0.33, on claude-haiku-5-5 \$0.16 and \$0.04. The example
+above (\$1.50 and \$0.30) fits sonnet; on opus raise the checkreview budget. Without the bound a request reserved the
+CLI's default of 64000 tokens, \$0.64 on sonnet, and a \$1 checkreview run was refused after four calls (at the \$15 per
+million output claude-sonnet-5 was then priced at). A codex run gets no such bound and is
 not judged: a request that sets no `max_output_tokens` reserves the broker's `--max-tokens-ceiling`, if any.
 
 **Turns come first.** Every tool call is one agent turn, so an evaluate run's turn cap (`--intent-evaluate-max-turns`,

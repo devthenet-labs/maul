@@ -119,8 +119,8 @@ func TestSettle(t *testing.T) {
 	if out == nil || out.Source != v1alpha1.UsageSourceMeasured || out.Measured == nil {
 		t.Fatalf("settled: %+v", out)
 	}
-	// $3 per million input, $15 per million output.
-	if got := out.Measured.CostUSD; got != "4.500000" || out.Measured.PriceTable != model.PriceTableVersion ||
+	// $2 per million input, $10 per million output.
+	if got := out.Measured.CostUSD; got != "3.000000" || out.Measured.PriceTable != model.PriceTableVersion ||
 		out.Measured.Pricing != v1alpha1.UsagePricingList {
 		t.Errorf("measured = %+v", out.Measured)
 	}
@@ -186,14 +186,14 @@ func TestPrice(t *testing.T) {
 		usagewire.Model{Model: "claude-haiku-4-5", Credential: usagewire.CredentialAPIKey, Output: 1_000_000},
 	)}
 	got := Price(model.Builtins(), pods, boot)
-	// sonnet 3 + 3.75 + 6 = 12.75; haiku output $5.
-	if got.CostUSD != "17.750000" || got.Pricing != v1alpha1.UsagePricingList ||
+	// sonnet 2 + 2.5 + 4 = 8.5; haiku output $5.
+	if got.CostUSD != "13.500000" || got.Pricing != v1alpha1.UsagePricingList ||
 		got.PriceTable != model.PriceTableVersion || got.EstimatedShortfallTokens != 9_999_999 ||
 		got.CacheWriteTokens != 2_000_000 || got.InputTokens != 1_000_000 || got.OutputTokens != 1_000_000 {
 		t.Fatalf("Price = %+v", got)
 	}
 	if len(got.Models) != 2 || got.Models[0].Model != "anthropic/claude-haiku-4-5" ||
-		got.Models[1].Model != "anthropic/claude-sonnet-5" || got.Models[1].CostUSD != "12.750000" ||
+		got.Models[1].Model != "anthropic/claude-sonnet-5" || got.Models[1].CostUSD != "8.500000" ||
 		got.Models[1].EstimatedShortfallTokens != 9_999_999 || got.Models[1].PriceTable != model.PriceTableVersion {
 		t.Errorf("models = %+v", got.Models)
 	}
@@ -212,7 +212,7 @@ func TestPriceUnknownModel(t *testing.T) {
 	if m := unknown.Models[1]; m.Model != "claude-mystery-9" || m.CostUSD != "" || m.InputTokens != 7 {
 		t.Errorf("unknown model entry: %+v", m)
 	}
-	if m := unknown.Models[0]; m.CostUSD != "3.000000" {
+	if m := unknown.Models[0]; m.CostUSD != "2.000000" {
 		t.Errorf("priced beside it: %+v", m)
 	}
 
@@ -251,14 +251,14 @@ func TestPriceKeepsCredentialKindsApart(t *testing.T) {
 	}
 	key, sub := got.Models[0], got.Models[1]
 	if key.Credential != usagewire.CredentialAPIKey || key.Pricing != v1alpha1.UsagePricingList ||
-		key.InputTokens != 1_000_000 || key.CostUSD != "3.000000" {
+		key.InputTokens != 1_000_000 || key.CostUSD != "2.000000" {
 		t.Errorf("api-key entry = %+v", key)
 	}
 	if sub.Credential != usagewire.CredentialOAuthToken || sub.Pricing != v1alpha1.UsagePricingSubscription ||
-		sub.InputTokens != 2_000_000 || sub.CostUSD != "6.000000" {
+		sub.InputTokens != 2_000_000 || sub.CostUSD != "4.000000" {
 		t.Errorf("oauth-token entry = %+v", sub)
 	}
-	if got.InputTokens != 3_000_000 || got.CostUSD != "9.000000" {
+	if got.InputTokens != 3_000_000 || got.CostUSD != "6.000000" {
 		t.Errorf("totals = %+v", got)
 	}
 }

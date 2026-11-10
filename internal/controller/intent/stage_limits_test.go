@@ -406,16 +406,16 @@ func TestRoleBudgetUnderRequestReserve(t *testing.T) {
 		p.Spec.Limits.CheckReview.MaxCostMicroUSD = checkReview
 		return p
 	}
-	// claude-sonnet-5 output is $15 per million tokens: 8192 tokens reserve
-	// 122880 micro-USD, 32000 reserve 480000.
+	// claude-sonnet-5 output is $10 per million tokens: 8192 tokens reserve
+	// 81920 micro-USD, 32000 reserve 320000.
 	for _, tt := range []struct {
 		name                string
 		evaluate, review    int64
 		stage, field, least string
 		budget              string
 	}{
-		{"checkreview", 1500000, 200000, "checkreview run", "limits.checkReview.maxCostMicroUSD", "245760", "200000"},
-		{"evaluate", 900000, 300000, "evaluate run", "limits.evaluate.maxCostMicroUSD", "960000", "900000"},
+		{"checkreview", 1500000, 150000, "checkreview run", "limits.checkReview.maxCostMicroUSD", "163840", "150000"},
+		{"evaluate", 600000, 300000, "evaluate run", "limits.evaluate.maxCostMicroUSD", "640000", "600000"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			reason, msg := settings().refusal(project(tt.evaluate, tt.review))
@@ -434,7 +434,7 @@ func TestRoleBudgetUnderRequestReserve(t *testing.T) {
 	for name, p := range map[string]*v1alpha1.Project{
 		"the documented example": project(1500000, 300000),
 		"the defaults":           project(0, 0),
-		"exactly two reserves":   project(960000, 245760),
+		"exactly two reserves":   project(640000, 163840),
 	} {
 		if reason, msg := settings().refusal(p); reason != "" {
 			t.Errorf("%s: refusal = %q (%s), want none", name, reason, msg)

@@ -63,7 +63,7 @@ func TestRollUpUnitUsage(t *testing.T) {
 	st := list.Items[0].Status
 	got := getUnit(t, c, unit.Name)
 	day := st.Days[got.Status.FinishedAt.UTC().Format("2006-01-02")]
-	if day.Runs != 1 || day.ReportedRuns != 0 || day.CostMicroUSD != 3_000_000 ||
+	if day.Runs != 1 || day.ReportedRuns != 0 || day.CostMicroUSD != 2_000_000 ||
 		day.Kinds[stats.UsageKindEvaluation].Runs != 1 || st.Login != "alice" {
 		t.Errorf("day = %+v, login %q", day, st.Login)
 	}
@@ -111,7 +111,7 @@ func TestRollUpCancelledUnitMeasured(t *testing.T) {
 	for _, m := range list.Items[0].Status.Months {
 		runs, reported, cost = runs+m.Runs, reported+m.ReportedRuns, cost+m.CostMicroUSD
 	}
-	if runs != 1 || reported != 0 || cost != 3_000_000 {
-		t.Errorf("runs %d, reported %d, cost %d; want one measured run of $3", runs, reported, cost)
+	if runs != 1 || reported != 0 || cost != 2_000_000 {
+		t.Errorf("runs %d, reported %d, cost %d; want one measured run of $2", runs, reported, cost)
 	}
 }

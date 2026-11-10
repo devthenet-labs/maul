@@ -47,7 +47,7 @@ func TestMeasureSettledRuns(t *testing.T) {
 	for _, run := range runs {
 		u := run.Status.Usage
 		if !u.Final || u.Source != v1alpha1.UsageSourceMeasured || u.Measured == nil ||
-			u.Measured.CostUSD != "3.000000" || u.Measured.EstimatedShortfallTokens != 250 {
+			u.Measured.CostUSD != "2.000000" || u.Measured.EstimatedShortfallTokens != 250 {
 			t.Errorf("run %s (%s) usage = %+v", run.Name, run.Spec.Stage, u)
 		}
 		if run.Status.JobRef == nil || !asked[run.Status.JobRef.Name] {
