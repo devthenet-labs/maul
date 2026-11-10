@@ -15,6 +15,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // TestEmptyCriteriaDigest pins the literal to the digest of the empty
@@ -328,7 +329,7 @@ func (c modeCase) verification(rng *rand.Rand, acc *v1alpha1.IntentAcceptance, h
 	if len(v.Outcomes) > 0 && rng.Intn(4) != 0 {
 		v.OutcomesRound, v.OutcomesHeadSetDigest = v.Round, heads
 		if rng.Intn(4) != 0 {
-			v.OutcomesEnvironment = string(acceptance.EnvOK)
+			v.OutcomesEnvironment = string(httpstep.EnvOK)
 		}
 	}
 	countManual(v, acc)
