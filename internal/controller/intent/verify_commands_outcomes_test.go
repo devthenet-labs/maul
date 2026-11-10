@@ -404,49 +404,56 @@ func TestOutcomePRVerifyCommandsNeverReplay(t *testing.T) {
 	}
 }
 
+// movedHeads moves intent name's pull request, and the head set its
+// verification records, to another commit the Preview does not run.
+func (e *env) movedHeads(name string) {
+	e.t.Helper()
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.PullRequests[0].HeadSHA = "fedcba9876543210fedcba9876543210fedcba98"
+	})
+	hs, _ := previewHeadSet(e.getProject(), e.get(name))
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.HeadSetDigest, in.Status.Verification.Heads = hs.digest, hs.heads
+	})
+	e.previewOf(name)
+}
+
+// acceptManualOnPR comments /maul accept of the manual outcome on intent
+// name's pull request now, and returns the comment's id.
+func (e *env) acceptManualOnPR(name string) int64 {
+	return e.prCommand(e.prNumber(name), approver, "/maul accept "+manualOutcomeID)
+}
+
 // TestOutcomeAcceptBindsToWhatTheApproverSaw twins
 // TestAcceptBindsToWhatTheApproverSaw on the manual outcome.
 func TestOutcomeAcceptBindsToWhatTheApproverSaw(t *testing.T) {
-	moved := "fedcba9876543210fedcba9876543210fedcba98"
-	moveHeads := func(e *env, name string) {
-		e.setStatus(name, func(in *v1alpha1.Intent) {
-			in.Status.PullRequests[0].HeadSHA = moved
-		})
-		hs, _ := previewHeadSet(e.getProject(), e.get(name))
-		e.setStatus(name, func(in *v1alpha1.Intent) {
-			in.Status.Verification.HeadSetDigest, in.Status.Verification.Heads = hs.digest, hs.heads
-		})
-		e.previewOf(name)
-	}
-	for _, tc := range []struct {
-		name string
-		run  func(e *env, name string) int64
-	}{
-		{"before the preview was live", func(e *env, name string) int64 {
-			id := e.prCommand(e.prNumber(name), approver, "/maul accept "+manualOutcomeID)
+	cases := map[string]func(e *env, name string) int64{
+		"before the preview was live": func(e *env, name string) int64 {
+			id := e.acceptManualOnPR(name)
 			e.clock.Advance(time.Minute)
 			e.readyPreview(name)
 			return id
-		}},
-		{"the commits moved after it", func(e *env, name string) int64 {
+		},
+		"the commits moved after it": func(e *env, name string) int64 {
 			e.acceptReady(name)
-			id := e.prCommand(e.prNumber(name), approver, "/maul accept "+manualOutcomeID)
+			id := e.acceptManualOnPR(name)
 			e.clock.Advance(time.Minute)
-			moveHeads(e, name)
+			e.movedHeads(name)
 			e.readyPreview(name)
 			return id
-		}},
-		{"the preview does not run the commits", func(e *env, name string) int64 {
+		},
+		"the preview does not run the commits": func(e *env, name string) int64 {
 			e.acceptReady(name)
-			moveHeads(e, name)
+			e.movedHeads(name)
 			e.servePreview(name, v1alpha1.PreviewDeploying, "")
 			e.clock.Advance(time.Minute)
-			return e.prCommand(e.prNumber(name), approver, "/maul accept "+manualOutcomeID)
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+			return e.acceptManualOnPR(name)
+		},
+	}
+	for what, run := range cases {
+		t.Run(what, func(t *testing.T) {
 			e, name := outcomeReviewing(t)
-			id := tc.run(e, name)
+			id := run(e, name)
 			e.clock.Advance(time.Second)
 			e.settlePR(name)
 			if acc := e.get(name).Status.Acceptance.Accepted; len(acc) != 0 {

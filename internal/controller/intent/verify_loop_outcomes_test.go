@@ -256,6 +256,26 @@ func evaluationWallClock() time.Duration {
 	return max(min(DefaultEvaluateTimeout+EvaluationToolsMargin, maxVerificationTimeout), minVerificationTimeout)
 }
 
+// checkOutcomeRequestSpec holds a first outcome round's spec to in and its
+// Preview.
+func checkOutcomeRequestSpec(t *testing.T, in *v1alpha1.Intent, preview *v1alpha1.Preview,
+	pv *v1alpha1.PreviewVerification) {
+	t.Helper()
+	s := pv.Spec
+	head := in.Status.PullRequests[0].HeadSHA
+	wantHeads := []v1alpha1.VerificationHead{{Component: "app", Repository: appRepoURL, Revision: head}}
+	if s.IntentRef.UID != in.UID || s.PreviewRef.UID != preview.UID || s.PreviewRef.Name != preview.Name ||
+		s.PreviewGeneration != preview.Generation || !slices.Equal(s.Heads, wantHeads) ||
+		s.HeadSetDigest != headSetDigest(wantHeads) || s.Round != 1 || s.Attempt != 1 ||
+		!regexp.MustCompile(`^[0-9a-f]{6}$`).MatchString(s.Run) || s.Timeout.Duration != evaluationWallClock() {
+		t.Fatalf("spec = %+v", s)
+	}
+	outcomeRequest(t, pv)
+	if s.OutcomesDigest != in.Status.Acceptance.OutcomesDigest {
+		t.Fatalf("outcomes digest %s, want the approved %s", s.OutcomesDigest, in.Status.Acceptance.OutcomesDigest)
+	}
+}
+
 // TestOutcomeVerificationCreatesTheRequest twins
 // TestVerificationCreatesTheRequest: one outcome round, owned by the
 // Intent, pinned to it and its Preview by UID, carrying the heads, the
@@ -272,19 +292,7 @@ func TestOutcomeVerificationCreatesTheRequest(t *testing.T) {
 	if pv.Name != v1alpha1.PreviewVerificationName(name, 1, 1) || !controlledBy(pv.OwnerReferences, in.UID) {
 		t.Fatalf("verification %s owners %+v", pv.Name, pv.OwnerReferences)
 	}
-	s := pv.Spec
-	head := in.Status.PullRequests[0].HeadSHA
-	wantHeads := []v1alpha1.VerificationHead{{Component: "app", Repository: appRepoURL, Revision: head}}
-	if s.IntentRef.UID != in.UID || s.PreviewRef.UID != preview.UID || s.PreviewRef.Name != preview.Name ||
-		s.PreviewGeneration != preview.Generation || !slices.Equal(s.Heads, wantHeads) ||
-		s.HeadSetDigest != headSetDigest(wantHeads) || s.Round != 1 || s.Attempt != 1 ||
-		!regexp.MustCompile(`^[0-9a-f]{6}$`).MatchString(s.Run) || s.Timeout.Duration != evaluationWallClock() {
-		t.Fatalf("spec = %+v", s)
-	}
-	outcomeRequest(t, &pv)
-	if s.OutcomesDigest != in.Status.Acceptance.OutcomesDigest {
-		t.Fatalf("outcomes digest %s, want the approved %s", s.OutcomesDigest, in.Status.Acceptance.OutcomesDigest)
-	}
+	checkOutcomeRequestSpec(t, in, preview, &pv)
 	v := in.Status.Verification
 	if v.State != v1alpha1.VerificationEvaluating || v.Round != 1 || v.Attempt != 1 || v.Ref == nil ||
 		v.Ref.UID != pv.UID || v.HeadSetDigest != pv.Spec.HeadSetDigest || v.Automatic != 1 || v.LastAutomaticAt == nil {

@@ -65,10 +65,9 @@ func replays(version, health v1alpha1.SavedCheck, vr, hr v1alpha1.CheckRunResult
 // outcome failing and the health outcome passing, with both outcomes'
 // checks stored and reviewed proves. It returns the env, the intent's name
 // and the two checks.
-func outcomeEnv(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, string, v1alpha1.SavedCheck,
-	v1alpha1.SavedCheck) {
+func outcomeEnv(t *testing.T) (*env, string, v1alpha1.SavedCheck, v1alpha1.SavedCheck) {
 	t.Helper()
-	e, name := newEvaluatorEnv(t, 0.4, mutate...)
+	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(failingReport)
 	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
 	e.storeChecks(name, version, health)
@@ -81,9 +80,9 @@ func outcomeEnv(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, string, 
 // failing its replay with the evaluator's cited fail: judged Failing, a
 // reproduced failure. It returns the env, the intent and the round's
 // PreviewVerification's name.
-func failingEvaluation(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, string, string) {
+func failingEvaluation(t *testing.T) (*env, string, string) {
 	t.Helper()
-	e, name, version, health := outcomeEnv(t, mutate...)
+	e, name, version, health := outcomeEnv(t)
 	pv := e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing || v.Failed != 1 {
 		t.Fatalf("verification = %s %+v, want Failing on the version outcome", v.State, v.Outcomes)
