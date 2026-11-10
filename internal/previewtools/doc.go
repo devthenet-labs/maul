@@ -78,7 +78,9 @@
 // build, BuildArgs; the head's is the acceptance.RoleBuild part,
 // BuildPart): a head that did not build runs nothing more, Run finishing
 // there (FinishBuildFailed) before its readiness path ever answers, so no
-// evaluator is launched for it (S2-B5); a
+// evaluator is launched for it (S2-B5), as does a tree that built but
+// whose sandbox could not keep it for its check runs
+// (FinishKeptCopyFailed); a
 // base that did not build is never run (its replays and confirmations
 // recorded as errors, base-unbuildable). Each saved check replays, and each
 // confirmed check is confirmed, at the head and then at the base, each

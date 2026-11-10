@@ -315,25 +315,33 @@ func TestSlotRefusesWorkspace(t *testing.T) {
 
 // TestWorkspaceExecTimeout: an exec's own timeout bounds its program from
 // the program's start, after any restore (a check's timeout, review VC-2),
-// and never past the exec bound.
+// and never past the exec bound; a fresh exec, as a check run sends, takes
+// it too.
 func TestWorkspaceExecTimeout(t *testing.T) {
 	s, _ := newWorkspace(t)
 	s.timeout = 400 * time.Millisecond
+	if got := s.Do(context.Background(), &Request{Kind: KindBuild, Argv: []string{"true"},
+		Env: pathEnv()}); got.Exit != 0 || got.KeepFailed {
+		t.Fatalf("build: %+v", got)
+	}
 	tests := []struct {
 		name      string
 		argv      []string
 		timeoutMs int64
+		fresh     bool
 		timedOut  bool
 	}{
-		{"within its timeout", []string{"sh", "-c", "sleep 0.1; echo ok"}, 300, false},
-		{"past its timeout", []string{"sleep", "2"}, 100, true},
-		{"a timeout past the exec bound keeps the bound", []string{"sleep", "2"}, 5000, true},
+		{"within its timeout", []string{"sh", "-c", "sleep 0.1; echo ok"}, 300, false, false},
+		{"past its timeout", []string{"sleep", "2"}, 100, false, true},
+		{"a timeout past the exec bound keeps the bound", []string{"sleep", "2"}, 5000, false, true},
+		{"a fresh exec within its timeout", []string{"sh", "-c", "sleep 0.1; echo ok"}, 300, true, false},
+		{"a fresh exec past its timeout", []string{"sleep", "2"}, 100, true, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			start := time.Now()
 			got := s.Do(context.Background(), &Request{Argv: tc.argv, Run: "r", Env: pathEnv(),
-				TimeoutMs: tc.timeoutMs})
+				TimeoutMs: tc.timeoutMs, Fresh: tc.fresh})
 			if got.Refused != "" || got.TimedOut != tc.timedOut {
 				t.Fatalf("timed out %v, want %v: %+v", got.TimedOut, tc.timedOut, got)
 			}
