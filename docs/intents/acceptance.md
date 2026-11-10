@@ -368,7 +368,8 @@ at the current heads, and the description names who accepted. When verification 
 chart, the controller, the Project or its preview stops verifying), maul replaces its last status on each pull request
 with a final `error`, so a required status never stays pending or green. No status is posted for an intent maul never
 verified, or once the intent has ended. The status is re-posted on **every** pull request when any sibling's head moves,
-so a green is never stale. About once per poll interval maul also lists the statuses at each head: if another account
+so a green is never stale: from the pass that sees a new head until a round is about the new heads, it reads "combined
+change moved: re-verifying". About once per poll interval maul also lists the statuses at each head: if another account
 posted `maul/acceptance` after maul's, maul posts its own again and names that account in the verification section.
 
 With the evaluator the same states count **outcomes**: `pending` while maul evaluates, or a dispute's replay round is

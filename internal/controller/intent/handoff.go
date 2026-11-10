@@ -100,6 +100,10 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 	switch {
 	case h == nil || !h.Released:
 		return &templates.PreviewHandoff{State: templates.HandoffHeld}
+	case !p.atHeads(v):
+		// A judgement of other heads than the pull requests' now (SM-1):
+		// maul checks the new ones once the head set follows.
+		return &templates.PreviewHandoff{State: templates.HandoffChecking}
 	case outcomesReady(acc, v):
 		return &templates.PreviewHandoff{State: templates.HandoffReady}
 	}
