@@ -26,7 +26,8 @@ const (
 	// WorkDir is the workspace: the tree at WorkDir/tree, the build output
 	// at WorkDir/bin, each run's scratch at WorkDir/scratch/<run>.
 	WorkDir = "/work"
-	// TmpDir is the programs' TMPDIR, an emptyDir of the sandbox's own.
+	// TmpDir is the programs' TMPDIR, an emptyDir of the sandbox's own,
+	// unless Options.Tmp names another.
 	TmpDir = "/tmp"
 	// DefaultBuildTimeout is a build's timeout when the request names none;
 	// MaxBuildTimeout the most one may name (SPEC O9).
@@ -283,9 +284,13 @@ func (s *Server) workspaceEnv(r *Request) []string {
 			env = append(env, d.Name+"="+d.Value)
 		}
 	}
+	tmp := s.tmp
+	if !r.build() && r.Run == s.checkRun {
+		tmp = filepath.Join(s.tmp, checkTmpName)
+	}
 	return append(env,
 		"HOME="+s.home,
-		"TMPDIR="+TmpDir,
+		"TMPDIR="+tmp,
 		"GOCACHE="+filepath.Join(s.cache, "go-build"),
 		"GOTOOLCHAIN=local",
 		"NPM_CONFIG_CACHE="+filepath.Join(s.cache, "npm"),
@@ -297,7 +302,10 @@ func newWorkspaceServer(opts Options) (*Server, error) {
 	if opts.Scratch != "" || len(opts.Env) > 0 {
 		return nil, errors.New("toolexec: a workspace takes neither a scratch directory nor an environment")
 	}
-	for _, p := range []string{opts.Work, opts.Home, opts.Cache} {
+	if opts.Tmp == "" {
+		opts.Tmp = TmpDir
+	}
+	for _, p := range []string{opts.Work, opts.Home, opts.Cache, opts.Tmp} {
 		if !filepath.IsAbs(p) {
 			return nil, fmt.Errorf("toolexec: workspace directory %q is not absolute", p)
 		}
@@ -313,8 +321,9 @@ func newWorkspaceServer(opts Options) (*Server, error) {
 		work:    work,
 		home:    filepath.Clean(opts.Home),
 		cache:   filepath.Clean(opts.Cache),
+		tmp:     filepath.Clean(opts.Tmp),
 	}
-	for _, d := range []string{s.scratch, s.home, s.cache} {
+	for _, d := range []string{s.scratch, s.home, s.cache, s.tmp} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return nil, fmt.Errorf("toolexec: create %s: %w", d, err)
 		}
@@ -358,15 +367,15 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 		s.unclean = false
 	}
 	if req.Fresh {
-		if err := s.restore(); err != nil {
-			return refused(toolwire.RefusedUnavailable, "the tree and build output could not be restored as the "+
-				"build left them: "+err.Error())
+		if err := s.fresh(req.Run); err != nil {
+			return refused(toolwire.RefusedUnavailable, "the tree, build output, HOME and caches could not be "+
+				"restored as the build left them: "+err.Error())
 		}
 	}
 	var res Result
 	if req.build() {
 		out := &tailWriter{limit: MaxBuildOutputBytes}
-		s.built = ""
+		s.built, s.cached, s.checkRun = nil, nil, ""
 		res = s.execute(ctx, req.Argv, filepath.Join(s.work, "tree"), s.workspaceEnv(req), req.buildTimeout(), out)
 	} else {
 		dir, err := s.runScratch(req.Run, req.Files)
@@ -383,7 +392,8 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 	if req.build() && res.Exit == 0 && !res.TimedOut && !res.Unclean {
 		if err := s.keep(); err != nil {
 			res.KeepFailed = true
-			res.Output += "\nmaul: the build's tree and output could not be kept, so no check can run: " + err.Error()
+			res.Output += "\nmaul: the build's tree, output and HOME could not be kept, so no check can run: " +
+				err.Error()
 		}
 	}
 	res.NetError = NetError(res.Output)

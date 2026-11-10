@@ -171,9 +171,9 @@ const (
 	// VC-3). Infra, never a verdict.
 	VerificationReasonReplayIncomplete PreviewVerificationReason = "replay-incomplete"
 	// VerificationReasonKeptCopyFailed: an agents tool pod's tree built,
-	// but its sandbox could not keep the tree and build output every check
-	// run starts from (a full work volume, as a rule), so no check could
-	// run there. Infra, never a verdict.
+	// but its sandbox could not keep the tree, build output and HOME every
+	// check run starts from (together past the copy's bound, or a full work
+	// volume), so no check could run there. Infra, never a verdict.
 	VerificationReasonKeptCopyFailed PreviewVerificationReason = "kept-copy-failed"
 )
 

@@ -93,6 +93,8 @@ func TestWorkspaceFreshRefused(t *testing.T) {
 		{"the build failed", "echo gen > gen.txt; exit 1", ""},
 		// A program that rewrites every copy it can reach of a file.
 		{"every copy changed", freshBuild, `find . -name gen.txt -exec sh -c 'echo forged > "$1"' _ {} \;`},
+		{"every copy of HOME changed", `echo home > "$HOME/.rc"`,
+			`find . -name .rc -exec sh -c 'echo forged > "$1"' _ {} \;`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

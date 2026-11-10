@@ -22,7 +22,7 @@ import (
 
 // workspace is a workspace Server's directories in a test.
 type workspace struct {
-	work, home, cache, proc string
+	work, home, cache, tmp, proc string
 }
 
 // newWorkspace returns a workspace Server over a fresh /work-shaped tree,
@@ -39,6 +39,7 @@ func newWorkspace(t *testing.T) (*Server, workspace) {
 		work:  filepath.Join(root, "work"),
 		home:  filepath.Join(root, "work", "home"),
 		cache: filepath.Join(root, "work", "cache"),
+		tmp:   filepath.Join(root, "tmp"),
 		proc:  filepath.Join(root, "proc"),
 	}
 	for _, d := range []string{filepath.Join(ws.work, "tree"), filepath.Join(ws.work, "bin"), ws.proc} {
@@ -46,7 +47,7 @@ func newWorkspace(t *testing.T) (*Server, workspace) {
 			t.Fatal(err)
 		}
 	}
-	s, err := NewServer(Options{Work: ws.work, Home: ws.home, Cache: ws.cache, Procfs: ws.proc})
+	s, err := NewServer(Options{Work: ws.work, Home: ws.home, Cache: ws.cache, Tmp: ws.tmp, Procfs: ws.proc})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestWorkspaceEnv(t *testing.T) {
 	s, ws := newWorkspace(t)
 	fixed := map[string]string{
 		"HOME":             ws.home,
-		"TMPDIR":           "/tmp",
+		"TMPDIR":           ws.tmp,
 		"GOCACHE":          filepath.Join(ws.cache, "go-build"),
 		"NPM_CONFIG_CACHE": filepath.Join(ws.cache, "npm"),
 		"GOTOOLCHAIN":      "local",
@@ -603,6 +604,7 @@ func TestNewServerWorkspace(t *testing.T) {
 		{Work: "work", Home: filepath.Join(root, "h"), Cache: filepath.Join(root, "c")},
 		{Work: root, Home: "home", Cache: filepath.Join(root, "c")},
 		{Work: root, Home: filepath.Join(root, "h"), Cache: "cache"},
+		{Work: root, Home: filepath.Join(root, "h"), Cache: filepath.Join(root, "c"), Tmp: "tmp"},
 		{Work: root, Home: filepath.Join(root, "h"), Cache: filepath.Join(root, "c"), Scratch: root},
 		{Work: root, Home: filepath.Join(root, "h"), Cache: filepath.Join(root, "c"), Env: []string{"A=b"}},
 	} {
