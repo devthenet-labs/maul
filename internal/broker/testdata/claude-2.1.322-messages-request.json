@@ -1,0 +1,479 @@
+{
+ "model": "claude-sonnet-5-5",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "<text, elided>"
+    },
+    {
+     "type": "text",
+     "text": "<text, elided>"
+    },
+    {
+     "type": "text",
+     "text": "<text, elided>"
+    }
+   ]
+  },
+  {
+   "role": "system",
+   "content": "<system text, elided>",
+   "output_config": {
+    "effort": "medium"
+   }
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "<text, elided>",
+     "type": "text"
+    },
+    {
+     "id": "toolu_read",
+     "input": {
+      "file_path": "/work/workspace/repo/CLAUDE.md"
+     },
+     "name": "Read",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_read_outside",
+     "input": {
+      "file_path": "/etc/hosts"
+     },
+     "name": "Read",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_grep_outside",
+     "input": {
+      "path": "/etc",
+      "pattern": "root"
+     },
+     "name": "Grep",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_edit_tree",
+     "input": {
+      "replace_all": false,
+      "file_path": "/work/workspace/repo/CLAUDE.md",
+      "old_string": "PROBE-CODEWORD",
+      "new_string": "PWNED"
+     },
+     "name": "Edit",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_write_tree",
+     "input": {
+      "file_path": "/work/workspace/repo/planted.txt",
+      "content": "x\n"
+     },
+     "name": "Write",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_notebook",
+     "input": {
+      "new_source": "x",
+      "notebook_path": "/work/workspace/repo/n.ipynb"
+     },
+     "name": "NotebookEdit",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_bash",
+     "input": {
+      "command": "touch /work/workspace/bash-ran"
+     },
+     "name": "Bash",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_write_report",
+     "input": {
+      "file_path": "/work/workspace/reports/report.md",
+      "content": "first\n"
+     },
+     "name": "Write",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_edit_report",
+     "input": {
+      "replace_all": false,
+      "file_path": "/work/workspace/reports/report.md",
+      "old_string": "first",
+      "new_string": "second"
+     },
+     "name": "Edit",
+     "type": "tool_use"
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "content": "<tool result, elided>",
+     "is_error": true,
+     "tool_use_id": "toolu_read_outside"
+    },
+    {
+     "type": "tool_result",
+     "content": "<tool result, elided>",
+     "is_error": true,
+     "tool_use_id": "toolu_grep_outside"
+    },
+    {
+     "tool_use_id": "toolu_read",
+     "type": "tool_result",
+     "content": "<tool result, elided>"
+    },
+    {
+     "type": "tool_result",
+     "content": "<tool result, elided>",
+     "is_error": true,
+     "tool_use_id": "toolu_edit_tree"
+    },
+    {
+     "type": "tool_result",
+     "content": "<tool result, elided>",
+     "is_error": true,
+     "tool_use_id": "toolu_write_tree"
+    },
+    {
+     "type": "tool_result",
+     "content": "<tool result, elided>",
+     "is_error": true,
+     "tool_use_id": "toolu_notebook"
+    },
+    {
+     "type": "tool_result",
+     "content": "<tool result, elided>",
+     "is_error": true,
+     "tool_use_id": "toolu_bash"
+    },
+    {
+     "tool_use_id": "toolu_write_report",
+     "type": "tool_result",
+     "content": "<tool result, elided>"
+    },
+    {
+     "tool_use_id": "toolu_edit_report",
+     "type": "tool_result",
+     "content": "<tool result, elided>"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "<text, elided>"
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": "<user text, elided>"
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "id": "toolu_repair_edit",
+     "input": {
+      "replace_all": false,
+      "file_path": "/work/workspace/reports/report.md",
+      "old_string": "second",
+      "new_string": "third"
+     },
+     "name": "Edit",
+     "type": "tool_use"
+    },
+    {
+     "id": "toolu_repair_tree",
+     "input": {
+      "file_path": "/work/workspace/repo/planted.txt",
+      "content": "x\n"
+     },
+     "name": "Write",
+     "type": "tool_use"
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "tool_use_id": "toolu_repair_edit",
+     "type": "tool_result",
+     "content": "<tool result, elided>"
+    },
+    {
+     "type": "tool_result",
+     "content": "<tool result, elided>",
+     "is_error": true,
+     "tool_use_id": "toolu_repair_tree",
+     "cache_control": {
+      "type": "ephemeral"
+     }
+    }
+   ]
+  }
+ ],
+ "system": [
+  {
+   "type": "text",
+   "text": "<system text, elided>"
+  },
+  {
+   "type": "text",
+   "text": "<system text, elided>",
+   "cache_control": {
+    "type": "ephemeral"
+   }
+  },
+  {
+   "type": "text",
+   "text": "<system text, elided>",
+   "cache_control": {
+    "type": "ephemeral"
+   }
+  }
+ ],
+ "tools": [
+  {
+   "name": "Edit",
+   "description": "<tool description, elided>",
+   "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "description": "The absolute path to the file to modify",
+      "type": "string"
+     },
+     "old_string": {
+      "description": "The text to replace",
+      "type": "string"
+     },
+     "new_string": {
+      "description": "The text to replace it with (must be different from old_string)",
+      "type": "string"
+     },
+     "replace_all": {
+      "description": "Replace all occurrences of old_string (default false)",
+      "default": false,
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "file_path",
+     "old_string",
+     "new_string"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Glob",
+   "description": "<tool description, elided>",
+   "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+     "pattern": {
+      "description": "The glob pattern to match files against",
+      "type": "string"
+     },
+     "path": {
+      "description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter \"undefined\" or \"null\" - simply omit it for the default behavior. Must be a valid directory path if provided.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "pattern"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Grep",
+   "description": "<tool description, elided>",
+   "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+     "pattern": {
+      "description": "The regular expression pattern to search for in file contents",
+      "type": "string"
+     },
+     "path": {
+      "description": "File or directory to search in (rg PATH). Defaults to current working directory.",
+      "type": "string"
+     },
+     "glob": {
+      "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\") - maps to rg --glob",
+      "type": "string"
+     },
+     "output_mode": {
+      "description": "Output mode: \"content\" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), \"files_with_matches\" shows file paths (supports head_limit), \"count\" shows match counts (supports head_limit). Defaults to \"files_with_matches\".",
+      "type": "string",
+      "enum": [
+       "content",
+       "files_with_matches",
+       "count"
+      ]
+     },
+     "-B": {
+      "description": "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise.",
+      "type": "number"
+     },
+     "-A": {
+      "description": "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise.",
+      "type": "number"
+     },
+     "-C": {
+      "description": "Alias for context.",
+      "type": "number"
+     },
+     "context": {
+      "description": "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.",
+      "type": "number"
+     },
+     "-n": {
+      "description": "Show line numbers in output (rg -n). Requires output_mode: \"content\", ignored otherwise. Defaults to true.",
+      "type": "boolean"
+     },
+     "-i": {
+      "description": "Case insensitive search (rg -i)",
+      "type": "boolean"
+     },
+     "-o": {
+      "description": "Print only the matched (non-empty) parts of each matching line, one match per output line (rg -o / --only-matching). Requires output_mode: \"content\", ignored otherwise. Defaults to false.",
+      "type": "boolean"
+     },
+     "type": {
+      "description": "File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types.",
+      "type": "string"
+     },
+     "head_limit": {
+      "description": "Limit output to first N lines/entries, equivalent to \"| head -N\". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). Defaults to 250 when unspecified. Pass 0 for unlimited (use sparingly — large result sets waste context).",
+      "type": "number"
+     },
+     "offset": {
+      "description": "Skip first N lines/entries before applying head_limit, equivalent to \"| tail -n +N | head -N\". Works across all output modes. Defaults to 0.",
+      "type": "number"
+     },
+     "multiline": {
+      "description": "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false.",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "pattern"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Read",
+   "description": "<tool description, elided>",
+   "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "description": "The absolute path to the file to read",
+      "type": "string"
+     },
+     "offset": {
+      "description": "The line number to start reading from. Only provide if the file is too large to read at once",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+     },
+     "limit": {
+      "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+     },
+     "pages": {
+      "description": "Page range for PDF files (e.g., \"1-5\", \"3\", \"10-20\"). Only applicable to PDF files. Maximum 20 pages per request.",
+      "type": "string"
+     },
+     "allow_large": {
+      "description": "Set to true to read a text file, or a line range of one, that is over the usual size limits, up to what still fits in your context. Only use this when you genuinely need all of it or the user asked for the whole file; otherwise read it in parts with offset and limit, or search it.",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "file_path"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "DeferredToolPlaceholder",
+   "description": "<tool description, elided>",
+   "input_schema": {
+    "type": "object",
+    "properties": {}
+   },
+   "defer_loading": true
+  },
+  {
+   "name": "Write",
+   "description": "<tool description, elided>",
+   "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "description": "The absolute path to the file to write (must be absolute, not relative)",
+      "type": "string"
+     },
+     "content": {
+      "description": "The content to write to the file",
+      "type": "string"
+     }
+    },
+    "required": [
+     "file_path",
+     "content"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "metadata": {
+  "user_id": "{\"device_id\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"account_uuid\":\"\",\"session_id\":\"00000000-0000-0000-0000-000000000000\"}"
+ },
+ "max_tokens": 128000,
+ "thinking": {
+  "type": "adaptive",
+  "display": "updates"
+ },
+ "context_management": {
+  "edits": [
+   {
+    "type": "clear_thinking_20251015",
+    "keep": "all"
+   }
+  ]
+ },
+ "output_config": {
+  "effort": "medium"
+ },
+ "stream": true
+}

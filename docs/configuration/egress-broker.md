@@ -216,8 +216,8 @@ input token, so a token cap sized for a short run cuts a long one early. `--limi
   response whose usage never becomes final is charged its shortfall at the output price. A request is admitted only
   while the pod's spend plus every outstanding reservation plus its own fits the pod's cap, so a pod can never spend
   past its cap by more than what it was not reserved (its requests' input), however many requests it runs at once; the
-  price is that a pod can spend at most its cap less one reservation. The claude CLI asks for 64000 output tokens by
-  default (\$0.96 on claude-sonnet-5), which would leave a small budget almost nothing, so agent-runner bounds the
+  price is that a pod can spend at most its cap less one reservation. The claude CLI asks for 128000 output tokens by
+  default on the 5.5 models (\$1.28 on claude-sonnet-5-5) and 64000 on the other 5-series, which would leave a small budget almost nothing, so agent-runner bounds the
   output of the stages that run on one (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`: 32000 for evaluate, 8192 for checkreview), and
   intent-controller refuses a Project whose evaluate or checkreview budget is under twice that reservation
   ([`RunBudgetUnderRequestReserve`](intent-controller.md#stage-limits)). The reservation is held until the request

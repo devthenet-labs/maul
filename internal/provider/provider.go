@@ -55,7 +55,8 @@ const BudgetAnnotation = "maul.run/budget-micro-usd"
 //     Write of its report (report.ReportMaxBytes, 56 KiB) or of an exec
 //     check's program (checks.MaxProgramBytes, 64 KiB), about 16000-22000
 //     tokens at three to four bytes a token, plus its thinking: 32000 tokens,
-//     half the CLI's default, $0.32 reserved on claude-sonnet-5-5.
+//     a quarter of the CLI's default on the 5.5 models, $0.32 reserved on
+//     claude-sonnet-5-5.
 const (
 	CheckReviewMaxOutputTokens = 8192
 	EvaluateMaxOutputTokens    = 32000

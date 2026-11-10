@@ -51,7 +51,7 @@ RUN apk add --no-cache curl jq
 # A bump runs the posture probe in CI (hack/claude-posture-probe.sh), which
 # checks the harness's flags against the new version before it ships.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_VERSION=2.1.263
+ARG CLAUDE_VERSION=2.1.322
 
 # Fetch the native binary for the target platform from the official release
 # bucket (what https://claude.ai/install.sh resolves to) and verify it

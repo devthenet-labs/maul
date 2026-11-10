@@ -102,9 +102,10 @@ type PromptRequest struct {
 	// MaxOutputTokens bounds what one model request of the run may write
 	// (thinking included): the max_tokens every request asks for, which the
 	// egress broker reserves at the model's output price before it forwards
-	// the request. Zero leaves the CLI's default (64000 on the pinned
-	// claude for the 5-series models). claude renders it as
-	// ClaudeMaxOutputTokensEnv; a harness with no such setting ignores it.
+	// the request. Zero leaves the CLI's default (on the pinned claude,
+	// 128000 for the 5.5 models, 64000 for the other 5-series). claude
+	// renders it as ClaudeMaxOutputTokensEnv; a harness with no such setting
+	// ignores it.
 	MaxOutputTokens int
 	// Gateway points a harness configured on its command line (codex) at the
 	// egress broker rather than its vendor's API; nil leaves the CLI's own
