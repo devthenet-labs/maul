@@ -35,10 +35,12 @@ type builds struct {
 	// head is the head build's part (previewtools.BuildPart); a ledger with
 	// no head build has one that did not build.
 	head v1alpha1.PartFact
-	// headBuilt and baseFailed: the head built; the base's build ran and
-	// failed (exited non-zero), the only base that is unbuildable. A base
-	// that timed out, or that maul could not build, gave no evidence either
-	// way: its checks then have no base run, which is unsure, never n/a.
+	// headBuilt and baseFailed: the head built; the base's build ran to its
+	// own end and refused the tree (the relay's failed, with a normal exit
+	// of 1 or more), the only base that is unbuildable. A base that timed
+	// out, was killed, or that maul could not build, gave no evidence either
+	// way: its checks then have no base run, which is unsure, never n/a
+	// (review VC-1).
 	headBuilt, baseFailed bool
 	// ok is false for a ledger whose builds are not one of each tree.
 	ok bool
@@ -125,7 +127,7 @@ func workspaceBuilds(entries []toolwire.LedgerEntry) builds {
 			b.head = partOf(previewtools.BuildPart(a, e.Exit))
 			b.headBuilt = a.Result == v1alpha1.BuildBuilt && e.Exit == 0
 		case v1alpha1.TreeBase:
-			b.baseFailed = a.Result == v1alpha1.BuildFailed
+			b.baseFailed = a.Result == v1alpha1.BuildFailed && e.Exit >= 1
 		}
 	}
 	return b

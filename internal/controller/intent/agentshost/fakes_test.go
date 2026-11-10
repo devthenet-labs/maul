@@ -343,8 +343,11 @@ func (h *harness) pv(t *testing.T) *v1alpha1.PreviewVerification {
 // ledgerOpts shape the tools container's ledger.
 type ledgerOpts struct {
 	headBuild, baseBuild v1alpha1.BuildResult
-	noEvaluator          bool
-	extraOutput          string
+	// baseExit, when set, is the base build's exit instead of the one its
+	// result implies.
+	baseExit    *int
+	noEvaluator bool
+	extraOutput string
 }
 
 // toolsLog is what a workspace relay writes for a full round: the two
@@ -361,18 +364,24 @@ func toolsLog(t *testing.T, o ledgerOpts) ([]byte, string) {
 			t.Fatal(err)
 		}
 	}
-	build := func(side toolwire.Side, res v1alpha1.BuildResult) {
+	build := func(side toolwire.Side, res v1alpha1.BuildResult, override *int) {
 		exit := 0
-		if res == v1alpha1.BuildFailed {
+		switch res {
+		case v1alpha1.BuildFailed:
 			exit = 2
+		case v1alpha1.BuildTimeout:
+			exit = -1
+		}
+		if override != nil {
+			exit = *override
 		}
 		args, _ := json.Marshal(previewtools.BuildArgs{Argv: []string{"go", "build"}, TimeoutMs: 600_000,
 			Result: res, DurationMs: 4200})
 		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbBuild, Side: side.Recorded(), Args: args,
 			Exit: exit, Output: "built"})
 	}
-	build(toolwire.SideHead, o.headBuild)
-	build(toolwire.SideBase, o.baseBuild)
+	build(toolwire.SideHead, o.headBuild, nil)
+	build(toolwire.SideBase, o.baseBuild, o.baseExit)
 	c, err := checks.Parse([]byte(checkBody))
 	if err != nil {
 		t.Fatal(err)
@@ -382,11 +391,25 @@ func toolsLog(t *testing.T, o ledgerOpts) ([]byte, string) {
 		CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: c.ID, Mode: toolwire.ModeReplay,
 			Result: toolwire.RunPass, Attempts: []toolwire.Attempt{{Run: "0123456789abcdef",
 				Result: toolwire.ResultPass}}}})
-	if o.baseBuild == v1alpha1.BuildBuilt {
+	switch {
+	case o.baseBuild == v1alpha1.BuildBuilt:
 		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Side: toolwire.SideBase,
 			Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: c.ID,
 				Mode: toolwire.ModeReplay, Result: toolwire.RunFail, Attempts: []toolwire.Attempt{
 					redAttempt("fedcba9876543210"), redAttempt("fedcba9876543211")}}})
+	case o.headBuild == v1alpha1.BuildBuilt:
+		// The relay's run on a base that did not build (baseUnbuiltRun):
+		// an error with no run token, n/a only on a base whose build
+		// failed.
+		step := toolwire.StepRecord{Result: toolwire.ResultError, Side: toolwire.SideBase,
+			Detail: "base-build-error: the base tree's build did not finish"}
+		if o.baseBuild == v1alpha1.BuildFailed {
+			step.Cause, step.Detail = toolwire.CauseBaseUnbuildable, "base-unbuildable: the base tree did not build"
+		}
+		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Side: toolwire.SideBase,
+			Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: c.ID,
+				Mode: toolwire.ModeReplay, Result: toolwire.RunError, Attempts: []toolwire.Attempt{
+					{Result: toolwire.ResultError, Steps: []toolwire.StepRecord{step}}}}})
 	}
 	if !o.noEvaluator {
 		add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbExec,
