@@ -37,7 +37,7 @@ const notRunKeyPrefix = "verify-unrun-"
 // constant; off is false while it is verified (pass.verifies, and the
 // evaluator is one maul verified for the Project's harness).
 func (p *pass) offWhy() (why string, off bool) {
-	if p.verifies() && !p.outcomesUnevaluated() {
+	if p.verifies() && p.mode() != modeMismatch {
 		if p.set.evaluatorUnverified(p.proj) {
 			return templates.NotRunHarnessUnverified, true
 		}

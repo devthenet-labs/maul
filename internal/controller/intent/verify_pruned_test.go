@@ -20,8 +20,6 @@ import (
 // switch, such a record must never settle NotDeclared, never post success,
 // and never be accepted whole: it is a mismatch, for a replan.
 func TestPrunedCriteriaRecordIsNeverAcceptance(t *testing.T) {
-	t.Skip("S4 PR 4: mode() must key the criteria-era mismatch on Digest != acceptance.Digest(nil) with no " +
-		"OutcomesDigest; until then a pruned record reads as NotDeclared and /maul accept all posts success")
 	for _, tc := range []struct {
 		name      string
 		evaluator bool

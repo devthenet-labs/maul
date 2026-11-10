@@ -63,8 +63,7 @@ func (s Settings) handoffMax(p *v1alpha1.Project) time.Duration {
 // handsOff reports an intent whose preview link the hand-off governs: the
 // evaluator verifies it, and its approved plan has an outcome to evaluate.
 func (p *pass) handsOff() bool {
-	return p.set.Verification && p.set.evaluates(p.proj) && p.verifies() && p.acceptanceCurrent() &&
-		evaluable(p.in.Status.Acceptance.Outcomes) && p.in.Status.Verification != nil
+	return p.mode() == modeOutcomes && evaluable(p.in.Status.Acceptance.Outcomes) && p.in.Status.Verification != nil
 }
 
 // handoffModeNow is the mode in force: the one recorded, else the
@@ -133,7 +132,7 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 // of the approved plan's outcomes.
 func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
-	if v == nil || !p.acceptanceCurrent() || !evaluable(acc.Outcomes) {
+	if v == nil || p.mode() == modeNone || !evaluable(acc.Outcomes) {
 		return nil
 	}
 	hs, ok := agentsHost{}.heads(p)

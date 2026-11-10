@@ -62,7 +62,7 @@ type impostorNote struct {
 // stopped because they cannot be read (criteriaUnreadable).
 func (p *pass) verifyReported() bool {
 	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Verification != nil &&
-		(p.acceptanceCurrent() || p.verifyStopped() != "")
+		(p.mode() != modeNone || p.verifyStopped() != "")
 }
 
 // verifyJudged reports a state holding a round's judged (or given up)

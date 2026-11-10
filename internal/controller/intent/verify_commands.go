@@ -273,7 +273,7 @@ func (p *pass) releasePreview(ctx context.Context, c verifyCommand,
 // evaluator's), under a gated hand-off. The mode is the one recorded on the
 // hand-off, else the Project's, gated by default (DESIGN 7.2).
 func (p *pass) previewHeld() (v1alpha1.HandoffMode, bool) {
-	if !p.acceptanceCurrent() || len(p.in.Status.Acceptance.Outcomes) == 0 {
+	if p.mode() == modeNone || len(p.in.Status.Acceptance.Outcomes) == 0 {
 		return "", false
 	}
 	mode := p.proj.Spec.HandoffMode(v1alpha1.HandoffGated)
@@ -471,7 +471,8 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	acc := p.in.Status.Acceptance
 	n.Acceptable = p.acceptable()
 	var crit *v1alpha1.AcceptanceCriterion
-	if !p.acceptanceCurrent() {
+	mode := p.mode()
+	if mode == modeNone {
 		// Criteria on record from another plan revision are never
 		// accepted for the approved one.
 		n.Acceptable, n.Outcome = nil, templates.VerifyAcceptNotYet
@@ -479,6 +480,13 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	}
 	if len(acc.Outcomes) > 0 {
 		return p.acceptOutcome(ctx, c, id, n)
+	}
+	if mode == modeMismatch {
+		// No outcomes, and a record nothing verifies (a criteria-era one
+		// pruned of its criteria): it declares nothing an approver could
+		// check, so nothing is accepted, all least of all.
+		n.Acceptable, n.Outcome = nil, templates.VerifyAcceptNotYet
+		return n, nil
 	}
 	if i := slices.IndexFunc(acc.Criteria, func(c v1alpha1.AcceptanceCriterion) bool { return c.ID == id }); i >= 0 {
 		crit = &acc.Criteria[i]
@@ -667,6 +675,9 @@ func (p *pass) acceptable() []string {
 	}
 	if len(acc.Outcomes) > 0 {
 		return p.acceptableOutcomes()
+	}
+	if p.mode() == modeMismatch {
+		return nil // acceptCriterion's: nothing an approver could check
 	}
 	if len(acc.Criteria) == 0 {
 		return []string{acceptAll}
