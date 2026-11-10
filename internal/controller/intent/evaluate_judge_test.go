@@ -98,6 +98,19 @@ func TestJudgementRoutes(t *testing.T) {
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
+		// The H2 follow-up: every outcome passed, no anomaly, but the
+		// environment was not clean, which Decide never hands off ready on:
+		// neither does any view, the outcomes' results notwithstanding.
+		{name: "every outcome passed in a failing environment", version: pass(oVersion), healthy: pass(oHealthy),
+			env: acceptance.EnvAppFailure, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
+			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
+			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
+			manualResult: v1alpha1.OutcomeAccepted},
+		{name: "every outcome passed on failing machinery", version: pass(oVersion), healthy: pass(oHealthy),
+			env: acceptance.EnvInfra, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
+			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
+			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
+			manualResult: v1alpha1.OutcomeAccepted},
 		{name: "quarantined",
 			version: judged(oVersion, acceptance.ResultQuarantined, acceptance.ReasonQuarantined, ""),
 			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
@@ -537,5 +550,50 @@ func TestDecideInputCarriesContrary(t *testing.T) {
 	if len(in.Verdicts) != 1 || !slices.Equal(in.Verdicts[0].Ledger, []int32{38}) ||
 		!slices.Equal(in.Verdicts[0].Contrary, []int32{37, 39, 90}) {
 		t.Fatalf("verdicts = %+v, want ledger [38] and contrary [37 39 90]", in.Verdicts)
+	}
+}
+
+// TestJudgeRoundNeedsEveryReplay (review VC-3): a round whose copy of the
+// store holds two checks of an outcome, and whose ledger replayed only one
+// green (the round cut short before the other, the regression check), does
+// not pass the outcome on the one: it is unsure not-replayed, and the
+// hand-off is not ready.
+func TestJudgeRoundNeedsEveryReplay(t *testing.T) {
+	o := v1alpha1.AcceptanceOutcome{ID: oVersion, Outcome: "The build page shows the version"}
+	version, regression := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	regression.Outcome = oVersion
+	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o}}
+	for _, c := range []v1alpha1.SavedCheck{version, regression} {
+		acc.Reviews = append(acc.Reviews, v1alpha1.CheckReviewRecord{CheckDigest: c.Digest,
+			OutcomeDigest: outcomeDigest(o), Answer: v1alpha1.ReviewProves, Run: "r1", Check: c.ID, Reason: "yes"})
+	}
+	replay := []v1alpha1.CheckRun{{CheckDigest: version.Digest, Result: v1alpha1.CheckRunPass, Token: "t1", Seq: 1}}
+	for _, tc := range []struct {
+		name   string
+		replay []v1alpha1.CheckRun
+		result acceptance.Result
+		reason string
+	}{
+		{name: "one of two replayed", replay: replay, result: acceptance.ResultUnsure,
+			reason: acceptance.ReasonNotReplayed},
+		{name: "both replayed", replay: append(slices.Clone(replay), v1alpha1.CheckRun{CheckDigest: regression.Digest,
+			Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 2}), result: acceptance.ResultPassed,
+			reason: acceptance.ReasonConfirmed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &v1alpha1.PreviewVerification{
+				Spec: v1alpha1.PreviewVerificationSpec{Rung: v1alpha1.RungReplay,
+					Checks: []v1alpha1.SavedCheck{version, regression}},
+				Status: v1alpha1.PreviewVerificationStatus{Replay: tc.replay},
+			}
+			j := judgeRound(acc, pv, []v1alpha1.SavedCheck{version, regression}, nil)
+			got := j.decision.PerOutcome[0]
+			if got.Result != tc.result || got.Reason != tc.reason {
+				t.Fatalf("outcome = %+v, want %s %s", got, tc.result, tc.reason)
+			}
+			if tc.result != acceptance.ResultPassed && j.decision.Handoff == acceptance.HandoffReady {
+				t.Error("ready with an outcome not passed")
+			}
+		})
 	}
 }

@@ -105,7 +105,10 @@ the application chose (`[untrusted output]`, always last).
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
 10. **Judge.** maul decides each outcome by the rules below, then routes the round: all confirmed, no anomaly, a clean
     preview: **ready**. A failure the evaluator agrees with: a verify-fix round. A dispute: one model-free replay round.
-    Anything else: **maul couldn't confirm this**.
+    Anything else: **maul couldn't confirm this**. A failing environment keeps the round from ready even when every
+    outcome passed, and no later acceptance by an approver changes that at the same heads. A replay round whose `tools`
+    finished before its replay's end (its wall clock, or its container told to stop) is maul's trouble (`Infra`,
+    `replay-incomplete`), never judged.
 11. **Tear down.** The tool pod, its key, its ConfigMap and its ingress policy go when the request settles.
 
 ## What makes a pass
@@ -130,6 +133,10 @@ An outcome is **confirmed** only on a check bound to it that:
    remembers every check that passed in such a round (`status.acceptance.narrowed`): from then on none of them confirms
    that outcome, neither in the replay round at the same heads, which has no evaluator, nor in a later round whose
    evaluator says nothing contrary. The outcome is confirmed only on another check, or by an approver.
+
+And every saved check of the outcome that the round was to replay has a replay run at these heads. One that has none
+(the round was cut short before it) may be the very check that fails, so the outcome is unsure with the reason
+`not-replayed`, whatever its other checks show.
 
 A browser check never names a snapshot ref or a colour literal. Its `visible` assertion means visible to a person (in
 the viewport, a non-zero box, opacity above 0.1, text with at least 1.5:1 contrast against what is painted under it),

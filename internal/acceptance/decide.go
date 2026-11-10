@@ -256,9 +256,15 @@ type Input struct {
 	// own runs at the current heads.
 	Replay        []CheckRun
 	Confirmations []CheckRun
-	Reviews       []CheckReview
-	Verdicts      []EvaluatorVerdict
-	Disputes      []CheckDispute
+	// ReplayRequired are the digests of the stored checks this round was to
+	// replay (its copy of the store; review VC-3, mirroring
+	// BaseRuns.Required): a stored, unretired check of an outcome among
+	// them with no replay run this round was never run at these heads, so
+	// its outcome cannot pass (ReasonNotReplayed). nil asks for no replay.
+	ReplayRequired []string
+	Reviews        []CheckReview
+	Verdicts       []EvaluatorVerdict
+	Disputes       []CheckDispute
 	// Retired is this round's retirements.
 	Retired   []Retirement
 	Env       []PartFact
@@ -345,6 +351,11 @@ const (
 	// maul's Infra, so the round has no fail and no pass whatever its runs
 	// show (the PreviewVerification reason of the same name).
 	ReasonBuildFailed = "tools-build-failed"
+	// ReasonNotReplayed: a stored check of the outcome the round was to
+	// replay has no replay run this round (the round was cut short before
+	// it, review VC-3): it may be the very check that fails, so the outcome
+	// passes on no other.
+	ReasonNotReplayed = "not-replayed"
 )
 
 // OutcomeResult is one outcome's result, with the check digest it rests on
@@ -555,9 +566,10 @@ func (d *decider) replayRuns() []CheckRun {
 // unsure, never passed. A dispute, a retirement this round or a failing
 // environment makes the outcome unsure; any anomaly or environment failure
 // downgrades the hand-off. A pass is also withheld, unsure, when the
-// evaluator says it saw the outcome fail (sawFailure, S1 demo bug 13), or
+// evaluator says it saw the outcome fail (sawFailure, S1 demo bug 13),
 // when its only support is a check narrowed in an earlier round
-// (StoredCheck.Narrowed).
+// (StoredCheck.Narrowed), or when a stored check of it the round was to
+// replay has no replay run (ReplayRequired, review VC-3).
 //
 // With a base (slice S2), rule 5 is met for a change outcome's check only
 // red by assertion at base (or, n/a, where it could not compile or be built
@@ -620,7 +632,7 @@ func decide(in Input, guard bool) Decision {
 	}
 	out.Retire, out.ReplayRound = d.replacements()
 	out.Narrowed = d.narrowed()
-	if out.Fix == nil && !out.ReplayRound && len(in.Anomalies) == 0 && d.env == EnvOK && allPassed(out.PerOutcome) {
+	if out.Fix == nil && !out.ReplayRound && len(in.Anomalies) == 0 && d.env.Clean() && allPassed(out.PerOutcome) {
 		out.Handoff = HandoffReady
 	}
 	return out
@@ -688,6 +700,13 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 	}
 	if failing := d.failing(bound); len(failing) > 0 {
 		return d.failure(o, res, failing)
+	}
+	if slices.ContainsFunc(bound, d.notReplayed) {
+		// A check the round was to replay never ran at these heads (VC-3):
+		// it may be the one that fails, so no other check passes the
+		// outcome. A failure above stands on its own run.
+		res.Reason = ReasonNotReplayed
+		return res, nil
 	}
 	basis, withheld, noBase := d.passBasis(o, bound)
 	switch {
@@ -846,6 +865,14 @@ func (d decider) bound(id string) []StoredCheck {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Digest < out[j].Digest })
 	return out
+}
+
+// notReplayed reports a check the round was to replay (ReplayRequired)
+// with no replay run this round, whatever its result: a confirmation is no
+// replay of it.
+func (d decider) notReplayed(c StoredCheck) bool {
+	return slices.Contains(d.in.ReplayRequired, c.Digest) &&
+		!slices.ContainsFunc(d.in.Replay, func(r CheckRun) bool { return r.CheckDigest == c.Digest })
 }
 
 // failing is the bound checks that failed deterministically this round.

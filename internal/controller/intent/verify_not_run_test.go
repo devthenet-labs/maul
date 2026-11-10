@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -287,9 +288,28 @@ func TestOutcomesReadyNeverOverAnUnrunnableRound(t *testing.T) {
 		v1alpha1.VerificationUnavailableTree, v1alpha1.VerificationUnavailableToolsBuildFailed} {
 		v := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnconfirmed, UnavailableReason: reason,
 			Round: 5, HeadSetDigest: digest, OutcomesRound: 5, OutcomesHeadSetDigest: digest,
-			Outcomes: []v1alpha1.OutcomeResult{{ID: oVersion, Result: v1alpha1.OutcomePassed}}}
+			OutcomesEnvironment: string(acceptance.EnvOK),
+			Outcomes:            []v1alpha1.OutcomeResult{{ID: oVersion, Result: v1alpha1.OutcomePassed}}}
 		if got, want := outcomesReady(acc, v), reason == ""; got != want {
 			t.Errorf("reason %q: outcomesReady = %v, want %v", reason, got, want)
+		}
+	}
+}
+
+// TestOutcomesReadyNeedsACleanEnvironment (review H2): a judgement whose
+// every outcome passed is ready only in the environment Decide hands off
+// ready in; one that failed, maul's machinery's trouble, or a judgement
+// recorded with no environment at all, is never ready.
+func TestOutcomesReadyNeedsACleanEnvironment(t *testing.T) {
+	acc := &v1alpha1.IntentAcceptance{}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for env, want := range map[acceptance.EnvClass]bool{acceptance.EnvOK: true, acceptance.EnvAppFailure: false,
+		acceptance.EnvInfra: false, "": false} {
+		v := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnconfirmed, Round: 5, HeadSetDigest: digest,
+			OutcomesRound: 5, OutcomesHeadSetDigest: digest, OutcomesEnvironment: string(env),
+			Outcomes: []v1alpha1.OutcomeResult{{ID: oVersion, Result: v1alpha1.OutcomePassed}}}
+		if got := outcomesReady(acc, v); got != want {
+			t.Errorf("environment %q: outcomesReady = %v, want %v", env, got, want)
 		}
 	}
 }

@@ -330,6 +330,11 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 			Narrowed: narrowedBefore(acc, c.Digest, pv.Name)})
 	}
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
+	for _, c := range pv.Spec.Checks {
+		// Every check of the round's copy of the store was to replay
+		// (review VC-3): one with no replay run passes nothing.
+		in.ReplayRequired = append(in.ReplayRequired, c.Digest)
+	}
 	in.Base = baseRuns(pv)
 	for _, r := range acc.Reviews {
 		in.Reviews = append(in.Reviews, acceptance.CheckReview{CheckDigest: r.CheckDigest,
@@ -556,7 +561,7 @@ func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1a
 		return v1alpha1.VerificationExhausted, false
 	case fix != nil:
 		return v1alpha1.VerificationFailing, false
-	case !replayNext && len(j.anomalies) == 0 && j.decision.Env == acceptance.EnvOK && confirmedAll(results):
+	case !replayNext && len(j.anomalies) == 0 && j.decision.Env.Clean() && confirmedAll(results):
 		return v1alpha1.VerificationPassed, false
 	}
 	return v1alpha1.VerificationUnconfirmed, replayNext
@@ -569,6 +574,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	clearJudgement(nv)
 	nv.Outcomes = outcomeResults(acc, nv.HeadSetDigest, j)
 	nv.OutcomesRound, nv.OutcomesHeadSetDigest = nv.Round, nv.HeadSetDigest
+	nv.OutcomesEnvironment = string(j.decision.Env)
 	for _, r := range nv.Outcomes {
 		switch r.Result {
 		case v1alpha1.OutcomePassed:
@@ -872,8 +878,8 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 }
 
 // judgementReady reports v's judgement at its heads, whatever its state:
-// every outcome confirmed or accepted, no anomaly and no replay round
-// pending.
+// every outcome confirmed or accepted, no anomaly, no replay round pending,
+// and a clean environment, as Decide's hand-off needs (review H2).
 func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	if agentsWhy(v) != "" {
 		// The state records a round that could not run (S2-B8): never
@@ -881,7 +887,8 @@ func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificati
 		return false
 	}
 	results := v.JudgedOutcomes()
-	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(results) == 0 {
+	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(results) == 0 ||
+		!acceptance.EnvClass(v.OutcomesEnvironment).Clean() {
 		return false
 	}
 	for _, r := range results {

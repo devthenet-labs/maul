@@ -2171,6 +2171,17 @@ spec:
                     maxItems: 20
                     type: array
                     x-kubernetes-list-type: atomic
+                  outcomesEnvironment:
+                    description: |-
+                      OutcomesEnvironment is the environment's class in that judgement, as
+                      the pass rules read it (OK, AppFailure or Infra): a judgement is ready
+                      only on a clean one, whatever its outcomes' results (review H2). Empty
+                      for a judgement recorded before it was, which is never ready on it.
+                    enum:
+                    - OK
+                    - AppFailure
+                    - Infra
+                    type: string
                   outcomesHeadSetDigest:
                     description: OutcomesHeadSetDigest is the head set that judgement
                       was at.

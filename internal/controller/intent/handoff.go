@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -216,9 +217,14 @@ func agentsWhy(v *v1alpha1.IntentVerification) string {
 }
 
 // environmentFailed reports a judgement whose outcomes were left unsure by
-// a failing preview or maul's own machinery.
+// a failing preview or maul's own machinery, or made in an environment that
+// was not clean whatever its outcomes' results (review H2).
 func environmentFailed(v *v1alpha1.IntentVerification) bool {
-	for _, r := range v.JudgedOutcomes() {
+	results := v.JudgedOutcomes()
+	if len(results) > 0 && v.OutcomesEnvironment != "" && !acceptance.EnvClass(v.OutcomesEnvironment).Clean() {
+		return true
+	}
+	for _, r := range results {
 		if r.Reason == "env-failed" || r.Reason == "infra" {
 			return true
 		}
