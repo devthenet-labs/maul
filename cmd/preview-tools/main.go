@@ -95,7 +95,7 @@ func run(ctx context.Context, s previewtools.Seams, stdout, stderr io.Writer) in
 	defer func() { _ = ln.Close() }()
 	var ex previewtools.Execer
 	if cfg.Sandbox {
-		ex = toolexec.NewClient(toolexec.SocketPath)
+		ex = previewtools.NewSlotSandbox(toolexec.SocketPath, previewtools.SlotSandboxUID)
 	}
 	opts := previewtools.RunOptions{
 		Options: previewtools.Options{

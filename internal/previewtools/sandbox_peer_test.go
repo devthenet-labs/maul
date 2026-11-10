@@ -1,10 +1,13 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
+//go:build linux
+
 package previewtools
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -25,6 +28,9 @@ func serveReady(t *testing.T, path string) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(toolexec.ReadyPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
+	mux.HandleFunc(toolexec.ExecPath, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(toolexec.Result{Output: "shim\n"})
+	})
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
@@ -67,5 +73,47 @@ func TestSandboxSocketCrossingRefused(t *testing.T) {
 	_, foreign := NewSandboxes(dir, uid, uid+1)
 	if err := foreign.Ready(ctx); err == nil {
 		t.Fatal("a shim served by a foreign UID was accepted")
+	}
+}
+
+// TestSlotSandboxCrossingRefused (SEC-1 follow-up): a slot tool pod's exec
+// socket is a volume the sandbox writes, so the relay's client refuses a
+// socket that is a link or is served by another UID than the sandbox's.
+// Either is the relay's "unavailable" answer, never the shim's result.
+func TestSlotSandboxCrossingRefused(t *testing.T) {
+	dir, err := os.MkdirTemp("", "pt-slot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "sock")
+	serveReady(t, sock)
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(sock, link); err != nil {
+		t.Fatal(err)
+	}
+	uid := os.Getuid()
+	for _, tc := range []struct {
+		name   string
+		socket string
+		uid    int
+		ok     bool
+	}{
+		{"its own socket, the sandbox's UID", sock, uid, true},
+		{"a symlink to a socket", link, uid, false},
+		{"a socket of another UID", sock, uid + 1, false},
+	} {
+		ex := NewSlotSandbox(tc.socket, tc.uid)
+		h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
+		_, resp := h.call(toolwire.VerbExec, `{"argv":["ls"]}`)
+		if tc.ok {
+			if resp.Refused != "" || resp.Observed == nil || resp.Observed.Exit == nil || *resp.Observed.Exit != 0 {
+				t.Errorf("%s: %+v, want the shim's exit 0", tc.name, resp)
+			}
+			continue
+		}
+		if resp.Refused != toolwire.RefusedUnavailable || resp.Observed != nil {
+			t.Errorf("%s: %+v, want refused %q and nothing observed", tc.name, resp, toolwire.RefusedUnavailable)
+		}
 	}
 }
