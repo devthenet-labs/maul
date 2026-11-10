@@ -90,7 +90,8 @@ func TestReproductionGoldens(t *testing.T) {
 			Attempt: 1, Workspace: true, Heads: heads[:1], Failures: []ReproductionFailure{{Outcome: "parse",
 				Statement: "Parse counts two beats.", Check: reproCheck(t, reproWorkspaceRunCheck),
 				Observed: []ReproductionObservation{{Attempt: 1, Step: 1, Result: "fail",
-					Detail: "parse: got 3"}}}}}},
+					Detail: "the program printed its assertion marker: parse: Parse returned 3, want 2 " +
+						"`@octocat` fixes #3"}}}}}},
 		{"intent_reproduction_unread.md", VerifyReproduction{Verification: "beat-12-v1-a1", Round: 1, Attempt: 1,
 			Heads: heads[:1], Failures: []ReproductionFailure{{Outcome: "winner-rises", Statement: "Winner first."}}}},
 	} {

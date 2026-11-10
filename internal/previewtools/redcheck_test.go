@@ -253,6 +253,27 @@ func TestExecMarkerFailsTheCheck(t *testing.T) {
 	}
 }
 
+// TestExecMarkerKeepsTheProgramsLine (gate D-B1): a slot exec check failed
+// by its marker keeps the program's own line beside maul's words, never
+// the marker itself.
+func TestExecMarkerKeepsTheProgramsLine(t *testing.T) {
+	var marker string
+	ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {
+		marker = attemptMarker(t, req)
+		return toolexec.Result{Exit: 1, Output: "GET /x 200\n" + marker + " header-present: no X-Duration-Ms\n"}, nil
+	}}
+	h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
+	rec := h.relay.runCheck(context.Background(), parseCheck(t, markedExecCheck), toolwire.ModeDryRun)
+	if rec.Result != toolwire.RunFail || rec.FailedAssertionID() != "marker header-present" {
+		t.Fatalf("got %+v, want a fail by marker header-present", rec)
+	}
+	d := rec.Attempts[1].Steps[0].Detail
+	if !strings.Contains(d, "the program printed its assertion marker") ||
+		!strings.Contains(d, "header-present: no X-Duration-Ms") || strings.Contains(d, marker) {
+		t.Errorf("detail %q, want maul's words and the program's line without its marker", d)
+	}
+}
+
 // TestExecMarkerIsFreshPerAttempt (PR #320 F1): every attempt's program
 // gets a marker of its own, so one attempt's output can never decide
 // another's.

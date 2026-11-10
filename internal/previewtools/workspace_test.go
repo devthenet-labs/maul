@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -743,6 +744,56 @@ func TestWorkspaceExecJudging(t *testing.T) {
 			// rename it (gate D-B2).
 			if strings.Contains(tt.name, "past the bound") && s.Detail != markedWithoutID {
 				t.Errorf("detail %q, want %q", s.Detail, markedWithoutID)
+			}
+		})
+	}
+}
+
+// TestMarkedRunKeepsTheProgramsLine (gate D-B1): a run that failed by its
+// marker keeps what the program printed after the marker, its own evidence
+// such as the value it observed, beside maul's words; never the marker
+// itself, bounded and valid UTF-8, and the verdict is unchanged.
+func TestMarkedRunKeepsTheProgramsLine(t *testing.T) {
+	const markerCheck = `{"id":"busy.full","outcome":"busy","form":"exec","exec":{"argv":["{{bin}}","check.txt"],
+ "files":[{"path":"check.txt","content":"{{marker}} rest"}],"expect":{"exit":0,"stdoutContains":"busy=ok"}}}`
+	for _, tt := range []struct {
+		name, out string // %M is the attempt's marker
+		want      []string
+	}{
+		{"one marked line", "=== RUN\n%M busy-full: Busy returned 45, want 48\n--- FAIL\n",
+			[]string{"the program printed its assertion marker", "busy-full: Busy returned 45, want 48"}},
+		{"two marked lines, CRLF", "%M busy-full: got 45\r\n%M busy-empty: got 1\r\n",
+			[]string{"busy-full: got 45; busy-empty: got 1"}},
+		{"invalid UTF-8 and a long line", "%M busy-full: \xff" + strings.Repeat("é", 4000) + "\n",
+			[]string{"busy-full: �"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var marker string
+			head := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
+				if req.Kind == toolexec.KindBuild {
+					return toolexec.Result{}, nil
+				}
+				marker = strings.SplitN(string(req.Files[0].Content), " ", 2)[0]
+				return toolexec.Result{Output: strings.ReplaceAll(tt.out, "%M", marker), Exit: 1}, nil
+			}}
+			h := newWorkspaceHarness(t, wsConfig(), head, &fakeSandbox{})
+			spec := mustJSON(t, toolwire.CheckRunRequest{Spec: json.RawMessage(markerCheck)})
+			_, resp := h.callKeyed(toolwire.VerbCheckRun, spec)
+			if resp.Refused != "" {
+				t.Fatalf("dry run refused: %+v", resp)
+			}
+			a := resp.Observed.CheckRun.Attempts[0]
+			s := a.Steps[len(a.Steps)-1]
+			if a.Result != toolwire.ResultFail || s.AssertionID != "marker busy-full" {
+				t.Fatalf("attempt %+v, want a fail by marker busy-full", a)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(s.Detail, w) {
+					t.Errorf("detail %q lacks %q", s.Detail, w)
+				}
+			}
+			if strings.Contains(s.Detail, marker) || len(s.Detail) > 2<<10 || !utf8.ValidString(s.Detail) {
+				t.Errorf("detail %q (%d bytes) holds the marker, is over its bound or not UTF-8", s.Detail, len(s.Detail))
 			}
 		})
 	}
