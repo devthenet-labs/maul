@@ -209,3 +209,36 @@ func TestPlanAskWithAComponentNamedLikeAPart(t *testing.T) {
 		}
 	}
 }
+
+// TestOutcomesRecordedWhileTheEvaluatorIsOff: an outcomes plan approved
+// while the agent evaluator does not verify its Project is recorded with its
+// outcomes (settled Off), so once the evaluator verifies it those outcomes
+// are evaluated: never a record of nothing declared, which an approver's
+// /maul accept all would turn green without a check.
+func TestOutcomesRecordedWhileTheEvaluatorIsOff(t *testing.T) {
+	e := newVerifyEnv(t, outcomesPlan)
+	e.evaluatorOn(0.4)
+	e.evaluating(false)
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 3)
+	in := e.get(name)
+	if acc := in.Status.Acceptance; acc == nil || len(acc.Outcomes) == 0 || acc.OutcomesDigest == "" {
+		t.Fatalf("acceptance recorded off = %+v, want the plan's outcomes", acc)
+	}
+	if v := in.Status.Verification; v == nil || v.State != v1alpha1.VerificationOff {
+		t.Fatalf("verification off = %+v, want Off", v)
+	}
+	e.evaluating(true)
+	e.review(name, 4)
+	in = e.get(name)
+	if acc := in.Status.Acceptance; acc == nil || len(acc.Outcomes) == 0 {
+		t.Fatalf("acceptance once verified = %+v, want the plan's outcomes", acc)
+	}
+	if v := in.Status.Verification; v.State != v1alpha1.VerificationEvaluating || len(e.verifications(name)) != 1 {
+		t.Fatalf("verification once verified = %+v, verifications %d, want the outcomes evaluated", v,
+			len(e.verifications(name)))
+	}
+	pv := e.onlyVerification(name)
+	outcomeRequest(t, &pv)
+}

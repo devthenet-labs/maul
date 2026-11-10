@@ -752,8 +752,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `acceptance` (stdlib and `httpstep` only, import pin): the plan's criterion grammar (`Validate`, the only
   `CriterionError` source; `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full
   list, manual included; `Automatable`), `Judge`/`JudgeStep` (raw bounded observations in, a `pass`, `quarantined` or
-  `fail` verdict out; no runtime `error`), and the `MAUL-VERIFY:` wire v1, which only preview-controller's tester path
-  and the tester still use (S4 deletes them with it); `EvaluationFingerprint` is the evaluator's fix fingerprint.
+  `fail` verdict out; no runtime `error`), and the `MAUL-VERIFY:` wire v1, which only the tester still writes (S4
+  deletes them with it; `Judge` and `crdconv`'s criteria and observation converters are already reachable from no
+  binary); `EvaluationFingerprint` is the evaluator's fix fingerprint.
   `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded round-trip. `untrusted`
   (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
   text before a human or model sees it. `previewtester` is the tester binary's engine. For the agent evaluator,
