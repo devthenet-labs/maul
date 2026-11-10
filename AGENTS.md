@@ -271,9 +271,10 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
 - `cmd/preview-tester` — OPTIONAL (default-off with acceptance verification; chart `preview.verification`, a
   digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
   tester Job preview-controller runs, stdlib plus `internal/acceptance` and `internal/httpstep` only, it observes and
-  never judges. It reads `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to `http://<PreviewComponentServiceName>:80` built
-  structurally (no redirects, no cookie jar, 10s and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with
-  a count-and-sha256 summary that preview-controller reads back through `pods/log`, beside the termination message. The
+  never judges. It reads `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to
+  `http://<PreviewComponentServiceName>:80` built structurally (no redirects, no cookie jar, 10s and 64 KiB per
+  request), and prints a `MAUL-VERIFY:` JSONL stream with a count-and-sha256 summary that preview-controller reads
+  back through `pods/log`, beside the termination message. The
   e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
   Operator guide `docs/configuration/preview-controller.md#acceptance-verification-off-by-default`, the people's guide
   `docs/intents/acceptance.md`. Kept until the evaluator's S4, which deletes it; the evaluator's tool pod replaces it.
@@ -747,8 +748,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `acceptance` (stdlib and `httpstep` only, import pin): the plan's criterion grammar (`Validate`, the only
   `CriterionError` source; `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full
   list, manual included; `Automatable`), `Judge`/`JudgeStep` (raw bounded observations in, a `pass`, `quarantined` or
-  `fail` verdict out; no runtime `error`), `Fingerprint`, and the `MAUL-VERIFY:` wire v1. `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded
-  round-trip. `untrusted` (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
+  `fail` verdict out; no runtime `error`), `Fingerprint`, and the `MAUL-VERIFY:` wire v1.
+  `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded round-trip. `untrusted`
+  (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
   text before a human or model sees it. `previewtester` is the tester binary's engine. For the agent evaluator,
   `acceptance` also holds the plan's outcome grammar (`PlanOutcome`, `ValidateOutcomes`, at most 20, kinds `change` and
   `keep`, `manual`; `report.(*Plan).CheckEvaluator` refuses a criteria plan with `ErrSliceOneCriteria`),
