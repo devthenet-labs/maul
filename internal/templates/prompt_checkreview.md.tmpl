@@ -108,10 +108,10 @@ there by an assertion. That rule is not yours to judge: read the two runs as evi
 {{- if .WS}}
 
 This check failed on the build under review: maul ran it itself, each time in a fresh working directory under a
-fresh run token, and it failed each time at step {{.FailedStep}}, on its assertion `{{.Assertion}}`. But only the
-working directory was fresh: the writable tree (`/work/tree`), the home directory (`/work/home`) and the caches are
-shared by every run at that side and never reset, and may hold what earlier runs or the other agent's exploration
-wrote there.
+fresh run token, and it failed each time at step {{.FailedStep}}, on its assertion `{{.Assertion}}`. Before each run
+maul also put the writable tree (`/work/tree`) and the build output (`/work/bin`) back as the build left them. But the
+home directory (`/work/home`) and the caches are shared by every run at that side and never reset, and may hold what
+earlier runs or the other agent's exploration wrote there.
 {{- else}}
 
 This check failed on the build under review: maul ran it itself, each time in a fresh browser or session under a

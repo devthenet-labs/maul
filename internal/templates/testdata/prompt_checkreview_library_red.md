@@ -72,10 +72,10 @@ there by an assertion. That rule is not yours to judge: read the two runs as evi
 ## How to judge
 
 This check failed on the build under review: maul ran it itself, each time in a fresh working directory under a
-fresh run token, and it failed each time at step 1, on its assertion `marker too-long`. But only the
-working directory was fresh: the writable tree (`/work/tree`), the home directory (`/work/home`) and the caches are
-shared by every run at that side and never reset, and may hold what earlier runs or the other agent's exploration
-wrote there.
+fresh run token, and it failed each time at step 1, on its assertion `marker too-long`. Before each run
+maul also put the writable tree (`/work/tree`) and the build output (`/work/bin`) back as the build left them. But the
+home directory (`/work/home`) and the caches are shared by every run at that side and never reset, and may hold what
+earlier runs or the other agent's exploration wrote there.
 The other agent says that failure shows a defect: the outcome does not hold. maul will report the outcome failed, and
 start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change code that works.
 Answer `proves` only if all of these hold:

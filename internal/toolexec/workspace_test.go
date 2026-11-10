@@ -279,6 +279,7 @@ func TestWorkspaceRequestRefused(t *testing.T) {
 			TimeoutMs: (MaxBuildTimeout + time.Millisecond).Milliseconds()}},
 		{"a negative timeout", Request{Kind: KindBuild, Argv: touch, TimeoutMs: -1}},
 		{"an unknown kind", Request{Kind: "shell", Argv: touch}},
+		{"a fresh build", Request{Kind: KindBuild, Argv: touch, Fresh: true}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -302,6 +303,7 @@ func TestSlotRefusesWorkspace(t *testing.T) {
 		{Argv: []string{"true"}, Run: "r"},
 		{Argv: []string{"true"}, Env: []EnvVar{{Name: "GOPROXY", Value: "off"}}},
 		{Argv: []string{"true"}, TimeoutMs: 1},
+		{Argv: []string{"true"}, Fresh: true},
 	} {
 		if got := s.Do(context.Background(), &req); got.Refused != toolwire.RefusedInvalid {
 			t.Errorf("%+v not refused: %+v", req, got)

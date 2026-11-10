@@ -87,6 +87,11 @@ type Request struct {
 	// TimeoutMs is a build's timeout, at most MaxBuildTimeout; zero is
 	// DefaultBuildTimeout. An exec takes none.
 	TimeoutMs int64 `json:"timeoutMs,omitempty"`
+	// Fresh runs an exec on the tree and build output exactly as the last
+	// build that built left them, whatever an earlier program changed
+	// there (review VC-2): what a check run starts from. With none to
+	// restore exactly, nothing runs. A build takes none.
+	Fresh bool `json:"fresh,omitempty"`
 }
 
 var (
@@ -126,7 +131,7 @@ func (r *Request) Check() error {
 
 // workspace reports a request that sets a field only a workspace shim takes.
 func (r *Request) workspace() bool {
-	return r.Kind != "" || r.Run != "" || len(r.Env) > 0 || r.TimeoutMs != 0
+	return r.Kind != "" || r.Run != "" || len(r.Env) > 0 || r.TimeoutMs != 0 || r.Fresh
 }
 
 // build reports a build request.
@@ -183,8 +188,8 @@ func AllowedEnv(name string) bool {
 // checkWorkspace holds a request to what this workspace takes.
 func (s *Server) checkWorkspace(r *Request) error {
 	if r.build() {
-		if len(r.Files) > 0 || r.Run != "" {
-			return errors.New("a build takes no files and no run")
+		if len(r.Files) > 0 || r.Run != "" || r.Fresh {
+			return errors.New("a build takes no files, no run and no fresh tree")
 		}
 	} else if r.Run == "" || r.TimeoutMs != 0 {
 		return errors.New("an exec takes a run and no timeout")
@@ -341,9 +346,16 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 		}
 		s.unclean = false
 	}
+	if req.Fresh {
+		if err := s.restore(); err != nil {
+			return refused(toolwire.RefusedUnavailable, "the tree and build output could not be restored as the "+
+				"build left them: "+err.Error())
+		}
+	}
 	var res Result
 	if req.build() {
 		out := &tailWriter{limit: MaxBuildOutputBytes}
+		s.built = ""
 		res = s.execute(ctx, req.Argv, filepath.Join(s.work, "tree"), s.workspaceEnv(req), req.buildTimeout(), out)
 	} else {
 		dir, err := s.runScratch(req.Run, req.Files)
@@ -355,6 +367,11 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 	if err := s.sweep.run(); err != nil {
 		s.unclean = true
 		res.Unclean = true
+	}
+	if req.build() && res.Exit == 0 && !res.TimedOut && !res.Unclean {
+		if err := s.keep(); err != nil {
+			res.Output += "\nmaul: the build's tree and output could not be kept, so no check can run: " + err.Error()
+		}
 	}
 	res.NetError = NetError(res.Output)
 	return res
