@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/e2e/fakegithub"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -107,10 +106,13 @@ func TestIntentEvaluateNotDeclared(t *testing.T) {
 // the combined change moved, so automatic fixes halt (HumanPush) and
 // maul/acceptance on the new head is pending, never carrying the earlier
 // acceptance to heads nobody checked. The approver asks for a round; the
-// application now fails it, which is reported, never green, with no
+// application now fails it, which is reported failing, with no
 // automatic fix.
 func TestIntentEvaluateHumanPushAndAccept(t *testing.T) {
 	e := startEvaluate(t, evalOptions{outcomes: versionOutcomes + manualOutcome})
+	// The checks write their run's own record, so a regression of them is
+	// a defect maul confirms itself, which would start an automatic fix.
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CHECK_WRITES", "1")
 	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
 	// The evaluated two confirmed, the manual one open: what maul could not
@@ -151,18 +153,12 @@ func TestIntentEvaluateHumanPushAndAccept(t *testing.T) {
 	// The approver asks; the application now fails: reported, not fixed.
 	e.plantDefect()
 	e.gh.CommentAs(number, "/maul verify", approver)
-	// Under the evaluator a defect a round finds where none was seen before
-	// is only suspected (an approver confirms it with /maul verify fix), so
-	// the round ends unconfirmed: reported, never green, and nothing fixes
-	// it on its own.
-	e.waitEval(t, name, "the requested round judged at the pushed head", func(v *v1alpha1.IntentVerification) bool {
-		return v.Round == 2 && v.Heads[0].Revision == pushed &&
-			(v.State == v1alpha1.VerificationUnconfirmed || v.State == v1alpha1.VerificationFailing)
+	// The saved checks' replay fails: a regression maul confirms itself,
+	// reported failing, and halted fixes keep it from being fixed.
+	e.waitEval(t, name, "the requested round to fail at the pushed head", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationFailing && v.Heads[0].Revision == pushed
 	})
-	eventually(t, "maul/acceptance at the pushed head to report the round, never green", func() bool {
-		st, _ := e.gh.LatestStatus(pushed, acceptanceStatus)
-		return st.Creator == fakegithub.Bot && (st.State == "error" || st.State == "failure")
-	})
+	e.waitStatus(t, pushed, "failure", "automatic fixes halted")
 	consistently(t, "no automatic fix after a human's push", func() bool {
 		return len(e.verifyRuns(t, name)) == 0 && e.intent(t, name).Status.Phase == v1alpha1.IntentInReview
 	})
