@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
@@ -32,7 +32,7 @@ import (
 const RequestTimeout = 10 * time.Second
 
 // MaxResponseBytes bounds a response body the relay reads.
-const MaxResponseBytes = acceptance.MaxResponseBytes
+const MaxResponseBytes = httpstep.MaxResponseBytes
 
 // maxResponseHeaderBytes bounds a response's headers.
 const maxResponseHeaderBytes = 32 << 10
@@ -112,7 +112,7 @@ type reply struct {
 	Header    http.Header
 	Body      []byte
 	TooLarge  bool
-	Transport acceptance.Transport
+	Transport httpstep.Transport
 	LatencyMs int64
 }
 
@@ -150,7 +150,7 @@ func (c *Client) send(ctx context.Context, o outbound) (reply, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
-	out := reply{Status: resp.StatusCode, Header: resp.Header, Body: b, Transport: acceptance.TransportNone,
+	out := reply{Status: resp.StatusCode, Header: resp.Header, Body: b, Transport: httpstep.TransportNone,
 		LatencyMs: time.Since(start).Milliseconds()}
 	switch {
 	case err != nil:
@@ -162,22 +162,22 @@ func (c *Client) send(ctx context.Context, o outbound) (reply, error) {
 }
 
 // classify names how a request failed without a response.
-func classify(err error) acceptance.Transport {
+func classify(err error) httpstep.Transport {
 	var dnsErr *net.DNSError
 	var netErr net.Error
 	var opErr *net.OpError
 	var recErr tls.RecordHeaderError
 	switch {
 	case errors.As(err, &dnsErr):
-		return acceptance.TransportDNS
+		return httpstep.TransportDNS
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
-		return acceptance.TransportTimeout
+		return httpstep.TransportTimeout
 	case errors.Is(err, syscall.ECONNREFUSED), errors.As(err, &opErr) && opErr.Op == "dial":
-		return acceptance.TransportRefused
+		return httpstep.TransportRefused
 	case errors.As(err, &recErr):
-		return acceptance.TransportTLS
+		return httpstep.TransportTLS
 	default:
-		return acceptance.TransportReset
+		return httpstep.TransportReset
 	}
 }
 
@@ -207,11 +207,11 @@ func ReadinessWindow(budget time.Duration) time.Duration {
 // (component key to address) to accept a TCP connection, which it closes at
 // once. It returns one wait per target, in key order.
 func (c *Client) awaitTargets(ctx context.Context, targets map[string]string,
-	window time.Duration) []acceptance.TargetWait {
+	window time.Duration) []httpstep.TargetWait {
 	ctx, cancel := context.WithTimeout(ctx, window)
 	defer cancel()
 	keys := slices.Sorted(maps.Keys(targets))
-	waits := make([]acceptance.TargetWait, len(keys))
+	waits := make([]httpstep.TargetWait, len(keys))
 	var wg sync.WaitGroup
 	for i, key := range keys {
 		wg.Go(func() { waits[i] = c.awaitTarget(ctx, key, targets[key]) })
@@ -220,8 +220,8 @@ func (c *Client) awaitTargets(ctx context.Context, targets map[string]string,
 	return waits
 }
 
-func (c *Client) awaitTarget(ctx context.Context, key, addr string) acceptance.TargetWait {
-	w := acceptance.TargetWait{Target: key}
+func (c *Client) awaitTarget(ctx context.Context, key, addr string) httpstep.TargetWait {
+	w := httpstep.TargetWait{Target: key}
 	start := time.Now()
 	backoff := c.backoff
 	for {
@@ -234,12 +234,12 @@ func (c *Client) awaitTarget(ctx context.Context, key, addr string) acceptance.T
 			break
 		}
 		w.Record(classify(err))
-		if w.Attempts >= acceptance.MaxWaitAttempts || !sleep(ctx, backoff) {
+		if w.Attempts >= httpstep.MaxWaitAttempts || !sleep(ctx, backoff) {
 			break
 		}
 		backoff = min(backoff*2, readinessBackoffMax)
 	}
-	w.WaitMs = int32(min(time.Since(start).Milliseconds(), acceptance.MaxWaitMs))
+	w.WaitMs = int32(min(time.Since(start).Milliseconds(), httpstep.MaxWaitMs))
 	return w
 }
 

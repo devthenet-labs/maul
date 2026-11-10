@@ -18,6 +18,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -468,12 +469,12 @@ func failureEvidence(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObs
 		n < len(cs[0].Steps) {
 		expected = expectedOf(cs[0].Steps[n])
 	}
-	switch t := acceptance.Transport(string(step.TransportError)); t {
-	case acceptance.TransportNone, "":
+	switch t := httpstep.Transport(string(step.TransportError)); t {
+	case httpstep.TransportNone, "":
 		observed = "status " + strconv.Itoa(int(step.Status))
-	case acceptance.TransportRefused, acceptance.TransportTimeout, acceptance.TransportReset,
-		acceptance.TransportDNS, acceptance.TransportTLS, acceptance.TransportTooLarge,
-		acceptance.TransportCaptureMissing:
+	case httpstep.TransportRefused, httpstep.TransportTimeout, httpstep.TransportReset,
+		httpstep.TransportDNS, httpstep.TransportTLS, httpstep.TransportTooLarge,
+		httpstep.TransportCaptureMissing:
 		observed = "no response: " + string(t)
 	default:
 		observed = "no response"
@@ -513,7 +514,7 @@ func failureMismatches(c v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerif
 // stepMismatches reads matched, acceptance.StepVerdict's bits in their
 // fixed order (request, status, pointers, headers, bodyContains, captures),
 // against st and what o observed.
-func stepMismatches(st acceptance.Step, o v1alpha1.StepObservation, matched []bool) []templates.VerifyMismatch {
+func stepMismatches(st httpstep.Step, o v1alpha1.StepObservation, matched []bool) []templates.VerifyMismatch {
 	pointers, headers, captures := sortedKeys(st.Expect.JSON), sortedFold(st.Expect.Headers), sortedKeys(st.Capture)
 	want := 2 + len(pointers) + len(headers) + len(captures)
 	if st.Expect.BodyContains != "" {
@@ -585,7 +586,7 @@ func sortedFold[V any](m map[string]V) []string {
 
 // expectedOf is what a step expects, as a failure names it: its request
 // and its acceptable statuses (200 when it lists none).
-func expectedOf(st acceptance.Step) string {
+func expectedOf(st httpstep.Step) string {
 	method := st.Request.Method
 	if method == "" {
 		method = "GET"

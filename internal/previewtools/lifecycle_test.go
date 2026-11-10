@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -94,7 +94,7 @@ func TestRunReplaysAloneThenFinishesAReplayRound(t *testing.T) {
 		!strings.Contains(string(ready.Args), "readiness") {
 		t.Fatalf("first entry %+v, want the readiness wait", ready)
 	}
-	var waits []acceptance.TargetWait
+	var waits []httpstep.TargetWait
 	if err := json.Unmarshal([]byte(ready.Output), &waits); err != nil || len(waits) != 2 || !waits[0].Reached() {
 		t.Errorf("readiness output %q: %v", ready.Output, err)
 	}

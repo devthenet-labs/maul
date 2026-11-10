@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // seed is every property's seed, so the gate is deterministic.
@@ -59,9 +61,9 @@ func genCommand(r *rand.Rand) Criterion {
 		c.In = &Where{Repository: word(r)}
 	}
 	exit := int32(r.Intn(3))
-	c.Expect = &Expect{Exit: &exit, StdoutContains: maybe(r, word(r))}
+	c.Expect = &httpstep.Expect{Exit: &exit, StdoutContains: maybe(r, word(r))}
 	if r.Intn(2) == 0 {
-		c.Expect.StdoutJSON = map[string]Value{"/kick": jsonValue(map[string]any{
+		c.Expect.StdoutJSON = map[string]httpstep.Value{"/kick": jsonValue(map[string]any{
 			"$approx": []any{0, 500, 1000}, "$tolerance": 5,
 		})}
 	}
@@ -79,7 +81,7 @@ func genHTTP(r *rand.Rand) Criterion {
 	c := Criterion{Kind: KindHTTP, Statement: "serves " + word(r), Target: word(r)}
 	captured := make([]string, 0, 4)
 	for i := range 1 + r.Intn(4) {
-		st := Step{Name: maybe(r, fmt.Sprintf("s%d", i))}
+		st := httpstep.Step{Name: maybe(r, fmt.Sprintf("s%d", i))}
 		st.Request = genRequest(r, captured)
 		st.Expect = genExpect(r, captured)
 		if r.Intn(2) == 0 {
@@ -92,9 +94,9 @@ func genHTTP(r *rand.Rand) Criterion {
 	return c
 }
 
-func genRequest(r *rand.Rand, captured []string) Request {
+func genRequest(r *rand.Rand, captured []string) httpstep.Request {
 	methods := []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"}
-	req := Request{Method: methods[r.Intn(len(methods))], Path: "/" + word(r)}
+	req := httpstep.Request{Method: methods[r.Intn(len(methods))], Path: "/" + word(r)}
 	if len(captured) > 0 && r.Intn(2) == 0 {
 		req.Path += "/{{capture." + captured[r.Intn(len(captured))] + "}}"
 	}
@@ -114,20 +116,20 @@ func genRequest(r *rand.Rand, captured []string) Request {
 	return req
 }
 
-func genExpect(r *rand.Rand, captured []string) Expect {
-	e := Expect{Status: StatusList{200 + int32(r.Intn(5))}}
+func genExpect(r *rand.Rand, captured []string) httpstep.Expect {
+	e := httpstep.Expect{Status: httpstep.StatusList{200 + int32(r.Intn(5))}}
 	if r.Intn(3) == 0 {
 		e.Status = append(e.Status, 404)
 	}
 	n := r.Intn(5)
 	if n > 0 {
-		e.JSON = map[string]Value{}
+		e.JSON = map[string]httpstep.Value{}
 	}
 	for i := range n {
 		e.JSON[fmt.Sprintf("/k%d", i)] = genMatcher(r, captured)
 	}
 	if r.Intn(3) == 0 {
-		e.Headers = map[string]Value{"X-" + word(r): jsonValue("v-" + word(r))}
+		e.Headers = map[string]httpstep.Value{"X-" + word(r): jsonValue("v-" + word(r))}
 		if r.Intn(2) == 0 {
 			e.Headers["X-Other"] = jsonValue(map[string]any{"$contains": word(r)})
 		}
@@ -138,7 +140,7 @@ func genExpect(r *rand.Rand, captured []string) Expect {
 	return e
 }
 
-func genMatcher(r *rand.Rand, captured []string) Value {
+func genMatcher(r *rand.Rand, captured []string) httpstep.Value {
 	ref := func() any {
 		if len(captured) > 0 && r.Intn(2) == 0 {
 			return "{{capture." + captured[r.Intn(len(captured))] + "}}"
@@ -190,12 +192,12 @@ func keys(m map[string]string) []string {
 	return out
 }
 
-func jsonValue(v any) Value {
+func jsonValue(v any) httpstep.Value {
 	raw, err := json.Marshal(v)
 	if err != nil {
 		panic(err)
 	}
-	out, err := ParseValue(raw)
+	out, err := httpstep.ParseValue(raw)
 	if err != nil {
 		panic(err)
 	}
@@ -235,9 +237,9 @@ func (s *server) do(call Call) Response {
 
 // satisfy builds a response meeting every expectation of st under run and
 // the captures so far, plus a fresh value for each capture it declares.
-func satisfy(st Step, run string, caps map[string]string) Response {
+func satisfy(st httpstep.Step, run string, caps map[string]string) Response {
 	sub := func(s string) string {
-		out, err := Substitute(s, run, caps)
+		out, err := httpstep.Substitute(s, run, caps)
 		if err != nil {
 			panic(fmt.Sprintf("satisfy: %v", err))
 		}
@@ -308,7 +310,7 @@ func wrapBy(by string, v any) any {
 	return map[string]any{strings.TrimPrefix(by, "/"): v, "other": 1}
 }
 
-func decode(v Value) any {
+func decode(v httpstep.Value) any {
 	var out any
 	if err := json.Unmarshal([]byte(v.String()), &out); err != nil {
 		panic(err)

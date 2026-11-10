@@ -35,6 +35,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtester"
 )
 
@@ -602,7 +603,7 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 // application can be the cause (internal/previewtester/readiness.go), so
 // the environment classifies it as the application's failure, however its
 // attempts failed: the tester dials a ClusterIP and resolves no name.
-func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) {
+func markUnreachable(facts []v1alpha1.PartFact, waits []httpstep.TargetWait) {
 	for _, w := range waits {
 		if w.Reached() {
 			continue
@@ -809,7 +810,7 @@ func parseTesterOutput(log []byte, msg string, rt acceptance.RunTokens, ids []st
 	if term, err := acceptance.ParseSummary(msg); err != nil || !term.Equal(sum) {
 		return bad(sum, v1alpha1.VerificationReasonSummaryMismatch)
 	}
-	if !slices.EqualFunc(sum.Waits, targets, func(w acceptance.TargetWait, t string) bool { return w.Target == t }) {
+	if !slices.EqualFunc(sum.Waits, targets, func(w httpstep.TargetWait, t string) bool { return w.Target == t }) {
 		return bad(sum, v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
 	if sum.Unreached() {
@@ -845,15 +846,15 @@ func ownsObservations(obs []acceptance.CriterionObservation, rt acceptance.RunTo
 // route settles an attempt from its environment and its output: a part of
 // the change failing is the intent's (EnvFailed); trouble the change cannot
 // cause is maul's (Infra), as is output that does not hold; else Observed.
-// The classification is acceptance.ClassifyEnvironment's, the one
+// The classification is httpstep.ClassifyEnvironment's, the one
 // intent-controller applies to the same facts.
 func route(facts []v1alpha1.PartFact,
 	outReason v1alpha1.PreviewVerificationReason) (v1alpha1.PreviewVerificationPhase, v1alpha1.PreviewVerificationReason) {
 	parts := crdconv.PartFacts(facts)
-	switch acceptance.ClassifyEnvironment(parts) {
-	case acceptance.EnvAppFailure:
-		return v1alpha1.VerificationEnvFailed, appFailureReason(facts, acceptance.AppFailureParts(parts))
-	case acceptance.EnvInfra:
+	switch httpstep.ClassifyEnvironment(parts) {
+	case httpstep.EnvAppFailure:
+		return v1alpha1.VerificationEnvFailed, appFailureReason(facts, httpstep.AppFailureParts(parts))
+	case httpstep.EnvInfra:
 		return v1alpha1.VerificationInfra, infraReason(facts, outReason)
 	}
 	if outReason != "" {
@@ -1110,10 +1111,10 @@ func (v *VerificationReconciler) capture(ctx context.Context, pv *v1alpha1.Previ
 	}
 	phase, reason := v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonPreviewFailed
 	parts := crdconv.PartFacts(facts)
-	switch acceptance.ClassifyEnvironment(parts) {
-	case acceptance.EnvAppFailure:
-		reason = appFailureReason(facts, acceptance.AppFailureParts(parts))
-	case acceptance.EnvInfra:
+	switch httpstep.ClassifyEnvironment(parts) {
+	case httpstep.EnvAppFailure:
+		reason = appFailureReason(facts, httpstep.AppFailureParts(parts))
+	case httpstep.EnvInfra:
 		phase = v1alpha1.VerificationInfra
 	}
 	pv.Status.Environment = facts
@@ -1218,7 +1219,7 @@ func fitStatus(pv *v1alpha1.PreviewVerification) {
 }
 
 // shrinkValues saves up to excess bytes by replacing recorded pointer,
-// header and capture values with acceptance.TooLarge, from the last
+// header and capture values with httpstep.TooLarge, from the last
 // criterion, try and step back, keeping each replacement only when the
 // criterion's judgement (acceptance.Judge, as intent-controller judges it)
 // stays exactly what it was: a $present value, one that did not match
@@ -1261,16 +1262,16 @@ func shrinkObservation(c acceptance.Criterion, o *v1alpha1.CriterionObservation,
 				{step.Pointers, mirror.Pointers}, {step.Headers, mirror.Headers}, {step.Captures, mirror.Captures},
 			} {
 				for _, key := range slices.Sorted(maps.Keys(m[0])) {
-					gain := jsonSize(m[0][key]) - jsonSize(acceptance.TooLarge)
+					gain := jsonSize(m[0][key]) - jsonSize(httpstep.TooLarge)
 					if gain <= 0 {
 						continue
 					}
-					m[1][key] = acceptance.TooLarge
+					m[1][key] = httpstep.TooLarge
 					if !reflect.DeepEqual(acceptance.Judge(c, judged, rt), want) {
 						m[1][key] = m[0][key]
 						continue
 					}
-					m[0][key] = acceptance.TooLarge
+					m[0][key] = httpstep.TooLarge
 					if saved += gain; saved >= excess {
 						return saved
 					}

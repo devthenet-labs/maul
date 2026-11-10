@@ -21,6 +21,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The acceptance-fix round (acceptance verification §4.4): a verification
@@ -80,7 +81,7 @@ type verifyFailure struct {
 // fixableFailure judges pv against the approved criteria and reports the
 // failure a fix round may take: observed with at least one criterion
 // failing, or the environment failed by the application's own fault
-// (acceptance.EnvAppFailure). Anything else (passed, maul's own trouble,
+// (httpstep.EnvAppFailure). Anything else (passed, maul's own trouble,
 // still running) is not one.
 func fixableFailure(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerification) (verifyFailure,
 	bool) {
@@ -100,7 +101,7 @@ func fixableFailure(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.Previe
 			return verifyFailure{}, false
 		}
 	case v1alpha1.VerificationEnvFailed:
-		if acceptance.ClassifyEnvironment(parts) != acceptance.EnvAppFailure {
+		if httpstep.ClassifyEnvironment(parts) != httpstep.EnvAppFailure {
 			return verifyFailure{}, false
 		}
 		f.crashed = true
@@ -109,7 +110,7 @@ func fixableFailure(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.Previe
 		return verifyFailure{}, false
 	}
 	for _, p := range parts {
-		if p.Role == acceptance.RoleComponent && slices.Contains(acceptance.AppFailureParts(parts), p.Name) &&
+		if p.Role == httpstep.RoleComponent && slices.Contains(httpstep.AppFailureParts(parts), p.Name) &&
 			!slices.Contains(f.targets, p.Name) {
 			f.targets = append(f.targets, p.Name)
 		}
@@ -121,14 +122,14 @@ func fixableFailure(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.Previe
 
 // failurePieces are a failure's parts as keyVerifySignatures records them:
 // each failing criterion's fingerprint, then the failed environment's.
-func failurePieces(verdicts []acceptance.Verdict, parts []acceptance.PartFact) []string {
+func failurePieces(verdicts []acceptance.Verdict, parts []httpstep.PartFact) []string {
 	var out []string
 	for _, v := range verdicts {
 		if v.Outcome == acceptance.OutcomeFail {
 			out = append(out, "c:"+v.ID+" "+acceptance.Fingerprint([]acceptance.Verdict{v}, nil))
 		}
 	}
-	if acceptance.ClassifyEnvironment(parts) != acceptance.EnvOK {
+	if httpstep.ClassifyEnvironment(parts) != httpstep.EnvOK {
 		out = append(out, "p "+acceptance.Fingerprint(nil, parts))
 	}
 	return out
@@ -686,7 +687,7 @@ func failedParts(env []v1alpha1.PartFact) string {
 	parts := crdconv.PartFacts(env)
 	var lines []string
 	for i, f := range env {
-		if acceptance.ClassifyEnvironment(parts[i:i+1]) == acceptance.EnvOK {
+		if httpstep.ClassifyEnvironment(parts[i:i+1]) == httpstep.EnvOK {
 			continue
 		}
 		f.LogTail = ""

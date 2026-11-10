@@ -19,8 +19,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
@@ -382,7 +382,7 @@ func (p *pass) settleEvaluation(ctx context.Context) (bool, error) {
 	case v1alpha1.VerificationObserved:
 		return p.evaluationObserved(ctx, pv, run)
 	case v1alpha1.VerificationEnvFailed:
-		if acceptance.ClassifyEnvironment(crdconv.PartFacts(pv.Status.Environment)) == acceptance.EnvAppFailure {
+		if httpstep.ClassifyEnvironment(crdconv.PartFacts(pv.Status.Environment)) == httpstep.EnvAppFailure {
 			return true, p.judgeEvaluation(ctx, pv, run)
 		}
 		return true, p.unjudged(ctx)

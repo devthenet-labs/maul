@@ -17,6 +17,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -58,7 +59,7 @@ type judgeRoute struct {
 	version                     acceptance.OutcomeResult
 	healthy                     acceptance.OutcomeResult
 	fix, replay, anomaly        bool
-	env                         acceptance.EnvClass
+	env                         httpstep.EnvClass
 	noDefect, acceptManual      bool
 	acceptVersion               bool
 	state                       v1alpha1.IntentVerificationState
@@ -123,7 +124,7 @@ func TestJudgementRoutes(t *testing.T) {
 				"while it looked around; 0 of 2 automatic fixes used."},
 		{name: "environment failed",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
-			healthy: pass(oHealthy), env: acceptance.EnvAppFailure, acceptManual: true,
+			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, acceptManual: true,
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
@@ -131,7 +132,7 @@ func TestJudgementRoutes(t *testing.T) {
 		// environment was not clean, which Decide never hands off ready on:
 		// neither does any view, the outcomes' results notwithstanding.
 		{name: "every outcome passed in a failing environment", version: pass(oVersion), healthy: pass(oHealthy),
-			env: acceptance.EnvAppFailure, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
+			env: httpstep.EnvAppFailure, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
@@ -140,7 +141,7 @@ func TestJudgementRoutes(t *testing.T) {
 			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: the preview failed while it " +
 				"was checked; 0 of 2 automatic fixes used."},
 		{name: "every outcome passed on failing machinery", version: pass(oVersion), healthy: pass(oHealthy),
-			env: acceptance.EnvInfra, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
+			env: httpstep.EnvInfra, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
@@ -241,7 +242,7 @@ func checkJudgeRoute(t *testing.T, tc judgeRoute, check v1alpha1.SavedCheck) {
 // routeJudgement is the judgement tc's decision makes.
 func routeJudgement(tc judgeRoute, check v1alpha1.SavedCheck) roundJudgement {
 	d := acceptance.Decision{PerOutcome: []acceptance.OutcomeResult{tc.version, tc.healthy,
-		judged(oManual, acceptance.ResultUnsure, acceptance.ReasonManual, "")}, Env: acceptance.EnvOK}
+		judged(oManual, acceptance.ResultUnsure, acceptance.ReasonManual, "")}, Env: httpstep.EnvOK}
 	if tc.env != "" {
 		d.Env = tc.env
 	}

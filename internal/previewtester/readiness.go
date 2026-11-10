@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The readiness wait: before its first criterion the tester waits for every
@@ -67,11 +67,11 @@ func ReadinessWindow(budget time.Duration) time.Duration {
 // in key order: reached, or with every attempt failed once the window or
 // MaxWaitAttempts ran out.
 func (c *Client) awaitTargets(ctx context.Context, targets map[string]string,
-	window time.Duration) []acceptance.TargetWait {
+	window time.Duration) []httpstep.TargetWait {
 	ctx, cancel := context.WithTimeout(ctx, window)
 	defer cancel()
 	keys := slices.Sorted(maps.Keys(targets))
-	waits := make([]acceptance.TargetWait, len(keys))
+	waits := make([]httpstep.TargetWait, len(keys))
 	var wg sync.WaitGroup
 	for i, key := range keys {
 		wg.Go(func() { waits[i] = c.awaitTarget(ctx, key, targets[key]) })
@@ -81,8 +81,8 @@ func (c *Client) awaitTargets(ctx context.Context, targets map[string]string,
 }
 
 // awaitTarget is one target's wait.
-func (c *Client) awaitTarget(ctx context.Context, key, addr string) acceptance.TargetWait {
-	w := acceptance.TargetWait{Target: key}
+func (c *Client) awaitTarget(ctx context.Context, key, addr string) httpstep.TargetWait {
+	w := httpstep.TargetWait{Target: key}
 	start := time.Now()
 	backoff := c.backoff
 	for {
@@ -95,12 +95,12 @@ func (c *Client) awaitTarget(ctx context.Context, key, addr string) acceptance.T
 			break
 		}
 		w.Record(classify(err))
-		if w.Attempts >= acceptance.MaxWaitAttempts || !sleep(ctx, backoff) {
+		if w.Attempts >= httpstep.MaxWaitAttempts || !sleep(ctx, backoff) {
 			break
 		}
 		backoff = min(backoff*2, readinessBackoffMax)
 	}
-	w.WaitMs = int32(min(time.Since(start).Milliseconds(), acceptance.MaxWaitMs))
+	w.WaitMs = int32(min(time.Since(start).Milliseconds(), httpstep.MaxWaitMs))
 	return w
 }
 

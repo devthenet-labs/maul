@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // EnvSpec is the environment variable preview-controller renders the spec
@@ -52,7 +53,7 @@ func BudgetFor(deadline time.Duration) int32 {
 // maxTargets bounds the targets map: a Preview has at most four components;
 // the slack keeps the bound a bound without tying it to that number. It is
 // the most targets a summary records a readiness wait for.
-const maxTargets = acceptance.MaxWaitTargets
+const maxTargets = httpstep.MaxWaitTargets
 
 // Spec is what one tester run observes: a PreviewVerification's criteria,
 // the tokens their {{run}} placeholders take, and, per previewed
@@ -166,7 +167,7 @@ func (s Spec) Validate() error {
 // no scheme, userinfo, path or zone, and no address a ClusterIP never is
 // (unspecified, link-local, multicast).
 func checkTarget(key, addr string) error {
-	if len(key) > acceptance.MaxKeyLength || !acceptance.KeyPattern.MatchString(key) {
+	if len(key) > httpstep.MaxKeyLength || !httpstep.KeyPattern.MatchString(key) {
 		return fmt.Errorf("spec: target key %q is not a repository key", key)
 	}
 	host, port, err := net.SplitHostPort(addr)

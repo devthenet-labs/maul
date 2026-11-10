@@ -14,8 +14,8 @@ import (
 	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -66,7 +66,7 @@ func toolLedger(t *testing.T, shot []byte) ([]byte, string) {
 		}
 		return got
 	}
-	readiness, _ := json.Marshal([]acceptance.TargetWait{{Target: "api", WaitMs: 40, Attempts: 1},
+	readiness, _ := json.Marshal([]httpstep.TargetWait{{Target: "api", WaitMs: 40, Attempts: 1},
 		{Target: "web", WaitMs: 40, Attempts: 1}})
 	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbHTTP,
 		Args: json.RawMessage(`{"readiness":{"targets":["api","web"]}}`), Output: string(readiness)})

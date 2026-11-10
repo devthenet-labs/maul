@@ -13,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The grammar's bounds.
@@ -326,7 +326,7 @@ func colourLiteral(s string) bool {
 // stdout (exec, run).
 func assertionTexts(c Check) []string {
 	var out []string
-	addValues := func(m map[string]acceptance.Value) {
+	addValues := func(m map[string]httpstep.Value) {
 		for _, v := range m {
 			walkStrings(v.Decoded(), func(s string) bool { out = append(out, s); return true })
 		}
@@ -365,8 +365,8 @@ func checkText(field, s string) *Refusal {
 	if r := checkLine(field, s); r != nil {
 		return r
 	}
-	if _, err := acceptance.Substitute(s, "x", nil); err != nil {
-		if errors.Is(err, acceptance.ErrCaptureMissing) {
+	if _, err := httpstep.Substitute(s, "x", nil); err != nil {
+		if errors.Is(err, httpstep.ErrCaptureMissing) {
 			return refuse(RuleGrammar, "%s: captures exist only between http steps; use {{run}}", field)
 		}
 		return refuse(RuleGrammar, "%s: %v", field, err)
@@ -428,7 +428,7 @@ func checkNavigation(field, s string, p Preview) *Refusal {
 	if !strings.HasPrefix(sample, "/") || strings.HasPrefix(sample, "//") {
 		return refuse(RuleOffPreview, "%s %q must be a path on the preview, starting with one \"/\"", field, s)
 	}
-	if err := acceptance.CheckPath(sample); err != nil {
+	if err := httpstep.CheckPath(sample); err != nil {
 		return refuse(RuleOffPreview, "%s %q: %v", field, s, err)
 	}
 	path, _, _ := strings.Cut(sample, "?")
@@ -451,7 +451,7 @@ func underPath(path, prefix string) bool {
 
 // runScoped refuses an $order or $includes expectation looking for a
 // value that carries no {{run}} text.
-func runScoped(field string, m map[string]acceptance.Value) *Refusal {
+func runScoped(field string, m map[string]httpstep.Value) *Refusal {
 	for ptr, v := range m {
 		obj, ok := v.Decoded().(map[string]any)
 		if !ok {
@@ -479,7 +479,7 @@ func runScoped(field string, m map[string]acceptance.Value) *Refusal {
 
 // contentJSON reports whether an expected-JSON map asserts on content:
 // any expectation but the bare presence or absence of a whole document.
-func contentJSON(m map[string]acceptance.Value) bool {
+func contentJSON(m map[string]httpstep.Value) bool {
 	for ptr, v := range m {
 		if ptr != "" {
 			return true

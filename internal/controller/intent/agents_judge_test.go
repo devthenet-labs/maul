@@ -11,6 +11,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -71,7 +72,7 @@ func TestDecideInputBase(t *testing.T) {
 	in := decideInput(acc, agentsPV(check.Digest, &v1alpha1.BaseStatus{Unbuildable: true,
 		Runs: []v1alpha1.CheckRun{compile, headTagged}}), nil, nil)
 	b := in.Base
-	if b == nil || !b.Required || !b.Unbuildable || len(b.Runs) != 1 || b.Runs[0].Cause != acceptance.CauseCompile ||
+	if b == nil || !b.Required || !b.Unbuildable || len(b.Runs) != 1 || b.Runs[0].Cause != httpstep.CauseCompile ||
 		b.Runs[0].Token != "tok-b" {
 		t.Fatalf("base = %+v, want required, unbuildable, the base run alone with its cause", b)
 	}
@@ -162,7 +163,7 @@ func TestAgentsJudgementTable(t *testing.T) {
 func TestAgentsReasonsRendered(t *testing.T) {
 	e, name := newAgentsEnv(t, repoImage)
 	e.reviewReady(name, 4)
-	d := acceptance.Decision{Env: acceptance.EnvOK, PerOutcome: []acceptance.OutcomeResult{
+	d := acceptance.Decision{Env: httpstep.EnvOK, PerOutcome: []acceptance.OutcomeResult{
 		{ID: oVersion, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonNotAsserted},
 		{ID: oHealthy, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonBuildFailed},
 		{ID: oManual, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonManual}}}

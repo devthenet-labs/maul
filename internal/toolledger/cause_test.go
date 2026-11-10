@@ -10,7 +10,7 @@ import (
 	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -23,14 +23,14 @@ func TestCausesMatchAPI(t *testing.T) {
 	for _, c := range []struct {
 		wire toolwire.StepCause
 		api  v1alpha1.CheckRunCause
-		acc  acceptance.RunCause
+		acc  httpstep.RunCause
 	}{
-		{toolwire.CauseCompile, v1alpha1.CheckRunCauseCompile, acceptance.CauseCompile},
-		{toolwire.CauseVendoredTree, v1alpha1.CheckRunCauseVendoredTree, acceptance.CauseVendoredTree},
+		{toolwire.CauseCompile, v1alpha1.CheckRunCauseCompile, httpstep.CauseCompile},
+		{toolwire.CauseVendoredTree, v1alpha1.CheckRunCauseVendoredTree, httpstep.CauseVendoredTree},
 		{toolwire.CauseReplaceOutsideTree, v1alpha1.CheckRunCauseReplaceOutsideTree,
-			acceptance.CauseReplaceOutsideTree},
-		{toolwire.CauseNoModule, v1alpha1.CheckRunCauseNoModule, acceptance.CauseNoModule},
-		{toolwire.CauseBaseUnbuildable, v1alpha1.CheckRunCauseBaseUnbuildable, acceptance.CauseBaseUnbuildable},
+			httpstep.CauseReplaceOutsideTree},
+		{toolwire.CauseNoModule, v1alpha1.CheckRunCauseNoModule, httpstep.CauseNoModule},
+		{toolwire.CauseBaseUnbuildable, v1alpha1.CheckRunCauseBaseUnbuildable, httpstep.CauseBaseUnbuildable},
 	} {
 		if string(c.wire) != string(c.api) || string(c.wire) != string(c.acc) {
 			t.Errorf("toolwire %q, v1alpha1 %q, acceptance %q", c.wire, c.api, c.acc)

@@ -15,8 +15,8 @@ import (
 	"slices"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -362,7 +362,7 @@ func checkOf(dry toolwire.LedgerEntry, digest string, outcomes []v1alpha1.Accept
 
 // Readiness is the relay's readiness wait, its first entry: a relay http
 // entry whose args name the readiness and whose output is the waits.
-func Readiness(entries []toolwire.LedgerEntry) []acceptance.TargetWait {
+func Readiness(entries []toolwire.LedgerEntry) []httpstep.TargetWait {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -374,7 +374,7 @@ func Readiness(entries []toolwire.LedgerEntry) []acceptance.TargetWait {
 		args.Readiness == nil {
 		return nil
 	}
-	var waits []acceptance.TargetWait
+	var waits []httpstep.TargetWait
 	if json.Unmarshal([]byte(e.Output), &waits) != nil {
 		return nil
 	}

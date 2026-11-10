@@ -20,8 +20,8 @@ import (
 	"unicode/utf8"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -395,10 +395,10 @@ func TestBuildPart(t *testing.T) {
 		{BuildArgs{Result: "bogus"}, 0, false},
 	} {
 		p := BuildPart(tt.args, tt.exit)
-		if p.Role != acceptance.RoleBuild {
+		if p.Role != httpstep.RoleBuild {
 			t.Fatalf("part role %q", p.Role)
 		}
-		if got := acceptance.ClassifyEnvironment([]acceptance.PartFact{p}) == acceptance.EnvOK; got != tt.ok {
+		if got := httpstep.ClassifyEnvironment([]httpstep.PartFact{p}) == httpstep.EnvOK; got != tt.ok {
 			t.Errorf("%s: environment ok %v, want %v", tt.args.Result, got, tt.ok)
 		}
 	}

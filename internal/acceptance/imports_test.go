@@ -15,7 +15,8 @@ import (
 
 // TestStdlibOnly keeps the acceptance core shareable by the report parser,
 // intent-controller, preview-controller and the tester binary: it may import
-// the standard library and nothing else.
+// the standard library and internal/httpstep (itself pinned to the standard
+// library), and nothing else.
 func TestStdlibOnly(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -37,8 +38,8 @@ func TestStdlibOnly(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			first, _, _ := strings.Cut(path, "/")
-			if strings.Contains(first, ".") {
-				t.Errorf("%s imports %s: package acceptance imports only the standard library", name, path)
+			if strings.Contains(first, ".") && path != "github.com/devthenet-labs/maul/internal/httpstep" {
+				t.Errorf("%s imports %s: package acceptance imports only the standard library and httpstep", name, path)
 			}
 		}
 	}

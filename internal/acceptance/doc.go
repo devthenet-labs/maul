@@ -14,20 +14,22 @@
 // is shorthand for one step; Normalize folds it into Steps and makes every
 // default explicit.
 //
+// An http criterion's steps, their grammar, substitution and matchers, and
+// the environment facts (PartFact, ClassifyEnvironment, TargetWait) live in
+// internal/httpstep, which the agent evaluator's checks share.
+//
 // Validate (validate.go) is the static grammar and the only source of a
 // CriterionError: identifiers, kinds, bounds (MaxCriteria criteria,
-// MaxSteps steps in all), request paths that can never leave their host
-// (CheckPath, path.go), headers that cannot redirect, smuggle or carry a
-// URL, the matcher grammar of expected values and the placeholders.
+// MaxSteps steps in all), and each step held to httpstep.ValidateStep.
 // Whether a target names a previewed repository of the Project is the
 // controller's check, not this package's.
 //
-// Substitution (substitute.go) knows exactly two placeholders: {{run}}, a
-// maul-generated token unique per try (RunTokens.Token), so checks create
+// Substitution (httpstep.Substitute) knows exactly two placeholders: {{run}},
+// a maul-generated token unique per try (RunTokens.Token), so checks create
 // uniquely named data in a Preview that is never reset; and
 // {{capture.<name>}}, a value an earlier step captured from a response.
-// BuildRequest is the one function that turns a step into the request the
-// tester sends: captures are escaped into their context, so a value an
+// httpstep.BuildRequest is the one function that turns a step into the
+// request the tester sends: captures are escaped into their context, so a value an
 // application returned can never add a path segment, a query parameter or a
 // header line, and the result is re-checked against the same grammar.
 //
@@ -65,8 +67,8 @@
 // and the matched/unmatched bit of each expectation, plus the failing
 // parts' waiting or termination reasons and exit codes (fix 10). Never an
 // actual value, body or log text, so it is stable across runs and immune to
-// what an application chooses to print. ClassifyEnvironment
-// (environment.go) sorts an environment failure into one the application
+// what an application chooses to print. httpstep.ClassifyEnvironment
+// sorts an environment failure into one the application
 // caused (charged to the intent, fix 13) or infrastructure trouble (free
 // retries).
 //
@@ -76,8 +78,9 @@
 // data is shared, for the approver: both are advice in the plan comment,
 // never a refusal or a verdict.
 //
-// The package imports only the standard library (a test pins that), so the
-// report parser, both controllers and the tester binary share it.
+// The package imports only the standard library and internal/httpstep (a
+// test pins that), so the report parser, both controllers and the tester
+// binary share it.
 // v1alpha1.AcceptanceCriterion mirrors Criterion field for field, with the
 // same JSON tags, for the CRDs that store criteria.
 package acceptance

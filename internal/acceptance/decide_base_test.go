@@ -9,6 +9,8 @@ import (
 	"slices"
 	"testing"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // genAgentsRound is a random agents-placement round, biased towards
@@ -42,7 +44,7 @@ func (genAgentsRound) Generate(r *rand.Rand, _ int) reflect.Value {
 						RunQuarantined}),
 					Token: pickOf(r, []string{"tok-b", "tok-b", ""}), Seq: int32(1 + r.Intn(20)),
 					AssertionStep: int32(r.Intn(2)), AssertionID: "stdout",
-					Cause: pickOf(r, []RunCause{"", "", CauseCompile, CauseVendoredTree, "timeout"})})
+					Cause: pickOf(r, []httpstep.RunCause{"", "", httpstep.CauseCompile, httpstep.CauseVendoredTree, "timeout"})})
 			}
 		}
 		v := EvaluatorVerdict{Outcome: id, Claim: pickOf(r, []Claim{ClaimPass, ClaimPass, ClaimFail, ClaimUnsure}),
@@ -53,7 +55,7 @@ func (genAgentsRound) Generate(r *rand.Rand, _ int) reflect.Value {
 		in.Verdicts = append(in.Verdicts, v)
 	}
 	if r.Intn(8) == 0 {
-		in.Env = []PartFact{failedBuild()}
+		in.Env = []httpstep.PartFact{failedBuild()}
 	}
 	return reflect.ValueOf(genAgentsRound{in})
 }
@@ -95,7 +97,7 @@ func baseRun(result RunResult, assertionStep int32) CheckRun {
 }
 
 // causedRun is an error run of check "a" at base, with cause.
-func causedRun(cause RunCause) CheckRun {
+func causedRun(cause httpstep.RunCause) CheckRun {
 	r := baseRun(RunError, 0)
 	r.Cause = cause
 	return r
@@ -114,14 +116,14 @@ func causedRun(cause RunCause) CheckRun {
 // an error leaves it as before.
 func TestDecideBaseErrorCauses(t *testing.T) {
 	tests := []struct {
-		cause        RunCause
+		cause        httpstep.RunCause
 		noComparison bool
 	}{
-		{CauseCompile, true},
-		{CauseVendoredTree, true},
-		{CauseReplaceOutsideTree, true},
-		{CauseNoModule, true},
-		{CauseBaseUnbuildable, true},
+		{httpstep.CauseCompile, true},
+		{httpstep.CauseVendoredTree, true},
+		{httpstep.CauseReplaceOutsideTree, true},
+		{httpstep.CauseNoModule, true},
+		{httpstep.CauseBaseUnbuildable, true},
 		{"", false},
 		{"timeout", false},
 		{"unclean", false},
@@ -206,14 +208,16 @@ func TestDecideBaseRuns(t *testing.T) {
 			}},
 		{name: "change: red by assertion beside an error with no base comparison",
 			build: func() (Input, Result, string) {
-				return passed(atBase(change, true, false, baseRun(RunFail, 1), causedRun(CauseCompile)))
+				return passed(atBase(change, true, false, baseRun(RunFail, 1), causedRun(httpstep.CauseCompile)))
 			}},
 		{name: "change: red by assertion beside an error that gives no base evidence",
 			build: func() (Input, Result, string) {
 				return unsure(atBase(change, true, false, baseRun(RunFail, 1), baseRun(RunError, 0)))
 			}},
 		{name: "change: a compile error at base is n/a",
-			build: func() (Input, Result, string) { return passed(atBase(change, true, false, causedRun(CauseCompile))) }},
+			build: func() (Input, Result, string) {
+				return passed(atBase(change, true, false, causedRun(httpstep.CauseCompile)))
+			}},
 		{name: "change: an error with no cause at base (a timeout, cut output) is no discrimination",
 			build: func() (Input, Result, string) { return unsure(atBase(change, true, false, baseRun(RunError, 0))) }},
 		{name: "change: a refusal at base is no discrimination",
@@ -221,7 +225,7 @@ func TestDecideBaseRuns(t *testing.T) {
 		{name: "change: a cause on a run that did not error is not n/a",
 			build: func() (Input, Result, string) {
 				r := baseRun(RunFail, 0)
-				r.Cause = CauseCompile
+				r.Cause = httpstep.CauseCompile
 				return unsure(atBase(change, true, false, r))
 			}},
 		{name: "change: a required base with no run of the check is not met",
@@ -247,7 +251,9 @@ func TestDecideBaseRuns(t *testing.T) {
 		{name: "keep: an error at base is n/a",
 			build: func() (Input, Result, string) { return passed(atBase(keep, true, false, baseRun(RunError, 0))) }},
 		{name: "keep: a compile error at base is n/a",
-			build: func() (Input, Result, string) { return passed(atBase(keep, true, false, causedRun(CauseCompile))) }},
+			build: func() (Input, Result, string) {
+				return passed(atBase(keep, true, false, causedRun(httpstep.CauseCompile)))
+			}},
 		{name: "keep: quarantined at base",
 			build: func() (Input, Result, string) { return unsure(atBase(keep, true, false, baseRun(RunQuarantined, 0))) }},
 		{name: "keep: a required base with no run is not met",
@@ -306,8 +312,9 @@ func TestDecideBaseRunsNeverRefuseAFail(t *testing.T) {
 }
 
 // failedBuild is the head build's part: it did not build.
-func failedBuild() PartFact {
-	return PartFact{Name: "build-head", Role: RoleBuild, LastTermination: &Termination{Reason: "Error", ExitCode: 1}}
+func failedBuild() httpstep.PartFact {
+	return httpstep.PartFact{Name: "build-head", Role: httpstep.RoleBuild,
+		LastTermination: &httpstep.Termination{Reason: "Error", ExitCode: 1}}
 }
 
 // TestDecideHeadBuildFailed: a tool-pod build that failed at the head is
@@ -315,40 +322,41 @@ func failedBuild() PartFact {
 // pass, whatever its runs show: CI built the head green, so the tool pod's
 // failure to is no evidence about the change.
 func TestDecideHeadBuildFailed(t *testing.T) {
-	built := PartFact{Name: "build-head", Role: RoleBuild, LastTermination: &Termination{Reason: "Completed"}}
+	built := httpstep.PartFact{Name: "build-head", Role: httpstep.RoleBuild,
+		LastTermination: &httpstep.Termination{Reason: "Completed"}}
 	tests := []struct {
 		name   string
 		in     Input
 		result Result
 		reason string
-		env    EnvClass
+		env    httpstep.EnvClass
 	}{
 		{name: "a pass is withheld",
-			in:     with(confirmedPass(), func(in *Input) { in.Env = []PartFact{failedBuild()} }),
-			result: ResultUnsure, reason: ReasonBuildFailed, env: EnvInfra},
+			in:     with(confirmedPass(), func(in *Input) { in.Env = []httpstep.PartFact{failedBuild()} }),
+			result: ResultUnsure, reason: ReasonBuildFailed, env: httpstep.EnvInfra},
 		{name: "a reproduced fail is withheld",
-			in:     with(deterministicFail(ClaimFail, 3), func(in *Input) { in.Env = []PartFact{failedBuild()} }),
-			result: ResultUnsure, reason: ReasonBuildFailed, env: EnvInfra},
+			in:     with(deterministicFail(ClaimFail, 3), func(in *Input) { in.Env = []httpstep.PartFact{failedBuild()} }),
+			result: ResultUnsure, reason: ReasonBuildFailed, env: httpstep.EnvInfra},
 		{name: "a build part with no termination did not build",
 			in: with(confirmedPass(), func(in *Input) {
-				in.Env = []PartFact{{Name: "build-head", Role: RoleBuild}}
+				in.Env = []httpstep.PartFact{{Name: "build-head", Role: httpstep.RoleBuild}}
 			}),
-			result: ResultUnsure, reason: ReasonBuildFailed, env: EnvInfra},
+			result: ResultUnsure, reason: ReasonBuildFailed, env: httpstep.EnvInfra},
 		{name: "a build the kubelet killed for memory did not build",
 			in: with(confirmedPass(), func(in *Input) {
-				in.Env = []PartFact{{Name: "build-head", Role: RoleBuild,
-					LastTermination: &Termination{Reason: "OOMKilled", ExitCode: 137}}}
+				in.Env = []httpstep.PartFact{{Name: "build-head", Role: httpstep.RoleBuild,
+					LastTermination: &httpstep.Termination{Reason: "OOMKilled", ExitCode: 137}}}
 			}),
-			result: ResultUnsure, reason: ReasonBuildFailed, env: EnvInfra},
+			result: ResultUnsure, reason: ReasonBuildFailed, env: httpstep.EnvInfra},
 		{name: "a manual outcome stays manual",
 			in: with(confirmedPass(), func(in *Input) {
 				in.Outcomes[0].Manual = true
-				in.Env = []PartFact{failedBuild()}
+				in.Env = []httpstep.PartFact{failedBuild()}
 			}),
-			result: ResultUnsure, reason: ReasonManual, env: EnvInfra},
+			result: ResultUnsure, reason: ReasonManual, env: httpstep.EnvInfra},
 		{name: "a build that completed is no trouble",
-			in:     with(confirmedPass(), func(in *Input) { in.Env = []PartFact{built} }),
-			result: ResultPassed, reason: ReasonConfirmed, env: EnvOK},
+			in:     with(confirmedPass(), func(in *Input) { in.Env = []httpstep.PartFact{built} }),
+			result: ResultPassed, reason: ReasonConfirmed, env: httpstep.EnvOK},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

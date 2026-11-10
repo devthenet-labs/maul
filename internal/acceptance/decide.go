@@ -6,6 +6,8 @@ package acceptance
 import (
 	"slices"
 	"sort"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The agent evaluator's pass rules (DESIGN 4.3). Decide is the only place a
@@ -105,40 +107,6 @@ const (
 	RunRefused     RunResult = "refused"
 )
 
-// RunCause is why a run errored, recorded by the tools relay only when the
-// error shows the tree lacks what the check needs rather than that the run
-// was cut short or disturbed (slice S2, the agents placement).
-type RunCause string
-
-// Run causes: the only base errors that count as "no base comparison"
-// (n/a, SPEC-S2 S2-20, decided 2026-11-05: zero false passes outranks the
-// confirmed rate). Every other error at base (a timeout, processes left
-// behind, output cut, a bind or connection error, a refused or unanswered
-// call) carries no cause: it gives no base evidence.
-const (
-	// CauseCompile: the check's program did not compile against the tree
-	// (the compiler ran to its end and refused it).
-	CauseCompile RunCause = "compile"
-	// CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule: a tree a
-	// run program cannot be built against (SPEC Q25).
-	CauseVendoredTree       RunCause = "vendored-tree"
-	CauseReplaceOutsideTree RunCause = "replace-outside-tree"
-	CauseNoModule           RunCause = "no-module"
-	// CauseBaseUnbuildable: the base tree did not build, so nothing ran
-	// there.
-	CauseBaseUnbuildable RunCause = "base-unbuildable"
-)
-
-// NoComparison reports a cause that leaves a check with no base
-// comparison: n/a for rule 5, never a discrimination of its own.
-func (c RunCause) NoComparison() bool {
-	switch c {
-	case CauseCompile, CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule, CauseBaseUnbuildable:
-		return true
-	}
-	return false
-}
-
 // CheckRun is one run of a check, read from the tools ledger of this
 // round's PreviewVerification, at its heads.
 type CheckRun struct {
@@ -159,7 +127,7 @@ type CheckRun struct {
 	ExpectFail bool
 	// Cause is, for an error run, why it errored when the relay recorded
 	// one (RunCause); read only at base.
-	Cause RunCause
+	Cause httpstep.RunCause
 }
 
 // ReviewAnswer is the check reviewer's answer.
@@ -267,7 +235,7 @@ type Input struct {
 	Disputes       []CheckDispute
 	// Retired is this round's retirements.
 	Retired   []Retirement
-	Env       []PartFact
+	Env       []httpstep.PartFact
 	Anomalies []AnomalyRef
 	Base      *BaseRuns
 }
@@ -416,7 +384,7 @@ type Decision struct {
 	// StoredCheck.Narrowed.
 	Narrowed []string
 	// Env is the environment's class.
-	Env     EnvClass
+	Env     httpstep.EnvClass
 	Handoff Handoff
 }
 
@@ -469,7 +437,7 @@ func aggregate(rs []CheckRun) map[string]runs {
 // decider holds one Input's indexes.
 type decider struct {
 	in       Input
-	env      EnvClass
+	env      httpstep.EnvClass
 	runs     map[string]runs
 	base     map[string]runs
 	retired  map[string]bool
@@ -583,11 +551,11 @@ func Decide(in Input) Decision { return decide(in, true) }
 // decide is Decide, with the saw-failure guard on or (for its property
 // test) off.
 func decide(in Input, guard bool) Decision {
-	if headBuildFailed(in.Env) {
+	if httpstep.HeadBuildFailed(in.Env) {
 		return buildFailed(in)
 	}
 	d := decider{
-		in: in, env: ClassifyEnvironment(in.Env), guard: guard,
+		in: in, env: httpstep.ClassifyEnvironment(in.Env), guard: guard,
 		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
 		red: map[string]bool{}, notReproduced: map[string]bool{}, redChecks: map[string]StoredCheck{},
 		dropped: map[string]bool{},
@@ -643,7 +611,7 @@ func decide(in Input, guard bool) Decision {
 // Infra. No outcome fails or passes, whatever the runs show; nothing is
 // fixed, retired, replayed or narrowed on them.
 func buildFailed(in Input) Decision {
-	out := Decision{Env: ClassifyEnvironment(in.Env), Handoff: HandoffUnconfirmed,
+	out := Decision{Env: httpstep.ClassifyEnvironment(in.Env), Handoff: HandoffUnconfirmed,
 		PerOutcome: make([]OutcomeResult, 0, len(in.Outcomes))}
 	for _, o := range in.Outcomes {
 		r := OutcomeResult{ID: o.ID, Result: ResultUnsure, Reason: ReasonBuildFailed}
@@ -799,10 +767,10 @@ func (d decider) narrowed() []string {
 // and every reproduction a check that could have supported a pass.
 func (d decider) failure(o OutcomeRef, res OutcomeResult, failing []StoredCheck) (OutcomeResult, []FixFailure) {
 	switch d.env {
-	case EnvAppFailure:
+	case httpstep.EnvAppFailure:
 		res.Reason = ReasonEnvFailed
 		return res, nil
-	case EnvInfra:
+	case httpstep.EnvInfra:
 		res.Reason = ReasonInfra
 		return res, nil
 	}
@@ -1024,7 +992,7 @@ func allPassed(rs []OutcomeResult) bool {
 	return len(rs) > 0
 }
 
-func fixFingerprint(fs []FixFailure, env []PartFact) string {
+func fixFingerprint(fs []FixFailure, env []httpstep.PartFact) string {
 	outcomes, checks := make([]string, 0, len(fs)), make([]string, 0, len(fs))
 	for _, f := range fs {
 		outcomes = append(outcomes, f.Outcome)

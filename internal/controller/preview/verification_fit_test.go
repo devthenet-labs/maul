@@ -17,6 +17,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/kube"
 )
 
@@ -58,13 +59,13 @@ func observedVerification(t *testing.T, cs []acceptance.Criterion,
 			Reason: v1alpha1.VerificationReasonOK, Observations: crdObs}}
 }
 
-func mustValue(t *testing.T, v any) acceptance.Value {
+func mustValue(t *testing.T, v any) httpstep.Value {
 	t.Helper()
 	b, err := json.Marshal(v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := acceptance.ParseValue(b)
+	out, err := httpstep.ParseValue(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func requireFits(t *testing.T, pv *v1alpha1.PreviewVerification) {
 // has as many such criteria (of three steps, four captures each) as the
 // grammar's wire budget admits.
 func TestVerificationStatusShrinksAppInflatedCaptures(t *testing.T) {
-	big := strings.Repeat("<", acceptance.MaxCaptureBytes)
+	big := strings.Repeat("<", httpstep.MaxCaptureBytes)
 	var cs []acceptance.Criterion
 	for i := range acceptance.MaxCriteria {
 		c := acceptance.Criterion{ID: fmt.Sprintf("c%d", i), Kind: acceptance.KindHTTP,
@@ -114,8 +115,8 @@ func TestVerificationStatusShrinksAppInflatedCaptures(t *testing.T) {
 			if s == 1 {
 				path = "/s1/{{capture.s0c0}}"
 			}
-			st := acceptance.Step{Request: acceptance.Request{Path: path}, Capture: map[string]string{}}
-			for k := range acceptance.MaxCaptures {
+			st := httpstep.Step{Request: httpstep.Request{Path: path}, Capture: map[string]string{}}
+			for k := range httpstep.MaxCaptures {
 				st.Capture[fmt.Sprintf("s%dc%d", s, k)] = fmt.Sprintf("/c%d", k)
 			}
 			c.Steps = append(c.Steps, st)
@@ -164,7 +165,7 @@ func TestVerificationStatusShrinksAppInflatedCaptures(t *testing.T) {
 		for _, try := range o.Tries {
 			for _, step := range try.Steps {
 				for _, v := range step.Captures {
-					if v == acceptance.TooLarge {
+					if v == httpstep.TooLarge {
 						shrunk++
 					}
 				}
@@ -181,18 +182,18 @@ func TestVerificationStatusShrinksAppInflatedCaptures(t *testing.T) {
 // observation-too-large; every other criterion keeps its real verdict,
 // passes included.
 func TestVerificationStatusDropsOnlyTheHugeCriterion(t *testing.T) {
-	long := strings.Repeat("<", acceptance.MaxValueBytes-2)
-	header := strings.Repeat("<", acceptance.MaxHeaderBytes-6)
+	long := strings.Repeat("<", httpstep.MaxValueBytes-2)
+	header := strings.Repeat("<", httpstep.MaxHeaderBytes-6)
 	huge := acceptance.Criterion{ID: "huge", Kind: acceptance.KindHTTP, Statement: "echoes", Target: "api"}
 	doc := map[string]string{}
 	for s := range acceptance.MaxStepsPerHTTP {
-		st := acceptance.Step{Request: acceptance.Request{Path: fmt.Sprintf("/h%d", s)},
-			Expect: acceptance.Expect{JSON: map[string]acceptance.Value{}, Headers: map[string]acceptance.Value{}}}
-		for k := range acceptance.MaxExpectPointers {
+		st := httpstep.Step{Request: httpstep.Request{Path: fmt.Sprintf("/h%d", s)},
+			Expect: httpstep.Expect{JSON: map[string]httpstep.Value{}, Headers: map[string]httpstep.Value{}}}
+		for k := range httpstep.MaxExpectPointers {
 			st.Expect.JSON[fmt.Sprintf("/p%d", k)] = mustValue(t, long)
 			doc[fmt.Sprintf("p%d", k)] = long
 		}
-		for k := range acceptance.MaxExpectHeaders {
+		for k := range httpstep.MaxExpectHeaders {
 			st.Expect.Headers[fmt.Sprintf("X-H%d", k)] = mustValue(t, header)
 		}
 		huge.Steps = append(huge.Steps, st)
@@ -201,11 +202,11 @@ func TestVerificationStatusDropsOnlyTheHugeCriterion(t *testing.T) {
 	cs = append(cs, huge)
 	for i := range 15 {
 		cs = append(cs, acceptance.Criterion{ID: fmt.Sprintf("small%d", i), Kind: acceptance.KindHTTP,
-			Statement: "answers", Target: "api", Steps: []acceptance.Step{{Request: acceptance.Request{Path: "/ok"}}}})
+			Statement: "answers", Target: "api", Steps: []httpstep.Step{{Request: httpstep.Request{Path: "/ok"}}}})
 	}
 	hugeBody := jsonBody(t, doc)
 	headers := map[string][]string{}
-	for k := range acceptance.MaxExpectHeaders {
+	for k := range httpstep.MaxExpectHeaders {
 		headers[fmt.Sprintf("X-H%d", k)] = []string{header}
 	}
 	pv := observedVerification(t, cs, func(c acceptance.Criterion) acceptance.Doer {
@@ -380,30 +381,30 @@ func sometimes(r *rand.Rand, limit int) int {
 
 func randomCriterion(t *testing.T, r *rand.Rand, id string, steps int) acceptance.Criterion {
 	c := acceptance.Criterion{ID: id, Kind: acceptance.KindHTTP, Statement: "works", Target: "api"}
-	captured := make([]string, 0, steps*acceptance.MaxCaptures)
+	captured := make([]string, 0, steps*httpstep.MaxCaptures)
 	for s := range steps {
-		st := acceptance.Step{Request: acceptance.Request{Path: fmt.Sprintf("/s%d", s)},
-			Expect: acceptance.Expect{JSON: map[string]acceptance.Value{}, Headers: map[string]acceptance.Value{}}}
+		st := httpstep.Step{Request: httpstep.Request{Path: fmt.Sprintf("/s%d", s)},
+			Expect: httpstep.Expect{JSON: map[string]httpstep.Value{}, Headers: map[string]httpstep.Value{}}}
 		if len(captured) > 0 && r.Intn(2) == 0 {
 			st.Request.Path += "/{{capture." + captured[r.Intn(len(captured))] + "}}"
 		}
 		// Pointers lean to their bound: their values cost the status (which
 		// escapes HTML) up to three times what they cost the wire budget,
 		// so they are what can still put an accepted plan over the cap.
-		pointers := acceptance.MaxExpectPointers
+		pointers := httpstep.MaxExpectPointers
 		if r.Intn(4) == 0 {
-			pointers = r.Intn(acceptance.MaxExpectPointers + 1)
+			pointers = r.Intn(httpstep.MaxExpectPointers + 1)
 		}
 		for k := range pointers {
 			st.Expect.JSON[fmt.Sprintf("/p%d", k)] = randomMatcher(t, r, captured, false)
 		}
-		for k := range sometimes(r, acceptance.MaxExpectHeaders) {
+		for k := range sometimes(r, httpstep.MaxExpectHeaders) {
 			st.Expect.Headers[fmt.Sprintf("X-H%d", k)] = randomMatcher(t, r, nil, true)
 		}
 		if r.Intn(3) == 0 {
 			st.Expect.BodyContains = "<<"
 		}
-		for k := range sometimes(r, acceptance.MaxCaptures) {
+		for k := range sometimes(r, httpstep.MaxCaptures) {
 			if st.Capture == nil {
 				st.Capture = map[string]string{}
 			}
@@ -418,8 +419,8 @@ func randomCriterion(t *testing.T, r *rand.Rand, id string, steps int) acceptanc
 
 // randomMatcher is a literal of '<' text, $contains or, for a pointer,
 // $present, $absent or the literal of a capture.
-func randomMatcher(t *testing.T, r *rand.Rand, captured []string, header bool) acceptance.Value {
-	limit := min(acceptance.MaxValueBytes, acceptance.MaxHeaderBytes) - 2
+func randomMatcher(t *testing.T, r *rand.Rand, captured []string, header bool) httpstep.Value {
+	limit := min(httpstep.MaxValueBytes, httpstep.MaxHeaderBytes) - 2
 	switch k := r.Intn(5); {
 	case k == 0 && !header:
 		return mustValue(t, map[string]bool{"$present": true})
@@ -446,16 +447,16 @@ func hostileDoer(r *rand.Rand, c acceptance.Criterion) acceptance.Doer {
 		}
 		doc := map[string]any{}
 		for ptr, v := range st.Expect.JSON {
-			if s, ok := answer(r, v, call.Captures, acceptance.MaxValueBytes-2); ok {
+			if s, ok := answer(r, v, call.Captures, httpstep.MaxValueBytes-2); ok {
 				doc[strings.TrimPrefix(ptr, "/")] = s
 			}
 		}
 		for _, ptr := range st.Capture {
-			doc[strings.TrimPrefix(ptr, "/")] = hostile(r, size(r, acceptance.MaxCaptureBytes))
+			doc[strings.TrimPrefix(ptr, "/")] = hostile(r, size(r, httpstep.MaxCaptureBytes))
 		}
 		headers := map[string][]string{}
 		for name, v := range st.Expect.Headers {
-			if s, ok := answer(r, v, call.Captures, acceptance.MaxHeaderBytes); ok {
+			if s, ok := answer(r, v, call.Captures, httpstep.MaxHeaderBytes); ok {
 				headers[name] = []string{s}
 			}
 		}
@@ -468,7 +469,7 @@ func hostileDoer(r *rand.Rand, c acceptance.Criterion) acceptance.Doer {
 // one that meets it (the literal, the capture it names, hostile text that
 // is present or contains '<', nothing for $absent), else hostile text of
 // any size. ok is false for an absent value.
-func answer(r *rand.Rand, v acceptance.Value, caps map[string]string, limit int) (string, bool) {
+func answer(r *rand.Rand, v httpstep.Value, caps map[string]string, limit int) (string, bool) {
 	if r.Intn(8) == 0 {
 		return hostile(r, size(r, limit)), true
 	}

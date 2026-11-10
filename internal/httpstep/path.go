@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-package acceptance
+package httpstep
 
 import (
 	"encoding/json"
@@ -107,10 +107,10 @@ func CheckPointer(p string) error {
 	return nil
 }
 
-// resolvePointer evaluates a pointer CheckPointer admits against a decoded
+// ResolvePointer evaluates a pointer CheckPointer admits against a decoded
 // JSON document. An array index is decimal without leading zeros; "-" and
 // anything past the end resolve to nothing.
-func resolvePointer(doc any, p string) (any, bool) {
+func ResolvePointer(doc any, p string) (any, bool) {
 	if p == "" {
 		return doc, true
 	}
@@ -148,9 +148,9 @@ func arrayIndex(tok string, n int) (int, bool) {
 	return i, true
 }
 
-// decodeBody decodes a response body for the pointers, numbers kept as
+// DecodeBody decodes a response body for the pointers, numbers kept as
 // written.
-func decodeBody(body []byte) (any, bool) {
+func DecodeBody(body []byte) (any, bool) {
 	if !json.Valid(body) {
 		return nil, false
 	}

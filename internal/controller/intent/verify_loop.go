@@ -21,6 +21,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -578,7 +579,7 @@ func (p *pass) settleVerification(ctx context.Context) (bool, error) {
 		})
 	case v1alpha1.VerificationEnvFailed:
 		parts := crdconv.PartFacts(pv.Status.Environment)
-		if acceptance.ClassifyEnvironment(parts) == acceptance.EnvAppFailure {
+		if httpstep.ClassifyEnvironment(parts) == httpstep.EnvAppFailure {
 			return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 				nv := cur.Status.Verification
 				clearJudgement(nv)

@@ -6,6 +6,8 @@ package acceptance
 import (
 	"testing"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // TestBaseComparison (SPEC-S2 Q29, section 7 (c) and (d)): what a change
@@ -15,22 +17,22 @@ import (
 func TestBaseComparison(t *testing.T) {
 	const c = "sha256:c"
 	red := CheckRun{CheckDigest: c, Result: RunFail, Token: "t", AssertionStep: 1}
-	compile := CheckRun{CheckDigest: c, Result: RunError, Token: "t", Cause: CauseCompile}
+	compile := CheckRun{CheckDigest: c, Result: RunError, Token: "t", Cause: httpstep.CauseCompile}
 	tests := []struct {
 		name  string
 		base  *BaseRuns
 		want  BaseComparison
-		cause RunCause
+		cause httpstep.RunCause
 	}{
 		{"no base (a slot round)", nil, "", ""},
 		{"red by assertion", &BaseRuns{Required: true, Runs: []CheckRun{red}}, BaseDiscriminates, ""},
 		{"red beside a compile error", &BaseRuns{Required: true, Runs: []CheckRun{compile, red}},
 			BaseDiscriminates, ""},
-		{"a compile error", &BaseRuns{Required: true, Runs: []CheckRun{compile}}, BaseNoComparison, CauseCompile},
+		{"a compile error", &BaseRuns{Required: true, Runs: []CheckRun{compile}}, BaseNoComparison, httpstep.CauseCompile},
 		{"a vendored tree", &BaseRuns{Required: true, Runs: []CheckRun{{CheckDigest: c, Result: RunError,
-			Token: "t", Cause: CauseVendoredTree}}}, BaseNoComparison, CauseVendoredTree},
+			Token: "t", Cause: httpstep.CauseVendoredTree}}}, BaseNoComparison, httpstep.CauseVendoredTree},
 		{"an unbuildable base", &BaseRuns{Required: true, Unbuildable: true}, BaseNoComparison,
-			CauseBaseUnbuildable},
+			httpstep.CauseBaseUnbuildable},
 		{"no run at a required base", &BaseRuns{Required: true}, "", ""},
 		{"green at base", &BaseRuns{Required: true, Runs: []CheckRun{{CheckDigest: c, Result: RunPass,
 			Token: "t"}}}, "", ""},

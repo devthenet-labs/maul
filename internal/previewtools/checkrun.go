@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -119,7 +119,7 @@ func (r *Relay) httpAttempt(ctx context.Context, h checks.HTTPCheck, run string)
 	if !ok {
 		return []toolwire.StepRecord{{Result: toolwire.ResultError, Detail: "no previewed component is named " + h.Target}}
 	}
-	steps := acceptance.Normalize([]acceptance.Criterion{{Kind: acceptance.KindHTTP, Steps: h.Steps}})[0].Steps
+	steps := httpstep.NormalizeSteps(h.Steps)
 	caps := map[string]string{}
 	// own are the captures of the check's own writes: values that name data
 	// its run made (third review, F3).
@@ -161,7 +161,7 @@ func writeMethod(m string) bool {
 // battle of the run's own patterns is the run's own); a JSON body only by a
 // value, never an object key, which substitution leaves as it is (fifth
 // review, 2).
-func writesRun(r acceptance.Request, own map[string]bool) bool {
+func writesRun(r httpstep.Request, own map[string]bool) bool {
 	return runKeyed(pathOnly(r.Path), own) || runKeyed(r.Body, own) ||
 		r.JSON != nil && r.JSON.AnyString(func(s string) bool { return runKeyed(s, own) })
 }
@@ -185,7 +185,7 @@ func runKeyed(s string, own map[string]bool) bool {
 
 // valueKeyed is runKeyed of an expected value's strings, never its object
 // keys, which substitution leaves as they are (fifth review, 2).
-func valueKeyed(v acceptance.Value, own map[string]bool) bool {
+func valueKeyed(v httpstep.Value, own map[string]bool) bool {
 	return v.AnyString(func(s string) bool { return runKeyed(s, own) })
 }
 
@@ -217,9 +217,9 @@ func listShape(v any) bool {
 // expected, an unbuilt or unsent request, no response, a body over its
 // bound or a capture with nothing to keep. Its captures go into caps. The
 // words name what was expected, never the application's bytes.
-func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, run string,
+func (r *Relay) httpStep(ctx context.Context, addr string, st httpstep.Step, run string,
 	caps map[string]string, own map[string]bool) (string, string) {
-	built, err := acceptance.BuildRequest(st, run, caps)
+	built, err := httpstep.BuildRequest(st, run, caps)
 	if err != nil {
 		return "the request could not be built: a capture is missing", ""
 	}
@@ -228,7 +228,7 @@ func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, r
 	switch {
 	case err != nil:
 		return "the request could not be sent as built", ""
-	case rep.Transport != acceptance.TransportNone:
+	case rep.Transport != httpstep.TransportNone:
 		return "no response (" + string(rep.Transport) + ")", ""
 	case rep.TooLarge:
 		return "the response body is over " + strconv.Itoa(MaxResponseBytes) + " bytes", ""
@@ -253,7 +253,7 @@ func (r *Relay) httpStep(ctx context.Context, addr string, st acceptance.Step, r
 // JSON pointers, headers and body text, the status already met): maul's
 // words for the first miss and its assertion id, as httpStep returns them;
 // "" when it all holds.
-func judgeContent(st acceptance.Step, rep reply, doc any, valid bool, run string, caps map[string]string,
+func judgeContent(st httpstep.Step, rep reply, doc any, valid bool, run string, caps map[string]string,
 	own map[string]bool) (string, string) {
 	// The step reads the run's own data when its path (never its query)
 	// addresses it.
@@ -274,7 +274,7 @@ func judgeContent(st acceptance.Step, rep reply, doc any, valid bool, run string
 		}
 	}
 	if st.Expect.BodyContains != "" {
-		needle, err := acceptance.Substitute(st.Expect.BodyContains, run, caps)
+		needle, err := httpstep.Substitute(st.Expect.BodyContains, run, caps)
 		if err != nil {
 			return "the expected text could not be built: a capture is missing", ""
 		}
@@ -378,7 +378,7 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 		return fail(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit))
 	}
 	if x.StdoutContains != "" {
-		needle, err := acceptance.Substitute(x.StdoutContains, run, nil)
+		needle, err := httpstep.Substitute(x.StdoutContains, run, nil)
 		if err != nil || !strings.Contains(res.Output, needle) {
 			return fail("the output does not contain the expected text")
 		}
@@ -443,15 +443,15 @@ func pointerValue(doc any, valid bool, ptr string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	val, err := acceptance.ValueOf(v)
+	val, err := httpstep.ValueOf(v)
 	if err != nil {
-		return acceptance.TooLarge, true
+		return httpstep.TooLarge, true
 	}
 	return val.String(), true
 }
 
 // captureValue is a capture's value: a string, number or boolean of at
-// most acceptance.MaxCaptureBytes.
+// most httpstep.MaxCaptureBytes.
 func captureValue(doc any, valid bool, ptr string) (string, bool) {
 	if !valid {
 		return "", false
@@ -471,10 +471,10 @@ func captureValue(doc any, valid bool, ptr string) (string, bool) {
 	default:
 		return "", false
 	}
-	return s, len(s) <= acceptance.MaxCaptureBytes
+	return s, len(s) <= httpstep.MaxCaptureBytes
 }
 
-// resolvePointer evaluates a pointer acceptance.CheckPointer admits, as
+// resolvePointer evaluates a pointer httpstep.CheckPointer admits, as
 // the tester's judge does: array indexes decimal without leading zeros.
 func resolvePointer(doc any, p string) (any, bool) {
 	if p == "" {

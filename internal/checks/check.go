@@ -11,7 +11,7 @@ import (
 	"io"
 	"slices"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // Form is how a check runs.
@@ -80,10 +80,9 @@ func normalize(c Check) Check {
 	if c.HTTP != nil {
 		h := HTTPCheck{Target: c.HTTP.Target}
 		if c.HTTP.Steps != nil {
-			// acceptance.Normalize copies, defaults method and status, and
-			// drops empty maps.
-			h.Steps = acceptance.Normalize([]acceptance.Criterion{{Kind: acceptance.KindHTTP,
-				Steps: c.HTTP.Steps}})[0].Steps
+			// NormalizeSteps copies, defaults method and status, and drops
+			// empty maps.
+			h.Steps = httpstep.NormalizeSteps(c.HTTP.Steps)
 		}
 		c.HTTP = &h
 	}

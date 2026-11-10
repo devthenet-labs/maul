@@ -12,10 +12,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // reachedWaits is a run whose one target accepted its first connection.
-var reachedWaits = []TargetWait{{Target: "api", WaitMs: 2, Attempts: 1}}
+var reachedWaits = []httpstep.TargetWait{{Target: "api", WaitMs: 2, Attempts: 1}}
 
 // mustWireWriter is a writer for a run whose targets were all reached.
 func mustWireWriter(t *testing.T, w *bytes.Buffer) *WireWriter {
@@ -28,12 +30,12 @@ func mustWireWriter(t *testing.T, w *bytes.Buffer) *WireWriter {
 }
 
 var okObservation = CriterionObservation{ID: "a", Tries: []TryObservation{{Run: "v1a1t1-abcdef",
-	Steps: []StepObservation{{Method: "GET", Path: "/", Status: 200, TransportError: TransportNone}}}}}
+	Steps: []StepObservation{{Method: "GET", Path: "/", Status: 200, TransportError: httpstep.TransportNone}}}}}
 
 // TestWireCarriesWaits: the readiness wait the tester made reads back
 // exactly, from the log's summary and from the termination message.
 func TestWireCarriesWaits(t *testing.T) {
-	waits := []TargetWait{
+	waits := []httpstep.TargetWait{
 		{Target: "api", WaitMs: 1203, Attempts: 5, Refused: 3, Timeout: 1},
 		{Target: "web", WaitMs: 0, Attempts: 1},
 	}
@@ -69,7 +71,7 @@ func TestWireCarriesWaits(t *testing.T) {
 // first criterion. The writer refuses an observation, and the summary
 // names the target, with no observation, which the parser reads back.
 func TestWireUnreachable(t *testing.T) {
-	waits := []TargetWait{
+	waits := []httpstep.TargetWait{
 		{Target: "api", WaitMs: 15000, Attempts: 20, Refused: 19, Timeout: 1},
 		{Target: "web", WaitMs: 3, Attempts: 1},
 	}
@@ -100,12 +102,12 @@ func TestWireUnreachable(t *testing.T) {
 // TestNewWireWriterRefusals: there is no writer without a well-formed
 // readiness wait, so no summary is ever written without one.
 func TestNewWireWriterRefusals(t *testing.T) {
-	ok := TargetWait{Target: "api", WaitMs: 1, Attempts: 2, Refused: 1}
-	many := make([]TargetWait, MaxWaitTargets+1)
+	ok := httpstep.TargetWait{Target: "api", WaitMs: 1, Attempts: 2, Refused: 1}
+	many := make([]httpstep.TargetWait, httpstep.MaxWaitTargets+1)
 	for i := range many {
-		many[i] = TargetWait{Target: string(rune('a' + i)), Attempts: 1}
+		many[i] = httpstep.TargetWait{Target: string(rune('a' + i)), Attempts: 1}
 	}
-	for name, waits := range map[string][]TargetWait{
+	for name, waits := range map[string][]httpstep.TargetWait{
 		"none":           nil,
 		"too many":       many,
 		"out of order":   {{Target: "web", Attempts: 1}, ok},
@@ -113,8 +115,8 @@ func TestNewWireWriterRefusals(t *testing.T) {
 		"not a key":      {{Target: "API", Attempts: 1}},
 		"long key":       {{Target: strings.Repeat("a", 17), Attempts: 1}},
 		"no attempt":     {{Target: "api"}},
-		"too many tries": {{Target: "api", Attempts: MaxWaitAttempts + 1, Refused: MaxWaitAttempts + 1}},
-		"too long":       {{Target: "api", Attempts: 1, WaitMs: MaxWaitMs + 1}},
+		"too many tries": {{Target: "api", Attempts: httpstep.MaxWaitAttempts + 1, Refused: httpstep.MaxWaitAttempts + 1}},
+		"too long":       {{Target: "api", Attempts: 1, WaitMs: httpstep.MaxWaitMs + 1}},
 		"negative wait":  {{Target: "api", Attempts: 1, WaitMs: -1}},
 		"negative count": {{Target: "api", Attempts: 1, Refused: -1, Timeout: 1}},
 		"unaccounted":    {{Target: "api", Attempts: 5, Refused: 2}},
@@ -123,8 +125,8 @@ func TestNewWireWriterRefusals(t *testing.T) {
 		// bounded first, so the sum cannot overflow.
 		"wrapping counts": {{Target: "api", Attempts: 1, Refused: math.MaxInt32, Timeout: math.MaxInt32, Reset: 2,
 			DNS: 1}},
-		"count over bound": {{Target: "api", Attempts: MaxWaitAttempts,
-			Refused: MaxWaitAttempts + 1, Timeout: -1}},
+		"count over bound": {{Target: "api", Attempts: httpstep.MaxWaitAttempts,
+			Refused: httpstep.MaxWaitAttempts + 1, Timeout: -1}},
 	} {
 		if _, err := NewWireWriter(&bytes.Buffer{}, waits); err == nil {
 			t.Errorf("%s: NewWireWriter accepted %+v", name, waits)
@@ -175,18 +177,6 @@ func TestWorstSummaryIsBounded(t *testing.T) {
 	}
 	if summaryWireBytes() < MaxSummaryBytes() {
 		t.Errorf("summaryWireBytes %d is under the longest summary's %d", summaryWireBytes(), MaxSummaryBytes())
-	}
-}
-
-// TestUnreached: the one definition of the targets a run never reached.
-func TestUnreached(t *testing.T) {
-	waits := []TargetWait{{Target: "api", Attempts: 2, Refused: 2}, {Target: "db", Attempts: 1},
-		{Target: "web", Attempts: 3, DNS: 3}}
-	if got := Unreached(waits); !slices.Equal(got, []string{"api", "web"}) {
-		t.Errorf("Unreached = %v", got)
-	}
-	if got := Unreached(waits[1:2]); got != nil {
-		t.Errorf("Unreached of a reached run = %v, want nil", got)
 	}
 }
 

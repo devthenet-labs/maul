@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -279,7 +279,7 @@ func checkSteps(c checks.Check, workspace bool) (string, []string) {
 }
 
 // httpStep: "Send `POST /notes` with JSON body `{…}`. Expected: status `201`."
-func httpStep(s acceptance.Step) string {
+func httpStep(s httpstep.Step) string {
 	method := s.Request.Method
 	if method == "" {
 		method = "GET"
@@ -313,7 +313,7 @@ func httpStep(s acceptance.Step) string {
 }
 
 // httpExpects are an http step's expectations in maul's words.
-func httpExpects(e acceptance.Expect) []string {
+func httpExpects(e httpstep.Expect) []string {
 	var out []string
 	switch len(e.Status) {
 	case 0:

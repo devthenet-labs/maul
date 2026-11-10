@@ -3,6 +3,8 @@
 
 package acceptance
 
+import "github.com/devthenet-labs/maul/internal/httpstep"
+
 // BaseComparison is what a change outcome's check line says of the check's
 // runs at base (rule 5): that it discriminates, that it has no base
 // comparison, or "" for nothing (SPEC-S2 Q29, section 7 (c) and (d)).
@@ -25,7 +27,7 @@ const (
 // than Decide; any run that gives no base evidence (a pass, an exit-only
 // fail, a timeout, a refusal) leaves it unlabelled. "" for a nil b (the
 // slot placement, which has no base).
-func (b *BaseRuns) Comparison(digest string) (BaseComparison, RunCause) {
+func (b *BaseRuns) Comparison(digest string) (BaseComparison, httpstep.RunCause) {
 	if b == nil {
 		return "", ""
 	}
@@ -37,7 +39,7 @@ func (b *BaseRuns) Comparison(digest string) (BaseComparison, RunCause) {
 	}
 	if len(mine) == 0 {
 		if b.Unbuildable {
-			return BaseNoComparison, CauseBaseUnbuildable
+			return BaseNoComparison, httpstep.CauseBaseUnbuildable
 		}
 		return "", ""
 	}

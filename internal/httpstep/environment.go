@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-package acceptance
+package httpstep
 
 // EnvClass sorts a verification's environment.
 type EnvClass string
@@ -134,9 +134,9 @@ func built(p PartFact) bool {
 		completed(*p.LastTermination)
 }
 
-// headBuildFailed reports a head build part (RoleBuild) that did not build:
+// HeadBuildFailed reports a head build part (RoleBuild) that did not build:
 // the round then has no fail and no pass, whatever its runs show.
-func headBuildFailed(parts []PartFact) bool {
+func HeadBuildFailed(parts []PartFact) bool {
 	for _, p := range parts {
 		if p.Role == RoleBuild && !built(p) {
 			return true

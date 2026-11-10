@@ -15,7 +15,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // seed is every property's seed, so the gate is deterministic.
@@ -50,7 +50,7 @@ func (genStatusOnly) Generate(r *rand.Rand, _ int) reflect.Value {
 	c.Form = FormHTTP
 	c.HTTP = &HTTPCheck{Target: "api"}
 	for range 1 + r.Intn(5) {
-		st := acceptance.Step{Request: acceptance.Request{
+		st := httpstep.Step{Request: httpstep.Request{
 			Method: []string{"GET", "POST", "PUT", "DELETE", ""}[r.Intn(5)],
 			Path:   "/" + word(r) + "/{{run}}",
 		}}
@@ -94,11 +94,11 @@ func (genCheck) Generate(r *rand.Rand, _ int) reflect.Value {
 		c.Form = FormHTTP
 		c.HTTP = &HTTPCheck{Target: word(r)}
 		for range 1 + r.Intn(4) {
-			st := acceptance.Step{Request: acceptance.Request{Path: "/" + word(r)}}
+			st := httpstep.Step{Request: httpstep.Request{Path: "/" + word(r)}}
 			if r.Intn(2) == 0 {
 				st.Request.Headers = map[string]string{"X-" + word(r): word(r), "X-" + word(r) + "2": word(r)}
 			}
-			st.Expect.JSON = map[string]acceptance.Value{}
+			st.Expect.JSON = map[string]httpstep.Value{}
 			for range r.Intn(4) {
 				st.Expect.JSON["/"+word(r)] = randomValue(r)
 			}
@@ -113,7 +113,7 @@ func (genCheck) Generate(r *rand.Rand, _ int) reflect.Value {
 	default:
 		c.Form = FormExec
 		c.Exec = &ExecCheck{Argv: []string{word(r), "{{run}}"}, Expect: ExecExpect{
-			StdoutJSON: map[string]acceptance.Value{"/" + word(r): randomValue(r)}}}
+			StdoutJSON: map[string]httpstep.Value{"/" + word(r): randomValue(r)}}}
 	}
 	return reflect.ValueOf(genCheck{c})
 }
@@ -139,7 +139,7 @@ func randomBrowserStep(r *rand.Rand) BrowserStep {
 	}
 }
 
-func randomValue(r *rand.Rand) acceptance.Value {
+func randomValue(r *rand.Rand) httpstep.Value {
 	var s string
 	switch r.Intn(5) {
 	case 0:
@@ -153,7 +153,7 @@ func randomValue(r *rand.Rand) acceptance.Value {
 	default:
 		s = fmt.Sprintf(`%d.0`, r.Intn(10))
 	}
-	v, err := acceptance.ParseValue([]byte(s))
+	v, err := httpstep.ParseValue([]byte(s))
 	if err != nil {
 		panic(err)
 	}

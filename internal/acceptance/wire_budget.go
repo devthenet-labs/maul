@@ -6,6 +6,8 @@ package acceptance
 import (
 	"encoding/base64"
 	"strings"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The tester's output bounds, shared by the grammar (Validate's plan-wide
@@ -52,7 +54,7 @@ func criterionWireBound(c Criterion) int {
 		for _, st := range c.Steps {
 			steps = append(steps, worstStep(st))
 		}
-		run := strings.Repeat("v", maxRunBytes)
+		run := strings.Repeat("v", httpstep.MaxRunBytes)
 		o.Tries = []TryObservation{{Run: run, Steps: steps}, {Run: run, Steps: steps}}
 	}
 	line, err := encodeLine(wireLine{V: WireVersion, Observation: &o})
@@ -63,16 +65,16 @@ func criterionWireBound(c Criterion) int {
 }
 
 // worstStep is st's observation at every bound, escaped worst on the wire.
-func worstStep(st Step) StepObservation {
+func worstStep(st httpstep.Step) StepObservation {
 	so := StepObservation{
-		Method: st.Request.Method, Path: strings.Repeat("a", MaxPathBytes), Status: 999,
+		Method: st.Request.Method, Path: strings.Repeat("a", httpstep.MaxPathBytes), Status: 999,
 		TransportError: longestTransport(), JSONValid: true, BodyBytes: math32, LatencyMs: math32,
 		BodyPrefix: strings.Repeat("A", base64.StdEncoding.EncodedLen(MaxBodyPrefixBytes)),
 	}
 	if len(st.Expect.JSON) > 0 || st.Expect.BodyContains != "" {
 		so.Pointers = map[string]string{}
 		for ptr := range st.Expect.JSON {
-			so.Pointers[ptr] = strings.Repeat(`\`, MaxValueBytes)
+			so.Pointers[ptr] = strings.Repeat(`\`, httpstep.MaxValueBytes)
 		}
 		if st.Expect.BodyContains != "" {
 			so.Pointers[KeyBodyContains] = bodyContainsProof("")
@@ -81,21 +83,21 @@ func worstStep(st Step) StepObservation {
 	if len(st.Capture) > 0 {
 		so.Captures = map[string]string{}
 		for name := range st.Capture {
-			so.Captures[name] = strings.Repeat("\x01", MaxCaptureBytes)
+			so.Captures[name] = strings.Repeat("\x01", httpstep.MaxCaptureBytes)
 		}
 	}
 	if len(st.Expect.Headers) > 0 {
 		so.Headers = map[string]string{}
 		for name := range st.Expect.Headers {
-			so.Headers[strings.ToLower(name)] = strings.Repeat("\x01", MaxHeaderBytes)
+			so.Headers[strings.ToLower(name)] = strings.Repeat("\x01", httpstep.MaxHeaderBytes)
 		}
 	}
 	return so
 }
 
-func longestTransport() Transport {
-	var out Transport
-	for t := range transports {
+func longestTransport() httpstep.Transport {
+	var out httpstep.Transport
+	for _, t := range httpstep.Transports() {
 		if len(t) > len(out) {
 			out = t
 		}
@@ -118,10 +120,11 @@ func summaryWireBytes() int {
 // largest, each named unreachable.
 func worstSummary() *Summary {
 	s := &Summary{Count: MaxCriteria, SHA256: strings.Repeat("f", 64)}
-	for i := range MaxWaitTargets {
-		key := strings.Repeat("k", MaxKeyLength-1) + string(rune('a'+i))
-		s.Waits = append(s.Waits, TargetWait{Target: key, WaitMs: MaxWaitMs, Attempts: MaxWaitAttempts,
-			Refused: MaxWaitAttempts, Timeout: MaxWaitAttempts, Reset: MaxWaitAttempts, DNS: MaxWaitAttempts})
+	for i := range httpstep.MaxWaitTargets {
+		key := strings.Repeat("k", httpstep.MaxKeyLength-1) + string(rune('a'+i))
+		s.Waits = append(s.Waits, httpstep.TargetWait{Target: key, WaitMs: httpstep.MaxWaitMs,
+			Attempts: httpstep.MaxWaitAttempts, Refused: httpstep.MaxWaitAttempts, Timeout: httpstep.MaxWaitAttempts,
+			Reset: httpstep.MaxWaitAttempts, DNS: httpstep.MaxWaitAttempts})
 		s.Unreachable = append(s.Unreachable, key)
 	}
 	return s

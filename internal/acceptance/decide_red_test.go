@@ -3,7 +3,11 @@
 
 package acceptance
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
+)
 
 // redFound is a defect found in round 1 (S1 bug 7): the evaluator reports
 // fail citing the ledger, and proposes a check that shows it; tools
@@ -76,7 +80,7 @@ func TestDecideRedCheck(t *testing.T) {
 			result: ResultUnsure, reason: ReasonEvaluatorDisagrees},
 		{name: "a failing environment: unsure",
 			in: with(redFound(), func(in *Input) {
-				in.Env = []PartFact{{Name: "api", Role: RoleComponent, Ready: true, CrashedDuring: true}}
+				in.Env = []httpstep.PartFact{{Name: "api", Role: httpstep.RoleComponent, Ready: true, CrashedDuring: true}}
 			}), result: ResultUnsure, reason: ReasonEnvFailed},
 		{name: "after the fix the saved check replays green, reviewed with the green question too: passed",
 			in: with(redFound(), func(in *Input) {

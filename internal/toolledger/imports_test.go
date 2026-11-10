@@ -15,13 +15,13 @@ import (
 )
 
 // TestImports keeps the ledger's trust root pure: the standard library, the
-// tool wire it reads, the CRD types it writes, and the acceptance and check
+// tool wire it reads, the CRD types it writes, and the step and check
 // grammars it rereads with. No Kubernetes client, no clock, no I/O.
 func TestImports(t *testing.T) {
 	allowed := []string{
 		"github.com/devthenet-labs/maul/api/v1alpha1",
-		"github.com/devthenet-labs/maul/internal/acceptance",
 		"github.com/devthenet-labs/maul/internal/checks",
+		"github.com/devthenet-labs/maul/internal/httpstep",
 		"github.com/devthenet-labs/maul/internal/toolwire",
 	}
 	files, err := filepath.Glob("*.go")

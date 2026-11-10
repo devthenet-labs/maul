@@ -27,6 +27,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -176,11 +177,11 @@ func toolLedger(t *testing.T, shot []byte, unreached ...string) ([]byte, string)
 		}
 		return got
 	}
-	waits := make([]acceptance.TargetWait, 0, 2)
+	waits := make([]httpstep.TargetWait, 0, 2)
 	for _, key := range []string{"api", "web"} {
-		wt := acceptance.TargetWait{Target: key, WaitMs: 40, Attempts: 1}
+		wt := httpstep.TargetWait{Target: key, WaitMs: 40, Attempts: 1}
 		if strings.Contains(strings.Join(unreached, ","), key) {
-			wt = acceptance.TargetWait{Target: key, WaitMs: 60000, Attempts: 30, Refused: 30}
+			wt = httpstep.TargetWait{Target: key, WaitMs: 60000, Attempts: 30, Refused: 30}
 		}
 		waits = append(waits, wt)
 	}
@@ -244,7 +245,7 @@ func relayFinishLedger(t *testing.T, reason string) ([]byte, string) {
 	var out bytes.Buffer
 	w := toolwire.NewWriter(&out)
 	at := time.Date(2026, 10, 1, 12, 1, 0, 0, time.UTC)
-	readiness, _ := json.Marshal([]acceptance.TargetWait{{Target: "api", WaitMs: 40, Attempts: 1},
+	readiness, _ := json.Marshal([]httpstep.TargetWait{{Target: "api", WaitMs: 40, Attempts: 1},
 		{Target: "web", WaitMs: 40, Attempts: 1}})
 	for _, e := range []toolwire.LedgerEntry{
 		{Kind: toolwire.KindRelay, Verb: toolwire.VerbHTTP, TS: at,

@@ -22,9 +22,9 @@ import (
 func TestImports(t *testing.T) {
 	allowed := []string{
 		"github.com/devthenet-labs/maul/api/v1alpha1",
-		"github.com/devthenet-labs/maul/internal/acceptance",
 		"github.com/devthenet-labs/maul/internal/checks",
 		"github.com/devthenet-labs/maul/internal/checks/playwright",
+		"github.com/devthenet-labs/maul/internal/httpstep",
 		"github.com/devthenet-labs/maul/internal/previewauth",
 		"github.com/devthenet-labs/maul/internal/toolexec",
 		"github.com/devthenet-labs/maul/internal/toolwire",

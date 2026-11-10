@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // ExecCheck is a program run in the slot's sandbox container, or a cli
@@ -122,9 +122,9 @@ type File struct {
 // contains, and values at JSON pointers into its stdout, with the http
 // form's matchers.
 type ExecExpect struct {
-	Exit           *int32                      `json:"exit,omitempty"`
-	StdoutContains string                      `json:"stdoutContains,omitempty"`
-	StdoutJSON     map[string]acceptance.Value `json:"stdoutJSON,omitempty"`
+	Exit           *int32                    `json:"exit,omitempty"`
+	StdoutContains string                    `json:"stdoutContains,omitempty"`
+	StdoutJSON     map[string]httpstep.Value `json:"stdoutJSON,omitempty"`
 }
 
 // Bounds of the exec form.

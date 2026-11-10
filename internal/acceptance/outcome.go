@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // OutcomeKind says what an outcome expects of the change: that it makes
@@ -94,16 +96,16 @@ func validateOutcome(o PlanOutcome) error {
 	if !idPattern.MatchString(o.ID) {
 		return fmt.Errorf("id must match %s", idPattern)
 	}
-	if err := checkLine("outcome", o.Outcome, MaxOutcomeChars); err != nil {
+	if err := httpstep.CheckLine("outcome", o.Outcome, MaxOutcomeChars); err != nil {
 		return err
 	}
 	if strings.TrimSpace(o.Outcome) == "" {
 		return errors.New("outcome is required")
 	}
-	if err := checkLine("from", o.From, MaxFromChars); err != nil {
+	if err := httpstep.CheckLine("from", o.From, MaxFromChars); err != nil {
 		return err
 	}
-	if err := checkLine("reason", o.Reason, MaxReasonChars); err != nil {
+	if err := httpstep.CheckLine("reason", o.Reason, MaxReasonChars); err != nil {
 		return err
 	}
 	switch o.Kind {

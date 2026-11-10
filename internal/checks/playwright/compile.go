@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The compiled spec's contract with the runner that writes it out (S1-12).
@@ -212,7 +212,7 @@ func (w *writer) lit(s string) string {
 
 // substitute replaces {{run}} with run; any other placeholder is an error.
 func substitute(s, run string) (string, error) {
-	out, err := acceptance.Substitute(s, run, nil)
+	out, err := httpstep.Substitute(s, run, nil)
 	if err != nil {
 		return "", fmt.Errorf("%w: %q: %w", errPlaceholder, s, err)
 	}

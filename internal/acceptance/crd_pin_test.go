@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // api/ never imports internal/, so v1alpha1.AcceptanceCriterion mirrors
@@ -42,9 +43,9 @@ var mirrors = []struct {
 	crd  reflect.Type
 }{
 	{"Criterion", reflect.TypeFor[Criterion](), reflect.TypeFor[maulv1.AcceptanceCriterion]()},
-	{"Step", reflect.TypeFor[Step](), reflect.TypeFor[maulv1.AcceptanceStep]()},
-	{"Request", reflect.TypeFor[Request](), reflect.TypeFor[maulv1.AcceptanceRequest]()},
-	{"Expect", reflect.TypeFor[Expect](), reflect.TypeFor[maulv1.AcceptanceExpect]()},
+	{"Step", reflect.TypeFor[httpstep.Step](), reflect.TypeFor[maulv1.AcceptanceStep]()},
+	{"Request", reflect.TypeFor[httpstep.Request](), reflect.TypeFor[maulv1.AcceptanceRequest]()},
+	{"Expect", reflect.TypeFor[httpstep.Expect](), reflect.TypeFor[maulv1.AcceptanceExpect]()},
 	{"Where", reflect.TypeFor[Where](), reflect.TypeFor[maulv1.AcceptanceWhere]()},
 }
 
@@ -109,7 +110,7 @@ func TestAPIEnumsMatchAcceptance(t *testing.T) {
 		{"CheckFormBrowser", string(CheckFormBrowser), string(maulv1.CheckFormBrowser)},
 		{"CheckFormExec", string(CheckFormExec), string(maulv1.CheckFormExec)},
 		{"CheckFormRun", string(CheckFormRun), string(maulv1.CheckFormRun)},
-		{"RoleBuild", RoleBuild, string(maulv1.PreviewRoleBuild)},
+		{"RoleBuild", httpstep.RoleBuild, string(maulv1.PreviewRoleBuild)},
 		{"ReasonBuildFailed", ReasonBuildFailed, string(maulv1.VerificationReasonToolsBuildFailed)},
 	} {
 		if c.acc != c.crd {
@@ -176,7 +177,7 @@ func TestCRDRoundTripKeepsDigest(t *testing.T) {
 // the CRD type, so intent-controller must Normalize before it stores.
 func TestCRDRefusesTheShorthand(t *testing.T) {
 	cs := []Criterion{{ID: "home", Kind: KindHTTP, Statement: "s", Target: "web",
-		Request: &Request{Path: "/"}}}
+		Request: &httpstep.Request{Path: "/"}}}
 	if _, err := viaCRD(cs); err == nil {
 		t.Fatal("the CRD type took the unnormalised shorthand")
 	}
@@ -191,12 +192,12 @@ func TestCRDRefusesTheShorthand(t *testing.T) {
 
 // The CRD cannot say "json or body, not both" in CEL, so Validate must.
 func TestRequestJSONAndBodyAreExclusive(t *testing.T) {
-	v, err := ParseValue([]byte(`{"a":1}`))
+	v, err := httpstep.ParseValue([]byte(`{"a":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := Criterion{ID: "both", Kind: KindHTTP, Statement: "s", Target: "web", Steps: []Step{{
-		Request: Request{Method: "POST", Path: "/", JSON: &v, Body: "x"}}}}
+	c := Criterion{ID: "both", Kind: KindHTTP, Statement: "s", Target: "web", Steps: []httpstep.Step{{
+		Request: httpstep.Request{Method: "POST", Path: "/", JSON: &v, Body: "x"}}}}
 	if err := Validate([]Criterion{c}); err == nil {
 		t.Fatal("Validate accepted a request with both json and body, which the CRD cannot refuse")
 	}
@@ -245,14 +246,14 @@ func TestCRDSchemaBoundsMatchGrammar(t *testing.T) {
 		{"steps maxItems", p["steps"].(map[string]any)["maxItems"], MaxStepsPerHTTP},
 		{"argv maxItems", p["argv"].(map[string]any)["maxItems"], MaxArgs},
 		{"argv item maxLength", sub(p, "argv", "items")["maxLength"], MaxArgChars},
-		{"headers maxProperties", req["headers"].(map[string]any)["maxProperties"], MaxHeaders},
-		{"path maxLength", req["path"].(map[string]any)["maxLength"], MaxPathBytes},
-		{"expect.json maxProperties", exp["json"].(map[string]any)["maxProperties"], MaxExpectPointers},
-		{"expect.headers maxProperties", exp["headers"].(map[string]any)["maxProperties"], MaxExpectHeaders},
-		{"expect.stdoutJSON maxProperties", exp["stdoutJSON"].(map[string]any)["maxProperties"], MaxExpectPointers},
-		{"bodyContains maxLength", exp["bodyContains"].(map[string]any)["maxLength"], MaxContainsChars},
-		{"stdoutContains maxLength", exp["stdoutContains"].(map[string]any)["maxLength"], MaxContainsChars},
-		{"capture maxProperties", step["capture"].(map[string]any)["maxProperties"], MaxCaptures},
+		{"headers maxProperties", req["headers"].(map[string]any)["maxProperties"], httpstep.MaxHeaders},
+		{"path maxLength", req["path"].(map[string]any)["maxLength"], httpstep.MaxPathBytes},
+		{"expect.json maxProperties", exp["json"].(map[string]any)["maxProperties"], httpstep.MaxExpectPointers},
+		{"expect.headers maxProperties", exp["headers"].(map[string]any)["maxProperties"], httpstep.MaxExpectHeaders},
+		{"expect.stdoutJSON maxProperties", exp["stdoutJSON"].(map[string]any)["maxProperties"], httpstep.MaxExpectPointers},
+		{"bodyContains maxLength", exp["bodyContains"].(map[string]any)["maxLength"], httpstep.MaxContainsChars},
+		{"stdoutContains maxLength", exp["stdoutContains"].(map[string]any)["maxLength"], httpstep.MaxContainsChars},
+		{"capture maxProperties", step["capture"].(map[string]any)["maxProperties"], httpstep.MaxCaptures},
 	}
 	for _, c := range cases {
 		if fmt.Sprint(c.got) != fmt.Sprint(c.want) {

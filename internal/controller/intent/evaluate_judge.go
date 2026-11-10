@@ -19,6 +19,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -78,7 +79,7 @@ type roundJudgement struct {
 	// a digest against the round (resolvedDisputes); nil without one.
 	disputes  []report.Dispute
 	anomalies []v1alpha1.AnomalyRecord
-	env       []acceptance.PartFact
+	env       []httpstep.PartFact
 	// replay: the round was a replay round.
 	replay bool
 	// cleared are the checks saved red whose replay this round passed
@@ -438,7 +439,7 @@ func checkRuns(rs []v1alpha1.CheckRun) []acceptance.CheckRun {
 		}
 		run := acceptance.CheckRun{CheckDigest: r.CheckDigest, Result: acceptance.RunResult(r.Result),
 			Token: r.Token, Seq: r.Seq, ExpectFail: r.Expect == v1alpha1.CheckExpectFail,
-			Cause: acceptance.RunCause(r.Cause)}
+			Cause: httpstep.RunCause(r.Cause)}
 		if r.RedByAssertion() {
 			run.AssertionStep, run.AssertionID = r.AssertionStep, r.AssertionID
 		}
@@ -673,7 +674,7 @@ func (p *pass) evaluationFailure(ctx context.Context, pv *v1alpha1.PreviewVerifi
 			Fingerprint: acceptance.EvaluationFingerprint(outcomes, digests, j.env)}
 	}
 	fix := pendingFix(p.in.Status.Acceptance, pv.Spec.HeadSetDigest, j)
-	if fix == nil || j.decision.Env != acceptance.EnvOK {
+	if fix == nil || j.decision.Env != httpstep.EnvOK {
 		return verifyFailure{}, nil, j, false
 	}
 	f := verifyFailure{signature: fix.Fingerprint}
@@ -730,13 +731,13 @@ func checkLine(c v1alpha1.SavedCheck) string {
 }
 
 // baseCauseWords say, for a check line, why a run at base leaves no base
-// comparison (acceptance.RunCause.NoComparison).
-var baseCauseWords = map[acceptance.RunCause]string{
-	acceptance.CauseCompile:            "does not compile at base",
-	acceptance.CauseVendoredTree:       "the base tree is vendored",
-	acceptance.CauseReplaceOutsideTree: "the base replaces a module outside its tree",
-	acceptance.CauseNoModule:           "the base has no go.mod",
-	acceptance.CauseBaseUnbuildable:    "the base did not build",
+// comparison (httpstep.RunCause.NoComparison).
+var baseCauseWords = map[httpstep.RunCause]string{
+	httpstep.CauseCompile:            "does not compile at base",
+	httpstep.CauseVendoredTree:       "the base tree is vendored",
+	httpstep.CauseReplaceOutsideTree: "the base replaces a module outside its tree",
+	httpstep.CauseNoModule:           "the base has no go.mod",
+	httpstep.CauseBaseUnbuildable:    "the base did not build",
 }
 
 // changeOutcome reports that id is a change outcome of acc: the kind whose
@@ -888,7 +889,7 @@ func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificati
 	}
 	results := v.JudgedOutcomes()
 	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(results) == 0 ||
-		!acceptance.EnvClass(v.OutcomesEnvironment).Clean() {
+		!httpstep.EnvClass(v.OutcomesEnvironment).Clean() {
 		return false
 	}
 	for _, r := range results {

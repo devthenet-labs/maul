@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"testing"
 	"testing/quick"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 var digestForm = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -38,12 +40,12 @@ func TestDigestCoversEverything(t *testing.T) {
 		"order":          func(cs []Criterion) { cs[0], cs[3] = cs[3], cs[0] },
 		"statement":      func(cs []Criterion) { cs[0].Statement += "." },
 		"path":           func(cs []Criterion) { cs[0].Steps[1].Request.Path += "x" },
-		"status":         func(cs []Criterion) { cs[0].Steps[0].Expect.Status = StatusList{200} },
+		"status":         func(cs []Criterion) { cs[0].Steps[0].Expect.Status = httpstep.StatusList{200} },
 		"capture":        func(cs []Criterion) { cs[0].Steps[0].Capture = map[string]string{"battle": "/uuid"} },
 		"argv":           func(cs []Criterion) { cs[1].Argv[1] = "offsets" },
 		"target":         func(cs []Criterion) { cs[3].Target = "beatbattle-web" },
 		"expect value": func(cs []Criterion) {
-			v, _ := ParseValue([]byte(`{"$order":["x","{{capture.battle}}"],"$by":"/id"}`))
+			v, _ := httpstep.ParseValue([]byte(`{"$order":["x","{{capture.battle}}"],"$by":"/id"}`))
 			cs[0].Steps[1].Expect.JSON[""] = v
 		},
 	}

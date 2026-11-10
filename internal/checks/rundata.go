@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // WritesRunData reports whether c writes data under its own run token: an
@@ -156,6 +156,6 @@ func ValidateRed(c Check, failing int) error {
 
 // marshalsRun reports whether one of v's values names RunPlaceholder (fifth
 // review, 2): never an object key, which substitution leaves as it is.
-func marshalsRun(v *acceptance.Value) bool {
+func marshalsRun(v *httpstep.Value) bool {
 	return v != nil && v.AnyString(hasRun)
 }

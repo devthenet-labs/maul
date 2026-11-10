@@ -18,25 +18,13 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
-// The observation's bounds. The PreviewVerification CRD repeats them as
-// maxLength/maxItems.
-const (
-	// MaxResponseBytes is the most of a response body the tester reads;
-	// past it the step is TransportTooLarge.
-	MaxResponseBytes = 64 << 10
-	// MaxCaptureBytes bounds a captured value.
-	MaxCaptureBytes = 128
-	// MaxBodyPrefixBytes bounds the display-only body prefix, before base64.
-	MaxBodyPrefixBytes = 512
-	// maxRunBytes bounds a try's recorded run token.
-	maxRunBytes = 64
-)
-
-// TooLarge stands for an observed value over MaxValueBytes. It is not JSON,
-// so it can never equal an expected value; only $present judges it.
-const TooLarge = "!too-large"
+// MaxBodyPrefixBytes bounds the display-only body prefix, before base64.
+// The PreviewVerification CRD repeats it.
+const MaxBodyPrefixBytes = 512
 
 // KeyBodyContains is the reserved Pointers key holding the bodyContains
 // observation: when the body contains the expected text (as substituted),
@@ -51,26 +39,6 @@ const KeyBodyContains = "$bodyContains"
 func bodyContainsProof(needle string) string {
 	sum := sha256.Sum256([]byte(needle))
 	return `"sha256:` + hex.EncodeToString(sum[:]) + `"`
-}
-
-// Transport classifies how a request failed before a response was judged.
-type Transport string
-
-// Transport classes. Anything but TransportNone fails the step.
-const (
-	TransportNone           Transport = "none"
-	TransportRefused        Transport = "refused"
-	TransportTimeout        Transport = "timeout"
-	TransportReset          Transport = "reset"
-	TransportDNS            Transport = "dns"
-	TransportTLS            Transport = "tls"
-	TransportTooLarge       Transport = "too-large"
-	TransportCaptureMissing Transport = "capture-missing"
-)
-
-var transports = map[Transport]bool{
-	TransportNone: true, TransportRefused: true, TransportTimeout: true, TransportReset: true,
-	TransportDNS: true, TransportTLS: true, TransportTooLarge: true, TransportCaptureMissing: true,
 }
 
 // CriterionObservation is what the tester saw of one criterion: one try,
@@ -100,10 +68,10 @@ type StepObservation struct {
 	Path   string `json:"path"`
 	Status int32  `json:"status"`
 	// TransportError is TransportNone or how the request failed.
-	TransportError Transport `json:"transportError"`
-	JSONValid      bool      `json:"jsonValid"`
-	BodyBytes      int32     `json:"bodyBytes"`
-	LatencyMs      int32     `json:"latencyMs"`
+	TransportError httpstep.Transport `json:"transportError"`
+	JSONValid      bool               `json:"jsonValid"`
+	BodyBytes      int32              `json:"bodyBytes"`
+	LatencyMs      int32              `json:"latencyMs"`
 	// Pointers holds, for each expected JSON pointer, the canonical JSON
 	// there, reduced so that it judges as the full value would (an $order
 	// list projected to its expected values, a long $contains string to the
@@ -122,61 +90,6 @@ type StepObservation struct {
 	BodyPrefix string `json:"bodyPrefix,omitempty"`
 }
 
-// Part roles, as PartFact.Role.
-const (
-	RoleComponent = "component"
-	RoleService   = "service"
-	RoleTester    = "tester"
-	RoleCommand   = "command"
-	RoleSeed      = "seed"
-	// RoleTools is the agent evaluator's slot tool pod, judged like the
-	// tester: by how it ran.
-	RoleTools = "tools"
-	// RoleBuild is the tool pod's build of the head (slice S2, the agents
-	// placement; PreviewPartRole "build"): it built only when it terminated
-	// Completed with exit 0. Only the head build is a part: a base the pod
-	// could not build is BaseRuns.Unbuildable, never a part.
-	RoleBuild = "build"
-)
-
-// PartFact is the environment evidence of one part of a Preview's slot,
-// from its pod's container status.
-type PartFact struct {
-	Name     string `json:"name"`
-	Role     string `json:"role"`
-	Ready    bool   `json:"ready"`
-	Restarts int32  `json:"restarts"`
-	// Waiting is the container's waiting reason (CrashLoopBackOff,
-	// ImagePullBackOff, …), empty when it is not waiting.
-	Waiting string `json:"waiting,omitempty"`
-	// LastTermination is the container's last (or, for a finished Job's
-	// container, current) termination.
-	LastTermination *Termination `json:"lastTermination,omitempty"`
-	Evicted         bool         `json:"evicted,omitempty"`
-	Unschedulable   bool         `json:"unschedulable,omitempty"`
-	// CrashedDuring reports that the component's process exited (OOM
-	// included) during the attempt, by the kubelet's timestamps within the
-	// tester's run: the application's failure, however it exited.
-	CrashedDuring bool `json:"crashedDuring,omitempty"`
-	// Disrupted reports that the cluster, not the application, took the
-	// component's Pod away during the attempt: the Eviction API, a drain,
-	// preemption, the taint manager, Pod GC, a deletion, node loss, or a
-	// replacement whose old Pod shows no cause of the application's.
-	Disrupted bool `json:"disrupted,omitempty"`
-	// UnreachableForMs is how long the tester tried, and failed, to connect
-	// to the component's Service before its first criterion: its whole
-	// readiness window. Zero when it was reached.
-	UnreachableForMs int32 `json:"unreachableForMs,omitempty"`
-	// LogTail is opaque display text: never judged, never fingerprinted.
-	LogTail string `json:"logTail,omitempty"`
-}
-
-// Termination is a container termination.
-type Termination struct {
-	Reason   string `json:"reason"`
-	ExitCode int32  `json:"exitCode"`
-}
-
 // Call is one request Observe asks its Doer to send.
 type Call struct {
 	// Try is 1 or 2, Step the step's index.
@@ -185,7 +98,7 @@ type Call struct {
 	// (a copy). Both are already substituted into Request.
 	Run      string
 	Captures map[string]string
-	Request  BuiltRequest
+	Request  httpstep.BuiltRequest
 }
 
 // Response is what a Doer got back. A Doer reads at most
@@ -196,7 +109,7 @@ type Response struct {
 	Header map[string][]string
 	Body   []byte
 	// Transport is TransportNone (or empty) when a response arrived.
-	Transport Transport
+	Transport httpstep.Transport
 	LatencyMs int32
 }
 
@@ -230,11 +143,11 @@ func observeTry(c Criterion, try int, run string, do Doer) (TryObservation, bool
 	t := TryObservation{Run: run}
 	caps := map[string]string{}
 	for i, st := range c.Steps {
-		built, err := BuildRequest(st, run, caps)
+		built, err := httpstep.BuildRequest(st, run, caps)
 		if err != nil {
 			t.Steps = append(t.Steps, StepObservation{
-				Method: st.Request.Method, Path: truncateUTF8(st.Request.Path, MaxPathBytes),
-				TransportError: TransportCaptureMissing,
+				Method: st.Request.Method, Path: httpstep.TruncateUTF8(st.Request.Path, httpstep.MaxPathBytes),
+				TransportError: httpstep.TransportCaptureMissing,
 			})
 			return t, false
 		}
@@ -251,28 +164,29 @@ func observeTry(c Criterion, try int, run string, do Doer) (TryObservation, bool
 	return t, true
 }
 
-func observeResponse(st Step, built BuiltRequest, resp Response, run string, caps map[string]string) StepObservation {
+func observeResponse(st httpstep.Step, built httpstep.BuiltRequest, resp Response, run string,
+	caps map[string]string) StepObservation {
 	so := StepObservation{
 		Method: built.Method, Path: built.Target(), Status: resp.Status,
 		TransportError: resp.Transport, LatencyMs: resp.LatencyMs, BodyBytes: int32(min(len(resp.Body), math32)),
 	}
 	if so.TransportError == "" {
-		so.TransportError = TransportNone
+		so.TransportError = httpstep.TransportNone
 	}
-	if len(resp.Body) > MaxResponseBytes {
-		so.TransportError = TransportTooLarge
+	if len(resp.Body) > httpstep.MaxResponseBytes {
+		so.TransportError = httpstep.TransportTooLarge
 	}
-	if so.TransportError != TransportNone {
+	if so.TransportError != httpstep.TransportNone {
 		return so
 	}
 	so.BodyPrefix = base64.StdEncoding.EncodeToString(resp.Body[:min(len(resp.Body), MaxBodyPrefixBytes)])
-	doc, valid := decodeBody(resp.Body)
+	doc, valid := httpstep.DecodeBody(resp.Body)
 	so.JSONValid = valid
 	so.Pointers = observePointers(st.Expect, doc, valid, resp.Body, run, caps)
 	var missing bool
 	so.Captures, missing = observeCaptures(st.Capture, doc, valid)
 	if missing {
-		so.TransportError = TransportCaptureMissing
+		so.TransportError = httpstep.TransportCaptureMissing
 	}
 	so.Headers = observeHeaders(st.Expect.Headers, resp.Header, run, caps)
 	return so
@@ -280,26 +194,20 @@ func observeResponse(st Step, built BuiltRequest, resp Response, run string, cap
 
 const math32 = 1<<31 - 1
 
-func observePointers(e Expect, doc any, valid bool, body []byte, run string, caps map[string]string) map[string]string {
+func observePointers(e httpstep.Expect, doc any, valid bool, body []byte, run string,
+	caps map[string]string) map[string]string {
 	out := map[string]string{}
 	if valid {
 		for ptr, expected := range e.JSON {
-			m, err := parseMatcher(expected)
-			if err == nil {
-				m, err = m.substitute(run, caps)
-			}
-			v, ok := resolvePointer(doc, ptr)
+			v, ok := httpstep.ResolvePointer(doc, ptr)
 			if !ok {
 				continue
 			}
-			if err != nil {
-				m = matcher{kind: matchLiteral}
-			}
-			out[ptr] = m.reduce(v)
+			out[ptr] = httpstep.Reduce(expected, run, caps, v)
 		}
 	}
 	if e.BodyContains != "" {
-		if needle, err := Substitute(e.BodyContains, run, caps); err == nil && bytes.Contains(body, []byte(needle)) {
+		if needle, err := httpstep.Substitute(e.BodyContains, run, caps); err == nil && bytes.Contains(body, []byte(needle)) {
 			out[KeyBodyContains] = bodyContainsProof(needle)
 		}
 	}
@@ -307,73 +215,6 @@ func observePointers(e Expect, doc any, valid bool, body []byte, run string, cap
 		return nil
 	}
 	return out
-}
-
-// reduce is the observed value v as recorded for m: bounded, and judged by
-// m exactly as v itself would be.
-func (m matcher) reduce(v any) string {
-	switch m.kind {
-	case matchContains:
-		if s, ok := v.(string); ok && len(quote(s)) > MaxValueBytes {
-			if strings.Contains(s, m.contains) {
-				return bounded(quote(m.contains))
-			}
-			// A prefix of a text that lacks the needle lacks it too.
-			return bounded(quote(truncateUTF8(s, MaxValueBytes/2)))
-		}
-	case matchOrder:
-		if list, ok := v.([]any); ok {
-			return bounded(m.project(list))
-		}
-	}
-	raw, err := valueOf(v)
-	if err != nil {
-		return TooLarge
-	}
-	return bounded(raw.String())
-}
-
-// project keeps, in order, the first occurrence of each expected value
-// among list's elements (each read at $by): the first occurrences are all
-// matchOrder judges, so the projection judges as the list does.
-func (m matcher) project(list []any) string {
-	var kept []any
-	found := make([]bool, len(m.order))
-	for _, e := range list {
-		if m.by != "" {
-			var ok bool
-			if e, ok = resolvePointer(e, m.by); !ok {
-				continue
-			}
-		}
-		for i, want := range m.order {
-			if !found[i] && jsonEqual(want.decoded(), e) {
-				found[i] = true
-				kept = append(kept, e)
-				break
-			}
-		}
-	}
-	if kept == nil {
-		kept = []any{}
-	}
-	raw, err := valueOf(kept)
-	if err != nil {
-		return TooLarge
-	}
-	return raw.String()
-}
-
-func bounded(raw string) string {
-	if len(raw) > MaxValueBytes {
-		return TooLarge
-	}
-	return raw
-}
-
-func quote(s string) string {
-	v, _ := valueOf(s)
-	return v.String()
 }
 
 // observeCaptures reads each declared capture; missing reports one that is
@@ -388,7 +229,7 @@ func observeCaptures(capture map[string]string, doc any, valid bool) (map[string
 		var v any
 		var ok bool
 		if valid {
-			v, ok = resolvePointer(doc, ptr)
+			v, ok = httpstep.ResolvePointer(doc, ptr)
 		}
 		var s string
 		switch t := v.(type) {
@@ -401,7 +242,7 @@ func observeCaptures(capture map[string]string, doc any, valid bool) (map[string
 		default:
 			ok = false
 		}
-		if !ok || len(s) > MaxCaptureBytes {
+		if !ok || len(s) > httpstep.MaxCaptureBytes {
 			missing = true
 			continue
 		}
@@ -420,7 +261,8 @@ func observeCaptures(capture map[string]string, doc any, valid bool) (map[string
 // are made valid UTF-8 first, each run of invalid bytes one U+FFFD, so the
 // value the tester judges is the value the controller reads back off the
 // wire, and its bound holds after the round trip.
-func observeHeaders(exp map[string]Value, h map[string][]string, run string, caps map[string]string) map[string]string {
+func observeHeaders(exp map[string]httpstep.Value, h map[string][]string, run string,
+	caps map[string]string) map[string]string {
 	if len(exp) == 0 {
 		return nil
 	}
@@ -437,13 +279,11 @@ func observeHeaders(exp map[string]Value, h map[string][]string, run string, cap
 		}
 		whole := strings.ToValidUTF8(strings.Join(vals, ", "), string(utf8.RuneError))
 		got := whole
-		if len(got) > MaxHeaderBytes {
-			got = TooLarge
-			if m, err := parseMatcher(expected); err == nil && m.kind == matchContains {
-				if m, err = m.substitute(run, caps); err == nil && len(m.contains) <= MaxHeaderBytes &&
-					strings.Contains(whole, m.contains) {
-					got = m.contains
-				}
+		if len(got) > httpstep.MaxHeaderBytes {
+			got = httpstep.TooLarge
+			if needle, ok := httpstep.ContainsNeedle(expected, run, caps); ok && len(needle) <= httpstep.MaxHeaderBytes &&
+				strings.Contains(whole, needle) {
+				got = needle
 			}
 		}
 		out[strings.ToLower(name)] = got
@@ -452,17 +292,6 @@ func observeHeaders(exp map[string]Value, h map[string][]string, run string, cap
 		return nil
 	}
 	return out
-}
-
-// truncateUTF8 cuts s to at most n bytes on a rune boundary.
-func truncateUTF8(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }
 
 // Check holds an observation to the bounds Observe keeps, as the
@@ -478,7 +307,7 @@ func (o CriterionObservation) Check() error {
 		return errors.New("more than 2 tries")
 	}
 	for _, t := range o.Tries {
-		if len(t.Run) > maxRunBytes || len(t.Steps) > MaxStepsPerHTTP {
+		if len(t.Run) > httpstep.MaxRunBytes || len(t.Steps) > MaxStepsPerHTTP {
 			return errors.New("a try is over its bounds")
 		}
 		for _, s := range t.Steps {
@@ -492,15 +321,16 @@ func (o CriterionObservation) Check() error {
 
 func (s StepObservation) check() error {
 	switch {
-	case len(s.Method) > 8 || len(s.Path) > MaxPathBytes:
+	case len(s.Method) > 8 || len(s.Path) > httpstep.MaxPathBytes:
 		return errors.New("a step's request is over its bounds")
-	case !transports[s.TransportError]:
+	case !s.TransportError.Known():
 		return fmt.Errorf("transport %q is not a transport class", s.TransportError)
 	case s.Status < 0 || s.Status > 999 || s.BodyBytes < 0 || s.LatencyMs < 0:
 		return errors.New("a step's numbers are out of range")
 	case len(s.BodyPrefix) > base64.StdEncoding.EncodedLen(MaxBodyPrefixBytes):
 		return errors.New("a step's body prefix is over its bound")
-	case len(s.Pointers) > MaxExpectPointers+1 || len(s.Captures) > MaxCaptures || len(s.Headers) > MaxExpectHeaders:
+	case len(s.Pointers) > httpstep.MaxExpectPointers+1 || len(s.Captures) > httpstep.MaxCaptures ||
+		len(s.Headers) > httpstep.MaxExpectHeaders:
 		return errors.New("a step records too many values")
 	}
 	return s.checkValues()
@@ -509,17 +339,17 @@ func (s StepObservation) check() error {
 // checkValues holds each recorded key and value to its bound.
 func (s StepObservation) checkValues() error {
 	for k, v := range s.Pointers {
-		if (k != KeyBodyContains && CheckPointer(k) != nil) || len(v) > MaxValueBytes {
+		if (k != KeyBodyContains && httpstep.CheckPointer(k) != nil) || len(v) > httpstep.MaxValueBytes {
 			return errors.New("a step's pointer value is over its bounds")
 		}
 	}
 	for k, v := range s.Captures {
-		if !captureName.MatchString(k) || len(v) > MaxCaptureBytes {
+		if !httpstep.CaptureName.MatchString(k) || len(v) > httpstep.MaxCaptureBytes {
 			return errors.New("a step's capture is over its bounds")
 		}
 	}
 	for k, v := range s.Headers {
-		if !headerPattern.MatchString(k) || len(v) > MaxHeaderBytes {
+		if !httpstep.HeaderPattern.MatchString(k) || len(v) > httpstep.MaxHeaderBytes {
 			return errors.New("a step's header is over its bounds")
 		}
 	}
@@ -572,7 +402,7 @@ type Summary struct {
 	SHA256 string `json:"sha256"`
 	// Waits are the tester's readiness waits, made before its first
 	// criterion: always one per target.
-	Waits []TargetWait `json:"waits"`
+	Waits []httpstep.TargetWait `json:"waits"`
 	// Unreachable names the targets whose every connection attempt failed
 	// within the tester's window, exactly those of Waits never reached.
 	// Non-empty, the run observed nothing (Count is zero): preview-controller
@@ -592,7 +422,7 @@ type WireWriter struct {
 	h     hash.Hash
 	n     int
 	end   bool
-	waits []TargetWait
+	waits []httpstep.TargetWait
 }
 
 // NewWireWriter writes the wire format to w for a run whose readiness waits
@@ -600,8 +430,8 @@ type WireWriter struct {
 // without them, so no summary is ever written without the wait; and once
 // a target was never reached, the writer writes no observation, only the
 // summary naming it.
-func NewWireWriter(w io.Writer, waits []TargetWait) (*WireWriter, error) {
-	if err := checkWaits(waits); err != nil {
+func NewWireWriter(w io.Writer, waits []httpstep.TargetWait) (*WireWriter, error) {
+	if err := httpstep.CheckWaits(waits); err != nil {
 		return nil, fmt.Errorf("wire: %w", err)
 	}
 	return &WireWriter{w: w, h: sha256.New(), waits: slices.Clone(waits)}, nil
@@ -612,7 +442,7 @@ func (w *WireWriter) Write(o CriterionObservation) error {
 	switch {
 	case w.end:
 		return errors.New("wire: write after close")
-	case len(Unreached(w.waits)) > 0:
+	case len(httpstep.Unreached(w.waits)) > 0:
 		return errors.New("wire: no observation after an unreachable target")
 	}
 	if err := o.Check(); err != nil {
@@ -636,7 +466,7 @@ func (w *WireWriter) Close() (Summary, error) {
 	}
 	w.end = true
 	s := Summary{Count: w.n, SHA256: hex.EncodeToString(w.h.Sum(nil)), Waits: w.waits,
-		Unreachable: Unreached(w.waits)}
+		Unreachable: httpstep.Unreached(w.waits)}
 	if err := s.check(); err != nil {
 		return Summary{}, fmt.Errorf("wire: summary: %w", err)
 	}

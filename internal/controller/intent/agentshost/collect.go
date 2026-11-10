@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -162,7 +162,7 @@ func buildResult(r v1alpha1.BuildResult) bool {
 
 // partOf is the head build's part fact as the verification's environment
 // holds it.
-func partOf(p acceptance.PartFact) v1alpha1.PartFact {
+func partOf(p httpstep.PartFact) v1alpha1.PartFact {
 	f := v1alpha1.PartFact{Name: p.Name, Role: v1alpha1.PreviewPartRole(p.Role)}
 	if t := p.LastTermination; t != nil {
 		f.LastTermination = &v1alpha1.Termination{Reason: t.Reason, ExitCode: t.ExitCode}
