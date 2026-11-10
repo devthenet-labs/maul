@@ -13,7 +13,7 @@ and for what agent text is shown. One line per paragraph. */ -}}
 | Check | Kind | Outcome |
 | --- | --- | --- |
 {{- range . }}
-| {{ .IDCell }} | {{ .KindCell }} | {{ .Outcome }} |
+| {{ .IDCell }} | {{ .KindCell }} | {{ .OutcomeCell }} |
 {{- end }}
 {{- end }}
 {{- template "verify_detail" . }}

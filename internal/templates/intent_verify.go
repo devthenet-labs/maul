@@ -517,7 +517,7 @@ type VerifyComment struct {
 	Section           VerifySection
 }
 
-type verifyRow struct{ ID, Kind, IDCell, KindCell, Outcome, Statement string }
+type verifyRow struct{ ID, Kind, IDCell, KindCell, Outcome, OutcomeCell, Statement string }
 
 type verifyFailure struct {
 	ID, Expected, Observed, Body string
@@ -604,7 +604,7 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 		}
 		v.Rows = append(v.Rows, verifyRow{
 			ID: code(shown(c.ID)), Kind: code(shown(c.Kind)), Outcome: out, Statement: SanitizeInline(c.Statement),
-			IDCell: cell(code(shown(c.ID))), KindCell: cell(code(shown(c.Kind))),
+			IDCell: cell(code(shown(c.ID))), KindCell: cell(code(shown(c.Kind))), OutcomeCell: cell(out),
 		})
 		if c.Outcome == VerifyOutcomeFail {
 			if f, ok := failureView(c); ok {

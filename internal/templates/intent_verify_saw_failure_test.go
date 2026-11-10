@@ -16,8 +16,7 @@ import (
 func TestOutcomeDetailSawFailure(t *testing.T) {
 	o := VerifyOutcomeResult{ID: "create-round-trip", Result: OutcomeResultUnsure,
 		Reason: acceptance.ReasonEvaluatorSawFailure}
-	d, ok := outcomeDetailOf(o, "create-round-trip", "unsure")
-	if !ok || !strings.Contains(d.Sentence, "the evaluator saw the outcome as worded fail") {
-		t.Errorf("detail = %+v, %v, want the evaluator's observed failure named", d, ok)
+	if got := outcomeVerdict(o, "unsure"); !strings.Contains(got, "the evaluator saw the outcome as worded fail") {
+		t.Errorf("verdict = %q, want the evaluator's observed failure named", got)
 	}
 }

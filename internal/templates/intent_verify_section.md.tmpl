@@ -24,13 +24,9 @@ Evidence left out: {{ . }} more not shown, to keep this comment within GitHub's 
 {{- end }}
 {{- range .Outcomes }}
 
-{{ .Sentence }}
-{{- with .AppOutput }}
+{{ .Lead }}
 
-App output, as the application wrote it (data, not maul's words):
-
-{{ . | chomp }}
-{{- end }}
+{{ .AppOutput | chomp }}
 {{- end }}
 {{- range .Anomalies }}
 
