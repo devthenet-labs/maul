@@ -17,6 +17,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/agentresult"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -189,6 +190,9 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 				slog.String("check", c.check.Digest))
 			continue
 		}
+		if it.Expect == string(v1alpha1.CheckExpectFail) {
+			it.Observed = p.observed(ctx, pv, c)
+		}
 		h.Reviews = append(h.Reviews, it)
 	}
 	if len(h.Reviews) == 0 {
@@ -251,6 +255,43 @@ func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate,
 		}
 	}
 	return it, ""
+}
+
+// observed is what red check c's failing assertion's element showed in each
+// run of the confirmation it was confirmed by (toolwire.StepRecord.Received,
+// D-B4), read from pv's own ledger, each run's token written back as
+// checks.RunPlaceholder so a reviewer can tell the run's own data from
+// another run's. It is the application's text, UNTRUSTED: agent-runner
+// holds it to its bounds and the prompt quotes it as data. nil unless every
+// run has one, when a text already holds the placeholder, and when the run
+// or the ledger cannot be read: the red question is then asked as before.
+func (p *pass) observed(ctx context.Context, pv *v1alpha1.PreviewVerification, c storeCandidate) []string {
+	run := latestRun(pv.Status.Confirmations, c.check.Digest, v1alpha1.TreeHead)
+	if run == nil || run.Expect != v1alpha1.CheckExpectFail || !run.RedByAssertion() ||
+		run.AssertionStep != c.check.FailedStep || run.AssertionID != c.check.FailedAssertion {
+		return nil
+	}
+	rec := checkRunAt(ledgerEntries(p.ledgerOf(ctx, pv)), run.Seq, c.check.Digest)
+	if rec == nil {
+		return nil
+	}
+	if step, ok := rec.AssertionStep(); !ok || step+1 != int(run.AssertionStep) {
+		return nil
+	}
+	out := make([]string, 0, len(rec.Attempts))
+	for _, a := range rec.Attempts {
+		s := a.Steps[len(a.Steps)-1] // AssertionStep: the failing step is each attempt's last
+		// A page showing the placeholder itself could pass for a run's
+		// token written back: keep none.
+		if s.Received == "" || a.Run == "" || strings.Contains(s.Received, checks.RunPlaceholder) {
+			return nil
+		}
+		out = append(out, strings.ReplaceAll(s.Received, a.Run, checks.RunPlaceholder))
+	}
+	if agentrun.ValidObserved(out) != nil {
+		return nil
+	}
+	return out
 }
 
 // latestRun is the last of runs of check digest at side, nil for none.

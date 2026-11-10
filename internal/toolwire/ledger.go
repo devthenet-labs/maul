@@ -276,6 +276,14 @@ type StepRecord struct {
 	// what the check needs rather than that the run was cut short or
 	// disturbed (StepCause); empty otherwise, and on every S1 step.
 	Cause StepCause `json:"cause,omitempty"`
+	// Received is, on a browser step that failed a text assertion by
+	// assertion (Assertion) on an element that was there, the text that
+	// element showed, as the test runner received it: one line of at most
+	// MaxReceivedBytes, the run's token as the page showed it (D-B4). It is
+	// the application's text, UNTRUSTED: shown only bounded and quoted as
+	// data. Empty on every other step, and when the runner's message held
+	// no single line of it.
+	Received string `json:"received,omitempty"`
 }
 
 // StepCause is why a workspace step errored, recorded by the tools relay
@@ -337,6 +345,9 @@ func (r CheckRunRecord) Cause() StepCause {
 
 // MaxAssertionIDBytes bounds a StepRecord's AssertionID.
 const MaxAssertionIDBytes = 512
+
+// MaxReceivedBytes bounds a StepRecord's Received.
+const MaxReceivedBytes = 1 << 10
 
 // Bounds of a check run record.
 const (
@@ -487,8 +498,9 @@ func (a Attempt) check() error {
 }
 
 // check holds a step record to its bounds: a recorded side, a bounded
-// index and detail, an assertion only on a fail with its id, and a cause
-// only on an error, one of the known.
+// index and detail, an assertion only on a fail with its id, a cause only
+// on an error, one of the known, and received text only on an assertion,
+// one bounded line.
 func (s StepRecord) check() error {
 	if !s.Side.recorded() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
 		len(s.Detail) > maxDetailBytes || !utf8.ValidString(s.Detail) {
@@ -504,7 +516,17 @@ func (s StepRecord) check() error {
 		!utf8.ValidString(s.AssertionID) || strings.ContainsAny(s.AssertionID, "\r\n") {
 		return errors.New("a step's assertion id is not its assertion's")
 	}
+	if !s.receivedHolds() {
+		return errors.New("a step's received text is not one bounded line of a failed assertion")
+	}
 	return nil
+}
+
+// receivedHolds reports s's received text none, or one line of at most
+// MaxReceivedBytes on a step that failed by assertion.
+func (s StepRecord) receivedHolds() bool {
+	return s.Received == "" || s.Assertion && len(s.Received) <= MaxReceivedBytes && utf8.ValidString(s.Received) &&
+		!strings.ContainsAny(s.Received, "\r\n")
 }
 
 // AssertionStep is the step at which a run is red by assertion, and

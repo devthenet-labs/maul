@@ -125,6 +125,25 @@ func FailsLayout(c Check, failing int) bool {
 	return a != nil && LayoutAssertion(a.Assert)
 }
 
+// FailsRunScopedText reports a browser check that writes data of its own
+// run (WritesRunData) and whose step failing (0-based) is a text expect on
+// an element its own locator finds by that data: RunPlaceholder in the
+// locator itself, never only in a parent it is within, whose children may
+// be other runs' (D-B4). That element holds the run's data, so no row
+// another run left can be it; a check naming the run only in the text it
+// expects (a whole list's text) is not one.
+func FailsRunScopedText(c Check, failing int) bool {
+	if c.Browser == nil || failing < 0 || failing >= len(c.Browser.Steps) || !WritesRunData(c) {
+		return false
+	}
+	a := c.Browser.Steps[failing].Expect
+	if a == nil || a.Assert != AssertText || a.Locator == nil {
+		return false
+	}
+	l := a.Locator
+	return slices.ContainsFunc([]string{l.Role, l.Name, l.Label, l.Text, l.TestID, l.CSS, l.HasText}, hasRun)
+}
+
 // ValidateRed holds a check proposed to show a defect, whose step failing
 // (0-based) failed its assertion, to the rules beyond the saved-check
 // grammar: it writes data of its own run (WritesRunData), or it is a

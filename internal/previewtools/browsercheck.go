@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/checks/playwright"
@@ -106,7 +107,7 @@ func aboutTheRun(steps []toolwire.StepRecord, b checks.BrowserCheck) []toolwire.
 			a = b.Steps[s.Index].Expect
 		}
 		if a == nil || !checks.LayoutAssertion(a.Assert) && (a.Assert == checks.AssertCount || !marshalsRun(a)) {
-			steps[i].Assertion, steps[i].AssertionID = false, ""
+			steps[i].Assertion, steps[i].AssertionID, steps[i].Received = false, "", ""
 		}
 	}
 	return steps
@@ -172,6 +173,7 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 	rec := toolwire.StepRecord{Index: at, Result: result, Detail: detail, Assertion: assertion}
 	if assertion {
 		rec.AssertionID = "expect" // one assertion per browser step
+		rec.Received = textReceived(res.Errors[0].Message)
 	}
 	return append(out, rec)
 }
@@ -205,7 +207,7 @@ func assertionMessage(msg string) bool {
 	first, _, _ := strings.Cut(msg, "\n")
 	first = strings.TrimPrefix(strings.TrimSpace(first), "Error: ")
 	switch {
-	case strings.Contains(msg, "element(s) not found"), strings.Contains(msg, "strict mode violation"):
+	case elementMissing(msg), strings.Contains(msg, "strict mode violation"):
 		return false
 	case strings.Contains(first, "toHaveCount") && receivedZero.MatchString(msg):
 		// A count over a locator that resolved nothing: a guessed
@@ -269,8 +271,9 @@ func failureDetail(res jsonResult) string {
 		return "a locator matched more than one element"
 	case strings.Contains(first, "toHaveCount"):
 		return "the count expectation was not met"
-	case strings.Contains(first, "toHaveText"), strings.Contains(first, "toContainText"),
-		strings.Contains(first, "toMatch"):
+	case textMatcher(first) && elementMissing(msg):
+		return "the text expectation was not met: no element matched its locator"
+	case textMatcher(first), strings.Contains(first, "toMatch"):
 		return "the text expectation was not met"
 	case strings.Contains(first, "Timeout") || strings.Contains(first, "timeout"):
 		return "an action timed out"
@@ -278,6 +281,120 @@ func failureDetail(res jsonResult) string {
 		return "the browser did not answer"
 	}
 	return "the step failed"
+}
+
+// elementMissing reports a matcher message whose locator resolved no
+// element: Playwright's "element(s) not found", on a line of its own or, in
+// older runners, as the Received value.
+func elementMissing(msg string) bool { return strings.Contains(msg, "element(s) not found") }
+
+// textMatcher reports a matcher message's first line naming a text matcher.
+func textMatcher(first string) bool {
+	return strings.Contains(first, "toHaveText") || strings.Contains(first, "toContainText")
+}
+
+// receivedLabel starts a text matcher message's quoted Received value:
+// toHaveText's "Received:", toContainText's and a pattern's "Received
+// string:".
+var receivedLabel = regexp.MustCompile(`(?m)^Received(?: string)?:[ \t]*`)
+
+// The header of the diff the runner prints instead when the expected or the
+// received text spans lines (an element whose markup puts its children on
+// lines of their own): each side's label and how many lines are its alone.
+var (
+	expectedDiffHeader = regexp.MustCompile(`(?m)^- Expected(?: substring| string| pattern)?[ \t]+- (\d+)$`)
+	receivedDiffHeader = regexp.MustCompile(`(?m)^\+ Received(?: string)?[ \t]+\+ (\d+)$`)
+)
+
+// textReceived is the text a failed text matcher's element showed (D-B4),
+// its whitespace collapsed as the matcher compares it: the message's one
+// quoted Received value, or, with none, the received side of its diff. It
+// is the application's own text, UNTRUSTED. It is "" when the message is
+// not a text matcher's on an element that was there, holds more than one
+// Received value, a value the runner did not quote or a diff with lines
+// left out, or the text is over toolwire.MaxReceivedBytes.
+func textReceived(msg string) string {
+	msg = stripANSI(msg)
+	first, _, _ := strings.Cut(msg, "\n")
+	if !textMatcher(first) || elementMissing(msg) {
+		return ""
+	}
+	var text string
+	ok := false
+	switch labels := receivedLabel.FindAllStringIndex(msg, -1); len(labels) {
+	case 0:
+		text, ok = diffReceived(msg)
+	case 1:
+		text, ok = quotedReceived(msg[labels[0][1]:])
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if !ok || len(text) > toolwire.MaxReceivedBytes || !utf8.ValidString(text) {
+		return ""
+	}
+	return text
+}
+
+// quotedReceived is the string at the start of s as the runner quotes it
+// (pretty-format: in double quotes, a double quote and a backslash each
+// escaped by a backslash, nothing else, line breaks kept), the rest of its
+// last line blank; ok is false for anything else.
+func quotedReceived(s string) (string, bool) {
+	if !strings.HasPrefix(s, `"`) {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '"':
+			rest, _, _ := strings.Cut(s[i+1:], "\n")
+			return b.String(), strings.TrimSpace(rest) == ""
+		case c != '\\':
+			b.WriteByte(c)
+		case i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\'):
+			i++
+			b.WriteByte(s[i])
+		default:
+			return "", false
+		}
+	}
+	return "", false
+}
+
+// diffReceived is the received side of a text matcher's unified diff: its
+// lines alone ("+") and those both sides share (indented), in order. ok is
+// false unless the message holds exactly one diff header, its line counts
+// match the lines shown, and no hunk header says lines were left out.
+func diffReceived(msg string) (string, bool) {
+	eh := expectedDiffHeader.FindAllStringSubmatchIndex(msg, -1)
+	rh := receivedDiffHeader.FindAllStringSubmatchIndex(msg, -1)
+	if len(eh) != 1 || len(rh) != 1 || eh[0][1]+1 != rh[0][0] {
+		return "", false
+	}
+	wantMinus, errM := strconv.Atoi(msg[eh[0][2]:eh[0][3]])
+	wantPlus, errP := strconv.Atoi(msg[rh[0][2]:rh[0][3]])
+	if errM != nil || errP != nil {
+		return "", false
+	}
+	body, _, _ := strings.Cut(msg[rh[0][1]:], "\nCall log:")
+	var lines []string
+	minus, plus := 0, 0
+	for _, l := range strings.Split(strings.Trim(body, "\n"), "\n") {
+		switch {
+		case l == "-" || strings.HasPrefix(l, "- "):
+			minus++
+		case l == "+" || strings.HasPrefix(l, "+ "):
+			plus++
+			lines = append(lines, strings.TrimPrefix(l[1:], " "))
+		case l == "" || strings.HasPrefix(l, "  "):
+			lines = append(lines, strings.TrimPrefix(l, "  "))
+		default:
+			return "", false // a hunk header: lines were left out
+		}
+	}
+	if minus != wantMinus || plus != wantPlus {
+		return "", false
+	}
+	return strings.Join(lines, "\n"), true
 }
 
 // bounded cuts s to 300 bytes on a rune boundary.

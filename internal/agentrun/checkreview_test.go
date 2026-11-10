@@ -274,6 +274,20 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 		}),
 			"failed_step"},
 		{"a failed step of a green check", item(func(i *CheckReviewItem) { i.FailedStep = 1 }), "failed_step"},
+		{"observed on a green check", item(func(i *CheckReviewItem) { i.Observed = []string{"x", "x"} }), "observed"},
+		{"observed over three runs", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion, i.Observed = "fail", 1, "x", []string{"x", "x", "x"}
+		}), "observed"},
+		{"observed empty", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion, i.Observed = "fail", 1, "x", []string{"x", ""}
+		}), "observed"},
+		{"observed over two lines", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion, i.Observed = "fail", 1, "x", []string{"x\ny", "x"}
+		}), "observed"},
+		{"observed over cap", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion = "fail", 1, "x"
+			i.Observed = []string{strings.Repeat("x", 2<<10+1), "x"}
+		}), "observed"},
 		{"a kind off the grammar", item(func(i *CheckReviewItem) { i.Kind = "maybe" }), "kind"},
 		{"a from over cap", item(func(i *CheckReviewItem) { i.From = strings.Repeat("x", 2<<10+1) }), "from is"},
 		{"a request over cap", func() string {

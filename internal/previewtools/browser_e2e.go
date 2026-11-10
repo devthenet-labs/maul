@@ -568,12 +568,18 @@ func (s *specRun) expectation(p *exprParser, stmt string) *scriptFailure {
 	if !ok || !p.eat(")") || !p.done() {
 		return unreadable(stmt)
 	}
+	if len(s.matches(l)) == 0 {
+		// Playwright 1.64's shape: no Received line, a line of its own.
+		return failf("expect(locator).%s(expected) failed\n\nTimeout: %dms\nelement(s) not found", matcher,
+			playwright.ActionTimeoutMS)
+	}
 	el, f := s.one(l, "expect."+matcher)
 	if f != nil {
 		return f
 	}
-	if !match(strings.TrimSpace(el.Text)) {
-		return failf("expect(locator).%s(expected) failed", matcher)
+	if text := strings.TrimSpace(el.Text); !match(text) {
+		return failf("expect(locator).%s(expected) failed\n\nReceived string: \"%s\"", matcher,
+			strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(text))
 	}
 	return nil
 }
