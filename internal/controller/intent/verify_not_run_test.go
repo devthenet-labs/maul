@@ -240,6 +240,14 @@ func TestVerifyWhileOffIsAnsweredNotRun(t *testing.T) {
 			e.review(name, 2)
 			return e, name
 		}, "verification is not enabled for this project"},
+		// The outcome twin of the row above (an approved outcomes plan under
+		// the evaluator), which uses a criteria plan.
+		{"project does not verify, outcomes", func(t *testing.T) (*env, string) {
+			e, name := evaluatorReviewing(t, "", func(p *v1alpha1.Project) { p.Spec.Verification = nil })
+			e.readyPreview(name)
+			e.review(name, 2)
+			return e, name
+		}, "verification is not enabled for this project"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, name := tc.setup(t)
