@@ -11,6 +11,7 @@ import (
 	"time"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -418,5 +419,80 @@ func TestAgentsRollbackOffersOnlyWhatCanRun(t *testing.T) {
 	if status := e.statusBody(); !strings.Contains(status, "`/maul verify`") ||
 		!strings.Contains(status, "`/maul accept`") {
 		t.Errorf("status comment with the host back on:\n%s", status)
+	}
+}
+
+// TestAgentsRollbackKeepsTheRecordedGiveUpReason (S2 follow-up): a round
+// whose hand-off maul released because it ran out of time (handoffMax),
+// settled at the current heads, keeps saying so once the agents host is
+// switched off: the reason on record, never "it could not run its checks"
+// for checks that did run. Once the heads move nothing was checked at
+// them, so the recorded reason is no longer theirs.
+func TestAgentsRollbackKeepsTheRecordedGiveUpReason(t *testing.T) {
+	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationFailing)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		v.Outcomes = []v1alpha1.OutcomeResult{{ID: "version-shown", Result: v1alpha1.OutcomeFailed}}
+		at := metav1.NewTime(e.clock.Now())
+		v.Handoff = &v1alpha1.HandoffState{Mode: v1alpha1.HandoffGated, Released: true, ReleasedAt: &at,
+			Reason: v1alpha1.HandoffReasonOutOfTime}
+	})
+	const outOfTime = "maul couldn't confirm this: it ran out of time."
+	const notRun = "maul couldn't confirm this: it could not run its checks."
+	e.review(name, 6)
+	if status := e.statusBody(); !strings.Contains(status, outOfTime) {
+		t.Fatalf("status comment with the host on:\n%s", status)
+	}
+	e.agentsOn(false)
+	e.review(name, 6)
+	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
+		t.Fatalf("verification = %s with the host off, want Failing kept", v.State)
+	}
+	if status := e.statusBody(); !strings.Contains(status, outOfTime) || strings.Contains(status, notRun) {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+	if c := e.prEvaluationComment(name); !strings.Contains(c, outOfTime) || strings.Contains(c, notRun) {
+		t.Errorf("pull request comment with the host off:\n%s", c)
+	}
+
+	e.pushHead(e.get(name).Status.PullRequests[0].Number, strings.Repeat("f", 40))
+	e.review(name, 8)
+	if status := e.statusBody(); strings.Contains(status, outOfTime) || !strings.Contains(status, notRun) {
+		t.Errorf("status comment after a push with the host off:\n%s", status)
+	}
+}
+
+// TestAgentsOffKeepsTheRecordedUnavailableReason (S2 follow-up): an intent
+// left Off at the heads its round judged (by a release before S2-B7) whose
+// round could not run keeps saying why, from the reason it recorded: no
+// accepted image, a tree that could not be fetched. One recording none
+// says it could not run its checks.
+func TestAgentsOffKeepsTheRecordedUnavailableReason(t *testing.T) {
+	for _, tc := range []struct {
+		reason v1alpha1.VerificationUnavailableReason
+		words  string
+	}{
+		{v1alpha1.VerificationUnavailableSandboxImage,
+			"maul couldn't confirm this: the repository has no accepted runner image to build the pull request in."},
+		{v1alpha1.VerificationUnavailableTree,
+			"maul couldn't confirm this: it could not fetch the source of the pull request or of its base."},
+		{"", "maul couldn't confirm this: it could not run its checks."},
+	} {
+		t.Run(string(tc.reason), func(t *testing.T) {
+			e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnconfirmed)
+			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.UnavailableReason = tc.reason })
+			e.agentsOn(false)
+			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.State = v1alpha1.VerificationOff })
+			e.review(name, 6)
+			if v := e.verification(name); v.State != v1alpha1.VerificationOff {
+				t.Fatalf("verification = %s, want Off kept", v.State)
+			}
+			if status := e.statusBody(); !strings.Contains(status, "**Evaluation:** "+tc.words) {
+				t.Errorf("status comment:\n%s", status)
+			}
+			if c := e.prEvaluationComment(name); !strings.Contains(c, tc.words) {
+				t.Errorf("pull request comment:\n%s", c)
+			}
+		})
 	}
 }
