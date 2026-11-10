@@ -264,7 +264,8 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (default true, today's path; chart `preview.legacyIngress`) off renders no slot Ingress, ignores target health and
   deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`. With
   `--preview-evaluator` (chart: the agent evaluator with verification on) an outcome verification runs the slot tool
-  pod instead of the tester (`toolpod.go`, `toolpolicy.go`, `toolrun.go`): a Job of `tools` (preview-tools) with
+  pod (`toolpod.go`, `toolpolicy.go`, `toolrun.go`; a slice-1 criteria one is answered `Stale` `stale-criteria` before
+  anything is read, nothing rendered, an earlier release's tester Job deleted): a Job of `tools` (preview-tools) with
   `browser` (cdp-shim, only for a Project with `surfaces.browser`) and `sandbox` (tool-exec) native sidecars, its CDP
   key Secret and tool ConfigMap (owned by the Job, never read back), and one ingress policy admitting exactly its
   evaluator on 8090; it writes `status.tools` once `tools` is Ready, refreshes the redacted log tails and slot events
@@ -273,11 +274,11 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   tool pods at once (0, the slot count).
 - `cmd/preview-tester` — OPTIONAL (default-off with acceptance verification; chart `preview.verification`, a
   digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
-  tester Job preview-controller runs, stdlib plus `internal/acceptance` and `internal/httpstep` only, it observes and
-  never judges. It reads `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to
-  `http://<PreviewComponentServiceName>:80` built structurally (no redirects, no cookie jar, 10s and 64 KiB per
-  request), and prints a `MAUL-VERIFY:` JSONL stream with a count-and-sha256 summary that preview-controller reads
-  back through `pods/log`, beside the termination message. The
+  tester Job preview-controller ran (it renders none since S4), stdlib plus `internal/acceptance` and
+  `internal/httpstep` only, it observes and never judges. It reads `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http`
+  criterion's steps to `http://<PreviewComponentServiceName>:80` built structurally (no redirects, no cookie jar, 10s
+  and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with a count-and-sha256 summary that
+  preview-controller read back through `pods/log`, beside the termination message. The
   e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
   Operator guide `docs/configuration/preview-controller.md#acceptance-verification-off-by-default`, the people's guide
   `docs/intents/acceptance.md`. Kept until the evaluator's S4, which deletes it; the evaluator's tool pod replaces it.

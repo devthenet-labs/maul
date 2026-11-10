@@ -88,6 +88,11 @@ func attemptEnd(tester *corev1.Pod, now time.Time) time.Time {
 	return now
 }
 
+// testerContainer is slice 1's tester container, the one testerStatus
+// reads. A tool pod has none (its main container is tools), so its attempt
+// runs to the settle (attemptEnd's now): a known gap, kept as it is.
+const testerContainer = "tester"
+
 func testerStatus(tester *corev1.Pod) *corev1.ContainerStatus {
 	if tester == nil {
 		return nil

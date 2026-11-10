@@ -30,6 +30,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
+	"github.com/devthenet-labs/maul/internal/toolpod"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -48,7 +49,24 @@ var assignUIDs = interceptor.Funcs{Create: func(ctx context.Context, c client.Wi
 // verification of its Preview.
 func newToolEnv(t *testing.T) *verifyEnv {
 	t.Helper()
-	e := newVerifyEnv(t, assignUIDs)
+	return newToolEnvWith(t, interceptor.Funcs{})
+}
+
+// newToolEnvWith is newToolEnv with funcs playing API server behaviour, the
+// API server's UIDs (assignUIDs) given before funcs' Create sees an object.
+func newToolEnvWith(t *testing.T, funcs interceptor.Funcs) *verifyEnv {
+	t.Helper()
+	create := funcs.Create
+	funcs.Create = func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+		if create == nil {
+			return assignUIDs.Create(ctx, c, obj, opts...)
+		}
+		if obj.GetUID() == "" {
+			obj.SetUID(types.UID("uid-" + obj.GetName()))
+		}
+		return create(ctx, c, obj, opts...)
+	}
+	e := newVerifyEnv(t, funcs)
 	e.v.Settings, e.r.Settings = evalSettings(), evalSettings()
 	e.in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: 1,
 		Digest: acceptance.Digest(nil), Outcomes: testOutcomes(), OutcomesDigest: outcomesDigest(t, testOutcomes()),
@@ -592,7 +610,9 @@ func TestToolsUnreachableIsEnvFailed(t *testing.T) {
 }
 
 // A tool pod that never comes (a quota or LimitRange refusal leaves the
-// Job Running with no pod) is Infra tools-not-ready past its bound.
+// Job Running with no pod) is Infra tools-not-ready past its bound; one
+// never scheduled, whose image is not pulled, or that never finishes past
+// the Job's deadline is maul's trouble too, bounded by the grace.
 func TestToolsNeverReadyIsInfra(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -606,6 +626,18 @@ func TestToolsNeverReadyIsInfra(t *testing.T) {
 				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}}
 			e.mustStatus(pod)
 		}, v1alpha1.VerificationReasonToolsImagePull},
+		{"unschedulable", func(e *verifyEnv, job *batchv1.Job) {
+			pod := e.startToolPod(job, false)
+			pod.Status.Phase = corev1.PodPending
+			pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionFalse,
+				Reason: corev1.PodReasonUnschedulable}}
+			e.mustStatus(pod)
+		}, v1alpha1.VerificationReasonToolsUnscheduled},
+		{"never finishing", func(e *verifyEnv, job *batchv1.Job) {
+			e.startToolPod(job, true)
+			deadline, _, _ := toolpod.Deadlines(e.pv.Spec.Timeout.Duration, e.v.deadlineMax())
+			e.now = e.now.Add(deadline) // within the grace past the Job's deadline
+		}, v1alpha1.VerificationReasonToolsNotReady},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newToolEnv(t)

@@ -4,19 +4,20 @@
 // Package preview deploys an intent's immutable runtime images, one to four
 // components behind one host, into a fixed, chart-guarded namespace slot. It
 // has no GitHub, ECR, cloud, namespace or RBAC client. With verification on
-// (a tester image, or the evaluator) it also writes, in its slots only, one
-// NetworkPolicy per part of a verification-capable Preview, admitting
-// exactly the edges re-derived from the operator's Project beside the
-// chart's preview-isolation, and runs the tester as a Job; off, it never
+// (the evaluator) it also writes, in its slots only, one NetworkPolicy per
+// part of a verification-capable Preview, admitting exactly the edges
+// re-derived from the operator's Project beside the chart's
+// preview-isolation, and runs each verification as a Job; off, it never
 // touches either kind. Its VerificationReconciler answers each
 // PreviewVerification request in the release namespace: it re-checks the
-// request against the Preview and the Intent's approved criteria, reads the
-// tester's log through pods/log (and only the log of the Job's own pod), and
+// request against the Preview and the Intent's approved outcomes, reads its
+// Job's log through pods/log (and only the log of the Job's own pod), and
 // writes observations, never verdicts, to the request's status. Only a slot
 // request's (spec.placement unset or slot): an agents one has no Preview,
-// and intent-controller's agents host writes its status (SPEC S2 O1). With the
-// evaluator on (--preview-evaluator), an outcome verification instead runs
-// the slot tool pod (toolpod.go over internal/toolpod, toolpolicy.go,
+// and intent-controller's agents host writes its status (SPEC S2 O1). A
+// request of slice 1's criteria is no longer run (S4): it is answered stale
+// and nothing renders. An outcome verification runs the slot tool pod
+// (toolpod.go over internal/toolpod, toolpolicy.go,
 // toolrun.go): a Job of the tools relay with browser and sandbox sidecars,
 // its CDP key Secret and tool ConfigMap (the only Secret and ConfigMap it
 // writes in a slot, both owned by the Job and never read back), and one

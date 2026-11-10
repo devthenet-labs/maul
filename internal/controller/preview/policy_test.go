@@ -183,13 +183,15 @@ func TestVerificationLabels(t *testing.T) {
 		!labels.SelectorFromSet(d.Spec.Selector.MatchLabels).Matches(labels.Set(tmpl)) {
 		t.Errorf("template labels = %v", tmpl)
 	}
-	job, err := s.testerJob(p, testVerification(p), 0, []byte(`{}`))
+	svc := s.service(p, 0, 0)
+	tools, err := evalSettings().toolJob(p, toolVerification(t, p), 0, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := s.service(p, 0, 0)
-	if labels.SelectorFromSet(svc.Spec.Selector).Matches(labels.Set(job.Spec.Template.Labels)) {
-		t.Errorf("Service selector %v selects the tester %v", svc.Spec.Selector, job.Spec.Template.Labels)
+	for _, job := range []*batchv1.Job{tools, legacyTesterJob(p, testVerification(p))} {
+		if labels.SelectorFromSet(svc.Spec.Selector).Matches(labels.Set(job.Spec.Template.Labels)) {
+			t.Errorf("Service selector %v selects the tester part %v", svc.Spec.Selector, job.Spec.Template.Labels)
+		}
 	}
 }
 
