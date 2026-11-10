@@ -15,14 +15,31 @@
 maul.previewVerification: the verification switch, checked once for every
 template that renders a piece of it. Returns "true" with it on, "" off. On,
 it needs preview-controller (which needs the slot foundation and
-intent-controller) and a tester image maul.previewTesterImage accepts.
+intent-controller) and either the agent evaluator, whose tool images
+maul.previewTools checks, or a tester image maul.previewTesterImage
+accepts. With the evaluator on the tester image is optional, and checked
+only when set (maul.previewTester).
 */}}
 {{- define "maul.previewVerification" -}}
 {{- $v := .Values.preview.verification | default dict -}}
 {{- if $v.enabled -}}
 {{- if not .Values.previewController.enabled }}{{ fail "preview.verification.enabled requires previewController.enabled (and with it preview.enabled and intentController.enabled): verification runs in the preview slots, from requests intent-controller writes" }}{{ end -}}
+{{- if not (include "maul.evaluatorEnabled" .) -}}
 {{- $_ := include "maul.previewTesterImage" . -}}
+{{- end -}}
+{{- $_ := include "maul.previewTester" . -}}
 true
+{{- end -}}
+{{- end }}
+{{- /*
+maul.previewTester: the tester image the slot policies admit and
+preview-controller runs criteria verifications with, checked, or "" when
+none is set (allowed only with the agent evaluator on, which
+maul.previewVerification holds). Call it only with verification on.
+*/}}
+{{- define "maul.previewTester" -}}
+{{- if (.Values.preview.verification | default dict).testerImage -}}
+{{- include "maul.previewTesterImage" . -}}
 {{- end -}}
 {{- end }}
 {{- /*
@@ -35,7 +52,7 @@ workload and an agent sandbox). Compared on segment boundaries through
 maul.registryPathKey, as the prefix overlap check is.
 */}}
 {{- define "maul.previewTesterImage" -}}
-{{- include "maul.previewMaulImage" (dict "root" . "key" "testerImage" "what" "the digest-pinned preview-tester image" "when" "preview.verification.enabled=true") -}}
+{{- include "maul.previewMaulImage" (dict "root" . "key" "testerImage" "what" "the digest-pinned preview-tester image" "when" "preview.verification.enabled=true without intentController.verification.evaluator") -}}
 {{- end }}
 {{- /*
 maul.previewMaulImage: one of maul's own slot images, preview.verification.<key>

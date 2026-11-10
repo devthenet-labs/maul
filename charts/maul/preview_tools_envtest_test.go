@@ -57,6 +57,13 @@ var toolsEnvArgs = append(append([]string{}, toolsArgs...),
 // client per identity.
 func startToolsEnv(t *testing.T) (*envtest.Environment, client.Client, func(string) client.Client) {
 	t.Helper()
+	return startToolsEnvWith(t, toolsEnvArgs)
+}
+
+// startToolsEnvWith is startToolsEnv with the chart rendered from helmArgs.
+func startToolsEnvWith(t *testing.T, helmArgs []string) (*envtest.Environment, client.Client,
+	func(string) client.Client) {
+	t.Helper()
 	env := &envtest.Environment{}
 	cfg, err := env.Start()
 	if err != nil {
@@ -75,7 +82,7 @@ func startToolsEnv(t *testing.T) (*envtest.Environment, client.Client, func(stri
 	if err := admin.Create(t.Context(), release); err != nil {
 		t.Fatalf("release namespace: %v", err)
 	}
-	applySlotRender(t, admin, toolsEnvArgs)
+	applySlotRender(t, admin, helmArgs)
 	grantEvaluatorLabelTesters(t, admin)
 	as := func(user string) client.Client {
 		c := rest.CopyConfig(cfg)
@@ -142,6 +149,34 @@ func TestPreviewToolPodPoliciesAgainstAPIServer(t *testing.T) {
 	t.Run("networkpolicies", func(t *testing.T) { checkToolPolicies(t, admin, pc) })
 	t.Run("secrets and configmaps", func(t *testing.T) { checkToolObjects(t, admin, pc) })
 	t.Run("isolation probe evaluator run", func(t *testing.T) { checkEvaluatorProbeObjects(t, admin, as(saIntent)) })
+}
+
+// TestPreviewToolPodPoliciesWithoutTheTester drives the slot policies of an
+// evaluator-only install (no tester image): preview-controller's tool Job
+// and the pod the Job controller makes of it are admitted under exactly the
+// tool rules, while a Job or pod in the tester's image, whatever its role,
+// is refused, since no exact image is admitted beside the preview prefix.
+func TestPreviewToolPodPoliciesWithoutTheTester(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS not set; run via mise run envtest")
+	}
+	_, admin, as := startToolsEnvWith(t, append(append([]string{}, evaluatorOnlyArgs...),
+		"--set", "intentController.verification.evaluateTimeout=5m"))
+	pc := as(saPreview)
+	admittedAs(t, pc, toolJob("tools"))
+	admittedAs(t, pc, mutateJob(toolJob("no-sidecars"), func(j *batchv1.Job) {
+		j.Spec.Template.Spec.InitContainers = nil
+	}))
+	refusedAs(t, pc, testerJob("tester"), jobImage, "a tester Job without a tester image")
+	refusedAs(t, pc, mutateJob(toolJob("tester-in-tools"), func(j *batchv1.Job) {
+		j.Spec.Template.Spec.Containers[0].Image = testerImage
+	}), toolShapeDenied, "a tool Job in the tester image")
+	j := testerJob("pod")
+	refusedAs(t, admin, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "tester-pod", Namespace: "maul-preview-0",
+		Labels: j.Spec.Template.Labels}, Spec: j.Spec.Template.Spec}, jobImage, "a tester pod without a tester image")
+	t.Run("pods", func(t *testing.T) { checkToolPods(t, admin, as(saJobController)) })
+	t.Run("networkpolicies", func(t *testing.T) { checkToolPolicies(t, admin, pc) })
+	t.Run("secrets and configmaps", func(t *testing.T) { checkToolObjects(t, admin, pc) })
 }
 
 func checkToolJobs(t *testing.T, admin, pc client.Client) {

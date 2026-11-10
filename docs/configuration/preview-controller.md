@@ -278,17 +278,17 @@ never deletes the chart's placeholder Ingress. The Events use the `events.k8s.io
 ## Acceptance verification (off by default)
 
 With `preview.verification.enabled` (chart; needs `preview.enabled`, `previewController.enabled` and a
-`preview.verification.testerImage` pinned by digest) preview-controller also answers `PreviewVerification` requests from
-intent-controller: it runs the approved acceptance criteria of an intent against that intent's own Preview, from a
-tester Job inside the Preview's slot. See [Acceptance verification](../intents/acceptance.md) for what people see. The
-controller's side:
+`preview.verification.testerImage` pinned by digest, unless the agent evaluator below is on) preview-controller also
+answers `PreviewVerification` requests from intent-controller: it runs the approved acceptance criteria of an intent
+against that intent's own Preview, from a tester Job inside the Preview's slot. See
+[Acceptance verification](../intents/acceptance.md) for what people see. The controller's side:
 
-- **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`; empty, the default, is verification off) is the
-  digest-pinned `preview-tester` image, never under the preview image prefix or an agent image registry.
-  `--preview-verify-deadline-max` (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is the most a tester Job
-  may run; a longer request is clamped. The chart sets it from `preview.verification.deadlineMaxSeconds` (60 to 3600,
-  default 1800), the bound the slot Job admission policy enforces, and renders the same value as intent-controller's
-  `--intent-verify-timeout-max`.
+- **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`; empty, the default, is verification off unless
+  `--preview-evaluator` is on) is the digest-pinned `preview-tester` image, never under the preview image prefix or an
+  agent image registry. `--preview-verify-deadline-max` (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is
+  the most a tester Job may run; a longer request is clamped. The chart sets it from
+  `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800), the bound the slot Job admission policy
+  enforces, and renders the same value as intent-controller's `--intent-verify-timeout-max`.
 - **Re-checks before anything runs.** The request must name this Preview's UID and generation, which must be Ready at
   exactly the requested heads with its rollout settled (no pod of the Preview still on an older image); the criteria
   must equal the automatable criteria of the Intent's approved list, by digest and in order; and the Preview's
@@ -338,12 +338,15 @@ slot **tool pod** instead: the hands of the evaluator, which itself runs in the 
 application. Off, an outcome verification is `Infra` and renders nothing.
 
 - **Flags**, all set by the chart under the evaluator. `--preview-evaluator` (`MAUL_PREVIEW_EVALUATOR`, default `false`)
-  needs `--preview-tester-image`, the three images and `--preview-agents-namespace`. `--preview-tools-image`,
-  `--preview-browser-image` and `--preview-toolbox-image` (`MAUL_PREVIEW_TOOLS_IMAGE`, `MAUL_PREVIEW_BROWSER_IMAGE`,
-  `MAUL_PREVIEW_TOOLBOX_IMAGE`) are the digest-pinned `preview-tools` (maul's relay, Node and the pinned Playwright
-  CLI), `preview-browser` (Chromium behind maul's keyed CDP shim) and `preview-toolbox` (the sandbox: curl, grpcurl,
-  websocat, node, python, go, and maul's exec shim) images, never under the preview image prefix; the chart takes them
-  from `preview.verification.tools.image`, `.browserImage` and `.toolboxImage`, which the release workflow stamps.
+  turns verification on by itself: it needs the three images and `--preview-agents-namespace`, not
+  `--preview-tester-image`. With no tester image the chart renders no `MAUL_PREVIEW_TESTER_IMAGE` and the slot image
+  rules admit no exact image beside the preview prefix, and a criteria request, which only the tester can run, is
+  answered `Stale` (`stale-criteria`) without rendering anything. `--preview-tools-image`, `--preview-browser-image` and
+  `--preview-toolbox-image` (`MAUL_PREVIEW_TOOLS_IMAGE`, `MAUL_PREVIEW_BROWSER_IMAGE`, `MAUL_PREVIEW_TOOLBOX_IMAGE`) are
+  the digest-pinned `preview-tools` (maul's relay, Node and the pinned Playwright CLI), `preview-browser` (Chromium
+  behind maul's keyed CDP shim) and `preview-toolbox` (the sandbox: curl, grpcurl, websocat, node, python, go, and
+  maul's exec shim) images, never under the preview image prefix; the chart takes them from
+  `preview.verification.tools.image`, `.browserImage` and `.toolboxImage`, which the release workflow stamps.
   `--preview-agents-namespace` (`MAUL_PREVIEW_AGENTS_NAMESPACE`, the chart's `agent.namespace`) is the one namespace a
   tool pod admits its evaluator from. `--preview-max-evaluations` (`MAUL_PREVIEW_MAX_EVALUATIONS`, default `0`, meaning
   the slot count) bounds the tool pods running at once; a verification waiting past its own timeout for room is `Infra`

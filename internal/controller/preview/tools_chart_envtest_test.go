@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -54,6 +55,15 @@ var chartToolValues = []string{
 	"--set", "intentController.verification.evaluateTimeout=5m",
 }
 
+// chartEvaluatorOnlyValues are chartToolValues with no tester image: the
+// evaluator turns verification on by itself.
+var chartEvaluatorOnlyValues = func() []string {
+	i := slices.IndexFunc(chartToolValues, func(v string) bool {
+		return strings.HasPrefix(v, "preview.verification.testerImage=")
+	})
+	return slices.Delete(slices.Clone(chartToolValues), i-1, i+1) // the --set and its value
+}()
+
 // TestRenderedToolObjectsAdmittedByTheChart (SPEC W3): every object
 // preview-controller itself renders for an outcome verification, as
 // toolJob, toolKeySecret, toolConfigMap, evaluatorPolicy, networkPolicies,
@@ -73,11 +83,30 @@ func TestRenderedToolObjectsAdmittedByTheChart(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
-	as, cm := startChartTools(t)
+	for _, tc := range []struct {
+		name   string
+		values []string
+		tester bool
+	}{
+		{"with the tester", chartToolValues, true},
+		{"evaluator only", chartEvaluatorOnlyValues, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) { checkRenderedToolObjects(t, tc.values, tc.tester) })
+	}
+}
+
+// checkRenderedToolObjects is TestRenderedToolObjectsAdmittedByTheChart for
+// the chart rendered with values, with a tester image or without one.
+func checkRenderedToolObjects(t *testing.T, values []string, tester bool) {
+	as, cm := startChartTools(t, values)
 	ctx := t.Context()
 	s, deadlineMax := chartSettings(t, cm)
 	if err := s.Validate(); err != nil {
 		t.Fatalf("preview-controller refuses the chart's settings: %v", err)
+	}
+	if !s.Verifying() || !s.evaluating() || s.testing() != tester {
+		t.Fatalf("chart settings verifying %v, evaluating %v, testing %v; want true, true, %v", s.Verifying(),
+			s.evaluating(), s.testing(), tester)
 	}
 	pc, jc := as(chartPreviewSA), as(chartJobControl)
 
@@ -165,7 +194,7 @@ func TestRenderedToolObjectsAdmittedByTheChart(t *testing.T) {
 // policy and binding), waits for preview-controller's and the Job
 // controller's grants, and returns a client per identity and the rendered
 // preview-controller ConfigMap's data.
-func startChartTools(t *testing.T) (func(string) client.Client, map[string]string) {
+func startChartTools(t *testing.T, values []string) (func(string) client.Client, map[string]string) {
 	t.Helper()
 	env := &envtest.Environment{}
 	cfg, err := env.Start()
@@ -182,7 +211,7 @@ func startChartTools(t *testing.T) (func(string) client.Client, map[string]strin
 		t.Fatal(err)
 	}
 	ctx := t.Context()
-	args := append([]string{"template", "maul", "../../../charts/maul", "--namespace", "maul"}, chartToolValues...)
+	args := append([]string{"template", "maul", "../../../charts/maul", "--namespace", "maul"}, values...)
 	rendered, err := exec.CommandContext(ctx, "helm", args...).Output()
 	if err != nil {
 		t.Fatalf("render chart: %v", err)

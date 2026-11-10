@@ -275,7 +275,10 @@ preview:
         enabled: false
         # The preview-tester image, pinned by digest
         # (<registry>/<path>@sha256:<64 hex>, a tag before the digest
-        # allowed). Required with enabled. Admitted in a slot by this exact
+        # allowed). Required with enabled unless
+        # intentController.verification.evaluator is on (the evaluator needs
+        # no tester; one set beside it is still checked and admitted, and
+        # runs criteria verifications). Admitted in a slot by this exact
         # reference only, so it must lie neither under the preview image
         # prefix nor under any agent.repositoryImages.registries entry: the
         # render fails otherwise. The release workflow stamps it.
