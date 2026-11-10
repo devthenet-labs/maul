@@ -451,6 +451,40 @@ func TestCollectRefusesTheLedger(t *testing.T) {
 	}
 }
 
+// TestCollectGuardsTheImageID: an image ID longer than the status field's
+// 512-character bound is left off status, as the slot host leaves it, so
+// the settle's status write is never refused for it; the round's verdict
+// stands.
+func TestCollectGuardsTheImageID(t *testing.T) {
+	long := "ghcr.io/devthenet-labs/maul/preview-tools@sha256:" + strings.Repeat("1", 512)
+	for _, tc := range []struct {
+		name, imageID, want string
+	}{
+		{"within the bound", "ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111",
+			"ghcr.io/devthenet-labs/maul/preview-tools@sha256:1111"},
+		{"exactly 512", strings.Repeat("a", 512), strings.Repeat("a", 512)},
+		{"over the bound", long, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := running(t, newWorld(t))
+			log, msg := toolsLog(t, ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt})
+			finish(h.tools.job, h.now)
+			pod := terminated(readyPod(), msg)
+			pod.Status.ContainerStatuses[0].ImageID = tc.imageID
+			h.tools.pod, h.tools.log = pod, log
+			h.reconcile(t)
+			pv := h.pv(t)
+			if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
+				t.Fatalf("status = %s %s, want Observed", pv.Status.Phase, pv.Status.Reason)
+			}
+			if pv.Status.TesterImageID != tc.want {
+				t.Errorf("image ID = %q (%d characters), want %q", pv.Status.TesterImageID,
+					len(pv.Status.TesterImageID), tc.want)
+			}
+		})
+	}
+}
+
 // TestCollectReplayCutShort (review VC-3): a replay round's relay that
 // finished at the end of its replay is Observed; one it finished at its
 // wall clock, or because its container was told to stop, may have left

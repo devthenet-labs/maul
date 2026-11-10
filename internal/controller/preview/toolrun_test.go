@@ -31,6 +31,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolpod"
+	"github.com/devthenet-labs/maul/internal/toolpod/podstate"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -684,7 +685,7 @@ func TestToolsCrashLoopIsInfra(t *testing.T) {
 			}},
 		{name: "browser restarting in error", container: browserContainer, stuck: true,
 			status: func(key string) corev1.ContainerStatus {
-				return corev1.ContainerStatus{Name: browserContainer, RestartCount: toolRestartBound,
+				return corev1.ContainerStatus{Name: browserContainer, RestartCount: podstate.RestartBound,
 					State:                corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
 					LastTerminationState: failed("chromium exited, key " + key)}
 			}},

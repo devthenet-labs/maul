@@ -39,9 +39,6 @@ const (
 	// maxObject caps an agents verification as written: its ledger index
 	// and confirmed bodies, as a slot outcome verification's.
 	maxObject = 5 << 18
-	// restartBound is how many restarts of a container, its last exit in
-	// error, make a crash loop between the kubelet's back-offs.
-	restartBound = 3
 )
 
 // Settings are the agents host's: intent-controller's S2 flags.

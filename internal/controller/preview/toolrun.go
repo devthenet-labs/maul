@@ -34,6 +34,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolpod"
+	"github.com/devthenet-labs/maul/internal/toolpod/podstate"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -62,10 +63,6 @@ import (
 // bodies sit on its status, well over a criteria verification's cap and
 // still well under the API server's object size limit.
 const maxToolVerificationObject = 5 << 18
-
-// toolRestartBound is how many restarts of a tool pod container, its last
-// exit in error, make a crash loop even between the kubelet's back-offs.
-const toolRestartBound = 3
 
 // toolState is what preview-controller keeps of a running tool pod: its CDP
 // key, redacted from the capture, and the tool ConfigMap's data as last
@@ -390,45 +387,16 @@ func (v *VerificationReconciler) toolsStuck(pv *v1alpha1.PreviewVerification,
 	switch {
 	case pod == nil:
 		return v1alpha1.VerificationReasonToolsNotReady
-	case unschedulable(pod):
+	case podstate.Unschedulable(pod):
 		return v1alpha1.VerificationReasonToolsUnscheduled
-	case anyImagePullWaiting(pod):
+	case podstate.ImagePullWaiting(pod):
 		return v1alpha1.VerificationReasonToolsImagePull
-	case crashLooping(pod) != nil:
+	case podstate.CrashLooping(pod, podstate.RestartBound) != nil:
 		return v1alpha1.VerificationReasonToolsCrashLoop
 	case since >= jobDeadline+verifyGrace:
 		return v1alpha1.VerificationReasonToolsNotReady
 	}
 	return ""
-}
-
-// anyImagePullWaiting reports an image pull back-off in any container, a
-// sidecar's included.
-func anyImagePullWaiting(pod *corev1.Pod) bool {
-	for _, s := range slices.Concat(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses) {
-		if s.State.Waiting != nil && imagePullReason(s.State.Waiting.Reason) {
-			return true
-		}
-	}
-	return false
-}
-
-// crashLooping is the first of the pod's containers, a sidecar's included,
-// that keeps exiting in error: the kubelet backing it off, or restarted at
-// least toolRestartBound times with its last exit in error. nil for none.
-func crashLooping(pod *corev1.Pod) *corev1.ContainerStatus {
-	statuses := slices.Concat(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses)
-	for i := range statuses {
-		s := &statuses[i]
-		last := s.LastTerminationState.Terminated
-		switch {
-		case s.State.Waiting != nil && s.State.Waiting.Reason == "CrashLoopBackOff":
-			return s
-		case s.RestartCount >= toolRestartBound && last != nil && last.ExitCode != 0:
-			return s
-		}
-	}
-	return nil
 }
 
 // recordCrashLoop records pod's crash-looping container as the attempt's
@@ -438,7 +406,7 @@ func crashLooping(pod *corev1.Pod) *corev1.ContainerStatus {
 // key. The same goes to the log for the operator.
 func (v *VerificationReconciler) recordCrashLoop(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	pod *corev1.Pod) {
-	s := crashLooping(pod)
+	s := podstate.CrashLooping(pod, podstate.RestartBound)
 	if s == nil {
 		return
 	}
@@ -541,7 +509,7 @@ func containerReady(statuses []corev1.ContainerStatus, name string) bool {
 // evidence in <pv>-evidence.
 func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject, pod *corev1.Pod, log []byte, finishedAt time.Time) error {
-	out := toolledger.Parse(log, terminationMessageOf(pod, toolsContainer))
+	out := toolledger.Parse(log, podstate.TerminationMessage(pod, toolsContainer))
 	facts, err := v.environment(ctx, s.preview, s.slot, pod, pv)
 	if err != nil {
 		return err
@@ -554,18 +522,11 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 		}
 	}
 	phase, reason := route(facts, out.Reason)
-	if phase == v1alpha1.VerificationObserved && pv.Spec.Rung == v1alpha1.RungFull &&
-		!evaluatorCalled(out.Ledger.Entries) {
-		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun
-		if pv.Status.Tools == nil {
-			reason = v1alpha1.VerificationReasonToolsNotReady
+	if phase == v1alpha1.VerificationObserved {
+		if why := toolledger.RoundReason(pv.Spec.Rung, out.Ledger.Entries, pv.Status.Tools != nil,
+			previewtools.ReplayFinished(out.Ledger.Entries)); why != "" {
+			phase, reason = v1alpha1.VerificationInfra, why
 		}
-	}
-	if phase == v1alpha1.VerificationObserved && pv.Spec.Rung == v1alpha1.RungReplay &&
-		!previewtools.ReplayFinished(out.Ledger.Entries) {
-		// Its relay finished before its replay's end (review VC-3): a saved
-		// check may never have run at these heads.
-		phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete
 	}
 	if out.Reason == "" {
 		if err := v.storeLedger(ctx, pv, out, finishedAt); err != nil {
@@ -574,18 +535,8 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 	}
 	recordToolsSettled(ctx, phase, reason)
 	pv.Status.Environment = facts
-	pv.Status.TesterImageID = imageIDOf(pod, toolsContainer)
+	pv.Status.TesterImageID = podstate.ImageID(pod, toolsContainer)
 	return v.settleWith(ctx, pv, phase, reason)
-}
-
-// evaluatorCalled reports an evaluator's call in the ledger: one of its
-// own tool calls, or agent-runner's after it exited (confirm, finish).
-// The relay's entries alone (readiness, replay, a deadline finish) are a
-// round no evaluator ran in.
-func evaluatorCalled(entries []toolwire.LedgerEntry) bool {
-	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
-		return e.Kind == toolwire.KindAgent || e.Kind == toolwire.KindRunner
-	})
 }
 
 // storeLedger writes the verified ledger's index, runs and confirmed
@@ -606,24 +557,22 @@ func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.P
 				slog.String("reason", why), slog.Int("count", n))
 		}
 	}
-	sum := &v1alpha1.LedgerSummary{Count: toolledger.ClampInt32(out.Ledger.Summary.Count),
-		SHA256: out.Ledger.Summary.SHA256, Entries: toolledger.Index(entries)}
+	var ledgerName, evidenceName string
 	cm, err := ledgerConfigMap(pv, out.Ledger)
 	if err == nil {
-		sum.ConfigMap, err = v.createOwned(ctx, cm, finishedAt)
+		ledgerName, err = v.createOwned(ctx, cm, finishedAt)
 	}
 	if err != nil {
 		return err
 	}
 	if ev := evidenceConfigMap(pv, images); ev != nil {
-		if sum.Evidence, err = v.createOwned(ctx, ev, finishedAt); err != nil {
+		if evidenceName, err = v.createOwned(ctx, ev, finishedAt); err != nil {
 			return err
 		}
 	}
+	sum := toolledger.ApplyStatus(&pv.Status, &pv.Spec, out)
+	sum.ConfigMap, sum.Evidence = ledgerName, evidenceName
 	pv.Status.Ledger = sum
-	pv.Status.Replay = toolledger.ReplayRuns(entries)
-	pv.Status.Confirmations = toolledger.ConfirmationRuns(entries)
-	pv.Status.Confirmed = toolledger.ConfirmedChecks(entries, pv.Spec.Outcomes)
 	return nil
 }
 
@@ -891,44 +840,6 @@ func startedAt(pv *v1alpha1.PreviewVerification) time.Time {
 	return pv.CreationTimestamp.Time
 }
 
-func unschedulable(pod *corev1.Pod) bool {
-	for _, c := range pod.Status.Conditions {
-		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse &&
-			c.Reason == corev1.PodReasonUnschedulable {
-			return true
-		}
-	}
-	return false
-}
-
-func imagePullReason(reason string) bool {
-	switch reason {
-	case "ImagePullBackOff", "ErrImagePull", "InvalidImageName", "ErrImageNeverPull":
-		return true
-	}
-	return false
-}
-
-// terminationMessageOf is container's termination message.
-func terminationMessageOf(pod *corev1.Pod, container string) string {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == container && s.State.Terminated != nil {
-			return s.State.Terminated.Message
-		}
-	}
-	return ""
-}
-
-// imageIDOf is the image container ran, as the kubelet reports it.
-func imageIDOf(pod *corev1.Pod, container string) string {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == container && len(s.ImageID) <= 512 {
-			return s.ImageID
-		}
-	}
-	return ""
-}
-
 // markUnreachable marks each component the relay never reached, for its
 // whole readiness window, on its environment fact. A Ready component the
 // relay could not connect to for the whole window refused it: the window
@@ -979,7 +890,7 @@ func appFailureReason(facts []v1alpha1.PartFact, failing []string) v1alpha1.Prev
 	switch {
 	case f.CrashedDuring && f.LastTermination != nil && f.LastTermination.Reason == "OOMKilled":
 		return v1alpha1.VerificationReasonComponentOOM
-	case imagePullReason(f.Waiting):
+	case podstate.ImagePullReason(f.Waiting):
 		return v1alpha1.VerificationReasonComponentImagePull
 	case f.Waiting != "":
 		return v1alpha1.VerificationReasonComponentCrashLoop
@@ -1007,7 +918,7 @@ func infraReason(facts []v1alpha1.PartFact,
 		switch {
 		case f.Unschedulable:
 			return v1alpha1.VerificationReasonToolsUnscheduled
-		case imagePullReason(f.Waiting):
+		case podstate.ImagePullReason(f.Waiting):
 			return v1alpha1.VerificationReasonToolsImagePull
 		}
 	}

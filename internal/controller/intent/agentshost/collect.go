@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +18,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
+	"github.com/devthenet-labs/maul/internal/toolpod/podstate"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -57,7 +57,7 @@ type builds struct {
 // ledger that does not hold is Infra, never a verdict (collectedAs).
 func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerification, pod *corev1.Pod,
 	log []byte) error {
-	msg := terminationMessage(pod)
+	msg := podstate.TerminationMessage(pod, toolsContainer)
 	out := toolledger.Parse(log, msg)
 	if out.Reason == v1alpha1.VerificationReasonDeadlineNoSummary && pod.Status.Reason == "DeadlineExceeded" {
 		out.Reason = v1alpha1.VerificationReasonToolsDeadline
@@ -86,7 +86,7 @@ func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerificati
 			return err
 		}
 	}
-	pv.Status.TesterImageID = imageIDOf(pod, toolsContainer)
+	pv.Status.TesterImageID = podstate.ImageID(pod, toolsContainer)
 	return r.settle(ctx, pv, phase, reason)
 }
 
@@ -106,13 +106,10 @@ func collectedAs(pv *v1alpha1.PreviewVerification, out toolledger.Output, b buil
 		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsBuildFailed
 	case previewtools.KeptCopyFailed(out.Ledger.Entries):
 		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonKeptCopyFailed
-	case pv.Spec.Rung == v1alpha1.RungFull && !evaluatorCalled(out.Ledger.Entries):
-		if pv.Status.Tools == nil {
-			return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsNotReady
-		}
-		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun
-	case pv.Spec.Rung == v1alpha1.RungReplay && !previewtools.ReplayFinished(out.Ledger.Entries):
-		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete
+	}
+	if reason := toolledger.RoundReason(pv.Spec.Rung, out.Ledger.Entries, pv.Status.Tools != nil,
+		previewtools.ReplayFinished(out.Ledger.Entries)); reason != "" {
+		return v1alpha1.VerificationInfra, reason
 	}
 	return v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK
 }
@@ -170,14 +167,6 @@ func partOf(p httpstep.PartFact) v1alpha1.PartFact {
 	return f
 }
 
-// evaluatorCalled reports an evaluator's call in the ledger: one of its own
-// tool calls, or agent-runner's after it exited (confirm, finish).
-func evaluatorCalled(entries []toolwire.LedgerEntry) bool {
-	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
-		return e.Kind == toolwire.KindAgent || e.Kind == toolwire.KindRunner
-	})
-}
-
 // storeLedger writes the verified ledger onto pv's status (its index and
 // builds, the head's replay, confirmations and confirmed checks, the base's
 // runs, base required, the head build's part) and the ledger whole into
@@ -202,11 +191,9 @@ func (r *Reconciler) storeLedger(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	if err := r.Create(ctx, cm); err != nil && !kerrors.IsAlreadyExists(err) {
 		return err
 	}
-	pv.Status.Ledger = &v1alpha1.LedgerSummary{Count: toolledger.ClampInt32(out.Ledger.Summary.Count),
-		SHA256: out.Ledger.Summary.SHA256, Entries: toolledger.Index(entries), ConfigMap: cm.Name, Builds: b.list}
-	pv.Status.Replay = toolledger.ReplayRuns(entries)
-	pv.Status.Confirmations = toolledger.ConfirmationRuns(entries)
-	pv.Status.Confirmed = toolledger.ConfirmedChecks(entries, pv.Spec.Outcomes)
+	sum := toolledger.ApplyStatus(&pv.Status, &pv.Spec, out)
+	sum.ConfigMap, sum.Builds = cm.Name, b.list
+	pv.Status.Ledger = sum
 	pv.Status.Base = &v1alpha1.BaseStatus{Required: true, Unbuildable: b.baseFailed,
 		Runs: toolledger.BaseRuns(entries)}
 	pv.Status.Environment = []v1alpha1.PartFact{b.head}
@@ -225,24 +212,4 @@ func toolsTerminated(pod *corev1.Pod) bool {
 		}
 	}
 	return false
-}
-
-// terminationMessage is the tools container's termination message.
-func terminationMessage(pod *corev1.Pod) string {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == toolsContainer && s.State.Terminated != nil {
-			return s.State.Terminated.Message
-		}
-	}
-	return ""
-}
-
-// imageIDOf is the image ID the named container ran.
-func imageIDOf(pod *corev1.Pod, container string) string {
-	for _, s := range pod.Status.ContainerStatuses {
-		if s.Name == container {
-			return s.ImageID
-		}
-	}
-	return ""
 }
