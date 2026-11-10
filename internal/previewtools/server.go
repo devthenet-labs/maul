@@ -107,9 +107,11 @@ type Relay struct {
 	reopened  bool // the browser session was reopened once
 	summary   toolwire.Summary
 	done      chan struct{}
-	// A workspace's state: whether each tree built, the base runs spent
+	// A workspace's state: whether each tree built, whether the base's
+	// build failed (unbuildable, not merely not built), the base runs spent
 	// (MaxBaseRuns), the base replays and each check's latest base dry run.
 	headBuilt, baseBuilt bool
+	baseUnbuildable      bool
 	baseRuns             int
 	baseReplays          []toolwire.CheckRunRecord
 	baseDry              map[string]toolwire.CheckRunRecord

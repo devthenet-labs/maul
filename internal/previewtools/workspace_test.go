@@ -250,35 +250,119 @@ func TestLibraryBuild(t *testing.T) {
 	}
 }
 
+// TestBuildResults: each side's build result. A build failed only when it
+// ran to its own end and refused the tree (a normal exit of 1 to 125,
+// clean, its output whole, no environmental marker); anything else is
+// maul's error, never failed, since a failed base is unbuildable and that
+// waives rule 5 (review VC-1).
 func TestBuildResults(t *testing.T) {
-	tests := []struct {
+	type row struct {
 		name     string
 		notReady bool
 		res      toolexec.Result
 		err      error
 		want     maulv1.BuildResult
-	}{
+	}
+	tests := []row{
 		{"built", false, toolexec.Result{}, nil, maulv1.BuildBuilt},
 		{"failed", false, toolexec.Result{Exit: 1}, nil, maulv1.BuildFailed},
+		{"failed with diagnostics", false, toolexec.Result{Exit: 2, Output: "x.go:1:1: undefined: y\n"}, nil,
+			maulv1.BuildFailed},
 		{"timed out", false, toolexec.Result{Exit: -1, TimedOut: true}, nil, maulv1.BuildTimeout},
 		{"no shim", true, toolexec.Result{}, nil, maulv1.BuildError},
 		{"no answer", false, toolexec.Result{}, errors.New("eof"), maulv1.BuildError},
 		{"refused", false, toolexec.Result{Refused: toolwire.RefusedInvalid}, nil, maulv1.BuildError},
 		{"left processes", false, toolexec.Result{Unclean: true}, nil, maulv1.BuildError},
+		{"left processes after failing", false, toolexec.Result{Exit: 2, Unclean: true}, nil, maulv1.BuildError},
+		{"killed by a signal", false, toolexec.Result{Exit: -1}, nil, maulv1.BuildError},
+		// A shell reports what ended its child by exit code alone: 126 and
+		// 127 a command it could not run, 128+N signal N.
+		{"a shell's child segfaulted", false, toolexec.Result{Exit: 139,
+			Output: "sh: line 1:    12 Segmentation fault      go build ./...\n"}, nil, maulv1.BuildError},
+		{"a shell's command not found", false, toolexec.Result{Exit: 127, Output: "sh: 1: make: not found\n"}, nil,
+			maulv1.BuildError},
+		{"a shell's command not executable", false, toolexec.Result{Exit: 126}, nil, maulv1.BuildError},
+		{"failed at the highest plain exit", false, toolexec.Result{Exit: 125}, nil, maulv1.BuildFailed},
+		{"output cut", false, toolexec.Result{Exit: 1, Truncated: true, Output: toolexec.TailMarker + "x.go:1:1: no"},
+			nil, maulv1.BuildError},
+		{"could not start", false, toolexec.Result{Exit: 127,
+			Output: `[maul: could not start make: exec: "make": executable file not found in $PATH]`}, nil,
+			maulv1.BuildError},
 	}
-	for _, tt := range tests {
+	markers := make([]row, 0, len(environmental))
+	for _, m := range environmental {
+		markers = append(markers, row{"marker " + m, false,
+			toolexec.Result{Exit: 1, Output: "x.go:1:1: " + strings.ToUpper(m) + " here\n"}, nil, maulv1.BuildError})
+	}
+	for _, tt := range append(tests, markers...) {
 		t.Run(tt.name, func(t *testing.T) {
-			head := &fakeSandbox{notReady: tt.notReady, do: func(*toolexec.Request, int) (toolexec.Result, error) {
-				return tt.res, tt.err
-			}}
+			do := func(*toolexec.Request, int) (toolexec.Result, error) { return tt.res, tt.err }
+			head := &fakeSandbox{notReady: tt.notReady, do: do}
+			base := &fakeSandbox{notReady: tt.notReady, do: do}
 			h := newHarness(t, wsConfig(), routes{}, func(o *Options) {
-				o.Head, o.Base, o.Trees, o.Key = head, &fakeSandbox{}, t.TempDir(), wsKey
+				o.Head, o.Base, o.Trees, o.Key = head, base, t.TempDir(), wsKey
 				o.ReadyWait = 50 * time.Millisecond
 			})
 			h.relay.buildTrees(context.Background())
 			b := buildEntries(t, h.finishKeyed())
-			if b[""].Result != tt.want || b[toolwire.SideBase].Result != maulv1.BuildBuilt {
-				t.Fatalf("results %+v, want head %s", b, tt.want)
+			if b[""].Result != tt.want || b[toolwire.SideBase].Result != tt.want {
+				t.Fatalf("results %+v, want %s on both sides", b, tt.want)
+			}
+		})
+	}
+}
+
+// TestBaseBuildErrorGivesNoBaseEvidence: a base whose build maul cannot
+// tell failed (killed, cut short, an environmental failure, a timeout) is
+// not unbuildable: its runs are errors with no cause, which give no base
+// evidence (unsure), never the n/a that waives rule 5 (review VC-1).
+func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
+	for name, res := range map[string]toolexec.Result{
+		"killed":  {Exit: -1, Output: "signal: killed"},
+		"network": {Exit: 1, Output: "go: example.com/m@v1.0.0: dial tcp: i/o timeout"},
+		"cut":     {Exit: 2, Truncated: true},
+		"timeout": {Exit: -1, TimedOut: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := wsConfig()
+			cfg.Checks = []StoredCheck{storedExecCheck(t)}
+			head := &fakeSandbox{do: printing("count=3", 0)}
+			base := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
+				if req.Kind == toolexec.KindBuild {
+					return res, nil
+				}
+				return toolexec.Result{}, nil
+			}}
+			h := newWorkspaceHarness(t, cfg, head, base)
+			h.relay.replay(context.Background())
+			_, resp := h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"],"side":"base"}`)
+			if resp.Refused != toolwire.RefusedUnavailable || strings.HasPrefix(resp.Reason, ReasonBaseUnbuildable) {
+				t.Errorf("a base exec on a base that did not build: %+v", resp)
+			}
+			if _, resp = h.dryRunKeyed(cliExecCheck, ""); resp.Refused != "" {
+				t.Fatalf("head dry run: %+v", resp)
+			}
+			_, resp = h.callKeyed(toolwire.VerbConfirm,
+				`{"digests":["`+strings.TrimPrefix(cfg.Checks[0].Digest, "sha256:")+`"]}`)
+			if resp.Refused != "" {
+				t.Fatalf("confirm: %+v", resp)
+			}
+			var baseRuns int
+			for _, e := range h.finishKeyed().Entries {
+				if e.CheckRun == nil || sideOf(e.CheckRun) != toolwire.SideBase {
+					continue
+				}
+				baseRuns++
+				if e.CheckRun.Result != toolwire.RunError || e.CheckRun.Cause() != "" {
+					t.Errorf("entry %d: base run %s cause %q, want an error with no cause", e.Seq,
+						e.CheckRun.Result, e.CheckRun.Cause())
+				}
+			}
+			if baseRuns != 2 {
+				t.Errorf("%d base runs, want the replay's and the confirmation's", baseRuns)
+			}
+			if len(base.nonBuilds()) != 0 {
+				t.Errorf("the base that did not build ran %+v", base.nonBuilds())
 			}
 		})
 	}

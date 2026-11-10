@@ -340,29 +340,42 @@ func checkLedgerConfigMap(t *testing.T, h *harness) {
 
 // TestCollectBuilds: a head that did not build is Infra tools-build-failed
 // (never a fail); a base whose build failed is unbuildable, one maul could
-// not build or that timed out is not (a missing base run is then unsure,
-// never n/a).
+// not build, that timed out or that was killed (a "failed" entry whose exit
+// is not a normal one) is not, and its runs carry no cause (a base run is
+// then unsure, never n/a: review VC-1).
 func TestCollectBuilds(t *testing.T) {
+	signal, shellSignal := -1, 139
 	for _, tc := range []struct {
 		head, base  v1alpha1.BuildResult
+		baseExit    *int
 		phase       v1alpha1.PreviewVerificationPhase
 		reason      v1alpha1.PreviewVerificationReason
 		unbuildable bool
 	}{
-		{v1alpha1.BuildFailed, v1alpha1.BuildBuilt, v1alpha1.VerificationInfra,
+		{v1alpha1.BuildFailed, v1alpha1.BuildBuilt, nil, v1alpha1.VerificationInfra,
 			v1alpha1.VerificationReasonToolsBuildFailed, false},
-		{v1alpha1.BuildTimeout, v1alpha1.BuildBuilt, v1alpha1.VerificationInfra,
+		{v1alpha1.BuildTimeout, v1alpha1.BuildBuilt, nil, v1alpha1.VerificationInfra,
 			v1alpha1.VerificationReasonToolsBuildFailed, false},
-		{v1alpha1.BuildError, v1alpha1.BuildBuilt, v1alpha1.VerificationInfra,
+		{v1alpha1.BuildError, v1alpha1.BuildBuilt, nil, v1alpha1.VerificationInfra,
 			v1alpha1.VerificationReasonToolsBuildFailed, false},
-		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK, true},
-		{v1alpha1.BuildBuilt, v1alpha1.BuildTimeout, v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK,
-			false},
-		{v1alpha1.BuildBuilt, v1alpha1.BuildError, v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK, false},
+		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, nil, v1alpha1.VerificationObserved,
+			v1alpha1.VerificationReasonOK, true},
+		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, &signal, v1alpha1.VerificationObserved,
+			v1alpha1.VerificationReasonOK, false},
+		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, &shellSignal, v1alpha1.VerificationObserved,
+			v1alpha1.VerificationReasonOK, false},
+		{v1alpha1.BuildBuilt, v1alpha1.BuildTimeout, nil, v1alpha1.VerificationObserved,
+			v1alpha1.VerificationReasonOK, false},
+		{v1alpha1.BuildBuilt, v1alpha1.BuildError, nil, v1alpha1.VerificationObserved,
+			v1alpha1.VerificationReasonOK, false},
 	} {
-		t.Run(string(tc.head)+"-"+string(tc.base), func(t *testing.T) {
+		name := string(tc.head) + "-" + string(tc.base)
+		if tc.baseExit != nil {
+			name += fmt.Sprintf("-exit%d", *tc.baseExit)
+		}
+		t.Run(name, func(t *testing.T) {
 			h := running(t, newWorld(t))
-			log, msg := toolsLog(t, ledgerOpts{headBuild: tc.head, baseBuild: tc.base})
+			log, msg := toolsLog(t, ledgerOpts{headBuild: tc.head, baseBuild: tc.base, baseExit: tc.baseExit})
 			finish(h.tools.job, h.now)
 			h.tools.pod, h.tools.log = terminated(readyPod(), msg), log
 			h.reconcile(t)
@@ -372,6 +385,11 @@ func TestCollectBuilds(t *testing.T) {
 			}
 			if pv.Status.Base == nil || pv.Status.Base.Unbuildable != tc.unbuildable {
 				t.Errorf("base = %+v, want unbuildable %v", pv.Status.Base, tc.unbuildable)
+			}
+			// The relay's run on a base that did not build has no run
+			// token, so it is no base run: n/a only through Unbuildable.
+			if b := pv.Status.Base; b != nil && tc.base != v1alpha1.BuildBuilt && len(b.Runs) != 0 {
+				t.Errorf("base runs = %+v, want none on a base that did not build", b.Runs)
 			}
 			if tc.head != v1alpha1.BuildBuilt {
 				f := pv.Status.Environment

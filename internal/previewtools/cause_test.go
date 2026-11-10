@@ -128,8 +128,11 @@ func TestBaseUnbuiltRunCause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := baseUnbuiltRun(c, toolwire.ModeReplay).Cause(); got != toolwire.CauseBaseUnbuildable {
+	if got := baseUnbuiltRun(c, toolwire.ModeReplay, true).Cause(); got != toolwire.CauseBaseUnbuildable {
 		t.Errorf("cause = %q, want %q", got, toolwire.CauseBaseUnbuildable)
+	}
+	if r := baseUnbuiltRun(c, toolwire.ModeReplay, false); r.Result != toolwire.RunError || r.Cause() != "" {
+		t.Errorf("a base whose build did not finish: %s cause %q, want an error with no cause", r.Result, r.Cause())
 	}
 }
 

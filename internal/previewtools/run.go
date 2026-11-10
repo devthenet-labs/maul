@@ -233,16 +233,26 @@ var diagnosticLine = regexp.MustCompile(`^(?:\./)?([A-Za-z0-9_][A-Za-z0-9_.-]*\.
 
 // environmental are what the go command prints when a build ended for a
 // reason outside the program (a killed compiler or linker, memory, disk,
-// files, the module cache or network, the toolchain), lowercased; one
-// anywhere in a compile's output, even inside a diagnostic, leaves the
-// compile without a cause.
+// files, the module cache or network, the toolchain), and what the shim
+// prints when it could not start the program at all, lowercased; one
+// anywhere in a compile's or a tree build's output, even inside a
+// diagnostic, leaves the compile without a cause and the build an error
+// (environmentalFailure).
 var environmental = []string{
 	"signal:", "killed", "out of memory", "cannot allocate memory", "no space left on device", "disk quota exceeded",
 	"too many open files", "resource temporarily unavailable", "internal compiler error", "fatal error",
 	"module lookup disabled", "import lookup disabled", "missing go.sum entry", "goproxy", "gomodcache",
 	"toolchain", "requires go", "go: downloading", "dial tcp", "could not import", "no such file or directory",
 	"permission denied", "read-only file system", "input/output error", "checksum mismatch", "verifying ",
-	"cannot find module", "not in std", "no required module",
+	"cannot find module", "not in std", "no required module", "[maul: could not start",
+}
+
+// environmentalFailure reports an environmental marker anywhere in output:
+// the build or compile may have ended for a reason outside the tree, so it
+// is no evidence about the tree.
+func environmentalFailure(output string) bool {
+	lower := strings.ToLower(output)
+	return slices.ContainsFunc(environmental, func(m string) bool { return strings.Contains(lower, m) })
 }
 
 // compilerRefused reports whether output, a failed `go build` of the
@@ -255,14 +265,8 @@ var environmental = []string{
 // a go command line) is not (SPEC-S2 S2-20b): zero false passes outranks
 // the confirmed rate, so a doubt leaves the base with no evidence.
 func compilerRefused(output string, files []string) bool {
-	if strings.ContainsRune(output, '\r') {
+	if strings.ContainsRune(output, '\r') || environmentalFailure(output) {
 		return false
-	}
-	lower := strings.ToLower(output)
-	for _, m := range environmental {
-		if strings.Contains(lower, m) {
-			return false
-		}
 	}
 	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
 	if len(lines) < 2 || lines[0] != consumerHeader {

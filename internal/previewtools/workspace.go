@@ -83,6 +83,11 @@ const (
 	// ReasonBaseUnbuildable: the base did not build, so nothing runs
 	// there; every base run is n/a (status.base.unbuildable).
 	ReasonBaseUnbuildable = "base-unbuildable"
+	// ReasonBaseBuildError: the base's build did not end in a failure maul
+	// can tell is the tree's (a timeout, a signal, cut output, an
+	// environmental failure), so nothing runs there and every base run is
+	// an error with no cause: no base evidence, never n/a (review VC-1).
+	ReasonBaseBuildError = "base-build-error"
 	// ReasonVendoredTree, ReasonReplaceOutsideTree and ReasonNoModule are
 	// a tree a run program cannot be built against (SPEC Q25): an error,
 	// n/a, never a pass, and never a wider network.
@@ -272,6 +277,12 @@ func BuildPart(a BuildArgs, exit int) acceptance.PartFact {
 	return p
 }
 
+// RefusalExit reports an exit a build can refuse its tree with: a normal
+// exit of 1 to 125. -1 is a signal; a shell reports what ended its child by
+// exit code alone, 126 and 127 a command it could not run and 128+N signal
+// N, which is no evidence about the tree (review VC-1).
+func RefusalExit(exit int) bool { return exit >= 1 && exit <= 125 }
+
 // nonZero is exit, or 1 for an exit of 0 that did not build.
 func nonZero(exit int) int {
 	if exit == 0 {
@@ -305,6 +316,7 @@ func (r *Relay) buildTrees(ctx context.Context) {
 	}
 	r.headBuilt = head.args.Result == maulv1.BuildBuilt
 	r.baseBuilt = base.args.Result == maulv1.BuildBuilt
+	r.baseUnbuildable = base.args.Result == maulv1.BuildFailed
 }
 
 // ledgerTail is a build's output as its entry can hold it: a build's tail
@@ -326,8 +338,13 @@ func ledgerTail(s string) string {
 const buildCutMarker = "[maul: the build's output is cut to its end]\n"
 
 // buildSide runs side's build once its shim serves. Only a build that ran
-// and exited 0, leaving nothing behind, built: one that left processes, or
-// that maul could not run, is an error; a non-zero exit failed.
+// and exited 0, leaving nothing behind, built. Only one that ran to its own
+// end and refused the tree failed: a normal exit (RefusalExit), clean, its
+// output whole and no environmental marker in it (environmentalFailure, the
+// compile cause's screen). Anything else (left processes, a signal, output
+// cut, an environmental failure, a build maul could not run) is an error:
+// a failed base is unbuildable, which waives rule 5 for every check, so a
+// doubt must give no base evidence instead (review VC-1).
 func (r *Relay) buildSide(ctx context.Context, side toolwire.Side) built {
 	w := r.cfg.Workspace
 	args := BuildArgs{Argv: w.build(), TimeoutMs: int64(w.BuildTimeoutSeconds) * 1000, Result: maulv1.BuildError}
@@ -349,10 +366,10 @@ func (r *Relay) buildSide(ctx context.Context, side toolwire.Side) built {
 		args.Result = maulv1.BuildTimeout
 	case res.Unclean:
 		res.Output += "\nmaul: processes the build started outlived it"
-	case res.Exit != 0:
-		args.Result = maulv1.BuildFailed
-	default:
+	case res.Exit == 0:
 		args.Result = maulv1.BuildBuilt
+	case RefusalExit(res.Exit) && !res.Truncated && !environmentalFailure(res.Output):
+		args.Result = maulv1.BuildFailed
 	}
 	return built{args: args, res: res}
 }
@@ -410,8 +427,10 @@ func (r *Relay) runnable(side toolwire.Side) string {
 	switch {
 	case !r.headBuilt:
 		return ReasonBuildFailed + ": the head tree did not build, so nothing runs"
-	case side.Recorded() == toolwire.SideBase && !r.baseBuilt:
+	case side.Recorded() == toolwire.SideBase && r.baseUnbuildable:
 		return ReasonBaseUnbuildable + ": the base tree did not build, so nothing runs there"
+	case side.Recorded() == toolwire.SideBase && !r.baseBuilt:
+		return ReasonBaseBuildError + ": the base tree's build did not finish, so nothing runs there"
 	}
 	return ""
 }
@@ -653,10 +672,15 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 }
 
 // baseUnbuiltRun is the base run of check c when the base did not build:
-// no shim is asked, and the run is an error (n/a), so a Required base still
-// has its run and reads unbuildable, never missing.
-func baseUnbuiltRun(c checks.Check, mode toolwire.CheckRunMode) toolwire.CheckRunRecord {
+// no shim is asked, and the run is an error. On an unbuildable base (its
+// build failed) the error is n/a, so a Required base still has its run and
+// reads unbuildable, never missing; on a base whose build did not finish it
+// has no cause: no base evidence, never n/a (review VC-1).
+func baseUnbuiltRun(c checks.Check, mode toolwire.CheckRunMode, unbuildable bool) toolwire.CheckRunRecord {
 	steps := causedStep(toolwire.CauseBaseUnbuildable, ReasonBaseUnbuildable+": the base tree did not build")
+	if !unbuildable {
+		steps = errStep(ReasonBaseBuildError + ": the base tree's build did not finish")
+	}
 	steps[0].Side = toolwire.SideBase
 	a := toolwire.Attempt{Result: toolwire.ResultError, Steps: steps}
 	return toolwire.CheckRunRecord{Digest: bareDigestOf(checks.Digest(c)), CheckID: c.ID, Mode: mode,
@@ -673,7 +697,7 @@ func (r *Relay) baseRun(ctx context.Context, c checks.Check, mode toolwire.Check
 	}
 	r.baseRuns++
 	if !r.baseBuilt {
-		return baseUnbuiltRun(c, mode), true
+		return baseUnbuiltRun(c, mode, r.baseUnbuildable), true
 	}
 	return r.runCheckAt(ctx, c, mode, false, toolwire.SideBase), true
 }
