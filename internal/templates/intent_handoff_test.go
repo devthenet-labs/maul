@@ -47,6 +47,11 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_status_handoff_environment_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyEnvironment}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
 			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyEnvironment})},
+		// Gate D-B6: outcomes the evaluator judged not to hold lead, counted,
+		// an anomaly second.
+		{"intent_status_handoff_doubted_anomaly.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
+			Why: HandoffWhyEvaluatorDoubts, Doubted: 2, Anomaly: true}, &VerifyProgress{State: VerifyUnconfirmed,
+			Verification: 3, MaxFixes: 2, Passing: 3, Total: 5, Outcomes: true, Why: HandoffWhyEvaluatorDoubts})},
 		{"intent_status_handoff_out_of_time.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyTime}, evaluating)},
 		{"intent_status_handoff_checking.md", status(&PreviewHandoff{State: HandoffChecking}, evaluating)},
@@ -54,6 +59,8 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_preview_handoff_ready.md", comment(&PreviewHandoff{State: HandoffReady}, testOutcomeSection())},
 		{"intent_preview_handoff_unconfirmed.md", comment(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhySandbox}, nil)},
+		{"intent_preview_handoff_doubted.md", comment(&PreviewHandoff{State: HandoffUnconfirmed,
+			Why: HandoffWhyEvaluatorDoubts, Doubted: 1}, nil)},
 		{"intent_verify_outcomes_issue.md", func() (string, error) {
 			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "target-1", Round: 2, Attempt: 1,
 				Section: *testOutcomeSection()})
@@ -131,6 +138,42 @@ func TestHandoffWhyIsMaulsWords(t *testing.T) {
 	got := handoffLabel(PreviewHandoff{State: HandoffUnconfirmed, Why: "@octocat #3"})
 	if strings.Contains(got, "octocat") || !strings.Contains(got, handoffWhyWords[HandoffWhyUnsure]) {
 		t.Errorf("unknown why = %q", got)
+	}
+}
+
+// TestHandoffDoubtedWords (gate D-B6): outcomes the evaluator judged not
+// to hold lead the reason, counted, saying maul did not prove them and
+// never that they fail; an anomaly is named second, once, and only after
+// a reason that is not the anomaly itself.
+func TestHandoffDoubtedWords(t *testing.T) {
+	const anomaly = ", and it noticed something odd while it looked around."
+	for _, tt := range []struct {
+		h    PreviewHandoff
+		want string
+	}{
+		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 1},
+			"the evaluator judged 1 outcome not to hold, but no check maul re-ran shows it."},
+		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 2, Anomaly: true},
+			"the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it" + anomaly},
+		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts},
+			"the evaluator judged some outcomes not to hold, but no check maul re-ran shows it."},
+		{PreviewHandoff{Why: HandoffWhyUnsure, Anomaly: true}, "some outcomes are unsure" + anomaly},
+		{PreviewHandoff{Why: HandoffWhyEnvironment, Anomaly: true},
+			"the preview failed while it was checked" + anomaly},
+		{PreviewHandoff{Why: HandoffWhyAnomaly, Anomaly: true},
+			"it noticed something odd while it looked around."},
+		{PreviewHandoff{Why: "@octocat", Doubted: 3}, "some outcomes are unsure."},
+	} {
+		tt.h.State = HandoffUnconfirmed
+		got := handoffLabel(tt.h)
+		if want := "maul couldn't confirm this: " + tt.want; got != want {
+			t.Errorf("%+v = %q, want %q", tt.h, got, want)
+		}
+		for _, claim := range []string{"fail", "defect"} {
+			if tt.h.Why == HandoffWhyEvaluatorDoubts && strings.Contains(got, claim) {
+				t.Errorf("%+v claims %q: %q", tt.h, claim, got)
+			}
+		}
 	}
 }
 

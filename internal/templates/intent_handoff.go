@@ -3,7 +3,11 @@
 
 package templates
 
-import v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+import (
+	"fmt"
+
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+)
 
 // The gated hand-off (agent evaluator, DESIGN 7.1, 7.2): how a live
 // preview's link is shown while maul checks the approved outcomes. Held, the
@@ -38,6 +42,12 @@ const (
 	HandoffWhyEnvironment = "environment"
 	HandoffWhyUnavailable = "unavailable"
 
+	// HandoffWhyEvaluatorDoubts: the evaluator judged outcomes not to
+	// hold that no check maul re-ran shows failing (gate D-B6); the
+	// hand-off counts them (PreviewHandoff.Doubted) and never calls them
+	// failing.
+	HandoffWhyEvaluatorDoubts = "evaluator-doubts"
+
 	// The agents-namespace tool pod's (SPEC-S2): its build of the head did
 	// not finish, the repository has no accepted image to build in, or a
 	// tree could not be fetched.
@@ -62,6 +72,8 @@ var handoffWhyWords = map[string]string{
 	HandoffWhySandbox:     "its sandbox was not enforced",
 	HandoffWhyEnvironment: "the preview failed while it was checked",
 	HandoffWhyUnavailable: "it could not run its checks",
+	// Gate D-B6; the words without a count, which doubtedWords gives.
+	HandoffWhyEvaluatorDoubts: "the evaluator judged some outcomes not to hold, but no check maul re-ran shows it",
 	// The agents-namespace tool pod's (SPEC-S2).
 	HandoffWhyBuildFailed:  "its own build of the pull request did not finish",
 	HandoffWhySandboxImage: "the repository has no accepted runner image to build the pull request in",
@@ -119,14 +131,35 @@ func HandoffWhyOfVerification(reason v1alpha1.PreviewVerificationReason) string 
 // for HandoffUnconfirmed one of the HandoffWhy constants.
 type PreviewHandoff struct {
 	State, Why string
+	// Doubted counts, for HandoffWhyEvaluatorDoubts, the outcomes the
+	// evaluator judged not to hold (gate D-B6).
+	Doubted int32
+	// Anomaly: for HandoffUnconfirmed, a look-around anomaly is named after
+	// the reason, which leads with the outcomes in doubt (gate D-B6).
+	Anomaly bool
 }
 
-// handoffWhy is why maul could not confirm, in its words.
-func handoffWhy(why string) string {
-	if w, ok := handoffWhyWords[why]; ok {
-		return w
+// handoffWhy is why maul could not confirm, in its words: the reason,
+// then an anomaly beside it, if any.
+func handoffWhy(h PreviewHandoff) string {
+	w, ok := handoffWhyWords[h.Why]
+	switch {
+	case !ok:
+		w = handoffWhyWords[HandoffWhyUnsure]
+	case h.Why == HandoffWhyEvaluatorDoubts && h.Doubted > 0:
+		w = doubtedWords(h.Doubted)
 	}
-	return handoffWhyWords[HandoffWhyUnsure]
+	if h.Anomaly && h.Why != HandoffWhyAnomaly {
+		w += ", and " + handoffWhyWords[HandoffWhyAnomaly]
+	}
+	return w
+}
+
+// doubtedWords are HandoffWhyEvaluatorDoubts' words for n outcomes: the
+// evaluator's judgement, counted, and that maul did not prove it.
+func doubtedWords(n int32) string {
+	return fmt.Sprintf("the evaluator judged %d %s not to hold, but no check maul re-ran shows it", n,
+		plural(n, "outcome", "outcomes"))
 }
 
 // handoffLabel is the label a released link carries, ending in a full
@@ -136,7 +169,7 @@ func handoffLabel(h PreviewHandoff) string {
 	case HandoffReady:
 		return "Ready: maul checked the approved outcomes."
 	case HandoffUnconfirmed:
-		return "maul couldn't confirm this: " + handoffWhy(h.Why) + "."
+		return "maul couldn't confirm this: " + handoffWhy(h) + "."
 	case HandoffChecking:
 		return "Shown while maul is still checking the approved outcomes."
 	}

@@ -109,7 +109,7 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 		return &templates.PreviewHandoff{State: templates.HandoffReady}
 	}
 	if why := p.gaveUp(acc, v); why != "" {
-		return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
+		return unconfirmedView(acc, v, why)
 	}
 	if h.Reason == v1alpha1.HandoffReasonOutOfTime {
 		return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: templates.HandoffWhyTime}
@@ -154,7 +154,7 @@ func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 	if why == "" {
 		why = templates.HandoffWhyUnavailable
 	}
-	return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
+	return unconfirmedView(acc, v, why)
 }
 
 // gaveUp is why the evaluation settled without confirming every outcome
@@ -177,10 +177,15 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 			return templates.HandoffWhyBudget
 		case len(v.Disputed) > 0:
 			return templates.HandoffWhyRounds
-		case len(v.Anomalies) > 0:
+		case len(v.Anomalies) > 0 && !outcomesInDoubt(acc, v):
+			// Every outcome confirmed or accepted: the anomaly is the
+			// reason (review H2). With an outcome in doubt, the outcomes
+			// lead and the anomaly comes second (gate D-B6).
 			return templates.HandoffWhyAnomaly
 		case environmentFailed(v):
 			return templates.HandoffWhyEnvironment
+		case doubtedOutcomes(acc, v) > 0:
+			return templates.HandoffWhyEvaluatorDoubts
 		}
 		return templates.HandoffWhyUnsure
 	case v1alpha1.VerificationExhausted:
@@ -203,6 +208,43 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 		return templates.HandoffWhyUnavailable
 	}
 	return ""
+}
+
+// unconfirmedView is the hand-off maul could not confirm for why: with the
+// outcomes the evaluator judged not to hold counted, and a look-around
+// anomaly named after a reason that leads with the outcomes in doubt
+// (gate D-B6).
+func unconfirmedView(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification,
+	why string) *templates.PreviewHandoff {
+	h := &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
+	switch why {
+	case templates.HandoffWhyEvaluatorDoubts:
+		h.Doubted = doubtedOutcomes(acc, v)
+		fallthrough
+	case templates.HandoffWhyEnvironment, templates.HandoffWhyUnsure:
+		h.Anomaly = v.State == v1alpha1.VerificationUnconfirmed && len(v.Anomalies) > 0
+	}
+	return h
+}
+
+// doubtedOutcomes counts v's outcomes, of the judgement of its current
+// round at its heads, that the evaluator judged not to hold but no check
+// maul re-ran shows failing (acceptance.ReasonModelOnlyFail), less those
+// an approver accepted. The reason is matched, never shown.
+func doubtedOutcomes(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) int32 {
+	var n int32
+	for _, r := range v.JudgedOutcomes() {
+		if r.Reason == acceptance.ReasonModelOnlyFail && effectiveResult(acc, v, r) == v1alpha1.OutcomeUnsure {
+			n++
+		}
+	}
+	return n
+}
+
+// outcomesInDoubt reports an approved outcome v's judgement at its heads
+// does not confirm and no approver accepted.
+func outcomesInDoubt(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
+	return confirmedCount(acc, v) < int32(len(acc.Outcomes))
 }
 
 // agentsWhy is why an agents round settled without a judgement, as the

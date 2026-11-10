@@ -349,21 +349,24 @@ heads maul judged: after a push it reads as still being checked until a round is
 
 "maul couldn't confirm this" names one reason:
 
-| Reason                                          | Meaning                                                                               |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| some outcomes are unsure                        | no check proves them yet; read each outcome's line                                    |
-| an outcome fails and maul stopped fixing it     | a reproduced failure, and automatic fixing halted (out of fixes, a repeat, a human)   |
-| it noticed something odd while it looked around | a look-around anomaly                                                                 |
-| it used every round it may run                  | `maxVerifications` is spent                                                           |
-| it spent its evaluation budget                  | the intent's evaluation ceiling is reached                                            |
-| it ran out of time                              | `handoffMax` passed                                                                   |
-| its sandbox was not enforced                    | the evaluator's strict probe found DNS, the API server, metadata or the internet open |
-| the preview failed while it was checked         | a component crashed, was evicted or ran out of memory during the round                |
-| it could not run its checks                     | maul's own machinery failed every attempt                                             |
+| Reason                                                                         | Meaning                                                                                 |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| some outcomes are unsure                                                       | no check proves them yet; read each outcome's line                                      |
+| the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it | maul proved no failure: the outcomes are unsure, never failed; read each outcome's line |
+| an outcome fails and maul stopped fixing it                                    | a reproduced failure, and automatic fixing halted (out of fixes, a repeat, a human)     |
+| it noticed something odd while it looked around                                | a look-around anomaly                                                                   |
+| it used every round it may run                                                 | `maxVerifications` is spent                                                             |
+| it spent its evaluation budget                                                 | the intent's evaluation ceiling is reached                                              |
+| it ran out of time                                                             | `handoffMax` passed                                                                     |
+| its sandbox was not enforced                                                   | the evaluator's strict probe found DNS, the API server, metadata or the internet open   |
+| the preview failed while it was checked                                        | a component crashed, was evicted or ran out of memory during the round                  |
+| it could not run its checks                                                    | maul's own machinery failed every attempt                                               |
 
-When every outcome was confirmed or accepted and only an anomaly or a failing environment kept the round unconfirmed,
-the commit status and the progress line name that cause instead of reading as all confirmed, for example "maul couldn't
-confirm this: 3/3 outcomes confirmed, but it noticed something odd while it looked around".
+The outcomes in doubt lead: with an outcome neither confirmed nor accepted, an anomaly is named after the reason ("...,
+and it noticed something odd while it looked around"), never in its place. When every outcome was confirmed or accepted
+and only an anomaly or a failing environment kept the round unconfirmed, the commit status and the progress line name
+that cause instead of reading as all confirmed, for example "maul couldn't confirm this: 3/3 outcomes confirmed, but it
+noticed something odd while it looked around".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
 not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.
