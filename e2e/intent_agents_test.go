@@ -671,6 +671,181 @@ func TestIntentAgentsBaseNetError(t *testing.T) {
 	}
 }
 
+// tallyAlreadyGreets is a base that already answers --greet as the outcome
+// states: the change outcome's check cannot tell the head from it.
+const tallyAlreadyGreets = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--greet" {
+		fmt.Println("hello from tally")
+		return
+	}
+	fmt.Println("usage: tally [--greet]")
+}
+`
+
+// tallyBaseImportsMissing is a base whose build fails for a reason outside
+// its own files: it imports a package no module provides, which the module
+// loader, not the compiler, refuses.
+const tallyBaseImportsMissing = `package main
+
+import (
+	"fmt"
+
+	"example.com/missing/greeting"
+)
+
+func main() { fmt.Println(greeting.Text) }
+`
+
+// ledgerBuild is the result of the agents tool pod's build of side, ""
+// when its ledger records none.
+func ledgerBuild(pv v1alpha1.PreviewVerification, side v1alpha1.TreeSide) v1alpha1.BuildResult {
+	if pv.Status.Ledger == nil {
+		return ""
+	}
+	for _, b := range pv.Status.Ledger.Builds {
+		if b.Side == side {
+			return b.Result
+		}
+	}
+	return ""
+}
+
+// waitUnsureNoBaseEvidence waits for intent name's one outcome to end
+// unsure with no base evidence, never passed: maul/acceptance says it could
+// not confirm, and no fix round starts, which only a failed outcome does.
+func (e *evalEnv) waitUnsureNoBaseEvidence(t *testing.T, name, head string) v1alpha1.PreviewVerification {
+	t.Helper()
+	in := e.waitEval(t, name, "the round to end unconfirmed", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationUnconfirmed && len(v.Outcomes) == 1
+	})
+	if o := in.Status.Verification.Outcomes[0]; o.Result != v1alpha1.OutcomeUnsure ||
+		o.Reason != acceptance.ReasonNoBaseEvidence {
+		t.Errorf("outcome %+v, want unsure, no-base-evidence", o)
+	}
+	if v := in.Status.Verification; v.Passed != 0 || v.Failed != 0 {
+		t.Errorf("verification %+v, want nothing passed or failed", v)
+	}
+	e.waitStatus(t, head, "error", "maul couldn't confirm this: 0/1 outcomes confirmed")
+	if len(e.verifyRuns(t, name)) != 0 {
+		t.Errorf("a fix round started on an unsure outcome: %s", e.describeRuns(t, name))
+	}
+	return e.agentsVerification(t, name)
+}
+
+// TestIntentAgentsGreenAtBase (review T2, rule 5): the base already greets,
+// so the change outcome's check passes at the head and at the base alike.
+// The scripted evaluator passes the outcome on its head run and proposes
+// the check; maul confirms it green at both sides and, since it does not
+// tell the change apart, never passes the outcome: unsure, no base
+// evidence.
+func TestIntentAgentsGreenAtBase(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyAlreadyGreets},
+		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
+			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
+	})
+	_, name, pr := e.toReview(t)
+	pv := e.waitUnsureNoBaseEvidence(t, name, pr.HeadSHA)
+	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildBuilt {
+		t.Errorf("base build %q, want built", got)
+	}
+	b := pv.Status.Base
+	if b == nil || b.Unbuildable || len(b.Runs) == 0 {
+		t.Fatalf("base %+v, want it built and the check run there", b)
+	}
+	for _, r := range b.Runs {
+		if r.Tree != v1alpha1.TreeBase || r.Result != v1alpha1.CheckRunPass {
+			t.Errorf("base run %+v, want the check green at the base", r)
+		}
+	}
+}
+
+// TestIntentAgentsBaseUnbuildable (review T2): the base does not compile
+// (undefined: fmt), a refusal of the base tree itself, so the base is
+// unbuildable and every base run is an error with the base-unbuildable
+// cause: no base comparison, which rule 5 admits. The check passes at the
+// head on every other rule, so the outcome is confirmed.
+func TestIntentAgentsBaseUnbuildable(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyDoesNotBuild},
+		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
+			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
+	})
+	_, name, pr := e.toReview(t)
+	in := e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	o := in.Status.Verification.Outcomes
+	if len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed ||
+		!strings.HasSuffix(o[0].Line, "; no base comparison: the base did not build") {
+		t.Errorf("outcomes %+v, want greets passed with no base comparison, the base not built", o)
+	}
+	pv := e.agentsVerification(t, name)
+	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildFailed {
+		t.Errorf("base build %q, want failed", got)
+	}
+	if b := pv.Status.Base; b == nil || !b.Unbuildable {
+		t.Errorf("base %+v, want it unbuildable", b)
+	}
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	runs := e.kubelet.WorkspaceRuns()
+	if len(runs) != 1 {
+		t.Fatalf("%d agents tool pods ran, want one", len(runs))
+	}
+	ledger := string(runs[0].Stdout)
+	for _, want := range []string{"undefined: fmt", `"cause":"base-unbuildable"`} {
+		if !strings.Contains(ledger, want) {
+			t.Errorf("the ledger does not record %s:\n%s", want, ledger)
+		}
+	}
+}
+
+// TestIntentAgentsBaseBuildError (review T2, VC-1): the base's build fails
+// for a reason outside its own files (it imports a package no module
+// provides), which maul cannot tell is the tree's: a build error, not a
+// failed build, so the base is not unbuildable and every base run is an
+// error with no cause. That is no base evidence: unsure, never a pass on
+// the head alone.
+func TestIntentAgentsBaseBuildError(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBaseImportsMissing},
+		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
+			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
+	})
+	_, name, pr := e.toReview(t)
+	pv := e.waitUnsureNoBaseEvidence(t, name, pr.HeadSHA)
+	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildError {
+		t.Errorf("base build %q, want error", got)
+	}
+	if b := pv.Status.Base; b == nil || b.Unbuildable {
+		t.Errorf("base %+v, want it not unbuildable", b)
+	}
+	runs := e.kubelet.WorkspaceRuns()
+	if len(runs) != 1 {
+		t.Fatalf("%d agents tool pods ran, want one", len(runs))
+	}
+	ledger := string(runs[0].Stdout)
+	for _, want := range []string{"cannot find module providing package example.com/missing/greeting",
+		"base-build-error: the base tree's build did not finish"} {
+		if !strings.Contains(ledger, want) {
+			t.Errorf("the ledger does not record %s:\n%s", want, ledger)
+		}
+	}
+	if strings.Contains(ledger, `"cause":"base-unbuildable"`) {
+		t.Errorf("the ledger counts a base build error as unbuildable:\n%s", ledger)
+	}
+}
+
 // TestIntentAgentsRunningToolPodDeleted (wave 3): a round whose heads move
 // while its tool pod still runs settles, and its tool Job, unfinished, is
 // deleted at once, never kept for the linger a finished one gets. A person
