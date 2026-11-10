@@ -86,7 +86,13 @@ func projectModelFields(m *v1alpha1.ProjectModels) [][2]string {
 // for its harness. Every field it sets is judged, whether or not its stage
 // runs now (an evaluate model with the evaluator off), so a choice that
 // could never run is reported when it is made, not when it is first used.
+// A Project on a harness this controller runs no intent on is refused for
+// that alone (HarnessNotEnabled), its runs waiting Pending, never held for
+// its models.
 func (s Settings) modelRefusal(p *v1alpha1.Project) string {
+	if s.harnessOff(p.Spec.Harness) {
+		return ""
+	}
 	harness := p.Spec.Harness
 	if harness == "" {
 		harness = v1alpha1.ProjectHarnessClaude

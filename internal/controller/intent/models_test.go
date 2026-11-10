@@ -112,6 +112,9 @@ func TestModelRefusal(t *testing.T) {
 			models: &v1alpha1.ProjectModels{Plan: "anthropic/claude-opus-5"}, wantPart: "a codex Project's"},
 		{name: "codex's allowlisted model on codex", harness: v1alpha1.ProjectHarnessCodex,
 			models: &v1alpha1.ProjectModels{Plan: "openai/gpt-5.6-luna", Build: "openai/gpt-5.3-codex"}},
+		// HarnessNotEnabled refuses it: its runs wait Pending, unheld.
+		{name: "codex models while --intent-codex is off", set: func(s *Settings) { s.Codex = RunHarness{} },
+			harness: v1alpha1.ProjectHarnessCodex, models: &v1alpha1.ProjectModels{Plan: "openai/gpt-5.6-luna"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := modelSettings()
@@ -250,5 +253,44 @@ func TestRecordedModelNoLongerAdmitted(t *testing.T) {
 	run.Spec.Model = ""
 	if got, _ := r.runModel(run); got != "anthropic/claude-sonnet-5" {
 		t.Errorf("runModel of a run recording none = %q, want the plan flag's", got)
+	}
+}
+
+// TestProjectModelRefusedAtApproval: a Project whose models stop being
+// admitted while its intent awaits approval holds the intent at the
+// approval: no build run is created on a model that could never launch.
+// Naming an admitted model lifts the hold, and the build runs on it.
+func TestProjectModelRefusedAtApproval(t *testing.T) {
+	e := newEnv(t, testProject())
+	e.withSettings(modelSettings())
+	name := e.newIntent(approver)
+	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+	launched := len(e.jobs.launched())
+
+	e.setModels(t, &v1alpha1.ProjectModels{Build: "anthropic/claude-sonnet-4"})
+	e.clock.Advance(time.Minute)
+	e.gh.label(1, "maul:approved", approver)
+	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
+	if !meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionModelNotAllowed) {
+		t.Fatalf("conditions = %+v, want ModelNotAllowed True", in.Status.Conditions)
+	}
+	for range 3 {
+		e.mustIntent(name)
+		e.runRuns()
+		e.clock.Advance(time.Minute)
+	}
+	for _, run := range e.intentRuns(name) {
+		if run.Spec.Stage != v1alpha1.IntentStagePlan {
+			t.Errorf("run %s (%s) created while the build model is not admitted", run.Name, run.Spec.Stage)
+		}
+	}
+	if n := len(e.jobs.launched()); n != launched {
+		t.Errorf("%d Jobs launched, want the plan's %d alone", n, launched)
+	}
+
+	e.setModels(t, &v1alpha1.ProjectModels{Build: "anthropic/claude-fable-5"})
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	if build := e.onlyLaunch(t, "build"); build.Model != "anthropic/claude-fable-5" {
+		t.Errorf("build launch model = %q, want anthropic/claude-fable-5", build.Model)
 	}
 }
