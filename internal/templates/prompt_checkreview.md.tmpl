@@ -136,14 +136,17 @@ instructions, with that run's token written as `{{"{{"}}run{{"}}"}}`.
 
 {{fence . | chomp}}
 {{if $.RunScoped}}
-That element is the check's own: its locator finds it by data the check created with its run token, so no row or
-record another run left can be it, and maul found it in every run. Rows from earlier runs elsewhere on the page do not
-by themselves break rules 2 and 3 below: judge the text it showed. Where the element holds more than the check's own
-data (a list that merely contains it), only that data's part of the text counts.
+That element is the check's own: its locator finds it by data the check created with its run token, maul found it in
+every run, and it showed that run's token each time, so no row or record another run left can be it. Rows from earlier
+runs elsewhere on the page do not by themselves break rules 2 and 3 below: judge the text it showed. Where the element
+holds more than the check's own data (a list that merely contains it), only that data's part of the text counts. This
+settles which element it is, never a value the application works out from other rows: a rank, a position, a total, a
+count or a share shown beside the check's own data still depends on data the check did not create, and rule 2 still
+holds for it.
 {{- else}}
-That element is not found by the check's own data, so its text may hold rows and records other runs left: only text
-that shows the check's own data contradicting the outcome counts, and text that does not show the check's own data
-proves nothing.
+maul cannot tell from its locator and its text that this element is the check's own, so its text may hold rows and
+records other runs left: only text that shows the check's own data contradicting the outcome counts, and text that
+does not show the check's own data proves nothing.
 {{- end}}
 {{- end}}
 The other agent says that failure shows a defect: the outcome does not hold. maul will report the outcome failed, and

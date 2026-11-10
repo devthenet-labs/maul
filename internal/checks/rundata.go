@@ -127,26 +127,21 @@ func FailsLayout(c Check, failing int) bool {
 
 // FailsRunScopedText reports a browser check that writes data of its own
 // run (WritesRunData) and whose step failing (0-based) is a text expect on
-// an element its locator finds by that data: RunPlaceholder in the locator
-// or in a parent it is within (D-B4). That element is the run's own, so
-// rows other runs left on the page cannot be it; a check naming the run
-// only in the text it expects (a whole list's text) is not one.
+// an element its own locator finds by that data: RunPlaceholder in the
+// locator itself, never only in a parent it is within, whose children may
+// be other runs' (D-B4). That element holds the run's data, so no row
+// another run left can be it; a check naming the run only in the text it
+// expects (a whole list's text) is not one.
 func FailsRunScopedText(c Check, failing int) bool {
 	if c.Browser == nil || failing < 0 || failing >= len(c.Browser.Steps) || !WritesRunData(c) {
 		return false
 	}
 	a := c.Browser.Steps[failing].Expect
-	if a == nil || a.Assert != AssertText {
+	if a == nil || a.Assert != AssertText || a.Locator == nil {
 		return false
 	}
-	for l := a.Locator; l != nil; l = l.Within {
-		for _, s := range []string{l.Role, l.Name, l.Label, l.Text, l.TestID, l.CSS, l.HasText} {
-			if hasRun(s) {
-				return true
-			}
-		}
-	}
-	return false
+	l := a.Locator
+	return slices.ContainsFunc([]string{l.Role, l.Name, l.Label, l.Text, l.TestID, l.CSS, l.HasText}, hasRun)
 }
 
 // ValidateRed holds a check proposed to show a defect, whose step failing

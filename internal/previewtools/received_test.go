@@ -34,11 +34,21 @@ func textFailure(matcher, expectedLabel, receivedLabel, expected, received strin
 	return b.String()
 }
 
+// diffFailure is a failed toContainText's message in @playwright/test
+// 1.64.1's diff shape (printed when a side spans lines): its received
+// header's count, then its body lines after the expected side's one.
+func diffFailure(receivedCount string, body ...string) string {
+	return "Error: expect(locator).toContainText(expected) failed\n\nLocator: locator('li')\nTimeout: 5000ms\n" +
+		"- Expected substring  - 1\n+ Received string     " + receivedCount + "\n\n- swing 20%\n" +
+		strings.Join(body, "\n") + "\n\nCall log:\n  - Expect \"toContainText\" with timeout 5000ms\n"
+}
+
 // TestTextFailureReceived (D-B4): a text assertion that failed on an
-// element that was there keeps what that element showed, apart from maul's
-// words, so a reviewer can tell the run's own row reading the wrong text
-// from no row; a missing element says so in maul's words and keeps
-// nothing. Only one single, well-formed Received line is ever kept.
+// element that was there keeps what that element showed, its whitespace
+// collapsed, apart from maul's words, so a reviewer can tell the run's own
+// row reading the wrong text from no row; a missing element says so in
+// maul's words and keeps nothing. Only one well-formed Received value, or
+// one whole diff, is ever kept.
 func TestTextFailureReceived(t *testing.T) {
 	const contains, shown = "toContainText", `"v1a1t1-abc · by ana · 120 bpm · swing 0%"`
 	for _, tc := range []struct {
@@ -70,10 +80,22 @@ func TestTextFailureReceived(t *testing.T) {
 		{"no element, older shape", keyedBrowserCheck,
 			"Error: expect(locator).toContainText(expected) failed\nReceived: <element(s) not found>",
 			false, "the text expectation was not met: no element matched its locator", ""},
-		{"a multi-line diff: nothing kept", keyedBrowserCheck,
-			"Error: expect(locator).toContainText(expected) failed\n\nLocator: x\n- Expected substring  - 1\n" +
-				"+ Received string     + 2\n\n- 1\n+ 0\n+ votes\nTimeout: 5000ms\n",
+		// An element whose children sit on lines of their own: the runner
+		// prints a diff (1.64.1's shape, as TestLiveBrowserText reads it).
+		{"a diff over lines, collapsed", keyedBrowserCheck, diffFailure("+ 4", "+", "+     v1a1t1-abc",
+			"+     swing 0%", "+   "), true, "the text expectation was not met", "v1a1t1-abc swing 0%"},
+		{"a diff with a shared line", keyedBrowserCheck, diffFailure("+ 2", "+ a", "  1", "+ b"),
+			true, "the text expectation was not met", "a 1 b"},
+		{"a diff with lines left out: nothing kept", keyedBrowserCheck,
+			diffFailure("+ 2", "@@ -1,1 +1,9 @@", "+ a", "+ b"), true, "the text expectation was not met", ""},
+		{"a diff whose counts do not hold: nothing kept", keyedBrowserCheck, diffFailure("+ 3", "+ a", "+ b"),
 			true, "the text expectation was not met", ""},
+		{"a quoted text over lines, collapsed", strings.Replace(keyedBrowserCheck, `"contains":"1"`,
+			`"matches":"^1"`, 1), textFailure("toHaveText", "Expected pattern: ", "Received string:  ", `/^1/`,
+			"\"\n   0\n   votes\n\"", true), true, "the text expectation was not met", "0 votes"},
+		{"spaces collapsed", keyedBrowserCheck,
+			textFailure(contains, "Expected substring: ", "Received string:    ", `"1"`, "\"  0 \t votes \"", true),
+			true, "the text expectation was not met", "0 votes"},
 		{"two Received lines: nothing kept", keyedBrowserCheck,
 			textFailure(contains, "Expected substring: ", "Received string:    ", `"1"`,
 				"\"0\"\nReceived string: \"1\"", true),

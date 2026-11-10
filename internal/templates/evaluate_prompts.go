@@ -673,8 +673,9 @@ type checkReviewView struct {
 	LayoutRead bool
 	// ObservedBlock is Observed as the reviewer reads it, one line per run;
 	// RunScoped, with it, a text assertion on an element the check finds by
-	// its own run data (checks.FailsRunScopedText): other runs' rows on the
-	// page cannot be that element (D-B4).
+	// its own run data (checks.FailsRunScopedText) that showed that run's
+	// token in every run: other runs' rows on the page cannot be that
+	// element (D-B4).
 	ObservedBlock string
 	RunScoped     bool
 	// Viewport is the fixed window a browser check runs in.
@@ -736,7 +737,8 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
 	if p.ExpectFail && ws == nil && !v.Layout && shown.Form == checks.FormBrowser {
 		v.ObservedBlock = observedBlock(p.Observed)
-		v.RunScoped = v.ObservedBlock != "" && checks.FailsRunScopedText(p.Check, p.FailedStep-1)
+		v.RunScoped = v.ObservedBlock != "" && checks.FailsRunScopedText(p.Check, p.FailedStep-1) &&
+			!slices.ContainsFunc(p.Observed, func(o string) bool { return !strings.Contains(o, checks.RunPlaceholder) })
 	}
 	return render("prompt_checkreview.md.tmpl", v)
 }

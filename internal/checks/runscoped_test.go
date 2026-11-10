@@ -6,10 +6,11 @@ package checks
 import "testing"
 
 // TestFailsRunScopedText (D-B4): a red browser text check is one whose
-// asserted element is the run's own only when it writes data of its run and
-// the failing text expect's locator, or a parent it is within, names
-// {{run}}; {{run}} only in the expected text (a whole list's text), a
-// count, a layout read, another step or another form is not one.
+// asserted element holds the run's data only when it writes data of its run
+// and the failing text expect's own locator names {{run}}; {{run}} only in
+// a parent it is within (whose first row may be another run's), only in the
+// expected text (a whole list's text), a count, a layout read, another step
+// or another form is not one.
 func TestFailsRunScopedText(t *testing.T) {
 	fill := BrowserStep{Fill: &Fill{Locator: Locator{Label: "Name"}, Text: "{{run}}-beat"}}
 	text := func(l Locator, contains string) BrowserStep {
@@ -26,8 +27,13 @@ func TestFailsRunScopedText(t *testing.T) {
 		want    bool
 	}{
 		{"the run's row by hasText", browser(BrowserStep{Goto: "/"}, fill, text(row, "swing 20%")), 2, true},
-		{"within the run's row", browser(BrowserStep{Goto: "/"}, fill,
-			text(Locator{CSS: ".meta", Within: &row}, "swing 20%")), 2, true},
+		{"the run's row by hasText, nth", browser(BrowserStep{Goto: "/"}, fill,
+			text(Locator{CSS: "li", HasText: "{{run}}-beat1", Nth: new(int)}, "swing 20%")), 2, true},
+		{"only within the run's row", browser(BrowserStep{Goto: "/"}, fill,
+			text(Locator{CSS: ".meta", Within: &row}, "swing 20%")), 2, false},
+		{"the first row of a list found by the run", browser(BrowserStep{Goto: "/"}, fill,
+			text(Locator{CSS: "li", Nth: new(int), Within: &Locator{CSS: "ul", HasText: "{{run}}-beat1"}},
+				"{{run}}-beat1 · swing 20%")), 2, false},
 		{"by its text", browser(BrowserStep{Goto: "/"}, fill,
 			text(Locator{Text: "{{run}}-beat"}, "swing 20%")), 2, true},
 		{"a list, the run only in the expected text", browser(BrowserStep{Goto: "/"}, fill,

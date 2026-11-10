@@ -91,10 +91,13 @@ run 1: {{run}}-beat1 · by ana · 120 bpm · swing 0%
 run 2: {{run}}-beat1 · by ana · 120 bpm · swing 0%
 ```
 
-That element is the check's own: its locator finds it by data the check created with its run token, so no row or
-record another run left can be it, and maul found it in every run. Rows from earlier runs elsewhere on the page do not
-by themselves break rules 2 and 3 below: judge the text it showed. Where the element holds more than the check's own
-data (a list that merely contains it), only that data's part of the text counts.
+That element is the check's own: its locator finds it by data the check created with its run token, maul found it in
+every run, and it showed that run's token each time, so no row or record another run left can be it. Rows from earlier
+runs elsewhere on the page do not by themselves break rules 2 and 3 below: judge the text it showed. Where the element
+holds more than the check's own data (a list that merely contains it), only that data's part of the text counts. This
+settles which element it is, never a value the application works out from other rows: a rank, a position, a total, a
+count or a share shown beside the check's own data still depends on data the check did not create, and rule 2 still
+holds for it.
 The other agent says that failure shows a defect: the outcome does not hold. maul will report the outcome failed, and
 start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change code that works.
 Answer `proves` only if all of these hold:

@@ -293,54 +293,108 @@ func textMatcher(first string) bool {
 	return strings.Contains(first, "toHaveText") || strings.Contains(first, "toContainText")
 }
 
-// receivedLine is a text matcher message's Received line (toHaveText's
-// "Received:", toContainText's and a pattern's "Received string:"), its
-// value as the runner quotes it.
-var receivedLine = regexp.MustCompile(`(?m)^Received(?: string)?:[ \t]*"(.*)"[ \t]*$`)
+// receivedLabel starts a text matcher message's quoted Received value:
+// toHaveText's "Received:", toContainText's and a pattern's "Received
+// string:".
+var receivedLabel = regexp.MustCompile(`(?m)^Received(?: string)?:[ \t]*`)
 
-// textReceived is the text a failed text matcher's element showed (D-B4):
-// the value of the message's one Received line, unquoted: the
-// application's own text, UNTRUSTED. It is "" when the message is not a
-// text matcher's on an element that was there, holds no such line or more
-// than one (a text over several lines is printed as a diff, never read),
-// the value is not one the runner quoted, or it is over
-// toolwire.MaxReceivedBytes.
+// The header of the diff the runner prints instead when the expected or the
+// received text spans lines (an element whose markup puts its children on
+// lines of their own): each side's label and how many lines are its alone.
+var (
+	expectedDiffHeader = regexp.MustCompile(`(?m)^- Expected(?: substring| string| pattern)?[ \t]+- (\d+)$`)
+	receivedDiffHeader = regexp.MustCompile(`(?m)^\+ Received(?: string)?[ \t]+\+ (\d+)$`)
+)
+
+// textReceived is the text a failed text matcher's element showed (D-B4),
+// its whitespace collapsed as the matcher compares it: the message's one
+// quoted Received value, or, with none, the received side of its diff. It
+// is the application's own text, UNTRUSTED. It is "" when the message is
+// not a text matcher's on an element that was there, holds more than one
+// Received value, a value the runner did not quote or a diff with lines
+// left out, or the text is over toolwire.MaxReceivedBytes.
 func textReceived(msg string) string {
 	msg = stripANSI(msg)
 	first, _, _ := strings.Cut(msg, "\n")
 	if !textMatcher(first) || elementMissing(msg) {
 		return ""
 	}
-	m := receivedLine.FindAllStringSubmatch(msg, -1)
-	if len(m) != 1 {
-		return ""
+	var text string
+	ok := false
+	switch labels := receivedLabel.FindAllStringIndex(msg, -1); len(labels) {
+	case 0:
+		text, ok = diffReceived(msg)
+	case 1:
+		text, ok = quotedReceived(msg[labels[0][1]:])
 	}
-	text, ok := unquoteReceived(m[0][1])
-	if !ok || len(text) > toolwire.MaxReceivedBytes || !utf8.ValidString(text) || strings.ContainsAny(text, "\r\n") {
+	text = strings.Join(strings.Fields(text), " ")
+	if !ok || len(text) > toolwire.MaxReceivedBytes || !utf8.ValidString(text) {
 		return ""
 	}
 	return text
 }
 
-// unquoteReceived undoes the runner's quoting of a string (pretty-format's:
-// a double quote and a backslash each escaped by a backslash, nothing
-// else); ok is false for a value it could not have quoted.
-func unquoteReceived(q string) (string, bool) {
+// quotedReceived is the string at the start of s as the runner quotes it
+// (pretty-format: in double quotes, a double quote and a backslash each
+// escaped by a backslash, nothing else, line breaks kept), the rest of its
+// last line blank; ok is false for anything else.
+func quotedReceived(s string) (string, bool) {
+	if !strings.HasPrefix(s, `"`) {
+		return "", false
+	}
 	var b strings.Builder
-	for i := 0; i < len(q); i++ {
-		switch c := q[i]; {
+	for i := 1; i < len(s); i++ {
+		switch c := s[i]; {
 		case c == '"':
-			return "", false
+			rest, _, _ := strings.Cut(s[i+1:], "\n")
+			return b.String(), strings.TrimSpace(rest) == ""
 		case c != '\\':
 			b.WriteByte(c)
-		case i+1 < len(q) && (q[i+1] == '"' || q[i+1] == '\\'):
+		case i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\'):
 			i++
-			b.WriteByte(q[i])
+			b.WriteByte(s[i])
 		default:
 			return "", false
 		}
 	}
-	return b.String(), true
+	return "", false
+}
+
+// diffReceived is the received side of a text matcher's unified diff: its
+// lines alone ("+") and those both sides share (indented), in order. ok is
+// false unless the message holds exactly one diff header, its line counts
+// match the lines shown, and no hunk header says lines were left out.
+func diffReceived(msg string) (string, bool) {
+	eh := expectedDiffHeader.FindAllStringSubmatchIndex(msg, -1)
+	rh := receivedDiffHeader.FindAllStringSubmatchIndex(msg, -1)
+	if len(eh) != 1 || len(rh) != 1 || eh[0][1]+1 != rh[0][0] {
+		return "", false
+	}
+	wantMinus, errM := strconv.Atoi(msg[eh[0][2]:eh[0][3]])
+	wantPlus, errP := strconv.Atoi(msg[rh[0][2]:rh[0][3]])
+	if errM != nil || errP != nil {
+		return "", false
+	}
+	body, _, _ := strings.Cut(msg[rh[0][1]:], "\nCall log:")
+	var lines []string
+	minus, plus := 0, 0
+	for _, l := range strings.Split(strings.Trim(body, "\n"), "\n") {
+		switch {
+		case l == "-" || strings.HasPrefix(l, "- "):
+			minus++
+		case l == "+" || strings.HasPrefix(l, "+ "):
+			plus++
+			lines = append(lines, strings.TrimPrefix(l[1:], " "))
+		case l == "" || strings.HasPrefix(l, "  "):
+			lines = append(lines, strings.TrimPrefix(l, "  "))
+		default:
+			return "", false // a hunk header: lines were left out
+		}
+	}
+	if minus != wantMinus || plus != wantPlus {
+		return "", false
+	}
+	return strings.Join(lines, "\n"), true
 }
 
 // bounded cuts s to 300 bytes on a rune boundary.

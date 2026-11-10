@@ -54,6 +54,11 @@ func TestCheckReviewObservedOnlyWhereItCounts(t *testing.T) {
 	}{
 		{"the run's own row", red(scoped, 5, "expect"), true, true},
 		{"a whole list", red(list, 5, "expect"), true, false},
+		{"the run's own row not showing the run", func() CheckReviewPrompt {
+			p := red(scoped, 5, "expect")
+			p.Observed = []string{"{{run}}-beat1 · by ana · 120 bpm · swing 0%", "other-beat · swing 0%"}
+			return p
+		}(), true, false},
 		{"one run's text missing", func() CheckReviewPrompt {
 			p := red(scoped, 5, "expect")
 			p.Observed = []string{"{{run}}-beat1 · swing 0%", ""}

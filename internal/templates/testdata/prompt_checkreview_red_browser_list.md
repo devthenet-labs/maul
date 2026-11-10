@@ -90,9 +90,9 @@ run 1: other-beat · by bo · 95 bpm · swing 10%
 run 2: other-beat · by bo · 95 bpm · swing 10%
 ```
 
-That element is not found by the check's own data, so its text may hold rows and records other runs left: only text
-that shows the check's own data contradicting the outcome counts, and text that does not show the check's own data
-proves nothing.
+maul cannot tell from its locator and its text that this element is the check's own, so its text may hold rows and
+records other runs left: only text that shows the check's own data contradicting the outcome counts, and text that
+does not show the check's own data proves nothing.
 The other agent says that failure shows a defect: the outcome does not hold. maul will report the outcome failed, and
 start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change code that works.
 Answer `proves` only if all of these hold:

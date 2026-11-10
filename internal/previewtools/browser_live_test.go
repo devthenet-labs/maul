@@ -417,6 +417,13 @@ func TestLiveBrowserText(t *testing.T) {
 			"the text expectation was not met", "Vote", true},
 		{"matches", text(`{"testid":"vote-a"}`, `{"matches":"^Voted {{run}}$"}`),
 			"the text expectation was not met", "Vote", true},
+		// A card of several elements, each on a line of its own in the
+		// markup, as a row a server renders: the runner prints a diff, read
+		// back with its whitespace collapsed.
+		{"a card's markup over lines", text(`{"css":"article[data-side=a]"}`, `{"contains":"Voted {{run}}"}`),
+			"the text expectation was not met", "Four on the floor Play Vote 0", true},
+		{"a card's markup over lines, a pattern", text(`{"css":"article[data-side=a]"}`,
+			`{"matches":"^Voted {{run}}$"}`), "the text expectation was not met", "Four on the floor Play Vote 0", true},
 		{"no element", text(`{"testid":"gone"}`, `{"equals":"Vote {{run}}"}`),
 			"the text expectation was not met: no element matched its locator", "", false},
 	} {
