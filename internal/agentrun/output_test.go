@@ -367,14 +367,22 @@ func sampledFrom(got []transcript.Output) int {
 
 // fullFidelity is the number of got's first chunks a command printed at full
 // fidelity: those printed until they put outputTaskBytes on stdout, past
-// which it is sampled.
-func fullFidelity(got []transcript.Output) int {
+// which it is sampled. Sampling begins there, not at the first gap in the
+// numbers (sampledFrom): a sample taken while the writer is behind shows
+// the very next lines, with no gap. None of those chunks may skip a line.
+func fullFidelity(t *testing.T, got []transcript.Output) int {
+	t.Helper()
+	full := len(got)
 	for i := range got {
 		if printedBytes(got[:i]) >= outputTaskBytes {
-			return i
+			full = i
+			break
 		}
 	}
-	return len(got)
+	if gap := sampledFrom(got); gap < full {
+		t.Fatalf("chunk %d skips lines before the budget was spent at chunk %d", gap, full)
+	}
+	return full
 }
 
 // printedBytes is what chunks put on stdout, framing included.
@@ -511,13 +519,7 @@ func TestOutputStopsSamplingAtItsCap(t *testing.T) {
 	runStage(t, cfg, exec, pace, out)
 
 	got := chunks(out.String())
-	// Sampling begins once the full-fidelity chunks reach the command's
-	// budget, not at the first gap in the numbers: a sample taken while the
-	// writer is behind shows the very next lines, with no gap.
-	full := fullFidelity(got)
-	if gap := sampledFrom(got); gap < full {
-		t.Fatalf("chunk %d skips lines before the budget was spent at chunk %d", gap, full)
-	}
+	full := fullFidelity(t, got)
 	at := slices.IndexFunc(got, func(o transcript.Output) bool { return o.Truncated })
 	if full >= at {
 		t.Fatalf("the cut is chunk %d and sampling began at chunk %d; want samples before the cut", at, full)
