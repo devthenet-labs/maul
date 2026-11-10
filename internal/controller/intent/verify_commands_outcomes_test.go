@@ -132,27 +132,27 @@ func TestOutcomeVerifyReset(t *testing.T) {
 
 // TestOutcomeVerifyCommandAuthority twins TestVerifyCommandAuthority.
 func TestOutcomeVerifyCommandAuthority(t *testing.T) {
-	tests := []struct {
-		name  string
-		actor string
-		perm  string
-		body  string
-		edit  bool
-		want  string
-	}{
-		{name: "not an approver", actor: "mallory", body: "/maul verify --reset", want: "only the project"},
-		{name: "read access only", actor: approver, perm: ghclient.PermissionRead, body: "/maul verify fix",
-			want: "only the project"},
-		{name: "a bot", actor: "renovate[bot]", body: "/maul accept " + manualOutcomeID, want: "bot account"},
-		{name: "edited", actor: approver, body: "/maul verify --reset", edit: true, want: "was edited"},
-		{name: "an unknown argument", actor: approver, body: "/maul verify everything", want: "not understood"},
-		{name: "two arguments", actor: approver, body: "/maul verify fix --reset", want: "not understood"},
-		{name: "stop from a non-approver", actor: "mallory", body: "/maul verify stop", want: "only the project"},
-		{name: "stop edited", actor: approver, body: "/maul verify stop", edit: true, want: "was edited"},
-		{name: "accept without an id", actor: approver, body: "/maul accept", want: "not understood"},
+	type command struct {
+		actor, perm, body string
+		edit              bool
+		want              string
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	const usage = "/maul verify [fix|stop|--reset]"
+	tests := map[string]command{
+		"not an approver":          {"mallory", "", "/maul verify --reset", false, "only the project"},
+		"read access only":         {approver, ghclient.PermissionRead, "/maul verify fix", false, "only the project"},
+		"a bot":                    {"renovate[bot]", "", "/maul accept " + manualOutcomeID, false, "bot account"},
+		"edited":                   {approver, "", "/maul verify --reset", true, "was edited"},
+		"an unknown argument":      {approver, "", "/maul verify everything", false, "not understood"},
+		"reset as a verb":          {approver, "", "/maul reset", false, usage},
+		"two arguments":            {approver, "", "/maul verify fix --reset", false, "not understood"},
+		"stop from a non-approver": {"mallory", "", "/maul verify stop", false, "only the project"},
+		"stop edited":              {approver, "", "/maul verify stop", true, "was edited"},
+		"stop as a verb":           {approver, "", "/maul stop", false, usage},
+		"accept without an id":     {approver, "", "/maul accept", false, "not understood"},
+	}
+	for what, tt := range tests {
+		t.Run(what, func(t *testing.T) {
 			e, name := outcomeReviewing(t, func(p *v1alpha1.Project) {
 				p.Spec.Approvers.Logins = append(p.Spec.Approvers.Logins, "renovate[bot]")
 			})
@@ -523,5 +523,21 @@ func TestOutcomeAcceptOnlyTheManualOutcome(t *testing.T) {
 	e.settleActions(name)
 	if acc := e.get(name).Status.Acceptance.Accepted; len(acc) != 1 || acc[0].CommentID != again {
 		t.Fatalf("accepted after a re-accept = %+v", acc)
+	}
+}
+
+// TestOutcomeAcceptCountsTheManualOutcome twins
+// TestAcceptCountsTheManualCriterion: an accepted manual outcome stops
+// counting as open at once, without waiting for another round.
+func TestOutcomeAcceptCountsTheManualOutcome(t *testing.T) {
+	e, name := outcomeReviewing(t)
+	e.acceptReady(name)
+	if v := e.verification(name); v.ManualOpen != 1 || v.ManualAccepted != 0 {
+		t.Fatalf("before: manual open %d accepted %d, want 1 and 0", v.ManualOpen, v.ManualAccepted)
+	}
+	e.gh.comment(approver, "/maul accept "+manualOutcomeID)
+	e.settleActions(name)
+	if v := e.verification(name); v.ManualOpen != 0 || v.ManualAccepted != 1 {
+		t.Errorf("after: manual open %d accepted %d, want 0 and 1", v.ManualOpen, v.ManualAccepted)
 	}
 }

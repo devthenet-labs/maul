@@ -48,9 +48,9 @@ func (e *evalEnv) checkNoTester(t *testing.T, name string) {
 // drives an intent to round 1 passing at its pull request's head. It
 // returns the env, the issue number, the Intent's name and the pull
 // request.
-func startRegression(t *testing.T, o evalOptions) (*evalEnv, int, string, v1alpha1.IntentPullRequest) {
+func startRegression(t *testing.T) (*evalEnv, int, string, v1alpha1.IntentPullRequest) {
 	t.Helper()
-	e := startEvaluate(t, o)
+	e := startEvaluate(t, evalOptions{})
 	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CHECK_WRITES", "1")
 	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
@@ -120,7 +120,7 @@ func (e *evalEnv) waitPushed(t *testing.T, name string, fix v1alpha1.IntentRun) 
 // 2 was one; TestIntentEvaluateFixFindsNoDefect runs a request after a
 // halt.)
 func TestIntentEvaluateRepeatedFailure(t *testing.T) {
-	e, number, name, _ := startRegression(t, evalOptions{})
+	e, number, name, _ := startRegression(t)
 	e.plantDefect()
 	e.requestRound(t, number)
 	fix := e.waitFixRun(t, name)
@@ -203,7 +203,7 @@ func TestIntentEvaluateFixFindsNoDefect(t *testing.T) {
 // halt for the human's command, the pull request is told, and the
 // approver's round runs next, on their feedback.
 func TestIntentEvaluateHumanCancelsPendingFix(t *testing.T) {
-	e, number, name, pr := startRegression(t, evalOptions{})
+	e, number, name, pr := startRegression(t)
 	e.plantDefect()
 	releaseEval := e.kubelet.hold(t, "evaluate")
 	e.requestRound(t, number)
@@ -278,7 +278,7 @@ func TestIntentEvaluateHumanCancelsPendingFix(t *testing.T) {
 // next, from the fix's commit, told the automatic fix landed after their
 // feedback.
 func TestIntentEvaluateHumanDuringRunningFix(t *testing.T) {
-	e, number, name, pr := startRegression(t, evalOptions{})
+	e, number, name, pr := startRegression(t)
 	release := e.kubelet.hold(t, "build")
 	e.plantDefect()
 	e.requestRound(t, number)
@@ -347,7 +347,7 @@ func (e *evalEnv) stopFixes(t *testing.T, number int, name string) {
 // failure that starts no fix while stopped, verification still reporting.
 // /maul verify fix re-arms them, and the failure gets its fix round.
 func TestIntentEvaluateStop(t *testing.T) {
-	e, number, name, pr := startRegression(t, evalOptions{})
+	e, number, name, pr := startRegression(t)
 	e.stopFixes(t, number, name)
 
 	e.plantDefect()
@@ -379,7 +379,7 @@ func TestIntentEvaluateStop(t *testing.T) {
 // replay with it, and an automatic fix round starts on top of the human's
 // commit.
 func TestIntentEvaluateFixAfterAHumanPush(t *testing.T) {
-	e, number, name, _ := startRegression(t, evalOptions{})
+	e, number, name, _ := startRegression(t)
 	e.stopFixes(t, number, name)
 
 	e.plantDefect()
