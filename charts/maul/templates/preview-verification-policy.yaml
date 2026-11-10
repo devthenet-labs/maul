@@ -1,7 +1,8 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# Acceptance verification's request channel (preview.verification.enabled):
+# Acceptance verification's request channel (the agent evaluator,
+# intentController.verification.evaluator, with previewController.enabled):
 # a PreviewVerification in the release namespace is a request intent-controller
 # writes (create, delete) and preview-controller answers (status only). RBAC
 # grants each its half; this policy holds every identity to it, the cluster's
@@ -12,21 +13,21 @@
        host), and only those; the request channel then renders with
        previews off too. */}}
 {{- /*
-maul.previewVerification: the verification switch, checked once for every
-template that renders a piece of it. Returns "true" with it on, "" off. On,
-it needs preview-controller (which needs the slot foundation and
-intent-controller) and either the agent evaluator, whose tool images
-maul.previewTools checks, or a tester image maul.previewTesterImage
-accepts. With the evaluator on the tester image is optional, and checked
-only when set (maul.previewTester).
+maul.previewVerification: the slot verification switch, checked once for
+every template that renders a piece of it. Returns "true" with it on, "" off.
+The agent evaluator is verification's one switch (S4): on with
+previewController.enabled (which needs the slot foundation and
+intent-controller), and its tool images maul.previewTools checks; the tester
+image is optional and checked only when set (maul.previewTester; the
+release stamps it, so without the evaluator it is inert, never refused).
+The removed preview.verification.enabled fails the render, whatever its
+value, naming the key that replaced it: slice 1 alone (verification without
+the evaluator) no longer runs.
 */}}
 {{- define "maul.previewVerification" -}}
 {{- $v := .Values.preview.verification | default dict -}}
-{{- if $v.enabled -}}
-{{- if not .Values.previewController.enabled }}{{ fail "preview.verification.enabled requires previewController.enabled (and with it preview.enabled and intentController.enabled): verification runs in the preview slots, from requests intent-controller writes" }}{{ end -}}
-{{- if not (include "maul.evaluatorEnabled" .) -}}
-{{- $_ := include "maul.previewTesterImage" . -}}
-{{- end -}}
+{{- if hasKey $v "enabled" }}{{ fail "preview.verification.enabled is removed: the agent evaluator is verification's one switch. Drop the key and set intentController.verification.evaluator: true (verification then runs in the preview slots whenever previewController.enabled is true), or leave the evaluator off for no verification; see docs/intents/evaluator.md#migrating-from-slice-1" }}{{ end -}}
+{{- if and (include "maul.evaluatorEnabled" .) .Values.previewController.enabled -}}
 {{- $_ := include "maul.previewTester" . -}}
 true
 {{- end -}}
@@ -34,8 +35,7 @@ true
 {{- /*
 maul.previewTester: the tester image the slot policies admit and
 preview-controller runs criteria verifications with, checked, or "" when
-none is set (allowed only with the agent evaluator on, which
-maul.previewVerification holds). Call it only with verification on.
+none is set. Call it only with verification on.
 */}}
 {{- define "maul.previewTester" -}}
 {{- if (.Values.preview.verification | default dict).testerImage -}}
@@ -52,7 +52,7 @@ workload and an agent sandbox). Compared on segment boundaries through
 maul.registryPathKey, as the prefix overlap check is.
 */}}
 {{- define "maul.previewTesterImage" -}}
-{{- include "maul.previewMaulImage" (dict "root" . "key" "testerImage" "what" "the digest-pinned preview-tester image" "when" "preview.verification.enabled=true without intentController.verification.evaluator") -}}
+{{- include "maul.previewMaulImage" (dict "root" . "key" "testerImage" "what" "the digest-pinned preview-tester image" "when" "preview.verification.testerImage is set") -}}
 {{- end }}
 {{- /*
 maul.previewMaulImage: one of maul's own slot images, preview.verification.<key>
@@ -87,16 +87,16 @@ an agent registry. Returns the reference.
 {{- $img -}}
 {{- end }}
 {{- /*
-maul.previewTools: the slot tool pod switch. Returns "true" when acceptance
-verification and the agent evaluator (intentController.verification.evaluator)
-are both on, "" otherwise: the evaluator drives a tool pod in a Preview's
-slot, so without verification (no slot Jobs, no PreviewVerifications) it has
-nothing to evaluate, and intent-controller is not switched on. On, it checks
-the three tool images and that one evaluation round's timeout fits under the
-slot Job deadline.
+maul.previewTools: the slot tool pod switch. Returns "true" when slot
+verification is on (maul.previewVerification: the agent evaluator,
+intentController.verification.evaluator, with previews), "" otherwise: the
+evaluator drives a tool pod in a Preview's slot, so without previews it has
+nothing there to evaluate, and intent-controller is not switched on for it.
+On, it checks the three tool images and that one evaluation round's timeout
+fits under the slot Job deadline.
 */}}
 {{- define "maul.previewTools" -}}
-{{- if and (include "maul.previewVerification" .) (include "maul.evaluatorEnabled" .) -}}
+{{- if include "maul.previewVerification" . -}}
 {{- $_ := include "maul.previewToolImages" . -}}
 {{- $ev := .Values.intentController.verification | default dict -}}
 {{- $timeout := toString ($ev.evaluateTimeout | default "20m") -}}
@@ -111,7 +111,7 @@ maul.previewToolImages: the tool pod's three images, checked, as JSON
 {tools, browser, toolbox}.
 */}}
 {{- define "maul.previewToolImages" -}}
-{{- $when := "preview.verification.enabled and intentController.verification.evaluator are on" -}}
+{{- $when := "intentController.verification.evaluator and previewController.enabled are on" -}}
 {{- dict
     "tools" (include "maul.previewMaulImage" (dict "root" . "key" "tools.image" "what" "the digest-pinned preview-tools image (the slot tool pod's relay)" "when" $when))
     "browser" (include "maul.previewMaulImage" (dict "root" . "key" "tools.browserImage" "what" "the digest-pinned preview-browser image (the tool pod's browser sidecar)" "when" $when))

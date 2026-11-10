@@ -52,6 +52,51 @@ func TestEvaluatorSwitchedOffWithOutcomesIsNoSuccess(t *testing.T) {
 	}
 }
 
+// TestEvaluatorOffIsVerificationOff (S4, owner decision 2): the rollback as
+// serve renders it now, the evaluator off taking verification off with it,
+// over an outcomes round in flight with its preview link held. Nothing is
+// verified or reported as passing: maul/acceptance is the switched-off
+// error, never a success; the status comment says verification is off and
+// links the preview at once; no new PreviewVerification is made.
+func TestEvaluatorOffIsVerificationOff(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	if v := e.verification(name); v.State != v1alpha1.VerificationEvaluating {
+		t.Fatalf("verification = %+v, want Evaluating", v)
+	}
+	if strings.Contains(e.statusBody(), "("+"https://"+previewHostOf(name)+")") {
+		t.Fatalf("the gated link is shown while evaluating:\n%s", e.statusBody())
+	}
+	head := e.get(name).Status.PullRequests[0].HeadSHA
+	e.review(name, 1)
+	if st := e.latestAcceptance(head); st.State != statusPending {
+		t.Fatalf("maul/acceptance while evaluating = %+v, want pending", st)
+	}
+	pvs := len(e.verifications(name))
+
+	e.evaluating(false)
+	e.verifying(false, true)
+	e.review(name, 4)
+	for _, st := range e.acceptanceStatuses(head) {
+		if st.State == statusSuccess {
+			t.Fatalf("maul/acceptance %+v posted with the evaluator off", st)
+		}
+	}
+	if st := e.latestAcceptance(head); st.State != statusError || st.Description != switchedOff.description {
+		t.Fatalf("maul/acceptance once the evaluator is off = %+v, want %+v", st, switchedOff)
+	}
+	body := e.statusBody()
+	for _, want := range []string{"**Verification:** off", "`--intent-evaluator`",
+		"(https://" + previewHostOf(name) + ")"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("status comment lacks %q:\n%s", want, body)
+		}
+	}
+	if n := len(e.verifications(name)); n > pvs {
+		t.Errorf("verifications = %d after the evaluator went off, want at most %d", n, pvs)
+	}
+}
+
 // TestEvaluationStatusNotDeclaredNeedsEveryOutcomeManual (review CX-1):
 // "accepted by hand" is a success only for a plan whose every outcome is
 // manual and accepted at the heads, whatever counts the verification

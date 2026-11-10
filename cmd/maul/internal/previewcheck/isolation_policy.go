@@ -30,7 +30,11 @@ import (
 // (preview-<p>-np-<part>) are judged whole instead, by the predicate the
 // maul-preview-networkpolicies admission policy holds preview-controller's
 // writes to (edgeShaped): they admit only pods of one Preview in the slot,
-// none of which the live probe's clients are. ingress.sh judges the same.
+// none of which the live probe's clients are. With the agent evaluator on
+// the chart splits the slot's isolation in two (toolsSplit, toolsIsolated):
+// preview-isolation over every Pod but the slot tool pod, and
+// preview-tools-isolation over that pod alone, admitting nothing; only that
+// exact pair counts as governing every Pod. ingress.sh judges the same.
 
 // metadataNameLabel is the label the API server puts on every namespace.
 const metadataNameLabel = "kubernetes.io/metadata.name"
@@ -71,6 +75,7 @@ func judgeSlotPolicies(policies []networkingv1.NetworkPolicy, slotNS, releaseNS 
 	slices.SortFunc(policies, func(a, b networkingv1.NetworkPolicy) int { return strings.Compare(a.Name, b.Name) })
 	var problems, blocks []string
 	found, admits := false, false
+	split := slices.ContainsFunc(policies, toolsIsolated)
 	for i := range policies {
 		np := &policies[i]
 		where := slotNS + "/" + np.Name
@@ -82,12 +87,7 @@ func judgeSlotPolicies(policies []networkingv1.NetworkPolicy, slotNS, releaseNS 
 		}
 		if np.Name == slotPolicyName {
 			found = true
-			if len(np.Spec.PodSelector.MatchLabels) > 0 || len(np.Spec.PodSelector.MatchExpressions) > 0 {
-				problems = append(problems, where+" selects only some of the slot's Pods (its podSelector is not {})")
-			}
-			if len(np.Spec.PolicyTypes) > 0 && !slices.Contains(np.Spec.PolicyTypes, networkingv1.PolicyTypeIngress) {
-				problems = append(problems, where+" does not govern ingress (its policyTypes lack Ingress)")
-			}
+			problems = append(problems, slotPolicyShape(np, where, split)...)
 		}
 		for _, rule := range np.Spec.Ingress {
 			if len(rule.From) == 0 {
@@ -124,6 +124,49 @@ func judgeSlotPolicies(policies []networkingv1.NetworkPolicy, slotNS, releaseNS 
 	}
 	slices.Sort(blocks)
 	return slices.Compact(blocks), nil
+}
+
+// slotPolicyShape is what is wrong with preview-isolation np (at where)
+// itself: it must govern ingress for every Pod of the slot, alone or, on an
+// evaluator install (split: the chart's preview-tools-isolation is there),
+// as the toolsSplit over every Pod but the tool pod.
+func slotPolicyShape(np *networkingv1.NetworkPolicy, where string, split bool) []string {
+	var problems []string
+	selects := len(np.Spec.PodSelector.MatchLabels) > 0 || len(np.Spec.PodSelector.MatchExpressions) > 0
+	if selects && (!split || !toolsSplit(np)) {
+		problems = append(problems, where+" selects only some of the slot's Pods (its podSelector is not {})")
+	}
+	if len(np.Spec.PolicyTypes) > 0 && !slices.Contains(np.Spec.PolicyTypes, networkingv1.PolicyTypeIngress) {
+		problems = append(problems, where+" does not govern ingress (its policyTypes lack Ingress)")
+	}
+	return problems
+}
+
+// previewRoleLabel and toolsRole select the agent evaluator's slot tool pod.
+const (
+	previewRoleLabel = "maul.run/preview-role"
+	toolsRole        = "tools"
+)
+
+// toolsSplit reports whether np's selector is exactly the evaluator
+// install's preview-isolation one: every Pod but the slot tool pod.
+func toolsSplit(np *networkingv1.NetworkPolicy) bool {
+	sel := np.Spec.PodSelector
+	return len(sel.MatchLabels) == 0 && len(sel.MatchExpressions) == 1 &&
+		sel.MatchExpressions[0].Key == previewRoleLabel &&
+		sel.MatchExpressions[0].Operator == metav1.LabelSelectorOpNotIn &&
+		slices.Equal(sel.MatchExpressions[0].Values, []string{toolsRole})
+}
+
+// toolsIsolated reports whether np is the chart's preview-tools-isolation:
+// exactly the slot tool pod, ingress governed, no ingress rule. Beside it, a
+// preview-isolation of toolsSplit still governs every Pod of the slot.
+func toolsIsolated(np networkingv1.NetworkPolicy) bool {
+	sel := np.Spec.PodSelector
+	return np.Name == toolsPolicyName && len(sel.MatchExpressions) == 0 &&
+		maps.Equal(sel.MatchLabels, map[string]string{previewRoleLabel: toolsRole}) &&
+		(len(np.Spec.PolicyTypes) == 0 || slices.Contains(np.Spec.PolicyTypes, networkingv1.PolicyTypeIngress)) &&
+		len(np.Spec.Ingress) == 0
 }
 
 // isGatewayPeer reports whether peer is exactly the chart's gateway peer:

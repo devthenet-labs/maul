@@ -725,9 +725,12 @@ type NarrowedCheck struct {
 // criteria (never both): Outcomes with their OutcomesDigest, the check store
 // the evaluator's confirmed and reviewed checks are saved in, and the check
 // reviewer's cached answers. Digest is then the digest of the plan's empty
-// criteria list, as for a plan that declared none.
+// criteria list, as for a plan that declared none. A plan approved under
+// the evaluator that states no outcomes records the OutcomesDigest of the
+// empty list alone: no Outcomes (an empty list is omitted), yet still of
+// the evaluator's era.
 // +kubebuilder:validation:XValidation:rule="!has(self.criteria) || !has(self.outcomes)",message="an approved plan declares criteria or outcomes, never both"
-// +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.outcomesDigest)",message="outcomes and outcomesDigest are set together"
+// +kubebuilder:validation:XValidation:rule="!has(self.outcomes) || has(self.outcomesDigest)",message="outcomes need their outcomesDigest"
 type IntentAcceptance struct {
 	// PlanRevision is the approved plan revision the criteria are from.
 	// +kubebuilder:validation:Minimum=1

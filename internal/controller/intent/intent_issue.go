@@ -212,7 +212,7 @@ func hasLabel(issue *ghclient.Issue, name string) bool {
 }
 
 // verbs are the commands the intent issue admits in the Intent's phase; the
-// acceptance commands only with verification (--intent-verification) on,
+// acceptance commands only with verification (the evaluator) on,
 // and /maul preview only for a Project with a preview (previewed): an
 // agents Project has no link to show (SPEC-S2).
 func verbs(phase v1alpha1.IntentPhase, verification, previewed bool) []string {

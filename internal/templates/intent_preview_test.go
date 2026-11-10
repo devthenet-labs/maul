@@ -122,6 +122,19 @@ func TestIntentPreviewGoldens(t *testing.T) {
 			p.Host = "evil.example/@octocat"
 			return RenderIntentStatusComment(testInReview(p))
 		}},
+		// Verification Off (S4): the evaluator is off, so the preview is
+		// linked at once and the comment says why nothing is checked; or the
+		// evaluator runs without the preview projection it verifies against.
+		{"intent_status_verification_off_evaluator.md", func() (string, error) {
+			c := testInReview(onePreview(PreviewLive, ""))
+			c.VerificationNeedsEvaluator = true
+			return RenderIntentStatusComment(c)
+		}},
+		{"intent_status_verification_off_previews.md", func() (string, error) {
+			c := testInReview(nil)
+			c.VerificationNeedsPreviews = true
+			return RenderIntentStatusComment(c)
+		}},
 		{"intent_preview_live.md", func() (string, error) {
 			return RenderIntentPreviewComment(testPreviewComment(PreviewLive, "", ""))
 		}},

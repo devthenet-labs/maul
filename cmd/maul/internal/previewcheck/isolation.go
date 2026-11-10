@@ -72,6 +72,10 @@ const (
 	probeContainer = "probe"
 	// slotPolicyName is the chart's slot NetworkPolicy.
 	slotPolicyName = "preview-isolation"
+	// toolsPolicyName is the chart's slot NetworkPolicy for the agent
+	// evaluator's tool pod alone, beside a preview-isolation over every
+	// other Pod (toolsSplit).
+	toolsPolicyName = "preview-tools-isolation"
 	// gatewayLabel is the label the slot policy admits.
 	gatewayLabel = "maul.run/preview-gateway"
 	// refusedIsBlocked is netprobe's connect flag that counts a refused

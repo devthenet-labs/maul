@@ -168,6 +168,7 @@ func applyTesterImage(t *testing.T, admin client.Client, image string) {
 	ctx := t.Context()
 	args := append([]string{"template", "maul", ".", "--namespace", egressRelease}, verificationArgs...)
 	args = append(args, "--set", "preview.verification.deadlineMaxSeconds="+strconv.FormatInt(verifyDeadline, 10),
+		"--set", "intentController.verification.evaluateTimeout=5m",
 		"--set", "preview.verification.testerImage="+image)
 	output, err := exec.CommandContext(ctx, "helm", args...).Output()
 	if err != nil {
@@ -212,7 +213,9 @@ func applySlotRender(t *testing.T, admin client.Client, helmArgs []string) {
 	t.Helper()
 	ctx := t.Context()
 	args := append([]string{"template", "maul", ".", "--namespace", egressRelease}, helmArgs...)
-	args = append(args, "--set", "preview.verification.deadlineMaxSeconds="+strconv.FormatInt(verifyDeadline, 10))
+	// An evaluation round fits under the test's short slot Job deadline.
+	args = append(args, "--set", "preview.verification.deadlineMaxSeconds="+strconv.FormatInt(verifyDeadline, 10),
+		"--set", "intentController.verification.evaluateTimeout=5m")
 	output, err := exec.CommandContext(ctx, "helm", args...).Output()
 	if err != nil {
 		t.Fatalf("render chart: %v", err)

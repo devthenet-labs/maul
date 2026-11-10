@@ -141,12 +141,16 @@ func TestServeStartupErrors(t *testing.T) {
 			wantErr: "kubeconfig"},
 		{name: "tester image without a digest", args: validArgs("--preview-tester-image",
 			"ghcr.io/devthenet-labs/maul-preview-tester:v1"), wantErr: "not pinned by digest"},
-		{name: "verify deadline under a minute", args: validArgs("--preview-tester-image", testerImage,
-			"--preview-verify-deadline-max", "30s"), wantErr: "preview-verify-deadline-max"},
-		{name: "verify deadline over an hour", args: validArgs("--preview-tester-image", testerImage,
-			"--preview-verify-deadline-max", "2h"), wantErr: "preview-verify-deadline-max"},
-		{name: "verification reaches the manager", args: validArgs("--preview-tester-image", testerImage,
-			"--kubeconfig", missing), wantErr: "kubeconfig"},
+		{name: "verify deadline under a minute", args: evaluatorArgs("--preview-verify-deadline-max", "30s"),
+			wantErr: "preview-verify-deadline-max"},
+		{name: "verify deadline over an hour", args: evaluatorArgs("--preview-verify-deadline-max", "2h"),
+			wantErr: "preview-verify-deadline-max"},
+		// Slice 1 alone (S4): a tester image without the evaluator would run
+		// criteria nothing writes any more, so it stops startup.
+		{name: "a tester image without the evaluator", args: validArgs("--preview-tester-image", testerImage,
+			"--kubeconfig", missing), wantErr: "docs/intents/evaluator.md#migrating-from-slice-1"},
+		{name: "verification reaches the manager", args: evaluatorArgs("--kubeconfig", missing),
+			wantErr: "kubeconfig"},
 		{name: "namespace from the pod", env: "maul", args: validArgs("--namespace", "", "--kubeconfig", missing),
 			wantErr: "kubeconfig"},
 	} {

@@ -213,8 +213,11 @@ Nineteen binaries, one module. "Not monolithic" means separate binaries/deployme
   budget (`limits.<stage>.maxCostMicroUSD`, else the per-intent ceiling) stamped on its Job and pod as
   `provider.BudgetAnnotation`, the chart's `budget-policy.yaml` letting only intent-controller set it; with
   `--broker-cost-per-hour` a Project whose run budget exceeds half of it is not Ready (`RunBudgetOverHourlyLimit`).
-  With `--intent-evaluator` (default off; chart `intentController.verification.evaluator`, needing verification and
-  previews; design `.claude/plans/agent-evaluator/DESIGN.md`, people's guide `docs/intents/evaluator.md`) plans state
+  With `--intent-evaluator` (default off; chart `intentController.verification.evaluator`, needing previews or the
+  agents tool pod; design `.claude/plans/agent-evaluator/DESIGN.md`, people's guide `docs/intents/evaluator.md`), which
+  is verification's one switch (S4: `--intent-verification` and the chart's `preview.verification.enabled` are removed
+  and refused when set, `docs/intents/evaluator.md#migrating-from-slice-1`; off, a verifying Project is
+  `VerificationOff` `EvaluatorOff` and its issues say so, the preview linked at once), plans state
   acceptance outcomes, not criteria, and each round is an outcome `PreviewVerification` plus, once preview-controller's
   `status.tools` names the slot tool pod, an `evaluate` IntentRun (`<intent>-ev-…`, launched only while that round is
   still current) and one `checkreview` run per round (`-cr-`) for the new confirmed checks; the proven ones go to an
@@ -844,8 +847,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `ledger-mismatch`, never a verdict.
 - `toolpod` — what both hosts render alike, values only (pin: stdlib, core/v1, `api/v1alpha1`, `previewtools`):
   `Security(uid)`, `Deadlines` (Job, pod and relay wall clock), `NewKey`, `ConfigData`.
-- **Verification flow** (default off; `--intent-verification`, `--intent-verify-timeout-max`; chart
-  `preview.verification`, whose `deadlineMaxSeconds` drives both controllers' deadline flags): intent-controller reads
+- **Verification flow** (default off; the evaluator's switch, `--intent-verify-timeout-max`; chart
+  `preview.verification`, whose `deadlineMaxSeconds` drives both controllers' deadline flags; before its manager
+  starts, intent-controller takes a read-only census of slice-1 records through the API reader, `census.go`, logged by
+  name and reported as `maul.intent.slice1_records`, never refusing startup; preview-controller refuses
+  `--preview-tester-image` without `--preview-evaluator`): intent-controller reads
   the approved plan's criteria into `status.acceptance` on the first review pass, and at the gate (CI green, no human
   round pending, the Preview Live at exactly the PR heads, the bounds) creates an immutable `PreviewVerification`
   (`ic/verify_*.go`); preview-controller's `VerificationReconciler` re-checks it and writes observations only; the intent

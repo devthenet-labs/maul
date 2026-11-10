@@ -101,20 +101,23 @@ back, is the one that proves the slot policy. Because the agents' refusal cannot
 refuses them, the script also reads every NetworkPolicy in the slot namespace first and refuses to run when any admits a
 peer other than the gateway's exact one (the release namespace AND the gateway's label) or an `ipBlock`: a rule with no
 `from`, another namespace or Pod selector, a match expression, or a `preview-isolation` that selects only some Pods or
-does not govern ingress. While `preview.legacyIngress` is `true` the slot policy also admits the preview ALB's subnets
-by `ipBlock`; no client here is in them, so the run prints a `WARNING` naming those ranges instead of judging them. They
-are gone once `preview.legacyIngress` is `false`.
+does not govern ingress (with the agent evaluator on, a `preview-isolation` over every Pod but the slot tool pod is
+whole only beside a `preview-tools-isolation` over exactly that pod that admits nothing, as the chart renders the pair;
+`maul check previews --isolation` judges the same). While `preview.legacyIngress` is `true` the slot policy also admits
+the preview ALB's subnets by `ipBlock`; no client here is in them, so the run prints a `WARNING` naming those ranges
+instead of judging them. They are gone once `preview.legacyIngress` is `false`.
 
-With acceptance verification on (`preview.verification.enabled`), a slot also holds preview-controller's edge policies,
-one per part of a verifying Preview (`preview-<p>-np-<part>`). They admit only that Preview's own Pods, by its UID and a
-part, so the static check accepts a policy of exactly the shape the `maul-preview-networkpolicies` admission policy
-admits preview-controller (the same predicate, in jq: its name and managed-by label, a selector of one Preview's UID and
-one part, both policy types, every rule naming a peer and a numeric TCP port without an end, every peer a part of the
-same Preview by those two labels alone) and refuses any other policy so named or so labelled, whoever wrote it: the
-operator may write any slot policy, so the script cannot rely on admission. `maul check previews --isolation` judges
-edge policies the same way, and a test holds the two to the same verdicts. `--check-policies` runs this static check
-alone and creates nothing; the chart's preview probe envtest runs it against policies preview-controller wrote through
-the rendered admission policies, and against each shape they refuse it.
+With acceptance verification on (`intentController.verification.evaluator` with previews), a slot also holds
+preview-controller's edge policies, one per part of a verifying Preview (`preview-<p>-np-<part>`). They admit only that
+Preview's own Pods, by its UID and a part, so the static check accepts a policy of exactly the shape the
+`maul-preview-networkpolicies` admission policy admits preview-controller (the same predicate, in jq: its name and
+managed-by label, a selector of one Preview's UID and one part, both policy types, every rule naming a peer and a
+numeric TCP port without an end, every peer a part of the same Preview by those two labels alone) and refuses any other
+policy so named or so labelled, whoever wrote it: the operator may write any slot policy, so the script cannot rely on
+admission. `maul check previews --isolation` judges edge policies the same way, and a test holds the two to the same
+verdicts. `--check-policies` runs this static check alone and creates nothing; the chart's preview probe envtest runs it
+against policies preview-controller wrote through the rendered admission policies, and against each shape they refuse
+it.
 
 ### A policy controller that refuses: `--refused-is-blocked`
 
@@ -206,7 +209,7 @@ only; the run still proves the NetworkPolicy, which k3d's bundled network policy
 `run.sh edges` checks acceptance verification's per-part policies on **any cluster, with no cloud API** (it calls
 neither `gh` nor `aws`): that a Preview's declared edges connect and nothing else in or out of the slot does. Run it
 before the desktop live gate counts (three runs, slots 0, 1, 0), after any CNI or policy-controller upgrade, and again
-before turning `preview.verification.enabled` on anywhere.
+before turning `intentController.verification.evaluator` on anywhere.
 
 Its fixture is `edges.yaml`: the policies preview-controller renders for a Preview named `edges` whose tester calls
 `web`, `api` and `render` on 8080 (the slice-1 environment). `internal/controller/preview/probe_edges_test.go` holds the

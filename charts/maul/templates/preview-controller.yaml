@@ -4,7 +4,7 @@
 # Optional, namespaced runtime renderer. It has no GitHub, ECR, AWS, Secret,
 # ConfigMap, namespace or cluster-scoped permissions. The separate
 # preview.enabled foundation must be present before any workload can run.
-# Acceptance verification (preview.verification.enabled, off by default) adds,
+# Acceptance verification (intentController.verification.evaluator, off by default) adds,
 # in each slot, batch jobs (create, get, list, delete: the tester Job),
 # networking.k8s.io networkpolicies (create, get, list, update, delete: one
 # edge policy per part), pods (delete beside list: the sweep removes a tester

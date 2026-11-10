@@ -365,6 +365,19 @@ func TestIngressRefusesExtraPeers(t *testing.T) {
 			want: "admits an ingress peer other than the preview gateway's"},
 		"some Pods only": {policy: slot(`{"podSelector":{"matchLabels":{"app":"web"}},"ingress":[{"from":[` + gw +
 			`]}]}`), want: "selects only some of the slot's Pods"},
+		// The evaluator's split (every Pod but the tool pod) is whole only
+		// beside preview-tools-isolation selecting exactly the tool pod.
+		"the tools split alone": {policy: slot(toolsSplit + `,"ingress":[{"from":[` + gw + `]}]}`),
+			want: "selects only some of the slot's Pods"},
+		"the tools split beside another role's isolation": {policy: slot(toolsSplit + `,"ingress":[{"from":[` +
+			gw + `]}]}`), extra: strings.Replace(toolsIsolation, `"tools"}`, `"tester"}`, 1),
+			want: "selects only some of the slot's Pods"},
+		"the tools split beside an isolation governing no ingress": {policy: slot(toolsSplit +
+			`,"ingress":[{"from":[` + gw + `]}]}`), extra: strings.Replace(toolsIsolation, `"Ingress",`, ``, 1),
+			want: "selects only some of the slot's Pods"},
+		"the tool pod admitting anything": {policy: slot(toolsSplit + `,"ingress":[{"from":[` + gw + `]}]}`),
+			extra: strings.Replace(toolsIsolation, `"policyTypes"`, `"ingress":[{"from":[{"namespaceSelector":{}}]}],`+
+				`"policyTypes"`, 1), want: "preview-tools-isolation admits an ingress peer"},
 		"no ingress governed": {policy: slot(`{"policyTypes":["Egress"],"ingress":[{"from":[` + gw + `]}]}`),
 			want: "does not govern ingress"},
 		"another policy": {policy: gatewayOnlyPolicy, extra: `{"metadata":{"name":"allow-agents"},"spec":` +
@@ -384,18 +397,45 @@ func TestIngressRefusesExtraPeers(t *testing.T) {
 	}
 }
 
-// TestIngressAcceptsTheChartPolicy: the slot policy the chart renders for
-// a gateway-only install passes the script's static check, so the check
-// is no stricter than the chart.
+// toolsSplit is the start of preview-isolation's spec on an evaluator
+// install: every Pod but the slot tool pod; toolsIsolation is the policy the
+// chart renders beside it for the tool pod alone, denying both directions.
+const (
+	toolsSplit = `{"podSelector":{"matchExpressions":[{"key":"maul.run/preview-role","operator":"NotIn",` +
+		`"values":["tools"]}]}`
+	toolsIsolation = `{"metadata":{"name":"preview-tools-isolation"},"spec":{"podSelector":{"matchLabels":` +
+		`{"maul.run/preview-role":"tools"}},"policyTypes":["Ingress","Egress"]}}`
+)
+
+// TestIngressAcceptsTheChartPolicy: the slot policies the chart renders for
+// a gateway-only install, with the agent evaluator off and on (its tool
+// pod's own isolation beside preview-isolation), pass the script's static
+// check, so the check is no stricter than the chart.
 func TestIngressAcceptsTheChartPolicy(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
-	out, err := exec.CommandContext(t.Context(), "helm", "template", "maul", "../../charts/maul", "-n", "maul",
-		"-f", "../testdata/chart-render/intent-controller.yaml",
+	digest := strings.Repeat("1", 64)
+	for name, extra := range map[string][]string{
+		"evaluator off": nil,
+		"evaluator on": {"--set", "intentController.verification.evaluator=true",
+			"--set", "preview.verification.tools.image=ghcr.io/acme/maul/preview-tools@sha256:" + digest,
+			"--set", "preview.verification.tools.browserImage=ghcr.io/acme/maul/preview-browser@sha256:" + digest,
+			"--set", "preview.verification.tools.toolboxImage=ghcr.io/acme/maul/preview-toolbox@sha256:" + digest},
+	} {
+		t.Run(name, func(t *testing.T) { checkChartPolicyPasses(t, extra) })
+	}
+}
+
+// checkChartPolicyPasses renders the gateway-only install with extra and
+// runs the script's static check over maul-preview-0's NetworkPolicies.
+func checkChartPolicyPasses(t *testing.T, extra []string) {
+	t.Helper()
+	out, err := exec.CommandContext(t.Context(), "helm", append([]string{"template", "maul", "../../charts/maul",
+		"-n", "maul", "-f", "../testdata/chart-render/intent-controller.yaml",
 		"-f", "../../cmd/maul/internal/previewsetup/testdata/golden/cloudflare-tunnel-k3s/maul-previews.values.yaml",
 		"--set", "previewAuth.keys.renderOffline=true",
-		"--set", "previewController.config.apiServerCIDR=10.43.0.1/32").Output()
+		"--set", "previewController.config.apiServerCIDR=10.43.0.1/32"}, extra...)...).Output()
 	if err != nil {
 		t.Fatalf("helm template: %v", err)
 	}

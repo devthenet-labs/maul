@@ -47,8 +47,7 @@ const (
 
 // evaluatorEnvArgs renders previews (so the slot names are bound), the
 // intent and preview controllers, and the evaluator on.
-var evaluatorEnvArgs = append(append([]string{}, previewRuntimeArgs...),
-	"--set", "intentController.verification.evaluator=true")
+var evaluatorEnvArgs = append(append([]string{}, previewRuntimeArgs...), evaluatorSwitchArgs...)
 
 // TestEvaluatorLabelsAgainstAPIServer applies the maul-evaluator-labels
 // policies, as the chart renders them with the evaluator on, to a real API

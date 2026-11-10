@@ -255,6 +255,7 @@ func TestVerificationNotDeclared(t *testing.T) {
 // is no such condition.
 func TestVerificationWithoutPreviews(t *testing.T) {
 	e := newVerifyEnv(t, acceptancePlan)
+	e.project.Settings.Verification, e.project.Settings.Previews = true, true
 	e.reconcileProject()
 	if c := meta.FindStatusCondition(e.getProject().Status.Conditions, ConditionVerificationOff); c != nil {
 		t.Fatalf("%s with previews on: %+v", ConditionVerificationOff, c)

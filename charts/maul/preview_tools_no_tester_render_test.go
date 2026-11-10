@@ -15,7 +15,6 @@ import (
 // evaluatorOnlyArgs renders acceptance verification with the agent
 // evaluator on and no tester image: toolsArgs less the tester.
 var evaluatorOnlyArgs = append(append([]string{}, previewRuntimeArgs...),
-	"--set", "preview.verification.enabled=true",
 	"--set", "intentController.verification.evaluator=true",
 	"--set", "preview.verification.tools.image="+toolsImage,
 	"--set", "preview.verification.tools.browserImage="+browserImage,

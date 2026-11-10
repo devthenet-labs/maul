@@ -255,12 +255,17 @@ preview:
     certificateARN: "" # LEGACY: issued wildcard certificate for preview hosts.
     hostSuffix: "" # e.g. preview.example.com, without leading dot.
     albName: "" # LEGACY: distinct from the normal maul ALB.
-    # Acceptance verification (docs/intents/acceptance.md): intent-controller
-    # asks preview-controller to run an intent's approved acceptance
-    # criteria against its live Preview, from a tester Job inside the
-    # Preview's own slot. Off by default. On, it needs previewController and
-    # renders, all fail closed: the tester's exact image beside the preview
-    # prefix in the slot pod image rule; maul-preview-jobs (only
+    # Acceptance verification in the preview slots (docs/intents/evaluator.md):
+    # the agent evaluator (intentController.verification.evaluator) is its
+    # one switch, and with previewController on it renders verification in
+    # the slots: intent-controller asks preview-controller to run the
+    # evaluator's slot tool pod against an intent's live Preview, inside the
+    # Preview's own slot. Off by default. The former switch,
+    # preview.verification.enabled, is removed: set, whatever its value, it
+    # fails the render, naming the key that replaced it
+    # (docs/intents/evaluator.md#migrating-from-slice-1). On, it renders,
+    # all fail closed: the tool pod's (and a set tester's) exact images
+    # beside the preview prefix in the slot pod image rule; maul-preview-jobs (only
     # preview-controller runs a slot Job, once, bounded, labelled, under
     # every slot pod rule); maul-preview-networkpolicies (preview-controller's
     # per-part edge policies admit only pods of the same Preview, by part, on
@@ -272,13 +277,11 @@ preview:
     # create/delete for intent-controller); and the slot quota's Job and
     # NetworkPolicy counts.
     verification:
-        enabled: false
         # The preview-tester image, pinned by digest
         # (<registry>/<path>@sha256:<64 hex>, a tag before the digest
-        # allowed). Required with enabled unless
-        # intentController.verification.evaluator is on (the evaluator needs
-        # no tester; one set beside it is still checked and admitted, and
-        # runs criteria verifications). Admitted in a slot by this exact
+        # allowed). Optional and unused without the evaluator: slice 1's
+        # criteria no longer run, and a later release removes it. Set beside
+        # the evaluator, it is still checked and admitted. Admitted in a slot by this exact
         # reference only, so it must lie neither under the preview image
         # prefix nor under any agent.repositoryImages.registries entry: the
         # render fails otherwise. The release workflow stamps it.
@@ -1273,10 +1276,14 @@ intentController:
     # the evaluator also 8090 on a preview slot's tool pod; no DNS) and
     # leaves both roles out of every other agent egress policy, in every
     # network mode: it needs agent.networkPolicy.create and is refused under
-    # mode istio. With preview.verification on as well (and only then, so
-    # intent-controller is never told to evaluate without previews to
-    # evaluate) it adds the slot tool pod (preview.verification.tools) and
-    # switches both controllers on with the settings below.
+    # mode istio. It is verification's one switch (the former
+    # preview.verification.enabled is removed): with previewController on
+    # as well (and only then, so intent-controller is never told to evaluate
+    # without previews to evaluate) it adds the slot tool pod
+    # (preview.verification.tools) and switches both controllers on with the
+    # settings below; with agents.enabled it also evaluates without
+    # previews. Off, no intent is verified: a Project asking for
+    # verification says it is Off, and each preview is handed over at once.
     verification:
         evaluator: false
         # The hand-off for a Project that does not choose: gated holds the

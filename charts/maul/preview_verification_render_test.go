@@ -19,10 +19,18 @@ import (
 const testerImage = "ghcr.io/devthenet-labs/maul/preview-tester@sha256:" +
 	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+// evaluatorSwitchArgs turn the agent evaluator, verification's one switch
+// (S4), on with its three tool images.
+var evaluatorSwitchArgs = []string{
+	"--set", "intentController.verification.evaluator=true",
+	"--set", "preview.verification.tools.image=" + toolsImage,
+	"--set", "preview.verification.tools.browserImage=" + browserImage,
+	"--set", "preview.verification.tools.toolboxImage=" + toolboxImage,
+}
+
 // verificationArgs renders the preview runtime with acceptance verification
-// on.
-var verificationArgs = append(append([]string{}, previewRuntimeArgs...),
-	"--set", "preview.verification.enabled=true",
+// on: the agent evaluator, with a tester image beside it.
+var verificationArgs = append(append(append([]string{}, previewRuntimeArgs...), evaluatorSwitchArgs...),
 	"--set", "preview.verification.testerImage="+testerImage)
 
 // verificationPolicies are the admission policies verification adds; none
@@ -75,9 +83,10 @@ func TestPreviewVerificationOffRendersNothing(t *testing.T) {
 	}
 }
 
-// TestPreviewVerificationRender: verification on adds exactly the grants
-// §5.8 lists, the three fences, the tester's exact image to the pod and Job
-// image rules (never the Deployments'), and the slice-1 quota.
+// TestPreviewVerificationRender: verification on (the evaluator) adds the
+// grants §5.8 lists, the three fences, and a tester image set beside it to
+// the pod and Job image rules (never the Deployments'). The tool pod's own
+// grants, quota and LimitRange are TestPreviewToolsRender's.
 func TestPreviewVerificationRender(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
@@ -92,16 +101,6 @@ func TestPreviewVerificationRender(t *testing.T) {
 	}
 	if expr := imageRule(t, objs, "maul-preview-deployments"); strings.Contains(expr, "@sha256:") {
 		t.Errorf("the Deployment image rule names an exact image: %s", expr)
-	}
-	for _, q := range kindNamed(objs, "ResourceQuota", "preview-quota") {
-		hard, _, _ := unstructured.NestedStringMap(q.Object, "spec", "hard")
-		want := map[string]string{"pods": "10", "services": "5", "requests.cpu": "1250m",
-			"requests.memory": "1280Mi", "limits.cpu": "2500m", "limits.memory": "2560Mi",
-			"services.loadbalancers": "0", "services.nodeports": "0", "count/ingresses.networking.k8s.io": "4",
-			"count/jobs.batch": "1", "count/networkpolicies.networking.k8s.io": "6"}
-		if !maps.Equal(hard, want) {
-			t.Errorf("%s quota %v, want %v", q.GetNamespace(), hard, want)
-		}
 	}
 }
 
@@ -127,8 +126,8 @@ func checkVerificationPolicies(t *testing.T, objs []*unstructured.Unstructured) 
 	}
 }
 
-// checkVerificationGrants: exactly §5.8's grants, and still no Secret or
-// ConfigMap for preview-controller.
+// checkVerificationGrants: §5.8's grants (the tool pod's Secret and
+// ConfigMap grants beside them are TestPreviewToolsRender's).
 func checkVerificationGrants(t *testing.T, objs []*unstructured.Unstructured) {
 	t.Helper()
 	for _, slot := range []string{"maul-preview-0", "maul-preview-1"} {
@@ -141,11 +140,6 @@ func checkVerificationGrants(t *testing.T, objs []*unstructured.Unstructured) {
 		} {
 			if got[res] != verbs {
 				t.Errorf("%s: preview-controller %s = %q, want %q", slot, res, got[res], verbs)
-			}
-		}
-		for res := range got {
-			if strings.Contains(res, "secrets") || strings.Contains(res, "configmaps") {
-				t.Errorf("%s: preview-controller is granted %s", slot, res)
 			}
 		}
 	}
@@ -174,7 +168,7 @@ func TestPreviewQuotaIsValuesDriven(t *testing.T) {
 		hard, _, _ := unstructured.NestedStringMap(q.Object, "spec", "hard")
 		for k, v := range map[string]string{"pods": "16", "services": "8", "requests.cpu": "2",
 			"limits.memory": "4Gi", "count/jobs.batch": "3", "count/networkpolicies.networking.k8s.io": "12",
-			"services.loadbalancers": "0", "services.nodeports": "0", "limits.cpu": "2500m"} {
+			"services.loadbalancers": "0", "services.nodeports": "0", "limits.cpu": "5"} {
 			if hard[k] != v {
 				t.Errorf("%s quota %s = %q, want %q", q.GetNamespace(), k, hard[k], v)
 			}
@@ -183,24 +177,32 @@ func TestPreviewQuotaIsValuesDriven(t *testing.T) {
 }
 
 // TestPreviewVerificationRenderRefusals: the chart fails to render
-// verification without the controllers it needs or with a tester image that
-// is not digest-pinned or lies under the preview prefix or an agent
-// registry (invariant 17, made symmetric).
+// verification with the removed preview.verification.enabled set, whatever
+// its value and whatever else is set (S4: the evaluator is verification's
+// one switch, and the message names it), or with a tester image that is not
+// digest-pinned or lies under the preview prefix or an agent registry
+// (invariant 17, made symmetric).
 func TestPreviewVerificationRenderRefusals(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
-	on := []string{"--set", "preview.verification.enabled=true"}
+	on := evaluatorSwitchArgs
 	foundation := []string{"-f", "../../hack/testdata/chart-render/preview-foundation.yaml"}
+	const removed = "preview.verification.enabled is removed"
 	for _, tc := range []struct {
 		name string
 		args []string
 		want string
 	}{
-		{"no preview-controller", append(append(append([]string{}, foundation...), on...),
-			"--set", "preview.verification.testerImage="+testerImage), "requires previewController.enabled"},
-		{"no tester image", append(append([]string{}, previewRuntimeArgs...), on...),
-			"preview.verification.testerImage is required"},
+		{"the removed switch, slice 1 alone", append(append([]string{}, previewRuntimeArgs...),
+			"--set", "preview.verification.enabled=true",
+			"--set", "preview.verification.testerImage="+testerImage), removed},
+		{"the removed switch beside the evaluator", append(append([]string{}, verificationArgs...),
+			"--set", "preview.verification.enabled=true"), "intentController.verification.evaluator"},
+		{"the removed switch, false", append(append([]string{}, verificationArgs...),
+			"--set", "preview.verification.enabled=false"), "docs/intents/evaluator.md#migrating-from-slice-1"},
+		{"the removed switch without previews", append(append([]string{}, foundation...),
+			"--set", "preview.verification.enabled=true"), removed},
 		{"tag only", append(append(append([]string{}, previewRuntimeArgs...), on...),
 			"--set", "preview.verification.testerImage=ghcr.io/devthenet-labs/maul/preview-tester:v1"),
 			"must be pinned by digest"},
@@ -306,30 +308,39 @@ func imageRule(t *testing.T, objs []*unstructured.Unstructured, policy string) s
 	return ""
 }
 
-// TestPreviewVerificationControllerConfig: the verification switch reaches
-// both binaries only with preview.verification.enabled. Off (the default)
-// neither ConfigMap carries a verification key, so preview-controller has no
-// tester image and intent-controller never writes a request. On,
-// preview-controller gets the tester image and its deadline bound, and
-// intent-controller --intent-verification with its timeout bound, both from
-// deadlineMaxSeconds: the timeout a request carries can then never exceed
-// the deadline the slot Job admission policy allows.
+// TestPreviewVerificationControllerConfig: the verification settings reach
+// both binaries only with the agent evaluator, verification's one switch.
+// Off (the default) neither ConfigMap carries a verification key, so
+// preview-controller has no tester image and intent-controller never writes
+// a request, even with a stamped tester image. On, preview-controller gets
+// the tester image and its deadline bound, and intent-controller the
+// evaluator with its timeout bound, both from deadlineMaxSeconds: the
+// timeout a request carries can then never exceed the deadline the slot Job
+// admission policy allows. The removed MAUL_INTENT_VERIFICATION, which
+// intent-controller refuses, is never rendered.
 func TestPreviewVerificationControllerConfig(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
 	keys := map[string][]string{
 		"maul-preview-controller-config": {"MAUL_PREVIEW_TESTER_IMAGE", "MAUL_PREVIEW_VERIFY_DEADLINE_MAX"},
-		"maul-intent-controller-config":  {"MAUL_INTENT_VERIFICATION", "MAUL_INTENT_VERIFY_TIMEOUT_MAX"},
+		"maul-intent-controller-config": {"MAUL_INTENT_VERIFICATION", "MAUL_INTENT_VERIFY_TIMEOUT_MAX",
+			"MAUL_INTENT_EVALUATOR"},
 	}
-	off := renderConfigMaps(t, previewRuntimeArgs)
-	for cm, ks := range keys {
-		if _, ok := off[cm]; !ok {
-			t.Fatalf("no ConfigMap %s rendered", cm)
-		}
-		for _, k := range ks {
-			if v, ok := off[cm][k]; ok {
-				t.Errorf("verification off: %s carries %s=%q", cm, k, v)
+	for name, args := range map[string][]string{
+		"default": previewRuntimeArgs,
+		"a stamped tester alone": append(append([]string{}, previewRuntimeArgs...),
+			"--set", "preview.verification.testerImage="+testerImage),
+	} {
+		off := renderConfigMaps(t, args)
+		for cm, ks := range keys {
+			if _, ok := off[cm]; !ok {
+				t.Fatalf("%s: no ConfigMap %s rendered", name, cm)
+			}
+			for _, k := range ks {
+				if v, ok := off[cm][k]; ok {
+					t.Errorf("verification off (%s): %s carries %s=%q", name, cm, k, v)
+				}
 			}
 		}
 	}
@@ -340,14 +351,15 @@ func TestPreviewVerificationControllerConfig(t *testing.T) {
 	}{
 		{"default bound", verificationArgs, "1800s"},
 		{"own bound", append(append([]string{}, verificationArgs...),
-			"--set", "preview.verification.deadlineMaxSeconds=600"), "600s"},
+			"--set", "preview.verification.deadlineMaxSeconds=600",
+			"--set", "intentController.verification.evaluateTimeout=5m"), "600s"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			on := renderConfigMaps(t, tc.args)
 			want := map[string]map[string]string{
 				"maul-preview-controller-config": {"MAUL_PREVIEW_TESTER_IMAGE": testerImage,
 					"MAUL_PREVIEW_VERIFY_DEADLINE_MAX": tc.want},
-				"maul-intent-controller-config": {"MAUL_INTENT_VERIFICATION": "true",
+				"maul-intent-controller-config": {"MAUL_INTENT_EVALUATOR": "true",
 					"MAUL_INTENT_VERIFY_TIMEOUT_MAX": tc.want},
 			}
 			for cm, kv := range want {
@@ -356,6 +368,9 @@ func TestPreviewVerificationControllerConfig(t *testing.T) {
 						t.Errorf("%s %s = %q, want %q", cm, k, got, v)
 					}
 				}
+			}
+			if v, ok := on["maul-intent-controller-config"]["MAUL_INTENT_VERIFICATION"]; ok {
+				t.Errorf("the removed MAUL_INTENT_VERIFICATION rendered (%q): intent-controller refuses it", v)
 			}
 		})
 	}
@@ -369,9 +384,12 @@ func TestPreviewVerificationDeadlineBounds(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
+	// An evaluation round must fit under the deadline, so the round is held
+	// under the least the schema admits: only the schema bound is tested.
 	render := func(v string) ([]byte, error) {
 		all := append(append([]string{"template", "maul", ".", "--namespace", "maul"}, verificationArgs...),
-			"--set", "preview.verification.deadlineMaxSeconds="+v)
+			"--set", "preview.verification.deadlineMaxSeconds="+v,
+			"--set", "intentController.verification.evaluateTimeout=30s")
 		return exec.CommandContext(t.Context(), "helm", all...).CombinedOutput()
 	}
 	for _, v := range []string{"59", "3601"} {

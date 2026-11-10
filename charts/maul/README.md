@@ -219,10 +219,13 @@ separate ALB and the wildcard DNS record are staged with the infrastructure, in 
 
 ## Agent evaluator (opt-in, off by default)
 
-`intentController.verification.evaluator: true` switches acceptance verification from slice 1's criteria to the agent
-evaluator: plans state outcomes in plain words, and an agent run explores each intent's live preview through a slot tool
-pod, writes its own checks, and holds the preview link until it has confirmed them (see
-[The agent evaluator](../../docs/intents/evaluator.md)). Off, nothing of it renders. On, the chart renders:
+`intentController.verification.evaluator: true` is acceptance verification's one switch: plans state outcomes in plain
+words, and an agent run explores each intent's live preview through a slot tool pod, writes its own checks, and holds
+the preview link until it has confirmed them (see [The agent evaluator](../../docs/intents/evaluator.md)). Off, nothing
+of it renders and no intent is verified: a Project that asks for verification says it is Off, and each preview is handed
+over at once. Slice 1's criteria no longer run: the former `preview.verification.enabled` is removed, and set, whatever
+its value, it fails the render naming this key
+([migrating from slice 1](../../docs/intents/evaluator.md#migrating-from-slice-1)). On, the chart renders:
 
 - the `maul-evaluator-labels` admission policies: `maul.run/role` (`evaluator`, `checkreview`) and
   `maul.run/preview-verification` on an agents-namespace Job only from intent-controller, role `tools` on a preview-slot
@@ -231,8 +234,9 @@ pod, writes its own checks, and holds the preview link until it has confirmed th
 - the evaluator's and check reviewer's own egress policies (the broker; the evaluator also port 8090 on its own slot
   tool pod; no DNS), with both roles left out of every other agent egress policy in every network mode. It therefore
   needs `agent.networkPolicy.create` and is refused under `agent.networkPolicy.mode: istio`;
-- with `preview.verification.enabled` as well, and only then: the slot tool pod's images, admission, isolation policy,
-  grants and larger slot quota, and both controllers switched on with the settings below.
+- with `previewController.enabled` as well, and only then: verification in the preview slots (the request channel and
+  its fences), the slot tool pod's images, admission, isolation policy, grants and larger slot quota, and both
+  controllers switched on with the settings below.
 
 | Value                                                    | Default                     | Meaning                                                                                                                                                                                                                                                                                                                              |
 | -------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -256,14 +260,15 @@ pod, writes its own checks, and holds the preview link until it has confirmed th
 | `intentController.verification.agents.resources.tools`   | `250m`, `256Mi`, `2Gi`      | The relay's `cpu`, `memory` and `ephemeralStorage`, requests and limits alike; prepare and the seeds run with them, so the storage holds both pristine trees                                                                                                                                                                         |
 | `intentController.verification.agents.resources.sandbox` | `1`, `2Gi`, `8Gi`           | Each sandbox's `cpu`, `memory` and `ephemeralStorage`, requests and limits alike. CPU is the build-time lever (a cold Go `std` and `cmd` build took 108 s at 1 CPU, about linear): raise it before `buildTimeoutMax`                                                                                                                 |
 
-The three `preview.verification.tools` images are required with the evaluator and verification on, pinned by digest like
-`testerImage`; the release workflow stamps them. With the evaluator on, `preview.verification.testerImage` is optional:
-left empty, no tester image is admitted in a slot or given to preview-controller. The slot quota then grows by one tool
-pod (about 2.5 CPU and 2 GiB) beside a full Preview, so preview nodes need that room per concurrently evaluated slot.
-Roll back by setting `intentController.verification.evaluator: false`: verification returns to criteria, which needs
-`testerImage` set again. See the
-[preview-controller](../../docs/configuration/preview-controller.md#the-agent-evaluators-tool-pod) for the tool pod's
-grants and policies.
+The three `preview.verification.tools` images are required with the evaluator and previews on, pinned by digest like
+`testerImage`; the release workflow stamps them. `preview.verification.testerImage` is optional and used only with the
+evaluator on: left empty, no tester image is admitted in a slot or given to preview-controller (without the evaluator a
+stamped one is inert). The slot quota grows by one tool pod (about 2.5 CPU and 2 GiB) beside a full Preview, so preview
+nodes need that room per concurrently evaluated slot. Roll back by setting
+`intentController.verification.evaluator: false`: verification is then off, not slice 1's criteria; an open intent's
+`maul/acceptance` becomes the final error "verification switched off", never a green, and its preview link is handed
+over at once. See the [preview-controller](../../docs/configuration/preview-controller.md#the-agent-evaluators-tool-pod)
+for the tool pod's grants and policies.
 
 With `intentController.verification.agents.enabled` the evaluator also runs on Projects with no Preview:
 intent-controller runs one tool pod per round in the agents namespace, the relay beside two sandboxes (`sandbox-head`,

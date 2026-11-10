@@ -132,10 +132,16 @@ type IntentStatusComment struct {
 	// then says so, in fixed words, under the phase.
 	AgentsPaused bool
 	// VerificationNeedsPreviews reports an intent in review of a Project
-	// that verifies while intent-controller runs with --intent-verification
-	// but without --intent-previews-enabled: the comment then says, in fixed
-	// words, that its acceptance criteria are not verified and why.
+	// that verifies against a preview while intent-controller runs the
+	// evaluator without --intent-previews-enabled: the comment then says, in
+	// fixed words, that its acceptance outcomes are not verified and why.
 	VerificationNeedsPreviews bool
+	// VerificationNeedsEvaluator reports an intent in review of a Project
+	// that verifies while intent-controller runs without the agent evaluator
+	// (--intent-evaluator), verification's one switch: the comment then
+	// says, in fixed words, that its acceptance outcomes are not verified and
+	// its preview is handed over at once.
+	VerificationNeedsEvaluator bool
 	// FixingChecks reports a Revising intent whose round failed checks
 	// started rather than review feedback: the phase's sentence then says
 	// so.
@@ -239,6 +245,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		PullRequests     []statusPR
 		Preview          *statusPreview
 		NoVerification   bool
+		NoEvaluator      bool
 		Revisions        int32
 		MaxRevisions     int32
 		Cost             string
@@ -261,6 +268,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		PullRequests:     prs,
 		Preview:          renderStatusPreview(c.Preview),
 		NoVerification:   c.VerificationNeedsPreviews,
+		NoEvaluator:      c.VerificationNeedsEvaluator,
 		Revisions:        c.Revisions,
 		MaxRevisions:     c.MaxRevisions,
 		Cost:             usd(c.CostMicroUSD),

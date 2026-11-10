@@ -152,7 +152,7 @@
 //	                     first terminal event); agentshost.Sweeper deletes
 //	                     orphans (role tools, never by kind)
 //
-// With --intent-verification, status.acceptance and status.verification are
+// With verification on, status.acceptance and status.verification are
 // the IntentReconciler's like the rest of Intent status (verify_loop.go): the
 // approved plan's criteria recorded once per approved revision from the plan
 // bytes re-read under the approval's digest, and the verification of the

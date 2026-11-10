@@ -98,7 +98,7 @@ func (p *pass) settleVerifyIssue(ctx context.Context, a humanAction) error {
 		return p.notAllowed(ctx, a, bot, false, false)
 	}
 	if !p.set.Verification || !verifyPhase(p.in.Status.Phase) {
-		// With --intent-verification off nothing of acceptance is written.
+		// With verification (the evaluator) off nothing of acceptance is written.
 		return p.notAvailable(ctx, a, p.in.Status.Phase, false)
 	}
 	body := ""

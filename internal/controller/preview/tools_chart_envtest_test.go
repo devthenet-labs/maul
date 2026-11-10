@@ -45,7 +45,6 @@ var chartToolValues = []string{
 	"-f", "../../../hack/testdata/chart-render/preview-foundation.yaml",
 	"-f", "../../../hack/testdata/chart-render/intent-controller.yaml",
 	"-f", "../../../hack/testdata/chart-render/preview-controller.yaml",
-	"--set", "preview.verification.enabled=true",
 	"--set", "preview.verification.testerImage=ghcr.io/devthenet-labs/maul/preview-tester@sha256:" +
 		strings.Repeat("4", 64),
 	"--set", "intentController.verification.evaluator=true",
