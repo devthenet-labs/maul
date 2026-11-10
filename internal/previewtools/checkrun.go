@@ -369,7 +369,7 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 		if !asserted {
 			return fail(markedWithoutID)
 		}
-		return fail("the program printed its assertion marker")
+		return fail(markedDetail(res.Output, marker))
 	case res.Truncated:
 		// A marker past the cut would be lost (PR #320 review F3): a
 		// truncated run is never a pass, nor a fail of the outcome.

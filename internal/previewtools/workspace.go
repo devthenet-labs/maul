@@ -637,7 +637,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 		if !asserted {
 			return fail(markedWithoutID, "")
 		}
-		return fail("the program printed its assertion marker", "marker "+id)
+		return fail(markedDetail(res.Output, marker), "marker "+id)
 	}
 	switch {
 	case res.Truncated:
@@ -669,6 +669,40 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 		}
 	}
 	return []toolwire.StepRecord{{Result: toolwire.ResultPass}}
+}
+
+// maxMarkedBytes bounds the program's own words a marked run's detail
+// keeps, well inside a step record's detail bound.
+const maxMarkedBytes = 1 << 10
+
+// markedDetail is the detail of a run whose program printed marker: maul's
+// words, then what the program printed after the marker on each such line
+// (its own evidence, such as the value it observed; gate D-B1), joined by
+// "; ", valid UTF-8 and cut to maxMarkedBytes. The marker is never kept.
+// The program's words are data, which every reader of a detail shows as
+// untrusted.
+func markedDetail(output, marker string) string {
+	const words = "the program printed its assertion marker"
+	var said []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if rest, ok := strings.CutPrefix(line, marker); ok {
+			if rest = strings.TrimSpace(strings.ReplaceAll(rest, marker, "")); rest != "" {
+				said = append(said, rest)
+			}
+		}
+	}
+	if len(said) == 0 {
+		return words
+	}
+	s := strings.ToValidUTF8(strings.Join(said, "; "), "�")
+	if len(s) > maxMarkedBytes {
+		cut := maxMarkedBytes
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = s[:cut]
+	}
+	return words + ": " + s
 }
 
 // baseUnbuiltRun is the base run of check c when the base did not build:

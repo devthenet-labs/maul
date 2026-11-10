@@ -177,13 +177,15 @@ func TestExecAssertionFailures(t *testing.T) {
 // TestExecLongAssertionID (gate D-B2, PV bbcount-74-v2-a1): a marker id
 // longer than 32 characters still makes the run red by assertion, up to
 // checks.MaxExecAssertionIDLen; one past it is a fail whose detail tells
-// the evaluator its marker named no valid id. %M is the attempt's marker.
+// the evaluator its marker named no valid id. A valid id's detail keeps the
+// program's line (gate D-B1). %M is the attempt's marker.
 func TestExecLongAssertionID(t *testing.T) {
 	const long = "first-json-is-usage-error-first-alone"
 	for _, tc := range []struct {
 		name, out, id, detail string
 	}{
-		{"37 characters", "%M " + long + ": exit 0\n", "marker " + long, "the program printed its assertion marker"},
+		{"37 characters", "%M " + long + ": exit 0\n", "marker " + long,
+			"the program printed its assertion marker: " + long + ": exit 0"},
 		{"past the bound", "%M " + strings.Repeat("a", checks.MaxExecAssertionIDLen+1) + ": x\n", "",
 			markedWithoutID},
 		{"no id", "%M the stake was 1\n", "", markedWithoutID},
@@ -250,6 +252,27 @@ func TestExecMarkerFailsTheCheck(t *testing.T) {
 				t.Errorf("assertion id %q, want marker header-present", rec.FailedAssertionID())
 			}
 		})
+	}
+}
+
+// TestExecMarkerKeepsTheProgramsLine (gate D-B1): a slot exec check failed
+// by its marker keeps the program's own line beside maul's words, never
+// the marker itself.
+func TestExecMarkerKeepsTheProgramsLine(t *testing.T) {
+	var marker string
+	ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {
+		marker = attemptMarker(t, req)
+		return toolexec.Result{Exit: 1, Output: "GET /x 200\n" + marker + " header-present: no X-Duration-Ms\n"}, nil
+	}}
+	h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
+	rec := h.relay.runCheck(context.Background(), parseCheck(t, markedExecCheck), toolwire.ModeDryRun)
+	if rec.Result != toolwire.RunFail || rec.FailedAssertionID() != "marker header-present" {
+		t.Fatalf("got %+v, want a fail by marker header-present", rec)
+	}
+	d := rec.Attempts[1].Steps[0].Detail
+	if !strings.Contains(d, "the program printed its assertion marker") ||
+		!strings.Contains(d, "header-present: no X-Duration-Ms") || strings.Contains(d, marker) {
+		t.Errorf("detail %q, want maul's words and the program's line without its marker", d)
 	}
 }
 

@@ -37,4 +37,4 @@ Steps to reproduce (a Go program built against the pull request's tree):
 
 Observed on the failing run (the check runner's messages, which can quote the application):
 
-- attempt 1, step 1: failed: `parse: got 3`
+- attempt 1, step 1: failed: ``the program printed its assertion marker: parse: Parse returned 3, want 2 `@octocat` fixes #3``

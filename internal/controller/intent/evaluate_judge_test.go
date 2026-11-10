@@ -20,7 +20,24 @@ import (
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
+
+// TestFailedStepsKeepTheProgramsLine (gate D-B1): the app output a failure
+// shows carries what a marked program printed, attempt by attempt, as the
+// step's detail recorded it.
+func TestFailedStepsKeepTheProgramsLine(t *testing.T) {
+	const d = "the program printed its assertion marker: busy-full: Busy returned 45, want 48"
+	step := toolwire.StepRecord{Result: toolwire.ResultFail, Detail: d, Assertion: true,
+		AssertionID: "marker busy-full"}
+	r := &toolwire.CheckRunRecord{Result: toolwire.RunFail, Attempts: []toolwire.Attempt{
+		{Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{step}},
+		{Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{step}}}}
+	want := "attempt 1, step 1: " + d + "\nattempt 2, step 1: " + d
+	if got := failedSteps(r); got != want {
+		t.Errorf("failedSteps = %q, want %q", got, want)
+	}
+}
 
 // outcomesPlan's outcomes, as Decide answers for them.
 const (

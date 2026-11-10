@@ -218,7 +218,10 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      never a pass. A run whose output is cut at its 64 KiB bound is never a pass either (a marker past the cut would be
      lost): it errs, unless a marker was kept. An exit code alone, a crash, `127` or a traceback never makes a check red
      by assertion. Neither does a marker line with no valid id after it: the run fails, and its detail says the marker
-     named no valid assertion id, so the evaluator can rename it.
+     named no valid assertion id, so the evaluator can rename it. On a valid id, what the program printed after its
+     marker (`<id>: <what it saw>`, each such line, the marker itself left out, at most 1 KiB) is kept in the failing
+     step's message, so the issue, the pull request and the reproduction show the value the program observed, as the
+     application's data.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
      or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
      `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,
