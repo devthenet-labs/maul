@@ -235,7 +235,7 @@ func (p *pass) guardVerifyFix(ctx context.Context, pv *v1alpha1.PreviewVerificat
 // when one is due (startVerifyFix), and last the verification's gate
 // (startVerification).
 func (p *pass) startVerifyWork(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
-	if p.set.Verification && p.verifies() && (verifyWorkPending(p.in.Status.Verification) || p.linkHeld()) {
+	if p.verifies() && p.mode() != modeMismatch && (verifyWorkPending(p.in.Status.Verification) || p.linkHeld()) {
 		if wrote, pending, err := p.releaseForHuman(ctx, prs); wrote || pending || err != nil {
 			// The human's round starts once its quiet window ends, on a
 			// later poll; a held preview link is released now.

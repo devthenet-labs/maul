@@ -80,17 +80,20 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 		return changed, err
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	if !p.acceptanceCurrent() || v == nil {
+	if v == nil {
+		return false, nil
+	}
+	switch p.mode() {
+	case modeNone:
 		// Criteria on record from another plan revision are never run
 		// against the approved one's code.
 		return false, nil
-	}
-	if !p.verifies() || p.outcomesUnevaluated() {
+	case modeOff, modeMismatch:
 		return p.switchedOff(ctx)
-	}
-	if p.set.evaluates(p.proj) {
+	case modeOutcomes:
 		// The agent evaluator's outcomes: its own rounds (evaluate_round.go).
 		return p.syncEvaluation(ctx)
+	case modeCriteria:
 	}
 	if len(automatable(acc.Criteria)) == 0 {
 		// Nothing runs, but an approver's acceptance binds to the head set,
@@ -131,7 +134,7 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 // (stopUnreadable): the criteria on record, if any, are another revision's.
 func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 	ap := p.in.Status.Approval
-	if p.acceptanceCurrent() {
+	if p.mode() != modeNone {
 		return false, nil
 	}
 	rec, err := p.approvedAcceptance(ctx, ap)
@@ -167,29 +170,6 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 	})
 }
 
-// acceptanceCurrent reports that the criteria on record are the approved
-// plan revision's: the only ones anything is verified or accepted against.
-// Under the agent evaluator, criteria slice 1 recorded are not: they are
-// read again (syncAcceptance), so an open intent approved before the
-// evaluator was switched on is asked for a replan.
-func (p *pass) acceptanceCurrent() bool {
-	acc, ap := p.in.Status.Acceptance, p.in.Status.Approval
-	return acc != nil && ap != nil && acc.PlanRevision == ap.PlanRevision &&
-		(len(acc.Criteria) == 0 || !p.set.evaluates(p.proj))
-}
-
-// outcomesUnevaluated reports an approved plan's outcomes on record while
-// the agent evaluator does not verify the Project (review CX-1: switched
-// off after they were recorded, the documented rollback). Slice 1's
-// criteria path would find nothing to run and read the outcomes as all
-// manual; nothing evaluates them, so the intent is Off (switchedOff) and
-// its maul/acceptance the switched-off error until the evaluator is back
-// (resumeOff) or a plan stating criteria is approved.
-func (p *pass) outcomesUnevaluated() bool {
-	acc := p.in.Status.Acceptance
-	return acc != nil && len(acc.Outcomes) > 0 && !p.set.evaluates(p.proj)
-}
-
 // atHeads reports that v is about the heads the Intent's tool host derives
 // from its records now (toolHost.heads, as its rounds derive them): only
 // then is v's judgement reported (review SM-1). A pull request's head is
@@ -213,7 +193,7 @@ func (p *pass) atHeads(v *v1alpha1.IntentVerification) bool {
 // reasonCriteriaReplan). The verification and the condition say which.
 func (p *pass) verifyStopped() string {
 	v := p.in.Status.Verification
-	if p.acceptanceCurrent() || v == nil || v.State != v1alpha1.VerificationUnavailable {
+	if p.mode() != modeNone || v == nil || v.State != v1alpha1.VerificationUnavailable {
 		return ""
 	}
 	c := meta.FindStatusCondition(p.in.Status.Conditions, v1alpha1.ConditionVerifyFailing)
@@ -288,7 +268,7 @@ func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApprov
 		if err != nil {
 			return nil, err
 		}
-		return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision, Digest: acceptance.Digest(nil),
+		return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision, Digest: emptyCriteriaDigest,
 			Outcomes: outcomes, OutcomesDigest: acceptance.OutcomesDigest(parsed.Outcomes)}, nil
 	}
 	criteria, err := crdconv.CriteriaToCRD(acceptance.Normalize(parsed.Acceptance))
@@ -749,15 +729,16 @@ func (j judgement) apply(v *v1alpha1.IntentVerification) {
 // heads and every named check is green, and creates the PreviewVerification;
 // otherwise it records what it waits for.
 func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
-	if !p.set.Verification || !p.verifies() {
-		return false, nil
-	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	if !p.acceptanceCurrent() || v == nil {
+	if v == nil {
 		return false, nil
 	}
-	if p.set.evaluates(p.proj) {
+	switch p.mode() {
+	case modeOutcomes:
 		return p.startEvaluation(ctx, prs)
+	case modeCriteria:
+	default:
+		return false, nil
 	}
 	criteria := automatable(acc.Criteria)
 	hs, ok := previewHeadSet(p.proj, p.in)

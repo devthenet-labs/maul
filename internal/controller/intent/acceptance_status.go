@@ -82,7 +82,8 @@ func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
 	if !verifyPhase(p.in.Status.Phase) {
 		return acceptanceState{}, false, false
 	}
-	if !p.set.Verification || !p.verifies() || p.outcomesUnevaluated() {
+	if !p.verifies() || p.mode() == modeMismatch {
+		// Not verified, or a record nothing verifies now (CX-1).
 		return switchedOff, true, true
 	}
 	if !p.verifyReported() {

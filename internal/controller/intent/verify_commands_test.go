@@ -758,7 +758,12 @@ func TestAcceptAll(t *testing.T) {
 		t.Errorf("reply = %s", body)
 	}
 
-	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Acceptance.Criteria = nil })
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		// As syncAcceptance records a plan declaring none: the empty
+		// list's digest. Criteria dropped under any other digest are a
+		// pruned criteria-era record (TestPrunedCriteriaRecordIsNeverAcceptance).
+		in.Status.Acceptance.Criteria, in.Status.Acceptance.Digest = nil, emptyCriteriaDigest
+	})
 	all := e.gh.comment(approver, "/maul accept all")
 	e.settleActions(name)
 	got := e.get(name).Status.Acceptance.Accepted
