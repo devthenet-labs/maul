@@ -308,6 +308,16 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		n.Stands = standingJudgement(&cur)
 		return n, nil
 	}
+	if !args.Reset && !fixesStanding(args, &cur) && p.previewExpired(ctx, cur.Reset.Generation) {
+		// Nothing deploys the preview again at these commits: say so now
+		// rather than acknowledge a wait for nothing (gate D-B5). A reset
+		// changes the Preview's spec, which deploys it again, and so does
+		// the push of a fix round a fix request starts from a failing
+		// judgement (fixesStanding).
+		n.Outcome, n.NotRunWhy, n.Fix = templates.VerifyNotRun, templates.NotRunPreviewExpired, args.Fix
+		n.Stands = standingJudgement(&cur)
+		return n, nil
+	}
 	if most := p.proj.Spec.Limits.MaxVerificationsLimit(); cur.Automatic >= most {
 		// A request bypasses the interval, never the cap: the gate would
 		// drop it unrun, so it is not recorded and the reply says why.
@@ -347,6 +357,15 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	n.Joined = waiting != nil
 	n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 	return n, nil
+}
+
+// fixesStanding reports whether a /maul verify fix re-arms automatic fixes
+// over a failing judgement on record, from which startVerifyFix starts a
+// fix round without a new evaluation: its push deploys an expired preview
+// again, so the request is recorded as before. Should no round start, the
+// gate answers the request then (waitPreview).
+func fixesStanding(args command.VerifyArgs, v *v1alpha1.IntentVerification) bool {
+	return args.Fix && v.State == v1alpha1.VerificationFailing && standingJudgement(v) != 0
 }
 
 // confirmSuspected records an approver's /maul verify fix as the

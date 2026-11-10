@@ -109,6 +109,21 @@ func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
 // the pull requests' now.
 var headsMoved = acceptanceState{statusPending, "combined change moved: re-verifying"}
 
+// movedSinceJudged reports whether a verification waiting for a new round
+// waits because the combined change moved (gate D-B5), so its status may
+// say so; otherwise it says only what it waits for. Under outcomes, only
+// when outcomes were judged at a head set other than the recorded one: a
+// request at the judged heads, an infrastructure retry or a resume from
+// Off moves nothing. Under criteria, which record no judged head set,
+// unless an approver's request waits on a round still referenced (a move
+// supersedes the reference, syncHeadSet).
+func movedSinceJudged(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
+	if len(acc.Outcomes) > 0 {
+		return v.OutcomesHeadSetDigest != "" && v.OutcomesHeadSetDigest != v.HeadSetDigest
+	}
+	return v.Ref == nil || v.Requested == nil
+}
+
 // verifyingStatus is the status of a verifying intent's recorded
 // verification; ok is false in a state it is about to leave (none yet, or
 // Off on a Project that verifies again).
@@ -126,7 +141,7 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationNotDeclared:
 		return notCheckedStatus(acc, v), true
 	case v1alpha1.VerificationWaitingForCI, v1alpha1.VerificationWaitingForPreview:
-		if v.Round > 0 {
+		if v.Round > 0 && movedSinceJudged(acc, v) {
 			return headsMoved, true
 		}
 		if v.State == v1alpha1.VerificationWaitingForCI {

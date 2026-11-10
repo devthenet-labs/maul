@@ -474,6 +474,53 @@ func TestResetGenerationRestartsComponents(t *testing.T) {
 	}
 }
 
+// An Expired Preview is not deployed again at an unchanged spec, but a
+// reset, a new spec at the same heads, deploys it again: what intent-
+// controller's answer to a /maul verify on an expired preview says (gate
+// D-B5).
+func TestResetDeploysAnExpiredPreviewAgain(t *testing.T) {
+	at := time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC)
+	in, p := verifyPreview(t, at)
+	e := newTestEnv(t, verifyProject(), in, p)
+	e.r.Settings = verifySettings()
+	p = e.untilSlot(p.Name)
+	e.step(p.Name)
+	e.markReady(p, 0)
+	e.markReady(p, 1)
+	if p = e.step(p.Name); p.Status.Phase != v1alpha1.PreviewReady {
+		t.Fatalf("status = %+v, want Ready", p.Status)
+	}
+	e.now = at.Add(73 * time.Hour)
+	if p = e.step(p.Name); p.Status.Phase != v1alpha1.PreviewExpired {
+		t.Fatalf("phase = %s, want Expired", p.Status.Phase)
+	}
+	for range 4 {
+		p = e.step(p.Name)
+	}
+	if p.Status.Phase != v1alpha1.PreviewExpired {
+		t.Fatalf("status at an unchanged spec = %+v, want Expired", p.Status)
+	}
+	ctx := context.Background()
+	var live v1alpha1.Intent
+	if err := e.c.Get(ctx, client.ObjectKeyFromObject(in), &live); err != nil {
+		t.Fatal(err)
+	}
+	live.Status.Verification = &v1alpha1.IntentVerification{Reset: v1alpha1.ResetState{Generation: 1}}
+	if err := e.c.Status().Update(ctx, &live); err != nil {
+		t.Fatal(err)
+	}
+	p.Spec.ResetGeneration = 1
+	p.Generation++
+	if err := e.c.Update(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	p = e.step(p.Name)
+	if (p.Status.Phase != v1alpha1.PreviewPending && p.Status.Phase != v1alpha1.PreviewDeploying) ||
+		p.Status.ObservedGeneration != p.Generation || p.Status.LastDeployedAt != nil {
+		t.Fatalf("status after a reset = %+v, want it deployed again", p.Status)
+	}
+}
+
 func reconcileRequest(name string) ctrl.Request {
 	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: name}}
 }

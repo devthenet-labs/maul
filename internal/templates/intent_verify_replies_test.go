@@ -167,6 +167,11 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.Key, n.NotRunWhy, n.Stands, n.Superseded = "verify-unrun-4431", NotRunTree, 2, true
 			return n
 		}()},
+		{"intent_notice_verify_not_run_preview_expired.md", func() VerifyCommandNotice {
+			n := base(VerifyNotRun, "verify")
+			n.NotRunWhy, n.Stands = NotRunPreviewExpired, 3
+			return n
+		}()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -202,6 +207,7 @@ func TestVerifyNoticeNamesNobody(t *testing.T) {
 func TestVerifyNotRunSaysWhy(t *testing.T) {
 	for _, why := range []string{NotRunNotEnabled, NotRunToolPodOff, NotRunSurfaceCombination, NotRunPreviewsOff,
 		NotRunHarnessUnverified, NotRunNothingToCheck, NotRunSandboxImage, NotRunTree, NotRunBudget, NotRunCap,
+		NotRunPreviewExpired,
 		"<b>bogus</b>"} {
 		got, err := RenderVerifyCommandNotice(VerifyCommandNotice{Namespace: "maul", Intent: "target-1",
 			Key: "verify-unrun-1", Actor: "@octocat", Verb: "verify", Outcome: VerifyNotRun, NotRunWhy: why})
