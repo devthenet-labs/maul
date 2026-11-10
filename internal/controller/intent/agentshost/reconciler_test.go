@@ -492,6 +492,40 @@ func TestCollectReplayCutShort(t *testing.T) {
 	}
 }
 
+// TestCollectKeptCopyFailed (VC-2 follow-up): a relay that finished
+// because a sandbox could not keep a built tree is Infra kept-copy-failed
+// on either rung, never judged nor read as an evaluator that did not run.
+func TestCollectKeptCopyFailed(t *testing.T) {
+	for _, rung := range []v1alpha1.VerificationRung{v1alpha1.RungFull, v1alpha1.RungReplay} {
+		t.Run(string(rung), func(t *testing.T) {
+			w := newWorld(t)
+			if rung == v1alpha1.RungReplay {
+				c, err := checks.Parse([]byte(checkBody))
+				if err != nil {
+					t.Fatal(err)
+				}
+				store := "sha256:" + strings.Repeat("c", 64)
+				w.pv.Spec.Rung, w.pv.Spec.ChecksDigest = v1alpha1.RungReplay, store
+				w.pv.Spec.Checks = []v1alpha1.SavedCheck{{ID: c.ID, Outcome: c.Outcome,
+					Form: v1alpha1.CheckForm(c.Form), Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}}
+				w.intent.Status.Acceptance.Checks = &v1alpha1.CheckStoreRef{ConfigMap: intentName + "-checks-1",
+					Digest: store, Count: 1}
+			}
+			h := running(t, w)
+			log, msg := toolsLog(t, ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt,
+				relayFinish: previewtools.FinishKeptCopyFailed})
+			finish(h.tools.job, h.now)
+			h.tools.pod, h.tools.log = terminated(readyPod(), msg), log
+			h.reconcile(t)
+			pv := h.pv(t)
+			if pv.Status.Phase != v1alpha1.VerificationInfra ||
+				pv.Status.Reason != v1alpha1.VerificationReasonKeptCopyFailed {
+				t.Fatalf("status = %s %s, want Infra kept-copy-failed", pv.Status.Phase, pv.Status.Reason)
+			}
+		})
+	}
+}
+
 // TestSandboxUnenforced: prepare's exit 78 is sandbox-unenforced and trips
 // the breaker, so no later launch copies a repository image.
 func TestSandboxUnenforced(t *testing.T) {

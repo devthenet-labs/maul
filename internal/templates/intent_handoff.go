@@ -105,7 +105,8 @@ func HandoffWhyOfVerification(reason v1alpha1.PreviewVerificationReason) string 
 		return HandoffWhyTree
 	case v1alpha1.VerificationReasonSandboxUnenforced:
 		return HandoffWhySandbox
-	case v1alpha1.VerificationReasonToolsEvicted, v1alpha1.VerificationReasonToolsDeadline:
+	case v1alpha1.VerificationReasonToolsEvicted, v1alpha1.VerificationReasonToolsDeadline,
+		v1alpha1.VerificationReasonKeptCopyFailed:
 		return HandoffWhyUnavailable
 	case v1alpha1.VerificationReasonReplayIncomplete:
 		return HandoffWhyReplay

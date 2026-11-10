@@ -1706,6 +1706,7 @@ spec:
                 - tools-deadline
                 - tools-refused
                 - replay-incomplete
+                - kept-copy-failed
                 type: string
               replay:
                 description: |-

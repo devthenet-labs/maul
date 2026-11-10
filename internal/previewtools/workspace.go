@@ -317,6 +317,7 @@ func (r *Relay) buildTrees(ctx context.Context) {
 	r.headBuilt = head.args.Result == maulv1.BuildBuilt
 	r.baseBuilt = base.args.Result == maulv1.BuildBuilt
 	r.baseUnbuildable = base.args.Result == maulv1.BuildFailed
+	r.keptCopyFailed = (r.headBuilt && head.res.KeepFailed) || (r.baseBuilt && base.res.KeepFailed)
 }
 
 // ledgerTail is a build's output as its entry can hold it: a build's tail

@@ -382,6 +382,7 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 	}
 	if req.build() && res.Exit == 0 && !res.TimedOut && !res.Unclean {
 		if err := s.keep(); err != nil {
+			res.KeepFailed = true
 			res.Output += "\nmaul: the build's tree and output could not be kept, so no check can run: " + err.Error()
 		}
 	}

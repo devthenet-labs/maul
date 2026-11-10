@@ -120,3 +120,30 @@ func TestWorkspaceFreshRefused(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkspaceKeepFailed (VC-2 follow-up): a build that built but whose
+// tree and output could not be kept says so in its Result, beside its
+// output's note, so the relay can tell maul's trouble from the build's;
+// a build whose copy was kept does not.
+func TestWorkspaceKeepFailed(t *testing.T) {
+	tests := []struct {
+		name, build string
+		keepFailed  bool
+	}{
+		{"kept", "echo gen > gen.txt", false},
+		// The copy refuses a fifo (errSpecial), as it fails on ENOSPC.
+		{"a fifo in the tree", "mkfifo pipe", true},
+		{"the build failed", "mkfifo pipe; exit 1", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, ws := newWorkspace(t)
+			writable(t, ws.work)
+			got := s.Do(context.Background(), &Request{Kind: KindBuild, Argv: []string{"sh", "-c", tc.build},
+				Env: pathEnv()})
+			if got.KeepFailed != tc.keepFailed {
+				t.Fatalf("keep failed %v, want %v: %+v", got.KeepFailed, tc.keepFailed, got)
+			}
+		})
+	}
+}

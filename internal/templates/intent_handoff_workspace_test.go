@@ -175,6 +175,7 @@ func TestHandoffWhyOfVerification(t *testing.T) {
 		{v1alpha1.VerificationReasonToolsEvicted, HandoffWhyUnavailable},
 		{v1alpha1.VerificationReasonToolsDeadline, HandoffWhyUnavailable},
 		{v1alpha1.VerificationReasonReplayIncomplete, HandoffWhyReplay},
+		{v1alpha1.VerificationReasonKeptCopyFailed, HandoffWhyUnavailable},
 		{v1alpha1.VerificationReasonToolPodsSaturated, ""},
 		{v1alpha1.VerificationReasonOK, ""},
 		{"@octocat", ""},

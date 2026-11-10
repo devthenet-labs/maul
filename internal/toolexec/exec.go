@@ -61,6 +61,11 @@ type Result struct {
 	// NetError reports, from a workspace shim, that the output names a bind
 	// or connection error (NetError).
 	NetError bool `json:"netError,omitempty"`
+	// KeepFailed reports, from a workspace shim, a build that built whose
+	// tree and output could not be kept (a full volume, a file the copy
+	// cannot make): no check run can start from it, which is maul's
+	// trouble, never the tree's.
+	KeepFailed bool `json:"keepFailed,omitempty"`
 }
 
 // Options configures a Server.
