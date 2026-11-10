@@ -425,7 +425,9 @@ budget and the 20 minutes. Raise the cost budget and the timeout before the turn
   only in fenced blocks labelled as the application's, and the evaluator's own words (an anomaly, a note) are marked as
   its words, not checked by maul. Results are shown only for the round that decided them, at the heads it checked: a
   round that settles without a judgement (its attempts all failed, or maul's own build of the head did not finish) lists
-  every outcome as `unsure`, with no earlier round's results, and a push clears them until the new heads are judged.
+  every outcome as `unsure`, with no earlier round's results, and a push clears them until the new heads are judged:
+  from the pass that sees the push, the status comment and the sticky comments read "maul is checking the new commits"
+  with no result, and the last round's verification comment is left as it stood, about the heads it checked.
 - **In the cluster.** Each round is a `PreviewVerification` in the release namespace
   (`kubectl get previewverifications -l maul.run/intent=<intent>`; maul keeps the newest three per intent). Its
   `status.ledger` indexes every tool call; its `status.tools` names the round's tool pod. The full ledger is in the

@@ -75,6 +75,10 @@ const (
 	// VerifyUnconfirmed: the evaluation settled without confirming every
 	// outcome.
 	VerifyUnconfirmed = "unconfirmed"
+	// VerifyHeadsMoved: the pull requests moved past the commits the last
+	// result was about, so no result is shown until maul checks the new
+	// ones (review SM-1).
+	VerifyHeadsMoved = "heads-moved"
 )
 
 // Automatic fix states.
@@ -168,6 +172,9 @@ func verifyRestingLine(state string) (line string, whole bool) {
 			"not run. " + startOver(), true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
+	case VerifyHeadsMoved:
+		return "The pull requests moved to new commits: maul is checking the new commits, and the last result, " +
+			"about earlier commits, is not shown.", true
 	case VerifyPreviewNotLive:
 		return "Verification unavailable: the preview did not become live at the pull requests' heads in time, so " +
 			"the checks could not run. Verification resumes once the preview is live; `kubectl get preview` " +

@@ -120,3 +120,93 @@ func TestReportersRefuseAJudgementAtOtherHeads(t *testing.T) {
 		t.Errorf("hand-off with the head moved = %+v, want not ready", h)
 	}
 }
+
+// movedHeadsChecks: with the pull request's head moved past the judged
+// heads (recorded on the pull request alone), no comment presents the old
+// round's result as current: the status comment's progress and every
+// verification section read "checking the new commits" and carry no
+// result, and the issue's verification comment is neither posted nor
+// edited while the heads differ (review SM-1). judged is the word the old
+// result is shown by.
+func (e *env) movedHeadsChecks(name, judged string) {
+	e.t.Helper()
+	t := e.t
+	round := e.verification(name).Round
+	before := e.verifyComments(name, round)
+	moved := strings.Repeat("b", 40)
+	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.PullRequests[0].HeadSHA = moved })
+	p := e.prVerifyPass(name)
+	if prog := p.verifyProgress(); prog == nil || prog.State != templates.VerifyHeadsMoved || prog.Total != 0 {
+		t.Errorf("progress with the head moved = %+v, want %s and no counts", prog, templates.VerifyHeadsMoved)
+	}
+	for _, pr := range []*v1alpha1.IntentPullRequest{nil, &p.in.Status.PullRequests[0]} {
+		s := p.verifySection(context.Background(), pr)
+		if s == nil {
+			t.Fatal("no verification section")
+		}
+		if s.Progress.State != templates.VerifyHeadsMoved || len(s.Criteria) != 0 || len(s.Outcomes) != 0 ||
+			len(s.Logs) != 0 || s.Suspected != nil || s.NoDefect != nil {
+			t.Errorf("section with the head moved = %+v, want the moved line alone", s)
+		}
+		body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: testNS, Intent: name,
+			Round: round, Attempt: 1, Section: *s})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(body, judged) || !strings.Contains(body, "checking the new commits") {
+			t.Errorf("section with the head moved shows the old judgement:\n%s", body)
+		}
+	}
+	p.syncVerifyComment(context.Background())
+	after := e.verifyComments(name, round)
+	if len(after) != len(before) {
+		t.Fatalf("verification comments %d -> %d: written while the heads moved", len(before), len(after))
+	}
+	for i := range after {
+		if after[i].Body != before[i].Body {
+			t.Errorf("verification comment edited while the heads moved:\n%s", after[i].Body)
+		}
+	}
+}
+
+// TestCommentsRefuseAPassAtOtherHeads (review SM-1): an evaluation judged
+// passed at head A, then a push of B recorded on the pull request alone.
+// Until a round is about B, no comment shows A's pass.
+func TestCommentsRefuseAPassAtOtherHeads(t *testing.T) {
+	check := savedCheck(t, versionCheck)
+	pass := func(id string) acceptance.OutcomeResult {
+		return judged(id, acceptance.ResultPassed, acceptance.ReasonConfirmed, check.Digest)
+	}
+	tc := judgeRoute{version: pass(oVersion), healthy: pass(oHealthy), acceptManual: true}
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	p := e.prVerifyPass(name)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		routeRecords(in, tc, e.clock.Now())
+		applyJudgement(in, routeJudgement(tc, check), time.Now())
+		p.releaseIfDue(in)
+	})
+	if prog := e.prVerifyPass(name).verifyProgress(); prog == nil || prog.State != templates.VerifyPassed {
+		t.Fatalf("progress at the judged heads = %+v, want passed", prog)
+	}
+	e.movedHeadsChecks(name, "passed")
+}
+
+// TestCommentsRefuseAFailureAtOtherHeads (review SM-1): slice 1's criteria
+// judged failing at head A, then a push of B recorded on the pull request
+// alone: no comment shows A's failure as B's.
+func TestCommentsRefuseAFailureAtOtherHeads(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 3)
+	e.observe(e.onlyVerification(name).Name, v1alpha1.VerificationObserved, answering(500))
+	e.review(name, 1)
+	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
+		t.Fatalf("verification = %+v, want Failing", v)
+	}
+	if prog := e.prVerifyPass(name).verifyProgress(); prog == nil || prog.State != templates.VerifyFailing {
+		t.Fatalf("progress at the judged heads = %+v, want failing", prog)
+	}
+	e.movedHeadsChecks(name, "failed")
+}

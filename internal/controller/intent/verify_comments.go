@@ -110,6 +110,13 @@ func acceptedAt(acc *v1alpha1.IntentAcceptance, id, headSet string) *v1alpha1.Ac
 	return nil
 }
 
+// resultMoved reports that v holds a result (verifyJudged) about other
+// heads than the pull requests' now (atHeads, review SM-1): no comment
+// shows it until a round is about the new ones.
+func (p *pass) resultMoved(v *v1alpha1.IntentVerification) bool {
+	return verifyJudged(v.State) && !p.atHeads(v)
+}
+
 // verifyProgress is where verification stands as the status comment's
 // preview line says it; nil when it says nothing (not reported, or Off).
 func (p *pass) verifyProgress() *templates.VerifyProgress {
@@ -123,6 +130,9 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 		return &templates.VerifyProgress{State: templates.VerifyCriteriaReplan}
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	if p.resultMoved(v) {
+		return &templates.VerifyProgress{State: templates.VerifyHeadsMoved, Outcomes: len(acc.Outcomes) > 0}
+	}
 	used, most := p.verifyFixesUsed()
 	out := &templates.VerifyProgress{Verification: v.Round, FixesUsed: used, MaxFixes: most, ManualOpen: v.ManualOpen}
 	total := int32(len(automatable(acc.Criteria)))
@@ -337,6 +347,12 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 	s := &templates.VerifySection{Progress: *prog, StatusNotPosted: p.statusesUnavailable()}
 	if p.verifyStopped() != "" {
 		// The criteria on record, if any, are not the approved ones.
+		return s
+	}
+	if prog.State == templates.VerifyHeadsMoved {
+		// A judgement of other heads than the pull requests' now (SM-1):
+		// none of it is shown.
+		s.Impostor = p.impostor(pr)
 		return s
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
@@ -658,7 +674,9 @@ func (p *pass) syncVerifyComment(ctx context.Context) {
 			round, attempt = v.Round, v.Attempt+1
 		}
 	}
-	if round == 0 || !verifyJudged(v.State) || p.in.Status.Approval == nil {
+	if round == 0 || !verifyJudged(v.State) || p.in.Status.Approval == nil || p.resultMoved(v) {
+		// A round's comment is its own heads' record: neither posted nor
+		// edited while the pull requests are at others (SM-1).
 		return
 	}
 	sec := p.verifySection(ctx, nil)
