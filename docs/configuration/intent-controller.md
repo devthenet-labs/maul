@@ -389,7 +389,9 @@ proxy is on ([repository-declared images](#repository-declared-images)), or inte
 While the agents host is off, a Project with a cli or library surface still has no preview, and its intents' views say
 so: the issue's status comment keeps its **Evaluation** line and each pull request keeps its evaluation comment, both
 link-less, saying "maul couldn't confirm this" (it could not run its checks) unless every outcome was confirmed at the
-pull request's current head, and nothing offers `/maul preview`.
+pull request's current head, and nothing offers `/maul preview`. Nothing checks those intents then, so the status
+comment does not offer `/maul verify` or `/maul accept` either; a `/maul verify` sent all the same is answered that it
+did not run, and why.
 
 ## Projects
 

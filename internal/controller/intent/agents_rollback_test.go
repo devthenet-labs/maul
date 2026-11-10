@@ -11,6 +11,7 @@ import (
 	"time"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -378,5 +379,196 @@ func TestAgentsRollbackNeverSaysMaulChecks(t *testing.T) {
 	}
 	if c := e.prEvaluationComment(name); !strings.Contains(c, unconfirmed) || strings.Contains(c, "maul checks") {
 		t.Errorf("pull request comment with the host off:\n%s", c)
+	}
+}
+
+// TestAgentsRollbackOffersOnlyWhatCanRun (S2 follow-up): with the agents
+// host switched off nothing checks an agents Project's intents and no
+// acceptance can bind to a check (none runs), so the status comment
+// offers neither /maul verify nor /maul accept, only what still works; a
+// /maul verify sent all the same is still answered that it did not run,
+// and why. Back on, both are offered again.
+func TestAgentsRollbackOffersOnlyWhatCanRun(t *testing.T) {
+	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnconfirmed)
+	e.review(name, 6)
+	if status := e.statusBody(); !strings.Contains(status, "`/maul verify`") ||
+		!strings.Contains(status, "`/maul accept`") {
+		t.Fatalf("status comment with the host on:\n%s", status)
+	}
+	e.agentsOn(false)
+	e.review(name, 4)
+	status := e.statusBody()
+	if strings.Contains(status, "`/maul verify`") || strings.Contains(status, "`/maul accept`") ||
+		!strings.Contains(status, "`/maul cancel`") {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+	e.clock.Advance(time.Minute)
+	id := e.gh.comment(approver, "/maul accept "+oManual)
+	e.settleActions(name)
+	if reply := e.onlyReply(id); !strings.Contains(reply, "does nothing") {
+		t.Errorf("/maul accept with the host off = %s, want it to do nothing", reply)
+	}
+	id = e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	if reply := e.onlyReply(id); !strings.Contains(reply,
+		"did not run: the tool pod that checks a project with no preview is not enabled") {
+		t.Errorf("/maul verify with the host off = %s", reply)
+	}
+	e.agentsOn(true)
+	e.review(name, 2)
+	if status := e.statusBody(); !strings.Contains(status, "`/maul verify`") ||
+		!strings.Contains(status, "`/maul accept`") {
+		t.Errorf("status comment with the host back on:\n%s", status)
+	}
+}
+
+// TestAgentsRollbackKeepsTheRecordedGiveUpReason (S2 follow-up): a round
+// whose hand-off maul released because it ran out of time (handoffMax),
+// settled at the current heads, keeps saying so once the agents host is
+// switched off: the reason on record, never "it could not run its checks"
+// for checks that did run. Once the heads move nothing was checked at
+// them, so the recorded reason is no longer theirs.
+func TestAgentsRollbackKeepsTheRecordedGiveUpReason(t *testing.T) {
+	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationFailing)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		v.Outcomes = []v1alpha1.OutcomeResult{{ID: "version-shown", Result: v1alpha1.OutcomeFailed}}
+		at := metav1.NewTime(e.clock.Now())
+		v.Handoff = &v1alpha1.HandoffState{Mode: v1alpha1.HandoffGated, Released: true, ReleasedAt: &at,
+			Reason: v1alpha1.HandoffReasonOutOfTime}
+	})
+	const outOfTime = "maul couldn't confirm this: it ran out of time."
+	const notRun = "maul couldn't confirm this: it could not run its checks."
+	e.review(name, 6)
+	if status := e.statusBody(); !strings.Contains(status, outOfTime) {
+		t.Fatalf("status comment with the host on:\n%s", status)
+	}
+	e.agentsOn(false)
+	e.review(name, 6)
+	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
+		t.Fatalf("verification = %s with the host off, want Failing kept", v.State)
+	}
+	if status := e.statusBody(); !strings.Contains(status, outOfTime) || strings.Contains(status, notRun) {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+	if c := e.prEvaluationComment(name); !strings.Contains(c, outOfTime) || strings.Contains(c, notRun) {
+		t.Errorf("pull request comment with the host off:\n%s", c)
+	}
+
+	e.pushHead(e.get(name).Status.PullRequests[0].Number, strings.Repeat("f", 40))
+	e.review(name, 8)
+	if status := e.statusBody(); strings.Contains(status, outOfTime) || !strings.Contains(status, notRun) {
+		t.Errorf("status comment after a push with the host off:\n%s", status)
+	}
+}
+
+// TestAgentsOffKeepsTheRecordedUnavailableReason (S2 follow-up): an intent
+// left Off at the heads its round judged (by a release before S2-B7) whose
+// round could not run keeps saying why, from the reason it recorded: no
+// accepted image, a tree that could not be fetched. One recording none
+// says it could not run its checks.
+func TestAgentsOffKeepsTheRecordedUnavailableReason(t *testing.T) {
+	for _, tc := range []struct {
+		reason v1alpha1.VerificationUnavailableReason
+		words  string
+	}{
+		{v1alpha1.VerificationUnavailableSandboxImage,
+			"maul couldn't confirm this: the repository has no accepted runner image to build the pull request in."},
+		{v1alpha1.VerificationUnavailableTree,
+			"maul couldn't confirm this: it could not fetch the source of the pull request or of its base."},
+		{"", "maul couldn't confirm this: it could not run its checks."},
+	} {
+		t.Run(string(tc.reason), func(t *testing.T) {
+			e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnconfirmed)
+			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.UnavailableReason = tc.reason })
+			e.agentsOn(false)
+			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.State = v1alpha1.VerificationOff })
+			e.review(name, 6)
+			if v := e.verification(name); v.State != v1alpha1.VerificationOff {
+				t.Fatalf("verification = %s, want Off kept", v.State)
+			}
+			if status := e.statusBody(); !strings.Contains(status, "**Evaluation:** "+tc.words) {
+				t.Errorf("status comment:\n%s", status)
+			}
+			if c := e.prEvaluationComment(name); !strings.Contains(c, tc.words) {
+				t.Errorf("pull request comment:\n%s", c)
+			}
+		})
+	}
+}
+
+// TestAgentsOffDropsAReasonRecordedAtOtherHeads (review of S2-LEFTOVERS):
+// a reason a round recorded for not running is about the heads it was
+// recorded at. Once a push moves the head set, with the host still on and
+// no round yet at the new heads, and the host is then switched off, maul
+// says it could not run its checks: never the old heads' reason (here, a
+// tree that could not be fetched) for heads nothing tried to fetch.
+func TestAgentsOffDropsAReasonRecordedAtOtherHeads(t *testing.T) {
+	const tree = "it could not fetch the source"
+	const notRun = "maul couldn't confirm this: it could not run its checks."
+	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnavailable)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.UnavailableReason = v1alpha1.VerificationUnavailableTree
+	})
+	before := e.verification(name).HeadSetDigest
+	e.pushHead(e.get(name).Status.PullRequests[0].Number, strings.Repeat("f", 40))
+	for range 4 {
+		if e.verification(name).HeadSetDigest != before {
+			break
+		}
+		e.review(name, 1)
+	}
+	v := e.verification(name)
+	if v.HeadSetDigest == before {
+		t.Fatalf("head set never followed the push: %+v", v)
+	}
+	if v.UnavailableReason != "" {
+		t.Errorf("verification at the new heads = %s with reason %q, want the old heads' reason dropped",
+			v.State, v.UnavailableReason)
+	}
+	e.agentsOn(false)
+	e.review(name, 6)
+	if status := e.statusBody(); strings.Contains(status, tree) || !strings.Contains(status, notRun) {
+		t.Errorf("status comment with the host off:\n%s", status)
+	}
+}
+
+// agentsSuspectedRound is judgedAgentsRound Failing with a suspected
+// defect in version-shown, recorded an hour ago and not yet confirmed.
+func agentsSuspectedRound(t *testing.T) (*env, string) {
+	t.Helper()
+	e, name, pv := judgedAgentsRound(t, v1alpha1.VerificationFailing)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		v.Outcomes = []v1alpha1.OutcomeResult{{ID: "version-shown", Result: v1alpha1.OutcomeFailed}}
+		v.Suspected = &v1alpha1.SuspectedDefect{Verification: pv.Name, HeadSetDigest: v.HeadSetDigest,
+			RecordedAt: metav1.NewTime(e.clock.Now().Add(-time.Hour)), Outcomes: []string{"version-shown"}}
+	})
+	return e, name
+}
+
+// TestAgentsOffVerifyFixConfirmsNothing (review of S2-LEFTOVERS): with the
+// agents host switched off no fix round can start, so an approver's
+// /maul verify fix on a suspected defect kept at its heads is answered
+// that it did not run, and why, and confirms nothing: never "maul starts a
+// fix round" for a round that never starts.
+func TestAgentsOffVerifyFixConfirmsNothing(t *testing.T) {
+	e, name := agentsSuspectedRound(t)
+	e.agentsOn(false)
+	e.review(name, 4)
+	e.clock.Advance(time.Minute)
+	id := e.gh.comment(approver, "/maul verify fix")
+	e.settleActions(name)
+	e.review(name, 4)
+	if reply := e.onlyReply(id); !strings.Contains(reply,
+		"did not run: the tool pod that checks a project with no preview is not enabled") {
+		t.Errorf("/maul verify fix with the host off = %s", reply)
+	}
+	if v := e.verification(name); v.Suspected == nil || v.Suspected.Confirmed != nil ||
+		v.AutoFix.Rearm != nil {
+		t.Errorf("verification = %+v, want the suspected defect unconfirmed and fixes not re-armed", v)
+	}
+	if runs := e.runsOf(name, v1alpha1.IntentStageRevise); len(runs) != 0 {
+		t.Errorf("revise runs = %d, want none", len(runs))
 	}
 }

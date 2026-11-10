@@ -425,7 +425,9 @@ func (p *pass) syncHeadSet(ctx context.Context, hs headSet, state v1alpha1.Inten
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State = state
+		// The reason a round recorded for not running is about the heads
+		// it was recorded at, as a judgement is.
+		nv.State, nv.UnavailableReason = state, ""
 		nv.HeadSetDigest, nv.Heads = hs.digest, slices.Clone(hs.heads)
 		nv.Ref, nv.Attempt, nv.InfraRetries = nil, 0, 0
 		// A no-defect conclusion is about the heads it judged.

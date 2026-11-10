@@ -121,8 +121,9 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 // host is switched off (S2-B6): nothing checks its intents now, so,
 // whatever the hand-off's mode (a nil view would say maul checks them),
 // it is ready only while every outcome is confirmed (or accepted), and
-// otherwise maul couldn't confirm it, for why it gave up or else because
-// it could not run its checks; never held or still checking. A round
+// otherwise maul couldn't confirm it, for why it gave up (at the heads it
+// judged, a hand-off released out of time too) or else because it could
+// not run its checks; never held or still checking. A round
 // settled before the switch keeps its state (S2-B7) and its judgement,
 // and an Off left by an earlier release keeps the judgement too, so it is
 // ready while that judgement is (judgementReady) and the pull request is
@@ -140,6 +141,16 @@ func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 		return &templates.PreviewHandoff{State: templates.HandoffReady}
 	}
 	why := p.gaveUp(acc, v)
+	if why == "" && judged && v.State == v1alpha1.VerificationOff {
+		// An Off left at the heads its round judged keeps the reason that
+		// round recorded for not running (agentsWhy's).
+		why = unavailableWhy(v.UnavailableReason)
+	}
+	if h := v.Handoff; why == "" && judged && h != nil && h.Reason == v1alpha1.HandoffReasonOutOfTime {
+		// The reason on record at the heads it judged, as handoffView
+		// says it: the checks ran, and the hand-off ran out of time.
+		why = templates.HandoffWhyTime
+	}
 	if why == "" {
 		why = templates.HandoffWhyUnavailable
 	}
@@ -202,8 +213,14 @@ func agentsWhy(v *v1alpha1.IntentVerification) string {
 	if v.State != v1alpha1.VerificationUnconfirmed && v.State != v1alpha1.VerificationUnavailable {
 		return ""
 	}
+	return unavailableWhy(v.UnavailableReason)
+}
+
+// unavailableWhy is agentsWhy's words for a recorded reason, whatever the
+// state; "" for none.
+func unavailableWhy(r v1alpha1.VerificationUnavailableReason) string {
 	var reason v1alpha1.PreviewVerificationReason
-	switch v.UnavailableReason {
+	switch r {
 	case v1alpha1.VerificationUnavailableSandboxImage:
 		reason = v1alpha1.VerificationReasonSandboxImageUnavailable
 	case v1alpha1.VerificationUnavailableTree:

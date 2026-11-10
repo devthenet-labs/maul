@@ -169,6 +169,12 @@ type VerifyCommandNotice struct {
 	// none), for VerifyNotRun.
 	NotRunWhy string
 	Stands    int32
+	// Superseded: the request was acknowledged as recorded before maul
+	// found it could not run, so this VerifyNotRun reply says it replaces
+	// that acknowledgement. Set only for a Project with no preview, whose
+	// round can be found unable to run after the acknowledgement (a tree
+	// that cannot be fetched).
+	Superseded bool
 }
 
 // RenderVerifyCommandNotice renders a VerifyCommandNotice.
@@ -342,12 +348,19 @@ func notRunText(n VerifyCommandNotice, actor string) string {
 		words = verifyNotRunWords[""]
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s from %s did not run: %s.", cmd, actor, words)
+	if n.Superseded {
+		fmt.Fprintf(&b, "%s from %s was recorded, but did not run after all: %s.", cmd, actor, words)
+	} else {
+		fmt.Fprintf(&b, "%s from %s did not run: %s.", cmd, actor, words)
+	}
 	if n.Stands > 0 {
 		fmt.Fprintf(&b, " Evaluation %d's result at these commits stands.", n.Stands)
 	}
 	if n.NotRunWhy != NotRunNothingToCheck {
 		fmt.Fprintf(&b, " Nothing was checked; send %s again once that changes.", cmd)
+	}
+	if n.Superseded {
+		b.WriteString(" This replaces maul's earlier reply.")
 	}
 	return b.String()
 }
