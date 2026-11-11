@@ -1571,6 +1571,13 @@ spec:
                           maxItems: 32
                           type: array
                           x-kubernetes-list-type: atomic
+                        recordedAt:
+                          description: |-
+                            RecordedAt is when maul first recorded it: only a /maul accept all
+                            created after it accepts it, so no comment written before the
+                            anomaly existed counts as a person having seen it.
+                          format: date-time
+                          type: string
                         round:
                           description: |-
                             Round is the round whose evaluator reported it, and so whose ledger

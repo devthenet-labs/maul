@@ -405,7 +405,9 @@ the source) has not shown it is gone, and running the saved checks again cannot 
   it the hold, since that is recorded evidence the check was wrong.
 - **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
   every outcome maul could not confirm and every anomaly holding the commits. The acceptance is recorded on the anomaly
-  (`accepted`), and holds only at those commits.
+  (`accepted`), and holds only at those commits. It accepts only anomalies maul recorded before the comment was written
+  (`recordedAt`): one a round reports after it still holds the commits. `/maul verify --reset` does not end a hold: it
+  changes the preview's data, not the commits.
 
 `/maul verify fix` when no outcome fails starts the round all the same (its evaluator examines the anomaly again), and
 its reply says that there is nothing to fix yet: an anomaly is not a failing outcome, and it holds the commits until

@@ -539,7 +539,7 @@ func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
 	ids, anomalies := []string{id}, 0
 	switch {
 	case !declared && id == acceptAll:
-		anomalies = len(openAnomaliesNow(p.in.Status.Verification))
+		anomalies = len(acceptableAnomalies(p.in.Status.Verification, c.at))
 		if len(n.Acceptable) == 0 && anomalies == 0 {
 			n.Outcome = templates.VerifyAcceptAutomatic
 			return n, nil
@@ -560,7 +560,7 @@ func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
 }
 
 // openAnomaliesNow are the look-around anomalies v holds at its current
-// heads that no approver accepted: those /maul accept all accepts.
+// heads that no approver accepted.
 func openAnomaliesNow(v *v1alpha1.IntentVerification) []v1alpha1.AnomalyRecord {
 	if v == nil {
 		return nil
@@ -568,17 +568,38 @@ func openAnomaliesNow(v *v1alpha1.IntentVerification) []v1alpha1.AnomalyRecord {
 	return openAnomalies(heldAnomalies(v, v.HeadSetDigest, -1))
 }
 
+// acceptableAnomalies are those of openAnomaliesNow a /maul accept all
+// created at at accepts: recorded before it, so a person can have seen
+// them (as suspectedConfirmable holds a confirmation to the suspected
+// defect's record). GitHub and the record both keep whole seconds: an
+// anomaly recorded in the comment's own second may postdate it, and is not
+// accepted. One recorded before the time was kept is accepted.
+func acceptableAnomalies(v *v1alpha1.IntentVerification, at time.Time) []v1alpha1.AnomalyRecord {
+	var out []v1alpha1.AnomalyRecord
+	for _, a := range openAnomaliesNow(v) {
+		if seenBy(a, at) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// seenBy reports anomaly a recorded before a comment created at at.
+func seenBy(a v1alpha1.AnomalyRecord, at time.Time) bool {
+	return a.RecordedAt == nil || at.Truncate(time.Second).After(a.RecordedAt.Truncate(time.Second))
+}
+
 // acceptAnomalies records c's acceptance of every anomaly v holds at its
-// current heads that no approver accepted, and counts them: each then no
-// longer holds those heads (G-B-LIB-1), and a round there carries the
-// acceptance with the record.
+// current heads that no approver accepted and that was recorded before c
+// (seenBy), and counts them: each then no longer holds those heads
+// (G-B-LIB-1), and a round there carries the acceptance with the record.
 func acceptAnomalies(v *v1alpha1.IntentVerification, c verifyCommand) int {
 	if v == nil || v.HeadSetDigest == "" || v.OutcomesHeadSetDigest != v.HeadSetDigest {
 		return 0
 	}
 	n := 0
 	for i := range v.Anomalies {
-		if v.Anomalies[i].Accepted != nil {
+		if v.Anomalies[i].Accepted != nil || !seenBy(v.Anomalies[i], c.at) {
 			continue
 		}
 		v.Anomalies[i].Accepted = &v1alpha1.AnomalyAcceptance{By: c.actor.Login, ByID: c.actor.ID,

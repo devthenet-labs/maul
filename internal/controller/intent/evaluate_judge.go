@@ -52,7 +52,12 @@ import (
 // the ones the round replayed (pv.spec.checks) and the ones it confirmed and
 // the store kept, so retiring a check after the round changes nothing about
 // how that round is judged, and startVerifyFix and the fix round's input
-// decide exactly what the judgement did.
+// decide exactly what the judgement did. The one thing it takes from
+// earlier rounds is what they found at the same heads (G-B-LIB-1): a
+// finding is a fact about the commits it was made at, so the anomalies
+// earlier rounds recorded there, and the outcomes they found failing or
+// suspected there, hold the round from Passed (heldAnomalies,
+// heldOutcomes) until the heads move or an approver accepts them.
 
 // Bounds of what a judgement records from the evaluator (the schema's).
 const (
@@ -607,19 +612,29 @@ func openAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
 
 // carryAnomalies are a judgement's anomalies as the Intent records them:
 // held, those earlier rounds found at its heads, first, then own, the
-// round's own, stamped with round, less any repeating a held one's words
-// (the held record, and any acceptance of it, stands), at most
-// maxAnomalies.
-func carryAnomalies(held, own []v1alpha1.AnomalyRecord, round int32) []v1alpha1.AnomalyRecord {
+// round's own, stamped with round and recorded at now, less any repeating a
+// held one's words (the held record, and any acceptance of it, stands), at
+// most maxAnomalies. prev is the record before this judgement: the round
+// judged again keeps its own records' time and acceptance.
+func carryAnomalies(prev, held, own []v1alpha1.AnomalyRecord, round int32,
+	now time.Time) []v1alpha1.AnomalyRecord {
 	out := slices.Clone(held)
+	same := func(a v1alpha1.AnomalyRecord) func(v1alpha1.AnomalyRecord) bool {
+		return func(h v1alpha1.AnomalyRecord) bool { return h.Summary == a.Summary && h.Route == a.Route }
+	}
 	for _, a := range own {
-		if slices.ContainsFunc(held, func(h v1alpha1.AnomalyRecord) bool {
-			return h.Summary == a.Summary && h.Route == a.Route
-		}) {
+		if slices.ContainsFunc(held, same(a)) {
 			continue
 		}
 		a = *a.DeepCopy()
 		a.Round = round
+		at := metav1.NewTime(now)
+		a.RecordedAt = &at
+		if i := slices.IndexFunc(prev, func(p v1alpha1.AnomalyRecord) bool {
+			return p.Round == round && same(a)(p)
+		}); i >= 0 {
+			a.RecordedAt, a.Accepted = prev[i].RecordedAt.DeepCopy(), prev[i].Accepted.DeepCopy()
+		}
 		out = append(out, a)
 	}
 	if len(out) > maxAnomalies {
@@ -758,7 +773,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 		case v1alpha1.OutcomeUnsure, v1alpha1.OutcomeAccepted:
 		}
 	}
-	nv.Anomalies = carryAnomalies(held, j.anomalies, nv.Round)
+	nv.Anomalies = carryAnomalies(nv.Anomalies, held, j.anomalies, nv.Round, now)
 	addRedCleared(acc, j.cleared, j.verification)
 	addNarrowed(acc, j.decision.Narrowed, j.verification, j.stored)
 	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest, now, nv.Suspected)

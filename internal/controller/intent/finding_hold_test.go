@@ -12,6 +12,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
 )
@@ -274,5 +275,67 @@ func TestVerifyFixOverAHeldAnomaly(t *testing.T) {
 	}
 	if st, _, ok := e.prVerifyPass(name).acceptanceStatus(); !ok || st.state != statusSuccess {
 		t.Errorf("maul/acceptance %+v (posted %v), want success once the anomaly is accepted", st, ok)
+	}
+}
+
+// TestAcceptAllAcceptsOnlyWhatWasSeen: /maul accept all accepts only the
+// anomalies recorded before the comment was written (as a confirmation of
+// a suspected defect must postdate it): one a round recorded after the
+// approver commented, or in the comment's own second, still holds the
+// heads. One from before the time was recorded is accepted.
+func TestAcceptAllAcceptsOnlyWhatWasSeen(t *testing.T) {
+	at := time.Date(2026, 11, 11, 14, 22, 51, 0, time.UTC)
+	stamp := func(d time.Duration) *metav1.Time { t := metav1.NewTime(at.Add(d)); return &t }
+	heads := "sha256:" + strings.Repeat("c", 64)
+	v := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesHeadSetDigest: heads, OutcomesRound: 2,
+		Anomalies: []v1alpha1.AnomalyRecord{
+			{Summary: "seen", Round: 1, RecordedAt: stamp(-time.Minute)},
+			{Summary: "legacy", Round: 1},
+			{Summary: "same second", Round: 2, RecordedAt: stamp(400 * time.Millisecond)},
+			{Summary: "after", Round: 2, RecordedAt: stamp(time.Minute)},
+		}}
+	if n := len(acceptableAnomalies(v, at)); n != 2 {
+		t.Errorf("acceptable anomalies = %d, want the two recorded before the comment", n)
+	}
+	c := verifyCommand{id: 9, at: at, actor: ghclient.Actor{Login: approver, ID: 7}}
+	if n := acceptAnomalies(v, c); n != 2 {
+		t.Fatalf("accepted %d, want 2", n)
+	}
+	for _, a := range v.Anomalies {
+		if accepted := a.Accepted != nil; accepted != (a.Summary == "seen" || a.Summary == "legacy") {
+			t.Errorf("anomaly %q accepted %v", a.Summary, accepted)
+		}
+	}
+	if len(openAnomalies(v.Anomalies)) != 2 {
+		t.Error("the anomalies recorded after the comment no longer hold the heads")
+	}
+}
+
+// TestOpenFindingMakesTheRoundFull: the next round at heads an anomaly or
+// a held outcome still holds is full (openFindingAt), so no replay round
+// is spent on what a replay could never pass; accepted, or at other heads,
+// they hold nothing.
+func TestOpenFindingMakesTheRoundFull(t *testing.T) {
+	heads, other := "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("e", 64)
+	acc := &v1alpha1.IntentAcceptance{}
+	held := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesHeadSetDigest: heads, OutcomesRound: 1,
+		Outcomes: []v1alpha1.OutcomeResult{{ID: oVersion, Result: v1alpha1.OutcomeUnsure,
+			Reason: acceptance.ReasonHeldFinding}}}
+	if !openFindingAt(held, acc, heads) || openFindingAt(held, acc, other) {
+		t.Error("a held outcome: want an open finding at its heads alone")
+	}
+	acc.Accepted = []v1alpha1.AcceptanceRecord{{ID: oVersion, By: approver, ByID: 7, CommentID: 1,
+		HeadSetDigest: heads}}
+	if openFindingAt(held, acc, heads) {
+		t.Error("an accepted held outcome is still an open finding")
+	}
+	anomaly := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesHeadSetDigest: heads, OutcomesRound: 1,
+		Anomalies: []v1alpha1.AnomalyRecord{{Summary: "odd", Round: 1}}}
+	if !openFindingAt(anomaly, acc, heads) {
+		t.Error("an open anomaly: want an open finding")
+	}
+	anomaly.Anomalies[0].Accepted = &v1alpha1.AnomalyAcceptance{By: approver, ByID: 7, CommentID: 2}
+	if openFindingAt(anomaly, acc, heads) {
+		t.Error("an accepted anomaly is still an open finding")
 	}
 }

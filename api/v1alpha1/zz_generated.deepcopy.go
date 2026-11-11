@@ -253,6 +253,10 @@ func (in *AnomalyRecord) DeepCopyInto(out *AnomalyRecord) {
 		*out = make([]int32, len(*in))
 		copy(*out, *in)
 	}
+	if in.RecordedAt != nil {
+		in, out := &in.RecordedAt, &out.RecordedAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Accepted != nil {
 		in, out := &in.Accepted, &out.Accepted
 		*out = new(AnomalyAcceptance)

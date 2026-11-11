@@ -52,7 +52,7 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 	in := acceptance.RungInput{HeadSet: hs.digest, OutcomesDigest: acc.OutcomesDigest,
 		Explore:     v.Requested != nil && v.Requested.Explore,
 		Escalate:    kind != verifyRetry && escalationAsked(v, hs.digest),
-		OpenFinding: len(openAnomalies(heldAnomalies(v, hs.digest, 0))) > 0,
+		OpenFinding: openFindingAt(v, acc, hs.digest),
 		Outcomes:    store.Outcomes, Checks: store.Checks, Reviews: store.Reviews}
 	if kind == verifyRetry {
 		in.Keep = acceptance.Rung(v.Rung)
@@ -65,6 +65,22 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 	}
 	rung, why := acceptance.StartRung(in)
 	return v1alpha1.VerificationRung(rung), why
+}
+
+// openFindingAt reports a finding an earlier round made at hs that still
+// holds it (G-B-LIB-1): an anomaly no approver accepted, or an outcome
+// found failing or suspected there that no approver accepted. A replay
+// round could pass neither, so the next round there is full.
+func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance, hs string) bool {
+	if len(openAnomalies(heldAnomalies(v, hs, 0))) > 0 {
+		return true
+	}
+	for id := range heldOutcomes(v, hs, 0) {
+		if !outcomeAccepted(acc, id, hs) {
+			return true
+		}
+	}
+	return false
 }
 
 // escalationDue reports the one full round an unsure replay round asked
