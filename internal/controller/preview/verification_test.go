@@ -797,6 +797,41 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 	}
 }
 
+// A component crash-looping at the settle is charged to the change only
+// when its last exit fell in the attempt: one whose last exit came after
+// the tools container exited (every check had run) is no evidence about
+// the change, so the round is maul's to retry (Infra component-disrupted),
+// never EnvFailed; a crash loop with no exit time on record is charged as
+// before (TestVerificationUnreachableCrashedIsEnvFailed).
+func TestVerificationCrashLoopAfterTheAttempt(t *testing.T) {
+	ref := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name     string
+		finished time.Time
+		phase    v1alpha1.PreviewVerificationPhase
+		reason   v1alpha1.PreviewVerificationReason
+	}{
+		{"last exit during the attempt", ref.Add(30 * time.Second), v1alpha1.VerificationEnvFailed,
+			v1alpha1.VerificationReasonComponentCrashLoop},
+		{"last exit after the tools exited", ref.Add(270 * time.Second), v1alpha1.VerificationInfra,
+			v1alpha1.VerificationReasonComponentDisrupted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			e.verify()
+			log, msg := toolLedger(t, nil)
+			e.crash(1, "CrashLoopBackOff")
+			e.restartAt(4, tc.finished, time.Time{})
+			e.runTools(e.testerJob(), log, msg)
+			e.now = e.now.Add(time.Minute)
+			pv, _ := e.verify()
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
+			}
+		})
+	}
+}
+
 // A component Pod replaced during the attempt is attributed by the
 // replaced Pod's evidence. status.reason Evicted is the kubelet's
 // eviction, the application's: EnvFailed component-evicted. A kubelet

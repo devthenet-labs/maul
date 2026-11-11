@@ -467,6 +467,11 @@ func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.
 	if pod != nil {
 		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
 		fact.LogTail = v.logTail(ctx, pod, c.Name, since, keys)
+		if exitedAfter(pod, c.Name, w) {
+			// Waiting since an exit after the attempt ended: no evidence
+			// about the change, so not the application's (disrupted below).
+			fact.Waiting = ""
+		}
 	}
 	cause := componentCause(all, pod, p, c, w)
 	if cause == causeNone && !fact.Ready {
@@ -477,6 +482,18 @@ func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.
 	fact.Evicted = cause == causeEvicted
 	fact.Disrupted = cause == causeDisrupted
 	return fact
+}
+
+// exitedAfter reports whether the Pod's container waits (crash-looping)
+// since a last exit recorded after the attempt w ended.
+func exitedAfter(pod *corev1.Pod, container string, w attemptWindow) bool {
+	for _, s := range pod.Status.ContainerStatuses {
+		if s.Name == container && s.State.Waiting != nil {
+			t := s.LastTerminationState.Terminated
+			return t != nil && !t.FinishedAt.IsZero() && t.FinishedAt.After(w.end)
+		}
+	}
+	return false
 }
 
 // currentPod is the Pod running component c as the spec renders it, the
