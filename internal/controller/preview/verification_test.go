@@ -1322,3 +1322,48 @@ func TestFitToolStatus(t *testing.T) {
 			pv.Status.Reason, pv.Status.Ledger)
 	}
 }
+
+// TestFitToolStatusNeverHidesAnAppFailure: a settled phase other than
+// Observed rests on no ledger detail, so a status still over its cap once
+// the log tails go loses the ledger, replays and confirmations, never its
+// phase: an EnvFailed round stays the application's, with the facts that
+// say so; an Infra or Stale one keeps its own reason.
+func TestFitToolStatusNeverHidesAnAppFailure(t *testing.T) {
+	for _, tc := range []struct {
+		phase  v1alpha1.PreviewVerificationPhase
+		reason v1alpha1.PreviewVerificationReason
+	}{
+		{v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentCrashed},
+		{v1alpha1.VerificationInfra, v1alpha1.VerificationReasonComponentDisrupted},
+		{v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview},
+	} {
+		t.Run(string(tc.phase), func(t *testing.T) {
+			body := strings.Repeat("b", 4<<10)
+			pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: "shop-1-v1-a1"}}
+			pv.Status = v1alpha1.PreviewVerificationStatus{Phase: tc.phase, Reason: tc.reason,
+				Ledger: &v1alpha1.LedgerSummary{Count: 1, SHA256: strings.Repeat("a", 64)},
+				Environment: []v1alpha1.PartFact{{Name: "api", Role: v1alpha1.PreviewRoleComponent,
+					CrashedDuring: true, Restarts: 1, LogTail: strings.Repeat("x", 400<<10)}}}
+			for i := range 400 {
+				pv.Status.Confirmed = append(pv.Status.Confirmed, v1alpha1.SavedCheck{ID: fmt.Sprintf("c%d", i),
+					Body: body})
+			}
+			fitToolStatus(pv)
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s kept", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
+			}
+			if pv.Status.Ledger != nil || pv.Status.Confirmed != nil {
+				t.Error("the ledger detail was kept over the cap")
+			}
+			if n := jsonSize(pv); n > maxToolVerificationObject {
+				t.Errorf("status is %d bytes, over %d", n, maxToolVerificationObject)
+			}
+			env := crdconv.PartFacts(pv.Status.Environment)
+			if tc.phase == v1alpha1.VerificationEnvFailed && (httpstep.ClassifyEnvironment(env) !=
+				httpstep.EnvAppFailure || !slices.Equal(httpstep.AppFailureParts(env), []string{"api"})) {
+				t.Errorf("environment classifies as %s: the application's failure is hidden",
+					httpstep.ClassifyEnvironment(env))
+			}
+		})
+	}
+}

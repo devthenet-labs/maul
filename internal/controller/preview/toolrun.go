@@ -680,8 +680,11 @@ func (v *VerificationReconciler) teardown(ctx context.Context, pv *v1alpha1.Prev
 }
 
 // fitToolStatus holds an outcome verification to maxToolVerificationObject:
-// log tails go first, from the last part back; one still over is maul's
-// trouble, its ledger fields dropped.
+// log tails go first, from the last part back; then the ledger fields. An
+// Observed round's verdict rests on those, so one that loses them is
+// maul's trouble (Infra ledger-mismatch); any other phase rests on none
+// of them and keeps its own, so an EnvFailed round is never turned from
+// the application's failure into maul's.
 func fitToolStatus(pv *v1alpha1.PreviewVerification) {
 	for i := len(pv.Status.Environment) - 1; i >= 0 && jsonSize(pv) > maxToolVerificationObject; i-- {
 		pv.Status.Environment[i].LogTail = ""
@@ -690,8 +693,10 @@ func fitToolStatus(pv *v1alpha1.PreviewVerification) {
 		return
 	}
 	pv.Status.Ledger, pv.Status.Replay, pv.Status.Confirmations, pv.Status.Confirmed = nil, nil, nil, nil
-	pv.Status.Phase = v1alpha1.VerificationInfra
-	pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch
+	if pv.Status.Phase == v1alpha1.VerificationObserved {
+		pv.Status.Phase = v1alpha1.VerificationInfra
+		pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch
+	}
 }
 
 // settled reports whether a phase is final: nothing writes it again.
