@@ -45,7 +45,7 @@ The check, a `run` check, as maul runs it:
     "args": [
       "{{run}}"
     ],
-    "timeout": "2m",
+    "timeout": "30s",
     "expect": {
       "exit": 0,
       "stdoutJSON": {

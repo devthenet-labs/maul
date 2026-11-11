@@ -75,7 +75,7 @@ func TestWorkspaceChecksAreValid(t *testing.T) {
 		{"library run", libRun, libCtx},
 		{"library run reading the tree", runCheck(`"language":"go",` + libMain + `,"args":["{{tree}}/x.json"],` +
 			okOut), libCtx},
-		{"run with a timeout", runCheck(`"language":"go",` + libMain + `,"timeout":"2m",` + okOut), libCtx},
+		{"run with a timeout", runCheck(`"language":"go",` + libMain + `,"timeout":"1m",` + okOut), libCtx},
 		{"run in a subdirectory", runCheck(`"language":"go","files":[{"path":"main.go","content":"package main"},
 			{"path":"wav/wav.go","content":"package wav"}],` + okOut), libCtx},
 	} {
@@ -170,7 +170,7 @@ func TestRefuseWorkspaceGrammar(t *testing.T) {
 		{"run with seventeen args", runCheck(`"language":"go",` + libMain + `,"args":[` +
 			strings.Repeat(`"a",`, 16) + `"a"],` + okOut), libCtx},
 		{"run arg too long", runCheck(`"language":"go",` + libMain + `,"args":["` + big + `"],` + okOut), libCtx},
-		{"run timeout too long", runCheck(`"language":"go",` + libMain + `,"timeout":"6m",` + okOut), libCtx},
+		{"run timeout not positive", runCheck(`"language":"go",` + libMain + `,"timeout":"0s",` + okOut), libCtx},
 		{"run unknown placeholder", runCheck(`"language":"go",` + libMain + `,"args":["{{home}}"],` + okOut), libCtx},
 		{"bin in a library arg", runCheck(`"language":"go",` + libMain + `,"args":["{{bin}}"],` + okOut), libCtx},
 		{"bin in a library program", runCheck(`"language":"go",` + goMain + `,` + okOut), libCtx},

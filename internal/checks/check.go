@@ -135,6 +135,9 @@ const (
 	RuleRunToken Rule = "run-token"
 	// RuleOffPreview: navigation, or a request target, off the preview.
 	RuleOffPreview Rule = "off-preview"
+	// RuleTimeout: an exec or run check's timeout past MaxExecTimeout, the
+	// time the exec shim gives one program: more would be cut short.
+	RuleTimeout Rule = "timeout"
 	// RuleOffSurface: a form the surface has no tool for (SPEC-S2): run in
 	// a preview slot; http or browser in a workspace; exec in a library.
 	RuleOffSurface Rule = "off-surface"

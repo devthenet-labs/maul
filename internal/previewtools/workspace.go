@@ -576,14 +576,10 @@ func timeoutMs(timeout string) int64 {
 	return int64((d + time.Millisecond - 1) / time.Millisecond)
 }
 
-// withCheckTimeout bounds ctx by a check's timeout, which checks.Validate
-// admitted; none leaves the shim's own bound.
-func withCheckTimeout(ctx context.Context, timeout string) (context.Context, context.CancelFunc) {
-	if d, err := time.ParseDuration(timeout); err == nil && d > 0 {
-		return context.WithTimeout(ctx, d)
-	}
-	return context.WithCancel(ctx)
-}
+// reasonTimeLimit is a check step cut at a time limit: the check's own
+// timeout or the shim's bound on one program (toolexec.Timeout), whichever
+// came first. An error, never a fail: a program cut short judged nothing.
+const reasonTimeLimit = "the program was killed at its time limit, so maul cannot judge the run"
 
 func errStep(detail string) []toolwire.StepRecord {
 	return []toolwire.StepRecord{{Result: toolwire.ResultError, Detail: detail}}
@@ -629,7 +625,7 @@ func judgeWorkspace(res toolexec.Result, err error, x checks.ExecExpect, marker,
 	case res.Unclean:
 		return errStep("processes the program started outlived it, so maul cannot judge the run")
 	case res.TimedOut:
-		return errStep("the program was killed at its time limit, so maul cannot judge the run")
+		return errStep(reasonTimeLimit)
 	}
 	steps := judgeOutput(res, x, marker, run, p)
 	if steps[0].Result == toolwire.ResultFail && res.NetError {

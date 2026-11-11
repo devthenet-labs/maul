@@ -90,13 +90,18 @@ type fakeExec struct {
 	mu   sync.Mutex
 	reqs []toolwire.ExecRequest
 	run  func(req *toolwire.ExecRequest, n int) (toolexec.Result, error)
+	// runCtx, when set, answers in place of run and sees the call's context.
+	runCtx func(ctx context.Context, req *toolwire.ExecRequest, n int) (toolexec.Result, error)
 }
 
-func (f *fakeExec) Exec(_ context.Context, req *toolwire.ExecRequest) (toolexec.Result, error) {
+func (f *fakeExec) Exec(ctx context.Context, req *toolwire.ExecRequest) (toolexec.Result, error) {
 	f.mu.Lock()
 	n := len(f.reqs)
 	f.reqs = append(f.reqs, *req)
 	f.mu.Unlock()
+	if f.runCtx != nil {
+		return f.runCtx(ctx, req, n)
+	}
 	return f.run(req, n)
 }
 

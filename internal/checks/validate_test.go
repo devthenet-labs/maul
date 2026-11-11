@@ -134,7 +134,7 @@ func TestRefuseGrammar(t *testing.T) {
 			execRunOK), Preview{}},
 		{"exec file twice", execCheck(`"argv":["sh","x"],"files":[{"path":"x","content":"1"},
 			{"path":"x","content":"2"}]` + execRunOK), Preview{}},
-		{"exec timeout", execCheck(execBase + `,"timeout":"1h"` + execRunOK), Preview{}},
+		{"exec timeout not a duration", execCheck(execBase + `,"timeout":"an hour"` + execRunOK), Preview{}},
 	})
 }
 

@@ -133,8 +133,11 @@ const (
 	MaxArgs = 16
 	// MaxFiles bounds the program files.
 	MaxFiles = 8
-	// MaxExecTimeout bounds an exec check's timeout.
-	MaxExecTimeout = 5 * time.Minute
+	// MaxExecTimeout bounds an exec or run check's timeout: the exec shim's
+	// own bound on one program (toolexec.Timeout, DESIGN 5: a sandbox
+	// program at most 60 s; previewtools pins the two equal), so a check
+	// never claims time the sandbox cuts it short of.
+	MaxExecTimeout = time.Minute
 )
 
 var (
@@ -165,11 +168,8 @@ func validateExec(e ExecCheck, ws *Workspace) *Refusal {
 			return r
 		}
 	}
-	if e.Timeout != "" {
-		d, err := time.ParseDuration(e.Timeout)
-		if err != nil || d <= 0 || d > MaxExecTimeout {
-			return refuse(RuleGrammar, "timeout %q must be a duration in (0, %s]", e.Timeout, MaxExecTimeout)
-		}
+	if r := validateTimeout(e.Timeout); r != nil {
+		return r
 	}
 	if r := validateExecExpect(e.Expect); r != nil {
 		return r
@@ -228,4 +228,22 @@ func trivial(argv []string) bool {
 		return len(fields) == 0 || trivialPrograms[fields[0]]
 	}
 	return false
+}
+
+// validateTimeout holds an exec or run check's timeout, when it names one,
+// to a positive duration (RuleGrammar) of at most MaxExecTimeout
+// (RuleTimeout).
+func validateTimeout(timeout string) *Refusal {
+	if timeout == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(timeout)
+	switch {
+	case err != nil || d <= 0:
+		return refuse(RuleGrammar, "timeout %q must be a positive duration", timeout)
+	case d > MaxExecTimeout:
+		return refuse(RuleTimeout, "timeout %q is over %s, the most the sandbox gives one program", timeout,
+			MaxExecTimeout)
+	}
+	return nil
 }

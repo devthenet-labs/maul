@@ -317,11 +317,14 @@ func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run stri
 	return c
 }
 
-// runProgram runs a compiled program at side in run's scratch directory.
-func (r *Relay) runProgram(ctx context.Context, side toolwire.Side, run string, args []string) (toolexec.Result,
-	error) {
+// runProgram runs a compiled program at side in run's scratch directory,
+// for at most timeoutMs (a check's timeout, timeoutMs), which the shim
+// holds it to and reports cut (TimedOut) as it does an exec's; 0 is the
+// shim's own bound.
+func (r *Relay) runProgram(ctx context.Context, side toolwire.Side, run string, args []string,
+	timeoutMs int64) (toolexec.Result, error) {
 	return r.sandbox(side).Do(ctx, &toolexec.Request{Argv: append([]string{"./" + consumerBinary}, args...),
-		Side: side, Run: run, Env: r.programEnv()})
+		Side: side, Run: run, Env: r.programEnv(), TimeoutMs: timeoutMs})
 }
 
 // runVerb answers `maul-tool run`: the agent's program compiled and run at
@@ -361,7 +364,7 @@ func (r *Relay) runVerb(ctx context.Context, req *toolwire.RunRequest) result {
 		}
 		return withSide(side, res)
 	}
-	res, err := r.runProgram(ctx, side, run, p.args)
+	res, err := r.runProgram(ctx, side, run, p.args, 0)
 	return withSide(side, programResult(res, err, "the sandbox refused the program"))
 }
 
@@ -403,8 +406,6 @@ func (r *Relay) workspaceRunAttempt(ctx context.Context, rc checks.RunCheck, run
 		return causedStep(c.cause(), fmt.Sprintf("the program did not compile (exit %d): a compile failure is no "+
 			"evidence about the outcome", c.res.Exit))
 	}
-	ctx, cancel := withCheckTimeout(ctx, rc.Timeout)
-	defer cancel()
-	res, err := r.runProgram(ctx, side, run, p.args)
+	res, err := r.runProgram(ctx, side, run, p.args, timeoutMs(rc.Timeout))
 	return judgeWorkspace(res, err, rc.Expect, marker, run, pl)
 }

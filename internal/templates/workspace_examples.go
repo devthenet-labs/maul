@@ -29,7 +29,7 @@ const (
     "files": [{"path": "main.go", "content":
       "package main\n// runs {{bin}} on a kick it writes; prints {run, gapMs} or {{marker}} onsets: <what>\n"}],
     "args": ["{{run}}"],
-    "timeout": "2m",
+    "timeout": "30s",
     "expect": {"exit": 0, "stdoutJSON": {"/run": "{{run}}", "/gapMs": {"$approx": 500, "$tolerance": 5}}}
   }
 }`
@@ -42,7 +42,7 @@ const (
     "files": [{"path": "main.go", "content":
       "package main\n// Parse of 64 and 65 steps; prints {run, ok64, tooLong65} or {{marker}} too-long: <err>\n"}],
     "args": ["{{run}}"],
-    "timeout": "2m",
+    "timeout": "30s",
     "expect": {"exit": 0, "stdoutJSON": {"/run": "{{run}}", "/ok64": true, "/tooLong65": true}}
   }
 }`
