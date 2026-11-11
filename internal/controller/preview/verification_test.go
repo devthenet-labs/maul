@@ -1044,6 +1044,55 @@ func TestVerificationPreviewChangedIsStale(t *testing.T) {
 	}
 }
 
+// TestVerificationServiceReaddressedIsStale: a component Service whose
+// ClusterIP changed after the tool pod was rendered (recreated) means the
+// relay spoke to another address than the Service has, so its round is
+// about no component: stale-preview, never the change's unreachable
+// component. The rendered targets are read back from the Job, so a
+// restart in between changes nothing, and a Job that records none (an
+// earlier release's) or a Service that lost its ClusterIP is stale too.
+func TestVerificationServiceReaddressedIsStale(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		ip      string
+		restart bool
+		unset   bool
+		reason  v1alpha1.PreviewVerificationReason
+	}{
+		{"unchanged", "10.96.0.10", false, false, v1alpha1.VerificationReasonOK},
+		{"readdressed", "10.96.0.77", false, false, v1alpha1.VerificationReasonStalePreview},
+		{"readdressed across a restart", "10.96.0.77", true, false, v1alpha1.VerificationReasonStalePreview},
+		{"no ClusterIP now", corev1.ClusterIPNone, false, false, v1alpha1.VerificationReasonStalePreview},
+		{"no targets recorded on the Job", "10.96.0.10", false, true, v1alpha1.VerificationReasonStalePreview},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			e.verify()
+			job := e.testerJob()
+			if tc.unset {
+				delete(job.Annotations, annotationToolTargets)
+				if err := e.c.Update(context.Background(), job); err != nil {
+					t.Fatal(err)
+				}
+			}
+			log, msg := toolLedger(t, nil)
+			e.setClusterIP(0, tc.ip)
+			if tc.restart {
+				e.v.forgetTools(e.pv.UID)
+			}
+			e.runTools(job, log, msg)
+			pv, _ := e.verify()
+			want := v1alpha1.VerificationObserved
+			if tc.reason == v1alpha1.VerificationReasonStalePreview {
+				want = v1alpha1.VerificationStale
+			}
+			if pv.Status.Phase != want || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, want, tc.reason)
+			}
+		})
+	}
+}
+
 // A component that crashed during the run fails the environment: the
 // verification is EnvFailed, charged to the intent, with the evidence and
 // the round's ledger.
