@@ -90,10 +90,14 @@ func (p *pass) agentsUnrunnable(ctx context.Context) (string, error) {
 // preview-controller deploys such a Preview again only for a new spec (a
 // push moving a head, or a reset), so a request waiting for it would wait
 // for nothing. False while a round revises the intent (its push deploys
-// the preview again), for a Project the agents host evaluates, and on a
-// failed read: the request is then recorded and waits as before.
+// the preview again), while the pull requests' heads have moved from the
+// verification's head set (a push recorded, which deploys it again, that
+// the head set follows a pass later: the gate decides then), for a
+// Project the agents host evaluates, and on a failed read: the request is
+// then recorded and waits as before.
 func (p *pass) previewExpired(ctx context.Context, reset int64) bool {
-	if p.in.Status.Phase == v1alpha1.IntentRevising || p.set.agentsProject(p.proj) {
+	if p.in.Status.Phase == v1alpha1.IntentRevising || p.set.agentsProject(p.proj) ||
+		!p.atHeads(p.in.Status.Verification) {
 		return false
 	}
 	var pv v1alpha1.Preview
@@ -141,6 +145,24 @@ func (p *pass) cannotRerun(ctx context.Context, reason v1alpha1.PreviewVerificat
 		slog.String("intent", p.in.Name), slog.Int("round", int(stands)), slog.String("reason", string(reason)),
 		slog.String("detail", why))
 	return true
+}
+
+// endWaitUnrun consumes the approver's pending request that waits for a
+// Preview nothing will deploy again (why), answering that it did not run,
+// and ends the wait it began as its bound would: Unavailable
+// (PreviewNotLive). The wait replaced any judgement, so none is said to
+// stand; left waiting, it would read "waiting for the preview" with
+// nothing to bring it.
+func (p *pass) endWaitUnrun(ctx context.Context, why string) (bool, error) {
+	if err := p.answerNotRun(ctx, why, 0); err != nil {
+		return false, err
+	}
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		nv := cur.Status.Verification
+		nv.Requested = nil
+		nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailablePreviewNotLive
+		return nil
+	})
 }
 
 // keepJudgement consumes the approver's pending request at heads whose
