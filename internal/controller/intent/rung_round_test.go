@@ -14,6 +14,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
 // The cost ladder's replay rung (minimal S3, rung.go), end to end through
@@ -368,6 +369,63 @@ func TestEscalationHeldToMaxVerifications(t *testing.T) {
 	}
 }
 
+// TestRoundWithNoEvaluatorReportIsNoModelRound: a full round judged
+// with no evaluator report (its preview failed before the evaluator ran)
+// had no model look at anything, so it is no model round: a later round at
+// its heads is full, never a replay trusting a judgement no model made.
+func TestRoundWithNoEvaluatorReportIsNoModelRound(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationEnvFailed, "", false)
+	got := e.pvNamed(pv.Name)
+	got.Status.Reason = v1alpha1.VerificationReasonComponentCrashed
+	got.Status.Environment = []v1alpha1.PartFact{{Name: "app", Role: v1alpha1.PreviewRoleComponent, Ready: true,
+		CrashedDuring: true, Restarts: 1}}
+	if err := e.c.Update(context.Background(), got); err != nil {
+		t.Fatal(err)
+	}
+	e.settleReviews(name)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationUnconfirmed || len(v.Outcomes) == 0 {
+		t.Fatalf("verification = %s %+v, want round 1 judged Unconfirmed", v.State, v.Outcomes)
+	}
+	if n := e.stageCount(name, v1alpha1.IntentStageEvaluate); n != 0 {
+		t.Fatalf("evaluate runs = %d, want none: the preview failed first", n)
+	}
+	if v.ModelRound != nil {
+		t.Errorf("model round %+v recorded for a round no evaluator reported on", v.ModelRound)
+	}
+}
+
+// TestReplayInAFailingEnvironmentEscalates: a replay round whose every
+// outcome passed, but whose environment failed while it ran, is unsure
+// too: it asks for its head set's one full round, as any unsure replay.
+func TestReplayInAFailingEnvironmentEscalates(t *testing.T) {
+	e, name := passedModelRound(t, 0.4)
+	e.request(name, "issue", "/maul verify")
+	pv := e.roundOf(name, 2)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.replayedBoth(name, pv.Name, v1alpha1.CheckRunPass)
+	got := e.pvNamed(pv.Name)
+	got.Status.Environment = []v1alpha1.PartFact{{Name: "app", Role: v1alpha1.PreviewRoleComponent, Ready: true,
+		CrashedDuring: true, Restarts: 1}}
+	if err := e.c.Update(context.Background(), got); err != nil {
+		t.Fatal(err)
+	}
+	e.reviewUntil(name, func() bool { return e.verification(name).State != v1alpha1.VerificationEvaluating })
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationUnconfirmed || v.OutcomesEnvironment == string(httpstep.EnvOK) {
+		t.Fatalf("replay round = %s in %q, want Unconfirmed in a failing environment", v.State,
+			v.OutcomesEnvironment)
+	}
+	if esc := v.Escalation; esc == nil || esc.Round != 2 {
+		t.Errorf("escalation %+v, want round 2's: a full round may settle what the environment left open", esc)
+	}
+}
+
 // TestUnsureReplayEscalatesOnce: when the escalated full round is unsure
 // too, no further round starts by itself; a later replay at the same
 // heads, unsure again, escalates no more (the head set's one escalation is
@@ -416,6 +474,33 @@ func TestVerifyExploreForcesTheFullRung(t *testing.T) {
 			if v := e.verification(name); v.State != v1alpha1.VerificationPassed || v.ModelRound.Round != 2 {
 				t.Errorf("explored round = %s, model round %+v; want Passed, round 2 the model round", v.State,
 					v.ModelRound)
+			}
+		})
+	}
+}
+
+// TestVerifyExploreIsApproversOnly: /maul verify explore from someone
+// who is not an approver, on the issue or a pull request, records nothing:
+// the next round an approver asks for at the same heads still replays.
+func TestVerifyExploreIsApproversOnly(t *testing.T) {
+	for _, surface := range []string{"issue", "pull request"} {
+		t.Run(surface, func(t *testing.T) {
+			e, name := passedModelRound(t, 0.4)
+			e.clock.Advance(verifyInterval)
+			if surface == "issue" {
+				e.gh.comment("mallory", "/maul verify explore")
+			} else {
+				e.prCommand(e.prNumber(name), "mallory", "/maul verify explore")
+			}
+			e.settleActions(name)
+			e.review(name, 2)
+			if v := e.verification(name); v.Requested != nil || v.Round != 1 {
+				t.Fatalf("a stranger's explore recorded %+v at round %d", v.Requested, v.Round)
+			}
+			e.request(name, surface, "/maul verify")
+			e.replayRound(name, 2, v1alpha1.CheckRunPass)
+			if n := e.stageCount(name, v1alpha1.IntentStageEvaluate); n != 1 {
+				t.Errorf("evaluate runs = %d, want round 1's alone", n)
 			}
 		})
 	}
