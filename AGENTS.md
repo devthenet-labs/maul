@@ -652,8 +652,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   evaluate prompt is its own template (`prompt_evaluate_workspace.md.tmpl`, `EvaluateWorkspace`; shared sections in
   `prompt_evaluate_parts.md.tmpl`), the check review and plan prompts take `ReviewWorkspace` and `PlanWorkspace`, the
   reproduction of an agents round uses the workspace wording (`VerifyReproduction.Workspace`), and the hand-off is
-  link-less (`Workspace` on `IntentPreview`/`IntentPreviewComment`; `HandoffWhyOfVerification` maps the tool pod's
-  reasons to "couldn't confirm" words); S1's slot prompts and comments are byte-identical.
+  link-less (`Workspace` on `IntentPreview`/`IntentPreviewComment`); S1's slot prompts and comments are
+  byte-identical. A round that settles without a judgement records one `v1alpha1.SettleCause` (`CauseOf` of its last
+  attempt's reason, kept in `status.verification.unavailableReason`), and `CauseWords` (`intent_settle.go`) is the one
+  table its hand-off reason, not-run reply and commit status are named from; `whyWords` gives a reason's words with or
+  without a preview (an Infra environment is maul's own, never "the preview failed"), and `OutcomeCount` is the one
+  outcome count.
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
 - `attribution` — run attribution's pure core (per-user credentials design, L1): the `--attribution-mode` switch
