@@ -319,7 +319,7 @@ func checkRuns(t *testing.T, pv *v1alpha1.PreviewVerification) {
 		env[0].LastTermination.Reason != "Completed" || env[0].LastTermination.ExitCode != 0 {
 		t.Errorf("environment = %+v, want the head build part, built", env)
 	}
-	if pv.Status.TesterImageID == "" {
+	if pv.Status.ToolsImageID == "" {
 		t.Error("no tools image ID")
 	}
 }
@@ -487,9 +487,9 @@ func TestCollectGuardsTheImageID(t *testing.T) {
 			if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
 				t.Fatalf("status = %s %s, want Observed", pv.Status.Phase, pv.Status.Reason)
 			}
-			if pv.Status.TesterImageID != tc.want {
-				t.Errorf("image ID = %q (%d characters), want %q", pv.Status.TesterImageID,
-					len(pv.Status.TesterImageID), tc.want)
+			if pv.Status.ToolsImageID != tc.want {
+				t.Errorf("image ID = %q (%d characters), want %q", pv.Status.ToolsImageID,
+					len(pv.Status.ToolsImageID), tc.want)
 			}
 		})
 	}

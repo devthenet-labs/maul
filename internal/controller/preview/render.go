@@ -295,11 +295,11 @@ func validEnvironment(p *v1alpha1.Preview, components map[string]bool) error {
 		}
 		return nil
 	}
-	if !env.Verification || len(env.Edges) == 0 || components[v1alpha1.PreviewPartTester] {
+	if !env.Verification || len(env.Edges) == 0 || components[v1alpha1.PreviewPartToolPod] {
 		return fmt.Errorf("invalid Preview environment")
 	}
 	for _, e := range env.Edges {
-		from := components[e.From] || e.From == v1alpha1.PreviewPartTester
+		from := components[e.From] || e.From == v1alpha1.PreviewPartToolPod
 		if !from || !components[e.To] || e.From == e.To || e.Port < 1 || e.Port > 65535 {
 			return fmt.Errorf("invalid Preview environment edge")
 		}

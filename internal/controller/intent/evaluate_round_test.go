@@ -132,7 +132,7 @@ func TestEvaluatorCreatedAfterToolsStatus(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
-	if len(pv.Spec.Outcomes) != 3 || pv.Spec.OutcomesDigest == "" || len(pv.Spec.Criteria) != 0 ||
+	if len(pv.Spec.Outcomes) != 3 || pv.Spec.OutcomesDigest == "" ||
 		pv.Spec.Rung != v1alpha1.RungFull || pv.Spec.Tools == nil || pv.Spec.Tools.MaxToolCalls != 300 ||
 		pv.Spec.Tools.Browser || !pv.Spec.Tools.Sandbox || pv.Spec.Timeout.Duration != 25*time.Minute {
 		t.Fatalf("verification spec = %+v", pv.Spec)

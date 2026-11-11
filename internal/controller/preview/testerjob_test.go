@@ -75,8 +75,8 @@ func legacyTesterJob(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification) *bat
 	meta[labelVerificationUID] = string(pv.UID)
 	pod := labelsFor(p)
 	pod[labelVerificationUID] = string(pv.UID)
-	pod[labelPart] = v1alpha1.PreviewPartTester
-	pod[labelRole] = string(v1alpha1.PreviewRoleTester)
+	pod[labelPart] = v1alpha1.PreviewPartToolPod
+	pod[labelRole] = legacyTesterRole
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: testerJobName(p, pv), Namespace: testSettings().slotName(0),
 			Labels: meta},
@@ -192,7 +192,7 @@ func TestSweepVerificationOrphans(t *testing.T) {
 	live.Status.Slot = &slot
 	_, dead := testPreview("gone-1", time.Now())
 	dead.Spec.Environment = &v1alpha1.PreviewEnvironment{Verification: true, Edges: []v1alpha1.PreviewEdge{
-		{From: v1alpha1.PreviewPartTester, To: "demo", Port: 8080}}}
+		{From: v1alpha1.PreviewPartToolPod, To: "demo", Port: 8080}}}
 	s := verifySettings()
 	livePV := testVerification(live)
 	goneLivePV := testVerification(live)

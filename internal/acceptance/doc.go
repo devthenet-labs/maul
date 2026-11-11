@@ -1,86 +1,38 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package acceptance is the pure core of acceptance verification: the
-// criteria an approved intent plan declares under its `acceptance` key, and
-// everything maul decides about them without touching a cluster or GitHub.
+// Package acceptance is the pure core of acceptance verification: what an
+// approved intent plan declares under its `acceptance` key, and everything
+// maul decides about it without touching a cluster or GitHub.
 //
-// A Criterion (criterion.go) is one checkable statement of the plan: kind
-// http (requests to a previewed component, by its Service name, in one or
-// more steps that may capture values for later ones), command (slice 2: an
-// argv run in a component's image or the repository's agent image) or
-// manual (closed by a human's `/maul accept`). browser and agent are
-// reserved and refused until their slices ship. A bare request/expect pair
-// is shorthand for one step; Normalize folds it into Steps and makes every
-// default explicit.
-//
-// An http criterion's steps, their grammar, substitution and matchers, and
-// the environment facts (PartFact, ClassifyEnvironment, TargetWait) live in
-// internal/httpstep, which the agent evaluator's checks share.
-//
-// Validate (validate.go) is the static grammar and the only source of a
-// CriterionError: identifiers, kinds, bounds (MaxCriteria criteria,
-// MaxSteps steps in all), and each step held to httpstep.ValidateStep.
-// Whether a target names a previewed repository of the Project is the
-// controller's check, not this package's.
-//
-// Substitution (httpstep.Substitute) knows exactly two placeholders: {{run}},
-// a maul-generated token unique per try (RunTokens.Token), so checks create
-// uniquely named data in a Preview that is never reset; and
-// {{capture.<name>}}, a value an earlier step captured from a response.
-// httpstep.BuildRequest is the one function that turns a step into the
-// request the tester sends: captures are escaped into their context, so a value an
-// application returned can never add a path segment, a query parameter or a
-// header line, and the result is re-checked against the same grammar.
-//
-// Digest (digest.go) binds the FULL list, manual criteria included, in plan
-// order, over its normalised canonical JSON: intent-controller stores it
-// beside the approved criteria and preview-controller re-checks it before
-// rendering the tester (critique fix 4). Automatable picks the criteria a
-// slice runs, in plan order.
-//
-// The tester observes; maul judges. Observe (observation.go) is the
-// tester's loop with the I/O injected: it builds each step's request, hands
-// it to a Doer, records a bounded StepObservation (the raw JSON at each
-// expected pointer, reduced so it is judged the same as the full value, the
-// captures, the named headers, a display-only body prefix), and re-runs a
-// failing criterion once with a fresh {{run}}. JudgeStep decides only that
-// retry. Judge (judge.go), run by intent-controller on what
-// preview-controller read back, is the verdict: pass, quarantined (failed,
-// then passed on the retry: shown to the human, never counted as passed,
-// D7) or fail. There is no runtime error outcome: a transport failure, a
-// body that is not JSON, a missing pointer or capture, an observation that
-// does not fit its criterion, all fail.
-//
-// The observations travel on the wire format v1 (observation.go): one
-// `MAUL-VERIFY: ` JSON line per criterion and a final summary carrying the
-// count and sha256 of the lines before it, repeated in the tester's
-// termination message so a truncated log is detected (ParseWire). The
-// summary also carries the tester's readiness wait (readiness.go): one
-// TargetWait per target, made of connection outcomes before any request,
-// and the targets never reached, after which no criterion is observed and
-// preview-controller marks the component unreachable: the application's
-// failure (PartFact.UnreachableForMs).
-//
-// Fingerprint (fingerprint.go) names a failure for RepeatedFailure
-// detection: failing criteria's ids, outcomes, statuses, transport classes
-// and the matched/unmatched bit of each expectation, plus the failing
-// parts' waiting or termination reasons and exit codes (fix 10). Never an
-// actual value, body or log text, so it is stable across runs and immune to
-// what an application chooses to print. httpstep.ClassifyEnvironment
-// sorts an environment failure into one the application
-// caused (charged to the intent, fix 13) or infrastructure trouble (free
-// retries).
-//
-// Under the agent evaluator a plan states outcomes instead (outcome.go).
+// A plan states outcomes (outcome.go): plain statements of what must hold,
+// each `change` or `keep`, some `manual`, which the agent evaluator judges.
 // NotCovered (coverage.go) lists the issue lines no outcome answers, and
 // LintOutcomes (lint.go) flags outcomes no check can show on a preview whose
 // data is shared, for the approver: both are advice in the plan comment,
-// never a refusal or a verdict.
+// never a refusal or a verdict. OutcomesDigest binds the full list.
+//
+// Decide (decide.go) is the only place a round's outcomes are judged: the
+// tools ledger's runs, the check reviewer's answers and the evaluator's
+// claims go in, a result per outcome, at most one fix request and the
+// hand-off come out (DESIGN 4.3's pass rules; base_comparison.go is rule
+// 5's reading of an agents round's base runs). EvaluationFingerprint
+// (fingerprint.go) names a round's failure for RepeatedFailure detection,
+// from ids, digests and the environment's failing parts only, never a value
+// an application chose to print; httpstep.ClassifyEnvironment sorts an
+// environment failure into the application's or maul's.
+//
+// Slice 1's criteria grammar (criterion.go, validate.go, digest.go) is kept
+// only to read a plan that states criteria: nothing runs or judges a
+// criterion any more. Under the evaluator such a plan is refused for a
+// replan (report.ErrSliceOneCriteria); elsewhere it is recorded by its
+// criteria Digest alone, which a record of slice 1's era also keeps once the
+// API server has pruned its criteria. A bare request/expect pair is
+// shorthand for one step; Normalize folds it into Steps, and Digest binds
+// the normalised list. The step grammar, substitution and matchers, and the
+// environment facts (PartFact, ClassifyEnvironment, TargetWait), live in
+// internal/httpstep, which the evaluator's checks share.
 //
 // The package imports only the standard library and internal/httpstep (a
-// test pins that), so the report parser, both controllers and the tester
-// binary share it.
-// v1alpha1.AcceptanceCriterion mirrors Criterion field for field, with the
-// same JSON tags, for the CRDs that store criteria.
+// test pins that), so the report parser and the controllers share it.
 package acceptance

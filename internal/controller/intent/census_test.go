@@ -18,6 +18,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -26,75 +27,116 @@ import (
 	"github.com/devthenet-labs/maul/internal/kube"
 )
 
-// censusIntent is an Intent in phase whose acceptance on record is acc.
+// censusSettings is a controller whose agent evaluator verifies the
+// previewed Projects of censusProject.
+var censusSettings = Settings{Namespace: testNS, Verification: true, Previews: true, Evaluator: true}
+
+// censusProject is a previewed Project, verified when verified is set.
+func censusProject(name string, verified bool) *v1alpha1.Project {
+	p := testProject()
+	p.Name, p.UID = name, types.UID("u-"+name)
+	p.Spec.Preview = &appPreview
+	if verified {
+		p.Spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
+	}
+	return p
+}
+
+// censusIntent is an Intent of Project target in phase whose acceptance on
+// record is acc.
 func censusIntent(name string, phase v1alpha1.IntentPhase, acc *v1alpha1.IntentAcceptance) *v1alpha1.Intent {
-	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS}}
+	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS},
+		Spec: v1alpha1.IntentSpec{Project: "target"}}
 	in.Status.Phase, in.Status.Acceptance = phase, acc
 	return in
 }
 
-// censusPV is a PreviewVerification asking criteria when criteria is set,
-// outcomes otherwise.
-func censusPV(name string, criteria bool) *v1alpha1.PreviewVerification {
+// censusPV is an outcome PreviewVerification when outcomes is set, else one
+// as the API server keeps slice 1's criteria request now that its criteria
+// fields are removed: no outcomes.
+func censusPV(name string, outcomes bool) *v1alpha1.PreviewVerification {
 	pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS}}
-	if criteria {
-		pv.Spec.Criteria = []v1alpha1.AcceptanceCriterion{{ID: "version-served"}}
-		return pv
+	if outcomes {
+		pv.Spec.Outcomes = []v1alpha1.AcceptanceOutcome{{ID: "version-served"}}
 	}
-	pv.Spec.Outcomes = []v1alpha1.AcceptanceOutcome{{ID: "version-served"}}
 	return pv
 }
 
+// deleting is obj being deleted: a deletion timestamp and the finalizer
+// that holds it (the fake client refuses the first without the second).
+func deleting[T client.Object](obj T) T {
+	now := metav1.Now()
+	obj.SetDeletionTimestamp(&now)
+	obj.SetFinalizers([]string{"example.com/hold"})
+	return obj
+}
+
 // TestSlice1Census: the startup census (S4) counts every non-terminal
-// Intent whose acceptance on record is criteria-era (criteria, criteria
-// beside outcomes, or a record pruned of its criteria: a criteria digest
-// with no outcomes digest) and every PreviewVerification asking criteria,
-// in the controller's namespace only. Outcome records, empty records,
-// records of another namespace and terminal Intents are not counted. It
-// only reads: every write the client is asked fails the test.
+// Intent, of a Project the agent evaluator verifies, whose acceptance on
+// record is criteria-era (a criteria digest with no outcomes digest: its
+// criteria pruned, or never recorded), and every PreviewVerification
+// evaluating no outcomes (slice 1's criteria request, pruned), in the
+// controller's namespace only. Outcome records, empty records, records of
+// another namespace, terminal Intents, Intents of a Project the evaluator
+// does not verify or that is gone, and objects being deleted are not
+// counted (#394's note: such a record is recorded by its digest alone, which
+// nothing runs and the pruning does not change, and a delete is the fix the
+// census names). It only reads: every write the client is asked fails the
+// test.
 func TestSlice1Census(t *testing.T) {
-	criteria := &v1alpha1.IntentAcceptance{Digest: "sha256:" + strings.Repeat("a", 64),
-		Criteria: []v1alpha1.AcceptanceCriterion{{ID: "version-served"}}}
-	pruned := &v1alpha1.IntentAcceptance{Digest: "sha256:" + strings.Repeat("a", 64)}
-	criteriaDigest, outcomesDigest := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)
-	mixed := &v1alpha1.IntentAcceptance{Digest: criteriaDigest, OutcomesDigest: outcomesDigest,
-		Criteria: []v1alpha1.AcceptanceCriterion{{ID: "version-served"}}}
-	outcomes := &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest, OutcomesDigest: outcomesDigest}
+	sliceOne := &v1alpha1.IntentAcceptance{Digest: "sha256:" + strings.Repeat("a", 64)}
+	outcomes := &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest,
+		OutcomesDigest: "sha256:" + strings.Repeat("b", 64)}
 	empty := &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest}
-	other := censusIntent("elsewhere", v1alpha1.IntentInReview, criteria)
+	other := censusIntent("elsewhere", v1alpha1.IntentInReview, sliceOne)
 	other.Namespace = "other"
-	otherPV := censusPV("elsewhere-v1", true)
+	otherPV := censusPV("elsewhere-v1", false)
 	otherPV.Namespace = "other"
+	ofProject := func(in *v1alpha1.Intent, project string) *v1alpha1.Intent {
+		in.Spec.Project = project
+		return in
+	}
 
 	tests := []struct {
 		name        string
+		set         Settings
 		objs        []client.Object
 		wantIntents []string
 		wantPVs     []string
 	}{
-		{name: "none"},
-		{name: "outcomes only", objs: []client.Object{
+		{name: "none", set: censusSettings},
+		{name: "outcomes only", set: censusSettings, objs: []client.Object{
+			censusProject("target", true),
 			censusIntent("a", v1alpha1.IntentInReview, outcomes),
 			censusIntent("b", v1alpha1.IntentRevising, empty),
 			censusIntent("c", v1alpha1.IntentPending, nil),
-			censusPV("a-v1", false),
+			censusPV("a-v1", true),
 		}},
-		{name: "some", objs: []client.Object{
-			censusIntent("crit", v1alpha1.IntentInReview, criteria),
-			censusIntent("pruned", v1alpha1.IntentRevising, pruned),
-			censusIntent("mixed", v1alpha1.IntentBlocked, mixed),
-			censusIntent("merged", v1alpha1.IntentMerged, criteria),
-			censusIntent("closed", v1alpha1.IntentClosed, pruned),
+		{name: "some", set: censusSettings, objs: []client.Object{
+			censusProject("target", true), censusProject("plain", false),
+			censusIntent("open", v1alpha1.IntentInReview, sliceOne),
+			censusIntent("revising", v1alpha1.IntentRevising, sliceOne),
+			censusIntent("merged", v1alpha1.IntentMerged, sliceOne),
+			censusIntent("closed", v1alpha1.IntentClosed, sliceOne),
 			censusIntent("new", v1alpha1.IntentInReview, outcomes),
+			deleting(censusIntent("going", v1alpha1.IntentInReview, sliceOne)),
+			ofProject(censusIntent("unverified", v1alpha1.IntentInReview, sliceOne), "plain"),
+			ofProject(censusIntent("orphan", v1alpha1.IntentInReview, sliceOne), "gone"),
 			other, otherPV,
-			censusPV("crit-v1", true),
-			censusPV("new-v1", false),
-		}, wantIntents: []string{"crit", "mixed", "pruned"}, wantPVs: []string{"crit-v1"}},
+			censusPV("open-v1", false),
+			deleting(censusPV("going-v1", false)),
+			censusPV("new-v1", true),
+		}, wantIntents: []string{"open", "revising"}, wantPVs: []string{"open-v1"}},
+		{name: "the evaluator off", set: Settings{Namespace: testNS}, objs: []client.Object{
+			censusProject("target", true),
+			censusIntent("open", v1alpha1.IntentInReview, sliceOne),
+			censusPV("open-v1", false),
+		}, wantPVs: []string{"open-v1"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r := censusClient(t, tc.objs...)
-			got, err := TakeSlice1Census(context.Background(), r, testNS)
+			got, err := TakeSlice1Census(context.Background(), r, tc.set)
 			if err != nil {
 				t.Fatalf("census: %v", err)
 			}
@@ -104,7 +146,30 @@ func TestSlice1Census(t *testing.T) {
 			if got.Count() != len(tc.wantIntents)+len(tc.wantPVs) {
 				t.Errorf("count = %d", got.Count())
 			}
+			if (got.Err() == nil) != (got.Count() == 0) {
+				t.Errorf("Err() = %v with %d records", got.Err(), got.Count())
+			}
 		})
+	}
+}
+
+// TestSlice1CensusErr: the refusal names every record by namespace and
+// name with the command that clears it, and is errSlice1Records.
+func TestSlice1CensusErr(t *testing.T) {
+	err := Slice1Census{Namespace: "maul", Intents: []string{"beatbattle-48"},
+		Verifications: []string{"beatbattle-48-v1-a1"}}.Err()
+	if !errors.Is(err, errSlice1Records) {
+		t.Fatalf("Err() = %v, want errSlice1Records", err)
+	}
+	for _, want := range []string{"(2)", "Intent maul/beatbattle-48", "kubectl -n maul delete intent beatbattle-48",
+		"/maul cancel", "PreviewVerification maul/beatbattle-48-v1-a1",
+		"kubectl -n maul delete previewverification beatbattle-48-v1-a1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Err() = %q, want it to name %q", err, want)
+		}
+	}
+	if err := (Slice1Census{Namespace: "maul", VerificationsUnlisted: true}).Err(); err != nil {
+		t.Errorf("Err() of an empty census = %v", err)
 	}
 }
 
@@ -112,20 +177,28 @@ func TestSlice1Census(t *testing.T) {
 // census's error, naming what it could not list; nothing is counted.
 func TestSlice1CensusListFailure(t *testing.T) {
 	refused := errors.New("forbidden")
-	for _, kind := range []string{"intents", "previewverifications"} {
+	for _, kind := range []string{"projects", "intents", "previewverifications"} {
 		r := censusClient(t)
 		r = interceptor.NewClient(r.(client.WithWatch), interceptor.Funcs{
 			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				_, intents := list.(*v1alpha1.IntentList)
-				if intents == (kind == "intents") {
+				var this string
+				switch list.(type) {
+				case *v1alpha1.ProjectList:
+					this = "projects"
+				case *v1alpha1.IntentList:
+					this = "intents"
+				case *v1alpha1.PreviewVerificationList:
+					this = "previewverifications"
+				}
+				if this == kind {
 					return refused
 				}
 				return c.List(ctx, list, opts...)
 			},
 		})
-		if got, err := TakeSlice1Census(context.Background(), r, testNS); !errors.Is(err, refused) ||
-			got.Count() != 0 {
-			t.Errorf("%s refused: census %+v, %v; want the refusal and nothing counted", kind, got, err)
+		got, err := TakeSlice1Census(context.Background(), r, censusSettings)
+		if !errors.Is(err, refused) || !strings.Contains(err.Error(), kind) || got.Count() != 0 {
+			t.Errorf("%s refused: census %+v, %v; want the refusal naming it and nothing counted", kind, got, err)
 		}
 	}
 }
@@ -135,8 +208,8 @@ func TestSlice1CensusListFailure(t *testing.T) {
 // is Forbidden: the Intents are still counted, and the verifications are
 // unlisted (unknown), never reported as none.
 func TestSlice1CensusVerificationsForbidden(t *testing.T) {
-	r := censusClient(t, censusIntent("crit", v1alpha1.IntentInReview, &v1alpha1.IntentAcceptance{
-		Digest: "sha256:" + strings.Repeat("a", 64), Criteria: []v1alpha1.AcceptanceCriterion{{ID: "x"}}}))
+	r := censusClient(t, censusProject("target", true), censusIntent("crit", v1alpha1.IntentInReview,
+		&v1alpha1.IntentAcceptance{Digest: "sha256:" + strings.Repeat("a", 64)}))
 	r = interceptor.NewClient(r.(client.WithWatch), interceptor.Funcs{
 		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 			if _, ok := list.(*v1alpha1.PreviewVerificationList); ok {
@@ -146,7 +219,7 @@ func TestSlice1CensusVerificationsForbidden(t *testing.T) {
 			return c.List(ctx, list, opts...)
 		},
 	})
-	got, err := TakeSlice1Census(context.Background(), r, testNS)
+	got, err := TakeSlice1Census(context.Background(), r, censusSettings)
 	if err != nil || !got.VerificationsUnlisted || !slices.Equal(got.Intents, []string{"crit"}) ||
 		got.Verifications != nil {
 		t.Errorf("census = %+v, %v; want the intent counted and the verifications unlisted", got, err)

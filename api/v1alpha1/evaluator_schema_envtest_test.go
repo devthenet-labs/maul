@@ -52,8 +52,6 @@ func schemaSavedChecks() []maulv1.SavedCheck {
 // schemaOutcomeVerification is a valid outcome PreviewVerification.
 func schemaOutcomeVerification(name string) *maulv1.PreviewVerification {
 	v := schemaVerification(name)
-	v.Spec.Criteria, v.Spec.CriteriaDigest = nil, ""
-	v.Spec.Outcomes, v.Spec.OutcomesDigest = schemaOutcomes(), schemaDigest
 	v.Spec.Checks, v.Spec.ChecksDigest = schemaSavedChecks(), schemaDigest
 	v.Spec.Rung = maulv1.RungFull
 	v.Spec.Tools = &maulv1.ToolsSpec{Browser: true, Sandbox: true, MaxToolCalls: 300, LookAroundRoutes: 8}
@@ -257,13 +255,13 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 	t.Run("an outcomes plan stating none is admitted", func(t *testing.T) {
 		i := fresh(t)
 		i.Status = full()
-		i.Status.Acceptance = &maulv1.IntentAcceptance{PlanRevision: 1, Digest: schemaDigest,
-			OutcomesDigest: schemaDigest}
+		i.Status.Acceptance = &maulv1.IntentAcceptance{PlanRevision: 1, Digest: maulv1.EmptyListDigest,
+			OutcomesDigest: maulv1.EmptyListDigest}
 		i.Status.Verification = &maulv1.IntentVerification{State: maulv1.VerificationNotDeclared}
 		if err := c.Status().Update(ctx, i); err != nil {
 			t.Fatalf("Status().Update(no outcomes) = %v", err)
 		}
-		if got := fresh(t).Status.Acceptance; got.OutcomesDigest != schemaDigest || len(got.Outcomes) != 0 {
+		if got := fresh(t).Status.Acceptance; got.OutcomesDigest != maulv1.EmptyListDigest || len(got.Outcomes) != 0 {
 			t.Errorf("acceptance = %+v, want the outcomes digest alone", got)
 		}
 	})
@@ -279,7 +277,9 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 		name   string
 		mutate func(*maulv1.IntentStatus)
 	}{
-		{"both criteria and outcomes", func(s *maulv1.IntentStatus) { s.Acceptance.Criteria = schemaCriteria() }},
+		{"another list's outcomes digest without its outcomes", func(s *maulv1.IntentStatus) {
+			s.Acceptance.Outcomes = nil
+		}},
 		{"outcomes without their digest", func(s *maulv1.IntentStatus) { s.Acceptance.OutcomesDigest = "" }},
 		{"21 outcomes", func(s *maulv1.IntentStatus) {
 			for i := len(s.Acceptance.Outcomes); i < 21; i++ {
@@ -349,8 +349,8 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 	}
 }
 
-// testOutcomeVerificationSchema: a PreviewVerification runs exactly one of
-// criteria and outcomes, saved checks travel inline and bounded, and the
+// testOutcomeVerificationSchema: a PreviewVerification evaluates outcomes
+// (slice 1's criteria are removed), saved checks travel inline and bounded, and the
 // evaluator's status is bounded and in a fixed vocabulary.
 func testOutcomeVerificationSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
@@ -390,36 +390,19 @@ func testOutcomeVerificationSchema(ctx context.Context, t *testing.T, c client.C
 	bigCheck := func(n int, r string) func(*maulv1.PreviewVerification) {
 		return func(v *maulv1.PreviewVerification) { v.Spec.Checks[0].Body = strings.Repeat(r, n) }
 	}
-	asCriteria := func(v *maulv1.PreviewVerification) {
-		v.Spec.Outcomes, v.Spec.OutcomesDigest, v.Spec.Checks, v.Spec.ChecksDigest = nil, "", nil, ""
-		v.Spec.Rung, v.Spec.Tools = "", nil
-		v.Spec.Criteria, v.Spec.CriteriaDigest = schemaCriteria()[:1], schemaDigest
-	}
 	for _, tt := range []struct {
 		name    string
 		mutate  func(*maulv1.PreviewVerification)
 		wantErr bool
 	}{
-		{"both criteria and outcomes", func(v *maulv1.PreviewVerification) {
-			v.Spec.Criteria, v.Spec.CriteriaDigest = schemaCriteria()[:1], schemaDigest
-		}, true},
-		{"neither criteria nor outcomes", func(v *maulv1.PreviewVerification) {
+		{"no outcomes", func(v *maulv1.PreviewVerification) {
 			v.Spec.Outcomes, v.Spec.OutcomesDigest = nil, ""
 		}, true},
+		{"no outcomes, nothing else of an outcome verification", func(v *maulv1.PreviewVerification) {
+			v.Spec.Outcomes, v.Spec.OutcomesDigest, v.Spec.Checks, v.Spec.ChecksDigest = nil, "", nil, ""
+			v.Spec.Rung, v.Spec.Tools = "", nil
+		}, true},
 		{"outcomes without their digest", func(v *maulv1.PreviewVerification) { v.Spec.OutcomesDigest = "" }, true},
-		{"criteria alone", asCriteria, false},
-		{"criteria without their digest", func(v *maulv1.PreviewVerification) {
-			asCriteria(v)
-			v.Spec.CriteriaDigest = ""
-		}, true},
-		{"criteria with a rung", func(v *maulv1.PreviewVerification) {
-			asCriteria(v)
-			v.Spec.Rung = maulv1.RungFull
-		}, true},
-		{"criteria with tools", func(v *maulv1.PreviewVerification) {
-			asCriteria(v)
-			v.Spec.Tools = &maulv1.ToolsSpec{MaxToolCalls: 300}
-		}, true},
 		{"outcomes without a rung", func(v *maulv1.PreviewVerification) { v.Spec.Rung = "" }, true},
 		{"outcomes without tools", func(v *maulv1.PreviewVerification) { v.Spec.Tools = nil }, true},
 		{"an unknown rung", func(v *maulv1.PreviewVerification) { v.Spec.Rung = "explore" }, true},

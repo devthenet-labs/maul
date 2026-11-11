@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -393,38 +394,44 @@ func logVerificationOff(ctx context.Context, log *slog.Logger, set intent.Settin
 	}
 }
 
-// logSlice1Census takes the slice-1 census (intent.TakeSlice1Census) through
+// setupPreviewSource registers the preview-source reconciler, which writes
+// each eligible Intent's Preview, when --intent-previews-enabled is on.
+func setupPreviewSource(mgr ctrl.Manager, opts *cli.Options) error {
+	if !opts.Bool("intent-previews-enabled") {
+		return nil
+	}
+	return (&intent.PreviewSourceReconciler{
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr)
+}
+
+// slice1Census takes the slice-1 census (intent.TakeSlice1Census) through
 // r, which can only read, reports it as the maul.intent.slice1_records
-// gauge and logs it: each record by name, with what clears it. It never
-// stops startup: mode() stops such an Intent for a replan, and a criteria
-// PreviewVerification is never run again. A census that cannot list is
-// logged, and the gauge is left unreported rather than read as zero.
-func logSlice1Census(ctx context.Context, log *slog.Logger, r client.Reader, namespace string) {
-	census, err := intent.TakeSlice1Census(ctx, r, namespace)
+// gauge, logs it, and refuses to start while it found any record: each by
+// name, with what clears it (Slice1Census.Err). A census that cannot list
+// refuses too: what it could not see may be a record the removed criteria
+// fields left unverifiable.
+func slice1Census(ctx context.Context, log *slog.Logger, r client.Reader, set intent.Settings) error {
+	census, err := intent.TakeSlice1Census(ctx, r, set)
 	if err != nil {
-		log.LogAttrs(ctx, slog.LevelWarn, "the slice-1 census could not run; starting anyway",
-			slog.Any("error", err))
-		return
+		return fmt.Errorf("the slice-1 census could not run, so intent-controller does not start: %w", err)
 	}
 	census.Report()
 	attrs := []slog.Attr{slog.Int("count", census.Count()), slog.Any("intents", census.Intents),
 		slog.Any("previewverifications", census.Verifications),
 		slog.Bool("previewverifications_unlisted", census.VerificationsUnlisted)}
-	switch {
-	case census.Count() == 0 && census.VerificationsUnlisted:
-		log.LogAttrs(ctx, slog.LevelInfo, "slice-1 census: no open intent records acceptance criteria; "+
-			"PreviewVerifications could not be listed (no grant without the evaluator)", attrs...)
-		return
-	case census.Count() == 0:
-		log.LogAttrs(ctx, slog.LevelInfo, "slice-1 census: no open intent or verification records acceptance "+
-			"criteria", attrs...)
-		return
+	if err := census.Err(); err != nil {
+		return fmt.Errorf("slice-1 census: %w; slice 1's acceptance criteria are removed and these records "+
+			"cannot be verified, so intent-controller does not start until they are gone, %s", err,
+			verificationMigration)
 	}
-	log.LogAttrs(ctx, slog.LevelWarn, "slice-1 census: these records still state acceptance criteria, which no "+
-		"longer run: such an open intent is never verified again (under the evaluator it stops for a replan), "+
-		"and such a PreviewVerification is never run again; replan or close the intents and delete the "+
-		"verifications before upgrading past the release that removes the criteria fields, "+
-		verificationMigration, attrs...)
+	msg := "slice-1 census: no open intent or verification records acceptance criteria"
+	if census.VerificationsUnlisted {
+		msg = "slice-1 census: no open intent records acceptance criteria; PreviewVerifications could not be " +
+			"listed (no grant without the evaluator)"
+	}
+	log.LogAttrs(ctx, slog.LevelInfo, msg, attrs...)
+	return nil
 }
 
 // agents reads the agents-namespace tool pod's settings when
@@ -906,17 +913,15 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := setupAgentsHost(mgr, set, cs, jobs.New(cs, jobsCfg, log), images, harnessID, log); err != nil {
 		return err
 	}
-	if opts.Bool("intent-previews-enabled") {
-		if err := (&intent.PreviewSourceReconciler{
-			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(),
-		}).SetupWithManager(mgr); err != nil {
-			return err
-		}
+	if err := setupPreviewSource(mgr, opts); err != nil {
+		return err
 	}
 
 	logVerificationOff(ctx, log, set)
 	// Read-only, uncached, before the manager starts: the API reader.
-	logSlice1Census(ctx, log, mgr.GetAPIReader(), namespace)
+	if err := slice1Census(ctx, log, mgr.GetAPIReader(), set); err != nil {
+		return err
+	}
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),

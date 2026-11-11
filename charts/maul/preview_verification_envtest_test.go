@@ -15,7 +15,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -666,14 +665,10 @@ func verification(name string) *v1alpha1.PreviewVerification {
 			Heads: []v1alpha1.VerificationHead{{Component: "api", Repository: "https://github.com/acme/api",
 				Revision: previewSHA}},
 			Round: 1, Attempt: 1, Run: "0a1b2c",
-			Criteria: []v1alpha1.AcceptanceCriterion{{
-				ID: "home", Kind: v1alpha1.AcceptanceHTTP, Statement: "the home page answers", Target: "api",
-				Steps: []v1alpha1.AcceptanceStep{{
-					Request: v1alpha1.AcceptanceRequest{Method: "GET", Path: "/"},
-					Expect:  v1alpha1.AcceptanceExpect{Status: &apiextensionsv1.JSON{Raw: []byte("200")}},
-				}},
-			}},
-			CriteriaDigest: "sha256:" + strings.Repeat("d", 64),
+			Outcomes:       []v1alpha1.AcceptanceOutcome{{ID: "home", Outcome: "The home page answers."}},
+			OutcomesDigest: "sha256:" + strings.Repeat("d", 64),
+			Rung:           v1alpha1.RungFull,
+			Tools:          &v1alpha1.ToolsSpec{Sandbox: true, MaxToolCalls: 300},
 			Timeout:        metav1.Duration{Duration: 10 * time.Minute},
 		},
 	}

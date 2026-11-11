@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"reflect"
 	"sort"
-	"strings"
 	"testing/quick"
 
 	"github.com/devthenet-labs/maul/internal/httpstep"
@@ -204,137 +203,11 @@ func jsonValue(v any) httpstep.Value {
 	return out
 }
 
-// genScenario is one random http criterion with the run tokens it is
-// judged under.
-type genScenario struct {
-	c  Criterion
-	rt RunTokens
-}
+// genHTTPCriterion is one random http criterion.
+type genHTTPCriterion struct{ c Criterion }
 
-func (genScenario) Generate(r *rand.Rand, _ int) reflect.Value {
+func (genHTTPCriterion) Generate(r *rand.Rand, _ int) reflect.Value {
 	c := genHTTP(r)
 	c.ID = "s-" + word(r)
-	rt := RunTokens{Round: 1 + int32(r.Intn(5)), Attempt: 1 + int32(r.Intn(3)), Run: fmt.Sprintf("%06x", r.Intn(1<<24))}
-	return reflect.ValueOf(genScenario{c: c, rt: rt})
-}
-
-// server answers each built request with a response satisfying the step's
-// expectations, as a correct application would. failTries makes the given
-// tries answer 500 instead (a flaky application).
-type server struct {
-	c         Criterion
-	failTries map[int]bool
-	calls     int
-}
-
-func (s *server) do(call Call) Response {
-	s.calls++
-	if s.failTries[call.Try] {
-		return Response{Status: 500, Body: []byte(`{"error":"flaky"}`)}
-	}
-	return satisfy(Normalize([]Criterion{s.c})[0].Steps[call.Step], call.Run, call.Captures)
-}
-
-// satisfy builds a response meeting every expectation of st under run and
-// the captures so far, plus a fresh value for each capture it declares.
-func satisfy(st httpstep.Step, run string, caps map[string]string) Response {
-	sub := func(s string) string {
-		out, err := httpstep.Substitute(s, run, caps)
-		if err != nil {
-			panic(fmt.Sprintf("satisfy: %v", err))
-		}
-		return out
-	}
-	doc := map[string]any{}
-	for ptr, v := range st.Expect.JSON {
-		m, err := parseMatcher(v)
-		if err != nil {
-			panic(err)
-		}
-		if val, ok := satisfyMatcher(m, sub); ok {
-			doc[strings.TrimPrefix(ptr, "/")] = val
-		}
-	}
-	for name, ptr := range st.Capture {
-		doc[strings.TrimPrefix(ptr, "/")] = "cap-" + name + "-" + run
-	}
-	if st.Expect.BodyContains != "" {
-		doc["_body"] = sub(st.Expect.BodyContains)
-	}
-	header := map[string][]string{}
-	for name, v := range st.Expect.Headers {
-		var s string
-		var m map[string]string
-		if json.Unmarshal([]byte(v.String()), &s) == nil {
-			header[name] = []string{sub(s)}
-		} else if json.Unmarshal([]byte(v.String()), &m) == nil {
-			header[name] = []string{"pre-" + sub(m["$contains"]) + "-post"}
-		}
-	}
-	body, _ := json.Marshal(doc)
-	return Response{Status: st.Expect.Status[0], Header: header, Body: body}
-}
-
-func satisfyMatcher(m matcher, sub func(string) string) (any, bool) {
-	switch m.kind {
-	case matchPresent:
-		return "present", true
-	case matchAbsent:
-		return nil, false
-	case matchContains:
-		return "<<" + sub(m.contains) + ">>", true
-	case matchApprox:
-		if !m.approxList {
-			return m.approx[0] + m.tolerance/2, true
-		}
-		out := make([]any, len(m.approx))
-		for i, n := range m.approx {
-			out[i] = n + m.tolerance/2
-		}
-		return out, true
-	case matchOrder:
-		list := []any{wrapBy(m.by, "noise")}
-		for _, v := range m.order {
-			list = append(list, wrapBy(m.by, substAny(decode(v), sub)), wrapBy(m.by, "noise"))
-		}
-		return list, true
-	default:
-		return substAny(decode(m.literal), sub), true
-	}
-}
-
-func wrapBy(by string, v any) any {
-	if by == "" {
-		return v
-	}
-	return map[string]any{strings.TrimPrefix(by, "/"): v, "other": 1}
-}
-
-func decode(v httpstep.Value) any {
-	var out any
-	if err := json.Unmarshal([]byte(v.String()), &out); err != nil {
-		panic(err)
-	}
-	return out
-}
-
-func substAny(v any, sub func(string) string) any {
-	switch t := v.(type) {
-	case string:
-		return sub(t)
-	case []any:
-		out := make([]any, len(t))
-		for i, e := range t {
-			out[i] = substAny(e, sub)
-		}
-		return out
-	case map[string]any:
-		out := map[string]any{}
-		for k, e := range t {
-			out[k] = substAny(e, sub)
-		}
-		return out
-	default:
-		return v
-	}
+	return reflect.ValueOf(genHTTPCriterion{c: c})
 }

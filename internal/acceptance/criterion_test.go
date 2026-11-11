@@ -194,7 +194,7 @@ func TestNormalize(t *testing.T) {
 // the same steps as an http criterion's, for every generated criterion:
 // written as steps, and as the one-step shorthand.
 func TestNormalizeStepsAgrees(t *testing.T) {
-	prop := func(g genScenario) bool {
+	prop := func(g genHTTPCriterion) bool {
 		steps := Normalize([]Criterion{g.c})[0].Steps
 		raw := g.c.Steps
 		if raw == nil {

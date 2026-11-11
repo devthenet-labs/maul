@@ -35,7 +35,7 @@ func outcomeReviewing(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, st
 	e.previewOf(name)
 	e.settleActions(name)
 	acc := e.get(name).Status.Acceptance
-	if acc == nil || len(acc.Outcomes) != 3 || acc.OutcomesDigest == "" || len(acc.Criteria) != 0 {
+	if acc == nil || len(acc.Outcomes) != 3 || acc.OutcomesDigest == "" {
 		t.Fatalf("acceptance = %+v, want the approved plan's three outcomes and no criteria", acc)
 	}
 	return e, name

@@ -14,12 +14,13 @@ package v1alpha1
 // Project, and reports false when the Preview has none: when the Project
 // does not verify (spec.verification.enabled), or when the Intent has no
 // Preview at all (DesiredPreviewComponents). The environment marks the
-// Preview verification-capable and admits one edge from the tester to each
-// component, on the component's own port, in component order. Nothing calls
-// the tester, and no component calls another. A component named like the
-// tester part or the evaluator's tool pod part (PreviewRoleTools), which the
-// Project schema refuses while verification is on, gives no environment, so
-// a Project the API server never validated fails closed.
+// Preview verification-capable and admits one edge from the tool pod's part
+// (PreviewPartToolPod) to each component, on the component's own port, in
+// component order. Nothing calls the tool pod, and no component calls
+// another. A component named like either of the tool pod's names
+// (PreviewPartToolPod, PreviewRoleTools), which the Project schema refuses
+// while verification is on, gives no environment, so a Project the API
+// server never validated fails closed.
 func DesiredPreviewEnvironment(p *Project, in *Intent) (*PreviewEnvironment, bool) {
 	if !p.Spec.VerificationEnabled() {
 		return nil, false
@@ -29,13 +30,13 @@ func DesiredPreviewEnvironment(p *Project, in *Intent) (*PreviewEnvironment, boo
 		return nil, false
 	}
 	for _, c := range components {
-		if c.Name == PreviewPartTester || c.Name == PreviewRoleTools {
+		if c.Name == PreviewPartToolPod || c.Name == PreviewRoleTools {
 			return nil, false
 		}
 	}
 	env := &PreviewEnvironment{Verification: true, Edges: make([]PreviewEdge, 0, len(components))}
 	for _, c := range components {
-		env.Edges = append(env.Edges, PreviewEdge{From: PreviewPartTester, To: c.Name, Port: c.Port})
+		env.Edges = append(env.Edges, PreviewEdge{From: PreviewPartToolPod, To: c.Name, Port: c.Port})
 	}
 	return env, true
 }

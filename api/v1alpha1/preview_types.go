@@ -131,22 +131,25 @@ type PreviewSpec struct {
 	ResetGeneration int64 `json:"resetGeneration,omitempty"`
 }
 
-// PreviewPartTester is the part name of the verification tester in a
-// Preview's slot: the part every slice-1 edge starts at, and that no edge
-// may end at.
-const PreviewPartTester = "tester"
+// PreviewPartToolPod is the part name the evaluator's slot tool pod carries
+// (its maul.run/preview-part label): the part every environment edge starts
+// at, and that no edge may end at. Its value is slice 1's spelling, kept
+// because it is wire: every stored Preview's immutable spec.environment
+// names it, and the slot's NetworkPolicies and admission select by it.
+const PreviewPartToolPod = "tester"
 
 // PreviewEnvironment is the operator-derived shape of a verification-capable
 // Preview's slot beyond its components.
 type PreviewEnvironment struct {
-	// Verification marks a Preview whose acceptance criteria are verified
+	// Verification marks a Preview whose acceptance outcomes are evaluated
 	// in its slot.
 	Verification bool `json:"verification"`
 	// Edges are the connections between the slot's parts that the
 	// preview-controller's NetworkPolicies admit, beside the isolation
 	// policy's DNS and gateway ingress. Nothing else in the slot connects.
-	// No edge ends at the tester, and no two edges are the same. There is
-	// at least one: the tester's to a component.
+	// No edge ends at the tool pod's part (PreviewPartToolPod), and no two
+	// edges are the same. There is at least one: the tool pod's to a
+	// component.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +listType=atomic
@@ -159,7 +162,8 @@ type PreviewEnvironment struct {
 // another, on one numeric port.
 // +kubebuilder:validation:XValidation:rule="self.from != self.to",message="an edge connects two different parts"
 type PreviewEdge struct {
-	// From is the calling part: a component's key, or tester.
+	// From is the calling part: a component's key, or the tool pod's part
+	// (tester, PreviewPartToolPod).
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=20
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`

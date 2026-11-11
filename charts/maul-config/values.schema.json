@@ -1148,7 +1148,7 @@
                     "description": "Verification configures acceptance verification of the Project's\nintents (ProjectVerification). Unset means off.",
                     "properties": {
                         "enabled": {
-                            "description": "Enabled turns verification on for the Project's intents: the plan\nprompt asks for acceptance criteria, and each Preview is created\nverification-capable.",
+                            "description": "Enabled turns verification on for the Project's intents: the plan\nprompt asks for acceptance outcomes, and each Preview is created\nverification-capable.",
                             "type": "boolean"
                         },
                         "handoff": {
@@ -1161,7 +1161,7 @@
                             "type": "string"
                         },
                         "manualGatesStatus": {
-                            "description": "ManualGatesStatus keeps maul/acceptance pending until every manual\ncriterion is accepted (/maul accept) at the current heads. Off, the\nstatus reports the automated part only and names what is still open.",
+                            "description": "ManualGatesStatus keeps maul/acceptance pending until every manual\noutcome is accepted (/maul accept) at the current heads. Off, the\nstatus reports the automated part only and names what is still open.",
                             "type": "boolean"
                         },
                         "maxToolCalls": {
@@ -1176,7 +1176,7 @@
                             "type": "boolean"
                         },
                         "timeout": {
-                            "description": "Timeout is the tester Job's wall clock, between 1m and 1h;\nDefaultVerificationTimeout when unset, and clamped by\nintent-controller's --intent-verify-timeout-max.",
+                            "description": "Timeout bounded slice 1's tester Job, between 1m and 1h. Nothing\nreads it any more: the evaluator's tool pod is bounded by its round's\nown timeouts.",
                             "type": "string"
                         }
                     },

@@ -24,8 +24,8 @@ func PreviewVerificationName(intent string, round, attempt int32) string {
 const MaxVerificationAttempts = 3
 
 // PreviewVerificationPhase is the local state of one verification attempt.
-// It is an observation, never a verdict: intent-controller judges what the
-// observations show (acceptance.Judge).
+// It is an observation, never a verdict: intent-controller decides what the
+// tool pod's ledger shows (acceptance.Decide).
 // +kubebuilder:validation:Enum=Pending;Running;Observed;EnvFailed;Infra;Stale
 type PreviewVerificationPhase string
 
@@ -33,61 +33,74 @@ type PreviewVerificationPhase string
 const (
 	// VerificationPending: created, nothing rendered yet.
 	VerificationPending PreviewVerificationPhase = "Pending"
-	// VerificationRunning: the tester Job runs in the Preview's slot.
+	// VerificationRunning: the tool pod runs, in the Preview's slot or, for
+	// an agents verification, in the agents namespace.
 	VerificationRunning PreviewVerificationPhase = "Running"
-	// VerificationObserved: the tester's observations were read and
-	// verified; intent-controller judges them.
+	// VerificationObserved: the tool pod's ledger was read and verified;
+	// intent-controller decides what it shows.
 	VerificationObserved PreviewVerificationPhase = "Observed"
 	// VerificationEnvFailed: the application's environment failed (a
 	// component crashed, never became Ready, was evicted or its image could
 	// not be pulled); the evidence is in status.environment and the failure
 	// is charged to the intent.
 	VerificationEnvFailed PreviewVerificationPhase = "EnvFailed"
-	// VerificationInfra: maul's own machinery failed (the tester was not
-	// scheduled, its image not pulled, its output invalid); retried as a
-	// new attempt, never charged to the intent.
+	// VerificationInfra: maul's own machinery failed (the tool pod was not
+	// scheduled, an image of it not pulled, its ledger not held); retried as
+	// a new attempt, never charged to the intent.
 	VerificationInfra PreviewVerificationPhase = "Infra"
-	// VerificationStale: the request no longer matches its Preview (moved
-	// heads, another generation, other criteria); dropped.
+	// VerificationStale: the request no longer matches its Preview or its
+	// Intent (moved heads, another generation, another approved plan);
+	// dropped.
 	VerificationStale PreviewVerificationPhase = "Stale"
 )
 
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tester-version-mismatch;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete;kept-copy-failed
+//
+// Two values are retired spellings that nothing writes any more, kept in
+// the schema only because settled PreviewVerifications may still hold them
+// and a status write must not fail on a value it leaves unchanged:
+// stale-criteria (now stale-approval) and tester-output-invalid (now
+// tools-output-invalid).
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-approval;stale-criteria;rollout-unsettled;quota-refused;deadline-no-summary;tools-output-invalid;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete;kept-copy-failed
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
 const (
-	VerificationReasonOK                  PreviewVerificationReason = "ok"
-	VerificationReasonStalePreview        PreviewVerificationReason = "stale-preview"
-	VerificationReasonStaleCriteria       PreviewVerificationReason = "stale-criteria"
-	VerificationReasonRolloutUnsettled    PreviewVerificationReason = "rollout-unsettled"
-	VerificationReasonTesterUnscheduled   PreviewVerificationReason = "tester-unscheduled"
-	VerificationReasonTesterImagePull     PreviewVerificationReason = "tester-image-pull"
-	VerificationReasonQuotaRefused        PreviewVerificationReason = "quota-refused"
-	VerificationReasonDeadlineNoSummary   PreviewVerificationReason = "deadline-no-summary"
-	VerificationReasonSummaryMismatch     PreviewVerificationReason = "summary-mismatch"
-	VerificationReasonTesterOutputInvalid PreviewVerificationReason = "tester-output-invalid"
-	VerificationReasonComponentCrashLoop  PreviewVerificationReason = "component-crashloop"
-	VerificationReasonComponentNotReady   PreviewVerificationReason = "component-not-ready"
-	VerificationReasonComponentEvicted    PreviewVerificationReason = "component-evicted"
-	VerificationReasonComponentImagePull  PreviewVerificationReason = "component-image-pull"
-	VerificationReasonComponentOOM        PreviewVerificationReason = "component-oom"
-	VerificationReasonPreviewFailed       PreviewVerificationReason = "preview-failed"
-	VerificationReasonServiceRestarted    PreviewVerificationReason = "service-restarted"
+	VerificationReasonOK           PreviewVerificationReason = "ok"
+	VerificationReasonStalePreview PreviewVerificationReason = "stale-preview"
+	// VerificationReasonStaleApproval: the request no longer matches its
+	// Intent's approved plan (another plan revision or outcome list, its
+	// Intent or Project no longer verified), or it evaluates no outcomes.
+	VerificationReasonStaleApproval    PreviewVerificationReason = "stale-approval"
+	VerificationReasonRolloutUnsettled PreviewVerificationReason = "rollout-unsettled"
+	VerificationReasonQuotaRefused     PreviewVerificationReason = "quota-refused"
+	// VerificationReasonDeadlineNoSummary: the tool pod ended without the
+	// summary its ledger is held to. Infra.
+	VerificationReasonDeadlineNoSummary PreviewVerificationReason = "deadline-no-summary"
+	// VerificationReasonToolsOutputInvalid: what the tool pod left could
+	// not be recorded as it is (a status the object cannot hold), and no
+	// other cause is named. Infra.
+	VerificationReasonToolsOutputInvalid PreviewVerificationReason = "tools-output-invalid"
+	VerificationReasonComponentCrashLoop PreviewVerificationReason = "component-crashloop"
+	VerificationReasonComponentNotReady  PreviewVerificationReason = "component-not-ready"
+	VerificationReasonComponentEvicted   PreviewVerificationReason = "component-evicted"
+	VerificationReasonComponentImagePull PreviewVerificationReason = "component-image-pull"
+	VerificationReasonComponentOOM       PreviewVerificationReason = "component-oom"
+	VerificationReasonPreviewFailed      PreviewVerificationReason = "preview-failed"
+	VerificationReasonServiceRestarted   PreviewVerificationReason = "service-restarted"
 	// VerificationReasonComponentUnreachable: a component's Service
-	// accepted no connection from the tester for its whole readiness window
+	// accepted no connection from the tool pod for its whole readiness window
 	// while the component was Ready (its environment fact's
 	// unreachableForMs, status.readiness). EnvFailed, the application's: the
 	// window absorbs the slot policy being programmed.
 	VerificationReasonComponentUnreachable PreviewVerificationReason = "component-unreachable"
 	// VerificationReasonComponentCrashed: a component's process exited (OOM
-	// included) during the tester's run, by the kubelet's timestamps (its
+	// included) during the tool pod's run, by the kubelet's timestamps (its
 	// fact's crashedDuring), and came back. EnvFailed, the application's.
 	VerificationReasonComponentCrashed PreviewVerificationReason = "component-crashed"
-	// VerificationReasonComponentDisrupted: during the tester's run a Pod of
+	// VerificationReasonComponentDisrupted: during the tool pod's run a Pod of
 	// a component's current revision was taken away by the cluster (the
 	// Eviction API, a drain, preemption, the taint manager, Pod GC, a
 	// deletion, node loss, a graceful node shutdown or kubelet preemption,
@@ -97,14 +110,9 @@ const (
 	// the most it can do without crashing is make itself not-Ready.
 	VerificationReasonComponentDisrupted PreviewVerificationReason = "component-disrupted"
 	// VerificationReasonServiceNoClusterIP: a component's Service had no
-	// ClusterIP to render the tester's target from (the tester never
-	// resolves a name). Infra, settled before any tester starts.
+	// ClusterIP to render the tool pod's target from (it never resolves a
+	// name). Infra, settled before the tool pod starts.
 	VerificationReasonServiceNoClusterIP PreviewVerificationReason = "service-no-cluster-ip"
-	// VerificationReasonTesterVersionMismatch: the tester wrote another
-	// MAUL-VERIFY wire version than preview-controller reads
-	// (status.testerWireVersion beside acceptance.WireVersion): the tester
-	// image and the controller disagree. Infra.
-	VerificationReasonTesterVersionMismatch PreviewVerificationReason = "tester-version-mismatch"
 	// VerificationReasonToolsUnscheduled: no node took the slot tool pod.
 	// Infra.
 	VerificationReasonToolsUnscheduled PreviewVerificationReason = "tools-unscheduled"
@@ -272,17 +280,17 @@ type ToolsSpec struct {
 	LookAroundRoutes int32 `json:"lookAroundRoutes,omitempty"`
 }
 
-// PreviewVerificationSpec is one request to run an Intent's automatable
-// acceptance criteria (slice 1's tester), or to evaluate its approved
-// outcomes (the evaluator), against its Preview at exactly the recorded
-// heads: exactly one of criteria and outcomes, each with its digest; an
-// outcome verification also names its rung and its tool pod's tools.
+// PreviewVerificationSpec is one request to evaluate an Intent's approved
+// outcomes (the agent evaluator) against its Preview, or in the agents
+// namespace's workspace, at exactly the recorded heads: the outcomes with
+// their digest, the rung and the tool pod's tools. Slice 1's criteria are
+// removed: a request without outcomes is refused (a stored one, pruned of
+// its criteria, is answered Stale stale-approval and never run).
 // intent-controller writes it once, at creation, and it is immutable: a new
 // attempt or round is a new PreviewVerification. preview-controller re-checks
 // every field against the Intent and the Preview before it renders anything.
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable; create a new PreviewVerification for a new attempt"
-// +kubebuilder:validation:XValidation:rule="has(self.criteria) != has(self.outcomes)",message="a verification runs exactly one of criteria and outcomes"
-// +kubebuilder:validation:XValidation:rule="has(self.criteria) == has(self.criteriaDigest)",message="criteria and criteriaDigest are set together"
+// +kubebuilder:validation:XValidation:rule="has(self.outcomes)",message="a verification evaluates outcomes: slice 1's criteria are removed"
 // +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.outcomesDigest)",message="outcomes and outcomesDigest are set together"
 // +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.rung) && has(self.outcomes) == has(self.tools)",message="an outcome verification, and only one, names its rung and its tools"
 // +kubebuilder:validation:XValidation:rule="!has(self.checks) || has(self.outcomes)",message="saved checks belong to an outcome verification"
@@ -341,19 +349,6 @@ type PreviewVerificationSpec struct {
 	// v<round>a<attempt>t<try>-<run>.
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{6}$`
 	Run string `json:"run"`
-	// Criteria are the automatable criteria of the Intent's approved
-	// acceptance list, in plan order (slice 1's tester).
-	// +optional
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=16
-	// +listType=atomic
-	Criteria []AcceptanceCriterion `json:"criteria,omitempty"`
-	// CriteriaDigest is the digest of the Intent's full approved list
-	// (status.acceptance.digest), of which Criteria is the automatable
-	// subset. Set with Criteria, and only with it.
-	// +optional
-	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
-	CriteriaDigest string `json:"criteriaDigest,omitempty"`
 	// Outcomes are the Intent's approved outcomes (status.acceptance.outcomes),
 	// in plan order, manual ones included: the evaluator judges them.
 	// +optional
@@ -390,7 +385,7 @@ type PreviewVerificationSpec struct {
 	// verification, and only on one.
 	// +optional
 	Tools *ToolsSpec `json:"tools,omitempty"`
-	// Timeout is the tester Job's, or the tool pod's, wall clock.
+	// Timeout is the tool pod's wall clock.
 	Timeout metav1.Duration `json:"timeout"`
 }
 
@@ -480,112 +475,10 @@ type WorkspaceLibrary struct {
 	Language LibraryLanguage `json:"language"`
 }
 
-// TransportError classifies a request that got no usable response; none
-// when it got one.
-// +kubebuilder:validation:Enum=none;refused;timeout;reset;dns;tls;too-large;capture-missing
-type TransportError string
-
-// Transport error classes.
-const (
-	TransportNone           TransportError = "none"
-	TransportRefused        TransportError = "refused"
-	TransportTimeout        TransportError = "timeout"
-	TransportReset          TransportError = "reset"
-	TransportDNS            TransportError = "dns"
-	TransportTLS            TransportError = "tls"
-	TransportTooLarge       TransportError = "too-large"
-	TransportCaptureMissing TransportError = "capture-missing"
-)
-
-// StepObservation is what one request of one try saw: raw, bounded values,
-// never a verdict. Every value came from the application under test and is
-// untrusted.
-type StepObservation struct {
-	// Method as sent.
-	// +kubebuilder:validation:Enum=GET;HEAD;POST;PUT;PATCH;DELETE
-	Method string `json:"method"`
-	// Path as sent, after substitution.
-	// +kubebuilder:validation:MaxLength=512
-	Path string `json:"path"`
-	// Status is the response's HTTP status; zero when there was none.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=999
-	Status int32 `json:"status,omitempty"`
-	// TransportError classifies a request that got no usable response.
-	// +optional
-	TransportError TransportError `json:"transportError,omitempty"`
-	// JSONValid reports whether the body parsed as JSON.
-	// +optional
-	JSONValid bool `json:"jsonValid,omitempty"`
-	// BodyBytes is the body's length as read (capped by the tester).
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	BodyBytes int32 `json:"bodyBytes,omitempty"`
-	// LatencyMs is the request's duration in milliseconds.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	LatencyMs int32 `json:"latencyMs,omitempty"`
-	// Pointers maps each expected, $by and capture pointer to the raw JSON
-	// found there; a pointer absent from the body is absent from the map.
-	// +optional
-	// +kubebuilder:validation:MaxProperties=16
-	// +kubebuilder:validation:XValidation:rule="self.all(k, size(k) <= 512 && size(self[k]) <= 256)",message="pointers are at most 512 characters and their values at most 256"
-	Pointers map[string]string `json:"pointers,omitempty"`
-	// Captures are the values this step captured for later steps.
-	// +optional
-	// +kubebuilder:validation:MaxProperties=4
-	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[a-z][a-z0-9]{0,15}$') && size(self[k]) <= 128)",message="capture names are ^[a-z][a-z0-9]{0,15}$ and their values at most 128 characters"
-	Captures map[string]string `json:"captures,omitempty"`
-	// Headers are the response headers the step's expectation names.
-	// +optional
-	// +kubebuilder:validation:MaxProperties=4
-	// +kubebuilder:validation:XValidation:rule="self.all(k, size(k) <= 64 && size(self[k]) <= 256)",message="header names are at most 64 characters and their values at most 256"
-	Headers map[string]string `json:"headers,omitempty"`
-	// BodyPrefix is the start of the body, base64, for display only; the
-	// first value dropped when the object is too large.
-	// +optional
-	// +kubebuilder:validation:MaxLength=684
-	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9+/]*={0,2}$`
-	BodyPrefix string `json:"bodyPrefix,omitempty"`
-}
-
-// TryObservation is one try of one criterion: a retry runs every step again
-// under a fresh run placeholder.
-type TryObservation struct {
-	// Run is the run placeholder token of the try.
-	// +kubebuilder:validation:MaxLength=40
-	// +kubebuilder:validation:Pattern=`^v[0-9]{1,3}a[0-9]t[0-9]-[0-9a-f]{6}$`
-	Run string `json:"run"`
-	// Steps observed, in order; fewer than declared when a step's request
-	// could not be built or sent.
-	// +optional
-	// +kubebuilder:validation:MaxItems=8
-	// +listType=atomic
-	Steps []StepObservation `json:"steps,omitempty"`
-}
-
-// CriterionObservation is what the tester saw for one criterion: its tries,
-// or, when the status could not hold them, only the TooLarge marker.
-// +kubebuilder:validation:XValidation:rule="(has(self.tooLarge) && self.tooLarge) != has(self.tries)",message="an observation holds its tries or is marked tooLarge, never both or neither"
-type CriterionObservation struct {
-	// ID of the criterion.
-	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
-	ID string `json:"id"`
-	// Tries made: a second only when the first failed.
-	// +optional
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=2
-	// +listType=atomic
-	Tries []TryObservation `json:"tries,omitempty"`
-	// TooLarge marks an observation preview-controller replaced because the
-	// object could not hold it however its values were reduced. It is
-	// judged a failure (observation-too-large), never a pass.
-	// +optional
-	TooLarge bool `json:"tooLarge,omitempty"`
-}
-
-// PreviewPartRole is the role of one part of a Preview's slot.
+// PreviewPartRole is the role of one part of a Preview's slot. tester is
+// a retired spelling (slice 1's tester, which nothing renders any more),
+// kept in the schema only because a settled PreviewVerification may still
+// hold it.
 // +kubebuilder:validation:Enum=component;service;tester;command;seed;tools;build
 type PreviewPartRole string
 
@@ -593,7 +486,6 @@ type PreviewPartRole string
 const (
 	PreviewRoleComponent PreviewPartRole = "component"
 	PreviewRoleService   PreviewPartRole = "service"
-	PreviewRoleTester    PreviewPartRole = "tester"
 	PreviewRoleCommand   PreviewPartRole = "command"
 	PreviewRoleSeed      PreviewPartRole = "seed"
 	// PreviewRoleToolPod is the slot tool pod's part role: the same value
@@ -618,7 +510,7 @@ type Termination struct {
 // PartFact is the environment evidence about one part of the slot while
 // the verification ran, captured from the kubelet's container facts.
 type PartFact struct {
-	// Name of the part (a component's key, a service's name, tester, ...).
+	// Name of the part (a component's key, a service's name, tools, ...).
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=20
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
@@ -648,16 +540,16 @@ type PartFact struct {
 	// +optional
 	Unschedulable bool `json:"unschedulable,omitempty"`
 	// CrashedDuring reports that the component's process exited (OOM
-	// included) during the tester's run: the application's failure.
+	// included) during the tool pod's run: the application's failure.
 	// +optional
 	CrashedDuring bool `json:"crashedDuring,omitempty"`
 	// Disrupted reports that the cluster took the component's Pod away
-	// during the tester's run: maul's, never the application's.
+	// during the tool pod's run: maul's, never the application's.
 	// +optional
 	Disrupted bool `json:"disrupted,omitempty"`
-	// UnreachableForMs is how long the tester tried, and failed, to connect
-	// to the component's Service before its first criterion (its whole
-	// readiness window); zero when reached.
+	// UnreachableForMs is how long the tool pod tried, and failed, to
+	// connect to the component's Service before its first tool call (its
+	// whole readiness window); zero when reached.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=120000
@@ -669,7 +561,7 @@ type PartFact struct {
 	LogTail string `json:"logTail,omitempty"`
 }
 
-// TargetWait is how the tester waited, before its first criterion, for one
+// TargetWait is how the tool pod waited, before its first tool call, for one
 // component's Service to accept a TCP connection: how long, in how many
 // attempts, and how the failed ones failed. Every attempt but a last
 // successful one failed, so the Service was reached exactly when attempts
@@ -709,8 +601,9 @@ type TargetWait struct {
 	DNS int32 `json:"dns,omitempty"`
 }
 
-// PreviewVerificationStatus is written only by preview-controller: what the
-// tester and the kubelet observed, never a verdict.
+// PreviewVerificationStatus is written only by preview-controller (and, for
+// an agents verification, by intent-controller's agents host): what the
+// tool pod and the kubelet observed, never a verdict.
 type PreviewVerificationStatus struct {
 	// Phase of the attempt.
 	// +optional
@@ -718,48 +611,33 @@ type PreviewVerificationStatus struct {
 	// Reason is the phase's reason, from a fixed vocabulary.
 	// +optional
 	Reason PreviewVerificationReason `json:"reason,omitempty"`
-	// StartedAt is when the tester Job was created: the window environment
+	// StartedAt is when the tool pod's Job was created: the window environment
 	// evidence is read from.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 	// CompletedAt is when the attempt settled.
 	// +optional
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
-	// TesterImageID is the digest-bearing image ID the tester ran.
+	// ToolsImageID is the digest-bearing image ID the tool pod's tools
+	// container ran.
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
-	TesterImageID string `json:"testerImageID,omitempty"`
-	// Observations are the tester's, one per criterion, in spec order.
-	// +optional
-	// +kubebuilder:validation:MaxItems=16
-	// +listType=atomic
-	Observations []CriterionObservation `json:"observations,omitempty"`
+	ToolsImageID string `json:"toolsImageID,omitempty"`
 	// Environment is the evidence about each part of the slot.
 	// +optional
 	// +kubebuilder:validation:MaxItems=12
 	// +listType=atomic
 	Environment []PartFact `json:"environment,omitempty"`
-	// SummarySHA256 is the hex sha256 the tester's summary line declared
-	// over its observation lines, which preview-controller verified.
-	// +optional
-	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
-	SummarySHA256 string `json:"summarySHA256,omitempty"`
-	// Readiness is the tester's wait for each component's Service before
-	// its first criterion, in component-name order, as its summary
-	// declared it. A component never reached ends the attempt with no
-	// observations: EnvFailed component-unreachable (its fact's
-	// unreachableForMs), the application's. The tester dials each
-	// Service's ClusterIP and resolves no name.
+	// Readiness is the tool pod's wait for each component's Service before
+	// its first tool call, in component-name order, as its verified ledger
+	// records it. A component never reached ends the attempt:
+	// EnvFailed component-unreachable (its fact's unreachableForMs), the
+	// application's. The tool pod dials each Service's ClusterIP and
+	// resolves no name.
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
 	// +listType=atomic
 	Readiness []TargetWait `json:"readiness,omitempty"`
-	// TesterWireVersion is the MAUL-VERIFY version the tester wrote, set
-	// when it was not the one preview-controller reads
-	// (tester-version-mismatch).
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	TesterWireVersion int32 `json:"testerWireVersion,omitempty"`
 	// Tools is the slot tool pod, once scheduled: where the evaluator
 	// reaches it (a hostAlias, since the evaluator has no DNS).
 	// +optional
@@ -1112,12 +990,14 @@ type ComponentCapture struct {
 // +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// PreviewVerification is one attempt to run an Intent's automatable
-// acceptance criteria against its Preview, inside the Preview's slot. It
-// lives in the release namespace, owned by its Intent (controller
-// reference), named <intent>-v<round>-a<attempt>. intent-controller creates
-// and deletes it and judges its observations; preview-controller runs the
-// tester and writes its status. Its name is written into label values, so
+// PreviewVerification is one attempt to evaluate an Intent's approved
+// outcomes, against its Preview inside the Preview's slot or, for a Project
+// with no preview, in the agents namespace. It lives in the release
+// namespace, owned by its Intent (controller reference), named
+// <intent>-v<round>-a<attempt>. intent-controller creates and deletes it
+// and decides what its ledger shows; preview-controller (or, for an agents
+// verification, intent-controller's agents host) runs the tool pod and
+// writes its status. Its name is written into label values, so
 // the schema refuses one over 63 characters.
 // +kubebuilder:validation:XValidation:rule="size(self.metadata.name) <= 63",message="PreviewVerification names are at most 63 characters: they are written into label values"
 type PreviewVerification struct {

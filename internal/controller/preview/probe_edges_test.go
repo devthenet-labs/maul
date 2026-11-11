@@ -54,7 +54,7 @@ func TestIsolationProbeEdgesAreRendered(t *testing.T) {
 	}
 	edges := make([]v1alpha1.PreviewEdge, 0, 3)
 	for _, to := range []string{"web", "api", "render"} {
-		edges = append(edges, v1alpha1.PreviewEdge{From: string(v1alpha1.PreviewRoleTester), To: to, Port: 8080})
+		edges = append(edges, v1alpha1.PreviewEdge{From: v1alpha1.PreviewPartToolPod, To: to, Port: 8080})
 	}
 	p := &v1alpha1.Preview{
 		ObjectMeta: metav1.ObjectMeta{Name: "edges", UID: types.UID(probeUIDFromFixture(t, got))},

@@ -148,7 +148,7 @@ func (l ProjectLimits) MaxVerificationsLimit() int32 {
 }
 
 // VerificationEnabled reports whether the Project verifies its intents'
-// acceptance criteria (spec.verification.enabled).
+// acceptance outcomes (spec.verification.enabled).
 func (s *ProjectSpec) VerificationEnabled() bool {
 	return s.Verification != nil && s.Verification.Enabled
 }
@@ -436,12 +436,12 @@ type ProjectChecks struct {
 // schema default.
 type ProjectVerification struct {
 	// Enabled turns verification on for the Project's intents: the plan
-	// prompt asks for acceptance criteria, and each Preview is created
+	// prompt asks for acceptance outcomes, and each Preview is created
 	// verification-capable.
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
 	// ManualGatesStatus keeps maul/acceptance pending until every manual
-	// criterion is accepted (/maul accept) at the current heads. Off, the
+	// outcome is accepted (/maul accept) at the current heads. Off, the
 	// status reports the automated part only and names what is still open.
 	// +optional
 	ManualGatesStatus bool `json:"manualGatesStatus,omitempty"`
@@ -450,9 +450,9 @@ type ProjectVerification struct {
 	// published data.
 	// +optional
 	PostLogs bool `json:"postLogs,omitempty"`
-	// Timeout is the tester Job's wall clock, between 1m and 1h;
-	// DefaultVerificationTimeout when unset, and clamped by
-	// intent-controller's --intent-verify-timeout-max.
+	// Timeout bounded slice 1's tester Job, between 1m and 1h. Nothing
+	// reads it any more: the evaluator's tool pod is bounded by its round's
+	// own timeouts.
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('1h')",message="verification.timeout must be between 1m and 1h"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
@@ -682,7 +682,7 @@ const MaxPreviewComponents = 4
 // +kubebuilder:validation:XValidation:rule="self.repositories.filter(r, has(r.preview)).size() <= 4",message="at most 4 repositories are previewed (repositories[].preview)"
 // +kubebuilder:validation:XValidation:rule="self.repositories.all(r, !has(r.preview) || self.repositories.exists_one(s, has(s.preview) && (has(s.preview.path) ? s.preview.path : '/') == (has(r.preview.path) ? r.preview.path : '/')))",message="two previewed repositories have the same path (repositories[].preview.path, default /)"
 // +kubebuilder:validation:XValidation:rule="!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r, has(r.preview)))",message="spec.preview is the one-repository shorthand: it needs exactly one repository and no repositories[].preview"
-// +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester' || r.name == 'tools')",message="a repository key cannot be tester or tools while verification is enabled: they name the verification tester's and the evaluator's tool pod's parts of the preview slot"
+// +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester' || r.name == 'tools')",message="a repository key cannot be tester or tools while verification is enabled: they name the evaluator's tool pod's parts of the preview slot"
 // +kubebuilder:validation:XValidation:rule="!has(self.surfaces) || !(has(self.surfaces.cli) || has(self.surfaces.library)) || (!has(self.preview) && !self.repositories.exists(r, has(r.preview)))",message="a cli or library surface is evaluated without a preview: drop spec.preview and repositories[].preview, or the surface"
 // +kubebuilder:validation:XValidation:rule="!has(self.surfaces) || !has(self.surfaces.cli) || (has(self.surfaces.cli.repository) ? self.repositories.exists(r, r.name == self.surfaces.cli.repository) : size(self.repositories) == 1)",message="surfaces.cli.repository must name one of the Project's repositories (optional with exactly one)"
 // +kubebuilder:validation:XValidation:rule="!has(self.surfaces) || !has(self.surfaces.library) || (has(self.surfaces.library.repository) ? self.repositories.exists(r, r.name == self.surfaces.library.repository) : size(self.repositories) == 1)",message="surfaces.library.repository must name one of the Project's repositories (optional with exactly one)"

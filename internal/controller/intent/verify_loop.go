@@ -217,7 +217,7 @@ func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApprov
 			return nil, fmt.Errorf("plan r%d: %w", ap.PlanRevision, err)
 		}
 		// Not verified: a criteria-era record by its digest alone, as the
-		// API server's pruning leaves one (recordPrunedCriteria): never
+		// API server's pruning leaves one (recordCriteriaEra): never
 		// run, judged or accepted, and read again for a replan should the
 		// evaluator come to verify the Project.
 		return &v1alpha1.IntentAcceptance{PlanRevision: ap.PlanRevision,
@@ -442,7 +442,7 @@ func (p *pass) rearmedAfter(ctx context.Context, pushed []v1alpha1.VerificationH
 // clearJudgement drops a verification's judged result.
 func clearJudgement(v *v1alpha1.IntentVerification) {
 	v.Passed, v.Failed, v.Quarantined, v.NotRun = 0, 0, 0, 0
-	v.Failing, v.QuarantinedIDs = nil, nil
+	v.QuarantinedIDs = nil
 }
 
 // countManual counts the manual outcomes accepted at v's head set and those

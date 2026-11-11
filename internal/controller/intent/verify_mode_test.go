@@ -30,9 +30,9 @@ func TestEmptyCriteriaDigest(t *testing.T) {
 }
 
 // TestRecordOf: what a record holds, by the data that survives the API
-// server pruning status.acceptance.criteria.
+// server pruning status.acceptance.criteria (a slice-1 record that held
+// criteria, or criteria beside outcomes, now reads as its digest alone).
 func TestRecordOf(t *testing.T) {
-	criteria := []v1alpha1.AcceptanceCriterion{{ID: "c", Kind: v1alpha1.AcceptanceManual, Statement: "s"}}
 	outcomes := []v1alpha1.AcceptanceOutcome{{ID: "o", Outcome: "x"}}
 	other := "sha256:" + strings.Repeat("c", 64)
 	for _, tc := range []struct {
@@ -42,14 +42,13 @@ func TestRecordOf(t *testing.T) {
 	}{
 		{"none", nil, recordNone},
 		{"plan declaring nothing", &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest}, recordOutcomes},
-		{"criteria", &v1alpha1.IntentAcceptance{Digest: other, Criteria: criteria}, recordCriteria},
-		{"pruned criteria", &v1alpha1.IntentAcceptance{Digest: other}, recordPrunedCriteria},
+		{"criteria-era", &v1alpha1.IntentAcceptance{Digest: other}, recordCriteriaEra},
 		{"outcomes", &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest, OutcomesDigest: other,
 			Outcomes: outcomes}, recordOutcomes},
 		{"no outcomes, outcomes digest", &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest,
 			OutcomesDigest: other}, recordOutcomes},
-		{"both", &v1alpha1.IntentAcceptance{Digest: other, Criteria: criteria, OutcomesDigest: other},
-			recordMixed},
+		{"a criteria digest beside outcomes", &v1alpha1.IntentAcceptance{Digest: other, OutcomesDigest: other,
+			Outcomes: outcomes}, recordOutcomes},
 	} {
 		if got := recordOf(tc.acc); got != tc.want {
 			t.Errorf("%s: recordOf = %d, want %d", tc.name, got, tc.want)
@@ -59,15 +58,14 @@ func TestRecordOf(t *testing.T) {
 
 // TestVerifyModeHoldsOneEra: over every input, only the evaluator's
 // outcomes are ever verified (S4): modeOutcomes holds an outcomes record of
-// an Intent the evaluator verifies, and a criteria-era record (criteria,
-// pruned of them, or holding both) is never verified nor settled Off as
-// if it were the evaluator's.
+// an Intent the evaluator verifies, and a criteria-era record is never
+// verified nor settled Off as if it were the evaluator's.
 func TestVerifyModeHoldsOneEra(t *testing.T) {
 	for _, verifies := range []bool{true, false} {
 		for _, evaluates := range []bool{true, false} {
-			for rec := recordNone; rec <= recordMixed; rec++ {
+			for rec := recordNone; rec <= recordOutcomes; rec++ {
 				m := verifyModeOf(verifies, evaluates, rec)
-				criteriaEra := rec == recordCriteria || rec == recordPrunedCriteria || rec == recordMixed
+				criteriaEra := rec == recordCriteriaEra
 				switch {
 				case m == modeOutcomes && (rec != recordOutcomes || !verifies || !evaluates),
 					m == modeOff && (criteriaEra || !evaluates || verifies),
@@ -111,8 +109,7 @@ type modeRecord int
 
 const (
 	propNone modeRecord = iota
-	propCriteria
-	propPrunedCriteria
+	propCriteriaEra
 	propOutcomes
 )
 
@@ -125,7 +122,7 @@ func wantMode(verifies, evaluates, current bool, rec modeRecord) verifyMode {
 	if !current || rec == propNone {
 		return modeNone
 	}
-	criteriaEra := rec == propCriteria || rec == propPrunedCriteria
+	criteriaEra := rec == propCriteriaEra
 	switch {
 	case !evaluates:
 		return modeMismatch
@@ -138,8 +135,8 @@ func wantMode(verifies, evaluates, current bool, rec modeRecord) verifyMode {
 }
 
 // TestVerifyModeSeeded is a seeded property over every combination of
-// {verifies, evaluates, revision current, record: none, criteria,
-// pruned-criteria, outcomes}, each crossed with every verification state,
+// {verifies, evaluates, revision current, record: none, criteria-era,
+// outcomes}, each crossed with every verification state,
 // the recorded head set at the pull requests' heads or not, and random
 // judgements and acceptances: the pass's mode is the truth table's; a
 // record nothing verifies (none, Off, mismatch) never gets a success or a
@@ -165,7 +162,7 @@ func TestVerifyModeSeeded(t *testing.T) {
 		for _, verifies := range []bool{true, false} {
 			for _, evaluates := range []bool{true, false} {
 				for _, current := range []bool{true, false} {
-					for _, rec := range []modeRecord{propNone, propCriteria, propPrunedCriteria, propOutcomes} {
+					for _, rec := range []modeRecord{propNone, propCriteriaEra, propOutcomes} {
 						for _, state := range states {
 							for _, atHeads := range []bool{true, false} {
 								c := modeCase{verifies: verifies, evaluates: evaluates, current: current, rec: rec,
@@ -271,8 +268,8 @@ func outcomesStand(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 		})
 }
 
-// record is c's record: the approved outcomes (as base holds them), a
-// criteria record or one pruned of its criteria, each of the approved
+// record is c's record: the approved outcomes (as base holds them) or a
+// criteria-era record (its criteria digest alone), each of the approved
 // revision or, not current, of the one before.
 func (c modeCase) record(outcomes *v1alpha1.IntentAcceptance, revision int32) *v1alpha1.IntentAcceptance {
 	var acc *v1alpha1.IntentAcceptance
@@ -282,11 +279,7 @@ func (c modeCase) record(outcomes *v1alpha1.IntentAcceptance, revision int32) *v
 		return nil
 	case propOutcomes:
 		acc = outcomes.DeepCopy()
-	case propCriteria:
-		acc = &v1alpha1.IntentAcceptance{Digest: criteriaDigest, Criteria: []v1alpha1.AcceptanceCriterion{
-			{ID: "sounds-good", Kind: v1alpha1.AcceptanceManual, Statement: "the beat sounds good"},
-			{ID: "renders", Kind: v1alpha1.AcceptanceHTTP, Statement: "a render returns audio", Target: "app"}}}
-	case propPrunedCriteria:
+	case propCriteriaEra:
 		acc = &v1alpha1.IntentAcceptance{Digest: criteriaDigest}
 	}
 	acc.PlanRevision = revision
@@ -321,8 +314,9 @@ func (c modeCase) verification(rng *rand.Rand, acc *v1alpha1.IntentAcceptance, h
 		v.Outcomes = append(v.Outcomes, v1alpha1.OutcomeResult{ID: acc.Outcomes[i].ID,
 			Result: results[rng.Intn(len(results))]})
 	}
-	for _, c := range acc.Criteria {
-		ids = append(ids, c.ID)
+	if c.rec == propCriteriaEra {
+		// A slice-1 record's acceptances: of criteria nothing runs.
+		ids = append(ids, "sounds-good", "renders")
 	}
 	for _, id := range ids {
 		if rng.Intn(2) == 0 {

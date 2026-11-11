@@ -184,7 +184,7 @@ func randomEnvironmentPreview(rng *rand.Rand) *v1alpha1.Preview {
 		})
 	}
 	parts := make([]string, 0, 1+n)
-	parts = append(parts, v1alpha1.PreviewPartTester)
+	parts = append(parts, v1alpha1.PreviewPartToolPod)
 	for _, c := range components {
 		parts = append(parts, c.Name)
 	}
@@ -204,7 +204,7 @@ func randomEnvironmentPreview(rng *rand.Rand) *v1alpha1.Preview {
 		}
 	}
 	if len(edges) == 0 {
-		edges = append(edges, v1alpha1.PreviewEdge{From: v1alpha1.PreviewPartTester, To: components[0].Name,
+		edges = append(edges, v1alpha1.PreviewEdge{From: v1alpha1.PreviewPartToolPod, To: components[0].Name,
 			Port: components[0].Port})
 	}
 	return &v1alpha1.Preview{
@@ -237,7 +237,7 @@ func slotPods(t *testing.T, s Settings, p *v1alpha1.Preview, ns string) map[stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	pods[v1alpha1.PreviewPartTester] = npPod{name: v1alpha1.PreviewPartTester, namespace: ns,
+	pods[v1alpha1.PreviewPartToolPod] = npPod{name: v1alpha1.PreviewPartToolPod, namespace: ns,
 		labels: maps.Clone(job.Spec.Template.Labels), nsLabels: nsLabels}
 	return pods
 }

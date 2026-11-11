@@ -74,7 +74,7 @@ const (
 // Role label values. RoleEvaluator, RoleCheckReview and RoleTools are LabelRole values
 // on agents-namespace Jobs; PreviewRoleTools is the maul.run/preview-role
 // value of a slot's tool pod, beside the PreviewPartRole values the slot
-// already uses (tester, command, seed).
+// already uses (command, seed).
 const (
 	// RoleEvaluator marks an evaluate-stage IntentRun's Job and pod.
 	RoleEvaluator = "evaluator"

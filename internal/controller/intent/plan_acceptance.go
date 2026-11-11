@@ -75,7 +75,7 @@ func (s Settings) planAsk(p *v1alpha1.Project) planAsk {
 	}
 	v := &templates.PlanVerification{}
 	for _, rp := range previews {
-		if rp.Name == v1alpha1.PreviewPartTester || rp.Name == v1alpha1.PreviewRoleTools {
+		if rp.Name == v1alpha1.PreviewPartToolPod || rp.Name == v1alpha1.PreviewRoleTools {
 			return planAsk{verified: true}
 		}
 		v.Components = append(v.Components, templates.PlanVerifyComponent{
