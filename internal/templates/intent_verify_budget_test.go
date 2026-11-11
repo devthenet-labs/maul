@@ -142,7 +142,25 @@ func TestVerifyEvidenceCutOrder(t *testing.T) {
 	}
 }
 
-// TestVerifyStatementsShortenedSaySo: statements that leave no room even
+// TestVerifyEvidenceLargePieceSkipped: a piece too large for what is left
+// (a reproduction of backticks, fenced to three times its size) is left
+// out and named, and smaller pieces after it are still kept whole.
+func TestVerifyEvidenceLargePieceSkipped(t *testing.T) {
+	s := worstSection("`")
+	out, err := renderVerifySection(&s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "maul's reproduction:") || !strings.Contains(out, "maul's reproduction of the "+
+		"suspected defect") {
+		t.Error("the reproduction that cannot fit is not left out and named")
+	}
+	if !strings.Contains(out, "App output of `o00`") {
+		t.Error("a smaller app output after the left-out reproduction was not kept")
+	}
+}
+
+// TestVerifyStatementsShortenedSaySo:statements that leave no room even
 // with every piece of evidence left out (wide characters at the grammar's
 // bound) are shortened, the comment says so, and each still opens with
 // its own words.

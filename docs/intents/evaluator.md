@@ -439,13 +439,14 @@ budget and the 20 minutes. Raise the cost budget and the timeout before the turn
   evaluator's own words (an anomaly, a note) are marked as its words, not checked by maul. A comment always fits
   GitHub's size limit: when the evidence would not, maul keeps it most important first (its reproduction of a suspected
   defect, then each failing outcome's application output in plan order, then the anomalies, then the component log
-  tails) and the comment names what it left out. Every outcome's line and maul's own notes are always shown whole; only
-  a plan whose statements alone leave no room has them shortened, and the comment says so. Results are shown only for
-  the round that decided them, at the heads it checked: a round that settles without a judgement (its attempts all
-  failed, or maul's own build of the head did not finish) lists every outcome as `unsure`, with no earlier round's
-  results, and a push clears them until the new heads are judged: from the pass that sees the push, the status comment
-  and the sticky comments read "maul is checking the new commits" with no result, and the last round's verification
-  comment is left as it stood, about the heads it checked.
+  tails), each piece whole while it still fits (a large one left out does not stop a smaller one after it), and the
+  comment names what it left out. Every outcome's line and maul's own notes are always shown whole; only a plan whose
+  statements alone leave no room has them shortened, and the comment says so. Results are shown only for the round that
+  decided them, at the heads it checked: a round that settles without a judgement (its attempts all failed, or maul's
+  own build of the head did not finish) lists every outcome as `unsure`, with no earlier round's results, and a push
+  clears them until the new heads are judged: from the pass that sees the push, the status comment and the sticky
+  comments read "maul is checking the new commits" with no result, and the last round's verification comment is left as
+  it stood, about the heads it checked.
 - **In the cluster.** Each round is a `PreviewVerification` in the release namespace
   (`kubectl get previewverifications -l maul.run/intent=<intent>`; maul keeps the newest three per intent). Its
   `status.ledger` indexes every tool call; its `status.tools` names the round's tool pod. The full ledger is in the

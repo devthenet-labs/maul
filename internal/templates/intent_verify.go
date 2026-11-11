@@ -630,7 +630,8 @@ func cutNote(left [pieceLog + 1]int, shortened bool) string {
 // Whole when it fits; otherwise its evidence shares what is left of the
 // comment once maul's own words are rendered (every outcome's verdict
 // line, the progress line and the notes), kept most important first
-// (pieces) while each fits, and the comment names what it left out. Only
+// (pieces), each whole while it still fits (a large one left out does not
+// stop a smaller one after it), and the comment names what it left out. Only
 // when even that cannot fit is each outcome's statement shortened, the
 // verdict lines kept whole. Deterministic: the same section always keeps
 // the same evidence.
