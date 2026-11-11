@@ -308,7 +308,7 @@ projects: []
 #       #                           # intentController.config.modelAllowlist, or
 #       #                           # the Project is not Ready (ModelNotAllowed).
 #       #     plan: anthropic/claude-opus-5
-#       #     build: anthropic/claude-sonnet-5        # build and every revise round
-#       #     evaluate: anthropic/claude-sonnet-5     # the agent evaluator
+#       #     build: anthropic/claude-sonnet-5-5      # build and every revise round
+#       #     evaluate: anthropic/claude-sonnet-5-5   # the agent evaluator
 #       #     checkReview: anthropic/claude-haiku-4-5 # the check reviewer
 #       # suspend: false

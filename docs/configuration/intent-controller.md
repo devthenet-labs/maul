@@ -228,8 +228,8 @@ harness, in `spec.models`:
 spec:
   models:
     plan: anthropic/claude-opus-5 # the plan stage
-    build: anthropic/claude-sonnet-5 # build, and every revise round: review, command, check-fix, acceptance-fix
-    evaluate: anthropic/claude-sonnet-5 # the agent evaluator
+    build: anthropic/claude-sonnet-5-5 # build, and every revise round: review, command, check-fix, acceptance-fix
+    evaluate: anthropic/claude-sonnet-5-5 # the agent evaluator
     checkReview: anthropic/claude-haiku-4-5 # the check reviewer
 ```
 
