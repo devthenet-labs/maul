@@ -220,6 +220,28 @@ func TestUnconfirmedCause(t *testing.T) {
 	}
 }
 
+// TestWorkspaceEnvironmentLabel (review H3): on a Project with no preview a
+// failing environment, the change's or maul's, is maul's own tools, from
+// the one table, and an anomaly beside it is named after it as on a
+// previewed Project (the special case it replaces dropped it).
+func TestWorkspaceEnvironmentLabel(t *testing.T) {
+	const tools = "maul couldn't confirm this: its own checking tools failed while it checked"
+	for _, tt := range []struct {
+		h    PreviewHandoff
+		want string
+	}{
+		{PreviewHandoff{Why: HandoffWhyEnvironment}, tools + "."},
+		{PreviewHandoff{Why: HandoffWhyInfra}, tools + "."},
+		{PreviewHandoff{Why: HandoffWhyInfra, Anomaly: true},
+			tools + ", and it noticed something odd while it looked around."},
+	} {
+		tt.h.State = HandoffUnconfirmed
+		if got := workspaceLabel(tt.h); got != tt.want {
+			t.Errorf("%+v = %q, want %q", tt.h, got, tt.want)
+		}
+	}
+}
+
 // TestHandoffSuspectedLeads (gate D-B11): a suspected defect leads the
 // reason, naming each outcome as code (an id that shows nothing is left
 // out), before the outcomes the evaluator doubts and any anomaly; with no

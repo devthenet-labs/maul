@@ -64,7 +64,7 @@ func TestCauseOfEveryReason(t *testing.T) {
 	}
 	for _, r := range reasons {
 		got := CauseOf(PreviewVerificationReason(r))
-		if !slices.Contains(SettleCauses, got) {
+		if !slices.Contains(SettleCauses(), got) {
 			t.Errorf("%s maps to %q, not a cause", r, got)
 		}
 		if want := named[PreviewVerificationReason(r)]; got != want {
@@ -83,7 +83,7 @@ func TestCauseOfEveryReason(t *testing.T) {
 func TestSettleCausesMatchTheSchema(t *testing.T) {
 	enum := enumOf(t, "intent_types.go", "SettleCause")
 	var got []string
-	for _, c := range SettleCauses {
+	for _, c := range SettleCauses() {
 		if c != SettleNone {
 			got = append(got, string(c))
 		}
@@ -91,8 +91,8 @@ func TestSettleCausesMatchTheSchema(t *testing.T) {
 	if !slices.Equal(got, enum) {
 		t.Errorf("SettleCauses = %q, schema enum %q", got, enum)
 	}
-	if SettleCauses[0] != SettleNone {
-		t.Errorf("SettleCauses do not start with SettleNone: %q", SettleCauses)
+	if SettleCauses()[0] != SettleNone {
+		t.Errorf("SettleCauses do not start with SettleNone: %q", SettleCauses())
 	}
 	// The spellings recorded before the cause had its own name.
 	for c, old := range map[SettleCause]string{SettlePreviewNotLive: "PreviewNotLive",

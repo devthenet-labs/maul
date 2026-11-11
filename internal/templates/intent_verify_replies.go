@@ -270,14 +270,14 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"reset, or try again later.", cmd, n.ResetWait, slashCommand(action.VerbVerify)), "", nil
 	case VerifyAccepted:
 		if n.NoCriteria {
-			return fmt.Sprintf("%s from %s is done: the change, whose approved plan declares no acceptance criteria, "+
+			return fmt.Sprintf("%s from %s is done: the change, whose approved plan declares no outcomes, "+
 				"is accepted at %s. If the commits change, it must be accepted again.", cmd, actor,
 				joinCode(n.Heads)), "", nil
 		}
 		return fmt.Sprintf("%s from %s is done: the criterion is accepted at %s. If the commits change, it is shown "+
 			"as accepted earlier and not re-checked.", cmd, actor, joinCode(n.Heads)), "", nil
 	case VerifyAcceptUnknown:
-		return cmd + " names no criterion of the approved plan." + acceptable("criterion", n.Acceptable), "", nil
+		return cmd + " names no outcome of the approved plan." + acceptable("outcome", n.Acceptable), "", nil
 	case VerifyAcceptAutomatic:
 		return cmd + " does nothing: that criterion is checked automatically, and only a manual one, one maul does " +
 			"not run yet or one that passed only on retry is accepted by hand." +

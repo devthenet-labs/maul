@@ -17,7 +17,7 @@ import (
 // Project with none. An unknown cause reads as SettleNone.
 func TestCauseWordsEveryCause(t *testing.T) {
 	stateWords := map[v1alpha1.SettleCause]bool{v1alpha1.SettleNone: true, v1alpha1.SettlePreviewNotLive: true}
-	for _, c := range v1alpha1.SettleCauses {
+	for _, c := range v1alpha1.SettleCauses() {
 		for _, workspace := range []bool{false, true} {
 			w := CauseWords(c, workspace)
 			if w.Short == "" || len(w.Short) > 140 {

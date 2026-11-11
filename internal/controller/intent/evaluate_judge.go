@@ -966,13 +966,18 @@ func (p *pass) appOutput(ctx context.Context, pv *v1alpha1.PreviewVerification, 
 }
 
 // failedSteps are a check run's failing steps' messages, attempt by
-// attempt, bounded.
+// attempt, each with what its element showed when the runner received it
+// (gate D-B10, as the reproduction shows it), bounded.
 func failedSteps(r *toolwire.CheckRunRecord) string {
 	var lines []string
 	for i, a := range r.Attempts {
 		for _, s := range a.Steps {
 			if s.Result != toolwire.ResultPass && strings.TrimSpace(s.Detail) != "" {
-				lines = append(lines, fmt.Sprintf("attempt %d, step %d: %s", i+1, s.Index+1, s.Detail))
+				line := fmt.Sprintf("attempt %d, step %d: %s", i+1, s.Index+1, s.Detail)
+				if got := received(s.Received, a.Run); got != "" {
+					line += "; the element showed: " + got
+				}
+				lines = append(lines, line)
 			}
 		}
 	}

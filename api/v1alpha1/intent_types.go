@@ -1037,9 +1037,11 @@ const (
 	SettleReplayIncomplete SettleCause = "ReplayIncomplete"
 )
 
-// SettleCauses are every cause, SettleNone first.
-var SettleCauses = []SettleCause{SettleNone, SettlePreviewNotLive, SettleSandboxImage, SettleTree,
-	SettleToolsBuildFailed, SettleSandboxUnenforced, SettleToolsLost, SettleReplayIncomplete}
+// SettleCauses are every cause, SettleNone first, in a slice of its own.
+func SettleCauses() []SettleCause {
+	return []SettleCause{SettleNone, SettlePreviewNotLive, SettleSandboxImage, SettleTree,
+		SettleToolsBuildFailed, SettleSandboxUnenforced, SettleToolsLost, SettleReplayIncomplete}
+}
 
 // CauseOf is the cause a round whose last attempt settled for reason
 // records: SettleNone for every reason no cause names (the Preview not

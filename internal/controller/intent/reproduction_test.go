@@ -294,6 +294,45 @@ func TestFixRoundGetsTheReproduction(t *testing.T) {
 	}
 }
 
+// TestFixRoundSeesWhatTheElementShowed (gate D-B10): what a failing step's
+// element showed reaches both the fix round's reproduction and the
+// person's verification comment, each attempt's run token written back as
+// the placeholder, never the raw token; before, both said only that the
+// expectation was not met.
+func TestFixRoundSeesWhatTheElementShowed(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.failRound(name, failingReport, func(version string) []toolwire.LedgerEntry {
+		run := checkRunEntry(2, version, "version-shown", 1, "the text expectation was not met")
+		for i := range run.CheckRun.Attempts {
+			a := &run.CheckRun.Attempts[i]
+			s := &a.Steps[len(a.Steps)-1]
+			s.Assertion, s.AssertionID, s.Received = true, "expect", a.Run+"-v 120 bpm · swing 0%"
+		}
+		return []toolwire.LedgerEntry{logsEntry(1, "app", "boot ok\n"), run}
+	})
+	const shown = checks.RunPlaceholder + "-v 120 bpm · swing 0%"
+	all := e.fixInput(name)
+	comments := e.verifyComments(name, 1)
+	if len(comments) == 0 {
+		t.Fatal("no verification comment")
+	}
+	if body := comments[len(comments)-1].Body; !strings.Contains(body, "the element showed: "+shown) ||
+		strings.Contains(body, "r1-v") {
+		t.Errorf("the verification comment does not show what the element showed:\n%s", body)
+	}
+	for _, want := range []string{
+		"attempt 1, step 2: failed: `the text expectation was not met`; the element showed `" + shown + "`",
+		"attempt 2, step 2: failed: `the text expectation was not met`; the element showed `" + shown + "`",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the fix round's input lacks %q:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, "r1-v") || strings.Contains(all, "r2-v") {
+		t.Errorf("the fix round's input carries a run's raw token:\n%s", all)
+	}
+}
+
 // TestBuildHandoffNeverReferencesEvaluator: over random rounds (the
 // evaluator's verdict notes, report body and a cited anomaly, the
 // failing step's detail and the log lines), no build or revise handoff of
