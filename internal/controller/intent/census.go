@@ -5,9 +5,11 @@ package intent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -20,47 +22,89 @@ import (
 )
 
 // The slice-1 census (S4): slice 1's acceptance criteria no longer run, and
-// a later release removes their CRD fields, which prunes them from every
+// their CRD fields are removed, so the API server prunes them from every
 // stored object. Before the manager starts, intent-controller counts what
-// still records them, through a client.Reader (it cannot write), logs the
-// names and reports the count as maul.intent.slice1_records, and starts
-// anyway: mode() already stops such an Intent for a replan, and a
-// criteria PreviewVerification is never run again. An operator reads the
-// census before upgrading past the release that removes the fields
-// (docs/intents/evaluator.md#migrating-from-slice-1).
+// is still of slice 1's era, through a client.Reader (it cannot write),
+// reports the count as maul.intent.slice1_records, and refuses to start
+// while anything is counted (Slice1Census.Err), naming each object and its
+// fix (docs/intents/evaluator.md#migrating-from-slice-1). Both shapes it
+// keys on survive the pruning: an Intent's criteria Digest with no outcomes
+// digest, and a PreviewVerification with no outcomes.
 
 // Slice1Census is what the census found in the controller's namespace,
 // each list sorted by name.
 type Slice1Census struct {
-	// Intents are the non-terminal Intents whose acceptance on record is
-	// criteria-era: criteria, criteria beside outcomes, or a record pruned
-	// of its criteria (a criteria digest with no outcomes digest). A
-	// terminal Intent's record is never judged again; a Failed one revived
-	// meets mode()'s replan.
+	// Namespace is the namespace the census was taken in.
+	Namespace string
+	// Intents are the non-terminal Intents, of a Project the agent
+	// evaluator verifies, whose acceptance on record is criteria-era
+	// (recordCriteriaEra: a criteria digest with no outcomes digest, its
+	// criteria pruned or never recorded). Such an Intent is never verified
+	// again: it stops for a replan. A terminal Intent's record is never
+	// judged again, and one of a Project the evaluator does not verify is
+	// recorded by its digest alone, which nothing runs and the pruning does
+	// not change: neither is counted. Nor is an Intent being deleted.
 	Intents []string
-	// Verifications are the PreviewVerifications asking criteria
-	// (spec.criteria), whatever their phase: their spec is immutable, so
-	// only deleting them clears them.
+	// Verifications are the PreviewVerifications evaluating no outcomes:
+	// slice 1's criteria requests (spec.criteria, pruned), whatever their
+	// phase. Their spec is immutable, so only deleting them clears them. One
+	// being deleted is not counted.
 	Verifications []string
 	// VerificationsUnlisted: the controller may not list
 	// PreviewVerifications (an install without the evaluator grants it
-	// nothing on them), so Verifications is unknown, not empty.
+	// nothing on them), so Verifications is unknown, not empty. The chart's
+	// pre-upgrade guard lists them instead.
 	VerificationsUnlisted bool
 }
 
 // Count is how many slice-1 records the census found.
 func (c Slice1Census) Count() int { return len(c.Intents) + len(c.Verifications) }
 
-// TakeSlice1Census lists namespace's Intents and PreviewVerifications
-// through r and returns the slice-1 records among them. It only reads. A
-// PreviewVerification list RBAC forbids is VerificationsUnlisted; any other
-// failed list is its error, naming what it could not list.
-func TakeSlice1Census(ctx context.Context, r client.Reader, namespace string) (Slice1Census, error) {
+// errSlice1Records is the census's refusal: slice-1 records remain.
+var errSlice1Records = errors.New("slice-1 acceptance records remain")
+
+// Err is the census's refusal to start, nil when it found nothing: each
+// record by namespace and name, with what clears it. None can be cleared
+// through intent-controller, which does not start while they remain, so
+// each fix is a delete, or going back to how intent-controller last ran
+// (the previous release, or without the evaluator verifying the intent's
+// Project) to cancel an intent there. Neither kind holds a finalizer of
+// intent-controller's, so a delete completes without it.
+func (c Slice1Census) Err() error {
+	if c.Count() == 0 {
+		return nil
+	}
+	var b strings.Builder
+	for _, name := range c.Intents {
+		fmt.Fprintf(&b, "; Intent %s/%s records slice 1's acceptance criteria, which nothing runs, under the "+
+			"evaluator: delete it (kubectl -n %s delete intent %s), or go back to how intent-controller last ran "+
+			"(the previous release, or without the evaluator verifying its Project), /maul cancel it there (a new "+
+			"issue starts over with outcomes) and try again",
+			c.Namespace, name, c.Namespace, name)
+	}
+	for _, name := range c.Verifications {
+		fmt.Fprintf(&b, "; PreviewVerification %s/%s asks slice 1's criteria and its spec is immutable: "+
+			"delete it (kubectl -n %s delete previewverification %s)", c.Namespace, name, c.Namespace, name)
+	}
+	return fmt.Errorf("%w (%d)%s", errSlice1Records, c.Count(), b.String())
+}
+
+// TakeSlice1Census lists s.Namespace's Projects, Intents and
+// PreviewVerifications through r and returns the slice-1 records among
+// them. It only reads. A PreviewVerification list RBAC forbids is
+// VerificationsUnlisted; any other failed list is its error, naming what it
+// could not list.
+func TakeSlice1Census(ctx context.Context, r client.Reader, s Settings) (Slice1Census, error) {
+	namespace := s.Namespace
+	var projects v1alpha1.ProjectList
+	if err := r.List(ctx, &projects, client.InNamespace(namespace)); err != nil {
+		return Slice1Census{}, fmt.Errorf("list projects for the slice-1 census: %w", err)
+	}
 	var intents v1alpha1.IntentList
 	if err := r.List(ctx, &intents, client.InNamespace(namespace)); err != nil {
 		return Slice1Census{}, fmt.Errorf("list intents for the slice-1 census: %w", err)
 	}
-	var c Slice1Census
+	c := Slice1Census{Namespace: namespace}
 	var pvs v1alpha1.PreviewVerificationList
 	switch err := r.List(ctx, &pvs, client.InNamespace(namespace)); {
 	case kerrors.IsForbidden(err):
@@ -68,18 +112,25 @@ func TakeSlice1Census(ctx context.Context, r client.Reader, namespace string) (S
 	case err != nil:
 		return Slice1Census{}, fmt.Errorf("list previewverifications for the slice-1 census: %w", err)
 	}
+	evaluated := map[string]bool{}
+	for i := range projects.Items {
+		if p := &projects.Items[i]; p.Namespace == namespace {
+			evaluated[p.Name] = s.evaluates(p)
+		}
+	}
 	for i := range intents.Items {
 		in := &intents.Items[i]
-		if in.Namespace != namespace || v1alpha1.IntentTerminal(in.Status.Phase) {
+		if in.Namespace != namespace || v1alpha1.IntentTerminal(in.Status.Phase) || !in.DeletionTimestamp.IsZero() ||
+			!evaluated[in.Spec.Project] {
 			continue
 		}
-		switch recordOf(in.Status.Acceptance) {
-		case recordCriteria, recordPrunedCriteria, recordMixed:
+		if recordOf(in.Status.Acceptance) == recordCriteriaEra {
 			c.Intents = append(c.Intents, in.Name)
 		}
 	}
 	for i := range pvs.Items {
-		if pv := &pvs.Items[i]; pv.Namespace == namespace && len(pv.Spec.Criteria) > 0 {
+		if pv := &pvs.Items[i]; pv.Namespace == namespace && pv.DeletionTimestamp.IsZero() &&
+			len(pv.Spec.Outcomes) == 0 {
 			c.Verifications = append(c.Verifications, pv.Name)
 		}
 	}
@@ -102,7 +153,8 @@ var slice1Metrics = sync.OnceValue(func() censusMetrics {
 	m := otel.Meter(censusScope)
 	g, err := m.Int64ObservableGauge("maul.intent.slice1_records",
 		metric.WithDescription("slice-1 acceptance records intent-controller's startup census found, by kind "+
-			"(intent: a non-terminal Intent recording criteria; previewverification: one asking criteria)"))
+			"(intent: a non-terminal Intent the evaluator verifies recording criteria; previewverification: "+
+			"one asking criteria); intent-controller does not start while any is found"))
 	if err != nil {
 		otel.Handle(err)
 	}

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -17,64 +16,10 @@ import (
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
-// The acceptance-verification schema tests: the criteria mirror stored on
-// Intents and PreviewVerifications, the Preview environment's set-once
+// The acceptance-verification schema tests: the Preview environment's set-once
 // rules, the verify trigger's exactly-once record, the Project's
 // verification settings and the PreviewVerification kind. They run inside
 // TestSchemaValidation's single envtest boot.
-
-func rawJSON(s string) apiextensionsv1.JSON { return apiextensionsv1.JSON{Raw: []byte(s)} }
-
-func rawJSONPtr(s string) *apiextensionsv1.JSON {
-	j := rawJSON(s)
-	return &j
-}
-
-// schemaCriteria is one criterion of each kind, every field set, with the
-// matcher shapes stored as raw JSON: what an approved plan's status copy
-// holds.
-func schemaCriteria() []maulv1.AcceptanceCriterion {
-	exit := int32(0)
-	return []maulv1.AcceptanceCriterion{
-		{
-			ID: "battle-leaderboard", Kind: maulv1.AcceptanceHTTP,
-			Statement: "a battle's leaderboard ranks its patterns by votes", Target: "api",
-			Steps: []maulv1.AcceptanceStep{
-				{
-					Name: "battle",
-					Request: maulv1.AcceptanceRequest{Method: "POST", Path: "/api/battles",
-						Headers: map[string]string{"X-Trace": "maul"}, JSON: rawJSONPtr(`{"name":"maul-{{run}}"}`)},
-					Expect:  maulv1.AcceptanceExpect{Status: rawJSONPtr(`201`)},
-					Capture: map[string]string{"battle": "/id"},
-				},
-				{
-					Request: maulv1.AcceptanceRequest{Method: "GET", Path: "/api/battles/{{capture.battle}}/leaderboard"},
-					Expect: maulv1.AcceptanceExpect{
-						Status: rawJSONPtr(`[200,203]`),
-						JSON: map[string]apiextensionsv1.JSON{
-							"": rawJSON(`{"$by":"/id","$order":["a","b"]}`), "/n": rawJSON(`2`),
-						},
-						Headers:      map[string]apiextensionsv1.JSON{"Content-Type": rawJSON(`{"$contains":"json"}`)},
-						BodyContains: "leaderboard",
-					},
-				},
-			},
-		},
-		{
-			ID: "kick-onsets", Kind: maulv1.AcceptanceCommand,
-			Statement: "a four-on-the-floor kick renders onsets at 0/500/1000/1500 ms",
-			In:        &maulv1.AcceptanceWhere{Component: "render"},
-			Argv:      []string{"/render", "onsets", "--bpm", "120"},
-			Expect: &maulv1.AcceptanceExpect{Exit: &exit, StdoutContains: "kick",
-				StdoutJSON: map[string]apiextensionsv1.JSON{"/kick": rawJSON(`{"$approx":[0,500,1000,1500],"$tolerance":5}`)}},
-			Timeout: "2m",
-		},
-		{
-			ID: "sounds-good", Kind: maulv1.AcceptanceManual, Statement: "it sounds good",
-			Reason: "only a human can judge how it sounds",
-		},
-	}
-}
 
 // schemaHeads is a one-component combined change.
 func schemaHeads() []maulv1.VerificationHead {
@@ -225,7 +170,7 @@ func testPreviewEnvironmentSchema(ctx context.Context, t *testing.T, c client.Cl
 	env := func(edges ...maulv1.PreviewEdge) *maulv1.PreviewEnvironment {
 		return &maulv1.PreviewEnvironment{Verification: true, Edges: edges}
 	}
-	toAPI := maulv1.PreviewEdge{From: maulv1.PreviewPartTester, To: "api", Port: 8080}
+	toAPI := maulv1.PreviewEdge{From: maulv1.PreviewPartToolPod, To: "api", Port: 8080}
 
 	for _, tt := range []struct {
 		name    string
@@ -234,11 +179,11 @@ func testPreviewEnvironmentSchema(ctx context.Context, t *testing.T, c client.Cl
 	}{
 		{"the tester's edge to a component", env(toAPI), false},
 		{"no edges: a verification-capable Preview has a component", env(), true},
-		{"an edge to the tester", env(maulv1.PreviewEdge{From: "api", To: maulv1.PreviewPartTester, Port: 8080}), true},
+		{"an edge to the tester", env(maulv1.PreviewEdge{From: "api", To: maulv1.PreviewPartToolPod, Port: 8080}), true},
 		{"an edge to itself", env(maulv1.PreviewEdge{From: "api", To: "api", Port: 8080}), true},
 		{"a repeated edge", env(toAPI, toAPI), true},
-		{"an edge on port 0", env(maulv1.PreviewEdge{From: maulv1.PreviewPartTester, To: "api"}), true},
-		{"an edge to a malformed part", env(maulv1.PreviewEdge{From: maulv1.PreviewPartTester, To: "API", Port: 1}), true},
+		{"an edge on port 0", env(maulv1.PreviewEdge{From: maulv1.PreviewPartToolPod, To: "api"}), true},
+		{"an edge to a malformed part", env(maulv1.PreviewEdge{From: maulv1.PreviewPartToolPod, To: "API", Port: 1}), true},
 	} {
 		t.Run("create with "+tt.name, func(t *testing.T) {
 			err := c.Create(ctx, preview("penv-"+shortHash(tt.name), tt.env))
@@ -399,8 +344,10 @@ func schemaVerification(name string) *maulv1.PreviewVerification {
 			Round:             1,
 			Attempt:           1,
 			Run:               "0a1b2c",
-			Criteria:          schemaCriteria()[:1],
-			CriteriaDigest:    schemaDigest,
+			Outcomes:          schemaOutcomes(),
+			OutcomesDigest:    schemaDigest,
+			Rung:              maulv1.RungFull,
+			Tools:             &maulv1.ToolsSpec{Sandbox: true, MaxToolCalls: 300},
 			Timeout:           metav1.Duration{Duration: 10 * time.Minute},
 		},
 	}
@@ -411,30 +358,14 @@ func fullVerificationStatus() maulv1.PreviewVerificationStatus {
 	return maulv1.PreviewVerificationStatus{
 		Phase: maulv1.VerificationObserved, Reason: maulv1.VerificationReasonOK,
 		StartedAt: schemaNow.DeepCopy(), CompletedAt: schemaNow.DeepCopy(),
-		TesterImageID: "registry.example/maul/preview-tester@sha256:" + strings.Repeat("1", 64),
-		Observations: []maulv1.CriterionObservation{{
-			ID: "battle-leaderboard",
-			Tries: []maulv1.TryObservation{
-				{Run: "v1a1t1-0a1b2c", Steps: []maulv1.StepObservation{{
-					Method: "POST", Path: "/api/battles", Status: 201, TransportError: maulv1.TransportNone,
-					JSONValid: true, BodyBytes: 42, LatencyMs: 7,
-					Pointers:   map[string]string{"/id": `"b-1"`},
-					Captures:   map[string]string{"battle": "b-1"},
-					Headers:    map[string]string{"Content-Type": "application/json"},
-					BodyPrefix: "eyJpZCI6ImItMSJ9",
-				}}},
-				{Run: "v1a1t2-0a1b2c", Steps: []maulv1.StepObservation{{
-					Method: "POST", Path: "/api/battles", TransportError: maulv1.TransportRefused,
-				}}},
-			},
-		}, {ID: "battle-history", TooLarge: true}},
+		ToolsImageID: "registry.example/maul/preview-tools@sha256:" + strings.Repeat("1", 64),
 		Environment: []maulv1.PartFact{
 			{Name: "api", Role: maulv1.PreviewRoleComponent, Ready: false, Restarts: 3, Waiting: "CrashLoopBackOff",
 				LastTermination: &maulv1.Termination{Reason: "OOMKilled", ExitCode: 137}, Evicted: true,
 				Unschedulable: true, LogTail: "panic: out of memory\n"},
-			{Name: maulv1.PreviewPartTester, Role: maulv1.PreviewRoleTester, Ready: true},
+			{Name: maulv1.PreviewRoleTools, Role: maulv1.PreviewRoleToolPod, Ready: true},
 		},
-		SummarySHA256: strings.Repeat("e", 64),
+		Readiness: []maulv1.TargetWait{{Target: "api", WaitMs: 40, Attempts: 2, Refused: 1}},
 	}
 }
 
@@ -443,9 +374,8 @@ func fullVerificationStatus() maulv1.PreviewVerificationStatus {
 // vocabulary.
 func testPreviewVerificationSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	t.Run("a verification with every criterion kind round-trips", func(t *testing.T) {
+	t.Run("a verification round-trips", func(t *testing.T) {
 		v := schemaVerification("target-1-v1-a1")
-		v.Spec.Criteria = schemaCriteria()
 		want := v.Spec.DeepCopy()
 		if err := c.Create(ctx, v); err != nil {
 			t.Fatalf("Create(verification) = %v", err)
@@ -472,7 +402,7 @@ func testPreviewVerificationSchema(ctx context.Context, t *testing.T, c client.C
 		mutate func(*maulv1.PreviewVerificationSpec)
 	}{
 		{"heads", func(s *maulv1.PreviewVerificationSpec) { s.Heads[0].Revision = strings.Repeat("b", 40) }},
-		{"criteria", func(s *maulv1.PreviewVerificationSpec) { s.Criteria[0].Statement = "something else" }},
+		{"outcomes", func(s *maulv1.PreviewVerificationSpec) { s.Outcomes[0].Outcome = "something else" }},
 		{"run", func(s *maulv1.PreviewVerificationSpec) { s.Run = "ffffff" }},
 		{"timeout", func(s *maulv1.PreviewVerificationSpec) { s.Timeout.Duration = 20 * time.Minute }},
 	} {
@@ -499,12 +429,7 @@ func testPreviewVerificationSchema(ctx context.Context, t *testing.T, c client.C
 		{"the third attempt", func(v *maulv1.PreviewVerification) { v.Spec.Attempt = 3 }, false},
 		{"round 0", func(v *maulv1.PreviewVerification) { v.Spec.Round = 0 }, true},
 		{"a malformed run token", func(v *maulv1.PreviewVerification) { v.Spec.Run = "0A1B2C" }, true},
-		{"no criteria", func(v *maulv1.PreviewVerification) { v.Spec.Criteria = nil }, true},
-		{"seventeen criteria", func(v *maulv1.PreviewVerification) {
-			for len(v.Spec.Criteria) < 17 {
-				v.Spec.Criteria = append(v.Spec.Criteria, v.Spec.Criteria[0])
-			}
-		}, true},
+		{"no outcomes", func(v *maulv1.PreviewVerification) { v.Spec.Outcomes, v.Spec.OutcomesDigest = nil, "" }, true},
 		{"a short head", func(v *maulv1.PreviewVerification) { v.Spec.Heads[0].Revision = "abc" }, true},
 		{"no heads", func(v *maulv1.PreviewVerification) { v.Spec.Heads = nil }, true},
 		{"a bare head-set digest", func(v *maulv1.PreviewVerification) {
@@ -513,38 +438,6 @@ func testPreviewVerificationSchema(ctx context.Context, t *testing.T, c client.C
 		{"a timeout over an hour", func(v *maulv1.PreviewVerification) { v.Spec.Timeout.Duration = 61 * time.Minute }, true},
 		{"a 64-character name", func(v *maulv1.PreviewVerification) { v.Name = strings.Repeat("v", 64) }, true},
 		{"a 63-character name", func(v *maulv1.PreviewVerification) { v.Name = strings.Repeat("w", 63) }, false},
-		// The criteria grammar's backstop: the schema refuses what no
-		// approved plan could hold.
-		{"a reserved criterion kind", func(v *maulv1.PreviewVerification) { v.Spec.Criteria[0].Kind = "browser" }, true},
-		{"a malformed criterion id", func(v *maulv1.PreviewVerification) { v.Spec.Criteria[0].ID = "Leaderboard" }, true},
-		{"a two-line statement", func(v *maulv1.PreviewVerification) { v.Spec.Criteria[0].Statement = "a\nb" }, true},
-		{"an http criterion without steps", func(v *maulv1.PreviewVerification) { v.Spec.Criteria[0].Steps = nil }, true},
-		{"nine steps", func(v *maulv1.PreviewVerification) {
-			for len(v.Spec.Criteria[0].Steps) < 9 {
-				v.Spec.Criteria[0].Steps = append(v.Spec.Criteria[0].Steps, v.Spec.Criteria[0].Steps[0])
-			}
-		}, true},
-		{"an unknown method", func(v *maulv1.PreviewVerification) {
-			v.Spec.Criteria[0].Steps[0].Request.Method = "TRACE"
-		}, true},
-		{"a path with two leading slashes", func(v *maulv1.PreviewVerification) {
-			v.Spec.Criteria[0].Steps[0].Request.Path = "//evil.example/x"
-		}, true},
-		{"a relative path", func(v *maulv1.PreviewVerification) { v.Spec.Criteria[0].Steps[0].Request.Path = "api" }, true},
-		{"a malformed capture name", func(v *maulv1.PreviewVerification) {
-			v.Spec.Criteria[0].Steps[0].Capture = map[string]string{"Battle": "/id"}
-		}, true},
-		{"a malformed header name", func(v *maulv1.PreviewVerification) {
-			v.Spec.Criteria[0].Steps[0].Request.Headers = map[string]string{"X Trace": "maul"}
-		}, true},
-		{"a command criterion in two places", func(v *maulv1.PreviewVerification) {
-			v.Spec.Criteria = schemaCriteria()[1:2]
-			v.Spec.Criteria[0].In.Repository = "api"
-		}, true},
-		{"a command criterion without argv", func(v *maulv1.PreviewVerification) {
-			v.Spec.Criteria = schemaCriteria()[1:2]
-			v.Spec.Criteria[0].Argv = nil
-		}, true},
 	} {
 		t.Run("create with "+tt.name, func(t *testing.T) {
 			v := schemaVerification("target-1-v2-" + shortHash(tt.name))
@@ -562,18 +455,8 @@ func testPreviewVerificationSchema(ctx context.Context, t *testing.T, c client.C
 	}{
 		{"a free-text reason", func(s *maulv1.PreviewVerificationStatus) { s.Reason = "the app said hi" }},
 		{"an unknown phase", func(s *maulv1.PreviewVerificationStatus) { s.Phase = "Passed" }},
-		{"an unknown transport error", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[0].Tries[0].Steps[0].TransportError = "weird"
-		}},
-		{"three tries", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[0].Tries = append(s.Observations[0].Tries, s.Observations[0].Tries[0])
-		}},
-		{"an overlong pointer value", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[0].Tries[0].Steps[0].Pointers["/id"] = strings.Repeat("x", 257)
-		}},
-		{"an overlong capture", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[0].Tries[0].Steps[0].Captures["battle"] = strings.Repeat("x", 129)
-		}},
+		{"a removed tester reason", func(s *maulv1.PreviewVerificationStatus) { s.Reason = "tester-unscheduled" }},
+		{"the removed summary reason", func(s *maulv1.PreviewVerificationStatus) { s.Reason = "summary-mismatch" }},
 		{"an overlong log tail", func(s *maulv1.PreviewVerificationStatus) {
 			s.Environment[0].LogTail = strings.Repeat("x", 4097)
 		}},
@@ -585,18 +468,6 @@ func testPreviewVerificationSchema(ctx context.Context, t *testing.T, c client.C
 			for len(s.Environment) < 13 {
 				s.Environment = append(s.Environment, s.Environment[0])
 			}
-		}},
-		{"a body prefix that is not base64", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[0].Tries[0].Steps[0].BodyPrefix = "<script>"
-		}},
-		{"a malformed try token", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[0].Tries[0].Run = "anything"
-		}},
-		{"an observation with tries marked too large", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[0].TooLarge = true
-		}},
-		{"an observation with neither tries nor the marker", func(s *maulv1.PreviewVerificationStatus) {
-			s.Observations[1].TooLarge = false
 		}},
 	} {
 		t.Run("status with "+tt.name, func(t *testing.T) {

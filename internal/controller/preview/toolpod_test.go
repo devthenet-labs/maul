@@ -185,7 +185,7 @@ func toolJobChecks(s Settings, p *v1alpha1.Preview, pv *v1alpha1.PreviewVerifica
 		{"no service links", !*spec.EnableServiceLinks},
 		{"placement", spec.NodeSelector["karpenter.sh/nodepool"] == s.NodePool && len(spec.Tolerations) == 1},
 		{"no host namespaces", !spec.HostNetwork && !spec.HostPID && !spec.HostIPC && len(spec.HostAliases) == 0},
-		{"pod labels", l[labelRole] == v1alpha1.PreviewRoleTools && l[labelPart] == v1alpha1.PreviewPartTester &&
+		{"pod labels", l[labelRole] == v1alpha1.PreviewRoleTools && l[labelPart] == v1alpha1.PreviewPartToolPod &&
 			l[v1alpha1.LabelPreviewVerification] == string(pv.UID) && l[labelVerificationUID] == string(pv.UID) &&
 			l[labelPreviewUID] == string(p.UID)},
 		{"Job labels as its pod's, without the part", jl[labelRole] == l[labelRole] &&

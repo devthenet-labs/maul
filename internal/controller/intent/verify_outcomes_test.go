@@ -44,13 +44,12 @@ func (e *env) evalRound(name string, runs ...v1alpha1.CheckRun) v1alpha1.Preview
 }
 
 // outcomeRequest fails t unless pv is an outcome round: outcomes and their
-// digest on the request, no criteria.
+// digest on the request.
 func outcomeRequest(t *testing.T, pv *v1alpha1.PreviewVerification) {
 	t.Helper()
-	if len(pv.Spec.Outcomes) == 0 || pv.Spec.OutcomesDigest == "" || len(pv.Spec.Criteria) != 0 ||
-		pv.Spec.CriteriaDigest != "" {
-		t.Fatalf("verification %s is no outcome round: outcomes %d digest %q, criteria %d digest %q", pv.Name,
-			len(pv.Spec.Outcomes), pv.Spec.OutcomesDigest, len(pv.Spec.Criteria), pv.Spec.CriteriaDigest)
+	if len(pv.Spec.Outcomes) == 0 || pv.Spec.OutcomesDigest == "" {
+		t.Fatalf("verification %s is no outcome round: outcomes %d digest %q", pv.Name,
+			len(pv.Spec.Outcomes), pv.Spec.OutcomesDigest)
 	}
 }
 

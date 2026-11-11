@@ -715,38 +715,34 @@ type NarrowedCheck struct {
 	Verification string `json:"verification"`
 }
 
-// IntentAcceptance is the approved plan's acceptance criteria and the
+// IntentAcceptance is the approved plan's acceptance outcomes and the
 // approvers' acceptances of the manual ones. intent-controller writes the
-// criteria once per approved plan revision, from the plan bytes it re-reads
+// outcomes once per approved plan revision, from the plan bytes it re-reads
 // under the approved digest; no run writes Intent status, so nothing a fix
-// round does can change what was approved.
+// round does can change what was approved: Outcomes with their
+// OutcomesDigest, the check store the evaluator's confirmed and reviewed
+// checks are saved in, and the check reviewer's cached answers. A plan that
+// states no outcomes records the OutcomesDigest of the empty list alone
+// (EmptyListDigest): no Outcomes, since an empty list is omitted, and no
+// other outcomes digest may stand without its outcomes.
 //
-// Under the evaluator the approved plan declares outcomes instead of
-// criteria (never both): Outcomes with their OutcomesDigest, the check store
-// the evaluator's confirmed and reviewed checks are saved in, and the check
-// reviewer's cached answers. Digest is then the digest of the plan's empty
-// criteria list, as for a plan that declared none. A plan approved under
-// the evaluator that states no outcomes records the OutcomesDigest of the
-// empty list alone: no Outcomes (an empty list is omitted), yet still of
-// the evaluator's era.
-// +kubebuilder:validation:XValidation:rule="!has(self.criteria) || !has(self.outcomes)",message="an approved plan declares criteria or outcomes, never both"
+// Digest is the digest of the plan's slice-1 criteria list: the empty
+// list's (EmptyListDigest) for every plan the evaluator records. Slice 1's
+// criteria field is removed, so the API server prunes it from a record of
+// that era, which is then told apart only by a Digest of another list with
+// no OutcomesDigest (intent-controller stops it for a replan).
 // +kubebuilder:validation:XValidation:rule="!has(self.outcomes) || has(self.outcomesDigest)",message="outcomes need their outcomesDigest"
+// +kubebuilder:validation:XValidation:rule="has(self.outcomes) || !has(self.outcomesDigest) || self.outcomesDigest == 'sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'",message="an outcomesDigest without outcomes is the empty list's (EmptyListDigest)"
 type IntentAcceptance struct {
-	// PlanRevision is the approved plan revision the criteria are from.
+	// PlanRevision is the approved plan revision the outcomes are from.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=999
 	PlanRevision int32 `json:"planRevision"`
-	// Digest is the digest of the full criteria list, manual criteria
-	// included (acceptance.Digest): what every PreviewVerification's
-	// criteriaDigest must equal.
+	// Digest is the digest of the plan's slice-1 criteria list
+	// (acceptance.Digest): the empty list's for a plan the evaluator
+	// records, another only on a record of slice 1's era.
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	Digest string `json:"digest"`
-	// Criteria are the approved criteria in plan order; empty when the plan
-	// declared none.
-	// +optional
-	// +kubebuilder:validation:MaxItems=16
-	// +listType=atomic
-	Criteria []AcceptanceCriterion `json:"criteria,omitempty"`
 	// Outcomes are the approved outcomes in plan order (the evaluator).
 	// +optional
 	// +kubebuilder:validation:MinItems=1
@@ -1022,34 +1018,6 @@ const (
 	VerificationUnavailableToolsBuildFailed VerificationUnavailableReason = "ToolsBuildFailed"
 )
 
-// VerdictOutcome is acceptance.Judge's verdict on one criterion: pass,
-// quarantined (failed, then passed on its retry: never counted as passed),
-// or fail. Nothing the application does yields any other outcome.
-// +kubebuilder:validation:Enum=pass;quarantined;fail
-type VerdictOutcome string
-
-// Verdict outcomes.
-const (
-	VerdictPass        VerdictOutcome = "pass"
-	VerdictQuarantined VerdictOutcome = "quarantined"
-	VerdictFail        VerdictOutcome = "fail"
-)
-
-// CriterionState is the judged state of one criterion that did not pass.
-type CriterionState struct {
-	// ID of the criterion.
-	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
-	ID string `json:"id"`
-	// Outcome judged.
-	Outcome VerdictOutcome `json:"outcome"`
-	// Fingerprint is the failure's signature over status codes, transport
-	// error classes and matched-expectation bits only, never a value.
-	// +optional
-	// +kubebuilder:validation:MaxLength=128
-	// +kubebuilder:validation:Pattern=`^maul-verify-fingerprint/[0-9]+:[0-9a-f]{64}$`
-	Fingerprint string `json:"fingerprint,omitempty"`
-}
-
 // AutoFixState says whether a failed verification may start a verify-fix
 // round on its own.
 // +kubebuilder:validation:Enum=Armed;Halted
@@ -1082,7 +1050,8 @@ const (
 	AutoFixRepeatedFailure AutoFixReason = "RepeatedFailure"
 	// AutoFixCostCeiling: the intent's spend reached its ceiling.
 	AutoFixCostCeiling AutoFixReason = "CostCeiling"
-	// AutoFixCriterionError: a criterion can no longer be run as approved.
+	// AutoFixCriterionError: the approved plan states slice 1's criteria,
+	// which nothing runs: only a replan helps.
 	AutoFixCriterionError AutoFixReason = "CriterionError"
 	// AutoFixNoOpenPR: no failing criterion's repository has an open pull
 	// request to fix.
@@ -1327,11 +1296,6 @@ type IntentVerification struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=20
 	NotRun int32 `json:"notRun,omitempty"`
-	// Failing are the criteria that did not pass, in plan order.
-	// +optional
-	// +kubebuilder:validation:MaxItems=20
-	// +listType=atomic
-	Failing []CriterionState `json:"failing,omitempty"`
 	// QuarantinedIDs are the criteria that passed only on retry.
 	// +optional
 	// +kubebuilder:validation:MaxItems=20

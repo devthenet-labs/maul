@@ -136,7 +136,7 @@ func TestEvaluatorRecordsTheApprovedOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if acc.PlanRevision != in.Status.Approval.PlanRevision ||
-		acc.OutcomesDigest != acceptance.OutcomesDigest(parsed.Outcomes) || len(acc.Criteria) != 0 {
+		acc.OutcomesDigest != acceptance.OutcomesDigest(parsed.Outcomes) {
 		t.Fatalf("acceptance = %+v", acc)
 	}
 	want := []v1alpha1.AcceptanceOutcome{
@@ -237,7 +237,9 @@ func (e *env) checkStoppedForReplan(name string) string {
 
 // TestEvaluatorMigratesAnApprovedCriteriaPlan: an intent in review whose
 // approved plan states slice-1 criteria, recorded with them by a release
-// before S4, when the evaluator verifies its Project, gets one replan
+// before S4 (which the API server now prunes, leaving the digest alone, as
+// a plan nothing verifies is recorded here), when the evaluator verifies
+// its Project, gets one replan
 // notice, however many passes follow; nothing is verified against its
 // criteria, which are no longer on record, the Intent says why and
 // maul/acceptance is an error. Switched off again, nothing runs the
@@ -247,16 +249,9 @@ func TestEvaluatorMigratesAnApprovedCriteriaPlan(t *testing.T) {
 	e := newVerifyEnv(t, acceptancePlan)
 	name := e.reviewing()
 	e.review(name, 2)
-	if acc := e.get(name).Status.Acceptance; acc == nil || recordOf(acc) != recordPrunedCriteria {
+	if acc := e.get(name).Status.Acceptance; acc == nil || recordOf(acc) != recordCriteriaEra {
 		t.Fatalf("recorded %+v, want the criteria by their digest alone", acc)
 	}
-	// What a release before S4 recorded: the criteria themselves.
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		in.Status.Acceptance.Criteria = []v1alpha1.AcceptanceCriterion{
-			{ID: "sounds-good", Kind: v1alpha1.AcceptanceManual, Statement: "it sounds good"},
-			{ID: "health", Kind: v1alpha1.AcceptanceHTTP, Statement: "the app answers its health check",
-				Target: "app"}}
-	})
 	e.evaluating(true)
 	e.readyPreview(name)
 	e.review(name, 6)
@@ -280,7 +275,7 @@ func TestEvaluatorMigratesAnApprovedCriteriaPlan(t *testing.T) {
 	e.evaluating(false)
 	e.review(name, 3)
 	in := e.get(name)
-	if acc := in.Status.Acceptance; acc == nil || recordOf(acc) != recordPrunedCriteria {
+	if acc := in.Status.Acceptance; acc == nil || recordOf(acc) != recordCriteriaEra {
 		t.Fatalf("evaluator off again: acceptance = %+v, want the criteria by their digest alone", acc)
 	}
 	if v := in.Status.Verification; v == nil || v.State != v1alpha1.VerificationOff || len(e.verifications(name)) != 0 {
@@ -340,7 +335,7 @@ func TestEvaluatorReplanToOutcomes(t *testing.T) {
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.review(name, 2)
 	in := e.get(name)
-	if acc := in.Status.Acceptance; acc == nil || len(acc.Outcomes) != 3 || len(acc.Criteria) != 0 {
+	if acc := in.Status.Acceptance; acc == nil || len(acc.Outcomes) != 3 {
 		t.Fatalf("acceptance = %+v, want the approved outcomes", acc)
 	}
 	if n := len(e.gh.withMarker("verify-replan")); n != 0 {

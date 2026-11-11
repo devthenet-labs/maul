@@ -48,9 +48,8 @@ func (e *evalEnv) checkNoTester(t *testing.T, name string) {
 		}
 	}
 	for _, pv := range e.verifications(t, name) {
-		if len(pv.Spec.Criteria) != 0 || len(pv.Spec.Outcomes) == 0 {
-			t.Errorf("verification %s carries criteria %d and outcomes %d, want an outcome round", pv.Name,
-				len(pv.Spec.Criteria), len(pv.Spec.Outcomes))
+		if len(pv.Spec.Outcomes) == 0 {
+			t.Errorf("verification %s carries no outcomes, want an outcome round", pv.Name)
 		}
 	}
 }

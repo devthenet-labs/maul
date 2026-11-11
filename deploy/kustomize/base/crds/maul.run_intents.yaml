@@ -280,270 +280,11 @@ spec:
                     - count
                     - digest
                     type: object
-                  criteria:
-                    description: |-
-                      Criteria are the approved criteria in plan order; empty when the plan
-                      declared none.
-                    items:
-                      description: AcceptanceCriterion is one acceptance criterion
-                        of an approved plan.
-                      properties:
-                        argv:
-                          description: Argv is a command criterion's argument vector,
-                            run without a shell.
-                          items:
-                            maxLength: 200
-                            type: string
-                          maxItems: 16
-                          minItems: 1
-                          type: array
-                          x-kubernetes-list-type: atomic
-                        expect:
-                          description: Expect is what a command criterion's run must
-                            show.
-                          properties:
-                            bodyContains:
-                              description: BodyContains is a string the response body
-                                must contain.
-                              maxLength: 200
-                              type: string
-                            exit:
-                              description: Exit is a command's expected exit code.
-                              format: int32
-                              type: integer
-                            headers:
-                              additionalProperties:
-                                x-kubernetes-preserve-unknown-fields: true
-                              description: Headers maps response header names to what
-                                each must hold.
-                              maxProperties: 4
-                              type: object
-                            json:
-                              additionalProperties:
-                                x-kubernetes-preserve-unknown-fields: true
-                              description: |-
-                                JSON maps RFC 6901 pointers into the response body to what each must
-                                hold.
-                              maxProperties: 8
-                              type: object
-                            status:
-                              description: 'Status is the expected HTTP status: one
-                                code or a list of codes.'
-                              x-kubernetes-preserve-unknown-fields: true
-                            stdoutContains:
-                              description: StdoutContains is a string a command's
-                                stdout must contain.
-                              maxLength: 200
-                              type: string
-                            stdoutJSON:
-                              additionalProperties:
-                                x-kubernetes-preserve-unknown-fields: true
-                              description: |-
-                                StdoutJSON maps RFC 6901 pointers into a command's JSON stdout to what
-                                each must hold.
-                              maxProperties: 8
-                              type: object
-                          type: object
-                        id:
-                          description: ID names the criterion, unique within its plan.
-                          pattern: ^[a-z][a-z0-9-]{0,31}$
-                          type: string
-                        in:
-                          description: In is where a command criterion runs.
-                          properties:
-                            component:
-                              description: |-
-                                Component is a previewed repository key: the command runs in that
-                                component's runtime image inside the slot.
-                              maxLength: 16
-                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                              type: string
-                            repository:
-                              description: |-
-                                Repository is a Project repository key: the command runs in that
-                                repository's accepted agent image, without a model.
-                              maxLength: 16
-                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                              type: string
-                          type: object
-                          x-kubernetes-validations:
-                          - message: in names exactly one of component and repository
-                            rule: has(self.component) != has(self.repository)
-                        kind:
-                          description: Kind is how the criterion is checked.
-                          enum:
-                          - http
-                          - command
-                          - manual
-                          type: string
-                        reason:
-                          description: Reason says why a manual criterion needs a
-                            human.
-                          maxLength: 120
-                          pattern: ^[^\r\n]*$
-                          type: string
-                        statement:
-                          description: Statement is the approved one-line statement
-                            of what must hold.
-                          maxLength: 200
-                          minLength: 1
-                          pattern: ^[^\r\n]*$
-                          type: string
-                        steps:
-                          description: |-
-                            Steps are an http criterion's requests, in order (the shorthand of a
-                            bare request and expect is normalised into one step).
-                          items:
-                            description: |-
-                              AcceptanceStep is one request of an http criterion and what its response
-                              must show.
-                            properties:
-                              capture:
-                                additionalProperties:
-                                  type: string
-                                description: |-
-                                  Capture names values of the response (RFC 6901 pointers into its JSON
-                                  body) that later steps reference by name (the capture placeholder).
-                                maxProperties: 4
-                                type: object
-                                x-kubernetes-validations:
-                                - message: capture names are ^[a-z][a-z0-9]{0,15}$
-                                    and their pointers at most 256 characters
-                                  rule: self.all(k, k.matches('^[a-z][a-z0-9]{0,15}$')
-                                    && size(self[k]) <= 256)
-                              expect:
-                                description: Expect is what the response must show.
-                                properties:
-                                  bodyContains:
-                                    description: BodyContains is a string the response
-                                      body must contain.
-                                    maxLength: 200
-                                    type: string
-                                  exit:
-                                    description: Exit is a command's expected exit
-                                      code.
-                                    format: int32
-                                    type: integer
-                                  headers:
-                                    additionalProperties:
-                                      x-kubernetes-preserve-unknown-fields: true
-                                    description: Headers maps response header names
-                                      to what each must hold.
-                                    maxProperties: 4
-                                    type: object
-                                  json:
-                                    additionalProperties:
-                                      x-kubernetes-preserve-unknown-fields: true
-                                    description: |-
-                                      JSON maps RFC 6901 pointers into the response body to what each must
-                                      hold.
-                                    maxProperties: 8
-                                    type: object
-                                  status:
-                                    description: 'Status is the expected HTTP status:
-                                      one code or a list of codes.'
-                                    x-kubernetes-preserve-unknown-fields: true
-                                  stdoutContains:
-                                    description: StdoutContains is a string a command's
-                                      stdout must contain.
-                                    maxLength: 200
-                                    type: string
-                                  stdoutJSON:
-                                    additionalProperties:
-                                      x-kubernetes-preserve-unknown-fields: true
-                                    description: |-
-                                      StdoutJSON maps RFC 6901 pointers into a command's JSON stdout to what
-                                      each must hold.
-                                    maxProperties: 8
-                                    type: object
-                                type: object
-                              name:
-                                description: Name labels the step for display.
-                                maxLength: 32
-                                pattern: ^[a-z][a-z0-9-]*$
-                                type: string
-                              request:
-                                description: Request is what the tester sends.
-                                properties:
-                                  body:
-                                    description: Body is a literal request body.
-                                    maxLength: 2048
-                                    type: string
-                                  headers:
-                                    additionalProperties:
-                                      type: string
-                                    description: Headers sent with the request.
-                                    maxProperties: 8
-                                    type: object
-                                    x-kubernetes-validations:
-                                    - message: header names are ^[A-Za-z0-9-]{1,64}$
-                                        and their values at most 256 characters
-                                      rule: self.all(k, k.matches('^[A-Za-z0-9-]{1,64}$')
-                                        && size(self[k]) <= 256)
-                                  json:
-                                    description: JSON is a JSON request body.
-                                    x-kubernetes-preserve-unknown-fields: true
-                                  method:
-                                    description: Method of the request.
-                                    enum:
-                                    - GET
-                                    - HEAD
-                                    - POST
-                                    - PUT
-                                    - PATCH
-                                    - DELETE
-                                    type: string
-                                  path:
-                                    description: Path, with its query, starting with
-                                      exactly one slash.
-                                    maxLength: 512
-                                    minLength: 1
-                                    pattern: ^/([^/].*)?$
-                                    type: string
-                                required:
-                                - method
-                                - path
-                                type: object
-                            required:
-                            - request
-                            type: object
-                          maxItems: 8
-                          minItems: 1
-                          type: array
-                          x-kubernetes-list-type: atomic
-                        target:
-                          description: Target is the previewed repository key an http
-                            criterion is sent to.
-                          maxLength: 16
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                          type: string
-                        timeout:
-                          description: Timeout bounds a command criterion's run (a
-                            Go duration, at most 10m).
-                          maxLength: 16
-                          type: string
-                      required:
-                      - id
-                      - kind
-                      - statement
-                      type: object
-                      x-kubernetes-validations:
-                      - message: an http criterion names its target and its steps
-                        rule: self.kind != 'http' || (has(self.target) && has(self.steps))
-                      - message: a command criterion names where it runs (in) and
-                          its argv
-                        rule: self.kind != 'command' || (has(self.__in__) && has(self.argv))
-                      - message: 'a manual criterion is checked by a human: no steps
-                          and no argv'
-                        rule: self.kind != 'manual' || (!has(self.steps) && !has(self.argv))
-                    maxItems: 16
-                    type: array
-                    x-kubernetes-list-type: atomic
                   digest:
                     description: |-
-                      Digest is the digest of the full criteria list, manual criteria
-                      included (acceptance.Digest): what every PreviewVerification's
-                      criteriaDigest must equal.
+                      Digest is the digest of the plan's slice-1 criteria list
+                      (acceptance.Digest): the empty list's for a plan the evaluator
+                      records, another only on a record of slice 1's era.
                     pattern: ^sha256:[0-9a-f]{64}$
                     type: string
                   narrowed:
@@ -634,7 +375,7 @@ spec:
                     pattern: ^sha256:[0-9a-f]{64}$
                     type: string
                   planRevision:
-                    description: PlanRevision is the approved plan revision the criteria
+                    description: PlanRevision is the approved plan revision the outcomes
                       are from.
                     format: int32
                     maximum: 999
@@ -745,10 +486,12 @@ spec:
                 - planRevision
                 type: object
                 x-kubernetes-validations:
-                - message: an approved plan declares criteria or outcomes, never both
-                  rule: '!has(self.criteria) || !has(self.outcomes)'
                 - message: outcomes need their outcomesDigest
                   rule: '!has(self.outcomes) || has(self.outcomesDigest)'
+                - message: an outcomesDigest without outcomes is the empty list's
+                    (EmptyListDigest)
+                  rule: has(self.outcomes) || !has(self.outcomesDigest) || self.outcomesDigest
+                    == 'sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'
               activeRun:
                 description: |-
                   ActiveRun points at the IntentRun currently holding the run lease
@@ -1941,38 +1684,6 @@ spec:
                     maximum: 20
                     minimum: 0
                     type: integer
-                  failing:
-                    description: Failing are the criteria that did not pass, in plan
-                      order.
-                    items:
-                      description: CriterionState is the judged state of one criterion
-                        that did not pass.
-                      properties:
-                        fingerprint:
-                          description: |-
-                            Fingerprint is the failure's signature over status codes, transport
-                            error classes and matched-expectation bits only, never a value.
-                          maxLength: 128
-                          pattern: ^maul-verify-fingerprint/[0-9]+:[0-9a-f]{64}$
-                          type: string
-                        id:
-                          description: ID of the criterion.
-                          pattern: ^[a-z][a-z0-9-]{0,31}$
-                          type: string
-                        outcome:
-                          description: Outcome judged.
-                          enum:
-                          - pass
-                          - quarantined
-                          - fail
-                          type: string
-                      required:
-                      - id
-                      - outcome
-                      type: object
-                    maxItems: 20
-                    type: array
-                    x-kubernetes-list-type: atomic
                   firstGreenAt:
                     description: |-
                       FirstGreenAt is when CI first went green at the first PR heads: the

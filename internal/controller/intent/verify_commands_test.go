@@ -40,9 +40,10 @@ func newAcceptEnv(t *testing.T, mutate ...func(*v1alpha1.Project)) *env {
 }
 
 // reviewingWithCriteria drives a new intent to InReview and records an
-// approved plan's criteria (one manual, two automatic, one of them
-// quarantined) and a verification of the current commits, as the loop
-// would. The Preview exists but is not live yet (acceptReady).
+// approved plan's slice-1 criteria as the API server keeps them now that
+// the criteria field is removed (their digest alone), and a verification of
+// the current commits with one of them quarantined, as slice 1 would. The
+// Preview exists but is not live yet (acceptReady).
 func (e *env) reviewingWithCriteria() string {
 	e.t.Helper()
 	name := e.reviewing()
@@ -53,12 +54,7 @@ func (e *env) reviewingWithCriteria() string {
 	}
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: in.Status.Approval.PlanRevision,
-			Digest: hs.digest, Criteria: []v1alpha1.AcceptanceCriterion{
-				{ID: manualID, Kind: v1alpha1.AcceptanceManual, Statement: "the beat sounds good"},
-				{ID: automaticID, Kind: v1alpha1.AcceptanceHTTP, Statement: "a render returns audio", Target: "app"},
-				{ID: quarantineID, Kind: v1alpha1.AcceptanceHTTP, Statement: "the leaderboard lists votes",
-					Target: "app"},
-			}}
+			Digest: hs.digest}
 		in.Status.Verification = &v1alpha1.IntentVerification{State: v1alpha1.VerificationWaitingForPreview,
 			HeadSetDigest: hs.digest, QuarantinedIDs: []string{quarantineID}, Heads: hs.heads,
 			AutoFix: v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted, Reason: v1alpha1.AutoFixHumanReview}}

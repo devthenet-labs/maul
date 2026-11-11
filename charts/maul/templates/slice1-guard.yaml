@@ -1,0 +1,28 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+{{- /*
+The slice-1 upgrade guard. Slice 1's acceptance criteria are removed from
+the CRDs, so the API server prunes spec.criteria from every stored
+PreviewVerification, and the schema now refuses one with no outcomes: a
+criteria verification left in the cluster can never be written again, and
+intent-controller refuses to start while one exists (its startup census).
+Its spec is immutable, so it cannot be migrated: it must be deleted before
+this release is installed. A render that reaches the cluster (helm install,
+upgrade, or helm template --dry-run=server) fails here, naming each one,
+whether the CRDs it reads are still the previous release's (spec.criteria
+present) or already this one's (pruned: no spec.outcomes). A render without a
+cluster (helm template, Argo CD, Flux) sees nothing, as with every lookup;
+intent-controller's census then refuses to start instead. Renders nothing.
+*/}}
+{{- if lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "previewverifications.maul.run" }}
+{{- $stale := list }}
+{{- range $pv := (lookup "maul.run/v1alpha1" "PreviewVerification" .Release.Namespace "").items | default list }}
+{{- $spec := $pv.spec | default dict }}
+{{- if and (not $pv.metadata.deletionTimestamp) (or (hasKey $spec "criteria") (not $spec.outcomes)) }}
+{{- $stale = append $stale $pv.metadata.name }}
+{{- end }}
+{{- end }}
+{{- if $stale }}
+{{- fail (printf "slice 1's acceptance criteria are removed, and these PreviewVerifications in namespace %s still ask them: %s. Their spec is immutable, so they cannot be migrated and nothing can write them again; delete them before upgrading (kubectl -n %s delete previewverification %s), see docs/intents/evaluator.md#migrating-from-slice-1" .Release.Namespace (join ", " $stale) .Release.Namespace (join " " $stale)) }}
+{{- end }}
+{{- end }}

@@ -153,16 +153,18 @@ spec:
                       Edges are the connections between the slot's parts that the
                       preview-controller's NetworkPolicies admit, beside the isolation
                       policy's DNS and gateway ingress. Nothing else in the slot connects.
-                      No edge ends at the tester, and no two edges are the same. There is
-                      at least one: the tester's to a component.
+                      No edge ends at the tool pod's part (PreviewPartToolPod), and no two
+                      edges are the same. There is at least one: the tool pod's to a
+                      component.
                     items:
                       description: |-
                         PreviewEdge admits TCP connections from one part of a Preview's slot to
                         another, on one numeric port.
                       properties:
                         from:
-                          description: 'From is the calling part: a component''s key,
-                            or tester.'
+                          description: |-
+                            From is the calling part: a component's key, or the tool pod's part
+                            (tester, PreviewPartToolPod).
                           maxLength: 20
                           minLength: 1
                           pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -201,7 +203,7 @@ spec:
                         == e.to && f.port == e.port))
                   verification:
                     description: |-
-                      Verification marks a Preview whose acceptance criteria are verified
+                      Verification marks a Preview whose acceptance outcomes are evaluated
                       in its slot.
                     type: boolean
                 required:

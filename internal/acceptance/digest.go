@@ -13,8 +13,9 @@ import (
 // canonical JSON of the FULL list (manual criteria included, plan order
 // kept), normalised first, so the shorthand and its one-step form, and
 // expected values however they were spelled, digest alike. An empty list
-// digests "[]". intent-controller stores it beside the approved criteria;
-// preview-controller re-computes it from them before rendering the tester.
+// digests "[]" (v1alpha1.EmptyListDigest). intent-controller records it as
+// IntentAcceptance.Digest: the empty list's for every plan the evaluator
+// records, a criteria list's only for a plan nothing verifies.
 func Digest(cs []Criterion) string {
 	n := Normalize(cs)
 	if n == nil {

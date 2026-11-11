@@ -854,7 +854,7 @@ spec:
                   enabled:
                     description: |-
                       Enabled turns verification on for the Project's intents: the plan
-                      prompt asks for acceptance criteria, and each Preview is created
+                      prompt asks for acceptance outcomes, and each Preview is created
                       verification-capable.
                     type: boolean
                   handoff:
@@ -880,7 +880,7 @@ spec:
                   manualGatesStatus:
                     description: |-
                       ManualGatesStatus keeps maul/acceptance pending until every manual
-                      criterion is accepted (/maul accept) at the current heads. Off, the
+                      outcome is accepted (/maul accept) at the current heads. Off, the
                       status reports the automated part only and names what is still open.
                     type: boolean
                   maxToolCalls:
@@ -900,9 +900,9 @@ spec:
                     type: boolean
                   timeout:
                     description: |-
-                      Timeout is the tester Job's wall clock, between 1m and 1h;
-                      DefaultVerificationTimeout when unset, and clamped by
-                      intent-controller's --intent-verify-timeout-max.
+                      Timeout bounded slice 1's tester Job, between 1m and 1h. Nothing
+                      reads it any more: the evaluator's tool pod is bounded by its round's
+                      own timeouts.
                     type: string
                     x-kubernetes-validations:
                     - message: verification.timeout must be between 1m and 1h
@@ -927,8 +927,8 @@ spec:
               rule: '!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r,
                 has(r.preview)))'
             - message: 'a repository key cannot be tester or tools while verification
-                is enabled: they name the verification tester''s and the evaluator''s
-                tool pod''s parts of the preview slot'
+                is enabled: they name the evaluator''s tool pod''s parts of the preview
+                slot'
               rule: '!has(self.verification) || !has(self.verification.enabled) ||
                 !self.verification.enabled || !self.repositories.exists(r, r.name
                 == ''tester'' || r.name == ''tools'')'

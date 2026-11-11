@@ -39,7 +39,7 @@ func TestEvaluatorRoleLabels(t *testing.T) {
 		}
 	}
 	for _, role := range []PreviewPartRole{
-		PreviewRoleComponent, PreviewRoleService, PreviewRoleTester, PreviewRoleCommand, PreviewRoleSeed,
+		PreviewRoleComponent, PreviewRoleService, PreviewRoleCommand, PreviewRoleSeed, PreviewRoleBuild,
 	} {
 		if string(role) == PreviewRoleTools {
 			t.Errorf("PreviewRoleTools %q collides with an existing preview part role", PreviewRoleTools)

@@ -60,7 +60,7 @@ func TestIntentEvaluateAgentPlansOutcomes(t *testing.T) {
 		return in.Status.Acceptance != nil && len(in.Status.Acceptance.Outcomes) > 0
 	})
 	if acc := in.Status.Acceptance; len(acc.Outcomes) != 2 || acc.Outcomes[0].ID != "version-served" ||
-		acc.Outcomes[1].ID != "still-serving" || len(acc.Criteria) != 0 {
+		acc.Outcomes[1].ID != "still-serving" || acc.Digest != v1alpha1.EmptyListDigest {
 		t.Fatalf("recorded acceptance = %+v, want the planner's two outcomes and no criteria", acc)
 	}
 	pl := in.Status.Plan

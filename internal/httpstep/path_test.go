@@ -4,7 +4,6 @@
 package httpstep
 
 import (
-	"encoding/json"
 	"math/rand"
 	"net/url"
 	"strings"
@@ -84,46 +83,6 @@ func TestCheckPointer(t *testing.T) {
 	for _, p := range []string{"a", "/a~", "/a~2", "/a\x00", "/" + strings.Repeat("p", MaxPointerBytes)} {
 		if err := CheckPointer(p); err == nil {
 			t.Errorf("CheckPointer(%q) accepted", p)
-		}
-	}
-}
-
-func TestResolvePointer(t *testing.T) {
-	var doc any
-	dec := json.NewDecoder(strings.NewReader(`{"a":{"b/c":[10,{"d~e":"x"}]},"":1,"n":null}`))
-	dec.UseNumber()
-	if err := dec.Decode(&doc); err != nil {
-		t.Fatal(err)
-	}
-	cases := []struct {
-		ptr  string
-		want string
-		ok   bool
-	}{
-		{"", `{"":1,"a":{"b/c":[10,{"d~e":"x"}]},"n":null}`, true},
-		{"/a/b~1c/0", `10`, true},
-		{"/a/b~1c/1/d~0e", `"x"`, true},
-		{"/", `1`, true},
-		{"/n", `null`, true},
-		{"/a/b~1c/2", "", false},
-		{"/a/b~1c/-", "", false},
-		{"/a/b~1c/01", "", false},
-		{"/a/b~1c/x", "", false},
-		{"/missing", "", false},
-		{"/a/b~1c/0/deeper", "", false},
-	}
-	for _, c := range cases {
-		v, ok := ResolvePointer(doc, c.ptr)
-		if ok != c.ok {
-			t.Errorf("resolve %q ok = %v, want %v", c.ptr, ok, c.ok)
-			continue
-		}
-		if !ok {
-			continue
-		}
-		got, _ := json.Marshal(v)
-		if string(got) != c.want {
-			t.Errorf("resolve %q = %s, want %s", c.ptr, got, c.want)
 		}
 	}
 }

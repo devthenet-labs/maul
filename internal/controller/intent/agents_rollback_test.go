@@ -62,7 +62,7 @@ func TestAgentsRollbackSettlesTheOpenRound(t *testing.T) {
 	if v.State != v1alpha1.VerificationUnavailable || v.UnavailableReason != "" || v.Requested != nil {
 		t.Fatalf("verification = %+v, want Unavailable", v)
 	}
-	if v.Passed != 0 || v.Failed != 0 || len(v.Failing) != 0 {
+	if v.Passed != 0 || v.Failed != 0 || len(v.Outcomes) != 0 {
 		t.Fatalf("verification = %+v, want no judgement", v)
 	}
 	if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {

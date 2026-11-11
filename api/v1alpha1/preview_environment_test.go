@@ -31,8 +31,8 @@ func TestDesiredPreviewEnvironment(t *testing.T) {
 			name:    "the tester reaches each component on its own port, in component order",
 			project: verifying(twoAppProject()), intent: reviewing(apiPR, webPR),
 			want: &PreviewEnvironment{Verification: true, Edges: []PreviewEdge{
-				{From: PreviewPartTester, To: "web", Port: 8080},
-				{From: PreviewPartTester, To: "api", Port: 9090},
+				{From: PreviewPartToolPod, To: "web", Port: 8080},
+				{From: PreviewPartToolPod, To: "api", Port: 9090},
 			}},
 		},
 		{name: "verification unset", project: twoAppProject(), intent: reviewing(apiPR, webPR)},
@@ -53,7 +53,7 @@ func TestDesiredPreviewEnvironment(t *testing.T) {
 		{
 			name: "a component keyed like the tester fails closed",
 			project: verifying(&Project{Spec: ProjectSpec{
-				Repositories: []ProjectRepository{{Name: PreviewPartTester, URL: "https://github.com/acme/t"}},
+				Repositories: []ProjectRepository{{Name: PreviewPartToolPod, URL: "https://github.com/acme/t"}},
 				Preview:      &ProjectPreview{ImageRepository: previewImageWeb, Port: 8080, ReadinessPath: "/healthz"},
 			}}),
 			intent: reviewing(openPR("https://github.com/acme/t", headA)),
@@ -144,7 +144,7 @@ func testerEdgesOnly(env *PreviewEnvironment, components []PreviewComponent) boo
 	}
 	for k, e := range env.Edges {
 		c := components[k]
-		if e.From != PreviewPartTester || e.To != c.Name || e.Port != c.Port || e.To == PreviewPartTester {
+		if e.From != PreviewPartToolPod || e.To != c.Name || e.Port != c.Port || e.To == PreviewPartToolPod {
 			return false
 		}
 	}

@@ -221,7 +221,7 @@ func (v *VerificationReconciler) startTools(ctx context.Context, pv *v1alpha1.Pr
 	}
 	if err != nil {
 		v.logRefusal(ctx, pv, "tool pod not rendered", err)
-		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria)
+		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval)
 	}
 	if reason, err := v.createTools(ctx, pv, s, job, data); reason != "" {
 		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra, reason)
@@ -256,7 +256,7 @@ func (v *VerificationReconciler) evaluationRoom(ctx context.Context, pv *v1alpha
 // its targets each component's Service ClusterIP read live, and the
 // outcomes; and those targets. A component Service with no ClusterIP is
 // the reason service-no-cluster-ip; a config the relay would refuse,
-// stale-criteria.
+// stale-approval.
 func (v *VerificationReconciler) toolData(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject) (data, targets map[string]string, reason v1alpha1.PreviewVerificationReason, err error) {
 	targets, err = v.serviceTargets(ctx, s.preview, s.slot)
@@ -270,10 +270,10 @@ func (v *VerificationReconciler) toolData(ctx context.Context, pv *v1alpha1.Prev
 	_, _, wall := toolpod.Deadlines(pv.Spec.Timeout.Duration, v.deadlineMax())
 	cfg, err := v.Settings.toolConfig(s.preview, pv, targets, wall)
 	if err != nil {
-		return nil, nil, v1alpha1.VerificationReasonStaleCriteria, err
+		return nil, nil, v1alpha1.VerificationReasonStaleApproval, err
 	}
 	if data, err = toolpod.ConfigData(cfg, pv.Spec.Outcomes); err != nil {
-		return nil, nil, v1alpha1.VerificationReasonStaleCriteria, err
+		return nil, nil, v1alpha1.VerificationReasonStaleApproval, err
 	}
 	return data, targets, "", nil
 }
@@ -587,7 +587,7 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 	}
 	recordToolsSettled(ctx, phase, reason)
 	pv.Status.Environment = facts
-	pv.Status.TesterImageID = podstate.ImageID(pod, toolsContainer)
+	pv.Status.ToolsImageID = podstate.ImageID(pod, toolsContainer)
 	return v.settleWith(ctx, pv, phase, reason)
 }
 
@@ -992,7 +992,7 @@ func infraReason(facts []v1alpha1.PartFact,
 			return v1alpha1.VerificationReasonComponentNotReady
 		}
 	}
-	return v1alpha1.VerificationReasonTesterOutputInvalid
+	return v1alpha1.VerificationReasonToolsOutputInvalid
 }
 
 // jsonSize is v's length as json.Marshal writes it, as the API machinery

@@ -28,11 +28,10 @@
 // re-checked against the same grammar.
 //
 // The matcher engine (match.go) judges an observed value against an
-// expected one (MatchValue, MatchHeaderValue) and reduces an observed value
-// to a bounded one that judges the same (Reduce).
+// expected one (MatchValue, MatchHeaderValue, JSONEqual).
 //
-// The tool facts are the environment evidence and run causes both the
-// slice-1 tester and the agent evaluator report: Transport classes
+// The tool facts are the environment evidence and run causes the agent
+// evaluator's tool pod reports: Transport classes
 // (transport.go), PartFact and its roles (facts.go), ClassifyEnvironment
 // (environment.go), the readiness wait (TargetWait, readiness.go) and
 // RunCause (cause.go).

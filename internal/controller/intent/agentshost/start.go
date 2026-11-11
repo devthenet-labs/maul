@@ -104,7 +104,7 @@ func (r *Reconciler) retryOrInfra(ctx context.Context, pv *v1alpha1.PreviewVerif
 // reasonPhase is the phase a start-time reason settles in: a request that
 // no longer holds is Stale, maul's own trouble Infra.
 func reasonPhase(reason v1alpha1.PreviewVerificationReason) v1alpha1.PreviewVerificationPhase {
-	if reason == v1alpha1.VerificationReasonStaleCriteria {
+	if reason == v1alpha1.VerificationReasonStaleApproval {
 		return v1alpha1.VerificationStale
 	}
 	return v1alpha1.VerificationInfra
@@ -141,7 +141,7 @@ func (r *Reconciler) toolPodSpec(ctx context.Context, pv *v1alpha1.PreviewVerifi
 			r.log().LogAttrs(ctx, slog.LevelWarn, "the agents tool pod is not rendered",
 				slog.String("verification", pv.Name), slog.String("detail", why))
 		}
-		return jobs.ToolPodSpec{}, nil, v1alpha1.VerificationReasonStaleCriteria, err
+		return jobs.ToolPodSpec{}, nil, v1alpha1.VerificationReasonStaleApproval, err
 	}
 	spec := jobs.ToolPodSpec{
 		Name: JobName(pv), Verification: string(pv.UID), Repo: build.Repo,
@@ -244,7 +244,7 @@ func (r *Reconciler) buildRepository(ctx context.Context, in *v1alpha1.Intent, r
 // pod. The key of a Secret an earlier pass created is kept (CreateToolPod
 // refuses a Secret whose data differs), so a retry adopts what is there;
 // a Secret of another verification under the name is deleted first. A spec
-// the builder refuses is stale-criteria, the API server's refusal
+// the builder refuses is stale-approval, the API server's refusal
 // quota-refused or tools-refused (refused); any other failure is an error.
 func (r *Reconciler) create(ctx context.Context, pv *v1alpha1.PreviewVerification, spec jobs.ToolPodSpec,
 	goEnv map[string]string) (v1alpha1.PreviewVerificationReason, error) {
@@ -267,7 +267,7 @@ func (r *Reconciler) create(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 	if spec.Data, err = r.relayData(pv, spec, relayEnv(env, goEnv)); err != nil {
 		r.log().LogAttrs(ctx, slog.LevelWarn, "the relay's config is refused", slog.String("verification", pv.Name),
 			slog.Any("error", err))
-		return v1alpha1.VerificationReasonStaleCriteria, nil
+		return v1alpha1.VerificationReasonStaleApproval, nil
 	}
 	if err := r.Tools.Create(ctx, spec); err != nil {
 		return r.refused(ctx, pv, err)
@@ -276,7 +276,7 @@ func (r *Reconciler) create(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 }
 
 // refused maps a tool pod creation failure: a refused spec is
-// stale-criteria; the API server's refusal quota-refused for a quota,
+// stale-approval; the API server's refusal quota-refused for a quota,
 // tools-refused for anything else it refused (an admission policy or
 // webhook, an invalid object), its message logged, bounded; anything else
 // an error to retry. Nothing was scheduled, so neither is tools-unscheduled.
@@ -285,7 +285,7 @@ func (r *Reconciler) refused(ctx context.Context, pv *v1alpha1.PreviewVerificati
 	reason := v1alpha1.PreviewVerificationReason("")
 	switch {
 	case errors.Is(err, jobs.ErrToolPodRefused):
-		reason = v1alpha1.VerificationReasonStaleCriteria
+		reason = v1alpha1.VerificationReasonStaleApproval
 	case kerrors.IsForbidden(err) && strings.Contains(err.Error(), "exceeded quota"):
 		reason = v1alpha1.VerificationReasonQuotaRefused
 	case kerrors.IsForbidden(err) || kerrors.IsInvalid(err):

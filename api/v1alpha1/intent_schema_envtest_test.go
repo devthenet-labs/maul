@@ -691,7 +691,7 @@ func fullIntentStatus() maulv1.IntentStatus {
 		CheckFixes:          1,
 		VerifyFixes:         1,
 		Acceptance: &maulv1.IntentAcceptance{
-			PlanRevision: 1, Digest: schemaDigest, Criteria: schemaCriteria(),
+			PlanRevision: 1, Digest: schemaDigest,
 			Accepted: []maulv1.AcceptanceRecord{{ID: "sounds-good", By: "octocat", ByID: 583231, At: schemaNow,
 				CommentID: 46, HeadSetDigest: schemaDigest, Heads: []string{"aaaaaaa"}}},
 		},
@@ -700,8 +700,6 @@ func fullIntentStatus() maulv1.IntentStatus {
 			Ref:           &maulv1.ObjectReference{Name: "target-1-v2-a1", UID: "u-pv"},
 			HeadSetDigest: schemaDigest, Heads: schemaHeads(),
 			Passed: 1, Failed: 1, Quarantined: 1, ManualOpen: 1, ManualAccepted: 1, NotRun: 1,
-			Failing: []maulv1.CriterionState{{ID: "battle-leaderboard", Outcome: maulv1.VerdictFail,
-				Fingerprint: "maul-verify-fingerprint/1:" + strings.Repeat("f", 64)}},
 			QuarantinedIDs: []string{"kick-onsets"},
 			AutoFix: maulv1.AutoFix{State: maulv1.AutoFixHalted, Reason: maulv1.AutoFixHumanReview,
 				Since: schemaNow.DeepCopy(),
@@ -990,16 +988,7 @@ func testIntentSchema(ctx context.Context, t *testing.T, c client.Client) {
 		{"an unknown auto-fix reason", func(s *maulv1.IntentStatus) {
 			s.Verification.AutoFix.Reason = "Because"
 		}, true},
-		{"an error verdict", func(s *maulv1.IntentStatus) { s.Verification.Failing[0].Outcome = "error" }, true},
-		{"a fingerprint of a value", func(s *maulv1.IntentStatus) {
-			s.Verification.Failing[0].Fingerprint = "maul-verify-fingerprint/1:leaderboard"
-		}, true},
 		{"a fourth verification attempt", func(s *maulv1.IntentStatus) { s.Verification.Attempt = 4 }, true},
-		{"seventeen approved criteria", func(s *maulv1.IntentStatus) {
-			for len(s.Acceptance.Criteria) < 17 {
-				s.Acceptance.Criteria = append(s.Acceptance.Criteria, s.Acceptance.Criteria[2])
-			}
-		}, true},
 		{"33 acceptance records", func(s *maulv1.IntentStatus) {
 			for len(s.Acceptance.Accepted) < 33 {
 				s.Acceptance.Accepted = append(s.Acceptance.Accepted, s.Acceptance.Accepted[0])

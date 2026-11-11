@@ -47,12 +47,14 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          PreviewVerification is one attempt to run an Intent's automatable
-          acceptance criteria against its Preview, inside the Preview's slot. It
-          lives in the release namespace, owned by its Intent (controller
-          reference), named <intent>-v<round>-a<attempt>. intent-controller creates
-          and deletes it and judges its observations; preview-controller runs the
-          tester and writes its status. Its name is written into label values, so
+          PreviewVerification is one attempt to evaluate an Intent's approved
+          outcomes, against its Preview inside the Preview's slot or, for a Project
+          with no preview, in the agents namespace. It lives in the release
+          namespace, owned by its Intent (controller reference), named
+          <intent>-v<round>-a<attempt>. intent-controller creates and deletes it
+          and decides what its ledger shows; preview-controller (or, for an agents
+          verification, intent-controller's agents host) runs the tool pod and
+          writes its status. Its name is written into label values, so
           the schema refuses one over 63 characters.
         properties:
           apiVersion:
@@ -74,11 +76,12 @@ spec:
             type: object
           spec:
             description: |-
-              PreviewVerificationSpec is one request to run an Intent's automatable
-              acceptance criteria (slice 1's tester), or to evaluate its approved
-              outcomes (the evaluator), against its Preview at exactly the recorded
-              heads: exactly one of criteria and outcomes, each with its digest; an
-              outcome verification also names its rung and its tool pod's tools.
+              PreviewVerificationSpec is one request to evaluate an Intent's approved
+              outcomes (the agent evaluator) against its Preview, or in the agents
+              namespace's workspace, at exactly the recorded heads: the outcomes with
+              their digest, the rung and the tool pod's tools. Slice 1's criteria are
+              removed: a request without outcomes is refused (a stored one, pruned of
+              its criteria, is answered Stale stale-approval and never run).
               intent-controller writes it once, at creation, and it is immutable: a new
               attempt or round is a new PreviewVerification. preview-controller re-checks
               every field against the Intent and the Preview before it renders anything.
@@ -178,270 +181,6 @@ spec:
                 description: |-
                   ChecksDigest is the check store's digest
                   (status.acceptance.checks.digest). Set with Checks, and only with it.
-                pattern: ^sha256:[0-9a-f]{64}$
-                type: string
-              criteria:
-                description: |-
-                  Criteria are the automatable criteria of the Intent's approved
-                  acceptance list, in plan order (slice 1's tester).
-                items:
-                  description: AcceptanceCriterion is one acceptance criterion of
-                    an approved plan.
-                  properties:
-                    argv:
-                      description: Argv is a command criterion's argument vector,
-                        run without a shell.
-                      items:
-                        maxLength: 200
-                        type: string
-                      maxItems: 16
-                      minItems: 1
-                      type: array
-                      x-kubernetes-list-type: atomic
-                    expect:
-                      description: Expect is what a command criterion's run must show.
-                      properties:
-                        bodyContains:
-                          description: BodyContains is a string the response body
-                            must contain.
-                          maxLength: 200
-                          type: string
-                        exit:
-                          description: Exit is a command's expected exit code.
-                          format: int32
-                          type: integer
-                        headers:
-                          additionalProperties:
-                            x-kubernetes-preserve-unknown-fields: true
-                          description: Headers maps response header names to what
-                            each must hold.
-                          maxProperties: 4
-                          type: object
-                        json:
-                          additionalProperties:
-                            x-kubernetes-preserve-unknown-fields: true
-                          description: |-
-                            JSON maps RFC 6901 pointers into the response body to what each must
-                            hold.
-                          maxProperties: 8
-                          type: object
-                        status:
-                          description: 'Status is the expected HTTP status: one code
-                            or a list of codes.'
-                          x-kubernetes-preserve-unknown-fields: true
-                        stdoutContains:
-                          description: StdoutContains is a string a command's stdout
-                            must contain.
-                          maxLength: 200
-                          type: string
-                        stdoutJSON:
-                          additionalProperties:
-                            x-kubernetes-preserve-unknown-fields: true
-                          description: |-
-                            StdoutJSON maps RFC 6901 pointers into a command's JSON stdout to what
-                            each must hold.
-                          maxProperties: 8
-                          type: object
-                      type: object
-                    id:
-                      description: ID names the criterion, unique within its plan.
-                      pattern: ^[a-z][a-z0-9-]{0,31}$
-                      type: string
-                    in:
-                      description: In is where a command criterion runs.
-                      properties:
-                        component:
-                          description: |-
-                            Component is a previewed repository key: the command runs in that
-                            component's runtime image inside the slot.
-                          maxLength: 16
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                          type: string
-                        repository:
-                          description: |-
-                            Repository is a Project repository key: the command runs in that
-                            repository's accepted agent image, without a model.
-                          maxLength: 16
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                          type: string
-                      type: object
-                      x-kubernetes-validations:
-                      - message: in names exactly one of component and repository
-                        rule: has(self.component) != has(self.repository)
-                    kind:
-                      description: Kind is how the criterion is checked.
-                      enum:
-                      - http
-                      - command
-                      - manual
-                      type: string
-                    reason:
-                      description: Reason says why a manual criterion needs a human.
-                      maxLength: 120
-                      pattern: ^[^\r\n]*$
-                      type: string
-                    statement:
-                      description: Statement is the approved one-line statement of
-                        what must hold.
-                      maxLength: 200
-                      minLength: 1
-                      pattern: ^[^\r\n]*$
-                      type: string
-                    steps:
-                      description: |-
-                        Steps are an http criterion's requests, in order (the shorthand of a
-                        bare request and expect is normalised into one step).
-                      items:
-                        description: |-
-                          AcceptanceStep is one request of an http criterion and what its response
-                          must show.
-                        properties:
-                          capture:
-                            additionalProperties:
-                              type: string
-                            description: |-
-                              Capture names values of the response (RFC 6901 pointers into its JSON
-                              body) that later steps reference by name (the capture placeholder).
-                            maxProperties: 4
-                            type: object
-                            x-kubernetes-validations:
-                            - message: capture names are ^[a-z][a-z0-9]{0,15}$ and
-                                their pointers at most 256 characters
-                              rule: self.all(k, k.matches('^[a-z][a-z0-9]{0,15}$')
-                                && size(self[k]) <= 256)
-                          expect:
-                            description: Expect is what the response must show.
-                            properties:
-                              bodyContains:
-                                description: BodyContains is a string the response
-                                  body must contain.
-                                maxLength: 200
-                                type: string
-                              exit:
-                                description: Exit is a command's expected exit code.
-                                format: int32
-                                type: integer
-                              headers:
-                                additionalProperties:
-                                  x-kubernetes-preserve-unknown-fields: true
-                                description: Headers maps response header names to
-                                  what each must hold.
-                                maxProperties: 4
-                                type: object
-                              json:
-                                additionalProperties:
-                                  x-kubernetes-preserve-unknown-fields: true
-                                description: |-
-                                  JSON maps RFC 6901 pointers into the response body to what each must
-                                  hold.
-                                maxProperties: 8
-                                type: object
-                              status:
-                                description: 'Status is the expected HTTP status:
-                                  one code or a list of codes.'
-                                x-kubernetes-preserve-unknown-fields: true
-                              stdoutContains:
-                                description: StdoutContains is a string a command's
-                                  stdout must contain.
-                                maxLength: 200
-                                type: string
-                              stdoutJSON:
-                                additionalProperties:
-                                  x-kubernetes-preserve-unknown-fields: true
-                                description: |-
-                                  StdoutJSON maps RFC 6901 pointers into a command's JSON stdout to what
-                                  each must hold.
-                                maxProperties: 8
-                                type: object
-                            type: object
-                          name:
-                            description: Name labels the step for display.
-                            maxLength: 32
-                            pattern: ^[a-z][a-z0-9-]*$
-                            type: string
-                          request:
-                            description: Request is what the tester sends.
-                            properties:
-                              body:
-                                description: Body is a literal request body.
-                                maxLength: 2048
-                                type: string
-                              headers:
-                                additionalProperties:
-                                  type: string
-                                description: Headers sent with the request.
-                                maxProperties: 8
-                                type: object
-                                x-kubernetes-validations:
-                                - message: header names are ^[A-Za-z0-9-]{1,64}$ and
-                                    their values at most 256 characters
-                                  rule: self.all(k, k.matches('^[A-Za-z0-9-]{1,64}$')
-                                    && size(self[k]) <= 256)
-                              json:
-                                description: JSON is a JSON request body.
-                                x-kubernetes-preserve-unknown-fields: true
-                              method:
-                                description: Method of the request.
-                                enum:
-                                - GET
-                                - HEAD
-                                - POST
-                                - PUT
-                                - PATCH
-                                - DELETE
-                                type: string
-                              path:
-                                description: Path, with its query, starting with exactly
-                                  one slash.
-                                maxLength: 512
-                                minLength: 1
-                                pattern: ^/([^/].*)?$
-                                type: string
-                            required:
-                            - method
-                            - path
-                            type: object
-                        required:
-                        - request
-                        type: object
-                      maxItems: 8
-                      minItems: 1
-                      type: array
-                      x-kubernetes-list-type: atomic
-                    target:
-                      description: Target is the previewed repository key an http
-                        criterion is sent to.
-                      maxLength: 16
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                      type: string
-                    timeout:
-                      description: Timeout bounds a command criterion's run (a Go
-                        duration, at most 10m).
-                      maxLength: 16
-                      type: string
-                  required:
-                  - id
-                  - kind
-                  - statement
-                  type: object
-                  x-kubernetes-validations:
-                  - message: an http criterion names its target and its steps
-                    rule: self.kind != 'http' || (has(self.target) && has(self.steps))
-                  - message: a command criterion names where it runs (in) and its
-                      argv
-                    rule: self.kind != 'command' || (has(self.__in__) && has(self.argv))
-                  - message: 'a manual criterion is checked by a human: no steps and
-                      no argv'
-                    rule: self.kind != 'manual' || (!has(self.steps) && !has(self.argv))
-                maxItems: 16
-                minItems: 1
-                type: array
-                x-kubernetes-list-type: atomic
-              criteriaDigest:
-                description: |-
-                  CriteriaDigest is the digest of the Intent's full approved list
-                  (status.acceptance.digest), of which Criteria is the automatable
-                  subset. Set with Criteria, and only with it.
                 pattern: ^sha256:[0-9a-f]{64}$
                 type: string
               headSetDigest:
@@ -609,8 +348,7 @@ spec:
                 - replay
                 type: string
               timeout:
-                description: Timeout is the tester Job's, or the tool pod's, wall
-                  clock.
+                description: Timeout is the tool pod's wall clock.
                 type: string
               tools:
                 description: |-
@@ -799,10 +537,9 @@ spec:
             - message: spec is immutable; create a new PreviewVerification for a new
                 attempt
               rule: self == oldSelf
-            - message: a verification runs exactly one of criteria and outcomes
-              rule: has(self.criteria) != has(self.outcomes)
-            - message: criteria and criteriaDigest are set together
-              rule: has(self.criteria) == has(self.criteriaDigest)
+            - message: 'a verification evaluates outcomes: slice 1''s criteria are
+                removed'
+              rule: has(self.outcomes)
             - message: outcomes and outcomesDigest are set together
               rule: has(self.outcomes) == has(self.outcomesDigest)
             - message: an outcome verification, and only one, names its rung and its
@@ -846,8 +583,9 @@ spec:
                 == 0))'
           status:
             description: |-
-              PreviewVerificationStatus is written only by preview-controller: what the
-              tester and the kubelet observed, never a verdict.
+              PreviewVerificationStatus is written only by preview-controller (and, for
+              an agents verification, by intent-controller's agents host): what the
+              tool pod and the kubelet observed, never a verdict.
             properties:
               base:
                 description: |-
@@ -1202,12 +940,12 @@ spec:
                     crashedDuring:
                       description: |-
                         CrashedDuring reports that the component's process exited (OOM
-                        included) during the tester's run: the application's failure.
+                        included) during the tool pod's run: the application's failure.
                       type: boolean
                     disrupted:
                       description: |-
                         Disrupted reports that the cluster took the component's Pod away
-                        during the tester's run: maul's, never the application's.
+                        during the tool pod's run: maul's, never the application's.
                       type: boolean
                     evicted:
                       description: Evicted reports that the part's pod was evicted.
@@ -1236,7 +974,7 @@ spec:
                       type: string
                     name:
                       description: Name of the part (a component's key, a service's
-                        name, tester, ...).
+                        name, tools, ...).
                       maxLength: 20
                       minLength: 1
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -1262,9 +1000,9 @@ spec:
                       type: string
                     unreachableForMs:
                       description: |-
-                        UnreachableForMs is how long the tester tried, and failed, to connect
-                        to the component's Service before its first criterion (its whole
-                        readiness window); zero when reached.
+                        UnreachableForMs is how long the tool pod tried, and failed, to
+                        connect to the component's Service before its first tool call (its
+                        whole readiness window); zero when reached.
                       format: int32
                       maximum: 120000
                       minimum: 0
@@ -1434,164 +1172,6 @@ spec:
                 - count
                 - sha256
                 type: object
-              observations:
-                description: Observations are the tester's, one per criterion, in
-                  spec order.
-                items:
-                  description: |-
-                    CriterionObservation is what the tester saw for one criterion: its tries,
-                    or, when the status could not hold them, only the TooLarge marker.
-                  properties:
-                    id:
-                      description: ID of the criterion.
-                      pattern: ^[a-z][a-z0-9-]{0,31}$
-                      type: string
-                    tooLarge:
-                      description: |-
-                        TooLarge marks an observation preview-controller replaced because the
-                        object could not hold it however its values were reduced. It is
-                        judged a failure (observation-too-large), never a pass.
-                      type: boolean
-                    tries:
-                      description: 'Tries made: a second only when the first failed.'
-                      items:
-                        description: |-
-                          TryObservation is one try of one criterion: a retry runs every step again
-                          under a fresh run placeholder.
-                        properties:
-                          run:
-                            description: Run is the run placeholder token of the try.
-                            maxLength: 40
-                            pattern: ^v[0-9]{1,3}a[0-9]t[0-9]-[0-9a-f]{6}$
-                            type: string
-                          steps:
-                            description: |-
-                              Steps observed, in order; fewer than declared when a step's request
-                              could not be built or sent.
-                            items:
-                              description: |-
-                                StepObservation is what one request of one try saw: raw, bounded values,
-                                never a verdict. Every value came from the application under test and is
-                                untrusted.
-                              properties:
-                                bodyBytes:
-                                  description: BodyBytes is the body's length as read
-                                    (capped by the tester).
-                                  format: int32
-                                  minimum: 0
-                                  type: integer
-                                bodyPrefix:
-                                  description: |-
-                                    BodyPrefix is the start of the body, base64, for display only; the
-                                    first value dropped when the object is too large.
-                                  maxLength: 684
-                                  pattern: ^[A-Za-z0-9+/]*={0,2}$
-                                  type: string
-                                captures:
-                                  additionalProperties:
-                                    type: string
-                                  description: Captures are the values this step captured
-                                    for later steps.
-                                  maxProperties: 4
-                                  type: object
-                                  x-kubernetes-validations:
-                                  - message: capture names are ^[a-z][a-z0-9]{0,15}$
-                                      and their values at most 128 characters
-                                    rule: self.all(k, k.matches('^[a-z][a-z0-9]{0,15}$')
-                                      && size(self[k]) <= 128)
-                                headers:
-                                  additionalProperties:
-                                    type: string
-                                  description: Headers are the response headers the
-                                    step's expectation names.
-                                  maxProperties: 4
-                                  type: object
-                                  x-kubernetes-validations:
-                                  - message: header names are at most 64 characters
-                                      and their values at most 256
-                                    rule: self.all(k, size(k) <= 64 && size(self[k])
-                                      <= 256)
-                                jsonValid:
-                                  description: JSONValid reports whether the body
-                                    parsed as JSON.
-                                  type: boolean
-                                latencyMs:
-                                  description: LatencyMs is the request's duration
-                                    in milliseconds.
-                                  format: int32
-                                  minimum: 0
-                                  type: integer
-                                method:
-                                  description: Method as sent.
-                                  enum:
-                                  - GET
-                                  - HEAD
-                                  - POST
-                                  - PUT
-                                  - PATCH
-                                  - DELETE
-                                  type: string
-                                path:
-                                  description: Path as sent, after substitution.
-                                  maxLength: 512
-                                  type: string
-                                pointers:
-                                  additionalProperties:
-                                    type: string
-                                  description: |-
-                                    Pointers maps each expected, $by and capture pointer to the raw JSON
-                                    found there; a pointer absent from the body is absent from the map.
-                                  maxProperties: 16
-                                  type: object
-                                  x-kubernetes-validations:
-                                  - message: pointers are at most 512 characters and
-                                      their values at most 256
-                                    rule: self.all(k, size(k) <= 512 && size(self[k])
-                                      <= 256)
-                                status:
-                                  description: Status is the response's HTTP status;
-                                    zero when there was none.
-                                  format: int32
-                                  maximum: 999
-                                  minimum: 0
-                                  type: integer
-                                transportError:
-                                  description: TransportError classifies a request
-                                    that got no usable response.
-                                  enum:
-                                  - none
-                                  - refused
-                                  - timeout
-                                  - reset
-                                  - dns
-                                  - tls
-                                  - too-large
-                                  - capture-missing
-                                  type: string
-                              required:
-                              - method
-                              - path
-                              type: object
-                            maxItems: 8
-                            type: array
-                            x-kubernetes-list-type: atomic
-                        required:
-                        - run
-                        type: object
-                      maxItems: 2
-                      minItems: 1
-                      type: array
-                      x-kubernetes-list-type: atomic
-                  required:
-                  - id
-                  type: object
-                  x-kubernetes-validations:
-                  - message: an observation holds its tries or is marked tooLarge,
-                      never both or neither
-                    rule: (has(self.tooLarge) && self.tooLarge) != has(self.tries)
-                maxItems: 16
-                type: array
-                x-kubernetes-list-type: atomic
               phase:
                 description: Phase of the attempt.
                 enum:
@@ -1604,15 +1184,15 @@ spec:
                 type: string
               readiness:
                 description: |-
-                  Readiness is the tester's wait for each component's Service before
-                  its first criterion, in component-name order, as its summary
-                  declared it. A component never reached ends the attempt with no
-                  observations: EnvFailed component-unreachable (its fact's
-                  unreachableForMs), the application's. The tester dials each
-                  Service's ClusterIP and resolves no name.
+                  Readiness is the tool pod's wait for each component's Service before
+                  its first tool call, in component-name order, as its verified ledger
+                  records it. A component never reached ends the attempt:
+                  EnvFailed component-unreachable (its fact's unreachableForMs), the
+                  application's. The tool pod dials each Service's ClusterIP and
+                  resolves no name.
                 items:
                   description: |-
-                    TargetWait is how the tester waited, before its first criterion, for one
+                    TargetWait is how the tool pod waited, before its first tool call, for one
                     component's Service to accept a TCP connection: how long, in how many
                     attempts, and how the failed ones failed. Every attempt but a last
                     successful one failed, so the Service was reached exactly when attempts
@@ -1674,13 +1254,12 @@ spec:
                 enum:
                 - ok
                 - stale-preview
+                - stale-approval
                 - stale-criteria
                 - rollout-unsettled
-                - tester-unscheduled
-                - tester-image-pull
                 - quota-refused
                 - deadline-no-summary
-                - summary-mismatch
+                - tools-output-invalid
                 - tester-output-invalid
                 - component-crashloop
                 - component-not-ready
@@ -1693,7 +1272,6 @@ spec:
                 - component-crashed
                 - component-disrupted
                 - service-no-cluster-ip
-                - tester-version-mismatch
                 - tools-unscheduled
                 - tools-image-pull
                 - tools-crashloop
@@ -1811,29 +1389,10 @@ spec:
                 x-kubernetes-list-type: atomic
               startedAt:
                 description: |-
-                  StartedAt is when the tester Job was created: the window environment
+                  StartedAt is when the tool pod's Job was created: the window environment
                   evidence is read from.
                 format: date-time
                 type: string
-              summarySHA256:
-                description: |-
-                  SummarySHA256 is the hex sha256 the tester's summary line declared
-                  over its observation lines, which preview-controller verified.
-                pattern: ^[0-9a-f]{64}$
-                type: string
-              testerImageID:
-                description: TesterImageID is the digest-bearing image ID the tester
-                  ran.
-                maxLength: 512
-                type: string
-              testerWireVersion:
-                description: |-
-                  TesterWireVersion is the MAUL-VERIFY version the tester wrote, set
-                  when it was not the one preview-controller reads
-                  (tester-version-mismatch).
-                format: int32
-                minimum: 0
-                type: integer
               tools:
                 description: |-
                   Tools is the slot tool pod, once scheduled: where the evaluator
@@ -1858,6 +1417,12 @@ spec:
                 - podIP
                 - port
                 type: object
+              toolsImageID:
+                description: |-
+                  ToolsImageID is the digest-bearing image ID the tool pod's tools
+                  container ran.
+                maxLength: 512
+                type: string
             type: object
         required:
         - spec

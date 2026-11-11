@@ -27,47 +27,47 @@ type subject struct {
 }
 
 // check re-checks pv against its Intent, Project and trees, read uncached,
-// and returns why it is stale: stale-criteria for an Intent, Project,
+// and returns why it is stale: stale-approval for an Intent, Project,
 // surface, tree or approved outcomes that no longer hold, stale-preview for
 // a pull request no longer open at the workspace head. Such a verification
 // is dropped unjudged.
 func (r *Reconciler) check(ctx context.Context, pv *v1alpha1.PreviewVerification) (*subject,
 	v1alpha1.PreviewVerificationReason, error) {
-	const staleCriteria = v1alpha1.VerificationReasonStaleCriteria
+	const staleApproval = v1alpha1.VerificationReasonStaleApproval
 	ws := pv.Spec.Workspace
 	if ws == nil {
-		return nil, staleCriteria, nil
+		return nil, staleApproval, nil
 	}
 	s := &subject{intent: &v1alpha1.Intent{}}
 	if gone, err := r.get(ctx, pv.Namespace, pv.Spec.IntentRef.Name, s.intent); err != nil || gone {
-		return nil, staleCriteria, err
+		return nil, staleApproval, err
 	}
 	if s.intent.UID != pv.Spec.IntentRef.UID || !controlledBy(pv.OwnerReferences, s.intent.UID) {
-		return nil, staleCriteria, nil
+		return nil, staleApproval, nil
 	}
 	var proj v1alpha1.Project
 	if gone, err := r.get(ctx, pv.Namespace, s.intent.Spec.Project, &proj); err != nil || gone {
-		return nil, staleCriteria, err
+		return nil, staleApproval, err
 	}
 	repo, ok := surfaceRepository(&proj, ws.Repository)
 	if !ok {
-		return nil, staleCriteria, nil
+		return nil, staleApproval, nil
 	}
 	s.repository = repo
 	if !openAt(s.intent, repo.URL, ws.HeadSHA) {
 		return nil, v1alpha1.VerificationReasonStalePreview, nil
 	}
 	if !approvedOutcomes(pv, s.intent) {
-		return nil, staleCriteria, nil
+		return nil, staleApproval, nil
 	}
 	var err error
 	if s.head, err = r.tree(ctx, pv, s.intent, ws.HeadRepositoryRef, repo.URL, ws.HeadSHA); err != nil ||
 		s.head == nil {
-		return nil, staleCriteria, err
+		return nil, staleApproval, err
 	}
 	if s.base, err = r.tree(ctx, pv, s.intent, ws.BaseRepositoryRef, repo.URL, ws.BaseSHA); err != nil ||
 		s.base == nil {
-		return nil, staleCriteria, err
+		return nil, staleApproval, err
 	}
 	return s, "", nil
 }

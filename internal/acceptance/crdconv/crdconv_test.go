@@ -64,20 +64,14 @@ func jsonFields(rt reflect.Type) map[string]reflect.StructField {
 	return out
 }
 
-// TestEvidenceMirrorsMatch holds the observation and part-fact mirrors to
-// the same JSON fields both ways, so a strict conversion of a real object
-// never fails and never drops a field. (The criteria mirrors are pinned in
-// internal/acceptance's crd_pin_test.go.)
+// TestEvidenceMirrorsMatch holds the part-fact, readiness and outcome
+// mirrors to the same JSON fields both ways, so a strict conversion of a
+// real object never fails and never drops a field.
 func TestEvidenceMirrorsMatch(t *testing.T) {
 	mirrors := []struct {
 		name     string
 		acc, crd reflect.Type
 	}{
-		{"CriterionObservation", reflect.TypeFor[acceptance.CriterionObservation](),
-			reflect.TypeFor[v1alpha1.CriterionObservation]()},
-		{"TryObservation", reflect.TypeFor[acceptance.TryObservation](), reflect.TypeFor[v1alpha1.TryObservation]()},
-		{"StepObservation", reflect.TypeFor[acceptance.StepObservation](),
-			reflect.TypeFor[v1alpha1.StepObservation]()},
 		{"PartFact", reflect.TypeFor[httpstep.PartFact](), reflect.TypeFor[v1alpha1.PartFact]()},
 		{"Termination", reflect.TypeFor[httpstep.Termination](), reflect.TypeFor[v1alpha1.Termination]()},
 		{"TargetWait", reflect.TypeFor[httpstep.TargetWait](), reflect.TypeFor[v1alpha1.TargetWait]()},
@@ -98,61 +92,15 @@ func TestEvidenceMirrorsMatch(t *testing.T) {
 	}
 }
 
-// TestCriteriaStrict: the unfolded shorthand has no place in the CRD and is
-// refused, never dropped; a normalised criterion round-trips exactly.
-func TestCriteriaStrict(t *testing.T) {
-	short := []acceptance.Criterion{{ID: "health", Kind: acceptance.KindHTTP, Statement: "up", Target: "web",
-		Request: &httpstep.Request{Path: "/healthz"}, Expect: &httpstep.Expect{Status: httpstep.StatusList{200}}}}
-	if _, err := CriteriaToCRD(short); err == nil {
-		t.Fatal("the unfolded shorthand converted")
-	}
-	norm := acceptance.Normalize(short)
-	stored, err := CriteriaToCRD(norm)
-	if err != nil {
-		t.Fatal(err)
-	}
-	back, err := CriteriaFromCRD(stored)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if acceptance.Digest(back) != acceptance.Digest(norm) {
-		t.Fatalf("round trip changed the criteria: %+v", back)
-	}
-}
-
 func TestEmptyIsNil(t *testing.T) {
-	if got, err := CriteriaToCRD([]acceptance.Criterion{}); got != nil || err != nil {
-		t.Errorf("CriteriaToCRD(empty) = %v, %v", got, err)
+	if got, err := OutcomesToCRD([]acceptance.PlanOutcome{}); got != nil || err != nil {
+		t.Errorf("OutcomesToCRD(empty) = %v, %v", got, err)
 	}
-	if got, err := CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{}); got != nil || err != nil {
-		t.Errorf("CriteriaFromCRD(empty) = %v, %v", got, err)
+	if got, err := OutcomesFromCRD([]v1alpha1.AcceptanceOutcome{}); got != nil || err != nil {
+		t.Errorf("OutcomesFromCRD(empty) = %v, %v", got, err)
 	}
-	if got, err := ObservationsToCRD([]acceptance.CriterionObservation{}); got != nil || err != nil {
-		t.Errorf("ObservationsToCRD(empty) = %v, %v", got, err)
-	}
-}
-
-// TestObservationsRoundTrip: every recorded field survives both ways.
-func TestObservationsRoundTrip(t *testing.T) {
-	in := []acceptance.CriterionObservation{{ID: "health", Tries: []acceptance.TryObservation{{Run: "r1-a1-x-1",
-		Steps: []acceptance.StepObservation{{Method: "GET", Path: "/healthz", Status: 200,
-			TransportError: httpstep.TransportNone, JSONValid: true, BodyBytes: 12, LatencyMs: 3,
-			Pointers: map[string]string{"/ok": "true"}, Captures: map[string]string{"id": "7"},
-			Headers: map[string]string{"content-type": "application/json"}, BodyPrefix: "{\"ok\":true}"}}}}}}
-	stored, err := ObservationsToCRD(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	back, err := ObservationFromCRD(stored[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(back, in[0]) {
-		t.Fatalf("round trip:\n got %+v\nwant %+v", back, in[0])
-	}
-	marker := v1alpha1.CriterionObservation{ID: "health", TooLarge: true}
-	if got, err := ObservationFromCRD(marker); err != nil || !got.TooLarge || got.ID != "health" || got.Tries != nil {
-		t.Fatalf("marker converted to %+v, %v", got, err)
+	if got, err := WaitsToCRD([]httpstep.TargetWait{}); got != nil || err != nil {
+		t.Errorf("WaitsToCRD(empty) = %v, %v", got, err)
 	}
 }
 

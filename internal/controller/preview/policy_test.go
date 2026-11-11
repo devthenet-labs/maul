@@ -154,7 +154,7 @@ func TestNetworkPoliciesRender(t *testing.T) {
 	}
 	web := nps[2]
 	if web.Spec.Egress != nil || len(web.Spec.Ingress) != 1 ||
-		web.Spec.Ingress[0].From[0].PodSelector.MatchLabels[labelPart] != v1alpha1.PreviewPartTester ||
+		web.Spec.Ingress[0].From[0].PodSelector.MatchLabels[labelPart] != v1alpha1.PreviewPartToolPod ||
 		web.Spec.Ingress[0].Ports[0].Port.IntVal != 8080 {
 		t.Errorf("component policy: %+v", web.Spec)
 	}
@@ -413,14 +413,14 @@ func TestEnvironmentValidation(t *testing.T) {
 		{"edge to an unknown part", func(p *v1alpha1.Preview) { p.Spec.Environment.Edges[0].To = "db" }},
 		{"edge from an unknown part", func(p *v1alpha1.Preview) { p.Spec.Environment.Edges[0].From = "db" }},
 		{"edge to the tester", func(p *v1alpha1.Preview) {
-			p.Spec.Environment.Edges[0] = v1alpha1.PreviewEdge{From: "web", To: v1alpha1.PreviewPartTester, Port: 80}
+			p.Spec.Environment.Edges[0] = v1alpha1.PreviewEdge{From: "web", To: v1alpha1.PreviewPartToolPod, Port: 80}
 		}},
 		{"port zero", func(p *v1alpha1.Preview) { p.Spec.Environment.Edges[0].Port = 0 }},
 		{"no edges", func(p *v1alpha1.Preview) { p.Spec.Environment.Edges = nil }},
 		{"not verification", func(p *v1alpha1.Preview) { p.Spec.Environment.Verification = false }},
 		{"component named tester", func(p *v1alpha1.Preview) {
-			p.Spec.Components[0].Name = v1alpha1.PreviewPartTester
-			p.Spec.Environment.Edges[0].To = v1alpha1.PreviewPartTester
+			p.Spec.Components[0].Name = v1alpha1.PreviewPartToolPod
+			p.Spec.Environment.Edges[0].To = v1alpha1.PreviewPartToolPod
 		}},
 	} {
 		c := p.DeepCopy()

@@ -95,8 +95,7 @@ func TestReplanDropsTheRoundInFlight(t *testing.T) {
 			Labels:          map[string]string{v1alpha1.LabelIntent: name},
 			OwnerReferences: []metav1.OwnerReference{intentOwner(in)}},
 		Spec: v1alpha1.PreviewVerificationSpec{IntentRef: v1alpha1.ObjectReference{Name: name, UID: in.UID},
-			HeadSetDigest: in.Status.Verification.HeadSetDigest, Round: 1, Attempt: 1, Run: "abc123",
-			CriteriaDigest: in.Status.Acceptance.Digest},
+			HeadSetDigest: in.Status.Verification.HeadSetDigest, Round: 1, Attempt: 1, Run: "abc123"},
 	}
 	if err := e.c.Create(context.Background(), pv); err != nil {
 		t.Fatal(err)
@@ -185,8 +184,7 @@ func TestVerifiesApprovedNeedsAnOutcomesDigest(t *testing.T) {
 		{"a criteria request, a record of none", "", "", false},
 		{"a criteria request", "", digestOf, false},
 	} {
-		pv := &v1alpha1.PreviewVerification{Spec: v1alpha1.PreviewVerificationSpec{OutcomesDigest: tc.pv,
-			CriteriaDigest: emptyCriteriaDigest}}
+		pv := &v1alpha1.PreviewVerification{Spec: v1alpha1.PreviewVerificationSpec{OutcomesDigest: tc.pv}}
 		acc := &v1alpha1.IntentAcceptance{Digest: emptyCriteriaDigest, OutcomesDigest: tc.acc}
 		if got := verifiesApproved(pv, acc); got != tc.approved {
 			t.Errorf("%s: verifiesApproved = %v, want %v", tc.name, got, tc.approved)
@@ -199,7 +197,7 @@ func TestVerifiesApprovedNeedsAnOutcomesDigest(t *testing.T) {
 // asked nothing to target, as v1alpha1.DesiredPreviewEnvironment fails
 // closed on it.
 func TestPlanAskWithAComponentNamedLikeAPart(t *testing.T) {
-	for _, part := range []string{v1alpha1.PreviewPartTester, v1alpha1.PreviewRoleTools} {
+	for _, part := range []string{v1alpha1.PreviewPartToolPod, v1alpha1.PreviewRoleTools} {
 		p := previewedProject(true)
 		p.Spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
 		p.Spec.Repositories[0].Name = part

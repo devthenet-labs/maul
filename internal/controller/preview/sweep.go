@@ -303,11 +303,15 @@ func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot 
 	return nil
 }
 
-// jobPodRoles selects the Pods of the Jobs a verification renders: the
-// tester's and the tool pod's roles.
+// legacyTesterRole is the role label slice 1's tester Pods carried. Nothing
+// renders one any more, but one left from before an upgrade is still swept.
+const legacyTesterRole = "tester"
+
+// jobPodRoles selects the Pods of the Jobs a verification renders: the tool
+// pod's role, and slice 1's tester's for one left from before an upgrade.
 func jobPodRoles() client.ListOption {
 	roles, err := labels.NewRequirement(labelRole, selection.In,
-		[]string{string(v1alpha1.PreviewRoleTester), v1alpha1.PreviewRoleTools})
+		[]string{legacyTesterRole, v1alpha1.PreviewRoleTools})
 	if err != nil {
 		// Constant, valid values: never. Fail closed: no Pod is swept.
 		return client.MatchingLabelsSelector{Selector: labels.Nothing()}

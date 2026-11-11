@@ -71,18 +71,6 @@ type Where struct {
 	Repository string `json:"repository,omitempty" yaml:"repository,omitempty"`
 }
 
-// Automatable returns the criteria slice runs, in plan order: http from
-// slice 1, command from slice 2. Manual criteria are never automatable.
-func Automatable(cs []Criterion, slice int) []Criterion {
-	var out []Criterion
-	for _, c := range cs {
-		if (c.Kind == KindHTTP && slice >= 1) || (c.Kind == KindCommand && slice >= 2) {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 // Normalize returns a copy of cs with every http criterion's shorthand
 // folded into one step and every default explicit (method GET, status
 // [200]). It never fails and never mutates cs; it is idempotent.

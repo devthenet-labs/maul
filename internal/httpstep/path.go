@@ -4,7 +4,6 @@
 package httpstep
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -105,55 +104,4 @@ func CheckPointer(p string) error {
 		}
 	}
 	return nil
-}
-
-// ResolvePointer evaluates a pointer CheckPointer admits against a decoded
-// JSON document. An array index is decimal without leading zeros; "-" and
-// anything past the end resolve to nothing.
-func ResolvePointer(doc any, p string) (any, bool) {
-	if p == "" {
-		return doc, true
-	}
-	cur := doc
-	for _, tok := range strings.Split(p[1:], "/") {
-		tok = strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~")
-		switch node := cur.(type) {
-		case map[string]any:
-			next, ok := node[tok]
-			if !ok {
-				return nil, false
-			}
-			cur = next
-		case []any:
-			i, ok := arrayIndex(tok, len(node))
-			if !ok {
-				return nil, false
-			}
-			cur = node[i]
-		default:
-			return nil, false
-		}
-	}
-	return cur, true
-}
-
-func arrayIndex(tok string, n int) (int, bool) {
-	if tok == "" || (len(tok) > 1 && tok[0] == '0') {
-		return 0, false
-	}
-	i, err := strconv.Atoi(tok)
-	if err != nil || i < 0 || i >= n {
-		return 0, false
-	}
-	return i, true
-}
-
-// DecodeBody decodes a response body for the pointers, numbers kept as
-// written.
-func DecodeBody(body []byte) (any, bool) {
-	if !json.Valid(body) {
-		return nil, false
-	}
-	v, err := decodeJSON(body)
-	return v, err == nil
 }

@@ -86,7 +86,7 @@ func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerificati
 			return err
 		}
 	}
-	pv.Status.TesterImageID = podstate.ImageID(pod, toolsContainer)
+	pv.Status.ToolsImageID = podstate.ImageID(pod, toolsContainer)
 	return r.settle(ctx, pv, phase, reason)
 }
 

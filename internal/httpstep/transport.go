@@ -3,11 +3,6 @@
 
 package httpstep
 
-import (
-	"maps"
-	"slices"
-)
-
 // The observation's bounds. The PreviewVerification CRD repeats them as
 // maxLength/maxItems.
 const (
@@ -38,14 +33,3 @@ const (
 	TransportTooLarge       Transport = "too-large"
 	TransportCaptureMissing Transport = "capture-missing"
 )
-
-var transports = map[Transport]bool{
-	TransportNone: true, TransportRefused: true, TransportTimeout: true, TransportReset: true,
-	TransportDNS: true, TransportTLS: true, TransportTooLarge: true, TransportCaptureMissing: true,
-}
-
-// Known reports whether t is one of the transport classes.
-func (t Transport) Known() bool { return transports[t] }
-
-// Transports lists the transport classes, in no particular order.
-func Transports() []Transport { return slices.Collect(maps.Keys(transports)) }

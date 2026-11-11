@@ -161,10 +161,9 @@ func testAgentsVerificationSchema(ctx context.Context, t *testing.T, c client.Cl
 			v.Spec.PreviewRef = maulv1.ObjectReference{Name: "target-1", UID: "u-preview"}
 		}, true},
 		{"agents: a preview generation", func(v *maulv1.PreviewVerification) { v.Spec.PreviewGeneration = 3 }, true},
-		{"agents: criteria", func(v *maulv1.PreviewVerification) {
+		{"agents: no outcomes", func(v *maulv1.PreviewVerification) {
 			v.Spec.Outcomes, v.Spec.OutcomesDigest, v.Spec.Checks, v.Spec.ChecksDigest = nil, "", nil, ""
 			v.Spec.Rung, v.Spec.Tools = "", nil
-			v.Spec.Criteria, v.Spec.CriteriaDigest = schemaCriteria()[:1], schemaDigest
 		}, true},
 		{"agents: a browser", func(v *maulv1.PreviewVerification) { v.Spec.Tools.Browser = true }, true},
 		{"agents: a look-around", func(v *maulv1.PreviewVerification) { v.Spec.Tools.LookAroundRoutes = 1 }, true},

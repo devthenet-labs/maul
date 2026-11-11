@@ -42,10 +42,12 @@ import (
 // intent-controller as a new attempt) or Stale. A settled attempt's Job is
 // deleted, so the slot's one Job of quota is free for the next.
 //
-// A verification of slice 1's criteria (spec.criteria, no outcomes) is no
-// longer run (S4): it is answered Stale stale-criteria before anything else
-// is read, and a tester Job an earlier release rendered for it is deleted
-// with it.
+// A verification of slice 1's criteria is no longer run (S4): its
+// spec.criteria is removed from the CRD, so the API server prunes it and the
+// verification reads as one with no outcomes, which the schema no longer
+// admits on create. One left from before the upgrade is answered Stale
+// stale-approval before anything else is read, and a tester Job an earlier
+// release rendered for it is deleted with it.
 
 const (
 	// verifyGrace bounds each wait that is not the application's: the
@@ -123,7 +125,7 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if sliceOne(&pv) {
 		v.logRefusal(ctx, &pv, "slice-1 criteria verification not run: criteria no longer run, "+
 			"see docs/intents/evaluator.md#migrating-from-slice-1", nil)
-		return ctrl.Result{}, v.settle(ctx, &pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria)
+		return ctrl.Result{}, v.settle(ctx, &pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval)
 	}
 	s, reason, err := v.check(ctx, &pv)
 	switch {
@@ -140,7 +142,7 @@ func (v *VerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 }
 
 // sliceOne reports a verification of slice 1's criteria: one with no
-// outcomes (the schema admits exactly one of criteria and outcomes).
+// outcomes (its criteria pruned; the schema now requires outcomes).
 func sliceOne(pv *v1alpha1.PreviewVerification) bool {
 	return len(pv.Spec.Outcomes) == 0
 }
@@ -157,7 +159,7 @@ func (v *VerificationReconciler) check(ctx context.Context,
 		return nil, "", err
 	}
 	if stale || s.intent.UID != pv.Spec.IntentRef.UID || !controlledBy(pv, s.intent) {
-		return s, v1alpha1.VerificationReasonStaleCriteria, nil
+		return s, v1alpha1.VerificationReasonStaleApproval, nil
 	}
 	if stale, err = v.get(ctx, pv.Spec.PreviewRef.Name, s.preview); err != nil || stale {
 		return s, v1alpha1.VerificationReasonStalePreview, err
@@ -175,7 +177,7 @@ func (v *VerificationReconciler) check(ctx context.Context,
 		return s, reason, nil
 	}
 	if !approvedOutcomes(pv, s.intent) {
-		return s, v1alpha1.VerificationReasonStaleCriteria, nil
+		return s, v1alpha1.VerificationReasonStaleApproval, nil
 	}
 	return s, "", nil
 }

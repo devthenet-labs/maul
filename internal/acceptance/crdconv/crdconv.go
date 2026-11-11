@@ -18,23 +18,8 @@ import (
 // infrastructure, never charging it to the intent.
 const RoleUnknown = "unknown"
 
-// CriteriaToCRD converts criteria (normalised: acceptance.Normalize) to
-// the CRD mirror. A field the mirror lacks, such as the unfolded one-step
-// shorthand, is refused, so a criterion is stored exactly as approved or
-// not at all. An empty list is nil.
-func CriteriaToCRD(cs []acceptance.Criterion) ([]v1alpha1.AcceptanceCriterion, error) {
-	if len(cs) == 0 {
-		return nil, nil
-	}
-	var out []v1alpha1.AcceptanceCriterion
-	if err := convert(cs, &out); err != nil {
-		return nil, fmt.Errorf("acceptance criteria: %w", err)
-	}
-	return out, nil
-}
-
 // OutcomesToCRD converts an approved plan's outcomes to the CRD mirror, as
-// strictly as CriteriaToCRD: a field the mirror lacks is refused. The
+// strictly as every conversion here: a field the mirror lacks is refused. The
 // caller normalises first (acceptance.NormalizeOutcomes), so every stored
 // outcome states its kind. An empty list is nil.
 func OutcomesToCRD(os []acceptance.PlanOutcome) ([]v1alpha1.AcceptanceOutcome, error) {
@@ -57,41 +42,6 @@ func OutcomesFromCRD(os []v1alpha1.AcceptanceOutcome) ([]acceptance.PlanOutcome,
 	var out []acceptance.PlanOutcome
 	if err := convert(os, &out); err != nil {
 		return nil, fmt.Errorf("stored acceptance outcomes: %w", err)
-	}
-	return out, nil
-}
-
-// CriteriaFromCRD converts stored criteria back to the grammar's form, as
-// strictly. An empty list is nil.
-func CriteriaFromCRD(cs []v1alpha1.AcceptanceCriterion) ([]acceptance.Criterion, error) {
-	if len(cs) == 0 {
-		return nil, nil
-	}
-	var out []acceptance.Criterion
-	if err := convert(cs, &out); err != nil {
-		return nil, fmt.Errorf("stored acceptance criteria: %w", err)
-	}
-	return out, nil
-}
-
-// ObservationsToCRD converts the tester's observations to the CRD mirror.
-// An empty list is nil.
-func ObservationsToCRD(obs []acceptance.CriterionObservation) ([]v1alpha1.CriterionObservation, error) {
-	if len(obs) == 0 {
-		return nil, nil
-	}
-	var out []v1alpha1.CriterionObservation
-	if err := convert(obs, &out); err != nil {
-		return nil, fmt.Errorf("acceptance observations: %w", err)
-	}
-	return out, nil
-}
-
-// ObservationFromCRD converts one stored observation to the grammar's form.
-func ObservationFromCRD(o v1alpha1.CriterionObservation) (acceptance.CriterionObservation, error) {
-	var out acceptance.CriterionObservation
-	if err := convert(o, &out); err != nil {
-		return acceptance.CriterionObservation{}, fmt.Errorf("stored acceptance observation: %w", err)
 	}
 	return out, nil
 }

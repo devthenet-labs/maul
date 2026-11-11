@@ -204,7 +204,7 @@ func (s Settings) toolJob(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification,
 	jobDeadline, podDeadline, _ := toolpod.Deadlines(timeout, deadlineMax)
 	meta := toolLabels(p, pv)
 	pod := toolLabels(p, pv)
-	pod[labelPart] = v1alpha1.PreviewPartTester
+	pod[labelPart] = v1alpha1.PreviewPartToolPod
 	tools := pv.Spec.Tools
 	spec := corev1.PodSpec{
 		RestartPolicy: corev1.RestartPolicyNever, ActiveDeadlineSeconds: ptr(int64(podDeadline / time.Second)),

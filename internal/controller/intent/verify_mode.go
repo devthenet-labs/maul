@@ -8,12 +8,11 @@ import v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 // emptyCriteriaDigest is the digest of the empty criteria list,
 // acceptance.Digest(nil): what IntentAcceptance.Digest (a required field)
 // holds for an outcomes plan and for a criteria plan that declared none.
-// It is a literal, pinned to acceptance.Digest(nil) by a test, so it
-// outlives the criteria grammar: once status.acceptance.criteria leaves
-// the CRD the API server prunes it, and a criteria-era record is then told
-// apart only by a digest other than this one with no outcomes digest
-// (recordPrunedCriteria).
-const emptyCriteriaDigest = "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+// It is v1alpha1.EmptyListDigest, a literal pinned to acceptance.Digest(nil)
+// by a test: status.acceptance.criteria has left the CRD, so the API server
+// prunes it, and a criteria-era record is told apart only by a digest other
+// than this one with no outcomes digest (recordCriteriaEra).
+const emptyCriteriaDigest = v1alpha1.EmptyListDigest
 
 // recordKind is what the approved plan revision's acceptance on
 // record holds (pass.record).
@@ -23,20 +22,17 @@ const (
 	// recordNone: nothing of the approved revision: no record, or another
 	// revision's.
 	recordNone recordKind = iota
-	// recordCriteria: slice-1 criteria, which nothing runs any more.
-	recordCriteria
-	// recordPrunedCriteria: a criteria-era record the API server pruned of
-	// its criteria: a digest of criteria (not emptyCriteriaDigest), and
-	// neither criteria nor outcomes nor an outcomes digest. Nothing of it
-	// can be run, judged or accepted.
-	recordPrunedCriteria
+	// recordCriteriaEra: a plan stating slice-1 criteria, which nothing runs
+	// any more: a digest of criteria (not emptyCriteriaDigest), and neither
+	// outcomes nor an outcomes digest. slice 1 recorded the criteria beside
+	// it, which the API server now prunes; a plan stating them where the
+	// evaluator does not verify is recorded by the digest alone. Nothing of
+	// it can be run, judged or accepted.
+	recordCriteriaEra
 	// recordOutcomes: the agent evaluator's outcomes (an outcomes digest,
 	// or outcomes), or a plan that declared nothing (the empty-list digest
 	// and nothing else), which is the evaluator's with nothing to evaluate.
 	recordOutcomes
-	// recordMixed: criteria and outcomes both; never written, never
-	// verified.
-	recordMixed
 )
 
 // recordOf is what acc holds. A Digest of "" (which the CRD's pattern never
@@ -45,14 +41,9 @@ func recordOf(acc *v1alpha1.IntentAcceptance) recordKind {
 	if acc == nil {
 		return recordNone
 	}
-	outcomes, criteria := acc.OutcomesDigest != "" || len(acc.Outcomes) > 0, len(acc.Criteria) > 0
-	switch {
-	case outcomes && criteria:
-		return recordMixed
-	case criteria:
-		return recordCriteria
-	case !outcomes && acc.Digest != "" && acc.Digest != emptyCriteriaDigest:
-		return recordPrunedCriteria
+	outcomes := acc.OutcomesDigest != "" || len(acc.Outcomes) > 0
+	if !outcomes && acc.Digest != "" && acc.Digest != emptyCriteriaDigest {
+		return recordCriteriaEra
 	}
 	return recordOutcomes
 }

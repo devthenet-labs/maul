@@ -478,7 +478,6 @@ func agentsVerification(name string) *v1alpha1.PreviewVerification {
 	s := &v.Spec
 	s.Placement = v1alpha1.PlacementAgents
 	s.PreviewRef, s.PreviewGeneration = v1alpha1.ObjectReference{}, 0
-	s.Criteria, s.CriteriaDigest = nil, ""
 	s.Outcomes = []v1alpha1.AcceptanceOutcome{{ID: "counts", Kind: v1alpha1.OutcomeKindChange,
 		Outcome: "bbcount prints the number of beats.", From: "print the beat count"}}
 	s.OutcomesDigest = "sha256:" + strings.Repeat("e", 64)

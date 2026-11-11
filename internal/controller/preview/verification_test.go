@@ -18,7 +18,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -29,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/kube"
@@ -55,40 +53,9 @@ func (f *fakeLogs) ReadLog(_ context.Context, namespace, pod, container string, 
 	return b, nil
 }
 
-// statusJSON is an expected HTTP status as the CRD stores it.
-func statusJSON(code int) *apiextensionsv1.JSON {
-	return &apiextensionsv1.JSON{Raw: []byte(fmt.Sprint(code))}
-}
-
-// approvedCriteria are an approved plan's criteria: two http (one per
-// component) and a manual one.
-func approvedCriteria() []v1alpha1.AcceptanceCriterion {
-	httpOn := func(id, target, path string) v1alpha1.AcceptanceCriterion {
-		return v1alpha1.AcceptanceCriterion{ID: id, Kind: v1alpha1.AcceptanceHTTP, Statement: id + " answers",
-			Target: target, Steps: []v1alpha1.AcceptanceStep{{
-				Request: v1alpha1.AcceptanceRequest{Method: "GET", Path: path},
-				Expect:  v1alpha1.AcceptanceExpect{Status: statusJSON(200)},
-			}}}
-	}
-	return []v1alpha1.AcceptanceCriterion{
-		httpOn("items", "api", "/api/items"),
-		{ID: "feel", Kind: v1alpha1.AcceptanceManual, Statement: "it feels right", Reason: "taste"},
-		httpOn("home", "web", "/"),
-	}
-}
-
-func toAcceptance(t *testing.T, cs []v1alpha1.AcceptanceCriterion) []acceptance.Criterion {
-	t.Helper()
-	b, err := json.Marshal(cs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []acceptance.Criterion
-	if err := json.Unmarshal(b, &out); err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
+// sliceOneDigest is the criteria digest a slice-1 record keeps once the
+// API server has pruned its criteria: any list's but the empty one's.
+var sliceOneDigest = "sha256:" + strings.Repeat("5", 64)
 
 type verifyEnv struct {
 	*testEnv
@@ -100,16 +67,15 @@ type verifyEnv struct {
 }
 
 // newVerifyEnv is a verification-capable shop Preview Ready in slot 0, its
-// Intent's approved criteria, and a PreviewVerification of it as
-// intent-controller writes one. funcs plays API server behaviour.
+// Intent's slice-1 acceptance record and a slice-1 PreviewVerification of
+// it, both as the API server keeps them now that the criteria fields are
+// removed: pruned of their criteria (sliceOneVerification). funcs plays API
+// server behaviour. newToolEnv replaces both with the evaluator's.
 func newVerifyEnv(t *testing.T, funcs interceptor.Funcs) *verifyEnv {
 	t.Helper()
 	at := time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC)
 	in, p := verifyPreview(t, at)
-	criteria := approvedCriteria()
-	approved := toAcceptance(t, criteria)
-	in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: 1, Digest: acceptance.Digest(approved),
-		Criteria: criteria}
+	in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: 1, Digest: sliceOneDigest}
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).
 		WithStatusSubresource(&v1alpha1.Preview{}, &v1alpha1.Intent{}, &appsv1.Deployment{}, &corev1.Pod{},
 			&v1alpha1.PreviewVerification{}, &batchv1.Job{}).
@@ -132,7 +98,7 @@ func newVerifyEnv(t *testing.T, funcs interceptor.Funcs) *verifyEnv {
 	for i := range e.p.Spec.Components {
 		e.setClusterIP(i, fmt.Sprintf("10.96.0.%d", 10+i))
 	}
-	e.pv = e.verification(1, criteria)
+	e.pv = e.sliceOneVerification()
 	return e
 }
 
@@ -151,16 +117,12 @@ func (e *verifyEnv) setClusterIP(i int, ip string) {
 	}
 }
 
-// verification creates attempt `attempt` of round 1 of the Preview's
-// verification, carrying `criteria` (the approved list) automatable subset.
-func (e *verifyEnv) verification(attempt int32, criteria []v1alpha1.AcceptanceCriterion) *v1alpha1.PreviewVerification {
+// sliceOneVerification creates attempt 1 of round 1 of the Preview's
+// slice-1 verification as the API server keeps it once its criteria and
+// criteriaDigest are pruned: no outcomes, no rung, no tools.
+func (e *verifyEnv) sliceOneVerification() *v1alpha1.PreviewVerification {
 	e.t.Helper()
-	var auto []v1alpha1.AcceptanceCriterion
-	for _, c := range criteria {
-		if c.Kind == v1alpha1.AcceptanceHTTP {
-			auto = append(auto, c)
-		}
-	}
+	const attempt = 1
 	heads := make([]v1alpha1.VerificationHead, 0, len(e.p.Spec.Components))
 	urls := map[string]string{"web": "https://github.com/acme/acme.web_app", "api": "https://github.com/acme/api"}
 	for _, c := range e.p.Spec.Components {
@@ -175,8 +137,7 @@ func (e *verifyEnv) verification(attempt int32, criteria []v1alpha1.AcceptanceCr
 			IntentRef:  v1alpha1.ObjectReference{Name: e.in.Name, UID: e.in.UID},
 			PreviewRef: v1alpha1.ObjectReference{Name: e.p.Name, UID: e.p.UID}, PreviewGeneration: e.p.Generation,
 			HeadSetDigest: "sha256:" + strings.Repeat("0", 64), Heads: heads, Round: 1, Attempt: attempt,
-			Run: "a1b2c3", Criteria: auto, CriteriaDigest: e.in.Status.Acceptance.Digest,
-			Timeout: metav1.Duration{Duration: 5 * time.Minute},
+			Run: "a1b2c3", Timeout: metav1.Duration{Duration: 5 * time.Minute},
 		},
 	}
 	if err := e.c.Create(context.Background(), pv); err != nil {
@@ -480,7 +441,7 @@ func readinessLedger(t *testing.T, waits []httpstep.TargetWait) ([]byte, string)
 }
 
 // A slice-1 verification (spec.criteria, no outcomes) is no longer run:
-// with or without a tester image it is answered Stale stale-criteria at
+// with or without a tester image it is answered Stale stale-approval at
 // once, before anything is read, and nothing renders in the slot. A tester
 // Job an older preview-controller left running for it is deleted, and so is
 // one left for a criteria verification already settled.
@@ -512,7 +473,7 @@ func TestVerificationCriteriaNoLongerRun(t *testing.T) {
 				want = v1alpha1.VerificationObserved
 			}
 			if pv.Status.Phase != want || res.RequeueAfter != 0 ||
-				(!tc.settled && pv.Status.Reason != v1alpha1.VerificationReasonStaleCriteria) {
+				(!tc.settled && pv.Status.Reason != v1alpha1.VerificationReasonStaleApproval) {
 				t.Fatalf("status %+v, requeue %v; want %s", pv.Status, res.RequeueAfter, want)
 			}
 			if n := len(e.jobs()); n != 0 {
@@ -527,20 +488,20 @@ func TestVerificationCriteriaNoLongerRun(t *testing.T) {
 }
 
 // The Preview of a slice-1 verification need not be there for it to be
-// answered stale-criteria: nothing of it is read.
+// answered stale-approval: nothing of it is read.
 func TestVerificationCriteriaWithoutItsPreview(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
 	if err := e.c.Delete(context.Background(), e.p); err != nil {
 		t.Fatal(err)
 	}
 	pv, _ := e.verify()
-	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStaleCriteria {
-		t.Fatalf("phase %s %s, want Stale stale-criteria", pv.Status.Phase, pv.Status.Reason)
+	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStaleApproval {
+		t.Fatalf("phase %s %s, want Stale stale-approval", pv.Status.Phase, pv.Status.Reason)
 	}
 }
 
 // BeforeRelease leaves a running slice-1 verification to its own pass,
-// which answers it stale-criteria: nothing of the slot is recorded for it.
+// which answers it stale-approval: nothing of the slot is recorded for it.
 func TestVerificationCriteriaBeforeRelease(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
 	e.v.Settings, e.r.Settings = verifySettings(), verifySettings()
@@ -552,9 +513,9 @@ func TestVerificationCriteriaBeforeRelease(t *testing.T) {
 		t.Fatalf("BeforeRelease recorded a slice-1 verification: %+v", pv.Status)
 	}
 	pv, _ := e.verify()
-	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStaleCriteria ||
+	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStaleApproval ||
 		len(e.jobs()) != 0 {
-		t.Fatalf("phase %s %s with %d Jobs, want Stale stale-criteria and none", pv.Status.Phase,
+		t.Fatalf("phase %s %s with %d Jobs, want Stale stale-approval and none", pv.Status.Phase,
 			pv.Status.Reason, len(e.jobs()))
 	}
 }
@@ -614,15 +575,15 @@ func TestVerificationPreChecks(t *testing.T) {
 		{"another intent", func(e *verifyEnv) {
 			e.pv.Spec.IntentRef.UID = "other"
 			e.mustUpdate(e.pv)
-		}, v1alpha1.VerificationReasonStaleCriteria},
+		}, v1alpha1.VerificationReasonStaleApproval},
 		{"not owned by the intent", func(e *verifyEnv) {
 			e.pv.OwnerReferences = nil
 			e.mustUpdate(e.pv)
-		}, v1alpha1.VerificationReasonStaleCriteria},
+		}, v1alpha1.VerificationReasonStaleApproval},
 		{"intent has no approved acceptance", func(e *verifyEnv) {
 			e.in.Status.Acceptance = nil
 			e.mustStatus(e.in)
-		}, v1alpha1.VerificationReasonStaleCriteria},
+		}, v1alpha1.VerificationReasonStaleApproval},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newToolEnv(t)

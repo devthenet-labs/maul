@@ -137,27 +137,6 @@ func TestJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAutomatable(t *testing.T) {
-	cs := decodeYAML(t, specExample)
-	ids := func(cs []Criterion) []string {
-		out := make([]string, 0, len(cs))
-		for _, c := range cs {
-			out = append(out, c.ID)
-		}
-		return out
-	}
-	if got := ids(Automatable(cs, 1)); !reflect.DeepEqual(got, []string{"battle-leaderboard", "health"}) {
-		t.Errorf("slice 1 = %v", got)
-	}
-	want := []string{"battle-leaderboard", "kick-onsets", "health"}
-	if got := ids(Automatable(cs, 2)); !reflect.DeepEqual(got, want) {
-		t.Errorf("slice 2 = %v", got)
-	}
-	if got := Automatable(nil, 1); got != nil {
-		t.Errorf("Automatable(nil) = %v", got)
-	}
-}
-
 func TestNormalize(t *testing.T) {
 	cs := decodeYAML(t, specExample)
 	n := Normalize(cs)
@@ -194,7 +173,7 @@ func TestNormalize(t *testing.T) {
 // the same steps as an http criterion's, for every generated criterion:
 // written as steps, and as the one-step shorthand.
 func TestNormalizeStepsAgrees(t *testing.T) {
-	prop := func(g genScenario) bool {
+	prop := func(g genHTTPCriterion) bool {
 		steps := Normalize([]Criterion{g.c})[0].Steps
 		raw := g.c.Steps
 		if raw == nil {

@@ -486,8 +486,8 @@ func checkToolsStatus(t *testing.T, pv *v1alpha1.PreviewVerification, sum toolwi
 		confirmed[0].Digest != confirms[0].CheckDigest {
 		t.Errorf("confirmed %+v", confirmed)
 	}
-	if !strings.Contains(pv.Status.TesterImageID, "maul-preview-tools@sha256:") {
-		t.Errorf("image %q", pv.Status.TesterImageID)
+	if !strings.Contains(pv.Status.ToolsImageID, "maul-preview-tools@sha256:") {
+		t.Errorf("image %q", pv.Status.ToolsImageID)
 	}
 }
 
@@ -822,17 +822,17 @@ func TestToolsPreChecks(t *testing.T) {
 		reason v1alpha1.PreviewVerificationReason
 	}{
 		{"another outcome", func(pv *v1alpha1.PreviewVerification) { pv.Spec.Outcomes[0].Outcome = "anything" },
-			false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria},
+			false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
 		{"another check store", func(pv *v1alpha1.PreviewVerification) {
 			pv.Spec.ChecksDigest = "sha256:" + strings.Repeat("d", 64)
-		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria},
+		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
 		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
 			pv.Spec.Checks[0].Body = strings.Replace(pv.Spec.Checks[0].Body, "/api/echo", "/api/admin", 1)
-		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria},
+		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
 		{"a check of no approved outcome", func(pv *v1alpha1.PreviewVerification) {
 			c := savedCheck(t, strings.ReplaceAll(testCheckBody, `items`, `other`))
 			pv.Spec.Checks = []v1alpha1.SavedCheck{c}
-		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria},
+		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
 		{"evaluator off", nil, true, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsNotReady},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
