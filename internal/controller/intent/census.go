@@ -66,9 +66,10 @@ var errSlice1Records = errors.New("slice-1 acceptance records remain")
 // Err is the census's refusal to start, nil when it found nothing: each
 // record by namespace and name, with what clears it. None can be cleared
 // through intent-controller, which does not start while they remain, so
-// each fix is a delete, or a rollback to the previous release to cancel an
-// intent there. Neither kind holds a finalizer of intent-controller's, so
-// a delete completes without it.
+// each fix is a delete, or going back to how intent-controller last ran
+// (the previous release, or without the evaluator verifying the intent's
+// Project) to cancel an intent there. Neither kind holds a finalizer of
+// intent-controller's, so a delete completes without it.
 func (c Slice1Census) Err() error {
 	if c.Count() == 0 {
 		return nil
@@ -76,8 +77,9 @@ func (c Slice1Census) Err() error {
 	var b strings.Builder
 	for _, name := range c.Intents {
 		fmt.Fprintf(&b, "; Intent %s/%s records slice 1's acceptance criteria, which nothing runs, under the "+
-			"evaluator: delete it (kubectl -n %s delete intent %s), or roll back to the previous release, "+
-			"/maul cancel it there (a new issue starts over with outcomes) and upgrade again",
+			"evaluator: delete it (kubectl -n %s delete intent %s), or go back to how intent-controller last ran "+
+			"(the previous release, or without the evaluator verifying its Project), /maul cancel it there (a new "+
+			"issue starts over with outcomes) and try again",
 			c.Namespace, name, c.Namespace, name)
 	}
 	for _, name := range c.Verifications {

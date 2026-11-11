@@ -725,8 +725,9 @@ them), and upgrade. A plan approved before the evaluator states criteria, which 
 release no longer starts while such an intent is open under the evaluator (the census below): before upgrading, on the
 release you run, `/maul cancel` each open intent whose approved plan states criteria (a new issue starts over with
 outcomes) and delete each PreviewVerification that asks criteria. An intent whose Project comes to be verified only
-later, after the upgrade, stops for a replan instead (its `maul/acceptance` the error "the approved plan states
-criteria, not outcomes: nothing is verified"). With the evaluator left off, nothing is verified.
+later, after the upgrade and while intent-controller runs, stops for a replan instead (its `maul/acceptance` the error
+"the approved plan states criteria, not outcomes: nothing is verified"); a change that verifies it through a restart is
+refused by the census (below). With the evaluator left off, nothing is verified.
 
 **The criteria fields are removed.** This release removes slice 1's fields from the CRDs (a PreviewVerification's
 `spec.criteria` and `criteriaDigest`, its tester observations, and an Intent's `status.acceptance.criteria` and
@@ -745,14 +746,17 @@ now state outcomes. Two checks stop an upgrade that would leave records nothing 
   `intent` or `previewverification`) and, while it counts any, **refuses to start**, naming each record and its fix.
   intent-controller is not running then, so the fix cannot be a `/maul` command: delete the intent
   (`kubectl -n <namespace> delete intent <name>`; neither kind holds a finalizer of intent-controller's, so the delete
-  completes without it), or roll back to the previous release, `/maul cancel` the intent there (a new issue starts over
-  with outcomes) and upgrade again. A census that cannot list refuses too. Without the evaluator its role may not list
-  PreviewVerifications, and the line says `previewverifications_unlisted`.
+  completes without it), or go back to how intent-controller last ran (the previous release, or without the evaluator
+  verifying the intent's Project), `/maul cancel` the intent there (a new issue starts over with outcomes) and try
+  again. A census that cannot list refuses too. Without the evaluator its role may not list PreviewVerifications, and
+  the line says `previewverifications_unlisted`.
 
 A closed or merged intent's record is never judged again and is not counted: it keeps working (its status and finalizers
 still update) with its criteria pruned. Nor is an open intent of a Project the evaluator does not verify: a plan stating
-criteria there is recorded by its digest alone, which nothing runs and the pruning does not change, and it stops for a
-replan should the evaluator come to verify the Project.
+criteria there is recorded by its digest alone, which nothing runs and the pruning does not change. Should the evaluator
+come to verify that Project while intent-controller runs (the Project's `verification` turned on), the intent stops for
+a replan. Should it come to after a restart (turning the evaluator or previews on), the census counts the intent and
+refuses to start: `/maul cancel` such intents first, before the change.
 
 **Upgrade runbook.** Before upgrading from 0.13: list the PreviewVerifications that still ask criteria and delete them
 (`kubectl -n <namespace> get previewverifications -o json | jq -r '.items[] | select(.spec.criteria) | .metadata.name'`),
