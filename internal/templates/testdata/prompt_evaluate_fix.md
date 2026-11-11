@@ -88,6 +88,20 @@ reason, quoted:
 A check refused in one form is never reviewed again in that form: maul keeps each review by the check's digest, so the
 same check proposed again is refused again. Strengthen it to answer the reason, run it, and propose the new form.
 
+### Saved checks that are not yet proof
+
+These saved checks were saved to show a defect of their outcome, each named by its id and its outcome:
+
+```text
+- check winner-rises-red, of outcome winner-rises
+```
+
+Such a check shows only that the build it failed on was wrong. When it replays green, that is not yet evidence that
+its outcome holds: a reviewer judges it again as proof of the pass, and a check written to catch one wrong value
+rarely pins every clause of the outcome. So for each of these outcomes whose saved checks replay green this round,
+write a new check that shows the outcome holds, held to **What a check must cover** like any other, run it green,
+propose it, and cite its run in the verdict. Leave the saved check as it is: do not dispute or retire it.
+
 ## The preview and your tools
 
 The preview serves these components:
@@ -117,6 +131,7 @@ judge only data you created. The preview's data persists between rounds, so rows
 ## Your turns
 
 This run may take at most 80 agent turns, 200000 output tokens and 20 minutes.
+Every `maul-tool` call prints how much of that wall clock is left on its `[maul-tool time left]` line.
 Every tool call takes one of these turns, and a run that reaches any of these limits is stopped where it is, so
 budget for your report:
 
@@ -124,7 +139,8 @@ budget for your report:
   saved check that replayed green (cite its `maul-tool check results` seq), a fail shown by a check run that failed an
   assertion of the outcome, or unsure. Then strengthen its checks with the turns
   left, and rewrite it with what you found.
-- Write it by turn 72 at the latest, whatever is left; keep the turns after that for it. An outcome you
+- Write it by turn 72 at the latest, or once `maul-tool` shows 2 minutes or less left,
+  whatever is left; keep the turns after that for it. An outcome you
   have not shown by then is unsure.
 - Spend your turns on the outcomes first, in two passes. First give every outcome a person does not judge a covering
   check: one that runs green and gives every clause of the outcome an assertion, however plainly. Then strengthen
@@ -132,13 +148,17 @@ budget for your report:
   green, and only then put it in `proposed` in place of the covering one; keep the covering one if the new one never
   runs green. Budget about 70 turns for each such outcome, both passes together, leaving out an outcome
   whose saved checks all replayed green last round; one that needs more waits until every other outcome has its
-  covering check.
+  covering check. Past its budget, stop working on an outcome whose check still will not run as the outcome
+  needs (a flow that must wait, which no check step can, or one that needs more steps than a check may have): report
+  it unsure, and say in its note what no check could express.
 - A saved check that replayed green this round is already maul's evidence: do not run it again, and write no new
-  check for its outcome unless the change since touched it.
+  check for its outcome unless the change since touched it or it is listed under **Saved checks
+  that are not yet proof**.
 - If your run is stopped before you have written it, maul asks you once to write it from what you have: propose only
   the checks whose `maul-tool check run` printed pass (or, with `expect: fail`, failed an assertion of an outcome you
   report fail), and mark every outcome you did not show unsure. Do not count
-  on it: a run stopped by its cost or its wall clock gets no such turn.
+  on it: a run stopped by its cost gets no such turn, and one stopped by its wall clock only the few minutes maul
+  kept for it, if any.
 
 ## How to evaluate
 

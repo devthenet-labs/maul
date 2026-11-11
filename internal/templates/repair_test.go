@@ -131,6 +131,33 @@ func TestRepairPromptOutOfTurns(t *testing.T) {
 	}
 }
 
+// TestRepairPromptOutOfTime (gate D-B8): a run its own wall clock stopped is
+// told so, that a command may not have finished, and to write the report
+// now from what it has; it is not told it ran out of turns.
+func TestRepairPromptOutOfTime(t *testing.T) {
+	p := RepairPrompt{ReportPath: "/work/scratch/report.md", Missing: true, OutOfTime: true, Round: 1, Rounds: 2,
+		Error: "open: no such file"}
+	got, err := RenderRepairPrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(got), " ")
+	for _, want := range []string{
+		"## Your time ran out",
+		"Your run reached its wall clock limit before you wrote your report",
+		"a command it was running may not have finished",
+		"Write your report now",
+		"what you did not finish",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("out-of-time repair lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "turn limit") {
+		t.Errorf("a run out of time is told it ran out of turns:\n%s", got)
+	}
+}
+
 // TestRepairPromptHostileErrorStaysFenced: whatever the reason carries, it
 // ends up bounded, without control or format characters, in a fence no line
 // of it closes, and its fake heading is never a line of the prompt.

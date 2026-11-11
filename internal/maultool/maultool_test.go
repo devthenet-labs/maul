@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -104,10 +105,14 @@ func run(t *testing.T, base string, scratch string, args ...string) result {
 	var out, errb bytes.Buffer
 	code := Run(context.Background(), args, Options{
 		Getenv: func(k string) string {
-			if k != EnvToolsURL {
-				t.Errorf("maul-tool read %s; it reads only %s", k, EnvToolsURL)
+			switch k {
+			case EnvToolsURL:
+				return base
+			case EnvDeadline:
+				return ""
 			}
-			return base
+			t.Errorf("maul-tool read %s; it reads only %s and %s", k, EnvToolsURL, EnvDeadline)
+			return ""
 		},
 		Stdout:  &out,
 		Stderr:  &errb,
@@ -247,6 +252,21 @@ func TestOutputShape(t *testing.T) {
 				"[observed]   attempt 1 step 1 fail (assertion json /b): \"json \\\"/b\\\" did not match\"\n" +
 				"[observed]   attempt 2 step 1 fail (assertion json /b): \"json \\\"/b\\\" did not match\"\n" +
 				"[observed] red by assertion at step 1 (json /b): it can show a defect, proposed with expect: fail\n"},
+		// Gate D-B8: a failed text step shows what the page showed, as
+		// maul's quoted observation of the application's text.
+		{"a failed text step's received text", []string{"check", "results"}, "/v1/check-results",
+			toolwire.Response{Seq: 12, Observed: &toolwire.Observed{CheckRuns: []toolwire.CheckRunRecord{{
+				Digest: strings.Repeat("a", 64), CheckID: "swing", Mode: toolwire.ModeDryRun,
+				Result: toolwire.RunFail, Attempts: []toolwire.Attempt{
+					{Run: "r1", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
+						{Index: 5, Result: toolwire.ResultFail, Detail: "the text expectation was not met",
+							Assertion: true, AssertionID: "expect", Received: "ev-nz by ana · 120 bpm · swing 0%"}}},
+				}}}}},
+			"[maul-tool ledger seq 12]\n" +
+				"[observed] check swing digest sha256:" + strings.Repeat("a", 64) + " dry-run: fail (attempts: fail)\n" +
+				"[observed]   attempt 1 step 5 fail (assertion expect): \"the text expectation was not met\"\n" +
+				"[observed]   attempt 1 step 5 received (untrusted, the page's text): " +
+				"\"ev-nz by ana · 120 bpm · swing 0%\"\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -766,5 +786,42 @@ func writeKey(content string) func(t *testing.T) string {
 			t.Fatal(err)
 		}
 		return p
+	}
+}
+
+// TestTimeLeft (gate D-B8): with the run's cutoff in EnvDeadline, every call
+// prints the time left right after its ledger line, a refusal's included, as
+// maul's own line; past the cutoff it shows none left, and an unset or
+// unreadable cutoff prints nothing.
+func TestTimeLeft(t *testing.T) {
+	now := time.Date(2026, 11, 10, 17, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		name, deadline, want string
+	}{
+		{"minutes left", "2026-11-10T17:12:30Z", "[maul-tool time left] 12m30s\n"},
+		{"past the cutoff", "2026-11-10T16:59:00Z", "[maul-tool time left] 0s\n"},
+		{"unset", "", ""},
+		{"unreadable", "soon", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r, srv := newRelay(t)
+			r.responses["/v1/events"] = toolwire.Response{Seq: 2, Untrusted: "x"}
+			r.responses["/v1/logs"] = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(toolwire.Response{Seq: 3, Refused: toolwire.RefusedVerb, Reason: "no"})
+			})
+			env := map[string]string{EnvToolsURL: srv.URL, EnvDeadline: tt.deadline}
+			for args, ledger := range map[string]string{"events": "[maul-tool ledger seq 2]\n",
+				"logs api": "[maul-tool ledger seq 3]\n"} {
+				var out, errb bytes.Buffer
+				Run(context.Background(), strings.Fields(args), Options{Getenv: func(k string) string { return env[k] },
+					Stdout: &out, Stderr: &errb, Scratch: t.TempDir(), Now: func() time.Time { return now }})
+				if !strings.HasPrefix(out.String(), ledger+tt.want) ||
+					tt.want == "" && strings.Contains(out.String(), "time left") {
+					t.Errorf("%s: stdout %q, want the ledger line then %q", args, out.String(), tt.want)
+				}
+			}
+		})
 	}
 }

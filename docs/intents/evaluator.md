@@ -51,7 +51,9 @@ The evaluator acts only through one shell command, `maul-tool`:
 | `maul-tool check results`                        | The replay's results and each dry-run check's latest run                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Every call, refused ones included, is a ledger entry. Output separates what maul measured (`[observed]`) from the bytes
-the application chose (`[untrusted output]`, always last).
+the application chose (`[untrusted output]`, always last). A check step that failed a text assertion also shows the text
+its element showed, quoted on its own `[observed]` line and marked as the page's, and every call shows the time left of
+the evaluator's run (`[maul-tool time left]`).
 
 ## One round
 
@@ -83,7 +85,12 @@ the application chose (`[untrusted output]`, always last).
    compared whole), and last naming the wrong builds a careless change could ship and finding the assertion that would
    go red on each, within a turn budget per outcome. The reviewer's rule names the checks a plausible wrong build would
    still pass (S1 demo: every outcome left unconfirmed on a correct build had one). An outcome it leaves unsure with no
-   check names the clause it could not exercise. It does not run again a saved check that replayed green.
+   check names the clause it could not exercise. It does not run again a saved check that replayed green, and writes no
+   new check for its outcome, except for a check saved red (to show a defect) that no review has yet accepted as proof
+   the outcome holds: maul names those, and the evaluator writes such an outcome a new check that proves it, confirmed
+   and reviewed like any other, so a fixed defect can pass in the round after its fix. Past an outcome's turn budget it
+   stops on a check that cannot run as the outcome needs (a wait no check step can make, more steps than a check may
+   have) and reports the outcome unsure, naming what no check could express.
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
@@ -422,12 +429,17 @@ but its last few turns (a tenth, at least 6 and at most 12, never more than half
 each, enough to read the report, write it again and reply), counted in the CLI's own turns, and when that part ends on
 the cap with no report it resumes the agent's own session on the kept turns, telling it to write the report now from
 what it has: the checks whose dry run passed proposed, every outcome it did not show unsure. The prompt states the run's
-turns and the turn by which to write the report, and asks for the report as soon as every outcome is shown or unsure. A
-run stopped by its cost budget or its wall clock gets no such turn (the broker refuses the pod any further request, and
-the clock has run out), so keep the turn cap the limit that binds first: live, an evaluate run spent \$1.26-2.51 over
-its first 60 turns, 4-7 seconds each, a turn costing more as the session grows, so 100 turns fit the default \$6 run
-budget and the 20 minutes. Raise the cost budget and the timeout before the turns, and lower the turns with a smaller
-`limits.evaluate.maxCostMicroUSD` (about 40 turns for \$1.50).
+turns and the turn by which to write the report, and asks for the report as soon as every outcome is shown or unsure.
+The wall clock is kept back the same way: the first part runs on all but the last fifth of the stage's
+`--intent-evaluate-timeout` (at least 4 and at most 10 minutes, never more than half; none for a stage under 8 minutes),
+so of the default 20 minutes it gets 16, which its prompt states, and when its clock stops it with no report its session
+is resumed on the kept minutes, told its time ran out. Every `maul-tool` call prints the time left of the run it is in
+(`[maul-tool time left]`, from `MAUL_TOOLS_DEADLINE`), and the prompt asks for the report by the time an eighth of the
+clock is left. A run stopped by its cost budget gets no such turn (the broker refuses the pod any further request), and
+one whose resumed session still writes no report ends `timeout`, saying why, so keep the turn cap the limit that binds
+first: live, an evaluate run spent \$1.26-2.51 over its first 60 turns, 4-7 seconds each, a turn costing more as the
+session grows, so 100 turns fit the default \$6 run budget and the 20 minutes. Raise the cost budget and the timeout
+before the turns, and lower the turns with a smaller `limits.evaluate.maxCostMicroUSD` (about 40 turns for \$1.50).
 
 ## Reading the evidence
 

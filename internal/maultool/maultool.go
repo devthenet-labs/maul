@@ -10,13 +10,21 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// EnvToolsURL is the one variable maul-tool reads: the tools container's
+// EnvToolsURL is the variable maul-tool reads for the tools container's
 // origin.
 const EnvToolsURL = "MAUL_TOOLS_URL"
+
+// EnvDeadline is the other variable maul-tool reads: when the agent's
+// current run is stopped, as RFC 3339, which agent-runner sets on every
+// evaluate run (gate D-B8). maul-tool prints the time left before it on
+// every call, as maul's own line; unset or unreadable, it prints none.
+const EnvDeadline = "MAUL_TOOLS_DEADLINE"
 
 // Exit codes.
 const (
@@ -32,8 +40,11 @@ const (
 
 // Options are Run's surroundings.
 type Options struct {
-	// Getenv reads the environment; only EnvToolsURL is asked for.
+	// Getenv reads the environment; only EnvToolsURL and EnvDeadline are
+	// asked for.
 	Getenv func(string) string
+	// Now is the clock the time left is counted by; nil is time.Now.
+	Now    func() time.Time
 	Stdout io.Writer
 	Stderr io.Writer
 	// Scratch is the scratch directory, ScratchDir in the pod.
@@ -90,8 +101,8 @@ func Run(ctx context.Context, args []string, opt Options) int {
 	}
 	resp, err := client.Call(ctx, verb, req)
 	if errors.Is(err, errRefused) {
-		_, _ = fmt.Fprintf(opt.Stdout, "[maul-tool ledger seq %d]\n[maul-tool refused: %s] %s\n",
-			resp.Seq, oneLine(resp.Refused), oneLine(resp.Reason))
+		_, _ = fmt.Fprintf(opt.Stdout, "[maul-tool ledger seq %d]\n%s[maul-tool refused: %s] %s\n",
+			resp.Seq, timeLeft(opt), oneLine(resp.Refused), oneLine(resp.Reason))
 		return ExitRefused
 	}
 	if err != nil {
@@ -99,6 +110,21 @@ func Run(ctx context.Context, args []string, opt Options) int {
 		return ExitToolError
 	}
 	return render(ctx, client, sc, resp, opt)
+}
+
+// timeLeft is the line that shows how much of the agent's run is left by
+// its cutoff (EnvDeadline), in whole seconds and never below zero; "" when
+// the cutoff is unset or unreadable.
+func timeLeft(opt Options) string {
+	deadline, err := time.Parse(time.RFC3339, opt.Getenv(EnvDeadline))
+	if err != nil {
+		return ""
+	}
+	now := time.Now
+	if opt.Now != nil {
+		now = opt.Now
+	}
+	return fmt.Sprintf("[maul-tool time left] %s\n", max(deadline.Sub(now()), 0).Truncate(time.Second))
 }
 
 // parse turns a command line into one request; files are read here, from
@@ -313,6 +339,7 @@ func parseRun(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, error
 func render(ctx context.Context, client *Client, sc scratch, resp *toolwire.Response, opt Options) int {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[maul-tool ledger seq %d]\n", resp.Seq)
+	b.WriteString(timeLeft(opt))
 	if o := resp.Observed; o != nil {
 		if o.Status != 0 {
 			fmt.Fprintf(&b, "[observed] http status %d in %d ms\n", o.Status, o.LatencyMs)
@@ -385,6 +412,12 @@ func writeCheckRun(b *strings.Builder, r toolwire.CheckRunRecord) {
 			}
 			fmt.Fprintf(b, "[observed]   attempt %d step %d %s%s: %q\n", i+1, s.Index, oneLine(string(s.Result)),
 				kind, s.Detail)
+			if s.Received != "" {
+				// What the element showed (gate D-B8): the application's
+				// text, quoted onto maul's line and bounded again here.
+				fmt.Fprintf(b, "[observed]   attempt %d step %d received (untrusted, the page's text): %q\n", i+1,
+					s.Index, boundBytes(s.Received, toolwire.MaxReceivedBytes))
+			}
 		}
 	}
 	// A check that shows a defect is one red by assertion: only such a run
@@ -393,6 +426,17 @@ func writeCheckRun(b *strings.Builder, r toolwire.CheckRunRecord) {
 		fmt.Fprintf(b, "[observed] red by assertion at step %d (%s): it can show a defect, proposed with expect: "+
 			"fail\n", step, oneLine(r.FailedAssertionID()))
 	}
+}
+
+// boundBytes is s cut to at most n bytes on a rune boundary.
+func boundBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // oneLine keeps a value on its own line: every control character becomes a

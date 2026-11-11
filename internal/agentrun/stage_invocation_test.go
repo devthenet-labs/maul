@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/runner"
 )
@@ -55,6 +56,10 @@ func renderInvocation(spec runner.CommandSpec, ws string) string {
 		fmt.Fprintf(&b, "--- argv[%d]\n%s\n", i, arg)
 	}
 	for _, kv := range spec.Env {
+		// A run's cutoff is the clock's: the golden pins the name alone.
+		if strings.HasPrefix(kv, maultool.EnvDeadline+"=") {
+			kv = maultool.EnvDeadline + "=<the run's cutoff>"
+		}
 		fmt.Fprintf(&b, "--- env\n%s\n", kv)
 	}
 	return strings.ReplaceAll(b.String(), ws, "/workspace")

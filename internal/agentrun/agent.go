@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/model"
 	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/report"
@@ -283,6 +285,11 @@ func reproductionOf(p *report.Reproduction) *envelope.Reproduction {
 // the stage's result.
 func (a *Agent) run(ctx context.Context, sr *stageRun, spec runner.CommandSpec, timeout time.Duration,
 	budget int) (res runner.Result, idle string, runErr error) {
+	if sr.deadlineEnv {
+		// Its own cutoff, so the first run and each repair show theirs.
+		spec.Env = append(slices.Clone(spec.Env),
+			maultool.EnvDeadline+"="+time.Now().Add(timeout).UTC().Format(time.RFC3339))
+	}
 	ctx, watch := newIdleWatch(ctx, sr.idle)
 	secrets := credentialValues(sr.h, a.scrub...)
 	output := a.followOutput(ctx, sr.h, spec, secrets)

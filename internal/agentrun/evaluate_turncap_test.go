@@ -118,13 +118,14 @@ func TestEvaluateTurnCapUnrepaired(t *testing.T) {
 	}
 }
 
-// TestEvaluateOtherLimitsNotResumed: a run the broker's spend limit, the
-// wall clock or a crash ended is not resumed: the broker refuses the
-// session any further turn, and the clock has no room for one.
+// TestEvaluateOtherLimitsNotResumed: a run the broker's spend limit or a
+// crash ended is not resumed: the broker refuses the session any further
+// turn. (The wall clock is resumed only within the minutes the stage kept
+// for it: TestEvaluateWallClockCollectsTheReport, and with none kept
+// TestEvaluateShortClockKeepsNone.)
 func TestEvaluateOtherLimitsNotResumed(t *testing.T) {
 	for name, s := range map[string]step{
 		"the broker's limit": {stdout: streamBrokerLimit, result: runner.Result{ExitCode: 1}},
-		"the wall clock":     {stdout: streamCutOff, result: runner.Result{TimedOut: true, ExitCode: -1}},
 		"a crash":            {stdout: streamExecError, result: runner.Result{ExitCode: 1}},
 	} {
 		t.Run(name, func(t *testing.T) {

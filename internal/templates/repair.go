@@ -27,6 +27,10 @@ type RepairPrompt struct {
 	// it wrote a report maul could accept: the agent is told to stop
 	// working and report what it has.
 	OutOfTurns bool
+	// OutOfTime is set when the stage's first run reached its own wall
+	// clock (the stage's, less what it keeps for the report) before it
+	// wrote a report maul could accept: likewise.
+	OutOfTime bool
 	// Error is why the report was refused (or could not be read).
 	Error string
 	// Round is this repair's ordinal, of at most Rounds.

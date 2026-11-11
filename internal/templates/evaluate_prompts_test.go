@@ -85,6 +85,7 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 				Result: "pass"}}
 			p.PriorRefused = []PriorRefusal{{Check: "winner-rises-api", Outcome: "winner-rises",
 				Reason: "It reads the leaderboard after the battle only: it never shows the order before it."}}
+			p.NotYetProof = []NotYetProof{{Check: "winner-rises-red", Outcome: "winner-rises"}}
 			return RenderEvaluatePrompt(p)
 		}},
 		{"prompt_checkreview.md", func() (string, error) {
@@ -282,17 +283,22 @@ func TestOutcomeTurnsSkipsReplayedGreen(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		replays []PriorReplay
+		notYet  []NotYetProof
 		want    int
 	}{
-		{"no replay", nil, 44},
-		{"one green", []PriorReplay{{Check: "a", Outcome: "leaderboard-still-loads", Result: "pass"}}, 88},
-		{"one red", []PriorReplay{{Check: "a", Outcome: "leaderboard-still-loads", Result: "fail"}}, 44},
+		{"no replay", nil, nil, 44},
+		{"one green", []PriorReplay{{Check: "a", Outcome: "leaderboard-still-loads", Result: "pass"}}, nil, 88},
+		{"one red", []PriorReplay{{Check: "a", Outcome: "leaderboard-still-loads", Result: "fail"}}, nil, 44},
 		{"all green", []PriorReplay{{Check: "a", Outcome: "leaderboard-still-loads", Result: "pass"},
-			{Check: "b", Outcome: "winner-rises", Result: "pass"}}, 88},
+			{Check: "b", Outcome: "winner-rises", Result: "pass"}}, nil, 88},
 		{"green and red of one", []PriorReplay{{Check: "a", Outcome: "winner-rises", Result: "pass"},
-			{Check: "b", Outcome: "winner-rises", Result: "fail"}}, 44},
+			{Check: "b", Outcome: "winner-rises", Result: "fail"}}, nil, 44},
+		// Gate D-B9: a saved red check that replayed green is no proof of
+		// the pass, so its outcome still needs its turns.
+		{"green but not yet proof", []PriorReplay{{Check: "a", Outcome: "leaderboard-still-loads", Result: "pass"}},
+			[]NotYetProof{{Check: "a", Outcome: "leaderboard-still-loads"}}, 44},
 	} {
-		if got := outcomeTurns(90, os, tt.replays); got != tt.want {
+		if got := outcomeTurns(90, os, tt.replays, tt.notYet); got != tt.want {
 			t.Errorf("%s: outcomeTurns = %d, want %d", tt.name, got, tt.want)
 		}
 	}
@@ -383,11 +389,12 @@ func TestEvaluatePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 	p.PriorVerdicts = []PriorVerdict{{Outcome: hostile, Result: hostile, Reason: hostile}}
 	p.PriorReplay = []PriorReplay{{Check: hostile, Outcome: hostile, Result: hostile}}
 	p.PriorRefused = []PriorRefusal{{Check: hostile, Outcome: hostile, Reason: hostile}}
+	p.NotYetProof = []NotYetProof{{Check: hostile, Outcome: hostile}}
 	got, err := RenderEvaluatePrompt(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(strings.ToUpper(got), sentinel); n < 17 {
+	if n := strings.Count(strings.ToUpper(got), sentinel); n < 19 {
 		t.Fatalf("only %d sentinels rendered; the test no longer reaches every field", n)
 	}
 	for _, line := range unfenced(got) {
