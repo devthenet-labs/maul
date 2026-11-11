@@ -330,7 +330,8 @@ func TestOpenFindingMakesTheRoundFull(t *testing.T) {
 	// defect an approver confirmed (TestIntentEvaluateFixFindsNoDefect), and
 	// nothing it was not handed.
 	noDefect := held.DeepCopy()
-	noDefect.NoDefect = &v1alpha1.NoDefectRecord{Run: "x-rev-r2-a1", Reason: "fine", HeadSetDigest: heads}
+	noDefect.NoDefect = &v1alpha1.NoDefectRecord{Run: "x-rev-r2-a1", Reason: "fine", HeadSetDigest: heads,
+		Round: 1}
 	if !openFindingAt(noDefect, acc, heads) {
 		t.Error("a no-defect conclusion released an outcome held from an earlier round, never handed to it")
 	}
@@ -342,6 +343,12 @@ func TestOpenFindingMakesTheRoundFull(t *testing.T) {
 		Outcomes: []string{oVersion}, Confirmed: &v1alpha1.Rearm{By: approver, ByID: 7}}
 	if openFindingAt(noDefect, acc, heads) || len(heldOutcomes(noDefect, heads, 2)) != 0 {
 		t.Error("a confirmed suspected defect after a no-defect conclusion at its heads still holds them")
+	}
+	for _, round := range []int32{0, 2} {
+		noDefect.NoDefect.Round = round
+		if !openFindingAt(noDefect, acc, heads) {
+			t.Errorf("a no-defect conclusion about round %d released round 1's judgement", round)
+		}
 	}
 	acc.Accepted = []v1alpha1.AcceptanceRecord{{ID: oVersion, By: approver, ByID: 7, CommentID: 1,
 		HeadSetDigest: heads}}

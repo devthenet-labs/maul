@@ -1925,6 +1925,17 @@ spec:
                           failed.
                         maxLength: 1024
                         type: string
+                      round:
+                        description: |-
+                          Round is the round whose judgement the fix round was handed
+                          (IntentVerification.OutcomesRound when it concluded): it releases the
+                          findings of that judgement alone (G-B-LIB-1), never one a later round
+                          at the same heads made again. Zero for one recorded before rounds
+                          were: it releases nothing.
+                        format: int32
+                        maximum: 999
+                        minimum: 0
+                        type: integer
                       run:
                         description: Run is the IntentRun that concluded it.
                         maxLength: 63

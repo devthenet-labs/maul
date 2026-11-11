@@ -407,7 +407,7 @@ the source) has not shown it is gone, and running the saved checks again cannot 
   the dispute round itself still holds it. A fix round handed the reproduction at these commits that concludes, with its
   reason, that the code has no defect releases what it was handed (a reproduced failure, or a suspected defect an
   approver confirmed), so a round after `/maul verify` can pass once what failed was the environment; it releases
-  nothing it was not handed.
+  nothing it was not handed, and nothing once a later round at these commits finds the failure again.
 - **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
   every outcome maul could not confirm and every anomaly holding the commits. The acceptance is recorded on the anomaly
   (`accepted`), and holds only at those commits. It accepts only anomalies maul recorded before the comment was written

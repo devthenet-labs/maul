@@ -1226,6 +1226,15 @@ type NoDefectRecord struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	HeadSetDigest string `json:"headSetDigest,omitempty"`
+	// Round is the round whose judgement the fix round was handed
+	// (IntentVerification.OutcomesRound when it concluded): it releases the
+	// findings of that judgement alone (G-B-LIB-1), never one a later round
+	// at the same heads made again. Zero for one recorded before rounds
+	// were: it releases nothing.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	Round int32 `json:"round,omitempty"`
 }
 
 // SuspectedDefect is a judged round's suspected defect (IntentVerification

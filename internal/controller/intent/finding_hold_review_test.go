@@ -5,6 +5,7 @@ package intent
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,7 +107,7 @@ func TestNoDefectReleasesOnlyWhatTheFixerWasHanded(t *testing.T) {
 	e.judgeAt(name, 1, heads, first)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		in.Status.Verification.NoDefect = &v1alpha1.NoDefectRecord{Run: name + "-rev-r2-a1", Reason: "fine",
-			At: metav1.NewTime(e.clock.Now()), HeadSetDigest: heads}
+			At: metav1.NewTime(e.clock.Now()), HeadSetDigest: heads, Round: 1}
 	})
 	v := e.judgeAt(name, 2, heads, passingJudgement(t))
 	if v.State == v1alpha1.VerificationPassed {
@@ -185,5 +186,58 @@ func TestJudgingARoundAgainKeepsItsOwnRecords(t *testing.T) {
 	}
 	if v.State != v1alpha1.VerificationPassed {
 		t.Errorf("round 2 judged again over its accepted anomaly = %s, want Passed", v.State)
+	}
+}
+
+// TestNoDefectReleasesOnlyTheJudgementItWasHanded: a no-defect conclusion
+// is about the judgement its fix round was handed. A later round at the
+// same heads that reproduces the failure again (maul and its fixer
+// disagree: Exhausted) is a new finding, which the conclusion predates:
+// a round after it that replays green there does not pass the outcome.
+func TestNoDefectReleasesOnlyTheJudgementItWasHanded(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	heads := e.verification(name).HeadSetDigest
+	check := savedCheck(t, versionCheck)
+	failing := passingJudgement(t)
+	failing.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultFailed, acceptance.ReasonReproduced,
+		check.Digest)
+	e.judgeAt(name, 1, heads, failing)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.NoDefect = &v1alpha1.NoDefectRecord{Run: name + "-rev-r2-a1", Reason: "fine",
+			At: metav1.NewTime(e.clock.Now()), HeadSetDigest: heads, Round: 1}
+	})
+	e.judgeAt(name, 2, heads, failing)
+	if v := e.judgeAt(name, 3, heads, passingJudgement(t)); v.State == v1alpha1.VerificationPassed ||
+		v.Outcomes[0].Reason != acceptance.ReasonHeldFinding {
+		t.Errorf("round 3 after round 2 reproduced the failure again: %s %+v; want held", v.State, v.Outcomes[0])
+	}
+}
+
+// TestHeldEvaluatorFailIsAcceptedByCommand: an outcome held on the
+// evaluator's word alone (no check behind it) has no dispute to release
+// it, so an approver's /maul accept must: by its id, or with all.
+func TestHeldEvaluatorFailIsAcceptedByCommand(t *testing.T) {
+	for _, cmd := range []string{"/maul accept " + oVersion, "/maul accept all"} {
+		t.Run(cmd, func(t *testing.T) {
+			e, name := newEvaluatorEnv(t, 0.4)
+			e.review(name, 3)
+			heads := e.verification(name).HeadSetDigest
+			first := passingJudgement(t)
+			first.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail,
+				"")
+			e.judgeAt(name, 1, heads, first)
+			if v := e.judgeAt(name, 2, heads, passingJudgement(t)); v.Outcomes[0].Reason !=
+				acceptance.ReasonHeldFinding {
+				t.Fatalf("round 2 = %+v, want held (the case's premise)", v.Outcomes[0])
+			}
+			replies := e.request(name, "issue", cmd)
+			if len(replies) != 1 || !strings.Contains(replies[0], "is done") {
+				t.Errorf("%s replies %q, want it accepted", cmd, replies)
+			}
+			if st, _, ok := e.prVerifyPass(name).acceptanceStatus(); !ok || st.state != statusSuccess {
+				t.Errorf("maul/acceptance %+v (posted %v), want success once accepted", st, ok)
+			}
+		})
 	}
 }

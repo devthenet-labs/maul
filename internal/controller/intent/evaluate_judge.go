@@ -550,12 +550,17 @@ func heldAnomalies(v *v1alpha1.IntentVerification, headSet string, round int32) 
 // the evaluator's word alone) (G-B-LIB-1): a failure seen at heads is a
 // finding about them, which a later round there does not erase. nil once
 // the heads moved. A fix round at headSet that concluded no defect releases
-// only what it was handed (handedToFixer).
+// only what it was handed (handedToFixer), and only while the judgement it
+// was handed is the latest (NoDefectRecord.Round).
 func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) map[string]string {
 	if v == nil || headSet == "" || v.OutcomesHeadSetDigest != headSet {
 		return nil
 	}
-	noDefect := v.NoDefect != nil && v.NoDefect.HeadSetDigest == headSet
+	// A no-defect conclusion speaks for the judgement its fix round was
+	// handed alone: a later round there that found the failure again made a
+	// new finding, which it predates.
+	noDefect := v.NoDefect != nil && v.NoDefect.HeadSetDigest == headSet && v.NoDefect.Round != 0 &&
+		v.NoDefect.Round == v.OutcomesRound
 	out := map[string]string{}
 	for _, r := range v.Outcomes {
 		if noDefect && handedToFixer(v, r, headSet) {
