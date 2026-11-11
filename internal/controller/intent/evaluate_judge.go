@@ -543,29 +543,64 @@ func heldAnomalies(v *v1alpha1.IntentVerification, headSet string, round int32) 
 }
 
 // heldOutcomes are the outcomes v's latest judgement at headSet found
-// failing (reproduced) or suspected a defect in, when that judgement was of
-// a round before round, and those it held already (ReasonHeldFinding), each
-// by the check it rested on (G-B-LIB-1): a check failing at heads is a
+// failing (findsFailing: a check failed and the evaluator agreed, a check
+// saved red failed, or the evaluator saw it fail with no check maul could
+// confirm), when that judgement was of a round before round, and those it
+// held already (ReasonHeldFinding), each by the check it rested on ("" for
+// the evaluator's word alone) (G-B-LIB-1): a failure seen at heads is a
 // finding about them, which a later round there does not erase. nil once
-// the heads moved, or once a fix round at headSet concluded no defect.
+// the heads moved. A fix round at headSet that concluded no defect releases
+// only what it was handed (handedToFixer).
 func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) map[string]string {
 	if v == nil || headSet == "" || v.OutcomesHeadSetDigest != headSet {
 		return nil
 	}
-	if v.NoDefect != nil && v.NoDefect.HeadSetDigest == headSet {
-		// A fix round handed the failure's reproduction at these heads
-		// concluded, in its recorded reason, that the code has no defect:
-		// that is the evidence a later round's pass there rests on.
-		return nil
-	}
+	noDefect := v.NoDefect != nil && v.NoDefect.HeadSetDigest == headSet
 	out := map[string]string{}
 	for _, r := range v.Outcomes {
-		found := r.Reason == acceptance.ReasonReproduced || r.Reason == acceptance.ReasonSuspectedDefect
-		if r.Reason == acceptance.ReasonHeldFinding || found && v.OutcomesRound != round {
+		if noDefect && handedToFixer(v, r, headSet) {
+			// A fix round handed this failure's reproduction at these heads
+			// concluded, in its recorded reason, that the code has no
+			// defect: that is the evidence a later round's pass there
+			// rests on.
+			continue
+		}
+		if r.Reason == acceptance.ReasonHeldFinding || findsFailing(r.Reason) && v.OutcomesRound != round {
 			out[r.ID] = r.Basis
 		}
 	}
 	return out
+}
+
+// findsFailing reports a judged reason that is a finding of the outcome
+// failing at the round's heads: a fix-worthy check failed and the evaluator
+// agreed (reproduced), a check saved red failed (suspected-defect), or the
+// evaluator saw the outcome fail with no check maul could confirm
+// (model-only-fail, evaluator-saw-failure), as surely a finding as an
+// anomaly it reported.
+func findsFailing(reason string) bool {
+	switch reason {
+	case acceptance.ReasonReproduced, acceptance.ReasonSuspectedDefect, acceptance.ReasonModelOnlyFail,
+		acceptance.ReasonEvaluatorSawFailure:
+		return true
+	}
+	return false
+}
+
+// handedToFixer reports r, a result of v's latest judgement at headSet, as
+// one the acceptance-fix round was handed: a reproduced failure, or the
+// suspected defect an approver confirmed there (/maul verify fix). An
+// outcome only suspected, or seen failing by the evaluator alone, was
+// never handed to it, so its no-defect conclusion says nothing of it.
+func handedToFixer(v *v1alpha1.IntentVerification, r v1alpha1.OutcomeResult, headSet string) bool {
+	switch r.Reason {
+	case acceptance.ReasonReproduced:
+		return true
+	case acceptance.ReasonSuspectedDefect:
+		s := v.Suspected
+		return s != nil && s.Confirmed != nil && s.HeadSetDigest == headSet && slices.Contains(s.Outcomes, r.ID)
+	}
+	return false
 }
 
 // holdOutcomes holds rs, a round's results at headSet, to the findings
@@ -573,19 +608,20 @@ func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) m
 // outcome this round did not find failing again is unsure, reason
 // ReasonHeldFinding, on the check it failed on, whatever else this round
 // decided; accepted when an approver accepted it at the heads. Only a
-// check retired, through a dispute with a proven replacement (this round's
-// Decision.Retire, or gone from the store as read), releases its outcome:
-// that is the evidence the check was wrong. A store that could not be read
-// releases nothing.
+// check gone from the store as read, retired through a dispute with a
+// proven replacement, releases its outcome: that is the evidence the check
+// was wrong. A retirement this round's Decision asks for releases nothing
+// yet, since the store may refuse it (retirable), and the round's record
+// must then keep the hold. A store that could not be read releases nothing.
 func holdOutcomes(rs []v1alpha1.OutcomeResult, failing map[string]string, acc *v1alpha1.IntentAcceptance,
 	headSet string, j roundJudgement) []v1alpha1.OutcomeResult {
 	for i := range rs {
 		basis, ok := failing[rs[i].ID]
-		if !ok || rs[i].Reason == acceptance.ReasonReproduced || rs[i].Reason == acceptance.ReasonSuspectedDefect {
-			continue // not held, or found again this round
+		if !ok || findsFailing(rs[i].Reason) {
+			continue // not held, or found failing again this round
 		}
-		if basis != "" && (slices.Contains(j.decision.Retire, basis) ||
-			j.stored != nil && !slices.ContainsFunc(j.stored, func(c v1alpha1.SavedCheck) bool { return c.Digest == basis })) {
+		if basis != "" && j.stored != nil &&
+			!slices.ContainsFunc(j.stored, func(c v1alpha1.SavedCheck) bool { return c.Digest == basis }) {
 			continue
 		}
 		r := v1alpha1.OutcomeResult{ID: rs[i].ID, Result: v1alpha1.OutcomeUnsure, Basis: basis,
@@ -620,7 +656,8 @@ func openAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
 // held, those earlier rounds found at its heads, first, then own, the
 // round's own, stamped with round and recorded at now, less any repeating a
 // held one's words (the held record, and any acceptance of it, stands), at
-// most maxAnomalies. prev is the record before this judgement: the round
+// most maxAnomalies, never an open one dropped for an accepted one
+// (fitAnomalies). prev is the record before this judgement: the round
 // judged again keeps its own records' time and acceptance.
 func carryAnomalies(prev, held, own []v1alpha1.AnomalyRecord, round int32,
 	now time.Time) []v1alpha1.AnomalyRecord {
@@ -643,10 +680,24 @@ func carryAnomalies(prev, held, own []v1alpha1.AnomalyRecord, round int32,
 		}
 		out = append(out, a)
 	}
-	if len(out) > maxAnomalies {
-		out = out[:maxAnomalies]
+	return fitAnomalies(out)
+}
+
+// fitAnomalies cuts as to maxAnomalies, the schema's bound, dropping the
+// latest an approver accepted first: an open anomaly is never dropped
+// while an accepted one is kept, since the record alone keeps a round from
+// Passed (judgedState). Past the bound with open ones alone, the latest go,
+// and the maxAnomalies kept still hold the heads.
+func fitAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
+	for i := len(as) - 1; i >= 0 && len(as) > maxAnomalies; i-- {
+		if as[i].Accepted != nil {
+			as = slices.Delete(as, i, i+1)
+		}
 	}
-	return out
+	if len(as) > maxAnomalies {
+		as = as[:maxAnomalies]
+	}
+	return as
 }
 
 // outcomeAccepted reports an approver's /maul accept of outcome id at the

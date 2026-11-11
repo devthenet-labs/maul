@@ -216,7 +216,8 @@ func TestHeldFindingOutcome(t *testing.T) {
 				}
 			}
 			retired := passingJudgement(t)
-			retired.decision.Retire = []string{check.Digest}
+			// Retired through a dispute: gone from the store as read.
+			retired.stored = []v1alpha1.SavedCheck{savedCheck(t, healthCheck)}
 			if v := e.judgeAt(name, 4, heads, retired); v.State != v1alpha1.VerificationPassed {
 				t.Errorf("round 4 retiring the check: %s %+v, want Passed", v.State, v.Outcomes[0])
 			}
@@ -325,11 +326,22 @@ func TestOpenFindingMakesTheRoundFull(t *testing.T) {
 		t.Error("a held outcome: want an open finding at its heads alone")
 	}
 	// A fix round handed the reproduction concluded no defect at the heads:
-	// its recorded reason releases the outcome (TestIntentEvaluateFixFindsNoDefect).
+	// its recorded reason releases the outcome it was handed, the suspected
+	// defect an approver confirmed (TestIntentEvaluateFixFindsNoDefect), and
+	// nothing it was not handed.
 	noDefect := held.DeepCopy()
 	noDefect.NoDefect = &v1alpha1.NoDefectRecord{Run: "x-rev-r2-a1", Reason: "fine", HeadSetDigest: heads}
-	if openFindingAt(noDefect, acc, heads) || heldOutcomes(noDefect, heads, 2) != nil {
-		t.Error("a held outcome after a no-defect conclusion at its heads still holds them")
+	if !openFindingAt(noDefect, acc, heads) {
+		t.Error("a no-defect conclusion released an outcome held from an earlier round, never handed to it")
+	}
+	noDefect.Outcomes[0].Reason = acceptance.ReasonSuspectedDefect
+	if !openFindingAt(noDefect, acc, heads) {
+		t.Error("a no-defect conclusion released a suspected defect no approver confirmed")
+	}
+	noDefect.Suspected = &v1alpha1.SuspectedDefect{Verification: "x-v-r1", HeadSetDigest: heads,
+		Outcomes: []string{oVersion}, Confirmed: &v1alpha1.Rearm{By: approver, ByID: 7}}
+	if openFindingAt(noDefect, acc, heads) || len(heldOutcomes(noDefect, heads, 2)) != 0 {
+		t.Error("a confirmed suspected defect after a no-defect conclusion at its heads still holds them")
 	}
 	acc.Accepted = []v1alpha1.AcceptanceRecord{{ID: oVersion, By: approver, ByID: 7, CommentID: 1,
 		HeadSetDigest: heads}}

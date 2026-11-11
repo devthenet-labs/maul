@@ -291,12 +291,13 @@ const (
 	// automatic fix; a person confirms it with /maul verify fix.
 	ReasonSuspectedDefect = "suspected-defect"
 	// ReasonHeldFinding: an earlier round at the same heads found the
-	// outcome failing, or suspected a defect in it, on a check still saved
-	// (G-B-LIB-1): a finding is a fact about the heads, so a later round
-	// there leaves the outcome unsure, never passed, until the heads move,
-	// an approver accepts it or the check is retired through a dispute with
-	// a proven replacement. Never Decide's: the intent controller, which
-	// keeps the rounds' records, applies it.
+	// outcome failing or suspected a defect in it, on a check still saved,
+	// or its evaluator saw the outcome fail (G-B-LIB-1): a finding is a
+	// fact about the heads, so a later round there leaves the outcome
+	// unsure, never passed, until the heads move, an approver accepts it,
+	// the check is retired through a dispute with a proven replacement, or
+	// a fix round handed the failure concludes no defect. Never Decide's:
+	// the intent controller, which keeps the rounds' records, applies it.
 	ReasonHeldFinding = "held-finding"
 	// ReasonFlaky: a check of the outcome both passed and failed at the
 	// same heads this round.

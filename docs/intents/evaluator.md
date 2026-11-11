@@ -180,7 +180,7 @@ Everything else:
 | A check failed while preview-controller saw a component crash, get evicted or OOM             | **unsure**, the preview's failure; never a fix                                                                                                  |
 | maul's own machinery failed (a tool pod never ready, a ledger that does not hold)             | the attempt is retried; past its bound, unsure                                                                                                  |
 | A manual outcome                                                                              | only a person closes it, with `/maul accept <id>`                                                                                               |
-| An earlier round at the same commits found it failing, or suspected a defect in it            | **unsure** (`held-finding`), whatever this round found: see [A finding holds its commits](#a-finding-holds-its-commits)                         |
+| An earlier round at the same commits found it failing, suspected a defect, or saw it fail     | **unsure** (`held-finding`), whatever this round found: see [A finding holds its commits](#a-finding-holds-its-commits)                         |
 
 ## A defect found in round 1
 
@@ -331,9 +331,9 @@ A new round replays only when all of these hold; otherwise it is **full** (repla
   round after the heads move (a fix or a person's push) are full;
 - that round's evaluator raised nothing: no outcome it judged `fail`, none with contrary entries, and no look-around
   anomaly (`modelRound.clear`). Only a model can look again at what a model raised;
-- no anomaly an earlier round found at these heads still holds them (see
+- no anomaly or failing outcome an earlier round found at these heads still holds them (see
   [A finding holds its commits](#a-finding-holds-its-commits)): a replay could never pass over it, and a round at heads
-  an anomaly holds is full, its evaluator told of the anomaly;
+  a finding holds is full, its evaluator told of any anomaly;
 - every outcome but the manual ones is bound to a saved check that could pass it: stored (so confirmed), valid, in one
   of maul's forms, reviewed `proves` for the outcome's exact text, not narrowed, and, for a check saved to show a
   defect, cleared and reviewed with the green question too;
@@ -399,12 +399,15 @@ the source) has not shown it is gone, and running the saved checks again cannot 
   is handed the anomaly and asked to examine it again: to reproduce it with a program or check of its own, report it
   again where it does, and judge any outcome covering it on what it ran, not on the saved checks alone. Where it cannot
   reproduce it, its report says what it ran (the run panel shows it), for the approver to weigh before accepting.
-- **An outcome found failing, or suspected defective,** on a saved check is unsure in every later round there whose
-  check now passes (`held-finding`: a check that failed and then passed at the same commits shows nothing was fixed).
-  Two more ways out are recorded evidence: a dispute with a confirmed, reviewed replacement retires the check, and with
-  it the hold, as the check was wrong; and a fix round handed the reproduction at these commits that concludes, with its
-  reason, that the code has no defect releases it (so a round after `/maul verify` can pass once what failed was the
-  environment).
+- **An outcome found failing, or suspected defective,** on a saved check, or one the evaluator saw fail with no check
+  maul could confirm (`model-only-fail`, `evaluator-saw-failure`), is unsure in every later round there that would pass
+  it (`held-finding`: a check that failed and then passed at the same commits shows nothing was fixed, and a model that
+  no longer sees a failure has not shown it is gone). Two more ways out are recorded evidence. A check retired through a
+  dispute with a confirmed, reviewed replacement releases the hold once the retirement is stored (the check was wrong);
+  the dispute round itself still holds it. A fix round handed the reproduction at these commits that concludes, with its
+  reason, that the code has no defect releases what it was handed (a reproduced failure, or a suspected defect an
+  approver confirmed), so a round after `/maul verify` can pass once what failed was the environment; it releases
+  nothing it was not handed.
 - **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
   every outcome maul could not confirm and every anomaly holding the commits. The acceptance is recorded on the anomaly
   (`accepted`), and holds only at those commits. It accepts only anomalies maul recorded before the comment was written
