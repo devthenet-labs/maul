@@ -59,7 +59,7 @@ const (
 	// VerifyNeedsReplan: an approved criterion cannot run as approved, and
 	// the approved plan cannot change in review (startOver).
 	VerifyNeedsReplan = "needs-replan"
-	// VerifyNotDeclared: the approved plan declares no acceptance criteria.
+	// VerifyNotDeclared: the approved plan declares no outcomes.
 	VerifyNotDeclared = "not-declared"
 	// VerifyNotChecked: the approved plan declares criteria, none of which
 	// maul checks automatically.
@@ -143,7 +143,7 @@ func verifyRestingLine(state string) (line string, whole bool) {
 	case VerifyNeedsReplan:
 		return "Verification cannot run: an approved check's target is not previewed. " + startOver(), true
 	case VerifyNotDeclared:
-		return "No acceptance criteria were declared.", true
+		return "No acceptance outcomes were declared.", true
 	case VerifyUnreadable:
 		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
 			"verified. " + startOver(), true
@@ -178,20 +178,27 @@ func startOver() string {
 // evaluation) it is, its counts (checks passing, or outcomes confirmed;
 // "" with none), and its passed head.
 func verifyNames(p VerifyProgress) (which, counts, passed string) {
-	which, counted, done := "Verification", "%d/%d checks passing", "%d/%d checks passed"
+	which = "Verification"
+	counted := func(n, total int32) string { return fmt.Sprintf("%d/%d checks passing", n, total) }
+	done := func(n, total int32) string { return fmt.Sprintf("%d/%d checks passed", n, total) }
 	if p.Outcomes {
-		which, counted, done = "Evaluation", "%d/%d outcomes confirmed", "%d/%d outcomes confirmed"
+		which, counted, done = "Evaluation", OutcomeCount, OutcomeCount
 	}
 	if p.Verification > 0 {
 		which = fmt.Sprintf("%s %d", which, p.Verification)
 	}
 	passed = which + " passed"
 	if p.Total > 0 {
-		counts = fmt.Sprintf(counted, p.Passing, p.Total)
-		passed += ": " + fmt.Sprintf(done, p.Passing, p.Total)
+		counts = counted(p.Passing, p.Total)
+		passed += ": " + done(p.Passing, p.Total)
 	}
 	return which, counts, passed
 }
+
+// OutcomeCount is n of total approved outcomes confirmed (or accepted), as
+// every surface counts them: the comments' progress line and the commit
+// status build it here alone (review L2).
+func OutcomeCount(n, total int32) string { return fmt.Sprintf("%d/%d outcomes confirmed", n, total) }
 
 // verifyLine is the progress as one sentence; "" for none.
 func verifyLine(p VerifyProgress) string {
@@ -409,7 +416,7 @@ func noDefectNote(n *VerifyNoDefect) string {
 	if run := shown(n.Run); run != "" {
 		b.WriteString(" " + code(run))
 	}
-	b.WriteString(" found no defect: its agent concluded that the code already does what the failing criteria ask, " +
+	b.WriteString(" found no defect: its agent concluded that the code already does what the failing outcomes ask, " +
 		"and changed nothing.")
 	if r := SanitizeInline(strings.TrimSpace(cutRunes(visibleText(n.Reason), verifyNoDefectMaxBytes))); r != "" {
 		b.WriteString(" Its reason, in its own words: " + r)
@@ -419,7 +426,7 @@ func noDefectNote(n *VerifyNoDefect) string {
 	}
 	b.WriteString(" This is the agent's verdict and may be wrong, so maul stopped fixing on its own. " +
 		slashCommand("verify") + " checks again (a failure caused by the preview rather than the code may pass), " +
-		slashCommand("verify fix") + " also lets maul fix failures again, and a criterion that then passes only " +
+		slashCommand("verify fix") + " also lets maul fix failures again, and an outcome that then passes only " +
 		"on retry can be accepted with " + slashCommand("accept <id>") + ". Otherwise review the change and " +
 		"decide.")
 	return b.String()

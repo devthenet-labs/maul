@@ -84,7 +84,7 @@ func TestUnjudgedRoundAtMovedHeadsShowsNoEarlierResults(t *testing.T) {
 		e.reviewReady(name, 3)
 	}
 	if v := e.verification(name); v.State != v1alpha1.VerificationUnconfirmed ||
-		v.UnavailableReason != v1alpha1.VerificationUnavailableToolsBuildFailed {
+		v.Cause != v1alpha1.SettleToolsBuildFailed {
 		t.Fatalf("verification = %+v, want Unconfirmed for the build", v)
 	}
 	e.checkNothingConfirmed(name)
@@ -136,8 +136,8 @@ func TestUnjudgedReplayRoundIsNotStillChecking(t *testing.T) {
 		v := in.Status.Verification
 		v.Round++
 		v.Attempt = v1alpha1.MaxVerificationAttempts
-		v.State, v.UnavailableReason = v1alpha1.VerificationUnconfirmed,
-			v1alpha1.VerificationUnavailableToolsBuildFailed
+		v.State, v.Cause = v1alpha1.VerificationUnconfirmed,
+			v1alpha1.SettleToolsBuildFailed
 	})
 	p := e.prVerifyPass(name)
 	if p.replayDue(p.in.Status.Verification) {

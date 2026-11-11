@@ -589,7 +589,7 @@ func TestIntentAgentsHeadBuildFails(t *testing.T) {
 	number, name, pr := e.toReview(t)
 	in := e.waitEval(t, name, "the round to end unconfirmed", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationUnconfirmed &&
-			v.UnavailableReason == v1alpha1.VerificationUnavailableToolsBuildFailed
+			v.Cause == v1alpha1.SettleToolsBuildFailed
 	})
 	if v := in.Status.Verification; v.Failed != 0 || v.Passed != 0 {
 		t.Errorf("verification %+v, want nothing failed or passed", v)

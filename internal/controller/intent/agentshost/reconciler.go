@@ -184,8 +184,13 @@ func (r *Reconciler) deleteLoneSecret(ctx context.Context, pv *v1alpha1.PreviewV
 	return r.Tools.Delete(ctx, name)
 }
 
-// fitStatus holds pv to maxObject: log tails go first; one still over is
-// maul's trouble, its ledger fields dropped.
+// fitStatus holds pv to maxObject, as preview-controller's fitToolStatus
+// does: log tails go first, from the last part back; then the ledger
+// fields. An Observed round's verdict rests on those, so one that loses
+// them is maul's trouble (Infra ledger-mismatch); any other phase rests on
+// none of them and keeps its own, so a round settled for a reason (the
+// head not built, its sandbox open, its tool pod lost) is never turned
+// into another.
 func fitStatus(pv *v1alpha1.PreviewVerification) {
 	for i := len(pv.Status.Environment) - 1; i >= 0 && jsonSize(pv) > maxObject; i-- {
 		pv.Status.Environment[i].LogTail = ""
@@ -195,8 +200,10 @@ func fitStatus(pv *v1alpha1.PreviewVerification) {
 	}
 	pv.Status.Ledger, pv.Status.Replay, pv.Status.Confirmations, pv.Status.Confirmed = nil, nil, nil, nil
 	pv.Status.Base = nil
-	pv.Status.Phase = v1alpha1.VerificationInfra
-	pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch
+	if pv.Status.Phase == v1alpha1.VerificationObserved {
+		pv.Status.Phase = v1alpha1.VerificationInfra
+		pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch
+	}
 }
 
 // jsonSize is v's JSON size, -1 when it does not encode.

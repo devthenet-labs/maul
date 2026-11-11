@@ -48,11 +48,11 @@ func (p *pass) atHeads(v *v1alpha1.IntentVerification) bool {
 }
 
 // judgedAtRecord reports that v's outcomes were written by the judgement of
-// its own round at its own head set, by a round that ran (agentsWhy: a
+// its own round at its own head set, by a round that ran (settledWhy: a
 // round that recorded it could not run is no judgement, whatever outcomes
 // it kept). It reads the record alone; judgedNow adds the heads now.
 func judgedAtRecord(v *v1alpha1.IntentVerification) bool {
-	return v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) && agentsWhy(v) == ""
+	return v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) && settledWhy(v) == ""
 }
 
 // judgedNow reports that v holds a judgement of the pull requests as they

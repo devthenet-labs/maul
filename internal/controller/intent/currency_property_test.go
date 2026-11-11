@@ -20,7 +20,7 @@ import (
 // against the pull requests now: the head moved on the pull request alone
 // (the head set not yet synced), the outcomes written by another round or
 // at another head set than the record's, or the round settled unjudged (a
-// recorded reason it could not run, agentsWhy).
+// recorded reason it could not run, settledWhy).
 type currencyCase struct {
 	moved, otherRound, otherHeads, unjudged bool
 	// shift moves the record's round and its outcomes' round together.
@@ -127,7 +127,7 @@ func (c currencyCase) apply(in *v1alpha1.Intent, rng *rand.Rand) {
 		v.OutcomesHeadSetDigest = "sha256:" + strings.Repeat("c", 64)
 	}
 	if c.unjudged {
-		v.State, v.UnavailableReason = v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationUnavailableTree
+		v.State, v.Cause = v1alpha1.VerificationUnconfirmed, v1alpha1.SettleTree
 	}
 	if c.moved {
 		in.Status.PullRequests[0].HeadSHA = strings.Repeat(string(rune('d'+rng.Intn(3))), 40)

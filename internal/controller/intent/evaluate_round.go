@@ -159,7 +159,7 @@ func (p *pass) settleUnverified(ctx context.Context) (bool, error) {
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.Requested, nv.Ref = v1alpha1.VerificationOff, nil, nil
+		nv.State, nv.Requested, nv.Ref, nv.RetryOwed = v1alpha1.VerificationOff, nil, nil, false
 		at := metav1.NewTime(p.now)
 		nv.Handoff = &v1alpha1.HandoffState{Mode: v1alpha1.HandoffEarly, Released: true, ReleasedAt: &at,
 			Reason: v1alpha1.HandoffReasonEvaluatorUnverified}

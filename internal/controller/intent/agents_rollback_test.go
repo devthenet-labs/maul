@@ -59,7 +59,7 @@ func TestAgentsRollbackSettlesTheOpenRound(t *testing.T) {
 	e.review(name, 4)
 
 	v := e.verification(name)
-	if v.State != v1alpha1.VerificationUnavailable || v.UnavailableReason != "" || v.Requested != nil {
+	if v.State != v1alpha1.VerificationUnavailable || v.Cause != "" || v.Requested != nil {
 		t.Fatalf("verification = %+v, want Unavailable", v)
 	}
 	if v.Passed != 0 || v.Failed != 0 || len(v.Outcomes) != 0 {
@@ -467,18 +467,18 @@ func TestAgentsRollbackKeepsTheRecordedGiveUpReason(t *testing.T) {
 // says it could not run its checks.
 func TestAgentsOffKeepsTheRecordedUnavailableReason(t *testing.T) {
 	for _, tc := range []struct {
-		reason v1alpha1.VerificationUnavailableReason
+		reason v1alpha1.SettleCause
 		words  string
 	}{
-		{v1alpha1.VerificationUnavailableSandboxImage,
+		{v1alpha1.SettleSandboxImage,
 			"maul couldn't confirm this: the repository has no accepted runner image to build the pull request in."},
-		{v1alpha1.VerificationUnavailableTree,
+		{v1alpha1.SettleTree,
 			"maul couldn't confirm this: it could not fetch the source of the pull request or of its base."},
 		{"", "maul couldn't confirm this: it could not run its checks."},
 	} {
 		t.Run(string(tc.reason), func(t *testing.T) {
 			e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnconfirmed)
-			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.UnavailableReason = tc.reason })
+			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.Cause = tc.reason })
 			e.agentsOn(false)
 			e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.State = v1alpha1.VerificationOff })
 			e.review(name, 6)
@@ -506,7 +506,7 @@ func TestAgentsOffDropsAReasonRecordedAtOtherHeads(t *testing.T) {
 	const notRun = "maul couldn't confirm this: it could not run its checks."
 	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnavailable)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		in.Status.Verification.UnavailableReason = v1alpha1.VerificationUnavailableTree
+		in.Status.Verification.Cause = v1alpha1.SettleTree
 	})
 	before := e.verification(name).HeadSetDigest
 	e.pushHead(e.get(name).Status.PullRequests[0].Number, strings.Repeat("f", 40))
@@ -520,9 +520,9 @@ func TestAgentsOffDropsAReasonRecordedAtOtherHeads(t *testing.T) {
 	if v.HeadSetDigest == before {
 		t.Fatalf("head set never followed the push: %+v", v)
 	}
-	if v.UnavailableReason != "" {
+	if v.Cause != "" {
 		t.Errorf("verification at the new heads = %s with reason %q, want the old heads' reason dropped",
-			v.State, v.UnavailableReason)
+			v.State, v.Cause)
 	}
 	e.agentsOn(false)
 	e.review(name, 6)

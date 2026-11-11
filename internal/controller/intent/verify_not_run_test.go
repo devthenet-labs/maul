@@ -120,7 +120,7 @@ func TestAgentsRequestThatCannotRunKeepsTheJudgement(t *testing.T) {
 			e.review(name, 2)
 
 			v := e.verification(name)
-			if v.State != v1alpha1.VerificationPassed || v.UnavailableReason != "" || v.Requested != nil ||
+			if v.State != v1alpha1.VerificationPassed || v.Cause != "" || v.Requested != nil ||
 				v.Round != 1 || len(v.JudgedOutcomes()) == 0 {
 				t.Fatalf("verification = %+v, want round 1's Passed standing and the request consumed", v)
 			}
@@ -175,7 +175,7 @@ func TestAgentsUnrunnableStateNeverReadsPassed(t *testing.T) {
 	e.passAgentsRound(name, pv)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
-		v.State, v.UnavailableReason = v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationUnavailableSandboxImage
+		v.State, v.Cause = v1alpha1.VerificationUnconfirmed, v1alpha1.SettleSandboxImage
 	})
 	e.review(name, 3)
 
@@ -286,9 +286,9 @@ func TestPendingRequestDroppedByTheRollbackIsAnswered(t *testing.T) {
 func TestOutcomesReadyNeverOverAnUnrunnableRound(t *testing.T) {
 	acc := &v1alpha1.IntentAcceptance{}
 	digest := "sha256:" + strings.Repeat("a", 64)
-	for _, reason := range []v1alpha1.VerificationUnavailableReason{"", v1alpha1.VerificationUnavailableSandboxImage,
-		v1alpha1.VerificationUnavailableTree, v1alpha1.VerificationUnavailableToolsBuildFailed} {
-		v := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnconfirmed, UnavailableReason: reason,
+	for _, reason := range []v1alpha1.SettleCause{"", v1alpha1.SettleSandboxImage,
+		v1alpha1.SettleTree, v1alpha1.SettleToolsBuildFailed} {
+		v := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnconfirmed, Cause: reason,
 			Round: 5, HeadSetDigest: digest, OutcomesRound: 5, OutcomesHeadSetDigest: digest,
 			OutcomesEnvironment: string(httpstep.EnvOK),
 			Outcomes:            []v1alpha1.OutcomeResult{{ID: oVersion, Result: v1alpha1.OutcomePassed}}}
@@ -328,7 +328,7 @@ func TestAgentsUnrunnableStateIsNoStandingJudgement(t *testing.T) {
 	e.passAgentsRound(name, pv)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
-		v.State, v.UnavailableReason = v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationUnavailableSandboxImage
+		v.State, v.Cause = v1alpha1.VerificationUnconfirmed, v1alpha1.SettleSandboxImage
 	})
 	e.review(name, 3)
 	dropRunnerImages(t, e)
@@ -340,7 +340,7 @@ func TestAgentsUnrunnableStateIsNoStandingJudgement(t *testing.T) {
 
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationUnconfirmed ||
-		v.UnavailableReason != v1alpha1.VerificationUnavailableSandboxImage || v.Requested != nil {
+		v.Cause != v1alpha1.SettleSandboxImage || v.Requested != nil {
 		t.Fatalf("verification = %+v, want Unconfirmed for no image, the request consumed", v)
 	}
 	replies := []string{e.onlyReply(id)}

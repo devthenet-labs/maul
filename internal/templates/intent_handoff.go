@@ -5,8 +5,7 @@ package templates
 
 import (
 	"fmt"
-
-	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"strings"
 )
 
 // The gated hand-off (agent evaluator, DESIGN 7.1, 7.2): how a live
@@ -58,10 +57,21 @@ const (
 	// HandoffWhyReplay: a replay round's tool pod finished before the end
 	// of its replay, so a saved check may never have run (review VC-3).
 	HandoffWhyReplay = "replay"
+
+	// HandoffWhyInfra: the environment failed for maul's own reasons (its
+	// tools, the cluster), never the change's (review H3); the change's
+	// own failure is HandoffWhyEnvironment.
+	HandoffWhyInfra = "infra"
+
+	// HandoffWhySuspected: maul suspects a defect in outcomes
+	// (PreviewHandoff.Suspected) and waits for a person to confirm it
+	// (gate D-B11): it leads, before outcomes in doubt or an anomaly.
+	HandoffWhySuspected = "suspected"
 )
 
 // handoffWhyWords are the reasons in maul's words; one not listed shows as
-// the generic reason, never as the text it carried.
+// the generic reason, never as the text it carried. A Project with no
+// preview reads workspaceWhyWords first.
 var handoffWhyWords = map[string]string{
 	HandoffWhyUnsure:      "some outcomes are unsure",
 	HandoffWhyFailing:     "an outcome fails and maul stopped fixing it",
@@ -71,9 +81,12 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyTime:        "it ran out of time",
 	HandoffWhySandbox:     "its sandbox was not enforced",
 	HandoffWhyEnvironment: "the preview failed while it was checked",
+	HandoffWhyInfra:       "its own checking environment failed while it checked",
 	HandoffWhyUnavailable: "it could not run its checks",
 	// Gate D-B6; the words without a count, which doubtedWords gives.
 	HandoffWhyEvaluatorDoubts: "the evaluator judged some outcomes not to hold, but no check maul re-ran shows it",
+	// Gate D-B11; the words without the outcomes, which suspectedWhy gives.
+	HandoffWhySuspected: "it suspects a defect, which a person should confirm",
 	// The agents-namespace tool pod's (SPEC-S2).
 	HandoffWhyBuildFailed:  "its own build of the pull request did not finish",
 	HandoffWhySandboxImage: "the repository has no accepted runner image to build the pull request in",
@@ -82,46 +95,34 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyReplay: "it could not re-run every check it saved",
 }
 
-// workspaceEnvironmentWords is HandoffWhyEnvironment on a Project with no
-// preview: what failed is maul's own tool pod, never a preview.
-const workspaceEnvironmentWords = "its own checking tools failed while it checked"
-
-// UnconfirmedCause is why a round whose every outcome was confirmed (or
-// accepted) is still not confirmed, in maul's words, for the two causes
-// that withhold it whatever the outcomes show (review H2): an anomaly and
-// an environment that was not clean; workspace is a Project with no
-// preview. "" for any other reason, which the counts already explain.
-func UnconfirmedCause(why string, workspace bool) string {
-	switch {
-	case why == HandoffWhyEnvironment && workspace:
-		return workspaceEnvironmentWords
-	case why == HandoffWhyAnomaly, why == HandoffWhyEnvironment:
-		return handoffWhyWords[why]
-	}
-	return ""
+// workspaceWhyWords are the reasons whose words differ on a Project with
+// no preview: what fails there is maul's own tool pod, never a preview.
+var workspaceWhyWords = map[string]string{
+	HandoffWhyEnvironment: "its own checking tools failed while it checked",
+	HandoffWhyInfra:       "its own checking tools failed while it checked",
 }
 
-// HandoffWhyOfVerification is why maul could not confirm, as an
-// unconfirmed hand-off says it, for a PreviewVerification that settled for
-// a reason of the agents-namespace tool pod (SPEC-S2) or a replay cut short
-// (review VC-3); "" for any other
-// reason, and for a saturated tool pod bound, which waits and never gives
-// up.
-func HandoffWhyOfVerification(reason v1alpha1.PreviewVerificationReason) string {
-	switch reason {
-	case v1alpha1.VerificationReasonToolsBuildFailed:
-		return HandoffWhyBuildFailed
-	case v1alpha1.VerificationReasonSandboxImageUnavailable:
-		return HandoffWhySandboxImage
-	case v1alpha1.VerificationReasonTreeUnavailable:
-		return HandoffWhyTree
-	case v1alpha1.VerificationReasonSandboxUnenforced:
-		return HandoffWhySandbox
-	case v1alpha1.VerificationReasonToolsEvicted, v1alpha1.VerificationReasonToolsDeadline,
-		v1alpha1.VerificationReasonKeptCopyFailed:
-		return HandoffWhyUnavailable
-	case v1alpha1.VerificationReasonReplayIncomplete:
-		return HandoffWhyReplay
+// whyWords are why's words, on a Project with no preview when workspace;
+// ok is false for a reason not listed.
+func whyWords(why string, workspace bool) (words string, ok bool) {
+	if w, found := workspaceWhyWords[why]; found && workspace {
+		return w, true
+	}
+	w, found := handoffWhyWords[why]
+	return w, found
+}
+
+// UnconfirmedCause is why a round whose every outcome was confirmed (or
+// accepted) is still not confirmed, in maul's words, for the causes that
+// withhold it whatever the outcomes show (review H2): an anomaly, and an
+// environment that was not clean, the change's or maul's own (review H3);
+// workspace is a Project with no preview. "" for any other reason, which
+// the counts already explain.
+func UnconfirmedCause(why string, workspace bool) string {
+	switch why {
+	case HandoffWhyAnomaly, HandoffWhyEnvironment, HandoffWhyInfra:
+		w, _ := whyWords(why, workspace)
+		return w
 	}
 	return ""
 }
@@ -131,23 +132,33 @@ func HandoffWhyOfVerification(reason v1alpha1.PreviewVerificationReason) string 
 // for HandoffUnconfirmed one of the HandoffWhy constants.
 type PreviewHandoff struct {
 	State, Why string
-	// Doubted counts, for HandoffWhyEvaluatorDoubts, the outcomes the
-	// evaluator judged not to hold (gate D-B6).
+	// Doubted counts the outcomes the evaluator judged not to hold (gate
+	// D-B6): the reason itself for HandoffWhyEvaluatorDoubts, named after
+	// the outcomes maul suspects for HandoffWhySuspected.
 	Doubted int32
+	// Suspected are, for HandoffWhySuspected, the outcomes maul suspects a
+	// defect in (gate D-B11).
+	Suspected []string
 	// Anomaly: for HandoffUnconfirmed, a look-around anomaly is named after
 	// the reason, which leads with the outcomes in doubt (gate D-B6).
 	Anomaly bool
 }
 
-// handoffWhy is why maul could not confirm, in its words: the reason,
-// then an anomaly beside it, if any.
-func handoffWhy(h PreviewHandoff) string {
-	w, ok := handoffWhyWords[h.Why]
+// handoffWhy is why maul could not confirm, in its words (on a Project
+// with no preview when workspace): the reason, then the outcomes in doubt
+// after a suspected defect, then an anomaly, if any.
+func handoffWhy(h PreviewHandoff, workspace bool) string {
+	w, ok := whyWords(h.Why, workspace)
 	switch {
 	case !ok:
 		w = handoffWhyWords[HandoffWhyUnsure]
 	case h.Why == HandoffWhyEvaluatorDoubts && h.Doubted > 0:
 		w = doubtedWords(h.Doubted)
+	case h.Why == HandoffWhySuspected:
+		w = suspectedWhy(h.Suspected)
+		if h.Doubted > 0 {
+			w += ", and " + doubtedWords(h.Doubted)
+		}
 	}
 	if h.Anomaly && h.Why != HandoffWhyAnomaly {
 		w += ", and " + handoffWhyWords[HandoffWhyAnomaly]
@@ -162,14 +173,32 @@ func doubtedWords(n int32) string {
 		plural(n, "outcome", "outcomes"))
 }
 
+// suspectedWhy are HandoffWhySuspected's words naming the outcomes, each
+// shown as code; the words without them when none can be shown.
+func suspectedWhy(outcomes []string) string {
+	ids := make([]string, 0, len(outcomes))
+	for _, id := range outcomes {
+		if c := shown(id); c != "" {
+			ids = append(ids, code(c))
+		}
+	}
+	if len(ids) == 0 {
+		return handoffWhyWords[HandoffWhySuspected]
+	}
+	return "it suspects a defect in " + strings.Join(ids, ", ") + ", which a person should confirm"
+}
+
 // handoffLabel is the label a released link carries, ending in a full
 // stop; "" for a held one.
-func handoffLabel(h PreviewHandoff) string {
+func handoffLabel(h PreviewHandoff) string { return labelIn(h, false) }
+
+// labelIn is handoffLabel, on a Project with no preview when workspace.
+func labelIn(h PreviewHandoff, workspace bool) string {
 	switch h.State {
 	case HandoffReady:
 		return "Ready: maul checked the approved outcomes."
 	case HandoffUnconfirmed:
-		return "maul couldn't confirm this: " + handoffWhy(h) + "."
+		return "maul couldn't confirm this: " + handoffWhy(h, workspace) + "."
 	case HandoffChecking:
 		return "Shown while maul is still checking the approved outcomes."
 	}
@@ -223,16 +252,13 @@ func workspaceRelease() string {
 
 // workspaceLabel is a released workspace hand-off's label, ending in a
 // full stop: the linked label, except that nothing is shown while maul is
-// still checking and a failing environment names no preview; "" for a
-// held one.
+// still checking and a failing environment names no preview
+// (workspaceWhyWords); "" for a held one.
 func workspaceLabel(h PreviewHandoff) string {
-	switch {
-	case h.State == HandoffChecking:
+	if h.State == HandoffChecking {
 		return "Handed to its reviewers while maul is still checking the approved outcomes " + workspaceBuild + "."
-	case h.State == HandoffUnconfirmed && h.Why == HandoffWhyEnvironment:
-		return "maul couldn't confirm this: " + workspaceEnvironmentWords + "."
 	}
-	return handoffLabel(h)
+	return labelIn(h, true)
 }
 
 // workspaceStatusSentence is the status comment's evaluation sentence

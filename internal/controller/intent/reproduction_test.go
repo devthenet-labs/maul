@@ -62,6 +62,35 @@ func TestCheckRunEntryIsWire(t *testing.T) {
 	}
 }
 
+// TestObservationsCarryWhatTheElementShowed (gate D-B10): a failing step's
+// observation carries what its element showed, each attempt's own run token
+// written back as the placeholder the check's steps name, so the person and
+// the fix round see what the row showed, not only that the text did not
+// match; a step with nothing received carries nothing.
+func TestObservationsCarryWhatTheElementShowed(t *testing.T) {
+	rec := &toolwire.CheckRunRecord{Attempts: []toolwire.Attempt{
+		{Run: "t1aa", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
+			{Index: 0, Result: toolwire.ResultPass},
+			{Index: 5, Result: toolwire.ResultFail, Detail: "the text expectation was not met", Assertion: true,
+				AssertionID: "expect", Received: "t1aa 120 bpm · swing 0%"}}},
+		{Run: "t2bb", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
+			{Index: 5, Result: toolwire.ResultFail, Detail: "the text expectation was not met", Assertion: true,
+				AssertionID: "expect", Received: "t2bb 120 bpm · swing 0%"}}},
+		{Run: "t3cc", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
+			{Index: 2, Result: toolwire.ResultError, Detail: "timeout"}}},
+	}}
+	want := []templates.ReproductionObservation{
+		{Attempt: 1, Step: 6, Result: "fail", Detail: "the text expectation was not met",
+			Received: checks.RunPlaceholder + " 120 bpm · swing 0%"},
+		{Attempt: 2, Step: 6, Result: "fail", Detail: "the text expectation was not met",
+			Received: checks.RunPlaceholder + " 120 bpm · swing 0%"},
+		{Attempt: 3, Step: 3, Result: "error", Detail: "timeout"},
+	}
+	if got := observations(rec); !slices.Equal(got, want) {
+		t.Errorf("observations = %+v, want %+v", got, want)
+	}
+}
+
 // TestLogWindow: a failing run's window is what a component logged between
 // the evaluator's last read of its log before the run and its first read
 // after it (the capture grows from the verification's start, so the later

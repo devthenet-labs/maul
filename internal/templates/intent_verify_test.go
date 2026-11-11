@@ -320,7 +320,7 @@ func TestVerifyLineStates(t *testing.T) {
 		{VerifyProgress{State: VerifyWaiting}, "Verification waits for the preview to be ready."},
 		{VerifyProgress{State: VerifyNeedsReplan, AutoFix: FixHalted, AutoFixReason: "CriterionError"},
 			"Verification cannot run: an approved check's target is not previewed. " + startOverText},
-		{VerifyProgress{State: VerifyNotDeclared}, "No acceptance criteria were declared."},
+		{VerifyProgress{State: VerifyNotDeclared}, "No acceptance outcomes were declared."},
 		{VerifyProgress{State: VerifyNotChecked, ManualOpen: 2}, "Nothing is checked automatically, 2 for a human."},
 		{VerifyProgress{State: VerifyUnreadable}, "Verification stopped: maul cannot read the approved plan's " +
 			"acceptance criteria, so nothing is verified. " + startOverText},

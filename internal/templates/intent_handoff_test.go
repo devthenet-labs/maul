@@ -47,6 +47,16 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_status_handoff_environment_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyEnvironment}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
 			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyEnvironment})},
+		// Review H3: maul's own environment failing, never "the preview".
+		{"intent_status_handoff_infra_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
+			Why: HandoffWhyInfra}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
+			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyInfra})},
+		// Gate D-B11: the suspected defect leads, the doubted outcome and
+		// the anomaly after it.
+		{"intent_status_handoff_suspected.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
+			Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}, Doubted: 1, Anomaly: true},
+			&VerifyProgress{State: VerifyUnconfirmed, Verification: 4, FixesUsed: 1, MaxFixes: 2, Passing: 3,
+				Total: 5, Outcomes: true, Why: HandoffWhySuspected})},
 		// Gate D-B6: outcomes the evaluator judged not to hold lead, counted,
 		// an anomaly second.
 		{"intent_status_handoff_doubted_anomaly.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
@@ -190,7 +200,11 @@ func TestUnconfirmedCause(t *testing.T) {
 		{HandoffWhyAnomaly, false, handoffWhyWords[HandoffWhyAnomaly]},
 		{HandoffWhyAnomaly, true, handoffWhyWords[HandoffWhyAnomaly]},
 		{HandoffWhyEnvironment, false, handoffWhyWords[HandoffWhyEnvironment]},
-		{HandoffWhyEnvironment, true, workspaceEnvironmentWords},
+		{HandoffWhyEnvironment, true, workspaceWhyWords[HandoffWhyEnvironment]},
+		// Review H3: maul's own environment failing is never the preview.
+		{HandoffWhyInfra, false, "its own checking environment failed while it checked"},
+		{HandoffWhyInfra, true, "its own checking tools failed while it checked"},
+		{HandoffWhySuspected, false, ""},
 		{HandoffWhyUnsure, false, ""},
 		{HandoffWhyBudget, false, ""},
 		{"", true, ""},
@@ -200,8 +214,38 @@ func TestUnconfirmedCause(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("%q (workspace %v) = %q, want %q", tt.why, tt.workspace, got, tt.want)
 		}
-		if tt.workspace && strings.Contains(got, "preview") {
-			t.Errorf("%q names a preview on a Project with none: %q", tt.why, got)
+		if (tt.workspace || tt.why == HandoffWhyInfra) && strings.Contains(got, "preview") {
+			t.Errorf("%q (workspace %v) names a preview: %q", tt.why, tt.workspace, got)
+		}
+	}
+}
+
+// TestHandoffSuspectedLeads (gate D-B11): a suspected defect leads the
+// reason, naming each outcome as code (an id that shows nothing is left
+// out), before the outcomes the evaluator doubts and any anomaly; with no
+// outcome it can show it still says a defect is suspected.
+func TestHandoffSuspectedLeads(t *testing.T) {
+	const anomaly = ", and it noticed something odd while it looked around."
+	for _, tt := range []struct {
+		h    PreviewHandoff
+		want string
+	}{
+		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}},
+			"it suspects a defect in `swing-shown-nonzero`, which a person should confirm."},
+		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"a", "b"}, Doubted: 1, Anomaly: true},
+			"it suspects a defect in `a`, `b`, which a person should confirm, and the evaluator judged 1 " +
+				"outcome not to hold, but no check maul re-ran shows it" + anomaly},
+		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"", " "}},
+			"it suspects a defect, which a person should confirm."},
+		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"x` @octocat #3"}},
+			"it suspects a defect in ``x` @octocat #3``, which a person should confirm."},
+	} {
+		tt.h.State = HandoffUnconfirmed
+		for _, workspace := range []bool{false, true} {
+			got := labelIn(tt.h, workspace)
+			if want := "maul couldn't confirm this: " + tt.want; got != want {
+				t.Errorf("%+v (workspace %v) = %q, want %q", tt.h, workspace, got, want)
+			}
 		}
 	}
 }

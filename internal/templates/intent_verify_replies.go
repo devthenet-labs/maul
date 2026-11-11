@@ -317,8 +317,8 @@ func requestedText(n VerifyCommandNotice, actor string) string {
 		cmd = slashCommand(n.Verb + " " + command.VerifyReset)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s from %s is recorded: maul checks the combined change against the approved acceptance "+
-		"criteria ", cmd, actor)
+	fmt.Fprintf(&b, "%s from %s is recorded: maul checks the combined change against the approved outcomes ",
+		cmd, actor)
 	switch {
 	case n.AfterRound:
 		b.WriteString("after the current round.")
@@ -334,7 +334,7 @@ func requestedText(n VerifyCommandNotice, actor string) string {
 		b.WriteString(" The preview restarts with fresh data first.")
 	}
 	if n.Fix {
-		b.WriteString(" maul may fix failing criteria on its own again.")
+		b.WriteString(" maul may fix failing outcomes on its own again.")
 	}
 	return b.String()
 }
@@ -374,7 +374,7 @@ func notRunText(n VerifyCommandNotice, actor string) string {
 // stoppedText is the reply to /maul verify stop from actor.
 func stoppedText(n VerifyCommandNotice, actor string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s from %s is recorded: maul no longer fixes failing acceptance criteria on its own.",
+	fmt.Fprintf(&b, "%s from %s is recorded: maul no longer fixes failing outcomes on its own.",
 		slashCommand(n.Verb+" "+command.VerifyStop), actor)
 	if n.Cancelled {
 		b.WriteString(" The automatic fix that had not started yet is cancelled.")
