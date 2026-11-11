@@ -157,22 +157,29 @@ func (openaiUsage) body(data []byte) (usage, bool) {
 }
 
 // openaiUsageJSON is the Responses usage object. output_tokens already
-// includes reasoning tokens; input_tokens includes the cached ones.
+// includes reasoning tokens; input_tokens includes the cached ones and the
+// cache writes.
 type openaiUsageJSON struct {
 	Input   *int64 `json:"input_tokens"`
 	Details *struct {
-		Cached *int64 `json:"cached_tokens"`
+		Cached     *int64 `json:"cached_tokens"`
+		CacheWrite *int64 `json:"cache_write_tokens"`
 	} `json:"input_tokens_details"`
 	Output *int64 `json:"output_tokens"`
 }
 
 // usage maps a Responses usage object onto the ledger's fields: cache
-// reads are the cached part of the input, fresh input the rest, and output
-// as reported. OpenAI reports no cache writes apart from input, so there
-// are none here: a write is fresh input (priced at the input rate), which
-// keeps model.MeasuredCostUSD and the price table untouched. Negative
-// figures count as zero and the cached part never exceeds the input, so
-// input + cacheRead is always the reported input_tokens.
+// reads are the cached part of the input, cache writes its written part,
+// fresh input the rest, and output as reported. GPT-5.6 and later bill a
+// 30-minute cache write at 1.25x input, the five-minute class's multiplier
+// (model.CacheWrite5mMultiplier), so a write is recorded there; the 12-hour
+// write (2.5x) has no class and is refused at inspection
+// (checkOpenAICacheTTL), so every write that reaches here is a 30-minute
+// one. An earlier model that reports writes it does not bill is overcounted
+// by a quarter of their input price, never undercounted. Negative figures
+// count as zero, the cached part never exceeds the input and the written
+// part never exceeds what is left, so input + cacheRead + cacheCreation is
+// always the reported input_tokens.
 func (j *openaiUsageJSON) usage() usage {
 	if j == nil {
 		return usage{}
@@ -184,11 +191,12 @@ func (j *openaiUsageJSON) usage() usage {
 		return max(*p, 0)
 	}
 	in := d(j.Input)
-	var cached int64
+	var cached, written int64
 	if j.Details != nil {
 		cached = min(d(j.Details.Cached), in)
+		written = min(d(j.Details.CacheWrite), in-cached)
 	}
-	return usage{input: in - cached, cacheRead: cached, output: d(j.Output)}
+	return usage{input: in - cached - written, cacheRead: cached, cacheCreation: written, output: d(j.Output)}
 }
 
 // openaiClientTools are the tool types the broker forwards: the ones the
@@ -307,7 +315,8 @@ func inspectOpenAIBody(body []byte, _ []string) (inspection, error) {
 func walkOpenAIReferences(v any) error {
 	switch x := v.(type) {
 	case map[string]any:
-		if typ, _ := x["type"].(string); typ == "item_reference" {
+		typ, _ := x["type"].(string)
+		if typ == "item_reference" {
 			return errors.New("item references are not brokered; send the item itself")
 		}
 		for _, key := range []string{"file_id", "file_url"} {
@@ -317,6 +326,19 @@ func walkOpenAIReferences(v any) error {
 		}
 		if raw, ok := x["image_url"]; ok && raw != nil && !inlineImage(raw) {
 			return errors.New("image URLs are not brokered; send the image inline as a data: URI")
+		}
+		if err := checkOpenAICacheTTL(x); err != nil {
+			return err
+		}
+		// Every tools list is held to the top-level rule, a namespace's to
+		// the rule inside one: codex 0.167 declares a GPT-6 model's tools
+		// in an additional_tools input item, and a server tool there, or in
+		// a namespace standing anywhere, would reach the internet as surely
+		// as one in "tools".
+		if tools, ok := x["tools"].([]any); ok {
+			if err := checkOpenAITools(tools, typ != openaiNamespaceTool); err != nil {
+				return err
+			}
 		}
 		for key, child := range x {
 			if openaiCallerData(x, key) {
@@ -331,6 +353,27 @@ func walkOpenAIReferences(v any) error {
 			if err := walkOpenAIReferences(child); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// openaiCacheTTLFields carry a prompt cache write's TTL: the request's
+// default (prompt_cache_options) and one explicit breakpoint's override.
+var openaiCacheTTLFields = []string{"prompt_cache_options", "prompt_cache_breakpoint"}
+
+// checkOpenAICacheTTL refuses a cache TTL other than the 30-minute default.
+// A 12-hour write bills at 2.5x input, which no ledger class prices (the
+// one-hour class is 2x), so forwarding one would undercount its spend; an
+// unknown TTL is refused as well, failing closed.
+func checkOpenAICacheTTL(obj map[string]any) error {
+	for _, field := range openaiCacheTTLFields {
+		opts, ok := obj[field].(map[string]any)
+		if !ok {
+			continue
+		}
+		if ttl, ok := opts["ttl"]; ok && ttl != nil && ttl != "30m" {
+			return fmt.Errorf("%s: only the 30-minute cache TTL is brokered", field)
 		}
 	}
 	return nil

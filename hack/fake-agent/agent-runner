@@ -87,8 +87,8 @@ workspace="${MAUL_WORKSPACE:-/workspace}"
 
 # The model the controller resolved for this stage, echoed back on the result
 # so the per-model rollup buckets a real key rather than a placeholder.
-investigate_model="${MAUL_INVESTIGATE_MODEL:-anthropic/claude-sonnet-5}"
-remediate_model="${MAUL_REMEDIATE_MODEL:-anthropic/claude-sonnet-5}"
+investigate_model="${MAUL_INVESTIGATE_MODEL:-anthropic/claude-sonnet-5-5}"
+remediate_model="${MAUL_REMEDIATE_MODEL:-anthropic/claude-sonnet-5-5}"
 
 # Seconds between turns. A real run thinks between turns, and the status page's
 # live conversation is worth watching precisely because of that; with no pause

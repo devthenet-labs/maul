@@ -8,7 +8,7 @@
 # the report check, commit.sh, the changeset, the accounting) runs for real.
 # The e2e fake kubelet runs it for the Jobs a test asks for (useAgentRunner).
 #
-# It speaks the parts of codex 0.153.4 agent-runner relies on: `--version`;
+# It speaks the parts of codex 0.167.0 agent-runner relies on: `--version`;
 # `exec <prompt> --json ... -c key=value ...`, printing the --json events
 # (thread.started, turn.started, item.completed, turn.completed with usage).
 # Codex has no session to resume and no task output file, so neither exists
@@ -38,7 +38,7 @@
 set -eu
 
 if [ "${1:-}" = "--version" ]; then
-  echo "codex-cli 0.153.4 (maul scripted stand-in)"
+  echo "codex-cli 0.167.0 (maul scripted stand-in)"
   exit 0
 fi
 

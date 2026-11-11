@@ -15,7 +15,7 @@ import (
 // every built-in rate and cache multiplier: TestPriceTableVersionPinned fails
 // whenever the rates change until the version is set to their new digest, so
 // the recorded version always changes with them.
-const PriceTableVersion = "2026-10-16.828065fa4bf8b383"
+const PriceTableVersion = "2026-11-09.7e563f0231db7da7"
 
 // Cache-write multipliers over the base input rate: a five-minute prompt
 // cache write bills at 1.25x, a one-hour one at 2x (Anthropic's published

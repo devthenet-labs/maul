@@ -23,19 +23,19 @@ func quickConfig(n int) *quick.Config {
 }
 
 func TestMeasuredCostUSD(t *testing.T) {
-	sonnet, _ := ModelByID(Builtins(), "anthropic/claude-sonnet-5") // $3 in, $0.30 cached, $15 out
+	sonnet, _ := ModelByID(Builtins(), "anthropic/claude-sonnet-5") // $2 in, $0.20 cached, $10 out
 	got := MeasuredCostUSD(sonnet, MeasuredTokens{
 		Input: 1_000_000, Output: 100_000, CacheRead: 1_000_000, CacheWrite5m: 1_000_000, CacheWrite1h: 1_000_000,
 	})
-	// 3 + 1.5 + 0.30 + 3.75 + 6.
-	if got == nil || *got != 14.55 {
-		t.Fatalf("MeasuredCostUSD = %v, want 14.55", got)
+	// 2 + 1 + 0.20 + 2.5 + 4.
+	if got == nil || *got != 9.7 {
+		t.Fatalf("MeasuredCostUSD = %v, want 9.7", got)
 	}
 	if got := MeasuredCostUSD(Model{ID: "x/unpriced"}, MeasuredTokens{Input: 5}); got != nil {
 		t.Errorf("unpriced model cost = %v, want nil", *got)
 	}
-	if got := MeasuredCostUSD(sonnet, MeasuredTokens{Input: -5, Output: 1_000_000}); got == nil || *got != 15 {
-		t.Errorf("negative input priced: %v, want 15", got)
+	if got := MeasuredCostUSD(sonnet, MeasuredTokens{Input: -5, Output: 1_000_000}); got == nil || *got != 10 {
+		t.Errorf("negative input priced: %v, want 10", got)
 	}
 }
 
@@ -43,10 +43,12 @@ func TestMeasuredCostUSD(t *testing.T) {
 // micro-USD: 5000 in (15000) + 10 written (37.5) + 20 read (6) + 1 out (15) =
 // 15058.5 micro-USD, which rounds up to 15059. Summed in USD with the products
 // fused into the additions, arm64 rounded it up and amd64 down, so the broker's
-// cost limit (CI on linux/amd64) disagreed with the same figure on arm64.
+// cost limit (CI on linux/amd64) disagreed with the same figure on arm64. The
+// rates are fixed here ($3 / $0.30 / $15, the ones the tie was found at), not
+// read from the registry, so a price change cannot move the tie away.
 func TestMeasuredCostHalfMicroTie(t *testing.T) {
-	sonnet, _ := ModelByID(Builtins(), "anthropic/claude-sonnet-5")
-	got := MeasuredCostUSD(sonnet, MeasuredTokens{Input: 5000, CacheWrite5m: 10, CacheRead: 20, Output: 1})
+	m := Model{ID: "anthropic/tie", InputUSD: usd(3), CachedInputUSD: usd(0.30), OutputUSD: usd(15)}
+	got := MeasuredCostUSD(m, MeasuredTokens{Input: 5000, CacheWrite5m: 10, CacheRead: 20, Output: 1})
 	if got == nil || *got != 0.015059 {
 		t.Fatalf("MeasuredCostUSD = %v, want 0.015059", got)
 	}

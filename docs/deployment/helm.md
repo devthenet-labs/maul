@@ -293,9 +293,9 @@ Secret in the release namespace. The keys reach source-controller's own pod only
 | `agent.jobDeadline` / `agent.jobTTL`     | `1h` / `1h`                                                | `activeDeadlineSeconds` / `ttlSecondsAfterFinished`                                                                                                                                                                                                                                                                                                         |
 | `agent.resources.default`                | `{}`                                                       | CPU and memory on both containers of every agent Job without a class (Finding Jobs, intent plans, evaluation units): any of `requests.cpu`, `requests.memory`, `limits.cpu`, `limits.memory`, quoted or not. `{}` sets none, as before. Rolls the four controllers that launch agent Jobs                                                                   |
 | `agent.resources.classes`                | `{}`                                                       | Named sizes a Project picks per repository (`agentResourceClass`) for its intent builds, revise and check-fix rounds; each sets `requests.cpu`, `requests.memory`, `limits.memory` and optionally `limits.cpu`. The largest is the most any agent Job can request. Rolls intent-controller only. See [Sizing agents](../intents/deploying.md#sizing-agents) |
-| `agent.modelAllowlist`                   | `anthropic/claude-sonnet-5,anthropic/claude-opus-5`        | Canonical model ids the investigation may request for remediation                                                                                                                                                                                                                                                                                           |
-| `agent.investigate.*`                    | `anthropic/claude-sonnet-5` / `15m` / `25` / `150000`      | model/timeout/maxTurns/tokenBudget — **absolute** (harness derived from the model); `idleTimeout` (`20m`, `0s` off) ends a run that makes no progress that long                                                                                                                                                                                             |
-| `agent.remediate.*`                      | `anthropic/claude-sonnet-5` / `45m` / `80` / `400000`      | Same shape; maxTurns/tokenBudget are **ceilings** the report's requests are clamped to                                                                                                                                                                                                                                                                      |
+| `agent.modelAllowlist`                   | `anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5`    | Canonical model ids the investigation may request for remediation                                                                                                                                                                                                                                                                                           |
+| `agent.investigate.*`                    | `anthropic/claude-sonnet-5-5` / `15m` / `25` / `150000`    | model/timeout/maxTurns/tokenBudget — **absolute** (harness derived from the model); `idleTimeout` (`20m`, `0s` off) ends a run that makes no progress that long                                                                                                                                                                                             |
+| `agent.remediate.*`                      | `anthropic/claude-sonnet-5-5` / `45m` / `80` / `400000`    | Same shape; maxTurns/tokenBudget are **ceilings** the report's requests are clamped to                                                                                                                                                                                                                                                                      |
 | `agent.runners.<harness>`                | claude enabled; codex, copilot disabled                    | Per-harness `enabled`/`image`; copilot adds `secret`/`secretKey`/`secretEnv`/`hosts`/`dnsPatterns`, claude a `provider` block instead; claude and codex are brokered (codex needs `egressBroker.openai.apiKey`, and its old credential and host keys fail the render while it runs, for findings or intents)                                                |
 | `agent.runners.claude.provider`          | `name: anthropic`                                          | Which model API the egress broker fronts: `anthropic`/`bedrock`/`vertex`/`foundry` + `region`/`regionPrefix`/`projectID`/`resource`/`modelMap`/`env`                                                                                                                                                                                                        |
 | `egressBroker.*`                         | deploys when a claude or codex runner is enabled           | The [egress credential broker](../configuration/egress-broker.md): `anthropicSecret`, `anthropicAuth` (`key`/`token`), `foundrySecret`, `openai.apiKey` (the [OpenAI route](../configuration/egress-broker.md#the-openai-route) codex runs on; off), `serviceAccount.annotations` (workload identity), `networkPolicy.extraEgress`                          |
@@ -533,11 +533,24 @@ agent:
         name: foundry
         resource: my-foundry
         modelMap:
-          anthropic/claude-sonnet-5: my-sonnet-deployment
-          anthropic/claude-opus-5: my-opus-deployment
+          anthropic/claude-sonnet-5-5: my-sonnet-deployment
+          anthropic/claude-opus-5-5: my-opus-deployment
 egressBroker:
   foundrySecret: maul-foundry # omit for Entra via Azure Workload Identity
 ```
+
+!!! note "Upgrading to the Claude Sonnet 5.5 defaults"
+
+    The default models moved from `anthropic/claude-sonnet-5` to `anthropic/claude-sonnet-5-5` (every stage, the
+    evaluator and the check reviewer included), and the default `agent.modelAllowlist` to
+    `anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5`. Check three settings before upgrading:
+
+    - A **Foundry** `modelMap` must name a deployment for each of these models, or the controllers refuse to start.
+      To stay on the 5-series instead, pin the old models in `agent.modelAllowlist`, `agent.investigate.model`,
+      `agent.remediate.model` and the `intentController` stage models.
+    - A non-empty `egressBroker.limits.modelAllowlist` must admit the new models, or the broker refuses their requests.
+    - On the 5.5 models the claude CLI asks for 128000 output tokens per request by default, up from 64000, so an
+      `egressBroker.limits.maxTokensCeiling` below 128000 refuses every plan, build, investigate and remediate request.
 
 Scope the cloud role to Invoke only: `bedrock:InvokeModel*`, `aiplatform.endpoints.predict`, Cognitive Services User.
 

@@ -212,8 +212,8 @@ func TestCodexEnvKeys(t *testing.T) {
 }
 
 // TestCodexPromptSpecGateway pins the brokered provider config, the argv
-// a real codex (rust-v0.153.4) was run with against a recording server to
-// capture testdata/codex-0.153.4-exec.jsonl: the broker's route as the
+// a real codex (rust-v0.167.0) was run with against a recording server to
+// capture testdata/codex-0.167.0-exec.jsonl: the broker's route as the
 // Responses provider, the placeholder key and the caller-token header named
 // by variable only, no websockets, one retry. No token value is in argv.
 func TestCodexPromptSpecGateway(t *testing.T) {
@@ -258,7 +258,7 @@ func TestCodexPromptSpecGateway(t *testing.T) {
 
 // TestCodexPromptSpecEvaluate: the evaluate posture is the build posture's
 // argv exactly, the argv TestCodexPromptSpecGateway pins from the recorded
-// rust-v0.153.4 run: codex renders no posture of its own (the pod is the
+// rust-v0.167.0 run: codex renders no posture of its own (the pod is the
 // boundary, network included), and there is no tree, only the scratch
 // directory the run is started in. AddDirs and WriteDirs stay unrendered.
 func TestCodexPromptSpecEvaluate(t *testing.T) {
@@ -312,21 +312,21 @@ func TestCodexGatewayConfigQuotesValues(t *testing.T) {
 }
 
 // TestCodexRecordedStream parses a stream the real codex CLI wrote
-// (rust-v0.153.4, the pinned release, run with the brokered provider
+// (rust-v0.167.0, the pinned release, run with the brokered provider
 // config of TestCodexPromptSpecGateway against a recording Responses server
 // that answered one exec_command call, then a message, each with usage
 // input 1200, cached 1024, output 40, reasoning 12). Codex sums the two
 // requests into one turn and reports cache writes and reasoning beside the
 // rest.
 func TestCodexRecordedStream(t *testing.T) {
-	stdout, err := os.ReadFile("testdata/codex-0.153.4-exec.jsonl")
+	stdout, err := os.ReadFile("testdata/codex-0.167.0-exec.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := NewCodex()
 	res, ok := c.ParseResult(stdout)
 	if !ok || res.IsError || res.FinalText != "Done: the report is written." || res.NumTurns != 1 ||
-		res.SessionID != "01a152a3-d587-7513-a33c-85ebd73b2853" {
+		res.SessionID != "01a1c3fc-690a-74a3-929c-77eb06f5fc27" {
 		t.Fatalf("ParseResult = %+v, %v", res, ok)
 	}
 	if got, want := usageOf(res.Usage), [4]int{2400 - 2048, 2048, 0, 80}; got != want {
@@ -364,14 +364,16 @@ func TestCodexRecordedStream(t *testing.T) {
 // TestCodexRecordedRefusal: a 429 the broker answers (here a spend-limit
 // refusal, insufficient_quota) ends the real CLI's turn after one request
 // with no agent output, so the run is a runtime error. Codex does not quote
-// the refusal's message, only its status.
+// the refusal's message: 0.153.4 named the status, 0.167.0 names the error
+// code's meaning (insufficient_quota is "Quota exceeded").
 func TestCodexRecordedRefusal(t *testing.T) {
-	stdout, err := os.ReadFile("testdata/codex-0.153.4-exec-429.jsonl")
+	stdout, err := os.ReadFile("testdata/codex-0.167.0-exec-429.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := NewCodex().RuntimeError(stdout, 1, false)
-	if !strings.HasPrefix(got, "codex run error: ") || !strings.Contains(got, "429") {
+	if !strings.HasPrefix(got, "codex run error: ") || !strings.Contains(got, "Quota exceeded") ||
+		strings.Contains(got, "maul egress broker") {
 		t.Errorf("RuntimeError = %q", got)
 	}
 }

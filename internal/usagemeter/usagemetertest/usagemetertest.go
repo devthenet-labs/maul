@@ -103,7 +103,7 @@ func Answer(job string, boot, seen time.Time, inflight int64, models ...usagewir
 }
 
 // Sonnet is a usage of claude-sonnet-5 on an API key: a million input
-// tokens ($3.00) and the given shortfall.
+// tokens ($2.00) and the given shortfall.
 func Sonnet(shortfall int64) usagewire.Model {
 	return usagewire.Model{Model: "claude-sonnet-5-20260514", Route: "anthropic",
 		Credential: usagewire.CredentialAPIKey, Input: 1_000_000, EstimatedShortfall: shortfall}

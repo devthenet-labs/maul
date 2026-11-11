@@ -2418,7 +2418,7 @@ cm large-preset egress-broker MAUL_TOKENS_PER_POD null
 cm large-preset intent-controller MAUL_BROKER_LIMIT_UNIT cost
 cm large-preset intent-controller MAUL_INTENT_BUILD_MAX_TURNS 300
 cm large-preset intent-controller MAUL_INTENT_BUILD_TIMEOUT 90m
-cm large-preset intent-controller MAUL_INTENT_BUILD_MODEL anthropic/claude-sonnet-5
+cm large-preset intent-controller MAUL_INTENT_BUILD_MODEL anthropic/claude-sonnet-5-5
 cm large-preset intent-controller MAUL_INTENT_REVISE_MAX_TURNS 200
 cm large-preset intent-controller MAUL_INTENT_REVISE_TIMEOUT 45m
 cm large-preset intent-controller MAUL_INTENT_JOB_DEADLINE_MAX 4h30m

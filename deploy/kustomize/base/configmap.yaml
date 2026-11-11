@@ -195,15 +195,15 @@ data:
     # tool result) for that long, as a timeout whose detail names the command
     # it waited on; "0s" disables it. 20m is twice the longest a healthy
     # claude command can run (its Bash tool's 10m maximum).
-    MAUL_MODEL_ALLOWLIST: anthropic/claude-sonnet-5,anthropic/claude-opus-5
+    MAUL_MODEL_ALLOWLIST: anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5
 
-    MAUL_INVESTIGATE_MODEL: anthropic/claude-sonnet-5
+    MAUL_INVESTIGATE_MODEL: anthropic/claude-sonnet-5-5
     MAUL_INVESTIGATE_TIMEOUT: 15m
     MAUL_INVESTIGATE_IDLE_TIMEOUT: 20m
     MAUL_INVESTIGATE_MAX_TURNS: "25"
     MAUL_INVESTIGATE_TOKEN_BUDGET: "150000"
 
-    MAUL_REMEDIATE_MODEL: anthropic/claude-sonnet-5
+    MAUL_REMEDIATE_MODEL: anthropic/claude-sonnet-5-5
     MAUL_REMEDIATE_TIMEOUT: 45m
     MAUL_REMEDIATE_IDLE_TIMEOUT: 20m
     MAUL_REMEDIATE_AUTO_MAX_TURNS: "80"

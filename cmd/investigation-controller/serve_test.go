@@ -39,7 +39,7 @@ func serveOpts(t *testing.T, args ...string) *cli.Options {
 // controller's own defaults.
 func TestAgentEnvDefaults(t *testing.T) {
 	want := map[string]string{
-		"MAUL_MODEL_ALLOWLIST":               "anthropic/claude-sonnet-5,anthropic/claude-opus-5",
+		"MAUL_MODEL_ALLOWLIST":               "anthropic/claude-sonnet-5-5,anthropic/claude-opus-5-5",
 		"MAUL_INVESTIGATE_TIMEOUT":           "15m0s",
 		"MAUL_INVESTIGATE_IDLE_TIMEOUT":      "20m0s",
 		"MAUL_INVESTIGATE_MAX_TURNS":         "25",

@@ -179,7 +179,7 @@ func TestDeletedRunMeasured(t *testing.T) {
 	for _, m := range rollup.Status.Months {
 		runs, reported, cost = runs+m.Runs, reported+m.ReportedRuns, cost+m.CostMicroUSD
 	}
-	if runs != 1 || reported != 0 || cost != 3_000_000 {
-		t.Errorf("runs %d, reported %d, cost %d; want one measured run of $3", runs, reported, cost)
+	if runs != 1 || reported != 0 || cost != 2_000_000 {
+		t.Errorf("runs %d, reported %d, cost %d; want one measured run of $2", runs, reported, cost)
 	}
 }

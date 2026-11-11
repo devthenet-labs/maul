@@ -108,8 +108,8 @@ func TestMeasureDeletedRemediation(t *testing.T) {
 	}
 	month, ok := list.Items[0].Status.Months[crdClock.Format("2006-01")]
 	if !ok || month.Runs != 1 || month.ReportedRuns != 0 || month.InputTokens != 1_000_000 ||
-		month.CostMicroUSD != 3_000_000 {
-		t.Errorf("months = %+v, want one measured run of 1M input tokens and $3 in %s",
+		month.CostMicroUSD != 2_000_000 {
+		t.Errorf("months = %+v, want one measured run of 1M input tokens and $2 in %s",
 			list.Items[0].Status.Months, crdClock.Format("2006-01"))
 	}
 }

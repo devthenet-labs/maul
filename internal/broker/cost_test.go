@@ -38,26 +38,26 @@ func TestPricer(t *testing.T) {
 		u    usage
 		want int64
 	}{
-		// Sonnet 5: $3 in, $0.30 cache read, $15 out per million tokens.
-		{"input", "claude-sonnet-5", usage{input: 1_000_000}, 3_000_000},
-		{"output", "claude-sonnet-5", usage{output: 1000}, 15_000},
-		{"cache read", "claude-sonnet-5", usage{cacheRead: 1_000_000}, 300_000},
-		{"five-minute write", "claude-sonnet-5", usage{cacheCreation: 1_000_000}, 3_750_000},
-		{"one-hour write", "claude-sonnet-5", usage{cacheCreation: 1_000_000, cacheWrite1h: 1_000_000}, 6_000_000},
-		{"dated id", "claude-sonnet-5-20260514", usage{output: 1000}, 15_000},
-		{"canonical id", "anthropic/claude-sonnet-5", usage{output: 1000}, 15_000},
+		// Sonnet 5: $2 in, $0.20 cache read, $10 out per million tokens.
+		{"input", "claude-sonnet-5", usage{input: 1_000_000}, 2_000_000},
+		{"output", "claude-sonnet-5", usage{output: 1000}, 10_000},
+		{"cache read", "claude-sonnet-5", usage{cacheRead: 1_000_000}, 200_000},
+		{"five-minute write", "claude-sonnet-5", usage{cacheCreation: 1_000_000}, 2_500_000},
+		{"one-hour write", "claude-sonnet-5", usage{cacheCreation: 1_000_000, cacheWrite1h: 1_000_000}, 4_000_000},
+		{"dated id", "claude-sonnet-5-20260514", usage{output: 1000}, 10_000},
+		{"canonical id", "anthropic/claude-sonnet-5", usage{output: 1000}, 10_000},
 		// The shared function rounds to the micro-USD, as a run's own
-		// figure is: one cache read (0.3) is 0, two (0.6) are 1.
+		// figure is: one cache read (0.2) is 0, three (0.6) are 1.
 		{"fraction down", "claude-sonnet-5", usage{cacheRead: 1}, 0},
-		{"fraction up", "claude-sonnet-5", usage{cacheRead: 2}, 1},
+		{"fraction up", "claude-sonnet-5", usage{cacheRead: 3}, 1},
 		{"nothing", "claude-sonnet-5", usage{}, 0},
 	} {
 		if got := p.cost(tc.wire, tc.u); got != tc.want {
 			t.Errorf("%s: cost(%q, %+v) = %d, want %d", tc.name, tc.wire, tc.u, got, tc.want)
 		}
 	}
-	if got := p.outputCost("claude-sonnet-5", 1000); got != 15_000 {
-		t.Errorf("outputCost(sonnet, 1000) = %d, want 15000", got)
+	if got := p.outputCost("claude-sonnet-5", 1000); got != 10_000 {
+		t.Errorf("outputCost(sonnet, 1000) = %d, want 10000", got)
 	}
 	if got := p.outputCost("claude-sonnet-5", 0); got != 0 {
 		t.Errorf("outputCost of nothing = %d", got)
@@ -141,7 +141,7 @@ func TestLedgerCostLimits(t *testing.T) {
 		t.Fatalf("over the reservation: reason = %q", reason)
 	}
 	held()
-	if got := l.observe("p", "claude-sonnet-5", "anthropic", "", usage{output: 50}); got != 750 {
+	if got := l.observe("p", "claude-sonnet-5", "anthropic", "", usage{output: 75}); got != 750 {
 		t.Fatalf("observe charged %d micro-USD, want 750", got)
 	}
 	if got := l.totals("p").cost; got != 750 {
@@ -167,7 +167,7 @@ func TestLedgerCostLimits(t *testing.T) {
 	}
 
 	// A shortfall is charged at the output price.
-	if got := l.shortfall("q", "claude-sonnet-5", "anthropic", "", 100); got != 1500 {
+	if got := l.shortfall("q", "claude-sonnet-5", "anthropic", "", 150); got != 1500 {
 		t.Fatalf("shortfall charged %d micro-USD, want 1500", got)
 	}
 	// 750 + 1500 = 2250 this hour: 300 more passes the 2500 ceiling.
@@ -264,17 +264,17 @@ func TestCostPerPodWithBudgetAnnotation(t *testing.T) {
 	if rec := postAs(h, "jobpod"); rec.Code != http.StatusOK {
 		t.Fatalf("first request: %d: %s", rec.Code, rec.Body.String())
 	}
-	// message_start: 5000 in (15000) + 10 written (37.5) + 20 read (6) + 1
-	// out (15) = 15058.5, rounded up; message_delta: 6 more out (90).
+	// message_start: 5000 in (10000) + 10 written (25) + 20 read (4) + 1
+	// out (10) = 10039; message_delta: 6 more out (60).
 	line := lastAudit(t, buf)
 	for key, want := range map[string]float64{
-		"cost_micro_usd": 15149, "pod_cost_micro_usd": 15149, "pod_cost_limit_micro_usd": 20000,
+		"cost_micro_usd": 10099, "pod_cost_micro_usd": 10099, "pod_cost_limit_micro_usd": 20000,
 	} {
 		if line[key] != want {
 			t.Errorf("audit %s = %v, want %v", key, line[key], want)
 		}
 	}
-	// 15149 spent + 15000 reserved (1000 output tokens at $15/M) passes the
+	// 10099 spent + 10000 reserved (1000 output tokens at $10/M) passes the
 	// annotation's 20000, though not --cost-per-pod.
 	rec := postAs(h, "jobpod")
 	if rec.Code != http.StatusTooManyRequests {
@@ -292,13 +292,15 @@ func TestCostPerPodWithBudgetAnnotation(t *testing.T) {
 	}
 }
 
-// TestSmallBudgetStageNotStarved (S1 bug 6): a $1 checkreview pod making
-// ten small sonnet calls, each about $0.011 as the live reviewer's were, is
-// refused none of them at the stage's output bound
-// (provider.CheckReviewMaxOutputTokens), though the reservation rule is
-// unchanged. At the CLI's default bound of 64000 tokens ($0.96 reserved per
-// request) the same pod is refused its fifth call having spent under $0.05:
-// what starved the reviewer live.
+// TestSmallBudgetStageNotStarved (S1 bug 6): a checkreview pod making ten
+// small sonnet calls, each about $0.007, is refused none of them at the
+// stage's output bound (provider.CheckReviewMaxOutputTokens), though the
+// reservation rule is unchanged. At the CLI's default bound of 64000 tokens
+// ($0.64 reserved per request) the same pod is refused its fifth call having
+// spent under $0.03: what starved the reviewer live. The live pod had $1 at
+// the $15 per million output sonnet 5 was then priced at; the budget here,
+// $0.666, is that scaled to its $10, so the calls and the refusal are the
+// same.
 func TestSmallBudgetStageNotStarved(t *testing.T) {
 	post := func(h http.Handler, maxTokens int) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages",
@@ -319,10 +321,10 @@ func TestSmallBudgetStageNotStarved(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var hits, gets atomic.Int64
 			// 2000 input, 10 written, 20 read and 300 output tokens:
-			// 10544 micro-USD a call.
+			// 7029 micro-USD a call.
 			up := countingUpstream(t, &hits, "text/event-stream", sseUsage(2000, 300, true))
 			s, buf, _ := costServer(t, up.URL, Limits{Unit: UnitCost, CostPerPod: 10_000_000},
-				budgetPod("1000000"), &gets)
+				budgetPod("666000"), &gets)
 			h := s.Handler()
 			served := 0
 			for i := range 10 {
@@ -339,8 +341,8 @@ func TestSmallBudgetStageNotStarved(t *testing.T) {
 				t.Errorf("served %d calls before a refusal, want %d", served, tc.served)
 			}
 			if tc.served == 10 {
-				if spent := lastAudit(t, buf)["pod_cost_micro_usd"]; spent != float64(105440) {
-					t.Errorf("pod spent %v micro-USD, want 105440", spent)
+				if spent := lastAudit(t, buf)["pod_cost_micro_usd"]; spent != float64(70290) {
+					t.Errorf("pod spent %v micro-USD, want 70290", spent)
 				}
 			}
 		})
@@ -419,8 +421,8 @@ func TestTokenUnitReadsNoPods(t *testing.T) {
 		t.Errorf("pod reads = %d under the token unit, want 0", gets.Load())
 	}
 	line := lastAudit(t, buf)
-	if line["cost_micro_usd"] != float64(15149) || line["pod_cost_limit_micro_usd"] != float64(0) {
-		t.Errorf("audit cost = %v, limit = %v; want 15149 counted and no limit", line["cost_micro_usd"],
+	if line["cost_micro_usd"] != float64(10099) || line["pod_cost_limit_micro_usd"] != float64(0) {
+		t.Errorf("audit cost = %v, limit = %v; want 10099 counted and no limit", line["cost_micro_usd"],
 			line["pod_cost_limit_micro_usd"])
 	}
 }

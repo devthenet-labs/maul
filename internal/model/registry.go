@@ -78,9 +78,29 @@ func builtins() []Model {
 			Preferred: HarnessClaude,
 		},
 		{
+			// Claude Haiku 5.5 lists $0.10 in, $0.01 cache read and $0.50 out
+			// per MTok for prompts up to 100K tokens, rising to $0.50 / $2.50
+			// above. The registry holds one rate per token class, so it
+			// carries the long-prompt tier: a run is then never undercounted,
+			// only overcounted below 100K. Its cache read is a tenth of that
+			// tier's input, as Anthropic publishes for both tiers.
+			ID: "anthropic/claude-haiku-5-5", ProviderID: ProviderAnthropic, Name: "Claude Haiku 5.5",
+			InputUSD: usd(0.50), CachedInputUSD: usd(0.05), OutputUSD: usd(2.50),
+			Supported: map[string]string{HarnessClaude: "claude-haiku-5-5", HarnessCopilot: "claude-haiku-5.5"},
+			Preferred: HarnessClaude,
+		},
+		{
 			ID: "anthropic/claude-sonnet-5", ProviderID: ProviderAnthropic, Name: "Claude Sonnet 5",
-			InputUSD: usd(3.00), CachedInputUSD: usd(0.30), OutputUSD: usd(15.00),
+			// Anthropic lists $2 / $10; the cache read is a tenth of input, the
+			// ratio Anthropic keeps (Sonnet 5.5's $0.10 is its own cut).
+			InputUSD: usd(2.00), CachedInputUSD: usd(0.20), OutputUSD: usd(10.00),
 			Supported: map[string]string{HarnessClaude: "claude-sonnet-5", HarnessCopilot: "claude-sonnet-5"},
+			Preferred: HarnessClaude,
+		},
+		{
+			ID: "anthropic/claude-sonnet-5-5", ProviderID: ProviderAnthropic, Name: "Claude Sonnet 5.5",
+			InputUSD: usd(2.00), CachedInputUSD: usd(0.10), OutputUSD: usd(10.00),
+			Supported: map[string]string{HarnessClaude: "claude-sonnet-5-5", HarnessCopilot: "claude-sonnet-5.5"},
 			Preferred: HarnessClaude,
 		},
 		{
@@ -90,9 +110,21 @@ func builtins() []Model {
 			Preferred: HarnessClaude,
 		},
 		{
+			ID: "anthropic/claude-opus-5-5", ProviderID: ProviderAnthropic, Name: "Claude Opus 5.5",
+			InputUSD: usd(4.00), CachedInputUSD: usd(0.20), OutputUSD: usd(20.00),
+			Supported: map[string]string{HarnessClaude: "claude-opus-5-5", HarnessCopilot: "claude-opus-5.5"},
+			Preferred: HarnessClaude,
+		},
+		{
 			ID: "anthropic/claude-fable-5", ProviderID: ProviderAnthropic, Name: "Claude Fable 5",
 			InputUSD: usd(10.00), CachedInputUSD: usd(1.00), OutputUSD: usd(50.00),
 			Supported: map[string]string{HarnessClaude: "claude-fable-5", HarnessCopilot: "claude-fable-5"},
+			Preferred: HarnessClaude,
+		},
+		{
+			ID: "anthropic/claude-fable-5-2", ProviderID: ProviderAnthropic, Name: "Claude Fable 5.2",
+			InputUSD: usd(8.00), CachedInputUSD: usd(0.20), OutputUSD: usd(40.00),
+			Supported: map[string]string{HarnessClaude: "claude-fable-5-2", HarnessCopilot: "claude-fable-5.2"},
 			Preferred: HarnessClaude,
 		},
 
@@ -124,6 +156,20 @@ func builtins() []Model {
 			ID: "openai/gpt-5.6-sol", ProviderID: ProviderOpenAI, Name: "GPT-5.6 Sol",
 			InputUSD: usd(5.00), CachedInputUSD: usd(0.50), OutputUSD: usd(30.00),
 			Supported: map[string]string{HarnessCodex: "gpt-5.6-sol", HarnessCopilot: "gpt-5.6-sol"},
+			Preferred: HarnessCodex,
+		},
+		{
+			// OpenAI's published short-context rates (prompts up to 272K
+			// tokens). Above 272K it lists $20 / $2 / $75, which this entry
+			// does not carry, so such a prompt is undercounted. A 30-minute
+			// cache write bills at 1.25x input, which the broker records in
+			// the five-minute class; a 12-hour one (2.5x) is refused there.
+			// Like GPT-5.6, codex runs it in code mode only, whose host the
+			// codex runner image does not carry, so on maul's codex it runs
+			// no command.
+			ID: "openai/gpt-6-astra", ProviderID: ProviderOpenAI, Name: "GPT-6 Astra",
+			InputUSD: usd(10.00), CachedInputUSD: usd(1.00), OutputUSD: usd(50.00),
+			Supported: map[string]string{HarnessCodex: "gpt-6-astra", HarnessCopilot: "gpt-6-astra"},
 			Preferred: HarnessCodex,
 		},
 	}

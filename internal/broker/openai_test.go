@@ -4,6 +4,7 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -143,34 +144,43 @@ func TestOpenAIUsageScannerChunkingProperty(t *testing.T) {
 }
 
 // TestOpenAIUsageConservationProperty (seeded): the Responses mapping
-// conserves the reported totals. Fresh input plus cache reads is exactly
-// input_tokens, output is output_tokens, no cache write is ever invented,
-// and the total every limit counts is input_tokens + output_tokens, for
-// any figures the upstream reports, malformed ones included (a cached
-// count over the input, a negative one).
+// conserves the reported totals. Fresh input plus cache reads plus cache
+// writes is exactly input_tokens, output is output_tokens, no one-hour write
+// is ever invented, and the total every limit counts is input_tokens +
+// output_tokens, for any figures the upstream reports, malformed ones
+// included (a cached or written count over the input, a negative one).
 func TestOpenAIUsageConservationProperty(t *testing.T) {
 	cfg := quickConfig()
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
 		in := r.Int63n(1 << 40)
 		cached := r.Int63n(in + 1)
-		switch r.Intn(6) {
+		written := r.Int63n(in - cached + 1)
+		switch r.Intn(8) {
 		case 0:
 			cached = in + 1 + r.Int63n(1000) // more cached than input
 		case 1:
 			cached = -r.Int63n(1000)
+		case 2:
+			written = in + 1 + r.Int63n(1000) // more written than input
+		case 3:
+			written = -r.Int63n(1000)
 		}
 		args[0] = reflect.ValueOf(in)
 		args[1] = reflect.ValueOf(cached)
-		args[2] = reflect.ValueOf(r.Int63n(1 << 40))
+		args[2] = reflect.ValueOf(written)
+		args[3] = reflect.ValueOf(r.Int63n(1 << 40))
 	}
-	prop := func(in, cached, out int64) bool {
+	prop := func(in, cached, written, out int64) bool {
+		raw := fmt.Sprintf(`{"input_tokens":%d,"input_tokens_details":{"cached_tokens":%d,"cache_write_tokens":%d},`+
+			`"output_tokens":%d}`, in, cached, written, out)
 		var j openaiUsageJSON
-		if err := json.Unmarshal([]byte(openaiUsageObject(in, cached, out)), &j); err != nil {
+		if err := json.Unmarshal([]byte(raw), &j); err != nil {
 			return false
 		}
 		u := j.usage()
-		return u.input+u.cacheRead == in && u.output == out && u.cacheCreation == 0 && u.cacheWrite1h == 0 &&
-			u.input >= 0 && u.cacheRead >= 0 && u.cacheRead <= in && u.total() == in+out
+		return u.input+u.cacheRead+u.cacheCreation == in && u.output == out && u.cacheWrite1h == 0 &&
+			u.input >= 0 && u.cacheRead >= 0 && u.cacheCreation >= 0 && u.cacheRead <= in &&
+			u.total() == in+out
 	}
 	if err := quick.Check(prop, cfg); err != nil {
 		t.Fatal(err)
@@ -189,6 +199,15 @@ func TestOpenAIUsageMapping(t *testing.T) {
 		{openaiUsageObject(100, -5, 7), usage{input: 100, output: 7}},
 		{`{"input_tokens":-3,"output_tokens":-1}`, usage{}},
 		{`{}`, usage{}},
+		// GPT-5.6 and later bill a cache write at 1.25x input (a 30-minute
+		// write, the only TTL the broker forwards): part of input_tokens,
+		// apart from the cache reads, in the five-minute class.
+		{`{"input_tokens":100,"input_tokens_details":{"cached_tokens":40,"cache_write_tokens":30},` +
+			`"output_tokens":7}`, usage{input: 30, cacheRead: 40, cacheCreation: 30, output: 7}},
+		{`{"input_tokens":100,"input_tokens_details":{"cached_tokens":40,"cache_write_tokens":90},` +
+			`"output_tokens":7}`, usage{cacheRead: 40, cacheCreation: 60, output: 7}},
+		{`{"input_tokens":100,"input_tokens_details":{"cache_write_tokens":-4},"output_tokens":7}`,
+			usage{input: 100, output: 7}},
 	}
 	for _, tt := range tests {
 		var j openaiUsageJSON
@@ -295,6 +314,36 @@ func TestInspectOpenAIBody(t *testing.T) {
 			`"output":[{"type":"item_reference","id":"msg_1"}]}]}`, "item references", "", 0},
 		{"item_reference in a function's parameters", `{"model":"m","tools":[{"type":"function","name":"x",` +
 			`"parameters":{"type":"item_reference","properties":{}}}]}`, "", "m", 0},
+		// GPT-6 models on codex 0.167 declare tools in an additional_tools
+		// input item rather than in "tools": held to the same rule.
+		{"additional_tools of namespaced functions", `{"model":"m","input":[{"type":"additional_tools",` +
+			`"role":"developer","tools":[{"type":"namespace","name":"functions","tools":[` + fn + `]}]}]}`,
+			"", "m", 0},
+		{"additional_tools with a server tool", `{"input":[{"type":"additional_tools","role":"developer",` +
+			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"additional_tools with a connector", `{"input":[{"type":"additional_tools","tools":[` +
+			`{"type":"function","name":"x","connector_id":"c"}]}]}`, `tool field "connector_id"`, "", 0},
+		{"additional_tools namespace with a server tool", `{"input":[{"type":"additional_tools","tools":[` +
+			`{"type":"namespace","name":"n","tools":[{"type":"mcp","server_label":"x"}]}]}]}`,
+			`server tool "mcp"`, "", 0},
+		{"tools list in any item", `{"input":[{"type":"message","role":"user","content":[],` +
+			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"namespace outside any tools list", `{"input":[{"type":"namespace","name":"x",` +
+			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"nested namespace outside any tools list", `{"input":[{"type":"namespace","name":"x",` +
+			`"tools":[{"type":"namespace","name":"y","tools":[]}]}]}`, `server tool "namespace"`, "", 0},
+		// A cache write is priced at 1.25x input, the 30-minute rate; the
+		// 12-hour one (2.5x) has no class in the ledger, so it is refused.
+		{"30-minute cache", `{"model":"m","prompt_cache_options":{"ttl":"30m"},"input":[{"type":"message",` +
+			`"content":[{"type":"input_text","text":"x","prompt_cache_breakpoint":{"ttl":"30m"}}]}]}`, "", "m", 0},
+		{"cache options without a ttl", `{"model":"m","prompt_cache_options":{}}`, "", "m", 0},
+		{"12-hour cache", `{"prompt_cache_options":{"ttl":"12h"}}`, "cache TTL is brokered", "", 0},
+		{"12-hour breakpoint", `{"input":[{"type":"message","content":[{"type":"input_text","text":"x",` +
+			`"prompt_cache_breakpoint":{"ttl":"12h"}}]}]}`, "cache TTL", "", 0},
+		{"unknown cache ttl", `{"prompt_cache_options":{"ttl":"1h"}}`, "cache TTL", "", 0},
+		{"non-string cache ttl", `{"prompt_cache_options":{"ttl":12}}`, "cache TTL", "", 0},
+		{"tools list in a function's parameters", `{"model":"m","tools":[{"type":"function","name":"x",` +
+			`"parameters":{"tools":[{"type":"web_search"}]}}]}`, "", "m", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -703,21 +752,35 @@ func TestOpenAICutStreamChargesOutputBound(t *testing.T) {
 }
 
 // TestInspectOpenAICodexRequest runs a request the real codex CLI sent
-// (rust-v0.153.4, the release Dockerfile.codex-agent-runner pins, pointed
+// (rust-v0.167.0, the release Dockerfile.codex-agent-runner pins, pointed
 // at a recording server through the brokered provider config; instructions
 // and message texts elided) through the inspection: codex sends its
 // sub-agent tools as a namespace, which the route must forward, or every
-// brokered codex run would be refused at its first request.
+// brokered codex run would be refused at its first request. On gpt-6-astra
+// it sends no "tools" at all but an additional_tools input item of
+// namespaces, which is forwarded under the same rule.
 func TestInspectOpenAICodexRequest(t *testing.T) {
-	body, err := os.ReadFile("testdata/codex-0.153.4-responses-request.json")
+	for file, model := range map[string]string{
+		"testdata/codex-0.167.0-responses-request.json":             "gpt-5.3-codex",
+		"testdata/codex-0.167.0-gpt-6-astra-responses-request.json": "gpt-6-astra",
+	} {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		insp, err := inspectOpenAIBody(body, nil)
+		if err != nil {
+			t.Fatalf("%s: a recorded codex request is refused: %v", file, err)
+		}
+		if insp.model != model || insp.maxTokens != 0 {
+			t.Fatalf("%s: inspection = %+v", file, insp)
+		}
+	}
+	astra, err := os.ReadFile("testdata/codex-0.167.0-gpt-6-astra-responses-request.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	insp, err := inspectOpenAIBody(body, nil)
-	if err != nil {
-		t.Fatalf("a recorded codex request is refused: %v", err)
-	}
-	if insp.model != "gpt-5.3-codex" || insp.maxTokens != 0 {
-		t.Fatalf("inspection = %+v", insp)
+	if !bytes.Contains(astra, []byte(`"additional_tools"`)) {
+		t.Fatal("the gpt-6-astra fixture lost its additional_tools item: re-record it")
 	}
 }

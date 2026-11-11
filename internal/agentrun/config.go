@@ -364,8 +364,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		Phase:              Phase(get("PHASE", string(PhaseInvestigate))),
 		InvestigateHarness: get("INVESTIGATE_HARNESS", "claude"),
 		RemediateHarness:   get("REMEDIATE_HARNESS", "claude"),
-		InvestigateModel:   get("INVESTIGATE_MODEL", "anthropic/claude-sonnet-5"),
-		RemediateModel:     get("REMEDIATE_MODEL", "anthropic/claude-sonnet-5"),
+		InvestigateModel:   get("INVESTIGATE_MODEL", "anthropic/claude-sonnet-5-5"),
+		RemediateModel:     get("REMEDIATE_MODEL", "anthropic/claude-sonnet-5-5"),
 	}
 	if list := get("MODEL_ALLOWLIST", cfg.RemediateModel); list != "" {
 		for m := range strings.SplitSeq(list, ",") {

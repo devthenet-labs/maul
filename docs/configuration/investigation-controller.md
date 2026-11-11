@@ -159,15 +159,15 @@ provider-qualified id (e.g. `anthropic/claude-sonnet-5`); the harness that runs 
 `remediate` ceilings exist here because this controller clamps what the investigation report requests before it ever
 reaches the queue.
 
-| Flag                         | Env                             | Default                     | Purpose                                             |
-| ---------------------------- | ------------------------------- | --------------------------- | --------------------------------------------------- |
-| `--investigate-model`        | `MAUL_INVESTIGATE_MODEL`        | `anthropic/claude-sonnet-5` | Canonical model id the analysis stage runs on       |
-| `--investigate-timeout`      | `MAUL_INVESTIGATE_TIMEOUT`      | `15m`                       | Wall-clock limit for the analysis stage             |
-| `--investigate-idle-timeout` | `MAUL_INVESTIGATE_IDLE_TIMEOUT` | `20m`                       | End a run with no progress for this long; `0s` off  |
-| `--investigate-max-turns`    | `MAUL_INVESTIGATE_MAX_TURNS`    | `25`                        | Agent turns allowed for the analysis stage          |
-| `--investigate-token-budget` | `MAUL_INVESTIGATE_TOKEN_BUDGET` | `150000`                    | Output-token budget for the analysis stage          |
-| `--remediate-max-turns`      | `MAUL_REMEDIATE_MAX_TURNS`      | `80`                        | Ceiling on the report's suggested remediation turns |
-| `--remediate-token-budget`   | `MAUL_REMEDIATE_TOKEN_BUDGET`   | `400000`                    | Ceiling on the suggested remediation budget         |
+| Flag                         | Env                             | Default                       | Purpose                                             |
+| ---------------------------- | ------------------------------- | ----------------------------- | --------------------------------------------------- |
+| `--investigate-model`        | `MAUL_INVESTIGATE_MODEL`        | `anthropic/claude-sonnet-5-5` | Canonical model id the analysis stage runs on       |
+| `--investigate-timeout`      | `MAUL_INVESTIGATE_TIMEOUT`      | `15m`                         | Wall-clock limit for the analysis stage             |
+| `--investigate-idle-timeout` | `MAUL_INVESTIGATE_IDLE_TIMEOUT` | `20m`                         | End a run with no progress for this long; `0s` off  |
+| `--investigate-max-turns`    | `MAUL_INVESTIGATE_MAX_TURNS`    | `25`                          | Agent turns allowed for the analysis stage          |
+| `--investigate-token-budget` | `MAUL_INVESTIGATE_TOKEN_BUDGET` | `150000`                      | Output-token budget for the analysis stage          |
+| `--remediate-max-turns`      | `MAUL_REMEDIATE_MAX_TURNS`      | `80`                          | Ceiling on the report's suggested remediation turns |
+| `--remediate-token-budget`   | `MAUL_REMEDIATE_TOKEN_BUDGET`   | `400000`                      | Ceiling on the suggested remediation budget         |
 
 The stage flags are re-serialized into `MAUL_*` environment variables injected into every investigation pod
 ([agent-runner](agent-runner.md) reads them), so this controller's flags are the single operator-facing configuration

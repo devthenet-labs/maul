@@ -72,8 +72,9 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   setup-token` bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra, and the OpenAI
   Responses route `/openai` the codex runner runs on, off unless `--openai-api-key-file`, chart
   `egressBroker.openai.apiKey`: POST `/v1/responses` and GET `/v1/models` only, its own dialect in
-  `internal/broker/openai.go` for inspection (client-run tools only, a `namespace` of them included, as codex sends),
-  usage from the terminal event up to 8 MiB, and OpenAI's error envelope, a limit as `insufficient_quota`). Validates caller
+  `internal/broker/openai.go` for inspection (client-run tools only, a `namespace` of them included, as codex sends,
+  in any tools list, the `additional_tools` input item codex sends for GPT-6 included), usage from the terminal event
+  up to 8 MiB, and OpenAI's error envelope, a limit as `insufficient_quota`). Validates caller
   tokens via TokenReview (its only Kubernetes access but the pod read and, with per-user credentials on, the credential
   store, both below), strips them, injects/signs the model credential
   outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Spend limits count tokens, or
@@ -915,8 +916,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `.mcp.json` must stay inert, a scripted fake model on loopback, no credential. Codex renders the broker as a `maul`
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
-  plugins and web search off; its argv and stream are pinned from the real pinned CLI (rust-v0.153.4) run against a
-  recording Responses server (`internal/harness/testdata/codex-0.153.4-*.jsonl`). `SandboxEvaluate` is the
+  plugins and web search off; its argv and stream are pinned from the real pinned CLI (rust-v0.167.0) run against a
+  recording Responses server (`internal/harness/testdata/codex-0.167.0-*.jsonl`). `SandboxEvaluate` is the
   evaluator's posture: claude with `--restricted`, `--tools Bash,Read,Write`, `Bash(maul-tool:*)` and Read/Edit under
   `//work/scratch/**` only, cwd `/work/scratch`, auto memory off, the long Bash timeouts maul-tool needs, pinned by the
   posture probe; codex is held structurally (no data, no route); copilot refuses it (`CheckPosture`).

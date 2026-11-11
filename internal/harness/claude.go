@@ -125,7 +125,7 @@ var claudeTools = map[Sandbox]struct {
 }
 
 // claudeRestricted documents why only the read-only and evaluate postures
-// run with --restricted. On the pinned CLI (2.1.263) the flag removes the built-in
+// run with --restricted. On the pinned CLI (2.1.322) the flag removes the built-in
 // tools that run commands or code (Bash among them) and WebFetch unless
 // --tools names them, ignores the user, project and local settings files
 // (managed settings still apply), confines the file tools to the working
@@ -229,10 +229,11 @@ const claudeNoAutoMemory = "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
 // take up to maultool.CallTimeout, well past the CLI's two-minute default.
 var claudeEvaluateBash = []string{"BASH_DEFAULT_TIMEOUT_MS=600000", "BASH_MAX_TIMEOUT_MS=600000"}
 
-// ClaudeMaxOutputTokensEnv is the CLI's output bound: claude 2.1.263 sends
+// ClaudeMaxOutputTokensEnv is the CLI's output bound: claude 2.1.322 sends
 // it as every request's max_tokens (TestClaudePostureProbe pins that),
-// lowering the default (64000 for the 5-series, 32000 for haiku 4.5) and
-// raising it only to the model's own maximum.
+// lowering the default (128000 for the 5.5 models and Fable 5.2, 64000 for
+// the rest of the 5-series, 32000 for haiku 4.5) and raising it only to the
+// model's own maximum.
 const ClaudeMaxOutputTokensEnv = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 
 // PromptSpec builds the headless claude invocation for one prompted run.
@@ -299,8 +300,8 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 // beside it. It is meant to run in the first run's directory, where the CLI
 // filed the session.
 //
-// What claude 2.1.291 does on a resumed run (probed; production pins
-// 2.1.263): the result event repeats the same session_id; num_turns and
+// What claude 2.1.291 and 2.1.322 do on a resumed run (probed; production
+// pins 2.1.322): the result event repeats the same session_id; num_turns and
 // usage count this invocation alone, while total_cost_usd is cumulative
 // over the session's invocations; --max-turns caps this invocation alone,
 // not counting earlier turns; and an unknown session id ends at once with

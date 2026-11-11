@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// What claude 2.1.263 does when its Bash tool runs a command in -p
+// What claude 2.1.263 and 2.1.322 do when its Bash tool runs a command in -p
 // stream-json mode (probed): it prints a system event of subtype
 // task_started (task_id, tool_use_id, task_type "local_bash",
 // is_backgrounded, session_id); while the command runs it appends the
