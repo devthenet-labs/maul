@@ -88,6 +88,10 @@ func TestRenderedToolObjectsAdmittedByTheChart(t *testing.T) {
 	pv := toolVerification(t, p)
 	pv.Spec.Timeout = metav1.Duration{Duration: 5 * time.Minute}
 	job, err := s.toolJob(p, pv, 0, deadlineMax)
+	if err == nil {
+		// As the start pass stamps it: the targets the relay is rendered with.
+		err = recordTargets(job, map[string]string{"web": "10.96.0.10:80", "api": "10.96.0.11:80"})
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
