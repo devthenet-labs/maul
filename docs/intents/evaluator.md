@@ -436,7 +436,11 @@ budget and the 20 minutes. Raise the cost budget and the timeout before the turn
   `accepted by a human`), why maul could not confirm it and, for a decided one, **maul's check** in one line it renders
   itself, such as `http to api: POST /api/players, POST /api/battles, GET /api/leaderboard; 3 expectations`. Application
   output appears only in fenced blocks labelled as the application's output of the outcome they name, and the
-  evaluator's own words (an anomaly, a note) are marked as its words, not checked by maul. Results are shown only for
+  evaluator's own words (an anomaly, a note) are marked as its words, not checked by maul. A comment always fits
+  GitHub's size limit: when the evidence would not, maul keeps it most important first (its reproduction of a suspected
+  defect, then each failing outcome's application output in plan order, then the anomalies, then the component log
+  tails) and the comment names what it left out. Every outcome's line and maul's own notes are always shown whole; only
+  a plan whose statements alone leave no room has them shortened, and the comment says so. Results are shown only for
   the round that decided them, at the heads it checked: a round that settles without a judgement (its attempts all
   failed, or maul's own build of the head did not finish) lists every outcome as `unsure`, with no earlier round's
   results, and a push clears them until the new heads are judged: from the pass that sees the push, the status comment
