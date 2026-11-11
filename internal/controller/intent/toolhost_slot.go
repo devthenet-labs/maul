@@ -119,16 +119,21 @@ func (p *pass) livePreview(ctx context.Context, v *v1alpha1.IntentVerification) 
 // or the heads move. A verification in flight or judged stands, as in
 // waitVerification, unless an approver's request waits. A request about to
 // wait for a Preview Expired at the heads is answered instead
-// (previewExpired): nothing would deploy it again.
+// (previewExpired): nothing would deploy it again. So is one already
+// waiting when the Preview expires (queued past its time to live, before
+// it ever went live), and the wait it began ends Unavailable at once
+// (endWaitUnrun), as its bound would have ended it.
 func (p *pass) waitPreview(ctx context.Context) (bool, error) {
 	v := p.in.Status.Verification
 	switch {
 	case v.Ref != nil && v.Requested == nil, previewNotLive(v):
 		return false, nil
-	case v.Requested != nil && v.State != v1alpha1.VerificationWaitingForPreview &&
-		p.previewExpired(ctx, v.Reset.Generation):
+	case v.Requested != nil && p.previewExpired(ctx, v.Reset.Generation):
 		p.r.log().LogAttrs(ctx, slog.LevelInfo, "the preview expired at the heads; the verify request is not run",
 			slog.String("intent", p.in.Name), slog.Int64("comment", v.Requested.CommentID))
+		if v.State == v1alpha1.VerificationWaitingForPreview {
+			return p.endWaitUnrun(ctx, templates.NotRunPreviewExpired)
+		}
 		return p.keepJudgement(ctx, templates.NotRunPreviewExpired)
 	case v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil:
 		since := metav1.NewTime(p.now)

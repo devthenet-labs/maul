@@ -263,6 +263,8 @@ func (p *pass) haltFix(ctx context.Context, reason v1alpha1.AutoFixReason, state
 		slog.String("intent", p.in.Name), slog.String("reason", string(reason)))
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		haltOn(cur, reason, state, msg, metav1.NewTime(p.now))
+		// A halt maul gives up on releases the held link in its own write.
+		p.releaseIfDue(cur)
 		return nil
 	})
 }
@@ -313,6 +315,7 @@ func (p *pass) endVerifyRoundAtCeiling(ctx context.Context, run *v1alpha1.Intent
 		cur.Status.ActiveRun = nil
 		settleVerifyRound(cur, run, false)
 		haltOn(cur, v1alpha1.AutoFixCostCeiling, "", msg, metav1.NewTime(p.now))
+		p.releaseIfDue(cur)
 	})
 }
 

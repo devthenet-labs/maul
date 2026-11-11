@@ -122,6 +122,9 @@ func (p *pass) completedRevise(ctx context.Context, run *v1alpha1.IntentRun) (bo
 			haltOn(cur, v1alpha1.AutoFixFixFoundNoDefect, "", fmt.Sprintf("the acceptance-fix round %s found "+
 				"no defect in the code and changed nothing; the failing criteria are left to the reviewers",
 				run.Name), metav1.NewTime(p.now))
+			// The halt may make the held link due (maul gave up): it
+			// follows in this write, never a pass later.
+			p.releaseIfDue(cur)
 		}
 	})
 }

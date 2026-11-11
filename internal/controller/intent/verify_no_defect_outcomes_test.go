@@ -58,9 +58,10 @@ func TestOutcomeVerifyFixNoDefect(t *testing.T) {
 		c.Status != metav1.ConditionTrue || c.Reason != string(v1alpha1.AutoFixFixFoundNoDefect) {
 		t.Errorf("VerifyFailing = %+v, want True FixFoundNoDefect", c)
 	}
-	// One pass more than the criteria original: the issue's comment shows
-	// the conclusion on the third pass after the fix settles.
-	e.review(name, 1)
+	// maul gave up: the held link follows in the write that settles the
+	// round, never a pass later (releaseIfDue), so the comments show the
+	// conclusion as soon as the criteria original's did.
+	checkReleasedUnconfirmed(t, v)
 	e.checkNoDefectReported(name)
 }
 

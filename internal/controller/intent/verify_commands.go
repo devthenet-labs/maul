@@ -51,6 +51,17 @@ type verifyCommand struct {
 	actor ghclient.Actor
 	verb  string
 	body  string
+	// pr is the pull request it was made on; nil on the intent issue.
+	pr *v1alpha1.IntentPullRequest
+}
+
+// requestSource is where c was made, as a recorded request keeps it: the
+// pull request, nil for the intent issue.
+func (c verifyCommand) requestSource() *v1alpha1.VerifyRequestPullRequest {
+	if c.pr == nil {
+		return nil
+	}
+	return &v1alpha1.VerifyRequestPullRequest{Repository: c.pr.Repository, Number: c.pr.Number}
 }
 
 // isVerifyVerb reports an acceptance command's verb.
@@ -329,7 +340,8 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	waiting := cur.Requested
 	at := metav1.NewTime(c.at)
 	req := v1alpha1.VerifyRequest{By: c.actor.Login, ByID: c.actor.ID, At: at, CommentID: c.id,
-		Fix: args.Fix || (waiting != nil && waiting.Fix), Reset: args.Reset || (waiting != nil && waiting.Reset)}
+		Fix: args.Fix || (waiting != nil && waiting.Fix), Reset: args.Reset || (waiting != nil && waiting.Reset),
+		PullRequest: c.requestSource()}
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		v := in.Status.Verification
 		if v == nil {
@@ -776,7 +788,7 @@ func (p *pass) settlePRVerifyCommand(ctx context.Context, pr *v1alpha1.IntentPul
 		return p.prReply(ctx, pr, body, err)
 	}
 	n, err := p.applyVerifyCommand(ctx, verifyCommand{surface: command.IntentPR, key: key, id: c.ID, at: c.CreatedAt,
-		actor: a.actor, verb: a.verb, body: c.Body})
+		actor: a.actor, verb: a.verb, body: c.Body, pr: pr})
 	if err != nil {
 		return err
 	}

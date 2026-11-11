@@ -12,6 +12,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // expiredWords is how maul says a /maul verify did not run because the
@@ -180,6 +183,142 @@ func TestWaitingAtUnchangedHeadsSaysNothingMoved(t *testing.T) {
 	}
 }
 
+// TestRequestWaitingForPreviewThatExpires (gate D-B5 edge): a request
+// recorded while the preview was being deployed waits for it
+// (WaitingForPreview); the Preview then expires at the heads (queued past
+// its time to live) before it ever went live. Nothing deploys it again, so
+// the request is answered that it did not run and consumed, at once, no
+// judgement claimed (the wait replaced it), and the wait it began ends
+// Unavailable (PreviewNotLive) as its bound would, maul/acceptance saying
+// no more than that the preview did not become live in time. Before, it
+// waited the hour, went Unavailable and stayed recorded, never answered.
+// A command made while the wait goes on, on the expired preview, is
+// answered at once the same way.
+func TestRequestWaitingForPreviewThatExpires(t *testing.T) {
+	e, name, _, head := passedSlotRound(t)
+	e.servePreview(name, v1alpha1.PreviewDeploying, "")
+	e.clock.Advance(time.Minute)
+	first := e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	e.review(name, 2)
+	if v := e.verification(name); v.State != v1alpha1.VerificationWaitingForPreview || v.Requested == nil ||
+		v.Requested.CommentID != first {
+		t.Fatalf("verification = %+v, want the request waiting for the preview", v)
+	}
+	e.servePreview(name, v1alpha1.PreviewExpired, "")
+	e.clock.Advance(time.Minute)
+	second := e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	if body := e.onlyReply(second); !strings.Contains(body, "did not run: "+expiredWords) ||
+		strings.Contains(body, "stands") {
+		t.Fatalf("reply to the second request = %s, want it not run, no judgement claimed", body)
+	}
+	e.review(name, 3)
+	v := e.verification(name)
+	if v.Requested != nil || !previewNotLive(v) {
+		t.Fatalf("verification = %+v, want the waiting request consumed and the wait Unavailable", v)
+	}
+	if replies := e.notRunReplies(); len(replies) != 1 || !strings.Contains(replies[0], expiredWords) ||
+		strings.Contains(replies[0], "stands") {
+		t.Fatalf("not-run replies = %q, want the waiting request answered once", replies)
+	}
+	if st := e.latestAcceptance(head); st.State != statusError || strings.Contains(st.Description, "minutes") ||
+		!strings.Contains(st.Description, "did not become live") {
+		t.Fatalf("maul/acceptance = %+v, want an error saying only that the preview did not become live", st)
+	}
+	e.review(name, 3)
+	if replies := e.notRunReplies(); len(replies) != 1 {
+		t.Fatalf("not-run replies = %q, want still the one", replies)
+	}
+}
+
+// prNotRunReplies are maul's not-run answers on pull request n.
+func (e *env) prNotRunReplies(n int64) []string {
+	e.gh.mu.Lock()
+	defer e.gh.mu.Unlock()
+	var out []string
+	for _, c := range e.gh.prComments[n] {
+		if c.UserLogin == testBot && strings.Contains(markerOf(c.Body), notRunKeyPrefix) {
+			out = append(out, c.Body)
+		}
+	}
+	return out
+}
+
+// TestNotRunAnswerGoesWhereTheCommandWasMade: a /maul verify made on a
+// pull request, recorded and then found unable to run (its preview expired
+// while it waited), is answered on that pull request, never on the issue,
+// whose status comment shows the same state. A post that fails leaves the
+// request pending, answered on a later pass, once.
+func TestNotRunAnswerGoesWhereTheCommandWasMade(t *testing.T) {
+	e, name, _, _ := passedSlotRound(t)
+	n := e.prNumber(name)
+	e.servePreview(name, v1alpha1.PreviewDeploying, "")
+	e.clock.Advance(time.Minute)
+	id := e.prCommand(n, approver, "/maul verify")
+	e.review(name, 3)
+	v := e.verification(name)
+	if v.Requested == nil || v.Requested.CommentID != id || v.Requested.PullRequest == nil ||
+		v.Requested.PullRequest.Number != n || !sameRepo(v.Requested.PullRequest.Repository, appRepoURL) {
+		t.Fatalf("request = %+v, want it recorded with its pull request", v.Requested)
+	}
+	e.servePreview(name, v1alpha1.PreviewExpired, "")
+	e.gh.mu.Lock()
+	e.gh.lockedPRs[n] = true
+	e.gh.mu.Unlock()
+	for range 2 {
+		e.clock.Advance(time.Minute)
+		if err := e.reconcileIntent(name); err != nil && !strings.Contains(err.Error(), "locked") {
+			t.Fatal(err)
+		}
+	}
+	if v := e.verification(name); v.Requested == nil || len(e.prNotRunReplies(n)) != 0 {
+		t.Fatalf("request = %+v, want it pending while its pull request refuses the answer", v.Requested)
+	}
+	e.gh.mu.Lock()
+	e.gh.lockedPRs[n] = false
+	e.gh.mu.Unlock()
+	e.review(name, 4)
+	if v := e.verification(name); v.Requested != nil {
+		t.Fatalf("request = %+v, want it answered and consumed", v.Requested)
+	}
+	replies := e.prNotRunReplies(n)
+	if len(replies) != 1 || !strings.Contains(replies[0], expiredWords) {
+		t.Fatalf("not-run answers on the pull request = %q, want one saying why", replies)
+	}
+	if issue := e.notRunReplies(); len(issue) != 0 {
+		t.Fatalf("not-run answers on the issue = %q, want none: the command was made on the pull request", issue)
+	}
+}
+
+// TestNotRunPullRequestFallsBackToTheIssue: the issue answers a request
+// made there, one recorded before requests named their pull request, and
+// one whose pull request maul no longer answers on: not the intent's, or in
+// a repository that left the Project.
+func TestNotRunPullRequestFallsBackToTheIssue(t *testing.T) {
+	e, name, _, _ := passedSlotRound(t)
+	p := e.prVerifyPass(name)
+	n := e.prNumber(name)
+	for _, tc := range []struct {
+		name string
+		src  *v1alpha1.VerifyRequestPullRequest
+		want bool
+	}{
+		{"the issue", nil, false},
+		{"its pull request", &v1alpha1.VerifyRequestPullRequest{Repository: appRepoURL, Number: n}, true},
+		{"its pull request, URL spelled otherwise",
+			&v1alpha1.VerifyRequestPullRequest{Repository: appRepoURL + ".git", Number: n}, true},
+		{"another pull request", &v1alpha1.VerifyRequestPullRequest{Repository: appRepoURL, Number: n + 7}, false},
+		{"a repository that left the project",
+			&v1alpha1.VerifyRequestPullRequest{Repository: "https://github.com/acme/gone", Number: n}, false},
+	} {
+		got := p.notRunPullRequest(&v1alpha1.VerifyRequest{PullRequest: tc.src})
+		if (got != nil) != tc.want || (got != nil && got.Number != n) {
+			t.Errorf("%s: pull request = %+v, want found %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestExpiredPreviewWhileRevising (gate D-B5): while a round revises the
 // intent, its push deploys the preview again, so a request is recorded to
 // run after it, as before; only outside a revision is an expired preview
@@ -238,6 +377,89 @@ func TestOutcomeStatusSaysMovedOnAPush(t *testing.T) {
 	}
 	if st := e.latestAcceptance(moved); st.State != statusPending || st.Description != headsMoved.description {
 		t.Fatalf("maul/acceptance on the pushed head = %+v, want %q", st, headsMoved.description)
+	}
+}
+
+// TestVerifyFixAtMovedHeadsIsRecorded (#396 review): a /maul verify fix
+// settled after a push to the pull request was recorded but before the
+// head set followed it (a pass later, syncHeadSet), on a Failing judgement
+// of the old heads and a Preview reading Expired, is recorded: a moved head
+// is a redeploy pending, and the judgement on record is about other
+// commits, so nothing at the moved heads is known yet. Before, it was
+// answered that the preview expired. Once the head set follows, the gate
+// decides it, and it never waits for nothing.
+func TestVerifyFixAtMovedHeadsIsRecorded(t *testing.T) {
+	e, name, _ := failingEvaluation(t)
+	moved := strings.Repeat("e", 40)
+	e.pushHead(e.prNumber(name), moved)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.PullRequests[0].HeadSHA = moved // the poll recorded the push
+	})
+	e.servePreview(name, v1alpha1.PreviewExpired, "")
+	e.clock.Advance(time.Minute)
+	p := e.prVerifyPass(name)
+	if p.atHeads(p.in.Status.Verification) {
+		t.Fatal("the head set already follows the push; nothing under test")
+	}
+	n, err := p.applyVerifyCommand(context.Background(), verifyCommand{surface: command.IntentIssue,
+		key: "comment-77", id: 77, at: e.clock.Now(), actor: actorOf(approver), verb: action.VerbVerify,
+		body: "/maul verify fix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := e.verification(name)
+	if n.Outcome != templates.VerifyRequested || v.Requested == nil || v.Requested.CommentID != 77 {
+		t.Fatalf("reply %s (why %q), request %+v; want the request recorded at the moved heads", n.Outcome,
+			n.NotRunWhy, v.Requested)
+	}
+	// Here the Preview reads Expired at the moved heads too, so once the
+	// head set follows, the gate answers that the request did not run.
+	e.review(name, 4)
+	v = e.verification(name)
+	if replies := e.notRunReplies(); v.Requested != nil || v.HeadSetDigest == v.OutcomesHeadSetDigest ||
+		len(replies) != 1 || !strings.Contains(replies[0], expiredWords) {
+		t.Fatalf("verification = %+v, not-run replies %q; want the request decided at the moved heads", v, replies)
+	}
+}
+
+// TestVerifyFixOnAnExpiredPreviewAfterExhausted: an Exhausted judgement
+// (a fix round found no defect, and the round after it still failed) starts
+// no fix round of its own (startVerifyFix fixes only a Failing one): the
+// approver's /maul verify fix needs a new round, which nothing can run on a
+// Preview expired at the heads. It is answered that it did not run, the
+// judgement standing and nothing re-armed, and says what deploys the
+// preview again; a reset, which deploys it again, is recorded.
+func TestVerifyFixOnAnExpiredPreviewAfterExhausted(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		notRun  bool
+	}{{"/maul verify fix", true}, {"/maul verify --reset", false}} {
+		t.Run(tc.command, func(t *testing.T) {
+			e, name, _ := failingEvaluation(t)
+			e.setStatus(name, func(in *v1alpha1.Intent) {
+				v := in.Status.Verification
+				v.State = v1alpha1.VerificationExhausted
+				v.NoDefect = &v1alpha1.NoDefectRecord{Run: "x-rev-r2-a1", At: metav1.NewTime(e.clock.Now()),
+					HeadSetDigest: v.HeadSetDigest}
+				v.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted, Reason: v1alpha1.AutoFixFixFoundNoDefect}
+			})
+			e.servePreview(name, v1alpha1.PreviewExpired, "")
+			e.review(name, 2)
+			e.clock.Advance(time.Minute)
+			id := e.gh.comment(approver, tc.command)
+			e.settleActions(name)
+			body, v := e.onlyReply(id), e.verification(name)
+			if !tc.notRun {
+				if v.Requested == nil || strings.Contains(body, "did not run") {
+					t.Fatalf("reply = %s, verification %+v; want the reset recorded", body, v)
+				}
+				return
+			}
+			if !strings.Contains(body, "did not run: "+expiredWords) || v.Requested != nil ||
+				v.AutoFix.Rearm != nil || v.State != v1alpha1.VerificationExhausted {
+				t.Fatalf("reply = %s, verification %+v; want it not run and the judgement standing", body, v)
+			}
+		})
 	}
 }
 

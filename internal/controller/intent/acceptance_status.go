@@ -148,8 +148,10 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 		return acceptanceState{statusError, "a check cannot run as approved: its target is not previewed"}, true
 	case v1alpha1.VerificationUnavailable:
 		if previewNotLive(v) {
-			return acceptanceState{statusError, fmt.Sprintf("the preview was not live within %d minutes, so the "+
-				"checks could not run", int(previewWaitMax.Minutes()))}, true
+			// Not "within 60 minutes": a wait also ends at once on a
+			// preview that expired before it was ever live (endWaitUnrun).
+			return acceptanceState{statusError, "the preview did not become live at these commits in time, so " +
+				"the checks could not run"}, true
 		}
 		return acceptanceState{statusError, "maul could not run the checks"}, true
 	case v1alpha1.VerificationOff, v1alpha1.VerificationVerifying, v1alpha1.VerificationPassed,

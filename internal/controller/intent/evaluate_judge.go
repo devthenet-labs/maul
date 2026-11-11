@@ -556,9 +556,11 @@ func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1a
 	fix *acceptance.FixRequest) (v1alpha1.IntentVerificationState, bool) {
 	replayNext := j.decision.ReplayRound && !j.replay
 	switch {
-	case fix != nil && v.NoDefect != nil && v.NoDefect.HeadSetDigest == v.HeadSetDigest:
+	case fix != nil && v.NoDefect != nil && v.NoDefect.HeadSetDigest == v.HeadSetDigest && !rearmedSince(v):
 		// A fix round concluded no defect at these heads, and the round
-		// still fails: maul and its fixer disagree, and no fix is left.
+		// still fails: maul and its fixer disagree, and no fix is left,
+		// unless an approver's /maul verify fix since then says to fix
+		// it again (the human always wins).
 		return v1alpha1.VerificationExhausted, false
 	case fix != nil:
 		return v1alpha1.VerificationFailing, false
@@ -566,6 +568,19 @@ func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1a
 		return v1alpha1.VerificationPassed, false
 	}
 	return v1alpha1.VerificationUnconfirmed, replayNext
+}
+
+// rearmedSince reports that automatic fixes are armed by an approver's
+// /maul verify fix made after v's no-defect conclusion: the approver read
+// it and asked maul to fix the failure all the same. A re-arm before the
+// conclusion, or an arming that is not an approver's, is answered by it.
+// The re-arm is dated by GitHub's clock and the conclusion by maul's, so
+// the comparison allows clockSkew, in the approver's favour: the halt the
+// conclusion writes leaves no earlier re-arm armed anyway.
+func rearmedSince(v *v1alpha1.IntentVerification) bool {
+	r := v.AutoFix.Rearm
+	return v.AutoFix.State == v1alpha1.AutoFixArmed && r != nil && v.NoDefect != nil &&
+		r.At.Add(clockSkew).After(v.NoDefect.At.Time)
 }
 
 // applyJudgement writes j onto cur's verification: the results, the counts,
