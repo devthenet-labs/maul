@@ -538,7 +538,10 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     (MAUL_E2E_TREES_DIR, MAUL_E2E_EXEC_DIR), its stdout and termination
                     file the tools container's. fakegithub's compare returns
                     merge_base_commit, and ServeCommitTrees makes each pushed commit's
-                    tarball its own tree. The suite's timeout is 45m (hack/e2e.sh).
+                    tarball its own tree. The suite's timeout is 45m (hack/e2e.sh);
+                    CI runs it as two shards (MAUL_E2E_SHARD=1/2, 2/2: e2e/shard
+                    splits the top-level tests by a hash of their names), and runs
+                    `mise run snapshot` (goreleaser, every build and image, no push).
 docs/ overrides/    Zensical docs site (zensical.toml at the root; maul-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it

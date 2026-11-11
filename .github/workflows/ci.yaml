@@ -9,8 +9,9 @@
 # prettier --check — with the pinned tools coming from the toolchain submodule
 # at .mise/ (no package.json or .node-version: mise provisions its own Node for
 # the prose linters). The Go version for the product build comes from go.mod.
-# The reusable workflow also runs `make e2e` (opted in below), and the
-# repo-local envtest and helm-lint jobs cover the gates it has no slot for.
+# The e2e suite runs sharded in the repo-local e2e job, and the repo-local
+# envtest and helm-lint jobs cover the gates the reusable workflow has no slot
+# for.
 #
 # The reusable workflow is pinned to a full commit SHA (tag in the comment) so a
 # moved tag can never change what runs; Dependabot keeps the pin fresh.
@@ -33,13 +34,10 @@ jobs:
         # config.toml/mise.lock, not a tools/go.sum.
         uses: devthenet-labs/github-workflows/.github/workflows/ci.yaml@6838679e81c60654484ad3a7dec7697a2236748e # v6.3.0 + RUNNER_LABEL
         with:
-            # The reusable workflow's e2e job is opt-in (its default is off,
-            # since e2e often needs services or secrets); without this it is
-            # skipped on every run. maul's suite needs neither: `mise run e2e`
-            # boots an envtest kube-apiserver, builds the real binaries and
-            # drives them against the in-memory fake GitHub — the only network
-            # it touches is setup-envtest's asset download.
-            e2e: true
+            # The reusable workflow's e2e job runs the suite as one job, which
+            # took ~2030s of hack/e2e.sh's 45m go test timeout; the repo-local
+            # e2e job below runs it as two shards instead.
+            e2e: false
             # The Codecov upload cannot succeed from this fork: the reusable
             # workflow hands codecov-action no token (upstream relies on its
             # Codecov org accepting tokenless uploads from public repos), and
@@ -50,6 +48,52 @@ jobs:
             # Flip back to true once devthenet-labs is on Codecov with tokenless
             # public uploads enabled.
             coverage: false
+
+    # The end-to-end suite (`mise run e2e`): it boots an envtest
+    # kube-apiserver, builds the real binaries and drives them against the
+    # in-memory fake GitHub; the only network it touches is setup-envtest's
+    # asset download. As one job it ran ~2030s of hack/e2e.sh's 45m go test
+    # timeout, so it runs as two shards (MAUL_E2E_SHARD: e2e/shard splits the
+    # top-level tests by a hash of their names, every test in exactly one
+    # shard). Each shard builds the binaries its tests need. Set up as the
+    # reusable workflow's e2e job was, with its action pins (github-workflows
+    # v6.3.0).
+    e2e:
+        name: e2e (${{ matrix.shard }})
+        runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+        permissions:
+            # check out the repository
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1/2, 2/2]
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false # read-only checkout; don't leave the token in .git/config
+                  submodules: true # the shared toolchain (tasks + pinned tools) at .mise/
+
+            - name: Setup go
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+                  cache-dependency-path: go.sum
+
+            - name: Setup mise
+              uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+              with:
+                  version: v2026.9.1
+                  # sha256 of the linux-x64 mise binary for the version above, from the release's
+                  # SHASUMS256.txt -- the action verifies the extracted binary, not the archive
+                  sha256: c98423c8470d6dc416d9f7036d0646d8ef5ae92ad9186907f8fcc84cbe7db4ea
+
+            - name: Run e2e
+              env:
+                  MAUL_E2E_SHARD: ${{ matrix.shard }}
+              run: mise run e2e
 
     # The envtest suites (CRD schema validation, the action gating against a
     # real API server) skip themselves without KUBEBUILDER_ASSETS, so the `test`
@@ -181,6 +225,62 @@ jobs:
 
             - name: Run scaffold-check
               run: mise run scaffold-check
+
+    # The release packaging, built the way the release workflow builds it but
+    # never published: `mise run snapshot` (goreleaser release --snapshot
+    # --clean --skip=sign) compiles every goreleaser build for every target,
+    # writes the archives and SBOMs, and builds every dockers_v2 image from its
+    # Dockerfile for both platforms. Snapshot mode never pushes, and
+    # --skip=sign leaves cosign out (it needs the release workflow's OIDC
+    # token). A Dockerfile that COPYs a binary its image no longer gets, an
+    # image whose build was removed, or a Dockerfile step that no longer runs
+    # (a vanished apk pin) fails here instead of in the release after the
+    # merge. The step before it holds the builds to cmd/: every binary there
+    # must be built, so a new one cannot silently ship in no archive and no
+    # image. QEMU and buildx as in the reusable release workflow, which runs
+    # the arm64 stages emulated; goreleaser, syft and node come pinned from
+    # mise, set up as in the envtest job above. The full history is fetched so
+    # goreleaser can derive the snapshot version from the last tag.
+    snapshot:
+        runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+        timeout-minutes: 45
+        permissions:
+            # check out the repository
+            contents: read
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false # read-only checkout; don't leave the token in .git/config
+                  submodules: true # the shared toolchain (tasks + pinned tools) at .mise/
+                  fetch-depth: 0
+
+            - name: Setup go
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+                  cache-dependency-path: go.sum
+
+            - name: Setup mise
+              uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+              with:
+                  version: v2026.9.1
+                  # sha256 of the linux-x64 mise binary for the version above, from the release's
+                  # SHASUMS256.txt -- the action verifies the extracted binary, not the archive
+                  sha256: c98423c8470d6dc416d9f7036d0646d8ef5ae92ad9186907f8fcc84cbe7db4ea
+
+            - name: Setup QEMU
+              uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+
+            - name: Setup docker buildx
+              uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+            - name: Every binary under cmd/ is a goreleaser build
+              run: ./hack/release-builds-check.sh
+
+            - name: Build the release snapshot
+              run: mise run snapshot
 
     # The pins `maul setup previews` recommends (`mise run preview-pins`,
     # TestLivePins): each pinned upstream chart version exists,

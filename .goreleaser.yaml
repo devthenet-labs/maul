@@ -753,11 +753,16 @@ dockers_v2:
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
       # ghcr shows a multi-arch package's description from the index
-      # annotation, not from the per-platform config labels.
+      # annotation, not from the per-platform config labels. A snapshot
+      # builds and loads each platform alone, where buildx refuses any index
+      # annotation ("index annotations not supported for single platform
+      # export"), so the value is empty there, and goreleaser drops an
+      # annotation whose value is empty.
       annotations:
           "index:org.opencontainers.image.description": >-
-              Base image for repository-declared maul agent images: glibc (wolfi),
-              bash, git and core build tools, uid 65532, caches under /tmp.
+              {{ if not .IsSnapshot }}Base image for repository-declared maul agent images:
+              glibc (wolfi), bash, git and core build tools, uid 65532, caches under
+              /tmp.{{ end }}
     - id: status-server
       ids: [status-server]
       dockerfile: Dockerfile.controller
