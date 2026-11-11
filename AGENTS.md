@@ -776,7 +776,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   for the evaluator: `Step`/`Request`/`Expect`, `Value`, `StatusList`, `NormalizeSteps` (method GET, status [200]),
   `ValidateStep` and its parts (`CheckPath`, `CheckPointer`, `ValidateMatcher`, `ValidateHeaderMatcher`), `{{run}}` and
   `{{capture.x}}` substitution (`Substitute`, `BuildRequest`), the matcher engine (`MatchValue`, `MatchHeaderValue`,
-  `JSONEqual`, `Reduce`), `Transport`, `PartFact` and its roles, `ClassifyEnvironment`, `TargetWait` and `RunCause`.
+  `JSONEqual`), `Transport`, `PartFact` and its roles, `ClassifyEnvironment`, `TargetWait` and `RunCause`.
   Consumers: `acceptance`, `checks`, `previewtools`, `toolledger`, the controllers, `templates`.
 - `checks` (+ `checks/playwright`) — the evaluator's saved-check grammar, pure: a check is bound to one outcome and is
   `http` (slice 1's steps plus `$range`, `$includes`, header presence), `browser` (a JSON step grammar: `goto`,

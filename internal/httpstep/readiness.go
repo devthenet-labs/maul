@@ -3,8 +3,6 @@
 
 package httpstep
 
-import "errors"
-
 // The readiness wait's bounds. The PreviewVerification CRD repeats them.
 const (
 	// MaxWaitTargets is the most targets a summary records a wait for: the
@@ -55,45 +53,6 @@ func (w *TargetWait) Record(t Transport) {
 	default:
 		w.Reset++
 	}
-}
-
-// check holds one wait to its bounds: a repository key, at least one
-// attempt, every attempt failed or all but the last.
-func (w TargetWait) check() error {
-	switch {
-	case len(w.Target) > MaxKeyLength || !KeyPattern.MatchString(w.Target):
-		return errors.New("a wait's target is not a repository key")
-	case w.Attempts < 1 || w.Attempts > MaxWaitAttempts || w.WaitMs < 0 || w.WaitMs > MaxWaitMs:
-		return errors.New("a wait's numbers are out of range")
-	case !countBounded(w.Refused) || !countBounded(w.Timeout) || !countBounded(w.Reset) || !countBounded(w.DNS):
-		// Each count is bounded before they are summed, so the sum cannot
-		// overflow and wrap to the attempts.
-		return errors.New("a wait's failure counts are out of range")
-	case w.Failures() != w.Attempts && !w.Reached():
-		return errors.New("a wait's failures do not account for its attempts")
-	}
-	return nil
-}
-
-// countBounded reports whether one failure count is within 0 to
-// MaxWaitAttempts.
-func countBounded(n int32) bool { return n >= 0 && n <= MaxWaitAttempts }
-
-// CheckWaits holds a summary's waits to their bounds: one to
-// MaxWaitTargets, in strictly ascending target order (so each target once).
-func CheckWaits(waits []TargetWait) error {
-	if len(waits) == 0 || len(waits) > MaxWaitTargets {
-		return errors.New("a summary records one to MaxWaitTargets waits")
-	}
-	for i, w := range waits {
-		if err := w.check(); err != nil {
-			return err
-		}
-		if i > 0 && waits[i-1].Target >= w.Target {
-			return errors.New("a summary's waits are not in ascending target order")
-		}
-	}
-	return nil
 }
 
 // Unreached is the targets of waits that were never reached, in order;

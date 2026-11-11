@@ -721,10 +721,12 @@ retired: the agent evaluator is the only way maul verifies an intent, and its sw
 To move a slice-1 install: drop `preview.verification.enabled` and `preview.verification.testerImage` from the chart
 values (and `--intent-verification` and `--preview-tester-image` from any kustomize or hand-written configuration), set
 `intentController.verification.evaluator: true` with the three `preview.verification.tools` images (the release stamps
-them), and upgrade. A plan approved before the evaluator states criteria, which the evaluator does not run: such an open
-intent stops for a replan (its `maul/acceptance` the error "the approved plan states criteria, not outcomes: nothing is
-verified"), and an approver approves a new plan, which states outcomes. With the evaluator left off, nothing is
-verified.
+them), and upgrade. A plan approved before the evaluator states criteria, which the evaluator does not run, and this
+release no longer starts while such an intent is open under the evaluator (the census below): before upgrading, on the
+release you run, `/maul cancel` each open intent whose approved plan states criteria (a new issue starts over with
+outcomes) and delete each PreviewVerification that asks criteria. An intent whose Project comes to be verified only
+later, after the upgrade, stops for a replan instead (its `maul/acceptance` the error "the approved plan states
+criteria, not outcomes: nothing is verified"). With the evaluator left off, nothing is verified.
 
 **The criteria fields are removed.** This release removes slice 1's fields from the CRDs (a PreviewVerification's
 `spec.criteria` and `criteriaDigest`, its tester observations, and an Intent's `status.acceptance.criteria` and
