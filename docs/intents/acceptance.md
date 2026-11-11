@@ -160,7 +160,8 @@ The [evaluator's page](evaluator.md) has the whole round. In short:
    it at once.
 
 A later round that still fails at the heads a fix round that found no defect judged ends automatic fixing as
-`Exhausted`: maul and the fix agent disagree, and a human decides.
+`Exhausted`: maul and the fix agent disagree, and a human decides. An approver's `/maul verify fix` made after that
+conclusion is such a decision: the round it runs, if it still fails, starts a fix round (within `maxVerifyFixes`).
 
 ### A fix that finds no defect
 

@@ -55,13 +55,16 @@ func judged(id string, r acceptance.Result, reason, basis string) acceptance.Out
 // judgeRoute is one route of TestJudgementRoutes: a decision, what the
 // humans did, and what each view must say.
 type judgeRoute struct {
-	name                        string
-	version                     acceptance.OutcomeResult
-	healthy                     acceptance.OutcomeResult
-	fix, replay, anomaly        bool
-	env                         httpstep.EnvClass
-	noDefect, acceptManual      bool
-	acceptVersion               bool
+	name                   string
+	version                acceptance.OutcomeResult
+	healthy                acceptance.OutcomeResult
+	fix, replay, anomaly   bool
+	env                    httpstep.EnvClass
+	noDefect, acceptManual bool
+	acceptVersion          bool
+	// rearm is when an approver's /maul verify fix re-armed automatic
+	// fixes, relative to the no-defect conclusion (zero: none did).
+	rearm                       time.Duration
 	state                       v1alpha1.IntentVerificationState
 	progress, status, held, why string
 	disputed                    int
@@ -105,6 +108,18 @@ func TestJudgementRoutes(t *testing.T) {
 		{name: "fix after no defect", version: fail, healthy: pass(oHealthy), fix: true, noDefect: true,
 			state: v1alpha1.VerificationExhausted, progress: templates.VerifyExhausted, status: statusFailure,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyRounds, versionResult: v1alpha1.OutcomeFailed,
+			manualResult: v1alpha1.OutcomeUnsure},
+		// The human always wins: an approver's /maul verify fix after the
+		// no-defect conclusion lets maul fix the failure again; one before
+		// it does not outlive it.
+		{name: "fix after no defect and a re-arm", version: fail, healthy: pass(oHealthy), fix: true,
+			noDefect: true, rearm: time.Minute, acceptManual: true, state: v1alpha1.VerificationFailing,
+			progress: templates.VerifyFailing, status: statusFailure, held: templates.HandoffHeld,
+			versionResult: v1alpha1.OutcomeFailed, manualResult: v1alpha1.OutcomeAccepted},
+		{name: "fix after a re-arm and then no defect", version: fail, healthy: pass(oHealthy), fix: true,
+			noDefect: true, rearm: -time.Hour, state: v1alpha1.VerificationExhausted,
+			progress: templates.VerifyExhausted, status: statusFailure, held: templates.HandoffUnconfirmed,
+			why: templates.HandoffWhyRounds, versionResult: v1alpha1.OutcomeFailed,
 			manualResult: v1alpha1.OutcomeUnsure},
 		{name: "fix accepted", version: fail, healthy: pass(oHealthy), fix: true, acceptManual: true,
 			acceptVersion: true, state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed,
@@ -278,6 +293,11 @@ func routeRecords(in *v1alpha1.Intent, tc judgeRoute, now time.Time) {
 	if tc.noDefect {
 		v.NoDefect = &v1alpha1.NoDefectRecord{Run: "x-rev-r2-a1", Reason: "fine", At: metav1.NewTime(now),
 			HeadSetDigest: v.HeadSetDigest}
+	}
+	if tc.rearm != 0 {
+		at := metav1.NewTime(now.Add(tc.rearm))
+		v.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixArmed, Since: &at,
+			Rearm: &v1alpha1.Rearm{By: approver, ByID: 7, At: at, Round: in.Status.Rounds}}
 	}
 }
 

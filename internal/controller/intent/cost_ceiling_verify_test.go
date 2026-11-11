@@ -58,6 +58,10 @@ func TestCostCeilingEndsVerifyRetry(t *testing.T) {
 		c.Status != metav1.ConditionTrue || c.Reason != string(v1alpha1.AutoFixCostCeiling) {
 		t.Fatalf("VerifyFailing = %+v, want True CostCeiling", c)
 	}
+	// maul gave up: the held link follows in the write that ends the round.
+	if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {
+		t.Errorf("hand-off = %+v, want released unconfirmed as the round ends", h)
+	}
 	// Review stays open: the intent is still InReview a while later.
 	in = e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if in.Status.VerifyFixes != 0 {

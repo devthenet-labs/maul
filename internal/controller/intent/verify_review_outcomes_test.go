@@ -54,9 +54,11 @@ func oneFixEnv(t *testing.T, fix func(*env)) (*env, string) {
 }
 
 // TestOutcomeVerifyFixAfterNoDefectAndRearm twins
-// TestVerifyFixAfterNoDefectAndRearm.
-// Its re-arm floor, which the skip below leaves unreached, is held by
-// TestOutcomeVerifyFixAfterRepeatedFailureAndRearm.
+// TestVerifyFixAfterNoDefectAndRearm: an approver's /maul verify fix after
+// a fix round concluded no defect wins over that conclusion. The round it
+// runs still fails at the same heads, and a second fix round starts, as
+// the no-defect note promises ("`/maul verify fix` also lets maul fix
+// failures again"); before, the round was Exhausted and no fix started.
 func TestOutcomeVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
 	e.onAcceptanceFix(func(spec jobs.Spec) jobs.RunOutput { return reportOnly(spec, noDefectReport) })
@@ -81,14 +83,6 @@ func TestOutcomeVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 	}
 	e.evalRound(name, versionFails(t, healthCheck)...)
 	e.review(name, 3)
-	if v := e.verification(name); v.State == v1alpha1.VerificationExhausted {
-		// Its comment says "no automatic fix left" beside the no-defect
-		// note's "`/maul verify fix` also lets maul fix failures again".
-		t.Skip("owner decision pending: on outcomes a round that still fails at the heads a no_defect fix " +
-			"round judged is Exhausted (judgedState, evaluate_judge.go; DESIGN 'a no_defect fix that the next " +
-			"round still fails ends as Exhausted') even after an approver's /maul verify fix re-armed automatic " +
-			"fixes, so no second fix round starts; the criteria path starts one (TestVerifyFixAfterNoDefectAndRearm)")
-	}
 	if n, v := len(e.verifyRuns(name)), e.verification(name); n != 2 || v.AutoFix.State != v1alpha1.AutoFixArmed {
 		t.Fatalf("verify runs %d, verification %+v; want a second fix round after the re-arm", n, v)
 	}
@@ -97,10 +91,9 @@ func TestOutcomeVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 	}
 }
 
-// TestOutcomeVerifyFixAfterRepeatedFailureAndRearm holds, on outcomes,
-// the subject of TestVerifyFixAfterNoDefectAndRearm that its twin above
-// cannot reach while it skips: a round at or before an approver's re-arm is
-// no prior fix to compare with (priorVerifyFailure's autoFix.rearm floor).
+// TestOutcomeVerifyFixAfterRepeatedFailureAndRearm holds, on outcomes, the
+// re-arm floor: a round at or before an approver's re-arm is no prior fix
+// to compare with (priorVerifyFailure's autoFix.rearm floor).
 // A fix pushed and the round after it failed the same way (RepeatedFailure);
 // the approver comments /maul verify fix, and that same failure is then
 // fixed again, not halted as another RepeatedFailure.
@@ -146,8 +139,7 @@ func TestOutcomeNoDefectAfterAStop(t *testing.T) {
 		c.Reason == string(v1alpha1.AutoFixFixFoundNoDefect) {
 		t.Errorf("VerifyFailing = %+v, inconsistent with the HumanStop latch", c)
 	}
-	// One pass more than the criteria original: see TestOutcomeVerifyFixNoDefect.
-	e.review(name, 3)
+	e.review(name, 2)
 	if body := e.everyBody(); !strings.Contains(body, "found no defect") ||
 		!strings.Contains(body, "network policy was not ready") {
 		t.Errorf("the no-defect conclusion is not shown:\n%s", body)
