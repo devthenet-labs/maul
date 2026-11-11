@@ -67,15 +67,18 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 // escalationDue reports the one full round an unsure replay round asked
 // for (status.verification.escalation) as due at the same heads: the
 // replay round is the current one, judged there, Unconfirmed, with no
-// request waiting, within the automatic bounds and below the evaluation
+// request waiting, within maxVerifications and below the evaluation
 // ceiling (a full round spends; past it the verification stays
-// Unconfirmed, and the hand-off says why).
+// Unconfirmed, and the hand-off says why). It is not spaced by
+// verifyInterval while automatic fixes are halted, as a new head set's
+// automatic round is: it is the replay round's own follow-up, once per head
+// set, and that round already ran when it was asked for.
 func (p *pass) escalationDue(v *v1alpha1.IntentVerification) bool {
 	e := v.Escalation
 	return e != nil && e.Round == v.Round && e.HeadSetDigest == v.HeadSetDigest &&
 		v.Rung == v1alpha1.RungReplay && v.State == v1alpha1.VerificationUnconfirmed && v.Ref != nil &&
-		v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) && p.verifyBounded(v) &&
-		!p.atEvaluationCeiling()
+		v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) &&
+		v.Automatic < p.proj.Spec.Limits.MaxVerificationsLimit() && !p.atEvaluationCeiling()
 }
 
 // followUpDue reports an automatic round at v's heads still to come after

@@ -120,8 +120,9 @@ func (e *evalEnv) waitPushed(t *testing.T, name string, fix v1alpha1.IntentRun) 
 }
 
 // TestIntentEvaluateRepeatedFailure twins TestIntentVerifyRepeatedFailure:
-// round 1 passes; a planted defect fails the requested round 2's replay,
-// which the evaluator agrees with, and one verify-fix round starts. It
+// round 1 passes; a planted defect fails the requested round 2, a replay
+// round with no model (S3), whose unsure result escalates to round 3, a
+// full round whose evaluator agrees, and one verify-fix round starts. It
 // pushes, but the defect stays: the automatic round at its head fails
 // exactly as before (the same outcomes on the same saved checks). Automatic
 // fixes halt (RepeatedFailure), the failing status says so, and no second
@@ -141,8 +142,8 @@ func TestIntentEvaluateRepeatedFailure(t *testing.T) {
 		return v.AutoFix.State == v1alpha1.AutoFixHalted && v.AutoFix.Reason == v1alpha1.AutoFixRepeatedFailure
 	})
 	if v := in.Status.Verification; v.Heads[0].Revision != head || v.State != v1alpha1.VerificationFailing ||
-		v.Round != 3 || v.Failed != 2 {
-		t.Errorf("verification %+v, want round 3 failing both outcomes at the fix's head %s", v, head)
+		v.Round != 4 || v.Failed != 2 {
+		t.Errorf("verification %+v, want round 4 failing both outcomes at the fix's head %s", v, head)
 	}
 	if c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionVerifyFailing); c == nil ||
 		c.Status != metav1.ConditionTrue || c.Reason != string(v1alpha1.AutoFixRepeatedFailure) {
@@ -218,7 +219,9 @@ func TestIntentEvaluateHumanCancelsPendingFix(t *testing.T) {
 	e.plantDefect()
 	releaseEval := e.kubelet.hold(t, "evaluate")
 	e.requestRound(t, number)
-	within(t, roundTimeout, "round 2's evaluator launched and held", func() bool {
+	// Round 2 replays with no model (S3); its unsure result escalates to
+	// round 3, whose evaluator is the one held.
+	within(t, 2*roundTimeout, "the escalated round's evaluator launched and held", func() bool {
 		for _, r := range e.stageRuns(t, name, v1alpha1.IntentStageEvaluate) {
 			if r.Status.JobRef != nil && e.kubelet.held(jobs.NameFor(r.Name, intentRunKind, 1)) {
 				return true
@@ -354,18 +357,23 @@ func (e *evalEnv) stopFixes(t *testing.T, number int, name string) {
 
 // TestIntentEvaluateStop twins TestIntentVerifyStop: round 1 passes; an
 // approver's /maul verify stop halts automatic fixes (HumanStop) and is
-// answered; a planted defect then fails the requested round, a reproduced
-// failure that starts no fix while stopped, verification still reporting.
-// /maul verify fix re-arms them, and the failure gets its fix round.
+// answered; a planted defect then fails the requested round (a replay round
+// with no model, S3, unsure, so its one full round at the same heads
+// follows at once, stopped fixes or not), a reproduced failure that starts
+// no fix while stopped, verification still reporting. /maul verify fix
+// re-arms them, and the failure gets its fix round.
 func TestIntentEvaluateStop(t *testing.T) {
 	e, number, name, pr := startRegression(t)
 	e.stopFixes(t, number, name)
 
 	e.plantDefect()
 	e.gh.CommentAs(number, "/maul verify", approver)
-	e.waitEval(t, name, "the requested round to fail", func(v *v1alpha1.IntentVerification) bool {
-		return v.State == v1alpha1.VerificationFailing && v.Round == 2
+	e.waitEval(t, name, "the escalated round to fail", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationFailing && v.Round == 3
 	})
+	if r := e.round(t, name, 2); r.Spec.Rung != v1alpha1.RungReplay {
+		t.Errorf("round 2 = %s, want the requested replay round", r.Spec.Rung)
+	}
 	e.waitStatus(t, pr.HeadSHA, "failure", "automatic fixes halted")
 	consistently(t, "no fix round while stopped", func() bool {
 		in := e.intent(t, name)
@@ -375,8 +383,8 @@ func TestIntentEvaluateStop(t *testing.T) {
 
 	e.gh.CommentAs(number, "/maul verify fix", approver)
 	fix := e.waitFixRun(t, name)
-	if ref := fix.Spec.Inputs.VerificationRef; ref == nil || ref.Name != e.round(t, name, 2).Name {
-		t.Errorf("fix run inputs %+v, want the failing round 2", fix.Spec.Inputs)
+	if ref := fix.Spec.Inputs.VerificationRef; ref == nil || ref.Name != e.round(t, name, 3).Name {
+		t.Errorf("fix run inputs %+v, want the failing round 3", fix.Spec.Inputs)
 	}
 	e.checkNoTester(t, name)
 }

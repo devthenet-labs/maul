@@ -28,12 +28,14 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			v1alpha1.ConditionEvaluatorUnverified, "--intent-evaluate-codex", "unverified",
 			"maxEvaluateCostMicroUSD", "maxToolCalls", "limits.evaluate", "limits.checkReview",
 			"-ledger", "-evidence", "-checks-", "status.ledger",
+			"replay round", "/maul verify explore", "status.verification.rung", "modelRound",
+			"status.verification.escalation", "replayed saved checks, no model", "never fails an outcome",
 		},
 		"docs/intents/acceptance.md": {
 			"evaluator.md", "outcomes", "from:", "kind: keep", "manual: true", "not covered",
 			"/maul replan", "/maul preview", "/maul accept all", "intentController.verification.evaluator",
 			"maul/acceptance", "/maul verify", "/maul verify fix", "/maul verify --reset", "/maul accept",
-			"maxVerifyFixes", "maxVerifications", "manualGatesStatus", "not an attestation",
+			"maxVerifyFixes", "maxVerifications", "manualGatesStatus", "not an attestation", "/maul verify explore",
 			"cancelled for your review", "Commit statuses", "{{run}}",
 		},
 		"docs/configuration/preview-controller.md": {
@@ -56,7 +58,7 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 		"AGENTS.md": {
 			"cmd/preview-tools", "cmd/maul-tool", "cmd/cdp-shim", "cmd/tool-exec", "`checks`",
 			"`checks/playwright`", "`toolwire`", "`toolexec`", "`cdpshim`", "`maultool`", "`previewtools`",
-			"--intent-evaluator", "docs/intents/evaluator.md",
+			"--intent-evaluator", "docs/intents/evaluator.md", "acceptance.StartRung", "/maul verify explore",
 		},
 		"zensical.toml": {"intents/evaluator.md"},
 	} {

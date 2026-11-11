@@ -233,6 +233,20 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `--intent-handoff-max`, `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
   `limits.maxEvaluateCostMicroUSD`); a codex Project is evaluated only with `--intent-evaluate-codex`, else its hand-off
   is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes.
+  Each round's rung (S3 minimal, `rung.go`; people's guide `docs/intents/evaluator.md#the-cost-ladder-replay-rounds`)
+  is `acceptance.StartRung`'s: `replay` (the saved checks only, no evaluate or checkreview run, $0 model) only at the
+  heads and outcomes of `status.verification.modelRound` (the latest full round judged on its report) when that
+  round was `clear` (no fail verdict, no contrary entry, no anomaly) and every non-manual outcome has a stored check
+  Decide could pass it on; else `full` (round 1, a replan, moved heads: the scoped rung is not built, an objecting
+  model round, an uncovered outcome, `/maul verify explore` from either surface, `VerifyRequest.Explore`, a retry of
+  a full round). Decide judges a replay round unchanged, so it never fails an outcome; an unsure one (on a non-manual
+  outcome or a failing environment) asks for one automatic full round at the same heads
+  (`status.verification.escalation`, once per head set, not spaced by verifyInterval, below the evaluation ceiling;
+  the hand-off waits for it); a dispute's follow-up that cannot replay is full and spends it. Replay rounds run past
+  the evaluation ceiling and count toward `maxVerifications`; `status.verification.rung` and the PV's `spec.rung`
+  record the rung, the verification comment's heading says "replayed saved checks, no model". Seeded properties:
+  `TestStartRungReplaysOnlyWhatItMay` and `TestReplayRoundNeverPassesWhatAFullRoundWouldNot` (acceptance),
+  `TestReplayRoundJudgedAsAFullRoundWithTheSameEvidence` (through `judgeRound`).
   A round runs on a host behind the `toolHost` port (`toolhost.go`: `placement`, `verifies`, `heads`, `gate`, whose
   `place` fills the host's spec fields): `slotHost` (`toolhost_slot.go`, S1, preview-controller's slot tool pod) or,
   with `--intent-evaluator-agents` (slice S2, default off; chart `intentController.verification.agents.enabled`, which
@@ -776,7 +790,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and `Decide` (`decide.go`:
   the six pass rules
   of DESIGN 4.3, the dispute rule, failed only on a deterministic check failure the evaluator agrees with, unsure
-  otherwise, anomalies and a failing environment downgrading the hand-off; seeded property: no pass without all six).
+  otherwise, anomalies and a failing environment downgrading the hand-off; seeded property: no pass without all six),
+  `StartRung` (`rung.go`: the cost ladder's rung, replay or full, sharing Decide's own `passes` for coverage) and
+  `ModelRoundClear` (a full round whose evaluator raised nothing).
   `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`). For S2, `Decide` takes `BaseRuns{Runs, Required,
   Unbuildable}` and rule 5 discriminates: a `change` outcome's check must be red by assertion at base, or err there only
   for a `RunCause` that `NoComparison` admits (`compile`, `vendored-tree`, `replace-outside-tree`, `no-module`,

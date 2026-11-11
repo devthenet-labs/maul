@@ -261,6 +261,26 @@ func TestUnsureReplayEscalatesToAFix(t *testing.T) {
 	e.reviewUntil(name, func() bool { return e.stageCount(name, v1alpha1.IntentStageRevise) > 0 })
 }
 
+// TestEscalationNotSpacedWhileFixesHalted: with automatic fixes halted
+// (an approver's /maul verify stop), a new head set's automatic round waits
+// verifyInterval after the last; the escalation, the replay round's own
+// follow-up, does not: it starts on the next passes.
+func TestEscalationNotSpacedWhileFixesHalted(t *testing.T) {
+	e, name := passedModelRound(t, 0.4)
+	e.request(name, "issue", "/maul verify")
+	e.replayRound(name, 2, v1alpha1.CheckRunFail)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v, now := in.Status.Verification, metav1.NewTime(e.clock.Now())
+		v.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted, Reason: v1alpha1.AutoFixHumanStop, Since: &now}
+		v.LastAutomaticAt = &now
+	})
+	e.review(name, 2)
+	if v := e.verification(name); v.Round != 3 || v.Rung != v1alpha1.RungFull {
+		t.Fatalf("round %d %s two minutes after the unsure replay, want the escalation (round 3, full)", v.Round,
+			v.Rung)
+	}
+}
+
 // TestUnsureReplayEscalatesOnce: when the escalated full round is unsure
 // too, no further round starts by itself; a later replay at the same
 // heads, unsure again, escalates no more (the head set's one escalation is
