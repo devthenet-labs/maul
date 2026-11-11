@@ -15,8 +15,8 @@ import (
 	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
-const notAskedLine = "**Acceptance:** not asked for: this Project verifies, but previews no repository a " +
-	"criterion could target"
+const notAskedLine = "**Acceptance:** not asked for: this Project verifies, but previews no repository maul " +
+	"could check this change on"
 
 var (
 	notVerifying = func(p *v1alpha1.Project) { p.Spec.Verification = nil }

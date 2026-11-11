@@ -708,8 +708,8 @@ func planAcceptanceLine(a *PlanAcceptance) string {
 	if a == nil || !a.NotAsked {
 		return ""
 	}
-	return "not asked for: this Project verifies, but previews no repository a criterion could target, so " +
-		"maul could not ask the planner for criteria and none will be checked."
+	return "not asked for: this Project verifies, but previews no repository maul could check " +
+		"this change on, so the planner was not asked what to check and nothing will be checked."
 }
 
 // PlanVerification is the Project's verification by the agent evaluator,
