@@ -17,9 +17,9 @@ and for what agent text is shown. One line per paragraph. */ -}}
 {{- end }}
 {{- end }}
 {{- template "verify_detail" . }}
-{{- if .LogsCut }}
+{{- with .Cut }}
 
-Component log tails were left out: they would not fit in a comment.
+{{ . }}
 {{- end }}
 
 _maul edits this comment as the attempts of this verification finish._
