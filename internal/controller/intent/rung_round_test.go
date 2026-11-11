@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -263,16 +264,34 @@ func TestUnsureReplayEscalatesToAFix(t *testing.T) {
 
 // TestEscalationWaitsForAHuman: the human always wins. An approver's
 // changes-requested review pending (its quiet window included) when an
-// unsure replay round asks for its escalation starts no model round; the
-// human's round comes first.
+// unsure replay round has asked for its escalation starts no model round,
+// although round 1 released the link (so only the follow-up guard holds
+// it); the human's round comes first.
 func TestEscalationWaitsForAHuman(t *testing.T) {
 	e, name := passedModelRound(t, 0.4)
 	e.request(name, "issue", "/maul verify")
 	pv := e.roundOf(name, 2)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
-	e.reviewOn(e.prNumber(name), 4401, "Please also log the version.")
 	e.replayedBoth(name, pv.Name, v1alpha1.CheckRunFail)
+	asked := func() bool { v := e.verification(name); return v.Escalation != nil && v.Escalation.Round == 2 }
+	for range 12 {
+		if asked() {
+			break
+		}
+		e.clock.Advance(10 * time.Second)
+		e.mustIntent(name)
+	}
+	if v := e.verification(name); !asked() || v.Round != 2 || v.Handoff == nil || !v.Handoff.Released {
+		t.Fatalf("verification %+v, want round 2 judged, its escalation asked, the link released", v)
+	}
+	// The review arrives with the escalation due; within its quiet window
+	// (reviewQuiet) the passes poll the pull request and start nothing.
+	e.reviewOn(e.prNumber(name), 4401, "Please also log the version.")
+	for range 10 {
+		e.clock.Advance(10 * time.Second)
+		e.mustIntent(name)
+	}
 	e.review(name, 6)
 	for _, p := range e.verifications(name) {
 		if p.Spec.Round > 2 {
@@ -281,6 +300,9 @@ func TestEscalationWaitsForAHuman(t *testing.T) {
 	}
 	if n := e.stageCount(name, v1alpha1.IntentStageEvaluate); n != 1 {
 		t.Errorf("evaluate runs = %d, want round 1's alone while a human's feedback waits", n)
+	}
+	if e.stageCount(name, v1alpha1.IntentStageRevise) == 0 {
+		t.Error("the human's round never started")
 	}
 }
 
@@ -322,6 +344,27 @@ func TestEscalationNotSpacedWhileFixesHalted(t *testing.T) {
 	if v := e.verification(name); v.Round != 3 || v.Rung != v1alpha1.RungFull {
 		t.Fatalf("round %d %s two minutes after the unsure replay, want the escalation (round 3, full)", v.Round,
 			v.Rung)
+	}
+}
+
+// TestEscalationHeldToMaxVerifications: the escalation is an automatic
+// round, so it counts against the Project's maxVerifications. With the
+// plan revision's automatic rounds spent, an unsure replay round's
+// escalation never starts, and the hand-off does not wait for it.
+func TestEscalationHeldToMaxVerifications(t *testing.T) {
+	e, name := passedModelRound(t, 0.4)
+	e.request(name, "issue", "/maul verify")
+	e.replayRound(name, 2, v1alpha1.CheckRunFail)
+	limit := e.prVerifyPass(name).proj.Spec.Limits.MaxVerificationsLimit()
+	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.Automatic = limit })
+	e.review(name, 8)
+	v := e.verification(name)
+	if v.Round != 2 || len(e.verifications(name)) != 2 {
+		t.Fatalf("round %d, %d verifications: an escalation started past maxVerifications", v.Round,
+			len(e.verifications(name)))
+	}
+	if why := e.prVerifyPass(name).gaveUp(e.get(name).Status.Acceptance, v); why == "" {
+		t.Error("the hand-off waits for an escalation maxVerifications forbids")
 	}
 }
 
