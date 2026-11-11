@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -553,6 +554,82 @@ func TestEdgesFails(t *testing.T) {
 				t.Error("the fixture's policies were not deleted")
 			}
 		})
+	}
+}
+
+// TestEdgesNamesWhatABadFixtureHolds: a fixture the edges run cannot use is
+// refused before anything is called, naming the parts and Preview UIDs it
+// read, so a refusal shows which of its rules the fixture broke.
+func TestEdgesNamesWhatABadFixtureHolds(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not on PATH")
+	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not on PATH; run.sh requires it")
+	}
+	good, err := os.ReadFile("edges.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile("run.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const uid, other = "00000000-0000-4000-8000-0000000ed9e5", "00000000-0000-4000-8000-0000000000aa"
+	for name, tc := range map[string]struct {
+		fixture, want string
+	}{
+		"no tester": {fixture: strings.ReplaceAll(string(good), "preview-edges-np-tester", "preview-edges-np-probe"),
+			want: "read parts (api render probe web) and UIDs (" + uid + ")"},
+		"two Preview UIDs": {fixture: strings.Replace(string(good), uid, other, 1),
+			want: "read parts (api render tester web) and UIDs (" + other + " " + uid + ")"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for file, b := range map[string][]byte{"run.sh": script, "edges.yaml": []byte(tc.fixture)} {
+				if err := os.WriteFile(filepath.Join(dir, file), b, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command(bash, append([]string{filepath.Join(dir, "run.sh"), "edges", "--dry-run"},
+				edgesArgs()...)...)
+			cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "PROBE_") })
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 1 ||
+				!strings.Contains(stderr.String(), "must name a tester and another part, and one Preview UID") ||
+				!strings.Contains(stderr.String(), tc.want) {
+				t.Errorf("run.sh edges: %v, stderr:\n%s\nwant the refusal naming %q", err, stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
+// TestScriptsPipeNothingIntoGrepQ: no probe script pipes into grep -q. Bash
+// writes a pipe a line at a time, so grep -q, gone at its first match, can
+// leave the writer's next line to SIGPIPE, and under pipefail the pipeline
+// then fails though grep matched: the edges run once refused its own fixture
+// so in CI (run 42774604186). The race needs the writer preempted between two
+// lines, which no test can force, so the shape itself is refused.
+func TestScriptsPipeNothingIntoGrepQ(t *testing.T) {
+	pipedGrepQ := regexp.MustCompile(`(^|[^|])\|\s*grep\s+(-[A-Za-z]+\s+)*-[A-Za-z]*q`)
+	for _, name := range []string{"run.sh", "ingress.sh"} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Join continued lines, so a pipe (not an ||) at a line's end meets its
+		// reader.
+		joined := regexp.MustCompile(`([^|])\|\s*\n\s*`).ReplaceAllString(string(b), "$1| ")
+		for i, line := range strings.Split(joined, "\n") {
+			if m := pipedGrepQ.FindString(line); m != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+				t.Errorf("%s: logical line %d pipes into grep -q (%q); match in bash or read a here-string",
+					name, i+1, m)
+			}
+		}
 	}
 }
 

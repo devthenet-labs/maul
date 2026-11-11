@@ -616,6 +616,13 @@ func TestOutputProcessBudget(t *testing.T) {
 			f, _ := commandFile(t, tmp, task)
 			feed(startedLine(task, "toolu_"+task))
 			put(t, f, strings.Repeat(line, lines))
+			// The previous command's goroutine hands over only after printing
+			// its last chunk, so this one may still be queued, and a queued
+			// command that ends is never shown: end it once it is followed,
+			// or once the budget, spent, means it never will be.
+			waitFor(t, out, task+" to be followed", func(got []transcript.Output) bool {
+				return slices.ContainsFunc(got, func(o transcript.Output) bool { return o.Task == task || spent(o) })
+			})
 			feed(notifiedLine(task, "toolu_"+task))
 			if slices.ContainsFunc(chunks(out.String()), spent) {
 				continue // spent: nothing more is followed
