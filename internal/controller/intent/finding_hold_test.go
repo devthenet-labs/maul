@@ -324,6 +324,13 @@ func TestOpenFindingMakesTheRoundFull(t *testing.T) {
 	if !openFindingAt(held, acc, heads) || openFindingAt(held, acc, other) {
 		t.Error("a held outcome: want an open finding at its heads alone")
 	}
+	// A fix round handed the reproduction concluded no defect at the heads:
+	// its recorded reason releases the outcome (TestIntentEvaluateFixFindsNoDefect).
+	noDefect := held.DeepCopy()
+	noDefect.NoDefect = &v1alpha1.NoDefectRecord{Run: "x-rev-r2-a1", Reason: "fine", HeadSetDigest: heads}
+	if openFindingAt(noDefect, acc, heads) || heldOutcomes(noDefect, heads, 2) != nil {
+		t.Error("a held outcome after a no-defect conclusion at its heads still holds them")
+	}
 	acc.Accepted = []v1alpha1.AcceptanceRecord{{ID: oVersion, By: approver, ByID: 7, CommentID: 1,
 		HeadSetDigest: heads}}
 	if openFindingAt(held, acc, heads) {

@@ -547,14 +547,20 @@ func heldAnomalies(v *v1alpha1.IntentVerification, headSet string, round int32) 
 // a round before round, and those it held already (ReasonHeldFinding), each
 // by the check it rested on (G-B-LIB-1): a check failing at heads is a
 // finding about them, which a later round there does not erase. nil once
-// the heads moved.
+// the heads moved, or once a fix round at headSet concluded no defect.
 func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) map[string]string {
 	if v == nil || headSet == "" || v.OutcomesHeadSetDigest != headSet {
 		return nil
 	}
+	if v.NoDefect != nil && v.NoDefect.HeadSetDigest == headSet {
+		// A fix round handed the failure's reproduction at these heads
+		// concluded, in its recorded reason, that the code has no defect:
+		// that is the evidence a later round's pass there rests on.
+		return nil
+	}
 	out := map[string]string{}
 	for _, r := range v.Outcomes {
-		found := r.Reason == acceptance.ReasonReproduced || r.Reason == acceptance.ReasonSuspectedDefect
+		found :=r.Reason == acceptance.ReasonReproduced || r.Reason == acceptance.ReasonSuspectedDefect
 		if r.Reason == acceptance.ReasonHeldFinding || found && v.OutcomesRound != round {
 			out[r.ID] = r.Basis
 		}

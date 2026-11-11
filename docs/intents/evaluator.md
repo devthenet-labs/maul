@@ -401,8 +401,10 @@ the source) has not shown it is gone, and running the saved checks again cannot 
   reproduce it, its report says what it ran (the run panel shows it), for the approver to weigh before accepting.
 - **An outcome found failing, or suspected defective,** on a saved check is unsure in every later round there whose
   check now passes (`held-finding`: a check that failed and then passed at the same commits shows nothing was fixed).
-  The one other way out is the check's own: a dispute with a confirmed, reviewed replacement retires the check, and with
-  it the hold, since that is recorded evidence the check was wrong.
+  Two more ways out are recorded evidence: a dispute with a confirmed, reviewed replacement retires the check, and with
+  it the hold, as the check was wrong; and a fix round handed the reproduction at these commits that concludes, with its
+  reason, that the code has no defect releases it (so a round after `/maul verify` can pass once what failed was the
+  environment).
 - **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
   every outcome maul could not confirm and every anomaly holding the commits. The acceptance is recorded on the anomaly
   (`accepted`), and holds only at those commits. It accepts only anomalies maul recorded before the comment was written
