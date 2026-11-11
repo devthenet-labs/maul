@@ -5,6 +5,8 @@ package agentrun
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -137,6 +139,34 @@ func TestClockReserve(t *testing.T) {
 	} {
 		if got := clockReserve(tt.timeout); got != tt.want {
 			t.Errorf("clockReserve(%s) = %s, want %s", tt.timeout, got, tt.want)
+		}
+	}
+}
+
+// TestClockStopped: only a run its own clock stopped may be resumed on the
+// minutes kept for the report; one the idle watchdog, the budget kill
+// switch, a runner error or the stage's own cancellation ended may not.
+func TestClockStopped(t *testing.T) {
+	live := context.Background()
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tt := range []struct {
+		name string
+		ctx  context.Context
+		res  runner.Result
+		idle string
+		err  error
+		want bool
+	}{
+		{"its own clock", live, runner.Result{TimedOut: true}, "", nil, true},
+		{"ended in time", live, runner.Result{}, "", nil, false},
+		{"idle watchdog", live, runner.Result{TimedOut: true}, "no output for 5m", nil, false},
+		{"budget kill switch", live, runner.Result{TimedOut: true, Aborted: true}, "", nil, false},
+		{"runner error", live, runner.Result{TimedOut: true}, "", errors.New("boom"), false},
+		{"stage cancelled", gone, runner.Result{TimedOut: true}, "", nil, false},
+	} {
+		if got := clockStopped(tt.ctx, tt.res, tt.idle, tt.err); got != tt.want {
+			t.Errorf("%s: clockStopped = %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }
