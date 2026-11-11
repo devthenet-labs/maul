@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 
@@ -13,6 +14,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -114,7 +116,9 @@ func (p *pass) previewExpired(ctx context.Context, reset int64) bool {
 
 // answerNotRun answers the approver's pending request, if any, that it did
 // not run (why, a templates.NotRun constant; stands, the round whose
-// judgement stands, 0 for none), once, on the intent issue. The modifiers
+// judgement stands, 0 for none), once, where the command was made: the
+// pull request it records (notRunPullRequest), else the intent issue,
+// whose status comment says the same either way. The modifiers
 // are not named: a fix re-arm or a reset took effect when the request was
 // recorded; only the check did not run. A pending request was acknowledged
 // as recorded, so on a Project with no preview, whose round can be found
@@ -126,10 +130,40 @@ func (p *pass) answerNotRun(ctx context.Context, why string, stands int32) error
 		return nil
 	}
 	key := notRunKeyPrefix + strconv.FormatInt(req.CommentID, 10)
-	body, err := templates.RenderVerifyCommandNotice(templates.VerifyCommandNotice{Namespace: p.in.Namespace,
-		Intent: p.in.Name, Key: key, Actor: req.By, Verb: action.VerbVerify, Outcome: templates.VerifyNotRun,
-		NotRunWhy: why, Stands: stands, Superseded: p.set.linkless(p.proj)})
+	n := templates.VerifyCommandNotice{Namespace: p.in.Namespace, Intent: p.in.Name, Key: key, Actor: req.By,
+		Verb: action.VerbVerify, Outcome: templates.VerifyNotRun, NotRunWhy: why, Stands: stands,
+		Superseded: p.set.linkless(p.proj)}
+	if pr := p.notRunPullRequest(req); pr != nil {
+		n.Surface = command.IntentPR
+		body, err := templates.RenderVerifyCommandNotice(n)
+		if err != nil {
+			return err
+		}
+		if err := p.postOnceOnPullRequest(ctx, *pr, key, body); err != nil {
+			return fmt.Errorf("answer the verify request on pull request %d: %w", pr.Number, err)
+		}
+		return nil
+	}
+	body, err := templates.RenderVerifyCommandNotice(n)
 	return p.notice(ctx, key, req.At.Time, body, err)
+}
+
+// notRunPullRequest is the intent's pull request req was made on, while
+// maul still answers there: recorded, and its repository still the
+// Project's (nothing is written to one that left). nil otherwise, a
+// request made on the intent issue or recorded before requests named
+// their pull request included: the issue answers it.
+func (p *pass) notRunPullRequest(req *v1alpha1.VerifyRequest) *v1alpha1.IntentPullRequest {
+	src := req.PullRequest
+	if src == nil || p.leftProject(src.Repository) {
+		return nil
+	}
+	for i, pr := range p.in.Status.PullRequests {
+		if pr.Number == src.Number && sameRepo(pr.Repository, src.Repository) {
+			return &p.in.Status.PullRequests[i]
+		}
+	}
+	return nil
 }
 
 // cannotRerun reports, and logs, an approver's pending request for a round

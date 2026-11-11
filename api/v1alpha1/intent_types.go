@@ -1221,6 +1221,23 @@ type VerifyRequest struct {
 	// Reset also restarts the Preview's parts first (/maul verify --reset).
 	// +optional
 	Reset bool `json:"reset,omitempty"`
+	// PullRequest is the intent's pull request the command was made on; nil
+	// for the intent issue. A later answer (that it did not run) is posted
+	// where the command was made.
+	// +optional
+	PullRequest *VerifyRequestPullRequest `json:"pullRequest,omitempty"`
+}
+
+// VerifyRequestPullRequest names the pull request a /maul verify was made on.
+type VerifyRequestPullRequest struct {
+	// Repository is the https URL of the app repository the pull request
+	// is in.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	Repository string `json:"repository"`
+	// Number of the pull request.
+	// +kubebuilder:validation:Minimum=1
+	Number int64 `json:"number"`
 }
 
 // ResetState is the last /maul verify --reset: its generation is copied

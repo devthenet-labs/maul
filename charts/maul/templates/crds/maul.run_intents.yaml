@@ -2275,6 +2275,28 @@ spec:
                         description: Fix also re-arms automatic fixes (/maul verify
                           fix).
                         type: boolean
+                      pullRequest:
+                        description: |-
+                          PullRequest is the intent's pull request the command was made on; nil
+                          for the intent issue. A later answer (that it did not run) is posted
+                          where the command was made.
+                        properties:
+                          number:
+                            description: Number of the pull request.
+                            format: int64
+                            minimum: 1
+                            type: integer
+                          repository:
+                            description: |-
+                              Repository is the https URL of the app repository the pull request
+                              is in.
+                            maxLength: 256
+                            minLength: 1
+                            type: string
+                        required:
+                        - number
+                        - repository
+                        type: object
                       reset:
                         description: Reset also restarts the Preview's parts first
                           (/maul verify --reset).

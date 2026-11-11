@@ -61,9 +61,7 @@ func TestOutcomeVerifyFixNoDefect(t *testing.T) {
 	// maul gave up: the held link follows in the write that settles the
 	// round, never a pass later (releaseIfDue), so the comments show the
 	// conclusion as soon as the criteria original's did.
-	if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {
-		t.Errorf("hand-off = %+v, want released unconfirmed as the round settles", h)
-	}
+	checkReleasedUnconfirmed(t, v)
 	e.checkNoDefectReported(name)
 }
 

@@ -37,9 +37,16 @@ func TestGivingUpReleasesTheLinkInTheHaltsWrite(t *testing.T) {
 			if v.AutoFix.Reason != tc.reason {
 				t.Fatalf("auto-fix = %+v, want halted %s", v.AutoFix, tc.reason)
 			}
-			if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {
-				t.Errorf("hand-off = %+v, want released unconfirmed in the halt's write", h)
-			}
+			checkReleasedUnconfirmed(t, v)
 		})
+	}
+}
+
+// checkReleasedUnconfirmed fails unless v's held link was released because
+// maul gave up (unconfirmed).
+func checkReleasedUnconfirmed(t *testing.T, v *v1alpha1.IntentVerification) {
+	t.Helper()
+	if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {
+		t.Errorf("hand-off = %+v, want released unconfirmed in the write that gave up", h)
 	}
 }

@@ -232,6 +232,93 @@ func TestRequestWaitingForPreviewThatExpires(t *testing.T) {
 	}
 }
 
+// prNotRunReplies are maul's not-run answers on pull request n.
+func (e *env) prNotRunReplies(n int64) []string {
+	e.gh.mu.Lock()
+	defer e.gh.mu.Unlock()
+	var out []string
+	for _, c := range e.gh.prComments[n] {
+		if c.UserLogin == testBot && strings.Contains(markerOf(c.Body), notRunKeyPrefix) {
+			out = append(out, c.Body)
+		}
+	}
+	return out
+}
+
+// TestNotRunAnswerGoesWhereTheCommandWasMade: a /maul verify made on a
+// pull request, recorded and then found unable to run (its preview expired
+// while it waited), is answered on that pull request, never on the issue,
+// whose status comment shows the same state. A post that fails leaves the
+// request pending, answered on a later pass, once.
+func TestNotRunAnswerGoesWhereTheCommandWasMade(t *testing.T) {
+	e, name, _, _ := passedSlotRound(t)
+	n := e.prNumber(name)
+	e.servePreview(name, v1alpha1.PreviewDeploying, "")
+	e.clock.Advance(time.Minute)
+	id := e.prCommand(n, approver, "/maul verify")
+	e.review(name, 3)
+	v := e.verification(name)
+	if v.Requested == nil || v.Requested.CommentID != id || v.Requested.PullRequest == nil ||
+		v.Requested.PullRequest.Number != n || !sameRepo(v.Requested.PullRequest.Repository, appRepoURL) {
+		t.Fatalf("request = %+v, want it recorded with its pull request", v.Requested)
+	}
+	e.servePreview(name, v1alpha1.PreviewExpired, "")
+	e.gh.mu.Lock()
+	e.gh.lockedPRs[n] = true
+	e.gh.mu.Unlock()
+	for range 2 {
+		e.clock.Advance(time.Minute)
+		if err := e.reconcileIntent(name); err != nil && !strings.Contains(err.Error(), "locked") {
+			t.Fatal(err)
+		}
+	}
+	if v := e.verification(name); v.Requested == nil || len(e.prNotRunReplies(n)) != 0 {
+		t.Fatalf("request = %+v, want it pending while its pull request refuses the answer", v.Requested)
+	}
+	e.gh.mu.Lock()
+	e.gh.lockedPRs[n] = false
+	e.gh.mu.Unlock()
+	e.review(name, 4)
+	if v := e.verification(name); v.Requested != nil {
+		t.Fatalf("request = %+v, want it answered and consumed", v.Requested)
+	}
+	replies := e.prNotRunReplies(n)
+	if len(replies) != 1 || !strings.Contains(replies[0], expiredWords) {
+		t.Fatalf("not-run answers on the pull request = %q, want one saying why", replies)
+	}
+	if issue := e.notRunReplies(); len(issue) != 0 {
+		t.Fatalf("not-run answers on the issue = %q, want none: the command was made on the pull request", issue)
+	}
+}
+
+// TestNotRunPullRequestFallsBackToTheIssue: the issue answers a request
+// made there, one recorded before requests named their pull request, and
+// one whose pull request maul no longer answers on: not the intent's, or in
+// a repository that left the Project.
+func TestNotRunPullRequestFallsBackToTheIssue(t *testing.T) {
+	e, name, _, _ := passedSlotRound(t)
+	p := e.prVerifyPass(name)
+	n := e.prNumber(name)
+	for _, tc := range []struct {
+		name string
+		src  *v1alpha1.VerifyRequestPullRequest
+		want bool
+	}{
+		{"the issue", nil, false},
+		{"its pull request", &v1alpha1.VerifyRequestPullRequest{Repository: appRepoURL, Number: n}, true},
+		{"its pull request, URL spelled otherwise",
+			&v1alpha1.VerifyRequestPullRequest{Repository: appRepoURL + ".git", Number: n}, true},
+		{"another pull request", &v1alpha1.VerifyRequestPullRequest{Repository: appRepoURL, Number: n + 7}, false},
+		{"a repository that left the project",
+			&v1alpha1.VerifyRequestPullRequest{Repository: "https://github.com/acme/gone", Number: n}, false},
+	} {
+		got := p.notRunPullRequest(&v1alpha1.VerifyRequest{PullRequest: tc.src})
+		if (got != nil) != tc.want || (got != nil && got.Number != n) {
+			t.Errorf("%s: pull request = %+v, want found %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestExpiredPreviewWhileRevising (gate D-B5): while a round revises the
 // intent, its push deploys the preview again, so a request is recorded to
 // run after it, as before; only outside a revision is an expired preview
