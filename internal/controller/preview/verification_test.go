@@ -750,12 +750,9 @@ func TestVerificationUnreachableWithDNSFailures(t *testing.T) {
 // A component that exited during the attempt, by the kubelet's timestamps
 // against the attempt's start and end, and came back Ready crashed:
 // EnvFailed component-crashed, the change's. A restart from before the
-// attempt, or after it ended, is not charged.
-//
-// The tool pod's attempt ends at the settle, not when its tools container
-// terminated (attemptEnd reads the container of slice 1's tester), so a
-// crash between the two is charged too: the last case pins that, a known
-// gap to close on its own.
+// attempt, or after it ended, is not charged. The attempt ends when the
+// tool pod's tools container terminated, not at the settle: a crash
+// between the two came after every check ran, so it is not the change's.
 func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 	ref := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC) // the attempt's start (e.now)
 	for _, tc := range []struct {
@@ -775,8 +772,10 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 			v1alpha1.VerificationReasonOK},
 		{"restart after the attempt ended", 1, ref.Add(time.Hour), ref.Add(time.Hour), 0,
 			v1alpha1.VerificationReasonOK},
-		{"after the tools exited, before the settle (today: charged)", 1, ref.Add(270 * time.Second),
-			ref.Add(271 * time.Second), time.Minute, v1alpha1.VerificationReasonComponentCrashed},
+		{"just before the tools exited", 1, ref.Add(239 * time.Second), ref.Add(239 * time.Second), time.Minute,
+			v1alpha1.VerificationReasonComponentCrashed},
+		{"after the tools exited, before the settle", 1, ref.Add(270 * time.Second),
+			ref.Add(271 * time.Second), time.Minute, v1alpha1.VerificationReasonOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newToolEnv(t)

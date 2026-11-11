@@ -13,8 +13,9 @@ import (
 )
 
 // What happened to a component during a verification attempt, and whose
-// it is. The attempt is the tester's run: from its Pod's start, less the
-// clock skew, to its container's termination (or now, while it runs).
+// it is. The attempt is the tool pod's run: from its Pod's start, less the
+// clock skew, to its tools container's termination (or now, while it
+// runs).
 // Nothing outside that window is charged, and nothing is placed in time by
 // deletionTimestamp, which is a deletion's request time plus its grace
 // period: an event is placed by a condition's transition or a container's
@@ -42,11 +43,11 @@ import (
 
 // clockSkew is the tolerance between the kubelet's clock, which stamps a
 // container's start and termination, and the API server's, which stamps a
-// Pod's creation and conditions, when either is compared with the tester
+// Pod's creation and conditions, when either is compared with the tool
 // Pod's start.
 const clockSkew = 2 * time.Second
 
-// attemptWindow is the tester's run, [start - clockSkew, end].
+// attemptWindow is the tool pod's run, [start - clockSkew, end].
 type attemptWindow struct {
 	start, end time.Time
 }
@@ -56,17 +57,17 @@ func (w attemptWindow) holds(t metav1.Time) bool {
 	return !t.IsZero() && !t.Time.Before(w.start.Add(-clockSkew)) && !t.After(w.end)
 }
 
-// attemptStart is when the attempt began: the tester Pod's start as its
+// attemptStart is when the attempt began: the tool Pod's start as its
 // kubelet reported it (the same clock domain as the components'
-// timestamps), else its container's, else when the tester was rendered. It
-// needs no state: an attempt already running when the controller was
-// upgraded, or a start pass re-entered, judges the same.
-func attemptStart(tester *corev1.Pod, pv *v1alpha1.PreviewVerification) time.Time {
-	if tester != nil {
-		if tester.Status.StartTime != nil && !tester.Status.StartTime.IsZero() {
-			return tester.Status.StartTime.Time
+// timestamps), else its tools container's, else when the tool pod was
+// rendered. It needs no state: an attempt already running when the
+// controller was upgraded, or a start pass re-entered, judges the same.
+func attemptStart(tools *corev1.Pod, pv *v1alpha1.PreviewVerification) time.Time {
+	if tools != nil {
+		if tools.Status.StartTime != nil && !tools.Status.StartTime.IsZero() {
+			return tools.Status.StartTime.Time
 		}
-		if s := testerStatus(tester); s != nil {
+		if s := toolsStatus(tools); s != nil {
 			switch {
 			case s.State.Running != nil && !s.State.Running.StartedAt.IsZero():
 				return s.State.Running.StartedAt.Time
@@ -78,28 +79,25 @@ func attemptStart(tester *corev1.Pod, pv *v1alpha1.PreviewVerification) time.Tim
 	return startedAt(pv)
 }
 
-// attemptEnd is when the attempt ended: the tester container's
+// attemptEnd is when the attempt ended: the tools container's
 // termination, read from its Pod as the reconciler read it live, else now,
-// while it runs.
-func attemptEnd(tester *corev1.Pod, now time.Time) time.Time {
-	if s := testerStatus(tester); s != nil && s.State.Terminated != nil && !s.State.Terminated.FinishedAt.IsZero() {
+// while it runs. Every check ran before it, so nothing after it, before
+// the settle pass reads the slot, is charged to the change.
+func attemptEnd(tools *corev1.Pod, now time.Time) time.Time {
+	if s := toolsStatus(tools); s != nil && s.State.Terminated != nil && !s.State.Terminated.FinishedAt.IsZero() {
 		return s.State.Terminated.FinishedAt.Time
 	}
 	return now
 }
 
-// testerContainer is slice 1's tester container, the one testerStatus
-// reads. A tool pod has none (its main container is tools), so its attempt
-// runs to the settle (attemptEnd's now): a known gap, kept as it is.
-const testerContainer = "tester"
-
-func testerStatus(tester *corev1.Pod) *corev1.ContainerStatus {
-	if tester == nil {
+// toolsStatus is the tool pod's tools container status, nil for none.
+func toolsStatus(tools *corev1.Pod) *corev1.ContainerStatus {
+	if tools == nil {
 		return nil
 	}
-	for i := range tester.Status.ContainerStatuses {
-		if tester.Status.ContainerStatuses[i].Name == testerContainer {
-			return &tester.Status.ContainerStatuses[i]
+	for i := range tools.Status.ContainerStatuses {
+		if tools.Status.ContainerStatuses[i].Name == toolsContainer {
+			return &tools.Status.ContainerStatuses[i]
 		}
 	}
 	return nil
@@ -206,7 +204,7 @@ func podConditionOf(pod *corev1.Pod, t corev1.PodConditionType) *corev1.PodCondi
 // gravest podCause over the Pods of its current revision (runsComponent),
 // every other Pod ignored; and, when none shows anything, the cluster's
 // (disrupted) if its current Pod was created during the attempt, a
-// replacement, or is missing. A Pod created a moment before the tester (a
+// replacement, or is missing. A Pod created a moment before the tool pod (a
 // fast cluster serves one within seconds) is the one it ran against, never
 // a replacement.
 func componentCause(all []corev1.Pod, current *corev1.Pod, p *v1alpha1.Preview, c v1alpha1.PreviewComponent,
