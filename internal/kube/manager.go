@@ -185,6 +185,17 @@ func managerOptions(opts Options) ctrl.Options {
 	}
 	if opts.LeaderElectionID != "" {
 		mgrOpts.LeaderElection = true
+		// A stopping leader hands its Lease back once every leader
+		// runnable has returned, so the next pod of a rollout (strategy
+		// Recreate) takes it at once instead of waiting out the lease
+		// duration. Safe because nothing leader-gated outlives the
+		// manager: reconcilers and the leader runnables (the sweepers, the
+		// usage compactor) end with its context, every API call they make
+		// takes it, and each binary returns as soon as Start does. What
+		// does run past it (integration-controller's webhook queue,
+		// evaluation-controller's API) was never under the Lease: it runs
+		// on every replica, with optimistic concurrency on each write.
+		mgrOpts.LeaderElectionReleaseOnCancel = true
 		mgrOpts.LeaderElectionID = opts.LeaderElectionID
 		mgrOpts.LeaderElectionNamespace = opts.LeaderElectionNamespace
 	}

@@ -87,15 +87,17 @@ func TestNewManagerBadKubeconfig(t *testing.T) {
 }
 
 // TestManagerOptions pins the remaining option mapping: metrics off unless
-// an address is given, leader election only with an ID, and Secrets never
-// cached; TestManagerOptionsConfigured, the namespace set and the agent
-// namespace confining Jobs and Pods.
+// an address is given, leader election only with an ID (and releasing its
+// Lease on the way out only then), and Secrets never cached;
+// TestManagerOptionsConfigured, the namespace set and the agent namespace
+// confining Jobs and Pods.
 func TestManagerOptions(t *testing.T) {
 	off := managerOptions(Options{})
-	if off.Metrics.BindAddress != "0" || off.LeaderElection || off.Cache.DefaultNamespaces != nil ||
-		off.Cache.ByObject != nil {
-		t.Errorf("zero Options = metrics %q, LE %v, namespaces %v, byObject %v; want all off",
-			off.Metrics.BindAddress, off.LeaderElection, off.Cache.DefaultNamespaces, off.Cache.ByObject)
+	if off.Metrics.BindAddress != "0" || off.LeaderElection || off.LeaderElectionReleaseOnCancel ||
+		off.Cache.DefaultNamespaces != nil || off.Cache.ByObject != nil {
+		t.Errorf("zero Options = metrics %q, LE %v (release on cancel %v), namespaces %v, byObject %v; want all off",
+			off.Metrics.BindAddress, off.LeaderElection, off.LeaderElectionReleaseOnCancel,
+			off.Cache.DefaultNamespaces, off.Cache.ByObject)
 	}
 	if off.Client.Cache == nil || len(off.Client.Cache.DisableFor) != 1 {
 		t.Fatalf("client cache = %+v, want exactly Secrets disabled", off.Client.Cache)
@@ -118,6 +120,12 @@ func TestManagerOptionsConfigured(t *testing.T) {
 	}
 	if !on.LeaderElection || on.LeaderElectionID != "lease" || on.LeaderElectionNamespace != "ns" {
 		t.Errorf("leader election = %v %q %q", on.LeaderElection, on.LeaderElectionID, on.LeaderElectionNamespace)
+	}
+	// A stopping leader hands its Lease back at once, so its successor
+	// never waits out the lease duration (every reconciler and leader
+	// runnable has returned by then: see NewManager).
+	if !on.LeaderElectionReleaseOnCancel {
+		t.Error("LeaderElectionReleaseOnCancel = false: a successor waits out the lease on every rollout")
 	}
 	if len(on.Cache.DefaultNamespaces) != 2 {
 		t.Errorf("DefaultNamespaces = %v, want a and b", on.Cache.DefaultNamespaces)
