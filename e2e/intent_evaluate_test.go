@@ -1299,8 +1299,10 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 		t.Errorf("round 2 outcomes %+v, want passed on the replayed check", o)
 	}
 	if pv.Spec.Rung != v1alpha1.RungReplay || len(e.evaluatorJobs()) != 1 ||
-		len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)) != 1 {
-		t.Errorf("round 2 = %s, %d evaluate Jobs; want a replay round and round 1's evaluator alone", pv.Spec.Rung,
+		len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)) != 1 ||
+		len(e.stageRuns(t, name, v1alpha1.IntentStageCheckReview)) != 1 {
+		t.Errorf("round 2 = %s, %d evaluate Jobs; want a replay round and round 1's evaluator and reviewer alone",
+			pv.Spec.Rung,
 			len(e.evaluatorJobs()))
 	}
 	eventually(t, "round 2's comment to say no model ran", func() bool {

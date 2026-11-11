@@ -49,7 +49,7 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 	store := storeInput(acc, checks, "")
 	in := acceptance.RungInput{HeadSet: hs.digest, OutcomesDigest: acc.OutcomesDigest,
 		Explore:  v.Requested != nil && v.Requested.Explore,
-		Escalate: kind == verifyAutomatic && p.escalationDue(v),
+		Escalate: kind != verifyRetry && escalationAsked(v, hs.digest),
 		Outcomes: store.Outcomes, Checks: store.Checks, Reviews: store.Reviews}
 	if kind == verifyRetry {
 		in.Keep = acceptance.Rung(v.Rung)
@@ -74,11 +74,19 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 // automatic round is: it is the replay round's own follow-up, once per head
 // set, and that round already ran when it was asked for.
 func (p *pass) escalationDue(v *v1alpha1.IntentVerification) bool {
-	e := v.Escalation
-	return e != nil && e.Round == v.Round && e.HeadSetDigest == v.HeadSetDigest &&
-		v.Rung == v1alpha1.RungReplay && v.State == v1alpha1.VerificationUnconfirmed && v.Ref != nil &&
+	return escalationAsked(v, v.HeadSetDigest) && v.State == v1alpha1.VerificationUnconfirmed && v.Ref != nil &&
 		v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) &&
 		v.Automatic < p.proj.Spec.Limits.MaxVerificationsLimit() && !p.atEvaluationCeiling()
+}
+
+// escalationAsked reports the escalation the current round, a replay at hs,
+// asked for and that has not run: the next round at hs is full whatever
+// starts it, an approver's request included, so a request never replays
+// again in its place and spends it unrun.
+func escalationAsked(v *v1alpha1.IntentVerification, hs string) bool {
+	e := v.Escalation
+	return e != nil && e.Round == v.Round && e.HeadSetDigest == hs && v.HeadSetDigest == hs &&
+		v.Rung == v1alpha1.RungReplay
 }
 
 // followUpDue reports an automatic round at v's heads still to come after

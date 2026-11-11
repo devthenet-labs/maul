@@ -261,6 +261,50 @@ func TestUnsureReplayEscalatesToAFix(t *testing.T) {
 	e.reviewUntil(name, func() bool { return e.stageCount(name, v1alpha1.IntentStageRevise) > 0 })
 }
 
+// TestEscalationWaitsForAHuman: the human always wins. An approver's
+// changes-requested review pending (its quiet window included) when an
+// unsure replay round asks for its escalation starts no model round; the
+// human's round comes first.
+func TestEscalationWaitsForAHuman(t *testing.T) {
+	e, name := passedModelRound(t, 0.4)
+	e.request(name, "issue", "/maul verify")
+	pv := e.roundOf(name, 2)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.reviewOn(e.prNumber(name), 4401, "Please also log the version.")
+	e.replayedBoth(name, pv.Name, v1alpha1.CheckRunFail)
+	e.review(name, 6)
+	for _, p := range e.verifications(name) {
+		if p.Spec.Round > 2 {
+			t.Fatalf("round %d (%s) started over a human's pending review", p.Spec.Round, p.Spec.Rung)
+		}
+	}
+	if n := e.stageCount(name, v1alpha1.IntentStageEvaluate); n != 1 {
+		t.Errorf("evaluate runs = %d, want round 1's alone while a human's feedback waits", n)
+	}
+}
+
+// TestRequestWhileEscalationDueIsFull: an approver's /maul verify that
+// arrives while the escalation an unsure replay round asked for has not
+// started yet runs that full round: it never replays again and spends the
+// head set's escalation unrun.
+func TestRequestWhileEscalationDueIsFull(t *testing.T) {
+	e, name := passedModelRound(t, 0.4)
+	e.request(name, "issue", "/maul verify")
+	e.replayRound(name, 2, v1alpha1.CheckRunFail)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		v := in.Status.Verification
+		if v.Escalation == nil || v.Escalation.Round != 2 {
+			t.Fatalf("escalation %+v, want round 2's", v.Escalation)
+		}
+		v.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: actorOf(approver).ID,
+			At: metav1.NewTime(e.clock.Now()), CommentID: 4402}
+	})
+	if pv := e.roundOf(name, 3); pv.Spec.Rung != v1alpha1.RungFull {
+		t.Fatalf("round 3 = %s, want the escalation's full round", pv.Spec.Rung)
+	}
+}
+
 // TestEscalationNotSpacedWhileFixesHalted: with automatic fixes halted
 // (an approver's /maul verify stop), a new head set's automatic round waits
 // verifyInterval after the last; the escalation, the replay round's own
