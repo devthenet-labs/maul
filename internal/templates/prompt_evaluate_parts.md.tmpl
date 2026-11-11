@@ -57,6 +57,20 @@ reason, quoted:
 
 A check refused in one form is never reviewed again in that form: maul keeps each review by the check's digest, so the
 same check proposed again is refused again. Strengthen it to answer the reason, run it, and propose the new form.
+{{- end}}
+{{- with .NotYetBlock}}
+
+### Saved checks that are not yet proof
+
+These saved checks were saved to show a defect of their outcome, each named by its id and its outcome:
+
+{{fence . | chomp}}
+
+Such a check shows only that the build it failed on was wrong. When it replays green, that is not yet evidence that
+its outcome holds: a reviewer judges it again as proof of the pass, and a check written to catch one wrong value
+rarely pins every clause of the outcome. So for each of these outcomes whose saved checks replay green this round,
+write a new check that shows the outcome holds, held to **What a check must cover** like any other, run it green,
+propose it, and cite its run in the verdict. Leave the saved check as it is: do not dispute or retire it.
 {{- end}}{{end}}
 {{define "evaluate-report"}}## Your report
 

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -51,6 +52,10 @@ const (
 // half the reviews an intent caches. The controller hands over at most the
 // newest this many.
 const PriorRefusedMax = 40
+
+// NotYetProofMax bounds the saved checks not yet proof of a pass the
+// evaluate prompt names (gate D-B9): every check a store holds.
+const NotYetProofMax = v1alpha1.MaxSavedChecks
 
 // GreenRubric is the check reviewer's rule for a check confirmed green, word
 // for word: rendered into every green review and into the evaluator's
@@ -97,8 +102,8 @@ var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 // the approved outcomes against the running preview with maul-tool, save
 // checks for them, look around what the change touched, and report.
 //
-// Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts and PriorReplay
-// are UNTRUSTED (DESIGN 4.4): the issue anyone may have written, the plan's
+// Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay,
+// PriorRefused and NotYetProof are UNTRUSTED (DESIGN 4.4): the issue anyone may have written, the plan's
 // outcome text, paths and diff text from the pull request, and a previous
 // round's results, whose reasons may quote its evaluator. RenderEvaluatePrompt shows each only
 // inside a fenced block it labels as data, made legible by
@@ -150,6 +155,17 @@ type EvaluatePrompt struct {
 	// PriorRefused are the checks the reviewer refused in earlier rounds,
 	// with its reasons (coverage design C3); none omits the section.
 	PriorRefused []PriorRefusal
+	// NotYetProof are the saved checks saved to show a defect that no
+	// review has yet accepted as proof their outcome holds (gate D-B9): the
+	// prompt asks for a new check of each one's outcome even when it
+	// replays green. None omits the section.
+	NotYetProof []NotYetProof
+}
+
+// NotYetProof is one saved check saved red that is not yet proof of a
+// pass, by its id and outcome.
+type NotYetProof struct {
+	Check, Outcome string
 }
 
 // PriorRefusal is one check the reviewer refused in an earlier round, by
@@ -267,6 +283,7 @@ type evaluateView struct {
 	FixDiffBlock  string
 	PriorBlock    string
 	RefusedBlock  string
+	NotYetBlock   string
 	Examples      evaluateExamples
 	// WS is the workspace, on a round with no preview.
 	WS workspaceView
@@ -282,10 +299,15 @@ type evaluateView struct {
 
 // outcomeTurns shares the turns before the report, less the two that start
 // a round, among the outcomes a person does not judge and no saved check
-// covers (replayedGreen): at least 1 each. It is advice only, so an outcome
-// whose check fails this round after all is still judged.
-func outcomeTurns(reportBy int, os []acceptance.PlanOutcome, replays []PriorReplay) int {
+// covers (replayedGreen), an outcome with a saved check that is not yet
+// proof of a pass counted uncovered (gate D-B9): at least 1 each. It is
+// advice only, so an outcome whose check fails this round after all is
+// still judged.
+func outcomeTurns(reportBy int, os []acceptance.PlanOutcome, replays []PriorReplay, notYet []NotYetProof) int {
 	green := replayedGreen(replays)
+	for _, c := range notYet {
+		delete(green, c.Outcome)
+	}
 	n := 0
 	for _, o := range os {
 		if !o.Manual && !green[o.ID] {
@@ -324,6 +346,17 @@ func (evaluateView) ExecAssertionIDMax() int { return checks.MaxExecAssertionIDL
 // it, and never before turn 1.
 func reportBy(maxTurns int) int {
 	return max(1, maxTurns-max(2, maxTurns/10))
+}
+
+// ReportByTime is the time left, as maul-tool's time-left line counts it,
+// by which an evaluate run is asked to have written its report (gate D-B8):
+// an eighth of its wall clock in whole minutes, at least 2; "" for a run
+// with no clock.
+func (v evaluateView) ReportByTime() string {
+	if v.Limits.Timeout <= 0 {
+		return ""
+	}
+	return StageLimits{Timeout: max(2*time.Minute, (v.Limits.Timeout / 8).Truncate(time.Minute))}.WallClock()
 }
 
 // evaluateExamples are the check and report examples the prompt shows,
@@ -394,7 +427,7 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
-	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay)
+	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay, p.NotYetProof)
 	if strings.TrimSpace(p.FixDiff) != "" {
 		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")
 	}
@@ -402,7 +435,21 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
 	}
 	v.RefusedBlock = refusedBlock(p.PriorRefused)
+	v.NotYetBlock = notYetBlock(p.NotYetProof)
 	return v
+}
+
+// notYetBlock lists the saved checks that are not yet proof of a pass, each
+// by its id and outcome, at most NotYetProofMax; "" for none.
+func notYetBlock(cs []NotYetProof) string {
+	var b strings.Builder
+	for i, c := range cs {
+		if i == NotYetProofMax {
+			break
+		}
+		fmt.Fprintf(&b, "- check %s, of outcome %s\n", quotedLine(c.Check, 72), quotedLine(c.Outcome, 64))
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // refusedBlock lists the checks the reviewer refused, as priorBlock lists a

@@ -104,7 +104,57 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 		return "", err
 	}
 	h.PriorRefused = p.priorRefused()
+	h.NotYetProof = p.notYetProof(ctx)
 	return encodeEvaluateHandoff(h)
+}
+
+// notYetProof are the stored checks saved to show a defect that are not
+// yet evidence their outcome holds (gate D-B9): no review of the green
+// question answered proves for the outcome's current text, or a review of
+// it refused (the predicate acceptance's passes holds a check saved red
+// to). A green replay of one passes nothing, so the evaluator is told to
+// write its outcome a new check that proves it. A store that cannot be
+// read hands over none (the round is judged without it, as reviewChecks
+// does).
+func (p *pass) notYetProof(ctx context.Context) []agentrun.NotYetProof {
+	acc := p.in.Status.Acceptance
+	if acc == nil {
+		return nil
+	}
+	stored, _, err := p.storedChecks(ctx)
+	if err != nil {
+		p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the intent's check store; no saved red check is named to the "+
+			"evaluator", slog.String("intent", p.in.Name), slog.Any("error", err))
+		return nil
+	}
+	var out []agentrun.NotYetProof
+	for _, c := range stored {
+		i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == c.Outcome })
+		if c.Expect != v1alpha1.CheckExpectFail || i < 0 || acc.Outcomes[i].Manual ||
+			greenProven(acc.Reviews, c.Digest, outcomeDigest(acc.Outcomes[i])) {
+			continue
+		}
+		out = append(out, agentrun.NotYetProof{Outcome: c.Outcome, Check: c.ID})
+	}
+	return out
+}
+
+// greenProven reports that the check of digest passes the outcome of
+// outcome digest by its reviews alone, as acceptance's passes judges a
+// check saved red: a review of the green question answered proves, and no
+// review of the pair answered anything else.
+func greenProven(reviews []v1alpha1.CheckReviewRecord, check, outcome string) bool {
+	green := false
+	for _, r := range reviews {
+		if r.CheckDigest != check || r.OutcomeDigest != outcome {
+			continue
+		}
+		if r.Answer != v1alpha1.ReviewProves {
+			return false
+		}
+		green = green || r.Expect != v1alpha1.CheckExpectFail
+	}
+	return green
 }
 
 // agentsTools fills t, an agents round's tools (S2-16, S2-20): its

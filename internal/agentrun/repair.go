@@ -48,6 +48,23 @@ func reportReserve(maxTurns int) int {
 	return reserve
 }
 
+// clockReserve is how much of a stage's wall clock its first run is not
+// given, so that a run its own clock stops before it wrote an acceptable
+// report can still be asked, in its session, to write or repair one (gate
+// D-B8: three of six live evaluate attempts spent the whole stage clock and
+// ended with no report and no repair window). A fifth of the clock, at
+// least two repair windows (repairMinWindow) and at most one round's
+// clock (repairTimeout), never more than half the stage; none for a stage
+// too short to keep that. It is carved out of the stage's clock, never
+// added to it, so every deadline set around the stage still holds.
+func clockReserve(timeout time.Duration) time.Duration {
+	reserve := min(max(timeout/5, 2*repairMinWindow), repairTimeout)
+	if timeout-reserve < reserve {
+		return 0
+	}
+	return reserve
+}
+
 // Repairable reports whether a stage capped at maxTurns keeps back enough
 // of them (reportReserve) for one repair of its report. A controller sizing
 // a stage's default turns holds it to this (S1 bug 8: a check review of 3
@@ -103,13 +120,23 @@ type stageRun struct {
 	// its repairs may then spend.
 	turns   int
 	timeout time.Duration // the stage's wall clock
-	idle    time.Duration // the stage's idle limit, zero for none
-	budget  int           // the stage's output-token budget, zero for none
-	rec     *transcript.Recorder
-	started time.Time
+	// reserve is how much of timeout the first run is not given
+	// (clockReserve), which its repairs may then spend; zero for none.
+	reserve time.Duration
+	// deadlineEnv: every run of the stage carries its own cutoff in
+	// maultool.EnvDeadline, for maul-tool to show the time left.
+	deadlineEnv bool
+	idle        time.Duration // the stage's idle limit, zero for none
+	budget      int           // the stage's output-token budget, zero for none
+	rec         *transcript.Recorder
+	started     time.Time
 	// outOfTurns is set when the first run reached its turn cap without a
 	// report: each repair tells the agent so (RepairPrompt.OutOfTurns).
 	outOfTurns bool
+	// outOfTime is set when the first run's own clock (timeout less
+	// reserve) stopped it: each repair tells the agent so
+	// (RepairPrompt.OutOfTime).
+	outOfTime bool
 	// used is how many of turns the stage's runs have spent, each run's
 	// counted by countedTurns.
 	used int
@@ -129,7 +156,19 @@ func (a *Agent) newStage(h harness.Harness, cli string, req harness.PromptReques
 // start runs the stage's first run.
 func (a *Agent) start(ctx context.Context, sr *stageRun) (runner.Result, string, error) {
 	sr.started = time.Now()
-	return a.run(ctx, sr, pinCLI(sr.h.PromptSpec(a.workDir(), sr.req), sr.cli), sr.timeout, sr.budget)
+	return a.run(ctx, sr, pinCLI(sr.h.PromptSpec(a.workDir(), sr.req), sr.cli), sr.firstTimeout(), sr.budget)
+}
+
+// firstTimeout is the stage's first run's wall clock: the stage's, less
+// what it keeps for the report (reserve).
+func (sr *stageRun) firstTimeout() time.Duration { return sr.timeout - sr.reserve }
+
+// clockStopped reports whether a run ended on its own clock alone, not on
+// the idle watchdog, the budget kill switch, a crash or the stage being
+// cancelled: only then may a stage that kept a reserve ask it for its
+// report.
+func clockStopped(ctx context.Context, res runner.Result, idle string, runErr error) bool {
+	return res.TimedOut && idle == "" && !res.Aborted && runErr == nil && ctx.Err() == nil
 }
 
 // writable reports whether the stage may write the working tree, so a
@@ -155,7 +194,7 @@ func readReportAs[T any](path string, read func(string) ([]byte, error),
 
 // settleReport reads and parses a stage's report once its first run ended
 // OK (or, on a stage that keeps turns for its report, reached its turn cap:
-// sr.outOfTurns), and when the report is missing or invalid asks the agent, in its own
+// sr.outOfTurns, or its own clock: sr.outOfTime), and when the report is missing or invalid asks the agent, in its own
 // session, to repair it (repair). It returns the parsed report and its
 // exact bytes — the final file, a repaired one included — or the outcome
 // and detail the stage ends on. Every repair run's spend is added to st.
@@ -290,7 +329,8 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 		commitScript = a.cfg.commitScript()
 	}
 	prompt, err := templates.RenderRepairPrompt(templates.RepairPrompt{
-		ReportPath: path, Missing: missing, OutOfTurns: sr.outOfTurns, Error: detail, Round: round,
+		ReportPath: path, Missing: missing, OutOfTurns: sr.outOfTurns, OutOfTime: sr.outOfTime, Error: detail,
+		Round:  round,
 		Rounds: repairRounds, CommitScriptPath: commitScript, Example: sr.example,
 	})
 	if err != nil {

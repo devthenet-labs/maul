@@ -299,7 +299,9 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   images: `maul-tool http|browser|exec|logs|events|check run|check results`, and for an agents round
   `files ls|grep|read [--base]`, `run <dir> [--base] [-- args]` and `--base` on `exec` and `check run`, sent to its
   tool pod over `toolwire` (`MAUL_TOOLS_URL`; the per-evaluation key from `/work/input/tools-key`,
-  `maultool.KeyFile`, when it exists, as `X-Maul-Tools-Key`, never printed). Not deployed on its own.
+  `maultool.KeyFile`, when it exists, as `X-Maul-Tools-Key`, never printed; the run's cutoff from
+  `MAUL_TOOLS_DEADLINE`, which agent-runner sets per evaluate run, printed as `[maul-tool time left]` after the ledger
+  line; a failed text step's `Received` text quoted on its own `[observed]` line). Not deployed on its own.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded SPA +
   JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration `spec.replay`;

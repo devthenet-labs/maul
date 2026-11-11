@@ -37,7 +37,7 @@ const evaluateHandoffMaxBytes = 256 << 10
 // type). agent-runner renders the evaluate prompt from it
 // (templates.RenderEvaluatePrompt), which quotes every untrusted field
 // (Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay,
-// PriorRefused) as fenced data.
+// PriorRefused, NotYetProof) as fenced data.
 type EvaluateHandoff struct {
 	// Round is the verification round, 1-based.
 	Round int `json:"round"`
@@ -68,6 +68,18 @@ type EvaluateHandoff struct {
 	// PriorRefused are the checks the reviewer refused in earlier rounds,
 	// with its reasons (coverage design C3).
 	PriorRefused []PriorRefusal `json:"prior_refused,omitempty"`
+	// NotYetProof are the saved checks saved to show a defect that no
+	// review has yet accepted as proof their outcome holds (gate D-B9): a
+	// green replay of one passes nothing, so the prompt asks for a new
+	// check of its outcome.
+	NotYetProof []NotYetProof `json:"not_yet_proof,omitempty"`
+}
+
+// NotYetProof is one saved check saved red that is not yet proof of a
+// pass: its outcome's id and its own id.
+type NotYetProof struct {
+	Outcome string `json:"outcome"`
+	Check   string `json:"check"`
 }
 
 // PriorRefusal is one check the reviewer refused in an earlier round: its
@@ -344,6 +356,9 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 		p.PriorRefused = append(p.PriorRefused, templates.PriorRefusal{Check: r.Check, Outcome: r.Outcome,
 			Reason: r.Reason})
 	}
+	for _, c := range h.NotYetProof {
+		p.NotYetProof = append(p.NotYetProof, templates.NotYetProof{Check: c.Check, Outcome: c.Outcome})
+	}
 	for _, c := range h.Components {
 		p.Components = append(p.Components, templates.EvaluateComponent{Key: c.Key, Path: c.Path})
 	}
@@ -416,9 +431,11 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 	// The first run is not given the stage's last turns: a run that reaches
 	// its own cap without a report spends them writing one (settleReport).
 	firstTurns := maxTurns - reportReserve(maxTurns)
+	// Nor the last minutes of its wall clock, for the same (gate D-B8).
+	reserve := clockReserve(a.cfg.InvestigateTimeout)
 	prompt, err := templates.RenderEvaluatePrompt(in.prompt(a.cfg.evaluationPath(), a.cfg.checksDir(),
 		a.cfg.shotsDir(), templates.StageLimits{MaxTurns: firstTurns, TokenBudget: budget,
-			Timeout: a.cfg.InvestigateTimeout}))
+			Timeout: a.cfg.InvestigateTimeout - reserve}))
 	if err != nil {
 		return fail(envelope.OutcomeRuntimeError, err.Error())
 	}
@@ -435,24 +452,33 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 		MaxOutputTokens: provider.EvaluateMaxOutputTokens,
 	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, budget)
 	sr.turns, sr.example = maxTurns, templates.ExampleEvaluationReport
+	sr.reserve, sr.deadlineEnv = reserve, true
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)
 	runOutcome, runDetail := a.runOutcome(h, res, idle, runErr)
 	if runOutcome != envelope.OutcomeOK {
-		if !turnCapped(h, res, idle, runErr) {
+		switch {
+		case turnCapped(h, res, idle, runErr):
+			// Out of turns: what the run found is collected, not thrown away.
+			sr.outOfTurns = true
+			a.cfg.Log.Info("the evaluate run reached its turn cap; asking it for its report", "phase", a.cfg.Phase,
+				"turns", firstTurns, "kept", maxTurns-firstTurns)
+		case reserve > 0 && clockStopped(ctx, res, idle, runErr):
+			// Out of its own time: likewise, in the minutes kept for it.
+			sr.outOfTime = true
+			a.cfg.Log.Info("the evaluate run reached its wall clock; asking it for its report", "phase", a.cfg.Phase,
+				"clock", sr.firstTimeout(), "kept", reserve)
+		default:
 			return fail(runOutcome, runDetail)
 		}
-		// Out of turns: what the run found is collected, not thrown away.
-		sr.outOfTurns = true
-		a.cfg.Log.Info("the evaluate run reached its turn cap; asking it for its report", "phase", a.cfg.Phase,
-			"turns", firstTurns, "kept", maxTurns-firstTurns)
 	}
 
 	e, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.evaluationPath(), readReport,
 		a.parseEvaluation)
 	if outcome != envelope.OutcomeOK {
-		if sr.outOfTurns {
-			// It still ends on the cap, as before, with why no report came.
+		if sr.outOfTurns || sr.outOfTime {
+			// It still ends on the cap or the clock, as before, with why no
+			// report came.
 			return fail(runOutcome, runDetail+"; "+detail)
 		}
 		return fail(outcome, detail)
