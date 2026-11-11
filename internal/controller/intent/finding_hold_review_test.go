@@ -6,6 +6,7 @@ package intent
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -148,5 +149,41 @@ func TestModelFailVerdictHoldsItsHeads(t *testing.T) {
 				t.Error("no open finding: a replay round could follow")
 			}
 		})
+	}
+}
+
+// TestJudgingARoundAgainKeepsItsOwnRecords: the same round judged again
+// is that round's judgement, written anew: its own earlier finding does
+// not hold it (only an earlier round's does), and its own anomaly keeps the
+// time it was first recorded and any acceptance an approver made of it.
+func TestJudgingARoundAgainKeepsItsOwnRecords(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	heads := e.verification(name).HeadSetDigest
+	check := savedCheck(t, versionCheck)
+	failing := passingJudgement(t)
+	failing.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultFailed, acceptance.ReasonReproduced,
+		check.Digest)
+	e.judgeAt(name, 1, heads, failing)
+	if v := e.judgeAt(name, 1, heads, passingJudgement(t)); v.Outcomes[0].Reason == acceptance.ReasonHeldFinding {
+		t.Errorf("round 1 judged again is held by its own earlier record: %+v", v.Outcomes[0])
+	}
+
+	own := v1alpha1.AnomalyRecord{Summary: "round 2's oddity"}
+	e.judgeAt(name, 2, heads, passingJudgement(t, own))
+	first := metav1.NewTime(time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC))
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		as := in.Status.Verification.Anomalies
+		as[len(as)-1].RecordedAt = &first
+		as[len(as)-1].Accepted = &v1alpha1.AnomalyAcceptance{By: approver, ByID: 7,
+			At: metav1.NewTime(first.Add(time.Minute)), CommentID: 97}
+	})
+	v := e.judgeAt(name, 2, heads, passingJudgement(t, own))
+	got := v.Anomalies[len(v.Anomalies)-1]
+	if got.Accepted == nil || got.RecordedAt == nil || !got.RecordedAt.Equal(&first) {
+		t.Errorf("round 2 judged again: %+v; want its first time %v and the acceptance kept", got, first)
+	}
+	if v.State != v1alpha1.VerificationPassed {
+		t.Errorf("round 2 judged again over its accepted anomaly = %s, want Passed", v.State)
 	}
 }
