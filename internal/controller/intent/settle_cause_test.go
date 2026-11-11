@@ -4,6 +4,7 @@
 package intent
 
 import (
+	"strings"
 	"testing"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -129,4 +130,47 @@ func TestUnjudgedRoundRecordsItsCause(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRetryOwedDroppedWithItsRound: a retry owed belongs to the round at
+// the heads it was owed at. When the heads move, or verification is
+// switched Off (settleState keeps the record) and on again, the next
+// verification is a new round's first attempt. It is never a retry that
+// reuses the old round's numbering at attempt 1 and so adopts its finished
+// first attempt.
+func TestRetryOwedDroppedWithItsRound(t *testing.T) {
+	owed := func(t *testing.T) (*env, string, *v1alpha1.PreviewVerification) {
+		e, name := newEvaluatorEnv(t, 0.4)
+		e.review(name, 3)
+		first := e.onlyVerification(name)
+		e.playTools(first.Name, v1alpha1.VerificationInfra, "", false)
+		e.review(name, 1)
+		if v := e.verification(name); !v.RetryOwed || v.Ref != nil || v.Attempt != 1 {
+			t.Fatalf("verification = %+v, want the retry owed after attempt 1", v)
+		}
+		return e, name, &first
+	}
+	t.Run("the heads move", func(t *testing.T) {
+		e, name, _ := owed(t)
+		before := e.verification(name).HeadSetDigest
+		e.pushHead(e.prNumber(name), strings.Repeat("b", 40))
+		e.review(name, 3)
+		v := e.verification(name)
+		if v.HeadSetDigest == before {
+			t.Fatalf("verification = %+v, want the moved heads recorded", v)
+		}
+		if v.RetryOwed || v.Attempt > 1 {
+			t.Fatalf("verification = %+v, want no retry owed at the moved heads", v)
+		}
+	})
+	t.Run("off and on again", func(t *testing.T) {
+		e, name, first := owed(t)
+		// What settleState writes: the state alone, the record kept.
+		e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Verification.State = v1alpha1.VerificationOff })
+		e.review(name, 4)
+		v := e.verification(name)
+		if v.RetryOwed || v.Round != 2 || v.Attempt != 1 || v.Ref == nil || v.Ref.Name == first.Name {
+			t.Fatalf("verification = %+v, want round 2's first attempt, no retry owed", v)
+		}
+	})
 }
