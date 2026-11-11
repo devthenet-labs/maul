@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -604,6 +605,31 @@ func TestEdgesNamesWhatABadFixtureHolds(t *testing.T) {
 				t.Errorf("run.sh edges: %v, stderr:\n%s\nwant the refusal naming %q", err, stderr.String(), tc.want)
 			}
 		})
+	}
+}
+
+// TestScriptsPipeNothingIntoGrepQ: no probe script pipes into grep -q. Bash
+// writes a pipe a line at a time, so grep -q, gone at its first match, can
+// leave the writer's next line to SIGPIPE, and under pipefail the pipeline
+// then fails though grep matched: the edges run once refused its own fixture
+// so in CI (run 42774604186). The race needs the writer preempted between two
+// lines, which no test can force, so the shape itself is refused.
+func TestScriptsPipeNothingIntoGrepQ(t *testing.T) {
+	pipedGrepQ := regexp.MustCompile(`(^|[^|])\|\s*grep\s+(-[A-Za-z]+\s+)*-[A-Za-z]*q`)
+	for _, name := range []string{"run.sh", "ingress.sh"} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Join continued lines, so a pipe (not an ||) at a line's end meets its
+		// reader.
+		joined := regexp.MustCompile(`([^|])\|\s*\n\s*`).ReplaceAllString(string(b), "$1| ")
+		for i, line := range strings.Split(joined, "\n") {
+			if m := pipedGrepQ.FindString(line); m != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+				t.Errorf("%s: logical line %d pipes into grep -q (%q); match in bash or read a here-string",
+					name, i+1, m)
+			}
+		}
 	}
 }
 

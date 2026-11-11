@@ -295,8 +295,11 @@ edges_fixture() {
     fixture="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/edges.yaml"
     read -r -a edges_parts <<<"$(sed -n 's/^  name: preview-edges-np-\([a-z0-9-]*\)$/\1/p' "$fixture" | tr '\n' ' ')"
     edges_uid=$(sed -n 's/^ *maul\.run\/preview-uid: \(.*\)$/\1/p' "$fixture" | sort -u)
-    if [[ ${#edges_parts[@]} -lt 2 || ! $edges_uid =~ ^[0-9a-f-]{36}$ ]] || ! printf '%s\n' "${edges_parts[@]}" |
-        grep -qx tester; then
+    # The tester is matched in bash, never by piping the parts into grep -q:
+    # bash writes a pipe a line at a time, and grep -q, gone at its match,
+    # can leave the next line's write to SIGPIPE, which pipefail turns into
+    # a refusal of a good fixture.
+    if [[ ${#edges_parts[@]} -lt 2 || ! $edges_uid =~ ^[0-9a-f-]{36}$ || " ${edges_parts[*]} " != *" tester "* ]]; then
         echo "$fixture must name a tester and another part, and one Preview UID;" \
             "read parts (${edges_parts[*]}) and UIDs (${edges_uid//$'\n'/ })" >&2
         exit 1
