@@ -74,6 +74,36 @@ type workspaceSide struct {
 	procfs string
 	// runs are the workspace tool Jobs finished so far, in order.
 	runs []workspaceRun
+	// garble is how many more programs the head sandbox runs, builds
+	// aside, whose output it replaces (garbleHeadRuns): a check of the
+	// output then fails by its assertion at the same commits, as a flaky or
+	// broken environment would make it. Negative: every one.
+	garble int
+}
+
+// garbledOutput replaces a garbled program's output.
+const garbledOutput = "maul e2e: garbled output\n"
+
+// garbleHeadRuns makes the head sandbox's next n programs (builds aside;
+// n < 0: every one) print garbledOutput instead of their own output.
+func (k *kubelet) garbleHeadRuns(n int) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.workspace.garble = n
+}
+
+// takeGarble reports whether the head sandbox's next program is garbled,
+// and counts it.
+func (k *kubelet) takeGarble() bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	switch ws := k.workspace; {
+	case ws.garble == 0:
+		return false
+	case ws.garble > 0:
+		ws.garble--
+	}
+	return true
 }
 
 // workspaceRun is one agents tool Job as the kubelet ran it.
@@ -394,6 +424,9 @@ func (k *kubelet) startSandboxes(wp *wsPod) error {
 		if err != nil {
 			return fmt.Errorf("sandbox %s: %w", side, err)
 		}
+		if side == jobs.ToolSideHead {
+			sb.garble = k.takeGarble
+		}
 		wp.sandboxes[side] = sb
 	}
 	return nil
@@ -412,6 +445,9 @@ type wsSandbox struct {
 	work, goBin string
 	srv         *toolexec.Server
 	hs          *http.Server
+	// garble, on the head side, reports whether a program's output is to
+	// be garbled (kubelet.garbleHeadRuns); nil on the base side.
+	garble func() bool
 
 	mu   sync.Mutex
 	reqs []toolexec.Request
@@ -463,6 +499,9 @@ func (sb *wsSandbox) serveExec(w http.ResponseWriter, r *http.Request) {
 	mapped := sb.mount(req)
 	res := sb.srv.Do(r.Context(), &mapped)
 	res.Output = strings.ReplaceAll(res.Output, sb.work, toolexec.WorkDir)
+	if req.Kind != toolexec.KindBuild && sb.garble != nil && sb.garble() {
+		res.Output = garbledOutput
+	}
 	writeShimResult(w, http.StatusOK, res)
 }
 

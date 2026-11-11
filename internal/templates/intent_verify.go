@@ -442,7 +442,10 @@ func (s *VerifySection) empty() bool {
 type VerifyComment struct {
 	Namespace, Intent string
 	Round, Attempt    int32
-	Section           VerifySection
+	// Replay: the round replayed maul's saved checks with no model (the
+	// replay rung), which its heading says.
+	Replay  bool
+	Section VerifySection
 }
 
 type verifyRow struct{ ID, Kind, IDCell, KindCell, Outcome, OutcomeCell, Statement string }
@@ -530,8 +533,9 @@ func RenderVerifyComment(c VerifyComment) (string, error) {
 		return render("intent_verify_issue.md.tmpl", struct {
 			Marker         string
 			Round, Attempt int32
+			Replay         bool
 			verifyView
-		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, v})
+		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, c.Replay, v})
 	})
 }
 

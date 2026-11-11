@@ -59,8 +59,9 @@ the evaluator's run (`[maul-tool time left]`).
 
 1. **The gate.** As in slice 1: every open pull request's checks green at its head, no check-fix round due, no human
    round pending, the preview live at exactly those heads, and rounds and evaluation budget left.
-2. **The request.** intent-controller creates a `PreviewVerification` for the outcomes and the saved checks. Each
-   attempt gets a new one, since a tool pod takes one finish.
+2. **The request.** intent-controller creates a `PreviewVerification` for the outcomes and the saved checks, and picks
+   its rung: **full** (the steps below) or **replay** (steps 3, 4, 9 and 10 only, no model; see
+   [The cost ladder](#the-cost-ladder-replay-rounds)). Each attempt gets a new one, since a tool pod takes one finish.
 3. **The tool pod.** preview-controller re-checks the request against the Preview, renders the tool pod and one ingress
    policy that admits exactly this round's evaluator, and writes the pod's address to `status.tools` once `tools` is
    ready. Only then is the evaluator created: its pod reaches the tool pod by a host entry fixed when the pod starts.
@@ -113,10 +114,11 @@ the evaluator's run (`[maul-tool time left]`).
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
 10. **Judge.** maul decides each outcome by the rules below, then routes the round: all confirmed, no anomaly, a clean
-    preview: **ready**. A failure the evaluator agrees with: a verify-fix round. A dispute: one model-free replay round.
-    Anything else: **maul couldn't confirm this**. A failing environment keeps the round from ready even when every
-    outcome passed, and no later acceptance by an approver changes that at the same heads. A replay round whose `tools`
-    finished before its replay's end (its wall clock, or its container told to stop) is maul's trouble (`Infra`,
+    preview: **ready**. A failure the evaluator agrees with: a verify-fix round. A dispute: one more round at the same
+    heads, a replay when it can pass every outcome. An unsure replay round: one full round at the same heads. Anything
+    else: **maul couldn't confirm this**. A failing environment keeps the round from ready even when every outcome
+    passed, and no later acceptance by an approver changes that at the same heads. A replay round whose `tools` finished
+    before its replay's end (its wall clock, or its container told to stop) is maul's trouble (`Infra`,
     `replay-incomplete`), never judged.
 11. **Tear down.** The tool pod, its key, its ConfigMap and its ingress policy go when the request settles.
 
@@ -303,12 +305,70 @@ a replacement check.
 
 - The outcome is **unsure** this round, never failed and never passed.
 - Once the replacement is confirmed and reviewed `proves`, maul retires the disputed check (both are shown) and runs one
-  **replay round** at the same heads, with no model: that round can pass the outcome. It counts toward
+  more round at the same heads: a **replay round**, with no model, when every outcome then has a proven saved check and
+  the dispute's evaluator raised nothing else; that round can pass the outcome. Otherwise the round is full, and it is
+  the head set's one escalation (see [The cost ladder](#the-cost-ladder-replay-rounds)). It counts toward
   `maxVerifications`.
 - A check that failed in an earlier round is retired only this way, through a dispute with a confirmed replacement.
 
 A dispute only ever moves an outcome from failed to unsure, and the replacement must meet every rule above, so it can
 never make a pass on its own.
+
+## The cost ladder: replay rounds
+
+Not every round needs the model. When nothing has changed since a model looked, maul replays its saved checks alone: a
+**replay round**. It renders the same tool pod, which replays every saved check at the current heads (each alone, with
+its own fresh run token, a failure run once more, at the base too on an agents round), and then finishes. No evaluate
+run and no checkreview run is created, so the round spends nothing on a model. Its verification comment's heading says
+"replayed saved checks, no model", and `status.verification.rung` and the `PreviewVerification`'s `spec.rung` say
+`replay`.
+
+A new round replays only when all of these hold; otherwise it is **full** (replay, then the evaluator, as above):
+
+- the heads and the approved outcomes are those of the latest **model round** (`status.verification.modelRound`): the
+  latest full round judged on its evaluator's report. Round 1, the first round of a new plan revision and the first
+  round after the heads move (a fix or a person's push) are full;
+- that round's evaluator raised nothing: no outcome it judged `fail`, none with contrary entries, and no look-around
+  anomaly (`modelRound.clear`). Only a model can look again at what a model raised;
+- every outcome but the manual ones is bound to a saved check that could pass it: stored (so confirmed), valid, in one
+  of maul's forms, reviewed `proves` for the outcome's exact text, not narrowed, and, for a check saved to show a
+  defect, cleared and reviewed with the green question too;
+- no approver asked for `/maul verify explore`, which makes the round full whatever else holds.
+
+A retry of an attempt maul's own machinery failed keeps its round's rung.
+
+A replay round is judged by exactly the rules in [What makes a pass](#what-makes-a-pass), unchanged, on the store as it
+stands and the round's own replay, base runs and environment. With no evaluator in the round, two things follow:
+
+- **It never fails an outcome.** A failure needs a deterministic failure and the evaluator's cited `fail`; a replay
+  round has no evaluator, so a saved check failing there leaves its outcome unsure (`evaluator-disagrees`), never a fix.
+- **It passes what a full round would.** For the same evidence (the store with its reviews and records, the replay, base
+  and environment), a replay round decides each outcome exactly as a full round whose evaluator raises nothing against
+  it, and an evaluator's claims in a full round can only withhold a pass, never add one. The replay rung runs only after
+  a model round whose evaluator raised nothing at those heads, and a check that passed while the evaluator saw its
+  outcome fail is narrowed and never passes it again. Seeded properties hold both
+  (`TestReplayRoundNeverPassesWhatAFullRoundWouldNot`, `TestReplayRoundJudgedAsAFullRoundWithTheSameEvidence`).
+
+**Escalation.** A replay round left unsure on an outcome a model is asked about (or by a failing environment) asks for
+one **full round at the same heads**, which starts by itself (`status.verification.escalation`) and which the hand-off
+waits for: its evaluator sees the replay's results and can agree a failing check shows a defect (then a verify-fix round
+starts as usual) or dispute it. A head set gets one escalation: a later unsure replay round at the same heads asks for
+none. A replay round unsure only on a manual outcome escalates to nothing. The full round after a dispute that could not
+be a replay spends that head set's escalation too.
+
+| Round                                            | Model spend          |
+| ------------------------------------------------ | -------------------- |
+| `/maul verify` at unchanged heads                | none: a replay round |
+| the round after a dispute (every outcome proven) | none: a replay round |
+| an unsure replay round's escalation              | one full round       |
+| `/maul verify explore`                           | one full round       |
+
+Replay and escalation rounds count toward `maxVerifications` like any automatic round, and a request's round counts as
+before. A replay round runs past the evaluation ceiling (`limits.maxEvaluateCostMicroUSD`), since it spends nothing; an
+escalation does not, and past the ceiling the round stays unconfirmed with the budget as the reason. The escalation is
+not spaced by the five minutes automatic rounds wait while automatic fixes are halted: it is the replay round's own
+follow-up, once per head set. The scoped rung (a model re-exploring only what a diff touches) is not built: after the
+heads move, a round is full.
 
 ## Look-around
 
@@ -659,20 +719,20 @@ scripted codex, but no live run has proved it yet, screenshot viewing included: 
 
 ## Limits
 
-| Bound                       | Default                                                            | Where                                                                                                                            |
-| --------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| One evaluate run            | 100 turns (the last few kept for its report), 20 minutes           | `--intent-evaluate-max-turns`, chart `evaluateMaxTurns`; `--intent-evaluate-timeout`, chart `evaluateTimeout`; `limits.evaluate` |
-| One checkreview run         | 6 turns per check (3 kept for a repair), 15 minutes                | `--intent-checkreview-max-turns`, chart `checkReviewMaxTurns`; `limits.checkReview`                                              |
-| Tool calls per round        | 300 (50 to 300)                                                    | `verification.maxToolCalls`, chart `maxToolCalls`                                                                                |
-| Look-around                 | 8 routes per round                                                 | fixed                                                                                                                            |
-| Evaluation spend per intent | \$6                                                                | `limits.maxEvaluateCostMicroUSD`, chart `maxEvaluateCostUSD`                                                                     |
-| Rounds and fixes            | as slice 1: `maxVerifications`, `maxVerifyFixes`                   | the Project's `limits`                                                                                                           |
-| Hand-off wait               | 60 minutes                                                         | `verification.handoffMax`, chart `handoffMax`                                                                                    |
-| Saved checks                | 40 per intent, 8 KiB each, 30 steps                                | fixed                                                                                                                            |
-| Captured logs               | a bounded tail per component per round; 40 lines in a reproduction | fixed                                                                                                                            |
-| Agents tool pods at once    | 2; at the bound a round waits, never a verdict                     | `--intent-max-tool-pods`, chart `verification.agents.maxToolPods`                                                                |
-| One tree's build (agents)   | 10 minutes, 1 to 20                                                | `surfaces.cli.buildTimeout`, capped by chart `verification.agents.buildTimeoutMax`                                               |
-| Base runs (agents)          | 80 per round                                                       | fixed                                                                                                                            |
+| Bound                       | Default                                                                   | Where                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| One evaluate run            | 100 turns (the last few kept for its report), 20 minutes                  | `--intent-evaluate-max-turns`, chart `evaluateMaxTurns`; `--intent-evaluate-timeout`, chart `evaluateTimeout`; `limits.evaluate` |
+| One checkreview run         | 6 turns per check (3 kept for a repair), 15 minutes                       | `--intent-checkreview-max-turns`, chart `checkReviewMaxTurns`; `limits.checkReview`                                              |
+| Tool calls per round        | 300 (50 to 300)                                                           | `verification.maxToolCalls`, chart `maxToolCalls`                                                                                |
+| Look-around                 | 8 routes per round                                                        | fixed                                                                                                                            |
+| Evaluation spend per intent | \$6 (replay rounds spend nothing)                                         | `limits.maxEvaluateCostMicroUSD`, chart `maxEvaluateCostUSD`                                                                     |
+| Rounds and fixes            | as slice 1: `maxVerifications` (replay rounds included), `maxVerifyFixes` | the Project's `limits`                                                                                                           |
+| Hand-off wait               | 60 minutes                                                                | `verification.handoffMax`, chart `handoffMax`                                                                                    |
+| Saved checks                | 40 per intent, 8 KiB each, 30 steps                                       | fixed                                                                                                                            |
+| Captured logs               | a bounded tail per component per round; 40 lines in a reproduction        | fixed                                                                                                                            |
+| Agents tool pods at once    | 2; at the bound a round waits, never a verdict                            | `--intent-max-tool-pods`, chart `verification.agents.maxToolPods`                                                                |
+| One tree's build (agents)   | 10 minutes, 1 to 20                                                       | `surfaces.cli.buildTimeout`, capped by chart `verification.agents.buildTimeoutMax`                                               |
+| Base runs (agents)          | 80 per round                                                              | fixed                                                                                                                            |
 
 A tool pod lives as long as its evaluate run plus five minutes, under the slot's verification deadline
 (`preview.verification.deadlineMaxSeconds`), and needs about 2.5 CPU and 2 GiB beside the Preview: see

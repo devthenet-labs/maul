@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -528,67 +527,5 @@ func TestRoleHandoffBounds(t *testing.T) {
 		!strings.Contains(raw, `"components"`) {
 		t.Errorf("encode = %d bytes, %v; want the request dropped, the components and every review kept", len(raw),
 			err)
-	}
-}
-
-// TestReplayRoundRunsNoEvaluator: with a disputed check awaiting its
-// model-free round and checks in the store, the round replays them (rung
-// replay, the store's checks inline under its digest) and is judged once
-// the verification settles, with no evaluate run at all. A store that is
-// not what its ref records starts no round.
-func TestReplayRoundRunsNoEvaluator(t *testing.T) {
-	e, name := newEvaluatorEnv(t, 0.4)
-	saved := []v1alpha1.SavedCheck{{ID: "version-shown", Outcome: "version-shown", Form: v1alpha1.CheckFormHTTP,
-		Body: `{"id":"version-shown"}`, Digest: "sha256:" + strings.Repeat("b", 64)}}
-	data, sum, err := encodeCheckStore(saved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	in := e.get(name)
-	store := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: name + "-checks-1", Namespace: testNS,
-			Labels:          map[string]string{v1alpha1.LabelIntent: name},
-			OwnerReferences: []metav1.OwnerReference{intentOwner(in)}},
-		Data: map[string]string{keyCheckStore: data},
-	}
-	if err := e.c.Create(context.Background(), store); err != nil {
-		t.Fatal(err)
-	}
-	e.review(name, 2)
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		in.Status.Acceptance.Checks = &v1alpha1.CheckStoreRef{ConfigMap: store.Name, Digest: sum, Count: 1}
-		in.Status.Verification.Disputed = []string{saved[0].Digest}
-		in.Status.Verification.Ref, in.Status.Verification.Attempt = nil, 0
-	})
-	for _, pv := range e.verifications(name) {
-		if err := e.c.Delete(context.Background(), &pv); err != nil {
-			t.Fatal(err)
-		}
-	}
-	e.review(name, 3)
-	pvs := e.verifications(name)
-	if len(pvs) != 1 || pvs[0].Spec.Rung != v1alpha1.RungReplay || pvs[0].Spec.ChecksDigest != sum ||
-		len(pvs[0].Spec.Checks) != 1 || pvs[0].Spec.Checks[0] != saved[0] {
-		t.Fatalf("verifications = %+v, want one replay of the stored check", pvs)
-	}
-	e.playTools(pvs[0].Name, v1alpha1.VerificationRunning, toolPodIP, true)
-	e.review(name, 2)
-	e.playTools(pvs[0].Name, v1alpha1.VerificationObserved, toolPodIP, true)
-	e.review(name, 2)
-	if runs := e.runsOf(name, v1alpha1.IntentStageEvaluate); len(runs) != 0 {
-		t.Fatalf("evaluate runs = %d on a replay round, want none", len(runs))
-	}
-	if v := e.verification(name); v.State != v1alpha1.VerificationUnconfirmed {
-		t.Fatalf("state = %s, want the replay round judged", v.State)
-	}
-
-	// A store whose bytes are not its recorded digest starts nothing.
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		in.Status.Acceptance.Checks.Digest = "sha256:" + strings.Repeat("c", 64)
-		in.Status.Verification.Ref, in.Status.Verification.Attempt = nil, 0
-	})
-	e.review(name, 3)
-	if n := len(e.verifications(name)); n != 1 {
-		t.Errorf("verifications = %d, want none started over a store not on record", n)
 	}
 }

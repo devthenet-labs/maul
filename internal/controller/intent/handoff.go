@@ -159,7 +159,8 @@ func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 
 // gaveUp is why the evaluation settled without confirming every outcome
 // and will not go on by itself (a templates.HandoffWhy constant), "" while
-// it goes on (evaluating, waiting, a fix or a replay round due) or is
+// it goes on (evaluating, waiting, a fix, a replay round or an escalation
+// due) or is
 // ready.
 func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) string {
 	if outcomesReady(acc, v) {
@@ -197,8 +198,8 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 // Unconfirmed: "" while its replay round is due.
 func (p *pass) unconfirmedWhy(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) string {
 	switch {
-	case len(v.Disputed) > 0 && v.Ref != nil && p.verifyBounded(v):
-		return "" // its replay round is due
+	case p.followUpDue(v):
+		return "" // a dispute's round, or the escalation, is due
 	case suspectedPending(v):
 		// The defect maul suspects waits for a person: it leads, before the
 		// outcomes in doubt and any anomaly (gate D-B11).

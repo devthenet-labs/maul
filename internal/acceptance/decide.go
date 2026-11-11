@@ -554,20 +554,7 @@ func decide(in Input, guard bool) Decision {
 	if httpstep.HeadBuildFailed(in.Env) {
 		return buildFailed(in)
 	}
-	d := decider{
-		in: in, env: httpstep.ClassifyEnvironment(in.Env), guard: guard,
-		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
-		red: map[string]bool{}, notReproduced: map[string]bool{}, redChecks: map[string]StoredCheck{},
-		dropped: map[string]bool{},
-	}
-	for _, c := range in.Checks {
-		if c.ExpectFail {
-			d.red[c.Digest] = true
-			if _, dup := d.redChecks[c.Digest]; !dup {
-				d.redChecks[c.Digest] = c
-			}
-		}
-	}
+	d := index(in, guard)
 	d.runs = aggregate(append(d.replayRuns(), d.confirmationRuns()...))
 	if in.Base != nil {
 		d.base = aggregate(in.Base.Runs)
@@ -604,6 +591,26 @@ func decide(in Input, guard bool) Decision {
 		out.Handoff = HandoffReady
 	}
 	return out
+}
+
+// index is a decider over in with its store indexed (the checks saved red),
+// no run aggregated yet: what Decide and StartRung's covered share.
+func index(in Input, guard bool) decider {
+	d := decider{
+		in: in, env: httpstep.ClassifyEnvironment(in.Env), guard: guard,
+		retired: map[string]bool{}, disputed: map[string]CheckDispute{}, verdicts: map[string]EvaluatorVerdict{},
+		red: map[string]bool{}, notReproduced: map[string]bool{}, redChecks: map[string]StoredCheck{},
+		dropped: map[string]bool{},
+	}
+	for _, c := range in.Checks {
+		if c.ExpectFail {
+			d.red[c.Digest] = true
+			if _, dup := d.redChecks[c.Digest]; !dup {
+				d.redChecks[c.Digest] = c
+			}
+		}
+	}
+	return d
 }
 
 // buildFailed is the decision of a round whose head the tool pod could not

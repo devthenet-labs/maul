@@ -82,6 +82,9 @@ type roundJudgement struct {
 	env       []httpstep.PartFact
 	// replay: the round was a replay round.
 	replay bool
+	// clear: the evaluator raised nothing a replay could not see again
+	// (acceptance.ModelRoundClear); meaningful only with an evaluation.
+	clear bool
 	// cleared are the checks saved red whose replay this round passed
 	// cleanly (clearedRed), recorded on status.acceptance.redCleared as
 	// cleared by verification, the round's.
@@ -114,7 +117,8 @@ func judgeRound(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification
 	in := decideInput(acc, pv, cs, ev)
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
 		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
-		cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name, base: in.Base}
+		clear: acceptance.ModelRoundClear(in), cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name,
+		base: in.Base}
 	if ev != nil {
 		j.disputes = resolvedDisputes(ev, pv)
 	}
@@ -318,18 +322,7 @@ func judgedChecks(pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck
 // on a slot round, S1's).
 func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, cs []v1alpha1.SavedCheck,
 	ev *report.Evaluation) acceptance.Input {
-	var in acceptance.Input
-	for _, o := range acc.Outcomes {
-		in.Outcomes = append(in.Outcomes, acceptance.OutcomeRef{ID: o.ID, Digest: outcomeDigest(o),
-			Keep: o.EffectiveKind() == v1alpha1.OutcomeKindKeep, Manual: o.Manual})
-	}
-	for _, c := range cs {
-		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
-			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
-			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
-			Cleared: clearedBefore(acc, c.Digest, pv.Name), NoRunData: noRunData(c),
-			Narrowed: narrowedBefore(acc, c.Digest, pv.Name)})
-	}
+	in := storeInput(acc, cs, pv.Name)
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, c := range pv.Spec.Checks {
 		// Every check of the round's copy of the store was to replay
@@ -337,12 +330,6 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 		in.ReplayRequired = append(in.ReplayRequired, c.Digest)
 	}
 	in.Base = baseRuns(pv)
-	for _, r := range acc.Reviews {
-		in.Reviews = append(in.Reviews, acceptance.CheckReview{CheckDigest: r.CheckDigest,
-			OutcomeDigest: r.OutcomeDigest, Answer: acceptance.ReviewAnswer(r.Answer),
-			ExpectFail: r.Expect == v1alpha1.CheckExpectFail, FailedStep: r.FailedStep,
-			FailedAssertion: r.FailedAssertion})
-	}
 	in.Env = crdconv.PartFacts(pv.Status.Environment)
 	if ev == nil {
 		return in
@@ -361,6 +348,34 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 	for _, a := range ev.Anomalies {
 		in.Anomalies = append(in.Anomalies, acceptance.AnomalyRef{Summary: a.Summary, Route: a.Route,
 			Ledger: citedOnly(a.Ledger, pv)})
+	}
+	return in
+}
+
+// storeInput is Decide's view of the store for the round named
+// verification: the approved outcomes (each with the digest its reviews are
+// keyed by), the checks cs (valid: only valid checks are ever stored) with
+// their clearance and narrowing records from rounds before it, and the
+// cached reviews. decideInput and the rung (rungFor) share it, so the rung
+// reads the store exactly as the round's judgement will.
+func storeInput(acc *v1alpha1.IntentAcceptance, cs []v1alpha1.SavedCheck, verification string) acceptance.Input {
+	var in acceptance.Input
+	for _, o := range acc.Outcomes {
+		in.Outcomes = append(in.Outcomes, acceptance.OutcomeRef{ID: o.ID, Digest: outcomeDigest(o),
+			Keep: o.EffectiveKind() == v1alpha1.OutcomeKindKeep, Manual: o.Manual})
+	}
+	for _, c := range cs {
+		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
+			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
+			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
+			Cleared: clearedBefore(acc, c.Digest, verification), NoRunData: noRunData(c),
+			Narrowed: narrowedBefore(acc, c.Digest, verification)})
+	}
+	for _, r := range acc.Reviews {
+		in.Reviews = append(in.Reviews, acceptance.CheckReview{CheckDigest: r.CheckDigest,
+			OutcomeDigest: r.OutcomeDigest, Answer: acceptance.ReviewAnswer(r.Answer),
+			ExpectFail: r.Expect == v1alpha1.CheckExpectFail, FailedStep: r.FailedStep,
+			FailedAssertion: r.FailedAssertion})
 	}
 	return in
 }
@@ -611,6 +626,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	if replayNext {
 		nv.Disputed = slices.Clone(j.decision.Retire)
 	}
+	recordLadder(nv, acc, j)
 	countManual(nv, acc)
 }
 

@@ -559,10 +559,13 @@ var evaluatorLeak = []string{"-ev-", "-cr-", "-checks-", "Write your report to",
 // TestIntentEvaluateFixRound (cases 2, 9 and d2): round 1 passes on a
 // correct build and stores its checks. A defect is then planted (the
 // application now answers 500, logging a panic beside a bearer token) and an
-// approver asks for another round with /maul verify fix: the saved checks
-// fail on replay, the evaluator agrees (fail, citing the ledger) after
-// reading the component's log with `maul-tool logs`, and maul starts one
-// verify-fix round, handed a reproduction maul rendered from its own ledger:
+// approver asks for another round with /maul verify fix. At the same heads
+// as round 1, a clear model round, round 2 is a replay round with no model
+// (S3): the saved checks fail, which no evaluator agrees with, so it is
+// unsure, never failed, and asks for one full round at the same heads. In
+// round 3 the checks fail again and the evaluator agrees (fail, citing the
+// ledger) after reading the component's log with `maul-tool logs`, and maul
+// starts one verify-fix round, handed a reproduction maul rendered from its own ledger:
 // the failing check's steps and what was observed, and the panic from the
 // captured log with the token redacted, never anything of the evaluator.
 // The fix pushes; at its head the application answers again and the next
@@ -597,8 +600,16 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 			appRepoURL)
 	}
 	in := e.intent(t, name)
-	if v := in.Status.Verification; v.Round != 2 || v.Failed == 0 {
-		t.Errorf("verification = %+v, want round 2 failed", v)
+	if v := in.Status.Verification; v.Round != 3 || v.Failed == 0 || v.Rung != v1alpha1.RungFull {
+		t.Errorf("verification = %+v, want round 3, the full escalation, failed", v)
+	}
+	if ref := fix.Spec.Inputs.VerificationRef; ref == nil || ref.Name != e.round(t, name, 3).Name {
+		t.Errorf("fix run inputs %+v, want the escalated round 3", fix.Spec.Inputs)
+	}
+	if replay := e.round(t, name, 2); replay.Spec.Rung != v1alpha1.RungReplay || len(replay.Status.Replay) == 0 ||
+		replay.Status.Replay[0].Result != v1alpha1.CheckRunFail {
+		t.Errorf("round 2 = %s, replay %+v; want a replay round whose saved checks failed", replay.Spec.Rung,
+			replay.Status.Replay)
 	}
 	e.waitStatus(t, pr.HeadSHA, "failure", "")
 	job := e.kubelet.waitRun(t, "the fix round's Job", func(r agentRun) bool {
@@ -628,8 +639,8 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 	in = e.waitEval(t, name, "the round at the fix's head to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == head
 	})
-	if v := in.Status.Verification; v.Round != 3 || in.Status.VerifyFixes != 1 || len(e.verifyRuns(t, name)) != 1 {
-		t.Errorf("verification %+v, verify fixes %d, fix rounds %d; want round 3 passed after one fix", v,
+	if v := in.Status.Verification; v.Round != 4 || in.Status.VerifyFixes != 1 || len(e.verifyRuns(t, name)) != 1 {
+		t.Errorf("verification %+v, verify fixes %d, fix rounds %d; want round 4 passed after one fix", v,
 			in.Status.VerifyFixes, len(e.verifyRuns(t, name)))
 	}
 	e.waitStatus(t, head, "success", "2/2 outcomes confirmed")
@@ -782,8 +793,9 @@ func checkReproduction(t *testing.T, repro string) {
 }
 
 // checkPriorRound holds the evaluate handoff of the round after a fix to
-// the round before it (SPEC Q15, S1-29): round 2's number, its verdicts on
-// both outcomes, how its saved checks replayed, and the diff since.
+// the round before it (SPEC Q15, S1-29): round 3's number (the escalated
+// full round; round 2 replayed with no model), its verdicts on both
+// outcomes, how its saved checks replayed, and the diff since.
 func checkPriorRound(t *testing.T, handoff []byte) {
 	t.Helper()
 	var h struct {
@@ -793,21 +805,23 @@ func checkPriorRound(t *testing.T, handoff []byte) {
 		FixDiff       string            `json:"fix_diff"`
 	}
 	if err := json.Unmarshal(handoff, &h); err != nil {
-		t.Fatalf("decode round 3's evaluate handoff: %v", err)
+		t.Fatalf("decode round 4's evaluate handoff: %v", err)
 	}
-	if h.PriorRound != 2 || len(h.PriorVerdicts) != 2 || len(h.PriorReplay) == 0 || h.FixDiff == "" {
-		t.Errorf("round 3's handoff: prior round %d, %d prior verdicts, %d prior replays, fix diff %q; want round "+
-			"2's, both outcomes, its replay and the diff since", h.PriorRound, len(h.PriorVerdicts),
+	if h.PriorRound != 3 || len(h.PriorVerdicts) != 2 || len(h.PriorReplay) == 0 || h.FixDiff == "" {
+		t.Errorf("round 4's handoff: prior round %d, %d prior verdicts, %d prior replays, fix diff %q; want round "+
+			"3's, both outcomes, its replay and the diff since", h.PriorRound, len(h.PriorVerdicts),
 			len(h.PriorReplay), h.FixDiff)
 	}
 }
 
 // TestIntentEvaluateDispute (case 3): round 1 passes and stores a check on
 // the version the build wrote. The application's version then changes,
-// which is no defect: the saved check fails on replay, and the evaluator
-// disputes it, proposing a replacement that passes. No fix round runs; the
-// replacement is confirmed and reviewed proves, the disputed check retired,
-// and one model-free replay round at the same heads passes the outcome.
+// which is no defect, and an approver asks with /maul verify explore, so
+// round 2 is full although the heads are round 1's (S3): the saved check
+// fails on replay, and the evaluator disputes it, proposing a replacement
+// that passes. No fix round runs; the replacement is confirmed and reviewed
+// proves, the disputed check retired, and one model-free replay round at
+// the same heads passes the outcome.
 func TestIntentEvaluateDispute(t *testing.T) {
 	e := startEvaluate(t, evalOptions{outcomes: oneOutcome})
 	number, name, pr := e.toReview(t)
@@ -820,7 +834,7 @@ func TestIntentEvaluateDispute(t *testing.T) {
 	e.app.set(http.StatusOK, "0.2.0")
 	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "dispute")
 	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CHECK_TEXT", "0.2.0")
-	e.requestRound(t, number)
+	e.gh.CommentAs(number, "/maul verify explore", approver)
 
 	in = e.waitEval(t, name, "the replay round to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed && v.Round > 1
@@ -845,6 +859,12 @@ func TestIntentEvaluateDispute(t *testing.T) {
 	if replays != 1 || len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)) != 2 {
 		t.Errorf("replay rounds %d, evaluate runs %d; want one model-free replay after two evaluations", replays,
 			len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)))
+	}
+	if explored := e.round(t, name, 2); explored.Spec.Rung != v1alpha1.RungFull {
+		t.Errorf("round 2 = %s, want full: /maul verify explore", explored.Spec.Rung)
+	}
+	if !e.botSays(int64(number), "The evaluator looks again") {
+		t.Error("the explore request was not answered as recorded")
 	}
 	if acc := in.Status.Acceptance; acc.Checks == nil || acc.Checks.Count != 1 {
 		t.Errorf("check store %+v, want the replacement alone", acc.Checks)
@@ -1228,8 +1248,9 @@ func screenshots(e toolwire.LedgerEntry) []toolwire.Artifact {
 // container confirms it, the reviewer answers proves, and the outcome
 // passes on that confirmed check, never on the evaluator's say-so: its
 // basis is the check, whose compiled steps hold the measured assertions.
-// Every browser action is in the ledger. Another round at the same heads,
-// whose evaluator only looks, passes on the check's replay.
+// Every browser action is in the ledger. Another round at the same heads
+// is a replay round (S3): the saved browser check replays green and passes
+// the outcome with no evaluator and no model spend.
 func TestIntentEvaluateBrowserPasses(t *testing.T) {
 	e, _ := startBrowserEvaluate(t, "browser")
 	number, name, pr := e.toReview(t)
@@ -1262,9 +1283,7 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 			strings.Contains(body, browserCheckLine)
 	})
 
-	// The saved check replays: a round whose evaluator only looks passes
-	// on it.
-	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "browser-look")
+	// The saved check replays: a replay round passes on it, no model run.
 	e.requestRound(t, number)
 	in = e.waitEval(t, name, "round 2 to pass on the replay", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed && v.Round == 2
@@ -1279,7 +1298,17 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 		o[0].Basis != saved.Digest {
 		t.Errorf("round 2 outcomes %+v, want passed on the replayed check", o)
 	}
-	e.checkBrowserLedger(t, pv, e.evaluatorJobs()[1])
+	if pv.Spec.Rung != v1alpha1.RungReplay || len(e.evaluatorJobs()) != 1 ||
+		len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)) != 1 ||
+		len(e.stageRuns(t, name, v1alpha1.IntentStageCheckReview)) != 1 {
+		t.Errorf("round 2 = %s, %d evaluate Jobs; want a replay round and round 1's evaluator and reviewer alone",
+			pv.Spec.Rung,
+			len(e.evaluatorJobs()))
+	}
+	eventually(t, "round 2's comment to say no model ran", func() bool {
+		return strings.Contains(strings.Join(e.gh.Comments(number), ""),
+			"### maul: verification 2, attempt 1 (replayed saved checks, no model)")
+	})
 }
 
 // TestIntentEvaluateBrowserFixRound (browser case b, the demo's step (d)):
@@ -1305,15 +1334,20 @@ func TestIntentEvaluateBrowserFixRound(t *testing.T) {
 
 	app.setWidth(30)
 	e.requestRound(t, number)
+	// Round 2 replays the saved check with no model (S3): it fails, no
+	// evaluator agrees, so round 3 is the one full round at the same heads.
 	// The saved check reads the page's layout and writes nothing, so its
 	// regression is a suspected defect held for a person, never an automatic
 	// fix (#309 review); an approver confirms it.
-	in := e.waitEval(t, name, "round 2's suspected defect", func(v *v1alpha1.IntentVerification) bool {
-		return v.Round == 2 && v.Suspected != nil
+	in := e.waitEval(t, name, "round 3's suspected defect", func(v *v1alpha1.IntentVerification) bool {
+		return v.Round == 3 && v.Suspected != nil
 	})
+	if r := e.round(t, name, 2); r.Spec.Rung != v1alpha1.RungReplay {
+		t.Errorf("round 2 = %s, want a replay round", r.Spec.Rung)
+	}
 	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomeUnsure ||
 		o[0].Reason != "suspected-defect" || o[0].Basis != saved[0].Digest {
-		t.Errorf("verification %+v, want round 2 unsure, a suspected defect on the saved browser check",
+		t.Errorf("verification %+v, want round 3 unsure, a suspected defect on the saved browser check",
 			in.Status.Verification)
 	}
 	// (Round 1 passed and released the link as ready; a released link stays
@@ -1330,9 +1364,9 @@ func TestIntentEvaluateBrowserFixRound(t *testing.T) {
 	if s := in.Status.Verification.Suspected; s == nil || s.Confirmed == nil {
 		t.Errorf("suspected = %+v, want the approver's confirmation", s)
 	}
-	pv := e.round(t, name, 2)
+	pv := e.round(t, name, 3)
 	if len(pv.Status.Replay) != 1 || pv.Status.Replay[0].Result != v1alpha1.CheckRunFail {
-		t.Errorf("round 2 replay %+v, want the saved browser check failed", pv.Status.Replay)
+		t.Errorf("round 3 replay %+v, want the saved browser check failed", pv.Status.Replay)
 	}
 	e.checkBrowserLedger(t, pv, e.evaluatorJobs()[1])
 	e.waitStatus(t, pr.HeadSHA, "failure", "")

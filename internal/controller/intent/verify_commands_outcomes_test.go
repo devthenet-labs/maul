@@ -137,19 +137,23 @@ func TestOutcomeVerifyCommandAuthority(t *testing.T) {
 		edit              bool
 		want              string
 	}
-	const usage = "/maul verify [fix|stop|--reset]"
+	const usage = "/maul verify [fix|stop|--reset|explore]"
 	tests := map[string]command{
-		"not an approver":          {"mallory", "", "/maul verify --reset", false, "only the project"},
-		"read access only":         {approver, ghclient.PermissionRead, "/maul verify fix", false, "only the project"},
-		"a bot":                    {"renovate[bot]", "", "/maul accept " + manualOutcomeID, false, "bot account"},
-		"edited":                   {approver, "", "/maul verify --reset", true, "was edited"},
-		"an unknown argument":      {approver, "", "/maul verify everything", false, "not understood"},
-		"reset as a verb":          {approver, "", "/maul reset", false, usage},
-		"two arguments":            {approver, "", "/maul verify fix --reset", false, "not understood"},
-		"stop from a non-approver": {"mallory", "", "/maul verify stop", false, "only the project"},
-		"stop edited":              {approver, "", "/maul verify stop", true, "was edited"},
-		"stop as a verb":           {approver, "", "/maul stop", false, usage},
-		"accept without an id":     {approver, "", "/maul accept", false, "not understood"},
+		"explore from a non-approver": {"mallory", "", "/maul verify explore", false, "only the project"},
+		"explore with read access":    {approver, ghclient.PermissionRead, "/maul verify explore", false, "only the project"},
+		"explore as a verb":           {approver, "", "/maul explore", false, usage},
+		"explore and fix":             {approver, "", "/maul verify explore fix", false, "not understood"},
+		"not an approver":             {"mallory", "", "/maul verify --reset", false, "only the project"},
+		"read access only":            {approver, ghclient.PermissionRead, "/maul verify fix", false, "only the project"},
+		"a bot":                       {"renovate[bot]", "", "/maul accept " + manualOutcomeID, false, "bot account"},
+		"edited":                      {approver, "", "/maul verify --reset", true, "was edited"},
+		"an unknown argument":         {approver, "", "/maul verify everything", false, "not understood"},
+		"reset as a verb":             {approver, "", "/maul reset", false, usage},
+		"two arguments":               {approver, "", "/maul verify fix --reset", false, "not understood"},
+		"stop from a non-approver":    {"mallory", "", "/maul verify stop", false, "only the project"},
+		"stop edited":                 {approver, "", "/maul verify stop", true, "was edited"},
+		"stop as a verb":              {approver, "", "/maul stop", false, usage},
+		"accept without an id":        {approver, "", "/maul accept", false, "not understood"},
 	}
 	for what, tt := range tests {
 		t.Run(what, func(t *testing.T) {

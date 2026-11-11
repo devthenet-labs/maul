@@ -1670,6 +1670,26 @@ spec:
                     maxItems: 40
                     type: array
                     x-kubernetes-list-type: set
+                  escalation:
+                    description: |-
+                      Escalation is the one automatic full round a head set gets after an
+                      unsure round at those heads: due while Round is the replay round
+                      that asked for it, spent once a later round starts there.
+                    properties:
+                      headSetDigest:
+                        description: HeadSetDigest is the head set it is for.
+                        pattern: ^sha256:[0-9a-f]{64}$
+                        type: string
+                      round:
+                        description: Round is the round that asked for it.
+                        format: int32
+                        maximum: 999
+                        minimum: 1
+                        type: integer
+                    required:
+                    - headSetDigest
+                    - round
+                    type: object
                   evaluationCostMicroUSD:
                     description: |-
                       EvaluationCostMicroUSD is what the intent's evaluate and checkreview
@@ -1792,6 +1812,37 @@ spec:
                     maximum: 20
                     minimum: 0
                     type: integer
+                  modelRound:
+                    description: |-
+                      ModelRound is the latest full round judged on its evaluator's
+                      report: a new round replays only at its heads and outcomes, and only
+                      when its evaluator raised nothing (Clear).
+                    properties:
+                      clear:
+                        description: |-
+                          Clear: its evaluator saw no outcome fail (no fail verdict, no
+                          contrary entry) and reported no anomaly.
+                        type: boolean
+                      headSetDigest:
+                        description: HeadSetDigest is the head set it was judged at.
+                        pattern: ^sha256:[0-9a-f]{64}$
+                        type: string
+                      outcomesDigest:
+                        description: OutcomesDigest is the approved outcome list it
+                          judged.
+                        pattern: ^sha256:[0-9a-f]{64}$
+                        type: string
+                      round:
+                        description: Round is that round.
+                        format: int32
+                        maximum: 999
+                        minimum: 1
+                        type: integer
+                    required:
+                    - headSetDigest
+                    - outcomesDigest
+                    - round
+                    type: object
                   noDefect:
                     description: |-
                       NoDefect is the latest acceptance-fix round's conclusion that the code
@@ -1978,6 +2029,11 @@ spec:
                         format: int64
                         minimum: 1
                         type: integer
+                      explore:
+                        description: |-
+                          Explore asks for the full rung (/maul verify explore): the saved
+                          checks replayed and then the evaluator, whatever a replay could show.
+                        type: boolean
                       fix:
                         description: Fix also re-arms automatic fixes (/maul verify
                           fix).
@@ -2051,6 +2107,15 @@ spec:
                     maximum: 999
                     minimum: 0
                     type: integer
+                  rung:
+                    description: |-
+                      Rung is the rung of the latest round (Round): full, the saved checks
+                      replayed and then the evaluator; or replay, the saved checks alone
+                      with no model. A retry of the round keeps it.
+                    enum:
+                    - full
+                    - replay
+                    type: string
                   state:
                     description: State of the verification.
                     enum:
