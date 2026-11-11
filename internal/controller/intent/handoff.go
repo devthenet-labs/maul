@@ -135,8 +135,7 @@ func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 	if v == nil || p.mode() == modeNone || !evaluable(acc.Outcomes) {
 		return nil
 	}
-	hs, ok := agentsHost{}.heads(p)
-	judged := ok && hs.digest == v.HeadSetDigest
+	judged := p.atHeads(v)
 	if judged && (outcomesReady(acc, v) || v.State == v1alpha1.VerificationOff && judgementReady(acc, v)) {
 		return &templates.PreviewHandoff{State: templates.HandoffReady}
 	}

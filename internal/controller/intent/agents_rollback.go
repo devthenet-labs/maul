@@ -65,8 +65,7 @@ func (p *pass) settledAtHeads(v *v1alpha1.IntentVerification) bool {
 	default:
 		return false
 	}
-	hs, ok := agentsHost{}.heads(p)
-	return ok && hs.digest == v.HeadSetDigest
+	return p.atHeads(v)
 }
 
 // settleStranded settles the open agents round of an intent whose host is

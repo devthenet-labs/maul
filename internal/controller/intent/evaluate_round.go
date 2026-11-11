@@ -108,7 +108,7 @@ func evaluable(os []v1alpha1.AcceptanceOutcome) bool {
 // round in flight (settleEvaluation).
 func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	acc := p.in.Status.Acceptance
-	hs, ok := p.toolHost().heads(p)
+	hs, ok := p.headsNow()
 	if !evaluable(acc.Outcomes) {
 		if ok {
 			if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationNotDeclared); changed || err != nil {
@@ -176,8 +176,7 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 	if !evaluable(acc.Outcomes) || p.set.evaluatorUnverified(p.proj) {
 		return false, nil
 	}
-	host := p.toolHost()
-	hs, ok := host.heads(p)
+	hs, ok := p.headsNow()
 	if !ok || hs.digest != v.HeadSetDigest {
 		return false, nil
 	}
@@ -199,7 +198,7 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 			return nil
 		})
 	}
-	place, changed, err := host.gate(ctx, p, v, prs)
+	place, changed, err := p.toolHost().gate(ctx, p, v, prs)
 	if place == nil {
 		return changed, err
 	}
@@ -228,7 +227,7 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the intent's evaluations spent their ceiling; nothing more is evaluated",
 		slog.String("intent", p.in.Name), slog.Int64("spent", p.evaluationSpend()),
 		slog.Int64("ceiling", p.set.evaluationCeiling(p.proj)))
-	if v.Requested != nil && standingJudgement(v) > 0 {
+	if v.Requested != nil && p.standingJudgement(v) > 0 {
 		// A request at judged heads learns nothing new (S2-B8): the
 		// judgement stands.
 		return p.keepJudgement(ctx, templates.NotRunBudget)
@@ -365,8 +364,7 @@ func (p *pass) settleEvaluation(ctx context.Context) (bool, error) {
 			slog.String("intent", p.in.Name), slog.String("verification", v.Ref.Name), slog.Any("error", err))
 		return false, nil
 	}
-	if pv != nil && (pv.Spec.HeadSetDigest != v.HeadSetDigest ||
-		pv.Spec.OutcomesDigest != p.in.Status.Acceptance.OutcomesDigest) {
+	if pv != nil && !v.SameRound(&pv.Spec, p.in.Status.Acceptance.OutcomesDigest) {
 		p.dropInFlight(ctx, *v.Ref)
 		pv = nil
 	}
@@ -616,7 +614,7 @@ func (r *RunReconciler) evaluationCurrent(ctx context.Context, run *v1alpha1.Int
 	}
 	v := in.Status.Verification
 	if in.UID != run.Spec.IntentRef.UID || v == nil || v.Ref == nil || v.Ref.UID != pv.UID ||
-		v.HeadSetDigest != pv.Spec.HeadSetDigest {
+		in.Status.Acceptance == nil || !v.SameRound(&pv.Spec, in.Status.Acceptance.OutcomesDigest) {
 		return stale("the intent no longer verifies at its heads"), nil
 	}
 	return nil, nil

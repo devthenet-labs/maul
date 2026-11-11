@@ -150,9 +150,7 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 		out.State = templates.VerifyWaiting
 	case v1alpha1.VerificationEvaluating:
 		out.State = templates.VerifyEvaluating
-	case v1alpha1.VerificationPassed:
-		return judged(templates.VerifyPassed)
-	case v1alpha1.VerificationUnconfirmed:
+	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
 		if outcomesReady(acc, v) {
 			return judged(templates.VerifyPassed)
 		}
@@ -268,7 +266,8 @@ func firstHead(r *v1alpha1.AcceptanceRecord) string {
 // judgedVerification is the PreviewVerification the recorded result was
 // judged from, read once per pass (uncached) and only while a judged result
 // stands: its observations are a failure's evidence and its environment the
-// log tails. nil otherwise, or when it is gone or not this Intent's.
+// log tails. nil otherwise, or when it is gone, not this Intent's, or not
+// the record's round (SameRound: its round, heads and approved outcomes).
 func (p *pass) judgedVerification(ctx context.Context) *v1alpha1.PreviewVerification {
 	if p.verifyPVRead {
 		return p.verifyPV
@@ -284,7 +283,7 @@ func (p *pass) judgedVerification(ctx context.Context) *v1alpha1.PreviewVerifica
 			slog.String("intent", p.in.Name), slog.String("verification", v.Ref.Name), slog.Any("error", err))
 		return nil
 	}
-	if pv != nil && pv.Spec.HeadSetDigest != v.HeadSetDigest {
+	if acc := p.in.Status.Acceptance; pv != nil && (acc == nil || !v.SameRound(&pv.Spec, acc.OutcomesDigest)) {
 		return nil
 	}
 	p.verifyPV = pv

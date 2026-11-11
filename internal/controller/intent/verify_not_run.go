@@ -108,23 +108,6 @@ func (p *pass) previewExpired(ctx context.Context, reset int64) bool {
 	return viewPreview(p.proj, p.in, &pv).reason == templates.PreviewExpired && pv.Spec.ResetGeneration == reset
 }
 
-// standingJudgement is the round whose judgement of the current heads
-// stands on record (0 when none does): a settled round's reference at the
-// head set, and its outcomes judged by that round at those heads. A state
-// that records its round could not run (agentsWhy) is no judgement, whatever
-// outcomes it kept: every surface says maul couldn't confirm it.
-func standingJudgement(v *v1alpha1.IntentVerification) int32 {
-	if v.Ref == nil || !v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) || agentsWhy(v) != "" {
-		return 0
-	}
-	switch v.State {
-	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationFailing,
-		v1alpha1.VerificationExhausted:
-		return v.Round
-	}
-	return 0
-}
-
 // answerNotRun answers the approver's pending request, if any, that it did
 // not run (why, a templates.NotRun constant; stands, the round whose
 // judgement stands, 0 for none), once, on the intent issue. The modifiers
@@ -150,7 +133,7 @@ func (p *pass) answerNotRun(ctx context.Context, why string, stands int32) error
 // missing) at heads whose judgement stands: keepJudgement consumes it.
 func (p *pass) cannotRerun(ctx context.Context, reason v1alpha1.PreviewVerificationReason, why string) bool {
 	v := p.in.Status.Verification
-	stands := standingJudgement(v)
+	stands := p.standingJudgement(v)
 	if v.Requested == nil || stands == 0 {
 		return false
 	}
@@ -164,7 +147,7 @@ func (p *pass) cannotRerun(ctx context.Context, reason v1alpha1.PreviewVerificat
 // judgement stands (standingJudgement), answering that it did not run
 // (why) and changing nothing else.
 func (p *pass) keepJudgement(ctx context.Context, why string) (bool, error) {
-	if err := p.answerNotRun(ctx, why, standingJudgement(p.in.Status.Verification)); err != nil {
+	if err := p.answerNotRun(ctx, why, p.standingJudgement(p.in.Status.Verification)); err != nil {
 		return false, err
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {

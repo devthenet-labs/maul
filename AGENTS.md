@@ -576,7 +576,10 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   and pushed commit with `x/mod/modfile` for the PR body's requirements section, a refused, missing or non-inline
   go.mod (`ghclient.ErrNotInline`) leaving the body as before; `planBuildProfiles` hands a plan Job its builds'
   profiles as `MAUL_BUILD_NETWORK_PROFILES`, a fact for the prompt, never a profile of its own; the `toolHost`
-  port and its slot and agents adapters, above),
+  port and its slot and agents adapters, above; `currency.go` the one heads source, `headsNow`, and the currency
+  predicates every reporter and round driver reads, `atHeads`, `judgedNow`, `standingJudgement` and `acceptedNow`, with
+  `v1alpha1.IntentVerification.SameRound` for a record against its PreviewVerification, held to one answer across
+  maul/acceptance, the hand-off, the comments, the not-run answer and `/maul accept` by a seeded property),
   `controller/intent/agentshost` (the agents host, intent-controller's second reconciler, registered only with
   `--intent-evaluator --intent-evaluator-agents`; single writer of an agents PV's status and `<pv>-ledger`; imports
   nothing of `intent`: it re-checks the request each pass (one that no longer holds is Stale), waits at

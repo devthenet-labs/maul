@@ -1443,6 +1443,15 @@ func (v *IntentVerification) OutcomesJudgedAt(round int32, headSetDigest string)
 		v.OutcomesRound == round && v.OutcomesHeadSetDigest == headSetDigest
 }
 
+// SameRound reports that spec is the PreviewVerification of v's round: the
+// same round, at v's head set, of the approved outcome list outcomesDigest
+// (the Intent's status.acceptance.outcomesDigest). False when v has no head
+// set or no outcome list is approved: no record is about a round then.
+func (v *IntentVerification) SameRound(spec *PreviewVerificationSpec, outcomesDigest string) bool {
+	return v != nil && spec != nil && v.HeadSetDigest != "" && outcomesDigest != "" &&
+		spec.Round == v.Round && spec.HeadSetDigest == v.HeadSetDigest && spec.OutcomesDigest == outcomesDigest
+}
+
 // JudgedOutcomes are v's outcome results when the judgement of its current
 // round at its current heads wrote them, nil otherwise: what any view may
 // present as maul's results. An earlier round's results are not about the

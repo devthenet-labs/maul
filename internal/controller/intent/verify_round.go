@@ -109,8 +109,7 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 			slog.String("intent", p.in.Name), slog.String("verification", v.Ref.Name), slog.Any("error", err))
 		return false, nil
 	}
-	if pv == nil || pv.Spec.HeadSetDigest != v.HeadSetDigest || !verifiesApproved(pv, acc) ||
-		p.verificationConsumed(pv.UID) {
+	if pv == nil || !v.SameRound(&pv.Spec, acc.OutcomesDigest) || p.verificationConsumed(pv.UID) {
 		return false, nil
 	}
 	failure, _, _, ok := p.evaluationFailure(ctx, pv)
