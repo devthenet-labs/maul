@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.14.0](https://github.com/devthenet-labs/maul/compare/v0.13.21...v0.14.0) (2026-11-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** slice 1's criteria fields are removed from the Intent and PreviewVerification CRDs. Before upgrading, delete every PreviewVerification that still asks criteria (its spec is immutable, so it cannot be migrated) and cancel or delete every open intent whose approved plan states criteria: the chart's pre-upgrade guard and intent-controller's startup census refuse while any remain (docs/intents/evaluator.md#migrating-from-slice-1).
+
+### Features
+
+* **api:** remove the slice-1 CRD fields and reasons ([#401](https://github.com/devthenet-labs/maul/issues/401)) ([add363c](https://github.com/devthenet-labs/maul/commit/add363cc6f51472dee5ea9fba80fe27e3ec81b23))
+* **intent:** let each Project choose its stages' models ([#373](https://github.com/devthenet-labs/maul/issues/373)) ([da60897](https://github.com/devthenet-labs/maul/commit/da6089758b91d302800d5c7922fd8e0c7759ca3d))
+* **intent:** release N, a startup census and a refusal of slice-1-only configuration ([#391](https://github.com/devthenet-labs/maul/issues/391)) ([350f43a](https://github.com/devthenet-labs/maul/commit/350f43a50e8205d734718d00c0bac434c160916f))
+* **intent:** S3 replay rung — re-verify at unchanged heads with no model ([#407](https://github.com/devthenet-labs/maul/issues/407)) ([7d0c7d5](https://github.com/devthenet-labs/maul/commit/7d0c7d57248bca514901dfeb443e8e709a8fc9ff))
+* **models:** Claude 5.5, Fable 5.2 and GPT-6 Astra; Claude Code 2.1.322 and codex 0.167.0 ([#374](https://github.com/devthenet-labs/maul/issues/374)) ([e2079aa](https://github.com/devthenet-labs/maul/commit/e2079aa1b56b26ad6e4973cc2fdd23b361e0032b))
+
+
+### Bug Fixes
+
+* **deps:** build with Go 1.26.11 for GO-2026-6859 ([#402](https://github.com/devthenet-labs/maul/issues/402)) ([1a0f590](https://github.com/devthenet-labs/maul/commit/1a0f59076b411fb1c58e1976f0e12f59c10c4867))
+* **evaluator:** D-B8/D-B9 let a fixed defect re-pass and keep time for the report ([#399](https://github.com/devthenet-labs/maul/issues/399)) ([a7b5530](https://github.com/devthenet-labs/maul/commit/a7b55308f156a606679f81743a23cf13e93622cb))
+* hold check timeouts to the exec shim's 60s; release the leader Lease on stop ([#404](https://github.com/devthenet-labs/maul/issues/404)) ([1723a3e](https://github.com/devthenet-labs/maul/commit/1723a3efeb8db7e81a3657d6669292ee5dca458e))
+* **intent:** the approver's verify commands win over no_defect and expiry ([#400](https://github.com/devthenet-labs/maul/issues/400)) ([ea96dc1](https://github.com/devthenet-labs/maul/commit/ea96dc17c8f9efa0ab28d2f95b5f88c611cfbb38))
+* **preview,intent:** outcome comments always render; tool rounds end and go stale correctly ([#398](https://github.com/devthenet-labs/maul/issues/398)) ([fc4932f](https://github.com/devthenet-labs/maul/commit/fc4932fe17e935040d3f0030c1b454f4e6b09fd6))
+
 ## [0.13.21](https://github.com/devthenet-labs/maul/compare/v0.13.20...v0.13.21) (2026-11-10)
 
 
