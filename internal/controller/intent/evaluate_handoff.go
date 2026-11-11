@@ -103,6 +103,7 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	if err := p.previousRound(ctx, pv, &h); err != nil {
 		return "", err
 	}
+	h.HeldAnomalies = heldForEvaluator(p.in.Status.Verification, pv)
 	h.PriorRefused = p.priorRefused()
 	h.NotYetProof = p.notYetProof(ctx)
 	return encodeEvaluateHandoff(h)
@@ -363,6 +364,23 @@ func (p *pass) priorVerdicts() []agentrun.PriorVerdict {
 		r := v.Outcomes[i]
 		out = append(out, agentrun.PriorVerdict{Outcome: r.ID, Result: string(r.Result),
 			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)})
+	}
+	return out
+}
+
+// heldForEvaluator are the anomalies earlier rounds found at pv's heads
+// that no approver accepted (G-B-LIB-1), as pv's evaluator is told of them
+// to examine each again: each with its round, its words bounded and made
+// visible. A round whose heads moved is told of none.
+func heldForEvaluator(v *v1alpha1.IntentVerification, pv *v1alpha1.PreviewVerification) []agentrun.HeldAnomaly {
+	open := openAnomalies(heldAnomalies(v, pv.Spec.HeadSetDigest, pv.Spec.Round))
+	if len(open) == 0 {
+		return nil
+	}
+	out := make([]agentrun.HeldAnomaly, 0, len(open))
+	for _, a := range open {
+		out = append(out, agentrun.HeldAnomaly{Round: int(a.Round), Summary: untrusted.Visible(a.Summary,
+			maxAnomalySummary), Route: untrusted.Visible(a.Route, maxAnomalyRoute)})
 	}
 	return out
 }

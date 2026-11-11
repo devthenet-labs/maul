@@ -46,6 +46,23 @@ replay again this round (`maul-tool check results`).
 
 {{fence . | chomp}}
 {{- end}}
+{{- with .HeldBlock}}
+
+### What an earlier round found at these commits
+
+An earlier round's evaluator reported these anomalies at exactly the commits you evaluate now, each with its round,
+where it was seen and its words, quoted:
+
+{{fence . | chomp}}
+
+An anomaly is a fact about the commits it was found at, and nothing has changed since: each one keeps maul from
+confirming this change, whatever you find, until the commits change or an approver accepts it. Examine each one again
+before you settle on any verdict: read the code it names and try to reproduce it with maul-tool, using data of your own
+the saved checks do not use. Where you reproduce it, report it again under `anomalies`, citing this round's ledger, and
+where an approved outcome covers the behaviour it names, judge that outcome on what you ran, not on its saved checks
+alone. Where you cannot reproduce it, say in your report's text what you ran and what you saw: the approver reads it
+beside the anomaly.
+{{- end}}
 {{- with .RefusedBlock}}
 
 ### Checks the reviewer refused

@@ -846,6 +846,9 @@ export interface EvaluationAnomaly {
   summary: string;
   route?: string;
   ledger?: number[];
+  // An earlier round at the same commits found it; this round carries it.
+  foundInRound?: number;
+  acceptedBy?: string;
 }
 
 export interface EvaluationDispute {

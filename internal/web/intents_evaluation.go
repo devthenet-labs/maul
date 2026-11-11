@@ -323,8 +323,17 @@ func judgedRound(ver *v1alpha1.IntentVerification) (map[string]v1alpha1.OutcomeR
 		disputed[d] = true
 	}
 	for _, a := range ver.Anomalies {
-		anomalies = append(anomalies, EvaluationAnomaly{Summary: intentview.Text(a.Summary,
-			maxEvaluationText), Route: intentview.Text(a.Route, maxEvaluationText), Ledger: a.Ledger})
+		ea := EvaluationAnomaly{Summary: intentview.Text(a.Summary, maxEvaluationText),
+			Route: intentview.Text(a.Route, maxEvaluationText), Ledger: a.Ledger}
+		if a.Round != 0 && a.Round != ver.OutcomesRound {
+			// Carried from an earlier round at these heads: its seqs are
+			// that round's ledger's, not this one's.
+			ea.FoundInRound, ea.Ledger = a.Round, nil
+		}
+		if a.Accepted != nil {
+			ea.AcceptedBy = intentview.Text(a.Accepted.By, maxEvaluationText)
+		}
+		anomalies = append(anomalies, ea)
 	}
 	return decided, disputed, anomalies
 }

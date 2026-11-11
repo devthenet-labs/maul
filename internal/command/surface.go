@@ -49,7 +49,8 @@ var (
 			"` has the evaluator look again even where maul's saved checks alone could settle it"}
 	acceptUsage = usage{verb: action.VerbAccept, args: "<id>|" + AcceptAll,
 		summary: "accept, at the current commits, a manual outcome or criterion, one maul could not confirm or " +
-			"found failing, or one that passed only on retry; `" + AcceptAll + "` accepts every one of them, and " +
+			"found failing, or one that passed only on retry; `" + AcceptAll + "` accepts every one of them and any " +
+			"anomaly maul noticed at those commits while it looked around, and " +
 			"a note may follow on the lines below"}
 	previewUsage = usage{verb: action.VerbPreview,
 		summary: "show the preview link now, before maul has finished checking the change; nothing else changes"}

@@ -87,7 +87,8 @@ const (
 		"maul's saved checks alone could settle it"
 	acceptLine = "- `/maul accept <id>|all`: accept, at the current commits, a manual outcome or criterion, one " +
 		"maul could not confirm or found failing, or one that passed only on retry; `all` accepts every one of " +
-		"them, and a note may follow on the lines below"
+		"them and any anomaly maul noticed at those commits while it looked around, and a note may follow on " +
+		"the lines below"
 	previewLine = "- `/maul preview`: show the preview link now, before maul has finished checking the change; " +
 		"nothing else changes"
 )

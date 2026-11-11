@@ -47,6 +47,11 @@ const (
 	// outcome fail or reported an anomaly (ModelRound.Clear false): only a
 	// model can look again at what it raised.
 	RungReasonModelObjected RungReason = "model-objected"
+	// RungReasonOpenFinding: an anomaly an earlier round found at these
+	// heads stands (no approver accepted it): it holds every round there
+	// from a pass (G-B-LIB-1), so a replay could never pass, and only a
+	// model can look at it again.
+	RungReasonOpenFinding RungReason = "open-finding"
 	// RungReasonUncovered: an outcome has no stored check a round could
 	// pass it on, so a replay could only leave it unsure.
 	RungReasonUncovered RungReason = "uncovered"
@@ -76,6 +81,9 @@ type RungInput struct {
 	Explore bool
 	// Escalate: the round is the one escalation of an unsure replay round.
 	Escalate bool
+	// OpenFinding: an anomaly an earlier round found at the new round's
+	// heads stands, no approver having accepted it.
+	OpenFinding bool
 	// HeadSet and OutcomesDigest are the new round's.
 	HeadSet, OutcomesDigest string
 	// Model is the latest model round; nil for none.
@@ -89,8 +97,9 @@ type RungInput struct {
 // the heads and the approved outcomes are those of the latest model round,
 // that round's evaluator raised nothing (Clear), and every outcome but the
 // manual ones (at least one) is bound to a stored check Decide could pass
-// it on (covered); a retry of a full round, /maul verify explore and the
-// escalation of an unsure replay are full. Everything else is full.
+// it on (covered); a retry of a full round, /maul verify explore, the
+// escalation of an unsure replay and a round at heads an open finding holds
+// are full. Everything else is full.
 func StartRung(in RungInput) (Rung, RungReason) {
 	m := in.Model
 	switch {
@@ -100,6 +109,8 @@ func StartRung(in RungInput) (Rung, RungReason) {
 		return RungFull, RungReasonExplore
 	case in.Escalate:
 		return RungFull, RungReasonEscalation
+	case in.OpenFinding:
+		return RungFull, RungReasonOpenFinding
 	case m == nil:
 		return RungFull, RungReasonNoModelRound
 	case m.OutcomesDigest != in.OutcomesDigest:

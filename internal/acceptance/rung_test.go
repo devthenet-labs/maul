@@ -65,6 +65,14 @@ func TestStartRung(t *testing.T) {
 		{name: "the model round's evaluator saw a failure or an anomaly",
 			in:   withRung(replayable(), func(in *RungInput) { in.Model.Clear = false }),
 			rung: RungFull, reason: RungReasonModelObjected},
+		// G-B-LIB-1: a later model round at the same heads that raised
+		// nothing does not clear an earlier round's open anomaly there.
+		{name: "an open finding at the heads, under a clear model round",
+			in:   withRung(replayable(), func(in *RungInput) { in.OpenFinding = true }),
+			rung: RungFull, reason: RungReasonOpenFinding},
+		{name: "a retry of a replay round at heads an open finding holds",
+			in:   withRung(replayable(), func(in *RungInput) { in.Keep, in.OpenFinding = RungReplay, true }),
+			rung: RungFull, reason: RungReasonOpenFinding},
 		{name: "an outcome with no stored check",
 			in:   withRung(replayable(), func(in *RungInput) { in.Checks = in.Checks[:1] }),
 			rung: RungFull, reason: RungReasonUncovered},

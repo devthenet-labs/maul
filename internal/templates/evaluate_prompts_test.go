@@ -390,11 +390,12 @@ func TestEvaluatePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 	p.PriorReplay = []PriorReplay{{Check: hostile, Outcome: hostile, Result: hostile}}
 	p.PriorRefused = []PriorRefusal{{Check: hostile, Outcome: hostile, Reason: hostile}}
 	p.NotYetProof = []NotYetProof{{Check: hostile, Outcome: hostile}}
+	p.HeldAnomalies = []HeldAnomaly{{Round: 1, Summary: hostile, Route: hostile}}
 	got, err := RenderEvaluatePrompt(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(strings.ToUpper(got), sentinel); n < 19 {
+	if n := strings.Count(strings.ToUpper(got), sentinel); n < 21 {
 		t.Fatalf("only %d sentinels rendered; the test no longer reaches every field", n)
 	}
 	for _, line := range unfenced(got) {

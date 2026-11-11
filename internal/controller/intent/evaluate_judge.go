@@ -105,16 +105,31 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 			slog.String("intent", p.in.Name), slog.String("verification", pv.Name), slog.Any("error", err))
 		stored = nil
 	}
-	return judgeRound(p.in.Status.Acceptance, pv, stored, evaluationClaims(run))
+	return judgeHolding(p.in.Status.Acceptance, pv, stored, evaluationClaims(run),
+		heldAnomalies(p.in.Status.Verification, pv.Spec.HeadSetDigest, pv.Spec.Round))
 }
 
 // judgeRound judges pv, a collected round, on acc, the store as read (nil
 // when it could not be) and ev, its evaluator's claims (nil on a replay
-// round).
+// round), with no anomaly held at its heads.
 func judgeRound(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck,
 	ev *report.Evaluation) roundJudgement {
+	return judgeHolding(acc, pv, stored, ev, nil)
+}
+
+// judgeHolding is judgeRound with held, the anomalies earlier rounds found
+// at pv's heads (heldAnomalies): those no approver accepted go to Decide
+// beside the round's own (G-B-LIB-1), so the round is neither ready nor a
+// clear model round while one stands. Their records are carried by
+// applyJudgement, which reads them afresh in its own write.
+func judgeHolding(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck,
+	ev *report.Evaluation, held []v1alpha1.AnomalyRecord) roundJudgement {
 	cs := judgedChecks(pv, stored)
 	in := decideInput(acc, pv, cs, ev)
+	for _, a := range openAnomalies(held) {
+		// Cited in an earlier round's ledger, not this one's: no seq.
+		in.Anomalies = append(in.Anomalies, acceptance.AnomalyRef{Summary: a.Summary, Route: a.Route})
+	}
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
 		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
 		clear: acceptance.ModelRoundClear(in), cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name,
@@ -498,6 +513,121 @@ func anomalyRecords(ev *report.Evaluation, pv *v1alpha1.PreviewVerification) []v
 	return out
 }
 
+// heldAnomalies are the look-around anomalies v records at headSet from
+// rounds other than round (G-B-LIB-1): an anomaly is a fact about the
+// commits it was found at. They are those of v's latest judgement when it
+// was at headSet, each stamped with the round that found it (a record from
+// before rounds were stamped is that judgement's own). A record of round
+// itself is that round's, judged again, which its judgement writes anew.
+// nil once the heads moved.
+func heldAnomalies(v *v1alpha1.IntentVerification, headSet string, round int32) []v1alpha1.AnomalyRecord {
+	if v == nil || headSet == "" || v.OutcomesHeadSetDigest != headSet {
+		return nil
+	}
+	var out []v1alpha1.AnomalyRecord
+	for _, a := range v.Anomalies {
+		a = *a.DeepCopy()
+		if a.Round == 0 {
+			a.Round = v.OutcomesRound
+		}
+		if a.Round != round {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// heldOutcomes are the outcomes v's latest judgement at headSet found
+// failing (reproduced) or suspected a defect in, when that judgement was of
+// a round before round, and those it held already (ReasonHeldFinding), each
+// by the check it rested on (G-B-LIB-1): a check failing at heads is a
+// finding about them, which a later round there does not erase. nil once
+// the heads moved.
+func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) map[string]string {
+	if v == nil || headSet == "" || v.OutcomesHeadSetDigest != headSet {
+		return nil
+	}
+	out := map[string]string{}
+	for _, r := range v.Outcomes {
+		found := r.Reason == acceptance.ReasonReproduced || r.Reason == acceptance.ReasonSuspectedDefect
+		if r.Reason == acceptance.ReasonHeldFinding || found && v.OutcomesRound != round {
+			out[r.ID] = r.Basis
+		}
+	}
+	return out
+}
+
+// holdOutcomes holds rs, a round's results at headSet, to the findings
+// earlier rounds made there (heldOutcomes, by outcome id and check): an
+// outcome this round did not find failing again is unsure, reason
+// ReasonHeldFinding, on the check it failed on, whatever else this round
+// decided; accepted when an approver accepted it at the heads. Only a
+// check retired, through a dispute with a proven replacement (this round's
+// Decision.Retire, or gone from the store as read), releases its outcome:
+// that is the evidence the check was wrong. A store that could not be read
+// releases nothing.
+func holdOutcomes(rs []v1alpha1.OutcomeResult, failing map[string]string, acc *v1alpha1.IntentAcceptance,
+	headSet string, j roundJudgement) []v1alpha1.OutcomeResult {
+	for i := range rs {
+		basis, ok := failing[rs[i].ID]
+		if !ok || rs[i].Reason == acceptance.ReasonReproduced || rs[i].Reason == acceptance.ReasonSuspectedDefect {
+			continue // not held, or found again this round
+		}
+		if basis != "" && (slices.Contains(j.decision.Retire, basis) ||
+			j.stored != nil && !slices.ContainsFunc(j.stored, func(c v1alpha1.SavedCheck) bool { return c.Digest == basis })) {
+			continue
+		}
+		r := v1alpha1.OutcomeResult{ID: rs[i].ID, Result: v1alpha1.OutcomeUnsure, Basis: basis,
+			Reason: acceptance.ReasonHeldFinding}
+		for _, cs := range [][]v1alpha1.SavedCheck{j.checks, j.stored} {
+			if k := slices.IndexFunc(cs, func(c v1alpha1.SavedCheck) bool { return c.Digest == basis }); k >= 0 &&
+				basis != "" {
+				r.Line = checkLine(cs[k])
+				break
+			}
+		}
+		if outcomeAccepted(acc, r.ID, headSet) {
+			r.Result = v1alpha1.OutcomeAccepted
+		}
+		rs[i] = r
+	}
+	return rs
+}
+
+// openAnomalies are the anomalies of as no approver accepted.
+func openAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
+	var out []v1alpha1.AnomalyRecord
+	for _, a := range as {
+		if a.Accepted == nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// carryAnomalies are a judgement's anomalies as the Intent records them:
+// held, those earlier rounds found at its heads, first, then own, the
+// round's own, stamped with round, less any repeating a held one's words
+// (the held record, and any acceptance of it, stands), at most
+// maxAnomalies.
+func carryAnomalies(held, own []v1alpha1.AnomalyRecord, round int32) []v1alpha1.AnomalyRecord {
+	out := slices.Clone(held)
+	for _, a := range own {
+		if slices.ContainsFunc(held, func(h v1alpha1.AnomalyRecord) bool {
+			return h.Summary == a.Summary && h.Route == a.Route
+		}) {
+			continue
+		}
+		a = *a.DeepCopy()
+		a.Round = round
+		out = append(out, a)
+	}
+	if len(out) > maxAnomalies {
+		out = out[:maxAnomalies]
+	}
+	return out
+}
+
 // outcomeAccepted reports an approver's /maul accept of outcome id at the
 // head set.
 func outcomeAccepted(acc *v1alpha1.IntentAcceptance, id, headSet string) bool {
@@ -566,7 +696,9 @@ func confirmedAll(rs []v1alpha1.OutcomeResult) bool {
 }
 
 // judgedState is the state a judgement routes to (the list above), and
-// whether a replay round follows it.
+// whether a replay round follows it. v carries the judgement's anomalies
+// with those held at its heads (applyJudgement): any no approver accepted
+// keeps it from Passed.
 func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1alpha1.OutcomeResult,
 	fix *acceptance.FixRequest) (v1alpha1.IntentVerificationState, bool) {
 	replayNext := j.decision.ReplayRound && !j.replay
@@ -579,7 +711,7 @@ func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1a
 		return v1alpha1.VerificationExhausted, false
 	case fix != nil:
 		return v1alpha1.VerificationFailing, false
-	case !replayNext && len(j.anomalies) == 0 && j.decision.Env.Clean() && confirmedAll(results):
+	case !replayNext && len(openAnomalies(v.Anomalies)) == 0 && j.decision.Env.Clean() && confirmedAll(results):
 		return v1alpha1.VerificationPassed, false
 	}
 	return v1alpha1.VerificationUnconfirmed, replayNext
@@ -599,11 +731,20 @@ func rearmedSince(v *v1alpha1.IntentVerification) bool {
 }
 
 // applyJudgement writes j onto cur's verification: the results, the counts,
-// the anomalies, the disputed checks a replay round awaits, and the state.
+// the anomalies (those earlier rounds found at its heads, which it carries,
+// then its own: G-B-LIB-1), the disputed checks a replay round awaits, and
+// the state. A held anomaly no approver accepted keeps the round from
+// Passed and from being a clear model round, whatever its own evaluator
+// reported: only moved heads or an approver's acceptance end it.
 func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	nv, acc := cur.Status.Verification, cur.Status.Acceptance
+	held := heldAnomalies(nv, nv.HeadSetDigest, nv.Round)
+	if len(openAnomalies(held)) > 0 {
+		j.clear = false
+	}
+	failing := heldOutcomes(nv, nv.HeadSetDigest, nv.Round)
 	clearJudgement(nv)
-	nv.Outcomes = outcomeResults(acc, nv.HeadSetDigest, j)
+	nv.Outcomes = holdOutcomes(outcomeResults(acc, nv.HeadSetDigest, j), failing, acc, nv.HeadSetDigest, j)
 	nv.OutcomesRound, nv.OutcomesHeadSetDigest = nv.Round, nv.HeadSetDigest
 	nv.OutcomesEnvironment = string(j.decision.Env)
 	for _, r := range nv.Outcomes {
@@ -617,7 +758,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 		case v1alpha1.OutcomeUnsure, v1alpha1.OutcomeAccepted:
 		}
 	}
-	nv.Anomalies = j.anomalies
+	nv.Anomalies = carryAnomalies(held, j.anomalies, nv.Round)
 	addRedCleared(acc, j.cleared, j.verification)
 	addNarrowed(acc, j.decision.Narrowed, j.verification, j.stored)
 	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest, now, nv.Suspected)
@@ -912,8 +1053,9 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 }
 
 // judgementReady reports v's judgement at its heads, whatever its state:
-// every outcome confirmed or accepted, no anomaly, no replay round pending,
-// and a clean environment, as Decide's hand-off needs (review H2).
+// every outcome confirmed or accepted, no anomaly an approver did not accept,
+// no replay round pending, and a clean environment, as Decide's hand-off
+// needs (review H2).
 func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	if !judgedAtRecord(v) {
 		// No judgement of its round at its heads, or the state records a
@@ -922,7 +1064,7 @@ func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificati
 		return false
 	}
 	results := v.JudgedOutcomes()
-	if len(v.Anomalies) > 0 || len(v.Disputed) > 0 || len(results) == 0 ||
+	if len(openAnomalies(v.Anomalies)) > 0 || len(v.Disputed) > 0 || len(results) == 0 ||
 		!httpstep.EnvClass(v.OutcomesEnvironment).Clean() {
 		return false
 	}

@@ -208,7 +208,7 @@ func (p *pass) unconfirmedWhy(acc *v1alpha1.IntentAcceptance, v *v1alpha1.Intent
 		return templates.HandoffWhyBudget
 	case len(v.Disputed) > 0:
 		return templates.HandoffWhyRounds
-	case len(v.Anomalies) > 0 && !outcomesInDoubt(acc, v):
+	case len(openAnomalies(v.Anomalies)) > 0 && !outcomesInDoubt(acc, v):
 		// Every outcome confirmed or accepted: the anomaly is the reason
 		// (review H2). With an outcome in doubt, the outcomes lead and the
 		// anomaly comes second (gate D-B6).
@@ -239,7 +239,7 @@ func unconfirmedView(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificat
 		h.Doubted = doubtedOutcomes(acc, v)
 		fallthrough
 	case templates.HandoffWhyEnvironment, templates.HandoffWhyInfra, templates.HandoffWhyUnsure:
-		h.Anomaly = v.State == v1alpha1.VerificationUnconfirmed && len(v.Anomalies) > 0
+		h.Anomaly = v.State == v1alpha1.VerificationUnconfirmed && len(openAnomalies(v.Anomalies)) > 0
 	}
 	return h
 }

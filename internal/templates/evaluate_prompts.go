@@ -53,6 +53,15 @@ const (
 // newest this many.
 const PriorRefusedMax = 40
 
+// HeldAnomaliesMax bounds the anomalies held at the heads the evaluate
+// prompt shows (G-B-LIB-1): every one the Intent records. heldSummaryMaxBytes
+// and heldRouteMaxBytes bound each one's words, its schema's.
+const (
+	HeldAnomaliesMax    = 10
+	heldSummaryMaxBytes = 600
+	heldRouteMaxBytes   = 300
+)
+
 // NotYetProofMax bounds the saved checks not yet proof of a pass the
 // evaluate prompt names (gate D-B9): every check a store holds.
 const NotYetProofMax = v1alpha1.MaxSavedChecks
@@ -103,7 +112,8 @@ var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 // checks for them, look around what the change touched, and report.
 //
 // Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay,
-// PriorRefused and NotYetProof are UNTRUSTED (DESIGN 4.4): the issue anyone may have written, the plan's
+// HeldAnomalies, PriorRefused and NotYetProof are UNTRUSTED (DESIGN 4.4):
+// the issue anyone may have written, the plan's
 // outcome text, paths and diff text from the pull request, and a previous
 // round's results, whose reasons may quote its evaluator. RenderEvaluatePrompt shows each only
 // inside a fenced block it labels as data, made legible by
@@ -152,6 +162,12 @@ type EvaluatePrompt struct {
 	PriorRound    int
 	PriorVerdicts []PriorVerdict
 	PriorReplay   []PriorReplay
+	// HeldAnomalies are the look-around anomalies earlier rounds found at
+	// exactly these heads that no approver accepted (G-B-LIB-1): each holds
+	// the change from being confirmed until the heads move or an approver
+	// accepts it, whatever this round finds, and the prompt asks for each
+	// to be examined again. None omits the section.
+	HeldAnomalies []HeldAnomaly
 	// PriorRefused are the checks the reviewer refused in earlier rounds,
 	// with its reasons (coverage design C3); none omits the section.
 	PriorRefused []PriorRefusal
@@ -166,6 +182,13 @@ type EvaluatePrompt struct {
 // pass, by its id and outcome.
 type NotYetProof struct {
 	Check, Outcome string
+}
+
+// HeldAnomaly is one look-around anomaly an earlier round's evaluator
+// reported at this round's heads: its round, route and words.
+type HeldAnomaly struct {
+	Round          int
+	Summary, Route string
 }
 
 // PriorRefusal is one check the reviewer refused in an earlier round, by
@@ -282,6 +305,7 @@ type evaluateView struct {
 	ChangedBlock  string
 	FixDiffBlock  string
 	PriorBlock    string
+	HeldBlock     string
 	RefusedBlock  string
 	NotYetBlock   string
 	Examples      evaluateExamples
@@ -441,9 +465,27 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 	if p.PriorRound > 0 {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
 	}
+	v.HeldBlock = heldBlock(p.HeldAnomalies)
 	v.RefusedBlock = refusedBlock(p.PriorRefused)
 	v.NotYetBlock = notYetBlock(p.NotYetProof)
 	return v
+}
+
+// heldBlock lists the anomalies earlier rounds found at these heads, each
+// with its round, route and words, at most HeldAnomaliesMax; "" for none.
+func heldBlock(as []HeldAnomaly) string {
+	var b strings.Builder
+	for i, a := range as {
+		if i == HeldAnomaliesMax {
+			break
+		}
+		fmt.Fprintf(&b, "- round %d", a.Round)
+		if a.Route != "" {
+			fmt.Fprintf(&b, ", at %s", quotedLine(a.Route, heldRouteMaxBytes))
+		}
+		fmt.Fprintf(&b, ": %s\n", quotedLine(a.Summary, heldSummaryMaxBytes))
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // notYetBlock lists the saved checks that are not yet proof of a pass, each

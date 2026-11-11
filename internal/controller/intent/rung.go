@@ -18,7 +18,9 @@ import (
 //     the heads and approved outcomes of the latest model round
 //     (status.verification.modelRound), only when that round's evaluator
 //     raised nothing (no fail verdict, no contrary entry, no anomaly:
-//     Clear), and only when every outcome but the manual ones is bound to
+//     Clear), only when no anomaly an earlier round found at those heads
+//     stands unaccepted (G-B-LIB-1: it holds them, and a replay could not
+//     pass), and only when every outcome but the manual ones is bound to
 //     a stored check a round could pass it on. It is judged by
 //     acceptance.Decide unchanged, on the store and this round's runs: it
 //     passes exactly what a full round with the same evidence passes when
@@ -48,9 +50,10 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
 	store := storeInput(acc, checks, "")
 	in := acceptance.RungInput{HeadSet: hs.digest, OutcomesDigest: acc.OutcomesDigest,
-		Explore:  v.Requested != nil && v.Requested.Explore,
-		Escalate: kind != verifyRetry && escalationAsked(v, hs.digest),
-		Outcomes: store.Outcomes, Checks: store.Checks, Reviews: store.Reviews}
+		Explore:     v.Requested != nil && v.Requested.Explore,
+		Escalate:    kind != verifyRetry && escalationAsked(v, hs.digest),
+		OpenFinding: len(openAnomalies(heldAnomalies(v, hs.digest, 0))) > 0,
+		Outcomes:    store.Outcomes, Checks: store.Checks, Reviews: store.Reviews}
 	if kind == verifyRetry {
 		in.Keep = acceptance.Rung(v.Rung)
 		if v.Rung == "" {
