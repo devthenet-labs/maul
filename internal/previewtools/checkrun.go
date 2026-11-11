@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -342,10 +343,18 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	}
 	res, err := r.execer.Exec(ctx, req)
 	switch {
+	case err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
+		// The check's own timeout ran out before the shim answered: as
+		// much a cut as the shim's own (TimedOut, below).
+		return errStep(reasonTimeLimit)
 	case err != nil:
 		return errStep("the sandbox did not answer")
 	case res.Refused != "":
 		return errStep("the sandbox refused the program")
+	case res.TimedOut:
+		// A program cut short judged nothing, whatever it printed before
+		// the cut: never a pass, nor a fail (by assertion or bare).
+		return errStep(reasonTimeLimit)
 	}
 	// fail is an unmet expectation. It is an assertion only when the
 	// program said it judged one of its own assertions, by id, and found the
@@ -361,8 +370,6 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 	}
 	x := e.Expect
 	switch {
-	case res.TimedOut:
-		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: "the program was killed at its time limit"}}
 	case checks.ExecMarked(res.Output, marker):
 		// The program said the outcome does not hold: never a pass,
 		// whatever it went on to print or exit with (S1 demo #57).

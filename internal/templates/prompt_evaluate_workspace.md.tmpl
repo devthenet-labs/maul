@@ -287,8 +287,8 @@ Rules every check keeps:
 - At most 8 KiB of JSON, the program included.
 {{- end}}
 - A run whose output is too long to keep whole (over 64 KiB) never passes: print only what the check needs.
-- A run that times out is an error, never a fail: give a `timeout` (at most 5m) that leaves room to build the
-  program.
+- A run that times out is an error, never a fail: give a `timeout` (at most {{.ExecTimeoutMax}}, the most the sandbox gives
+  one program) for the run itself; a run check's compile is not counted.
 - Check the behaviour the outcome states, the way {{if .WS.CLI}}a person using the program{{else}}a program using
   the library{{end}} would see it, not the implementation.
 

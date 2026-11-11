@@ -341,6 +341,13 @@ func (checkReviewView) ExecMarker() string { return checks.ExecMarkerPlaceholder
 // a marker naming a longer id is no assertion (gate D-B2).
 func (evaluateView) ExecAssertionIDMax() int { return checks.MaxExecAssertionIDLen }
 
+// ExecTimeoutMax is checks.MaxExecTimeout, for the templates, as a check
+// would write it ("1m"): the most time a check may claim, the exec shim's
+// own bound on one program.
+func (evaluateView) ExecTimeoutMax() string {
+	return strings.TrimSuffix(strings.TrimSuffix(checks.MaxExecTimeout.String(), "0s"), "0m")
+}
+
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
 // have written its report: a tenth of its turns, at least 2, kept back for
 // it, and never before turn 1.

@@ -58,8 +58,9 @@
 // filtered by {{run}} text (RuleRunToken), navigation off the preview's
 // paths (RuleOffPreview), a form off the surface (RuleOffSurface), a
 // check too large to store (RuleTooLarge; a run check's program counts
-// toward MaxCanonicalBytes) and
-// everything else the grammar refuses (RuleGrammar).
+// toward MaxCanonicalBytes), an exec or run timeout past MaxExecTimeout,
+// the exec shim's own bound on one program (RuleTimeout), and everything
+// else the grammar refuses (RuleGrammar).
 //
 // The package imports only the standard library and internal/acceptance
 // (a test pins that).

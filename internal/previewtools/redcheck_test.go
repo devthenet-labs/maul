@@ -127,9 +127,9 @@ func attemptMarker(t *testing.T, req *toolwire.ExecRequest) string {
 // {{marker}} stood for) with the failing assertion's id at the start of a
 // line: it reached and judged that assertion. An exit code alone (a crash,
 // 126, 127, a signal), a traceback, missing output, a marker naming no id,
-// the bare MAUL-ASSERTION-FAILED an application can echo, or a program
-// killed at its time limit never is. %M in an output is the attempt's
-// marker.
+// or the bare MAUL-ASSERTION-FAILED an application can echo never is (a
+// program killed at its time limit is no fail at all, but an error:
+// TestSlotExecCutIsATimeoutError). %M in an output is the attempt's marker.
 func TestExecAssertionFailures(t *testing.T) {
 	marked := "%M upset-stake: the stake was 1, expected more than 1\n"
 	for _, tc := range []struct {
@@ -151,7 +151,6 @@ func TestExecAssertionFailures(t *testing.T) {
 		{"the marker mid-line", toolexec.Result{Exit: 1, Output: "echo " + marked}, false},
 		{"the bare marker the application echoed", toolexec.Result{Exit: 1,
 			Output: "MAUL-ASSERTION-FAILED: upset-stake: x\n"}, false},
-		{"timed out", toolexec.Result{TimedOut: true, Output: marked}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {

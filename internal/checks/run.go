@@ -6,7 +6,6 @@ package checks
 import (
 	"path"
 	"strings"
-	"time"
 )
 
 // RunCheck is a consumer program maul builds and runs against a
@@ -51,11 +50,8 @@ func validateRun(r RunCheck, ws *Workspace) *Refusal {
 			return rf
 		}
 	}
-	if r.Timeout != "" {
-		d, err := time.ParseDuration(r.Timeout)
-		if err != nil || d <= 0 || d > MaxExecTimeout {
-			return refuse(RuleGrammar, "timeout %q must be a duration in (0, %s]", r.Timeout, MaxExecTimeout)
-		}
+	if rf := validateTimeout(r.Timeout); rf != nil {
+		return rf
 	}
 	if rf := validateExecExpect(r.Expect); rf != nil {
 		return rf

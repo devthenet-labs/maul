@@ -304,8 +304,8 @@ Rules every check keeps:
 - Assert on content: what the program printed or wrote. An exit code alone proves nothing.
 - At most 8 KiB of JSON, the program included.
 - A run whose output is too long to keep whole (over 64 KiB) never passes: print only what the check needs.
-- A run that times out is an error, never a fail: give a `timeout` (at most 5m) that leaves room to build the
-  program.
+- A run that times out is an error, never a fail: give a `timeout` (at most 1m, the most the sandbox gives
+  one program) for the run itself; a run check's compile is not counted.
 - Check the behaviour the outcome states, the way a program using
   the library would see it, not the implementation.
 
@@ -321,7 +321,7 @@ For example:
     "files": [{"path": "main.go", "content":
       "package main\n// Parse of 64 and 65 steps; prints {run, ok64, tooLong65} or {{marker}} too-long: <err>\n"}],
     "args": ["{{run}}"],
-    "timeout": "2m",
+    "timeout": "30s",
     "expect": {"exit": 0, "stdoutJSON": {"/run": "{{run}}", "/ok64": true, "/tooLong65": true}}
   }
 }
