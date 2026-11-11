@@ -180,6 +180,7 @@ Everything else:
 | A check failed while preview-controller saw a component crash, get evicted or OOM             | **unsure**, the preview's failure; never a fix                                                                                                  |
 | maul's own machinery failed (a tool pod never ready, a ledger that does not hold)             | the attempt is retried; past its bound, unsure                                                                                                  |
 | A manual outcome                                                                              | only a person closes it, with `/maul accept <id>`                                                                                               |
+| An earlier round at the same commits found it failing, or suspected a defect in it            | **unsure** (`held-finding`), whatever this round found: see [A finding holds its commits](#a-finding-holds-its-commits)                         |
 
 ## A defect found in round 1
 
@@ -330,6 +331,9 @@ A new round replays only when all of these hold; otherwise it is **full** (repla
   round after the heads move (a fix or a person's push) are full;
 - that round's evaluator raised nothing: no outcome it judged `fail`, none with contrary entries, and no look-around
   anomaly (`modelRound.clear`). Only a model can look again at what a model raised;
+- no anomaly an earlier round found at these heads still holds them (see
+  [A finding holds its commits](#a-finding-holds-its-commits)): a replay could never pass over it, and a round at heads
+  an anomaly holds is full, its evaluator told of the anomaly;
 - every outcome but the manual ones is bound to a saved check that could pass it: stored (so confirmed), valid, in one
   of maul's forms, reviewed `proves` for the outcome's exact text, not narrowed, and, for a check saved to show a
   defect, cleared and reviewed with the green question too;
@@ -380,6 +384,32 @@ errors or failed requests, and nothing in the logs or events (errors, panics, re
 An **anomaly** must cite ledger entries. It downgrades the hand-off to "maul couldn't confirm this: it noticed something
 odd while it looked around", and the comment shows the evaluator's description, marked as its words. It never fails an
 outcome and never starts a fix: no approved outcome stands behind it, and maul has no reproduction to hand a fix agent.
+
+## A finding holds its commits
+
+What a round finds is a fact about the commits it checked. A look-around anomaly, an outcome a round found failing on a
+saved check, and a suspected defect all **hold those commits**: no later round at the same heads can pass the change
+until the heads move (a fix, or a person's push) or an approver accepts it. A later round's evaluator that raises
+nothing does not clear it: at unchanged code a model that does not reproduce what an earlier one saw (often by reading
+the source) has not shown it is gone, and running the saved checks again cannot either, since they never covered it.
+
+- **An anomaly** is carried onto every later round at those heads (`status.verification.anomalies`, each with the
+  `round` that found it), and keeps each one Unconfirmed: "maul couldn't confirm this: it noticed something odd while it
+  looked around". The comment names the round that found it. Each such round is full, never a replay, and its evaluator
+  is handed the anomaly and asked to examine it again: to reproduce it with a program or check of its own, report it
+  again where it does, and judge any outcome covering it on what it ran, not on the saved checks alone. Where it cannot
+  reproduce it, its report says what it ran (the run panel shows it), for the approver to weigh before accepting.
+- **An outcome found failing, or suspected defective,** on a saved check is unsure in every later round there whose
+  check now passes (`held-finding`: a check that failed and then passed at the same commits shows nothing was fixed).
+  The one other way out is the check's own: a dispute with a confirmed, reviewed replacement retires the check, and with
+  it the hold, since that is recorded evidence the check was wrong.
+- **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
+  every outcome maul could not confirm and every anomaly holding the commits. The acceptance is recorded on the anomaly
+  (`accepted`), and holds only at those commits.
+
+`/maul verify fix` when no outcome fails starts the round all the same (its evaluator examines the anomaly again), and
+its reply says that there is nothing to fix yet: an anomaly is not a failing outcome, and it holds the commits until
+they change or an approver accepts it.
 
 ## The fix round's reproduction
 
@@ -442,7 +472,9 @@ status and the progress line name that cause instead of reading as all confirmed
 this: 3/3 outcomes confirmed, but it noticed something odd while it looked around".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
-not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.
+not confirm with `/maul accept <id>` (or `/maul accept all`, which also accepts the anomalies holding the commits), ask
+for another round with `/maul verify`, or merge. Another round at the same commits does not clear what an earlier one
+found there (see [A finding holds its commits](#a-finding-holds-its-commits)).
 
 Set the mode chart-wide with `intentController.verification.defaultHandoff`, or per Project:
 
