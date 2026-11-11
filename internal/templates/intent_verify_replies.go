@@ -137,9 +137,10 @@ type VerifyCommandNotice struct {
 	Verb string
 	// Outcome is what maul made of it.
 	Outcome VerifyOutcome
-	// Fix and Reset are the verify modifiers that were applied.
-	Fix   bool
-	Reset bool
+	// Fix, Reset and Explore are the verify modifiers that were applied.
+	Fix     bool
+	Reset   bool
+	Explore bool
 	// Joined: the request joined one already waiting.
 	Joined bool
 	// AfterRound: a round is running; the verification follows it.
@@ -307,15 +308,23 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 	return "", "", fmt.Errorf("render verify notice: no text for outcome %q", n.Outcome)
 }
 
+// verifyCommandText is the /maul verify n answers, as made: with the
+// modifier it carried, if any.
+func verifyCommandText(n VerifyCommandNotice) string {
+	switch {
+	case n.Reset:
+		return slashCommand(n.Verb + " " + command.VerifyReset)
+	case n.Fix:
+		return slashCommand(n.Verb + " " + command.VerifyFix)
+	case n.Explore:
+		return slashCommand(n.Verb + " " + command.VerifyExplore)
+	}
+	return slashCommand(n.Verb)
+}
+
 // requestedText is the reply to a recorded /maul verify from actor.
 func requestedText(n VerifyCommandNotice, actor string) string {
-	cmd := slashCommand(n.Verb)
-	if n.Fix {
-		cmd = slashCommand(n.Verb + " " + command.VerifyFix)
-	}
-	if n.Reset {
-		cmd = slashCommand(n.Verb + " " + command.VerifyReset)
-	}
+	cmd := verifyCommandText(n)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s from %s is recorded: maul checks the combined change against the approved outcomes ",
 		cmd, actor)
@@ -336,19 +345,16 @@ func requestedText(n VerifyCommandNotice, actor string) string {
 	if n.Fix {
 		b.WriteString(" maul may fix failing outcomes on its own again.")
 	}
+	if n.Explore {
+		b.WriteString(" The evaluator looks again, even where maul's saved checks alone could settle it.")
+	}
 	return b.String()
 }
 
 // notRunText is the reply to a /maul verify from actor that did not run:
 // why, in maul's words, what stands instead, and when to ask again.
 func notRunText(n VerifyCommandNotice, actor string) string {
-	cmd := slashCommand(n.Verb)
-	if n.Fix {
-		cmd = slashCommand(n.Verb + " " + command.VerifyFix)
-	}
-	if n.Reset {
-		cmd = slashCommand(n.Verb + " " + command.VerifyReset)
-	}
+	cmd := verifyCommandText(n)
 	words, ok := verifyNotRunWords[n.NotRunWhy]
 	if !ok {
 		words = verifyNotRunWords[""]

@@ -427,7 +427,8 @@ func (p *pass) syncVerifyComment(ctx context.Context) {
 		return
 	}
 	body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: p.in.Namespace,
-		Intent: p.in.Name, Round: round, Attempt: attempt, Section: *sec})
+		Intent: p.in.Name, Round: round, Attempt: attempt, Section: *sec,
+		Replay: round == v.Round && v.Rung == v1alpha1.RungReplay})
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelError, "render the verification comment",
 			slog.String("intent", p.in.Name), slog.Any("error", err))

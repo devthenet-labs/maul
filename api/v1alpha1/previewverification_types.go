@@ -230,7 +230,10 @@ const (
 
 // VerificationRung is how much of an evaluation a round runs: full (the
 // saved checks replayed, then the evaluator) or replay (the saved checks
-// only, no model: the one round after a dispute, SPEC Q17).
+// only, no model: a round at the heads of a model round that raised
+// nothing, every outcome bound to a proven saved check; the round after a
+// dispute among them, SPEC Q17). intent-controller picks it
+// (acceptance.StartRung).
 // +kubebuilder:validation:Enum=full;replay
 type VerificationRung string
 

@@ -1237,6 +1237,10 @@ type VerifyRequest struct {
 	// Reset also restarts the Preview's parts first (/maul verify --reset).
 	// +optional
 	Reset bool `json:"reset,omitempty"`
+	// Explore asks for the full rung (/maul verify explore): the saved
+	// checks replayed and then the evaluator, whatever a replay could show.
+	// +optional
+	Explore bool `json:"explore,omitempty"`
 	// PullRequest is the intent's pull request the command was made on; nil
 	// for the intent issue. A later answer (that it did not run) is posted
 	// where the command was made.
@@ -1465,6 +1469,54 @@ type IntentVerification struct {
 	// +listType=set
 	// +kubebuilder:validation:items:Pattern=`^sha256:[0-9a-f]{64}$`
 	Disputed []string `json:"disputed,omitempty"`
+	// Rung is the rung of the latest round (Round): full, the saved checks
+	// replayed and then the evaluator; or replay, the saved checks alone
+	// with no model. A retry of the round keeps it.
+	// +optional
+	Rung VerificationRung `json:"rung,omitempty"`
+	// ModelRound is the latest full round judged on its evaluator's
+	// report: a new round replays only at its heads and outcomes, and only
+	// when its evaluator raised nothing (Clear).
+	// +optional
+	ModelRound *VerificationModelRound `json:"modelRound,omitempty"`
+	// Escalation is the one automatic full round a head set gets after an
+	// unsure round at those heads: due while Round is the replay round
+	// that asked for it, spent once a later round starts there.
+	// +optional
+	Escalation *VerificationEscalation `json:"escalation,omitempty"`
+}
+
+// VerificationModelRound records the latest full round judged on its
+// evaluator's report.
+type VerificationModelRound struct {
+	// Round is that round.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=999
+	Round int32 `json:"round"`
+	// HeadSetDigest is the head set it was judged at.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	HeadSetDigest string `json:"headSetDigest"`
+	// OutcomesDigest is the approved outcome list it judged.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	OutcomesDigest string `json:"outcomesDigest"`
+	// Clear: its evaluator saw no outcome fail (no fail verdict, no
+	// contrary entry) and reported no anomaly.
+	// +optional
+	Clear bool `json:"clear,omitempty"`
+}
+
+// VerificationEscalation records the one automatic full round a head set
+// gets after an unsure round there: the escalation of an unsure replay
+// round, or a full round in a replay's place after a dispute when a replay
+// could not pass every outcome.
+type VerificationEscalation struct {
+	// Round is the round that asked for it.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=999
+	Round int32 `json:"round"`
+	// HeadSetDigest is the head set it is for.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	HeadSetDigest string `json:"headSetDigest"`
 }
 
 // OutcomesJudgedAt reports that v's outcome results (and anomalies) were

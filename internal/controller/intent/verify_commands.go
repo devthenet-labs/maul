@@ -22,7 +22,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
-// The acceptance commands, /maul verify [fix|stop|--reset], /maul accept
+// The acceptance commands, /maul verify [fix|stop|--reset|explore], /maul accept
 // <id>|all and /maul preview, settle here for both surfaces that offer them:
 // the intent issue (from
 // decide, on the poll's answer path) and each of the intent's pull requests
@@ -148,6 +148,7 @@ func (p *pass) recordedVerifyNotice(c verifyCommand) templates.VerifyCommandNoti
 	}
 	if v := p.in.Status.Verification; v != nil && v.Requested != nil && v.Requested.CommentID == id {
 		n.Outcome, n.Fix, n.Reset = templates.VerifyRequested, v.Requested.Fix, v.Requested.Reset
+		n.Explore = v.Requested.Explore
 		n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 		return n
 	}
@@ -214,6 +215,7 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 			// starts: nothing is recorded, and the reply says why (S2-B8),
 			// never that it is.
 			n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
+			n.Explore = args.Explore
 			return n, nil
 		}
 		if args.Fix && !args.Reset && suspectedConfirmable(p.in.Status.Verification, c.at) {
@@ -295,11 +297,12 @@ func (p *pass) previewHeld() (v1alpha1.HandoffMode, bool) {
 // requestVerification records /maul verify as status.verification.requested,
 // for the verification loop to run at its next opportunity, bypassing the
 // automatic interval. A request made while one waits joins it: the newest
-// comment stands for both, and neither's fix or reset is lost. --reset also
-// bumps the reset generation, which the Preview copies, unless the last
-// reset was under verifyResetInterval before it; fix also re-arms automatic
-// fixes from the current round (a human round after it, or a human push,
-// halts them again). Once the approved plan revision has used the Project's
+// comment stands for both, and neither's fix, reset or explore is lost.
+// --reset also bumps the reset generation, which the Preview copies, unless
+// the last reset was under verifyResetInterval before it; fix also re-arms
+// automatic fixes from the current round (a human round after it, or a
+// human push, halts them again); explore makes the round full, never a
+// replay (rungFor). Once the approved plan revision has used the Project's
 // maxVerifications nothing is recorded and the reply says so. One made while
 // verification is off is answered before this (applyVerifyCommand).
 func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args command.VerifyArgs,
@@ -314,6 +317,7 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		// The agents round is known to be unable to run: say so once,
 		// here, rather than acknowledge now and answer later (S2-B10).
 		n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
+		n.Explore = args.Explore
 		n.Stands = p.standingJudgement(&cur)
 		return n, nil
 	}
@@ -324,6 +328,7 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		// the push of a fix round a fix request starts from a failing
 		// judgement (fixesStanding).
 		n.Outcome, n.NotRunWhy, n.Fix = templates.VerifyNotRun, templates.NotRunPreviewExpired, args.Fix
+		n.Explore = args.Explore
 		n.Stands = p.standingJudgement(&cur)
 		return n, nil
 	}
@@ -339,9 +344,7 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	}
 	waiting := cur.Requested
 	at := metav1.NewTime(c.at)
-	req := v1alpha1.VerifyRequest{By: c.actor.Login, ByID: c.actor.ID, At: at, CommentID: c.id,
-		Fix: args.Fix || (waiting != nil && waiting.Fix), Reset: args.Reset || (waiting != nil && waiting.Reset),
-		PullRequest: c.requestSource()}
+	req := joinedRequest(c, args, waiting)
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		v := in.Status.Verification
 		if v == nil {
@@ -363,10 +366,23 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	}); err != nil {
 		return n, err
 	}
-	n.Outcome, n.Fix, n.Reset = templates.VerifyRequested, args.Fix, args.Reset
+	n.Outcome, n.Fix, n.Reset, n.Explore = templates.VerifyRequested, args.Fix, args.Reset, args.Explore
 	n.Joined = waiting != nil
 	n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 	return n, nil
+}
+
+// joinedRequest is the request c records with args, joining waiting (nil
+// for none): the newest comment stands for both, and neither's fix, reset
+// or explore is lost.
+func joinedRequest(c verifyCommand, args command.VerifyArgs, waiting *v1alpha1.VerifyRequest) v1alpha1.VerifyRequest {
+	req := v1alpha1.VerifyRequest{By: c.actor.Login, ByID: c.actor.ID, At: metav1.NewTime(c.at), CommentID: c.id,
+		Fix: args.Fix, Reset: args.Reset, Explore: args.Explore, PullRequest: c.requestSource()}
+	if waiting != nil {
+		req.Fix, req.Reset, req.Explore = req.Fix || waiting.Fix, req.Reset || waiting.Reset,
+			req.Explore || waiting.Explore
+	}
+	return req
 }
 
 // fixesStanding reports whether a /maul verify fix re-arms automatic fixes

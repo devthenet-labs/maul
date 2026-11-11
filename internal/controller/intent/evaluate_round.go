@@ -37,8 +37,9 @@ import (
 //     block, and the fix rounds keep their budget.
 //  2. It creates the outcome PreviewVerification (createEvaluation): the
 //     approved outcomes, the saved checks copied inline from the check
-//     store, the rung (full; replay, the model-free round after a dispute,
-//     when a disputed check awaits one) and the tool pod's tools. State
+//     store, the rung (rungFor, rung.go: replay, with no model, at the heads
+//     of a model round that raised nothing when every outcome has a proven
+//     saved check; full otherwise) and the tool pod's tools. State
 //     Evaluating. Each attempt is a new PreviewVerification: the tool pod
 //     takes one finish, so a retry needs a new one (SPEC W3).
 //  3. preview-controller renders the slot tool pod and writes
@@ -181,7 +182,7 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 		return false, nil
 	}
 	kind, err := p.verifyDue(ctx, v)
-	if err == nil && kind == verifyNotDue && p.replayDue(v) {
+	if err == nil && kind == verifyNotDue && (p.replayDue(v) || p.escalationDue(v)) {
 		kind = verifyAutomatic
 	}
 	if err != nil || kind == verifyNotDue {
@@ -202,9 +203,6 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 	if place == nil {
 		return changed, err
 	}
-	if p.atEvaluationCeiling() {
-		return p.evaluationExhausted(ctx)
-	}
 	checks, digest, err := p.storedChecks(ctx)
 	if err != nil {
 		// The store cannot be read as recorded: no round runs against
@@ -213,7 +211,15 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 			slog.String("intent", p.in.Name), slog.Any("error", err))
 		return false, nil
 	}
-	return true, p.createEvaluation(ctx, kind, place, hs, checks, digest)
+	rung, why := p.rungFor(kind, hs, checks)
+	if rung == v1alpha1.RungFull && p.atEvaluationCeiling() {
+		// A replay round spends nothing, so only a full one is held to
+		// the evaluation ceiling.
+		return p.evaluationExhausted(ctx)
+	}
+	p.r.log().LogAttrs(ctx, slog.LevelInfo, "evaluation round: rung chosen", slog.String("intent", p.in.Name),
+		slog.String("rung", string(rung)), slog.String("why", string(why)))
+	return true, p.createEvaluation(ctx, kind, place, hs, checks, digest, rung)
 }
 
 // evaluationExhausted records that the intent's evaluations spent their
@@ -221,7 +227,7 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 // consumed), and the intent is never blocked for it (DESIGN 5).
 func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	v := p.in.Status.Verification
-	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil {
+	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil && len(v.Disputed) == 0 {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the intent's evaluations spent their ceiling; nothing more is evaluated",
@@ -237,7 +243,9 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.Requested = v1alpha1.VerificationUnconfirmed, nil
+		// A dispute's round that would need the model cannot run either:
+		// none is due any more, and the hand-off says why.
+		nv.State, nv.Requested, nv.Disputed = v1alpha1.VerificationUnconfirmed, nil, nil
 		return nil
 	})
 }
@@ -255,25 +263,15 @@ func (p *pass) replayDue(v *v1alpha1.IntentVerification) bool {
 		v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) && v.Requested == nil && p.verifyBounded(v)
 }
 
-// evaluationRung is the rung a new round runs (SPEC Q17): replay, with no
-// model, when a disputed check awaits its model-free round and there are
-// saved checks to replay; otherwise full.
-func evaluationRung(v *v1alpha1.IntentVerification, checks []v1alpha1.SavedCheck) v1alpha1.VerificationRung {
-	if len(v.Disputed) > 0 && len(checks) > 0 {
-		return v1alpha1.RungReplay
-	}
-	return v1alpha1.RungFull
-}
-
 // createEvaluation creates the round's outcome PreviewVerification: the
-// approved outcomes and their digest, the saved checks and theirs, the rung,
-// the tool pod's tools and its wall clock (the evaluate run's timeout plus
-// EvaluationToolsMargin, within a verification's hour), then where it runs
-// (place, its tool host's: toolHost.gate), which may narrow the tools and
-// set its own wall clock.
+// approved outcomes and their digest, the saved checks and theirs, the rung
+// (rungFor's), the tool pod's tools and its wall clock (the evaluate run's
+// timeout plus EvaluationToolsMargin, within a verification's hour), then
+// where it runs (place, its tool host's: toolHost.gate), which may narrow
+// the tools and set its own wall clock.
 func (p *pass) createEvaluation(ctx context.Context, kind verifyKind, place func(*v1alpha1.PreviewVerificationSpec),
-	hs headSet, checks []v1alpha1.SavedCheck, checksDigest string) error {
-	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
+	hs headSet, checks []v1alpha1.SavedCheck, checksDigest string, rung v1alpha1.VerificationRung) error {
+	acc := p.in.Status.Acceptance
 	evaluate := p.set.grant(p.proj, v1alpha1.IntentStageEvaluate)
 	timeout := min(msDuration(evaluate.TimeoutMilliseconds)+EvaluationToolsMargin, maxVerificationTimeout)
 	return p.createVerification(ctx, kind, hs, v1alpha1.VerificationEvaluating,
@@ -282,7 +280,7 @@ func (p *pass) createEvaluation(ctx context.Context, kind verifyKind, place func
 			if len(checks) > 0 {
 				spec.Checks, spec.ChecksDigest = checks, checksDigest
 			}
-			spec.Rung = evaluationRung(v, checks)
+			spec.Rung = rung
 			spec.Tools = &v1alpha1.ToolsSpec{
 				Browser:          p.proj.Spec.Surfaces != nil && p.proj.Spec.Surfaces.Browser != nil,
 				Sandbox:          true,

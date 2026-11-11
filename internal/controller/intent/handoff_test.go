@@ -173,17 +173,10 @@ const versionCheck2 = `{"id":"version-shown.again","outcome":"version-shown","fo
  "steps":[{"request":{"method":"POST","path":"/notes","json":{"name":"{{run}}-w"}},"expect":{"status":201}},
  {"request":{"path":"/version?q={{run}}"},"expect":{"json":{"/note":"{{run}}-w"}}}]}}`
 
-// TestDisputeRetiresAndReplays: the evaluator disputes the stored check
-// that failed its replay and proposes a corrected one; once the
-// replacement is confirmed and reviewed proves, the disputed check is
-// retired from the store (a new store, in a pass of its own) and the round
-// is Unconfirmed with the link held for the one replay round. That round
-// runs no evaluator, passes the outcome on the replacement, and the link is
-// then handed over.
-func TestDisputeRetiresAndReplays(t *testing.T) {
-	e, name := newEvaluatorEnv(t, 0.4)
-	old, repl := savedCheck(t, versionCheck), savedCheck(t, versionCheck2)
-	e.evaluateReporting(`---
+// disputeReport is an evaluator's report disputing the stored version
+// check old, proposing repl in its place.
+func disputeReport(old, repl v1alpha1.SavedCheck) string {
+	return `---
 verdicts:
   - id: version-shown
     verdict: unsure
@@ -201,9 +194,29 @@ disputes:
     ledger: [2]
 ---
 The stored version check reads a note another run wrote.
-`)
+`
+}
+
+// disputedRound is an intent whose round 1 disputed its stored version
+// check old, failing its replay, for repl, confirmed and reviewed proves:
+// judged Unconfirmed with the link held for the round after it, old
+// retired from the store in repl's favour. With health, the health check is
+// stored and replays green too. It returns the store as it then stands.
+func disputedRound(t *testing.T, health bool) (*env, string, v1alpha1.SavedCheck, []v1alpha1.SavedCheck) {
+	t.Helper()
+	e, name := newEvaluatorEnv(t, 0.4)
+	old, repl := savedCheck(t, versionCheck), savedCheck(t, versionCheck2)
+	e.evaluateReporting(disputeReport(old, repl))
 	e.reviewChecksWith(&fakeReviewer{})
-	e.storeChecks(name, old)
+	stored, replays := []v1alpha1.SavedCheck{old}, []v1alpha1.CheckRun{{CheckDigest: old.Digest,
+		Result: v1alpha1.CheckRunFail, Token: "t0", Seq: 2}}
+	if health {
+		h := savedCheck(t, healthCheck)
+		stored = append(stored, h)
+		replays = append(replays, v1alpha1.CheckRun{CheckDigest: h.Digest, Result: v1alpha1.CheckRunPass,
+			Token: "th", Seq: 3})
+	}
+	e.storeChecks(name, stored...)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
@@ -212,8 +225,7 @@ The stored version check reads a note another run wrote.
 	e.runRuns()
 	e.confirm(pv.Name, repl)
 	got := e.pvNamed(pv.Name)
-	got.Status.Replay = []v1alpha1.CheckRun{{CheckDigest: old.Digest, Result: v1alpha1.CheckRunFail, Token: "t0",
-		Seq: 2}}
+	got.Status.Replay = replays
 	if err := e.c.Update(context.Background(), got); err != nil {
 		t.Fatal(err)
 	}
@@ -221,37 +233,69 @@ The stored version check reads a note another run wrote.
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationUnconfirmed || !slices.Equal(v.Disputed, []string{old.Digest}) ||
 		v.Handoff.Released {
-		t.Fatalf("verification = %s disputed %v hand-off %+v; want Unconfirmed awaiting its replay, link held",
+		t.Fatalf("verification = %s disputed %v hand-off %+v; want Unconfirmed awaiting its next round, link held",
 			v.State, v.Disputed, v.Handoff)
 	}
-	if _, stored := e.checkStore(name); !slices.Equal(digestsOf(stored), []string{repl.Digest}) {
-		t.Fatalf("store = %v, want the replacement alone", digestsOf(stored))
+	_, kept := e.checkStore(name)
+	if digests := digestsOf(kept); slices.Contains(digests, old.Digest) || !slices.Contains(digests, repl.Digest) {
+		t.Fatalf("store = %v, want the replacement in place of the disputed check", digests)
 	}
+	return e, name, repl, kept
+}
 
-	e.reviewUntil(name, func() bool { return len(e.verifications(name)) == 2 })
-	var replay v1alpha1.PreviewVerification
-	for _, p := range e.verifications(name) {
-		if p.Spec.Round == 2 {
-			replay = p
-		}
+// TestDisputeRetiresAndReplays: the evaluator disputes the stored check
+// that failed its replay and proposes a corrected one; once the
+// replacement is confirmed and reviewed proves, the disputed check is
+// retired from the store (a new store, in a pass of its own) and the round
+// is Unconfirmed with the link held for the one round after it. With every
+// outcome then bound to a proven saved check, that round is a replay: it
+// runs no evaluator, passes the outcome on the replacement, and the link is
+// then handed over.
+func TestDisputeRetiresAndReplays(t *testing.T) {
+	e, name, repl, kept := disputedRound(t, true)
+	next := e.roundOf(name, 2)
+	if next.Spec.Rung != v1alpha1.RungReplay || len(next.Spec.Checks) != len(kept) {
+		t.Fatalf("round 2 = %s over %d checks, want a replay of the store's %d", next.Spec.Rung,
+			len(next.Spec.Checks), len(kept))
 	}
-	if replay.Spec.Rung != v1alpha1.RungReplay || len(replay.Spec.Checks) != 1 ||
-		replay.Spec.Checks[0].Digest != repl.Digest {
-		t.Fatalf("replay round = %+v, want the replacement replayed", replay.Spec)
-	}
-	e.playTools(replay.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.playTools(next.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
-	e.replayed(replay.Name, v1alpha1.CheckRun{CheckDigest: repl.Digest, Result: v1alpha1.CheckRunPass, Token: "t3",
-		Seq: 1})
+	runs := make([]v1alpha1.CheckRun, 0, len(kept))
+	for i, c := range kept {
+		runs = append(runs, v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunPass, Token: "t3",
+			Seq: int32(1 + i)})
+	}
+	e.replayed(next.Name, runs...)
 	e.reviewUntil(name, func() bool { return e.verification(name).State != v1alpha1.VerificationEvaluating })
-	v = e.verification(name)
+	v := e.verification(name)
 	if r := v.Outcomes[0]; r.Result != v1alpha1.OutcomePassed || r.Basis != repl.Digest {
 		t.Errorf("version outcome = %+v, want passed on the replacement", r)
 	}
 	if len(v.Disputed) != 0 || !v.Handoff.Released {
 		t.Errorf("disputed %v, hand-off %+v: want the replay done and the link handed over", v.Disputed, v.Handoff)
 	}
+	if v.Escalation != nil {
+		t.Errorf("escalation %+v: a replay unsure only on the manual outcome escalates nothing", v.Escalation)
+	}
 	if n := len(e.runsOf(name, v1alpha1.IntentStageEvaluate)); n != 1 {
 		t.Errorf("evaluate runs = %d, want the full round's alone", n)
 	}
+}
+
+// TestDisputeWithAnUncoveredOutcomeIsFull: with an outcome bound to no
+// saved check (the health outcome here), a replay could not pass it, so the
+// round after the dispute is full, its evaluator launched, and it spends
+// the head set's one escalation (rung.go).
+func TestDisputeWithAnUncoveredOutcomeIsFull(t *testing.T) {
+	e, name, _, kept := disputedRound(t, false)
+	next := e.roundOf(name, 2)
+	if next.Spec.Rung != v1alpha1.RungFull || len(next.Spec.Checks) != len(kept) {
+		t.Fatalf("round 2 = %s over %d checks, want full over the store's %d", next.Spec.Rung,
+			len(next.Spec.Checks), len(kept))
+	}
+	if esc := e.verification(name).Escalation; esc == nil || esc.Round != 1 {
+		t.Errorf("escalation %+v, want spent by the full round after the dispute", esc)
+	}
+	e.playTools(next.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.reviewUntil(name, func() bool { return len(e.runsOf(name, v1alpha1.IntentStageEvaluate)) == 2 })
 }

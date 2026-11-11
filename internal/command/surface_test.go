@@ -81,9 +81,10 @@ func TestAvailableVerbsParse(t *testing.T) {
 // The usage lines of the acceptance commands, which both intent surfaces
 // offer.
 const (
-	verifyLine = "- `/maul verify [fix|stop|--reset]`: check the change against the plan's acceptance criteria " +
-		"now; `fix` also lets maul fix failures again, `stop` only stops maul fixing failures on its own, " +
-		"`--reset` first restarts the preview with fresh data"
+	verifyLine = "- `/maul verify [fix|stop|--reset|explore]`: check the change against the plan's acceptance " +
+		"criteria now; `fix` also lets maul fix failures again, `stop` only stops maul fixing failures on its own, " +
+		"`--reset` first restarts the preview with fresh data, `explore` has the evaluator look again even where " +
+		"maul's saved checks alone could settle it"
 	acceptLine = "- `/maul accept <id>|all`: accept, at the current commits, a manual outcome or criterion, one " +
 		"maul could not confirm or found failing, or one that passed only on retry; `all` accepts every one of " +
 		"them, and a note may follow on the lines below"

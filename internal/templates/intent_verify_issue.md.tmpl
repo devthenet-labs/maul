@@ -3,7 +3,7 @@ numbered as the summary line numbers it, edited per attempt, headed by its notic
 sentence are maul's; see intent_verify_section.md.tmpl for the shared detail
 and for what agent text is shown. One line per paragraph. */ -}}
 {{ .Marker }}
-### maul: verification {{ .Round }}, attempt {{ .Attempt }}
+### maul: verification {{ .Round }}, attempt {{ .Attempt }}{{ if .Replay }} (replayed saved checks, no model){{ end }}
 {{- with .Line }}
 
 {{ . }}
