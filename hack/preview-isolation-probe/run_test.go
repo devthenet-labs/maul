@@ -556,6 +556,57 @@ func TestEdgesFails(t *testing.T) {
 	}
 }
 
+// TestEdgesNamesWhatABadFixtureHolds: a fixture the edges run cannot use is
+// refused before anything is called, naming the parts and Preview UIDs it
+// read, so a refusal shows which of its rules the fixture broke.
+func TestEdgesNamesWhatABadFixtureHolds(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not on PATH")
+	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not on PATH; run.sh requires it")
+	}
+	good, err := os.ReadFile("edges.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile("run.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const uid, other = "00000000-0000-4000-8000-0000000ed9e5", "00000000-0000-4000-8000-0000000000aa"
+	for name, tc := range map[string]struct {
+		fixture, want string
+	}{
+		"no tester": {fixture: strings.ReplaceAll(string(good), "preview-edges-np-tester", "preview-edges-np-probe"),
+			want: "read parts (api render probe web) and UIDs (" + uid + ")"},
+		"two Preview UIDs": {fixture: strings.Replace(string(good), uid, other, 1),
+			want: "read parts (api render tester web) and UIDs (" + other + " " + uid + ")"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for file, b := range map[string][]byte{"run.sh": script, "edges.yaml": []byte(tc.fixture)} {
+				if err := os.WriteFile(filepath.Join(dir, file), b, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command(bash, append([]string{filepath.Join(dir, "run.sh"), "edges", "--dry-run"},
+				edgesArgs()...)...)
+			cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "PROBE_") })
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 1 ||
+				!strings.Contains(stderr.String(), "must name a tester and another part, and one Preview UID") ||
+				!strings.Contains(stderr.String(), tc.want) {
+				t.Errorf("run.sh edges: %v, stderr:\n%s\nwant the refusal naming %q", err, stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
 // TestEdgesRefusesABusySlot: a slot holding any Deployment (a Preview's or
 // a probe's) stops the run before anything is created.
 func TestEdgesRefusesABusySlot(t *testing.T) {

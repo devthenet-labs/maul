@@ -297,7 +297,8 @@ edges_fixture() {
     edges_uid=$(sed -n 's/^ *maul\.run\/preview-uid: \(.*\)$/\1/p' "$fixture" | sort -u)
     if [[ ${#edges_parts[@]} -lt 2 || ! $edges_uid =~ ^[0-9a-f-]{36}$ ]] || ! printf '%s\n' "${edges_parts[@]}" |
         grep -qx tester; then
-        echo "$fixture must name a tester and another part, and one Preview UID" >&2
+        echo "$fixture must name a tester and another part, and one Preview UID;" \
+            "read parts (${edges_parts[*]}) and UIDs (${edges_uid//$'\n'/ })" >&2
         exit 1
     fi
 }
