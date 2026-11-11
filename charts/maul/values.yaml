@@ -1218,6 +1218,15 @@ intentController:
         # Every stage timeout plus 15m must fit under it (a render guard, and
         # the controller refuses to start otherwise).
         jobDeadlineMax: 4h30m
+        # The models a Project may choose for its stages (spec.models: plan,
+        # build, evaluate, checkReview) beside the stage models below, the
+        # codex pair and the evaluator's, which are always allowed. Each must
+        # resolve to claude, or to codex with codex.enabled, or the controller
+        # refuses to start. A Project naming any other is not Ready
+        # (ModelNotAllowed) and its open intents are held Blocked. Empty, a
+        # Project can only choose among those stage models. With
+        # egressBroker.limits.modelAllowlist set, list them there too.
+        modelAllowlist: []
         # The per-stage ceilings. A Project's limits may lower them, never
         # raise them. The models (a claude Project's, the default) must
         # resolve to the claude harness. Each idleTimeout ends a run of its

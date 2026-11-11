@@ -205,6 +205,11 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   and the codex CLI into a build's repository image). Each IntentRun records its Project's harness at creation
   (`spec.harness`, immutable) and is launched, held for a credential (`credgate.ProviderFor`: codex waits for an OpenAI
   key) and measured on it; off, a codex Project is not Ready (`HarnessNotEnabled`) and a codex run waits Pending. A
+  Project may choose each stage's model within its harness (`spec.models`: plan, build (also every revise round),
+  evaluate, checkReview; `models.go`), each a stage flag's model or on `--intent-model-allowlist` (chart
+  `intentController.config.modelAllowlist`, split by harness at startup into `RunHarness.Allowed`), else it is not Ready
+  and its open intents are held Blocked (`ModelNotAllowed`); a run records its Project's choice (`spec.model`, empty
+  when none: the stage flag runs, as before) and a recorded model no longer admitted ends `launch_refused`. A
   Project's stage `timeout` (clamped to the stage flag) sets each run's wall clock and its Job deadline (timeout + 15m,
   never under `--intent-job-deadline`, capped by
   `--intent-job-deadline-max`, under which every stage flag plus 15m must fit; the floor is not tied to the stage

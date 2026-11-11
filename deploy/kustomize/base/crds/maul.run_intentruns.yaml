@@ -47,6 +47,11 @@ spec:
       name: Trigger
       priority: 1
       type: string
+    - description: The model the Project chose for the run; empty runs the install's
+      jsonPath: .spec.model
+      name: Model
+      priority: 1
+      type: string
     - jsonPath: .status.usage.costUSD
       name: Cost
       type: string
@@ -402,6 +407,19 @@ spec:
                 required:
                 - name
                 type: object
+              model:
+                description: |-
+                  Model is the canonical model the run launches on, copied at creation
+                  from its Project's spec.models choice for the stage (a revise run's is
+                  the build choice; a codex evaluate or checkreview run's, unless the
+                  Project chooses its own, too). Unset when the Project chooses none, as
+                  on every run created before Projects chose: the run then runs
+                  intent-controller's stage flag. A recorded model intent-controller no
+                  longer admits is not launched (launch_refused). Immutable with the
+                  rest of the spec.
+                maxLength: 128
+                pattern: ^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$
+                type: string
               previousAttempt:
                 description: |-
                   PreviousAttempt is the failed attempt this one retries, rendered into

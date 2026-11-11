@@ -2250,6 +2250,16 @@
                             "$ref": "#/definitions/duration",
                             "description": "The most a run's stage timeout plus 15m may stretch its intent Job's deadline to; every stage timeout plus 15m must fit under it"
                         },
+                        "modelAllowlist": {
+                            "type": "array",
+                            "description": "Canonical models a Project may choose per stage (spec.models) beside the stage models; each must resolve to claude, or to codex with codex.enabled",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "string",
+                                "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+                                "maxLength": 128
+                            }
+                        },
                         "plan": {
                             "type": "object",
                             "description": "The plan stage's ceilings: read-only, on the default runner image",

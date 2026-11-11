@@ -411,7 +411,8 @@ func setRepositoryImageRequired(cur *v1alpha1.Project, s Settings, imagesOff boo
 // refusal is why this controller's own settings keep p from being Ready,
 // with the message saying what lifts it, or "" when they admit it: several
 // repositories without --intent-multi-repo, a harness it does not run
-// intents on, or a run budget over half the broker's hourly cost limit.
+// intents on, a model it does not admit (modelRefusal), or a run budget over
+// half the broker's hourly cost limit.
 func (s Settings) refusal(p *v1alpha1.Project) (reason, msg string) {
 	if n := len(p.Spec.Repositories); n != 1 && !s.MultiRepo {
 		return ReasonUnsupportedRepositories, fmt.Sprintf("intents build in exactly one repository unless "+
@@ -421,6 +422,9 @@ func (s Settings) refusal(p *v1alpha1.Project) (reason, msg string) {
 		return ReasonHarnessNotEnabled, fmt.Sprintf("spec.harness is %s, and intent-controller runs intents on %s "+
 			"only with --intent-codex (intentController.codex.enabled); until it does, no intent of this project is "+
 			"discovered and a %s run of one already open waits Pending", p.Spec.Harness, p.Spec.Harness, p.Spec.Harness)
+	}
+	if msg := s.modelRefusal(p); msg != "" {
+		return ReasonModelNotAllowed, msg
 	}
 	if stage, budget := s.budgetOverHourly(p); stage != "" {
 		field, ceiling := string(stage), "limits.maxCostMicroUSD"

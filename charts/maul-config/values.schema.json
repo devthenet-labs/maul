@@ -955,6 +955,37 @@
                     "type": "object",
                     "additionalProperties": false
                 },
+                "models": {
+                    "description": "Models chooses the model each of the Project's run stages runs on,\nwithin its harness (ProjectModels). Unset, and for every stage it\nleaves unset, the run runs intent-controller's stage flag, as before.\nA model must be one intent-controller admits for the Project's\nharness (a stage flag's, or on --intent-model-allowlist); otherwise\nthe Project is not Ready (ModelNotAllowed) and no run of its intents\nis created. Each run records the model it was created with (IntentRun\nspec.model), so a change applies to new runs only.",
+                    "properties": {
+                        "build": {
+                            "description": "Build is the build stage's model, and so every revise run's: review,\ncommand, check-fix and acceptance-fix rounds alike\n(--intent-build-model, or --intent-codex-build-model on codex, when\nunset).",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+                            "type": "string"
+                        },
+                        "checkReview": {
+                            "description": "CheckReview is the check reviewer's model (--intent-checkreview-model\nwhen unset; a codex Project's build model, as for Evaluate).",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+                            "type": "string"
+                        },
+                        "evaluate": {
+                            "description": "Evaluate is the agent evaluator's model (--intent-evaluate-model when\nunset). A codex Project, which intent-controller evaluates only under\n--intent-evaluate-codex, evaluates on its build model when unset.",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+                            "type": "string"
+                        },
+                        "plan": {
+                            "description": "Plan is the plan stage's model (--intent-plan-model, or\n--intent-codex-plan-model on codex, when unset).",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+                            "type": "string"
+                        }
+                    },
+                    "type": "object",
+                    "additionalProperties": false
+                },
                 "preview": {
                     "description": "Preview is the one-repository shorthand for previews: the runtime\ncontract of repositories[0], served at \"/\", exactly as if it were\nrepositories[0].preview with the default path. It needs exactly one\nrepository and is refused beside any repositories[].preview\n(CEL-enforced on the spec). With neither set, the Project's PRs are never\ndeployed, even if the preview-controller is enabled. Only\noperator-authored Project configuration can supply the runtime image\nrepository and serving port; issue and agent text cannot.",
                     "properties": {

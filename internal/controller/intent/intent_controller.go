@@ -364,10 +364,14 @@ func (p *pass) nudgedHandOff(ctx context.Context) (stop bool, err error) {
 // than by a human. An Intent of a Project this controller runs no intent of
 // (a multi-repository Project without --intent-multi-repo) takes none: it is
 // held Blocked, whatever phase it is in, so turning the flag off stops every
-// such intent where it stands.
+// such intent where it stands. Nor does one whose Project names a model this
+// controller does not admit (holdModels).
 func (p *pass) step(ctx context.Context) (bool, error) {
 	if p.in.Status.Phase != v1alpha1.IntentBlocked {
 		if stop, err := p.holdMultiRepo(ctx); stop || err != nil {
+			return stop, err
+		}
+		if stop, err := p.holdModels(ctx); stop || err != nil {
 			return stop, err
 		}
 	}

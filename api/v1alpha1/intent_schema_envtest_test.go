@@ -291,6 +291,10 @@ func testProjectUpdates(ctx context.Context, t *testing.T, c client.Client) {
 		{"suspend", func(s *maulv1.ProjectSpec) { s.Suspend = true }, false},
 		// A Project may change harness: each run records its own.
 		{"the harness", func(s *maulv1.ProjectSpec) { s.Harness = maulv1.ProjectHarnessCodex }, false},
+		// And its models: each run records its own.
+		{"the models", func(s *maulv1.ProjectSpec) {
+			s.Models = &maulv1.ProjectModels{Plan: "anthropic/claude-opus-5"}
+		}, false},
 	} {
 		t.Run("update "+tt.name, func(t *testing.T) {
 			got := &maulv1.Project{}
@@ -423,6 +427,20 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 		{"harness claude", func(p *maulv1.Project) { p.Spec.Harness = maulv1.ProjectHarnessClaude }, false},
 		{"harness codex", func(p *maulv1.Project) { p.Spec.Harness = maulv1.ProjectHarnessCodex }, false},
 		{"harness not in the enum", func(p *maulv1.Project) { p.Spec.Harness = "copilot" }, true},
+		{"every stage's model", func(p *maulv1.Project) {
+			p.Spec.Models = &maulv1.ProjectModels{Plan: "anthropic/claude-opus-5", Build: "anthropic/claude-sonnet-5",
+				Evaluate: "anthropic/claude-haiku-4-5", CheckReview: "openai/gpt-5.3-codex"}
+		}, false},
+		{"an empty models block", func(p *maulv1.Project) { p.Spec.Models = &maulv1.ProjectModels{} }, false},
+		{"a model with no provider", func(p *maulv1.Project) {
+			p.Spec.Models = &maulv1.ProjectModels{Plan: "claude-opus-5"}
+		}, true},
+		{"a model in upper case", func(p *maulv1.Project) {
+			p.Spec.Models = &maulv1.ProjectModels{Build: "Anthropic/Claude-Opus-5"}
+		}, true},
+		{"a model past 128 characters", func(p *maulv1.Project) {
+			p.Spec.Models = &maulv1.ProjectModels{Evaluate: "anthropic/" + strings.Repeat("a", 119)}
+		}, true},
 		{"repository key at the name budget", func(p *maulv1.Project) {
 			p.Spec.Repositories[0].Name = strings.Repeat("a", maulv1.MaxRepositoryKeyLength)
 		}, false},
@@ -1126,6 +1144,7 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 		{"image source", func(s *maulv1.IntentRunSpec) { s.ImageFrom.Name = "target-1-rev1-shop-a1-src" }},
 		{"grant", func(s *maulv1.IntentRunSpec) { s.Grant.MaxTurns = 1000 }},
 		{"harness", func(s *maulv1.IntentRunSpec) { s.Harness = maulv1.ProjectHarnessCodex }},
+		{"model", func(s *maulv1.IntentRunSpec) { s.Model = "anthropic/claude-opus-5" }},
 		{"previous attempt added", func(s *maulv1.IntentRunSpec) {
 			s.PreviousAttempt = &maulv1.PreviousAttempt{Name: "x", Attempt: 1, Outcome: "timeout"}
 		}},

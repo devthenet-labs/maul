@@ -84,7 +84,7 @@ func TestPlanNoticeAgreesWithBuildProfile(t *testing.T) {
 // for none (or no launch).
 func launchedBuildProfile(t *testing.T, g runnerguard.Guard, repoURL string) string {
 	t.Helper()
-	r := &RunReconciler{Images: g, BuildModel: "anthropic/claude-opus-5"}
+	r := &RunReconciler{Images: g, Settings: Settings{Claude: RunHarness{BuildModel: "anthropic/claude-opus-5"}}}
 	run := &v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{Name: "t-bld-r1-a1", Namespace: testNS}}
 	run.Spec.Stage = v1alpha1.IntentStageBuild
 	run.Spec.Repository.URL = repoURL

@@ -134,12 +134,10 @@ type RunReconciler struct {
 	// effect does not launch, while running Jobs are still collected.
 	Paused bool
 	// Harness runs every intent Job of a claude Project (brokered claude
-	// in production, the fake harness in dev); PlanModel and BuildModel are
-	// the canonical models of its two stages. A codex Project's runs launch
-	// on Settings.Codex instead (runHarness).
-	Harness    string
-	PlanModel  string
-	BuildModel string
+	// in production, the fake harness in dev), on Settings.Claude's stage
+	// models. A codex Project's runs launch on Settings.Codex instead
+	// (runHarness).
+	Harness string
 	// Images decides whether a build runs the Repository's pinned image
 	// (PinFor), with this controller's own breaker.
 	Images runnerguard.Guard
@@ -164,12 +162,34 @@ type RunReconciler struct {
 // spec.harness, recorded at creation, never its Project's current one.
 // Codex launches on Settings.Codex, which is zero while --intent-codex is
 // off (such a run is not launchable and waits Pending: harnessOff);
-// claude, also when unset, on Harness with PlanModel and BuildModel.
+// claude, also when unset, on Harness with Settings.Claude's models.
 func (r *RunReconciler) runHarness(run *v1alpha1.IntentRun) RunHarness {
 	if run.Spec.Harness.IsCodex() {
 		return r.Settings.Codex
 	}
-	return RunHarness{ID: r.Harness, PlanModel: r.PlanModel, BuildModel: r.BuildModel}
+	h := r.Settings.Claude
+	h.ID = r.Harness
+	return h
+}
+
+// runModel is the canonical model run launches on: the one it recorded at
+// creation (spec.model, its Project's choice), else, when it recorded none
+// (its Project chose none, or it was created before Projects chose), its
+// harness's stage flag, as before (Settings.flagModel). A recorded model
+// these settings no longer admit for the run's harness (the allowlist
+// changed since) is not launched: the run ends launch_refused, and the
+// intent's next attempt runs what its Project chooses now.
+func (r *RunReconciler) runModel(run *v1alpha1.IntentRun) (string, *result) {
+	id := run.Spec.Model
+	if id == "" {
+		return r.Settings.flagModel(run.Spec.Harness, run.Spec.Stage), nil
+	}
+	if !r.Settings.modelAdmitted(run.Spec.Harness, id) {
+		return "", &result{outcome: OutcomeLaunchRefused, detail: fmt.Sprintf("the run was created on model %s, "+
+			"which intent-controller no longer admits for its harness (the stage flags and "+
+			"--intent-model-allowlist); nothing was launched", id)}
+	}
+	return id, nil
 }
 
 func (r *RunReconciler) now() time.Time {
@@ -1069,11 +1089,15 @@ func launchRefused(err error) bool {
 // nil to launch.
 func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *corev1.ConfigMap,
 	proj *v1alpha1.Project, repo *v1alpha1.Repository) (requireImage bool, refusal *result) {
+	model, refusal := r.runModel(run)
+	if refusal != nil {
+		return false, refusal
+	}
+	spec.Model = model
 	switch run.Spec.Stage {
 	case v1alpha1.IntentStagePlan:
 		return false, r.planSpec(run, spec, cm, proj)
 	case v1alpha1.IntentStageBuild:
-		spec.Model = r.runHarness(run).BuildModel
 		plan := cm.Data[keyInvestigation]
 		if got := digest([]byte(plan)); got != run.Spec.Inputs.PlanDigest {
 			return false, &result{outcome: OutcomeAborted,
@@ -1094,7 +1118,6 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		r.networkProfile(run, spec)
 		return requireImage, nil
 	case v1alpha1.IntentStageRevise:
-		spec.Model = r.runHarness(run).BuildModel
 		if reason := cm.Data[keyNoFeedback]; reason != "" {
 			return true, &result{outcome: OutcomeNoUsableFeedback, detail: reason}
 		}
@@ -1127,24 +1150,10 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 			return false, &result{outcome: OutcomeAborted,
 				detail: fmt.Sprintf("the %s handoff is empty; nothing was launched", run.Spec.Stage)}
 		}
-		spec.Model = r.roleModel(run)
 		return false, nil
 	}
 	return false, &result{outcome: OutcomeAborted,
 		detail: launchEnabled(run.Spec.Stage).Error() + "; nothing was launched"}
-}
-
-// roleModel is the canonical model an evaluate or checkreview run runs: a
-// codex run's codex build model (codex has no evaluator models of its own),
-// otherwise the stage's own.
-func (r *RunReconciler) roleModel(run *v1alpha1.IntentRun) string {
-	switch {
-	case run.Spec.Harness.IsCodex():
-		return r.Settings.Codex.BuildModel
-	case run.Spec.Stage == v1alpha1.IntentStageCheckReview:
-		return r.Settings.CheckReviewModel
-	}
-	return r.Settings.EvaluateModel
 }
 
 // planSpec is stageSpec for a plan run: its refusal, nil to launch.
@@ -1165,7 +1174,6 @@ func (r *RunReconciler) planSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *c
 				digest([]byte(planCtx)), pin)}
 	}
 	spec.InvestigationMarkdown = planCtx
-	spec.Model = r.runHarness(run).PlanModel
 	spec.OpenPullRequests = r.planOpenPullRequests(run, cm)
 	spec.PlanVerification = r.planVerification(proj)
 	return nil

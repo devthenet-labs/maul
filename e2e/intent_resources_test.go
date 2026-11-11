@@ -29,16 +29,22 @@ const (
 // runs on the default, whatever the repository picks; the build Job runs on
 // large, on both of its containers, and records the class; neither pod may
 // be evicted to consolidate its node; the Project reports the class it
-// picks as defined, and stays Ready.
+// picks as defined, and stays Ready. The Project also chooses its stages'
+// models (spec.models), each other than the install's stage flag and the
+// two different, from the controller's --intent-model-allowlist: each run
+// records the model chosen for its stage and its Job runs on it.
 func TestIntentResourceClass(t *testing.T) {
+	const planModel, buildModel = "anthropic/claude-opus-5", "anthropic/claude-haiku-4-5"
 	cl, gh, _ := startSourceStack(t, appRepo)
 	e := withIntentsFor(t, cl, gh, v1alpha1.ProjectSpec{
 		IntentRepository: intentRepoURL,
 		Approvers:        v1alpha1.ProjectApprovers{Logins: []string{approver.Login}},
 		Repositories: []v1alpha1.ProjectRepository{{Name: appRepo, URL: appRepoURL,
 			AgentResourceClass: "large"}},
+		Models: &v1alpha1.ProjectModels{Plan: planModel, Build: buildModel},
 	}, "--agent-cpu-request", "100m", "--agent-memory-request", "256Mi",
-		"--intent-resource-classes", `{"large":{"limits":{"memory":"10Gi"},"requests":{"cpu":4,"memory":"8Gi"}}}`)
+		"--intent-resource-classes", `{"large":{"limits":{"memory":"10Gi"},"requests":{"cpu":4,"memory":"8Gi"}}}`,
+		"--intent-model-allowlist", planModel+","+buildModel)
 
 	eventually(t, "the project to report its class defined", func() bool {
 		return meta.IsStatusConditionTrue(e.project(t).Status.Conditions, v1alpha1.ConditionResourceClassesResolved)
@@ -49,6 +55,8 @@ func TestIntentResourceClass(t *testing.T) {
 	plan := e.kubelet.waitRun(t, "the plan job to run", phaseIs("plan"))
 	checkResources(t, plan, "", corev1.ResourceRequirements{Requests: corev1.ResourceList{
 		corev1.ResourceCPU: mustQuantity("100m"), corev1.ResourceMemory: mustQuantity("256Mi")}})
+	checkModel(t, plan, e.run(t, v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 1, "", 1)),
+		"MAUL_INVESTIGATE_MODEL", planModel)
 
 	afterSecond(in.Status.Plan.PostedAt.Time)
 	e.gh.LabelIssue(number, approveLabel, approver)
@@ -58,6 +66,8 @@ func TestIntentResourceClass(t *testing.T) {
 		Requests: corev1.ResourceList{corev1.ResourceCPU: mustQuantity("4"), corev1.ResourceMemory: mustQuantity("8Gi")},
 		Limits:   corev1.ResourceList{corev1.ResourceMemory: mustQuantity("10Gi")},
 	})
+	checkModel(t, build, e.run(t, v1alpha1.IntentRunName(name, v1alpha1.IntentStageBuild, 1, appRepo, 1)),
+		"MAUL_REMEDIATE_MODEL", buildModel)
 	if !meta.IsStatusConditionTrue(e.project(t).Status.Conditions, v1alpha1.ConditionReady) {
 		t.Errorf("the project is not Ready: %+v", e.project(t).Status.Conditions)
 	}
@@ -100,6 +110,19 @@ func checkResources(t *testing.T, r agentRun, class string, want corev1.Resource
 	}
 	if got := pod.Annotations[doNotDisruptAnnotation]; got != "true" {
 		t.Errorf("job %s pod %s = %q, want \"true\"", r.Job.Name, doNotDisruptAnnotation, got)
+	}
+}
+
+// checkModel asserts that run records model, the one its Project chose for
+// its stage, and that its Job r runs on it: the stage's model variable
+// (env) is model.
+func checkModel(t *testing.T, r agentRun, run *v1alpha1.IntentRun, env, model string) {
+	t.Helper()
+	if run.Spec.Model != model {
+		t.Errorf("run %s records model %q, want %q", run.Name, run.Spec.Model, model)
+	}
+	if got := r.Env[env]; got != model {
+		t.Errorf("job %s %s = %q, want %q", r.Job.Name, env, got, model)
 	}
 }
 

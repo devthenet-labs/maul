@@ -1634,6 +1634,7 @@ func testSettings() Settings {
 		Plan:   StageCeiling{MaxTurns: 40, TokenBudget: 200000, Timeout: 20 * time.Minute},
 		Build:  StageCeiling{MaxTurns: 150, TokenBudget: 800000, Timeout: time.Hour},
 		Revise: StageCeiling{MaxTurns: 80, TokenBudget: 400000, Timeout: 45 * time.Minute},
+		Claude: RunHarness{ID: "claude", PlanModel: "anthropic/claude-sonnet-5", BuildModel: "anthropic/claude-opus-5"},
 	}
 }
 
@@ -1742,8 +1743,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	e.intent = &IntentReconciler{Client: e.c, APIReader: e.c, GitHub: e.gh, Settings: set, Images: images,
 		Nudger: e.nudger, Now: e.clock.Now}
 	e.runs = &RunReconciler{Client: e.c, APIReader: e.c, Jobs: e.jobs, GitHub: e.gh, Settings: set,
-		MaxConcurrent: 1, Harness: "claude", PlanModel: "anthropic/claude-sonnet-5",
-		BuildModel: "anthropic/claude-opus-5", Images: images, Now: e.clock.Now}
+		MaxConcurrent: 1, Harness: "claude", Images: images, Now: e.clock.Now}
 	e.ttl = &TTLReconciler{Client: e.c, APIReader: e.c, TTL: DefaultTTL, Now: e.clock.Now}
 	return e
 }
