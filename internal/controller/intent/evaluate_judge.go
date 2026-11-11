@@ -560,7 +560,7 @@ func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) m
 	}
 	out := map[string]string{}
 	for _, r := range v.Outcomes {
-		found :=r.Reason == acceptance.ReasonReproduced || r.Reason == acceptance.ReasonSuspectedDefect
+		found := r.Reason == acceptance.ReasonReproduced || r.Reason == acceptance.ReasonSuspectedDefect
 		if r.Reason == acceptance.ReasonHeldFinding || found && v.OutcomesRound != round {
 			out[r.ID] = r.Basis
 		}
