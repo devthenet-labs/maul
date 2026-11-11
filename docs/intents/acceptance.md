@@ -13,7 +13,7 @@ What the plan states depends on one chart switch, `intentController.verification
   people only once the outcomes are confirmed, or once maul gives up and says so.
 - **Without it** (off, the default): nothing is verified. A Project that asks for verification carries `VerificationOff`
   (reason `EvaluatorOff`), and each intent's status comment says so and links its preview at once. Slice 1's
-  **acceptance criteria**, HTTP steps a tester Job ran against the preview, no longer run: see
+  **acceptance criteria**, HTTP steps a tester Job ran against the preview, are gone with the tester: see
   [Migrating from slice 1](evaluator.md#migrating-from-slice-1).
 
 Verification is off by default, and it never blocks anything. A failure is a red `maul/acceptance` commit status and a
@@ -41,8 +41,9 @@ Each switch fails closed: with one off, no acceptance state is written anywhere.
    Project carries the condition `VerificationOff` (reason `PreviewsDisabled`), as each of its intents in review says in
    its status comment. The evaluator needs Kubernetes 1.30+ and `agent.networkPolicy.create`, and is refused under
    `agent.networkPolicy.mode: istio`. The former switches, chart `preview.verification.enabled` and intent-controller
-   `--intent-verification`, are removed and refused: see [Migrating from slice 1](evaluator.md#migrating-from-slice-1).
-   Its chart settings are in
+   `--intent-verification`, are removed and refused, as are the deleted tester's image, chart
+   `preview.verification.testerImage` and preview-controller `--preview-tester-image`: see
+   [Migrating from slice 1](evaluator.md#migrating-from-slice-1). Its chart settings are in
    [the chart's README](https://github.com/devthenet-labs/maul/blob/main/charts/maul/README.md); the tool pod's side is
    in [the preview-controller](../configuration/preview-controller.md#the-agent-evaluators-tool-pod). With
    `intentController.verification.agents.enabled` as well, the evaluator also checks Projects with no preview that
@@ -56,7 +57,7 @@ spec:
     enabled: true
     manualGatesStatus: false # no effect: an open manual item always holds the status pending
     postLogs: false # default: component log tails go on the issue only, never on a pull request
-    timeout: 10m # the tester Job's wall clock (criteria only), clamped by --intent-verify-timeout-max
+    timeout: 10m # no effect: it was the deleted tester Job's wall clock
     handoff: gated # evaluator only: gated or early; unset follows the chart's defaultHandoff
   limits:
     maxVerifyFixes: 2 # 0..10, automatic fix rounds per approved plan revision
@@ -102,7 +103,9 @@ acceptance:
 ```
 
 The evaluator checks every outcome again in each later round, on a preview whose data persists and is shared by every
-check, so the planner is asked to word each outcome so that one check can show it:
+check (nothing resets it between verifications, so each check creates its own data, named with `{{run}}`, a token maul
+makes unique per run, and asserts only on that), so the planner is asked to word each outcome so that one check can show
+it:
 
 - about an item the person checking creates in that check, never about data already there: no "every", "each", "all",
   "other" or "existing", and no global rank, count, or first or last row. A request line that says "each X" gets an
@@ -156,141 +159,54 @@ The [evaluator's page](evaluator.md) has the whole round. In short:
    `handoffMax` (60 minutes) from CI first going green. A human's review, command or push, or `/maul preview`, releases
    it at once.
 
-A fix round that finds no defect (step 6 under criteria below) ends the same way for outcomes, and a later round that
-still fails at the heads it judged ends automatic fixing as `Exhausted`: maul and the fix agent disagree, and a human
-decides.
+A later round that still fails at the heads a fix round that found no defect judged ends automatic fixing as
+`Exhausted`: maul and the fix agent disagree, and a human decides.
 
-## Without the evaluator: acceptance criteria
+### A fix that finds no defect
 
-!!! warning "Retired"
+A verification can fail for a reason outside the code: the preview was not ready, its network was not open yet, or data
+from an earlier check got in the way. The verify-fix agent is told to replay each failing check against the code first.
+If it concludes, with evidence, that the code already does what the outcomes ask, it changes nothing and says so
+explicitly in its report (`no_defect: true`, with a one-line reason). The round then completes as `no_defect`: nothing
+is pushed, it is not retried, it still counts toward `maxVerifyFixes`, and automatic fixing halts with reason
+`FixFoundNoDefect`. The verification comment shows the agent's reason and says the verdict may be wrong: `/maul verify`
+checks again. The conclusion is shown whatever else halted automatic fixing, while the pull requests stay at the heads
+it judged, and until the next fix round. A round that changes nothing without that explicit conclusion is still a failed
+round, retried like any other.
 
-    Slice 1's criteria no longer run: with `intentController.verification.evaluator` off nothing is verified, and a plan
-    approved under the evaluator never states criteria. This section is kept until a later release removes the
-    criteria fields; see [Migrating from slice 1](evaluator.md#migrating-from-slice-1).
+### Before the first check: the tool pod waits for the slot network
 
-Slice 1 verified the plan's criteria with a tester Job. The evaluator's tool pod, prompts and hand-off were not used.
+The tool pod is a new Pod on every round, and the slot's NetworkPolicy admits it only once the cluster's policy
+controller has programmed the policy for that Pod. On k3s and k3d, kube-router does that about a second after the Pod
+starts and rejects its connections until then, which looks exactly like an application that is not listening. So before
+its first check the tool pod's relay waits for every component's Service to accept a TCP connection (it sends nothing),
+at the Service's ClusterIP, which preview-controller reads and hands it: the relay resolves no name, so cluster DNS,
+which every Pod on the node shares, cannot keep it from a component. It retries from 100 ms backing off to 1 s, for at
+most a minute and never more than a quarter of the round's wall clock, and records the wait per component.
 
-### The criteria a plan declares
+Once every component is reached, the checks run, and a connection error during a check is the application's failure. The
+window absorbs the policy being programmed; a component still unreachable at its end is the change's failure too, reason
+`component-unreachable`. Readiness alone does not prove the tool pod can connect: an application can pass the kubelet's
+probe while refusing every other source, so maul never reports such a round as "could not run the checks". A component
+Service with no ClusterIP is maul's render error, `service-no-cluster-ip`, before any tool pod starts.
 
-Without the evaluator, the plan agent writes an optional `acceptance` list in its report's frontmatter, up to 16
-criteria and 48 steps in all. Their observations must also fit a size budget at every value's largest, so that no answer
-from the application can outgrow what maul reads of the tester's output; a plan over it is refused. The plan comment
-says in one line what maul will do with it, for example "2 checked automatically, 1 needs you: sounds-good (only a human
-can judge how it sounds)", so the approver sees the split before approving.
-
-```yaml
-acceptance:
-  - id: battle-leaderboard # ^[a-z][a-z0-9-]{0,31}$, unique
-    kind: http # http | command | manual
-    statement: a battle's leaderboard ranks its patterns by votes
-    target: beatbattle-api # a previewed repository key of the Project
-    steps:
-      - name: battle
-        request: { method: POST, path: /api/battles, json: { name: "maul-{{run}}" } }
-        expect: { status: 201 }
-        capture: { battle: /id }
-      - request: { method: GET, path: "/api/battles/{{capture.battle}}/leaderboard" }
-        expect: { status: 200 }
-  - id: sounds-good
-    kind: manual
-    statement: it sounds good
-    reason: only a human can judge how it sounds
-```
-
-| Kind      | What maul does                                                                                                    |
-| --------- | ----------------------------------------------------------------------------------------------------------------- |
-| `http`    | The tester sends the steps to the target component's Service inside the slot, and checks status, JSON and headers |
-| `manual`  | Nothing. A person closes it with `/maul accept <id>`                                                              |
-| `command` | Parsed and shown, reported as "not run" in this release; a person closes it with `/maul accept <id>`              |
-
-The grammar is checked statically before the plan is posted (path, headers, body size, at most four captures per step,
-RFC 6901 pointers, matchers `$present`, `$absent`, `$contains`, `$approx` and `$order`). While the plan will be verified
-(the Project sets `verification.enabled`, intent-controller runs with verification and previews on, and the Project
-previews at least one repository), a `target` that is not a previewed repository of the Project refuses the plan, and
-the planner's retry is told why. Otherwise verification is optional and never fails an intent: the criteria are kept,
-and the plan comment shows them as not checked. A criterion that can no longer run as approved later puts the intent in
-`NeedsReplan`. The approved plan cannot change while its pull requests are open, so review it by hand, or `/maul cancel`
-and open a new issue for a new plan.
-
-The plan comment's header states what the approver is approving: how many criteria maul checks automatically and which
-need a person, that the plan declares none, that they are not checked because verification is off, or that maul could
-not ask the planner for criteria because the Project previews no repository a criterion could target.
-
-Two rules shape good criteria, and the plan prompt states both:
-
-- **The preview's data persists across verifications** (nothing resets it between them), so a check creates its own
-  data, named with `{{run}}`, a token maul makes unique per try (`v<verification>a<attempt>t<try>-<6 hex>`), and asserts
-  only on that data: scoped reads of what it created, and `$order` restricted to its own ids. Never a global ranking, a
-  global count or a tie-break against rows it did not create: data an earlier verification left can win it, and the
-  check then fails on every later verification however correct the change is.
-- **Only `{{run}}` and `{{capture.<name>}}` may appear in `{{ }}`**; anything else is refused.
-
-### What maul does with criteria
-
-1. **Plan approved.** On the first review pass maul reads the approved plan back under its digest and records the
-   criteria on the Intent's status.
-2. **The preview link shows early.** It is posted as soon as the preview is Ready, labelled as verifying. The pull
-   requests are not drafts, and `maul/acceptance` is pending on every open head.
-3. **The gate.** Verification starts only when every open pull request's named checks are green at its head, no
-   check-fix round is due, no human review or command is pending (including inside the review quiet window), the preview
-   serves exactly the pull request heads, and the bounds below hold.
-4. **The run.** intent-controller creates a `PreviewVerification`; preview-controller re-checks it against the Preview
-   and the criteria, runs the tester Job inside the slot, and records only observations. intent-controller judges them.
-5. **A failure** starts a verify-fix round, a normal revise round of trigger `verify`, handed the approved plan, the
-   failing criteria with expected against observed, and only the target repository's own component log tail. The fix
-   pushes new heads, CI runs, the preview rolls, and the loop continues.
-6. **A fix that finds no defect.** A verification can fail for a reason outside the code: the preview was not ready, its
-   network was not open yet, or data from an earlier check got in the way. The verify-fix agent is told to replay each
-   failing criterion against the code first. If it concludes, with evidence, that the code already does what they ask,
-   it changes nothing and says so explicitly in its report (`no_defect: true`, with a one-line reason). The round then
-   completes as `no_defect`: nothing is pushed, it is not retried, it still counts toward `maxVerifyFixes`, and
-   automatic fixing halts with reason `FixFoundNoDefect`. The verification comment shows the agent's reason and says the
-   verdict may be wrong: `/maul verify` checks again. The conclusion is shown whatever else halted automatic fixing,
-   while the pull requests stay at the heads it judged, and until the next fix round. A round that changes nothing
-   without that explicit conclusion is still a failed round, retried like any other.
-
-A criterion that fails on its first try and passes on a retry is **quarantined**: shown to the human, never counted as
-passed, and the status stays pending until a person runs `/maul accept <id>` or a clean re-run passes. A retry starts a
-second and a half after the failed try, so one blip does not fail both.
-
-#### Before the first check: the tester waits for the slot network
-
-The tester is a new Pod on every run, and the slot's NetworkPolicy admits it only once the cluster's policy controller
-has programmed the policy for that Pod. On k3s and k3d, kube-router does that about a second after the Pod starts and
-rejects its connections until then, which looks exactly like an application that is not listening. So before its first
-criterion the tester waits for every component's Service to accept a TCP connection (it sends nothing), at the Service's
-ClusterIP, which preview-controller reads and hands it: the tester resolves no name, so cluster DNS, which every Pod on
-the node shares, cannot keep it from a component. It retries from 100 ms backing off to 1 s, for at most a minute and
-never more than a quarter of the tester's budget. The wait per component, how long and how many attempts were refused,
-is recorded in the `PreviewVerification`'s `status.readiness`.
-
-Once every component is reached, the checks run as before, and a connection error during a check is the application's
-failure. The window absorbs the policy being programmed; a component still unreachable at its end is the change's
-failure too, reason `component-unreachable` ("unreachable from the tester for 60s while Ready"): it counts as a
-verification and can start a fix round, whose handoff names the component and how long it was unreachable. Readiness
-alone does not prove the tester can connect: an application can pass the kubelet's probe while refusing every other
-source, so maul never reports such a run as "could not run the checks". A component Service with no ClusterIP is maul's
-render error, `service-no-cluster-ip`, before any tester starts.
-
-What happens to a component while the tester runs is attributed by its cause. Only Pods of the component's current
-revision count (a previous revision's Pods are ignored), and only events between the tester Pod's start (less two
-seconds of clock skew) and its end. The change is charged only on unambiguous evidence:
+What happens to a component while the tool pod runs is attributed by its cause. Only Pods of the component's current
+revision count (a previous revision's Pods are ignored), and only events between the tool pod's start (less two seconds
+of clock skew) and its end. The change is charged only on unambiguous evidence:
 
 | What happened                                                                                                                                                                  | Reason                  | Whose                 |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | --------------------- |
 | Its process exited non-zero or was OOM-killed                                                                                                                                  | `component-crashed`     | The change's (counts) |
 | The kubelet evicted its Pod (`status.reason: Evicted`: memory or ephemeral storage pressure)                                                                                   | `component-evicted`     | The change's (counts) |
-| It was Ready, nothing above happened, and it accepted no connection from the tester for the whole readiness window                                                             | `component-unreachable` | The change's (counts) |
+| It was Ready, nothing above happened, and it accepted no connection from the tool pod for the whole readiness window                                                           | `component-unreachable` | The change's (counts) |
 | Anything else: not Ready with no such evidence (a node going NotReady), node loss, a drain, preemption, a deletion, a graceful node shutdown, a clean exit, a bare replacement | `component-disrupted`   | maul's (retried)      |
 
 The application holds no API credential, so it cannot drain, delete or preempt anything. The most it can do without
 crashing is make itself not-Ready, which is reported as `component-disrupted`, retried and then `Unavailable`, never a
-pass, while its preview goes not-live and shows the error. A restart or eviction from before the tester started, or
+pass, while its preview goes not-live and shows the error. A restart or eviction from before the tool pod started, or
 after it ended, is not counted.
 
 ## Rounds, fixes and bounds
-
-Both forms share the rounds, the fix loop and its bounds.
 
 ### Bounds
 
@@ -301,7 +217,7 @@ Both forms share the rounds, the fix loop and its bounds.
 | Repeated failure          | A verification in which everything the last fix round was for still fails exactly as it did halts auto-fix: `RepeatedFailure`. That round is the latest one an agent ran in, whether it pushed, found no defect or failed; rounds at or before a `/maul verify fix` are never compared.                                                                  |
 | Cost ceiling              | At the intent's cost ceiling auto-fix, retries included, halts: `CostCeiling`. It never blocks the intent.                                                                                                                                                                                                                                               |
 | Spacing                   | While auto-fix is halted, an automatic re-verification waits five minutes; one `/maul verify` per five minutes.                                                                                                                                                                                                                                          |
-| Infrastructure            | A tester (or, with the evaluator, a tool pod) that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.                                                                                                                                                                                                                |
+| Infrastructure            | A tool pod that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.                                                                                                                                                                                                                                                   |
 | Preview wait              | A due verification waits at most an hour for the preview to be live at the heads, then reports `Unavailable`.                                                                                                                                                                                                                                            |
 | Evaluation ceiling        | With the evaluator: what the intent's evaluate and checkreview runs may spend together (`limits.maxEvaluateCostMicroUSD`, default \$6), counted apart from the cost ceiling above. Past it no evaluation runs, and a gated hand-off is released as "maul couldn't confirm this".                                                                         |
 | Hand-off wait             | With the evaluator and a gated hand-off: `verification.handoffMax` (default 60 minutes) from CI first going green. Past it the link is released as "maul couldn't confirm this: it ran out of time"; verification itself goes on.                                                                                                                        |
@@ -317,7 +233,7 @@ blocks the intent, verification still runs and reports, and only `/maul verify f
 | `HumanReview`      | an approver's changes-requested review starts a round                                              |
 | `HumanCommand`     | an approver's `/maul revise` or `/maul retry` starts a round                                       |
 | `HumanPush`        | a head maul did not push                                                                           |
-| `FixFoundNoDefect` | a verify-fix round's agent concluded that the code has no defect (step 6 under criteria above)     |
+| `FixFoundNoDefect` | a verify-fix round's agent concluded that the code has no defect (above)                           |
 | `MaxVerifyFixes`   | `limits.maxVerifyFixes` is spent                                                                   |
 | `RepeatedFailure`  | what the last fix round was for, pushed or not, still fails exactly as it did                      |
 | `CostCeiling`      | the intent reached its cost ceiling                                                                |
@@ -440,22 +356,20 @@ command is applied once: if maul's reply to it is deleted, maul answers it again
 
 ## When something is not what you expect
 
-| You see                                                         | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| No `maul/acceptance` status at all                              | Verification is off (chart, controller or Project) and maul never verified the intent, the App lacks Commit statuses write (the Project's `AcceptanceStatusUnavailable`), or the intent has ended                                                                                                                                                                                                                              |
-| `pending`, "to accept by hand" or "accept all"                  | Everything maul runs passed; what only a person can close waits for an approver's `/maul accept <id>`, or `/maul accept all` for a plan with no criteria                                                                                                                                                                                                                                                                       |
-| `error`, "verification switched off"                            | Verification was turned off for this intent after maul posted a status; nothing more is verified or reported until it is turned back on, when maul starts over at the current heads (an intent of a cli or library surface whose round had settled at those heads keeps its result)                                                                                                                                            |
-| `pending`, "waiting for the preview"                            | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                                                                                                                                                                                                                                                                                                                             |
-| `error`, "the preview was not live within 60 minutes"           | The preview stayed Failed, expired, queued or never served (no preview-controller) for an hour, so nothing ran. The Intent's verification is `Unavailable` (`PreviewNotLive`); it verifies as soon as the preview is live. An expired preview is deployed again only by a push or `/maul verify --reset`. Check `kubectl get preview`                                                                                          |
-| `error`, "maul could not run the checks"                        | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline, a component disrupted by the cluster: `component-disrupted`, a component Service without a ClusterIP: `service-no-cluster-ip`, or a tester image whose output format does not match the controllers: `tester-version-mismatch`; keep `preview.verification.testerImage` at the chart's release). Not a verdict on the change |
-| `error`, "the approved acceptance criteria cannot be read"      | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; the plan cannot change in review, so `/maul cancel` and open a new issue                                                                                                                |
-| A failing criterion that passes by hand                         | Checks run against a preview that is never reset; one that depends on empty data should be replanned, or use `--reset`                                                                                                                                                                                                                                                                                                         |
-| No preview link, "maul holds its link"                          | The evaluator is checking under a gated hand-off. It is released when the evaluation decides, after `handoffMax`, or at once on your comment, push or `/maul preview`                                                                                                                                                                                                                                                          |
-| "maul couldn't confirm this"                                    | maul gave up without confirming every outcome, for the reason it names. Read each outcome's line, then accept, `/maul verify` or merge: it never blocks. [The reasons](evaluator.md#the-hand-off)                                                                                                                                                                                                                              |
-| An outcome "unsure", "the evaluator disputes its failing check" | A saved check failed, and the evaluator judged that it shows no defect. No fix runs; a confirmed replacement check is replayed. [Disputes](evaluator.md#disputes)                                                                                                                                                                                                                                                              |
-| Nothing verified, a notice about acceptance criteria            | The evaluator is on and this intent's approved plan states criteria. Review it as it is, or `/maul cancel` and open a new issue                                                                                                                                                                                                                                                                                                |
-| A codex Project's link shown at once, `EvaluatorUnverified`     | Its intents are not evaluated: the codex evaluator is off (`--intent-evaluate-codex`). [codex](evaluator.md#codex-built-not-verified)                                                                                                                                                                                                                                                                                          |
+| You see                                                         | Meaning                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `maul/acceptance` status at all                              | Verification is off (chart, controller or Project) and maul never verified the intent, the App lacks Commit statuses write (the Project's `AcceptanceStatusUnavailable`), or the intent has ended                                                                                                                                     |
+| `pending`, "to accept by hand" or "accept all"                  | Everything maul runs passed; what only a person can close waits for an approver's `/maul accept <id>`, or `/maul accept all` for a plan with no criteria                                                                                                                                                                              |
+| `error`, "verification switched off"                            | Verification was turned off for this intent after maul posted a status; nothing more is verified or reported until it is turned back on, when maul starts over at the current heads (an intent of a cli or library surface whose round had settled at those heads keeps its result)                                                   |
+| `pending`, "waiting for the preview"                            | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                                                                                                                                                                                                                                    |
+| `error`, "the preview was not live within 60 minutes"           | The preview stayed Failed, expired, queued or never served (no preview-controller) for an hour, so nothing ran. The Intent's verification is `Unavailable` (`PreviewNotLive`); it verifies as soon as the preview is live. An expired preview is deployed again only by a push or `/maul verify --reset`. Check `kubectl get preview` |
+| `error`, "maul could not run the checks"                        | Three tool pod attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline, a component disrupted by the cluster: `component-disrupted`, or a component Service without a ClusterIP: `service-no-cluster-ip`). Not a verdict on the change                                                                    |
+| `error`, "the approved acceptance criteria cannot be read"      | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; the plan cannot change in review, so `/maul cancel` and open a new issue                       |
+| A failing criterion that passes by hand                         | Checks run against a preview that is never reset; one that depends on empty data should be replanned, or use `--reset`                                                                                                                                                                                                                |
+| No preview link, "maul holds its link"                          | The evaluator is checking under a gated hand-off. It is released when the evaluation decides, after `handoffMax`, or at once on your comment, push or `/maul preview`                                                                                                                                                                 |
+| "maul couldn't confirm this"                                    | maul gave up without confirming every outcome, for the reason it names. Read each outcome's line, then accept, `/maul verify` or merge: it never blocks. [The reasons](evaluator.md#the-hand-off)                                                                                                                                     |
+| An outcome "unsure", "the evaluator disputes its failing check" | A saved check failed, and the evaluator judged that it shows no defect. No fix runs; a confirmed replacement check is replayed. [Disputes](evaluator.md#disputes)                                                                                                                                                                     |
+| Nothing verified, a notice about acceptance criteria            | The evaluator is on and this intent's approved plan states criteria. Review it as it is, or `/maul cancel` and open a new issue                                                                                                                                                                                                       |
+| A codex Project's link shown at once, `EvaluatorUnverified`     | Its intents are not evaluated: the codex evaluator is off (`--intent-evaluate-codex`). [codex](evaluator.md#codex-built-not-verified)                                                                                                                                                                                                 |
 
-Without the evaluator, this release verifies `http` criteria against a Preview's components. Backing services, seeded
-data, edges between components and `command` criteria arrive in a later release; until then a component's data lives in
-its own pod, and `/maul verify --reset` rolls the pods to drop it.
+A component's data lives in its own pod, and `/maul verify --reset` rolls the pods to drop it.

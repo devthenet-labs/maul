@@ -379,13 +379,9 @@ blocks on ImageRequired. The changeset entry cap is remediation's value.
 {{- $_ := set $data "MAUL_PREVIEW_TARGET_HEALTH" (and (include "maul.previewLegacyIngress" $root | eq "true") $own.targetHealth) }}
 {{- $_ := set $data "MAUL_PREVIEW_LEGACY_INGRESS" (include "maul.previewLegacyIngress" $root | eq "true") }}
 {{- if include "maul.previewVerification" $root }}
-{{- /* Acceptance verification: the tester image (criteria verifications)
-       or the evaluator below switches the VerificationReconciler on; the
-       deadline bound is maul-preview-jobs'. Off, no key renders; with the
-       evaluator and no tester image, no tester key renders. */}}
-{{- with include "maul.previewTester" $root }}
-{{- $_ := set $data "MAUL_PREVIEW_TESTER_IMAGE" . }}
-{{- end }}
+{{- /* Acceptance verification: the evaluator below switches the
+       VerificationReconciler on; the deadline bound is maul-preview-jobs'.
+       Off, no key renders. */}}
 {{- $_ := set $data "MAUL_PREVIEW_VERIFY_DEADLINE_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
 {{- if include "maul.previewTools" $root }}
 {{- /* The agent evaluator's slot tool pod: its three images, by digest,

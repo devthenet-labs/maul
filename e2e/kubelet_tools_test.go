@@ -93,7 +93,7 @@ type toolRun struct {
 
 // runTools turns the tool side on for Jobs in the slot namespaces given,
 // from now on, until the test ends. Its relays reach the fake components
-// serveComponent serves; it needs no tester side.
+// serveComponent serves.
 func (k *kubelet) runTools(t *testing.T, namespaces ...string) {
 	t.Helper()
 	bin := buildTagged(t, "preview-tools", "e2edial")
@@ -164,7 +164,7 @@ func (k *kubelet) toolAddr(ip string) string {
 	return k.tools.byIP[ip]
 }
 
-// isToolJob reports a slot tool Job, which the tester side leaves alone.
+// isToolJob reports a slot tool Job.
 func isToolJob(job *batchv1.Job) bool {
 	return job.Spec.Template.Labels[labelPreviewRole] == v1alpha1.PreviewRoleTools
 }

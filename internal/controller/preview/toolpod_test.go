@@ -44,15 +44,6 @@ const (
 		`{"request":{"method":"POST","path":"/api/echo","json":{"n":"{{run}}"}},"expect":{"bodyContains":"{{run}}"}}]}}`
 )
 
-// evalSettings are verifySettings with the evaluator on.
-func evalSettings() Settings {
-	s := verifySettings()
-	s.Evaluator = true
-	s.ToolsImage, s.BrowserImage, s.ToolboxImage = testToolsImage, testBrowserImage, testToolboxImage
-	s.AgentsNamespace = "maul-agents"
-	return s
-}
-
 // testOutcomes are an approved plan's outcomes, a manual one included.
 func testOutcomes() []v1alpha1.AcceptanceOutcome {
 	return []v1alpha1.AcceptanceOutcome{
@@ -110,16 +101,24 @@ func TestEvaluatorSettings(t *testing.T) {
 		{"off needs nothing", func(s *Settings) {
 			s.Evaluator, s.ToolsImage, s.BrowserImage, s.ToolboxImage, s.AgentsNamespace = false, "", "", "", ""
 		}, true},
-		{"no tester image", func(s *Settings) { s.TesterImage = "" }, true},
 		{"no browser image", func(s *Settings) { s.BrowserImage = "" }, false},
+		{"a tag before the digest", func(s *Settings) {
+			s.ToolsImage = "ghcr.io/devthenet-labs/maul-preview-tools:v0.14.0@sha256:" + strings.Repeat("1", 64)
+		}, true},
 		{"tag only", func(s *Settings) { s.ToolsImage = "ghcr.io/devthenet-labs/maul-preview-tools:v1" }, false},
+		{"short digest", func(s *Settings) { s.BrowserImage = "ghcr.io/devthenet-labs/maul-preview-browser@sha256:abc" },
+			false},
+		{"bare name", func(s *Settings) { s.ToolsImage = "maul-preview-tools@sha256:" + strings.Repeat("1", 64) },
+			false},
+		{"upper-case registry", func(s *Settings) { s.ToolboxImage = "GHCR.io/x/y@sha256:" + strings.Repeat("3", 64) },
+			false},
 		{"under the prefix", func(s *Settings) {
 			s.ToolboxImage = s.ImagePrefix + "toolbox@sha256:" + strings.Repeat("3", 64)
 		}, false},
 		{"no agents namespace", func(s *Settings) { s.AgentsNamespace = "" }, false},
 		{"negative max", func(s *Settings) { s.MaxEvaluations = -1 }, false},
 	} {
-		s := evalSettings()
+		s := verifySettings()
 		tc.mut(&s)
 		if err := s.Validate(); (err == nil) != tc.ok {
 			t.Errorf("%s: Validate = %v, want ok %v", tc.name, err, tc.ok)
@@ -127,59 +126,34 @@ func TestEvaluatorSettings(t *testing.T) {
 	}
 }
 
-// The evaluator turns verification on by itself: a tester image adds the
-// criteria path beside it, and the evaluator needs all three of its images.
+// The evaluator is verification's one switch, and needs all three of its
+// images.
 func TestVerificationSwitches(t *testing.T) {
 	for _, tc := range []struct {
-		name                         string
-		mut                          func(*Settings)
-		verifying, testing, evaluate bool
+		name                string
+		mut                 func(*Settings)
+		verifying, evaluate bool
 	}{
-		{"off", func(s *Settings) { *s = testSettings() }, false, false, false},
-		{"tester only", func(s *Settings) { *s = verifySettings() }, true, true, false},
-		{"evaluator only", func(s *Settings) { s.TesterImage = "" }, true, false, true},
-		{"both", func(*Settings) {}, true, true, true},
+		{"off", func(s *Settings) { *s = testSettings() }, false, false},
+		{"the evaluator", func(*Settings) {}, true, true},
 		{"evaluator without its images", func(s *Settings) {
-			s.TesterImage, s.ToolsImage, s.BrowserImage, s.ToolboxImage = "", "", "", ""
-		}, false, false, false},
-		{"evaluator without a browser image", func(s *Settings) { s.TesterImage, s.BrowserImage = "", "" },
-			false, false, false},
+			s.ToolsImage, s.BrowserImage, s.ToolboxImage = "", "", ""
+		}, false, false},
+		{"evaluator without a browser image", func(s *Settings) { s.BrowserImage = "" }, false, false},
+		{"images without the evaluator", func(s *Settings) { s.Evaluator = false }, false, false},
 	} {
-		s := evalSettings()
+		s := verifySettings()
 		tc.mut(&s)
-		if s.verifying() != tc.verifying || s.Verifying() != tc.verifying || s.testing() != tc.testing ||
-			s.evaluating() != tc.evaluate {
-			t.Errorf("%s: verifying %v, testing %v, evaluating %v; want %v, %v, %v", tc.name, s.verifying(),
-				s.testing(), s.evaluating(), tc.verifying, tc.testing, tc.evaluate)
+		if s.verifying() != tc.verifying || s.Verifying() != tc.verifying || s.evaluating() != tc.evaluate {
+			t.Errorf("%s: verifying %v, evaluating %v; want %v, %v", tc.name, s.verifying(), s.evaluating(),
+				tc.verifying, tc.evaluate)
 		}
-	}
-}
-
-// An evaluator-only install renders a verification-capable Preview's edge
-// policies and its tool Job exactly as one with a tester image does (no
-// tester Job renders under either: TestVerificationCriteriaNoLongerRun).
-func TestEvaluatorOnlyRendersAsWithTheTester(t *testing.T) {
-	_, p := verifyPreview(t, time.Now())
-	both, only := evalSettings(), evalSettings()
-	only.TesterImage = ""
-	want, got := both.networkPolicies(p, 1), only.networkPolicies(p, 1)
-	if len(want) == 0 || !equality.Semantic.DeepEqual(got, want) {
-		t.Fatalf("evaluator-only policies %+v, want %+v", got, want)
-	}
-	pv := toolVerification(t, p)
-	wantJob, err := both.toolJob(p, pv, 1, 30*time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gotJob, err := only.toolJob(p, pv, 1, 30*time.Minute)
-	if err != nil || !equality.Semantic.DeepEqual(gotJob, wantJob) {
-		t.Fatalf("evaluator-only tool Job differs (%v)", err)
 	}
 }
 
 func TestToolJob(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
-	s := evalSettings()
+	s := verifySettings()
 	pv := toolVerification(t, p)
 	job, err := s.toolJob(p, pv, 1, 30*time.Minute)
 	if err != nil {
@@ -308,7 +282,7 @@ func TestToolJobWithoutSidecars(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
 	pv := toolVerification(t, p)
 	pv.Spec.Tools = &v1alpha1.ToolsSpec{MaxToolCalls: 50}
-	job, err := evalSettings().toolJob(p, pv, 0, 30*time.Minute)
+	job, err := verifySettings().toolJob(p, pv, 0, 30*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +311,7 @@ func TestToolJobRefusals(t *testing.T) {
 			pv.Spec.Timeout = metav1.Duration{Duration: 2 * time.Hour}
 		}},
 	} {
-		s, pv := evalSettings(), toolVerification(t, p)
+		s, pv := verifySettings(), toolVerification(t, p)
 		tc.mut(&s, pv)
 		if _, err := s.toolJob(p, pv, 0, 30*time.Minute); err == nil {
 			t.Errorf("%s: rendered", tc.name)
@@ -350,7 +324,7 @@ func TestToolJobRefusals(t *testing.T) {
 // quota keeps beside a full application.
 func TestToolPodFitsTheSlot(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
-	job, err := evalSettings().toolJob(p, toolVerification(t, p), 0, 30*time.Minute)
+	job, err := verifySettings().toolJob(p, toolVerification(t, p), 0, 30*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +351,7 @@ func TestToolPodFitsTheSlot(t *testing.T) {
 
 func TestToolConfig(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
-	s := evalSettings()
+	s := verifySettings()
 	pv := toolVerification(t, p)
 	targets := map[string]string{"web": "10.96.0.10:80", "api": "10.96.0.11:80"}
 	cfg, err := s.toolConfig(p, pv, targets, 20*time.Minute)
@@ -420,7 +394,7 @@ func TestToolConfig(t *testing.T) {
 func TestEvaluatorPolicy(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
 	pv := toolVerification(t, p)
-	np := evalSettings().evaluatorPolicy(p, pv, 1)
+	np := verifySettings().evaluatorPolicy(p, pv, 1)
 	if np.Name != "preview-shop-1-np-ev-"+strings.TrimPrefix(testerJobName(p, pv), "preview-shop-1-vt-") ||
 		np.Namespace != "maul-preview-1" || !ownedBy(np, p) || !renderedName(np) {
 		t.Errorf("policy %s/%s labels %v", np.Namespace, np.Name, np.Labels)
@@ -455,7 +429,7 @@ func TestEdgeReconcileKeepsTheEvaluatorPolicy(t *testing.T) {
 	at := time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC)
 	in, p := verifyPreview(t, at)
 	e := newTestEnv(t, verifyProject(), in, p)
-	e.r.Settings = evalSettings()
+	e.r.Settings = verifySettings()
 	p = e.untilSlot(p.Name)
 	np := e.r.Settings.evaluatorPolicy(p, toolVerification(t, p), 0)
 	if err := e.c.Create(context.Background(), np); err != nil {
@@ -473,7 +447,7 @@ func TestEdgeReconcileKeepsTheEvaluatorPolicy(t *testing.T) {
 // its slot: the ingress policy, the Job, the key Secret and the ConfigMap.
 func TestGoldenToolPod(t *testing.T) {
 	_, p := verifyPreview(t, time.Date(2026, 10, 3, 7, 0, 0, 0, time.UTC))
-	s := evalSettings()
+	s := verifySettings()
 	pv := toolVerification(t, p)
 	job, err := s.toolJob(p, pv, 0, 30*time.Minute)
 	if err != nil {
@@ -514,7 +488,7 @@ func TestGoldenToolPod(t *testing.T) {
 // settle, the cleanup, the sweep) removes them, and no read is needed.
 func TestToolObjectsAreTheJobs(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
-	s := evalSettings()
+	s := verifySettings()
 	pv := toolVerification(t, p)
 	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: testerJobName(p, pv), Namespace: "maul-preview-0",
 		UID: "job-uid"}}
@@ -539,7 +513,7 @@ func TestSweepToolPodOrphans(t *testing.T) {
 	_, live := verifyPreview(t, time.Now())
 	slot := int32(0)
 	live.Status.Slot = &slot
-	s := evalSettings()
+	s := verifySettings()
 	pv := toolVerification(t, live)
 	job, err := s.toolJob(live, pv, 0, 30*time.Minute)
 	if err != nil {

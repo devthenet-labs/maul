@@ -147,10 +147,10 @@ Use it on k3s and k3d. Where the policy drops connections, as on EKS, leave it o
 there. The egress run (`run.sh`) has no such flag; it runs on EKS only.
 
 The same REJECT meets every new Pod until kube-router has programmed its policy, about a second after the Pod starts.
-The acceptance tester is a new Pod on every run, so it waits for each component's Service to accept a TCP connection
-before its first check, for at most a minute, and records the wait; a Service still refusing after that is the change's
-failure, `component-unreachable` (docs/intents/acceptance.md). A probe client that starts sending at once can likewise
-see its first attempts refused on k3s before the policy that would admit it exists.
+The evaluator's tool pod is a new Pod on every round, so it waits for each component's Service to accept a TCP
+connection before its first check, for at most a minute, and records the wait; a Service still refusing after that is
+the change's failure, `component-unreachable` (docs/intents/acceptance.md). A probe client that starts sending at once
+can likewise see its first attempts refused on k3s before the policy that would admit it exists.
 
 ### The listener's image
 
@@ -211,11 +211,12 @@ neither `gh` nor `aws`): that a Preview's declared edges connect and nothing els
 before the desktop live gate counts (three runs, slots 0, 1, 0), after any CNI or policy-controller upgrade, and again
 before turning `intentController.verification.evaluator` on anywhere.
 
-Its fixture is `edges.yaml`: the policies preview-controller renders for a Preview named `edges` whose tester calls
-`web`, `api` and `render` on 8080 (the slice-1 environment). `internal/controller/preview/probe_edges_test.go` holds the
-file to the controller's render, name for name and spec for spec; only the managed-by label differs
-(`maul-isolation-probe`), so preview-controller's orphan sweep leaves the probe's policies alone, and the Preview UID is
-the probe's own. Each run, in a slot that holds no Deployment and with the other slot free too:
+Its fixture is `edges.yaml`: the policies preview-controller renders for a Preview named `edges` whose `tester` part
+(the evaluator's tool pod carries it; slice 1's tester did) calls `web`, `api` and `render` on 8080.
+`internal/controller/preview/probe_edges_test.go` holds the file to the controller's render, name for name and spec for
+spec; only the managed-by label differs (`maul-isolation-probe`), so preview-controller's orphan sweep leaves the
+probe's policies alone, and the Preview UID is the probe's own. Each run, in a slot that holds no Deployment and with
+the other slot free too:
 
 1. creates the fixture's policies, a ClusterIP Service for each component (port 80 to 8080, as a component's is) and a
    netprobe listener (`listen`) for each part, labelled with the fixture's Preview UID and the part, plus a listener in

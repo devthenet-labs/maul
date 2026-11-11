@@ -28,31 +28,6 @@ type namedCheck struct {
 	ok   bool
 }
 
-// The tester image must be pinned by digest and lie outside the preview
-// image prefix, whose repositories an application's CI publishes.
-func TestTesterImageSettings(t *testing.T) {
-	digest := "@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	for _, tc := range []struct {
-		image string
-		ok    bool
-	}{
-		{"", true},
-		{testTesterImage, true},
-		{"ghcr.io/devthenet-labs/maul-preview-tester:v0.14.0" + digest, true},
-		{"ghcr.io/devthenet-labs/maul-preview-tester:v0.14.0", false},
-		{"ghcr.io/devthenet-labs/maul-preview-tester@sha256:abc", false},
-		{"maul-preview-tester" + digest, false},
-		{testSettings().ImagePrefix + "tester" + digest, false},
-		{"GHCR.io/x/y" + digest, false},
-	} {
-		s := testSettings()
-		s.TesterImage = tc.image
-		if err := s.Validate(); (err == nil) != tc.ok {
-			t.Errorf("tester image %q: validate = %v, want ok %v", tc.image, err, tc.ok)
-		}
-	}
-}
-
 // TestGoldenVerificationPreview pins every object a verification-capable
 // two-component Preview renders into its slot (its tool pod's are pinned by
 // TestGoldenToolPod).

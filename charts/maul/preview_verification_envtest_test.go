@@ -113,24 +113,37 @@ func TestPreviewVerificationPoliciesAgainstAPIServer(t *testing.T) {
 	t.Run("networkpolicies", func(t *testing.T) { checkEdgePolicies(t, admin, pc) })
 	t.Run("jobs", func(t *testing.T) { checkSlotJobs(t, admin, pc) })
 	t.Run("verifications", func(t *testing.T) { checkVerificationWriters(t, admin, pc, as(saIntent)) })
-	// Last: it re-renders the slot pod policy with another tester image.
-	t.Run("tester pod across an image change", func(t *testing.T) { checkTesterPodAcrossImageChange(t, admin) })
+	// Last: it re-renders the slot pod policy, as an upgrade from a
+	// release that still ran the tester does.
+	t.Run("retired tester pod across the upgrade", func(t *testing.T) { checkRetiredTesterPodAcrossUpgrade(t, admin) })
 }
 
-// checkTesterPodAcrossImageChange: a tester Pod admitted under one tester
-// digest must still lose the Job controller's job-tracking finalizer after
-// an upgrade pins another, or it stays Terminating and holds its slot
+// checkRetiredTesterPodAcrossUpgrade: a tester Pod an earlier release
+// admitted, in the tester's exact image, must still lose the Job
+// controller's job-tracking finalizer after the upgrade to a release that
+// admits no tester image, or it stays Terminating and holds its slot
 // forever. A change to what the pod runs is still judged by the new rule.
-func checkTesterPodAcrossImageChange(t *testing.T, admin client.Client) {
+func checkRetiredTesterPodAcrossUpgrade(t *testing.T, admin client.Client) {
 	ctx := t.Context()
-	p := testerPodNamed("tester-inflight")
+	retired := func(name string) *corev1.Pod {
+		p := testerPodNamed(name)
+		p.Spec.Containers[0].Image = testerImage
+		return p
+	}
+	// The earlier release's slot pod policy admitted the tester's exact
+	// image beside the preview prefix.
+	applySlotPodPolicy(t, admin, testerImage)
+	waitFor(t, func() error {
+		return admin.Create(ctx, retired("probe-earlier-release"), client.DryRunAll)
+	})
+	p := retired("tester-inflight")
 	p.Finalizers = []string{"batch.kubernetes.io/job-tracking"}
 	if err := admin.Create(ctx, p); err != nil {
 		t.Fatalf("create the tester pod: %v", err)
 	}
-	applyTesterImage(t, admin, "ghcr.io/devthenet-labs/maul/preview-tester@sha256:"+strings.Repeat("e", 64))
+	applySlotPodPolicy(t, admin, "")
 	waitFor(t, func() error {
-		err := admin.Create(ctx, testerPodNamed("probe-old-image"), client.DryRunAll)
+		err := admin.Create(ctx, retired("probe-old-image"), client.DryRunAll)
 		if !deniedWith(err, jobImage) {
 			return &waitError{err: err, want: jobImage}
 		}
@@ -154,22 +167,23 @@ func checkTesterPodAcrossImageChange(t *testing.T, admin client.Client) {
 	}
 }
 
-// testerPodNamed is the tester Job's pod as the Job controller creates it.
+// testerPodNamed is testerJob's pod as the Job controller creates it.
 func testerPodNamed(name string) *corev1.Pod {
 	j := testerJob(name)
 	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul-preview-0",
 		Labels: j.Spec.Template.Labels}, Spec: j.Spec.Template.Spec}
 }
 
-// applyTesterImage replaces the slot pod policy with the chart's render for
-// another tester image, as a helm upgrade pinning a new digest does.
-func applyTesterImage(t *testing.T, admin client.Client, image string) {
+// applySlotPodPolicy replaces the slot pod policy with the chart's render,
+// as a helm upgrade does. With earlier set, the policy is the one an earlier
+// release rendered beside a tester image: its image rule admits that exact
+// image beside the preview prefix, as `c.image in [<image>] ||` did.
+func applySlotPodPolicy(t *testing.T, admin client.Client, earlier string) {
 	t.Helper()
 	ctx := t.Context()
 	args := append([]string{"template", "maul", ".", "--namespace", egressRelease}, verificationArgs...)
 	args = append(args, "--set", "preview.verification.deadlineMaxSeconds="+strconv.FormatInt(verifyDeadline, 10),
-		"--set", "intentController.verification.evaluateTimeout=5m",
-		"--set", "preview.verification.testerImage="+image)
+		"--set", "intentController.verification.evaluateTimeout=5m")
 	output, err := exec.CommandContext(ctx, "helm", args...).Output()
 	if err != nil {
 		t.Fatalf("render chart: %v", err)
@@ -183,6 +197,9 @@ func applyTesterImage(t *testing.T, admin client.Client, image string) {
 		if u.GetKind() != "ValidatingAdmissionPolicy" || u.GetName() != "maul-preview-pods" {
 			continue
 		}
+		if earlier != "" {
+			admitEarlierImage(t, u, earlier)
+		}
 		live := &unstructured.Unstructured{}
 		live.SetGroupVersionKind(u.GroupVersionKind())
 		if err := admin.Get(ctx, client.ObjectKeyFromObject(u), live); err != nil {
@@ -193,6 +210,33 @@ func applyTesterImage(t *testing.T, admin client.Client, image string) {
 			t.Fatalf("update maul-preview-pods: %v", err)
 		}
 		return
+	}
+}
+
+// admitEarlierImage rewrites slot pod policy u's image rule to also admit
+// image, exactly, as an earlier release's rule did for its tester.
+func admitEarlierImage(t *testing.T, u *unstructured.Unstructured, image string) {
+	t.Helper()
+	validations, _, _ := unstructured.NestedSlice(u.Object, "spec", "validations")
+	const all = "variables.pod.containers.all(c,"
+	found := false
+	for _, v := range validations {
+		m, _ := v.(map[string]any)
+		if msg, _ := m["message"].(string); !strings.HasPrefix(msg, "only immutable") {
+			continue
+		}
+		expr, _ := m["expression"].(string)
+		if !strings.Contains(expr, all) {
+			t.Fatalf("the slot pod image rule has no %q: %s", all, expr)
+		}
+		m["expression"] = strings.Replace(expr, all, all+"\n  c.image in [\""+image+"\"] ||", 1)
+		found = true
+	}
+	if !found {
+		t.Fatal("maul-preview-pods has no image rule")
+	}
+	if err := unstructured.SetNestedSlice(u.Object, validations, "spec", "validations"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -403,6 +447,9 @@ func checkEdgePolicies(t *testing.T, admin, pc client.Client) {
 func checkSlotJobs(t *testing.T, admin, pc client.Client) {
 	admittedAs(t, pc, testerJob("tester"))
 	refusedAs(t, admin, testerJob("operator"), jobOnlyPC, "a Job by anyone but preview-controller")
+	refusedAs(t, pc, mutateJob(testerJob("retired-tester"), func(j *batchv1.Job) {
+		j.Spec.Template.Spec.Containers[0].Image = testerImage
+	}), jobImage, "a Job in the retired tester's image")
 	one, two := int32(1), int32(2)
 	ttl := int32(60)
 	tooLong := verifyDeadline + 1
@@ -470,10 +517,11 @@ func checkSlotJobs(t *testing.T, admin, pc client.Client) {
 			tc.want, tc.name)
 	}
 	// The pod the Job controller creates for it is admitted by the slot pod
-	// rules: the tester's exact image is one of them.
-	j := testerJob("pod")
-	admittedAs(t, admin, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "tester-pod", Namespace: "maul-preview-0",
-		Labels: j.Spec.Template.Labels}, Spec: j.Spec.Template.Spec})
+	// rules, and one in the retired tester's image is not.
+	admittedAs(t, admin, testerPodNamed("tester-pod"))
+	retired := testerPodNamed("retired-tester-pod")
+	retired.Spec.Containers[0].Image = testerImage
+	refusedAs(t, admin, retired, jobImage, "a pod in the retired tester's image")
 }
 
 func checkVerificationWriters(t *testing.T, admin, pc, ic client.Client) {
@@ -555,11 +603,15 @@ func mutateNP(np *networkingv1.NetworkPolicy, f func(*networkingv1.NetworkPolicy
 	return np
 }
 
-// testerJob is the tester Job as §5.6 has preview-controller render it.
+// testerJob is a slot verification Job of a role other than tools, shaped as
+// §5.6 had preview-controller render slice 1's tester (the role and part
+// it carries until they are renamed), in an image under the preview prefix:
+// the one-container Job every Job fence below is judged on. The retired
+// tester's own image is admitted nowhere.
 func testerJob(name string) *batchv1.Job {
 	zero, one := int32(0), int32(1)
 	deadline := verifyDeadline
-	p := pod("maul-preview-0", name, testerImage)
+	p := pod("maul-preview-0", name, previewImage)
 	p.Spec.RestartPolicy = corev1.RestartPolicyNever
 	p.Spec.ActiveDeadlineSeconds = &deadline
 	// The slots enforce PodSecurity restricted.

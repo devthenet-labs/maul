@@ -491,14 +491,9 @@ func TestVerificationCriteriaNoLongerRun(t *testing.T) {
 		running  bool
 		settled  bool
 	}{
-		{"pending, tester image set", verifySettings, false, false},
-		{"pending, evaluator only", func() Settings {
-			s := evalSettings()
-			s.TesterImage = ""
-			return s
-		}, false, false},
-		{"running, its tester Job left over", evalSettings, true, false},
-		{"settled, its tester Job left over", evalSettings, true, true},
+		{"pending", verifySettings, false, false},
+		{"running, its tester Job left over", verifySettings, true, false},
+		{"settled, its tester Job left over", verifySettings, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newVerifyEnv(t, interceptor.Funcs{})
@@ -548,7 +543,7 @@ func TestVerificationCriteriaWithoutItsPreview(t *testing.T) {
 // which answers it stale-criteria: nothing of the slot is recorded for it.
 func TestVerificationCriteriaBeforeRelease(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
-	e.v.Settings, e.r.Settings = evalSettings(), evalSettings()
+	e.v.Settings, e.r.Settings = verifySettings(), verifySettings()
 	e.legacyTesterRun()
 	if err := e.v.BeforeRelease(context.Background(), e.p); err != nil {
 		t.Fatal(err)

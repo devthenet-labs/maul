@@ -263,9 +263,10 @@ preview:
     # Preview's own slot. Off by default. The former switch,
     # preview.verification.enabled, is removed: set, whatever its value, it
     # fails the render, naming the key that replaced it
-    # (docs/intents/evaluator.md#migrating-from-slice-1). On, it renders,
-    # all fail closed: the tool pod's (and a set tester's) exact images
-    # beside the preview prefix in the slot pod image rule; maul-preview-jobs (only
+    # (docs/intents/evaluator.md#migrating-from-slice-1); so does the
+    # removed preview.verification.testerImage (the preview tester is
+    # deleted). On, it renders, all fail closed: the tool pod's exact images
+    # in rules of their own; maul-preview-jobs (only
     # preview-controller runs a slot Job, once, bounded, labelled, under
     # every slot pod rule); maul-preview-networkpolicies (preview-controller's
     # per-part edge policies admit only pods of the same Preview, by part, on
@@ -277,20 +278,11 @@ preview:
     # create/delete for intent-controller); and the slot quota's Job and
     # NetworkPolicy counts.
     verification:
-        # The preview-tester image, pinned by digest
-        # (<registry>/<path>@sha256:<64 hex>, a tag before the digest
-        # allowed). Optional and unused without the evaluator: slice 1's
-        # criteria no longer run, and a later release removes it. Set beside
-        # the evaluator, it is still checked and admitted. Admitted in a slot by this exact
-        # reference only, so it must lie neither under the preview image
-        # prefix nor under any agent.repositoryImages.registries entry: the
-        # render fails otherwise. The release workflow stamps it.
-        testerImage: "" # x-maul-preview-tester-image
         # The longest activeDeadlineSeconds a slot Job (and its pod) may
         # carry, 60 to 3600. It also renders as preview-controller's
         # --preview-verify-deadline-max and intent-controller's
         # --intent-verify-timeout-max (the clamp on a Project's
-        # verification.timeout), so no request can ask for a tester Job the
+        # verification.timeout), so no request can ask for a tool Job the
         # slot policy refuses.
         deadlineMaxSeconds: 1800
         # The slot tool pod an agent evaluator drives
@@ -299,7 +291,11 @@ preview:
         # sidecars `browser` (headless Chromium behind the keyed CDP shim)
         # and `sandbox` (the toolbox). Used only with verification and the
         # evaluator both on, and then each is required, pinned by digest
-        # like testerImage and held to the same placement rules. The slot
+        # (<registry>/<path>@sha256:<64 hex>, a tag before the digest
+        # allowed) and admitted in a slot by that exact reference only, so
+        # each must lie neither under the preview image prefix nor under any
+        # agent.repositoryImages.registries entry: the render fails
+        # otherwise. The slot
         # policies admit a pod labelled maul.run/preview-role tools only
         # from preview-controller's Job, running exactly these three images
         # (each in its own container), mounting one preview- ConfigMap
@@ -311,7 +307,7 @@ preview:
             toolboxImage: "" # x-maul-preview-toolbox-image
     # The slot ResourceQuota, per slot. Unset keys take the defaults: today's
     # (pods 8, services 5, requests 1 CPU/1Gi, limits 2 CPU/2Gi) with
-    # verification off, and with it on room for the tester beside a Preview
+    # verification off, and with it on room for a verification Job beside a Preview
     # of four components (pods 10, requests 1250m/1280Mi, limits
     # 2500m/2560Mi, jobs 1, networkPolicies 6: one edge policy per part plus
     # preview-isolation). With the agent evaluator on as well, room for the

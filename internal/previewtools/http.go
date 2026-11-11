@@ -22,9 +22,9 @@ import (
 	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
-// The relay's HTTP client and readiness wait, from slice 1's tester
-// (internal/previewtester client.go and readiness.go, which stay there
-// until the tester is deleted in S4): plain HTTP to a component's Service
+// The relay's HTTP client and readiness wait, carried over from slice 1's
+// tester (deleted in S4; its guarantees are held by http_test.go): plain
+// HTTP to a component's Service
 // address, never through a proxy, never following a redirect, no cookie
 // jar, no compression, a fresh connection each time, a bounded body.
 
@@ -181,7 +181,7 @@ func classify(err error) httpstep.Transport {
 	}
 }
 
-// The readiness wait (moved from the tester, whose comment says why): the
+// The readiness wait (moved from the deleted tester): the
 // tool pod is new on every evaluation and its slot policy may not be
 // programmed for it yet, which a client sees as a refused connection. A
 // component still unreachable after the window is the application's

@@ -68,7 +68,7 @@ func newToolEnvWith(t *testing.T, funcs interceptor.Funcs) *verifyEnv {
 		return create(ctx, c, obj, opts...)
 	}
 	e := newVerifyEnv(t, funcs)
-	e.v.Settings, e.r.Settings = evalSettings(), evalSettings()
+	e.v.Settings, e.r.Settings = verifySettings(), verifySettings()
 	e.in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: 1,
 		Digest: acceptance.Digest(nil), Outcomes: testOutcomes(), OutcomesDigest: outcomesDigest(t, testOutcomes()),
 		Checks: &v1alpha1.CheckStoreRef{ConfigMap: "shop-1-checks", Digest: "sha256:" + strings.Repeat("c", 64)}}
@@ -456,37 +456,6 @@ func TestToolsObserved(t *testing.T) {
 	again, _ := e.verify()
 	if again.ResourceVersion != pv.ResourceVersion {
 		t.Error("a settled verification changed")
-	}
-}
-
-// The evaluator needs no tester image: an evaluator-only install renders,
-// observes and settles an outcome verification exactly as one with both.
-func TestToolsObservedWithoutTheTester(t *testing.T) {
-	e := newToolEnv(t)
-	e.v.Settings.TesterImage, e.r.Settings.TesterImage = "", ""
-	e.verify()
-	job := e.testerJob()
-	if job.Spec.Template.Labels[labelRole] != v1alpha1.PreviewRoleTools {
-		t.Fatalf("rendered %s, not the tool pod", job.Name)
-	}
-	if err := e.slotObject(evaluatorPolicyName(e.p, e.pv), &networkingv1.NetworkPolicy{}); err != nil {
-		t.Errorf("ingress policy: %v", err)
-	}
-	pod := e.startToolPod(job, true)
-	e.verify()
-	shot := testPNG(t, 2560, 40)
-	log, msg := toolLedger(t, shot)
-	e.finishToolPod(job, pod, log, msg)
-	pv, _ := e.verify()
-	if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
-		t.Fatalf("phase %s %s, want Observed ok", pv.Status.Phase, pv.Status.Reason)
-	}
-	var sum toolwire.Summary
-	_ = json.Unmarshal([]byte(msg), &sum)
-	checkToolsStatus(t, pv, sum, shot)
-	checkToolsConfigMaps(t, e, pv, shot)
-	if !e.slotGone(job.Name, &batchv1.Job{}) || !e.slotGone(evaluatorPolicyName(e.p, pv), &networkingv1.NetworkPolicy{}) {
-		t.Error("the tool Job or its ingress policy survived the settle")
 	}
 }
 

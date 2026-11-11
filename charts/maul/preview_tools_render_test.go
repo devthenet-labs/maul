@@ -55,8 +55,7 @@ var toolConfigKeys = map[string][]string{
 		"MAUL_INTENT_MAX_TOOL_CALLS", "MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS"},
 }
 
-// TestPreviewToolsOffRendersNothing: previews without the evaluator (a
-// stamped tester image alone included: slice 1 no longer runs), and the
+// TestPreviewToolsOffRendersNothing: previews without the evaluator, and the
 // evaluator without preview-controller, render none of the tool pod's slot
 // pieces: today's isolation selector, LimitRange, grants and Job roles, and
 // no evaluator setting for either controller.
@@ -65,8 +64,7 @@ func TestPreviewToolsOffRendersNothing(t *testing.T) {
 		t.Skip("helm not on PATH")
 	}
 	for name, args := range map[string][]string{
-		"a tester image alone": append(append([]string{}, previewRuntimeArgs...),
-			"--set", "preview.verification.testerImage="+testerImage),
+		"previews alone": previewRuntimeArgs,
 		"evaluator without preview-controller": {
 			"-f", "../../hack/testdata/chart-render/preview-foundation.yaml",
 			"-f", "../../hack/testdata/chart-render/intent-controller.yaml",
@@ -288,8 +286,15 @@ func TestPreviewToolsRenderRefusals(t *testing.T) {
 			refusal{key + " missing", with("--set", set), "preview.verification.tools." + key + " is required"},
 			refusal{key + " by tag", with("--set", set+"ghcr.io/devthenet-labs/maul/preview-x:v1"),
 				"must be pinned by digest"},
+			refusal{key + " bare name", with("--set", set+"preview-x@sha256:"+strings.Repeat("a", 64)),
+				"must be pinned by digest"},
+			refusal{key + " short digest", with("--set", set+"ghcr.io/maul/x@sha256:abc"),
+				"must be pinned by digest"},
 			refusal{key + " under the preview prefix", with("--set", set+previewRegistry+
 				"/maul/previews/tools@sha256:"+strings.Repeat("a", 64)), "under the preview image prefix"},
+			refusal{key + " under the preview prefix, other spelling", with("--set",
+				set+"111122223333.dkr.ecr-fips.us-east-1.amazonaws.com:443/maul/previews/tools:v1@sha256:"+
+					strings.Repeat("a", 64)), "under the preview image prefix"},
 			refusal{key + " under an agent registry", with("--set", set+"registry.example.com/agents/x@sha256:"+
 				strings.Repeat("a", 64), "--set-json", `agent.repositoryImages.registries=["registry.example.com/agents"]`),
 				"under the agent registry"})

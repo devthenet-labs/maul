@@ -19,9 +19,9 @@
 #
 # The plan and build stages are scripted. A plan (MAUL_PHASE=plan) writes a
 # plan naming the repositories the request lists under "## Repositories", as
-# hack/fake-agent/codex's does; when its prompt teaches acceptance criteria or
-# outcomes (the "### Acceptance criteria" or "### Acceptance outcomes" section
-# a verifying Project's plan prompt carries) and MAUL_FAKE_PLAN_ACCEPTANCE is
+# hack/fake-agent/codex's does; when its prompt teaches acceptance outcomes
+# (the "### Acceptance outcomes" section a verifying Project's plan prompt
+# carries) and MAUL_FAKE_PLAN_ACCEPTANCE is
 # set (YAML lines), the plan's frontmatter declares that acceptance block, as
 # a model asked for them would; a prompt that does not ask gets none. Every run's prompt (the -p
 # argument) is written to $HOME/.fake-claude/prompt-<phase> for the test to
@@ -609,7 +609,7 @@ if [ "$MAUL_PHASE" = plan ]; then
   repos=$(sed -n '/^## Repositories/,/^## /p' "$workspace/input/issue.md" | sed -n 's/^- \(https:[^ ]*\).*/  - "\1"/p')
   acceptance=''
   case "$prompt" in
-  *'### Acceptance criteria'* | *'### Acceptance outcomes'*) acceptance=${MAUL_FAKE_PLAN_ACCEPTANCE:-} ;;
+  *'### Acceptance outcomes'*) acceptance=${MAUL_FAKE_PLAN_ACCEPTANCE:-} ;;
   esac
   mkdir -p "$workspace/reports"
   {

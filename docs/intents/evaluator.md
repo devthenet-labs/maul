@@ -697,15 +697,17 @@ retired: the agent evaluator is the only way maul verifies an intent, and its sw
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Chart `preview.verification.enabled` turned verification on            | Removed. Set at all, `true` or `false`, the render fails naming `intentController.verification.evaluator`. Drop the key: with the evaluator on, verification runs in the preview slots whenever `previewController.enabled` is true |
 | intent-controller `--intent-verification` (`MAUL_INTENT_VERIFICATION`) | Removed. Set to true, intent-controller refuses to start with a message naming this section; `--intent-evaluator` turns verification on                                                                                             |
-| preview-controller `--preview-tester-image` alone ran criteria         | Refused without `--preview-evaluator`. Beside the evaluator it is optional (and checked); the chart passes it only with the evaluator on, so a stamped `preview.verification.testerImage` without it is inert                       |
+| preview-controller `--preview-tester-image` alone ran criteria         | Removed with the tester (the `preview-tester` binary and image are no longer built). Set to anything, preview-controller refuses to start with a message naming this section                                                        |
+| Chart `preview.verification.testerImage`, which the release stamped    | Removed. Set at all, even empty, the render fails naming this section. Drop the key, and any step of your own that stamps it                                                                                                        |
 | Evaluator off meant slice 1's criteria                                 | Evaluator off means verification is off: a verifying Project carries `VerificationOff` (`EvaluatorOff`), its intents are not verified, and their status comments say so and link the preview at once                                |
 
-To move a slice-1 install: drop `preview.verification.enabled` from the chart values (and `--intent-verification` from
-any kustomize or hand-written configuration), set `intentController.verification.evaluator: true` with the three
-`preview.verification.tools` images (the release stamps them), and upgrade. A plan approved before the evaluator states
-criteria, which the evaluator does not run: such an open intent stops for a replan (its `maul/acceptance` the error "the
-approved plan states criteria, not outcomes: nothing is verified"), and an approver approves a new plan, which states
-outcomes. With the evaluator left off, nothing is verified.
+To move a slice-1 install: drop `preview.verification.enabled` and `preview.verification.testerImage` from the chart
+values (and `--intent-verification` and `--preview-tester-image` from any kustomize or hand-written configuration), set
+`intentController.verification.evaluator: true` with the three `preview.verification.tools` images (the release stamps
+them), and upgrade. A plan approved before the evaluator states criteria, which the evaluator does not run: such an open
+intent stops for a replan (its `maul/acceptance` the error "the approved plan states criteria, not outcomes: nothing is
+verified"), and an approver approves a new plan, which states outcomes. With the evaluator left off, nothing is
+verified.
 
 **The startup census.** Before it starts its controllers, intent-controller counts the records slice 1 left in its
 namespace, reading only: every open (non-terminal) intent whose acceptance on record states criteria, or did before the

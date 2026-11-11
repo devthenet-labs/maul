@@ -8,7 +8,6 @@
 #
 # where <image> is one of
 #
-#   tester    preview.verification.testerImage         (# x-maul-preview-tester-image)
 #   tools     preview.verification.tools.image         (# x-maul-preview-tools-image)
 #   browser   preview.verification.tools.browserImage  (# x-maul-preview-browser-image)
 #   toolbox   preview.verification.tools.toolboxImage  (# x-maul-preview-toolbox-image)
@@ -26,7 +25,7 @@
 set -eu
 
 if [ "$#" -ne 4 ]; then
-  echo "usage: $0 <values.yaml> <tester|tools|browser|toolbox> <repository> <sha256:digest>" >&2
+  echo "usage: $0 <values.yaml> <tools|browser|toolbox> <repository> <sha256:digest>" >&2
   exit 2
 fi
 values=$1
@@ -35,12 +34,11 @@ repository=$3
 digest=$4
 
 case $name in
-tester) key=testerImage path=.preview.verification.testerImage ;;
 tools) key=image path=.preview.verification.tools.image ;;
 browser) key=browserImage path=.preview.verification.tools.browserImage ;;
 toolbox) key=toolboxImage path=.preview.verification.tools.toolboxImage ;;
 *)
-  echo "stamp: '$name' is not one of tester, tools, browser, toolbox" >&2
+  echo "stamp: '$name' is not one of tools, browser, toolbox" >&2
   exit 2
   ;;
 esac
