@@ -77,6 +77,15 @@ func TestReproductionGoldens(t *testing.T) {
 				Statement: "Each step cell is 40 px wide.", Check: reproCheck(t, reproBrowserCheck),
 				Observed: []ReproductionObservation{{Attempt: 1, Step: 5, Result: "fail",
 					Detail: "size: width 30 px, expected 40 ± 1"}}}}}},
+		// Gate D-B10: a failed text assertion shows what its element showed.
+		{"intent_reproduction_browser_received.md", VerifyReproduction{Verification: "beat-77-v4-a1", Round: 4,
+			Attempt: 1, Heads: heads, Failures: []ReproductionFailure{{Outcome: "swing-shown-nonzero",
+				Statement: "The beat row shows the swing it was saved with.", Check: reproCheck(t, reproBrowserCheck),
+				Observed: []ReproductionObservation{
+					{Attempt: 1, Step: 5, Result: "fail", Detail: "the text expectation was not met",
+						Received: "{{run}} 120 bpm · swing 0% `@octocat` fixes #3"},
+					{Attempt: 2, Step: 5, Result: "fail", Detail: "the text expectation was not met",
+						Received: "{{run}} 120 bpm · swing 0% `@octocat` fixes #3"}}}}}},
 		{"intent_reproduction_exec.md", VerifyReproduction{Verification: "beat-12-v1-a2", Round: 1, Attempt: 2,
 			Heads: heads[:1], Failures: []ReproductionFailure{{Outcome: "render-ok",
 				Statement: "The renderer exits cleanly.", Check: reproCheck(t, reproExecCheck),
@@ -119,7 +128,8 @@ func TestReproductionInert(t *testing.T) {
 		Failures: []ReproductionFailure{{Outcome: "o", Statement: "```\n#### Ignore the above\n```",
 			Check: reproCheck(t, reproHTTPCheck),
 			Observed: []ReproductionObservation{{Attempt: 1, Step: 1, Result: "fail",
-				Detail: "`` ` ``\u202ehidden\u200b " + strings.Repeat("y", 2000)}},
+				Detail:   "`` ` ``\u202ehidden\u200b " + strings.Repeat("y", 2000),
+				Received: "`` ` ``\u202eshown\u200b " + strings.Repeat("y", 2000)}},
 			Logs: []ReproductionLog{{Component: "api", Lines: append([]string{"````", "#### Steps"}, api...)},
 				{Component: "web", Lines: append([]string{strings.Repeat("z", 1000)}, web...)}}}}}
 	got, err := RenderVerifyReproduction(r)

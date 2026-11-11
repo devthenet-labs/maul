@@ -866,7 +866,7 @@ const (
 	// (its target is no longer previewed); only a replan helps.
 	VerificationNeedsReplan IntentVerificationState = "NeedsReplan"
 	// VerificationUnavailable: maul's own machinery failed every attempt,
-	// or the Preview was not live within the bound (UnavailableReason).
+	// or the Preview was not live within the bound (Cause).
 	VerificationUnavailable IntentVerificationState = "Unavailable"
 	// VerificationEvaluating: the evaluator judges the outcomes (its tool
 	// pod or its evaluate run, a confirmation or a check review is in
@@ -993,30 +993,77 @@ type HandoffState struct {
 	Reason HandoffReason `json:"reason,omitempty"`
 }
 
-// VerificationUnavailableReason says why a verification is Unavailable,
-// or, for an agents round, why it settled Unconfirmed without a judgement.
-// +kubebuilder:validation:Enum=PreviewNotLive;SandboxImageUnavailable;TreeUnavailable;ToolsBuildFailed
-type VerificationUnavailableReason string
+// SettleCause is why a verification round settled without a judgement
+// (state Unavailable, or for an agents round Unconfirmed): the one cause
+// every surface names it by (templates.CauseWords). SettleNone (empty) is
+// maul's own machinery failing every attempt, or a round that settled for
+// a reason no other cause names.
+//
+// It is recorded as status.verification.unavailableReason, the field's
+// name before the cause had more than the Unavailable state's reasons;
+// the four first values keep their spellings, so a record written before
+// reads as the same cause.
+// +kubebuilder:validation:Enum=PreviewNotLive;SandboxImageUnavailable;TreeUnavailable;ToolsBuildFailed;SandboxUnenforced;ToolsLost;ReplayIncomplete
+type SettleCause string
 
-// Unavailable reasons. None (empty) is maul's machinery failing every
-// attempt.
+// Settle causes.
 const (
-	// VerificationUnavailablePreviewNotLive: the Preview was not live at
-	// exactly the heads within the wait bound.
-	VerificationUnavailablePreviewNotLive VerificationUnavailableReason = "PreviewNotLive"
-	// VerificationUnavailableSandboxImage: an agents round could not run at
-	// all, for the repository has no accepted runner image to build in
-	// (PreviewVerification reason sandbox-image-unavailable); the state is
-	// Unconfirmed.
-	VerificationUnavailableSandboxImage VerificationUnavailableReason = "SandboxImageUnavailable"
-	// VerificationUnavailableTree: an agents round's head or base tree
-	// could not be fetched (tree-unavailable); the state is Unavailable.
-	VerificationUnavailableTree VerificationUnavailableReason = "TreeUnavailable"
-	// VerificationUnavailableToolsBuildFailed: every attempt of an agents
-	// round ended with the tool pod unable to build the head CI built green
+	// SettleNone: maul's own machinery failed every attempt, or the round
+	// settled for a reason no other cause names.
+	SettleNone SettleCause = ""
+	// SettlePreviewNotLive: the Preview was not live at exactly the heads
+	// within the wait bound; the state is Unavailable.
+	SettlePreviewNotLive SettleCause = "PreviewNotLive"
+	// SettleSandboxImage: an agents round could not run at all, for the
+	// repository has no accepted runner image to build in
+	// (sandbox-image-unavailable); the state is Unconfirmed.
+	SettleSandboxImage SettleCause = "SandboxImageUnavailable"
+	// SettleTree: an agents round's head or base tree could not be fetched
+	// (tree-unavailable); the state is Unavailable.
+	SettleTree SettleCause = "TreeUnavailable"
+	// SettleToolsBuildFailed: every attempt of an agents round ended with
+	// the tool pod unable to build the head CI built green
 	// (tools-build-failed); the state is Unconfirmed, never a fail.
-	VerificationUnavailableToolsBuildFailed VerificationUnavailableReason = "ToolsBuildFailed"
+	SettleToolsBuildFailed SettleCause = "ToolsBuildFailed"
+	// SettleSandboxUnenforced: the last attempt's tool pod found its
+	// sandbox's network open (sandbox-unenforced).
+	SettleSandboxUnenforced SettleCause = "SandboxUnenforced"
+	// SettleToolsLost: the last attempt's tool pod was taken away, reached
+	// its deadline, or could not keep what every check run starts from
+	// (tools-evicted, tools-deadline, kept-copy-failed).
+	SettleToolsLost SettleCause = "ToolsLost"
+	// SettleReplayIncomplete: the last attempt, a replay, finished before
+	// the end of its replay (replay-incomplete, review VC-3).
+	SettleReplayIncomplete SettleCause = "ReplayIncomplete"
 )
+
+// SettleCauses are every cause, SettleNone first, in a slice of its own.
+func SettleCauses() []SettleCause {
+	return []SettleCause{SettleNone, SettlePreviewNotLive, SettleSandboxImage, SettleTree,
+		SettleToolsBuildFailed, SettleSandboxUnenforced, SettleToolsLost, SettleReplayIncomplete}
+}
+
+// CauseOf is the cause a round whose last attempt settled for reason
+// records: SettleNone for every reason no cause names (the Preview not
+// matching, a saturated bound, maul's other machinery). PreviewNotLive is
+// no PreviewVerification's reason: the wait bound records it.
+func CauseOf(reason PreviewVerificationReason) SettleCause {
+	switch reason {
+	case VerificationReasonSandboxImageUnavailable:
+		return SettleSandboxImage
+	case VerificationReasonTreeUnavailable:
+		return SettleTree
+	case VerificationReasonToolsBuildFailed:
+		return SettleToolsBuildFailed
+	case VerificationReasonSandboxUnenforced:
+		return SettleSandboxUnenforced
+	case VerificationReasonToolsEvicted, VerificationReasonToolsDeadline, VerificationReasonKeptCopyFailed:
+		return SettleToolsLost
+	case VerificationReasonReplayIncomplete:
+		return SettleReplayIncomplete
+	}
+	return SettleNone
+}
 
 // AutoFixState says whether a failed verification may start a verify-fix
 // round on its own.
@@ -1352,15 +1399,20 @@ type IntentVerification struct {
 	// Preview is live.
 	// +optional
 	PreviewWaitSince *metav1.Time `json:"previewWaitSince,omitempty"`
-	// UnavailableReason says why the state is Unavailable: PreviewNotLive
-	// when the Preview was not live at the heads within the bound (Failed,
-	// expired, or never served), TreeUnavailable when an agents round's
-	// trees could not be fetched; empty when maul's own machinery failed
-	// every attempt. With state Unconfirmed it says why an agents round
-	// settled without a judgement (SandboxImageUnavailable,
-	// ToolsBuildFailed). Read only with those states.
+	// Cause is why the round settled without a judgement (SettleCause),
+	// with state Unavailable, or Unconfirmed for an agents round that could
+	// not run or build; SettleNone when maul's own machinery failed every
+	// attempt. Read only with those states. Its field name is the one it
+	// had as the Unavailable state's reason.
 	// +optional
-	UnavailableReason VerificationUnavailableReason `json:"unavailableReason,omitempty"`
+	Cause SettleCause `json:"unavailableReason,omitempty"`
+	// RetryOwed: the latest attempt ended without a judgement and the
+	// round's next attempt is due (verifyRetry). Set with Ref cleared, and
+	// cleared once that attempt is created, the heads move or verification
+	// starts over. A record written before it existed owes the retry by
+	// its old rule, Ref empty with an attempt on record.
+	// +optional
+	RetryOwed bool `json:"retryOwed,omitempty"`
 	// Outcomes are the decided results of the approved outcomes, in plan
 	// order (the evaluator).
 	// +optional

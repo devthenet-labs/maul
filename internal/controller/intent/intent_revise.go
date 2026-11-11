@@ -120,7 +120,7 @@ func (p *pass) completedRevise(ctx context.Context, run *v1alpha1.IntentRun) (bo
 					maxNoDefectReasonBytes), At: metav1.NewTime(p.now), HeadSetDigest: nv.HeadSetDigest}
 			}
 			haltOn(cur, v1alpha1.AutoFixFixFoundNoDefect, "", fmt.Sprintf("the acceptance-fix round %s found "+
-				"no defect in the code and changed nothing; the failing criteria are left to the reviewers",
+				"no defect in the code and changed nothing; the failing outcomes are left to the reviewers",
 				run.Name), metav1.NewTime(p.now))
 			// The halt may make the held link due (maul gave up): it
 			// follows in this write, never a pass later.
@@ -373,10 +373,10 @@ func unpushedRoundNotice(run *v1alpha1.IntentRun, label, tail string) string {
 			"started, so nothing was pushed and the approver's round runs next." + tail
 	case OutcomeStoppedByHuman:
 		return label + " stopped by an approver's `/maul verify stop` before it started, so nothing was " +
-			"pushed. maul no longer fixes failing acceptance criteria on its own." + tail
+			"pushed. maul no longer fixes failing outcomes on its own." + tail
 	case OutcomeNoDefect:
 		return label + " found no defect: its agent concluded that the code already does what the failing " +
-			"acceptance criteria ask, so nothing was pushed and maul stopped fixing on its own. The issue's " +
+			"outcomes ask, so nothing was pushed and maul stopped fixing on its own. The issue's " +
 			"verification comment gives its reason." + tail
 	case OutcomeNoUsableFeedback:
 		if run.Status.JobRef == nil {

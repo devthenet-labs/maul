@@ -194,7 +194,7 @@ func (p *pass) endWaitUnrun(ctx context.Context, why string) (bool, error) {
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.Requested = nil
-		nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailablePreviewNotLive
+		nv.State, nv.Cause = v1alpha1.VerificationUnavailable, v1alpha1.SettlePreviewNotLive
 		return nil
 	})
 }

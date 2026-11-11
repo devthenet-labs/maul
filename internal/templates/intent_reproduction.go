@@ -89,6 +89,12 @@ type ReproductionObservation struct {
 	// Result is the step's result (fail, error), Detail the runner's
 	// message: it can quote the application.
 	Result, Detail string
+	// Received is what the failing step's element showed, for a browser
+	// text assertion that failed on an element that was there
+	// (toolwire.StepRecord.Received, gate D-B10), its run's token written
+	// back as the placeholder: the application's text, UNTRUSTED, shown only
+	// bounded in a code span; "" for any other step.
+	Received string
 }
 
 // ReproductionLog is one component's log lines from the window.
@@ -169,6 +175,9 @@ func reproFailure(f ReproductionFailure, workspace bool) reproFailureView {
 		line += ": " + reproResult(o.Result)
 		if d := strings.TrimSpace(o.Detail); d != "" {
 			line += ": " + code(untrusted.Visible(d, verifyReproDetailBytes))
+		}
+		if r := strings.TrimSpace(o.Received); r != "" {
+			line += "; the element showed " + code(untrusted.Visible(r, verifyReproDetailBytes))
 		}
 		fv.Observed = append(fv.Observed, line)
 	}

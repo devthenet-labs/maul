@@ -84,7 +84,7 @@ func (p *pass) settleStranded(ctx context.Context) (bool, error) {
 	p.dropInFlight(ctx, ref)
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable, "", nil
+		nv.State, nv.Cause, nv.Requested = v1alpha1.VerificationUnavailable, "", nil
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		p.releaseIfDue(cur)
@@ -109,7 +109,7 @@ func (p *pass) resumeOff(ctx context.Context) (bool, error) {
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State = v1alpha1.VerificationWaitingForCI
-		nv.Ref, nv.Attempt, nv.InfraRetries = nil, 0, 0
+		nv.Ref, nv.Attempt, nv.InfraRetries, nv.RetryOwed = nil, 0, 0, false
 		nv.NoDefect = nil
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)

@@ -127,7 +127,7 @@ func (p *pass) guardVerifyFix(ctx context.Context, pv *v1alpha1.PreviewVerificat
 	if limit := p.proj.Spec.Limits.MaxVerifyFixesLimit(); p.verifyFixRounds() >= limit ||
 		p.in.Status.Rounds >= v1alpha1.MaxIntentRound {
 		return true, p.haltFix(ctx, v1alpha1.AutoFixMaxVerifyFixes, v1alpha1.VerificationExhausted,
-			fmt.Sprintf("%d of %d acceptance-fix rounds used; the failing criteria are left to the reviewers",
+			fmt.Sprintf("%d of %d acceptance-fix rounds used; the failing outcomes are left to the reviewers",
 				p.verifyFixRounds(), limit))
 	}
 	prior, err := p.priorVerifyFailure(ctx)
@@ -615,7 +615,7 @@ func verifyRunRefusal(in *v1alpha1.Intent, proj *v1alpha1.Project, run *v1alpha1
 				"cancelled so the approver's round runs first"}
 	}
 	if acc := in.Status.Acceptance; acc == nil || acc.PlanRevision != run.Spec.Inputs.PlanRevision {
-		return &result{outcome: OutcomeAborted, detail: fmt.Sprintf("plan revision %d's acceptance criteria "+
+		return &result{outcome: OutcomeAborted, detail: fmt.Sprintf("plan revision %d's approved outcomes "+
 			"are not recorded on the intent; nothing was launched", run.Spec.Inputs.PlanRevision)}
 	}
 	if !fixable(proj, run.Spec.Repository.URL) {

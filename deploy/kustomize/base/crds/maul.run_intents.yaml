@@ -2037,6 +2037,14 @@ spec:
                         minimum: 0
                         type: integer
                     type: object
+                  retryOwed:
+                    description: |-
+                      RetryOwed: the latest attempt ended without a judgement and the
+                      round's next attempt is due (verifyRetry). Set with Ref cleared, and
+                      cleared once that attempt is created, the heads move or verification
+                      starts over. A record written before it existed owes the retry by
+                      its old rule, Ref empty with an attempt on record.
+                    type: boolean
                   round:
                     description: Round is the latest verification round.
                     format: int32
@@ -2136,18 +2144,19 @@ spec:
                     type: object
                   unavailableReason:
                     description: |-
-                      UnavailableReason says why the state is Unavailable: PreviewNotLive
-                      when the Preview was not live at the heads within the bound (Failed,
-                      expired, or never served), TreeUnavailable when an agents round's
-                      trees could not be fetched; empty when maul's own machinery failed
-                      every attempt. With state Unconfirmed it says why an agents round
-                      settled without a judgement (SandboxImageUnavailable,
-                      ToolsBuildFailed). Read only with those states.
+                      Cause is why the round settled without a judgement (SettleCause),
+                      with state Unavailable, or Unconfirmed for an agents round that could
+                      not run or build; SettleNone when maul's own machinery failed every
+                      attempt. Read only with those states. Its field name is the one it
+                      had as the Unavailable state's reason.
                     enum:
                     - PreviewNotLive
                     - SandboxImageUnavailable
                     - TreeUnavailable
                     - ToolsBuildFailed
+                    - SandboxUnenforced
+                    - ToolsLost
+                    - ReplayIncomplete
                     type: string
                 type: object
               verifyFixes:

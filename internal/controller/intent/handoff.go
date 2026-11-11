@@ -6,6 +6,7 @@ package intent
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -141,9 +142,9 @@ func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 	}
 	why := p.gaveUp(acc, v)
 	if why == "" && judged && v.State == v1alpha1.VerificationOff {
-		// An Off left at the heads its round judged keeps the reason that
-		// round recorded for not running (agentsWhy's).
-		why = unavailableWhy(v.UnavailableReason)
+		// An Off left at the heads its round judged keeps the cause that
+		// round recorded for not running (settledWhy's).
+		why = causeWhy(v.Cause)
 	}
 	if h := v.Handoff; why == "" && judged && h != nil && h.Reason == v1alpha1.HandoffReasonOutOfTime {
 		// The reason on record at the heads it judged, as handoffView
@@ -164,29 +165,12 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 	if outcomesReady(acc, v) {
 		return ""
 	}
-	if why := agentsWhy(v); why != "" {
+	if why := settledWhy(v); why != "" {
 		return why
 	}
 	switch v.State {
 	case v1alpha1.VerificationUnconfirmed:
-		switch {
-		case len(v.Disputed) > 0 && v.Ref != nil && p.verifyBounded(v):
-			return "" // its replay round is due
-		case p.atEvaluationCeiling():
-			return templates.HandoffWhyBudget
-		case len(v.Disputed) > 0:
-			return templates.HandoffWhyRounds
-		case len(v.Anomalies) > 0 && !outcomesInDoubt(acc, v):
-			// Every outcome confirmed or accepted: the anomaly is the
-			// reason (review H2). With an outcome in doubt, the outcomes
-			// lead and the anomaly comes second (gate D-B6).
-			return templates.HandoffWhyAnomaly
-		case environmentFailed(v):
-			return templates.HandoffWhyEnvironment
-		case doubtedOutcomes(acc, v) > 0:
-			return templates.HandoffWhyEvaluatorDoubts
-		}
-		return templates.HandoffWhyUnsure
+		return p.unconfirmedWhy(acc, v)
 	case v1alpha1.VerificationExhausted:
 		return templates.HandoffWhyRounds
 	case v1alpha1.VerificationFailing:
@@ -209,7 +193,35 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 	return ""
 }
 
+// unconfirmedWhy is gaveUp for a round that judged and settled
+// Unconfirmed: "" while its replay round is due.
+func (p *pass) unconfirmedWhy(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) string {
+	switch {
+	case len(v.Disputed) > 0 && v.Ref != nil && p.verifyBounded(v):
+		return "" // its replay round is due
+	case suspectedPending(v):
+		// The defect maul suspects waits for a person: it leads, before the
+		// outcomes in doubt and any anomaly (gate D-B11).
+		return templates.HandoffWhySuspected
+	case p.atEvaluationCeiling():
+		return templates.HandoffWhyBudget
+	case len(v.Disputed) > 0:
+		return templates.HandoffWhyRounds
+	case len(v.Anomalies) > 0 && !outcomesInDoubt(acc, v):
+		// Every outcome confirmed or accepted: the anomaly is the reason
+		// (review H2). With an outcome in doubt, the outcomes lead and the
+		// anomaly comes second (gate D-B6).
+		return templates.HandoffWhyAnomaly
+	case environmentWhy(v) != "":
+		return environmentWhy(v)
+	case doubtedOutcomes(acc, v) > 0:
+		return templates.HandoffWhyEvaluatorDoubts
+	}
+	return templates.HandoffWhyUnsure
+}
+
 // unconfirmedView is the hand-off maul could not confirm for why: with the
+// outcomes maul suspects a defect in named first (gate D-B11), the
 // outcomes the evaluator judged not to hold counted, and a look-around
 // anomaly named after a reason that leads with the outcomes in doubt
 // (gate D-B6).
@@ -217,10 +229,15 @@ func unconfirmedView(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificat
 	why string) *templates.PreviewHandoff {
 	h := &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
 	switch why {
+	case templates.HandoffWhySuspected:
+		if v.Suspected != nil {
+			h.Suspected = slices.Clone(v.Suspected.Outcomes)
+		}
+		fallthrough
 	case templates.HandoffWhyEvaluatorDoubts:
 		h.Doubted = doubtedOutcomes(acc, v)
 		fallthrough
-	case templates.HandoffWhyEnvironment, templates.HandoffWhyUnsure:
+	case templates.HandoffWhyEnvironment, templates.HandoffWhyInfra, templates.HandoffWhyUnsure:
 		h.Anomaly = v.State == v1alpha1.VerificationUnconfirmed && len(v.Anomalies) > 0
 	}
 	return h
@@ -246,48 +263,51 @@ func outcomesInDoubt(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificat
 	return confirmedCount(acc, v) < int32(len(acc.Outcomes))
 }
 
-// agentsWhy is why an agents round settled without a judgement, as the
-// hand-off says it (templates.HandoffWhyOfVerification of the reason the
-// verification recorded: no accepted image, trees not fetched, the head not
-// built); "" for any other state or reason.
-func agentsWhy(v *v1alpha1.IntentVerification) string {
+// settledWhy is why a round settled without a judgement, as the hand-off
+// says it (causeWhy of the cause the verification recorded: no accepted
+// image, trees not fetched, the head not built, its tool pod lost or its
+// sandbox open, a replay cut short); "" for any other state, and for a
+// cause the state's own words say (gaveUp).
+func settledWhy(v *v1alpha1.IntentVerification) string {
 	if v.State != v1alpha1.VerificationUnconfirmed && v.State != v1alpha1.VerificationUnavailable {
 		return ""
 	}
-	return unavailableWhy(v.UnavailableReason)
+	return causeWhy(v.Cause)
 }
 
-// unavailableWhy is agentsWhy's words for a recorded reason, whatever the
-// state; "" for none.
-func unavailableWhy(r v1alpha1.VerificationUnavailableReason) string {
-	var reason v1alpha1.PreviewVerificationReason
-	switch r {
-	case v1alpha1.VerificationUnavailableSandboxImage:
-		reason = v1alpha1.VerificationReasonSandboxImageUnavailable
-	case v1alpha1.VerificationUnavailableTree:
-		reason = v1alpha1.VerificationReasonTreeUnavailable
-	case v1alpha1.VerificationUnavailableToolsBuildFailed:
-		reason = v1alpha1.VerificationReasonToolsBuildFailed
-	default:
-		return ""
-	}
-	return templates.HandoffWhyOfVerification(reason)
-}
+// causeWhy is c's hand-off reason (templates.CauseWords), whatever the
+// state; "" for SettleNone and SettlePreviewNotLive, which have none of
+// their own. The reason is the same with or without a preview.
+func causeWhy(c v1alpha1.SettleCause) string { return templates.CauseWords(c, false).Why }
 
-// environmentFailed reports a judgement whose outcomes were left unsure by
-// a failing preview or maul's own machinery, or made in an environment that
-// was not clean whatever its outcomes' results (review H2).
-func environmentFailed(v *v1alpha1.IntentVerification) bool {
+// environmentWhy is why a judgement's environment kept it unconfirmed,
+// whatever its outcomes' results (review H2): HandoffWhyInfra when maul's
+// own machinery failed (the class Infra, or any class not known clean, or
+// an outcome left unsure by it), which wins, as it does when the
+// environment is classified; HandoffWhyEnvironment when a part of the
+// change failed (AppFailure, or an outcome left unsure by it); "" for a
+// clean one (review H3).
+func environmentWhy(v *v1alpha1.IntentVerification) string {
 	results := v.JudgedOutcomes()
-	if len(results) > 0 && v.OutcomesEnvironment != "" && !httpstep.EnvClass(v.OutcomesEnvironment).Clean() {
-		return true
+	var infra, app bool
+	if c := httpstep.EnvClass(v.OutcomesEnvironment); len(results) > 0 && c != "" && !c.Clean() {
+		infra, app = c != httpstep.EnvAppFailure, c == httpstep.EnvAppFailure
 	}
 	for _, r := range results {
-		if r.Reason == "env-failed" || r.Reason == "infra" {
-			return true
+		switch r.Reason {
+		case acceptance.ReasonInfra:
+			infra = true
+		case acceptance.ReasonEnvFailed:
+			app = true
 		}
 	}
-	return false
+	switch {
+	case infra:
+		return templates.HandoffWhyInfra
+	case app:
+		return templates.HandoffWhyEnvironment
+	}
+	return ""
 }
 
 // sandboxRefused reports that the latest evaluate run ended because its

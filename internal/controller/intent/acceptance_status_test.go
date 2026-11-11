@@ -200,8 +200,8 @@ func TestAcceptanceStatusWithNothingToCheck(t *testing.T) {
 		name, plan, accept, pending, success string
 	}{
 		{"no outcomes", validPlan, "/maul accept all",
-			"no acceptance criteria declared; an approver may /maul accept all",
-			"no acceptance criteria declared; accepted by " + approver},
+			"no outcomes declared; an approver may /maul accept all",
+			"no outcomes declared; accepted by " + approver},
 		{"manual only", manualOnlyPlan, "/maul accept looks-right", "0/1 outcomes accepted by hand",
 			"1/1 outcomes accepted by hand by " + approver},
 	} {

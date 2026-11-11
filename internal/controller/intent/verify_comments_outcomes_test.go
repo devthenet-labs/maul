@@ -129,7 +129,7 @@ func TestOutcomeVerifyStatusLineNotDeclared(t *testing.T) {
 	if v := e.verification(name); v.State != v1alpha1.VerificationNotDeclared {
 		t.Fatalf("verification = %s, want NotDeclared", v.State)
 	}
-	if body := e.statusBody(); !strings.Contains(body, "No acceptance criteria were declared.") {
+	if body := e.statusBody(); !strings.Contains(body, "No acceptance outcomes were declared.") {
 		t.Fatalf("status comment:\n%s", body)
 	}
 	if cs := e.verifyComments(name, 1); len(cs) != 0 {

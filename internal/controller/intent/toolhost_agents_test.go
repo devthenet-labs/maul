@@ -552,14 +552,14 @@ func TestAgentsRequestAfterARoundSettlesWhenTheRoundCannotRun(t *testing.T) {
 		name   string
 		remove func(t *testing.T, e *env)
 		state  v1alpha1.IntentVerificationState
-		reason v1alpha1.VerificationUnavailableReason
+		reason v1alpha1.SettleCause
 		log    string
 	}{
 		{"no accepted image", dropRunnerImages, v1alpha1.VerificationUnconfirmed,
-			v1alpha1.VerificationUnavailableSandboxImage, "the agents round cannot run"},
+			v1alpha1.SettleSandboxImage, "the agents round cannot run"},
 		{"no fetchable tree", func(_ *testing.T, e *env) {
 			e.gh.failNext("MergeBase", ghError(http.StatusNotFound, "No common ancestor"))
-		}, v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailableTree,
+		}, v1alpha1.VerificationUnavailable, v1alpha1.SettleTree,
 			"the agents round's trees are unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -570,7 +570,7 @@ func TestAgentsRequestAfterARoundSettlesWhenTheRoundCannotRun(t *testing.T) {
 			// stays on record at these heads.
 			e.setStatus(name, func(in *v1alpha1.Intent) {
 				v := in.Status.Verification
-				v.State, v.UnavailableReason = v1alpha1.VerificationUnavailable, ""
+				v.State, v.Cause = v1alpha1.VerificationUnavailable, ""
 				v.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()),
 					CommentID: 99}
 			})
@@ -580,7 +580,7 @@ func TestAgentsRequestAfterARoundSettlesWhenTheRoundCannotRun(t *testing.T) {
 			e.review(name, 3)
 
 			v := e.verification(name)
-			if v.Requested != nil || v.State != tc.state || v.UnavailableReason != tc.reason {
+			if v.Requested != nil || v.State != tc.state || v.Cause != tc.reason {
 				t.Fatalf("verification = %+v, want %s (%s) with the request consumed", v, tc.state, tc.reason)
 			}
 			if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {

@@ -328,7 +328,8 @@ checks:
 
 - the approved outcome, quoted;
 - the failing check's steps, each with what it expects (an http, browser or exec check, in plain words);
-- what was observed on the failing run, as the check runner reported it;
+- what was observed on the failing run, as the check runner reported it, and for a browser text assertion what the
+  element showed (the application's text, bounded and quoted, its run token written back as `{{run}}`);
 - the component's log lines from the failing run's window, redacted, at most 40 lines, starting at the first panic,
   fatal, error, exception or traceback line. The window is between the evaluator's last `maul-tool logs` read before the
   failing run and its first one after it, so there is an excerpt only when the evaluator read the logs after the check
@@ -368,14 +369,17 @@ heads maul judged: after a push it reads as still being checked until a round is
 | it spent its evaluation budget                                                 | the intent's evaluation ceiling is reached                                              |
 | it ran out of time                                                             | `handoffMax` passed                                                                     |
 | its sandbox was not enforced                                                   | the evaluator's strict probe found DNS, the API server, metadata or the internet open   |
+| it suspects a defect in `<id>`, which a person should confirm                  | a check saved red fails at these heads; maul waits for an approver's `/maul verify fix` |
 | the preview failed while it was checked                                        | a component crashed, was evicted or ran out of memory during the round                  |
+| its own checking environment failed while it checked                           | maul's tools or the cluster failed during the round, not the change                     |
+| it could not re-run every check it saved                                       | a replay round ended before every saved check ran                                       |
 | it could not run its checks                                                    | maul's own machinery failed every attempt                                               |
 
-The outcomes in doubt lead: with an outcome neither confirmed nor accepted, an anomaly is named after the reason ("...,
-and it noticed something odd while it looked around"), never in its place. When every outcome was confirmed or accepted
-and only an anomaly or a failing environment kept the round unconfirmed, the commit status and the progress line name
-that cause instead of reading as all confirmed, for example "maul couldn't confirm this: 3/3 outcomes confirmed, but it
-noticed something odd while it looked around".
+A suspected defect leads, then the outcomes in doubt: with an outcome neither confirmed nor accepted, an anomaly is
+named after the reason ("..., and it noticed something odd while it looked around"), never in its place. When every
+outcome was confirmed or accepted and only an anomaly or a failing environment kept the round unconfirmed, the commit
+status and the progress line name that cause instead of reading as all confirmed, for example "maul couldn't confirm
+this: 3/3 outcomes confirmed, but it noticed something odd while it looked around".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
 not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.
@@ -630,8 +634,11 @@ on).
   fetch the source of the pull request or of its base" (a tree did not become ready within 15 minutes, or GitHub has no
   such commit or does not let maul see it). The intent's `status.verification.unavailableReason` records the last as
   `TreeUnavailable` (the round is retried while the heads stay), the first two as `ToolsBuildFailed` and
-  `SandboxImageUnavailable` beside the state `Unconfirmed`. A failing environment there reads "its own checking tools
-  failed while it checked", never a preview.
+  `SandboxImageUnavailable` beside the state `Unconfirmed`. A round whose every attempt ended with its tool pod's
+  sandbox open, its tool pod lost (evicted, past its deadline, or unable to keep its build) or its replay cut short is
+  `Unavailable` and records `SandboxUnenforced`, `ToolsLost` or `ReplayIncomplete`, which the hand-off and the
+  `maul/acceptance` status name. A failing environment there reads "its own checking tools failed while it checked",
+  never a preview.
 - **A suspected defect's note** names the held hand-off, not a preview link, and only while it is held; its known limits
   are those of the exec and run checks a workspace runs.
 - **In the cluster.** The round is a `PreviewVerification` with `spec.placement: agents` and its `spec.workspace` (the

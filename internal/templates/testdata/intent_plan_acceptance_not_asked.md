@@ -3,7 +3,7 @@
 
 **Summary:** Add GET /version returning {sha, built} as JSON
 
-**Acceptance:** not asked for: this Project verifies, but previews no repository a criterion could target, so maul could not ask the planner for criteria and none will be checked.
+**Acceptance:** not asked for: this Project verifies, but previews no repository maul could check this change on, so the planner was not asked what to check and nothing will be checked.
 
 ### Before you approve
 

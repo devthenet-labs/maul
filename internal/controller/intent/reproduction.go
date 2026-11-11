@@ -150,8 +150,9 @@ func checkRunAt(entries []toolwire.LedgerEntry, seq int32, digest string) *toolw
 }
 
 // observations are a check run's steps that did not pass, attempt by
-// attempt; an attempt that failed with no step recorded is one observation
-// of its own.
+// attempt, each with what its element showed when the runner received it
+// (gate D-B10); an attempt that failed with no step recorded is one
+// observation of its own.
 func observations(r *toolwire.CheckRunRecord) []templates.ReproductionObservation {
 	var out []templates.ReproductionObservation
 	for i, a := range r.Attempts {
@@ -159,7 +160,7 @@ func observations(r *toolwire.CheckRunRecord) []templates.ReproductionObservatio
 		for _, s := range a.Steps {
 			if s.Result != toolwire.ResultPass {
 				out = append(out, templates.ReproductionObservation{Attempt: i + 1, Step: s.Index + 1,
-					Result: string(s.Result), Detail: s.Detail})
+					Result: string(s.Result), Detail: s.Detail, Received: received(s.Received, a.Run)})
 			}
 		}
 		if len(out) == n && a.Result != toolwire.ResultPass {
@@ -167,6 +168,16 @@ func observations(r *toolwire.CheckRunRecord) []templates.ReproductionObservatio
 		}
 	}
 	return out
+}
+
+// received is what a failing step's element showed (toolwire.StepRecord
+// .Received), its attempt's run token written back as checks.RunPlaceholder,
+// as the check's own steps name it; "" for none.
+func received(text, run string) string {
+	if text == "" || run == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, run, checks.RunPlaceholder)
 }
 
 // logWindow is component's excerpt from the window of the run at seq: what

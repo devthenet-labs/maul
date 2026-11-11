@@ -166,8 +166,9 @@ func TestWorkspaceStatusShowsNothingWithoutAHandoffOrProgress(t *testing.T) {
 }
 
 // TestHandoffWhyOfVerification: every agents-namespace PreviewVerification
-// reason slice S2 adds has maul's words on an unconfirmed hand-off, or is
-// none (a saturated tool pod bound waits, it never gives up).
+// reason slice S2 adds has maul's words on an unconfirmed hand-off, through
+// the cause it records (v1alpha1.CauseOf, CauseWords), or is none (a
+// saturated tool pod bound waits, it never gives up).
 func TestHandoffWhyOfVerification(t *testing.T) {
 	for _, tt := range []struct {
 		reason v1alpha1.PreviewVerificationReason
@@ -185,7 +186,7 @@ func TestHandoffWhyOfVerification(t *testing.T) {
 		{v1alpha1.VerificationReasonOK, ""},
 		{"@octocat", ""},
 	} {
-		got := HandoffWhyOfVerification(tt.reason)
+		got := CauseWords(v1alpha1.CauseOf(tt.reason), true).Why
 		if got != tt.want {
 			t.Errorf("%s: %q, want %q", tt.reason, got, tt.want)
 		}

@@ -361,9 +361,9 @@ func (p *pass) syncHeadSet(ctx context.Context, hs headSet, state v1alpha1.Inten
 		nv := cur.Status.Verification
 		// The reason a round recorded for not running is about the heads
 		// it was recorded at, as a judgement is.
-		nv.State, nv.UnavailableReason = state, ""
+		nv.State, nv.Cause = state, ""
 		nv.HeadSetDigest, nv.Heads = hs.digest, slices.Clone(hs.heads)
-		nv.Ref, nv.Attempt, nv.InfraRetries = nil, 0, 0
+		nv.Ref, nv.Attempt, nv.InfraRetries, nv.RetryOwed = nil, 0, 0, false
 		// A no-defect conclusion is about the heads it judged.
 		nv.NoDefect = nil
 		clearJudgement(nv)
@@ -471,24 +471,29 @@ func countManual(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance)
 func (p *pass) unjudged(ctx context.Context) error { return p.unjudgedFor(ctx, nil) }
 
 // unjudgedFor is unjudged for pv, the round that settled unjudged (nil when
-// it is gone or was dropped): an agents round whose every attempt ended
-// with the tool pod unable to build the head CI built green is Unconfirmed
-// for that reason (SPEC-S2 S2-20), never Unavailable and never a fail.
+// it is gone or was dropped). After the last attempt the verification
+// records the cause pv's reason names (v1alpha1.CauseOf), which every
+// surface then says: an agents round whose every attempt ended with the
+// tool pod unable to build the head CI built green is Unconfirmed for that
+// cause (SPEC-S2 S2-20), never Unavailable and never a fail.
 func (p *pass) unjudgedFor(ctx context.Context, pv *v1alpha1.PreviewVerification) error {
-	buildFailed := pv != nil && pv.Spec.IsAgents() && pv.Status.Reason == v1alpha1.VerificationReasonToolsBuildFailed
+	cause := v1alpha1.SettleNone
+	if pv != nil {
+		cause = v1alpha1.CauseOf(pv.Status.Reason)
+	}
+	buildFailed := pv != nil && pv.Spec.IsAgents() && cause == v1alpha1.SettleToolsBuildFailed
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if nv.Attempt >= v1alpha1.MaxVerificationAttempts {
-			nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, ""
+			nv.State, nv.Cause, nv.RetryOwed = v1alpha1.VerificationUnavailable, cause, false
 			if buildFailed {
-				nv.State, nv.UnavailableReason = v1alpha1.VerificationUnconfirmed,
-					v1alpha1.VerificationUnavailableToolsBuildFailed
+				nv.State = v1alpha1.VerificationUnconfirmed
 			}
 			return nil
 		}
-		nv.Ref = nil
+		nv.Ref, nv.RetryOwed = nil, true
 		nv.InfraRetries++
 		return nil
 	})
@@ -570,7 +575,7 @@ func (p *pass) waitVerification(ctx context.Context, state v1alpha1.IntentVerifi
 // was not live at the heads within previewWaitMax.
 func previewNotLive(v *v1alpha1.IntentVerification) bool {
 	return v.State == v1alpha1.VerificationUnavailable &&
-		v.UnavailableReason == v1alpha1.VerificationUnavailablePreviewNotLive
+		v.Cause == v1alpha1.SettlePreviewNotLive
 }
 
 // createVerification creates the next PreviewVerification at hs and
@@ -590,7 +595,7 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 	if round > v1alpha1.MaxIntentRound || attempt > v1alpha1.MaxVerificationAttempts {
 		return p.update(ctx, func(cur *v1alpha1.Intent) error {
 			nv := cur.Status.Verification
-			nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable, "", nil
+			nv.State, nv.Cause, nv.Requested, nv.RetryOwed = v1alpha1.VerificationUnavailable, "", nil, false
 			return nil
 		})
 	}
@@ -632,9 +637,9 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 	p.pruneVerifications(ctx)
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason = state, ""
+		nv.State, nv.Cause = state, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
-		nv.Ref = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}
+		nv.Ref, nv.RetryOwed = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}, false
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if kind != verifyRetry {

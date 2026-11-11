@@ -129,7 +129,7 @@ func (agentsHost) gate(ctx context.Context, p *pass, v *v1alpha1.IntentVerificat
 		return nil, false, err
 	}
 	if why != "" {
-		changed, err := p.agentsUnconfirmed(ctx, v1alpha1.VerificationReasonSandboxImageUnavailable, why)
+		changed, err := p.agentsUnconfirmed(ctx, why)
 		return nil, changed, err
 	}
 	base, why, err := p.mergeBase(ctx, repo.URL, pr.HeadSHA)
@@ -390,56 +390,49 @@ func (p *pass) pruneTrees(ctx context.Context, keep ...string) {
 	}
 }
 
-// agentsUnconfirmed settles a due agents round that cannot run at all
-// (reason, a PreviewVerification reason; why, what is missing):
-// Unconfirmed, any request consumed, never a block (O8), recording why
-// (SandboxImageUnavailable, which the hand-off says). Written once; a later
-// pass that finds what was missing runs the round. An approver's request
-// always settles, even where an earlier round at these heads left its
-// reference (roundSettled).
-func (p *pass) agentsUnconfirmed(ctx context.Context, reason v1alpha1.PreviewVerificationReason,
-	why string) (bool, error) {
-	if p.roundSettled(v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationUnavailableSandboxImage) {
-		return false, nil
-	}
-	if p.cannotRerun(ctx, reason, why) {
-		return p.keepJudgement(ctx, templates.NotRunSandboxImage)
-	}
-	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round cannot run; the verification is unconfirmed",
-		slog.String("intent", p.in.Name), slog.String("reason", string(reason)), slog.String("detail", why))
-	if err := p.answerNotRun(ctx, templates.NotRunSandboxImage, 0); err != nil {
-		return false, err
-	}
-	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnconfirmed,
-			v1alpha1.VerificationUnavailableSandboxImage, nil
-		return nil
-	})
+// agentsUnconfirmed settles a due agents round that cannot run at all, for
+// the repository has no accepted image to build in (why, what is missing):
+// Unconfirmed, any request consumed, never a block (O8), recording the
+// cause (SettleSandboxImage, which the hand-off says). Written once; a
+// later pass that finds what was missing runs the round.
+func (p *pass) agentsUnconfirmed(ctx context.Context, why string) (bool, error) {
+	return p.settleUnrun(ctx, v1alpha1.VerificationReasonSandboxImageUnavailable, v1alpha1.VerificationUnconfirmed,
+		"the agents round cannot run; the verification is unconfirmed", why)
 }
 
 // treesUnavailable settles a due agents round whose trees cannot be had
-// (VerificationReasonTreeUnavailable; why, which tree and how):
-// Unavailable for that reason (TreeUnavailable), any request consumed,
-// until a later pass finds them Ready or the heads move. Written once, and
-// for every request (roundSettled).
+// (why, which tree and how): Unavailable (SettleTree), any request
+// consumed, until a later pass finds them Ready or the heads move.
 func (p *pass) treesUnavailable(ctx context.Context, why string) (bool, error) {
-	if p.roundSettled(v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailableTree) {
+	return p.settleUnrun(ctx, v1alpha1.VerificationReasonTreeUnavailable, v1alpha1.VerificationUnavailable,
+		"the agents round's trees are unavailable; the verification is unavailable", why)
+}
+
+// settleUnrun settles a due agents round that cannot run for reason (why,
+// the detail; msg, the log line): in state, recording reason's cause
+// (v1alpha1.CauseOf), whose words (templates.CauseWords) answer an
+// approver's request. Written once, and for every request: an approver's
+// request always settles, even where an earlier round at these heads left
+// its reference (roundSettled), and where that round's judgement stands it
+// is kept (keepJudgement).
+func (p *pass) settleUnrun(ctx context.Context, reason v1alpha1.PreviewVerificationReason,
+	state v1alpha1.IntentVerificationState, msg, why string) (bool, error) {
+	cause := v1alpha1.CauseOf(reason)
+	notRun := templates.CauseWords(cause, true).NotRun
+	if p.roundSettled(state, cause) {
 		return false, nil
 	}
-	if p.cannotRerun(ctx, v1alpha1.VerificationReasonTreeUnavailable, why) {
-		return p.keepJudgement(ctx, templates.NotRunTree)
+	if p.cannotRerun(ctx, reason, why) {
+		return p.keepJudgement(ctx, notRun)
 	}
-	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the agents round's trees are unavailable; the verification is unavailable",
-		slog.String("intent", p.in.Name), slog.String("reason", string(v1alpha1.VerificationReasonTreeUnavailable)),
-		slog.String("detail", why))
-	if err := p.answerNotRun(ctx, templates.NotRunTree, 0); err != nil {
+	p.r.log().LogAttrs(ctx, slog.LevelWarn, msg, slog.String("intent", p.in.Name),
+		slog.String("reason", string(reason)), slog.String("detail", why))
+	if err := p.answerNotRun(ctx, notRun, 0); err != nil {
 		return false, err
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable,
-			v1alpha1.VerificationUnavailableTree, nil
+		nv.State, nv.Cause, nv.Requested = state, cause, nil
 		return nil
 	})
 }
@@ -452,7 +445,7 @@ func (p *pass) treesUnavailable(ctx context.Context, why string) (bool, error) {
 // (verifyDue), so it is consumed whatever reference is on record, or it
 // would wait, unanswered and unlogged, until the heads move.
 func (p *pass) roundSettled(state v1alpha1.IntentVerificationState,
-	reason v1alpha1.VerificationUnavailableReason) bool {
+	reason v1alpha1.SettleCause) bool {
 	v := p.in.Status.Verification
-	return v.Requested == nil && (v.Ref != nil || v.State == state && v.UnavailableReason == reason)
+	return v.Requested == nil && (v.Ref != nil || v.State == state && v.Cause == reason)
 }

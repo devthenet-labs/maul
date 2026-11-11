@@ -147,13 +147,10 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationNeedsReplan:
 		return acceptanceState{statusError, "a check cannot run as approved: its target is not previewed"}, true
 	case v1alpha1.VerificationUnavailable:
-		if previewNotLive(v) {
-			// Not "within 60 minutes": a wait also ends at once on a
-			// preview that expired before it was ever live (endWaitUnrun).
-			return acceptanceState{statusError, "the preview did not become live at these commits in time, so " +
-				"the checks could not run"}, true
-		}
-		return acceptanceState{statusError, "maul could not run the checks"}, true
+		// The cause the round settled for, in the one table's words. Not
+		// "within 60 minutes" for PreviewNotLive: a wait also ends at once on
+		// a preview that expired before it was ever live (endWaitUnrun).
+		return acceptanceState{statusError, templates.CauseWords(v.Cause, p.set.linkless(p.proj)).Short}, true
 	case v1alpha1.VerificationOff, v1alpha1.VerificationVerifying, v1alpha1.VerificationPassed,
 		v1alpha1.VerificationFailing, v1alpha1.VerificationFixing, v1alpha1.VerificationExhausted,
 		v1alpha1.VerificationEvaluating, v1alpha1.VerificationUnconfirmed:
@@ -174,7 +171,7 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	used, most := p.verifyFixesUsed()
 	total := int32(len(acc.Outcomes))
-	confirmed := fmt.Sprintf("%d/%d outcomes confirmed", confirmedCount(acc, v), total)
+	confirmed := templates.OutcomeCount(confirmedCount(acc, v), total)
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
 		if evaluable(acc.Outcomes) {
@@ -276,7 +273,7 @@ func outcomeAccepters(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 // checks, no outcome at all: pending until an approver's /maul accept all
 // at the current head set. Success names who accepted.
 func notCheckedStatus(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) acceptanceState {
-	const none = "no acceptance criteria declared"
+	const none = "no outcomes declared"
 	if r := acceptedAt(acc, acceptAll, v.HeadSetDigest); r != nil {
 		return acceptanceState{statusSuccess, none + "; accepted " + acceptedBy([]string{r.By})}
 	}

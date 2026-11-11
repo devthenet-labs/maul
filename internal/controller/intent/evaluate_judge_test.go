@@ -143,6 +143,12 @@ func TestJudgementRoutes(t *testing.T) {
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
 			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
+		{name: "machinery failed",
+			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonInfra, ""),
+			healthy: pass(oHealthy), env: httpstep.EnvInfra, acceptManual: true,
+			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
+			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyInfra,
+			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
 		// The H2 follow-up: every outcome passed, no anomaly, but the
 		// environment was not clean, which Decide never hands off ready on:
 		// neither does any view, the outcomes' results notwithstanding.
@@ -155,13 +161,17 @@ func TestJudgementRoutes(t *testing.T) {
 				"checked",
 			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: the preview failed while it " +
 				"was checked; 0 of 2 automatic fixes used."},
+		// Review H3: maul's own machinery failing is never called the
+		// preview failing.
 		{name: "every outcome passed on failing machinery", version: pass(oVersion), healthy: pass(oHealthy),
 			env: httpstep.EnvInfra, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
+			why: templates.HandoffWhyInfra, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but the preview failed while it was " +
-				"checked"},
+			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but its own checking environment " +
+				"failed while it checked",
+			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: its own checking environment " +
+				"failed while it checked; 0 of 2 automatic fixes used."},
 		{name: "quarantined",
 			version: judged(oVersion, acceptance.ResultQuarantined, acceptance.ReasonQuarantined, ""),
 			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,

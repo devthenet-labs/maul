@@ -305,7 +305,7 @@ func TestAgentsHeadBuildFailedIsUnconfirmed(t *testing.T) {
 	}
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationUnconfirmed ||
-		v.UnavailableReason != v1alpha1.VerificationUnavailableToolsBuildFailed ||
+		v.Cause != v1alpha1.SettleToolsBuildFailed ||
 		v.InfraRetries != v1alpha1.MaxVerificationAttempts-1 || len(v.Outcomes) != 0 {
 		t.Fatalf("verification = %+v, want Unconfirmed for the head build after every attempt", v)
 	}
@@ -327,7 +327,7 @@ func TestAgentsUnconfirmedReasonsAreRecorded(t *testing.T) {
 	e.reviewReady(name, 4)
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationUnconfirmed ||
-		v.UnavailableReason != v1alpha1.VerificationUnavailableSandboxImage {
+		v.Cause != v1alpha1.SettleSandboxImage {
 		t.Fatalf("verification = %+v, want Unconfirmed for the image", v)
 	}
 	if h := e.prVerifyPass(name).handoffView(); h == nil || h.Why != templates.HandoffWhySandboxImage {
@@ -339,7 +339,7 @@ func TestAgentsUnconfirmedReasonsAreRecorded(t *testing.T) {
 	e.clock.Advance(treeWaitMax)
 	e.review(name, 1)
 	v = e.verification(name)
-	if v.State != v1alpha1.VerificationUnavailable || v.UnavailableReason != v1alpha1.VerificationUnavailableTree {
+	if v.State != v1alpha1.VerificationUnavailable || v.Cause != v1alpha1.SettleTree {
 		t.Fatalf("verification = %+v, want Unavailable for the trees", v)
 	}
 	e.review(name, 1)

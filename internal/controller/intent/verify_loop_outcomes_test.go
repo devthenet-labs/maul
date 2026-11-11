@@ -214,7 +214,7 @@ func TestOutcomeVerificationGivesUpWaitingForThePreview(t *testing.T) {
 			e.review(name, 6)
 			v = e.verification(name)
 			if v.State != v1alpha1.VerificationUnavailable ||
-				v.UnavailableReason != v1alpha1.VerificationUnavailablePreviewNotLive || len(e.verifications(name)) != 0 {
+				v.Cause != v1alpha1.SettlePreviewNotLive || len(e.verifications(name)) != 0 {
 				t.Fatalf("verification after the bound = %+v, verifications %d", v, len(e.verifications(name)))
 			}
 			// The status follows the state at the next pass.
@@ -230,7 +230,7 @@ func TestOutcomeVerificationGivesUpWaitingForThePreview(t *testing.T) {
 			e.readyPreview(name)
 			e.review(name, 3)
 			v = e.verification(name)
-			if v.State != v1alpha1.VerificationEvaluating || v.UnavailableReason != "" || len(e.verifications(name)) != 1 {
+			if v.State != v1alpha1.VerificationEvaluating || v.Cause != "" || len(e.verifications(name)) != 1 {
 				t.Fatalf("verification once the preview is live = %+v, verifications %d", v,
 					len(e.verifications(name)))
 			}
@@ -248,7 +248,7 @@ func TestOutcomeRequestAfterARoundWaitsForThePreview(t *testing.T) {
 	outcomeRequest(t, &first)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
-		v.State, v.UnavailableReason = v1alpha1.VerificationUnavailable, ""
+		v.State, v.Cause = v1alpha1.VerificationUnavailable, ""
 		v.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()),
 			CommentID: 99}
 	})
@@ -261,7 +261,7 @@ func TestOutcomeRequestAfterARoundWaitsForThePreview(t *testing.T) {
 	e.clock.Advance(previewWaitMax)
 	e.review(name, 2)
 	if v := e.verification(name); v.State != v1alpha1.VerificationUnavailable ||
-		v.UnavailableReason != v1alpha1.VerificationUnavailablePreviewNotLive || v.Requested == nil {
+		v.Cause != v1alpha1.SettlePreviewNotLive || v.Requested == nil {
 		t.Fatalf("verification after the bound = %+v, want Unavailable (PreviewNotLive), the request kept", v)
 	}
 	e.readyPreview(name)

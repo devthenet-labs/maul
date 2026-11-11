@@ -11,6 +11,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The fifth review of the round-1 fallback: a suspected defect is confirmed
@@ -163,6 +164,35 @@ func TestSuspectedReleasedByTheHandoffLimit(t *testing.T) {
 	}
 	if note := e.suspectedNoteOf(name); !strings.Contains(note, "maul believes") || strings.Contains(note, "held") {
 		t.Errorf("the note once the link is released claims a hold:\n%s", note)
+	}
+}
+
+// TestSuspectedLeadsTheHandoff (gate D-B11): while a suspected defect
+// waits for a person the link stays held (the hold is unchanged), and once
+// the hand-off's time limit releases it, its reason leads with the outcome
+// maul suspects, before the outcomes in doubt and any anomaly: on the
+// issue and on every surface that reads the hand-off.
+func TestSuspectedLeadsTheHandoff(t *testing.T) {
+	e, name := suspectedRound(t)
+	p := e.prVerifyPass(name)
+	if v := e.verification(name); p.handoffDue(e.get(name).Status.Acceptance, v) != "" || !p.linkHeld() {
+		t.Fatalf("hand-off = %+v, want held while the defect waits", v.Handoff)
+	}
+	outcomes := e.verification(name).Suspected.Outcomes
+	e.clock.Advance(time.Hour + time.Minute) // handoffMax, an hour here
+	e.review(name, 2)
+	if h := e.verification(name).Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonOutOfTime {
+		t.Fatalf("hand-off = %+v, want released, out of time", h)
+	}
+	h := e.prVerifyPass(name).handoffView()
+	if h == nil || h.State != templates.HandoffUnconfirmed || h.Why != templates.HandoffWhySuspected ||
+		!slices.Equal(h.Suspected, outcomes) {
+		t.Fatalf("hand-off view = %+v, want the suspected %q leading", h, outcomes)
+	}
+	// The progress line and the commit status keep their counts: only the
+	// hand-off's reason names the suspected outcome first.
+	if p := e.prVerifyPass(name).verifyProgress(); p == nil || p.Why != templates.HandoffWhySuspected {
+		t.Errorf("progress = %+v, want the suspected defect as why", p)
 	}
 }
 

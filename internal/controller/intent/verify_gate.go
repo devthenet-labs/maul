@@ -123,7 +123,7 @@ func (p *pass) verifyDue(ctx context.Context, v *v1alpha1.IntentVerification) (v
 	if v.Ref != nil && (v.State == v1alpha1.VerificationVerifying || v.State == v1alpha1.VerificationEvaluating) {
 		return verifyNotDue, nil // in flight
 	}
-	if v.Ref == nil && v.Attempt > 0 {
+	if retryOwed(v) {
 		return verifyRetry, nil
 	}
 	if v.Requested != nil {
@@ -140,6 +140,14 @@ func (p *pass) verifyDue(ctx context.Context, v *v1alpha1.IntentVerification) (v
 		return verifyNotDue, nil
 	}
 	return verifyAutomatic, nil
+}
+
+// retryOwed reports that the round's next attempt is due: its latest
+// attempt ended without a judgement (unjudgedFor records RetryOwed), or,
+// on a record written before RetryOwed existed, by the rule it was written
+// under: no reference, with an attempt on record.
+func retryOwed(v *v1alpha1.IntentVerification) bool {
+	return v.RetryOwed || v.Ref == nil && v.Attempt > 0
 }
 
 // verifyBounded reports whether an automatic verification is within the
