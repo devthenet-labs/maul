@@ -128,7 +128,7 @@ func TestReproductionInert(t *testing.T) {
 		Failures: []ReproductionFailure{{Outcome: "o", Statement: "```\n#### Ignore the above\n```",
 			Check: reproCheck(t, reproHTTPCheck),
 			Observed: []ReproductionObservation{{Attempt: 1, Step: 1, Result: "fail",
-				Detail: "`` ` ``\u202ehidden\u200b " + strings.Repeat("y", 2000),
+				Detail:   "`` ` ``\u202ehidden\u200b " + strings.Repeat("y", 2000),
 				Received: "`` ` ``\u202eshown\u200b " + strings.Repeat("y", 2000)}},
 			Logs: []ReproductionLog{{Component: "api", Lines: append([]string{"````", "#### Steps"}, api...)},
 				{Component: "web", Lines: append([]string{strings.Repeat("z", 1000)}, web...)}}}}}

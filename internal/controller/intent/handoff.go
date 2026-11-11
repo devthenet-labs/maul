@@ -170,28 +170,7 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 	}
 	switch v.State {
 	case v1alpha1.VerificationUnconfirmed:
-		switch {
-		case len(v.Disputed) > 0 && v.Ref != nil && p.verifyBounded(v):
-			return "" // its replay round is due
-		case suspectedPending(v):
-			// The defect maul suspects waits for a person: it leads, before
-			// the outcomes in doubt and any anomaly (gate D-B11).
-			return templates.HandoffWhySuspected
-		case p.atEvaluationCeiling():
-			return templates.HandoffWhyBudget
-		case len(v.Disputed) > 0:
-			return templates.HandoffWhyRounds
-		case len(v.Anomalies) > 0 && !outcomesInDoubt(acc, v):
-			// Every outcome confirmed or accepted: the anomaly is the
-			// reason (review H2). With an outcome in doubt, the outcomes
-			// lead and the anomaly comes second (gate D-B6).
-			return templates.HandoffWhyAnomaly
-		case environmentWhy(v) != "":
-			return environmentWhy(v)
-		case doubtedOutcomes(acc, v) > 0:
-			return templates.HandoffWhyEvaluatorDoubts
-		}
-		return templates.HandoffWhyUnsure
+		return p.unconfirmedWhy(acc, v)
 	case v1alpha1.VerificationExhausted:
 		return templates.HandoffWhyRounds
 	case v1alpha1.VerificationFailing:
@@ -212,6 +191,33 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 		return templates.HandoffWhyUnavailable
 	}
 	return ""
+}
+
+// unconfirmedWhy is gaveUp for a round that judged and settled
+// Unconfirmed: "" while its replay round is due.
+func (p *pass) unconfirmedWhy(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) string {
+	switch {
+	case len(v.Disputed) > 0 && v.Ref != nil && p.verifyBounded(v):
+		return "" // its replay round is due
+	case suspectedPending(v):
+		// The defect maul suspects waits for a person: it leads, before the
+		// outcomes in doubt and any anomaly (gate D-B11).
+		return templates.HandoffWhySuspected
+	case p.atEvaluationCeiling():
+		return templates.HandoffWhyBudget
+	case len(v.Disputed) > 0:
+		return templates.HandoffWhyRounds
+	case len(v.Anomalies) > 0 && !outcomesInDoubt(acc, v):
+		// Every outcome confirmed or accepted: the anomaly is the reason
+		// (review H2). With an outcome in doubt, the outcomes lead and the
+		// anomaly comes second (gate D-B6).
+		return templates.HandoffWhyAnomaly
+	case environmentWhy(v) != "":
+		return environmentWhy(v)
+	case doubtedOutcomes(acc, v) > 0:
+		return templates.HandoffWhyEvaluatorDoubts
+	}
+	return templates.HandoffWhyUnsure
 }
 
 // unconfirmedView is the hand-off maul could not confirm for why: with the
