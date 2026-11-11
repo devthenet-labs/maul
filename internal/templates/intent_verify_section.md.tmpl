@@ -37,7 +37,7 @@ Log tail of {{ .Part }}:
 {{- end }}
 {{- end }}
 {{- template "verify_detail" . }}
-{{- if .LogsCut }}
+{{- with .Cut }}
 
-Component log tails were left out: they would not fit in this comment.
+{{ . }}
 {{- end }}

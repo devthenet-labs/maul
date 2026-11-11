@@ -51,7 +51,9 @@ import (
 // pod), is never scheduled, cannot pull an image, has a container
 // crash-looping or never finishes is maul's trouble past its bound (Infra
 // tools-not-ready, tools-unscheduled, tools-image-pull, tools-crashloop).
-// Once the Job has finished, its ledger is collected (ledger.go,
+// Once the Job has finished, a component Service whose address is no
+// longer the one the relay was rendered with (readdressed) settles it
+// Stale stale-preview; otherwise its ledger is collected (ledger.go,
 // evidence.go) and the attempt settles as a tester's does:
 // Observed, EnvFailed (the application's, a component never reached
 // included) or Infra (ledger-mismatch; a full round with no evaluator call
@@ -203,7 +205,7 @@ func (v *VerificationReconciler) startTools(ctx context.Context, pv *v1alpha1.Pr
 		}
 		return v.wait(), nil
 	}
-	data, reason, err := v.toolData(ctx, pv, s)
+	data, targets, reason, err := v.toolData(ctx, pv, s)
 	switch {
 	case reason == v1alpha1.VerificationReasonServiceNoClusterIP:
 		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra, reason)
@@ -214,6 +216,9 @@ func (v *VerificationReconciler) startTools(ctx context.Context, pv *v1alpha1.Pr
 		return ctrl.Result{}, err
 	}
 	job, err := v.Settings.toolJob(s.preview, pv, s.slot, v.deadlineMax())
+	if err == nil {
+		err = recordTargets(job, targets)
+	}
 	if err != nil {
 		v.logRefusal(ctx, pv, "tool pod not rendered", err)
 		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleCriteria)
@@ -249,28 +254,70 @@ func (v *VerificationReconciler) evaluationRoom(ctx context.Context, pv *v1alpha
 
 // toolData is the tool ConfigMap's own data for pv: the relay's config,
 // its targets each component's Service ClusterIP read live, and the
-// outcomes. A component Service with no ClusterIP is the reason
-// service-no-cluster-ip; a config the relay would refuse, stale-criteria.
+// outcomes; and those targets. A component Service with no ClusterIP is
+// the reason service-no-cluster-ip; a config the relay would refuse,
+// stale-criteria.
 func (v *VerificationReconciler) toolData(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	s *verifySubject) (map[string]string, v1alpha1.PreviewVerificationReason, error) {
-	targets, err := v.serviceTargets(ctx, s.preview, s.slot)
+	s *verifySubject) (data, targets map[string]string, reason v1alpha1.PreviewVerificationReason, err error) {
+	targets, err = v.serviceTargets(ctx, s.preview, s.slot)
 	if errors.Is(err, errNoClusterIP) {
 		v.logRefusal(ctx, pv, "tool pod not rendered", err)
-		return nil, v1alpha1.VerificationReasonServiceNoClusterIP, nil
+		return nil, nil, v1alpha1.VerificationReasonServiceNoClusterIP, nil
 	}
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	_, _, wall := toolpod.Deadlines(pv.Spec.Timeout.Duration, v.deadlineMax())
 	cfg, err := v.Settings.toolConfig(s.preview, pv, targets, wall)
 	if err != nil {
-		return nil, v1alpha1.VerificationReasonStaleCriteria, err
+		return nil, nil, v1alpha1.VerificationReasonStaleCriteria, err
 	}
-	data, err := toolpod.ConfigData(cfg, pv.Spec.Outcomes)
+	if data, err = toolpod.ConfigData(cfg, pv.Spec.Outcomes); err != nil {
+		return nil, nil, v1alpha1.VerificationReasonStaleCriteria, err
+	}
+	return data, targets, "", nil
+}
+
+// annotationToolTargets on a tool Job records the targets its relay was
+// rendered with (each component's Service ClusterIP and port, as JSON), the
+// only record of them preview-controller can read back: it holds no read
+// of the tool ConfigMap, and what it keeps in memory is re-derived from
+// the live Services after a restart.
+const annotationToolTargets = "maul.run/tool-targets"
+
+// recordTargets stamps targets on job (annotationToolTargets).
+func recordTargets(job *batchv1.Job, targets map[string]string) error {
+	b, err := json.Marshal(targets)
 	if err != nil {
-		return nil, v1alpha1.VerificationReasonStaleCriteria, err
+		return err
 	}
-	return data, "", nil
+	if job.Annotations == nil {
+		job.Annotations = map[string]string{}
+	}
+	job.Annotations[annotationToolTargets] = string(b)
+	return nil
+}
+
+// readdressed reports whether the targets job's relay was rendered with
+// are no longer the components' Services' addresses: a Service recreated
+// with another ClusterIP, or with none, while the round ran, or a Job that
+// records no targets (an earlier release rendered it). The relay then
+// spoke to other addresses than the preview serves, so its round is about
+// no component (stale-preview), never the change's unreachable component.
+func (v *VerificationReconciler) readdressed(ctx context.Context, job *batchv1.Job, s *verifySubject) (bool, error) {
+	var rendered map[string]string
+	raw, ok := job.Annotations[annotationToolTargets]
+	if !ok || json.Unmarshal([]byte(raw), &rendered) != nil {
+		return true, nil
+	}
+	live, err := v.serviceTargets(ctx, s.preview, s.slot)
+	if errors.Is(err, errNoClusterIP) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !maps.Equal(rendered, live), nil
 }
 
 // createTools writes the ingress policy first (nothing may reach the pod
@@ -360,6 +407,11 @@ func (v *VerificationReconciler) observeTools(ctx context.Context, pv *v1alpha1.
 	if pod == nil {
 		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
 			v1alpha1.VerificationReasonDeadlineNoSummary)
+	}
+	if moved, err := v.readdressed(ctx, job, s); err != nil {
+		return ctrl.Result{}, err
+	} else if moved {
+		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview)
 	}
 	log, err := v.Logs.ReadLog(ctx, pod.Namespace, pod.Name, toolsContainer,
 		LogOptions{LimitBytes: toolwire.MaxLogBytes + 1})
@@ -466,7 +518,7 @@ func (v *VerificationReconciler) followCapture(ctx context.Context, pv *v1alpha1
 		return
 	}
 	if st.data == nil {
-		data, _, err := v.toolData(ctx, pv, s)
+		data, _, _, err := v.toolData(ctx, pv, s)
 		if err != nil || data == nil {
 			v.logRefusal(ctx, pv, "tool config not re-derived for the capture", err)
 			return
@@ -628,8 +680,11 @@ func (v *VerificationReconciler) teardown(ctx context.Context, pv *v1alpha1.Prev
 }
 
 // fitToolStatus holds an outcome verification to maxToolVerificationObject:
-// log tails go first, from the last part back; one still over is maul's
-// trouble, its ledger fields dropped.
+// log tails go first, from the last part back; then the ledger fields. An
+// Observed round's verdict rests on those, so one that loses them is
+// maul's trouble (Infra ledger-mismatch); any other phase rests on none
+// of them and keeps its own, so an EnvFailed round is never turned from
+// the application's failure into maul's.
 func fitToolStatus(pv *v1alpha1.PreviewVerification) {
 	for i := len(pv.Status.Environment) - 1; i >= 0 && jsonSize(pv) > maxToolVerificationObject; i-- {
 		pv.Status.Environment[i].LogTail = ""
@@ -638,8 +693,10 @@ func fitToolStatus(pv *v1alpha1.PreviewVerification) {
 		return
 	}
 	pv.Status.Ledger, pv.Status.Replay, pv.Status.Confirmations, pv.Status.Confirmed = nil, nil, nil, nil
-	pv.Status.Phase = v1alpha1.VerificationInfra
-	pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch
+	if pv.Status.Phase == v1alpha1.VerificationObserved {
+		pv.Status.Phase = v1alpha1.VerificationInfra
+		pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch
+	}
 }
 
 // settled reports whether a phase is final: nothing writes it again.

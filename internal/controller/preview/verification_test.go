@@ -750,12 +750,9 @@ func TestVerificationUnreachableWithDNSFailures(t *testing.T) {
 // A component that exited during the attempt, by the kubelet's timestamps
 // against the attempt's start and end, and came back Ready crashed:
 // EnvFailed component-crashed, the change's. A restart from before the
-// attempt, or after it ended, is not charged.
-//
-// The tool pod's attempt ends at the settle, not when its tools container
-// terminated (attemptEnd reads the container of slice 1's tester), so a
-// crash between the two is charged too: the last case pins that, a known
-// gap to close on its own.
+// attempt, or after it ended, is not charged. The attempt ends when the
+// tool pod's tools container terminated, not at the settle: a crash
+// between the two came after every check ran, so it is not the change's.
 func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 	ref := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC) // the attempt's start (e.now)
 	for _, tc := range []struct {
@@ -775,8 +772,10 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 			v1alpha1.VerificationReasonOK},
 		{"restart after the attempt ended", 1, ref.Add(time.Hour), ref.Add(time.Hour), 0,
 			v1alpha1.VerificationReasonOK},
-		{"after the tools exited, before the settle (today: charged)", 1, ref.Add(270 * time.Second),
-			ref.Add(271 * time.Second), time.Minute, v1alpha1.VerificationReasonComponentCrashed},
+		{"just before the tools exited", 1, ref.Add(239 * time.Second), ref.Add(239 * time.Second), time.Minute,
+			v1alpha1.VerificationReasonComponentCrashed},
+		{"after the tools exited, before the settle", 1, ref.Add(270 * time.Second),
+			ref.Add(271 * time.Second), time.Minute, v1alpha1.VerificationReasonOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newToolEnv(t)
@@ -793,6 +792,41 @@ func TestVerificationRestartDuringTheAttempt(t *testing.T) {
 				if f.Name == "api" && f.CrashedDuring != (tc.reason != v1alpha1.VerificationReasonOK) {
 					t.Errorf("api fact %+v", f)
 				}
+			}
+		})
+	}
+}
+
+// A component crash-looping at the settle is charged to the change only
+// when its last exit fell in the attempt: one whose last exit came after
+// the tools container exited (every check had run) is no evidence about
+// the change, so the round is maul's to retry (Infra component-disrupted),
+// never EnvFailed; a crash loop with no exit time on record is charged as
+// before (TestVerificationUnreachableCrashedIsEnvFailed).
+func TestVerificationCrashLoopAfterTheAttempt(t *testing.T) {
+	ref := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name     string
+		finished time.Time
+		phase    v1alpha1.PreviewVerificationPhase
+		reason   v1alpha1.PreviewVerificationReason
+	}{
+		{"last exit during the attempt", ref.Add(30 * time.Second), v1alpha1.VerificationEnvFailed,
+			v1alpha1.VerificationReasonComponentCrashLoop},
+		{"last exit after the tools exited", ref.Add(270 * time.Second), v1alpha1.VerificationInfra,
+			v1alpha1.VerificationReasonComponentDisrupted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			e.verify()
+			log, msg := toolLedger(t, nil)
+			e.crash(1, "CrashLoopBackOff")
+			e.restartAt(4, tc.finished, time.Time{})
+			e.runTools(e.testerJob(), log, msg)
+			e.now = e.now.Add(time.Minute)
+			pv, _ := e.verify()
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
 			}
 		})
 	}
@@ -1045,6 +1079,55 @@ func TestVerificationPreviewChangedIsStale(t *testing.T) {
 	}
 }
 
+// TestVerificationServiceReaddressedIsStale: a component Service whose
+// ClusterIP changed after the tool pod was rendered (recreated) means the
+// relay spoke to another address than the Service has, so its round is
+// about no component: stale-preview, never the change's unreachable
+// component. The rendered targets are read back from the Job, so a
+// restart in between changes nothing, and a Job that records none (an
+// earlier release's) or a Service that lost its ClusterIP is stale too.
+func TestVerificationServiceReaddressedIsStale(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		ip      string
+		restart bool
+		unset   bool
+		reason  v1alpha1.PreviewVerificationReason
+	}{
+		{"unchanged", "10.96.0.10", false, false, v1alpha1.VerificationReasonOK},
+		{"readdressed", "10.96.0.77", false, false, v1alpha1.VerificationReasonStalePreview},
+		{"readdressed across a restart", "10.96.0.77", true, false, v1alpha1.VerificationReasonStalePreview},
+		{"no ClusterIP now", corev1.ClusterIPNone, false, false, v1alpha1.VerificationReasonStalePreview},
+		{"no targets recorded on the Job", "10.96.0.10", false, true, v1alpha1.VerificationReasonStalePreview},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			e.verify()
+			job := e.testerJob()
+			if tc.unset {
+				delete(job.Annotations, annotationToolTargets)
+				if err := e.c.Update(context.Background(), job); err != nil {
+					t.Fatal(err)
+				}
+			}
+			log, msg := toolLedger(t, nil)
+			e.setClusterIP(0, tc.ip)
+			if tc.restart {
+				e.v.forgetTools(e.pv.UID)
+			}
+			e.runTools(job, log, msg)
+			pv, _ := e.verify()
+			want := v1alpha1.VerificationObserved
+			if tc.reason == v1alpha1.VerificationReasonStalePreview {
+				want = v1alpha1.VerificationStale
+			}
+			if pv.Status.Phase != want || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, want, tc.reason)
+			}
+		})
+	}
+}
+
 // A component that crashed during the run fails the environment: the
 // verification is EnvFailed, charged to the intent, with the evidence and
 // the round's ledger.
@@ -1272,5 +1355,50 @@ func TestFitToolStatus(t *testing.T) {
 		pv.Status.Ledger != nil {
 		t.Errorf("phase %s %s, ledger %v; want Infra ledger-mismatch and no ledger", pv.Status.Phase,
 			pv.Status.Reason, pv.Status.Ledger)
+	}
+}
+
+// TestFitToolStatusNeverHidesAnAppFailure: a settled phase other than
+// Observed rests on no ledger detail, so a status still over its cap once
+// the log tails go loses the ledger, replays and confirmations, never its
+// phase: an EnvFailed round stays the application's, with the facts that
+// say so; an Infra or Stale one keeps its own reason.
+func TestFitToolStatusNeverHidesAnAppFailure(t *testing.T) {
+	for _, tc := range []struct {
+		phase  v1alpha1.PreviewVerificationPhase
+		reason v1alpha1.PreviewVerificationReason
+	}{
+		{v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentCrashed},
+		{v1alpha1.VerificationInfra, v1alpha1.VerificationReasonComponentDisrupted},
+		{v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview},
+	} {
+		t.Run(string(tc.phase), func(t *testing.T) {
+			body := strings.Repeat("b", 4<<10)
+			pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: "shop-1-v1-a1"}}
+			pv.Status = v1alpha1.PreviewVerificationStatus{Phase: tc.phase, Reason: tc.reason,
+				Ledger: &v1alpha1.LedgerSummary{Count: 1, SHA256: strings.Repeat("a", 64)},
+				Environment: []v1alpha1.PartFact{{Name: "api", Role: v1alpha1.PreviewRoleComponent,
+					CrashedDuring: true, Restarts: 1, LogTail: strings.Repeat("x", 400<<10)}}}
+			for i := range 400 {
+				pv.Status.Confirmed = append(pv.Status.Confirmed, v1alpha1.SavedCheck{ID: fmt.Sprintf("c%d", i),
+					Body: body})
+			}
+			fitToolStatus(pv)
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s kept", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
+			}
+			if pv.Status.Ledger != nil || pv.Status.Confirmed != nil {
+				t.Error("the ledger detail was kept over the cap")
+			}
+			if n := jsonSize(pv); n > maxToolVerificationObject {
+				t.Errorf("status is %d bytes, over %d", n, maxToolVerificationObject)
+			}
+			env := crdconv.PartFacts(pv.Status.Environment)
+			if tc.phase == v1alpha1.VerificationEnvFailed && (httpstep.ClassifyEnvironment(env) !=
+				httpstep.EnvAppFailure || !slices.Equal(httpstep.AppFailureParts(env), []string{"api"})) {
+				t.Errorf("environment classifies as %s: the application's failure is hidden",
+					httpstep.ClassifyEnvironment(env))
+			}
+		})
 	}
 }

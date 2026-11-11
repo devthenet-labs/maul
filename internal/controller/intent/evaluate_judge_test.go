@@ -472,6 +472,42 @@ func (e *env) reviewUntil(name string, done func() bool) {
 		e.verification(name))
 }
 
+// TestEvaluationEnvFailedWithoutLedgerDetail: preview-controller drops an
+// EnvFailed round's ledger, replays and confirmations when its status is
+// over the size cap, keeping the phase and the facts. Judged so, with the
+// evaluator reporting every outcome holds, no outcome passes (no check
+// maul re-ran shows it, and the preview failed) and none fails (no check
+// failed): unconfirmed, never a pass or a defect.
+func TestEvaluationEnvFailedWithoutLedgerDetail(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.runRuns()
+	e.runRuns()
+	e.playTools(pv.Name, v1alpha1.VerificationEnvFailed, toolPodIP, true)
+	got := e.pvNamed(pv.Name)
+	got.Status.Reason = v1alpha1.VerificationReasonComponentCrashed
+	got.Status.Ledger, got.Status.Replay, got.Status.Confirmations, got.Status.Confirmed = nil, nil, nil, nil
+	got.Status.Environment = []v1alpha1.PartFact{{Name: "app", Role: v1alpha1.PreviewRoleComponent, Ready: true,
+		CrashedDuring: true, Restarts: 1}}
+	if err := e.c.Update(context.Background(), got); err != nil {
+		t.Fatal(err)
+	}
+	e.settleReviews(name)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationUnconfirmed || len(v.Outcomes) == 0 {
+		t.Fatalf("verification = %s %+v, want Unconfirmed", v.State, v.Outcomes)
+	}
+	for _, r := range v.Outcomes {
+		if r.Result == v1alpha1.OutcomePassed || r.Result == v1alpha1.OutcomeFailed {
+			t.Errorf("outcome %s is %s with no ledger detail in a failing environment", r.ID, r.Result)
+		}
+	}
+}
+
 // TestEvaluationFailureStartsAFix: a stored check failing its replay, with
 // the evaluator's cited fail, is a reproduced failure: the verification is
 // Failing and the kept machinery starts one acceptance-fix round on it,

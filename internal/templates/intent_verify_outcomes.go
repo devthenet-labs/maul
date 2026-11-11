@@ -107,7 +107,8 @@ var outcomeKindWords = map[string]string{"": "change", "change": "change", "keep
 // outcomeViews adds s's outcomes to v: a row each, saying its kind, its
 // result, why and the check it rests on; then the failures' app output and
 // the anomalies. An outcome is listed once, in its row (S2 demo run 5).
-func outcomeViews(v *verifyView, s VerifySection) {
+// short cuts each statement to verifyStatementShortBytes of visible text.
+func outcomeViews(v *verifyView, s VerifySection, short bool) {
 	for _, o := range s.Outcomes {
 		word, ok := outcomeResultWords[o.Result]
 		if !ok {
@@ -120,9 +121,14 @@ func outcomeViews(v *verifyView, s VerifySection) {
 		if !ok {
 			kind = "unknown"
 		}
-		id, verdict := code(shown(o.ID)), outcomeVerdict(o, word)
+		id, verdict, statement := code(shown(o.ID)), outcomeVerdict(o, word), o.Statement
+		if short {
+			if cut := cutRunes(visibleText(statement), verifyStatementShortBytes); cut != visibleText(statement) {
+				statement = cut + "…"
+			}
+		}
 		v.Rows = append(v.Rows, verifyRow{ID: id, Kind: code(kind), Outcome: verdict,
-			Statement: SanitizeInline(o.Statement), IDCell: cell(id), KindCell: cell(code(kind)),
+			Statement: SanitizeInline(statement), IDCell: cell(id), KindCell: cell(code(kind)),
 			OutcomeCell: cell(verdict)})
 		if d, ok := outcomeDetailOf(o, id); ok {
 			v.Outcomes = append(v.Outcomes, d)

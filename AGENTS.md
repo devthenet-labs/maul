@@ -272,8 +272,11 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   key Secret and tool ConfigMap (owned by the Job, never read back), and one ingress policy admitting exactly its
   evaluator on 8090; it writes `status.tools` once `tools` is Ready, refreshes the redacted log tails and slot events
   each poll (`capture.go`), then verifies the `tools` log against its termination message and keeps the ledger and
-  cited evidence in `<pv>-ledger`/`<pv>-evidence` (`ledger.go`, `evidence.go`). `--preview-max-evaluations` bounds
-  tool pods at once (0, the slot count).
+  cited evidence in `<pv>-ledger`/`<pv>-evidence` (`ledger.go`, `evidence.go`). The attempt a component is charged in
+  ends at `tools`' termination (`disruption.go`); the Job records the ClusterIP targets its relay was rendered with
+  (`maul.run/tool-targets`), and a finished round whose Services no longer have them is Stale `stale-preview`; a status
+  over its cap drops log tails, then the ledger fields, and only an Observed round then turns Infra.
+  `--preview-max-evaluations` bounds tool pods at once (0, the slot count).
 - `cmd/preview-tools` — OPTIONAL (with the agent evaluator; `Dockerfile.preview-tools`, a digest-pinned image, chart
   `preview.verification.tools.image`): the `tools` container of the evaluator's slot tool pod, maul's relay over
   `internal/previewtools`. It serves the `toolwire` verbs on 8090 (refusing local callers), runs every tool call and

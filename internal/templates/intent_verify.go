@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -327,7 +328,22 @@ const VerifySuspectedMaxBytes = 6 << 10
 // suspectedNote is the note on a suspected defect: what maul believes and
 // why, that a person should confirm it, the command that does, the known
 // limits, and the reproduction a fix round would be handed.
-func suspectedNote(s *VerifySuspected) string {
+func suspectedNote(s *VerifySuspected) string { return suspectedText(s) + suspectedReproduction(s) }
+
+// suspectedReproduction is the suspected defect's reproduction as its note
+// ends with it, fenced and defanged: evidence, which a comment over its
+// budget leaves out last (fitVerify); "" for none.
+func suspectedReproduction(s *VerifySuspected) string {
+	r := strings.TrimSpace(cutRunes(visibleText(s.Reproduction), VerifySuspectedMaxBytes))
+	if r == "" {
+		return ""
+	}
+	return "\n\nmaul's reproduction:\n\n" + fence(defang(r))
+}
+
+// suspectedText is the note on a suspected defect without its
+// reproduction: maul's own words, never cut.
+func suspectedText(s *VerifySuspected) string {
 	ids := make([]string, 0, len(s.Outcomes))
 	for _, id := range s.Outcomes {
 		if c := shown(id); c != "" {
@@ -345,9 +361,6 @@ func suspectedNote(s *VerifySuspected) string {
 			"does not fix a defect found this way on its own: a person should confirm it. An approver's "+
 			"`/maul verify fix` starts a fix round, handed the reproduction below%s. Known limits: %s",
 			strings.Join(ids, ", "), plural(int32(len(ids)), "has", "have"), suspectedHold(s), suspectedLimits(s))
-	}
-	if r := strings.TrimSpace(cutRunes(visibleText(s.Reproduction), VerifySuspectedMaxBytes)); r != "" {
-		b.WriteString("\n\nmaul's reproduction:\n\n" + fence(defang(r)))
 	}
 	return b.String()
 }
@@ -431,27 +444,37 @@ type verifyLogView struct{ Part, Block string }
 
 // verifyView is a section as the templates print it.
 type verifyView struct {
-	Line    string
-	Rows    []verifyRow
-	Notes   []string
-	Logs    []verifyLogView
-	LogsCut bool
+	Line  string
+	Rows  []verifyRow
+	Notes []string
+	Logs  []verifyLogView
+	// Cut is the note on what fitVerify left out; "" for nothing.
+	Cut string
 	// Outcomes are the outcomes' details, Anomalies the look-around's.
 	Outcomes  []outcomeDetail
 	Anomalies []string
+	// reproduction is the suspected defect's reproduction, which ends the
+	// note at Notes[reproNote] when it is shown (withEvidence).
+	reproduction string
+	reproNote    int
+	// shortened: each outcome's statement is cut to
+	// verifyStatementShortBytes (fitVerify's last resort).
+	shortened bool
 }
 
 // verifySectionMaxBytes is the most a pull request's preview comment gives
-// its verification section before its log tails are left out, keeping each
-// comment, with every outcome's verdict, under MaxCommentBytes.
+// its verification section, keeping each comment, with every outcome's
+// verdict, under MaxCommentBytes.
 const verifySectionMaxBytes = 48 << 10
 
 // cell keeps a value inside one table cell.
 func cell(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
 
-func buildVerifyView(s VerifySection, withLogs bool) verifyView {
-	v := verifyView{Line: verifyLine(s.Progress)}
-	outcomeViews(&v, s)
+// buildVerifyView is s as the templates print it, with all its evidence;
+// short cuts each outcome's statement (fitVerify's last resort).
+func buildVerifyView(s VerifySection, short bool) verifyView {
+	v := verifyView{Line: verifyLine(s.Progress), reproNote: -1, shortened: short}
+	outcomeViews(&v, s, short)
 	if s.StatusNotPosted {
 		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
 			"posted: an administrator sets Commit statuses to Read and write in the App's settings and accepts the "+
@@ -461,23 +484,22 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 		v.Notes = append(v.Notes, noDefectNote(s.NoDefect))
 	}
 	if s.Suspected != nil {
-		v.Notes = append(v.Notes, suspectedNote(s.Suspected))
+		v.reproNote, v.reproduction = len(v.Notes), suspectedReproduction(s.Suspected)
+		v.Notes = append(v.Notes, suspectedText(s.Suspected)+v.reproduction)
 	}
 	if who := shown(s.Impostor); who != "" {
 		v.Notes = append(v.Notes, "Another actor, "+code(who)+", posted a `maul/acceptance` status. "+
 			"maul posted its own over it.")
 	}
-	if withLogs {
-		for i, l := range s.Logs {
-			if i == verifyLogsMax {
-				break
-			}
-			tail := strings.TrimSpace(cutRunes(visibleText(l.Tail), VerifyLogMaxBytes))
-			if tail == "" {
-				continue
-			}
-			v.Logs = append(v.Logs, verifyLogView{Part: code(shown(l.Part)), Block: fence(tail)})
+	for i, l := range s.Logs {
+		if i == verifyLogsMax {
+			break
 		}
+		tail := strings.TrimSpace(cutRunes(visibleText(l.Tail), VerifyLogMaxBytes))
+		if tail == "" {
+			continue
+		}
+		v.Logs = append(v.Logs, verifyLogView{Part: code(shown(l.Part)), Block: fence(tail)})
 	}
 	return v
 }
@@ -488,42 +510,180 @@ func renderVerifySection(s *VerifySection) (string, error) {
 	if s.empty() {
 		return "", nil
 	}
-	for _, logs := range []bool{true, false} {
-		v := buildVerifyView(*s, logs)
-		v.LogsCut = !logs && len(s.Logs) > 0
+	return fitVerify(*s, verifySectionMaxBytes, func(v verifyView) (string, error) {
 		out, err := render("intent_verify_section.md.tmpl", v)
-		if err != nil {
-			return "", err
-		}
-		if out = strings.TrimRight(out, "\n"); len(out) <= verifySectionMaxBytes {
-			return out, nil
-		}
-	}
-	return "", fmt.Errorf("verification section is over %d bytes even without its log tails",
-		verifySectionMaxBytes)
+		return strings.TrimRight(out, "\n"), err
+	})
 }
 
-// RenderVerifyComment renders the verification comment on the issue. A
-// comment over GitHub's limit is rendered again without its log tails and
-// says so.
+// RenderVerifyComment renders the verification comment on the issue, held
+// to GitHub's limit by fitVerify.
 func RenderVerifyComment(c VerifyComment) (string, error) {
-	for _, logs := range []bool{true, false} {
-		v := buildVerifyView(c.Section, logs)
-		v.LogsCut = !logs && len(c.Section.Logs) > 0
-		out, err := render("intent_verify_issue.md.tmpl", struct {
+	return fitVerify(c.Section, MaxCommentBytes, func(v verifyView) (string, error) {
+		return render("intent_verify_issue.md.tmpl", struct {
 			Marker         string
 			Round, Attempt int32
 			verifyView
 		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, v})
-		if err != nil {
-			return "", err
+	})
+}
+
+// evidenceCutLead opens the note on what a verification comment left out.
+const evidenceCutLead = "Left out to keep this comment within GitHub's size limit"
+
+// verifyStatementShortBytes bounds each outcome's statement, as visible
+// text, once a comment cannot fit with them whole (fitVerify's last
+// resort): the approved plan's comment shows them whole.
+const verifyStatementShortBytes = 160
+
+// Evidence kinds, most important first: what fitVerify keeps first and
+// leaves out last.
+const (
+	pieceReproduction = iota
+	pieceAppOutput
+	pieceAnomaly
+	pieceLog
+)
+
+// evidencePiece is one piece of a view's evidence: its kind, its index in
+// that kind's list, and what it adds to the comment, at most.
+type evidencePiece struct{ kind, index, cost int }
+
+// pieces are v's evidence, most important first: the suspected defect's
+// reproduction, then each failing outcome's app output in plan order, then
+// the look-around's anomalies, then the component log tails, each in
+// order.
+func (v verifyView) pieces() []evidencePiece {
+	const overhead = 32 // the blank lines and words around a piece
+	var ps []evidencePiece
+	if v.reproduction != "" {
+		ps = append(ps, evidencePiece{pieceReproduction, 0, len(v.reproduction) + overhead})
+	}
+	for i, o := range v.Outcomes {
+		ps = append(ps, evidencePiece{pieceAppOutput, i, len(o.Lead) + len(o.AppOutput) + overhead})
+	}
+	for i, a := range v.Anomalies {
+		ps = append(ps, evidencePiece{pieceAnomaly, i, len(a) + overhead})
+	}
+	for i, l := range v.Logs {
+		ps = append(ps, evidencePiece{pieceLog, i, len(l.Part) + len(l.Block) + overhead})
+	}
+	return ps
+}
+
+// withEvidence is v showing only the pieces keep marks, and the note on
+// what is left out.
+func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
+	w := v
+	w.Notes = slices.Clone(v.Notes)
+	w.Outcomes, w.Anomalies, w.Logs = nil, nil, nil
+	var left [pieceLog + 1]int
+	for i, p := range ps {
+		if !keep[i] {
+			left[p.kind]++
+			continue
 		}
-		if len(out) <= MaxCommentBytes {
-			return out, nil
+		switch p.kind {
+		case pieceAppOutput:
+			w.Outcomes = append(w.Outcomes, v.Outcomes[p.index])
+		case pieceAnomaly:
+			w.Anomalies = append(w.Anomalies, v.Anomalies[p.index])
+		case pieceLog:
+			w.Logs = append(w.Logs, v.Logs[p.index])
 		}
 	}
-	return "", fmt.Errorf("verification comment of round %d is over %d bytes even without its log tails",
-		c.Round, MaxCommentBytes)
+	if left[pieceReproduction] > 0 {
+		w.Notes[v.reproNote] = strings.TrimSuffix(w.Notes[v.reproNote], v.reproduction)
+	}
+	w.Cut = cutNote(left, v.shortened)
+	return w
+}
+
+// cutNote says what a comment left out, by kind ("" for nothing).
+func cutNote(left [pieceLog + 1]int, shortened bool) string {
+	var parts []string
+	for _, k := range []struct {
+		kind      int
+		one, many string
+	}{
+		{pieceAppOutput, "app output", "app outputs"},
+		{pieceAnomaly, "look-around note", "look-around notes"},
+		{pieceLog, "component log tail", "component log tails"},
+	} {
+		if n := left[k.kind]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, plural(int32(n), k.one, k.many)))
+		}
+	}
+	if left[pieceReproduction] > 0 {
+		parts = append(parts, "maul's reproduction of the suspected defect")
+	}
+	if shortened {
+		parts = append(parts, "the end of each outcome's statement (the approved plan's comment shows them whole)")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return evidenceCutLead + ": " + strings.Join(parts, "; ") + "."
+}
+
+// fitVerify renders s within limit bytes however much evidence it carries.
+// Whole when it fits; otherwise its evidence shares what is left of the
+// comment once maul's own words are rendered (every outcome's verdict
+// line, the progress line and the notes), kept most important first
+// (pieces), each whole while it still fits (a large one left out does not
+// stop a smaller one after it), and the comment names what it left out. Only
+// when even that cannot fit is each outcome's statement shortened, the
+// verdict lines kept whole. Deterministic: the same section always keeps
+// the same evidence.
+func fitVerify(s VerifySection, limit int, render func(verifyView) (string, error)) (string, error) {
+	whole := buildVerifyView(s, false)
+	out, err := render(whole)
+	if err != nil || len(out) <= limit {
+		return out, err
+	}
+	for _, short := range []bool{false, true} {
+		v := buildVerifyView(s, short)
+		out, ok, err := budgetEvidence(v, limit, render)
+		if err != nil || ok {
+			return out, err
+		}
+	}
+	return "", fmt.Errorf("verification comment is over %d bytes even with no evidence and short statements",
+		limit)
+}
+
+// budgetEvidence renders v within limit, keeping its evidence pieces most
+// important first while each fits in what maul's own words leave; ok is
+// false when those alone are over limit.
+func budgetEvidence(v verifyView, limit int, render func(verifyView) (string, error)) (string, bool, error) {
+	ps := v.pieces()
+	keep := make([]bool, len(ps))
+	bare, err := render(v.withEvidence(ps, keep))
+	if err != nil || len(bare) > limit {
+		return "", false, err
+	}
+	left := limit - len(bare)
+	for i, p := range ps {
+		if p.cost <= left {
+			keep[i], left = true, left-p.cost
+		}
+	}
+	for {
+		out, err := render(v.withEvidence(ps, keep))
+		if err != nil || len(out) <= limit {
+			return out, err == nil, err
+		}
+		// A cost under-estimated: leave out the least important piece
+		// kept, and render again.
+		i := len(keep) - 1
+		for i >= 0 && !keep[i] {
+			i--
+		}
+		if i < 0 {
+			return "", false, nil
+		}
+		keep[i] = false
+	}
 }
 
 // PlanAcceptance is the plan comment's acceptance line, for a plan that was
