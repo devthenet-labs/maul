@@ -726,12 +726,33 @@ intent stops for a replan (its `maul/acceptance` the error "the approved plan st
 verified"), and an approver approves a new plan, which states outcomes. With the evaluator left off, nothing is
 verified.
 
-**The startup census.** Before it starts its controllers, intent-controller counts the records slice 1 left in its
-namespace, reading only: every open (non-terminal) intent whose acceptance on record states criteria, or did before the
-API server pruned them, and every PreviewVerification asking criteria. It logs them by name and reports the count as the
-`maul.intent.slice1_records` gauge (`kind` `intent` or `previewverification`), and starts anyway. Its line reads
-"slice-1 census: these records still state acceptance criteria"; without the evaluator its role may not list
-PreviewVerifications, and the line says `previewverifications_unlisted`. A later release removes the criteria fields
-from the CRDs, which prunes them from every stored object: before upgrading to it, bring the census to zero by
-replanning or closing each listed intent and deleting each listed PreviewVerification (its spec cannot change). A closed
-or merged intent's record is never judged again and is not counted.
+**The criteria fields are removed.** This release removes slice 1's fields from the CRDs (a PreviewVerification's
+`spec.criteria` and `criteriaDigest`, its tester observations, and an Intent's `status.acceptance.criteria` and
+`status.verification.failing`), so the API server prunes them from every stored object, and a PreviewVerification must
+now state outcomes. Two checks stop an upgrade that would leave records nothing can verify:
+
+- **The chart's pre-upgrade guard.** A render that reaches the cluster (`helm upgrade`, `helm install`, or
+  `helm template --dry-run=server`) fails while any PreviewVerification in the release namespace asks criteria (or,
+  pruned, states no outcomes), naming each one. Its spec is immutable, so it cannot be migrated: delete it
+  (`kubectl -n <namespace> delete previewverification <name>`) and upgrade again. A render without a cluster (plain
+  `helm template`, Argo CD, Flux) cannot look, and the census below catches the same records instead.
+- **The startup census.** Before it starts its controllers, intent-controller counts what slice 1 left in its namespace,
+  reading only: every open (non-terminal) intent, of a Project the evaluator verifies, whose acceptance on record is of
+  slice 1's era (a criteria digest and no outcomes digest, which is all pruning leaves of its criteria), and every
+  PreviewVerification stating no outcomes. It reports the count as the `maul.intent.slice1_records` gauge (`kind`
+  `intent` or `previewverification`) and, while it counts any, **refuses to start**, naming each record and its fix.
+  intent-controller is not running then, so the fix cannot be a `/maul` command: delete the intent
+  (`kubectl -n <namespace> delete intent <name>`; neither kind holds a finalizer of intent-controller's, so the delete
+  completes without it), or roll back to the previous release, `/maul cancel` the intent there (a new issue starts over
+  with outcomes) and upgrade again. A census that cannot list refuses too. Without the evaluator its role may not list
+  PreviewVerifications, and the line says `previewverifications_unlisted`.
+
+A closed or merged intent's record is never judged again and is not counted: it keeps working (its status and finalizers
+still update) with its criteria pruned. Nor is an open intent of a Project the evaluator does not verify: a plan stating
+criteria there is recorded by its digest alone, which nothing runs and the pruning does not change, and it stops for a
+replan should the evaluator come to verify the Project.
+
+**Upgrade runbook.** Before upgrading from 0.13: list the PreviewVerifications that still ask criteria and delete them
+(`kubectl -n <namespace> get previewverifications -o json | jq -r '.items[] | select(.spec.criteria) | .metadata.name'`),
+and cancel (or delete) each open intent whose approved plan states criteria. The chart's guard and the census name
+anything left.

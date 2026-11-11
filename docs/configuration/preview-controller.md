@@ -300,9 +300,12 @@ See [Acceptance verification](../intents/acceptance.md) for what people see. The
   `preview-isolation`, which it never touches. In this release the one edge is the tool pod's part (`tester`, slice 1's
   name for it) to each component, on its numeric port. A Preview without an environment renders exactly what it always
   did.
-- **Slice 1's criteria.** A request for criteria (one with no outcomes) is answered `Stale` (`stale-criteria`) at once,
-  whatever the flags, before anything else is read, and nothing renders. A tester Job, `preview-<…>-vt-<hash>`, that an
-  earlier release left running for one is deleted when it settles, and the sweep removes any left orphaned.
+- **Slice 1's criteria.** The criteria fields are removed from the CRD, so a request for criteria left from before the
+  upgrade reads as one with no outcomes (the API server prunes `spec.criteria`; the schema refuses a new one). It is
+  answered `Stale` (`stale-approval`) at once, whatever the flags, before anything else is read, and nothing renders;
+  the chart's pre-upgrade guard and intent-controller's census ask for it to be deleted
+  ([Migrating from slice 1](../intents/evaluator.md#migrating-from-slice-1)). A tester Job, `preview-<…>-vt-<hash>`,
+  that an earlier release left running for one is deleted when it settles, and the sweep removes any left orphaned.
 - **The result.** The controller reads the tool pod's ledger through `pods/log` and writes what it observed, never
   verdicts, to the PreviewVerification's status, with component container facts (restarts, waiting reasons) and bounded,
   redacted log tails ([below](#the-agent-evaluators-tool-pod)). A Preview that fails while a verification runs has its
@@ -342,7 +345,7 @@ evaluator, which itself runs in the agents namespace with no route to the applic
 - **Flags**, all set by the chart under the evaluator. `--preview-evaluator` (`MAUL_PREVIEW_EVALUATOR`, default `false`)
   turns verification on by itself: it needs the three images and `--preview-agents-namespace`. The slot image rules
   admit no exact image beside the preview prefix: the tool images have rules of their own. A criteria request is
-  answered `Stale` (`stale-criteria`) without rendering anything. `--preview-tools-image`, `--preview-browser-image` and
+  answered `Stale` (`stale-approval`) without rendering anything. `--preview-tools-image`, `--preview-browser-image` and
   `--preview-toolbox-image` (`MAUL_PREVIEW_TOOLS_IMAGE`, `MAUL_PREVIEW_BROWSER_IMAGE`, `MAUL_PREVIEW_TOOLBOX_IMAGE`) are
   the digest-pinned `preview-tools` (maul's relay, Node and the pinned Playwright CLI), `preview-browser` (Chromium
   behind maul's keyed CDP shim) and `preview-toolbox` (the sandbox: curl, grpcurl, websocat, node, python, go, and

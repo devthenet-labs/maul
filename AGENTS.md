@@ -264,7 +264,8 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (default true, today's path; chart `preview.legacyIngress`) off renders no slot Ingress, ignores target health and
   deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`. With
   `--preview-evaluator` (chart: the agent evaluator with verification on) an outcome verification runs the slot tool
-  pod (`toolpod.go`, `toolpolicy.go`, `toolrun.go`; a slice-1 criteria one is answered `Stale` `stale-criteria` before
+  pod (`toolpod.go`, `toolpolicy.go`, `toolrun.go`; a slice-1 criteria one, its criteria pruned since the CRD fields
+  were removed, so one with no outcomes, is answered `Stale` `stale-approval` before
   anything is read, nothing rendered, an earlier release's tester Job deleted; the tester binary, its image and
   `--preview-tester-image` are gone, the flag hidden and refused, the chart's `preview.verification.testerImage` a
   render failure): a Job of `tools` (preview-tools) with
@@ -749,13 +750,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   the wire types, pinned to `ui/src/types.ts` (`TestUsageWireTypesMatchTypeScript`).
 - `acceptance`, `untrusted` — acceptance verification's pure side (the design is
   `.claude/plans/acceptance-verification/SPEC.md`; operator and people's guide `docs/intents/acceptance.md`).
-  `acceptance` (stdlib and `httpstep` only, import pin): the plan's criterion grammar (`Validate`, the only
-  `CriterionError` source; `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full
-  list, manual included; `Automatable`), `Judge`/`JudgeStep` (raw bounded observations in, a `pass`, `quarantined` or
-  `fail` verdict out; no runtime `error`), and the `MAUL-VERIFY:` wire v1, which no binary writes since the tester was
-  deleted (a later S4 PR deletes them; `Judge` and `crdconv`'s criteria and observation converters are reachable from
-  no binary either); `EvaluationFingerprint` is the evaluator's fix fingerprint.
-  `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded round-trip. `untrusted`
+  `acceptance` (stdlib and `httpstep` only, import pin): slice 1's criterion grammar, kept only to read a plan that
+  states criteria (`Validate`, the only `CriterionError` source; `Normalize` folds the request/expect/capture
+  shorthand into steps; `Digest` of the full list, manual included; nothing runs or judges a criterion: the tester's
+  judge, observation wire and their CRD mirrors are deleted); `EvaluationFingerprint` is the evaluator's fix
+  fingerprint. `v1alpha1.EmptyListDigest` (the sha256 of `[]`) is pinned to both `Digest(nil)` and
+  `OutcomesDigest(nil)`. `untrusted`
   (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
   text before a human or model sees it. For the agent evaluator,
   `acceptance` also holds the plan's outcome grammar (`PlanOutcome`, `ValidateOutcomes`, at most 20, kinds `change` and
@@ -857,9 +857,17 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   512 characters), `CrashLooping` (bound `RestartBound`), `ImagePullWaiting`/`ImagePullReason`, `Unschedulable`.
 - **Verification flow** (default off; the evaluator's switch; chart `preview.verification`, whose
   `deadlineMaxSeconds` drives both controllers' deadline flags (`--intent-verify-timeout-max`, slice 1's tester wall
-  clock, has had no effect since S4 PR 6); before its manager starts, intent-controller takes a read-only census of
-  slice-1 records through the API reader, `census.go`, logged by name and reported as `maul.intent.slice1_records`,
-  never refusing startup; preview-controller refuses the removed `--preview-tester-image` whatever its value): only the
+  clock, has had no effect since S4 PR 6); slice 1's CRD fields are removed (S4 PR 10: PreviewVerification
+  `spec.criteria`/`criteriaDigest`, its observations, summary and wire version, Intent `status.acceptance.criteria`
+  and `status.verification.failing`; `stale-criteria` and `tester-output-invalid` kept in the reason enum only as
+  retired spellings, as is the part role `tester`; `PreviewPartToolPod` keeps the wire value `tester`, which stored
+  Previews' immutable environments and the slot policies select by), so before its manager starts intent-controller
+  takes a read-only census of slice-1 records through the API reader (`census.go`: open Intents of a Project the
+  evaluator verifies recording a criteria digest with no outcomes digest, and PreviewVerifications with no outcomes),
+  reported as `maul.intent.slice1_records`, and REFUSES to start while it finds any, naming each and its fix (a
+  delete, or a rollback to cancel it); the chart's `templates/slice1-guard.yaml` fails a render that reaches the
+  cluster while a PreviewVerification in the release namespace asks criteria or states no outcomes; preview-controller
+  refuses the removed `--preview-tester-image` whatever its value): only the
   agent evaluator verifies. Every verify site branches on one mode per pass (`verify_mode.go`: `none`, `off`,
   `outcomes`, `mismatch`), from whether the evaluator verifies the Project, the tool host verifies the intent and what
   the approved revision's record holds; a criteria-era record (criteria, or pruned of them: a digest other than the
