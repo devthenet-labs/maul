@@ -399,9 +399,10 @@ What I checked, in a few lines.
 - `anomalies`: each anomaly, with a one-line `summary`, the `route` or surface it is on, and its `ledger` seqs.
   For one that was there before this change, add `pre_existing: true` and cite the `exec` or `run` calls at the head
   that show it, each beside the same call made with `--base`. maul believes it only where every call it cites at the
-  head printed exactly the same at the base (a `files` read does not count: the same text does not show the same
-  behaviour): it is then shown to the human reviewers and holds nothing against the change. Otherwise it holds the
-  change as any other anomaly does.
+  head runs the build (a `run`, or an `exec` whose first argument is the built binary) and printed exactly the same at
+  the base (a `files` read, or an `exec` of anything else such as `cat`, `grep` or a shell, does not count: the same
+  text does not show the same behaviour): it is then shown to the human reviewers and holds nothing against the change.
+  Otherwise it holds the change as any other anomaly does.
 
 Write `[]` for an empty list. Put every string in double quotes, and escape a double quote inside one as `\"`: an
 unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes, reasons and summaries are

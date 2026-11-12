@@ -551,22 +551,23 @@ func preExisting(ev *report.Evaluation, pv *v1alpha1.PreviewVerification, entrie
 	out := make([]bool, len(ev.Anomalies))
 	for i, a := range ev.Anomalies {
 		cites := citedOnly(a.Ledger, pv)
-		out[i] = a.PreExisting && len(cites) <= maxAnomalyCites && preExistingCites(cites, entries)
+		out[i] = a.PreExisting && len(cites) <= maxAnomalyCites && preExistingCites(cites, entries, workspaceBinary(pv))
 	}
 	return out
 }
 
 // preExistingCites reports cites that show their anomaly unchanged by the
 // change, on maul's ledger alone (entries): every call at the head they
-// cite has a twin at the base they cite too (sameAtBase), and they cite at
-// least one. A slot round has no base, so its anomalies never are. The
-// evaluator's words are not read: an anomaly whose evidence differs at the
-// base in any one call it cites, or which cites a call that is not a
-// program run (a files read, a browser call, an event, a check run), holds
-// as any other. What maul holds is that every call cited behaved the same
-// without the change; that those calls are the anomaly's evidence remains
-// the evaluator's word.
-func preExistingCites(cites []int32, entries []toolwire.LedgerEntry) bool {
+// cite runs the build (runsBuild, bin the cli's binary) and has a twin at
+// the base they cite too (sameAtBase), and they cite at least one. A slot
+// round has no base, so its anomalies never are. The evaluator's words are
+// not read: an anomaly whose evidence differs at the base in any one call
+// it cites, or which cites a call that is not a run of the build (a files
+// read, an exec of cat or a shell, a browser call, an event, a check run),
+// holds as any other. What maul holds is that every call cited behaved the
+// same without the change; that those calls are the anomaly's evidence
+// remains the evaluator's word.
+func preExistingCites(cites []int32, entries []toolwire.LedgerEntry, bin string) bool {
 	var head, base []toolwire.LedgerEntry
 	for _, seq := range cites {
 		i := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Seq == int64(seq) })
@@ -583,7 +584,7 @@ func preExistingCites(cites []int32, entries []toolwire.LedgerEntry) bool {
 		return false
 	}
 	for _, h := range head {
-		if !slices.ContainsFunc(base, func(b toolwire.LedgerEntry) bool { return sameAtBase(h, b) }) {
+		if !runsBuild(h, bin) || !slices.ContainsFunc(base, func(b toolwire.LedgerEntry) bool { return sameAtBase(h, b) }) {
 			return false
 		}
 	}
@@ -610,6 +611,31 @@ func sameAtBase(h, b toolwire.LedgerEntry) bool {
 	ha, hok := argsBesideSide(h.Args)
 	ba, bok := argsBesideSide(b.Args)
 	return hok && bok && ha == ba && h.Exit == b.Exit && h.Output == b.Output && h.OutputSHA256 == b.OutputSHA256
+}
+
+// runsBuild reports h a call that runs what the side built: a run (a
+// program compiled against the side's tree) or an exec whose argv[0] is
+// the cli's binary (bin, or checks.BinPlaceholder), as a saved exec check
+// must be. An exec of anything else (cat, grep, a shell) shows at most
+// the same text at both sides, as a files read does, not the same
+// behaviour of the build.
+func runsBuild(h toolwire.LedgerEntry, bin string) bool {
+	if h.Verb == toolwire.VerbRun {
+		return true
+	}
+	var req toolwire.ExecRequest
+	if h.Verb != toolwire.VerbExec || json.Unmarshal(h.Args, &req) != nil || len(req.Argv) == 0 {
+		return false
+	}
+	return req.Argv[0] == checks.BinPlaceholder || (bin != "" && req.Argv[0] == bin)
+}
+
+// workspaceBinary is pv's cli binary, "" for none.
+func workspaceBinary(pv *v1alpha1.PreviewVerification) string {
+	if ws := pv.Spec.Workspace; ws != nil && ws.Surface.CLI != nil {
+		return ws.Surface.CLI.Binary
+	}
+	return ""
 }
 
 // wholeOutput reports an entry whose output the ledger keeps whole.

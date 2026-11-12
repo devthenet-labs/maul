@@ -20,6 +20,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/kube"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/toolledger"
@@ -31,6 +32,9 @@ import (
 // to its own ledger: every call at the head the anomaly cites has the same
 // call at the base, cited too, that printed exactly the same.
 
+// testBin is the workspace's built binary the twin tests run.
+const testBin = "/work/bin/bb"
+
 // execAt is a ledger entry of an exec of argv at side, its exit and output.
 func execAt(seq int64, side toolwire.Side, exit int, out string, argv ...string) toolwire.LedgerEntry {
 	args, _ := json.Marshal(toolwire.ExecRequest{Argv: argv, Side: side})
@@ -40,8 +44,11 @@ func execAt(seq int64, side toolwire.Side, exit int, out string, argv ...string)
 
 func TestPreExistingCites(t *testing.T) {
 	help := "usage: bb [--json]\n"
-	head := execAt(4, "", 0, help, "bb", "--help")
-	base := execAt(5, toolwire.SideBase, 0, help, "bb", "--help")
+	head := execAt(4, "", 0, help, testBin, "--help")
+	base := execAt(5, toolwire.SideBase, 0, help, testBin, "--help")
+	cat := func(seq int64, side toolwire.Side) toolwire.LedgerEntry {
+		return execAt(seq, side, 0, "func shift() {}\n", "cat", "{{tree}}/shift.go")
+	}
 	with := func(e toolwire.LedgerEntry, f func(*toolwire.LedgerEntry)) toolwire.LedgerEntry {
 		f(&e)
 		return e
@@ -70,13 +77,13 @@ func TestPreExistingCites(t *testing.T) {
 		{"no cites", nil, []toolwire.LedgerEntry{head, base}, false},
 		{"no ledger", []int32{4, 5}, nil, false},
 		{"other output at the base", []int32{4, 5}, []toolwire.LedgerEntry{head,
-			execAt(5, toolwire.SideBase, 0, "usage: bb\n", "bb", "--help")}, false},
+			execAt(5, toolwire.SideBase, 0, "usage: bb\n", testBin, "--help")}, false},
 		{"another exit at the base", []int32{4, 5}, []toolwire.LedgerEntry{head,
-			execAt(5, toolwire.SideBase, 1, help, "bb", "--help")}, false},
+			execAt(5, toolwire.SideBase, 1, help, testBin, "--help")}, false},
 		{"another call at the base", []int32{4, 5}, []toolwire.LedgerEntry{head,
-			execAt(5, toolwire.SideBase, 0, help, "bb", "-h")}, false},
+			execAt(5, toolwire.SideBase, 0, help, testBin, "-h")}, false},
 		{"a second head call with no twin", []int32{4, 5, 6}, []toolwire.LedgerEntry{head, base,
-			execAt(6, "", 2, "panic: shift\n", "bb", "shift")}, false},
+			execAt(6, "", 2, "panic: shift\n", testBin, "shift")}, false},
 		{"a base twin of the wrong verb", []int32{4, 5}, []toolwire.LedgerEntry{head,
 			with(base, func(e *toolwire.LedgerEntry) { e.Verb = toolwire.VerbRun })}, false},
 		{"refused at the base", []int32{4, 5}, []toolwire.LedgerEntry{head,
@@ -85,16 +92,26 @@ func TestPreExistingCites(t *testing.T) {
 			with(head, func(e *toolwire.LedgerEntry) { e.Output = toolledger.DroppedOutput }),
 			with(base, func(e *toolwire.LedgerEntry) { e.Output = toolledger.DroppedOutput })}, false},
 		{"truncated output", []int32{4, 5}, []toolwire.LedgerEntry{
-			execAt(4, "", 0, help+toolwire.TruncationMarker, "bb", "--help"),
-			execAt(5, toolwire.SideBase, 0, help+toolwire.TruncationMarker, "bb", "--help")}, false},
+			execAt(4, "", 0, help+toolwire.TruncationMarker, testBin, "--help"),
+			execAt(5, toolwire.SideBase, 0, help+toolwire.TruncationMarker, testBin, "--help")}, false},
 		{"a check run", []int32{4, 5}, []toolwire.LedgerEntry{
 			with(head, func(e *toolwire.LedgerEntry) { e.CheckRun = &toolwire.CheckRunRecord{} }),
 			with(base, func(e *toolwire.LedgerEntry) { e.CheckRun = &toolwire.CheckRunRecord{} })}, false},
+		{"the same call by the placeholder", []int32{4, 5}, []toolwire.LedgerEntry{
+			execAt(4, "", 0, help, checks.BinPlaceholder, "--help"),
+			execAt(5, toolwire.SideBase, 0, help, checks.BinPlaceholder, "--help")}, true},
+		{"an exec that runs no build shows the text, not the behaviour", []int32{6, 7},
+			[]toolwire.LedgerEntry{cat(6, ""), cat(7, toolwire.SideBase)}, false},
+		{"an exec that runs no build beside a twin", []int32{4, 5, 6, 7},
+			[]toolwire.LedgerEntry{head, base, cat(6, ""), cat(7, toolwire.SideBase)}, false},
+		{"an exec of the build through a shell", []int32{4, 5}, []toolwire.LedgerEntry{
+			execAt(4, "", 0, help, "sh", "-c", testBin+" --help"),
+			execAt(5, toolwire.SideBase, 0, help, "sh", "-c", testBin+" --help")}, false},
 		{"a browser call has no base", []int32{4, 5}, []toolwire.LedgerEntry{
 			with(head, func(e *toolwire.LedgerEntry) { e.Verb = toolwire.VerbBrowser }), base}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := preExistingCites(tc.cites, tc.entries); got != tc.want {
+			if got := preExistingCites(tc.cites, tc.entries, testBin); got != tc.want {
 				t.Errorf("preExistingCites = %v, want %v", got, tc.want)
 			}
 		})
@@ -119,8 +136,10 @@ func preExistingFixture(t *testing.T, baseOut string) (*v1alpha1.IntentAcceptanc
 			Result: v1alpha1.CheckRunPass, Token: "t1", Seq: 1}}, Ledger: &v1alpha1.LedgerSummary{Count: 9}},
 	}
 	help := "usage: bb [--json]\n"
-	entries := []toolwire.LedgerEntry{execAt(4, "", 0, help, "bb", "--help"),
-		execAt(5, toolwire.SideBase, 0, baseOut, "bb", "--help")}
+	pv.Spec.Workspace = &v1alpha1.VerificationWorkspace{Surface: v1alpha1.WorkspaceSurface{
+		CLI: &v1alpha1.WorkspaceCLI{Binary: testBin}}}
+	entries := []toolwire.LedgerEntry{execAt(4, "", 0, help, testBin, "--help"),
+		execAt(5, toolwire.SideBase, 0, baseOut, testBin, "--help")}
 	return acc, pv, []v1alpha1.SavedCheck{version}, entries
 }
 
