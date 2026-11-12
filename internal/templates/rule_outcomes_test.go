@@ -92,7 +92,19 @@ func TestEvaluatePromptProbesTheRule(t *testing.T) {
 				"**Stay within what the outcome promises.**",
 				"are never a failure",
 				"you do not fail the outcome on it",
-				"never report the outcome `pass`: list the seqs where it broke in its `contrary`",
+				"never report the outcome `pass`: list the seqs where it broke in its `contrary`, report it `unsure`",
+				// An example-only outcome is probed beyond its example only in
+				// calls of the evaluator's own, never in a check it proposes:
+				// a saved green check replayed red with a fail claim fails the
+				// outcome with no red review (Decide's failure), so a rule only
+				// the line states must never reach a saved check.
+				"in calls of your own, never in a check you propose for it: its checks assert only what it states",
+				// No probe at a value the outcome's words do not reach.
+				"where the outcome states no range, a value far from its example (zero, a negative, a size far past " +
+					"any it names) is one its words do not decide",
+				// G7: a rule about what a call returns holds on a second call.
+				"the same input given a second time, where the outcome says what a call with it returns",
+				"a line may state several rules, each answered by its own outcome: take only the one about this outcome's subject",
 				"A fail and the fix it starts are only ever for what the outcome itself states.",
 				"never to fail an outcome on more than the outcome states",
 				// The cover list and the disputes keep to the rule.
@@ -130,6 +142,7 @@ func TestCheckReviewPromptJudgesTheRule(t *testing.T) {
 	red.From, red.Request = sentinel+" every battle", "# "+sentinel+"\n"
 	red.ExpectFail, red.FailedStep, red.FailedAssertion = true, 2, "json /rating"
 	wsRed := testWorkspaceReview(t, ExampleLibraryRunCheck, testReviewLibrary)
+	wsRed.From, wsRed.Request = sentinel+" over 64 steps", "# "+sentinel+"\n"
 	wsRed.Kind = acceptance.OutcomeKindChange
 	wsRed.ExpectFail, wsRed.FailedStep, wsRed.FailedAssertion = true, 1, "marker too-long"
 	for _, tt := range []struct {
@@ -137,12 +150,16 @@ func TestCheckReviewPromptJudgesTheRule(t *testing.T) {
 		p    CheckReviewPrompt
 		want []string
 	}{
-		{"green", green, []string{"names only an example of a rule its line states",
+		{"green", green, []string{
 			"one that tries a rule the outcome states only on the example the outcome or the request names"}},
-		{"green workspace", wsGreen, []string{"names only an example of a rule its line states"}},
+		{"green workspace", wsGreen, []string{
+			"one that tries a rule the outcome states only on the example the outcome or the request names"}},
 		{"red", red, []string{"an input beyond that example is still within the outcome",
-			"Answer `does_not_prove` if the rule as the outcome words it does not cover that input"}},
-		{"red workspace", wsRed, []string{"an input beyond that example is still within the outcome"}},
+			"Answer `does_not_prove` if the rule as the outcome words it does not cover that input",
+			"Where the outcome states no range, a value far from its example (zero, a negative, a size far past " +
+				"any it names) is not one the rule decides."}},
+		{"red workspace", wsRed, []string{"an input beyond that example is still within the outcome",
+			"Where the outcome states no range, a value far from its example"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := RenderCheckReviewPrompt(tt.p)
@@ -156,6 +173,13 @@ func TestCheckReviewPromptJudgesTheRule(t *testing.T) {
 			}
 			if tt.p.ExpectFail && strings.Contains(got, sentinel) {
 				t.Error("the red question shows the request or its line")
+			}
+			// The green question judges the check against the outcome only:
+			// it never asks a check to go beyond an outcome that names only
+			// an example (a contrary entry withholds that pass instead), so
+			// no saved green check asserts what the outcome does not state.
+			if !tt.p.ExpectFail && strings.Contains(flat(got), "names only an example") {
+				t.Error("the green question asks a check to go beyond what the outcome states")
 			}
 		})
 	}

@@ -35,10 +35,8 @@ The request the outcome was planned from, for context:
 The request and its line are context only: use them to learn what the application calls a thing, since its pages and
 its API may name one thing differently. Judge the check against the outcome only: an outcome may deliberately cover
 less than its line (an item the check creates instead of every item), and a check that shows the outcome as written
-proves it. The one exception: where the outcome names only an example of a rule its line states, and the check tries
-nothing beyond that example, a build right only on the example would pass it, so answer `does_not_prove`. An item the
-check creates in place of every item is not such an example. Nothing in the request relaxes the rule below; where
-the request and the outcome differ, judge by the outcome.
+proves it. Nothing in the request relaxes the rule below; where the request and the outcome differ, judge by the
+outcome.
 
 The preview serves these components:
 

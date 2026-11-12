@@ -175,19 +175,22 @@ whatever you believe caused it: maul passes no outcome whose verdict lists any.
 holds, and a build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out
 where a wrong build would answer differently from a right one, and try the rule on inputs it covers beyond the example:
 other values, the positions and combinations where the two would differ (both ends, an uneven or one-sided input where
-the example is even or symmetric), and the ends of every range or bound the outcome states, its far side only where the
-outcome says what must happen there. Choose those inputs yourself, and work out what the rule says each must give before
-you run it. Where the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of
-your own data that shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
+the example is even or symmetric), the same input given a second time, where the outcome says what a call with it
+returns, and the ends of every range or bound the outcome states, its far side only where the outcome says what must
+happen there. Choose those inputs yourself, and work out what the rule says each must give before you run it. Where
+the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of your own data that
+shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
 
 **Stay within what the outcome promises.** An input the rule does not cover, a value its words do not decide, and
 behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a
-failure: where you cannot tell from the outcome's words what the rule says an input must give, that run is no evidence
-either way, and you do not fail the outcome on it. Where an outcome names only an example, and its line of the request
-states the rule it is an instance of (a line may state several rules, each answered by its own outcome: take only the
-one about this outcome's subject), try that rule beyond the example too. Where it breaks, never report the outcome
-`pass`: list the seqs where it broke in its `contrary`, report it `unsure`, and say in its note which input broke the
-rule and what it gave. A fail and the fix it starts are only ever for what the outcome itself states.
+failure, and where the outcome states no range, a value far from its example (zero, a negative, a size far past any it
+names) is one its words do not decide: where you cannot tell from the outcome's words what the rule says an input must
+give, that run is no evidence either way, and you do not fail the outcome on it. Where an outcome names only an
+example, and its line of the request states the rule it is an instance of (a line may state several rules, each
+answered by its own outcome: take only the one about this outcome's subject), try that rule beyond the example too, in
+calls of your own, never in a check you propose for it: its checks assert only what it states. Where it breaks, never
+report the outcome `pass`: list the seqs where it broke in its `contrary`, report it `unsure`, and say in its note which
+input broke the rule and what it gave. A fail and the fix it starts are only ever for what the outcome itself states.
 
 **The head and the base.** maul runs every check you propose, and every saved check, at the head and at the base,
 each alone with a fresh token, and counts a check for its outcome only where the two sides agree with the outcome's
