@@ -1341,14 +1341,17 @@ func failedSteps(r *toolwire.CheckRunRecord) string {
 	return untrusted.Cut(strings.Join(lines, "\n"), maxAppOutputBytes)
 }
 
-// ledgerOf is pv's full ledger, one entry a line, read once a pass
+// ledgerOf is pv's full ledger, one entry a line, read once a pass per pv
 // (uncached) from the ConfigMap its status names, held to pv: nil when it is
 // not pv's or cannot be read.
 func (p *pass) ledgerOf(ctx context.Context, pv *v1alpha1.PreviewVerification) []string {
-	if p.ledgerRead {
-		return p.ledgerLines
+	if lines, ok := p.ledgerLines[pv.UID]; ok {
+		return lines
 	}
-	p.ledgerRead = true
+	if p.ledgerLines == nil {
+		p.ledgerLines = map[types.UID][]string{}
+	}
+	p.ledgerLines[pv.UID] = nil
 	if pv.Status.Ledger == nil || pv.Status.Ledger.ConfigMap == "" {
 		return nil
 	}
@@ -1362,6 +1365,6 @@ func (p *pass) ledgerOf(ctx context.Context, pv *v1alpha1.PreviewVerification) [
 	if !controlledBy(cm.OwnerReferences, pv.UID) {
 		return nil
 	}
-	p.ledgerLines = strings.Split(cm.Data[keyLedgerLines], "\n")
-	return p.ledgerLines
+	p.ledgerLines[pv.UID] = strings.Split(cm.Data[keyLedgerLines], "\n")
+	return p.ledgerLines[pv.UID]
 }

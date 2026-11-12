@@ -4,17 +4,23 @@
 package intent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/kube"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -208,4 +214,35 @@ func TestPreExistingRecords(t *testing.T) {
 func shaHex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+// TestLedgerOfIsPerVerification: a pass reads each verification's own
+// ledger. The ledger now feeds a judgement (preExisting), so one read for
+// one round must never stand in for another round's in the same pass: its
+// seqs would twin against the wrong calls.
+func TestLedgerOfIsPerVerification(t *testing.T) {
+	ledgerCM := func(pv *v1alpha1.PreviewVerification, line string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: pv.Name + "-ledger", Namespace: testNS,
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: v1alpha1.GroupVersion.String(),
+				Kind: "PreviewVerification", Name: pv.Name, UID: pv.UID, Controller: new(true)}}},
+			Data: map[string]string{keyLedgerLines: line}}
+	}
+	pvOf := func(name string) *v1alpha1.PreviewVerification {
+		return &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS,
+			UID: types.UID(name + "-uid")}, Status: v1alpha1.PreviewVerificationStatus{
+			Ledger: &v1alpha1.LedgerSummary{Count: 1, ConfigMap: name + "-ledger"}}}
+	}
+	a, b := pvOf("pv-a"), pvOf("pv-b")
+	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).
+		WithObjects(ledgerCM(a, "line of a"), ledgerCM(b, "line of b")).Build()
+	p := &pass{r: &IntentReconciler{Client: c, APIReader: c}, in: &v1alpha1.Intent{}}
+	if got := p.ledgerOf(context.Background(), a); !slices.Equal(got, []string{"line of a"}) {
+		t.Fatalf("ledgerOf(a) = %q", got)
+	}
+	if got := p.ledgerOf(context.Background(), b); !slices.Equal(got, []string{"line of b"}) {
+		t.Errorf("ledgerOf(b) after a = %q, want b's own ledger", got)
+	}
+	if got := p.ledgerOf(context.Background(), a); !slices.Equal(got, []string{"line of a"}) {
+		t.Errorf("ledgerOf(a) again = %q, want a's own ledger", got)
+	}
 }
