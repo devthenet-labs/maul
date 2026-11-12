@@ -280,9 +280,10 @@ timeout never shows a defect: maul counts it as a program that failed without as
 stays unsure. A check that shows a defect names `{{run}}` in its arguments or its program files, in a
 name or a value it makes up. maul refuses a check that breaks these rules with `red-check-rule`, naming the rule;
 `no-red-dry-run` means no dry run failed an assertion, or one ran green. Propose it with `expect: fail` under the
-outcome you report `fail`. maul then runs it again itself, a reviewer judges whether it encodes the outcome and
-whether the assertion that failed is the outcome, and only then is the outcome failed and a fix started, handed your
-check's failure as its reproduction. Once the fix is in, the same check must pass.
+outcome you report `fail`. maul then runs it again itself, a reviewer judges whether the assertion that failed
+checks something the outcome promises, and only then is the outcome failed and a fix started, handed your check's
+failure as its reproduction. It need not cover every part of the outcome, but the reviewer refuses it if any step
+expects more than the outcome promises. Once the fix is in, the same check must pass.
 
 A check is bound to one outcome and has one form:
 
