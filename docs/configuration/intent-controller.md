@@ -567,6 +567,10 @@ in a new comment. An edited comment is also left out of a replan's approver comm
 that is not an approver (or is a bot) is refused whatever its command says, and gets that refusal once per intent; its
 later commands get neither a reaction nor a reply, so nobody can make maul write to GitHub once per comment.
 
+A command is read only on a comment's first non-blank line. A `/maul <verb>` the issue offers on a later line of an
+approver's comment, outside a quote and code, is never acted on: maul answers it once with the commands and where they
+go, and the approver posts it again as a new comment. Anyone else's such comment gets nothing, not even a reaction.
+
 The plan comment shows the plan's exact bytes in a code block. An approval counts only if all of these hold:
 
 - it is newer than the plan comment;

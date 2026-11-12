@@ -44,6 +44,14 @@
 // a verb, so the integration-scoped action.VerbReset stays off every intent
 // surface.
 //
+// # Misplaced commands
+//
+// Misplaced finds what a person most likely meant as a command but wrote
+// below other text: a later line reading "/maul <verb>" for a verb the
+// surface offers, outside quotes, code blocks, code spans and HTML comments.
+// It is false whenever Parse is true, and its verb is only ever answered
+// with where commands go, never acted on.
+//
 // # Notes
 //
 // Every note, however its command arrived, is made by one exported rule,

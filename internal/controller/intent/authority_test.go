@@ -406,6 +406,42 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
+// TestMisplacedCommand (defect gate 2): a command below other text is
+// never read as one, so it changes nothing. An approver's is answered once
+// with where commands go, and again by no later poll; anyone else's, and a
+// command quoted or in a code block, gets nothing at all, not even a
+// reaction.
+func TestMisplacedCommand(t *testing.T) {
+	e := newEnv(t, testProject())
+	name := e.awaiting()
+	replan := e.gh.comment(approver, "Please also cover readable and clickable.\n/maul replan")
+	approve := e.gh.comment(approver, "Looks good to me.\n\n/maul approve")
+	other := e.gh.comment("anyone", "I agree.\n/maul approve")
+	quoted := e.gh.comment(approver, "You said:\n> /maul cancel")
+	e.settleActions(name)
+	e.clock.Advance(verifyInterval)
+	e.settleActions(name)
+
+	in := e.get(name)
+	if in.Status.Phase != v1alpha1.IntentAwaitingApproval || in.Status.Input.Revision != 1 || in.Status.Approval != nil {
+		t.Fatalf("phase %s, input %+v, approval %+v: a misplaced command acted", in.Status.Phase, in.Status.Input,
+			in.Status.Approval)
+	}
+	for _, id := range []int64{replan, approve} {
+		r := e.gh.withMarker("comment-" + itoa(id))
+		if len(r) != 1 || !strings.Contains(r[0].Body, "was not read as a command, and nothing was done") ||
+			e.gh.reactions[id] != 1 {
+			t.Errorf("comment %d: replies %+v, reactions %d; want one reply saying where commands go", id, r,
+				e.gh.reactions[id])
+		}
+	}
+	for _, id := range []int64{other, quoted} {
+		if r := e.gh.withMarker("comment-" + itoa(id)); len(r) != 0 || e.gh.reactions[id] != 0 {
+			t.Errorf("comment %d: replies %+v, reactions %d; want nothing", id, r, e.gh.reactions[id])
+		}
+	}
+}
+
 // TestReplan: an approver re-applying the trigger label, or commenting
 // /maul replan, while the plan waits plans again at a new input revision
 // whose snapshot carries the approvers' comments since the plan, and never a

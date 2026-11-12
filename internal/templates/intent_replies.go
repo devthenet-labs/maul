@@ -81,6 +81,31 @@ func RenderUnknownCommandNotice(n UnknownCommandNotice) (string, error) {
 	})
 }
 
+// MisplacedCommandNotice answers an approver's comment that holds a command
+// below other text (command.Misplaced), which maul never reads as one: it
+// says where commands go, and lists those the intent issue offers.
+type MisplacedCommandNotice struct {
+	// Namespace, Intent and Key make the notice's marker (NoticeMarker).
+	Namespace string
+	Intent    string
+	Key       string
+	// Verb is the misplaced command's verb, one the intent issue offers.
+	Verb string
+}
+
+// RenderMisplacedCommandNotice renders a MisplacedCommandNotice.
+func RenderMisplacedCommandNotice(n MisplacedCommandNotice) (string, error) {
+	return render("intent_notice_misplaced.md.tmpl", struct {
+		Marker  string
+		Command string
+		Help    string
+	}{
+		Marker:  NoticeMarker(n.Namespace, n.Intent, n.Key),
+		Command: slashCommand(n.Verb),
+		Help:    command.Help(command.IntentIssue),
+	})
+}
+
 // EditedCommandNotice answers a command whose comment was edited after it was
 // posted. GitHub lets anyone with write access to a repository edit anyone's
 // comment and still names the original author, so an edited comment is never
