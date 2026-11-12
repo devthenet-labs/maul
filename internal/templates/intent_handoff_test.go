@@ -106,7 +106,12 @@ func testOutcomeSection() *VerifySection {
 			{ID: "looks-right", Statement: "The board looks right.", Result: OutcomeResultAccepted,
 				Reason: "manual", AcceptedAt: testWebHead},
 		},
-		Anomalies: []VerifyAnomaly{{Summary: "console error on /battle @octocat #7", Route: "/battle"}},
+		Anomalies: []VerifyAnomaly{{Summary: "console error on /battle @octocat #7", Route: "/battle"},
+			// D-B13: over the comment's bound, cut at a word and marked.
+			{Summary: "The Battles link in the header is the browser's default blue on the dark header, well below " +
+				"the contrast the rest of the navigation keeps, and the beat grid overflows the viewport at 1280px " +
+				"behind a white scrollbar that covers the last column of pads. Both are on main's own pages as well. " +
+				"Neither comes from this change.", Route: "/"}},
 	}
 }
 
