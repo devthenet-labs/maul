@@ -295,8 +295,11 @@ value: a battle of the check's own patterns is its own), or its expected value n
 locator or text names `{{run}}`. A total, a count or a list over shared rows never shows a defect. The one
 exception is a browser check whose failing assertion measures the page's layout: `size`, `left-of`, `above`,
 `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable` or `visible`; such a check may write nothing, since it
-reads no data. Its `expect.status` may list only success statuses. maul refuses a check that breaks these rules with
-`red-check-rule`, naming the rule; `no-red-dry-run` means no dry run failed an assertion, or one ran green.
+reads no data. Its `expect.status` may list only success statuses. maul itself
+refuses, with `red-check-rule` naming the rule, a check that writes no data of its own run (unless it fails a layout
+measurement as above) or whose `expect.status` lists anything but a success; whether the assertion that fails is
+about the check's own data, as these rules say, the reviewer judges, and an assertion that is not is never a defect.
+`no-red-dry-run` means no dry run failed an assertion, or one ran green.
 Propose it with `expect: fail` under the outcome you report `fail`. maul then runs it again itself, a reviewer
 judges whether the assertion that failed checks something the outcome promises, and only then is the outcome failed
 and a fix started, handed your check's failure as its reproduction. It need not cover every part of the outcome, but

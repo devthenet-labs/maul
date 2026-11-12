@@ -199,8 +199,17 @@ exception is a browser check whose failing assertion measures the page's layout:
 `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable` or `visible`; such a check may write nothing, since it
 reads no data.{{if .Tools.Browser}} A browser text check that shows a defect finds the element whose text it asserts
 by its run's data (its row, by a `hasText` naming `{{"{{"}}run{{"}}"}}`), never a whole list it expects to hold that
-data: a reviewer can tell the run's own row reading wrong, never a row a ranked or capped list left out.{{end}} Its `expect.status` may list only success statuses. maul refuses a check that breaks these rules with
-`red-check-rule`, naming the rule; `no-red-dry-run` means no dry run failed an assertion, or one ran green.
+data: a reviewer can tell the run's own row reading wrong, never a row a ranked or capped list left out. State the
+check's own clicks and key presses set on the page it loaded, which the page does not save (a pad it pressed, a
+toggle it switched, a counter it stepped), can show a defect too: the check first fills a value naming
+`{{"{{"}}run{{"}}"}}` (maul requires a write of its run), asserts that state as it was before its own steps and then
+as the outcome says it must be after them, and finds the element that shows it `within` the element holding that
+value (a `hasText` naming `{{"{{"}}run{{"}}"}}`), so a reviewer can tell the state is the check's own. State that is
+still there after a reload is saved, and a total, a count or a list over saved state is shared.{{end}} Its `expect.status` may list only success statuses. maul itself
+refuses, with `red-check-rule` naming the rule, a check that writes no data of its own run (unless it fails a layout
+measurement as above) or whose `expect.status` lists anything but a success; whether the assertion that fails is
+about the check's own data, as these rules say, the reviewer judges, and an assertion that is not is never a defect.
+`no-red-dry-run` means no dry run failed an assertion, or one ran green.
 Propose it with `expect: fail` under the outcome you report `fail`. maul then runs it again itself, a reviewer
 judges whether the assertion that failed checks something the outcome promises, and only then is the outcome failed
 and a fix started, handed your check's failure as its reproduction. It need not cover every part of the outcome, but
