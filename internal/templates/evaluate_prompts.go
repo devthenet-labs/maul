@@ -83,7 +83,9 @@ const GreenRubric = "Answer `proves` only if a pass of this check really shows t
 	"item to be left out and assert that item is not there), one that compares only some of what the outcome " +
 	"says must match (a few items of a list it says is the same), one whose inputs make the expected result the " +
 	"one a fixed or default answer gives (a new, empty item where the outcome's value depends on what is in " +
-	"it), and one whose program can print what its `expect` looks for and exit as it expects whatever it " +
+	"it), one that tries a rule the outcome states only on the example the outcome or the request names (a " +
+	"build right only on that example would pass it), and one whose program can print what its `expect` looks " +
+	"for and exit as it expects whatever it " +
 	"observed. Answer `unclear` if you cannot tell from what is shown."
 
 // LayoutReadRule is the green rule's one exception, for a layout read
@@ -1070,7 +1072,8 @@ What I checked, in a few lines.
 // prompt's rules: about items the person checking creates, one claim a
 // check can show, concrete values, a layout outcome naming one fixed
 // element and the numbers it must meet, a keep naming one action,
-// and where a person sees it.
+// and where a person sees it, and a rule the request states, with its
+// example as one instance (G-B-LIB-2).
 const ExamplePlanOutcomes = `acceptance:
   - id: rating-moves
     outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
@@ -1083,6 +1086,10 @@ const ExamplePlanOutcomes = `acceptance:
   - id: kick-pad-size
     outcome: "On /, the kick row's first step pad is at least 48 by 48 px."
     from: "make the step pads at least 48px"
+    kind: change
+  - id: tempo-shown
+    outcome: "A beat you save at any tempo from 60 to 200 BPM shows that tempo on /beats, for example 90 bpm."
+    from: "a beat shows its tempo, which can be anything from 60 to 200 BPM"
     kind: change
   - id: new-player-listed
     outcome: "A player you add on the players page (/players) is listed there by the name you gave."

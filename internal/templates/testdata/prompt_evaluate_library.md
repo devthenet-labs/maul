@@ -37,7 +37,8 @@ from what you saw, usually unsure, and propose no check for it.
 - reject patterns over 64 steps
 ```
 
-The outcomes are the contract. The request is context: use it to understand them, never to add outcomes of your own.
+The outcomes are the contract. The request is context: use it to understand them, never to add outcomes of your own,
+and never to fail an outcome on more than the outcome states.
 
 ### What the change touches
 
@@ -198,6 +199,28 @@ your own mistake (a wrong flag, a wrong path, a program of yours that does not c
 fix it and try again. List in the verdict's `contrary` the ledger seqs where you saw the outcome as worded not hold,
 whatever you believe caused it: maul passes no outcome whose verdict lists any.
 
+**Judge the rule, not only its example.** An outcome often states a rule (what holds for any input of a kind, a bound, a
+"never" or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule
+holds, and a build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out
+where a wrong build would answer differently from a right one, and try the rule on inputs it covers beyond the example:
+other values, the positions and combinations where the two would differ (both ends, an uneven or one-sided input where
+the example is even or symmetric), the same input given a second time, where the outcome says what a call with it
+returns, and the ends of every range or bound the outcome states, its far side only where the outcome says what must
+happen there. Choose those inputs yourself, and work out what the rule says each must give before you run it. Where
+the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of your own data that
+shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
+
+**Stay within what the outcome promises.** An input the rule does not cover, a value its words do not decide, and
+behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a
+failure, and where the outcome states no range, a value far from its example (zero, a negative, a size far past any it
+names) is one its words do not decide: where you cannot tell from the outcome's words what the rule says an input must
+give, that run is no evidence either way, and you do not fail the outcome on it. Where an outcome names only an
+example, and its line of the request states the rule it is an instance of (a line may state several rules, each
+answered by its own outcome: take only the one about this outcome's subject), try that rule beyond the example too, in
+calls of your own, never in a check you propose for it: its checks assert only what it states. Where it breaks, never
+report the outcome `pass`: list the seqs where it broke in its `contrary`, report it `unsure`, and say in its note which
+input broke the rule and what it gave. A fail and the fix it starts are only ever for what the outcome itself states.
+
 **The head and the base.** maul runs every check you propose, and every saved check, at the head and at the base,
 each alone with a fresh token, and counts a check for its outcome only where the two sides agree with the outcome's
 kind:
@@ -244,8 +267,10 @@ test is a reasonable reading of the outcome. Answer `does_not_prove` too for a c
 still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
 item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
 (a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
-gives (a new, empty item where the outcome's value depends on what is in it), and one whose program can print what its
-`expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you cannot tell from what is shown.
+gives (a new, empty item where the outcome's value depends on what is in it), one that tries a rule the outcome states
+only on the example the outcome or the request names (a build right only on that example would pass it), and one whose
+program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
+cannot tell from what is shown.
 
 It also refuses a program that does not call the library's exported API on inputs it sets up itself, or that prints
 what its `expect` looks for without having observed it there.
@@ -256,16 +281,20 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 2. Use inputs other than the defaults (a tempo of 90 where a new beat starts at 120), so a build that gives a fixed
    value fails.
 3. Cover both sides of the outcome: the accepted input and the refused one, on and off. For a rule with a bound (at
-   least, at most, between, from 8), give an input on each side of the bound and assert both.
-4. For a claim that something is left out, refused or absent, give the input that must be left out or refused and
+   least, at most, between, from 8), give an input on each side of the bound and assert both, the far side only
+   where the outcome says what must happen there.
+4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
+   build right only on the example would be wrong.
+5. For a claim that something is left out, refused or absent, give the input that must be left out or refused and
    assert that it is, beside an assertion of one that is kept, so an empty answer does not pass.
-5. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a
+6. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a
    sample.
-6. Assert only what the outcome states: no wording, value, order or timing it does not promise.
-7. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the flag or
-   rule ignored, the bound off by one, the field missing, the error swallowed. For each, find the assertion of your
-   check that would go red on it. If none would, the reviewer refuses the check: strengthen it, and where no check
-   you can write would go red, say so in the verdict's note instead of proposing a weaker one.
+7. Assert only what the outcome states: no wording, value, order or timing it does not promise.
+8. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the flag or
+   rule ignored, the rule right only on the example, the bound off by one, the field missing, the error swallowed.
+   For each, find the assertion of your check that would go red on it. If none would, the reviewer refuses the check:
+   strengthen it, and where no check you can write would go red, say so in the verdict's note instead of proposing a
+   weaker one.
 
 **A check that shows a defect.** When an outcome fails, save the check that shows it: the check of the outcome as
 approved, which would pass on a build where the outcome holds, and fails on this one. Never bend a check to make it
@@ -327,11 +356,12 @@ For example:
 }
 ```
 
-**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on something
-the outcome does not say), dispute it: cite the ledger seqs of its failure, give the reason, and save a corrected
-check as its replacement. A failure that was there before this change is still a defect: never dispute a check for
-that. maul replays the replacement before it believes the dispute. When a saved check no longer fits an outcome at
-all, retire it with a reason instead.
+**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on something the
+outcome does not say), dispute it: cite the ledger seqs of its failure, give the reason, and save a corrected check as
+its replacement. A check that asserts what a rule the outcome states gives for an input beyond its example asserts what
+the outcome says: never dispute it for trying inputs the outcome does not name. A failure that was there before this
+change is still a defect: never dispute a check for that. maul replays the replacement before it believes the dispute.
+When a saved check no longer fits an outcome at all, retire it with a reason instead.
 
 ## Your report
 

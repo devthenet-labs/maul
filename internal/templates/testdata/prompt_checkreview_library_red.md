@@ -95,6 +95,12 @@ Answer `proves` only if all of these hold:
 
 Answer `does_not_prove` if any of them does not hold, and `unclear` if you cannot tell from what is shown.
 
+Where the outcome states a rule and names an example of it, an input beyond that example is still within the outcome
+when the rule, as the outcome words it, covers that input: judge the value the check expects by the rule's words.
+Answer `does_not_prove` if the rule as the outcome words it does not cover that input or does not decide the value
+the check expects, and `unclear` if you cannot tell. Where the outcome states no range, a value far from its example
+(zero, a negative, a size far past any it names) is not one the rule decides.
+
 The program is the check: read it whole. Answer `does_not_prove` if it does not call the library's exported API on
 inputs it sets up itself, or if it prints a hard-coded expectation: what its `expect` looks for, printed whatever it
 observed. Ask of every value it prints whether it came from what the library returned.

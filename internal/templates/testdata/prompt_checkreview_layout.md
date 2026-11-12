@@ -86,8 +86,10 @@ test is a reasonable reading of the outcome. Answer `does_not_prove` too for a c
 still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
 item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
 (a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
-gives (a new, empty item where the outcome's value depends on what is in it), and one whose program can print what its
-`expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you cannot tell from what is shown.
+gives (a new, empty item where the outcome's value depends on what is in it), one that tries a rule the outcome states
+only on the example the outcome or the request names (a build right only on that example would pass it), and one whose
+program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
+cannot tell from what is shown.
 
 A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
 (size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS

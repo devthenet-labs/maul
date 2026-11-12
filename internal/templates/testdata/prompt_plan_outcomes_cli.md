@@ -110,8 +110,8 @@ The evaluator builds `https://github.com/devthenet-labs/bbcount`; an outcome abo
 ```yaml
 acceptance:
   - id: onsets-follow-bpm
-    outcome: "`bbrender --bpm 90 kick.json` writes a WAV whose kick onsets are 667 ms apart."
-    from: "bbrender should take --bpm"
+    outcome: "`bbrender --bpm <n> kick.json` writes kick onsets 60000/n ms apart, for example 667 ms at `--bpm 90`."
+    from: "bbrender should take --bpm and put the kicks one beat apart at that tempo"
     kind: change
   - id: default-bpm-kept
     outcome: "`bbrender kick.json` still writes a WAV whose kick onsets are 500 ms apart."
@@ -142,10 +142,18 @@ How to word an outcome so the evaluator can show it:
   `change` outcome only if it does not hold there: state what the change makes newly true. A `keep` outcome states
   what held before the change and must still hold after it.
 - One outcome is one claim a single check can show. Split "X and Y" and "before and after" into separate outcomes;
-  several outcomes may share one `from` line. Aim for about 200 characters.
+  several outcomes may share one `from` line. Aim for about 200 characters, 300 for one that states a rule with its
+  example.
 - State the command line, with its flags and input other than the defaults, and what the program then prints or
   writes ("`bbrender --bpm 90 kick.json` writes a WAV whose kick onsets are 667 ms apart"). Name flags and outputs as
-  the program does, or will once changed.
+  the program does, or will once changed. Where the request states a rule, those values are an example of it, never
+  the whole outcome (next).
+- Where the request states a rule (what holds for any input of a kind, a bound, a "never" or an "always") and gives
+  examples of it, the outcome states the rule, with the example as one instance of it ("..., for example ..."), and its `from`
+  is the line that states the rule. Never reduce a rule to its examples: the evaluator judges the outcome by the rule
+  it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
+  rule as the request does and no wider: where the request gives only an example, state the example, and add no
+  input, bound or behaviour the request does not promise.
 - A `keep` outcome names one command and what it then prints or writes, never "X still works".
 - An outcome only a person can judge (how a sound sounds, how output reads) is `manual: true`.
 

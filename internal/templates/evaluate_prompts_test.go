@@ -331,7 +331,7 @@ func TestEvaluatePromptExamplesHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan outcomes example: %v", err)
 	}
-	if len(p.Outcomes) != 5 || p.CheckEvaluator() != nil {
+	if len(p.Outcomes) != 6 || p.CheckEvaluator() != nil {
 		t.Errorf("plan outcomes example: %d outcomes, CheckEvaluator %v", len(p.Outcomes), p.CheckEvaluator())
 	}
 	// The example keeps to its own rules: no outcome over shared data.

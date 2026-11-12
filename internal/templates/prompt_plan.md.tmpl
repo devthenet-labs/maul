@@ -241,17 +241,22 @@ How to word an outcome so the evaluator can show it:
   `change` outcome only if it does not hold there: state what the change makes newly true. A `keep` outcome states
   what held before the change and must still hold after it.
 - One outcome is one claim a single check can show. Split "X and Y" and "before and after" into separate outcomes;
-  several outcomes may share one `from` line. Aim for about 200 characters.
+  several outcomes may share one `from` line. Aim for about 200 characters, 300 for one that states a rule with its
+  example.
 {{- if eq .Surface "cli" }}
 - State the command line, with its flags and input other than the defaults, and what the program then prints or
   writes ("`bbrender --bpm 90 kick.json` writes a WAV whose kick onsets are 667 ms apart"). Name flags and outputs as
-  the program does, or will once changed.
+  the program does, or will once changed. Where the request states a rule, those values are an example of it, never
+  the whole outcome (next).
+{{- template "plan-outcome-rule"}}
 - A `keep` outcome names one command and what it then prints or writes, never "X still works".
 - An outcome only a person can judge (how a sound sounds, how output reads) is `manual: true`.
 {{- else }}
 - State the exported function, method or type a caller uses, the input, and the value or error it returns
   ("`pattern.Parse` of a pattern of 65 steps returns an error matching `pattern.ErrTooLong`"). Name them as the code
-  does, or will once changed.
+  does, or will once changed. Where the request states a rule, those values are an example of it, never the whole
+  outcome (next).
+{{- template "plan-outcome-rule"}}
 - The evaluator calls only the library's exported API, from programs of its own: state an outcome through that API,
   never through unexported code or internals.
 - A `keep` outcome names one call and what it then returns, never "X still works".
@@ -295,9 +300,14 @@ How to word an outcome so the evaluator can show it:
   creates. Name two such items where the outcome compares them ("a vote for one of two beats you create moves only
   that beat").
 - One outcome is one claim a single check can show. Split "X and Y", "on the page and in the API" and "before and
-  after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200 characters.
+  after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200 characters, 300 for one
+  that states a rule with its example.
 - State concrete values: what a person enters, other than the defaults, and what they then see ("a beat you save at
-  90 BPM shows 90 bpm (2.7 s)").
+  90 BPM shows 90 bpm (2.7 s)"). Where the request states a rule, those values are an example of it, never the whole
+  outcome (next).
+{{- template "plan-outcome-rule"}}
+- State such a rule over items the person checking creates, as above ("a beat you save at any tempo from 60 to 200
+  BPM shows that tempo, for example 90 bpm").
 - A `keep` outcome names one action on the person's own item and what they then see ("a beat you save still plays
   its 16 steps in order"), never "X still works".
 - An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data.
@@ -347,4 +357,13 @@ stage has turns and time left for it. Checking the rules yourself only spends th
 test the report (none can run here), and do not read it back to count its spaces, columns, characters or bytes.
 Naming each repository exactly as the request lists it is still yours to get right. Write the report once, then end
 your turn.
+{{- end}}
+
+{{- define "plan-outcome-rule"}}
+- Where the request states a rule (what holds for any input of a kind, a bound, a "never" or an "always") and gives
+  examples of it, the outcome states the rule, with the example as one instance of it ("..., for example ..."), and its `from`
+  is the line that states the rule. Never reduce a rule to its examples: the evaluator judges the outcome by the rule
+  it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
+  rule as the request does and no wider: where the request gives only an example, state the example, and add no
+  input, bound or behaviour the request does not promise.
 {{- end}}

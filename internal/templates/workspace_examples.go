@@ -101,13 +101,15 @@ What I checked, in a few lines.
 // The outcome lists the plan prompt shows for a Project with no preview,
 // one per surface; a test holds each to report.ParsePlan. Each models the
 // prompt's rules: a command line or an exported call with inputs other than
-// the defaults, what comes out, a keep naming one action, and a manual
+// the defaults, what comes out, a rule the request states with its example
+// as one instance (G-B-LIB-2), a keep naming one action, and a manual
 // outcome only a person can judge.
 const (
 	ExamplePlanOutcomesCLI = `acceptance:
   - id: onsets-follow-bpm
-    outcome: "` + "`bbrender --bpm 90 kick.json`" + ` writes a WAV whose kick onsets are 667 ms apart."
-    from: "bbrender should take --bpm"
+    outcome: "` + "`bbrender --bpm <n> kick.json`" + ` writes kick onsets 60000/n ms apart, for example 667 ms ` +
+		`at ` + "`--bpm 90`" + `."
+    from: "bbrender should take --bpm and put the kicks one beat apart at that tempo"
     kind: change
   - id: default-bpm-kept
     outcome: "` + "`bbrender kick.json`" + ` still writes a WAV whose kick onsets are 500 ms apart."
@@ -119,8 +121,8 @@ const (
     reason: "only a person can judge how it sounds"`
 	ExamplePlanOutcomesLibrary = `acceptance:
   - id: parse-too-long
-    outcome: "` + "`pattern.Parse`" + ` of a pattern of 65 steps returns an error matching ` +
-		"`pattern.ErrTooLong`" + `."
+    outcome: "` + "`pattern.Parse`" + ` of any pattern over 64 steps (for example 65) returns an error matching ` +
+		"`ErrTooLong`" + `."
     from: "reject patterns over 64 steps"
     kind: change
   - id: parse-64-kept

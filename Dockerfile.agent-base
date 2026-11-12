@@ -30,7 +30,7 @@
 # The same pinned wolfi-base as the runner images: glibc is the one hard
 # requirement, because the injected claude CLI is a glibc binary and cannot
 # run on musl (Alpine). The digest is the pin; renovate bumps it.
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:88a20e2d017bd20cdc0cb3910de603e7bea9512a6c351a8dd3c9df212ab03d73
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:94fa13e26d449f7d78dbcd02d12ea37a0da80d24fcc3e1f17b95d515dec607a7
 
 # bash: the claude CLI's shell tool refuses busybox sh, and maul's preflight
 # checks for it. git: agent-runner diffs the agent's changes with it.

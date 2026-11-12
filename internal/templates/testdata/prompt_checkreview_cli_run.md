@@ -104,8 +104,10 @@ test is a reasonable reading of the outcome. Answer `does_not_prove` too for a c
 still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
 item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
 (a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
-gives (a new, empty item where the outcome's value depends on what is in it), and one whose program can print what its
-`expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you cannot tell from what is shown.
+gives (a new, empty item where the outcome's value depends on what is in it), one that tries a rule the outcome states
+only on the example the outcome or the request names (a build right only on that example would pass it), and one whose
+program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
+cannot tell from what is shown.
 
 The program is the check: read it whole. Answer `does_not_prove` if it does not run the program the Project builds
 (`{{bin}}`) on inputs it sets up itself, or if it prints a hard-coded expectation: what its `expect` looks

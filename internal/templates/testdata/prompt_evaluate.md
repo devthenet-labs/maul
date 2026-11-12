@@ -41,7 +41,8 @@ from what you saw, usually unsure, and propose no check for it.
 - use Elo, not +1/-1
 ```
 
-The outcomes are the contract. The request is context: use it to understand them, never to add outcomes of your own.
+The outcomes are the contract. The request is context: use it to understand them, never to add outcomes of your own,
+and never to fail an outcome on more than the outcome states.
 
 ### What the change touches
 
@@ -147,6 +148,28 @@ path, a locator that found nothing) is not the outcome failing: fix it and try a
 `contrary` the ledger seqs where you saw the outcome as worded not hold, whatever you believe caused it: maul passes
 no outcome whose verdict lists any.
 
+**Judge the rule, not only its example.** An outcome often states a rule (what holds for any input of a kind, a bound, a
+"never" or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule
+holds, and a build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out
+where a wrong build would answer differently from a right one, and try the rule on inputs it covers beyond the example:
+other values, the positions and combinations where the two would differ (both ends, an uneven or one-sided input where
+the example is even or symmetric), the same input given a second time, where the outcome says what a call with it
+returns, and the ends of every range or bound the outcome states, its far side only where the outcome says what must
+happen there. Choose those inputs yourself, and work out what the rule says each must give before you run it. Where
+the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of your own data that
+shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
+
+**Stay within what the outcome promises.** An input the rule does not cover, a value its words do not decide, and
+behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a
+failure, and where the outcome states no range, a value far from its example (zero, a negative, a size far past any it
+names) is one its words do not decide: where you cannot tell from the outcome's words what the rule says an input must
+give, that run is no evidence either way, and you do not fail the outcome on it. Where an outcome names only an
+example, and its line of the request states the rule it is an instance of (a line may state several rules, each
+answered by its own outcome: take only the one about this outcome's subject), try that rule beyond the example too, in
+calls of your own, never in a check you propose for it: its checks assert only what it states. Where it breaks, never
+report the outcome `pass`: list the seqs where it broke in its `contrary`, report it `unsure`, and say in its note which
+input broke the rule and what it gave. A fail and the fix it starts are only ever for what the outcome itself states.
+
 ## Saving checks
 
 A check is a JSON file that maul validates, runs on every later round with a fresh token, and shows to the human
@@ -169,8 +192,10 @@ test is a reasonable reading of the outcome. Answer `does_not_prove` too for a c
 still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
 item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
 (a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
-gives (a new, empty item where the outcome's value depends on what is in it), and one whose program can print what its
-`expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you cannot tell from what is shown.
+gives (a new, empty item where the outcome's value depends on what is in it), one that tries a rule the outcome states
+only on the example the outcome or the request names (a build right only on that example would pass it), and one whose
+program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
+cannot tell from what is shown.
 
 A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
 (size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS
@@ -184,22 +209,26 @@ So before you propose a check that shows an outcome holds, hold it to this list:
    value fails. Where the expected value depends on what an item holds (a level from the steps set on), fill it so
    the value the outcome expects is not the one a new, empty item shows.
 3. Cover both sides of the outcome: the winner and the loser, on and off, play and stop. For a rule with a bound
-   (at least, at most, between, from 8), create an item on each side of the bound and assert both.
-4. For anything the outcome says changes, assert it before and after the change.
-5. For a claim that something is left as it was (read only, not moved), act on it, then assert that nothing changed.
-6. Assert only what the outcome states: no wording, value, order or layout it does not promise.
-7. For a claim that something is left out, refused, hidden or absent (does not list it, only those, excludes),
+   (at least, at most, between, from 8), create an item on each side of the bound and assert both, the far side
+   only where the outcome says what must happen there.
+4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
+   build right only on the example would be wrong.
+5. For anything the outcome says changes, assert it before and after the change.
+6. For a claim that something is left as it was (read only, not moved), act on it, then assert that nothing changed.
+7. Assert only what the outcome states: no wording, value, order or layout it does not promise.
+8. For a claim that something is left out, refused, hidden or absent (does not list it, only those, excludes),
    create the item that must be left out yourself and assert that it is not there, beside an assertion of an item
    that is there, so an empty answer does not pass. Narrow the answer to your run's own data (a search or filter
    the application offers, by `{{run}}` text), assert your kept items by index, and assert that the index after
    the last is `{"$absent": true}`, so the list ends there; or in the browser assert a `count` of 0 for a locator
    naming the left-out item's `{{run}}` text.
    Asserting only what is kept says nothing about what is left out.
-8. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a sample.
-9. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the filter or
-   rule ignored, the bound off by one, the field or header missing, the error swallowed. For each, find the
-   assertion of your check that would go red on it. If none would, the reviewer refuses the check: strengthen it,
-   and where no check you can write would go red, say so in the verdict's note instead of proposing a weaker one.
+9. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a sample.
+10. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the filter or
+    rule ignored, the rule right only on the example, the bound off by one, the field or header missing, the error
+    swallowed. For each, find the assertion of your check that would go red on it. If none would, the reviewer
+    refuses the check: strengthen it, and where no check you can write would go red, say so in the verdict's note
+    instead of proposing a weaker one.
 
 Where an outcome speaks of each item or of other items, create two or more items of your own and assert each by its
 name. An outcome worded about rows a check cannot create (every row there is, rows saved before) is unsure: say in
@@ -356,11 +385,13 @@ For example:
 }
 ```
 
-**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on data it
-did not create, or on something the outcome does not say), dispute it: cite the ledger seqs of its failure, give the
-reason, and save a corrected check as its replacement. A failure that was there before this change is still a
-defect: never dispute a check for that. maul replays the replacement before it believes the dispute. When a saved
-check no longer fits an outcome at all, retire it with a reason instead.
+**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on data it did
+not create, or on something the outcome does not say), dispute it: cite the ledger seqs of its failure, give the reason,
+and save a corrected check as its replacement. A check that asserts what a rule the outcome states gives for an input
+beyond its example asserts what the outcome says: never dispute it for trying inputs the outcome does not name. A
+failure that was there before this change is still a defect: never dispute a check for that. maul replays the
+replacement before it believes the dispute. When a saved check no longer fits an outcome at all, retire it with a reason
+instead.
 
 ## Look around
 

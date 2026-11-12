@@ -118,6 +118,10 @@ acceptance:
     outcome: "On /, the kick row's first step pad is at least 48 by 48 px."
     from: "make the step pads at least 48px"
     kind: change
+  - id: tempo-shown
+    outcome: "A beat you save at any tempo from 60 to 200 BPM shows that tempo on /beats, for example 90 bpm."
+    from: "a beat shows its tempo, which can be anything from 60 to 200 BPM"
+    kind: change
   - id: new-player-listed
     outcome: "A player you add on the players page (/players) is listed there by the name you gave."
     kind: keep
@@ -150,9 +154,19 @@ How to word an outcome so the evaluator can show it:
   creates. Name two such items where the outcome compares them ("a vote for one of two beats you create moves only
   that beat").
 - One outcome is one claim a single check can show. Split "X and Y", "on the page and in the API" and "before and
-  after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200 characters.
+  after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200 characters, 300 for one
+  that states a rule with its example.
 - State concrete values: what a person enters, other than the defaults, and what they then see ("a beat you save at
-  90 BPM shows 90 bpm (2.7 s)").
+  90 BPM shows 90 bpm (2.7 s)"). Where the request states a rule, those values are an example of it, never the whole
+  outcome (next).
+- Where the request states a rule (what holds for any input of a kind, a bound, a "never" or an "always") and gives
+  examples of it, the outcome states the rule, with the example as one instance of it ("..., for example ..."), and its `from`
+  is the line that states the rule. Never reduce a rule to its examples: the evaluator judges the outcome by the rule
+  it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
+  rule as the request does and no wider: where the request gives only an example, state the example, and add no
+  input, bound or behaviour the request does not promise.
+- State such a rule over items the person checking creates, as above ("a beat you save at any tempo from 60 to 200
+  BPM shows that tempo, for example 90 bpm").
 - A `keep` outcome names one action on the person's own item and what they then see ("a beat you save still plays
   its 16 steps in order"), never "X still works".
 - An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data.
