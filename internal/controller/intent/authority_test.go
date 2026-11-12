@@ -421,6 +421,12 @@ func TestMisplacedCommand(t *testing.T) {
 	e.settleActions(name)
 	e.clock.Advance(verifyInterval)
 	e.settleActions(name)
+	// A listed approver GitHub gives no write access is no approver: the
+	// reply is for those whose command would have been read.
+	e.gh.perms[approver] = ghclient.PermissionRead
+	readOnly := e.gh.comment(approver, "On second thought:\n/maul cancel")
+	e.clock.Advance(verifyInterval)
+	e.settleActions(name)
 
 	in := e.get(name)
 	if in.Status.Phase != v1alpha1.IntentAwaitingApproval || in.Status.Input.Revision != 1 || in.Status.Approval != nil {
@@ -435,7 +441,7 @@ func TestMisplacedCommand(t *testing.T) {
 				e.gh.reactions[id])
 		}
 	}
-	for _, id := range []int64{other, quoted} {
+	for _, id := range []int64{other, quoted, readOnly} {
 		if r := e.gh.withMarker("comment-" + itoa(id)); len(r) != 0 || e.gh.reactions[id] != 0 {
 			t.Errorf("comment %d: replies %+v, reactions %d; want nothing", id, r, e.gh.reactions[id])
 		}
