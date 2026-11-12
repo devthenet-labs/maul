@@ -201,6 +201,8 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
                 {a.summary}
                 {a.route ? <span class="font-mono text-muted"> · {a.route}</span> : null}
                 {a.ledger && a.ledger.length > 0 ? <span class="text-faint"> · {seqs(a.ledger)}</span> : null}
+                {a.foundInRound ? <span class="text-muted"> · found in round {a.foundInRound}</span> : null}
+                {a.acceptedBy ? <span class="text-muted"> · accepted by {a.acceptedBy}</span> : null}
               </li>
             ))}
           </ul>

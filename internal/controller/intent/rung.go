@@ -18,7 +18,9 @@ import (
 //     the heads and approved outcomes of the latest model round
 //     (status.verification.modelRound), only when that round's evaluator
 //     raised nothing (no fail verdict, no contrary entry, no anomaly:
-//     Clear), and only when every outcome but the manual ones is bound to
+//     Clear), only when no anomaly an earlier round found at those heads
+//     stands unaccepted (G-B-LIB-1: it holds them, and a replay could not
+//     pass), and only when every outcome but the manual ones is bound to
 //     a stored check a round could pass it on. It is judged by
 //     acceptance.Decide unchanged, on the store and this round's runs: it
 //     passes exactly what a full round with the same evidence passes when
@@ -48,9 +50,10 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
 	store := storeInput(acc, checks, "")
 	in := acceptance.RungInput{HeadSet: hs.digest, OutcomesDigest: acc.OutcomesDigest,
-		Explore:  v.Requested != nil && v.Requested.Explore,
-		Escalate: kind != verifyRetry && escalationAsked(v, hs.digest),
-		Outcomes: store.Outcomes, Checks: store.Checks, Reviews: store.Reviews}
+		Explore:     v.Requested != nil && v.Requested.Explore,
+		Escalate:    kind != verifyRetry && escalationAsked(v, hs.digest),
+		OpenFinding: openFindingAt(v, acc, hs.digest),
+		Outcomes:    store.Outcomes, Checks: store.Checks, Reviews: store.Reviews}
 	if kind == verifyRetry {
 		in.Keep = acceptance.Rung(v.Rung)
 		if v.Rung == "" {
@@ -62,6 +65,22 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 	}
 	rung, why := acceptance.StartRung(in)
 	return v1alpha1.VerificationRung(rung), why
+}
+
+// openFindingAt reports a finding an earlier round made at hs that still
+// holds it (G-B-LIB-1): an anomaly no approver accepted, or an outcome
+// found failing or suspected there that no approver accepted. A replay
+// round could pass neither, so the next round there is full.
+func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance, hs string) bool {
+	if len(openAnomalies(heldAnomalies(v, hs, 0))) > 0 {
+		return true
+	}
+	for id := range heldOutcomes(v, hs, 0) {
+		if !outcomeAccepted(acc, id, hs) {
+			return true
+		}
+	}
+	return false
 }
 
 // escalationDue reports the one full round an unsure replay round asked

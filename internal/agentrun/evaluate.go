@@ -37,7 +37,7 @@ const evaluateHandoffMaxBytes = 256 << 10
 // type). agent-runner renders the evaluate prompt from it
 // (templates.RenderEvaluatePrompt), which quotes every untrusted field
 // (Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay,
-// PriorRefused, NotYetProof) as fenced data.
+// HeldAnomalies, PriorRefused, NotYetProof) as fenced data.
 type EvaluateHandoff struct {
 	// Round is the verification round, 1-based.
 	Round int `json:"round"`
@@ -65,6 +65,12 @@ type EvaluateHandoff struct {
 	PriorRound    int            `json:"prior_round,omitempty"`
 	PriorVerdicts []PriorVerdict `json:"prior_verdicts,omitempty"`
 	PriorReplay   []PriorReplay  `json:"prior_replay,omitempty"`
+	// HeldAnomalies are the look-around anomalies earlier rounds found at
+	// exactly this round's heads that no approver accepted (G-B-LIB-1):
+	// each holds the change from being confirmed until the heads move or an
+	// approver accepts it, so the prompt asks the evaluator to examine each
+	// again.
+	HeldAnomalies []HeldAnomaly `json:"held_anomalies,omitempty"`
 	// PriorRefused are the checks the reviewer refused in earlier rounds,
 	// with its reasons (coverage design C3).
 	PriorRefused []PriorRefusal `json:"prior_refused,omitempty"`
@@ -104,6 +110,14 @@ type PriorReplay struct {
 	Check   string `json:"check"`
 	Outcome string `json:"outcome"`
 	Result  string `json:"result"`
+}
+
+// HeldAnomaly is one look-around anomaly an earlier round's evaluator
+// reported at this round's heads: the round, and its words, untrusted.
+type HeldAnomaly struct {
+	Round   int    `json:"round"`
+	Summary string `json:"summary"`
+	Route   string `json:"route,omitempty"`
 }
 
 // EvaluateComponent is one previewed component: the key an http check's
@@ -351,6 +365,10 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 	for _, r := range h.PriorReplay {
 		p.PriorReplay = append(p.PriorReplay, templates.PriorReplay{Check: r.Check, Outcome: r.Outcome,
 			Result: r.Result})
+	}
+	for _, a := range h.HeldAnomalies {
+		p.HeldAnomalies = append(p.HeldAnomalies, templates.HeldAnomaly{Round: a.Round, Summary: a.Summary,
+			Route: a.Route})
 	}
 	for _, r := range h.PriorRefused {
 		p.PriorRefused = append(p.PriorRefused, templates.PriorRefusal{Check: r.Check, Outcome: r.Outcome,

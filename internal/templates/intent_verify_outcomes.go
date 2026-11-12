@@ -3,7 +3,10 @@
 
 package templates
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // The agent evaluator's outcomes, as the verification section and comment
 // show them (SPEC S1-20): one row per approved outcome with its kind, its
@@ -56,6 +59,9 @@ var outcomeReasonWords = map[string]string{
 	"no-base-evidence": "its check passed, but its runs at the base do not tell the change from its absence",
 	// Review VC-3: a saved check of it was not re-run this round.
 	"not-replayed": "a saved check of it was not re-run at these heads",
+	// G-B-LIB-1: a finding is a fact about the commits it was made at.
+	"held-finding": "an earlier round at these same commits found it failing, which holds until the commits " +
+		"change or an approver accepts it",
 }
 
 // Bounds on what an outcome's detail shows.
@@ -94,9 +100,14 @@ type outcomeDetail struct {
 }
 
 // VerifyAnomaly is one look-around anomaly: the evaluator's summary and the
-// route it saw it on, its words.
+// route it saw it on, its words. FoundIn is the earlier round at the same
+// commits that found it, which this round carries (G-B-LIB-1; 0: this
+// round's own), and AcceptedBy the approver who accepted it ("" while it
+// holds the commits).
 type VerifyAnomaly struct {
 	Summary, Route string
+	FoundIn        int32
+	AcceptedBy     string
 }
 
 // outcomeKindWords are the outcome kinds as a row shows them; unset is
@@ -179,9 +190,21 @@ func anomalyLine(a VerifyAnomaly) string {
 	if summary == "" {
 		return ""
 	}
-	line := "Look-around: maul's evaluator noticed (its words, not checked by maul): " + summary
+	who := "maul's evaluator"
+	if a.FoundIn > 0 {
+		who = fmt.Sprintf("round %d's evaluator, at these same commits,", a.FoundIn)
+	}
+	line := "Look-around: " + who + " noticed (its words, not checked by maul): " + summary
 	if route := shown(cutRunes(visibleText(a.Route), verifyRouteMaxBytes)); route != "" {
 		line += ", on " + code(route)
 	}
-	return line + "."
+	line += "."
+	switch {
+	case a.AcceptedBy != "":
+		line += " Accepted at these commits by " + code(oneLine(a.AcceptedBy)) + "."
+	case a.FoundIn > 0:
+		line += " It holds these commits until they change or an approver accepts it with " +
+			code("/maul accept all") + "."
+	}
+	return line
 }

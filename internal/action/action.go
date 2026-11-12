@@ -65,7 +65,8 @@ const (
 	// VerbAccept records an approver's acceptance of one acceptance
 	// criterion or outcome (a manual one, one that passed only on retry, or
 	// an outcome the evaluator could not confirm or found failing) at the
-	// current combined change; "all" accepts every one of them.
+	// current combined change; "all" accepts every one of them, and any
+	// look-around anomaly held there.
 	VerbAccept = "accept"
 	// VerbPreview releases an intent's held preview link at once, before the
 	// evaluation settles; it changes nothing else.

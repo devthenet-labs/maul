@@ -118,6 +118,11 @@ func (p *pass) completedRevise(ctx context.Context, run *v1alpha1.IntentRun) (bo
 			if nv := cur.Status.Verification; nv != nil {
 				nv.NoDefect = &v1alpha1.NoDefectRecord{Run: run.Name, Reason: report.Bound(run.Status.Detail,
 					maxNoDefectReasonBytes), At: metav1.NewTime(p.now), HeadSetDigest: nv.HeadSetDigest}
+				if nv.OutcomesHeadSetDigest == nv.HeadSetDigest {
+					// The judgement the fix round was handed: no round is
+					// judged while it runs (G-B-LIB-1).
+					nv.NoDefect.Round = nv.OutcomesRound
+				}
 			}
 			haltOn(cur, v1alpha1.AutoFixFixFoundNoDefect, "", fmt.Sprintf("the acceptance-fix round %s found "+
 				"no defect in the code and changed nothing; the failing outcomes are left to the reviewers",

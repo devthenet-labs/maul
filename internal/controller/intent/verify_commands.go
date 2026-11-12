@@ -367,6 +367,11 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		return n, err
 	}
 	n.Outcome, n.Fix, n.Reset, n.Explore = templates.VerifyRequested, args.Fix, args.Reset, args.Explore
+	if args.Fix && !p.fixesStanding(args, &cur) {
+		// Nothing fails, so nothing is fixed: an anomaly held at these heads
+		// stands through the new round, which is told of it (G-B-LIB-1).
+		n.OpenAnomalies = len(openAnomaliesNow(&cur))
+	}
 	n.Joined = waiting != nil
 	n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 	return n, nil
@@ -531,10 +536,11 @@ func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
 	n.Outcomes = true
 	declared := slices.ContainsFunc(p.in.Status.Acceptance.Outcomes,
 		func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == id })
-	ids := []string{id}
+	ids, anomalies := []string{id}, 0
 	switch {
 	case !declared && id == acceptAll:
-		if len(n.Acceptable) == 0 {
+		anomalies = len(acceptableAnomalies(p.in.Status.Verification, c.at))
+		if len(n.Acceptable) == 0 && anomalies == 0 {
 			n.Outcome = templates.VerifyAcceptAutomatic
 			return n, nil
 		}
@@ -546,11 +552,61 @@ func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
 		n.Outcome = templates.VerifyAcceptAutomatic
 		return n, nil
 	}
-	n, err := p.recordAcceptance(ctx, c, ids, n)
+	n, err := p.recordAcceptanceOf(ctx, c, ids, anomalies > 0, n)
 	if n.Outcome == templates.VerifyAccepted {
 		n.Accepted = ids
 	}
 	return n, err
+}
+
+// openAnomaliesNow are the look-around anomalies v holds at its current
+// heads that no approver accepted.
+func openAnomaliesNow(v *v1alpha1.IntentVerification) []v1alpha1.AnomalyRecord {
+	if v == nil {
+		return nil
+	}
+	return openAnomalies(heldAnomalies(v, v.HeadSetDigest, -1))
+}
+
+// acceptableAnomalies are those of openAnomaliesNow a /maul accept all
+// created at at accepts: recorded before it, so a person can have seen
+// them (as suspectedConfirmable holds a confirmation to the suspected
+// defect's record). GitHub and the record both keep whole seconds: an
+// anomaly recorded in the comment's own second may postdate it, and is not
+// accepted. One recorded before the time was kept is accepted.
+func acceptableAnomalies(v *v1alpha1.IntentVerification, at time.Time) []v1alpha1.AnomalyRecord {
+	var out []v1alpha1.AnomalyRecord
+	for _, a := range openAnomaliesNow(v) {
+		if seenBy(a, at) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// seenBy reports anomaly a recorded before a comment created at at.
+func seenBy(a v1alpha1.AnomalyRecord, at time.Time) bool {
+	return a.RecordedAt == nil || at.Truncate(time.Second).After(a.RecordedAt.Truncate(time.Second))
+}
+
+// acceptAnomalies records c's acceptance of every anomaly v holds at its
+// current heads that no approver accepted and that was recorded before c
+// (seenBy), and counts them: each then no longer holds those heads
+// (G-B-LIB-1), and a round there carries the acceptance with the record.
+func acceptAnomalies(v *v1alpha1.IntentVerification, c verifyCommand) int {
+	if v == nil || v.HeadSetDigest == "" || v.OutcomesHeadSetDigest != v.HeadSetDigest {
+		return 0
+	}
+	n := 0
+	for i := range v.Anomalies {
+		if v.Anomalies[i].Accepted != nil || !seenBy(v.Anomalies[i], c.at) {
+			continue
+		}
+		v.Anomalies[i].Accepted = &v1alpha1.AnomalyAcceptance{By: c.actor.Login, ByID: c.actor.ID,
+			At: metav1.NewTime(c.at), CommentID: c.id}
+		n++
+	}
+	return n
 }
 
 // recordAcceptance records an approver's acceptance of ids in
@@ -558,6 +614,14 @@ func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
 // same id, bound to the head set under verification, and only when the
 // heads were checked when the approver commented (acceptedNow).
 func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []string,
+	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	return p.recordAcceptanceOf(ctx, c, ids, false, n)
+}
+
+// recordAcceptanceOf is recordAcceptance that, with anomalies, also accepts
+// the look-around anomalies held at the heads (acceptAnomalies, /maul accept
+// all), counted in n.Anomalies.
+func (p *pass) recordAcceptanceOf(ctx context.Context, c verifyCommand, ids []string, anomalies bool,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	v := p.in.Status.Verification
 	if v == nil || v.HeadSetDigest == "" {
@@ -578,6 +642,7 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 		recs = append(recs, v1alpha1.AcceptanceRecord{ID: id, By: c.actor.Login, ByID: c.actor.ID,
 			At: metav1.NewTime(c.at), CommentID: c.id, HeadSetDigest: v.HeadSetDigest, Heads: heads, Note: note})
 	}
+	accepted := 0
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		a := in.Status.Acceptance
 		if a == nil {
@@ -586,6 +651,10 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 		a.Accepted = append(slices.DeleteFunc(slices.Clone(a.Accepted),
 			func(r v1alpha1.AcceptanceRecord) bool { return slices.Contains(ids, r.ID) }), recs...)
 		rememberApplied(in, c.id)
+		accepted = 0
+		if anomalies {
+			accepted = acceptAnomalies(in.Status.Verification, c)
+		}
 		// The counts maul/acceptance reads follow the acceptance at once.
 		if v := in.Status.Verification; v != nil {
 			countManual(v, a)
@@ -594,7 +663,7 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 	}); err != nil {
 		return n, err
 	}
-	n.Outcome, n.Heads = templates.VerifyAccepted, heads
+	n.Outcome, n.Heads, n.Anomalies = templates.VerifyAccepted, heads, accepted
 	return n, nil
 }
 

@@ -940,6 +940,43 @@ type AnomalyRecord struct {
 	// +kubebuilder:validation:items:Minimum=1
 	// +kubebuilder:validation:items:Maximum=512
 	Ledger []int32 `json:"ledger,omitempty"`
+	// Round is the round whose evaluator reported it, and so whose ledger
+	// Ledger cites. An anomaly is a fact about the commits it was found at
+	// (G-B-LIB-1): a later round at the same head set carries it, so it
+	// holds every round there from Passed until the heads move or an
+	// approver accepts it. Zero for one recorded before rounds were: the
+	// judgement's own (IntentVerification.OutcomesRound).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	Round int32 `json:"round,omitempty"`
+	// RecordedAt is when maul first recorded it: only a /maul accept all
+	// created after it accepts it, so no comment written before the
+	// anomaly existed counts as a person having seen it.
+	// +optional
+	RecordedAt *metav1.Time `json:"recordedAt,omitempty"`
+	// Accepted records the approver's /maul accept all that accepted it
+	// at its head set: it no longer holds a round from Passed.
+	// +optional
+	Accepted *AnomalyAcceptance `json:"accepted,omitempty"`
+}
+
+// AnomalyAcceptance is an approver's acceptance of a look-around anomaly at
+// the head set it was found at.
+type AnomalyAcceptance struct {
+	// By is the approver's login, for display.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	By string `json:"by"`
+	// ByID is GitHub's numeric id of the approver: the identity.
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID"`
+	// At is the command comment's created_at.
+	At metav1.Time `json:"at"`
+	// CommentID is GitHub's id of the comment carrying the command.
+	// +kubebuilder:validation:Minimum=1
+	CommentID int64 `json:"commentID"`
 }
 
 // HandoffMode is when the preview link is handed to humans: gated (held
@@ -1189,6 +1226,15 @@ type NoDefectRecord struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	HeadSetDigest string `json:"headSetDigest,omitempty"`
+	// Round is the round whose judgement the fix round was handed
+	// (IntentVerification.OutcomesRound when it concluded): it releases the
+	// findings of that judgement alone (G-B-LIB-1), never one a later round
+	// at the same heads made again. Zero for one recorded before rounds
+	// were: it releases nothing.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	Round int32 `json:"round,omitempty"`
 }
 
 // SuspectedDefect is a judged round's suspected defect (IntentVerification
@@ -1443,7 +1489,10 @@ type IntentVerification struct {
 	// +optional
 	// +kubebuilder:validation:Enum=OK;AppFailure;Infra
 	OutcomesEnvironment string `json:"outcomesEnvironment,omitempty"`
-	// Anomalies are the latest round's look-around anomalies.
+	// Anomalies are the latest round's look-around anomalies, and those of
+	// earlier rounds at the same head set, which it carries (each by its
+	// Round): an anomaly holds its head set until the heads move or an
+	// approver accepts it.
 	// +optional
 	// +kubebuilder:validation:MaxItems=10
 	// +listType=atomic

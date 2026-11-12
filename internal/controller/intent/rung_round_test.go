@@ -509,7 +509,10 @@ func TestVerifyExploreIsApproversOnly(t *testing.T) {
 // TestObjectingModelRoundIsNotReplayed: a full round whose evaluator
 // reported an anomaly (or saw an outcome fail) is not clear, so the next
 // round at its heads is full, never a replay that would pass what that
-// evaluator raised; so is the next round once the heads move.
+// evaluator raised. That round's evaluator is told of the anomaly, and
+// reporting nothing does not clear it (G-B-LIB-1: an anomaly is a fact
+// about the commits it was found at): round 2 stays Unconfirmed on round
+// 1's anomaly, carried, and is not clear either, so no replay follows it.
 func TestObjectingModelRoundIsNotReplayed(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(anomalyReport)
@@ -526,8 +529,25 @@ func TestObjectingModelRoundIsNotReplayed(t *testing.T) {
 	if pv.Spec.Round != 2 {
 		t.Fatalf("round %d, want 2", pv.Spec.Round)
 	}
-	if v := e.verification(name); v.State != v1alpha1.VerificationPassed || !v.ModelRound.Clear {
-		t.Errorf("round 2 = %s, model round %+v; want Passed, clear", v.State, v.ModelRound)
+	if pv.Spec.Rung != v1alpha1.RungFull {
+		t.Errorf("round 2 is %s, want full", pv.Spec.Rung)
+	}
+	evals := e.specsOf("evaluate")
+	if len(evals) != 2 {
+		t.Fatalf("evaluate runs = %d, want both rounds'", len(evals))
+	}
+	h := decodeEvaluateHandoff(t, evals[1].IssueMarkdown)
+	if len(h.HeldAnomalies) != 1 || h.HeldAnomalies[0].Round != 1 || h.HeldAnomalies[0].Summary == "" {
+		t.Errorf("round 2's handoff holds %+v, want round 1's anomaly to examine again", h.HeldAnomalies)
+	}
+	v = e.verification(name)
+	if v.State != v1alpha1.VerificationUnconfirmed || v.ModelRound == nil || v.ModelRound.Round != 2 ||
+		v.ModelRound.Clear {
+		t.Errorf("round 2 = %s, model round %+v; want Unconfirmed, the model round, not clear", v.State,
+			v.ModelRound)
+	}
+	if len(v.Anomalies) != 1 || v.Anomalies[0].Round != 1 {
+		t.Errorf("round 2 anomalies %+v, want round 1's carried", v.Anomalies)
 	}
 }
 

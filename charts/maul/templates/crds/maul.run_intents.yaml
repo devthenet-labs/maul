@@ -1517,13 +1517,50 @@ spec:
                   intent's combined change.
                 properties:
                   anomalies:
-                    description: Anomalies are the latest round's look-around anomalies.
+                    description: |-
+                      Anomalies are the latest round's look-around anomalies, and those of
+                      earlier rounds at the same head set, which it carries (each by its
+                      Round): an anomaly holds its head set until the heads move or an
+                      approver accepts it.
                     items:
                       description: |-
                         AnomalyRecord is one look-around anomaly the evaluator reported, with the
                         ledger entries that show it: it downgrades the hand-off, never starts a
                         fix. Summary and route are the evaluator's, untrusted.
                       properties:
+                        accepted:
+                          description: |-
+                            Accepted records the approver's /maul accept all that accepted it
+                            at its head set: it no longer holds a round from Passed.
+                          properties:
+                            at:
+                              description: At is the command comment's created_at.
+                              format: date-time
+                              type: string
+                            by:
+                              description: By is the approver's login, for display.
+                              maxLength: 64
+                              minLength: 1
+                              pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                              type: string
+                            byID:
+                              description: 'ByID is GitHub''s numeric id of the approver:
+                                the identity.'
+                              format: int64
+                              minimum: 1
+                              type: integer
+                            commentID:
+                              description: CommentID is GitHub's id of the comment
+                                carrying the command.
+                              format: int64
+                              minimum: 1
+                              type: integer
+                          required:
+                          - at
+                          - by
+                          - byID
+                          - commentID
+                          type: object
                         ledger:
                           description: Ledger are the entries cited, by seq.
                           items:
@@ -1534,6 +1571,25 @@ spec:
                           maxItems: 32
                           type: array
                           x-kubernetes-list-type: atomic
+                        recordedAt:
+                          description: |-
+                            RecordedAt is when maul first recorded it: only a /maul accept all
+                            created after it accepts it, so no comment written before the
+                            anomaly existed counts as a person having seen it.
+                          format: date-time
+                          type: string
+                        round:
+                          description: |-
+                            Round is the round whose evaluator reported it, and so whose ledger
+                            Ledger cites. An anomaly is a fact about the commits it was found at
+                            (G-B-LIB-1): a later round at the same head set carries it, so it
+                            holds every round there from Passed until the heads move or an
+                            approver accepts it. Zero for one recorded before rounds were: the
+                            judgement's own (IntentVerification.OutcomesRound).
+                          format: int32
+                          maximum: 999
+                          minimum: 0
+                          type: integer
                         route:
                           description: Route it was seen on.
                           maxLength: 300
@@ -1869,6 +1925,17 @@ spec:
                           failed.
                         maxLength: 1024
                         type: string
+                      round:
+                        description: |-
+                          Round is the round whose judgement the fix round was handed
+                          (IntentVerification.OutcomesRound when it concluded): it releases the
+                          findings of that judgement alone (G-B-LIB-1), never one a later round
+                          at the same heads made again. Zero for one recorded before rounds
+                          were: it releases nothing.
+                        format: int32
+                        maximum: 999
+                        minimum: 0
+                        type: integer
                       run:
                         description: Run is the IntentRun that concluded it.
                         maxLength: 63
