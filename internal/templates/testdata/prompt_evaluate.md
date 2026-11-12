@@ -148,15 +148,15 @@ path, a locator that found nothing) is not the outcome failing: fix it and try a
 `contrary` the ledger seqs where you saw the outcome as worded not hold, whatever you believe caused it: maul passes
 no outcome whose verdict lists any.
 
-**Judge the rule, not only its example.** An outcome often states a rule (for every input of a kind, a bound, a "never"
-or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule holds, and a
-build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out where a wrong
-build would answer differently from a right one, and try the rule on inputs it covers beyond the example: other values,
-the positions and combinations where the two would differ (both ends, an uneven or one-sided input where the example is
-even or symmetric), and each side of every bound the outcome states. Choose those inputs yourself, and work out what the
-rule says each must give before you run it. Where the rule does not hold on one, the outcome does not hold as worded:
-report it `fail` with a check of your own data that shows it, held to **A check that shows a defect**, its expected
-value the one the rule's words give.
+**Judge the rule, not only its example.** An outcome often states a rule (what holds for any input of a kind, a bound, a
+"never" or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule
+holds, and a build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out
+where a wrong build would answer differently from a right one, and try the rule on inputs it covers beyond the example:
+other values, the positions and combinations where the two would differ (both ends, an uneven or one-sided input where
+the example is even or symmetric), and the ends of every range or bound the outcome states, its far side only where the
+outcome says what must happen there. Choose those inputs yourself, and work out what the rule says each must give before
+you run it. Where the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of
+your own data that shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
 
 **Stay within what the outcome promises.** An input the rule does not cover, a value its words do not decide, and
 behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a
@@ -206,7 +206,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
    value fails. Where the expected value depends on what an item holds (a level from the steps set on), fill it so
    the value the outcome expects is not the one a new, empty item shows.
 3. Cover both sides of the outcome: the winner and the loser, on and off, play and stop. For a rule with a bound
-   (at least, at most, between, from 8), create an item on each side of the bound and assert both.
+   (at least, at most, between, from 8), create an item on each side of the bound and assert both, the far side
+   only where the outcome says what must happen there.
 4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
    build right only on the example would be wrong.
 5. For anything the outcome says changes, assert it before and after the change.
@@ -221,10 +222,10 @@ So before you propose a check that shows an outcome holds, hold it to this list:
    Asserting only what is kept says nothing about what is left out.
 9. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a sample.
 10. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the filter or
-   rule ignored, the rule right only on the example, the bound off by one, the field or header missing, the error
-   swallowed. For each, find the assertion of your check that would go red on it. If none would, the reviewer refuses
-   the check: strengthen it, and where no check you can write would go red, say so in the verdict's note instead of
-   proposing a weaker one.
+    rule ignored, the rule right only on the example, the bound off by one, the field or header missing, the error
+    swallowed. For each, find the assertion of your check that would go red on it. If none would, the reviewer
+    refuses the check: strengthen it, and where no check you can write would go red, say so in the verdict's note
+    instead of proposing a weaker one.
 
 Where an outcome speaks of each item or of other items, create two or more items of your own and assert each by its
 name. An outcome worded about rows a check cannot create (every row there is, rows saved before) is unsure: say in

@@ -140,8 +140,8 @@ How to word an outcome so the evaluator can show it:
   ("`pattern.Parse` of a pattern of 65 steps returns an error matching `pattern.ErrTooLong`"). Name them as the code
   does, or will once changed. Where the request states a rule, those values are an example of it, never the whole
   outcome (next).
-- Where the request states a rule (for every input of a kind, a bound, a "never" or an "always") and gives examples
-  of it, the outcome states the rule, with the example as one instance of it ("..., for example ..."), and its `from`
+- Where the request states a rule (what holds for any input of a kind, a bound, a "never" or an "always") and gives
+  examples of it, the outcome states the rule, with the example as one instance of it ("..., for example ..."), and its `from`
   is the line that states the rule. Never reduce a rule to its examples: the evaluator judges the outcome by the rule
   it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
   rule as the request does and no wider: where the request gives only an example, state the example, and add no

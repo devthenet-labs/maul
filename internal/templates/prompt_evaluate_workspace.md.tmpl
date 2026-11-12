@@ -228,7 +228,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 2. Use inputs other than the defaults (a tempo of 90 where a new beat starts at 120), so a build that gives a fixed
    value fails.
 3. Cover both sides of the outcome: the accepted input and the refused one, on and off. For a rule with a bound (at
-   least, at most, between, from 8), give an input on each side of the bound and assert both.
+   least, at most, between, from 8), give an input on each side of the bound and assert both, the far side only
+   where the outcome says what must happen there.
 4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
    build right only on the example would be wrong.
 5. For a claim that something is left out, refused or absent, give the input that must be left out or refused and

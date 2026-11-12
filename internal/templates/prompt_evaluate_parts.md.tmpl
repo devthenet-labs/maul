@@ -90,15 +90,15 @@ rarely pins every clause of the outcome. So for each of these outcomes whose sav
 write a new check that shows the outcome holds, held to **What a check must cover** like any other, run it green,
 propose it, and cite its run in the verdict. Leave the saved check as it is: do not dispute or retire it.
 {{- end}}{{end}}
-{{define "evaluate-rule"}}**Judge the rule, not only its example.** An outcome often states a rule (for every input of a kind, a bound, a "never"
-or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule holds, and a
-build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out where a wrong
-build would answer differently from a right one, and try the rule on inputs it covers beyond the example: other values,
-the positions and combinations where the two would differ (both ends, an uneven or one-sided input where the example is
-even or symmetric), and each side of every bound the outcome states. Choose those inputs yourself, and work out what the
-rule says each must give before you run it. Where the rule does not hold on one, the outcome does not hold as worded:
-report it `fail` with a check of your own data that shows it, held to **A check that shows a defect**, its expected
-value the one the rule's words give.
+{{define "evaluate-rule"}}**Judge the rule, not only its example.** An outcome often states a rule (what holds for any input of a kind, a bound, a
+"never" or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule
+holds, and a build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out
+where a wrong build would answer differently from a right one, and try the rule on inputs it covers beyond the example:
+other values, the positions and combinations where the two would differ (both ends, an uneven or one-sided input where
+the example is even or symmetric), and the ends of every range or bound the outcome states, its far side only where the
+outcome says what must happen there. Choose those inputs yourself, and work out what the rule says each must give before
+you run it. Where the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of
+your own data that shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
 
 **Stay within what the outcome promises.** An input the rule does not cover, a value its words do not decide, and
 behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a

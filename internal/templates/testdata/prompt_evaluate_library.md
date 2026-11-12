@@ -199,15 +199,15 @@ your own mistake (a wrong flag, a wrong path, a program of yours that does not c
 fix it and try again. List in the verdict's `contrary` the ledger seqs where you saw the outcome as worded not hold,
 whatever you believe caused it: maul passes no outcome whose verdict lists any.
 
-**Judge the rule, not only its example.** An outcome often states a rule (for every input of a kind, a bound, a "never"
-or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule holds, and a
-build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out where a wrong
-build would answer differently from a right one, and try the rule on inputs it covers beyond the example: other values,
-the positions and combinations where the two would differ (both ends, an uneven or one-sided input where the example is
-even or symmetric), and each side of every bound the outcome states. Choose those inputs yourself, and work out what the
-rule says each must give before you run it. Where the rule does not hold on one, the outcome does not hold as worded:
-report it `fail` with a check of your own data that shows it, held to **A check that shows a defect**, its expected
-value the one the rule's words give.
+**Judge the rule, not only its example.** An outcome often states a rule (what holds for any input of a kind, a bound, a
+"never" or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule
+holds, and a build can be right on the example and wrong elsewhere. So for each outcome that states a rule, work out
+where a wrong build would answer differently from a right one, and try the rule on inputs it covers beyond the example:
+other values, the positions and combinations where the two would differ (both ends, an uneven or one-sided input where
+the example is even or symmetric), and the ends of every range or bound the outcome states, its far side only where the
+outcome says what must happen there. Choose those inputs yourself, and work out what the rule says each must give before
+you run it. Where the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of
+your own data that shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
 
 **Stay within what the outcome promises.** An input the rule does not cover, a value its words do not decide, and
 behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a
@@ -278,7 +278,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 2. Use inputs other than the defaults (a tempo of 90 where a new beat starts at 120), so a build that gives a fixed
    value fails.
 3. Cover both sides of the outcome: the accepted input and the refused one, on and off. For a rule with a bound (at
-   least, at most, between, from 8), give an input on each side of the bound and assert both.
+   least, at most, between, from 8), give an input on each side of the bound and assert both, the far side only
+   where the outcome says what must happen there.
 4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
    build right only on the example would be wrong.
 5. For a claim that something is left out, refused or absent, give the input that must be left out or refused and

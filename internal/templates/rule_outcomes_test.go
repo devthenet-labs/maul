@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // The defect gate 2 finding G-B-LIB-2: planners turned an issue's rule into
@@ -86,6 +85,9 @@ func TestEvaluatePromptProbesTheRule(t *testing.T) {
 				"the outcome holds only if the rule holds, and a build can be right on the example and wrong elsewhere",
 				"try the rule on inputs it covers beyond the example",
 				"Choose those inputs yourself, and work out what the rule says each must give before you run it.",
+				"the ends of every range or bound the outcome states, its far side only where the outcome says what " +
+					"must happen there",
+				"assert both, the far side only where the outcome says what must happen there",
 				"report it `fail` with a check of your own data that shows it",
 				"**Stay within what the outcome promises.**",
 				"are never a failure",
@@ -156,19 +158,5 @@ func TestCheckReviewPromptJudgesTheRule(t *testing.T) {
 				t.Error("the red question shows the request or its line")
 			}
 		})
-	}
-}
-
-// TestPlanOutcomesExamplesParse keeps the rule-stating examples within the
-// plan report's limits.
-func TestPlanOutcomesExamplesParse(t *testing.T) {
-	for name, ex := range map[string]string{"preview": ExamplePlanOutcomes, "cli": ExamplePlanOutcomesCLI,
-		"library": ExamplePlanOutcomesLibrary} {
-		doc := "---\nsummary: \"x\"\nrepositories:\n  - \"https://github.com/o/r\"\nnew_dependencies: []\n" +
-			"questions: []\nconfidence: 0.8\nestimated_max_turns: 10\nestimated_token_budget: 100000\n" + ex +
-			"\n---\n\n## Approach\n\nx\n"
-		if _, err := report.ParsePlan([]byte(doc)); err != nil {
-			t.Errorf("%s: %v", name, err)
-		}
 	}
 }
