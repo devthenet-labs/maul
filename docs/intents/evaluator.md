@@ -91,7 +91,16 @@ the evaluator's run (`[maul-tool time left]`).
    the outcome holds: maul names those, and the evaluator writes such an outcome a new check that proves it, confirmed
    and reviewed like any other, so a fixed defect can pass in the round after its fix. Past an outcome's turn budget it
    stops on a check that cannot run as the outcome needs (a wait no check step can make, more steps than a check may
-   have) and reports the outcome unsure, naming what no check could express.
+   have) and reports the outcome unsure, naming what no check could express. An outcome that states a rule (for every
+   input of a kind, a bound, a "never" or an "always") is judged by the rule, its example one instance of it (defect
+   gate 2, G-B-LIB-2: a build right on the plan's example and wrong elsewhere passed its outcomes). The evaluator tries
+   the rule on inputs of its own choosing beyond the example, where a build right only on the example would answer
+   differently, and a failure there is a fail it shows with a red check of its own data; a check that tries the rule
+   only on its example is one a plausible wrong build would still pass. It stays within what the outcome promises: an
+   input the rule does not cover, a value its words do not decide and behaviour the issue leaves unsaid are never a
+   failure. Where an outcome names only an example and its issue line states the rule, a break of that rule beyond the
+   example withholds the pass (`contrary`, so unsure) but never fails the outcome: a fail and its fix are only for what
+   the approved outcome itself states.
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
@@ -104,12 +113,15 @@ the evaluator's run (`[maul-tool time left]`).
    any other is dropped. On the green question the reviewer is given the issue line the outcome answers, its kind, the
    request and the previewed components, and learns the application's own words from the request (a "beat" on the page
    may be a "pattern" in the API), but judges the check against the outcome only: nothing in the request relaxes the
-   rule. The red question gets neither the request nor the line, so a fix never starts outside the approved outcome.
-   Each answer is kept with the check's id and the reviewer's reason, and every later round's evaluator is told the
-   newest 40 checks refused on the green question by outcome, id and reason: a form once refused is never reviewed
-   again, so it strengthens the check rather than proposes it again. Each session may take 6 turns, the last 3 kept for
-   one repair of its report; a review whose report is refused and not repaired makes that check alone `unclear` (not
-   stored, its answer not cached), and the run goes on to the next check.
+   rule. It refuses a check that tries a rule only on its example, and a check of an outcome that names only an example
+   of the rule its line states when the check tries nothing beyond that example. The red question gets neither the
+   request nor the line, so a fix never starts outside the approved outcome; it admits an input beyond the outcome's
+   example only where the rule, as the outcome words it, covers that input and decides the value the check expects. Each
+   answer is kept with the check's id and the reviewer's reason, and every later round's evaluator is told the newest 40
+   checks refused on the green question by outcome, id and reason: a form once refused is never reviewed again, so it
+   strengthens the check rather than proposes it again. Each session may take 6 turns, the last 3 kept for one repair of
+   its report; a review whose report is refused and not repaired makes that check alone `unclear` (not stored, its
+   answer not cached), and the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.

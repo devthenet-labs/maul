@@ -76,6 +76,11 @@ Answer `proves` only if all of these hold:
 
 Answer `does_not_prove` if any of them does not hold, and `unclear` if you cannot tell from what is shown.
 
+Where the outcome states a rule and names an example of it, an input beyond that example is still within the outcome
+when the rule, as the outcome words it, covers that input: judge the value the check expects by the rule's words.
+Answer `does_not_prove` if the rule as the outcome words it does not cover that input or does not decide the value
+the check expects, and `unclear` if you cannot tell.
+
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.
 

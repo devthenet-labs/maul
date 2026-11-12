@@ -107,7 +107,7 @@ the evaluator decides how to check each outcome. Omit the field when nothing the
 ```yaml
 acceptance:
   - id: parse-too-long
-    outcome: "`pattern.Parse` of a pattern of 65 steps returns an error matching `pattern.ErrTooLong`."
+    outcome: "`pattern.Parse` of any pattern over 64 steps (for example 65) returns an error matching `ErrTooLong`."
     from: "reject patterns over 64 steps"
     kind: change
   - id: parse-64-kept
@@ -134,10 +134,18 @@ How to word an outcome so the evaluator can show it:
   `change` outcome only if it does not hold there: state what the change makes newly true. A `keep` outcome states
   what held before the change and must still hold after it.
 - One outcome is one claim a single check can show. Split "X and Y" and "before and after" into separate outcomes;
-  several outcomes may share one `from` line. Aim for about 200 characters.
+  several outcomes may share one `from` line. Aim for about 200 characters, 300 for one that states a rule with its
+  example.
 - State the exported function, method or type a caller uses, the input, and the value or error it returns
   ("`pattern.Parse` of a pattern of 65 steps returns an error matching `pattern.ErrTooLong`"). Name them as the code
-  does, or will once changed.
+  does, or will once changed. Where the request states a rule, those values are an example of it, never the whole
+  outcome (next).
+- Where the request states a rule (for every input of a kind, a bound, a "never" or an "always") and gives examples
+  of it, the outcome states the rule, with the example as one instance of it ("..., for example ..."), and its `from`
+  is the line that states the rule. Never reduce a rule to its examples: the evaluator judges the outcome by the rule
+  it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
+  rule as the request does and no wider: where the request gives only an example, state the example, and add no
+  input, bound or behaviour the request does not promise.
 - The evaluator calls only the library's exported API, from programs of its own: state an outcome through that API,
   never through unexported code or internals.
 - A `keep` outcome names one call and what it then returns, never "X still works".

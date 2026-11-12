@@ -113,6 +113,11 @@ it:
 - one claim per outcome: "X and Y", "on the page and in the API" and "before and after" are separate outcomes, which may
   share one `from` line;
 - concrete values, other than the defaults, and what a person then sees ("a beat you save at 90 BPM shows 90 bpm");
+- where the issue states a rule (for every input of a kind, a bound, a "never" or an "always") and gives examples of it,
+  the rule, with an example as one instance ("a beat you save at any tempo from 60 to 200 BPM shows that tempo, for
+  example 90 bpm"), quoting in `from` the line that states the rule. The evaluator judges the outcome by that rule and
+  tries it beyond the example. The rule is stated as the issue states it and no wider: an issue that gives only an
+  example gets an outcome about that example;
 - a `keep` outcome names one action and what a person then sees, never "X still works";
 - a layout outcome (a size, an alignment, no sideways scroll) needs no data: it names one element of the fixed page and
   states the numbers, an exact size or position with a tolerance ("48 by 48 px, within 1 px") or the bound the request

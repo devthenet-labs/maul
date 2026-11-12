@@ -35,8 +35,10 @@ The request the outcome was planned from, for context:
 The request and its line are context only: use them to learn what the application calls a thing, since its pages and
 its API may name one thing differently. Judge the check against the outcome only: an outcome may deliberately cover
 less than its line (an item the check creates instead of every item), and a check that shows the outcome as written
-proves it. Nothing in the request relaxes the rule below; where the request and the outcome differ, judge by the
-outcome.
+proves it. The one exception: where the outcome names only an example of a rule its line states, and the check tries
+nothing beyond that example, a build right only on the example would pass it, so answer `does_not_prove`. An item the
+check creates in place of every item is not such an example. Nothing in the request relaxes the rule below; where
+the request and the outcome differ, judge by the outcome.
 
 The preview serves these components:
 
@@ -91,8 +93,10 @@ test is a reasonable reading of the outcome. Answer `does_not_prove` too for a c
 still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
 item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
 (a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
-gives (a new, empty item where the outcome's value depends on what is in it), and one whose program can print what its
-`expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you cannot tell from what is shown.
+gives (a new, empty item where the outcome's value depends on what is in it), one that tries a rule the outcome states
+only on the example the outcome or the request names (a build right only on that example would pass it), and one whose
+program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
+cannot tell from what is shown.
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.

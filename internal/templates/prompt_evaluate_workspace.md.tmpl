@@ -166,6 +166,8 @@ your own mistake (a wrong flag, a wrong path, a program of yours that does not c
 fix it and try again. List in the verdict's `contrary` the ledger seqs where you saw the outcome as worded not hold,
 whatever you believe caused it: maul passes no outcome whose verdict lists any.
 
+{{template "evaluate-rule" .}}
+
 **The head and the base.** maul runs every check you propose, and every saved check, at the head and at the base,
 each alone with a fresh token, and counts a check for its outcome only where the two sides agree with the outcome's
 kind:
@@ -227,15 +229,18 @@ So before you propose a check that shows an outcome holds, hold it to this list:
    value fails.
 3. Cover both sides of the outcome: the accepted input and the refused one, on and off. For a rule with a bound (at
    least, at most, between, from 8), give an input on each side of the bound and assert both.
-4. For a claim that something is left out, refused or absent, give the input that must be left out or refused and
+4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
+   build right only on the example would be wrong.
+5. For a claim that something is left out, refused or absent, give the input that must be left out or refused and
    assert that it is, beside an assertion of one that is kept, so an empty answer does not pass.
-5. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a
+6. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a
    sample.
-6. Assert only what the outcome states: no wording, value, order or timing it does not promise.
-7. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the flag or
-   rule ignored, the bound off by one, the field missing, the error swallowed. For each, find the assertion of your
-   check that would go red on it. If none would, the reviewer refuses the check: strengthen it, and where no check
-   you can write would go red, say so in the verdict's note instead of proposing a weaker one.
+7. Assert only what the outcome states: no wording, value, order or timing it does not promise.
+8. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the flag or
+   rule ignored, the rule right only on the example, the bound off by one, the field missing, the error swallowed.
+   For each, find the assertion of your check that would go red on it. If none would, the reviewer refuses the check:
+   strengthen it, and where no check you can write would go red, say so in the verdict's note instead of proposing a
+   weaker one.
 
 **A check that shows a defect.** When an outcome fails, save the check that shows it: the check of the outcome as
 approved, which would pass on a build where the outcome holds, and fails on this one. Never bend a check to make it
@@ -304,10 +309,11 @@ For example:
 {{.Examples.Run}}
 ```
 
-**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on something
-the outcome does not say), dispute it: cite the ledger seqs of its failure, give the reason, and save a corrected
-check as its replacement. A failure that was there before this change is still a defect: never dispute a check for
-that. maul replays the replacement before it believes the dispute. When a saved check no longer fits an outcome at
-all, retire it with a reason instead.
+**Disputes.** When a saved check failed but you are sure the failure is not a defect (the check asserts on something the
+outcome does not say), dispute it: cite the ledger seqs of its failure, give the reason, and save a corrected check as
+its replacement. A check that asserts what a rule the outcome states gives for an input beyond its example asserts what
+the outcome says: never dispute it for trying inputs the outcome does not name. A failure that was there before this
+change is still a defect: never dispute a check for that. maul replays the replacement before it believes the dispute.
+When a saved check no longer fits an outcome at all, retire it with a reason instead.
 
 {{template "evaluate-report" .}}
