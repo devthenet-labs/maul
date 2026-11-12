@@ -721,7 +721,7 @@ func TestDecideInputCarriesContrary(t *testing.T) {
 		Ledger: &v1alpha1.LedgerSummary{Count: 40}}}
 	ev := &report.Evaluation{Verdicts: []report.OutcomeVerdict{{ID: "round-trip", Verdict: report.VerdictPass,
 		Ledger: []int32{38, 47}, Contrary: []int32{37, 39, 90}}}}
-	in := decideInput(acc, pv, nil, ev)
+	in := decideInput(acc, pv, nil, ev, nil)
 	if len(in.Verdicts) != 1 || !slices.Equal(in.Verdicts[0].Ledger, []int32{38}) ||
 		!slices.Equal(in.Verdicts[0].Contrary, []int32{37, 39, 90}) {
 		t.Fatalf("verdicts = %+v, want ledger [38] and contrary [37 39 90]", in.Verdicts)

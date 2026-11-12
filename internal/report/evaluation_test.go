@@ -123,6 +123,20 @@ func TestParseEvaluationMinimal(t *testing.T) {
 	}
 }
 
+// An anomaly's pre_existing is the evaluator's claim that it was there
+// before the change, carried as written; absent, it is false.
+func TestParseEvaluationPreExisting(t *testing.T) {
+	doc := strings.Replace(evaluationReport, "    ledger: [20]\n",
+		"    ledger: [20, 21]\n    pre_existing: true\n  - summary: \"new\"\n    route: /\n    ledger: [22]\n", 1)
+	e, err := ParseEvaluation([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseEvaluation() error = %v", err)
+	}
+	if len(e.Anomalies) != 2 || !e.Anomalies[0].PreExisting || e.Anomalies[1].PreExisting {
+		t.Errorf("Anomalies = %+v, want the first claimed pre-existing alone", e.Anomalies)
+	}
+}
+
 func TestParseEvaluationRefusals(t *testing.T) {
 	verdict := func(body string) string { return "---\nverdicts:\n" + body + "---\n" }
 	withVerdict := func(rest string) string {

@@ -324,7 +324,7 @@ func judgedRound(ver *v1alpha1.IntentVerification) (map[string]v1alpha1.OutcomeR
 	}
 	for _, a := range ver.Anomalies {
 		ea := EvaluationAnomaly{Summary: intentview.Text(a.Summary, maxEvaluationText),
-			Route: intentview.Text(a.Route, maxEvaluationText), Ledger: a.Ledger}
+			Route: intentview.Text(a.Route, maxEvaluationText), Ledger: a.Ledger, PreExisting: a.PreExisting}
 		if a.Round != 0 && a.Round != ver.OutcomesRound {
 			// Carried from an earlier round at these heads: its seqs are
 			// that round's ledger's, not this one's.

@@ -130,6 +130,12 @@ exactly these fields, for example:
   for a check that shows a defect of an outcome you report `fail` (leave it out for a check that ran green).
 - `retire`: each saved check to retire, by its digest, with a `reason`.
 - `anomalies`: each anomaly, with a one-line `summary`, the `route` or surface it is on, and its `ledger` seqs.
+{{- if .Workspace}}
+  For one that was there before this change, add `pre_existing: true` and cite, beside every call at the head that
+  shows it, the same call made with `--base` (an `exec`, a `run` or a `files` read). maul believes it only where every
+  call it cites at the head printed exactly the same at the base: it is then shown to the human reviewers and holds
+  nothing against the change. Otherwise it holds the change as any other anomaly does.
+{{- end}}
 
 Write `[]` for an empty list. Put every string in double quotes, and escape a double quote inside one as `\"`: an
 unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes, reasons and summaries are

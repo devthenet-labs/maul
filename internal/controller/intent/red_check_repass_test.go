@@ -43,7 +43,7 @@ func TestGreenProvenIsDecidesRule(t *testing.T) {
 				Spec: v1alpha1.PreviewVerificationSpec{Round: 5, Rung: v1alpha1.RungReplay},
 				Status: v1alpha1.PreviewVerificationStatus{Replay: []v1alpha1.CheckRun{{CheckDigest: red.Digest,
 					Result: v1alpha1.CheckRunPass, Token: "t", Seq: 1}}}}
-			d := acceptance.Decide(decideInput(acc, pv, []v1alpha1.SavedCheck{red}, nil))
+			d := acceptance.Decide(decideInput(acc, pv, []v1alpha1.SavedCheck{red}, nil, nil))
 			passed := d.PerOutcome[0].Result == acceptance.ResultPassed
 			if name == "green proves" && !passed {
 				t.Fatalf("Decide passes nothing here (%+v): the pin is vacuous", d.PerOutcome[0])
