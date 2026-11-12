@@ -169,7 +169,8 @@ Answer `proves` only if all of these hold:
 1. Its failure shows the outcome as approved does not hold: the assertion that failed checks something the outcome
    promises, and the steps before it do what the outcome describes, on data the check created itself, so it could not
    fail on a build where the outcome holds. It need not show every part of the outcome: never refuse it only because a
-   pass would leave part of the outcome unshown (a clause no step asserts).
+   pass would leave part of the outcome unshown (a clause no step asserts). That never excuses a condition the outcome
+   is stated under: a check that skips or changes one proves nothing.
 2. It would pass on a build where the outcome holds: nothing it expects, at any step, before or after the one that
    failed, goes beyond what the outcome states (an exact value, a wording, an order, a layout or a timing the outcome
    does not promise), and it depends on no data it did not create.

@@ -63,10 +63,29 @@ func TestCheckReviewRedJudgesTheFailure(t *testing.T) {
 			// three refusals: steps the outcome does not promise).
 			"It would pass on a build where the outcome holds",
 			"at any step, before or after the one that failed,",
+			// Setup stays sound: the exemption covers what the outcome
+			// promises, never the condition it is stated under.
+			"That never excuses a condition the outcome is stated under",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: the red question lacks %q", name, want)
 			}
+		}
+	}
+
+	// The layout rubric holds its setup to the outcome too: a check that
+	// clicks or scrolls to another state than the outcome names could fail
+	// a working build however true its assertion is.
+	got, err := RenderCheckReviewPrompt(g10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"measures something the outcome promises", // the layout branch
+		"the steps before it set up the situation the outcome is stated for",
+	} {
+		if !strings.Contains(flat(got), want) {
+			t.Errorf("layout (G10): the red question lacks %q", want)
 		}
 	}
 
