@@ -76,6 +76,37 @@ func TestPlanOutcomesGoldens(t *testing.T) {
 	}
 }
 
+// TestPlanOutcomesFlagsWorkspace (G-B-LIB-3): a Project with no preview
+// checks outcomes in a workspace the tool pod builds for each round, which
+// holds no other run's data, so the plan comment never warns about a preview whose data persists, nor flags an
+// outcome for saying every or each. It still flags "still works", which the
+// workspace plan prompt forbids as well, and an outcome narrower than its
+// issue line.
+func TestPlanOutcomesFlagsWorkspace(t *testing.T) {
+	pc := testPlanComment(testPlan)
+	pc.Outcomes = &PlanOutcomes{Workspace: true, Outcomes: []PlanOutcome{
+		{ID: "every-step", Outcome: "`pattern.Shift` moves every step of a pattern one later", From: "shift steps"},
+		{ID: "each-err", Outcome: "`pattern.Validate` refuses each pattern of 65 steps", From: "validate patterns"},
+		{ID: "still-works", Outcome: "`pattern.Parse` still works", Keep: true},
+		{ID: "one-track", Outcome: "`pattern.Shift` of a kick track moves it", From: "each track shifts"},
+	}}
+	got, err := RenderPlanComment(pc)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, unwanted := range []string{"preview", "persists", "`every-step` says", "`each-err` says"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("a workspace plan comment says %q:\n%s", unwanted, got)
+		}
+	}
+	for _, want := range []string{"`still-works` says \"still works\"", "`one-track` answers an issue line"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a workspace plan comment lacks %q:\n%s", want, got)
+		}
+	}
+	golden(t, "intent_plan_outcomes_flags_workspace.md", got)
+}
+
 // TestPlanOutcomesAbsentChangesNothing: without outcomes the comment is
 // byte for byte the comment before them, whatever else is set.
 func TestPlanOutcomesAbsentChangesNothing(t *testing.T) {
