@@ -91,10 +91,18 @@ func ParseVerify(body string) (VerifyArgs, bool) {
 // like an id; what it means is the caller's.
 const AcceptAll = "all"
 
+// AcceptAnomalies is the argument of /maul accept that names only the
+// look-around anomalies maul noticed at the commits under verification: it
+// accepts them and no criterion or outcome, so an approver can release a
+// held anomaly without also closing every doubtful outcome, as AcceptAll
+// does. It matches the id grammar as AcceptAll does; what it means, and
+// that an outcome of that id is named as itself, is the caller's.
+const AcceptAnomalies = "anomalies"
+
 // ParseAccept reads body as /maul accept <id>: exactly one argument, a
 // criterion or outcome id as the plan grammar writes one (a lower-case ASCII
-// letter, then up to 31 lower-case letters, digits and dashes), or
-// AcceptAll. The note, if any, is on the lines below. ok is false for any
+// letter, then up to 31 lower-case letters, digits and dashes), AcceptAll or
+// AcceptAnomalies. The note, if any, is on the lines below. ok is false for any
 // other verb and anything else, so an id returned is always safe to echo.
 // Whether the intent has such a criterion or outcome is the caller's to
 // decide.

@@ -6,6 +6,8 @@ package templates
 import (
 	"fmt"
 	"strings"
+
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // The agent evaluator's outcomes, as the verification section and comment
@@ -204,7 +206,7 @@ func anomalyLine(a VerifyAnomaly) string {
 		line += " Accepted at these commits by " + code(oneLine(a.AcceptedBy)) + "."
 	case a.FoundIn > 0:
 		line += " It holds these commits until they change or an approver accepts it with " +
-			code("/maul accept all") + "."
+			code("/maul accept "+command.AcceptAnomalies) + "."
 	}
 	return line
 }

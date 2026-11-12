@@ -175,8 +175,24 @@ func (p *pass) recordedAcceptance(c verifyCommand, n templates.VerifyCommandNoti
 			n.Accepted = append(n.Accepted, r.ID)
 		}
 	}
-	if named, ok := command.ParseAccept(c.body); n.Outcome == templates.VerifyAccepted && ok && named == acceptAll {
-		n.Criterion = acceptAll // /maul accept all, however many it closed
+	named, ok := command.ParseAccept(c.body)
+	if !ok || (named != acceptAll && named != acceptAnomaliesID) {
+		return n
+	}
+	// The anomalies it accepted, which no acceptance record lists: for
+	// /maul accept anomalies they are all it did.
+	if v := p.in.Status.Verification; v != nil {
+		for _, a := range v.Anomalies {
+			if a.Accepted != nil && a.Accepted.CommentID == c.id {
+				n.Anomalies++
+			}
+		}
+		if n.Anomalies > 0 && n.Outcome != templates.VerifyAccepted {
+			n.Outcome, n.Heads = templates.VerifyAccepted, shortHeads(v.Heads)
+		}
+	}
+	if n.Outcome == templates.VerifyAccepted {
+		n.Criterion = named // /maul accept all or anomalies, however many it closed
 	}
 	return n
 }
@@ -490,6 +506,11 @@ func (p *pass) inFlightVerifyFix() (pending string, running bool) {
 // id is accepted as itself.
 const acceptAll = command.AcceptAll
 
+// acceptAnomaliesID is the id of /maul accept anomalies, which accepts the
+// look-around anomalies held at the commits under verification and nothing
+// else (acceptOutcome). An outcome of that id is accepted as itself.
+const acceptAnomaliesID = command.AcceptAnomalies
+
 // acceptCriterion records /maul accept <id> in status.acceptance.accepted,
 // bound to the combined change being verified (status.verification's head
 // set). A plan that declares outcomes is acceptOutcome's; for a plan that
@@ -545,6 +566,17 @@ func (p *pass) acceptOutcome(ctx context.Context, c verifyCommand, id string,
 			return n, nil
 		}
 		ids = slices.Clone(n.Acceptable)
+	case !declared && id == acceptAnomaliesID:
+		// The anomalies alone: no outcome is closed beside them.
+		if len(acceptableAnomalies(p.in.Status.Verification, c.at)) == 0 {
+			n.Outcome = templates.VerifyAcceptNoAnomaly
+			return n, nil
+		}
+		n, err := p.recordAcceptanceOf(ctx, c, nil, true, n)
+		if n.Outcome == templates.VerifyAccepted && n.Anomalies == 0 {
+			n.Outcome = templates.VerifyAcceptNoAnomaly
+		}
+		return n, err
 	case !declared:
 		n.Outcome = templates.VerifyAcceptUnknown
 		return n, nil
@@ -568,7 +600,7 @@ func openAnomaliesNow(v *v1alpha1.IntentVerification) []v1alpha1.AnomalyRecord {
 	return openAnomalies(heldAnomalies(v, v.HeadSetDigest, -1))
 }
 
-// acceptableAnomalies are those of openAnomaliesNow a /maul accept all
+// acceptableAnomalies are those of openAnomaliesNow a /maul accept all (or anomalies)
 // created at at accepts: recorded before it, so a person can have seen
 // them (as suspectedConfirmable holds a confirmation to the suspected
 // defect's record). GitHub and the record both keep whole seconds: an
@@ -620,7 +652,7 @@ func (p *pass) recordAcceptance(ctx context.Context, c verifyCommand, ids []stri
 
 // recordAcceptanceOf is recordAcceptance that, with anomalies, also accepts
 // the look-around anomalies held at the heads (acceptAnomalies, /maul accept
-// all), counted in n.Anomalies.
+// all or anomalies), counted in n.Anomalies.
 func (p *pass) recordAcceptanceOf(ctx context.Context, c verifyCommand, ids []string, anomalies bool,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	v := p.in.Status.Verification

@@ -1530,7 +1530,8 @@ spec:
                       properties:
                         accepted:
                           description: |-
-                            Accepted records the approver's /maul accept all that accepted it
+                            Accepted records the approver's /maul accept all or /maul accept
+                            anomalies that accepted it
                             at its head set: it no longer holds a round from Passed.
                           properties:
                             at:
@@ -1574,8 +1575,8 @@ spec:
                         recordedAt:
                           description: |-
                             RecordedAt is when maul first recorded it: only a /maul accept all
-                            created after it accepts it, so no comment written before the
-                            anomaly existed counts as a person having seen it.
+                            or /maul accept anomalies created after it accepts it, so no comment
+                            written before the anomaly existed counts as a person having seen it.
                           format: date-time
                           type: string
                         round:

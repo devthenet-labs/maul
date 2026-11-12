@@ -37,7 +37,7 @@
 // words after the verb on the command's own line (Args), never text on the
 // lines below, which stays the note. /maul verify takes at most one, "fix",
 // "stop", "--reset" or "explore" (ParseVerify); /maul accept exactly one, a criterion or
-// outcome id in the plan grammar's form, or "all" (ParseAccept), so an id it
+// outcome id in the plan grammar's form, "all" or "anomalies" (ParseAccept), so an id it
 // returns is safe to echo; /maul preview none (ParsePreview). Anything else
 // is refused, for the caller to answer with the help:
 // an argument is never guessed. "--reset" is a modifier of verify and never

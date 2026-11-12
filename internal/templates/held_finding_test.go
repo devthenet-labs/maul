@@ -53,7 +53,7 @@ func TestHeldAnomalyWords(t *testing.T) {
 	carried := anomalyLine(VerifyAnomaly{Summary: "the hat rotates the wrong way", Route: "synth.Shift", FoundIn: 1})
 	if !strings.HasPrefix(carried, "Look-around: round 1's evaluator, at these same commits, noticed") ||
 		!strings.Contains(carried, "It holds these commits until they change or an approver accepts it with "+
-			"`/maul accept all`.") {
+			"`/maul accept anomalies`.") {
 		t.Errorf("carried anomaly line = %q", carried)
 	}
 	accepted := anomalyLine(VerifyAnomaly{Summary: "odd", FoundIn: 1, AcceptedBy: "peter"})
@@ -72,7 +72,7 @@ func TestHeldAnomalyWords(t *testing.T) {
 	}
 	if !strings.Contains(fix, "No outcome fails at these commits, so there is nothing to fix yet: the anomaly "+
 		"maul noticed while it looked around is not a failing outcome, and it holds these commits until they change "+
-		"or an approver accepts it with `/maul accept all`. The evaluator examines it again.") {
+		"or an approver accepts it with `/maul accept anomalies`. The evaluator examines it again.") {
 		t.Errorf("verify fix reply = %q", fix)
 	}
 	acc, err := RenderVerifyCommandNotice(VerifyCommandNotice{Namespace: "maul", Intent: "x", Key: "c2",
@@ -84,5 +84,28 @@ func TestHeldAnomalyWords(t *testing.T) {
 	if !strings.Contains(acc, "`/maul accept all` from `peter` is done: the anomaly maul noticed while it looked "+
 		"around is accepted at `4938490`.") {
 		t.Errorf("accept all reply = %q", acc)
+	}
+
+	// /maul accept anomalies: the anomalies alone, or nothing to accept.
+	only, err := RenderVerifyCommandNotice(VerifyCommandNotice{Namespace: "maul", Intent: "x", Key: "c3",
+		Actor: "peter", Verb: "accept", Criterion: "anomalies", Outcomes: true, Outcome: VerifyAccepted,
+		Heads: []string{"4938490"}, Anomalies: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(only, "`/maul accept anomalies` from `peter` is done: the 2 anomalies maul noticed while "+
+		"it looked around are accepted at `4938490`. An anomaly is a finding") || strings.Contains(only, "outcome") {
+		t.Errorf("accept anomalies reply = %q", only)
+	}
+	none, err := RenderVerifyCommandNotice(VerifyCommandNotice{Namespace: "maul", Intent: "x", Key: "c4",
+		Actor: "peter", Verb: "accept", Criterion: "anomalies", Outcomes: true, Outcome: VerifyAcceptNoAnomaly,
+		Acceptable: []string{"looks-right"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(none, "`/maul accept anomalies` does nothing: no anomaly maul noticed while it looked "+
+		"around, and recorded before you commented, holds these commits. It accepts no outcome. You can accept: "+
+		"`looks-right`.") {
+		t.Errorf("accept anomalies with none reply = %q", none)
 	}
 }
