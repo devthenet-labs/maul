@@ -52,8 +52,13 @@ func TestPreExistingCites(t *testing.T) {
 		want    bool
 	}{
 		{"the same call, the same output at both sides", []int32{4, 5}, []toolwire.LedgerEntry{head, base}, true},
-		{"a file read the same at both sides", []int32{6, 7},
-			[]toolwire.LedgerEntry{readAt(6, "", "# bb\n"), readAt(7, toolwire.SideBase, "# bb\n")}, true},
+		{"a file read the same at both sides shows the text, not the behaviour", []int32{6, 7},
+			[]toolwire.LedgerEntry{readAt(6, "", "# bb\n"), readAt(7, toolwire.SideBase, "# bb\n")}, false},
+		{"a file read beside an exec twin", []int32{4, 5, 6, 7}, []toolwire.LedgerEntry{head, base,
+			readAt(6, "", "# bb\n"), readAt(7, toolwire.SideBase, "# bb\n")}, false},
+		{"a run the same at both sides", []int32{8, 9}, []toolwire.LedgerEntry{
+			with(head, func(e *toolwire.LedgerEntry) { e.Seq, e.Verb = 8, toolwire.VerbRun }),
+			with(base, func(e *toolwire.LedgerEntry) { e.Seq, e.Verb = 9, toolwire.VerbRun })}, true},
 		{"the head alone", []int32{4}, []toolwire.LedgerEntry{head, base}, false},
 		{"the base alone", []int32{5}, []toolwire.LedgerEntry{head, base}, false},
 		{"no cites", nil, []toolwire.LedgerEntry{head, base}, false},

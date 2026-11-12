@@ -960,12 +960,13 @@ type AnomalyRecord struct {
 	// at its head set: it no longer holds a round from Passed.
 	// +optional
 	Accepted *AnomalyAcceptance `json:"accepted,omitempty"`
-	// PreExisting records that the anomaly was there before the change
-	// (G-B-BR-2): the evaluator said so, and every call at the head it
-	// cites has the same call at the base, cited too, that printed exactly
-	// the same (an agents round; a slot round has no base, so never). It
-	// is shown to the human but holds no round from Passed. Set only by
-	// the round that recorded it, never by a later one.
+	// PreExisting records an anomaly the evaluator said was there before
+	// the change (G-B-BR-2) whose cited evidence maul checked: every call
+	// at the head it cites (an exec or a run) has the same call at the
+	// base, cited too, that printed exactly the same (an agents round; a
+	// slot round has no base, so never). It is shown to the human but
+	// holds no round from Passed. Set only by the round that recorded it,
+	// never by a later one.
 	// +optional
 	PreExisting bool `json:"preExisting,omitempty"`
 }

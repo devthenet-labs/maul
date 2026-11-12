@@ -84,29 +84,29 @@ func TestIntentAgentsFindingHoldsItsHeads(t *testing.T) {
 }
 
 // TestIntentAgentsPreExistingAnomaly (G-B-BR-2): an anomaly the evaluator
-// claims was there before the change, citing a read of a file at the head
-// and the same read at the base, is held to the ledger. go.mod, which the
-// change leaves alone, reads the same at both: the anomaly is recorded
-// pre-existing, still shown, and the round Passes. main.go, which the
-// change rewrote, does not: the claim is not believed and the anomaly holds
-// the round Unconfirmed, as any other.
+// claims was there before the change, citing a run of the program at the
+// head and the same run at the base, is held to the ledger. --echo, which
+// the change leaves alone, prints the same at both: the anomaly is
+// recorded pre-existing, still shown, and the round Passes. --greet, which
+// the change added, does not: the claim is not believed and the anomaly
+// holds the round Unconfirmed, as any other.
 func TestIntentAgentsPreExistingAnomaly(t *testing.T) {
 	for _, tc := range []struct {
-		name, file string
+		name, args string
 		pre        bool
 	}{
-		{"unchanged at the base", "go.mod", true},
-		{"changed by the pull request", "main.go", false},
+		{"the same at the base", "--echo hi", true},
+		{"changed by the pull request", "--greet", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			const anomaly = "The module declares go 1.22, older than the toolchain"
+			const anomaly = "tally prints its usage line to stdout, not stderr"
 			e := startAgents(t, agentsOptions{
 				files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
 				surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
 				env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass",
 					"MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet", "MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally",
-					"MAUL_FAKE_CLAUDE_ANOMALY": anomaly, "MAUL_FAKE_CLAUDE_ANOMALY_FILE": tc.file,
-					"MAUL_FAKE_CLAUDE_CHECK_PATH": tc.file},
+					"MAUL_FAKE_CLAUDE_ANOMALY": anomaly, "MAUL_FAKE_CLAUDE_ANOMALY_ARGS": tc.args,
+					"MAUL_FAKE_CLAUDE_CHECK_PATH": "main.go"},
 			})
 			_, name, pr := e.toReview(t)
 			in := e.waitEval(t, name, "round 1 judged", func(v *v1alpha1.IntentVerification) bool {

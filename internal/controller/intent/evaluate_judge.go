@@ -561,8 +561,11 @@ func preExisting(ev *report.Evaluation, pv *v1alpha1.PreviewVerification, entrie
 // cite has a twin at the base they cite too (sameAtBase), and they cite at
 // least one. A slot round has no base, so its anomalies never are. The
 // evaluator's words are not read: an anomaly whose evidence differs at the
-// base in any one call it cites, or which cites a call that has no base
-// (a browser call, an event, a check run), holds as any other.
+// base in any one call it cites, or which cites a call that is not a
+// program run (a files read, a browser call, an event, a check run), holds
+// as any other. What maul holds is that every call cited behaved the same
+// without the change; that those calls are the anomaly's evidence remains
+// the evaluator's word.
 func preExistingCites(cites []int32, entries []toolwire.LedgerEntry) bool {
 	var head, base []toolwire.LedgerEntry
 	for _, seq := range cites {
@@ -589,13 +592,15 @@ func preExistingCites(cites []int32, entries []toolwire.LedgerEntry) bool {
 
 // sameAtBase reports b the very call h made at the head, made at the base
 // (its args the same but for the side), with the same exit and the same
-// whole output: an exec, a run or a files read, which print all they
-// observe. A refused call, a check run, or an output dropped from the
-// ledger or cut short shows nothing to compare.
+// whole output: an exec or a run, a program run against each side's
+// build, which prints all it observes. A files read is no twin: the same
+// text at both sides does not show the same behaviour (a caller the
+// change rewrote can expose an untouched file's defect). A refused call, a
+// check run, or an output dropped from the ledger or cut short shows
+// nothing to compare.
 func sameAtBase(h, b toolwire.LedgerEntry) bool {
 	switch {
-	case h.Verb != b.Verb || !slices.Contains([]toolwire.Verb{toolwire.VerbExec, toolwire.VerbRun,
-		toolwire.VerbFiles}, h.Verb):
+	case h.Verb != b.Verb || (h.Verb != toolwire.VerbExec && h.Verb != toolwire.VerbRun):
 		return false
 	case h.Side != "" || b.Side != toolwire.SideBase || h.Refused != "" || b.Refused != "":
 		return false

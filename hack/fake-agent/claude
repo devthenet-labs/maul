@@ -126,10 +126,10 @@
 #   MAUL_FAKE_CLAUDE_ANOMALY   set: the report also carries one look-around
 #                              anomaly with this summary, on the first
 #                              component's path, citing `check results`.
-#   MAUL_FAKE_CLAUDE_ANOMALY_FILE  set with MAUL_FAKE_CLAUDE_ANOMALY: the
+#   MAUL_FAKE_CLAUDE_ANOMALY_ARGS  set with MAUL_FAKE_CLAUDE_ANOMALY: the
 #                              anomaly is claimed pre_existing instead, citing
-#                              a `files read` of this path at the head and
-#                              the same read with --base.
+#                              an exec of {{bin}} with these args at the head
+#                              and the same exec with --base.
 #   MAUL_FAKE_CLAUDE_REVIEW    the check reviewer's answer for every check:
 #                              "proves" (default), "does_not_prove" or
 #                              "unclear".
@@ -582,10 +582,12 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     esac
   done
   anomaly_cites=$results pre_existing=
-  if [ -n "${MAUL_FAKE_CLAUDE_ANOMALY:-}" ] && [ -n "${MAUL_FAKE_CLAUDE_ANOMALY_FILE:-}" ]; then
-    tool files read "$MAUL_FAKE_CLAUDE_ANOMALY_FILE"
+  if [ -n "${MAUL_FAKE_CLAUDE_ANOMALY:-}" ] && [ -n "${MAUL_FAKE_CLAUDE_ANOMALY_ARGS:-}" ]; then
+    # shellcheck disable=SC2086 # the args are split as given
+    tool exec -- "$bin" $MAUL_FAKE_CLAUDE_ANOMALY_ARGS
     at_head=$seq
-    tool files read --base "$MAUL_FAKE_CLAUDE_ANOMALY_FILE"
+    # shellcheck disable=SC2086 # the args are split as given
+    tool exec --base -- "$bin" $MAUL_FAKE_CLAUDE_ANOMALY_ARGS
     anomaly_cites="$at_head, $seq" pre_existing=1
   fi
   {

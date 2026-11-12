@@ -62,8 +62,8 @@ func TestHeldAnomalyWords(t *testing.T) {
 	}
 	if pre := anomalyLine(VerifyAnomaly{Summary: "old help text", Route: "bb --help", PreExisting: true}); pre !=
 		"Look-around: maul's evaluator noticed (its words, not checked by maul): old help text, on `bb --help`. "+
-			"It was there before this change: every call it cites printed the same at the base, so it does not "+
-			"hold these commits." {
+			"The evaluator says it was there before this change, and maul found every call it cites printing the "+
+			"same at the base, so it does not hold these commits." {
 		t.Errorf("pre-existing anomaly line = %q", pre)
 	}
 	if own := anomalyLine(VerifyAnomaly{Summary: "odd"}); own !=

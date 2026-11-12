@@ -410,21 +410,24 @@ is kept.
 
 ### An anomaly that was there before the change
 
-An anomaly that was already there without the change is not held against it, but only where maul can show that from its
-own ledger. On a Project with no preview (a CLI or a library, below) the evaluator may mark an anomaly
-`pre_existing: true` and cite, beside each call at the head that shows it, the same call made with `--base` (an `exec`,
-a `run` or a `files` read). maul records it as there before the change (`preExisting` on the anomaly) only when every
-call it cites at the head has such a call at the base, cited too, with the same arguments, the same exit and exactly the
-same whole output. Such an anomaly is still shown: the comment adds "It was there before this change: every call it
-cites printed the same at the base, so it does not hold these commits", and the run panel marks it. It does not keep the
-round from Passed, does not make the model round unclear, and `/maul accept all` has nothing to accept in it.
+An anomaly that was already there without the change is not held against it, but only where maul can check the
+evaluator's word against its own ledger. On a Project with no preview (a CLI or a library, below) the evaluator may mark
+an anomaly `pre_existing: true` and cite the `exec` or `run` calls at the head that show it, each beside the same call
+made with `--base`. maul records it as there before the change (`preExisting` on the anomaly) only when every call it
+cites at the head has such a call at the base, cited too, with the same arguments, the same exit and exactly the same
+whole output. Such an anomaly is still shown: the comment adds "The evaluator says it was there before this change, and
+maul found every call it cites printing the same at the base, so it does not hold these commits", and the run panel
+marks it. It does not keep the round from Passed, does not make the model round unclear, and `/maul accept all` has
+nothing to accept in it. That the calls it cites are the anomaly's evidence stays the evaluator's word, as every
+anomaly's words are.
 
 Anything short of that holds as any other anomaly: a claim whose calls differ at the base in any way, a call cut short
-or dropped from the ledger, a check run, a call with no base (a browser call, an event, a log), or no claim at all. A
-round with a preview has no base to compare (the slot serves the pull request alone), so there no anomaly is held to be
-there before the change, whatever the evaluator says: one an approver knows to be old is ended with `/maul accept all`,
-at each new set of commits. A later round never turns an earlier round's held anomaly into a pre-existing one, and an
-earlier pre-existing record never absorbs a later held one in the same words.
+or dropped from the ledger, a `files` read (the same text at both sides does not show the same behaviour), a check run,
+a call with no base (a browser call, an event, a log), or no claim at all. A round with a preview has no base to compare
+(the slot serves the pull request alone), so there no anomaly is held to be there before the change, whatever the
+evaluator says: one an approver knows to be old is ended with `/maul accept all`, at each new set of commits. A later
+round never turns an earlier round's held anomaly into a pre-existing one, and an earlier pre-existing record never
+absorbs a later held one in the same words.
 
 ## A finding holds its commits
 

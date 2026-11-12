@@ -415,7 +415,8 @@ type EvaluationBuild struct {
 // is the earlier round at the same commits that found it, which the round
 // carries (G-B-LIB-1; its Ledger, that round's, is then left out), and
 // AcceptedBy the approver who accepted it at those commits. PreExisting
-// marks one maul held to be there before the change (G-B-BR-2).
+// marks one the evaluator said was there before the change, its cited
+// calls the same at the base (G-B-BR-2).
 type EvaluationAnomaly struct {
 	Summary      string  `json:"summary"`
 	Route        string  `json:"route,omitempty"`
