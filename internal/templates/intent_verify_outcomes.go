@@ -112,6 +112,9 @@ type VerifyAnomaly struct {
 	Summary, Route string
 	FoundIn        int32
 	AcceptedBy     string
+	// PreExisting marks one the evaluator said was there before the change,
+	// every call it cites printing the same at the base (G-B-BR-2).
+	PreExisting bool
 }
 
 // outcomeKindWords are the outcome kinds as a row shows them; unset is
@@ -229,6 +232,9 @@ func anomalyLine(a VerifyAnomaly) string {
 	}
 	line += "."
 	switch {
+	case a.PreExisting:
+		line += " The evaluator says it was there before this change, and maul found every call it cites " +
+			"printing the same at the base, so it does not hold these commits."
 	case a.AcceptedBy != "":
 		line += " Accepted at these commits by " + code(oneLine(a.AcceptedBy)) + "."
 	case a.FoundIn > 0:

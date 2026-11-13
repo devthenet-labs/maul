@@ -176,6 +176,11 @@ type Anomaly struct {
 	Summary string  `yaml:"summary"`
 	Route   string  `yaml:"route"`
 	Ledger  []int32 `yaml:"ledger"`
+	// PreExisting is the evaluator's claim that the anomaly was there
+	// before the change (G-B-BR-2): only a claim. maul records it so only
+	// where its own ledger bears it out (the intent controller's
+	// preExistingCites); everywhere else it holds as any anomaly does.
+	PreExisting bool `yaml:"pre_existing,omitempty"`
 }
 
 // ParseEvaluation parses and validates an evaluation report: the document

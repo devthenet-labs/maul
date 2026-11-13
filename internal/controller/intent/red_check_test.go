@@ -279,18 +279,18 @@ func TestJudgementAndFixDecideAlike(t *testing.T) {
 				Seq: 9}},
 		}}
 	cs := []v1alpha1.SavedCheck{red, green}
-	before := acceptance.Decide(decideInput(acc, pv, cs, nil))
+	before := acceptance.Decide(decideInput(acc, pv, cs, nil, nil))
 	addRedCleared(acc, clearedRed(cs, pv.Status.Replay), pv.Name)
 	if len(acc.RedCleared) != 1 || acc.RedCleared[0].Digest != red.Digest {
 		t.Fatalf("red cleared = %+v, want the red check, by this round", acc.RedCleared)
 	}
-	after := acceptance.Decide(decideInput(acc, pv, cs, nil))
+	after := acceptance.Decide(decideInput(acc, pv, cs, nil, nil))
 	if !reflect.DeepEqual(before, after) {
 		t.Errorf("the fix path decides\n%+v\nthe judgement decided\n%+v", after, before)
 	}
 	next := *pv
 	next.Name = "x-v4-a1"
-	if in := decideInput(acc, &next, cs, nil); !in.Checks[0].Cleared {
+	if in := decideInput(acc, &next, cs, nil, nil); !in.Checks[0].Cleared {
 		t.Errorf("the next round does not see the clearance: %+v", in.Checks[0])
 	}
 }

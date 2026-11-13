@@ -223,7 +223,7 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		if results == nil {
 			break
 		}
-		va := templates.VerifyAnomaly{Summary: a.Summary, Route: a.Route}
+		va := templates.VerifyAnomaly{Summary: a.Summary, Route: a.Route, PreExisting: a.PreExisting}
 		if a.Round != 0 && a.Round != v.OutcomesRound {
 			va.FoundIn = a.Round // carried from an earlier round at these heads
 		}

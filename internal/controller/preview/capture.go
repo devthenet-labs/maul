@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -141,12 +142,44 @@ func (v *VerificationReconciler) captureSlot(ctx context.Context, pv *v1alpha1.P
 		}
 		c.logs = append(c.logs, l)
 	}
+	own, err := v.ownSlotObjects(ctx, slot)
+	if err != nil {
+		return slotCapture{}, err
+	}
 	var events corev1.EventList
 	if err := v.List(ctx, &events, client.InNamespace(v.Settings.slotName(slot))); err != nil {
 		return slotCapture{}, fmt.Errorf("list the events of slot %d: %w", slot, err)
 	}
-	c.events = boundEvents(append(c.events, slotEvents(events.Items, podComponents, since, keys)...))
+	c.events = boundEvents(append(c.events, slotEvents(events.Items, podComponents, own, since, keys)...))
 	return c, nil
+}
+
+// ownObjects are maul's own objects in a slot, as "Kind/name": the Jobs a
+// verification renders (the tool pod's, a legacy tester's) and their Pods.
+type ownObjects map[string]bool
+
+// ownSlotObjects lists maul's own objects in slot by their role label
+// (jobPodRoles), which only maul renders: their events are maul's, not the
+// application's (G-B-BR-2, D-B12: the tool pod's readiness probe blip was
+// read as an anomaly of the application in every slot round).
+func (v *VerificationReconciler) ownSlotObjects(ctx context.Context, slot int32) (ownObjects, error) {
+	in := client.InNamespace(v.Settings.slotName(slot))
+	var pods corev1.PodList
+	if err := v.List(ctx, &pods, in, jobPodRoles()); err != nil {
+		return nil, fmt.Errorf("list maul's own Pods in slot %d: %w", slot, err)
+	}
+	var jobs batchv1.JobList
+	if err := v.List(ctx, &jobs, in, jobPodRoles()); err != nil {
+		return nil, fmt.Errorf("list maul's own Jobs in slot %d: %w", slot, err)
+	}
+	own := ownObjects{}
+	for _, p := range pods.Items {
+		own["Pod/"+p.Name] = true
+	}
+	for _, j := range jobs.Items {
+		own["Job/"+j.Name] = true
+	}
+	return own, nil
 }
 
 // readTail reads container's log in pod since since, redacts it and keeps
@@ -250,12 +283,18 @@ var capturedReasons = []string{"Killing", "Evicted", "Preempted", "Preempting"}
 // slotEvents are the events from since on that tell of trouble (Warning, or
 // a Normal kill or eviction), oldest first, each Pod's mapped to its
 // component through pods (Pod name to component), messages redacted (keys
-// as redact's) and bounded.
-func slotEvents(events []corev1.Event, pods map[string]string, since time.Time, keys []string) []capturedEvent {
+// as redact's) and bounded. An event about one of maul's own objects (own)
+// is left out, never one about a component's Pod: maul's trouble is not
+// the application's, and the evaluator would read it as an anomaly.
+func slotEvents(events []corev1.Event, pods map[string]string, own ownObjects, since time.Time,
+	keys []string) []capturedEvent {
 	var out []capturedEvent
 	for _, e := range events {
 		at := eventTime(&e)
 		if at.Before(since) || (e.Type != corev1.EventTypeWarning && !slices.Contains(capturedReasons, e.Reason)) {
+			continue
+		}
+		if ownEvent(&e, pods, own) {
 			continue
 		}
 		ce := capturedEvent{Time: at, Kind: "event", Source: captureObserved,
@@ -271,6 +310,16 @@ func slotEvents(events []corev1.Event, pods map[string]string, since time.Time, 
 	}
 	sortEvents(out)
 	return out
+}
+
+// ownEvent reports an event about one of maul's own objects that is not a
+// component's Pod (pods).
+func ownEvent(e *corev1.Event, pods map[string]string, own ownObjects) bool {
+	ref := e.InvolvedObject
+	if _, component := pods[ref.Name]; ref.Kind == "Pod" && component {
+		return false
+	}
+	return own[ref.Kind+"/"+ref.Name]
 }
 
 // eventTime is when an event last happened.

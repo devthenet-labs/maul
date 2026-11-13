@@ -205,11 +205,11 @@ type pass struct {
 	// once: verifyPVRead reports the read was made.
 	verifyPV     *v1alpha1.PreviewVerification
 	verifyPVRead bool
-	// ledgerLines are verifyPV's full ledger lines (its <pv>-ledger
-	// ConfigMap), read at most once a pass for the evaluator's app output;
-	// ledgerRead reports the read was made.
-	ledgerLines []string
-	ledgerRead  bool
+	// ledgerLines are a verification's full ledger lines (its <pv>-ledger
+	// ConfigMap), read at most once a pass per verification, keyed by its
+	// UID: a judgement reads them (preExisting), so one round's ledger never
+	// stands in for another's.
+	ledgerLines map[types.UID][]string
 	// prListed are the pull requests' comments this pass listed, by pull
 	// request (prComments): every step reading them shares one listing.
 	prListed map[string]prListing

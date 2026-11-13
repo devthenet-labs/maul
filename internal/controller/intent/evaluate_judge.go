@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -110,33 +111,43 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 			slog.String("intent", p.in.Name), slog.String("verification", pv.Name), slog.Any("error", err))
 		stored = nil
 	}
-	return judgeHolding(p.in.Status.Acceptance, pv, stored, evaluationClaims(run),
-		heldAnomalies(p.in.Status.Verification, pv.Spec.HeadSetDigest, pv.Spec.Round))
+	ev := evaluationClaims(run)
+	var entries []toolwire.LedgerEntry
+	if claimsPreExisting(ev) {
+		entries = ledgerEntries(p.ledgerOf(ctx, pv))
+	}
+	return judgeHolding(p.in.Status.Acceptance, pv, stored, ev,
+		heldAnomalies(p.in.Status.Verification, pv.Spec.HeadSetDigest, pv.Spec.Round), entries)
 }
 
 // judgeRound judges pv, a collected round, on acc, the store as read (nil
 // when it could not be) and ev, its evaluator's claims (nil on a replay
-// round), with no anomaly held at its heads.
+// round), with no anomaly held at its heads and no ledger to hold a
+// pre-existing anomaly to.
 func judgeRound(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck,
 	ev *report.Evaluation) roundJudgement {
-	return judgeHolding(acc, pv, stored, ev, nil)
+	return judgeHolding(acc, pv, stored, ev, nil, nil)
 }
 
 // judgeHolding is judgeRound with held, the anomalies earlier rounds found
 // at pv's heads (heldAnomalies): those no approver accepted go to Decide
 // beside the round's own (G-B-LIB-1), so the round is neither ready nor a
 // clear model round while one stands. Their records are carried by
-// applyJudgement, which reads them afresh in its own write.
+// applyJudgement, which reads them afresh in its own write. entries are
+// pv's full ledger, read only when the evaluator says an anomaly was there
+// before the change: one the ledger bears out (preExisting) is recorded as
+// such and goes to Decide as nothing (G-B-BR-2).
 func judgeHolding(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck,
-	ev *report.Evaluation, held []v1alpha1.AnomalyRecord) roundJudgement {
+	ev *report.Evaluation, held []v1alpha1.AnomalyRecord, entries []toolwire.LedgerEntry) roundJudgement {
 	cs := judgedChecks(pv, stored)
-	in := decideInput(acc, pv, cs, ev)
+	pre := preExisting(ev, pv, entries)
+	in := decideInput(acc, pv, cs, ev, pre)
 	for _, a := range openAnomalies(held) {
 		// Cited in an earlier round's ledger, not this one's: no seq.
 		in.Anomalies = append(in.Anomalies, acceptance.AnomalyRef{Summary: a.Summary, Route: a.Route})
 	}
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
-		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
+		anomalies: anomalyRecords(ev, pv, pre), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
 		clear: acceptance.ModelRoundClear(in), cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name,
 		base: in.Base}
 	if ev != nil {
@@ -339,9 +350,9 @@ func judgedChecks(pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck
 // reviews, the checks narrowed in an earlier round, and the evaluator's
 // claims with the ledger entries it cites that the round's ledger holds (its
 // contrary entries as written), and an agents round's base (baseRuns; none
-// on a slot round, S1's).
+// on a slot round, S1's). An anomaly pre marks (preExisting) is left out.
 func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, cs []v1alpha1.SavedCheck,
-	ev *report.Evaluation) acceptance.Input {
+	ev *report.Evaluation, pre []bool) acceptance.Input {
 	in := storeInput(acc, cs, pv.Name)
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, c := range pv.Spec.Checks {
@@ -365,7 +376,11 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 		in.Disputes = append(in.Disputes, acceptance.CheckDispute{CheckDigest: d.CheckDigest, Reason: d.Reason,
 			Replacement: d.Replacement, Ledger: citedOnly(d.Ledger, pv)})
 	}
-	for _, a := range ev.Anomalies {
+	for i, a := range ev.Anomalies {
+		if i < len(pre) && pre[i] {
+			// There before the change, on maul's own ledger: not the PR's.
+			continue
+		}
 		in.Anomalies = append(in.Anomalies, acceptance.AnomalyRef{Summary: a.Summary, Route: a.Route,
 			Ledger: citedOnly(a.Ledger, pv)})
 	}
@@ -497,13 +512,14 @@ func citedOnly(cited []int32, pv *v1alpha1.PreviewVerification) []int32 {
 
 // anomalyRecords are the evaluator's look-around anomalies as the Intent
 // records them: those citing an entry pv's ledger holds (an anomaly needs
-// evidence), bounded to the schema's.
-func anomalyRecords(ev *report.Evaluation, pv *v1alpha1.PreviewVerification) []v1alpha1.AnomalyRecord {
+// evidence), bounded to the schema's, each pre marks (preExisting) recorded
+// as there before the change.
+func anomalyRecords(ev *report.Evaluation, pv *v1alpha1.PreviewVerification, pre []bool) []v1alpha1.AnomalyRecord {
 	if ev == nil {
 		return nil
 	}
 	var out []v1alpha1.AnomalyRecord
-	for _, a := range ev.Anomalies {
+	for i, a := range ev.Anomalies {
 		cites := citedOnly(a.Ledger, pv)
 		summary := strings.TrimSpace(untrusted.Cut(a.Summary, maxAnomalySummary))
 		if len(cites) == 0 || summary == "" || len(out) == maxAnomalies {
@@ -513,9 +529,131 @@ func anomalyRecords(ev *report.Evaluation, pv *v1alpha1.PreviewVerification) []v
 			cites = cites[:maxAnomalyCites]
 		}
 		out = append(out, v1alpha1.AnomalyRecord{Summary: summary, Route: untrusted.Cut(a.Route, maxAnomalyRoute),
-			Ledger: cites})
+			Ledger: cites, PreExisting: i < len(pre) && pre[i]})
 	}
 	return out
+}
+
+// claimsPreExisting reports an evaluation saying an anomaly was there
+// before the change: only then is the round's full ledger read.
+func claimsPreExisting(ev *report.Evaluation) bool {
+	return ev != nil && slices.ContainsFunc(ev.Anomalies, func(a report.Anomaly) bool { return a.PreExisting })
+}
+
+// preExisting marks, for each of ev's anomalies, one maul holds to have
+// been there before the change (G-B-BR-2): the evaluator says so, and its
+// cites in pv's ledger (citedOnly, at most maxAnomalyCites) bear it out
+// (preExistingCites). nil without a claim or a ledger.
+func preExisting(ev *report.Evaluation, pv *v1alpha1.PreviewVerification, entries []toolwire.LedgerEntry) []bool {
+	if !claimsPreExisting(ev) || len(entries) == 0 {
+		return nil
+	}
+	out := make([]bool, len(ev.Anomalies))
+	for i, a := range ev.Anomalies {
+		cites := citedOnly(a.Ledger, pv)
+		out[i] = a.PreExisting && len(cites) <= maxAnomalyCites && preExistingCites(cites, entries, workspaceBinary(pv))
+	}
+	return out
+}
+
+// preExistingCites reports cites that show their anomaly unchanged by the
+// change, on maul's ledger alone (entries): every call at the head they
+// cite runs the build (runsBuild, bin the cli's binary) and has a twin at
+// the base they cite too (sameAtBase), and they cite at least one. A slot
+// round has no base, so its anomalies never are. The evaluator's words are
+// not read: an anomaly whose evidence differs at the base in any one call
+// it cites, or which cites a call that is not a run of the build (a files
+// read, an exec of cat or a shell, a browser call, an event, a check run),
+// holds as any other. What maul holds is that every call cited behaved the
+// same without the change; that those calls are the anomaly's evidence
+// remains the evaluator's word.
+func preExistingCites(cites []int32, entries []toolwire.LedgerEntry, bin string) bool {
+	var head, base []toolwire.LedgerEntry
+	for _, seq := range cites {
+		i := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Seq == int64(seq) })
+		if i < 0 {
+			return false
+		}
+		if entries[i].Side == toolwire.SideBase {
+			base = append(base, entries[i])
+		} else {
+			head = append(head, entries[i])
+		}
+	}
+	if len(head) == 0 {
+		return false
+	}
+	for _, h := range head {
+		if !runsBuild(h, bin) || !slices.ContainsFunc(base, func(b toolwire.LedgerEntry) bool { return sameAtBase(h, b) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameAtBase reports b the very call h made at the head, made at the base
+// (its args the same but for the side), with the same exit and the same
+// whole output: an exec or a run, a program run against each side's
+// build, which prints all it observes. A files read is no twin: the same
+// text at both sides does not show the same behaviour (a caller the
+// change rewrote can expose an untouched file's defect). A refused call, a
+// check run, or an output dropped from the ledger or cut short shows
+// nothing to compare.
+func sameAtBase(h, b toolwire.LedgerEntry) bool {
+	switch {
+	case h.Verb != b.Verb || (h.Verb != toolwire.VerbExec && h.Verb != toolwire.VerbRun):
+		return false
+	case h.Side != "" || b.Side != toolwire.SideBase || h.Refused != "" || b.Refused != "":
+		return false
+	case h.CheckRun != nil || b.CheckRun != nil || !wholeOutput(h) || !wholeOutput(b):
+		return false
+	}
+	ha, hok := argsBesideSide(h.Args)
+	ba, bok := argsBesideSide(b.Args)
+	return hok && bok && ha == ba && h.Exit == b.Exit && h.Output == b.Output && h.OutputSHA256 == b.OutputSHA256
+}
+
+// runsBuild reports h a call that runs what the side built: a run (a
+// program compiled against the side's tree) or an exec whose argv[0] is
+// the cli's binary (bin, or checks.BinPlaceholder), as a saved exec check
+// must be. An exec of anything else (cat, grep, a shell) shows at most
+// the same text at both sides, as a files read does, not the same
+// behaviour of the build.
+func runsBuild(h toolwire.LedgerEntry, bin string) bool {
+	if h.Verb == toolwire.VerbRun {
+		return true
+	}
+	var req toolwire.ExecRequest
+	if h.Verb != toolwire.VerbExec || json.Unmarshal(h.Args, &req) != nil || len(req.Argv) == 0 {
+		return false
+	}
+	return req.Argv[0] == checks.BinPlaceholder || (bin != "" && req.Argv[0] == bin)
+}
+
+// workspaceBinary is pv's cli binary, "" for none.
+func workspaceBinary(pv *v1alpha1.PreviewVerification) string {
+	if ws := pv.Spec.Workspace; ws != nil && ws.Surface.CLI != nil {
+		return ws.Surface.CLI.Binary
+	}
+	return ""
+}
+
+// wholeOutput reports an entry whose output the ledger keeps whole.
+func wholeOutput(e toolwire.LedgerEntry) bool {
+	return e.Output != toolledger.DroppedOutput && !strings.Contains(e.Output, toolwire.TruncationMarker)
+}
+
+// argsBesideSide is a call's args, compacted, without its side: the same
+// call at either side has the same. false for args that are not a JSON
+// object.
+func argsBesideSide(raw json.RawMessage) (string, bool) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return "", false
+	}
+	delete(m, "side")
+	b, err := json.Marshal(m)
+	return string(b), err == nil
 }
 
 // heldAnomalies are the look-around anomalies v records at headSet from
@@ -646,16 +784,20 @@ func holdOutcomes(rs []v1alpha1.OutcomeResult, failing map[string]string, acc *v
 	return rs
 }
 
-// openAnomalies are the anomalies of as no approver accepted.
+// openAnomalies are the anomalies of as that hold their heads: those no
+// approver accepted and maul did not hold to be there before the change.
 func openAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
 	var out []v1alpha1.AnomalyRecord
 	for _, a := range as {
-		if a.Accepted == nil {
+		if holds(a) {
 			out = append(out, a)
 		}
 	}
 	return out
 }
+
+// holds reports an anomaly that holds its heads from Passed.
+func holds(a v1alpha1.AnomalyRecord) bool { return a.Accepted == nil && !a.PreExisting }
 
 // carryAnomalies are a judgement's anomalies as the Intent records them:
 // held, those earlier rounds found at its heads, first, then own, the
@@ -671,7 +813,12 @@ func carryAnomalies(prev, held, own []v1alpha1.AnomalyRecord, round int32,
 		return func(h v1alpha1.AnomalyRecord) bool { return h.Summary == a.Summary && h.Route == a.Route }
 	}
 	for _, a := range own {
-		if slices.ContainsFunc(held, same(a)) {
+		if slices.ContainsFunc(held, func(h v1alpha1.AnomalyRecord) bool {
+			// A held record that holds nothing for being there before the
+			// change does not absorb a later record of its words that
+			// does: that round's evidence differed.
+			return same(a)(h) && (!h.PreExisting || a.PreExisting)
+		}) {
 			continue
 		}
 		a = *a.DeepCopy()
@@ -689,13 +836,14 @@ func carryAnomalies(prev, held, own []v1alpha1.AnomalyRecord, round int32,
 }
 
 // fitAnomalies cuts as to maxAnomalies, the schema's bound, dropping the
-// latest an approver accepted first: an open anomaly is never dropped
-// while an accepted one is kept, since the record alone keeps a round from
-// Passed (judgedState). Past the bound with open ones alone, the latest go,
-// and the maxAnomalies kept still hold the heads.
+// latest that hold nothing (an approver accepted it, or it was there before
+// the change) first: an open anomaly is never dropped while one that holds
+// nothing is kept, since the record alone keeps a round from Passed
+// (judgedState). Past the bound with open ones alone, the latest go, and
+// the maxAnomalies kept still hold the heads.
 func fitAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
 	for i := len(as) - 1; i >= 0 && len(as) > maxAnomalies; i-- {
-		if as[i].Accepted != nil {
+		if !holds(as[i]) {
 			as = slices.Delete(as, i, i+1)
 		}
 	}
@@ -1219,14 +1367,17 @@ func failedSteps(r *toolwire.CheckRunRecord) string {
 	return untrusted.Cut(strings.Join(lines, "\n"), maxAppOutputBytes)
 }
 
-// ledgerOf is pv's full ledger, one entry a line, read once a pass
+// ledgerOf is pv's full ledger, one entry a line, read once a pass per pv
 // (uncached) from the ConfigMap its status names, held to pv: nil when it is
 // not pv's or cannot be read.
 func (p *pass) ledgerOf(ctx context.Context, pv *v1alpha1.PreviewVerification) []string {
-	if p.ledgerRead {
-		return p.ledgerLines
+	if lines, ok := p.ledgerLines[pv.UID]; ok {
+		return lines
 	}
-	p.ledgerRead = true
+	if p.ledgerLines == nil {
+		p.ledgerLines = map[types.UID][]string{}
+	}
+	p.ledgerLines[pv.UID] = nil
 	if pv.Status.Ledger == nil || pv.Status.Ledger.ConfigMap == "" {
 		return nil
 	}
@@ -1240,6 +1391,6 @@ func (p *pass) ledgerOf(ctx context.Context, pv *v1alpha1.PreviewVerification) [
 	if !controlledBy(cm.OwnerReferences, pv.UID) {
 		return nil
 	}
-	p.ledgerLines = strings.Split(cm.Data[keyLedgerLines], "\n")
-	return p.ledgerLines
+	p.ledgerLines[pv.UID] = strings.Split(cm.Data[keyLedgerLines], "\n")
+	return p.ledgerLines[pv.UID]
 }

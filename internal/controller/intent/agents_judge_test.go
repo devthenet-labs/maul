@@ -62,15 +62,15 @@ func TestDecideInputBase(t *testing.T) {
 
 	slot := agentsPV(check.Digest, &v1alpha1.BaseStatus{Required: true, Runs: []v1alpha1.CheckRun{compile}})
 	slot.Spec.Placement = ""
-	if in := decideInput(acc, slot, nil, nil); in.Base != nil {
+	if in := decideInput(acc, slot, nil, nil, nil); in.Base != nil {
 		t.Errorf("a slot round has a base: %+v", in.Base)
 	}
-	if in := decideInput(acc, agentsPV(check.Digest, nil), nil, nil); in.Base == nil || !in.Base.Required ||
+	if in := decideInput(acc, agentsPV(check.Digest, nil), nil, nil, nil); in.Base == nil || !in.Base.Required ||
 		in.Base.Unbuildable || len(in.Base.Runs) != 0 {
 		t.Errorf("an agents round with no base written: %+v, want a required base with no run", in.Base)
 	}
 	in := decideInput(acc, agentsPV(check.Digest, &v1alpha1.BaseStatus{Unbuildable: true,
-		Runs: []v1alpha1.CheckRun{compile, headTagged}}), nil, nil)
+		Runs: []v1alpha1.CheckRun{compile, headTagged}}), nil, nil, nil)
 	b := in.Base
 	if b == nil || !b.Required || !b.Unbuildable || len(b.Runs) != 1 || b.Runs[0].Cause != httpstep.CauseCompile ||
 		b.Runs[0].Token != "tok-b" {

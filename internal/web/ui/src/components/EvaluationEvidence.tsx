@@ -203,6 +203,7 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
                 {a.ledger && a.ledger.length > 0 ? <span class="text-faint"> · {seqs(a.ledger)}</span> : null}
                 {a.foundInRound ? <span class="text-muted"> · found in round {a.foundInRound}</span> : null}
                 {a.acceptedBy ? <span class="text-muted"> · accepted by {a.acceptedBy}</span> : null}
+                {a.preExisting ? <span class="text-muted"> · there before this change</span> : null}
               </li>
             ))}
           </ul>

@@ -165,7 +165,7 @@ func TestHeldAnomalyHoldsDecideAndTheRung(t *testing.T) {
 	if j := judgeRound(acc, pv, stored, nil); j.decision.Handoff != acceptance.HandoffReady {
 		t.Fatalf("with nothing held the replay is %s, want ready (the case's premise)", j.decision.Handoff)
 	}
-	j := judgeHolding(acc, pv, stored, nil, heldAnomalies(v, heads, 2))
+	j := judgeHolding(acc, pv, stored, nil, heldAnomalies(v, heads, 2), nil)
 	if j.decision.Handoff == acceptance.HandoffReady || j.clear {
 		t.Errorf("held: hand-off %s, clear %v; want neither ready nor clear", j.decision.Handoff, j.clear)
 	}
@@ -181,7 +181,7 @@ func TestHeldAnomalyHoldsDecideAndTheRung(t *testing.T) {
 	if got := heldForEvaluator(v, pv); got != nil {
 		t.Errorf("an accepted anomaly is still handed over: %+v", got)
 	}
-	if j := judgeHolding(acc, pv, stored, nil, heldAnomalies(v, heads, 2)); j.decision.Handoff !=
+	if j := judgeHolding(acc, pv, stored, nil, heldAnomalies(v, heads, 2), nil); j.decision.Handoff !=
 		acceptance.HandoffReady {
 		t.Errorf("accepted: hand-off %s, want ready", j.decision.Handoff)
 	}

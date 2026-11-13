@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -132,7 +133,7 @@ func TestSlotEvents(t *testing.T) {
 		event("e6", "Pod", "other", corev1.EventTypeWarning, "OOMKilling", strings.Repeat("x", 4000),
 			since.Add(4*time.Minute)),
 	}
-	got := slotEvents(in, pods, since, nil)
+	got := slotEvents(in, pods, nil, since, nil)
 	reasons := make([]string, 0, len(got))
 	for _, e := range got {
 		reasons = append(reasons, e.Reason)
@@ -163,7 +164,7 @@ func TestBoundEvents(t *testing.T) {
 		in = append(in, event(fmt.Sprint("e", i), "Pod", "p", corev1.EventTypeWarning, "BackOff",
 			strings.Repeat("m", maxCaptureMessage), since.Add(time.Duration(i)*time.Second)))
 	}
-	got := boundEvents(slotEvents(in, nil, since, nil))
+	got := boundEvents(slotEvents(in, nil, nil, since, nil))
 	if len(got) == 0 || len(got) > maxCaptureEvents {
 		t.Fatalf("%d events kept", len(got))
 	}
@@ -361,5 +362,74 @@ func TestRefreshCapture(t *testing.T) {
 	if again.Data[captureLogKey("web")] != stored.Data[captureLogKey("web")] ||
 		fmt.Sprint(*pv.Status.Capture) != fmt.Sprint(want) {
 		t.Errorf("an unread tail was not kept: %q, %+v", again.Data[captureLogKey("web")], pv.Status.Capture)
+	}
+}
+
+// The slot's events about maul's own objects (the tool pod and its Job,
+// found by their role label) are not the application's (G-B-BR-2, D-B12):
+// the tool pod's readiness probe blip must not reach the evaluator as an
+// event of the slot. An event about any other object, a Pod no longer
+// listed included, is kept, and so is one about a component's Pod.
+func TestRefreshCaptureLeavesOutMaulsOwnObjects(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	ctx := context.Background()
+	pv := e.currentPV()
+	since := startedAt(pv)
+	api := componentName(e.p, 1) + "-pod"
+	tools := map[string]string{labelRole: v1alpha1.PreviewRoleTools}
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "preview-x-vt-0123456789", Namespace: "maul-preview-0",
+		Labels: tools}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "preview-x-vt-0123456789-abcde",
+		Namespace: "maul-preview-0", Labels: tools}}
+	for _, o := range []client.Object{job, pod} {
+		if err := e.c.Create(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tool := event("t1", "Pod", pod.Name, corev1.EventTypeWarning, "Unhealthy",
+		"Readiness probe failed: :8090/readyz", since.Add(time.Second))
+	tool.InvolvedObject.UID = pod.UID
+	toolJob := event("t2", "Job", job.Name, corev1.EventTypeWarning, "BackoffLimitExceeded", "job",
+		since.Add(2*time.Second))
+	gone := event("g1", "Pod", "preview-x-gone-pod", corev1.EventTypeNormal, "Killing", "liveness",
+		since.Add(3*time.Second))
+	app := event("a1", "Pod", api, corev1.EventTypeWarning, "Unhealthy", "probe", since.Add(4*time.Second))
+	for _, ev := range []corev1.Event{tool, toolJob, gone, app} {
+		if err := e.c.Create(ctx, &ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cm := e.toolConfigMap()
+	if err := e.v.refreshCapture(ctx, pv, e.p, 0, cm, nil); err != nil {
+		t.Fatal(err)
+	}
+	var stored corev1.ConfigMap
+	if err := e.c.Get(ctx, client.ObjectKeyFromObject(cm), &stored); err != nil {
+		t.Fatal(err)
+	}
+	var evs []capturedEvent
+	if err := json.Unmarshal([]byte(stored.Data[captureEventsKey]), &evs); err != nil {
+		t.Fatal(err)
+	}
+	objects := make([]string, 0, len(evs))
+	for _, ev := range evs {
+		objects = append(objects, ev.Object)
+	}
+	if want := "[Pod/preview-x-gone-pod Pod/" + api + "]"; fmt.Sprint(objects) != want {
+		t.Errorf("events of %v, want %s", objects, want)
+	}
+}
+
+// slotEvents never leaves out an event about a component's Pod, even one
+// that carries the tools role (a component Pod is the application's).
+func TestSlotEventsKeepsComponentPods(t *testing.T) {
+	since := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	ev := event("e1", "Pod", "web-pod", corev1.EventTypeWarning, "Unhealthy", "probe", since.Add(time.Minute))
+	own := ownObjects{"Pod/web-pod": true}
+	if got := slotEvents([]corev1.Event{ev}, map[string]string{"web-pod": "web"}, own, since, nil); len(got) != 1 {
+		t.Errorf("a component Pod's event left out: %+v", got)
+	}
+	if got := slotEvents([]corev1.Event{ev}, nil, own, since, nil); len(got) != 0 {
+		t.Errorf("maul's own Pod's event kept: %+v", got)
 	}
 }

@@ -82,3 +82,51 @@ func TestIntentAgentsFindingHoldsItsHeads(t *testing.T) {
 		t.Errorf("anomalies %+v, want round 1's accepted by the approver", a)
 	}
 }
+
+// TestIntentAgentsPreExistingAnomaly (G-B-BR-2): an anomaly the evaluator
+// claims was there before the change, citing a run of the program at the
+// head and the same run at the base, is held to the ledger. --echo, which
+// the change leaves alone, prints the same at both: the anomaly is
+// recorded pre-existing, still shown, and the round Passes. --greet, which
+// the change added, does not: the claim is not believed and the anomaly
+// holds the round Unconfirmed, as any other.
+func TestIntentAgentsPreExistingAnomaly(t *testing.T) {
+	for _, tc := range []struct {
+		name, args string
+		pre        bool
+	}{
+		{"the same at the base", "--echo hi", true},
+		{"changed by the pull request", "--greet", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const anomaly = "tally prints its usage line to stdout, not stderr"
+			e := startAgents(t, agentsOptions{
+				files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
+				surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
+				env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass",
+					"MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet", "MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally",
+					"MAUL_FAKE_CLAUDE_ANOMALY": anomaly, "MAUL_FAKE_CLAUDE_ANOMALY_ARGS": tc.args,
+					"MAUL_FAKE_CLAUDE_CHECK_PATH": "main.go"},
+			})
+			_, name, pr := e.toReview(t)
+			in := e.waitEval(t, name, "round 1 judged", func(v *v1alpha1.IntentVerification) bool {
+				return v.Round == 1 && v.OutcomesRound == 1 && v.State != v1alpha1.VerificationEvaluating
+			})
+			v := in.Status.Verification
+			if len(v.Anomalies) != 1 || v.Anomalies[0].Summary != anomaly || v.Anomalies[0].PreExisting != tc.pre {
+				t.Fatalf("anomalies %+v, want the one, pre-existing %v", v.Anomalies, tc.pre)
+			}
+			if tc.pre {
+				if v.State != v1alpha1.VerificationPassed {
+					t.Fatalf("round 1 = %s, want Passed: the anomaly was there before the change", v.State)
+				}
+				e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+				return
+			}
+			if v.State != v1alpha1.VerificationUnconfirmed {
+				t.Fatalf("round 1 = %s, want Unconfirmed: the claim is not borne out", v.State)
+			}
+			e.waitStatus(t, pr.HeadSHA, "error", "it noticed something odd while it looked around")
+		})
+	}
+}

@@ -631,7 +631,7 @@ func acceptAnomalies(v *v1alpha1.IntentVerification, c verifyCommand) int {
 	}
 	n := 0
 	for i := range v.Anomalies {
-		if v.Anomalies[i].Accepted != nil || !seenBy(v.Anomalies[i], c.at) {
+		if !holds(v.Anomalies[i]) || !seenBy(v.Anomalies[i], c.at) {
 			continue
 		}
 		v.Anomalies[i].Accepted = &v1alpha1.AnomalyAcceptance{By: c.actor.Login, ByID: c.actor.ID,

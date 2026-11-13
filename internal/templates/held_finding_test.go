@@ -60,6 +60,12 @@ func TestHeldAnomalyWords(t *testing.T) {
 	if !strings.HasSuffix(accepted, "Accepted at these commits by `peter`.") {
 		t.Errorf("accepted anomaly line = %q", accepted)
 	}
+	if pre := anomalyLine(VerifyAnomaly{Summary: "old help text", Route: "bb --help", PreExisting: true}); pre !=
+		"Look-around: maul's evaluator noticed (its words, not checked by maul): old help text, on `bb --help`. "+
+			"The evaluator says it was there before this change, and maul found every call it cites printing the "+
+			"same at the base, so it does not hold these commits." {
+		t.Errorf("pre-existing anomaly line = %q", pre)
+	}
 	if own := anomalyLine(VerifyAnomaly{Summary: "odd"}); own !=
 		"Look-around: maul's evaluator noticed (its words, not checked by maul): odd." {
 		t.Errorf("this round's anomaly line = %q, want it as before", own)
