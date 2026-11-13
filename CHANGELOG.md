@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.1](https://github.com/devthenet-labs/maul/compare/v0.14.0...v0.14.1) (2026-11-13)
+
+
+### Features
+
+* **intent:** outcomes state the issue's rule and the evaluator probes it beyond the example ([#411](https://github.com/devthenet-labs/maul/issues/411)) ([77dac98](https://github.com/devthenet-labs/maul/commit/77dac98f8168d3abba50b078b12e0c4b9cc48966))
+
+
+### Bug Fixes
+
+* **intent:** a finding holds the heads it was found at (G-B-LIB-1) ([#408](https://github.com/devthenet-labs/maul/issues/408)) ([105c9c0](https://github.com/devthenet-labs/maul/commit/105c9c0f97906fe7a497c871e49e0499d3195493))
+* **intent:** gate-2 small items ([#412](https://github.com/devthenet-labs/maul/issues/412)) ([225ac8f](https://github.com/devthenet-labs/maul/commit/225ac8fc57e3034605006d2bf9a772c9b2b130bc))
+* **intent:** pre-existing and maul's own anomalies do not hold a PR ([#413](https://github.com/devthenet-labs/maul/issues/413)) ([802e288](https://github.com/devthenet-labs/maul/commit/802e2881d2d2d642dad01d322284d5b77ad9fbaf))
+* **intent:** the check reviewer judges a red check by what its failure proves ([#410](https://github.com/devthenet-labs/maul/issues/410)) ([8ee6b39](https://github.com/devthenet-labs/maul/commit/8ee6b39798e0cb02fe2ca71910f7e5fba52b3ab9))
+
 ## [0.14.0](https://github.com/devthenet-labs/maul/compare/v0.13.21...v0.14.0) (2026-11-11)
 
 
