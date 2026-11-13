@@ -6,6 +6,10 @@ package templates
 import (
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // The agent evaluator's outcomes, as the verification section and comment
@@ -183,12 +187,37 @@ func outcomeDetailOf(o VerifyOutcomeResult, id string) (outcomeDetail, bool) {
 		Lead: "App output of " + id + ", as the application wrote it (data, not maul's words):"}, true
 }
 
+// cutWords caps valid UTF-8 s at limit bytes at the last whitespace that
+// fits in its latter half, its trailing whitespace trimmed, or on a rune
+// boundary when none does (a word that long is cut, rather than most of
+// what fits dropped); cut reports whether anything was dropped.
+func cutWords(s string, limit int) (string, bool) {
+	if len(s) <= limit {
+		return s, false
+	}
+	out := cutRunes(s, limit)
+	if r, _ := utf8.DecodeRuneInString(s[len(out):]); !unicode.IsSpace(r) {
+		if i := strings.LastIndexFunc(out, unicode.IsSpace); i > len(out)/2 {
+			out = out[:i]
+		}
+	}
+	return strings.TrimRightFunc(out, unicode.IsSpace), true
+}
+
+// anomalyCutMarker ends an anomaly's words where maul cut them (D-B13), so
+// the cut text is never taken for the evaluator's own.
+const anomalyCutMarker = "[cut by maul]"
+
 // anomalyLine is one anomaly as a comment says it: the evaluator's words,
-// sanitised, cut, and marked as its own.
+// sanitised, cut at a word with a marker, and marked as its own.
 func anomalyLine(a VerifyAnomaly) string {
-	summary := SanitizeInline(cutRunes(visibleText(a.Summary), verifyAnomalyMaxBytes))
+	words, cut := cutWords(visibleText(a.Summary), verifyAnomalyMaxBytes)
+	summary := SanitizeInline(words)
 	if summary == "" {
 		return ""
+	}
+	if cut {
+		summary += " " + anomalyCutMarker
 	}
 	who := "maul's evaluator"
 	if a.FoundIn > 0 {
@@ -204,7 +233,7 @@ func anomalyLine(a VerifyAnomaly) string {
 		line += " Accepted at these commits by " + code(oneLine(a.AcceptedBy)) + "."
 	case a.FoundIn > 0:
 		line += " It holds these commits until they change or an approver accepts it with " +
-			code("/maul accept all") + "."
+			code("/maul accept "+command.AcceptAnomalies) + "."
 	}
 	return line
 }

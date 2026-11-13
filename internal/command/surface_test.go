@@ -85,10 +85,10 @@ const (
 		"criteria now; `fix` also lets maul fix failures again, `stop` only stops maul fixing failures on its own, " +
 		"`--reset` first restarts the preview with fresh data, `explore` has the evaluator look again even where " +
 		"maul's saved checks alone could settle it"
-	acceptLine = "- `/maul accept <id>|all`: accept, at the current commits, a manual outcome or criterion, one " +
-		"maul could not confirm or found failing, or one that passed only on retry; `all` accepts every one of " +
-		"them and any anomaly maul noticed at those commits while it looked around, and a note may follow on " +
-		"the lines below"
+	acceptLine = "- `/maul accept <id>|all|anomalies`: accept, at the current commits, a manual outcome or " +
+		"criterion, one maul could not confirm or found failing, or one that passed only on retry; `all` accepts " +
+		"every one of them and any anomaly maul noticed at those commits while it looked around, `anomalies` " +
+		"only those anomalies, and a note may follow on the lines below"
 	previewLine = "- `/maul preview`: show the preview link now, before maul has finished checking the change; " +
 		"nothing else changes"
 )

@@ -490,6 +490,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		Outcomes        []string
 		NotCovered      []string
 		SharedFlags     []string
+		Workspace       bool
 		NarrowedFlags   []string
 		Plan            string
 	}{
@@ -521,6 +522,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		Outcomes:        outcomes,
 		NotCovered:      notCovered,
 		SharedFlags:     sharedFlags,
+		Workspace:       p.Outcomes != nil && p.Outcomes.Workspace,
 		NarrowedFlags:   narrowedFlags,
 		Plan:            verbatim("markdown", string(p.Report)),
 	})

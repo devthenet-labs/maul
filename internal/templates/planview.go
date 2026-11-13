@@ -275,7 +275,7 @@ func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered, shared, 
 	if o.NotCoveredMore > 0 {
 		notCovered = append(notCovered, "and "+count(o.NotCoveredMore, "1 more line", "more lines"))
 	}
-	shared, narrowed = outcomeFlags(o.Outcomes)
+	shared, narrowed = outcomeFlags(o.Outcomes, o.Workspace)
 	return lead, items, notCovered, shared, narrowed
 }
 
@@ -285,8 +285,11 @@ func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered, shared, 
 // outcome's text. Shared-data flags (an outcome the evaluator may not be
 // able to show) and narrowed-from flags (an outcome worded as the plan
 // prompt asks, covering less than its line) come apart, since the plan
-// comment advises on each in its own words.
-func outcomeFlags(os []PlanOutcome) (shared, narrowed []string) {
+// comment advises on each in its own words. In a workspace (a Project with
+// no preview) the checks run in a tool pod built for the round, which holds
+// no other run's data, so a word quantifying over shared data flags nothing
+// there (G-B-LIB-3); "still works" is flagged everywhere.
+func outcomeFlags(os []PlanOutcome, workspace bool) (shared, narrowed []string) {
 	in := make([]acceptance.PlanOutcome, 0, len(os))
 	for _, o := range os {
 		kind := acceptance.OutcomeKindChange
@@ -305,6 +308,8 @@ func outcomeFlags(os []PlanOutcome) (shared, narrowed []string) {
 		case f.Word == "still works":
 			shared = append(shared, id+" says "+word+": an outcome a check can show names one action and what a "+
 				"person then sees.")
+		case workspace:
+			// No shared data for the word to be about.
 		default:
 			shared = append(shared, id+" says "+word+": an outcome about every item, or about others or existing "+
 				"ones, is about data no check creates.")

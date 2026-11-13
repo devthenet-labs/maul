@@ -44,7 +44,11 @@ No outcome answers these lines of the issue, so nothing checks them. If one shou
 ### Before you approve
 {{- with .SharedFlags }}
 
+{{ if $.Workspace -}}
+These outcomes may be ones maul's evaluator cannot show; if one should be worded otherwise, ask for a new plan:
+{{- else -}}
 maul's evaluator checks the outcomes in a preview whose data persists and is shared by every check, so a check can show an outcome only about items it creates itself. These outcomes may be ones it cannot show; if one should be worded otherwise, ask for a new plan:
+{{- end }}
 {{ range . }}
 - {{ . }}
 {{- end }}

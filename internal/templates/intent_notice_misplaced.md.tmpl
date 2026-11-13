@@ -1,0 +1,8 @@
+{{- /* The reply to an approver's comment holding a command below other text,
+which the grammar never reads as one (command.Misplaced). Nothing was done,
+and an edit would not help: an edited comment is never taken as a command.
+*/ -}}
+{{ .Marker }}
+{{ .Command }} in this comment was not read as a command, and nothing was done: maul reads a command only on a comment's first non-blank line, and this comment starts with other text. To use it, post a new comment with the command on its first line; anything else can follow on the lines below. Editing this comment does not help, since maul never acts on an edited comment.
+
+{{ .Help }}

@@ -50,6 +50,10 @@ type humanAction struct {
 	edited bool
 	// comment is the command's comment as listed, nil for a label.
 	comment *ghclient.Comment
+	// misplaced: the comment is no command, but a later line of it reads
+	// as one (command.Misplaced), verb its verb. It is never decided: an
+	// approver's is answered once with where commands go.
+	misplaced bool
 }
 
 // key names what a notice answering the action answers: its id space and id.
@@ -338,11 +342,14 @@ func (p *pass) commands() []humanAction {
 			continue
 		}
 		cmd, ok := intentParser.Parse(c.Body)
+		misplaced := false
 		if !ok {
-			continue
+			if cmd.Verb, misplaced = command.Misplaced(c.Body, command.IntentIssue); !misplaced {
+				continue
+			}
 		}
 		a := humanAction{source: v1alpha1.IntentActionCommand, id: c.ID, at: c.CreatedAt, actor: c.Author(),
-			verb: cmd.Verb, comment: c}
+			verb: cmd.Verb, comment: c, misplaced: misplaced}
 		if p.hasOwnNotice(a.key()) {
 			// Answered. A refusal to an account refused without asking
 			// GitHub is remembered here too, in case the pass that posted
@@ -352,7 +359,7 @@ func (p *pass) commands() []humanAction {
 			}
 			continue
 		}
-		if p.stillToAnswer(&a) {
+		if a.misplaced || p.stillToAnswer(&a) {
 			out = append(out, a)
 		}
 	}
@@ -480,6 +487,9 @@ func (p *pass) settle(ctx context.Context, a humanAction, issue *ghclient.Issue)
 	if a.source != v1alpha1.IntentActionCommand {
 		return true, p.decide(ctx, a, issue)
 	}
+	if a.misplaced {
+		return p.settleMisplaced(ctx, a)
+	}
 	local := refusedLocally(p.proj, a.actor)
 	if local && !a.recorded && p.wasRefused(a.actor) {
 		return false, nil
@@ -525,6 +535,29 @@ func (p *pass) settle(ctx context.Context, a humanAction, issue *ghclient.Issue)
 		return true, p.notice(ctx, a.key(), a.at, body, err)
 	}
 	return true, p.decide(ctx, a, issue)
+}
+
+// settleMisplaced answers a comment whose command is not on its first line
+// (command.Misplaced): an approver's, once GitHub confirms their write
+// access, with the eyes reaction and one reply saying where commands go;
+// anyone else's, and a bot's, with nothing at all, neither reaction nor
+// refusal, since the comment asked for nothing. It never decides the verb.
+// answered is false when nothing was posted.
+func (p *pass) settleMisplaced(ctx context.Context, a humanAction) (answered bool, err error) {
+	if refusedLocally(p.proj, a.actor) {
+		return false, nil
+	}
+	ok, _, err := p.authorize(ctx, a.actor)
+	if err != nil || !ok {
+		return false, err
+	}
+	if err := p.r.GitHub.React(ctx, p.repo(), a.id); err != nil && !ghclient.IsNotFound(err) {
+		return false, fmt.Errorf("react to comment %d: %w", a.id, err)
+	}
+	body, err := templates.RenderMisplacedCommandNotice(templates.MisplacedCommandNotice{
+		Namespace: p.in.Namespace, Intent: p.in.Name, Key: a.key(), Verb: a.verb,
+	})
+	return true, p.notice(ctx, a.key(), a.at, body, err)
 }
 
 // acts reports a verb that takes effect on the intent (approve, replan,

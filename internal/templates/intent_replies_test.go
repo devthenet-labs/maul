@@ -41,6 +41,12 @@ func TestIntentReplyGoldens(t *testing.T) {
 				Namespace: "maul", Intent: "target-1", Key: "command-4419",
 			})
 		}},
+		// A command below other text (defect gate 2): where commands go.
+		{"intent_notice_misplaced.md", func() (string, error) {
+			return RenderMisplacedCommandNotice(MisplacedCommandNotice{
+				Namespace: "maul", Intent: "target-1", Key: "comment-4421", Verb: "replan",
+			})
+		}},
 		{"intent_notice_edited.md", func() (string, error) {
 			return RenderEditedCommandNotice(EditedCommandNotice{
 				Namespace: "maul", Intent: "target-1", Key: "comment-4420", Verb: "approve",

@@ -951,11 +951,12 @@ type AnomalyRecord struct {
 	// +kubebuilder:validation:Maximum=999
 	Round int32 `json:"round,omitempty"`
 	// RecordedAt is when maul first recorded it: only a /maul accept all
-	// created after it accepts it, so no comment written before the
-	// anomaly existed counts as a person having seen it.
+	// or /maul accept anomalies created after it accepts it, so no comment
+	// written before the anomaly existed counts as a person having seen it.
 	// +optional
 	RecordedAt *metav1.Time `json:"recordedAt,omitempty"`
-	// Accepted records the approver's /maul accept all that accepted it
+	// Accepted records the approver's /maul accept all or /maul accept
+	// anomalies that accepted it
 	// at its head set: it no longer holds a round from Passed.
 	// +optional
 	Accepted *AnomalyAcceptance `json:"accepted,omitempty"`

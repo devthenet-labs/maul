@@ -427,10 +427,11 @@ the source) has not shown it is gone, and running the saved checks again cannot 
   approver confirmed), so a round after `/maul verify` can pass once what failed was the environment; it releases
   nothing it was not handed, and nothing once a later round at these commits finds the failure again.
 - **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
-  every outcome maul could not confirm and every anomaly holding the commits. The acceptance is recorded on the anomaly
-  (`accepted`), and holds only at those commits. It accepts only anomalies maul recorded before the comment was written
-  (`recordedAt`): one a round reports after it still holds the commits. `/maul verify --reset` does not end a hold: it
-  changes the preview's data, not the commits.
+  every outcome maul could not confirm and every anomaly holding the commits, `/maul accept anomalies` for the anomalies
+  alone, every outcome left as it was. The acceptance is recorded on the anomaly (`accepted`), and holds only at those
+  commits. It accepts only anomalies maul recorded before the comment was written (`recordedAt`): one a round reports
+  after it still holds the commits. `/maul verify --reset` does not end a hold: it changes the preview's data, not the
+  commits.
 
 `/maul verify fix` when no outcome fails starts the round all the same (its evaluator examines the anomaly again), and
 its reply says that there is nothing to fix yet: an anomaly is not a failing outcome, and it holds the commits until
@@ -497,9 +498,10 @@ status and the progress line name that cause instead of reading as all confirmed
 this: 3/3 outcomes confirmed, but it noticed something odd while it looked around".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
-not confirm with `/maul accept <id>` (or `/maul accept all`, which also accepts the anomalies holding the commits), ask
-for another round with `/maul verify`, or merge. Another round at the same commits does not clear what an earlier one
-found there (see [A finding holds its commits](#a-finding-holds-its-commits)).
+not confirm with `/maul accept <id>` (or `/maul accept all`, which also accepts the anomalies holding the commits;
+`/maul accept anomalies` accepts those anomalies and no outcome), ask for another round with `/maul verify`, or merge.
+Another round at the same commits does not clear what an earlier one found there (see
+[A finding holds its commits](#a-finding-holds-its-commits)).
 
 Set the mode chart-wide with `intentController.verification.defaultHandoff`, or per Project:
 

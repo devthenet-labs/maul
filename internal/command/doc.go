@@ -37,12 +37,20 @@
 // words after the verb on the command's own line (Args), never text on the
 // lines below, which stays the note. /maul verify takes at most one, "fix",
 // "stop", "--reset" or "explore" (ParseVerify); /maul accept exactly one, a criterion or
-// outcome id in the plan grammar's form, or "all" (ParseAccept), so an id it
+// outcome id in the plan grammar's form, "all" or "anomalies" (ParseAccept), so an id it
 // returns is safe to echo; /maul preview none (ParsePreview). Anything else
 // is refused, for the caller to answer with the help:
 // an argument is never guessed. "--reset" is a modifier of verify and never
 // a verb, so the integration-scoped action.VerbReset stays off every intent
 // surface.
+//
+// # Misplaced commands
+//
+// Misplaced finds what a person most likely meant as a command but wrote
+// below other text: a later line reading "/maul <verb>" for a verb the
+// surface offers, outside quotes, code blocks, code spans and HTML comments.
+// It is false whenever Parse is true, and its verb is only ever answered
+// with where commands go, never acted on.
 //
 // # Notes
 //

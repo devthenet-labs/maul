@@ -34,12 +34,11 @@ func withProfiles(t *testing.T, e *env, profileRepos string) {
 	e.intent.Images.ProfilesEnabled, e.intent.Images.Profiles, e.intent.Images.ProxyBase = true, set, base
 }
 
-// specsOf are the launched Job specs of phase, in no particular order.
+// specsOf are the launched Job specs of phase, in the order each Job was
+// first created, so a test can tell one round's from the next.
 func (e *env) specsOf(phase string) []jobs.Spec {
-	e.jobs.mu.Lock()
-	defer e.jobs.mu.Unlock()
 	var out []jobs.Spec
-	for _, s := range e.jobs.specs {
+	for _, s := range e.jobs.launchedInOrder() {
 		if s.Phase == phase {
 			out = append(out, s)
 		}

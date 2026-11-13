@@ -19,7 +19,7 @@ import (
 // commits: round 2's handoff hands it to the evaluator to examine again,
 // round 2 is full and stays Unconfirmed with round 1's anomaly carried, and
 // maul/acceptance never says success, until the approver accepts the
-// anomaly with /maul accept all.
+// anomaly with /maul accept anomalies, which accepts it and no outcome.
 func TestIntentAgentsFindingHoldsItsHeads(t *testing.T) {
 	const anomaly = "Likely defect in main.go: --greet ignores a second argument"
 	e := startAgents(t, agentsOptions{
@@ -74,7 +74,7 @@ func TestIntentAgentsFindingHoldsItsHeads(t *testing.T) {
 		return e.botSays(int64(number), "No outcome fails at these commits, so there is nothing to fix yet")
 	})
 
-	e.gh.CommentAs(number, "/maul accept all", approver)
+	e.gh.CommentAs(number, "/maul accept anomalies", approver)
 	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
 	in = e.intent(t, name)
 	if a := in.Status.Verification.Anomalies; len(a) != 1 || a[0].Accepted == nil ||

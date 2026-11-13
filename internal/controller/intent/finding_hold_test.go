@@ -15,6 +15,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // G-B-LIB-1 (defect gate 2): a look-around anomaly is a fact about the
@@ -254,7 +255,7 @@ func TestVerifyFixOverAHeldAnomaly(t *testing.T) {
 	e.evaluateReporting(evaluationReport)
 	replies := e.request(name, "issue", "/maul verify fix")
 	if len(replies) != 1 || !strings.Contains(replies[0], "No outcome fails at these commits, so there is nothing "+
-		"to fix yet") || !strings.Contains(replies[0], "`/maul accept all`") {
+		"to fix yet") || !strings.Contains(replies[0], "`/maul accept anomalies`") {
 		t.Errorf("verify fix replies %q, want it to say nothing is fixed and how the anomaly clears", replies)
 	}
 	e.modelRound(name, 2, v1alpha1.CheckRunPass)
@@ -276,6 +277,55 @@ func TestVerifyFixOverAHeldAnomaly(t *testing.T) {
 	}
 	if st, _, ok := e.prVerifyPass(name).acceptanceStatus(); !ok || st.state != statusSuccess {
 		t.Errorf("maul/acceptance %+v (posted %v), want success once the anomaly is accepted", st, ok)
+	}
+}
+
+// TestAcceptAnomaliesAcceptsOnlyTheAnomalies (defect gate 2): /maul accept
+// anomalies releases the look-around anomalies held at the commits and
+// nothing else: an outcome left unconfirmed beside them (here the manual
+// one) is not accepted, so maul/acceptance stays short of success until an
+// approver accepts that outcome too. With nothing held it accepts nothing
+// and says so.
+func TestAcceptAnomaliesAcceptsOnlyTheAnomalies(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.evaluateReporting(anomalyReport)
+	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
+	e.modelRound(name, 1, v1alpha1.CheckRunPass)
+	if v := e.verification(name); len(openAnomalies(v.Anomalies)) != 1 {
+		t.Fatalf("anomalies %+v, want one held (the case's premise)", v.Anomalies)
+	}
+
+	replies := e.request(name, "issue", "/maul accept anomalies")
+	if len(replies) != 1 || !strings.Contains(replies[0], "the anomaly maul noticed while it looked around is "+
+		"accepted at") || strings.Contains(replies[0], oManual) {
+		t.Errorf("accept anomalies replies %q, want the anomaly accepted and no outcome", replies)
+	}
+	in := e.get(name)
+	if v := in.Status.Verification; len(v.Anomalies) != 1 || v.Anomalies[0].Accepted == nil ||
+		v.Anomalies[0].Accepted.By != approver {
+		t.Fatalf("anomalies %+v, want the one accepted by %s", v.Anomalies, approver)
+	}
+	if acc := in.Status.Acceptance; len(acc.Accepted) != 0 {
+		t.Errorf("accepted %+v, want no outcome accepted by /maul accept anomalies", acc.Accepted)
+	}
+	if st, _, _ := e.prVerifyPass(name).acceptanceStatus(); st.state == statusSuccess {
+		t.Errorf("maul/acceptance %+v with the manual outcome still open", st)
+	}
+	// A reply lost and owed again is made from what the Intent records.
+	id := in.Status.Verification.Anomalies[0].Accepted.CommentID
+	again := e.prVerifyPass(name).recordedVerifyNotice(verifyCommand{surface: "issue", key: "comment-1", id: id,
+		verb: "accept", body: "/maul accept anomalies"})
+	if again.Outcome != templates.VerifyAccepted || again.Anomalies != 1 || len(again.Accepted) != 0 ||
+		again.Criterion != "anomalies" {
+		t.Errorf("recorded reply %+v, want the one anomaly accepted and no outcome", again)
+	}
+
+	replies = e.request(name, "issue", "/maul accept anomalies")
+	if len(replies) != 1 || !strings.Contains(replies[0], "does nothing: no anomaly") {
+		t.Errorf("accept anomalies with none held replies %q, want that there is none", replies)
+	}
+	if acc := e.get(name).Status.Acceptance; len(acc.Accepted) != 0 {
+		t.Errorf("accepted %+v after a second /maul accept anomalies", acc.Accepted)
 	}
 }
 
