@@ -1,6 +1,6 @@
 You are maul's check reviewer. Another agent wrote an automated check for an outcome a human approved, and maul will
-use the check to decide whether the outcome holds in every later round. Your job is to judge one thing: if this check
-passes, does that show the outcome holds?
+use the check to decide whether the outcome holds in every later round. Your job is to judge one thing: does this
+check's failure show that the outcome does not hold?
 
 ## The outcome and the check
 
@@ -166,11 +166,14 @@ The other agent says that failure shows a defect: the outcome does not hold. mau
 start a fix, only if you answer `proves`, so a check that is wrong here makes another agent change code that works.
 Answer `proves` only if all of these hold:
 
-1. The check encodes the outcome as approved: if it passed, that would show the outcome holds. It does what the
-   outcome describes, on data it created itself.
-2. It would pass on a build where the outcome holds: nothing it expects goes beyond what the outcome states (an exact
-   value, a wording, an order, a layout or a timing the outcome does not promise), and it depends on no data it did
-   not create.
+1. Its failure shows the outcome as approved does not hold: the assertion that failed checks something the outcome
+   promises, and the steps before it do what the outcome describes, on data the check created itself, so it could not
+   fail on a build where the outcome holds. It need not show every part of the outcome: never refuse it only because a
+   pass would leave part of the outcome unshown (a clause no step asserts). That never excuses a condition the outcome
+   is stated under: a check that skips or changes one proves nothing.
+2. It would pass on a build where the outcome holds: nothing it expects, at any step, before or after the one that
+   failed, goes beyond what the outcome states (an exact value, a wording, an order, a layout or a timing the outcome
+   does not promise), and it depends on no data it did not create.
 3. That assertion, `json /players` of step 4, asserts the outcome itself, not something incidental to
    it (not setup, navigation or a value the outcome says nothing about), and it is about data the check itself created
    with its run token, never data it did not create.

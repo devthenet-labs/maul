@@ -269,13 +269,17 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
    green proposal only against a green dry run, never one the replay saw red).
 3. **The red question.** The reviewer is told the check failed, at which step and by which assertion, and that the
-   application's state was not fresh. It answers `proves` only if the check encodes the outcome as approved, would pass
-   on a build where the outcome holds, and that assertion is the outcome itself and about data the check created, not
-   setup or something incidental. For an `exec` check it is shown the marker its program printed and answers whether the
-   program prints it only when the approved outcome is violated, never inside a retry or poll before its final
-   judgement, on a connection error, a status code, a timeout or an exception. The answer counts only for that
-   assertion: another failing assertion of the check needs a review of its own. Anything else and the check is not
-   stored; the outcome stays unsure.
+   application's state was not fresh. It answers `proves` only if that assertion checks something the outcome as
+   approved promises, the check would pass on a build where the outcome holds (no step, before or after the one that
+   failed, expects more than the outcome promises), and that assertion is the outcome itself and about data the check
+   created, not setup or something incidental. It judges the check by what its failure proves, not by whether a pass
+   would prove the whole outcome: a check that shows one promise broken is enough, even where the outcome has a clause
+   no step asserts or no assertion can express (a button wholly inside the viewport), though never one that skips or
+   changes a condition the outcome is stated under; a pass of it still proves nothing until the green question is asked
+   (below). For an `exec` check it is shown the marker its program printed and answers whether the program prints it
+   only when the approved outcome is violated, never inside a retry or poll before its final judgement, on a connection
+   error, a status code, a timeout or an exception. The answer counts only for that assertion: another failing assertion
+   of the check needs a review of its own. Anything else and the check is not stored; the outcome stays unsure.
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.

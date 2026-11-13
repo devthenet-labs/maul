@@ -145,9 +145,10 @@ type CheckReview struct {
 	CheckDigest   string
 	OutcomeDigest string
 	Answer        ReviewAnswer
-	// ExpectFail: the reviewer was asked the red question (does this check
-	// encode the outcome as approved, would it pass where the outcome
-	// holds, and is the assertion that failed the outcome itself), about
+	// ExpectFail: the reviewer was asked the red question (does the
+	// assertion that failed check something the outcome promises, would
+	// every step pass where the outcome holds, and is that assertion the
+	// outcome itself; never whether a pass would show all of it), about
 	// the failing assertion FailedStep and FailedAssertion: it counts only
 	// for a check saved failing that same assertion (second review, 2A).
 	ExpectFail      bool
