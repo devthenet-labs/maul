@@ -28,8 +28,9 @@ type subject struct {
 
 // check re-checks pv against its Intent, Project and trees, read uncached,
 // and returns why it is stale: stale-approval for an Intent, Project,
-// surface, tree or approved outcomes that no longer hold, stale-preview for
-// a pull request no longer open at the workspace head. Such a verification
+// surface, tree or approved outcomes that no longer hold, stale-workspace
+// for a pull request no longer open at the workspace head (never
+// stale-preview: there is no preview). Such a verification
 // is dropped unjudged.
 func (r *Reconciler) check(ctx context.Context, pv *v1alpha1.PreviewVerification) (*subject,
 	v1alpha1.PreviewVerificationReason, error) {
@@ -55,7 +56,7 @@ func (r *Reconciler) check(ctx context.Context, pv *v1alpha1.PreviewVerification
 	}
 	s.repository = repo
 	if !openAt(s.intent, repo.URL, ws.HeadSHA) {
-		return nil, v1alpha1.VerificationReasonStalePreview, nil
+		return nil, v1alpha1.VerificationReasonStaleWorkspace, nil
 	}
 	if !approvedOutcomes(pv, s.intent) {
 		return nil, staleApproval, nil

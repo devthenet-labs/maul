@@ -194,6 +194,33 @@ func TestRecheckDropsUnjudged(t *testing.T) {
 	}
 }
 
+// TestRecheckStaleReason: a round whose pull request is no longer open at
+// the workspace head is Stale stale-workspace, never stale-preview: an
+// agents Project has no preview (G3-B-LIB-2). A request that no longer holds
+// otherwise stays stale-approval.
+func TestRecheckStaleReason(t *testing.T) {
+	for name, tt := range map[string]struct {
+		mutate func(*world)
+		want   v1alpha1.PreviewVerificationReason
+	}{
+		"pull request moved": {func(w *world) { w.intent.Status.PullRequests[0].HeadSHA = strings.Repeat("f", 40) },
+			v1alpha1.VerificationReasonStaleWorkspace},
+		"pull request closed": {func(w *world) { w.intent.Status.PullRequests[0].State = "closed" },
+			v1alpha1.VerificationReasonStaleWorkspace},
+		"intent replaced": {func(w *world) { w.intent.UID = "new-intent" }, v1alpha1.VerificationReasonStaleApproval},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			tt.mutate(w)
+			h := newHarness(t, w)
+			h.reconcile(t)
+			if pv := h.pv(t); pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != tt.want {
+				t.Fatalf("status %s %s, want Stale %s", pv.Status.Phase, pv.Status.Reason, tt.want)
+			}
+		})
+	}
+}
+
 // TestRecheckWhileRunning: a running verification whose tree moved is
 // dropped and its running tool pod deleted at once.
 func TestRecheckWhileRunning(t *testing.T) {

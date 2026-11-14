@@ -343,7 +343,9 @@ preview-controller never touches such a request, and with the agents tool pod on
   repository's default branch, and creates two Repositories the Intent owns, pinned to exactly those commits
   (`spec.ref.commit`; source-controller fetches each archive and never reads a runner image from it). A round waits up
   to 15 minutes from a tree's creation for both to be Ready, then is `Unavailable` (`TreeUnavailable`) and retried each
-  poll while the heads stay; a commit source-controller reports `CommitNotFound` for is `Unavailable` at once.
+  poll while the heads stay; a commit source-controller reports `CommitNotFound` for is `Unavailable` at once. A round
+  whose pull request is no longer open at the head it was asked for ends `Stale` (`stale-workspace`, the agents host's
+  own word for it: there is no preview to be `stale-preview`), unjudged.
 - **The image and the network** are the repository's latest build's, re-derived before the pod is created through the
   calls a build launch makes (`PinFor` on that build's own Repository, then its network profile and the Forge check),
   and held to what the round recorded: a different image or profile ends the round `Stale`. A Forge list that cannot be
