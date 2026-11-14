@@ -22,8 +22,9 @@ const (
 // the whole outcome. A visibility check on an outcome with a clause the
 // browser grammar cannot assert (G10: "inside the 1280x800 viewport") was
 // refused four times for that alone. The necessity rules that keep a red
-// check from failing a working build stay, every step held to them; the
-// green question is unchanged.
+// check from failing a working build stay, held to the assertion that
+// failed, the one step a later run of it is counted by (gate 3); the green
+// question is unchanged.
 func TestCheckReviewRedJudgesTheFailure(t *testing.T) {
 	g10 := testCheckReviewPrompt(mustCheck(t, `{"id":"clear","outcome":"clear","form":"browser","browser":{"steps":[`+
 		`{"goto":"/"},{"expect":{"assert":"visible","locator":{"css":"#clear"}}},`+
@@ -59,10 +60,12 @@ func TestCheckReviewRedJudgesTheFailure(t *testing.T) {
 			"does this check's failure show that the outcome does not hold?",
 			"It need not show every part of the outcome",
 			"never refuse it only because a pass would leave part of the outcome unshown",
-			// The necessity rules, every step held to them (G10's other
-			// three refusals: steps the outcome does not promise).
-			"It would pass on a build where the outcome holds",
-			"at any step, before or after the one that failed,",
+			// The necessity rule, held to the assertion that failed: the
+			// only step a later run of the check is counted by (gate 3:
+			// grounds its failure does not raise are no grounds,
+			// checkreview_red_evidence_test.go).
+			"That assertion fails only where the outcome does not hold",
+			"what maul recorded differs only where the outcome fixes nothing",
 			// Setup stays sound: the exemption covers what the outcome
 			// promises, never the condition it is stated under.
 			"That never excuses a condition the outcome is stated under",

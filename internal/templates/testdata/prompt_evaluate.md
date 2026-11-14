@@ -289,9 +289,10 @@ about the check's own data, as these rules say, the reviewer judges, and an asse
 `no-red-dry-run` means no dry run failed an assertion, or one ran green.
 Propose it with `expect: fail` under the outcome you report `fail`. maul then runs it again itself, a reviewer
 judges whether the assertion that failed checks something the outcome promises, and only then is the outcome failed
-and a fix started, handed your check's failure as its reproduction. It need not cover every part of the outcome, but
-the reviewer refuses it if any step expects more than the outcome promises. Once the fix is in, the same check must
-pass.
+and a fix started, handed your check's failure as its reproduction. It need not cover every part of the outcome: the
+reviewer judges only the assertion that failed, with what maul recorded of its failure, and refuses it if that
+assertion compares more than the outcome promises and the failure does not show a promised value wrong. Once the fix
+is in, the same check must pass.
 
 A check is bound to one outcome and has one form:
 

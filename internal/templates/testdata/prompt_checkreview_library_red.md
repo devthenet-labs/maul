@@ -85,18 +85,29 @@ Answer `proves` only if all of these hold:
    fail on a build where the outcome holds. It need not show every part of the outcome: never refuse it only because a
    pass would leave part of the outcome unshown (a clause no step asserts). That never excuses a condition the outcome
    is stated under: a check that skips or changes one proves nothing.
-2. It would pass on a build where the outcome holds: nothing it expects, at any step, before or after the one that
-   failed, goes beyond what the outcome states (an exact value, a wording, an order, a layout or a timing the outcome
-   does not promise), and it depends on no data it did not create.
+2. That assertion fails only where the outcome does not hold: what it compares goes no further than what the outcome
+   states (an exact value, a wording, an order, a layout or a timing the outcome does not promise), and it depends on
+   no data it did not create. Where it compares more than the outcome fixes (a whole output, a whole text, a wording
+   around the value), it proves the outcome broken only if what maul recorded of its failure shows a value the outcome
+   fixes, and shows it wrong; if what maul recorded differs only where the outcome fixes nothing, or does not show
+   which part differs, answer `does_not_prove` or `unclear`.
 3. That assertion, `marker too-long` of step 1, asserts the outcome itself, not something incidental to
    it (not setup, navigation or a value the outcome says nothing about), and it is about data the check itself created
    with its run token, never data it did not create.
 4. The program decides this failure itself: it printed `{{marker}} too-long:`. Find where it prints that line, and answer
-   `proves` only if it prints it only when the approved outcome is violated by what it observed: never inside a retry
-   or poll before its final judgement of that assertion, and never on a connection or transport error, a status code,
-   a timeout, an exception or bad input.
+   `proves` only if it prints it only when the approved outcome is violated by what it observed, its comparison judged
+   as rule 2 says: never inside a retry or poll before its final judgement of that assertion, and never on a
+   connection or transport error, a status code, a timeout, an exception or bad input. Where it prints that line on
+   more than one condition, what maul recorded shows which held: judge that one.
 
 Answer `does_not_prove` if any of them does not hold, and `unclear` if you cannot tell from what is shown.
+
+Judge only that failure and the setup before it. Do not refuse a red check for what its other steps or expectations
+ask: an expectation of a step before it that passed, a locator that found its element, what the check expects of a run
+that passes (a program check's `expect`, or a step after the one that failed, which never ran), or a part of the
+outcome it does not test. maul counts a later run of this check only when it fails at this same step by this same
+assertion, holds that failure for a person before anything is fixed, and asks whether a pass of it shows the outcome
+holds before a pass counts: none of those can fail a build where the outcome holds.
 
 Where the outcome states a rule and names an example of it, an input beyond that example is still within the outcome
 when the rule, as the outcome words it, covers that input: judge the value the check expects by the rule's words.

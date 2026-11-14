@@ -662,6 +662,13 @@ type CheckReviewPrompt struct {
 	// kept none (no element, a text it could not read whole), and then the
 	// red question is asked exactly as before.
 	Observed []string
+	// Failure is, for the red question, what maul recorded of the failing
+	// assertion in each of its runs (toolwire.StepRecord.Detail: a
+	// browser assertion's measurement, or what a program printed after its
+	// marker), the run's token written as checks.RunPlaceholder: UNTRUSTED,
+	// quoted as data. Shown only whole, one line per run; empty leaves the
+	// red question without it (G3-B-BR-1, G3-B-LIB-1).
+	Failure []string
 	// Workspace is a check of a Project with no preview (SPEC-S2): an exec
 	// or run check, reviewed beside maul's own record of the build and of
 	// its runs at the head and the base. nil is a preview's check, the
@@ -776,6 +783,9 @@ type checkReviewView struct {
 	// element (D-B4).
 	ObservedBlock string
 	RunScoped     bool
+	// FailureBlock is Failure as the reviewer reads it, one line per run,
+	// on the red question only.
+	FailureBlock string
 	// Viewport is the fixed window a browser check runs in.
 	Viewport playwright.Viewport
 	// WS is the workspace, for a check of a Project with no preview.
@@ -833,6 +843,9 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
+	if p.ExpectFail {
+		v.FailureBlock = observedBlock(p.Failure)
+	}
 	if p.ExpectFail && ws == nil && !v.Layout && shown.Form == checks.FormBrowser {
 		v.ObservedBlock = observedBlock(p.Observed)
 		v.RunScoped = v.ObservedBlock != "" && checks.FailsRunScopedText(p.Check, p.FailedStep-1) &&

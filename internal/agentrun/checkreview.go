@@ -110,6 +110,13 @@ type CheckReviewItem struct {
 	// ValidObserved. UNTRUSTED: the application's own text, quoted to the
 	// reviewer as data.
 	Observed []string `json:"observed,omitempty"`
+	// Failure is, on a red item, what maul recorded of the failing
+	// assertion in each of its runs (toolwire.StepRecord.Detail: a browser
+	// assertion's measurement, or what a program printed after its marker),
+	// that run's token written as checks.RunPlaceholder, held to
+	// ValidFailure (G3-B-BR-1, G3-B-LIB-1). UNTRUSTED: a program's words
+	// are the evaluator's, quoted to the reviewer as data.
+	Failure []string `json:"failure,omitempty"`
 	// Head and Base are the check's runs at each side on a workspace round
 	// (only there): Head always, as confirmed (green a pass, red the fail by
 	// FailedAssertion); Base nil when it did not run there, and always on a
@@ -132,13 +139,22 @@ const (
 // ValidObserved holds an item's Observed to its bounds: at most two runs,
 // each one non-empty line of UTF-8 of at most 2048 bytes. The controller
 // hands over only what holds, so a text that does not never fails a round.
-func ValidObserved(observed []string) error {
-	if len(observed) > checkReviewObservedMax {
-		return fmt.Errorf("observed holds %d runs, over %d", len(observed), checkReviewObservedMax)
+func ValidObserved(observed []string) error { return validRunLines("observed", observed) }
+
+// ValidFailure holds an item's Failure to the same bounds as Observed: at
+// most two runs, each one non-empty line of UTF-8 of at most 2048 bytes
+// (the ledger's detail bound).
+func ValidFailure(failure []string) error { return validRunLines("failure", failure) }
+
+// validRunLines holds a red item's per-run lines, named name, to their
+// bounds.
+func validRunLines(name string, lines []string) error {
+	if len(lines) > checkReviewObservedMax {
+		return fmt.Errorf("%s holds %d runs, over %d", name, len(lines), checkReviewObservedMax)
 	}
-	for _, o := range observed {
+	for _, o := range lines {
 		if o == "" || len(o) > checkReviewObservedMaxBytes || !utf8.ValidString(o) || strings.ContainsAny(o, "\r\n") {
-			return errors.New("observed is not one line of text of at most 2048 bytes for each run")
+			return fmt.Errorf("%s is not one line of text of at most 2048 bytes for each run", name)
 		}
 	}
 	return nil
@@ -235,8 +251,8 @@ func validCause(r ReviewRun) bool {
 func validExpectation(it CheckReviewItem, c checks.Check) error {
 	switch it.Expect {
 	case "":
-		if it.FailedStep != 0 || it.FailedAssertion != "" || len(it.Observed) > 0 {
-			return errors.New("failed_step, failed_assertion or observed is set on a check confirmed green")
+		if it.FailedStep != 0 || it.FailedAssertion != "" || len(it.Observed) > 0 || len(it.Failure) > 0 {
+			return errors.New("failed_step, failed_assertion, observed or failure is set on a check confirmed green")
 		}
 		return nil
 	case "fail":
@@ -250,7 +266,7 @@ func validExpectation(it CheckReviewItem, c checks.Check) error {
 		strings.ContainsAny(it.FailedAssertion, "\r\n") {
 		return errors.New("failed_assertion does not name the assertion that failed")
 	}
-	return ValidObserved(it.Observed)
+	return errors.Join(ValidObserved(it.Observed), ValidFailure(it.Failure))
 }
 
 // checkReviewItem is a review as the stage runs it: the handoff's item and
@@ -329,6 +345,7 @@ func (r checkReviewRound) prompt(item checkReviewItem, path string,
 		FailedStep:      item.FailedStep,
 		FailedAssertion: item.FailedAssertion,
 		Observed:        item.Observed,
+		Failure:         item.Failure,
 	}
 	if ws := r.workspace; ws != nil {
 		w := ws.EvaluateWorkspace
