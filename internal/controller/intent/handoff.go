@@ -24,7 +24,7 @@ import (
 // verifies holds the link, and the word "ready", until the evaluation
 // decides: it is released labelled "ready" once every outcome is confirmed
 // (or accepted by an approver), or "maul couldn't confirm this" once maul
-// gives up (unsure, an anomaly, out of rounds, its evaluation budget, an
+// gives up (unsure, out of rounds, its evaluation budget, an
 // environment that failed, its sandbox not enforced) or handoffMax passes
 // from when CI first went green. A human always wins: an approver's review
 // or command on a pull request, a push maul did not make, or /maul preview
@@ -202,17 +202,12 @@ func (p *pass) unconfirmedWhy(acc *v1alpha1.IntentAcceptance, v *v1alpha1.Intent
 		return "" // a dispute's round, or the escalation, is due
 	case suspectedPending(v):
 		// The defect maul suspects waits for a person: it leads, before the
-		// outcomes in doubt and any anomaly (gate D-B11).
+		// outcomes in doubt (gate D-B11).
 		return templates.HandoffWhySuspected
 	case p.atEvaluationCeiling():
 		return templates.HandoffWhyBudget
 	case len(v.Disputed) > 0:
 		return templates.HandoffWhyRounds
-	case len(openAnomalies(v.Anomalies)) > 0 && !outcomesInDoubt(acc, v):
-		// Every outcome confirmed or accepted: the anomaly is the reason
-		// (review H2). With an outcome in doubt, the outcomes lead and the
-		// anomaly comes second (gate D-B6).
-		return templates.HandoffWhyAnomaly
 	case environmentWhy(v) != "":
 		return environmentWhy(v)
 	case doubtedOutcomes(acc, v) > 0:
@@ -222,10 +217,8 @@ func (p *pass) unconfirmedWhy(acc *v1alpha1.IntentAcceptance, v *v1alpha1.Intent
 }
 
 // unconfirmedView is the hand-off maul could not confirm for why: with the
-// outcomes maul suspects a defect in named first (gate D-B11), the
-// outcomes the evaluator judged not to hold counted, and a look-around
-// anomaly named after a reason that leads with the outcomes in doubt
-// (gate D-B6).
+// outcomes maul suspects a defect in named first (gate D-B11) and the
+// outcomes the evaluator judged not to hold counted.
 func unconfirmedView(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification,
 	why string) *templates.PreviewHandoff {
 	h := &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
@@ -237,9 +230,6 @@ func unconfirmedView(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificat
 		fallthrough
 	case templates.HandoffWhyEvaluatorDoubts:
 		h.Doubted = doubtedOutcomes(acc, v)
-		fallthrough
-	case templates.HandoffWhyEnvironment, templates.HandoffWhyInfra, templates.HandoffWhyUnsure:
-		h.Anomaly = v.State == v1alpha1.VerificationUnconfirmed && len(openAnomalies(v.Anomalies)) > 0
 	}
 	return h
 }
@@ -256,12 +246,6 @@ func doubtedOutcomes(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificat
 		}
 	}
 	return n
-}
-
-// outcomesInDoubt reports an approved outcome v's judgement at its heads
-// does not confirm and no approver accepted.
-func outcomesInDoubt(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
-	return confirmedCount(acc, v) < int32(len(acc.Outcomes))
 }
 
 // settledWhy is why a round settled without a judgement, as the hand-off

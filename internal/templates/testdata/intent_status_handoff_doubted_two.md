@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Preview:** maul couldn't confirm this: the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it, and it noticed something odd while it looked around. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 3: maul couldn't confirm every outcome: 3/5 outcomes confirmed, 0 of 2 automatic fixes used.
+**Preview:** maul couldn't confirm this: the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 3: maul couldn't confirm every outcome: 3/5 outcomes confirmed, 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

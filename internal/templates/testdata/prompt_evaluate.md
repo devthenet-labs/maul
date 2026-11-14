@@ -436,8 +436,9 @@ On each, take a snapshot, a screenshot and the console, and ask:
 Then read `maul-tool logs` for each component and `maul-tool events`: any errors, panics, restarts or OOM kills since
 the round began?
 
-Report what you find as anomalies, each citing the ledger seqs that show it. An anomaly never fails an outcome and
-never starts a fix: it tells the human reviewers what to look at.
+Report what you find as anomalies, each citing the ledger seqs that show it: notes that tell the human reviewers what
+to look at, which never fail, hold or confirm anything. What you find there that breaks what an approved outcome
+states is no anomaly: report it as that outcome's `fail` (or `contrary`), citing the seqs that show it.
 
 ## Your report
 
@@ -500,7 +501,11 @@ What I checked, in a few lines.
   `maul-tool check run`, as you passed it (you may give the `digest` that run printed instead); and `expect: fail`
   for a check that shows a defect of an outcome you report `fail` (leave it out for a check that ran green).
 - `retire`: each saved check to retire, by its digest, with a `reason`.
-- `anomalies`: each anomaly, with a one-line `summary`, the `route` or surface it is on, and its `ledger` seqs.
+- `anomalies`: notes for the human reviewers, each with a one-line `summary`, the `route` or surface it is on, and
+  its `ledger` seqs: something you saw that no approved outcome states. maul judges the change on the outcomes alone,
+  so an anomaly never fails, holds or confirms anything; it is shown to the reviewers beside the outcomes. A defect in
+  what an outcome states, on any input, is never an anomaly: report it as that outcome's `fail` (or, where its saved
+  check still passes, under its `contrary`), citing the seqs that show it.
 
 Write `[]` for an empty list. Put every string in double quotes, and escape a double quote inside one as `\"`: an
 unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes, reasons and summaries are

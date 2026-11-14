@@ -211,8 +211,7 @@ type pass struct {
 	unkeptRead bool
 	// ledgerLines are a verification's full ledger lines (its <pv>-ledger
 	// ConfigMap), read at most once a pass per verification, keyed by its
-	// UID: a judgement reads them (preExisting), so one round's ledger never
-	// stands in for another's.
+	// UID, so one round's ledger never stands in for another's.
 	ledgerLines map[types.UID][]string
 	// prListed are the pull requests' comments this pass listed, by pull
 	// request (prComments): every step reading them shares one listing.

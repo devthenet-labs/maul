@@ -417,13 +417,11 @@ What I checked, in a few lines.
   `maul-tool check run`, as you passed it (you may give the `digest` that run printed instead); and `expect: fail`
   for a check that shows a defect of an outcome you report `fail` (leave it out for a check that ran green).
 - `retire`: each saved check to retire, by its digest, with a `reason`.
-- `anomalies`: each anomaly, with a one-line `summary`, the `route` or surface it is on, and its `ledger` seqs.
-  For one that was there before this change, add `pre_existing: true` and cite the `exec` or `run` calls at the head
-  that show it, each beside the same call made with `--base`. maul believes it only where every call it cites at the
-  head runs the build (a `run`, or an `exec` whose first argument is the built binary) and printed exactly the same at
-  the base (a `files` read, or an `exec` of anything else such as `cat`, `grep` or a shell, does not count: the same
-  text does not show the same behaviour): it is then shown to the human reviewers and holds nothing against the change.
-  Otherwise it holds the change as any other anomaly does.
+- `anomalies`: notes for the human reviewers, each with a one-line `summary`, the `route` or surface it is on, and
+  its `ledger` seqs: something you saw that no approved outcome states. maul judges the change on the outcomes alone,
+  so an anomaly never fails, holds or confirms anything; it is shown to the reviewers beside the outcomes. A defect in
+  what an outcome states, on any input, is never an anomaly: report it as that outcome's `fail` (or, where its saved
+  check still passes, under its `contrary`), citing the seqs that show it.
 
 Write `[]` for an empty list. Put every string in double quotes, and escape a double quote inside one as `\"`: an
 unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes, reasons and summaries are

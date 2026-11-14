@@ -27,10 +27,6 @@ const (
 	// VerifyAcceptAutomatic: the criterion is checked automatically and
 	// passed or failed outright, so no human acceptance stands in for it.
 	VerifyAcceptAutomatic VerifyOutcome = "accept-automatic"
-	// VerifyAcceptNoAnomaly: /maul accept anomalies found no look-around
-	// anomaly holding the commits under verification that the approver could
-	// have seen, so it accepted nothing.
-	VerifyAcceptNoAnomaly VerifyOutcome = "accept-no-anomaly"
 	// VerifyAcceptNotYet: maul has not recorded the commits under
 	// verification yet, so there is nothing to bind an acceptance to.
 	VerifyAcceptNotYet VerifyOutcome = "accept-not-yet"
@@ -166,10 +162,6 @@ type VerifyCommandNotice struct {
 	// Accepted are the outcomes an accept closed, in plan order: the one
 	// it named, or every one /maul accept all closed.
 	Accepted []string
-	// Anomalies counts the look-around anomalies held at the commits that
-	// /maul accept all or anomalies accepted (G-B-LIB-1); OpenAnomalies those a recorded
-	// /maul verify fix leaves standing, which it cannot fix.
-	Anomalies, OpenAnomalies int
 	// Acceptable are the criteria or outcomes an approver can accept now.
 	Acceptable []string
 	// ResetWait is how long resets are spaced, for VerifyResetTooSoon.
@@ -353,17 +345,6 @@ func requestedText(n VerifyCommandNotice, actor string) string {
 	if n.Fix {
 		b.WriteString(" maul may fix failing outcomes on its own again.")
 	}
-	if n.OpenAnomalies > 0 {
-		// G-B-LIB-1: an anomaly is no failing outcome, so no fix starts on
-		// it, and a new round at the same commits does not clear it.
-		fmt.Fprintf(&b, " No outcome fails at these commits, so there is nothing to fix yet: %s maul noticed while "+
-			"it looked around %s, and %s these commits until they change or an approver accepts "+
-			"%s with %s. The evaluator examines %s again.",
-			count(n.OpenAnomalies, "the anomaly", "anomalies"),
-			pick(n.OpenAnomalies, "is not a failing outcome", "are not failing outcomes"),
-			pick(n.OpenAnomalies, "it holds", "they hold"), pick(n.OpenAnomalies, "it", "them"),
-			slashCommand(action.VerbAccept+" "+command.AcceptAnomalies), pick(n.OpenAnomalies, "it", "them"))
-	}
 	if n.Explore {
 		b.WriteString(" The evaluator looks again, even where maul's saved checks alone could settle it.")
 	}
@@ -422,10 +403,6 @@ func outcomeAcceptText(n VerifyCommandNotice, cmd, actor string) (string, bool) 
 	const byHand = "only a manual outcome, or one maul could not confirm or found failing, is accepted by hand."
 	switch n.Outcome {
 	case VerifyAccepted:
-		anomaliesOnly := n.Criterion == command.AcceptAnomalies && len(n.Accepted) == 0
-		if (n.Criterion == command.AcceptAll || anomaliesOnly) && n.Anomalies > 0 {
-			return acceptedAnomaliesText(n, cmd, actor), true
-		}
 		if n.Criterion == command.AcceptAll {
 			return fmt.Sprintf("%s from %s is done: the outcomes %s are accepted at %s. If the commits change, they "+
 				"are shown as accepted earlier and not re-checked.", cmd, actor, joinCode(n.Accepted),
@@ -441,41 +418,8 @@ func outcomeAcceptText(n VerifyCommandNotice, cmd, actor string) (string, bool) 
 		}
 		return cmd + " does nothing: that outcome passed, or maul has not decided it yet, and " + byHand +
 			acceptable("outcome", n.Acceptable), true
-	case VerifyAcceptNoAnomaly:
-		return cmd + " does nothing: no anomaly maul noticed while it looked around, and recorded before you " +
-			"commented, holds these commits. It accepts no outcome." + acceptable("outcome", n.Acceptable), true
 	}
 	return "", false
-}
-
-// pick is one for a single thing, many otherwise.
-func pick(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
-}
-
-// acceptedAnomaliesText is the reply to a /maul accept all or anomalies
-// that accepted the look-around anomalies held at the commits (G-B-LIB-1),
-// and any outcomes beside them (all only).
-func acceptedAnomaliesText(n VerifyCommandNotice, cmd, actor string) string {
-	what := count(n.Anomalies, "the anomaly", "anomalies") + " maul noticed while it looked around"
-	if n.Anomalies > 1 {
-		what = "the " + what
-	}
-	verb := "is"
-	if n.Anomalies > 1 || len(n.Accepted) > 0 {
-		verb = "are"
-	}
-	if len(n.Accepted) > 0 {
-		what = "the outcomes " + joinCode(n.Accepted) + " and " + what
-	}
-	text := fmt.Sprintf("%s from %s is done: %s %s accepted at %s.", cmd, actor, what, verb, joinCode(n.Heads))
-	if len(n.Accepted) > 0 {
-		text += " If the commits change, the outcomes are shown as accepted earlier and not re-checked."
-	}
-	return text + " An anomaly is a finding about the commits it was seen at: once they change, maul looks again."
 }
 
 // acceptable is the sentence naming the criteria or outcomes (noun) an

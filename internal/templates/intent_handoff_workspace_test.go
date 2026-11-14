@@ -61,7 +61,7 @@ func TestWorkspaceHandoffGoldens(t *testing.T) {
 				Outcomes: true, Why: HandoffWhyEnvironment, Workspace: true})},
 		// Gate D-B6: the link-less line leads with the doubted outcomes too.
 		{"intent_status_workspace_doubted.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyEvaluatorDoubts, Doubted: 1, Anomaly: true},
+			Why: HandoffWhyEvaluatorDoubts, Doubted: 1},
 			&VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2, Passing: 1, Total: 2,
 				Outcomes: true, Why: HandoffWhyEvaluatorDoubts, Workspace: true})},
 		{"intent_status_workspace_checking.md", status(&PreviewHandoff{State: HandoffChecking}, evaluating)},

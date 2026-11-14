@@ -37,13 +37,10 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_status_handoff_ready.md", status(&PreviewHandoff{State: HandoffReady},
 			&VerifyProgress{State: VerifyPassed, Verification: 1, MaxFixes: 2, Passing: 3, Total: 3, Outcomes: true})},
 		{"intent_status_handoff_unconfirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyAnomaly}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 2, FixesUsed: 1,
+			Why: HandoffWhyUnsure}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 2, FixesUsed: 1,
 			MaxFixes: 2, Passing: 2, Total: 3, Outcomes: true})},
-		// Review H2: every outcome confirmed, unsure only for an anomaly or
-		// the preview failing: the line names that cause.
-		{"intent_status_handoff_anomaly_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyAnomaly}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
-			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyAnomaly})},
+		// Review H2: every outcome confirmed, unsure only for the preview
+		// failing: the line names that cause.
 		{"intent_status_handoff_environment_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyEnvironment}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
 			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyEnvironment})},
@@ -51,16 +48,15 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_status_handoff_infra_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyInfra}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
 			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyInfra})},
-		// Gate D-B11: the suspected defect leads, the doubted outcome and
-		// the anomaly after it.
+		// Gate D-B11: the suspected defect leads, the doubted outcome after
+		// it.
 		{"intent_status_handoff_suspected.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}, Doubted: 1, Anomaly: true},
+			Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}, Doubted: 1},
 			&VerifyProgress{State: VerifyUnconfirmed, Verification: 4, FixesUsed: 1, MaxFixes: 2, Passing: 3,
 				Total: 5, Outcomes: true, Why: HandoffWhySuspected})},
-		// Gate D-B6: outcomes the evaluator judged not to hold lead, counted,
-		// an anomaly second.
-		{"intent_status_handoff_doubted_anomaly.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyEvaluatorDoubts, Doubted: 2, Anomaly: true}, &VerifyProgress{State: VerifyUnconfirmed,
+		// Gate D-B6: outcomes the evaluator judged not to hold lead, counted.
+		{"intent_status_handoff_doubted_two.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
+			Why: HandoffWhyEvaluatorDoubts, Doubted: 2}, &VerifyProgress{State: VerifyUnconfirmed,
 			Verification: 3, MaxFixes: 2, Passing: 3, Total: 5, Outcomes: true, Why: HandoffWhyEvaluatorDoubts})},
 		{"intent_status_handoff_out_of_time.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyTime}, evaluating)},
@@ -158,25 +154,23 @@ func TestHandoffWhyIsMaulsWords(t *testing.T) {
 
 // TestHandoffDoubtedWords (gate D-B6): outcomes the evaluator judged not
 // to hold lead the reason, counted, saying maul did not prove them and
-// never that they fail; an anomaly is named second, once, and only after
-// a reason that is not the anomaly itself.
+// never that they fail.
 func TestHandoffDoubtedWords(t *testing.T) {
-	const anomaly = ", and it noticed something odd while it looked around."
 	for _, tt := range []struct {
 		h    PreviewHandoff
 		want string
 	}{
 		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 1},
 			"the evaluator judged 1 outcome not to hold, but no check maul re-ran shows it."},
-		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 2, Anomaly: true},
-			"the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it" + anomaly},
+		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 2},
+			"the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it."},
 		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts},
 			"the evaluator judged some outcomes not to hold, but no check maul re-ran shows it."},
-		{PreviewHandoff{Why: HandoffWhyUnsure, Anomaly: true}, "some outcomes are unsure" + anomaly},
-		{PreviewHandoff{Why: HandoffWhyEnvironment, Anomaly: true},
-			"the preview failed while it was checked" + anomaly},
-		{PreviewHandoff{Why: HandoffWhyAnomaly, Anomaly: true},
-			"it noticed something odd while it looked around."},
+		{PreviewHandoff{Why: HandoffWhyUnsure}, "some outcomes are unsure."},
+		{PreviewHandoff{Why: HandoffWhyEnvironment}, "the preview failed while it was checked."},
+		// A reason no longer listed (an anomaly's, from before 2026-11-14)
+		// shows as the generic one.
+		{PreviewHandoff{Why: "anomaly"}, "some outcomes are unsure."},
 		{PreviewHandoff{Why: "@octocat", Doubted: 3}, "some outcomes are unsure."},
 	} {
 		tt.h.State = HandoffUnconfirmed
@@ -193,17 +187,17 @@ func TestHandoffDoubtedWords(t *testing.T) {
 }
 
 // TestUnconfirmedCause (review H2): a round whose every outcome was
-// confirmed is named by the one cause that kept it unconfirmed, an anomaly
-// or its environment (a preview only where there is one); any other reason
-// names none, so its line stays as it was.
+// confirmed is named by the one cause that kept it unconfirmed, its
+// environment (a preview only where there is one); any other reason names
+// none, so its line stays as it was. A look-around anomaly keeps no round
+// unconfirmed, so its old reason names none.
 func TestUnconfirmedCause(t *testing.T) {
 	for _, tt := range []struct {
 		why       string
 		workspace bool
 		want      string
 	}{
-		{HandoffWhyAnomaly, false, handoffWhyWords[HandoffWhyAnomaly]},
-		{HandoffWhyAnomaly, true, handoffWhyWords[HandoffWhyAnomaly]},
+		{"anomaly", false, ""},
 		{HandoffWhyEnvironment, false, handoffWhyWords[HandoffWhyEnvironment]},
 		{HandoffWhyEnvironment, true, workspaceWhyWords[HandoffWhyEnvironment]},
 		// Review H3: maul's own environment failing is never the preview.
@@ -237,8 +231,6 @@ func TestWorkspaceEnvironmentLabel(t *testing.T) {
 	}{
 		{PreviewHandoff{Why: HandoffWhyEnvironment}, tools + "."},
 		{PreviewHandoff{Why: HandoffWhyInfra}, tools + "."},
-		{PreviewHandoff{Why: HandoffWhyInfra, Anomaly: true},
-			tools + ", and it noticed something odd while it looked around."},
 	} {
 		tt.h.State = HandoffUnconfirmed
 		if got := workspaceLabel(tt.h); got != tt.want {
@@ -249,19 +241,18 @@ func TestWorkspaceEnvironmentLabel(t *testing.T) {
 
 // TestHandoffSuspectedLeads (gate D-B11): a suspected defect leads the
 // reason, naming each outcome as code (an id that shows nothing is left
-// out), before the outcomes the evaluator doubts and any anomaly; with no
-// outcome it can show it still says a defect is suspected.
+// out), before the outcomes the evaluator doubts; with no outcome it can
+// show it still says a defect is suspected.
 func TestHandoffSuspectedLeads(t *testing.T) {
-	const anomaly = ", and it noticed something odd while it looked around."
 	for _, tt := range []struct {
 		h    PreviewHandoff
 		want string
 	}{
 		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}},
 			"it suspects a defect in `swing-shown-nonzero`, which a person should confirm."},
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"a", "b"}, Doubted: 1, Anomaly: true},
+		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"a", "b"}, Doubted: 1},
 			"it suspects a defect in `a`, `b`, which a person should confirm, and the evaluator judged 1 " +
-				"outcome not to hold, but no check maul re-ran shows it" + anomaly},
+				"outcome not to hold, but no check maul re-ran shows it."},
 		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"", " "}},
 			"it suspects a defect, which a person should confirm."},
 		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"x` @octocat #3"}},

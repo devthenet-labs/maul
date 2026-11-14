@@ -228,12 +228,9 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		if results == nil {
 			break
 		}
-		va := templates.VerifyAnomaly{Summary: a.Summary, Route: a.Route, PreExisting: a.PreExisting}
+		va := templates.VerifyAnomaly{Summary: a.Summary, Route: a.Route}
 		if a.Round != 0 && a.Round != v.OutcomesRound {
 			va.FoundIn = a.Round // carried from an earlier round at these heads
-		}
-		if a.Accepted != nil {
-			va.AcceptedBy = a.Accepted.By
 		}
 		s.Anomalies = append(s.Anomalies, va)
 	}

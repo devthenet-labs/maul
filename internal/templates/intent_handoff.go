@@ -33,7 +33,6 @@ const (
 const (
 	HandoffWhyUnsure      = "unsure"
 	HandoffWhyFailing     = "failing"
-	HandoffWhyAnomaly     = "anomaly"
 	HandoffWhyRounds      = "rounds"
 	HandoffWhyBudget      = "budget"
 	HandoffWhyTime        = "time"
@@ -65,7 +64,7 @@ const (
 
 	// HandoffWhySuspected: maul suspects a defect in outcomes
 	// (PreviewHandoff.Suspected) and waits for a person to confirm it
-	// (gate D-B11): it leads, before outcomes in doubt or an anomaly.
+	// (gate D-B11): it leads, before outcomes in doubt.
 	HandoffWhySuspected = "suspected"
 )
 
@@ -75,7 +74,6 @@ const (
 var handoffWhyWords = map[string]string{
 	HandoffWhyUnsure:      "some outcomes are unsure",
 	HandoffWhyFailing:     "an outcome fails and maul stopped fixing it",
-	HandoffWhyAnomaly:     "it noticed something odd while it looked around",
 	HandoffWhyRounds:      "it used every round it may run",
 	HandoffWhyBudget:      "it spent its evaluation budget",
 	HandoffWhyTime:        "it ran out of time",
@@ -114,13 +112,13 @@ func whyWords(why string, workspace bool) (words string, ok bool) {
 
 // UnconfirmedCause is why a round whose every outcome was confirmed (or
 // accepted) is still not confirmed, in maul's words, for the causes that
-// withhold it whatever the outcomes show (review H2): an anomaly, and an
-// environment that was not clean, the change's or maul's own (review H3);
+// withhold it whatever the outcomes show (review H2): an environment that
+// was not clean, the change's or maul's own (review H3);
 // workspace is a Project with no preview. "" for any other reason, which
 // the counts already explain.
 func UnconfirmedCause(why string, workspace bool) string {
 	switch why {
-	case HandoffWhyAnomaly, HandoffWhyEnvironment, HandoffWhyInfra:
+	case HandoffWhyEnvironment, HandoffWhyInfra:
 		w, _ := whyWords(why, workspace)
 		return w
 	}
@@ -139,14 +137,11 @@ type PreviewHandoff struct {
 	// Suspected are, for HandoffWhySuspected, the outcomes maul suspects a
 	// defect in (gate D-B11).
 	Suspected []string
-	// Anomaly: for HandoffUnconfirmed, a look-around anomaly is named after
-	// the reason, which leads with the outcomes in doubt (gate D-B6).
-	Anomaly bool
 }
 
 // handoffWhy is why maul could not confirm, in its words (on a Project
 // with no preview when workspace): the reason, then the outcomes in doubt
-// after a suspected defect, then an anomaly, if any.
+// after a suspected defect.
 func handoffWhy(h PreviewHandoff, workspace bool) string {
 	w, ok := whyWords(h.Why, workspace)
 	switch {
@@ -159,9 +154,6 @@ func handoffWhy(h PreviewHandoff, workspace bool) string {
 		if h.Doubted > 0 {
 			w += ", and " + doubtedWords(h.Doubted)
 		}
-	}
-	if h.Anomaly && h.Why != HandoffWhyAnomaly {
-		w += ", and " + handoffWhyWords[HandoffWhyAnomaly]
 	}
 	return w
 }

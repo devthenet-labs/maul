@@ -21,8 +21,8 @@ step 2: expected /delta 24, got 16
 </details>
 ````
 
-Look-around: maul's evaluator noticed (its words, not checked by maul): console error on /battle `@octocat` `#7`, on `/battle`.
+Look-around: maul's evaluator noticed (its words, not checked by maul): console error on /battle `@octocat` `#7`, on `/battle`. A note for the reviewers: maul judges the change on its outcomes alone.
 
-Look-around: maul's evaluator noticed (its words, not checked by maul): The Battles link in the header is the browser's default blue on the dark header, well below the contrast the rest of the navigation keeps, and the beat grid overflows the viewport at 1280px behind a white scrollbar that covers the last column of pads. Both are on main's own pages as well. Neither [cut by maul], on `/`.
+Look-around: maul's evaluator noticed (its words, not checked by maul): The Battles link in the header is the browser's default blue on the dark header, well below the contrast the rest of the navigation keeps, and the beat grid overflows the viewport at 1280px behind a white scrollbar that covers the last column of pads. Both are on main's own pages as well. Neither [cut by maul], on `/`. A note for the reviewers: maul judges the change on its outcomes alone.
 
 _maul updates this comment as the preview changes, and removes the preview when the intent ends._

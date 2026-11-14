@@ -69,10 +69,8 @@ type judgeRoute struct {
 	progress, status, held, why string
 	disputed                    int
 	// doubted counts the outcomes the hand-off says the evaluator judged
-	// not to hold, unproven; anomalySecond, that it names an anomaly after
-	// its reason (gate D-B6).
+	// not to hold, unproven (gate D-B6).
 	doubted                     int32
-	anomalySecond               bool
 	versionResult, manualResult v1alpha1.OutcomeResultValue
 	// description is the maul/acceptance description and line a sentence
 	// of the verification comment, each checked when given (review H2).
@@ -129,14 +127,11 @@ func TestJudgementRoutes(t *testing.T) {
 			healthy: pass(oHealthy), replay: true, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusPending, held: templates.HandoffHeld, disputed: 1,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
+		// A look-around anomaly is a note for the reviewer: it holds nothing.
 		{name: "anomaly", version: pass(oVersion), healthy: pass(oHealthy), anomaly: true, acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyAnomaly, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but it noticed something odd while it " +
-				"looked around",
-			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: it noticed something odd " +
-				"while it looked around; 0 of 2 automatic fixes used."},
+			state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed, status: statusSuccess,
+			held: templates.HandoffReady, versionResult: v1alpha1.OutcomePassed,
+			manualResult: v1alpha1.OutcomeAccepted},
 		{name: "environment failed",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
 			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, acceptManual: true,
@@ -186,12 +181,13 @@ func TestJudgementRoutes(t *testing.T) {
 			manualResult: v1alpha1.OutcomeAccepted},
 		// Gate D-B6: outcomes the evaluator judged not to hold, with no check
 		// maul re-ran showing it, lead the hand-off, counted and never
-		// called failing; an anomaly beside them comes second.
+		// called failing; an anomaly beside them is a note the hand-off does
+		// not name.
 		{name: "model only fail with an anomaly",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
 			healthy: pass(oHealthy), anomaly: true, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyEvaluatorDoubts, doubted: 1, anomalySecond: true,
+			why: templates.HandoffWhyEvaluatorDoubts, doubted: 1,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
 		{name: "model only fail on two outcomes",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
@@ -203,32 +199,30 @@ func TestJudgementRoutes(t *testing.T) {
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, ""),
 			healthy: pass(oHealthy), anomaly: true, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyUnsure, anomalySecond: true, versionResult: v1alpha1.OutcomeUnsure,
+			why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomeUnsure,
 			manualResult: v1alpha1.OutcomeAccepted},
 		{name: "environment failed with an anomaly",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
 			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, anomaly: true, acceptManual: true,
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment, anomalySecond: true,
+			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
 		// A failing environment may be why the evaluator judged an outcome
-		// not to hold: it stays the reason, the anomaly second.
+		// not to hold: it stays the reason.
 		{name: "model only fail in a failing environment",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
 			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, anomaly: true, acceptManual: true,
 			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment, anomalySecond: true,
+			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
 			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
 		// An outcome an approver accepted is in no doubt: with every one
-		// confirmed or accepted, the anomaly alone is the reason (H2).
+		// confirmed or accepted, the round passes beside its note.
 		{name: "model only fail accepted with an anomaly",
 			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
 			healthy: pass(oHealthy), anomaly: true, acceptManual: true, acceptVersion: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyAnomaly,
-			versionResult: v1alpha1.OutcomeAccepted, manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but it noticed something odd while it " +
-				"looked around"},
+			state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed, status: statusSuccess,
+			held: templates.HandoffReady, versionResult: v1alpha1.OutcomeAccepted,
+			manualResult: v1alpha1.OutcomeAccepted},
 	} {
 		t.Run(tc.name, func(t *testing.T) { checkJudgeRoute(t, tc, check) })
 	}
@@ -352,13 +346,11 @@ func checkRouteViews(t *testing.T, p *pass, tc judgeRoute) {
 }
 
 // checkRouteHandoff holds p's hand-off to tc: its state, its reason, the
-// outcomes it counts in doubt and an anomaly named second (gate D-B6).
+// outcomes it counts in doubt (gate D-B6).
 func checkRouteHandoff(t *testing.T, p *pass, tc judgeRoute) {
 	t.Helper()
-	if h := p.handoffView(); h == nil || h.State != tc.held || h.Why != tc.why || h.Doubted != tc.doubted ||
-		h.Anomaly != tc.anomalySecond {
-		t.Errorf("hand-off = %+v, want %s %s, %d doubted, anomaly second %v", h, tc.held, tc.why, tc.doubted,
-			tc.anomalySecond)
+	if h := p.handoffView(); h == nil || h.State != tc.held || h.Why != tc.why || h.Doubted != tc.doubted {
+		t.Errorf("hand-off = %+v, want %s %s, %d doubted", h, tc.held, tc.why, tc.doubted)
 	}
 }
 
@@ -721,7 +713,7 @@ func TestDecideInputCarriesContrary(t *testing.T) {
 		Ledger: &v1alpha1.LedgerSummary{Count: 40}}}
 	ev := &report.Evaluation{Verdicts: []report.OutcomeVerdict{{ID: "round-trip", Verdict: report.VerdictPass,
 		Ledger: []int32{38, 47}, Contrary: []int32{37, 39, 90}}}}
-	in := decideInput(acc, pv, nil, ev, nil)
+	in := decideInput(acc, pv, nil, ev)
 	if len(in.Verdicts) != 1 || !slices.Equal(in.Verdicts[0].Ledger, []int32{38}) ||
 		!slices.Equal(in.Verdicts[0].Contrary, []int32{37, 39, 90}) {
 		t.Fatalf("verdicts = %+v, want ledger [38] and contrary [37 39 90]", in.Verdicts)

@@ -59,12 +59,11 @@ type PlanOutcome struct {
 }
 
 // ReservedOutcomeIDs are the ids no outcome may take: the arguments of
-// /maul accept that name more than one outcome (all) or no outcome at all
-// (anomalies), so an outcome of either id could never be accepted by its
-// own name. They are command.AcceptAll and command.AcceptAnomalies, which
-// this package cannot import; a test in internal/controller/intent pins
-// the two lists to each other.
-var ReservedOutcomeIDs = []string{"all", "anomalies"}
+// /maul accept that name more than one outcome (all), so an outcome of that
+// id could never be accepted by its own name. It is command.AcceptAll,
+// which this package cannot import; a test in internal/controller/intent
+// pins the two to each other.
+var ReservedOutcomeIDs = []string{"all"}
 
 // OutcomeError is an outcome the grammar refuses: the only error
 // ValidateOutcomes returns.

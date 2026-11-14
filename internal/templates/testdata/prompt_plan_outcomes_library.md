@@ -117,8 +117,8 @@ acceptance:
 
 Rules the outcomes keep to:
 
-- `id`: lowercase letters, digits and hyphens, starting with a letter; at most 32; unique; never `all` or `anomalies`,
-  which `/maul accept` reserves.
+- `id`: lowercase letters, digits and hyphens, starting with a letter; at most 32; unique; never `all`, which
+  `/maul accept` reserves.
 - `outcome`: what must hold, one line of at most 500 characters, stated as what a caller sees the library return,
   never as how the code does it.
 - `from`: the line of the request the outcome answers, copied exactly and whole, never shortened with "...": at most

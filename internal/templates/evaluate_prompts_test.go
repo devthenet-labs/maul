@@ -178,7 +178,7 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		"Do links and buttons the change added lead somewhere that loads",
 		"Any console errors or failed requests?",
 		"`maul-tool logs` for each component and `maul-tool events`",
-		"An anomaly never fails an outcome and never starts a fix",
+		"which never fail, hold or confirm anything",
 		"Never assert a colour value",
 		// Demo finding F3: "at least 48 px" is a bound, not an exact 48.
 		"or the bounds `minWidth`, `maxWidth`, `minHeight` and `maxHeight` for an outcome that says \"at least\" or " +
@@ -390,7 +390,6 @@ func TestEvaluatePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 	p.PriorReplay = []PriorReplay{{Check: hostile, Outcome: hostile, Result: hostile}}
 	p.PriorRefused = []PriorRefusal{{Check: hostile, Outcome: hostile, Reason: hostile}}
 	p.NotYetProof = []NotYetProof{{Check: hostile, Outcome: hostile}}
-	p.HeldAnomalies = []HeldAnomaly{{Round: 1, Summary: hostile, Route: hostile}}
 	got, err := RenderEvaluatePrompt(p)
 	if err != nil {
 		t.Fatal(err)

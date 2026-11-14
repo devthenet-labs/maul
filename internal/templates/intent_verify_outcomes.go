@@ -8,8 +8,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // The agent evaluator's outcomes, as the verification section and comment
@@ -140,18 +138,13 @@ type outcomeDetail struct {
 	Lead, AppOutput string
 }
 
-// VerifyAnomaly is one look-around anomaly: the evaluator's summary and the
-// route it saw it on, its words. FoundIn is the earlier round at the same
-// commits that found it, which this round carries (G-B-LIB-1; 0: this
-// round's own), and AcceptedBy the approver who accepted it ("" while it
-// holds the commits).
+// VerifyAnomaly is one look-around anomaly, a note for the reviewers: the
+// evaluator's summary and the route it saw it on, its words. FoundIn is the
+// earlier round at the same commits that found it, which this round carries
+// (0: this round's own).
 type VerifyAnomaly struct {
 	Summary, Route string
 	FoundIn        int32
-	AcceptedBy     string
-	// PreExisting marks one the evaluator said was there before the change,
-	// every call it cites printing the same at the base (G-B-BR-2).
-	PreExisting bool
 }
 
 // outcomeKindWords are the outcome kinds as a row shows them; unset is
@@ -273,16 +266,5 @@ func anomalyLine(a VerifyAnomaly) string {
 	if route := shown(cutRunes(visibleText(a.Route), verifyRouteMaxBytes)); route != "" {
 		line += ", on " + code(route)
 	}
-	line += "."
-	switch {
-	case a.PreExisting:
-		line += " The evaluator says it was there before this change, and maul found every call it cites " +
-			"printing the same at the base, so it does not hold these commits."
-	case a.AcceptedBy != "":
-		line += " Accepted at these commits by " + code(oneLine(a.AcceptedBy)) + "."
-	case a.FoundIn > 0:
-		line += " It holds these commits until they change or an approver accepts it with " +
-			code("/maul accept "+command.AcceptAnomalies) + "."
-	}
-	return line
+	return line + ". A note for the reviewers: maul judges the change on its outcomes alone."
 }

@@ -44,13 +44,13 @@ const (
 	// fix or a human push; the scoped rung's case, full until it exists).
 	RungReasonHeadsChanged RungReason = "heads-changed"
 	// RungReasonModelObjected: the last model round's evaluator saw an
-	// outcome fail or reported an anomaly (ModelRound.Clear false): only a
-	// model can look again at what it raised.
+	// outcome fail (ModelRound.Clear false): only a model can look again at
+	// what it raised.
 	RungReasonModelObjected RungReason = "model-objected"
-	// RungReasonOpenFinding: an anomaly an earlier round found at these
-	// heads stands (no approver accepted it): it holds every round there
-	// from a pass (G-B-LIB-1), so a replay could never pass, and only a
-	// model can look at it again.
+	// RungReasonOpenFinding: an outcome an earlier round found failing or
+	// suspected at these heads stands (no approver accepted it): it holds
+	// every round there from a pass (G-B-LIB-1), so a replay could never
+	// pass it, and only a model can look at it again.
 	RungReasonOpenFinding RungReason = "open-finding"
 	// RungReasonUncovered: an outcome has no stored check a round could
 	// pass it on, so a replay could only leave it unsure.
@@ -66,7 +66,7 @@ type ModelRound struct {
 	// list it was judged at.
 	HeadSet, OutcomesDigest string
 	// Clear: its evaluator saw no outcome fail (no fail verdict, no
-	// contrary entry) and reported no anomaly (ModelRoundClear).
+	// contrary entry: ModelRoundClear).
 	Clear bool
 }
 
@@ -81,8 +81,8 @@ type RungInput struct {
 	Explore bool
 	// Escalate: the round is the one escalation of an unsure replay round.
 	Escalate bool
-	// OpenFinding: an anomaly an earlier round found at the new round's
-	// heads stands, no approver having accepted it.
+	// OpenFinding: an outcome an earlier round found failing or suspected
+	// at the new round's heads stands, no approver having accepted it.
 	OpenFinding bool
 	// HeadSet and OutcomesDigest are the new round's.
 	HeadSet, OutcomesDigest string
@@ -146,10 +146,12 @@ func covered(in RungInput) bool {
 
 // ModelRoundClear reports a full round's input whose evaluator raised
 // nothing a replay could not see again: no verdict of fail or with contrary
-// entries (the outcome as worded seen to fail) and no anomaly, cited or
-// not. A round that is not clear is followed by a full round at its heads.
+// entries (the outcome as worded seen to fail). A look-around anomaly is a
+// note for the reviewer, which a later round at the same heads carries,
+// never an objection. A round that is not clear is followed by a full
+// round at its heads.
 func ModelRoundClear(in Input) bool {
-	return len(in.Anomalies) == 0 && !slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
+	return !slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
 		return v.Claim == ClaimFail || len(v.Contrary) > 0
 	})
 }

@@ -24,7 +24,7 @@ import (
 //  1. Same evidence, an evaluator that raises nothing against an outcome:
 //     the replay round decides every outcome exactly as the full round.
 //  2. Whatever a full round's evaluator does claim (a fail, contrary
-//     entries, disputes, retirements, anomalies), it never adds a pass the
+//     entries, disputes, retirements), it never adds a pass the
 //     replay round would not give: claims only withhold.
 //  3. A replay round never fails an outcome, never asks for a fix, a
 //     suspected defect, a retirement or a narrowing: with no evaluator,
@@ -39,14 +39,14 @@ import (
 
 // genReplayRound is one round's evidence judged three ways: as a replay
 // round (no claims, no confirmations), as a full round whose evaluator
-// raises nothing (pass or unsure verdicts, with or without citations, and
-// any anomalies), and as a full round whose evaluator claims anything.
+// raises nothing (pass or unsure verdicts, with or without citations), and
+// as a full round whose evaluator claims anything.
 type genReplayRound struct{ replay, quiet, any Input }
 
 func (genReplayRound) Generate(r *rand.Rand, size int) reflect.Value {
 	base := genDecide{}.Generate(r, size).Interface().(genDecide).in
 	replay := base
-	replay.Confirmations, replay.Verdicts, replay.Disputes, replay.Retired, replay.Anomalies = nil, nil, nil, nil, nil
+	replay.Confirmations, replay.Verdicts, replay.Disputes, replay.Retired = nil, nil, nil, nil
 	// A replay round replays the whole store it was handed.
 	replay.ReplayRequired = nil
 	for _, c := range replay.Checks {
@@ -65,9 +65,6 @@ func (genReplayRound) Generate(r *rand.Rand, size int) reflect.Value {
 		}
 		quiet.Verdicts = append(quiet.Verdicts, v)
 	}
-	if r.Intn(3) == 0 {
-		quiet.Anomalies = []AnomalyRef{{Summary: "a page error", Route: "/", Ledger: []int32{2}}}
-	}
 	anyClaims := replay
 	genClaims(r, &anyClaims)
 	for range r.Intn(3) {
@@ -79,9 +76,6 @@ func (genReplayRound) Generate(r *rand.Rand, size int) reflect.Value {
 	}
 	for range r.Intn(2) {
 		anyClaims.Retired = append(anyClaims.Retired, Retirement{CheckDigest: pickOf(r, genDigests), Reason: "r"})
-	}
-	if r.Intn(3) == 0 {
-		anyClaims.Anomalies = []AnomalyRef{{Summary: "a console error", Route: "/", Ledger: []int32{3}}}
 	}
 	return reflect.ValueOf(genReplayRound{replay: replay, quiet: quiet, any: anyClaims})
 }
@@ -111,14 +105,14 @@ func TestReplayRoundNeverPassesWhatAFullRoundWouldNot(t *testing.T) {
 			case ResultFailed, ResultQuarantined:
 			}
 		}
-		// A ready replay round is a ready quiet full round, anomalies aside.
-		if replay.Handoff == HandoffReady && len(g.quiet.Anomalies) == 0 && quiet.Handoff != HandoffReady {
+		// A ready replay round is a ready quiet full round.
+		if replay.Handoff == HandoffReady && quiet.Handoff != HandoffReady {
 			t.Logf("replay ready, quiet full round %s", quiet.Handoff)
 			return false
 		}
 		return true
 	}
-	if err := quick.Check(prop, quickConfig(6000)); err != nil {
+	if err := quick.Check(prop, quickConfig(8000)); err != nil {
 		t.Fatal(err)
 	}
 	if passes < 100 || unsure < 100 {
@@ -144,12 +138,12 @@ func sameAsFull(rr, q, a OutcomeResult) error {
 }
 
 // TestReplayAfterAnObjectionIsFull closes the gap property 2 leaves: a
-// full round whose evaluator saw an outcome fail, or reported an anomaly,
-// is not Clear, so the next round at its heads is full, never a replay
+// full round whose evaluator saw an outcome fail is not Clear, so the next
+// round at its heads is full, never a replay
 // that would pass what that evaluator objected to.
 func TestReplayAfterAnObjectionIsFull(t *testing.T) {
 	prop := func(g genReplayRound) bool {
-		objected := len(g.any.Anomalies) > 0 || slices.ContainsFunc(g.any.Verdicts, func(v EvaluatorVerdict) bool {
+		objected := slices.ContainsFunc(g.any.Verdicts, func(v EvaluatorVerdict) bool {
 			return v.Claim == ClaimFail || len(v.Contrary) > 0
 		})
 		next := RungInput{HeadSet: "h", OutcomesDigest: "o", Outcomes: g.any.Outcomes, Checks: g.any.Checks,
