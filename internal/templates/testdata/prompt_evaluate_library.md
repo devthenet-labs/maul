@@ -215,7 +215,8 @@ behaviour the request leaves unsaid (an error's wording, an order, an input outs
 failure, and where the outcome states no range, a value far from its example (zero, a negative, a size far past any it
 names) is one its words do not decide: where you cannot tell from the outcome's words what the rule says an input must
 give, that run is no evidence either way, and you do not fail the outcome on it. A zero, empty or absent value of
-what an outcome promises to carry over is one its words decide: it must come through as it was. Where an outcome names
+what an outcome promises to carry over is one its words decide: it must come through as it was, as using it shows.
+Where an outcome names
 only an example, and its line of the request states the rule it is an instance of (a line may state several rules, each
 answered by its own outcome: take only the one about this outcome's subject; the rule that decides the example's values
 is always about it), try that rule beyond the example too, in calls of your own, never in a check you propose for it:
@@ -229,9 +230,10 @@ pass this one. A fail and the fix it starts are only ever for what the outcome i
 fields kept, the rest unchanged, the same as before, a value that round-trips through save and load), that promise is
 a rule: try it on the values a careless copy loses: a field left unset, zero, empty or absent (a nil value, a missing
 optional key), the ends of any range the rule states, and every field the promise covers, not only those your input
-sets. Compare the result as a caller observes it: the whole value, and where the type is written out or read back
-(encoded, saved, printed), that it is written as the original is. A field the outcome says changes, and one the
-promise does not cover, are not part of it, and a difference nothing a caller does can observe is no failure.
+sets. Compare the result by what using it gives, against the original: what the program or the library's exported
+calls give for it, and what it is written out or read back as (encoded, saved, printed). A field the outcome says
+changes, and one the promise does not cover, are not part of it, and a difference of representation alone (a nil where
+the original held an empty value, or the reverse) that none of those shows is no failure.
 Where an outcome's rule is that something is unchanged by the change (the same output, the same value), the base gives
 what it must be for any input the rule covers: make the same call with `--base` and compare.
 

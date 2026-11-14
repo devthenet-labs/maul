@@ -55,7 +55,7 @@ func TestPlanPromptAsksForCarriedOverOutcomes(t *testing.T) {
 					"is a rule too: state it as an outcome of its own",
 				"over all of what the request promises: for \"a copy of p\", every field of p other than those " +
 					"the request says change, the ones it does not name included",
-				"whether each is set, zero, empty or left absent",
+				"whether each is set, zero, empty or left absent, as using the result shows",
 				// Against a false fail: no wider than the promise.
 				"where the request names the fields kept, only those",
 				// G1: a line that states a rule gets no example-only outcome.
@@ -113,14 +113,18 @@ func TestEvaluatePromptProbesCarriedOverValues(t *testing.T) {
 				"try it on the values a careless copy loses: a field left unset, zero, empty or absent (a nil " +
 					"value, a missing optional key), the ends of any range the rule states, and every field the " +
 					"promise covers, not only those your input sets",
-				"Compare the result as a caller observes it: the whole value, and where the type is written out or " +
-					"read back (encoded, saved, printed), that it is written as the original is",
-				// Against a false fail.
+				"Compare the result by what using it gives, against the original: what the program or the " +
+					"library's exported calls give for it, and what it is written out or read back as (encoded, " +
+					"saved, printed).",
+				// Against a false fail: a correct copy may hold an empty value
+				// where the original held nil (make and copy) and is still a
+				// copy wherever nothing that uses it tells the two apart.
 				"A field the outcome says changes, and one the promise does not cover, are not part of it",
-				"a difference nothing a caller does can observe is no failure",
+				"a difference of representation alone (a nil where the original held an empty value, or the " +
+					"reverse) that none of those shows is no failure",
 				// The stay-within rule does not exclude a kept zero.
 				"A zero, empty or absent value of what an outcome promises to carry over is one its words decide: " +
-					"it must come through as it was.",
+					"it must come through as it was, as using it shows.",
 				// G1: the rule the from states is this outcome's, whichever
 				// other outcome also states it.
 				"A break you saw while judging another outcome counts here too: another outcome stating the same " +
@@ -170,7 +174,8 @@ func TestWorkspaceEvaluateComparesUnchangedAtTheBase(t *testing.T) {
 // check of a zero or absent value an outcome promises to carry over.
 func TestCheckReviewRedQuestionDecidesAKeptZero(t *testing.T) {
 	want := "A zero, empty or absent value of what the outcome promises to carry over (a copy, fields kept, " +
-		"unchanged) is one it decides: it must come through as it was."
+		"unchanged) is one it decides: it must come through as it was, judged by what using it gives (what " +
+		"calls give for it, what it is encoded, saved or printed as), never by its representation alone."
 	red := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
 	red.ExpectFail, red.FailedStep, red.FailedAssertion = true, 2, "json /rating"
 	wsRed := testWorkspaceReview(t, ExampleLibraryRunCheck, testReviewLibrary)

@@ -154,7 +154,8 @@ How to word an outcome so the evaluator can show it:
   own, over all of what the request promises: for "a copy of p", every field of p other than those the request says
   change, the ones it does not name included (a list of some fields beside "a copy" does not narrow the copy), and
   where the request names the fields kept, only those. Name them as the code or the application does, and say that
-  they come through as they were, whether each is set, zero, empty or left absent.
+  they come through as they were, whether each is set, zero, empty or left absent, as using the result shows (what
+  it gives, how it is encoded, saved or printed).
 - The evaluator calls only the library's exported API, from programs of its own: state an outcome through that API,
   never through unexported code or internals.
 - A `keep` outcome names one call and what it then returns, never "X still works"; where its line states a rule

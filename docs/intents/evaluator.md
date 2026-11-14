@@ -102,15 +102,17 @@ the evaluator's run (`[maul-tool time left]`).
    example and its issue line states the rule, the evaluator tries that rule beyond the example in calls of its own,
    never in a check it proposes (its checks assert only what the outcome states), and a break there withholds the pass
    (`contrary`, so unsure) but never fails the outcome: a fail and its fix are only for what the approved outcome itself
-   states. It passes such an outcome only once it has tried that rule beyond the example, and a break it saw while
-   judging another outcome that states the same rule withholds this one's pass too (defect gate 3, G1: a README-example
-   outcome quoting the counting rule passed while the rule was broken). A promise that something is carried over (a
-   copy, fields kept, the rest unchanged, a round-trip through save and load) is a rule as well: the evaluator tries it
-   on the values a careless copy loses (a field left unset, zero, empty or absent, and every field the promise covers)
-   and compares the result as a caller observes it, the whole value and how it is written out or read back (defect gate
-   3, G6: a copy that turned absent fields into empty ones could no longer be encoded). A zero or absent value of what
-   is carried over is one the outcome decides; a field it says changes or does not cover, and a difference no caller can
-   observe, are never a failure. On a workspace an "unchanged" rule's expected value is the same call at the base.
+   states. It reports such an outcome `pass` only once it has tried that rule beyond the example (a prompt rule: an
+   evaluator that never probes is still passed on its example check), and a break it saw while judging another outcome
+   that states the same rule goes in this one's `contrary` too, which withholds its pass (defect gate 3, G1: a
+   README-example outcome quoting the counting rule passed while the rule was broken). A promise that something is
+   carried over (a copy, fields kept, the rest unchanged, a round-trip through save and load) is a rule as well: the
+   evaluator tries it on the values a careless copy loses (a field left unset, zero, empty or absent, and every field
+   the promise covers) and compares the result by what using it gives against the original, what calls give for it and
+   how it is written out or read back (defect gate 3, G6: a copy that turned absent fields into empty ones could no
+   longer be encoded). A zero or absent value of what is carried over is one the outcome decides; a field it says
+   changes or does not cover, and a difference of representation alone (nil against empty) that nothing using it shows,
+   are never a failure. On a workspace an "unchanged" rule's expected value is the same call at the base.
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
