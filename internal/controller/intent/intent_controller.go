@@ -205,6 +205,10 @@ type pass struct {
 	// once: verifyPVRead reports the read was made.
 	verifyPV     *v1alpha1.PreviewVerification
 	verifyPVRead bool
+	// unkept is why verifyPV's red checks were not kept, by outcome
+	// (unkeptRed), worked out once a pass: unkeptRead reports it was.
+	unkept     map[string]string
+	unkeptRead bool
 	// ledgerLines are a verification's full ledger lines (its <pv>-ledger
 	// ConfigMap), read at most once a pass per verification, keyed by its
 	// UID: a judgement reads them (preExisting), so one round's ledger never

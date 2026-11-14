@@ -454,6 +454,41 @@ func TestIntentAgentsFixRound(t *testing.T) {
 	e.checkLingering(t, runs[0])
 }
 
+// TestIntentAgentsRedCheckWithoutRunData (G3-B-CLI-1): on a cli round, a
+// check showing a defect need not name its run: every check run starts
+// from the tree, build output and home as the build left them, so there
+// is no shared data for the slot's run-data rule to guard. The scripted
+// evaluator's exec check runs --echo on a fixed word, red by its
+// assertion at the head; maul confirms it red there and green at the base,
+// stores it once reviewed and holds the defect for a person, as it does a
+// check that names its run.
+func TestIntentAgentsRedCheckWithoutRunData(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
+		surfaces: tallyCLI(), build: tallyBreaksEcho, outcomes: tallyKeepOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-fail",
+			"MAUL_FAKE_CLAUDE_CLI_ARGS": "--echo offbeat", "MAUL_FAKE_CLAUDE_CHECK_TEXT": "offbeat"},
+	})
+	_, name, _ := e.toReview(t)
+	in := e.waitEval(t, name, "round 1 to hold a suspected defect", func(v *v1alpha1.IntentVerification) bool {
+		return len(v.Outcomes) == 1 && v.Outcomes[0].Reason == acceptance.ReasonSuspectedDefect &&
+			v.Suspected != nil
+	})
+	if c := in.Status.Acceptance.Checks; c == nil || c.Count != 1 {
+		t.Errorf("check store %+v, want the red check stored", c)
+	}
+	pv := e.agentsVerification(t, name)
+	if len(pv.Status.Confirmed) != 1 || strings.Contains(pv.Status.Confirmed[0].Body, "{{run}}") {
+		t.Fatalf("confirmed %+v, want one check naming no run", pv.Status.Confirmed)
+	}
+	if b := pv.Status.Base; b == nil || len(b.Runs) == 0 || b.Runs[0].Result != v1alpha1.CheckRunPass {
+		t.Errorf("base %+v, want the check green at the base", b)
+	}
+	if len(e.verifyRuns(t, name)) != 0 {
+		t.Errorf("a fix round started on a defect present from round 1: %s", e.describeRuns(t, name))
+	}
+}
+
 // checkLingering asserts a settled round's finished tool Job lingers (wave
 // 3: ten minutes, for the isolation probe): the Job is still there, not
 // deleting, and its tools container's log, the ledger, is still readable

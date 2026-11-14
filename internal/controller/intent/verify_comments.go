@@ -195,6 +195,7 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 	if !verifyJudged(v.State) {
 		results = nil
 	}
+	unkept := p.unkeptRed(ctx, pv, results)
 	for _, o := range acc.Outcomes {
 		row := templates.VerifyOutcomeResult{ID: o.ID, Kind: string(o.EffectiveKind()), Statement: o.Outcome,
 			Result: templates.OutcomeResultUnsure}
@@ -211,6 +212,7 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		}
 		r := results[i]
 		row.Result, row.Reason, row.Check = string(effectiveResult(acc, v, r)), r.Reason, r.Line
+		row.Unkept = unkept[o.ID]
 		if rec := acceptedAt(acc, o.ID, v.HeadSetDigest); rec != nil && row.Result == templates.OutcomeResultAccepted {
 			row.AcceptedAt = firstHead(rec)
 		}
@@ -236,6 +238,24 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		s.Anomalies = append(s.Anomalies, va)
 	}
 	s.Suspected = p.suspectedView(ctx, pv)
+}
+
+// unkeptRed is, by outcome id, why pv's red checks were not kept
+// (unkeptRed), for a judged round of pv, worked out once a pass (pv is the
+// pass's judgedVerification); none when there is no judgement or the store
+// cannot be read.
+func (p *pass) unkeptRed(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	results []v1alpha1.OutcomeResult) map[string]string {
+	if pv == nil || results == nil {
+		return nil
+	}
+	if !p.unkeptRead {
+		p.unkeptRead = true
+		if stored, _, err := p.storedChecks(ctx); err == nil {
+			p.unkept = unkeptRed(pv, p.in.Status.Acceptance.Outcomes, stored, p.checkContext(pv))
+		}
+	}
+	return p.unkept
 }
 
 // suspectedView is the suspected defect at the current heads (fourth

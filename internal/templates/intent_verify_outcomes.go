@@ -69,6 +69,27 @@ var outcomeReasonWords = map[string]string{
 		"change or an approver accepts it",
 }
 
+// Why maul did not keep a red check it re-ran of an outcome
+// (VerifyOutcomeResult.Unkept; G3-B-CLI-1).
+const (
+	// UnkeptRunData: the slot's run-data rule.
+	UnkeptRunData = "run-data"
+	// UnkeptConfirmation: a confirmation run was not red by the assertion
+	// the check was proposed failing.
+	UnkeptConfirmation = "confirmation"
+	// UnkeptRules: the check's own bytes break the saved-check rules.
+	UnkeptRules = "rules"
+)
+
+// unkeptWords are the Unkept reasons in maul's words; one not listed adds
+// nothing.
+var unkeptWords = map[string]string{
+	UnkeptRunData: "in a preview, a check that shows a defect must write data of its own run and expect only " +
+		"success statuses",
+	UnkeptConfirmation: "not every run of it was red by the assertion it was proposed failing",
+	UnkeptRules:        "it breaks the saved-check rules",
+}
+
 // Bounds on what an outcome's detail shows.
 const (
 	verifyCheckLineMaxBytes = 300
@@ -100,6 +121,9 @@ type VerifyOutcomeResult struct {
 	// check maul re-ran shows failing, its note and the calls it cites
 	// (intent_verify_claim.go); nil for none.
 	Claim *VerifyEvaluatorClaim
+	// Unkept is why maul did not keep a check of the outcome that its own
+	// runs confirmed red (an Unkept constant); "" for none.
+	Unkept string
 }
 
 // outcomeDetail is a failing outcome's app output as the templates print
@@ -176,6 +200,9 @@ func outcomeVerdict(o VerifyOutcomeResult, word string) string {
 	if o.Result != OutcomeResultPassed && o.Result != OutcomeResultAccepted {
 		if reason := outcomeReasonWords[o.Reason]; reason != "" {
 			word += "; " + reason
+		}
+		if why := unkeptWords[o.Unkept]; why != "" {
+			word += "; maul re-ran a check of it red but did not keep it: " + why
 		}
 	}
 	if line := shown(cutRunes(visibleText(o.Check), verifyCheckLineMaxBytes)); line != "" {
