@@ -138,7 +138,10 @@ Where the outcome states a rule and names an example of it, an input beyond that
 when the rule, as the outcome words it, covers that input: judge the value the check expects by the rule's words.
 Answer `does_not_prove` if the rule as the outcome words it does not cover that input or does not decide the value
 the check expects, and `unclear` if you cannot tell. Where the outcome states no range, a value far from its example
-(zero, a negative, a size far past any it names) is not one the rule decides.
+(zero, a negative, a size far past any it names) is not one the rule decides. A zero, empty or absent value of what
+the outcome promises to carry over (a copy, fields kept, unchanged) is one it decides: it must come through as it was,
+judged by what using it gives (what calls give for it, what it is encoded, saved or printed as), never by its
+representation alone.
 
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.
