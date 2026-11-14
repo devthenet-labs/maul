@@ -167,6 +167,9 @@ fix it and try again. List in the verdict's `contrary` the ledger seqs where you
 whatever you believe caused it: maul passes no outcome whose verdict lists any.
 
 {{template "evaluate-rule" .}}
+Where an outcome's rule is that something is unchanged by the change (the same output, the same value), the base gives
+what it must be for any input the rule covers: make the same call with `--base` and compare, leaving aside what
+differs between any two runs of the same build (a scratch path, a time).
 
 **The head and the base.** maul runs every check you propose, and every saved check, at the head and at the base,
 each alone with a fresh token, and counts a check for its outcome only where the two sides agree with the outcome's

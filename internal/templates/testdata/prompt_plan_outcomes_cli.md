@@ -154,7 +154,20 @@ How to word an outcome so the evaluator can show it:
   it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
   rule as the request does and no wider: where the request gives only an example, state the example, and add no
   input, bound or behaviour the request does not promise.
-- A `keep` outcome names one command and what it then prints or writes, never "X still works".
+- An outcome whose `from` line states a rule states that rule, whatever else it names (a README's example, a
+  documented value): where a line states a rule and an example of it, fold the example in as "for example ...", and
+  never write an outcome of only the example with that line as its `from`.
+- Where the request promises that something is carried over (a copy, fields kept, the rest unchanged, the same as
+  before, a value that round-trips through save and load), that promise is a rule too: state it as an outcome of its
+  own, over all of what the request promises: for "a copy of p", every field of p other than those the request says
+  change, the ones it does not name included (a list of some fields beside "a copy" does not narrow the copy), and
+  where the request promises no copy and names the fields kept, only those. Where the copy is a new item beside the
+  original (saved or listed alongside it), what makes it a new one (its id, when it was made) is not carried over
+  unless the request says so. Name them as the code or the application does, and say that
+  they come through as they were, whether each is set, zero, empty or left absent, as using the result shows (what
+  it gives, how it is encoded, saved or printed).
+- A `keep` outcome names one command and what it then prints or writes, never "X still works"; where its line states
+  a rule (unchanged for any input), it states that rule with the command as one instance of it.
 - An outcome only a person can judge (how a sound sounds, how output reads) is `manual: true`.
 
 After the frontmatter, write the plan in markdown under the headings Approach, Steps, Test plan and Risks, in at most

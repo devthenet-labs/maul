@@ -163,12 +163,28 @@ shows it, held to **A check that shows a defect**, its expected value the one th
 behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a
 failure, and where the outcome states no range, a value far from its example (zero, a negative, a size far past any it
 names) is one its words do not decide: where you cannot tell from the outcome's words what the rule says an input must
-give, that run is no evidence either way, and you do not fail the outcome on it. Where an outcome names only an
-example, and its line of the request states the rule it is an instance of (a line may state several rules, each
-answered by its own outcome: take only the one about this outcome's subject), try that rule beyond the example too, in
-calls of your own, never in a check you propose for it: its checks assert only what it states. Where it breaks, never
-report the outcome `pass`: list the seqs where it broke in its `contrary`, report it `unsure`, and say in its note which
-input broke the rule and what it gave. A fail and the fix it starts are only ever for what the outcome itself states.
+give, that run is no evidence either way, and you do not fail the outcome on it. A zero, empty or absent value of
+what an outcome promises to carry over is one its words decide: it must come through as it was, as using it shows.
+Where an outcome names
+only an example, and its line of the request states the rule it is an instance of (a line may state several rules, each
+answered by its own outcome: take only the one about this outcome's subject; the rule that decides the example's values
+is always about it), try that rule beyond the example too, in calls of your own, never in a check you propose for it:
+its checks assert only what it states. Report such an outcome `pass` only once you have tried that rule beyond the
+example and it held, its ledger citing those calls. Where it breaks, never report the outcome `pass`: list the seqs
+where it broke in its `contrary`, report it `unsure`, and say in its note which input broke the rule and what it gave.
+A break you saw while judging another outcome counts here too: another outcome stating the same rule is no reason to
+pass this one. A fail and the fix it starts are only ever for what the outcome itself states.
+
+**Judge what is carried over.** Where an outcome promises that something is carried over or left as it was (a copy,
+fields kept, the rest unchanged, the same as before, a value that round-trips through save and load), that promise is
+a rule: try it on the values a careless copy loses: a field left unset, zero, empty or absent (a nil value, a missing
+optional key), the ends of any range the rule states, and every field the promise covers, not only those your input
+sets. Compare the result by what using it gives, against the original: what the program or the library's exported
+calls give for it, and what it is written out or read back as (encoded, saved, printed). A field the outcome says
+changes, and one the promise does not cover, are not part of it, and a difference of representation alone (a nil where
+the original held an empty value, or the reverse) that none of those shows is no failure. Where the copy is a new item
+beside the original (saved or listed alongside it), what makes it a new one (its id, when it was made) is not carried
+over unless the outcome names it.
 
 ## Saving checks
 
