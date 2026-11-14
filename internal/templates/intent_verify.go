@@ -28,7 +28,9 @@ import (
 // observed values and body prefix, and a component's log tail; the last
 // three sit in code spans or fences no line of them can close, cut to fixed
 // sizes, with every character that renders as nothing shown by its code
-// point.
+// point. Outcome rounds add the evaluator's marked words: a look-around
+// anomaly's summary and an unconfirmed claim's note and cited calls
+// (intent_verify_outcomes.go, intent_verify_claim.go).
 
 // VerifyKeyPrefix heads the notice key of a round's verification comment.
 const VerifyKeyPrefix = "verify-r"
@@ -460,8 +462,10 @@ type verifyView struct {
 	Logs  []verifyLogView
 	// Cut is the note on what fitVerify left out; "" for nothing.
 	Cut string
-	// Outcomes are the outcomes' details, Anomalies the look-around's.
+	// Outcomes are the outcomes' details, Claims the evaluator's
+	// unconfirmed claims, Anomalies the look-around's.
 	Outcomes  []outcomeDetail
+	Claims    []claimDetail
 	Anomalies []string
 	// reproduction is the suspected defect's reproduction, which ends the
 	// note at Notes[reproNote] when it is shown (withEvidence).
@@ -552,6 +556,7 @@ const verifyStatementShortBytes = 160
 const (
 	pieceReproduction = iota
 	pieceAppOutput
+	pieceClaim
 	pieceAnomaly
 	pieceLog
 )
@@ -562,8 +567,8 @@ type evidencePiece struct{ kind, index, cost int }
 
 // pieces are v's evidence, most important first: the suspected defect's
 // reproduction, then each failing outcome's app output in plan order, then
-// the look-around's anomalies, then the component log tails, each in
-// order.
+// the evaluator's unconfirmed claims, then the look-around's anomalies,
+// then the component log tails, each in order.
 func (v verifyView) pieces() []evidencePiece {
 	const overhead = 32 // the blank lines and words around a piece
 	var ps []evidencePiece
@@ -572,6 +577,9 @@ func (v verifyView) pieces() []evidencePiece {
 	}
 	for i, o := range v.Outcomes {
 		ps = append(ps, evidencePiece{pieceAppOutput, i, len(o.Lead) + len(o.AppOutput) + overhead})
+	}
+	for i, c := range v.Claims {
+		ps = append(ps, evidencePiece{pieceClaim, i, len(c.Lead) + len(c.Calls) + overhead})
 	}
 	for i, a := range v.Anomalies {
 		ps = append(ps, evidencePiece{pieceAnomaly, i, len(a) + overhead})
@@ -587,7 +595,7 @@ func (v verifyView) pieces() []evidencePiece {
 func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 	w := v
 	w.Notes = slices.Clone(v.Notes)
-	w.Outcomes, w.Anomalies, w.Logs = nil, nil, nil
+	w.Outcomes, w.Claims, w.Anomalies, w.Logs = nil, nil, nil, nil
 	var left [pieceLog + 1]int
 	for i, p := range ps {
 		if !keep[i] {
@@ -597,6 +605,8 @@ func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 		switch p.kind {
 		case pieceAppOutput:
 			w.Outcomes = append(w.Outcomes, v.Outcomes[p.index])
+		case pieceClaim:
+			w.Claims = append(w.Claims, v.Claims[p.index])
 		case pieceAnomaly:
 			w.Anomalies = append(w.Anomalies, v.Anomalies[p.index])
 		case pieceLog:
@@ -618,6 +628,7 @@ func cutNote(left [pieceLog + 1]int, shortened bool) string {
 		one, many string
 	}{
 		{pieceAppOutput, "app output", "app outputs"},
+		{pieceClaim, "evaluator's claim maul could not confirm", "evaluator's claims maul could not confirm"},
 		{pieceAnomaly, "look-around note", "look-around notes"},
 		{pieceLog, "component log tail", "component log tails"},
 	} {

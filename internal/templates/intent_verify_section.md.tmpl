@@ -1,7 +1,8 @@
 {{- /* The verification section of a previewed pull request's preview
 comment: the progress sentence, one line per outcome with its approved
 statement, then the shared detail. Built in Go from plain values; the only
-agent or application text is a statement (sanitised) and the evidence in
+agent or application text is a statement and the evaluator's note on an
+outcome maul could not confirm (both sanitised) and the evidence in
 code spans and fences no line of it can close. One line per paragraph: GitHub
 renders a line break inside a comment as a hard break. */ -}}
 {{- define "verify_detail" }}
@@ -10,6 +11,14 @@ renders a line break inside a comment as a hard break. */ -}}
 {{ .Lead }}
 
 {{ .AppOutput | chomp }}
+{{- end }}
+{{- range .Claims }}
+
+{{ .Lead }}
+{{- with .Calls }}
+
+{{ . | chomp }}
+{{- end }}
 {{- end }}
 {{- range .Anomalies }}
 

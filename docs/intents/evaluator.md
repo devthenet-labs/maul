@@ -610,17 +610,24 @@ before the turns, and lower the turns with a smaller `limits.evaluate.maxCostMic
   `accepted by a human`), why maul could not confirm it and, for a decided one, **maul's check** in one line it renders
   itself, such as `http to api: POST /api/players, POST /api/battles, GET /api/leaderboard; 3 expectations`. Application
   output appears only in fenced blocks labelled as the application's output of the outcome they name, and the
-  evaluator's own words (an anomaly, a note) are marked as its words, not checked by maul. A comment always fits
-  GitHub's size limit: when the evidence would not, maul keeps it most important first (its reproduction of a suspected
-  defect, then each failing outcome's application output in plan order, then the anomalies, then the component log
-  tails), each piece whole while it still fits (a large one left out does not stop a smaller one after it), and the
-  comment names what it left out. Every outcome's line and maul's own notes are always shown whole; only a plan whose
-  statements alone leave no room has them shortened, and the comment says so. Results are shown only for the round that
-  decided them, at the heads it checked: a round that settles without a judgement (its attempts all failed, or maul's
-  own build of the head did not finish) lists every outcome as `unsure`, with no earlier round's results, and a push
-  clears them until the new heads are judged: from the pass that sees the push, the status comment and the sticky
-  comments read "maul is checking the new commits" with no result, and the last round's verification comment is left as
-  it stood, about the heads it checked.
+  evaluator's own words (an anomaly, a note) are marked as its words, not checked by maul. For an outcome the evaluator
+  judged not to hold but no check maul re-ran shows failing (`model-only-fail`, including a red check the reviewer
+  refused), the comments also show **the evaluator's claim**: its note, marked as its words and not confirmed by maul,
+  and up to 3 of the calls it cites (where it saw the outcome fail first), in one fenced, defanged block as maul's tools
+  recorded them: a check run's steps and what maul's own failing run of that check observed (else its dry run's), or an
+  exploratory `exec`, `run`, `http` or `browser` call's request, exit status and output, so a person can try it
+  themselves. A source read, a log read or a refused call is never shown. The claim is display only: it changes no
+  result, and no agent is handed it. A comment always fits GitHub's size limit: when the evidence would not, maul keeps
+  it most important first (its reproduction of a suspected defect, then each failing outcome's application output in
+  plan order, then the evaluator's unconfirmed claims, then the anomalies, then the component log tails), each piece
+  whole while it still fits (a large one left out does not stop a smaller one after it), and the comment names what it
+  left out. Every outcome's line and maul's own notes are always shown whole; only a plan whose statements alone leave
+  no room has them shortened, and the comment says so. Results are shown only for the round that decided them, at the
+  heads it checked: a round that settles without a judgement (its attempts all failed, or maul's own build of the head
+  did not finish) lists every outcome as `unsure`, with no earlier round's results, and a push clears them until the new
+  heads are judged: from the pass that sees the push, the status comment and the sticky comments read "maul is checking
+  the new commits" with no result, and the last round's verification comment is left as it stood, about the heads it
+  checked.
 - **In the cluster.** Each round is a `PreviewVerification` in the release namespace
   (`kubectl get previewverifications -l maul.run/intent=<intent>`; maul keeps the newest three per intent). Its
   `status.ledger` indexes every tool call; its `status.tools` names the round's tool pod. The full ledger is in the
