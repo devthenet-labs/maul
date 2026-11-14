@@ -544,11 +544,11 @@ func TestUnkeptRedCheckNamedOnTheIssue(t *testing.T) {
 		t.Fatalf("verification comments = %d, want one", len(cs))
 	}
 	if want := "| `version-shown` | `change` | unsure: maul couldn't confirm it; the evaluator says it does not " +
-		"hold, but no check maul re-ran shows it; maul re-ran a check of it red but did not keep it: in a " +
+		"hold, but no check maul re-ran shows it; a check proposed to show it failing was not kept: in a " +
 		"preview, a check that shows a defect must write data of its own run"; !strings.Contains(cs[0].Body, want) {
 		t.Errorf("comment lacks %q:\n%s", want, cs[0].Body)
 	}
-	if strings.Count(cs[0].Body, "did not keep it") != 1 {
+	if strings.Count(cs[0].Body, "was not kept") != 1 {
 		t.Errorf("the unkept note is not on the one outcome's row alone:\n%s", cs[0].Body)
 	}
 }
@@ -584,6 +584,9 @@ func TestUnkeptRed(t *testing.T) {
 			map[string]string{"version-shown": templates.UnkeptRunData}},
 		{"red by another assertion", []v1alpha1.SavedCheck{version}, []v1alpha1.CheckRun{runOf(version, "status")},
 			slot, map[string]string{"version-shown": templates.UnkeptConfirmation}},
+		{"confirmed green", []v1alpha1.SavedCheck{version}, []v1alpha1.CheckRun{{CheckDigest: version.Digest,
+			Result: v1alpha1.CheckRunPass, Token: "t", Seq: 10, Expect: v1alpha1.CheckExpectFail}}, slot,
+			map[string]string{"version-shown": templates.UnkeptConfirmation}},
 		{"the saved-check rules", []v1alpha1.SavedCheck{exec}, []v1alpha1.CheckRun{runOf(exec, "stdout")}, slot,
 			map[string]string{"offbeat-rule": templates.UnkeptRules}},
 		{"a workspace check", []v1alpha1.SavedCheck{exec}, []v1alpha1.CheckRun{runOf(exec, "stdout")}, cli,
