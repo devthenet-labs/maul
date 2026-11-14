@@ -283,26 +283,26 @@ What may be saved green is unchanged. Every one of these must hold before a defe
 3. **The red question.** The reviewer is told the check failed, at which step and by which assertion, and that the
    application's state was not fresh. It is also handed what maul recorded of that assertion's failure in each of its
    runs, the run's token written as `{{run}}` and quoted as untrusted data: a browser assertion's measurement ("visible
-   failed: contrast 1.27 < 1.5"), with maul's fact that the locator found the one element it asserts on, or the line a
-   program printed after its marker ("got [45 150] err <nil>"), the other agent's words, of which only a value the
-   program's source shows it observed counts. It answers `proves` only if that assertion checks something the outcome as
-   approved promises, on a setup that does what the outcome describes, fails only where the outcome does not hold, and
-   is the outcome itself and about data the check created, not setup or something incidental. Where the assertion
-   compares more than the outcome fixes (a whole output, a whole text), it proves the outcome broken only if what maul
-   recorded shows a value the outcome fixes, and shows it wrong; a failure that differs only where the outcome fixes
-   nothing, or one maul recorded nothing of, is `does_not_prove` or `unclear`. It judges the check by that failure
-   alone, never by what its other steps or expectations ask (an earlier step that passed, a locator that found its
-   element, what a passing run must print, a step after the failure that never ran) or by whether a pass would prove the
-   whole outcome: a check that shows one promise broken is enough, even where the outcome has a clause no step asserts
-   or no assertion can express (a button wholly inside the viewport), though never one that skips or changes a condition
-   the outcome is stated under. That is safe because, until the check has passed once, maul counts a later run of it
-   only when it fails at the same step by the same assertion, and until the green question has answered `proves` every
-   failure of it waits for a person (below). For an `exec` or `run` check it is shown the marker its program printed and
-   answers whether the program prints it only when the approved outcome is violated, never inside a retry or poll before
-   its final judgement, on a connection error, a status code, a timeout or an exception; where it prints it on more than
-   one condition, what maul recorded shows which held. The answer counts only for that assertion: another failing
-   assertion of the check needs a review of its own. Anything else and the check is not stored; the outcome stays
-   unsure.
+   failed: contrast 1.27 < 1.5"), with maul's fact that the locator found the one element it asserts on (on any
+   assertion but `count`), or the line a program printed after its marker ("got [45 150] err <nil>"), the other agent's
+   words, of which only a value the program's source shows it observed counts. It answers `proves` only if that
+   assertion checks something the outcome as approved promises, on a setup that does what the outcome describes, fails
+   only where the outcome does not hold, and is the outcome itself and about data the check created, not setup or
+   something incidental. Where the assertion compares more than the outcome fixes (a whole output, a whole text), it
+   proves the outcome broken only if what maul recorded shows a value the outcome fixes, and shows it wrong; a failure
+   that differs only where the outcome fixes nothing, or one maul recorded nothing of, is `does_not_prove` or `unclear`.
+   It judges the check by that failure alone, never by what its other steps or expectations ask (an earlier step that
+   passed, a locator that found its element, what a passing run must print where the program printed its marker, a step
+   after the failure that never ran) or by whether a pass would prove the whole outcome: a check that shows one promise
+   broken is enough, even where the outcome has a clause no step asserts or no assertion can express (a button wholly
+   inside the viewport), though never one that skips or changes a condition the outcome is stated under. That is safe
+   because, until the check has passed once, maul counts a later run of it only when it fails at the same step by the
+   same assertion, and until the green question has answered `proves` every failure of it waits for a person (below).
+   For an `exec` or `run` check it is shown the marker its program printed and answers whether the program prints it
+   only when the approved outcome is violated, never inside a retry or poll before its final judgement, on a connection
+   error, a status code, a timeout or an exception; where it prints it on more than one condition, what maul recorded
+   shows which held. The answer counts only for that assertion: another failing assertion of the check needs a review of
+   its own. Anything else and the check is not stored; the outcome stays unsure.
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.

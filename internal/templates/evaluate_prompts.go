@@ -786,6 +786,10 @@ type checkReviewView struct {
 	// FailureBlock is Failure as the reviewer reads it, one line per run,
 	// on the red question only.
 	FailureBlock string
+	// FoundOne marks a red browser check whose failed step asserts on
+	// elements its locators each found exactly once (every assertion but
+	// count, whose failure is the number found, and url, which has none).
+	FoundOne bool
 	// Viewport is the fixed window a browser check runs in.
 	Viewport playwright.Viewport
 	// WS is the workspace, for a check of a Project with no preview.
@@ -845,6 +849,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
 	if p.ExpectFail {
 		v.FailureBlock = observedBlock(p.Failure)
+		v.FoundOne = shown.Form == checks.FormBrowser && failsOnFoundElements(p.Check, p.FailedStep-1)
 	}
 	if p.ExpectFail && ws == nil && !v.Layout && shown.Form == checks.FormBrowser {
 		v.ObservedBlock = observedBlock(p.Observed)
@@ -852,6 +857,17 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 			!slices.ContainsFunc(p.Observed, func(o string) bool { return !strings.Contains(o, checks.RunPlaceholder) })
 	}
 	return render("prompt_checkreview.md.tmpl", v)
+}
+
+// failsOnFoundElements reports a browser check whose step failing
+// (0-based) asserts on elements located one each: every assertion with a
+// locator but count, which fails on how many it found.
+func failsOnFoundElements(c checks.Check, failing int) bool {
+	if c.Browser == nil || failing < 0 || failing >= len(c.Browser.Steps) {
+		return false
+	}
+	a := c.Browser.Steps[failing].Expect
+	return a != nil && a.Locator != nil && a.Assert != checks.AssertCount
 }
 
 // observedMax bounds the runs and the bytes of each run's text a reviewer

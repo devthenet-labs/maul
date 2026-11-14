@@ -103,12 +103,12 @@ Answer `proves` only if all of these hold:
 Answer `does_not_prove` if any of them does not hold, and `unclear` if you cannot tell from what is shown.
 
 Judge only that failure and the setup before it. Do not refuse a red check for what its other steps or expectations
-ask: an expectation of a step before it that passed, a locator that found its element, what the check expects of a run
-that passes (a program check's `expect`, or a step after the one that failed, which never ran), or a part of the
-outcome it does not test. Until the check has passed once, maul counts a later run of it only when it fails at this
-same step by this same assertion; and until a review asking whether a pass of it shows the outcome holds has answered
-`proves`, every failure of it waits for a person before anything is fixed: none of those can fail a build where the
-outcome holds.
+ask: an expectation of a step before it that passed, a locator that found its element, a step after the one that
+failed, which never ran, or a part of the outcome it does not test.
+Nor refuse it for what its `expect` asks of a run that passes: a run that printed its marker never reaches it.
+Until the check has passed once, maul counts a later run of it only when it fails at this same step by this same
+assertion; and until a review asking whether a pass of it shows the outcome holds has answered `proves`, every failure
+of it waits for a person before anything is fixed: none of those can fail a build where the outcome holds.
 
 Where the outcome states a rule and names an example of it, an input beyond that example is still within the outcome
 when the rule, as the outcome words it, covers that input: judge the value the check expects by the rule's words.
