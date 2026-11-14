@@ -84,7 +84,7 @@ running application. It writes no steps, requests or checks; the evaluator decid
 
 ```yaml
 acceptance:
-  - id: rating-moves # ^[a-z][a-z0-9-]{0,31}$, unique
+  - id: rating-moves # ^[a-z][a-z0-9-]{0,31}$, unique, never all or anomalies (/maul accept reserves both)
     # one line, at most 500 characters; about 200 is the aim
     outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
     from: "ratings should update after every battle" # the issue line it answers, copied exactly, at most 300

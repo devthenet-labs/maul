@@ -36,6 +36,11 @@ func TestValidateOutcomes(t *testing.T) {
 		{"bad id", with(func(o *PlanOutcome) { o.ID = "Bad_ID" }), "id must match"},
 		{"empty id", with(func(o *PlanOutcome) { o.ID = "" }), "id must match"},
 		{"duplicate id", []PlanOutcome{ok, ok}, "id is used twice"},
+		// /maul accept all and /maul accept anomalies name these: an outcome
+		// of either id could not be accepted by its own name.
+		{"reserved all", with(func(o *PlanOutcome) { o.ID = "all" }), "id all is reserved"},
+		{"reserved anomalies", with(func(o *PlanOutcome) { o.ID = "anomalies" }), "id anomalies is reserved"},
+		{"reserved word in a longer id", with(func(o *PlanOutcome) { o.ID = "all-anomalies" }), ""},
 		{"no outcome", with(func(o *PlanOutcome) { o.Outcome = "  " }), "outcome is required"},
 		{"long outcome", with(func(o *PlanOutcome) { o.Outcome = strings.Repeat("é", MaxOutcomeChars+1) }), "over 500"},
 		{"outcome at bound", with(func(o *PlanOutcome) { o.Outcome = strings.Repeat("é", MaxOutcomeChars) }), ""},

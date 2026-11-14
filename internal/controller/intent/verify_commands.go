@@ -502,13 +502,15 @@ func (p *pass) inFlightVerifyFix() (pending string, running bool) {
 // acceptAll is the id /maul accept all records for a plan that declares no
 // acceptance criteria: the approver's word that the change needs none. For a
 // plan that declares outcomes it closes every outcome an approver could
-// close one by one, each recorded as itself. A criterion or outcome of that
-// id is accepted as itself.
+// close one by one, each recorded as itself. A criterion of that id, or an
+// outcome of a plan approved before acceptance.ReservedOutcomeIDs refused
+// one, is accepted as itself.
 const acceptAll = command.AcceptAll
 
 // acceptAnomaliesID is the id of /maul accept anomalies, which accepts the
 // look-around anomalies held at the commits under verification and nothing
-// else (acceptOutcome). An outcome of that id is accepted as itself.
+// else (acceptOutcome). An outcome of that id, from a plan approved before
+// acceptance.ReservedOutcomeIDs refused one, is accepted as itself.
 const acceptAnomaliesID = command.AcceptAnomalies
 
 // acceptCriterion records /maul accept <id> in status.acceptance.accepted,
