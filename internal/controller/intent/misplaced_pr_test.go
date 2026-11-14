@@ -54,6 +54,34 @@ func TestMisplacedCommandOnThePullRequest(t *testing.T) {
 	}
 }
 
+// TestAcceptanceCommandUnverifiedPullRequest: answering misplaced commands
+// on every reviewing intent's pull requests leaves the acceptance commands
+// to verified intents: on an unverified one a /maul accept or /maul verify
+// on its first line is neither acted on nor answered, not even reacted to,
+// as before misplaced commands were answered there.
+func TestAcceptanceCommandUnverifiedPullRequest(t *testing.T) {
+	e := newEnv(t, testProject())
+	name := e.reviewing()
+	before := e.get(name).Status
+	n := before.PullRequests[0].Number
+	accept := e.prCommand(n, approver, "/maul accept all")
+	verify := e.prCommand(n, approver, "/maul verify fix")
+	e.review(name, 2)
+
+	after := e.get(name).Status
+	if !reflect.DeepEqual(after.Acceptance, before.Acceptance) ||
+		!reflect.DeepEqual(after.Verification, before.Verification) ||
+		!reflect.DeepEqual(after.Commands, before.Commands) {
+		t.Fatalf("an acceptance command on an unverified intent changed the status:\nacceptance %+v\n"+
+			"verification %+v\ncommands %+v", after.Acceptance, after.Verification, after.Commands)
+	}
+	for _, id := range []int64{accept, verify} {
+		if r := e.prReplies(n, id); len(r) != 0 || e.gh.reactions[id] != 0 {
+			t.Errorf("comment %d: replies %q, reactions %d; want nothing", id, r, e.gh.reactions[id])
+		}
+	}
+}
+
 // TestMisplacedAcceptOnThePullRequest: a misplaced /maul accept all or
 // /maul verify fix on a verified intent's pull request records nothing (no
 // acceptance, no applied command, no verification change) and is answered
