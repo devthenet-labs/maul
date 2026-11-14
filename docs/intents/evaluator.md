@@ -112,7 +112,9 @@ the evaluator's run (`[maul-tool time left]`).
    how it is written out or read back (defect gate 3, G6: a copy that turned absent fields into empty ones could no
    longer be encoded). A zero or absent value of what is carried over is one the outcome decides; a field it says
    changes or does not cover, and a difference of representation alone (nil against empty) that nothing using it shows,
-   are never a failure. On a workspace an "unchanged" rule's expected value is the same call at the base.
+   are never a failure, nor is a new item's own identity (its id, when it was made) where the copy is saved beside the
+   original. On a workspace an "unchanged" rule's expected value is the same call at the base, leaving aside what
+   differs between any two runs (a scratch path, a time).
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.

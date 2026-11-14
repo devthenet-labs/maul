@@ -121,7 +121,9 @@ it:
   own example (a README's, a documented value) folded in as "for example", never an outcome of the example alone;
 - where the issue promises that something is carried over (a copy, fields kept, the rest unchanged, a round-trip through
   save and load), that promise as an outcome of its own over all of what is promised, set, zero, empty or left absent:
-  for "a copy", every field but those the issue says change; where the issue names the fields kept, only those;
+  for "a copy", every field but those the issue says change; where the issue promises no copy and names the fields kept,
+  only those; a copy that is a new item beside the original keeps its own id and creation time unless the issue says
+  otherwise;
 - a `keep` outcome names one action and what a person then sees, never "X still works"; where its line states a rule
   (unchanged for any input), it states that rule with the action as one instance;
 - a layout outcome (a size, an alignment, no sideways scroll) needs no data: it names one element of the fixed page and

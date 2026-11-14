@@ -57,7 +57,7 @@ func TestPlanPromptAsksForCarriedOverOutcomes(t *testing.T) {
 					"the request says change, the ones it does not name included",
 				"whether each is set, zero, empty or left absent, as using the result shows",
 				// Against a false fail: no wider than the promise.
-				"where the request names the fields kept, only those",
+				"where the request promises no copy and names the fields kept, only those",
 				// G1: a line that states a rule gets no example-only outcome.
 				"An outcome whose `from` line states a rule states that rule, whatever else it names",
 				"never write an outcome of only the example with that line as its `from`",
@@ -147,7 +147,7 @@ func TestEvaluatePromptProbesCarriedOverValues(t *testing.T) {
 func TestWorkspaceEvaluateComparesUnchangedAtTheBase(t *testing.T) {
 	want := "Where an outcome's rule is that something is unchanged by the change (the same output, the same " +
 		"value), the base gives what it must be for any input the rule covers: make the same call with " +
-		"`--base` and compare."
+		"`--base` and compare,"
 	for name, p := range map[string]EvaluatePrompt{
 		"cli":     testWorkspacePrompt(testCLIWorkspace),
 		"library": testWorkspacePrompt(testLibraryWorkspace),
@@ -192,6 +192,70 @@ func TestCheckReviewRedQuestionDecidesAKeptZero(t *testing.T) {
 		}
 		if strings.Contains(flat(got), want) != tt.want {
 			t.Errorf("%s: has %q = %v, want %v", name, want, !tt.want, tt.want)
+		}
+	}
+}
+
+// TestCarriedOverLeavesANewItemItsOwnIdentity: against a false fail, a copy
+// that is a new item beside the original (a duplicated beat saved alongside
+// it) rightly gets an id and a creation time of its own; neither the plan
+// nor the evaluator holds it to the original's unless the request says so.
+// A returned value copy (G6's Fill) is no new item, so its ID stays covered.
+func TestCarriedOverLeavesANewItemItsOwnIdentity(t *testing.T) {
+	plan := "Where the copy is a new item beside the original (saved or listed alongside it), what makes it a new " +
+		"one (its id, when it was made) is not carried over unless the request says so"
+	for name, p := range map[string]PlanPrompt{
+		"preview": {IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
+			Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
+			Verification: &PlanVerification{Components: []PlanVerifyComponent{{Key: "api", Path: "/api"}}}},
+		"cli":     testWorkspacePlanPrompt(testPlanCLI),
+		"library": testWorkspacePlanPrompt(testPlanLibrary),
+	} {
+		got, err := RenderPlanPrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(flat(got), plan) {
+			t.Errorf("%s plan: lacks %q", name, plan)
+		}
+		// "a copy" beside a list of fields is the whole copy; only a
+		// request that promises no copy is narrowed to the fields it names.
+		if want := "where the request promises no copy and names the fields kept, only those"; !strings.Contains(flat(got), want) {
+			t.Errorf("%s plan: lacks %q", name, want)
+		}
+	}
+	eval := "Where the copy is a new item beside the original (saved or listed alongside it), what makes it a new one " +
+		"(its id, when it was made) is not carried over unless the outcome names it."
+	for name, p := range map[string]EvaluatePrompt{
+		"preview": testEvaluatePrompt(),
+		"cli":     testWorkspacePrompt(testCLIWorkspace),
+		"library": testWorkspacePrompt(testLibraryWorkspace),
+	} {
+		got, err := RenderEvaluatePrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(flat(got), eval) {
+			t.Errorf("%s evaluate: lacks %q", name, eval)
+		}
+	}
+}
+
+// TestWorkspaceBaseComparisonIgnoresRunNoise: against a false fail, what
+// differs between any two runs (a scratch path, a time) is not a change the
+// "unchanged" rule is about.
+func TestWorkspaceBaseComparisonIgnoresRunNoise(t *testing.T) {
+	want := "leaving aside what differs between any two runs of the same build (a scratch path, a time)"
+	for name, p := range map[string]EvaluatePrompt{
+		"cli":     testWorkspacePrompt(testCLIWorkspace),
+		"library": testWorkspacePrompt(testLibraryWorkspace),
+	} {
+		got, err := RenderEvaluatePrompt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(flat(got), want) {
+			t.Errorf("%s: lacks %q", name, want)
 		}
 	}
 }

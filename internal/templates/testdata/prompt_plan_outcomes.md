@@ -172,7 +172,9 @@ How to word an outcome so the evaluator can show it:
   before, a value that round-trips through save and load), that promise is a rule too: state it as an outcome of its
   own, over all of what the request promises: for "a copy of p", every field of p other than those the request says
   change, the ones it does not name included (a list of some fields beside "a copy" does not narrow the copy), and
-  where the request names the fields kept, only those. Name them as the code or the application does, and say that
+  where the request promises no copy and names the fields kept, only those. Where the copy is a new item beside the
+  original (saved or listed alongside it), what makes it a new one (its id, when it was made) is not carried over
+  unless the request says so. Name them as the code or the application does, and say that
   they come through as they were, whether each is set, zero, empty or left absent, as using the result shows (what
   it gives, how it is encoded, saved or printed).
 - State such a rule over items the person checking creates, as above ("a beat you save at any tempo from 60 to 200
