@@ -139,13 +139,13 @@ the evaluator's run (`[maul-tool time left]`).
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
-10. **Judge.** maul decides each outcome by the rules below, then routes the round: all confirmed, no anomaly, a clean
-    preview: **ready**. A failure the evaluator agrees with: a verify-fix round. A dispute: one more round at the same
-    heads, a replay when it can pass every outcome. An unsure replay round: one full round at the same heads. Anything
-    else: **maul couldn't confirm this**. A failing environment keeps the round from ready even when every outcome
-    passed, and no later acceptance by an approver changes that at the same heads. A replay round whose `tools` finished
-    before its replay's end (its wall clock, or its container told to stop) is maul's trouble (`Infra`,
-    `replay-incomplete`), never judged.
+10. **Judge.** maul decides each outcome by the rules below, then routes the round: all confirmed and a clean preview:
+    **ready**, whatever look-around anomalies the evaluator noted. A failure the evaluator agrees with: a verify-fix
+    round. A dispute: one more round at the same heads, a replay when it can pass every outcome. An unsure replay round:
+    one full round at the same heads. Anything else: **maul couldn't confirm this**. A failing environment keeps the
+    round from ready even when every outcome passed, and no later acceptance by an approver changes that at the same
+    heads. A replay round whose `tools` finished before its replay's end (its wall clock, or its container told to stop)
+    is maul's trouble (`Infra`, `replay-incomplete`), never judged.
 11. **Tear down.** The tool pod, its key, its ConfigMap and its ingress policy go when the request settles.
 
 ## What makes a pass
@@ -375,11 +375,12 @@ A new round replays only when all of these hold; otherwise it is **full** (repla
 - the heads and the approved outcomes are those of the latest **model round** (`status.verification.modelRound`): the
   latest full round judged on its evaluator's report. Round 1, the first round of a new plan revision and the first
   round after the heads move (a fix or a person's push) are full;
-- that round's evaluator raised nothing: no outcome it judged `fail`, none with contrary entries, and no look-around
-  anomaly (`modelRound.clear`). Only a model can look again at what a model raised;
-- no anomaly or failing outcome an earlier round found at these heads still holds them (see
+- that round's evaluator raised nothing against an outcome: none it judged `fail` and none with contrary entries
+  (`modelRound.clear`). Only a model can look again at what a model raised. A look-around anomaly is a note, not an
+  objection: a replay round carries the notes earlier rounds made at those heads;
+- no failing outcome an earlier round found at these heads still holds them (see
   [A finding holds its commits](#a-finding-holds-its-commits)): a replay could never pass over it, and a round at heads
-  a finding holds is full, its evaluator told of any anomaly;
+  a finding holds is full;
 - every outcome but the manual ones is bound to a saved check that could pass it: stored (so confirmed), valid, in one
   of maul's forms, reviewed `proves` for the outcome's exact text, not narrowed, and, for a check saved to show a
   defect, cleared and reviewed with the green question too;
@@ -427,50 +428,38 @@ routes the change touches and checks each against a short list: text and links r
 nothing overlapping or clipped or blank, new controls clickable and doing something, new links loading, no console
 errors or failed requests, and nothing in the logs or events (errors, panics, restarts, OOMs).
 
-An **anomaly** must cite ledger entries. It downgrades the hand-off to "maul couldn't confirm this: it noticed something
-odd while it looked around", and the comment shows the evaluator's description, marked as its words. It never fails an
-outcome and never starts a fix: no approved outcome stands behind it, and maul has no reproduction to hand a fix agent.
+An **anomaly** must cite ledger entries. It is a **note for the reviewers**: the verification comment, the pull
+requests' sticky comments and the run panel show the evaluator's description, marked as its words, beside the outcomes.
+It never holds a round, never downgrades the hand-off, never keeps `maul/acceptance` from success and never starts a
+fix. The evaluator answers one question, whether the work is correct, and the approved outcomes alone answer it: a round
+whose outcomes are all confirmed is Passed with its notes shown.
+
+A defect in what an outcome promises is not an anomaly. The plan's outcomes state the issue's rules, beyond its
+examples, and the evaluator is told to report a defect in what an outcome states, on any input, as that outcome's
+`fail`, and a break of the rule an outcome's line of the request states beyond its example as that outcome's `contrary`.
+Either keeps the outcome from passing and holds the commits (see
+[A finding holds its commits](#a-finding-holds-its-commits)), so nothing an approved outcome promises can pass on a
+note. What no outcome promises (a regression elsewhere, an odd log line, a layout blemish on a page the change only
+touched, a line of the issue the plan left uncovered, which the plan comment lists for the approver) is for the reviewer
+to weigh: maul shows it and the human decides.
 
 maul's own objects are not the application's. The slot capture that `maul-tool events` reads leaves out every event
 about the tool pod and its Job (a readiness probe blip on the tool pod's `:8090/readyz`, for example), so the evaluator
 never reads one as the application's trouble. An event about a component's Pod, or about any object maul did not render,
 is kept.
 
-### An anomaly that was there before the change
-
-An anomaly that was already there without the change is not held against it, but only where maul can check the
-evaluator's word against its own ledger. On a Project with no preview (a CLI or a library, below) the evaluator may mark
-an anomaly `pre_existing: true` and cite the `exec` or `run` calls at the head that show it, each beside the same call
-made with `--base`. maul records it as there before the change (`preExisting` on the anomaly) only when every call it
-cites at the head runs the build (a `run`, or an `exec` whose first argument is the built binary or `{{bin}}`) and has
-such a call at the base, cited too, with the same arguments, the same exit and exactly the same whole output. Such an
-anomaly is still shown: the comment adds "The evaluator says it was there before this change, and maul found every call
-it cites printing the same at the base, so it does not hold these commits", and the run panel marks it. It does not keep
-the round from Passed, does not make the model round unclear, and `/maul accept all` has nothing to accept in it. That
-the calls it cites are the anomaly's evidence stays the evaluator's word, as every anomaly's words are.
-
-Anything short of that holds as any other anomaly: a claim whose calls differ at the base in any way, a call cut short
-or dropped from the ledger, a `files` read or an `exec` of anything but the built binary (`cat`, `grep`, a shell: the
-same text at both sides does not show the same behaviour), a check run, a call with no base (a browser call, an event, a
-log), or no claim at all. A round with a preview has no base to compare (the slot serves the pull request alone), so
-there no anomaly is held to be there before the change, whatever the evaluator says: one an approver knows to be old is
-ended with `/maul accept all`, at each new set of commits. A later round never turns an earlier round's held anomaly
-into a pre-existing one, and an earlier pre-existing record never absorbs a later held one in the same words.
-
 ## A finding holds its commits
 
-What a round finds is a fact about the commits it checked. A look-around anomaly, an outcome a round found failing on a
-saved check, and a suspected defect all **hold those commits**: no later round at the same heads can pass the change
-until the heads move (a fix, or a person's push) or an approver accepts it. A later round's evaluator that raises
-nothing does not clear it: at unchanged code a model that does not reproduce what an earlier one saw (often by reading
-the source) has not shown it is gone, and running the saved checks again cannot either, since they never covered it.
+What a round finds about an outcome is a fact about the commits it checked. An outcome a round found failing on a saved
+check, a suspected defect, and an outcome the evaluator saw fail all **hold those commits**: no later round at the same
+heads can pass that outcome until the heads move (a fix, or a person's push) or an approver accepts it. A later round's
+evaluator that raises nothing does not clear it: at unchanged code a model that does not reproduce what an earlier one
+saw (often by reading the source) has not shown it is gone, and running the saved checks again cannot either, since they
+never covered it.
 
-- **An anomaly** is carried onto every later round at those heads (`status.verification.anomalies`, each with the
-  `round` that found it), and keeps each one Unconfirmed: "maul couldn't confirm this: it noticed something odd while it
-  looked around". The comment names the round that found it. Each such round is full, never a replay, and its evaluator
-  is handed the anomaly and asked to examine it again: to reproduce it with a program or check of its own, report it
-  again where it does, and judge any outcome covering it on what it ran, not on the saved checks alone. Where it cannot
-  reproduce it, its report says what it ran (the run panel shows it), for the approver to weigh before accepting.
+- **A look-around anomaly holds nothing.** It is carried onto every later round at those heads as a note
+  (`status.verification.anomalies`, each with the `round` that found it), so the reviewers still see it, and the comment
+  names the round that found it; once the heads move it is gone.
 - **An outcome found failing, or suspected defective,** on a saved check, or one the evaluator saw fail with no check
   maul could confirm (`model-only-fail`, `evaluator-saw-failure`), is unsure in every later round there that would pass
   it (`held-finding`: a check that failed and then passed at the same commits shows nothing was fixed, and a model that
@@ -481,15 +470,8 @@ the source) has not shown it is gone, and running the saved checks again cannot 
   approver confirmed), so a round after `/maul verify` can pass once what failed was the environment; it releases
   nothing it was not handed, and nothing once a later round at these commits finds the failure again.
 - **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
-  every outcome maul could not confirm and every anomaly holding the commits, `/maul accept anomalies` for the anomalies
-  alone, every outcome left as it was. The acceptance is recorded on the anomaly (`accepted`), and holds only at those
-  commits. It accepts only anomalies maul recorded before the comment was written (`recordedAt`): one a round reports
-  after it still holds the commits. `/maul verify --reset` does not end a hold: it changes the preview's data, not the
-  commits.
-
-`/maul verify fix` when no outcome fails starts the round all the same (its evaluator examines the anomaly again), and
-its reply says that there is nothing to fix yet: an anomaly is not a failing outcome, and it holds the commits until
-they change or an approver accepts it.
+  every outcome maul could not confirm. The acceptance holds only at those commits. `/maul verify --reset` does not end
+  a hold: it changes the preview's data, not the commits.
 
 ## The fix round's reproduction
 
@@ -513,10 +495,10 @@ checks:
 
 The hand-off is when people get the preview link and hear that the change is ready.
 
-| Mode              | The link                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gated` (default) | Held until the evaluation decides. The status comment says "The preview is live, and maul holds its link until it has checked the approved outcomes." It is then released as "Ready: maul checked the approved outcomes." once every outcome is confirmed (or accepted by an approver) with no anomaly, or as "maul couldn't confirm this: ..." with the reason |
-| `early`           | Posted as soon as the preview runs the heads, labelled as still being checked: slice 1's behaviour                                                                                                                                                                                                                                                              |
+| Mode              | The link                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gated` (default) | Held until the evaluation decides. The status comment says "The preview is live, and maul holds its link until it has checked the approved outcomes." It is then released as "Ready: maul checked the approved outcomes." once every outcome is confirmed (or accepted by an approver), whatever notes the evaluator made, or as "maul couldn't confirm this: ..." with the reason |
+| `early`           | Posted as soon as the preview runs the heads, labelled as still being checked: slice 1's behaviour                                                                                                                                                                                                                                                                                 |
 
 `gated` holds the link at most `handoffMax` (default 60 minutes, 10 minutes to 4 hours), counted from when CI first went
 green at the first pull request heads; past it the link is released as "maul couldn't confirm this: it ran out of time".
@@ -534,7 +516,6 @@ heads maul judged: after a push it reads as still being checked until a round is
 | some outcomes are unsure                                                       | no check proves them yet; read each outcome's line                                      |
 | the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it | maul proved no failure: the outcomes are unsure, never failed; read each outcome's line |
 | an outcome fails and maul stopped fixing it                                    | a reproduced failure, and automatic fixing halted (out of fixes, a repeat, a human)     |
-| it noticed something odd while it looked around                                | a look-around anomaly                                                                   |
 | it used every round it may run                                                 | `maxVerifications` is spent                                                             |
 | it spent its evaluation budget                                                 | the intent's evaluation ceiling is reached                                              |
 | it ran out of time                                                             | `handoffMax` passed                                                                     |
@@ -545,15 +526,13 @@ heads maul judged: after a push it reads as still being checked until a round is
 | it could not re-run every check it saved                                       | a replay round ended before every saved check ran                                       |
 | it could not run its checks                                                    | maul's own machinery failed every attempt                                               |
 
-A suspected defect leads, then the outcomes in doubt: with an outcome neither confirmed nor accepted, an anomaly is
-named after the reason ("..., and it noticed something odd while it looked around"), never in its place. When every
-outcome was confirmed or accepted and only an anomaly or a failing environment kept the round unconfirmed, the commit
-status and the progress line name that cause instead of reading as all confirmed, for example "maul couldn't confirm
-this: 3/3 outcomes confirmed, but it noticed something odd while it looked around".
+A suspected defect leads, then the outcomes in doubt. A look-around anomaly is never a reason: it is a note in the
+comment. When every outcome was confirmed or accepted and only a failing environment kept the round unconfirmed, the
+commit status and the progress line name that cause instead of reading as all confirmed, for example "maul couldn't
+confirm this: 3/3 outcomes confirmed, but the preview failed while it was checked".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
-not confirm with `/maul accept <id>` (or `/maul accept all`, which also accepts the anomalies holding the commits;
-`/maul accept anomalies` accepts those anomalies and no outcome), ask for another round with `/maul verify`, or merge.
+not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.
 Another round at the same commits does not clear what an earlier one found there (see
 [A finding holds its commits](#a-finding-holds-its-commits)).
 

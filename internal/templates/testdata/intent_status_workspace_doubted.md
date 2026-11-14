@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul couldn't confirm this: the evaluator judged 1 outcome not to hold, but no check maul re-ran shows it, and it noticed something odd while it looked around. Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes confirmed, 0 of 2 automatic fixes used.
+**Evaluation:** maul couldn't confirm this: the evaluator judged 1 outcome not to hold, but no check maul re-ran shows it. Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes confirmed, 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

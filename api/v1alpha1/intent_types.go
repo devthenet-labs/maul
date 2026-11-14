@@ -873,8 +873,8 @@ const (
 	// flight).
 	VerificationEvaluating IntentVerificationState = "Evaluating"
 	// VerificationUnconfirmed: the evaluation settled without confirming
-	// every outcome (unsure, disputed, an anomaly, or out of rounds, budget
-	// or time): the hand-off is released as "maul couldn't confirm this",
+	// every outcome (unsure, disputed, or out of rounds, budget or time):
+	// the hand-off is released as "maul couldn't confirm this",
 	// never a block.
 	VerificationUnconfirmed IntentVerificationState = "Unconfirmed"
 )
@@ -922,8 +922,10 @@ type OutcomeResult struct {
 }
 
 // AnomalyRecord is one look-around anomaly the evaluator reported, with the
-// ledger entries that show it: it downgrades the hand-off, never starts a
-// fix. Summary and route are the evaluator's, untrusted.
+// ledger entries that show it: a note for the human reviewer, shown beside
+// the outcomes. It never holds a round, downgrades the hand-off or starts a
+// fix: the outcomes alone say whether the work is correct. Summary and
+// route are the evaluator's, untrusted.
 type AnomalyRecord struct {
 	// Summary of the anomaly.
 	// +kubebuilder:validation:MinLength=1
@@ -941,52 +943,14 @@ type AnomalyRecord struct {
 	// +kubebuilder:validation:items:Maximum=512
 	Ledger []int32 `json:"ledger,omitempty"`
 	// Round is the round whose evaluator reported it, and so whose ledger
-	// Ledger cites. An anomaly is a fact about the commits it was found at
-	// (G-B-LIB-1): a later round at the same head set carries it, so it
-	// holds every round there from Passed until the heads move or an
-	// approver accepts it. Zero for one recorded before rounds were: the
-	// judgement's own (IntentVerification.OutcomesRound).
+	// Ledger cites. A later round at the same head set carries the note,
+	// so the reviewer still sees it; it is gone once the heads move. Zero
+	// for one recorded before rounds were: the judgement's own
+	// (IntentVerification.OutcomesRound).
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=999
 	Round int32 `json:"round,omitempty"`
-	// RecordedAt is when maul first recorded it: only a /maul accept all
-	// or /maul accept anomalies created after it accepts it, so no comment
-	// written before the anomaly existed counts as a person having seen it.
-	// +optional
-	RecordedAt *metav1.Time `json:"recordedAt,omitempty"`
-	// Accepted records the approver's /maul accept all or /maul accept
-	// anomalies that accepted it
-	// at its head set: it no longer holds a round from Passed.
-	// +optional
-	Accepted *AnomalyAcceptance `json:"accepted,omitempty"`
-	// PreExisting records an anomaly the evaluator said was there before
-	// the change (G-B-BR-2) whose cited evidence maul checked: every call
-	// at the head it cites (an exec or a run) has the same call at the
-	// base, cited too, that printed exactly the same (an agents round; a
-	// slot round has no base, so never). It is shown to the human but
-	// holds no round from Passed. Set only by the round that recorded it,
-	// never by a later one.
-	// +optional
-	PreExisting bool `json:"preExisting,omitempty"`
-}
-
-// AnomalyAcceptance is an approver's acceptance of a look-around anomaly at
-// the head set it was found at.
-type AnomalyAcceptance struct {
-	// By is the approver's login, for display.
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=64
-	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
-	By string `json:"by"`
-	// ByID is GitHub's numeric id of the approver: the identity.
-	// +kubebuilder:validation:Minimum=1
-	ByID int64 `json:"byID"`
-	// At is the command comment's created_at.
-	At metav1.Time `json:"at"`
-	// CommentID is GitHub's id of the comment carrying the command.
-	// +kubebuilder:validation:Minimum=1
-	CommentID int64 `json:"commentID"`
 }
 
 // HandoffMode is when the preview link is handed to humans: gated (held
@@ -1007,7 +971,7 @@ type HandoffReason string
 
 // Hand-off reasons.
 const (
-	// HandoffReasonReady: every outcome passed with no anomaly.
+	// HandoffReasonReady: every outcome passed in a clean environment.
 	HandoffReasonReady HandoffReason = "ready"
 	// HandoffReasonUnconfirmed: the evaluation settled without confirming.
 	HandoffReasonUnconfirmed HandoffReason = "unconfirmed"
@@ -1501,8 +1465,7 @@ type IntentVerification struct {
 	OutcomesEnvironment string `json:"outcomesEnvironment,omitempty"`
 	// Anomalies are the latest round's look-around anomalies, and those of
 	// earlier rounds at the same head set, which it carries (each by its
-	// Round): an anomaly holds its head set until the heads move or an
-	// approver accepts it.
+	// Round): notes for the reviewer, which hold nothing.
 	// +optional
 	// +kubebuilder:validation:MaxItems=10
 	// +listType=atomic
@@ -1559,7 +1522,7 @@ type VerificationModelRound struct {
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	OutcomesDigest string `json:"outcomesDigest"`
 	// Clear: its evaluator saw no outcome fail (no fail verdict, no
-	// contrary entry) and reported no anomaly.
+	// contrary entry).
 	// +optional
 	Clear bool `json:"clear,omitempty"`
 }

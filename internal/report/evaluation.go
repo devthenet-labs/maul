@@ -177,9 +177,9 @@ type Anomaly struct {
 	Route   string  `yaml:"route"`
 	Ledger  []int32 `yaml:"ledger"`
 	// PreExisting is the evaluator's claim that the anomaly was there
-	// before the change (G-B-BR-2): only a claim. maul records it so only
-	// where its own ledger bears it out (the intent controller's
-	// preExistingCites); everywhere else it holds as any anomaly does.
+	// before the change, which an earlier prompt asked for. An anomaly is a
+	// note that holds nothing, so maul no longer reads it; the key is still
+	// accepted so a report that writes it is not refused whole.
 	PreExisting bool `yaml:"pre_existing,omitempty"`
 }
 

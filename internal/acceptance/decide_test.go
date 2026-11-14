@@ -431,20 +431,15 @@ func TestDecide(t *testing.T) {
 			handoff: HandoffUnconfirmed,
 		},
 		{
-			name: "an anomaly downgrades the hand-off of an all-passing round",
+			// A defect against what the issue promises is reported as the
+			// outcome's fail (the evaluate prompt): over a green check it
+			// withholds both the pass and the hand-off, whatever else the
+			// evaluator noted for the reviewer.
+			name: "the evaluator's fail over a green check withholds the pass and the hand-off",
 			in: with(confirmedPass(), func(in *Input) {
-				in.Anomalies = []AnomalyRef{{Summary: "500 on /admin", Route: "/admin", Ledger: []int32{12}}}
-			}),
-			result: ResultPassed, reason: ReasonConfirmed, basis: dg("a"), handoff: HandoffUnconfirmed,
-		},
-		{
-			name: "an anomaly never starts a fix",
-			in: with(confirmedPass(), func(in *Input) {
-				in.Confirmations = nil
 				in.Verdicts[0].Claim = ClaimFail
-				in.Anomalies = []AnomalyRef{{Summary: "panic", Route: "api", Ledger: []int32{12}}}
 			}),
-			result: ResultUnsure, reason: ReasonModelOnlyFail, handoff: HandoffUnconfirmed,
+			result: ResultUnsure, reason: ReasonEvaluatorSawFailure, handoff: HandoffUnconfirmed,
 		},
 		{
 			name: "a manual outcome is for a human",
@@ -603,9 +598,6 @@ func (genDecide) Generate(r *rand.Rand, _ int) reflect.Value {
 	genClaims(r, &in)
 	for range r.Intn(2) {
 		in.Retired = append(in.Retired, Retirement{CheckDigest: pickOf(r, genDigests), Reason: "r"})
-	}
-	if r.Intn(6) == 0 {
-		in.Anomalies = []AnomalyRef{{Summary: "s", Route: "/", Ledger: []int32{1}}}
 	}
 	switch r.Intn(12) {
 	case 0:
@@ -994,7 +986,7 @@ func (s *decideStats) add(in Input, d Decision) {
 // TestDecideNoPassWithoutAllSixRules is the 4.3 property: no passed outcome
 // without every rule; no fix without a failing, reviewed, stored check plus
 // the evaluator's agreeing, cited fail, undisputed, in a clean environment;
-// a ready hand-off only when every outcome passed with no anomaly.
+// a ready hand-off only when every outcome passed in a clean environment.
 func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	var stats decideStats
 	prop := func(g genDecide) bool {
@@ -1051,7 +1043,7 @@ func checkDecision(in Input, d Decision) error {
 	if err := oracleNarrowed(in, d); err != nil {
 		return err
 	}
-	ready := allPassed && len(in.Anomalies) == 0 && httpstep.ClassifyEnvironment(in.Env) == httpstep.EnvOK &&
+	ready := allPassed && httpstep.ClassifyEnvironment(in.Env) == httpstep.EnvOK &&
 		d.Fix == nil &&
 		!d.ReplayRound
 	if (d.Handoff == HandoffReady) != ready {

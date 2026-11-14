@@ -17,10 +17,12 @@ import (
 //     evaluate and no checkreview run, so no model spend at all. Only at
 //     the heads and approved outcomes of the latest model round
 //     (status.verification.modelRound), only when that round's evaluator
-//     raised nothing (no fail verdict, no contrary entry, no anomaly:
-//     Clear), only when no anomaly an earlier round found at those heads
-//     stands unaccepted (G-B-LIB-1: it holds them, and a replay could not
-//     pass), and only when every outcome but the manual ones is bound to
+//     raised nothing (no fail verdict, no contrary entry: Clear; a
+//     look-around anomaly is a note, which the replay round carries),
+//     only when no outcome an earlier round found failing or suspected at
+//     those heads stands unaccepted (G-B-LIB-1: it holds them, and a
+//     replay could not pass it), and only when every outcome but the
+//     manual ones is bound to
 //     a stored check a round could pass it on. It is judged by
 //     acceptance.Decide unchanged, on the store and this round's runs: it
 //     passes exactly what a full round with the same evidence passes when
@@ -68,13 +70,10 @@ func (p *pass) rungFor(kind verifyKind, hs headSet, checks []v1alpha1.SavedCheck
 }
 
 // openFindingAt reports a finding an earlier round made at hs that still
-// holds it (G-B-LIB-1): an anomaly no approver accepted, or an outcome
-// found failing or suspected there that no approver accepted. A replay
-// round could pass neither, so the next round there is full.
+// holds it (G-B-LIB-1): an outcome found failing or suspected there that
+// no approver accepted. A replay round could not pass it, so the next
+// round there is full. A look-around note is no finding: it holds nothing.
 func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance, hs string) bool {
-	if len(openAnomalies(heldAnomalies(v, hs, 0))) > 0 {
-		return true
-	}
 	for id := range heldOutcomes(v, hs, 0) {
 		if !outcomeAccepted(acc, id, hs) {
 			return true

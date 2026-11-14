@@ -26,14 +26,20 @@ const s1CorpusPath = "testdata/decide-s1-corpus.json.gz"
 type s1Case struct {
 	In       Input
 	Decision Decision
+	// noted: the recorded input carried look-around anomalies, which
+	// 0.13.13's Decide read and today's does not (owner decision of
+	// 2026-11-14: an anomaly is a note for the reviewer).
+	noted bool
 }
 
 // TestDecideS1Corpus holds S1 inputs (Base == nil) to 0.13.13's decisions.
 // The one change slice S2 makes there is owner decision O4: a program
 // check (exec or run) that failed other than by assertion (a crash, a
 // compile error, a timeout, a wrong exit alone) never fails its outcome, so
-// an outcome 0.13.13 failed on such a check alone is unsure now. Every
-// other difference fails the test.
+// an outcome 0.13.13 failed on such a check alone is unsure now. The other
+// is the owner's decision of 2026-11-14: a look-around anomaly is a note
+// and holds no hand-off, so a round 0.13.13 left unconfirmed on anomalies
+// alone is ready now. Every other difference fails the test.
 func TestDecideS1Corpus(t *testing.T) {
 	cases := readS1Corpus(t)
 	changed := 0
@@ -46,7 +52,7 @@ func TestDecideS1Corpus(t *testing.T) {
 			continue
 		}
 		changed++
-		if err := onlyO4(c.In, c.Decision, got); err != nil {
+		if err := onlyO4(c, got); err != nil {
 			t.Errorf("case %d: %v\nwas %+v\ngot %+v", i, err, c.Decision, got)
 		}
 	}
@@ -56,7 +62,7 @@ func TestDecideS1Corpus(t *testing.T) {
 	if changed == 0 {
 		t.Error("no S1 decision changed: the corpus does not exercise O4")
 	}
-	t.Logf("%d of %d S1 decisions changed by O4", changed, len(cases))
+	t.Logf("%d of %d S1 decisions changed by O4 or the anomaly decision", changed, len(cases))
 }
 
 // normalise makes nil and empty slices equal, as JSON loses the
@@ -78,8 +84,10 @@ func normalise(d Decision) Decision {
 // does not explain: only outcomes failed (or held as a suspected defect) on
 // program checks failing other than by assertion may turn unsure
 // (ReasonNotAsserted), and only their failures may leave Fix and
-// Suspected.
-func onlyO4(in Input, was, got Decision) error {
+// Suspected; and, for a round whose recorded input carried anomalies
+// (s1Case.noted), the hand-off may turn ready.
+func onlyO4(c s1Case, got Decision) error {
+	in, was := c.In, c.Decision
 	if len(was.PerOutcome) != len(got.PerOutcome) {
 		return fmt.Errorf("outcome count changed")
 	}
@@ -100,6 +108,9 @@ func onlyO4(in Input, was, got Decision) error {
 	}
 	w, g := normalise(was), normalise(got)
 	w.PerOutcome, g.PerOutcome, w.Fix, g.Fix, w.Suspected, g.Suspected = nil, nil, nil, nil, nil, nil
+	if c.noted && w.Handoff == HandoffUnconfirmed && g.Handoff == HandoffReady {
+		w.Handoff = HandoffReady
+	}
 	if !reflect.DeepEqual(w, g) {
 		return fmt.Errorf("the rest of the decision changed")
 	}
@@ -149,9 +160,22 @@ func readS1Corpus(t *testing.T) []s1Case {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cases []s1Case
-	if err := json.NewDecoder(zr).Decode(&cases); err != nil {
+	var raw []json.RawMessage
+	if err := json.NewDecoder(zr).Decode(&raw); err != nil {
 		t.Fatal(err)
+	}
+	cases := make([]s1Case, len(raw))
+	for i, r := range raw {
+		var noted struct {
+			In struct{ Anomalies []json.RawMessage }
+		}
+		if err := json.Unmarshal(r, &cases[i]); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(r, &noted); err != nil {
+			t.Fatal(err)
+		}
+		cases[i].noted = len(noted.In.Anomalies) > 0
 	}
 	return cases
 }

@@ -21,9 +21,9 @@ import (
 
 // TestIntentEvaluateEvidenceOnStatusPage: the status page's evaluation
 // evidence view (S1-23) over a real round. The scripted evaluator passes
-// both outcomes and reports one look-around anomaly, so maul confirms both
-// and still hands the link over as "maul couldn't confirm this: it noticed
-// something odd". Served by the shipped status-server behind a real OIDC
+// both outcomes and reports one look-around anomaly, a note for the
+// reviewer: maul confirms both and hands the link over as ready, the note
+// shown beside them. Served by the shipped status-server behind a real OIDC
 // sign-in and the envtest API server's RBAC: a tier-1 viewer sees maul's
 // decided outcomes, the anomaly, the hand-off and the ledger index, never an
 // output or the evaluator's claims; a tier-2 reader also sees the ledger's
@@ -37,11 +37,11 @@ func TestIntentEvaluateEvidenceOnStatusPage(t *testing.T) {
 	in := e.waitEval(t, name, "the round judged, the anomaly recorded", func(v *v1alpha1.IntentVerification) bool {
 		return v.Handoff != nil && v.Handoff.Released && len(v.Anomalies) == 1
 	})
-	if h := in.Status.Verification.Handoff; h.Reason != v1alpha1.HandoffReasonUnconfirmed {
-		t.Errorf("handoff %+v, want released unconfirmed for the anomaly", h)
+	if h := in.Status.Verification.Handoff; h.Reason != v1alpha1.HandoffReasonReady {
+		t.Errorf("handoff %+v, want released ready: the anomaly is a note", h)
 	}
-	eventually(t, "the preview comment to name the anomaly", func() bool {
-		return strings.Contains(e.previewComment(name, pr.Number), "it noticed something odd while it looked around")
+	eventually(t, "the preview comment to show the note", func() bool {
+		return strings.Contains(e.previewComment(name, pr.Number), anomaly)
 	})
 	runs := e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)
 	if len(runs) != 1 {
@@ -110,14 +110,14 @@ type evidenceEntry struct {
 }
 
 // check holds the view login was served to its tier: the current round,
-// released unconfirmed, both outcomes passed with maul's check line, both
+// released ready, both outcomes passed with maul's check line, both
 // checks, the anomaly, every ledger entry indexed; the evaluator's verdicts
 // and the ledger's outputs only with outputs (tier 2).
 func (ev evidenceView) check(t *testing.T, login, tier string, outputs bool, anomaly string) {
 	t.Helper()
 	if ev.Tier != tier || !ev.Current || ev.Handoff == nil || !ev.Handoff.Released ||
-		ev.Handoff.Reason != string(v1alpha1.HandoffReasonUnconfirmed) || ev.Handoff.Mode != "gated" {
-		t.Errorf("%s: tier %q current %v handoff %+v; want %s, the current round, released unconfirmed",
+		ev.Handoff.Reason != string(v1alpha1.HandoffReasonReady) || ev.Handoff.Mode != "gated" {
+		t.Errorf("%s: tier %q current %v handoff %+v; want %s, the current round, released ready",
 			login, ev.Tier, ev.Current, ev.Handoff, tier)
 	}
 	if len(ev.Outcomes) != 2 || len(ev.Checks) != 2 {

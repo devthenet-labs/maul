@@ -848,9 +848,6 @@ export interface EvaluationAnomaly {
   ledger?: number[];
   // An earlier round at the same commits found it; this round carries it.
   foundInRound?: number;
-  acceptedBy?: string;
-  // maul held it to be there before the change: it holds nothing.
-  preExisting?: boolean;
 }
 
 export interface EvaluationDispute {

@@ -16,7 +16,7 @@ import (
 // than one outcome, so a plan can declare no outcome an approver could not
 // accept by its own name, and refuses no other id.
 func TestReservedOutcomeIDsAreTheAcceptWords(t *testing.T) {
-	want := slices.Sorted(slices.Values([]string{command.AcceptAll, command.AcceptAnomalies}))
+	want := []string{command.AcceptAll}
 	got := slices.Sorted(slices.Values(acceptance.ReservedOutcomeIDs))
 	if !slices.Equal(got, want) {
 		t.Fatalf("acceptance.ReservedOutcomeIDs = %v, want %v", got, want)

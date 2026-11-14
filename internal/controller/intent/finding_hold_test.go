@@ -12,19 +12,16 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// G-B-LIB-1 (defect gate 2): a look-around anomaly is a fact about the
-// commits it was found at. Round 1 at heads H reports one and is
-// Unconfirmed; round 2 at the same heads, whose evaluator reports nothing
-// (it replayed the green saved checks and stopped), must not pass: the
-// anomaly is carried, the round stays Unconfirmed, maul/acceptance is no
-// success and the model round is not clear (so no replay round follows).
-// Only moved heads, or an approver's acceptance, let a round pass.
+// G-B-LIB-1 (defect gate 2) and the owner's decision of 2026-11-14: a
+// finding about an OUTCOME at heads H holds every later round at H (an
+// outcome found failing or suspected there stays held-finding), while a
+// look-around anomaly is a note for the human reviewer and holds nothing:
+// a round whose outcomes all pass is Passed with its notes shown.
 
 // passingJudgement is a judgement every outcome of which passed, the
 // manual one accepted, in a clean environment: Passed on its own.
@@ -37,7 +34,7 @@ func passingJudgement(t *testing.T, anomalies ...v1alpha1.AnomalyRecord) roundJu
 	d := acceptance.Decision{PerOutcome: []acceptance.OutcomeResult{pass(oVersion), pass(oHealthy),
 		judged(oManual, acceptance.ResultUnsure, acceptance.ReasonManual, "")}, Env: httpstep.EnvOK}
 	return roundJudgement{decision: d, checks: []v1alpha1.SavedCheck{check}, anomalies: anomalies,
-		evaluation: &report.Evaluation{}, clear: len(anomalies) == 0}
+		evaluation: &report.Evaluation{}, clear: true}
 }
 
 // heldAnomaly is round 1's look-around anomaly, naming the defect.
@@ -59,35 +56,39 @@ func (e *env) judgeAt(name string, round int32, headSet string, j roundJudgement
 	return e.verification(name)
 }
 
-func TestAnomalyHoldsItsHeads(t *testing.T) {
+// TestAnomalyIsANote: a round whose every outcome is confirmed is Passed
+// with its look-around anomaly recorded as a note, maul/acceptance success
+// and a clear model round; a later round at the same heads keeps the note
+// (round 1's) and passes too; at moved heads it is gone.
+func TestAnomalyIsANote(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	heads := e.verification(name).HeadSetDigest
 	v := e.judgeAt(name, 1, heads, passingJudgement(t, heldAnomaly))
-	if v.State != v1alpha1.VerificationUnconfirmed || len(v.Anomalies) != 1 {
-		t.Fatalf("round 1 = %s, anomalies %+v; want Unconfirmed on the anomaly", v.State, v.Anomalies)
+	if v.State != v1alpha1.VerificationPassed || len(v.Anomalies) != 1 {
+		t.Fatalf("round 1 = %s, anomalies %+v; want Passed with the note", v.State, v.Anomalies)
+	}
+	if v.ModelRound == nil || !v.ModelRound.Clear {
+		t.Errorf("model round = %+v, want clear: a note is no objection", v.ModelRound)
+	}
+	p := e.prVerifyPass(name)
+	if st, _, ok := p.acceptanceStatus(); !ok || st.state != statusSuccess {
+		t.Errorf("maul/acceptance = %+v (posted %v), want success beside the note", st, ok)
+	}
+	if !outcomesReady(p.in.Status.Acceptance, p.in.Status.Verification) {
+		t.Error("not ready over a note")
 	}
 
 	// Round 2 at the same heads: its evaluator raised nothing.
 	v = e.judgeAt(name, 2, heads, passingJudgement(t))
-	if v.State != v1alpha1.VerificationUnconfirmed {
-		t.Errorf("round 2 at the same heads = %s, want Unconfirmed: round 1's anomaly holds them", v.State)
+	if v.State != v1alpha1.VerificationPassed {
+		t.Errorf("round 2 at the same heads = %s, want Passed", v.State)
 	}
-	if len(v.Anomalies) != 1 || v.Anomalies[0].Summary != heldAnomaly.Summary {
-		t.Errorf("round 2 anomalies = %+v, want round 1's carried", v.Anomalies)
-	}
-	if v.ModelRound == nil || v.ModelRound.Clear {
-		t.Errorf("model round = %+v, want round 2 not clear: a replay round must not follow it", v.ModelRound)
-	}
-	p := e.prVerifyPass(name)
-	if st, _, ok := p.acceptanceStatus(); !ok || st.state == statusSuccess {
-		t.Errorf("maul/acceptance = %+v (posted %v), want no success over the held anomaly", st, ok)
-	}
-	if outcomesReady(p.in.Status.Acceptance, p.in.Status.Verification) {
-		t.Error("ready over the held anomaly")
+	if len(v.Anomalies) != 1 || v.Anomalies[0].Summary != heldAnomaly.Summary || v.Anomalies[0].Round != 1 {
+		t.Errorf("round 2 anomalies = %+v, want round 1's note carried", v.Anomalies)
 	}
 
-	// Round 3 after the heads moved: the anomaly was about other commits.
+	// Round 3 after the heads moved: the note was about other commits.
 	moved := "sha256:" + strings.Repeat("1", 64)
 	v = e.judgeAt(name, 3, moved, passingJudgement(t))
 	if v.State != v1alpha1.VerificationPassed || len(v.Anomalies) != 0 {
@@ -95,12 +96,36 @@ func TestAnomalyHoldsItsHeads(t *testing.T) {
 	}
 }
 
-// TestHeldAnomalyRecords: the carried record keeps the round that found
-// it; judging the same round again carries nothing twice; a later round
-// repeating the anomaly's words adds no copy; a record from before rounds
-// were stamped is its judgement's own; and an approver's acceptance, which
-// the record carries, lets a round at the heads pass.
-func TestHeldAnomalyRecords(t *testing.T) {
+// TestNoteDoesNotHoldAnAcceptance: a round left Unconfirmed by an outcome
+// maul could not confirm, beside a note, is ready once an approver accepts
+// that outcome: the note holds nothing.
+func TestNoteDoesNotHoldAnAcceptance(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	heads := e.verification(name).HeadSetDigest
+	j := passingJudgement(t, heldAnomaly)
+	j.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, "")
+	if v := e.judgeAt(name, 1, heads, j); v.State != v1alpha1.VerificationUnconfirmed {
+		t.Fatalf("round 1 = %s, want Unconfirmed (the case's premise)", v.State)
+	}
+	replies := e.request(name, "issue", "/maul accept "+oVersion)
+	if len(replies) != 1 || !strings.Contains(replies[0], "is done") {
+		t.Fatalf("accept replies %q, want it accepted", replies)
+	}
+	p := e.prVerifyPass(name)
+	if !outcomesReady(p.in.Status.Acceptance, p.in.Status.Verification) {
+		t.Error("not ready once the outcome is accepted, beside a note")
+	}
+	if st, _, ok := p.acceptanceStatus(); !ok || st.state != statusSuccess {
+		t.Errorf("maul/acceptance %+v (posted %v), want success once accepted", st, ok)
+	}
+}
+
+// TestCarriedNoteRecords: a note carried at the same heads keeps the round
+// that found it; judging the same round again carries nothing twice; a
+// later round repeating the note's words adds no copy; a record from before
+// rounds were stamped is its judgement's own. None of it holds a round.
+func TestCarriedNoteRecords(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	heads := e.verification(name).HeadSetDigest
@@ -120,31 +145,17 @@ func TestHeldAnomalyRecords(t *testing.T) {
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		in.Status.Verification.Anomalies = []v1alpha1.AnomalyRecord{heldAnomaly}
 	})
-	if v = e.judgeAt(name, 3, heads, passingJudgement(t)); v.State != v1alpha1.VerificationUnconfirmed ||
+	if v = e.judgeAt(name, 3, heads, passingJudgement(t)); v.State != v1alpha1.VerificationPassed ||
 		len(v.Anomalies) != 1 || v.Anomalies[0].Round != 2 {
-		t.Fatalf("round 3 over an unstamped record: %s, anomalies %+v; want Unconfirmed, round 2's", v.State,
+		t.Fatalf("round 3 over an unstamped record: %s, anomalies %+v; want Passed, round 2's", v.State,
 			v.Anomalies)
-	}
-
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		in.Status.Verification.Anomalies[0].Accepted = &v1alpha1.AnomalyAcceptance{By: approver, ByID: 7,
-			At: metav1.NewTime(e.clock.Now()), CommentID: 99}
-	})
-	if v = e.judgeAt(name, 4, heads, passingJudgement(t)); v.State != v1alpha1.VerificationPassed ||
-		len(v.Anomalies) != 1 || v.Anomalies[0].Accepted == nil {
-		t.Errorf("round 4 after the acceptance: %s, anomalies %+v; want Passed, the accepted record carried",
-			v.State, v.Anomalies)
-	}
-	if v.ModelRound == nil || !v.ModelRound.Clear {
-		t.Errorf("model round %+v, want clear once the anomaly is accepted", v.ModelRound)
 	}
 }
 
-// TestHeldAnomalyHoldsDecideAndTheRung: judged with the anomalies held at
-// its heads, a round whose evaluator raised nothing is neither ready nor a
-// clear model round, and its evaluator is told of the anomaly; an accepted
-// one, or one at other heads, holds nothing and is not handed over.
-func TestHeldAnomalyHoldsDecideAndTheRung(t *testing.T) {
+// TestNoteHoldsNeitherDecideNorTheRung: a round whose evaluator reported
+// only a look-around anomaly, every outcome confirmed, is ready and a clear
+// model round, with the note recorded.
+func TestNoteHoldsNeitherDecideNorTheRung(t *testing.T) {
 	o := v1alpha1.AcceptanceOutcome{ID: oVersion, Outcome: "The build page shows the version"}
 	version := savedCheck(t, versionCheck)
 	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o},
@@ -152,38 +163,19 @@ func TestHeldAnomalyHoldsDecideAndTheRung(t *testing.T) {
 			Answer: v1alpha1.ReviewProves, Run: "r1", Check: version.ID, Reason: "yes"}}}
 	heads := "sha256:" + strings.Repeat("a", 64)
 	pv := &v1alpha1.PreviewVerification{
-		Spec: v1alpha1.PreviewVerificationSpec{Round: 2, HeadSetDigest: heads, Rung: v1alpha1.RungReplay,
+		Spec: v1alpha1.PreviewVerificationSpec{Round: 1, HeadSetDigest: heads,
 			Checks: []v1alpha1.SavedCheck{version}},
-		Status: v1alpha1.PreviewVerificationStatus{Replay: []v1alpha1.CheckRun{{CheckDigest: version.Digest,
-			Result: v1alpha1.CheckRunPass, Token: "t1", Seq: 1}}},
+		Status: v1alpha1.PreviewVerificationStatus{Ledger: &v1alpha1.LedgerSummary{Count: 4},
+			Replay: []v1alpha1.CheckRun{{CheckDigest: version.Digest, Result: v1alpha1.CheckRunPass, Token: "t1",
+				Seq: 1}}},
 	}
-	round1 := heldAnomaly
-	round1.Round = 1
-	v := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesRound: 1, OutcomesHeadSetDigest: heads,
-		Anomalies: []v1alpha1.AnomalyRecord{round1}}
-	stored := []v1alpha1.SavedCheck{version}
-	if j := judgeRound(acc, pv, stored, nil); j.decision.Handoff != acceptance.HandoffReady {
-		t.Fatalf("with nothing held the replay is %s, want ready (the case's premise)", j.decision.Handoff)
-	}
-	j := judgeHolding(acc, pv, stored, nil, heldAnomalies(v, heads, 2), nil)
-	if j.decision.Handoff == acceptance.HandoffReady || j.clear {
-		t.Errorf("held: hand-off %s, clear %v; want neither ready nor clear", j.decision.Handoff, j.clear)
-	}
-	if got := heldForEvaluator(v, pv); len(got) != 1 || got[0].Round != 1 || got[0].Summary != heldAnomaly.Summary {
-		t.Errorf("the evaluator is told %+v, want round 1's anomaly", got)
-	}
-	moved := &v1alpha1.PreviewVerification{Spec: v1alpha1.PreviewVerificationSpec{Round: 2,
-		HeadSetDigest: "sha256:" + strings.Repeat("b", 64)}}
-	if got := heldForEvaluator(v, moved); got != nil {
-		t.Errorf("at moved heads the evaluator is told %+v, want nothing", got)
-	}
-	v.Anomalies[0].Accepted = &v1alpha1.AnomalyAcceptance{By: approver, ByID: 7, CommentID: 9}
-	if got := heldForEvaluator(v, pv); got != nil {
-		t.Errorf("an accepted anomaly is still handed over: %+v", got)
-	}
-	if j := judgeHolding(acc, pv, stored, nil, heldAnomalies(v, heads, 2), nil); j.decision.Handoff !=
-		acceptance.HandoffReady {
-		t.Errorf("accepted: hand-off %s, want ready", j.decision.Handoff)
+	ev := &report.Evaluation{
+		Verdicts:  []report.OutcomeVerdict{{ID: oVersion, Verdict: report.VerdictPass, Ledger: []int32{1}}},
+		Anomalies: []report.Anomaly{{Summary: heldAnomaly.Summary, Route: heldAnomaly.Route, Ledger: []int32{2}}}}
+	j := judgeRound(acc, pv, []v1alpha1.SavedCheck{version}, ev)
+	if j.decision.Handoff != acceptance.HandoffReady || !j.clear || len(j.anomalies) != 1 {
+		t.Errorf("hand-off %s, clear %v, notes %+v; want ready, clear, the note recorded", j.decision.Handoff,
+			j.clear, j.anomalies)
 	}
 }
 
@@ -241,131 +233,49 @@ func TestHeldFindingOutcome(t *testing.T) {
 	}
 }
 
-// TestVerifyFixOverAHeldAnomaly (G5, G6): /maul verify fix with no
-// outcome failing and an anomaly held starts the round (its evaluator
-// examines the anomaly again) and says plainly that nothing is fixed; the
-// round, its evaluator raising nothing, stays Unconfirmed; /maul accept all
-// then accepts the anomaly at the heads, and the judgement is ready.
-func TestVerifyFixOverAHeldAnomaly(t *testing.T) {
+// TestNoteRoundPasses: a round whose evaluator confirms every outcome and
+// reports a look-around anomaly is Passed and maul/acceptance success; a
+// /maul verify fix over it says nothing of anomalies, and /maul accept
+// anomalies, a command no longer offered, gets the reply any id the plan
+// does not name gets and accepts nothing, as does a reply owed again for
+// such a comment applied before the upgrade.
+func TestNoteRoundPasses(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(anomalyReport)
 	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
 	e.acceptManual(name)
 	e.modelRound(name, 1, v1alpha1.CheckRunPass)
-	e.evaluateReporting(evaluationReport)
-	replies := e.request(name, "issue", "/maul verify fix")
-	if len(replies) != 1 || !strings.Contains(replies[0], "No outcome fails at these commits, so there is nothing "+
-		"to fix yet") || !strings.Contains(replies[0], "`/maul accept anomalies`") {
-		t.Errorf("verify fix replies %q, want it to say nothing is fixed and how the anomaly clears", replies)
-	}
-	e.modelRound(name, 2, v1alpha1.CheckRunPass)
-	if v := e.verification(name); v.State != v1alpha1.VerificationUnconfirmed || len(openAnomalies(v.Anomalies)) != 1 {
-		t.Fatalf("round 2 = %s, anomalies %+v; want Unconfirmed on round 1's", v.State, v.Anomalies)
-	}
-	if st, _, _ := e.prVerifyPass(name).acceptanceStatus(); st.state == statusSuccess {
-		t.Fatalf("maul/acceptance %+v over the held anomaly", st)
-	}
-
-	replies = e.request(name, "issue", "/maul accept all")
-	if len(replies) != 1 || !strings.Contains(replies[0], "the anomaly maul noticed while it looked around are "+
-		"accepted at") {
-		t.Errorf("accept all replies %q, want the anomaly accepted", replies)
-	}
 	v := e.verification(name)
-	if len(v.Anomalies) != 1 || v.Anomalies[0].Accepted == nil || v.Anomalies[0].Accepted.By != approver {
-		t.Fatalf("anomalies %+v, want round 1's accepted by %s", v.Anomalies, approver)
+	if v.State != v1alpha1.VerificationPassed || len(v.Anomalies) != 1 {
+		t.Fatalf("round 1 = %s, anomalies %+v; want Passed with the note", v.State, v.Anomalies)
 	}
 	if st, _, ok := e.prVerifyPass(name).acceptanceStatus(); !ok || st.state != statusSuccess {
-		t.Errorf("maul/acceptance %+v (posted %v), want success once the anomaly is accepted", st, ok)
-	}
-}
-
-// TestAcceptAnomaliesAcceptsOnlyTheAnomalies (defect gate 2): /maul accept
-// anomalies releases the look-around anomalies held at the commits and
-// nothing else: an outcome left unconfirmed beside them (here the manual
-// one) is not accepted, so maul/acceptance stays short of success until an
-// approver accepts that outcome too. With nothing held it accepts nothing
-// and says so.
-func TestAcceptAnomaliesAcceptsOnlyTheAnomalies(t *testing.T) {
-	e, name := newEvaluatorEnv(t, 0.4)
-	e.evaluateReporting(anomalyReport)
-	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
-	e.modelRound(name, 1, v1alpha1.CheckRunPass)
-	if v := e.verification(name); len(openAnomalies(v.Anomalies)) != 1 {
-		t.Fatalf("anomalies %+v, want one held (the case's premise)", v.Anomalies)
+		t.Errorf("maul/acceptance %+v (posted %v), want success beside the note", st, ok)
 	}
 
-	replies := e.request(name, "issue", "/maul accept anomalies")
-	if len(replies) != 1 || !strings.Contains(replies[0], "the anomaly maul noticed while it looked around is "+
-		"accepted at") || strings.Contains(replies[0], oManual) {
-		t.Errorf("accept anomalies replies %q, want the anomaly accepted and no outcome", replies)
+	replies := e.request(name, "issue", "/maul verify fix")
+	if len(replies) != 1 || strings.Contains(replies[0], "anomal") {
+		t.Errorf("verify fix replies %q, want no word of anomalies", replies)
 	}
-	in := e.get(name)
-	if v := in.Status.Verification; len(v.Anomalies) != 1 || v.Anomalies[0].Accepted == nil ||
-		v.Anomalies[0].Accepted.By != approver {
-		t.Fatalf("anomalies %+v, want the one accepted by %s", v.Anomalies, approver)
-	}
-	if acc := in.Status.Acceptance; len(acc.Accepted) != 0 {
-		t.Errorf("accepted %+v, want no outcome accepted by /maul accept anomalies", acc.Accepted)
-	}
-	if st, _, _ := e.prVerifyPass(name).acceptanceStatus(); st.state == statusSuccess {
-		t.Errorf("maul/acceptance %+v with the manual outcome still open", st)
-	}
-	// A reply lost and owed again is made from what the Intent records.
-	id := in.Status.Verification.Anomalies[0].Accepted.CommentID
-	again := e.prVerifyPass(name).recordedVerifyNotice(verifyCommand{surface: "issue", key: "comment-1", id: id,
-		verb: "accept", body: "/maul accept anomalies"})
-	if again.Outcome != templates.VerifyAccepted || again.Anomalies != 1 || len(again.Accepted) != 0 ||
-		again.Criterion != "anomalies" {
-		t.Errorf("recorded reply %+v, want the one anomaly accepted and no outcome", again)
-	}
-
+	accepted := len(e.get(name).Status.Acceptance.Accepted)
 	replies = e.request(name, "issue", "/maul accept anomalies")
-	if len(replies) != 1 || !strings.Contains(replies[0], "does nothing: no anomaly") {
-		t.Errorf("accept anomalies with none held replies %q, want that there is none", replies)
+	if len(replies) != 1 || !strings.Contains(replies[0], "names no outcome of the approved plan") {
+		t.Errorf("accept anomalies replies %q, want the unknown-outcome reply", replies)
 	}
-	if acc := e.get(name).Status.Acceptance; len(acc.Accepted) != 0 {
-		t.Errorf("accepted %+v after a second /maul accept anomalies", acc.Accepted)
+	if got := len(e.get(name).Status.Acceptance.Accepted); got != accepted {
+		t.Errorf("accepted %d records after /maul accept anomalies, want %d", got, accepted)
 	}
-}
-
-// TestAcceptAllAcceptsOnlyWhatWasSeen: /maul accept all accepts only the
-// anomalies recorded before the comment was written (as a confirmation of
-// a suspected defect must postdate it): one a round recorded after the
-// approver commented, or in the comment's own second, still holds the
-// heads. One from before the time was recorded is accepted.
-func TestAcceptAllAcceptsOnlyWhatWasSeen(t *testing.T) {
-	at := time.Date(2026, 11, 11, 14, 22, 51, 0, time.UTC)
-	stamp := func(d time.Duration) *metav1.Time { t := metav1.NewTime(at.Add(d)); return &t }
-	heads := "sha256:" + strings.Repeat("c", 64)
-	v := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesHeadSetDigest: heads, OutcomesRound: 2,
-		Anomalies: []v1alpha1.AnomalyRecord{
-			{Summary: "seen", Round: 1, RecordedAt: stamp(-time.Minute)},
-			{Summary: "legacy", Round: 1},
-			{Summary: "same second", Round: 2, RecordedAt: stamp(400 * time.Millisecond)},
-			{Summary: "after", Round: 2, RecordedAt: stamp(time.Minute)},
-		}}
-	if n := len(acceptableAnomalies(v, at)); n != 2 {
-		t.Errorf("acceptable anomalies = %d, want the two recorded before the comment", n)
-	}
-	c := verifyCommand{id: 9, at: at, actor: ghclient.Actor{Login: approver, ID: 7}}
-	if n := acceptAnomalies(v, c); n != 2 {
-		t.Fatalf("accepted %d, want 2", n)
-	}
-	for _, a := range v.Anomalies {
-		if accepted := a.Accepted != nil; accepted != (a.Summary == "seen" || a.Summary == "legacy") {
-			t.Errorf("anomaly %q accepted %v", a.Summary, accepted)
-		}
-	}
-	if len(openAnomalies(v.Anomalies)) != 2 {
-		t.Error("the anomalies recorded after the comment no longer hold the heads")
+	again := e.prVerifyPass(name).recordedVerifyNotice(verifyCommand{surface: "issue", key: "comment-1", id: 4242,
+		verb: "accept", body: "/maul accept anomalies"})
+	if again.Outcome == templates.VerifyAccepted {
+		t.Errorf("recorded reply %+v for an old /maul accept anomalies, want nothing accepted", again)
 	}
 }
 
-// TestOpenFindingMakesTheRoundFull: the next round at heads an anomaly or
-// a held outcome still holds is full (openFindingAt), so no replay round
-// is spent on what a replay could never pass; accepted, or at other heads,
-// they hold nothing.
+// TestOpenFindingMakesTheRoundFull: the next round at heads a held outcome
+// still holds is full (openFindingAt), so no replay round is spent on what
+// a replay could never pass; accepted, or at other heads, it holds nothing,
+// and a look-around note never does.
 func TestOpenFindingMakesTheRoundFull(t *testing.T) {
 	heads, other := "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("e", 64)
 	acc := &v1alpha1.IntentAcceptance{}
@@ -407,11 +317,7 @@ func TestOpenFindingMakesTheRoundFull(t *testing.T) {
 	}
 	anomaly := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesHeadSetDigest: heads, OutcomesRound: 1,
 		Anomalies: []v1alpha1.AnomalyRecord{{Summary: "odd", Round: 1}}}
-	if !openFindingAt(anomaly, acc, heads) {
-		t.Error("an open anomaly: want an open finding")
-	}
-	anomaly.Anomalies[0].Accepted = &v1alpha1.AnomalyAcceptance{By: approver, ByID: 7, CommentID: 2}
 	if openFindingAt(anomaly, acc, heads) {
-		t.Error("an accepted anomaly is still an open finding")
+		t.Error("a look-around note is an open finding: it holds nothing")
 	}
 }

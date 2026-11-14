@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -18,11 +17,11 @@ import (
 // G-B-LIB-1 review (PR #408): the paths by which a finding at heads H was
 // still lost before a later round at H passed.
 
-// TestAcceptedAnomaliesNeverCrowdOutAnOpenOne: the record holds at most
-// maxAnomalies. A round at H whose own new anomaly would land past that
-// bound, behind anomalies an approver already accepted there, must keep it:
-// dropping it would let the round pass on a finding it just made.
-func TestAcceptedAnomaliesNeverCrowdOutAnOpenOne(t *testing.T) {
+// TestCarriedNotesNeverCrowdOutARoundsOwn: the record holds at most
+// maxAnomalies notes. A round at H whose own new note would land past that
+// bound, behind notes earlier rounds made there, keeps it: the oldest
+// carried note goes first, so the reviewer sees what the latest round saw.
+func TestCarriedNotesNeverCrowdOutARoundsOwn(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	heads := e.verification(name).HeadSetDigest
@@ -31,25 +30,19 @@ func TestAcceptedAnomaliesNeverCrowdOutAnOpenOne(t *testing.T) {
 		first = append(first, v1alpha1.AnomalyRecord{Summary: fmt.Sprintf("standing oddity %d", i)})
 	}
 	e.judgeAt(name, 1, heads, passingJudgement(t, first...))
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		for i := range in.Status.Verification.Anomalies {
-			in.Status.Verification.Anomalies[i].Accepted = &v1alpha1.AnomalyAcceptance{By: approver, ByID: 7,
-				At: metav1.NewTime(e.clock.Now()), CommentID: 99}
-		}
-	})
-	fresh := v1alpha1.AnomalyRecord{Summary: "a new defect round 2 noticed", Ledger: []int32{3}}
+	fresh := v1alpha1.AnomalyRecord{Summary: "a new oddity round 2 noticed", Ledger: []int32{3}}
 	v := e.judgeAt(name, 2, heads, passingJudgement(t, fresh))
-	if v.State == v1alpha1.VerificationPassed {
-		t.Errorf("round 2 = Passed over its own new anomaly, dropped behind %d accepted ones", maxAnomalies)
+	if len(v.Anomalies) != maxAnomalies {
+		t.Fatalf("%d notes recorded, want the schema's %d", len(v.Anomalies), maxAnomalies)
 	}
-	if open := openAnomalies(v.Anomalies); len(open) != 1 || open[0].Summary != fresh.Summary {
-		t.Errorf("open anomalies %+v, want round 2's own", open)
+	if last := v.Anomalies[maxAnomalies-1]; last.Summary != fresh.Summary || last.Round != 2 {
+		t.Errorf("last note %+v, want round 2's own", last)
 	}
-	if len(v.Anomalies) > maxAnomalies {
-		t.Errorf("%d anomalies recorded, over the schema's %d", len(v.Anomalies), maxAnomalies)
+	if v.Anomalies[0].Summary != "standing oddity 1" {
+		t.Errorf("first note %+v, want the oldest carried one dropped", v.Anomalies[0])
 	}
-	if outcomesReady(e.prVerifyPass(name).in.Status.Acceptance, v) {
-		t.Error("ready over round 2's own anomaly")
+	if v.State != v1alpha1.VerificationPassed {
+		t.Errorf("round 2 = %s over notes alone, want Passed", v.State)
 	}
 }
 
@@ -155,8 +148,8 @@ func TestModelFailVerdictHoldsItsHeads(t *testing.T) {
 
 // TestJudgingARoundAgainKeepsItsOwnRecords: the same round judged again
 // is that round's judgement, written anew: its own earlier finding does
-// not hold it (only an earlier round's does), and its own anomaly keeps the
-// time it was first recorded and any acceptance an approver made of it.
+// not hold it (only an earlier round's does), and its own note is
+// recorded once.
 func TestJudgingARoundAgainKeepsItsOwnRecords(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
@@ -172,20 +165,12 @@ func TestJudgingARoundAgainKeepsItsOwnRecords(t *testing.T) {
 
 	own := v1alpha1.AnomalyRecord{Summary: "round 2's oddity"}
 	e.judgeAt(name, 2, heads, passingJudgement(t, own))
-	first := metav1.NewTime(time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC))
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		as := in.Status.Verification.Anomalies
-		as[len(as)-1].RecordedAt = &first
-		as[len(as)-1].Accepted = &v1alpha1.AnomalyAcceptance{By: approver, ByID: 7,
-			At: metav1.NewTime(first.Add(time.Minute)), CommentID: 97}
-	})
 	v := e.judgeAt(name, 2, heads, passingJudgement(t, own))
-	got := v.Anomalies[len(v.Anomalies)-1]
-	if got.Accepted == nil || got.RecordedAt == nil || !got.RecordedAt.Equal(&first) {
-		t.Errorf("round 2 judged again: %+v; want its first time %v and the acceptance kept", got, first)
+	if n := len(v.Anomalies); n != 1 || v.Anomalies[0].Round != 2 {
+		t.Errorf("round 2 judged again: notes %+v, want its own once", v.Anomalies)
 	}
 	if v.State != v1alpha1.VerificationPassed {
-		t.Errorf("round 2 judged again over its accepted anomaly = %s, want Passed", v.State)
+		t.Errorf("round 2 judged again beside its note = %s, want Passed", v.State)
 	}
 }
 

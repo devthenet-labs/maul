@@ -309,8 +309,9 @@ Call each, and look for a 4xx or 5xx, an error in a body, or an empty answer whe
 Then read `maul-tool logs` for each component and `maul-tool events`: any errors, panics, restarts or OOM kills since
 the round began?
 
-Report what you find as anomalies, each citing the ledger seqs that show it. An anomaly never fails an outcome and
-never starts a fix: it tells the human reviewers what to look at.
+Report what you find as anomalies, each citing the ledger seqs that show it: notes that tell the human reviewers what
+to look at, which never fail, hold or confirm anything. What you find there that breaks what an approved outcome
+states, or the rule its line of the request states, is no anomaly: report it under that outcome, as above.
 {{- end}}
 
 {{template "evaluate-report" .}}

@@ -6,5 +6,5 @@ Commands go on the first line of a comment. Here you can use:
 - `/maul revise [note]`: start a revision round from your review feedback and the note
 - `/maul retry`: retry the round that failed
 - `/maul verify [fix|stop|--reset|explore]`: check the change against the plan's acceptance criteria now; `fix` also lets maul fix failures again, `stop` only stops maul fixing failures on its own, `--reset` first restarts the preview with fresh data, `explore` has the evaluator look again even where maul's saved checks alone could settle it
-- `/maul accept <id>|all|anomalies`: accept, at the current commits, a manual outcome or criterion, one maul could not confirm or found failing, or one that passed only on retry; `all` accepts every one of them and any anomaly maul noticed at those commits while it looked around, `anomalies` only those anomalies, and a note may follow on the lines below
+- `/maul accept <id>|all`: accept, at the current commits, a manual outcome or criterion, one maul could not confirm or found failing, or one that passed only on retry; `all` accepts every one of them, and a note may follow on the lines below
 - `/maul preview`: show the preview link now, before maul has finished checking the change; nothing else changes

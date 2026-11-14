@@ -193,13 +193,6 @@ type Retirement struct {
 	Reason      string
 }
 
-// AnomalyRef is a look-around anomaly.
-type AnomalyRef struct {
-	Summary string
-	Route   string
-	Ledger  []int32
-}
-
 // BaseRuns are this round's runs of saved checks at the base revision
 // (rule 5): the merge base of the head and the PR's base branch. nil when no
 // base is available: always in S1, the slot placement.
@@ -235,10 +228,9 @@ type Input struct {
 	Verdicts       []EvaluatorVerdict
 	Disputes       []CheckDispute
 	// Retired is this round's retirements.
-	Retired   []Retirement
-	Env       []httpstep.PartFact
-	Anomalies []AnomalyRef
-	Base      *BaseRuns
+	Retired []Retirement
+	Env     []httpstep.PartFact
+	Base    *BaseRuns
 }
 
 // Result is an outcome's result this round. A human's acceptance is the
@@ -365,7 +357,9 @@ type Handoff string
 
 // Hand-offs.
 const (
-	// HandoffReady: every outcome passed, no anomaly, a clean environment.
+	// HandoffReady: every outcome passed in a clean environment. A
+	// look-around anomaly is a note for the reviewer, never Decide's input:
+	// the evaluator answers whether the work is correct by the outcomes.
 	HandoffReady Handoff = "ready"
 	// HandoffUnconfirmed: anything else ("maul couldn't confirm this").
 	HandoffUnconfirmed Handoff = "unconfirmed"
@@ -542,8 +536,8 @@ func (d *decider) replayRuns() []CheckRun {
 // counts only red by assertion and its review only on the red question,
 // and a confirmation of it that is not red by assertion leaves the outcome
 // unsure, never passed. A dispute, a retirement this round or a failing
-// environment makes the outcome unsure; any anomaly or environment failure
-// downgrades the hand-off. A pass is also withheld, unsure, when the
+// environment makes the outcome unsure; an environment failure downgrades
+// the hand-off. A pass is also withheld, unsure, when the
 // evaluator says it saw the outcome fail (sawFailure, S1 demo bug 13),
 // when its only support is a check narrowed in an earlier round
 // (StoredCheck.Narrowed), or when a stored check of it the round was to
@@ -597,7 +591,7 @@ func decide(in Input, guard bool) Decision {
 	}
 	out.Retire, out.ReplayRound = d.replacements()
 	out.Narrowed = d.narrowed()
-	if out.Fix == nil && !out.ReplayRound && len(in.Anomalies) == 0 && d.env.Clean() && allPassed(out.PerOutcome) {
+	if out.Fix == nil && !out.ReplayRound && d.env.Clean() && allPassed(out.PerOutcome) {
 		out.Handoff = HandoffReady
 	}
 	return out

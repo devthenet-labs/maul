@@ -38,6 +38,21 @@ anomalies:
 Both outcomes hold; the home page throws in the console.
 `
 
+// objectingReport is an evaluator's report that both outcomes hold, but
+// that it saw version-shown, as worded, not hold at seq 2 (contrary).
+const objectingReport = `---
+verdicts:
+  - id: version-shown
+    verdict: pass
+    ledger: [3]
+    contrary: [2]
+  - id: still-healthy
+    verdict: pass
+    ledger: [4]
+---
+Both outcomes pass their checks, but the build page showed no version once.
+`
+
 // modelRound drives intent name's next round, a full one, to its
 // judgement: the stored checks version and health replay with results, the
 // evaluator reports as e's evaluate Jobs do. It returns the round's
@@ -506,22 +521,23 @@ func TestVerifyExploreIsApproversOnly(t *testing.T) {
 	}
 }
 
-// TestObjectingModelRoundIsNotReplayed: a full round whose evaluator
-// reported an anomaly (or saw an outcome fail) is not clear, so the next
-// round at its heads is full, never a replay that would pass what that
-// evaluator raised. That round's evaluator is told of the anomaly, and
-// reporting nothing does not clear it (G-B-LIB-1: an anomaly is a fact
-// about the commits it was found at): round 2 stays Unconfirmed on round
-// 1's anomaly, carried, and is not clear either, so no replay follows it.
+// TestObjectingModelRoundIsNotReplayed: a full round whose evaluator saw
+// an outcome fail (here a contrary entry) is not clear, so the next round
+// at its heads is full, never a replay that would pass what that evaluator
+// raised; and reporting nothing does not clear it (a finding about an
+// outcome is a fact about the commits it was made at: the check it passed
+// on is narrowed, and G-B-LIB-1 holds the outcome): round 2 leaves the
+// outcome unsure, Unconfirmed.
 func TestObjectingModelRoundIsNotReplayed(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	e.evaluateReporting(anomalyReport)
+	e.evaluateReporting(objectingReport)
 	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
 	e.acceptManual(name)
 	e.modelRound(name, 1, v1alpha1.CheckRunPass)
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationUnconfirmed || v.ModelRound == nil || v.ModelRound.Clear {
-		t.Fatalf("round 1 = %s, model round %+v; want Unconfirmed on the anomaly, not clear", v.State, v.ModelRound)
+		t.Fatalf("round 1 = %s, model round %+v; want Unconfirmed on the objection, not clear", v.State,
+			v.ModelRound)
 	}
 	e.evaluateReporting(evaluationReport)
 	e.request(name, "issue", "/maul verify")
@@ -536,18 +552,37 @@ func TestObjectingModelRoundIsNotReplayed(t *testing.T) {
 	if len(evals) != 2 {
 		t.Fatalf("evaluate runs = %d, want both rounds'", len(evals))
 	}
-	h := decodeEvaluateHandoff(t, evals[1].IssueMarkdown)
-	if len(h.HeldAnomalies) != 1 || h.HeldAnomalies[0].Round != 1 || h.HeldAnomalies[0].Summary == "" {
-		t.Errorf("round 2's handoff holds %+v, want round 1's anomaly to examine again", h.HeldAnomalies)
-	}
 	v = e.verification(name)
-	if v.State != v1alpha1.VerificationUnconfirmed || v.ModelRound == nil || v.ModelRound.Round != 2 ||
-		v.ModelRound.Clear {
-		t.Errorf("round 2 = %s, model round %+v; want Unconfirmed, the model round, not clear", v.State,
-			v.ModelRound)
+	if v.State != v1alpha1.VerificationUnconfirmed || v.ModelRound == nil || v.ModelRound.Round != 2 {
+		t.Errorf("round 2 = %s, model round %+v; want Unconfirmed, the model round", v.State, v.ModelRound)
+	}
+	if r := v.Outcomes[0]; r.ID != oVersion || r.Result != v1alpha1.OutcomeUnsure {
+		t.Errorf("round 2 %+v, want version-shown unsure on round 1's finding", r)
+	}
+}
+
+// TestNoteRoundIsReplayed: a full round whose evaluator confirmed every
+// outcome and reported only a look-around anomaly is clear and Passed, so
+// the next round at its heads replays with no model, Passes too, and keeps
+// round 1's note for the reviewer.
+func TestNoteRoundIsReplayed(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.evaluateReporting(anomalyReport)
+	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
+	e.acceptManual(name)
+	e.modelRound(name, 1, v1alpha1.CheckRunPass)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationPassed || v.ModelRound == nil || !v.ModelRound.Clear {
+		t.Fatalf("round 1 = %s, model round %+v; want Passed, clear", v.State, v.ModelRound)
+	}
+	e.request(name, "issue", "/maul verify")
+	e.replayRound(name, 2, v1alpha1.CheckRunPass)
+	v = e.verification(name)
+	if v.State != v1alpha1.VerificationPassed {
+		t.Errorf("round 2 = %s, want Passed", v.State)
 	}
 	if len(v.Anomalies) != 1 || v.Anomalies[0].Round != 1 {
-		t.Errorf("round 2 anomalies %+v, want round 1's carried", v.Anomalies)
+		t.Errorf("round 2 notes %+v, want round 1's carried", v.Anomalies)
 	}
 }
 

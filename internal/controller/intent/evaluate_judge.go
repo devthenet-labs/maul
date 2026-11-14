@@ -5,7 +5,6 @@ package intent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -34,9 +33,8 @@ import (
 // claims the evaluator's report. The decision is routed with the kept
 // machinery:
 //
-//   - every outcome confirmed (or accepted by an approver at the heads), no
-//     anomaly, a clean environment: Passed, and the gated hand-off says
-//     "ready";
+//   - every outcome confirmed (or accepted by an approver at the heads) in
+//     a clean environment: Passed, and the gated hand-off says "ready";
 //   - a failure the evaluator agrees with: Failing, and startVerifyFix starts
 //     a verify-fix round on Decision.Fix under the kept bounds
 //     (maxVerifyFixes, RepeatedFailure on Decide's fingerprint, D3). A
@@ -55,10 +53,17 @@ import (
 // how that round is judged, and startVerifyFix and the fix round's input
 // decide exactly what the judgement did. The one thing it takes from
 // earlier rounds is what they found at the same heads (G-B-LIB-1): a
-// finding is a fact about the commits it was made at, so the anomalies
-// earlier rounds recorded there, and the outcomes they found failing or
-// suspected there, hold the round from Passed (heldAnomalies,
-// heldOutcomes) until the heads move or an approver accepts them.
+// finding is a fact about the commits it was made at, so the outcomes
+// earlier rounds found failing or suspected there hold the round from
+// Passed (heldOutcomes) until the heads move or an approver accepts them.
+//
+// The evaluator answers one question, whether the work is correct, and the
+// approved outcomes alone answer it: a look-around anomaly (the evaluator's
+// side finding) is a note for the human reviewer, recorded, carried through
+// later rounds at the same heads (carriedAnomalies) and shown, but it never
+// holds a round, keeps a model round from clear or downgrades the hand-off.
+// A defect against what the issue promises is the evaluator's fail of the
+// outcome that states it (the evaluate prompt), which holds as above.
 
 // Bounds of what a judgement records from the evaluator (the schema's).
 const (
@@ -111,43 +116,18 @@ func (p *pass) decideRound(ctx context.Context, pv *v1alpha1.PreviewVerification
 			slog.String("intent", p.in.Name), slog.String("verification", pv.Name), slog.Any("error", err))
 		stored = nil
 	}
-	ev := evaluationClaims(run)
-	var entries []toolwire.LedgerEntry
-	if claimsPreExisting(ev) {
-		entries = ledgerEntries(p.ledgerOf(ctx, pv))
-	}
-	return judgeHolding(p.in.Status.Acceptance, pv, stored, ev,
-		heldAnomalies(p.in.Status.Verification, pv.Spec.HeadSetDigest, pv.Spec.Round), entries)
+	return judgeRound(p.in.Status.Acceptance, pv, stored, evaluationClaims(run))
 }
 
 // judgeRound judges pv, a collected round, on acc, the store as read (nil
 // when it could not be) and ev, its evaluator's claims (nil on a replay
-// round), with no anomaly held at its heads and no ledger to hold a
-// pre-existing anomaly to.
+// round). Its anomalies are recorded as notes and go to Decide as nothing.
 func judgeRound(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck,
 	ev *report.Evaluation) roundJudgement {
-	return judgeHolding(acc, pv, stored, ev, nil, nil)
-}
-
-// judgeHolding is judgeRound with held, the anomalies earlier rounds found
-// at pv's heads (heldAnomalies): those no approver accepted go to Decide
-// beside the round's own (G-B-LIB-1), so the round is neither ready nor a
-// clear model round while one stands. Their records are carried by
-// applyJudgement, which reads them afresh in its own write. entries are
-// pv's full ledger, read only when the evaluator says an anomaly was there
-// before the change: one the ledger bears out (preExisting) is recorded as
-// such and goes to Decide as nothing (G-B-BR-2).
-func judgeHolding(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck,
-	ev *report.Evaluation, held []v1alpha1.AnomalyRecord, entries []toolwire.LedgerEntry) roundJudgement {
 	cs := judgedChecks(pv, stored)
-	pre := preExisting(ev, pv, entries)
-	in := decideInput(acc, pv, cs, ev, pre)
-	for _, a := range openAnomalies(held) {
-		// Cited in an earlier round's ledger, not this one's: no seq.
-		in.Anomalies = append(in.Anomalies, acceptance.AnomalyRef{Summary: a.Summary, Route: a.Route})
-	}
+	in := decideInput(acc, pv, cs, ev)
 	j := roundJudgement{decision: acceptance.Decide(in), checks: cs, stored: stored, evaluation: ev,
-		anomalies: anomalyRecords(ev, pv, pre), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
+		anomalies: anomalyRecords(ev, pv), env: in.Env, replay: pv.Spec.Rung == v1alpha1.RungReplay,
 		clear: acceptance.ModelRoundClear(in), cleared: clearedRed(cs, pv.Status.Replay), verification: pv.Name,
 		base: in.Base}
 	if ev != nil {
@@ -350,9 +330,9 @@ func judgedChecks(pv *v1alpha1.PreviewVerification, stored []v1alpha1.SavedCheck
 // reviews, the checks narrowed in an earlier round, and the evaluator's
 // claims with the ledger entries it cites that the round's ledger holds (its
 // contrary entries as written), and an agents round's base (baseRuns; none
-// on a slot round, S1's). An anomaly pre marks (preExisting) is left out.
+// on a slot round, S1's). Its anomalies are no input: they are notes.
 func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification, cs []v1alpha1.SavedCheck,
-	ev *report.Evaluation, pre []bool) acceptance.Input {
+	ev *report.Evaluation) acceptance.Input {
 	in := storeInput(acc, cs, pv.Name)
 	in.Replay, in.Confirmations = checkRuns(pv.Status.Replay), checkRuns(pv.Status.Confirmations)
 	for _, c := range pv.Spec.Checks {
@@ -375,14 +355,6 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 	for _, d := range resolvedDisputes(ev, pv) {
 		in.Disputes = append(in.Disputes, acceptance.CheckDispute{CheckDigest: d.CheckDigest, Reason: d.Reason,
 			Replacement: d.Replacement, Ledger: citedOnly(d.Ledger, pv)})
-	}
-	for i, a := range ev.Anomalies {
-		if i < len(pre) && pre[i] {
-			// There before the change, on maul's own ledger: not the PR's.
-			continue
-		}
-		in.Anomalies = append(in.Anomalies, acceptance.AnomalyRef{Summary: a.Summary, Route: a.Route,
-			Ledger: citedOnly(a.Ledger, pv)})
 	}
 	return in
 }
@@ -512,14 +484,13 @@ func citedOnly(cited []int32, pv *v1alpha1.PreviewVerification) []int32 {
 
 // anomalyRecords are the evaluator's look-around anomalies as the Intent
 // records them: those citing an entry pv's ledger holds (an anomaly needs
-// evidence), bounded to the schema's, each pre marks (preExisting) recorded
-// as there before the change.
-func anomalyRecords(ev *report.Evaluation, pv *v1alpha1.PreviewVerification, pre []bool) []v1alpha1.AnomalyRecord {
+// evidence), bounded to the schema's.
+func anomalyRecords(ev *report.Evaluation, pv *v1alpha1.PreviewVerification) []v1alpha1.AnomalyRecord {
 	if ev == nil {
 		return nil
 	}
 	var out []v1alpha1.AnomalyRecord
-	for i, a := range ev.Anomalies {
+	for _, a := range ev.Anomalies {
 		cites := citedOnly(a.Ledger, pv)
 		summary := strings.TrimSpace(untrusted.Cut(a.Summary, maxAnomalySummary))
 		if len(cites) == 0 || summary == "" || len(out) == maxAnomalies {
@@ -529,141 +500,19 @@ func anomalyRecords(ev *report.Evaluation, pv *v1alpha1.PreviewVerification, pre
 			cites = cites[:maxAnomalyCites]
 		}
 		out = append(out, v1alpha1.AnomalyRecord{Summary: summary, Route: untrusted.Cut(a.Route, maxAnomalyRoute),
-			Ledger: cites, PreExisting: i < len(pre) && pre[i]})
+			Ledger: cites})
 	}
 	return out
 }
 
-// claimsPreExisting reports an evaluation saying an anomaly was there
-// before the change: only then is the round's full ledger read.
-func claimsPreExisting(ev *report.Evaluation) bool {
-	return ev != nil && slices.ContainsFunc(ev.Anomalies, func(a report.Anomaly) bool { return a.PreExisting })
-}
-
-// preExisting marks, for each of ev's anomalies, one maul holds to have
-// been there before the change (G-B-BR-2): the evaluator says so, and its
-// cites in pv's ledger (citedOnly, at most maxAnomalyCites) bear it out
-// (preExistingCites). nil without a claim or a ledger.
-func preExisting(ev *report.Evaluation, pv *v1alpha1.PreviewVerification, entries []toolwire.LedgerEntry) []bool {
-	if !claimsPreExisting(ev) || len(entries) == 0 {
-		return nil
-	}
-	out := make([]bool, len(ev.Anomalies))
-	for i, a := range ev.Anomalies {
-		cites := citedOnly(a.Ledger, pv)
-		out[i] = a.PreExisting && len(cites) <= maxAnomalyCites && preExistingCites(cites, entries, workspaceBinary(pv))
-	}
-	return out
-}
-
-// preExistingCites reports cites that show their anomaly unchanged by the
-// change, on maul's ledger alone (entries): every call at the head they
-// cite runs the build (runsBuild, bin the cli's binary) and has a twin at
-// the base they cite too (sameAtBase), and they cite at least one. A slot
-// round has no base, so its anomalies never are. The evaluator's words are
-// not read: an anomaly whose evidence differs at the base in any one call
-// it cites, or which cites a call that is not a run of the build (a files
-// read, an exec of cat or a shell, a browser call, an event, a check run),
-// holds as any other. What maul holds is that every call cited behaved the
-// same without the change; that those calls are the anomaly's evidence
-// remains the evaluator's word.
-func preExistingCites(cites []int32, entries []toolwire.LedgerEntry, bin string) bool {
-	var head, base []toolwire.LedgerEntry
-	for _, seq := range cites {
-		i := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Seq == int64(seq) })
-		if i < 0 {
-			return false
-		}
-		if entries[i].Side == toolwire.SideBase {
-			base = append(base, entries[i])
-		} else {
-			head = append(head, entries[i])
-		}
-	}
-	if len(head) == 0 {
-		return false
-	}
-	for _, h := range head {
-		if !runsBuild(h, bin) || !slices.ContainsFunc(base, func(b toolwire.LedgerEntry) bool { return sameAtBase(h, b) }) {
-			return false
-		}
-	}
-	return true
-}
-
-// sameAtBase reports b the very call h made at the head, made at the base
-// (its args the same but for the side), with the same exit and the same
-// whole output: an exec or a run, a program run against each side's
-// build, which prints all it observes. A files read is no twin: the same
-// text at both sides does not show the same behaviour (a caller the
-// change rewrote can expose an untouched file's defect). A refused call, a
-// check run, or an output dropped from the ledger or cut short shows
-// nothing to compare.
-func sameAtBase(h, b toolwire.LedgerEntry) bool {
-	switch {
-	case h.Verb != b.Verb || (h.Verb != toolwire.VerbExec && h.Verb != toolwire.VerbRun):
-		return false
-	case h.Side != "" || b.Side != toolwire.SideBase || h.Refused != "" || b.Refused != "":
-		return false
-	case h.CheckRun != nil || b.CheckRun != nil || !wholeOutput(h) || !wholeOutput(b):
-		return false
-	}
-	ha, hok := argsBesideSide(h.Args)
-	ba, bok := argsBesideSide(b.Args)
-	return hok && bok && ha == ba && h.Exit == b.Exit && h.Output == b.Output && h.OutputSHA256 == b.OutputSHA256
-}
-
-// runsBuild reports h a call that runs what the side built: a run (a
-// program compiled against the side's tree) or an exec whose argv[0] is
-// the cli's binary (bin, or checks.BinPlaceholder), as a saved exec check
-// must be. An exec of anything else (cat, grep, a shell) shows at most
-// the same text at both sides, as a files read does, not the same
-// behaviour of the build.
-func runsBuild(h toolwire.LedgerEntry, bin string) bool {
-	if h.Verb == toolwire.VerbRun {
-		return true
-	}
-	var req toolwire.ExecRequest
-	if h.Verb != toolwire.VerbExec || json.Unmarshal(h.Args, &req) != nil || len(req.Argv) == 0 {
-		return false
-	}
-	return req.Argv[0] == checks.BinPlaceholder || (bin != "" && req.Argv[0] == bin)
-}
-
-// workspaceBinary is pv's cli binary, "" for none.
-func workspaceBinary(pv *v1alpha1.PreviewVerification) string {
-	if ws := pv.Spec.Workspace; ws != nil && ws.Surface.CLI != nil {
-		return ws.Surface.CLI.Binary
-	}
-	return ""
-}
-
-// wholeOutput reports an entry whose output the ledger keeps whole.
-func wholeOutput(e toolwire.LedgerEntry) bool {
-	return e.Output != toolledger.DroppedOutput && !strings.Contains(e.Output, toolwire.TruncationMarker)
-}
-
-// argsBesideSide is a call's args, compacted, without its side: the same
-// call at either side has the same. false for args that are not a JSON
-// object.
-func argsBesideSide(raw json.RawMessage) (string, bool) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
-		return "", false
-	}
-	delete(m, "side")
-	b, err := json.Marshal(m)
-	return string(b), err == nil
-}
-
-// heldAnomalies are the look-around anomalies v records at headSet from
-// rounds other than round (G-B-LIB-1): an anomaly is a fact about the
-// commits it was found at. They are those of v's latest judgement when it
-// was at headSet, each stamped with the round that found it (a record from
-// before rounds were stamped is that judgement's own). A record of round
-// itself is that round's, judged again, which its judgement writes anew.
-// nil once the heads moved.
-func heldAnomalies(v *v1alpha1.IntentVerification, headSet string, round int32) []v1alpha1.AnomalyRecord {
+// carriedAnomalies are the look-around notes v records at headSet from
+// rounds other than round: a later round at the same heads carries them,
+// so the reviewer still sees them. They are those of v's latest judgement
+// when it was at headSet, each stamped with the round that found it (a
+// record from before rounds were stamped is that judgement's own). A
+// record of round itself is that round's, judged again, which its
+// judgement writes anew. nil once the heads moved.
+func carriedAnomalies(v *v1alpha1.IntentVerification, headSet string, round int32) []v1alpha1.AnomalyRecord {
 	if v == nil || headSet == "" || v.OutcomesHeadSetDigest != headSet {
 		return nil
 	}
@@ -676,6 +525,29 @@ func heldAnomalies(v *v1alpha1.IntentVerification, headSet string, round int32) 
 		if a.Round != round {
 			out = append(out, a)
 		}
+	}
+	return out
+}
+
+// carryAnomalies are a judgement's notes as the Intent records them:
+// carried, those earlier rounds found at its heads, first, then own, the
+// round's own, stamped with round, less any repeating a carried one's
+// words, at most maxAnomalies: the oldest carried go first, so a round's
+// own (at most maxAnomalies, anomalyRecords) are always kept.
+func carryAnomalies(carried, own []v1alpha1.AnomalyRecord, round int32) []v1alpha1.AnomalyRecord {
+	out := slices.Clone(carried)
+	for _, a := range own {
+		if slices.ContainsFunc(carried, func(h v1alpha1.AnomalyRecord) bool {
+			return h.Summary == a.Summary && h.Route == a.Route
+		}) {
+			continue
+		}
+		a = *a.DeepCopy()
+		a.Round = round
+		out = append(out, a)
+	}
+	if len(out) > maxAnomalies {
+		out = out[len(out)-maxAnomalies:]
 	}
 	return out
 }
@@ -719,8 +591,7 @@ func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) m
 // failing at the round's heads: a fix-worthy check failed and the evaluator
 // agreed (reproduced), a check saved red failed (suspected-defect), or the
 // evaluator saw the outcome fail with no check maul could confirm
-// (model-only-fail, evaluator-saw-failure), as surely a finding as an
-// anomaly it reported.
+// (model-only-fail, evaluator-saw-failure).
 func findsFailing(reason string) bool {
 	switch reason {
 	case acceptance.ReasonReproduced, acceptance.ReasonSuspectedDefect, acceptance.ReasonModelOnlyFail,
@@ -782,75 +653,6 @@ func holdOutcomes(rs []v1alpha1.OutcomeResult, failing map[string]string, acc *v
 		rs[i] = r
 	}
 	return rs
-}
-
-// openAnomalies are the anomalies of as that hold their heads: those no
-// approver accepted and maul did not hold to be there before the change.
-func openAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
-	var out []v1alpha1.AnomalyRecord
-	for _, a := range as {
-		if holds(a) {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
-// holds reports an anomaly that holds its heads from Passed.
-func holds(a v1alpha1.AnomalyRecord) bool { return a.Accepted == nil && !a.PreExisting }
-
-// carryAnomalies are a judgement's anomalies as the Intent records them:
-// held, those earlier rounds found at its heads, first, then own, the
-// round's own, stamped with round and recorded at now, less any repeating a
-// held one's words (the held record, and any acceptance of it, stands), at
-// most maxAnomalies, never an open one dropped for an accepted one
-// (fitAnomalies). prev is the record before this judgement: the round
-// judged again keeps its own records' time and acceptance.
-func carryAnomalies(prev, held, own []v1alpha1.AnomalyRecord, round int32,
-	now time.Time) []v1alpha1.AnomalyRecord {
-	out := slices.Clone(held)
-	same := func(a v1alpha1.AnomalyRecord) func(v1alpha1.AnomalyRecord) bool {
-		return func(h v1alpha1.AnomalyRecord) bool { return h.Summary == a.Summary && h.Route == a.Route }
-	}
-	for _, a := range own {
-		if slices.ContainsFunc(held, func(h v1alpha1.AnomalyRecord) bool {
-			// A held record that holds nothing for being there before the
-			// change does not absorb a later record of its words that
-			// does: that round's evidence differed.
-			return same(a)(h) && (!h.PreExisting || a.PreExisting)
-		}) {
-			continue
-		}
-		a = *a.DeepCopy()
-		a.Round = round
-		at := metav1.NewTime(now)
-		a.RecordedAt = &at
-		if i := slices.IndexFunc(prev, func(p v1alpha1.AnomalyRecord) bool {
-			return p.Round == round && same(a)(p)
-		}); i >= 0 {
-			a.RecordedAt, a.Accepted = prev[i].RecordedAt.DeepCopy(), prev[i].Accepted.DeepCopy()
-		}
-		out = append(out, a)
-	}
-	return fitAnomalies(out)
-}
-
-// fitAnomalies cuts as to maxAnomalies, the schema's bound, dropping the
-// latest that hold nothing (an approver accepted it, or it was there before
-// the change) first: an open anomaly is never dropped while one that holds
-// nothing is kept, since the record alone keeps a round from Passed
-// (judgedState). Past the bound with open ones alone, the latest go, and
-// the maxAnomalies kept still hold the heads.
-func fitAnomalies(as []v1alpha1.AnomalyRecord) []v1alpha1.AnomalyRecord {
-	for i := len(as) - 1; i >= 0 && len(as) > maxAnomalies; i-- {
-		if !holds(as[i]) {
-			as = slices.Delete(as, i, i+1)
-		}
-	}
-	if len(as) > maxAnomalies {
-		as = as[:maxAnomalies]
-	}
-	return as
 }
 
 // outcomeAccepted reports an approver's /maul accept of outcome id at the
@@ -921,9 +723,8 @@ func confirmedAll(rs []v1alpha1.OutcomeResult) bool {
 }
 
 // judgedState is the state a judgement routes to (the list above), and
-// whether a replay round follows it. v carries the judgement's anomalies
-// with those held at its heads (applyJudgement): any no approver accepted
-// keeps it from Passed.
+// whether a replay round follows it. Its anomalies are notes: they hold
+// nothing.
 func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1alpha1.OutcomeResult,
 	fix *acceptance.FixRequest) (v1alpha1.IntentVerificationState, bool) {
 	replayNext := j.decision.ReplayRound && !j.replay
@@ -936,7 +737,7 @@ func judgedState(v *v1alpha1.IntentVerification, j roundJudgement, results []v1a
 		return v1alpha1.VerificationExhausted, false
 	case fix != nil:
 		return v1alpha1.VerificationFailing, false
-	case !replayNext && len(openAnomalies(v.Anomalies)) == 0 && j.decision.Env.Clean() && confirmedAll(results):
+	case !replayNext && j.decision.Env.Clean() && confirmedAll(results):
 		return v1alpha1.VerificationPassed, false
 	}
 	return v1alpha1.VerificationUnconfirmed, replayNext
@@ -956,17 +757,15 @@ func rearmedSince(v *v1alpha1.IntentVerification) bool {
 }
 
 // applyJudgement writes j onto cur's verification: the results, the counts,
-// the anomalies (those earlier rounds found at its heads, which it carries,
-// then its own: G-B-LIB-1), the disputed checks a replay round awaits, and
-// the state. A held anomaly no approver accepted keeps the round from
-// Passed and from being a clear model round, whatever its own evaluator
-// reported: only moved heads or an approver's acceptance end it.
+// the notes (those earlier rounds found at its heads, which it carries,
+// then its own), the disputed checks a replay round awaits, and the state.
+// An outcome an earlier round found failing or suspected at its heads is
+// held (heldOutcomes, G-B-LIB-1) whatever its own evaluator reported: only
+// moved heads, an approver's acceptance, a retirement through a dispute or
+// a fix round's no-defect conclusion end it.
 func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 	nv, acc := cur.Status.Verification, cur.Status.Acceptance
-	held := heldAnomalies(nv, nv.HeadSetDigest, nv.Round)
-	if len(openAnomalies(held)) > 0 {
-		j.clear = false
-	}
+	carried := carriedAnomalies(nv, nv.HeadSetDigest, nv.Round)
 	failing := heldOutcomes(nv, nv.HeadSetDigest, nv.Round)
 	clearJudgement(nv)
 	nv.Outcomes = holdOutcomes(outcomeResults(acc, nv.HeadSetDigest, j), failing, acc, nv.HeadSetDigest, j)
@@ -983,7 +782,7 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement, now time.Time) {
 		case v1alpha1.OutcomeUnsure, v1alpha1.OutcomeAccepted:
 		}
 	}
-	nv.Anomalies = carryAnomalies(nv.Anomalies, held, j.anomalies, nv.Round, now)
+	nv.Anomalies = carryAnomalies(carried, j.anomalies, nv.Round)
 	addRedCleared(acc, j.cleared, j.verification)
 	addNarrowed(acc, j.decision.Narrowed, j.verification, j.stored)
 	nv.Suspected = suspectedRecord(j, nv.HeadSetDigest, now, nv.Suspected)
@@ -1261,8 +1060,8 @@ func pluralWord(n int, one, many string) string {
 }
 
 // outcomesReady reports a judged evaluation every outcome of which is now
-// confirmed or accepted by an approver at its heads, with no anomaly and no
-// replay round pending: what "ready" means once approvers accepted what
+// confirmed or accepted by an approver at its heads, with no replay round
+// pending: what "ready" means once approvers accepted what
 // maul could not confirm (/maul accept, after the judgement).
 func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	switch v.State {
@@ -1278,9 +1077,8 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 }
 
 // judgementReady reports v's judgement at its heads, whatever its state:
-// every outcome confirmed or accepted, no anomaly an approver did not accept,
-// no replay round pending, and a clean environment, as Decide's hand-off
-// needs (review H2).
+// every outcome confirmed or accepted, no replay round pending, and a clean
+// environment, as Decide's hand-off needs (review H2).
 func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	if !judgedAtRecord(v) {
 		// No judgement of its round at its heads, or the state records a
@@ -1289,7 +1087,7 @@ func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificati
 		return false
 	}
 	results := v.JudgedOutcomes()
-	if len(openAnomalies(v.Anomalies)) > 0 || len(v.Disputed) > 0 || len(results) == 0 ||
+	if len(v.Disputed) > 0 || len(results) == 0 ||
 		!httpstep.EnvClass(v.OutcomesEnvironment).Clean() {
 		return false
 	}

@@ -410,20 +410,16 @@ type EvaluationBuild struct {
 	DurationMs int32  `json:"durationMs,omitempty"`
 }
 
-// EvaluationAnomaly is one look-around anomaly (current round only). Its
-// summary and route are the evaluator's, shown as plain text. FoundInRound
-// is the earlier round at the same commits that found it, which the round
-// carries (G-B-LIB-1; its Ledger, that round's, is then left out), and
-// AcceptedBy the approver who accepted it at those commits. PreExisting
-// marks one the evaluator said was there before the change, its cited
-// calls the same at the base (G-B-BR-2).
+// EvaluationAnomaly is one look-around anomaly (current round only), a
+// note for the reviewers that holds nothing. Its summary and route are the
+// evaluator's, shown as plain text. FoundInRound is the earlier round at
+// the same commits that found it, which the round carries (its Ledger,
+// that round's, is then left out).
 type EvaluationAnomaly struct {
 	Summary      string  `json:"summary"`
 	Route        string  `json:"route,omitempty"`
 	Ledger       []int32 `json:"ledger,omitempty"`
 	FoundInRound int32   `json:"foundInRound,omitempty"`
-	AcceptedBy   string  `json:"acceptedBy,omitempty"`
-	PreExisting  bool    `json:"preExisting,omitempty"`
 }
 
 // EvaluationDispute is a saved check the evaluator disputed. Reason,
