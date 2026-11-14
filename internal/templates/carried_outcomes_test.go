@@ -220,7 +220,8 @@ func TestCarriedOverLeavesANewItemItsOwnIdentity(t *testing.T) {
 		}
 		// "a copy" beside a list of fields is the whole copy; only a
 		// request that promises no copy is narrowed to the fields it names.
-		if want := "where the request promises no copy and names the fields kept, only those"; !strings.Contains(flat(got), want) {
+		want := "where the request promises no copy and names the fields kept, only those"
+		if !strings.Contains(flat(got), want) {
 			t.Errorf("%s plan: lacks %q", name, want)
 		}
 	}
