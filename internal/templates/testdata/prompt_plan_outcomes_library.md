@@ -146,9 +146,19 @@ How to word an outcome so the evaluator can show it:
   it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
   rule as the request does and no wider: where the request gives only an example, state the example, and add no
   input, bound or behaviour the request does not promise.
+- An outcome whose `from` line states a rule states that rule, whatever else it names (a README's example, a
+  documented value): where a line states a rule and an example of it, fold the example in as "for example ...", and
+  never write an outcome of only the example with that line as its `from`.
+- Where the request promises that something is carried over (a copy, fields kept, the rest unchanged, the same as
+  before, a value that round-trips through save and load), that promise is a rule too: state it as an outcome of its
+  own, over all of what the request promises: for "a copy of p", every field of p other than those the request says
+  change, the ones it does not name included (a list of some fields beside "a copy" does not narrow the copy), and
+  where the request names the fields kept, only those. Name them as the code or the application does, and say that
+  they come through as they were, whether each is set, zero, empty or left absent.
 - The evaluator calls only the library's exported API, from programs of its own: state an outcome through that API,
   never through unexported code or internals.
-- A `keep` outcome names one call and what it then returns, never "X still works".
+- A `keep` outcome names one call and what it then returns, never "X still works"; where its line states a rule
+  (unchanged for any input), it states that rule with the call as one instance of it.
 - An outcome only a person can judge (how readable an error message is) is `manual: true`.
 
 After the frontmatter, write the plan in markdown under the headings Approach, Steps, Test plan and Risks, in at most

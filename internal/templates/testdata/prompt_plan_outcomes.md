@@ -165,10 +165,22 @@ How to word an outcome so the evaluator can show it:
   it states, and tries it on inputs beyond the example, where a build right only on the example is wrong. State the
   rule as the request does and no wider: where the request gives only an example, state the example, and add no
   input, bound or behaviour the request does not promise.
+- An outcome whose `from` line states a rule states that rule, whatever else it names (a README's example, a
+  documented value): where a line states a rule and an example of it, fold the example in as "for example ...", and
+  never write an outcome of only the example with that line as its `from`.
+- Where the request promises that something is carried over (a copy, fields kept, the rest unchanged, the same as
+  before, a value that round-trips through save and load), that promise is a rule too: state it as an outcome of its
+  own, over all of what the request promises: for "a copy of p", every field of p other than those the request says
+  change, the ones it does not name included (a list of some fields beside "a copy" does not narrow the copy), and
+  where the request names the fields kept, only those. Name them as the code or the application does, and say that
+  they come through as they were, whether each is set, zero, empty or left absent.
 - State such a rule over items the person checking creates, as above ("a beat you save at any tempo from 60 to 200
   BPM shows that tempo, for example 90 bpm").
+- State such a promise over an item the person checking creates ("a beat you copy keeps its name, tempo and steps,
+  and its notes even when you left them empty").
 - A `keep` outcome names one action on the person's own item and what they then see ("a beat you save still plays
-  its 16 steps in order"), never "X still works".
+  its 16 steps in order"), never "X still works"; where its line states a rule (unchanged for any input), it states
+  that rule with the action as one instance of it.
 - An outcome about the page's fixed layout (a size, an alignment, what can be seen, no sideways scroll) needs no data.
   Name one element of the fixed page (the kick row's first step pad) and state the numbers: an exact size or position
   with a tolerance ("48 by 48 px, within 1 px"), or the bound the request gives ("at least 48 by 48 px", "at most 320
