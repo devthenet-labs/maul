@@ -249,7 +249,7 @@ func TestOutcomeVerifyCommandsOnThePullRequest(t *testing.T) {
 	e.clock.Advance(time.Second)
 	for range 2 {
 		p := e.prVerifyPass(name)
-		if err := p.settlePRVerifyCommands(context.Background(), &pr); err != nil {
+		if err := p.settlePRCommands(context.Background(), &pr); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -292,7 +292,7 @@ func TestOutcomeVerifyCommandsOnThePullRequestNeedWriteAccess(t *testing.T) {
 	id := e.prCommand(pr.Number, approver, "/maul verify --reset")
 	e.clock.Advance(time.Second)
 	for range 2 {
-		if err := e.prVerifyPass(name).settlePRVerifyCommands(context.Background(), &pr); err != nil {
+		if err := e.prVerifyPass(name).settlePRCommands(context.Background(), &pr); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -482,7 +482,7 @@ func TestOutcomePRCommentsListedOncePerPass(t *testing.T) {
 	e.gh.mu.Lock()
 	before := e.gh.calls["ListPullRequestComments"]
 	e.gh.mu.Unlock()
-	if err := p.settlePRVerifyCommands(ctx, &pr); err != nil {
+	if err := p.settlePRCommands(ctx, &pr); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.commandRound(ctx, &pr); err != nil {

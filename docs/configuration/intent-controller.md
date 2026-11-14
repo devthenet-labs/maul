@@ -571,7 +571,10 @@ later commands get neither a reaction nor a reply, so nobody can make maul write
 
 A command is read only on a comment's first non-blank line. A `/maul <verb>` the issue offers on a later line of an
 approver's comment, outside a quote and code, is never acted on: maul answers it once with the commands and where they
-go, and the approver posts it again as a new comment. Anyone else's such comment gets nothing, not even a reaction.
+go, and the approver posts it again as a new comment. Anyone else's such comment gets nothing, not even a reaction. The
+same holds on the intent's pull requests while it is in review, verified or not, for the verbs a pull request offers
+(`revise`, `retry`, `verify`, `accept`, `preview`): an approver with write access to the application repository is
+answered there once, and no round starts.
 
 The plan comment shows the plan's exact bytes in a code block. An approval counts only if all of these hold:
 

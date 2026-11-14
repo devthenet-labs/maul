@@ -152,7 +152,7 @@ func (e *env) settlePR(name string) {
 	e.t.Helper()
 	p := e.prVerifyPass(name)
 	pr := p.in.Status.PullRequests[0]
-	if err := p.settlePRVerifyCommands(context.Background(), &pr); err != nil {
+	if err := p.settlePRCommands(context.Background(), &pr); err != nil {
 		e.t.Fatal(err)
 	}
 }

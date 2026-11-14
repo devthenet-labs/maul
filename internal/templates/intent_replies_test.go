@@ -6,6 +6,8 @@ package templates
 import (
 	"strings"
 	"testing"
+
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // TestIntentReplyGoldens pins the command replies, the estimate notice and
@@ -45,6 +47,15 @@ func TestIntentReplyGoldens(t *testing.T) {
 		{"intent_notice_misplaced.md", func() (string, error) {
 			return RenderMisplacedCommandNotice(MisplacedCommandNotice{
 				Namespace: "maul", Intent: "target-1", Key: "comment-4421", Verb: "replan",
+				Surface: command.IntentIssue,
+			})
+		}},
+		// The same on an intent's pull request (defect gate 3 follow-up):
+		// the pull request's own commands.
+		{"intent_notice_misplaced_pr.md", func() (string, error) {
+			return RenderMisplacedCommandNotice(MisplacedCommandNotice{
+				Namespace: "maul", Intent: "target-1", Key: "comment-4422", Verb: "revise",
+				Surface: command.IntentPR,
 			})
 		}},
 		{"intent_notice_edited.md", func() (string, error) {
