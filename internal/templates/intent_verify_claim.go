@@ -50,10 +50,12 @@ type VerifyEvaluatorClaim struct {
 // what it sent and what maul's tools observed.
 type VerifyCitedCall struct {
 	// Seq is its ledger seq, Verb its ledger verb; Base marks a call in the
-	// base's sandbox.
+	// base's sandbox. Mode is a check run's (dry-run, the evaluator's own;
+	// replay or confirm, maul's run it cites from its check results).
 	Seq  int64
 	Verb string
 	Base bool
+	Mode string
 	// Check is the check a cited check run ran (its steps are shown);
 	// nil for any other call, or a check maul cannot word, whose request,
 	// JSON as received, is Input.
@@ -81,13 +83,22 @@ type VerifyCitedCall struct {
 type claimDetail struct{ Lead, Calls string }
 
 // verbWords are the ledger verbs a claim can cite, in maul's words; one not
-// listed is shown by its name.
+// listed is shown by its name. A check run is worded by its mode
+// (checkRunWords).
 var verbWords = map[string]string{
-	"check-run": "a dry run of a check",
+	"check-run": "a run of a check",
 	"exec":      "a program run",
 	"run":       "a Go program run",
 	"http":      "an http request",
 	"browser":   "a browser command",
+}
+
+// checkRunWords are a check run's modes in maul's words: the evaluator's
+// dry run, or maul's own run it cites; one not listed is verbWords'.
+var checkRunWords = map[string]string{
+	"dry-run": "a dry run of a check",
+	"replay":  "maul's replay of a saved check",
+	"confirm": "maul's confirmation run of a check",
 }
 
 // claimDetailOf is o's claim as the templates print it; ok is false when
@@ -115,7 +126,7 @@ func claimDetailOf(o VerifyOutcomeResult, id string) (claimDetail, bool) {
 		b.WriteString(" maul shows none of the calls it cites.")
 		return claimDetail{Lead: b.String()}, true
 	}
-	b.WriteString(" The calls it cites, as maul's tools recorded them (what the evaluator sent and what came back: " +
+	b.WriteString(" The calls it cites, as maul's tools recorded them (what each call sent and what came back: " +
 		"data, not maul's words), to try it yourself:")
 	return claimDetail{Lead: b.String(), Calls: calls}, true
 }
@@ -148,6 +159,9 @@ func callText(c VerifyCitedCall, workspace bool) string {
 	what, ok := verbWords[c.Verb]
 	if !ok {
 		what = shown(c.Verb)
+	}
+	if w, ok := checkRunWords[c.Mode]; ok && c.Verb == "check-run" {
+		what = w
 	}
 	head := fmt.Sprintf("Call %d, %s", c.Seq, what)
 	if c.Base {

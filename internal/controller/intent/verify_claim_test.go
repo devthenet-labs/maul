@@ -170,3 +170,36 @@ func TestConfirmedOutcomeShowsNoClaim(t *testing.T) {
 		}
 	}
 }
+
+// TestCitedCallShowsOnlyTheEvaluatorsOwnWholeCalls: a claim shows what the
+// evaluator sent and what came back, so a cited seq that is maul's own
+// call (the relay's) is not shown as one it sent: a relay check run (a
+// replay, a confirmation, which the evaluator can cite from `check
+// results`) is kept as maul's run, by its mode, and any other relay call
+// is not shown. An output whose recorded checksum does not match the copy
+// maul holds is not shown, only said to be not whole.
+func TestCitedCallShowsOnlyTheEvaluatorsOwnWholeCalls(t *testing.T) {
+	pv := &v1alpha1.PreviewVerification{}
+	relay := agentEntry(2, toolwire.VerbHTTP, `{"target":"app","method":"GET","path":"/"}`, "relay probe")
+	relay.Kind = toolwire.KindRelay
+	if call, ok := citedCall(pv, []toolwire.LedgerEntry{relay}, relay); ok {
+		t.Errorf("maul's own call shown as the evaluator's: %+v", call)
+	}
+	version := savedCheck(t, versionCheck)
+	replay := checkRunEntry(3, version.Digest, "version-shown", 1, "maul's replay")
+	if call, ok := citedCall(pv, []toolwire.LedgerEntry{replay}, replay); !ok ||
+		call.Mode != string(toolwire.ModeReplay) || call.RunSeq != 3 {
+		t.Errorf("a cited replay = %+v, %v; want maul's replay shown as such", call, ok)
+	}
+	cut := agentEntry(6, toolwire.VerbExec, `{"argv":["{{bin}}"]}`, "whole output")
+	cut.Output = "whole out" // dropped to fit: no longer the bytes its checksum is of
+	call, ok := citedCall(pv, []toolwire.LedgerEntry{cut}, cut)
+	if !ok || !call.OutputNotWhole || call.Output != "" {
+		t.Errorf("an output not whole = %+v, want it marked not whole and not shown", call)
+	}
+	whole := agentEntry(7, toolwire.VerbExec, `{"argv":["{{bin}}"]}`, "whole output")
+	if call, ok := citedCall(pv, []toolwire.LedgerEntry{whole}, whole); !ok || call.OutputNotWhole ||
+		call.Output != "whole output" {
+		t.Errorf("a whole output = %+v, want it shown", call)
+	}
+}

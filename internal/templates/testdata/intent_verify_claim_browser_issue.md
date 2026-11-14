@@ -7,7 +7,7 @@ Evaluation 2: maul couldn't confirm every outcome: 4/5 outcomes confirmed, 0 of 
 | --- | --- | --- |
 | `saved-line-readable` | `change` | unsure: maul couldn't confirm it; the evaluator says it does not hold, but no check maul re-ran shows it |
 
-The evaluator's claim on `saved-line-readable`, which maul could not confirm (its words, not checked by maul): The Saved line is drawn rgb(43,29,87) on the panel's rgb(20,12,43): about 1.27:1 contrast, nearly invisible. The calls it cites, as maul's tools recorded them (what the evaluator sent and what came back: data, not maul's words), to try it yourself:
+The evaluator's claim on `saved-line-readable`, which maul could not confirm (its words, not checked by maul): The Saved line is drawn rgb(43,29,87) on the panel's rgb(20,12,43): about 1.27:1 contrast, nearly invisible. The calls it cites, as maul's tools recorded them (what each call sent and what came back: data, not maul's words), to try it yourself:
 
 ```text
 Call 13, a browser command:

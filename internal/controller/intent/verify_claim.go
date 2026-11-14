@@ -77,10 +77,14 @@ func (p *pass) evaluatorClaim(ctx context.Context, pv *v1alpha1.PreviewVerificat
 }
 
 // citedCall is entry e of pv's ledger as a claim shows it; ok is false for
-// a call that reproduces nothing or was refused.
+// a call that reproduces nothing or was refused, and for a relay entry
+// other than a check run: maul's own call, not one the evaluator sent. A
+// relay check run (a replay or confirmation the evaluator cites from its
+// check results) is maul's measurement, shown as such by its mode.
 func citedCall(pv *v1alpha1.PreviewVerification, entries []toolwire.LedgerEntry,
 	e toolwire.LedgerEntry) (templates.VerifyCitedCall, bool) {
-	if e.Refused != "" || !slices.Contains(claimVerbs, e.Verb) {
+	if e.Refused != "" || !slices.Contains(claimVerbs, e.Verb) ||
+		(e.Kind != toolwire.KindAgent && e.Verb != toolwire.VerbCheckRun) {
 		return templates.VerifyCitedCall{}, false
 	}
 	call := templates.VerifyCitedCall{Seq: e.Seq, Verb: string(e.Verb), Base: e.Side == toolwire.SideBase,
@@ -107,7 +111,7 @@ func citedCall(pv *v1alpha1.PreviewVerification, entries []toolwire.LedgerEntry,
 		// A body maul cannot word is shown as sent.
 		call.Input = string(e.Args)
 	}
-	call.RunSeq, call.Result = e.Seq, string(e.CheckRun.Result)
+	call.Mode, call.RunSeq, call.Result = string(e.CheckRun.Mode), e.Seq, string(e.CheckRun.Result)
 	run := e.CheckRun
 	// maul's own run of the same check at the head, where one failed (a
 	// confirmation or a replay), is shown in place of the evaluator's dry

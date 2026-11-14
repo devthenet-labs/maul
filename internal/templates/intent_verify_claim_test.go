@@ -64,7 +64,7 @@ func claimSection(t *testing.T) VerifySection {
 			{ID: "offbeat-rule", Kind: "change", Statement: "Each track's off-beat count is its own steps' count.",
 				Result: OutcomeResultUnsure, Reason: acceptance.ReasonModelOnlyFail,
 				Claim: &VerifyEvaluatorClaim{Note: hostileNote, Workspace: true, Calls: []VerifyCitedCall{
-					{Seq: 14, Verb: "check-run", Check: parsedCheck(t, offbeatRuleCheck), RunSeq: 27, Result: "fail",
+					{Seq: 14, Verb: "check-run", Mode: "dry-run", Check: parsedCheck(t, offbeatRuleCheck), RunSeq: 27, Result: "fail",
 						Observed: []ReproductionObservation{{Attempt: 1, Step: 1, Result: "fail",
 							Detail: `the program printed its assertion marker: offbeat-rule: got "offbeat kick 2\n` +
 								`offbeat snare 3\noffbeat hat 3\n"`}}},
@@ -91,7 +91,7 @@ func browserClaimSection(t *testing.T) VerifySection {
 					"rgb(20,12,43): about 1.27:1 contrast, nearly invisible", Calls: []VerifyCitedCall{
 					{Seq: 13, Verb: "browser", Input: `{"verb":"eval","args":["(el)=>getComputedStyle(el).color"]}`,
 						Output: "### Result\n\"{\\\"color\\\":\\\"rgb(43, 29, 87)\\\",\\\"bg\\\":\\\"rgb(20, 12, 43)\\\"}\""},
-					{Seq: 19, Verb: "check-run", Check: parsedCheck(t, savedLineCheck), RunSeq: 19, Result: "fail",
+					{Seq: 19, Verb: "check-run", Mode: "dry-run", Check: parsedCheck(t, savedLineCheck), RunSeq: 19, Result: "fail",
 						Observed: []ReproductionObservation{{Attempt: 1, Step: 4, Result: "fail",
 							Detail: "not legible: contrast 1.27 < 1.5"}}},
 				}}},
@@ -201,7 +201,7 @@ func TestVerifyClaimOnlyWhereGiven(t *testing.T) {
 // word still shows what maul's run observed, first, and the body as sent.
 func TestVerifyClaimUnwordedCheck(t *testing.T) {
 	d, ok := claimDetailOf(VerifyOutcomeResult{Claim: &VerifyEvaluatorClaim{Note: "n", Calls: []VerifyCitedCall{
-		{Seq: 9, Verb: "check-run", Input: `{"check":{"form":"new"}}`, RunSeq: 9, Result: "fail",
+		{Seq: 9, Verb: "check-run", Mode: "dry-run", Input: `{"check":{"form":"new"}}`, RunSeq: 9, Result: "fail",
 			Observed: []ReproductionObservation{{Attempt: 1, Step: 2, Result: "fail", Detail: "got 12"}}}}}}, "`o`")
 	want := "Call 9, a dry run of a check:\nIts run observed (the check runner's messages, which can quote the " +
 		"application):\n- attempt 1, step 2: failed: `got 12`\nSent: {\"check\":{\"form\":\"new\"}}"
@@ -261,6 +261,23 @@ func TestVerifyClaimBounded(t *testing.T) {
 			!strings.Contains(out, "evaluator's claims maul could not confirm") &&
 			!strings.Contains(out, "evaluator's claim maul could not confirm") {
 			t.Errorf("%s left claims out without naming them", name)
+		}
+	}
+}
+
+// TestVerifyClaimWordsARunByItsMode: a cited check run is worded as what it
+// was, the evaluator's dry run or maul's own replay or confirmation run,
+// never maul's run as one the evaluator sent.
+func TestVerifyClaimWordsARunByItsMode(t *testing.T) {
+	for mode, want := range map[string]string{
+		"dry-run": "Call 4, a dry run of a check:",
+		"replay":  "Call 4, maul's replay of a saved check:",
+		"confirm": "Call 4, maul's confirmation run of a check:",
+		"":        "Call 4, a run of a check:",
+	} {
+		got := callText(VerifyCitedCall{Seq: 4, Verb: "check-run", Mode: mode, RunSeq: 4, Result: "pass"}, false)
+		if !strings.HasPrefix(got, want+"\n") {
+			t.Errorf("mode %q: %q, want it led by %q", mode, got, want)
 		}
 	}
 }

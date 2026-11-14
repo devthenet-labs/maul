@@ -10,7 +10,7 @@ Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes confirmed, 0 of 
 - `offbeat-plain-example` (`change`): confirmed; maul's check: `exec: {{bin}} -offbeat pattern.json; 2 expectations`. The README example prints its off-beat lines.
 - `offbeat-rule` (`change`): unsure: maul couldn't confirm it; the evaluator says it does not hold, but no check maul re-ran shows it. Each track's off-beat count is its own steps' count.
 
-The evaluator's claim on `offbeat-rule`, which maul could not confirm (its words, not checked by maul): The plain path never resets its counter (offbeat.go, n declared outside the loop) `@octocat` closes `#12` \`\`\` \</details> \<b>x\</b>. The calls it cites, as maul's tools recorded them (what the evaluator sent and what came back: data, not maul's words), to try it yourself:
+The evaluator's claim on `offbeat-rule`, which maul could not confirm (its words, not checked by maul): The plain path never resets its counter (offbeat.go, n declared outside the loop) `@octocat` closes `#12` \`\`\` \</details> \<b>x\</b>. The calls it cites, as maul's tools recorded them (what each call sent and what came back: data, not maul's words), to try it yourself:
 
 `````text
 Call 14, a dry run of a check:
