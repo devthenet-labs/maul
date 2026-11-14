@@ -484,7 +484,7 @@ func (p *pass) reviewNow(ctx context.Context) (bool, error) {
 	if changed, err := p.syncPRRoundNotices(ctx); changed || err != nil {
 		return changed, err
 	}
-	if err := p.settleVerifyCommandsOnPRs(ctx, prs); err != nil {
+	if err := p.settleCommandsOnPRs(ctx, prs); err != nil {
 		return false, err
 	}
 	if changed, err := p.syncVerification(ctx); changed || err != nil {
@@ -567,12 +567,14 @@ func (p *pass) startRound(ctx context.Context, prs []v1alpha1.IntentPullRequest)
 	return p.startVerifyWork(ctx, prs)
 }
 
-// settleVerifyCommandsOnPRs settles the acceptance commands (/maul verify,
-// /maul accept) made on the Intent's open pull requests in prs, while the
-// Intent is verified and in review. The review poll reaches it only with
-// every pull request repository's rate budget over its floor.
-func (p *pass) settleVerifyCommandsOnPRs(ctx context.Context, prs []v1alpha1.IntentPullRequest) error {
-	if !p.set.Verification || !verifyPhase(p.in.Status.Phase) {
+// settleCommandsOnPRs settles, while the Intent is in review, the
+// acceptance commands (/maul verify, /maul accept) made on the Intent's open
+// pull requests in prs when it is verified, and answers the misplaced
+// commands there whether or not it is (settlePRCommands). The review poll
+// reaches it only with every pull request repository's rate budget over its
+// floor.
+func (p *pass) settleCommandsOnPRs(ctx context.Context, prs []v1alpha1.IntentPullRequest) error {
+	if !verifyPhase(p.in.Status.Phase) {
 		return nil
 	}
 	for i := range prs {
@@ -580,7 +582,7 @@ func (p *pass) settleVerifyCommandsOnPRs(ctx context.Context, prs []v1alpha1.Int
 			continue
 		}
 		pr := prs[i]
-		if err := p.settlePRVerifyCommands(ctx, &pr); err != nil {
+		if err := p.settlePRCommands(ctx, &pr); err != nil {
 			return err
 		}
 	}

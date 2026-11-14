@@ -1250,6 +1250,7 @@ spec:
                 enum:
                 - ok
                 - stale-preview
+                - stale-workspace
                 - stale-approval
                 - stale-criteria
                 - rollout-unsettled

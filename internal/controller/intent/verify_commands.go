@@ -26,7 +26,7 @@ import (
 // <id>|all and /maul preview, settle here for both surfaces that offer them:
 // the intent issue (from
 // decide, on the poll's answer path) and each of the intent's pull requests
-// (settlePRVerifyCommands). An intent has one combined change and one
+// (settlePRCommands). An intent has one combined change and one
 // Preview, so the surface a command is made on changes only where its
 // authority is checked (the repository it was made in) and where it is
 // answered, never what it does. Every effect is a status write of the intent
@@ -502,13 +502,15 @@ func (p *pass) inFlightVerifyFix() (pending string, running bool) {
 // acceptAll is the id /maul accept all records for a plan that declares no
 // acceptance criteria: the approver's word that the change needs none. For a
 // plan that declares outcomes it closes every outcome an approver could
-// close one by one, each recorded as itself. A criterion or outcome of that
-// id is accepted as itself.
+// close one by one, each recorded as itself. A criterion of that id, or an
+// outcome of a plan approved before acceptance.ReservedOutcomeIDs refused
+// one, is accepted as itself.
 const acceptAll = command.AcceptAll
 
 // acceptAnomaliesID is the id of /maul accept anomalies, which accepts the
 // look-around anomalies held at the commits under verification and nothing
-// else (acceptOutcome). An outcome of that id is accepted as itself.
+// else (acceptOutcome). An outcome of that id, from a plan approved before
+// acceptance.ReservedOutcomeIDs refused one, is accepted as itself.
 const acceptAnomaliesID = command.AcceptAnomalies
 
 // acceptCriterion records /maul accept <id> in status.acceptance.accepted,
@@ -790,17 +792,20 @@ func shortHeads(heads []v1alpha1.VerificationHead) []string {
 	return out
 }
 
-// settlePRVerifyCommands settles the acceptance commands on the intent's
-// pull request pr, oldest first: those made since its build by one of the
-// Project's approvers and not yet answered there. Each is answered on the
-// pull request once, a bot-written reply carrying its marker standing for
-// the answer. As with every pull request command, an account that is not an
-// approver, or is a bot, is never answered at all, so a public pull
-// request's commenters cannot make maul write; an approver's is authorised
-// against the application repository (write access, by GitHub's own
-// answer), refused when its comment was ever edited, and not available
-// outside review. revise and retry are left to their own round.
-func (p *pass) settlePRVerifyCommands(ctx context.Context, pr *v1alpha1.IntentPullRequest) error {
+// settlePRCommands settles the acceptance commands on the intent's pull
+// request pr while the intent is verified, and at any time the comments
+// whose command is not on their first line (command.Misplaced), oldest
+// first: those made since its build by one of the Project's approvers and
+// not yet answered there. Each is answered on the pull request once, a
+// bot-written reply carrying its marker standing for the answer. As with
+// every pull request command, an account that is not an approver, or is a
+// bot, is never answered at all, so a public pull request's commenters
+// cannot make maul write; an approver's is authorised against the
+// application repository (write access, by GitHub's own answer), and an
+// acceptance command is refused when its comment was ever edited, and not
+// available outside review. revise and retry are left to their own round;
+// a misplaced one is only answered (settlePRMisplaced), never acted on.
+func (p *pass) settlePRCommands(ctx context.Context, pr *v1alpha1.IntentPullRequest) error {
 	if p.leftProject(pr.Repository) {
 		return nil // nothing is written to a repository that left the Project
 	}
@@ -831,23 +836,60 @@ func (p *pass) settlePRVerifyCommands(ctx context.Context, pr *v1alpha1.IntentPu
 			refusedLocally(p.proj, c.Author()) {
 			continue
 		}
-		cmd, ok := prCommandParser.Parse(c.Body)
 		key := "comment-" + strconv.FormatInt(c.ID, 10)
-		if !ok || !isVerifyVerb(cmd.Verb) || answered[templates.NoticeMarker(p.in.Namespace, p.in.Name, key)] {
-			continue
+		if !answered[templates.NoticeMarker(p.in.Namespace, p.in.Name, key)] && p.prCommandDue(c.Body) {
+			todo = append(todo, c)
 		}
-		todo = append(todo, c)
 	}
 	slices.SortFunc(todo, func(a, b *ghclient.Comment) int { return int(a.ID - b.ID) })
 	if len(todo) > maxFeedbackCandidates {
 		todo = todo[len(todo)-maxFeedbackCandidates:]
 	}
 	for _, c := range todo {
-		if err := p.settlePRVerifyCommand(ctx, pr, c); err != nil {
+		var err error
+		if verb, misplaced := command.Misplaced(c.Body, command.IntentPR); misplaced {
+			err = p.settlePRMisplaced(ctx, pr, c, verb)
+		} else {
+			err = p.settlePRVerifyCommand(ctx, pr, c)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// prCommandDue reports a pull request comment body settlePRCommands
+// answers: a misplaced command, or an acceptance command while the intent
+// is verified.
+func (p *pass) prCommandDue(body string) bool {
+	if _, misplaced := command.Misplaced(body, command.IntentPR); misplaced {
+		return true
+	}
+	cmd, ok := prCommandParser.Parse(body)
+	return ok && isVerifyVerb(cmd.Verb) && p.set.Verification
+}
+
+// settlePRMisplaced answers c, an approver's comment on pr whose command
+// verb is not on its first line (command.Misplaced), as settleMisplaced
+// answers one on the intent issue: once GitHub confirms the approver's
+// write access to the application repository, with the eyes reaction and
+// one reply saying where commands go and listing the pull request's; with
+// nothing at all otherwise. It never decides the verb.
+func (p *pass) settlePRMisplaced(ctx context.Context, pr *v1alpha1.IntentPullRequest, c *ghclient.Comment,
+	verb string) error {
+	ok, _, err := p.authorizeIn(ctx, pr.Repository, c.Author())
+	if err != nil || !ok {
+		return err
+	}
+	if err := p.r.GitHub.ReactPullRequestComment(ctx, pr.Repository, c.ID); err != nil && !ghclient.IsNotFound(err) {
+		return fmt.Errorf("react to pull request comment %d: %w", c.ID, err)
+	}
+	body, err := templates.RenderMisplacedCommandNotice(templates.MisplacedCommandNotice{
+		Namespace: p.in.Namespace, Intent: p.in.Name, Key: "comment-" + strconv.FormatInt(c.ID, 10), Verb: verb,
+		Surface: command.IntentPR,
+	})
+	return p.prReply(ctx, pr, body, err)
 }
 
 // prBuiltAt is when the build of the approved plan in repoURL finished: the

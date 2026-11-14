@@ -435,8 +435,9 @@ func TestMisplacedCommand(t *testing.T) {
 	}
 	for _, id := range []int64{replan, approve} {
 		r := e.gh.withMarker("comment-" + itoa(id))
+		// The issue's own commands, not a pull request's.
 		if len(r) != 1 || !strings.Contains(r[0].Body, "was not read as a command, and nothing was done") ||
-			e.gh.reactions[id] != 1 {
+			!strings.Contains(r[0].Body, "/maul replan") || e.gh.reactions[id] != 1 {
 			t.Errorf("comment %d: replies %+v, reactions %d; want one reply saying where commands go", id, r,
 				e.gh.reactions[id])
 		}

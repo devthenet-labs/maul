@@ -555,7 +555,7 @@ func (p *pass) settleMisplaced(ctx context.Context, a humanAction) (answered boo
 		return false, fmt.Errorf("react to comment %d: %w", a.id, err)
 	}
 	body, err := templates.RenderMisplacedCommandNotice(templates.MisplacedCommandNotice{
-		Namespace: p.in.Namespace, Intent: p.in.Name, Key: a.key(), Verb: a.verb,
+		Namespace: p.in.Namespace, Intent: p.in.Name, Key: a.key(), Verb: a.verb, Surface: command.IntentIssue,
 	})
 	return true, p.notice(ctx, a.key(), a.at, body, err)
 }

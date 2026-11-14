@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/devthenet-labs/maul/internal/httpstep"
@@ -57,6 +58,14 @@ type PlanOutcome struct {
 	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
 
+// ReservedOutcomeIDs are the ids no outcome may take: the arguments of
+// /maul accept that name more than one outcome (all) or no outcome at all
+// (anomalies), so an outcome of either id could never be accepted by its
+// own name. They are command.AcceptAll and command.AcceptAnomalies, which
+// this package cannot import; a test in internal/controller/intent pins
+// the two lists to each other.
+var ReservedOutcomeIDs = []string{"all", "anomalies"}
+
 // OutcomeError is an outcome the grammar refuses: the only error
 // ValidateOutcomes returns.
 type OutcomeError struct {
@@ -73,7 +82,8 @@ func (e *OutcomeError) Error() string {
 // ValidateOutcomes checks os against the outcome grammar: at most
 // MaxOutcomes outcomes with unique ids, each a required one-line outcome,
 // an optional one-line from and reason within their bounds, and a kind of
-// change, keep or none. A list-level refusal names the outcome that crossed
+// change, keep or none; no id is one of ReservedOutcomeIDs. A list-level
+// refusal names the outcome that crossed
 // the bound.
 func ValidateOutcomes(os []PlanOutcome) error {
 	if len(os) > MaxOutcomes {
@@ -95,6 +105,9 @@ func ValidateOutcomes(os []PlanOutcome) error {
 func validateOutcome(o PlanOutcome) error {
 	if !idPattern.MatchString(o.ID) {
 		return fmt.Errorf("id must match %s", idPattern)
+	}
+	if slices.Contains(ReservedOutcomeIDs, o.ID) {
+		return fmt.Errorf("id %s is reserved: /maul accept %s means something else", o.ID, o.ID)
 	}
 	if err := httpstep.CheckLine("outcome", o.Outcome, MaxOutcomeChars); err != nil {
 		return err

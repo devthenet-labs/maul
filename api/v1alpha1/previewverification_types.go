@@ -63,13 +63,18 @@ const (
 // and a status write must not fail on a value it leaves unchanged:
 // stale-criteria (now stale-approval) and tester-output-invalid (now
 // tools-output-invalid).
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-approval;stale-criteria;rollout-unsettled;quota-refused;deadline-no-summary;tools-output-invalid;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete;kept-copy-failed
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-workspace;stale-approval;stale-criteria;rollout-unsettled;quota-refused;deadline-no-summary;tools-output-invalid;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete;kept-copy-failed
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
 const (
 	VerificationReasonOK           PreviewVerificationReason = "ok"
 	VerificationReasonStalePreview PreviewVerificationReason = "stale-preview"
+	// VerificationReasonStaleWorkspace: an agents verification's pull
+	// request is no longer open at the head its workspace was asked for. It
+	// is the agents host's stale-preview: a Project with no preview has no
+	// preview to be stale.
+	VerificationReasonStaleWorkspace PreviewVerificationReason = "stale-workspace"
 	// VerificationReasonStaleApproval: the request no longer matches its
 	// Intent's approved plan (another plan revision or outcome list, its
 	// Intent or Project no longer verified), or it evaluates no outcomes.

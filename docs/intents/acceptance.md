@@ -84,7 +84,7 @@ running application. It writes no steps, requests or checks; the evaluator decid
 
 ```yaml
 acceptance:
-  - id: rating-moves # ^[a-z][a-z0-9-]{0,31}$, unique
+  - id: rating-moves # ^[a-z][a-z0-9-]{0,31}$, unique, never all or anomalies (/maul accept reserves both)
     # one line, at most 500 characters; about 200 is the aim
     outcome: "After a battle of two players you create, /api/players rates the winner above 1000, the loser below."
     from: "ratings should update after every battle" # the issue line it answers, copied exactly, at most 300
@@ -140,10 +140,11 @@ and link targets; a quote shortened with "..." or "…" counts when its pieces, 
 together, appear in the line in order): "No outcome answers these lines of the issue, so nothing checks them." That not
 covered list is the approver's prompt to ask for a new plan before approving, if one of those lines should be checked.
 Under "Before you approve" it also flags each outcome that says "every", "each", "others", "existing" or "still works",
-as one the evaluator may not be able to show (for a Project with no preview, whose checks run in a workspace built for
-the round with no other run's data, only "still works"), and, under a lead of its own, each that answers an "each",
-"every" or "all" line while speaking of fewer items, as the planner is asked to: approve it if that is enough. Both are
-advice for the approver only, which never refuses a plan and never decides a result.
+as one the evaluator may not be able to show, and, under a lead of its own, each that answers an "each", "every" or
+"all" line while speaking of fewer items, as the planner is asked to: approve it if that is enough. For a Project with
+no preview, whose checks run in a workspace built for the round with no other run's data and whose planner is asked to
+state each line's rule, it flags only "still works". Both are advice for the approver only, which never refuses a plan
+and never decides a result.
 
 A plan that states slice 1's acceptance criteria instead is refused while the evaluator is on, and the planner's retry
 is told why. An intent whose approved plan still carries criteria when the evaluator is switched on is no longer

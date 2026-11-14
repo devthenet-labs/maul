@@ -83,18 +83,25 @@ func RenderUnknownCommandNotice(n UnknownCommandNotice) (string, error) {
 
 // MisplacedCommandNotice answers an approver's comment that holds a command
 // below other text (command.Misplaced), which maul never reads as one: it
-// says where commands go, and lists those the intent issue offers.
+// says where commands go, and lists those its surface offers.
 type MisplacedCommandNotice struct {
 	// Namespace, Intent and Key make the notice's marker (NoticeMarker).
 	Namespace string
 	Intent    string
 	Key       string
-	// Verb is the misplaced command's verb, one the intent issue offers.
+	// Verb is the misplaced command's verb, one Surface offers.
 	Verb string
+	// Surface is where the comment is: the intent issue or one of its pull
+	// requests.
+	Surface command.Surface
 }
 
 // RenderMisplacedCommandNotice renders a MisplacedCommandNotice.
 func RenderMisplacedCommandNotice(n MisplacedCommandNotice) (string, error) {
+	help := command.Help(n.Surface)
+	if help == "" {
+		return "", fmt.Errorf("a misplaced command notice for surface %q, which offers no commands", n.Surface)
+	}
 	return render("intent_notice_misplaced.md.tmpl", struct {
 		Marker  string
 		Command string
@@ -102,7 +109,7 @@ func RenderMisplacedCommandNotice(n MisplacedCommandNotice) (string, error) {
 	}{
 		Marker:  NoticeMarker(n.Namespace, n.Intent, n.Key),
 		Command: slashCommand(n.Verb),
-		Help:    command.Help(command.IntentIssue),
+		Help:    help,
 	})
 }
 

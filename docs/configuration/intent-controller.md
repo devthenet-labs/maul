@@ -343,7 +343,9 @@ preview-controller never touches such a request, and with the agents tool pod on
   repository's default branch, and creates two Repositories the Intent owns, pinned to exactly those commits
   (`spec.ref.commit`; source-controller fetches each archive and never reads a runner image from it). A round waits up
   to 15 minutes from a tree's creation for both to be Ready, then is `Unavailable` (`TreeUnavailable`) and retried each
-  poll while the heads stay; a commit source-controller reports `CommitNotFound` for is `Unavailable` at once.
+  poll while the heads stay; a commit source-controller reports `CommitNotFound` for is `Unavailable` at once. A round
+  whose pull request is no longer open at the head it was asked for ends `Stale` (`stale-workspace`, the agents host's
+  own word for it: there is no preview to be `stale-preview`), unjudged.
 - **The image and the network** are the repository's latest build's, re-derived before the pod is created through the
   calls a build launch makes (`PinFor` on that build's own Repository, then its network profile and the Forge check),
   and held to what the round recorded: a different image or profile ends the round `Stale`. A Forge list that cannot be
@@ -569,7 +571,10 @@ later commands get neither a reaction nor a reply, so nobody can make maul write
 
 A command is read only on a comment's first non-blank line. A `/maul <verb>` the issue offers on a later line of an
 approver's comment, outside a quote and code, is never acted on: maul answers it once with the commands and where they
-go, and the approver posts it again as a new comment. Anyone else's such comment gets nothing, not even a reaction.
+go, and the approver posts it again as a new comment. Anyone else's such comment gets nothing, not even a reaction. The
+same holds on the intent's pull requests while it is in review, verified or not, for the verbs a pull request offers
+(`revise`, `retry`, `verify`, `accept`, `preview`): an approver with write access to the application repository is
+answered there once, and no round starts.
 
 The plan comment shows the plan's exact bytes in a code block. An approval counts only if all of these hold:
 
