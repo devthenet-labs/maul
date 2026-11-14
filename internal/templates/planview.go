@@ -287,8 +287,12 @@ func planOutcomesView(o *PlanOutcomes) (lead string, items, notCovered, shared, 
 // prompt asks, covering less than its line) come apart, since the plan
 // comment advises on each in its own words. In a workspace (a Project with
 // no preview) the checks run in a tool pod built for the round, which holds
-// no other run's data, so a word quantifying over shared data flags nothing
-// there (G-B-LIB-3); "still works" is flagged everywhere.
+// no other run's data, so neither a word quantifying over shared data
+// (G-B-LIB-3) nor an outcome narrowed to the items a check creates (defect
+// gate 3) flags anything there: both are advice about a shared preview, and
+// a workspace plan is asked to state an issue line's rule, beside which its
+// example outcomes are narrower by design. "still works" is flagged
+// everywhere.
 func outcomeFlags(os []PlanOutcome, workspace bool) (shared, narrowed []string) {
 	in := make([]acceptance.PlanOutcome, 0, len(os))
 	for _, o := range os {
@@ -302,14 +306,14 @@ func outcomeFlags(os []PlanOutcome, workspace bool) (shared, narrowed []string) 
 	for _, f := range acceptance.LintOutcomes(in) {
 		id, word := code(oneLine(f.Outcome)), `"`+f.Word+`"`
 		switch {
+		case workspace && f.Word != "still works":
+			// No shared preview for the flag to be about.
 		case f.Rule == acceptance.LintNarrowedFrom:
 			narrowed = append(narrowed, id+" answers an issue line that says "+word+", but speaks of fewer: the "+
 				"evaluator checks only what the outcome says, on items its own checks create.")
 		case f.Word == "still works":
 			shared = append(shared, id+" says "+word+": an outcome a check can show names one action and what a "+
 				"person then sees.")
-		case workspace:
-			// No shared data for the word to be about.
 		default:
 			shared = append(shared, id+" says "+word+": an outcome about every item, or about others or existing "+
 				"ones, is about data no check creates.")

@@ -43,7 +43,9 @@ var narrowingWords = []string{"each", "every", "all"}
 // LintOutcomes returns the advisory flags of os, in plan order: at most one
 // of each rule per outcome, none for a manual outcome (a person judges it).
 // It is advice for the approver only: it never refuses a plan and never
-// feeds a verdict.
+// feeds a verdict. Both rules are about a preview's shared data; for a
+// Project with no preview the plan comment shows only the "still works"
+// flag (templates' outcomeFlags).
 func LintOutcomes(os []PlanOutcome) []OutcomeFlag {
 	var out []OutcomeFlag
 	for _, o := range os {

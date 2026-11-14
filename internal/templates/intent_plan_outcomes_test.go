@@ -76,12 +76,15 @@ func TestPlanOutcomesGoldens(t *testing.T) {
 	}
 }
 
-// TestPlanOutcomesFlagsWorkspace (G-B-LIB-3): a Project with no preview
-// checks outcomes in a workspace the tool pod builds for each round, which
-// holds no other run's data, so the plan comment never warns about a preview whose data persists, nor flags an
-// outcome for saying every or each. It still flags "still works", which the
-// workspace plan prompt forbids as well, and an outcome narrower than its
-// issue line.
+// TestPlanOutcomesFlagsWorkspace (G-B-LIB-3, defect gate 3): a Project with
+// no preview checks outcomes in a workspace the tool pod builds for each
+// round, which holds no other run's data, so the plan comment never warns
+// about a preview whose data persists, nor flags an outcome for saying every
+// or each, nor one for speaking of fewer items than an issue line that says
+// each, every or all: that advice is about the items a check creates in a
+// shared preview, and on a workspace plan it flagged the example outcomes
+// beside the one stating the line's rule. It still flags "still works",
+// which the workspace plan prompt forbids as well.
 func TestPlanOutcomesFlagsWorkspace(t *testing.T) {
 	pc := testPlanComment(testPlan)
 	pc.Outcomes = &PlanOutcomes{Workspace: true, Outcomes: []PlanOutcome{
@@ -94,12 +97,13 @@ func TestPlanOutcomesFlagsWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	for _, unwanted := range []string{"preview", "persists", "`every-step` says", "`each-err` says"} {
+	for _, unwanted := range []string{"preview", "persists", "`every-step` says", "`each-err` says",
+		"`one-track` answers", "speaks of fewer"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("a workspace plan comment says %q:\n%s", unwanted, got)
 		}
 	}
-	for _, want := range []string{"`still-works` says \"still works\"", "`one-track` answers an issue line"} {
+	for _, want := range []string{"`still-works` says \"still works\""} {
 		if !strings.Contains(got, want) {
 			t.Errorf("a workspace plan comment lacks %q:\n%s", want, got)
 		}
