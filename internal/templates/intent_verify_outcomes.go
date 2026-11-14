@@ -69,6 +69,34 @@ var outcomeReasonWords = map[string]string{
 		"change or an approver accepts it",
 }
 
+// Why maul did not keep a check proposed to show an outcome failing
+// (VerifyOutcomeResult.Unkept; G3-B-CLI-1).
+const (
+	// UnkeptRunData: the slot's run-data rule.
+	UnkeptRunData = "run-data"
+	// UnkeptConfirmation: a confirmation run was not red by the assertion
+	// the check was proposed failing.
+	UnkeptConfirmation = "confirmation"
+	// UnkeptRules: the check's own bytes break the saved-check rules.
+	UnkeptRules = "rules"
+	// UnkeptReview: no review of the red question proved it (none ran, or
+	// one answered otherwise).
+	UnkeptReview = "review"
+	// UnkeptStoreFull: proven, but the intent's check store had no room.
+	UnkeptStoreFull = "store-full"
+)
+
+// unkeptWords are the Unkept reasons in maul's words; one not listed adds
+// nothing.
+var unkeptWords = map[string]string{
+	UnkeptRunData: "in a preview, a check that shows a defect must write data of its own run and expect only " +
+		"success statuses",
+	UnkeptConfirmation: "maul's own runs of it did not show it failing by the assertion it was proposed failing",
+	UnkeptRules:        "it breaks the saved-check rules",
+	UnkeptReview:       "no review of it found that its failure shows this outcome failing",
+	UnkeptStoreFull:    "the intent's check store is full",
+}
+
 // Bounds on what an outcome's detail shows.
 const (
 	verifyCheckLineMaxBytes = 300
@@ -100,6 +128,10 @@ type VerifyOutcomeResult struct {
 	// check maul re-ran shows failing, its note and the calls it cites
 	// (intent_verify_claim.go); nil for none.
 	Claim *VerifyEvaluatorClaim
+	// Unkept is why maul did not keep a check proposed to show the outcome
+	// failing (an Unkept constant); "" for none. It never says the check
+	// ran red: a refused check may not have.
+	Unkept string
 }
 
 // outcomeDetail is a failing outcome's app output as the templates print
@@ -176,6 +208,9 @@ func outcomeVerdict(o VerifyOutcomeResult, word string) string {
 	if o.Result != OutcomeResultPassed && o.Result != OutcomeResultAccepted {
 		if reason := outcomeReasonWords[o.Reason]; reason != "" {
 			word += "; " + reason
+		}
+		if why := unkeptWords[o.Unkept]; why != "" {
+			word += "; a check proposed to show it failing was not kept: " + why
 		}
 	}
 	if line := shown(cutRunes(visibleText(o.Check), verifyCheckLineMaxBytes)); line != "" {

@@ -17,6 +17,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -128,6 +129,14 @@ type reviewKey struct {
 // a check proposed to show a defect: red by assertion, confirmedRed), and
 // not already stored. surface is the round's (checkContext): its preview,
 // or an agents round's workspace. Each refusal is reported with its reason.
+//
+// The run-data rule (mayShowDefect) is the slot's alone, as the tool pod
+// holds it (SPEC-S2 S2-04; G3-B-CLI-1): it guards a preview's shared,
+// persistent data, which other runs and the evaluator's exploration move.
+// A workspace check run starts from the tree, build output and home as the
+// build left them, with a scratch directory and TMPDIR of its own, so there
+// is no such data; its red checks are held to confirmedRed and the red
+// review alone.
 func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
 	stored []v1alpha1.SavedCheck, surface checks.Context,
 	refused func(reason string, c v1alpha1.SavedCheck, detail string)) []storeCandidate {
@@ -142,7 +151,7 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 		}
 		i := slices.IndexFunc(outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == c.Outcome })
 		if i < 0 || outcomes[i].Manual {
-			refused("not bound to an outcome maul evaluates", c, c.Outcome)
+			refused(unboundRefusal, c, c.Outcome)
 			continue
 		}
 		if reason, detail := savedCheckRefusal(c, surface); reason != "" {
@@ -151,11 +160,11 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 		}
 		cand := storeCandidate{check: c, outcome: outcomes[i]}
 		switch {
-		case cand.red() && !mayShowDefect(c):
-			refused("a check to show a defect must write its run's data and expect only success statuses", c, "")
+		case cand.red() && surface.Workspace == nil && !mayShowDefect(c):
+			refused(redRuleRefusal, c, "")
 			continue
 		case cand.red() && !confirmedRed(pv.Status.Confirmations, c):
-			refused("no confirmation run red by the assertion it was confirmed failing", c, "")
+			refused(redConfirmRefusal, c, "")
 			continue
 		case !cand.red() && !confirmedClean(pv.Status.Confirmations, c.Digest):
 			refused("no clean confirmation run", c, "")
@@ -163,6 +172,62 @@ func storeCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.Accep
 		}
 		seen[c.Digest] = true
 		out = append(out, cand)
+	}
+	return out
+}
+
+// redRuleRefusal is why a slot check proposed to show a defect is not
+// stored by mayShowDefect.
+const redRuleRefusal = "a check to show a defect must write its run's data and expect only success statuses"
+
+// unboundRefusal is why a check bound to no outcome maul evaluates is not
+// stored.
+const unboundRefusal = "not bound to an outcome maul evaluates"
+
+// redConfirmRefusal is why a check proposed to show a defect is not stored
+// by confirmedRed.
+const redConfirmRefusal = "no confirmation run red by the assertion it was confirmed failing"
+
+// unkeptRed is, by outcome id, why one of pv's confirmed checks proposed
+// to show a defect was not kept (the first per outcome, as
+// templates.Unkept* reasons): refused by storeCandidates, or a candidate no
+// cached review of the red question proved (none ran: the evaluation
+// ceiling, a reviewer that failed or was handed nothing; or one answered
+// otherwise), or one proven that the full store left out. The outcome's row
+// names it, so a red check maul re-ran is never dropped with only a log
+// line to show for it (G3-B-CLI-1). A refusal not of a red check's own
+// (its outcome) adds nothing, nor does a stored check.
+func unkeptRed(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
+	stored []v1alpha1.SavedCheck, reviews []v1alpha1.CheckReviewRecord, surface checks.Context) map[string]string {
+	out := map[string]string{}
+	note := func(outcome, why string) {
+		if out[outcome] == "" {
+			out[outcome] = why
+		}
+	}
+	cands := storeCandidates(pv, outcomes, stored, surface, func(reason string, c v1alpha1.SavedCheck, _ string) {
+		if c.Expect != v1alpha1.CheckExpectFail {
+			return
+		}
+		switch reason {
+		case redRuleRefusal:
+			note(c.Outcome, templates.UnkeptRunData)
+		case redConfirmRefusal:
+			note(c.Outcome, templates.UnkeptConfirmation)
+		case unboundRefusal:
+		default:
+			note(c.Outcome, templates.UnkeptRules)
+		}
+	})
+	answers := reviewsByKey(reviews)
+	for _, c := range cands {
+		switch {
+		case !c.red():
+		case answers[c.reviewKey()] != v1alpha1.ReviewProves:
+			note(c.check.Outcome, templates.UnkeptReview)
+		default:
+			note(c.check.Outcome, templates.UnkeptStoreFull)
+		}
 	}
 	return out
 }

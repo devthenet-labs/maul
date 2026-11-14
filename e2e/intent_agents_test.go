@@ -454,6 +454,65 @@ func TestIntentAgentsFixRound(t *testing.T) {
 	e.checkLingering(t, runs[0])
 }
 
+// TestIntentAgentsRedCheckWithoutRunData (G3-B-CLI-1): on a cli round, a
+// check showing a defect need not name its run: every check run starts
+// from the tree, build output and home as the build left them, so there
+// is no shared data for the slot's run-data rule to guard. The scripted
+// evaluator's exec check runs --echo on a fixed word, red by its
+// assertion at the head; maul confirms it red there and green at the base,
+// stores it once reviewed and holds the defect for a person, as it does a
+// check that names its run. An approver's /maul verify fix starts the fix,
+// and at the fix's head the saved check's replay passes: the outcome is
+// confirmed.
+func TestIntentAgentsRedCheckWithoutRunData(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
+		surfaces: tallyCLI(), build: tallyBreaksEcho, outcomes: tallyKeepOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-fail",
+			"MAUL_FAKE_CLAUDE_CLI_ARGS": "--echo offbeat", "MAUL_FAKE_CLAUDE_CHECK_TEXT": "offbeat"},
+		intentArgs: []string{"--intent-max-tool-pods", "1"},
+	})
+	number, name, pr := e.toReview(t)
+	in := e.waitEval(t, name, "round 1 to hold a suspected defect", func(v *v1alpha1.IntentVerification) bool {
+		return len(v.Outcomes) == 1 && v.Outcomes[0].Reason == acceptance.ReasonSuspectedDefect &&
+			v.Suspected != nil
+	})
+	if c := in.Status.Acceptance.Checks; c == nil || c.Count != 1 {
+		t.Errorf("check store %+v, want the red check stored", c)
+	}
+	pv := e.agentsVerification(t, name)
+	if len(pv.Status.Confirmed) != 1 || strings.Contains(pv.Status.Confirmed[0].Body, "{{run}}") {
+		t.Fatalf("confirmed %+v, want one check naming no run", pv.Status.Confirmed)
+	}
+	if b := pv.Status.Base; b == nil || len(b.Runs) == 0 || b.Runs[0].Result != v1alpha1.CheckRunPass {
+		t.Errorf("base %+v, want the check green at the base", b)
+	}
+	if len(e.verifyRuns(t, name)) != 0 {
+		t.Errorf("a fix round started on a defect present from round 1: %s", e.describeRuns(t, name))
+	}
+
+	release := e.kubelet.hold(t, "build")
+	afterSecond(in.Status.Verification.Suspected.RecordedAt.Time)
+	e.requestRound(t, number)
+	fix := e.waitFixRun(t, name)
+	e.kubelet.setAgentEnv("MAUL_FAKE_BUILD_EXTRA_CONTENT", tallyGreets)
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "cli-pass")
+	release()
+	in = e.waitFor(t, name, "the fix pushed and back in review", func(in *v1alpha1.Intent) bool {
+		run := e.run(t, fix.Name)
+		return in.Status.Phase == v1alpha1.IntentInReview && run.Status.PushedCommit != "" &&
+			in.Status.PullRequests[0].HeadSHA == run.Status.PushedCommit
+	})
+	head := in.Status.PullRequests[0].HeadSHA
+	if head == pr.HeadSHA {
+		t.Fatalf("the fix did not move the head from %s", head)
+	}
+	e.waitEval(t, name, "the round at the fix's head to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == head
+	})
+	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
+}
+
 // checkLingering asserts a settled round's finished tool Job lingers (wave
 // 3: ten minutes, for the isolation probe): the Job is still there, not
 // deleting, and its tools container's log, the ledger, is still readable

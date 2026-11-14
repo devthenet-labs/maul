@@ -275,7 +275,12 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    confirms what it finds (a pad 30 px tall where the outcome says at least 48, rows that scroll apart). Its reviewer is
    asked whether the element it measures is the one the outcome is about on any data. A check that breaks these rules is
    refused `red-check-rule`, its reason in the ledger; `no-red-dry-run` means only that no dry run failed an assertion,
-   or one ran green.
+   or one ran green. This run-data rule guards a preview's shared data, so it is the preview's alone: a check of a CLI
+   or a library need not write data of its own run (see
+   [Without a preview: a CLI or a library](#without-a-preview-a-cli-or-a-library)). When a check the tool pod confirmed
+   for an outcome the evaluator reports failing is still not stored (a rule above, its confirmation not red by the
+   assertion it was proposed failing, no review that proved it, or a full check store), the outcome's row on the issue
+   says so and why, beside "unsure".
 
 2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
    assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
@@ -743,10 +748,13 @@ unless they still match. The caches (Go's build cache, npm's) are too large to c
 build left (its type, mode, size, inode and change time, which no program can set) and before each check run removes
 every entry that is not exactly one of those, so a check sees only the build's own entries, and one deleted stays
 deleted, a cache miss, never another answer. Each check run also gets an empty `TMPDIR` of its own. What exploration or
-an earlier check changed there never reaches a check. When a copy itself no longer matches its digest (or the build's
-output could not be kept) the check run does not run: it is an error, which can never pass. Only what a program writes
-to `/tmp` by its absolute path, and a network profile's module and package caches under `/tmp`, are shared between check
-runs.
+an earlier check changed there never reaches a check. So a check that shows a defect need not write data of its own run
+(`{{run}}`), as one on a preview must: a fixed input file or argument is its own. It is held to the same rules otherwise
+(red by its assertion in each of maul's own runs, reviewed yes on the red question), and like every check that writes no
+data of its own run, its failure is a suspected defect a person confirms with `/maul verify fix`, never an automatic
+fix. When a copy itself no longer matches its digest (or the build's output could not be kept) the check run does not
+run: it is an error, which can never pass. Only what a program writes to `/tmp` by its absolute path, and a network
+profile's module and package caches under `/tmp`, are shared between check runs.
 
 ### Head and base
 

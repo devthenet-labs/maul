@@ -63,6 +63,18 @@ func TestVerifyGoldens(t *testing.T) {
 			p.Verify = &v
 			return RenderIntentStatusComment(testInReview(p))
 		}},
+		// G3-B-CLI-1: a red check maul re-ran but did not keep is named on
+		// its outcome's row.
+		{"intent_verify_outcomes_unkept.md", func() (string, error) {
+			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "bbcount-96", Round: 2, Attempt: 1,
+				Section: VerifySection{
+					Progress: VerifyProgress{State: VerifyUnconfirmed, Verification: 2, Passing: 0, Total: 1,
+						Outcomes: true},
+					Outcomes: []VerifyOutcomeResult{{ID: "offbeat-rule", Kind: "change",
+						Statement: "each track's offbeat count counts only that track", Result: OutcomeResultUnsure,
+						Reason: "model-only-fail", Unkept: UnkeptRunData}},
+				}})
+		}},
 		{"intent_plan_acceptance_not_asked.md", func() (string, error) {
 			pc := testPlanComment(testPlan)
 			pc.Acceptance = &PlanAcceptance{NotAsked: true}
