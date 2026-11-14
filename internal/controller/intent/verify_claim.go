@@ -94,19 +94,25 @@ func citedCall(pv *v1alpha1.PreviewVerification, entries []toolwire.LedgerEntry,
 		}
 		return call, true
 	}
+	if e.CheckRun == nil {
+		return templates.VerifyCitedCall{}, false
+	}
 	var req toolwire.CheckRunRequest
-	if e.CheckRun == nil || json.Unmarshal(e.Args, &req) != nil {
-		return templates.VerifyCitedCall{}, false
+	if json.Unmarshal(e.Args, &req) == nil {
+		if parsed, err := checks.Parse(req.Spec); err == nil {
+			call.Check = &parsed
+		}
 	}
-	parsed, err := checks.Parse(req.Spec)
-	if err != nil {
-		return templates.VerifyCitedCall{}, false
+	if call.Check == nil {
+		// A body maul cannot word is shown as sent.
+		call.Input = string(e.Args)
 	}
-	call.Check, call.RunSeq, call.Result = &parsed, e.Seq, string(e.CheckRun.Result)
+	call.RunSeq, call.Result = e.Seq, string(e.CheckRun.Result)
 	run := e.CheckRun
-	// maul's own run of the same check, where one failed (a confirmation
-	// or a replay), is shown in place of the evaluator's dry run.
-	if seq := failingSeq(pv, "sha256:"+e.CheckRun.Digest); seq != 0 {
+	// maul's own run of the same check at the head, where one failed (a
+	// confirmation or a replay), is shown in place of the evaluator's dry
+	// run there; a dry run at the base keeps its own.
+	if seq := failingSeq(pv, "sha256:"+e.CheckRun.Digest); seq != 0 && !call.Base {
 		if own := checkRunAt(entries, seq, "sha256:"+e.CheckRun.Digest); own != nil {
 			run, call.RunSeq, call.Result = own, int64(seq), string(own.Result)
 		}

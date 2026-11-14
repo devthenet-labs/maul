@@ -20,13 +20,13 @@ Output:
 "{\"color\":\"rgb(43, 29, 87)\",\"bg\":\"rgb(20, 12, 43)\"}"
 
 Call 19, a dry run of a check:
+Its run observed (the check runner's messages, which can quote the application):
+- attempt 1, step 4: failed: `not legible: contrast 1.27 < 1.5`
 The check, a browser check:
 1. Open `/`.
 2. Fill `{"role":"textbox","name":"Author"}` with `{{run}}-dj`.
 3. Click `{"role":"button","name":"Save"}`.
 4. Expected: `legible` `{"assert":"legible","locator":{"testid":"saved"}}`.
-Its run observed (the check runner's messages, which can quote the application):
-- attempt 1, step 4: failed: `not legible: contrast 1.27 < 1.5`
 ```
 
 _maul updates this comment as the preview changes, and removes the preview when the intent ends._

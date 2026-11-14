@@ -14,6 +14,8 @@ The evaluator's claim on `offbeat-rule`, which maul could not confirm (its words
 
 `````text
 Call 14, a dry run of a check:
+maul's own run of this check, call 27, observed (the check runner's messages, which can quote the application):
+- attempt 1, step 1: failed: `the program printed its assertion marker: offbeat-rule: got "offbeat kick 2\noffbeat snare 3\noffbeat hat 3\n"`
 The check, a Go program built against the pull request's tree:
 1. Write the file `main.go`:
 
@@ -39,8 +41,6 @@ The check, a Go program built against the pull request's tree:
    ```
 2. maul writes the program's `go.mod` and builds it with the tree in a Go workspace.
 3. Run it (timeout `30s`). Expected: exit status `0`; standard output contains `ok {{run}}`.
-maul's own run of this check, call 27, observed (the check runner's messages, which can quote the application):
-- attempt 1, step 1: failed: `the program printed its assertion marker: offbeat-rule: got "offbeat kick 2\noffbeat snare 3\noffbeat hat 3\n"`
 
 Call 6, a program run:
 Sent: {"argv":["{{bin}}","-offbeat","p.json"]}

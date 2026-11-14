@@ -118,6 +118,46 @@ func TestDoubtedOutcomeShowsTheEvaluatorsClaim(t *testing.T) {
 	}
 }
 
+// TestCitedCallPrefersMaulsOwnRunAtTheHead: a cited dry run at the head
+// shows maul's own failing run of the same check in its place; a dry run
+// at the base keeps its own record, never the head's failure.
+func TestCitedCallPrefersMaulsOwnRunAtTheHead(t *testing.T) {
+	version := savedCheck(t, versionCheck)
+	args := json.RawMessage(`{"check":` + version.Body + `}`)
+	head := checkRunEntry(4, version.Digest, "version-shown", 1, "dry run at head")
+	head.Kind, head.Args, head.CheckRun.Mode = toolwire.KindAgent, args, toolwire.ModeDryRun
+	base := checkRunEntry(5, version.Digest, "version-shown", 1, "")
+	base.Kind, base.Args, base.Side = toolwire.KindAgent, args, toolwire.SideBase
+	base.CheckRun.Mode, base.CheckRun.Result = toolwire.ModeDryRun, toolwire.RunPass
+	base.CheckRun.Attempts = []toolwire.Attempt{{Run: "b1", Result: toolwire.ResultPass}}
+	own := checkRunEntry(20, version.Digest, "version-shown", 1, "maul's own confirmation")
+	own.CheckRun.Mode = toolwire.ModeConfirm
+	entries := []toolwire.LedgerEntry{head, base, own}
+	pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{
+		Confirmations: []v1alpha1.CheckRun{{CheckDigest: version.Digest, Result: v1alpha1.CheckRunFail, Seq: 20,
+			Token: "t9"}}}}
+	for _, tc := range []struct {
+		entry  toolwire.LedgerEntry
+		runSeq int64
+		result string
+		detail string
+	}{
+		{head, 20, "fail", "maul's own confirmation"},
+		{base, 5, "pass", ""},
+	} {
+		call, ok := citedCall(pv, entries, tc.entry)
+		if !ok || call.Check == nil || call.RunSeq != tc.runSeq || call.Result != tc.result {
+			t.Fatalf("call %d = %+v, want run %d %s", tc.entry.Seq, call, tc.runSeq, tc.result)
+		}
+		if tc.detail != "" && (len(call.Observed) == 0 || call.Observed[0].Detail != tc.detail) {
+			t.Errorf("call %d observed %+v, want %q", tc.entry.Seq, call.Observed, tc.detail)
+		}
+		if tc.detail == "" && len(call.Observed) != 0 {
+			t.Errorf("call %d at the base shows a failure: %+v", tc.entry.Seq, call.Observed)
+		}
+	}
+}
+
 // TestConfirmedOutcomeShowsNoClaim: an outcome maul itself judged (here
 // failed on a replayed check) shows maul's own evidence, never the
 // evaluator's note.

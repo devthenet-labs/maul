@@ -190,10 +190,23 @@ func TestVerifyClaimOnlyWhereGiven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "The evaluator judged `o` not to hold, which maul could not confirm; it gave no note. maul has none of " +
-		"the calls it cites to show."
+	want := "The evaluator judged `o` not to hold, which maul could not confirm; it gave no note. maul shows none " +
+		"of the calls it cites."
 	if !strings.Contains(out, want) || strings.Contains(out, "```") {
 		t.Errorf("an empty claim renders\n%s\nwant %q and no block", out, want)
+	}
+}
+
+// TestVerifyClaimUnwordedCheck: a cited check run whose body maul cannot
+// word still shows what maul's run observed, first, and the body as sent.
+func TestVerifyClaimUnwordedCheck(t *testing.T) {
+	d, ok := claimDetailOf(VerifyOutcomeResult{Claim: &VerifyEvaluatorClaim{Note: "n", Calls: []VerifyCitedCall{
+		{Seq: 9, Verb: "check-run", Input: `{"check":{"form":"new"}}`, RunSeq: 9, Result: "fail",
+			Observed: []ReproductionObservation{{Attempt: 1, Step: 2, Result: "fail", Detail: "got 12"}}}}}}, "`o`")
+	want := "Call 9, a dry run of a check:\nIts run observed (the check runner's messages, which can quote the " +
+		"application):\n- attempt 1, step 2: failed: `got 12`\nSent: {\"check\":{\"form\":\"new\"}}"
+	if !ok || !strings.Contains(d.Calls, want) {
+		t.Errorf("calls =\n%s\nwant %q", d.Calls, want)
 	}
 }
 

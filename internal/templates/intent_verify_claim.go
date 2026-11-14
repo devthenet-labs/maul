@@ -55,7 +55,8 @@ type VerifyCitedCall struct {
 	Verb string
 	Base bool
 	// Check is the check a cited check run ran (its steps are shown);
-	// nil for any other call, whose request, JSON as received, is Input.
+	// nil for any other call, or a check maul cannot word, whose request,
+	// JSON as received, is Input.
 	Check *checks.Check
 	Input string
 	// Exit is the exit status of the process the call ran, shown for a
@@ -111,7 +112,7 @@ func claimDetailOf(o VerifyOutcomeResult, id string) (claimDetail, bool) {
 	}
 	calls := claimCalls(c)
 	if calls == "" {
-		b.WriteString(" maul has none of the calls it cites to show.")
+		b.WriteString(" maul shows none of the calls it cites.")
 		return claimDetail{Lead: b.String()}, true
 	}
 	b.WriteString(" The calls it cites, as maul's tools recorded them (what the evaluator sent and what came back: " +
@@ -153,12 +154,10 @@ func callText(c VerifyCitedCall, workspace bool) string {
 		head += " at the base"
 	}
 	lines := []string{head + ":"}
-	if c.Check != nil {
+	if c.Verb == "check-run" {
 		return strings.Join(append(lines, checkCallLines(c, workspace)...), "\n")
 	}
-	if in := strings.TrimSpace(cutRunes(visibleText(c.Input), verifyClaimInputMaxBytes)); in != "" {
-		lines = append(lines, "Sent: "+in)
-	}
+	lines = append(lines, sentLines(c.Input)...)
 	switch c.Verb {
 	case "exec", "run", "browser":
 		lines = append(lines, fmt.Sprintf("Exit status: %d", c.Exit))
@@ -174,28 +173,42 @@ func callText(c VerifyCitedCall, workspace bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// checkCallLines are a cited check run's lines: the check's steps, then
-// what maul's run of it observed.
-func checkCallLines(c VerifyCitedCall, workspace bool) []string {
-	form, steps := checkSteps(*c.Check, workspace)
-	lines := []string{"The check, " + form + ":"}
-	for i, st := range steps {
-		lines = append(lines, fmt.Sprintf("%d. %s", i+1, st))
+// sentLines are a call's request as sent, bounded; none when empty.
+func sentLines(input string) []string {
+	if in := strings.TrimSpace(cutRunes(visibleText(input), verifyClaimInputMaxBytes)); in != "" {
+		return []string{"Sent: " + in}
 	}
+	return nil
+}
+
+// checkCallLines are a cited check run's lines: what maul's run of it
+// observed first (what maul measured, kept should the block be cut), then
+// the check's steps, or its body as sent when maul cannot word it.
+func checkCallLines(c VerifyCitedCall, workspace bool) []string {
 	run := "Its run"
 	if c.RunSeq != 0 && c.RunSeq != c.Seq {
 		run = fmt.Sprintf("maul's own run of this check, call %d,", c.RunSeq)
 	}
+	var lines []string
 	if len(c.Observed) == 0 {
-		return append(lines, run+" recorded no step that did not pass"+resultClause(c.Result)+".")
+		lines = append(lines, run+" recorded no step that did not pass"+resultClause(c.Result)+".")
+	} else {
+		lines = append(lines, run+" observed (the check runner's messages, which can quote the application):")
 	}
-	lines = append(lines, run+" observed (the check runner's messages, which can quote the application):")
 	for i, o := range c.Observed {
 		if i == verifyReproObserved {
 			lines = append(lines, fmt.Sprintf("- %d more not shown", len(c.Observed)-i))
 			break
 		}
 		lines = append(lines, "- "+observationLine(o))
+	}
+	if c.Check == nil {
+		return append(lines, sentLines(c.Input)...)
+	}
+	form, steps := checkSteps(*c.Check, workspace)
+	lines = append(lines, "The check, "+form+":")
+	for i, st := range steps {
+		lines = append(lines, fmt.Sprintf("%d. %s", i+1, st))
 	}
 	return lines
 }
