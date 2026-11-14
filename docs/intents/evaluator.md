@@ -278,8 +278,9 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    or one ran green. This run-data rule guards a preview's shared data, so it is the preview's alone: a check of a CLI
    or a library need not write data of its own run (see
    [Without a preview: a CLI or a library](#without-a-preview-a-cli-or-a-library)). When a check the tool pod confirmed
-   for an outcome the evaluator reports failing is still not stored (a rule above, or its confirmation not red by the
-   assertion it was proposed failing), the outcome's row on the issue says so and why, beside "unsure".
+   for an outcome the evaluator reports failing is still not stored (a rule above, its confirmation not red by the
+   assertion it was proposed failing, no review that proved it, or a full check store), the outcome's row on the issue
+   says so and why, beside "unsure".
 
 2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
    assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a

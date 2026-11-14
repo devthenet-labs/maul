@@ -493,6 +493,12 @@ func TestRedCheckRunDataRuleIsTheSlots(t *testing.T) {
 			slot, false},
 		{"slot http listing an error status", red(slotErrorStatusRed, 1), confirmed(red(slotErrorStatusRed, 1)),
 			slot, false},
+		// The exemption is the workspace's own checks': an http or browser
+		// check on an agents round is off its surface, refused before the
+		// red rule is reached.
+		{"agents http read", red(healthCheck, 1), confirmed(red(healthCheck, 1)), cli, false},
+		{"agents browser text read", red(slotLayoutTextRed, 2), confirmed(red(slotLayoutTextRed, 2)), lib,
+			false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{
@@ -507,6 +513,10 @@ func TestRedCheckRunDataRuleIsTheSlots(t *testing.T) {
 			}
 			if !tt.want && tt.runs != nil && tt.surface.Preview != nil && !slices.Equal(reasons, []string{redRuleRefusal}) {
 				t.Errorf("refusals %v, want the run-data rule's", reasons)
+			}
+			if tt.surface.Workspace != nil && tt.check.Form != v1alpha1.CheckFormExec &&
+				tt.check.Form != v1alpha1.CheckFormRun && !slices.Equal(reasons, []string{"refused by the saved-check rules"}) {
+				t.Errorf("refusals %v, want the saved-check rules'", reasons)
 			}
 		})
 	}
@@ -578,25 +588,51 @@ func TestUnkeptRed(t *testing.T) {
 		confirmed []v1alpha1.SavedCheck
 		runs      []v1alpha1.CheckRun
 		surface   checks.Context
+		reviews   []v1alpha1.CheckReviewRecord
+		stored    []v1alpha1.SavedCheck
 		want      map[string]string
 	}{
-		{"a slot read", []v1alpha1.SavedCheck{read}, []v1alpha1.CheckRun{runOf(read, "json /note")}, slot,
+		{"a slot read", []v1alpha1.SavedCheck{read}, []v1alpha1.CheckRun{runOf(read, "json /note")}, slot, nil, nil,
 			map[string]string{"version-shown": templates.UnkeptRunData}},
 		{"red by another assertion", []v1alpha1.SavedCheck{version}, []v1alpha1.CheckRun{runOf(version, "status")},
-			slot, map[string]string{"version-shown": templates.UnkeptConfirmation}},
+			slot, nil, nil, map[string]string{"version-shown": templates.UnkeptConfirmation}},
 		{"confirmed green", []v1alpha1.SavedCheck{version}, []v1alpha1.CheckRun{{CheckDigest: version.Digest,
-			Result: v1alpha1.CheckRunPass, Token: "t", Seq: 10, Expect: v1alpha1.CheckExpectFail}}, slot,
+			Result: v1alpha1.CheckRunPass, Token: "t", Seq: 10, Expect: v1alpha1.CheckExpectFail}}, slot, nil, nil,
 			map[string]string{"version-shown": templates.UnkeptConfirmation}},
 		{"the saved-check rules", []v1alpha1.SavedCheck{exec}, []v1alpha1.CheckRun{runOf(exec, "stdout")}, slot,
-			map[string]string{"offbeat-rule": templates.UnkeptRules}},
-		{"a workspace check", []v1alpha1.SavedCheck{exec}, []v1alpha1.CheckRun{runOf(exec, "stdout")}, cli,
-			map[string]string{}},
-		{"a green check", []v1alpha1.SavedCheck{health}, nil, slot, map[string]string{}},
+			nil, nil, map[string]string{"offbeat-rule": templates.UnkeptRules}},
+		// A candidate the store admits but no review proved (none ran: the
+		// evaluation ceiling, a failed reviewer; or one answered otherwise)
+		// is not kept either, and says so.
+		{"a workspace check no review proved", []v1alpha1.SavedCheck{exec},
+			[]v1alpha1.CheckRun{runOf(exec, "stdout")}, cli, nil, nil,
+			map[string]string{"offbeat-rule": templates.UnkeptReview}},
+		{"a workspace check reviewed unclear", []v1alpha1.SavedCheck{exec},
+			[]v1alpha1.CheckRun{runOf(exec, "stdout")}, cli, []v1alpha1.CheckReviewRecord{redReview(exec,
+				outcomes[2], v1alpha1.ReviewUnclear)}, nil, map[string]string{"offbeat-rule": templates.UnkeptReview}},
+		{"a workspace check reviewed for a green question", []v1alpha1.SavedCheck{exec},
+			[]v1alpha1.CheckRun{runOf(exec, "stdout")}, cli, []v1alpha1.CheckReviewRecord{{CheckDigest: exec.Digest,
+				OutcomeDigest: outcomeDigest(outcomes[2]), Answer: v1alpha1.ReviewProves}}, nil,
+			map[string]string{"offbeat-rule": templates.UnkeptReview}},
+		{"a proven workspace check the full store left out", []v1alpha1.SavedCheck{exec},
+			[]v1alpha1.CheckRun{runOf(exec, "stdout")}, cli, []v1alpha1.CheckReviewRecord{redReview(exec,
+				outcomes[2], v1alpha1.ReviewProves)}, nil, map[string]string{"offbeat-rule": templates.UnkeptStoreFull}},
+		{"a stored workspace check", []v1alpha1.SavedCheck{exec}, []v1alpha1.CheckRun{runOf(exec, "stdout")}, cli,
+			[]v1alpha1.CheckReviewRecord{redReview(exec, outcomes[2], v1alpha1.ReviewProves)},
+			[]v1alpha1.SavedCheck{exec}, map[string]string{}},
+		{"a green check", []v1alpha1.SavedCheck{health}, nil, slot, nil, nil, map[string]string{}},
 	} {
 		pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{Confirmed: tt.confirmed,
 			Confirmations: tt.runs}}
-		if got := unkeptRed(pv, outcomes, nil, tt.surface); !maps.Equal(got, tt.want) {
+		if got := unkeptRed(pv, outcomes, tt.stored, tt.reviews, tt.surface); !maps.Equal(got, tt.want) {
 			t.Errorf("%s: unkept = %v, want %v", tt.name, got, tt.want)
 		}
 	}
+}
+
+// redReview is a cached review of the red question for c and o.
+func redReview(c v1alpha1.SavedCheck, o v1alpha1.AcceptanceOutcome,
+	a v1alpha1.ReviewAnswer) v1alpha1.CheckReviewRecord {
+	return v1alpha1.CheckReviewRecord{CheckDigest: c.Digest, OutcomeDigest: outcomeDigest(o), Answer: a,
+		Expect: v1alpha1.CheckExpectFail, FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion}
 }

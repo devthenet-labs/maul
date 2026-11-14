@@ -188,29 +188,47 @@ const unboundRefusal = "not bound to an outcome maul evaluates"
 // by confirmedRed.
 const redConfirmRefusal = "no confirmation run red by the assertion it was confirmed failing"
 
-// unkeptRed is, by outcome id, why each of pv's confirmed checks proposed
-// to show a defect was not kept (storeCandidates' refusals, the first per
-// outcome, as templates.Unkept* reasons): the outcome's row names it, so a
-// red check maul re-ran is never dropped with only a log line to show for
-// it (G3-B-CLI-1). A refusal not of a red check's own (its outcome) adds
-// nothing.
+// unkeptRed is, by outcome id, why one of pv's confirmed checks proposed
+// to show a defect was not kept (the first per outcome, as
+// templates.Unkept* reasons): refused by storeCandidates, or a candidate no
+// cached review of the red question proved (none ran: the evaluation
+// ceiling, a reviewer that failed or was handed nothing; or one answered
+// otherwise), or one proven that the full store left out. The outcome's row
+// names it, so a red check maul re-ran is never dropped with only a log
+// line to show for it (G3-B-CLI-1). A refusal not of a red check's own
+// (its outcome) adds nothing, nor does a stored check.
 func unkeptRed(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
-	stored []v1alpha1.SavedCheck, surface checks.Context) map[string]string {
+	stored []v1alpha1.SavedCheck, reviews []v1alpha1.CheckReviewRecord, surface checks.Context) map[string]string {
 	out := map[string]string{}
-	storeCandidates(pv, outcomes, stored, surface, func(reason string, c v1alpha1.SavedCheck, _ string) {
-		if c.Expect != v1alpha1.CheckExpectFail || out[c.Outcome] != "" {
+	note := func(outcome, why string) {
+		if out[outcome] == "" {
+			out[outcome] = why
+		}
+	}
+	cands := storeCandidates(pv, outcomes, stored, surface, func(reason string, c v1alpha1.SavedCheck, _ string) {
+		if c.Expect != v1alpha1.CheckExpectFail {
 			return
 		}
 		switch reason {
 		case redRuleRefusal:
-			out[c.Outcome] = templates.UnkeptRunData
+			note(c.Outcome, templates.UnkeptRunData)
 		case redConfirmRefusal:
-			out[c.Outcome] = templates.UnkeptConfirmation
+			note(c.Outcome, templates.UnkeptConfirmation)
 		case unboundRefusal:
 		default:
-			out[c.Outcome] = templates.UnkeptRules
+			note(c.Outcome, templates.UnkeptRules)
 		}
 	})
+	answers := reviewsByKey(reviews)
+	for _, c := range cands {
+		switch {
+		case !c.red():
+		case answers[c.reviewKey()] != v1alpha1.ReviewProves:
+			note(c.check.Outcome, templates.UnkeptReview)
+		default:
+			note(c.check.Outcome, templates.UnkeptStoreFull)
+		}
+	}
 	return out
 }
 

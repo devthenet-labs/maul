@@ -79,6 +79,11 @@ const (
 	UnkeptConfirmation = "confirmation"
 	// UnkeptRules: the check's own bytes break the saved-check rules.
 	UnkeptRules = "rules"
+	// UnkeptReview: no review of the red question proved it (none ran, or
+	// one answered otherwise).
+	UnkeptReview = "review"
+	// UnkeptStoreFull: proven, but the intent's check store had no room.
+	UnkeptStoreFull = "store-full"
 )
 
 // unkeptWords are the Unkept reasons in maul's words; one not listed adds
@@ -88,6 +93,8 @@ var unkeptWords = map[string]string{
 		"success statuses",
 	UnkeptConfirmation: "maul's own runs of it did not show it failing by the assertion it was proposed failing",
 	UnkeptRules:        "it breaks the saved-check rules",
+	UnkeptReview:       "no review of it found that its failure shows this outcome failing",
+	UnkeptStoreFull:    "the intent's check store is full",
 }
 
 // Bounds on what an outcome's detail shows.

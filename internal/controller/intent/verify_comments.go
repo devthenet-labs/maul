@@ -252,7 +252,8 @@ func (p *pass) unkeptRed(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	if !p.unkeptRead {
 		p.unkeptRead = true
 		if stored, _, err := p.storedChecks(ctx); err == nil {
-			p.unkept = unkeptRed(pv, p.in.Status.Acceptance.Outcomes, stored, p.checkContext(pv))
+			acc := p.in.Status.Acceptance
+			p.unkept = unkeptRed(pv, acc.Outcomes, stored, acc.Reviews, p.checkContext(pv))
 		}
 	}
 	return p.unkept
