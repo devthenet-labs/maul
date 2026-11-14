@@ -443,10 +443,12 @@ What I checked, in a few lines.
   for a check that shows a defect of an outcome you report `fail` (leave it out for a check that ran green).
 - `retire`: each saved check to retire, by its digest, with a `reason`.
 - `anomalies`: notes for the human reviewers, each with a one-line `summary`, the `route` or surface it is on, and
-  its `ledger` seqs: something you saw that no approved outcome states. maul judges the change on the outcomes alone,
-  so an anomaly never fails, holds or confirms anything; it is shown to the reviewers beside the outcomes. A defect in
-  what an outcome states, on any input, is never an anomaly: report it as that outcome's `fail` (or, where its saved
-  check still passes, under its `contrary`), citing the seqs that show it.
+  its `ledger` seqs. maul judges the change on the outcomes alone, so an anomaly never fails, holds or confirms
+  anything; it is shown to the reviewers beside the outcomes. So a defect in what an outcome states, on any input, is
+  never an anomaly: report it as that outcome's `fail`. Nor is a break of the rule an outcome's line of the request
+  states beyond its example: list it in that outcome's `contrary`, as **Stay within what the outcome promises** says.
+  An anomaly is what neither covers: trouble the change shows elsewhere, or a part of the request no outcome answers
+  (name its line).
 
 Write `[]` for an empty list. Put every string in double quotes, and escape a double quote inside one as `\"`: an
 unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes, reasons and summaries are

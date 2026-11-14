@@ -434,12 +434,14 @@ It never holds a round, never downgrades the hand-off, never keeps `maul/accepta
 fix. The evaluator answers one question, whether the work is correct, and the approved outcomes alone answer it: a round
 whose outcomes are all confirmed is Passed with its notes shown.
 
-A defect in what the issue asks for is not an anomaly. The plan's outcomes state the issue's rules, beyond its examples,
-and the evaluator is told to report anything that breaks what an outcome states, on any input, as that outcome's `fail`
-(or a `contrary` entry where its saved check still passes). That keeps the outcome from passing and holds the commits
-(see [A finding holds its commits](#a-finding-holds-its-commits)), so nothing the issue promises can pass on a note.
-What the issue does not promise (a regression elsewhere, an odd log line, a layout blemish on a page the change only
-touched) is for the reviewer to weigh: maul shows it and the human decides.
+A defect in what an outcome promises is not an anomaly. The plan's outcomes state the issue's rules, beyond its
+examples, and the evaluator is told to report a defect in what an outcome states, on any input, as that outcome's
+`fail`, and a break of the rule an outcome's line of the request states beyond its example as that outcome's `contrary`.
+Either keeps the outcome from passing and holds the commits (see
+[A finding holds its commits](#a-finding-holds-its-commits)), so nothing an approved outcome promises can pass on a
+note. What no outcome promises (a regression elsewhere, an odd log line, a layout blemish on a page the change only
+touched, a line of the issue the plan left uncovered, which the plan comment lists for the approver) is for the reviewer
+to weigh: maul shows it and the human decides.
 
 maul's own objects are not the application's. The slot capture that `maul-tool events` reads leaves out every event
 about the tool pod and its Job (a readiness probe blip on the tool pod's `:8090/readyz`, for example), so the evaluator

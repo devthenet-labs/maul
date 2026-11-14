@@ -236,7 +236,8 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Each round's rung (S3 minimal, `rung.go`; people's guide `docs/intents/evaluator.md#the-cost-ladder-replay-rounds`)
   is `acceptance.StartRung`'s: `replay` (the saved checks only, no evaluate or checkreview run, $0 model) only at the
   heads and outcomes of `status.verification.modelRound` (the latest full round judged on its report) when that
-  round was `clear` (no fail verdict, no contrary entry, no anomaly) and every non-manual outcome has a stored check
+  round was `clear` (no fail verdict, no contrary entry; a look-around anomaly is a note, never an objection) and
+  every non-manual outcome has a stored check
   Decide could pass it on; else `full` (round 1, a replan, moved heads: the scoped rung is not built, an objecting
   model round, an uncovered outcome, `/maul verify explore` from either surface, `VerifyRequest.Explore`, a retry of
   a full round). Decide judges a replay round unchanged, so it never fails an outcome; an unsure one (on a non-manual
@@ -790,7 +791,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and `Decide` (`decide.go`:
   the six pass rules
   of DESIGN 4.3, the dispute rule, failed only on a deterministic check failure the evaluator agrees with, unsure
-  otherwise, anomalies and a failing environment downgrading the hand-off; seeded property: no pass without all six),
+  otherwise, a failing environment downgrading the hand-off, look-around anomalies never read: they are reviewer
+  notes; seeded property: no pass without all six),
   `StartRung` (`rung.go`: the cost ladder's rung, replay or full, sharing Decide's own `passes` for coverage) and
   `ModelRoundClear` (a full round whose evaluator raised nothing).
   `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`). For S2, `Decide` takes `BaseRuns{Runs, Required,
