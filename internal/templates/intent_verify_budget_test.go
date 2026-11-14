@@ -34,7 +34,12 @@ func worstSection(fill string) VerifySection {
 	for i := range acceptance.MaxOutcomes {
 		s.Outcomes = append(s.Outcomes, VerifyOutcomeResult{ID: fmt.Sprintf("o%02d", i), Kind: "change",
 			Statement: repeatTo(fill, acceptance.MaxOutcomeChars), Result: OutcomeResultFailed,
-			Reason: "evaluator-disagrees", Check: repeatTo(fill, 1024), AppOutput: repeatTo(fill, 8192)})
+			Reason: "evaluator-disagrees", Check: repeatTo(fill, 1024), AppOutput: repeatTo(fill, 8192),
+			// Shown only for an unconfirmed outcome by the controller, but
+			// held to the same budget wherever it is given.
+			Claim: &VerifyEvaluatorClaim{Note: repeatTo(fill, 1000), Calls: []VerifyCitedCall{
+				{Seq: 4, Verb: "exec", Input: repeatTo(fill, 4096), Output: repeatTo(fill, 4096)},
+				{Seq: 5, Verb: "http", Input: repeatTo(fill, 4096), Output: repeatTo(fill, 4096)}}}})
 	}
 	for range verifyAnomaliesMax {
 		s.Anomalies = append(s.Anomalies, VerifyAnomaly{Summary: repeatTo(fill, 1024), Route: repeatTo(fill, 256)})

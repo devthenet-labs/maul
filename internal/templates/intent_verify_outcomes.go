@@ -17,8 +17,9 @@ import (
 // decided result, maul's words on why and the check it rests on, rendered by
 // maul from structured data, and for a failure the application's output in
 // a fenced, sanitised and defanged "app output" block naming the outcome.
-// The evaluator's own words appear only as a look-around anomaly's summary,
-// marked as its words and sanitised.
+// The evaluator's own words appear only as a look-around anomaly's summary
+// and as the note of an outcome it judged not to hold that maul could not
+// confirm (intent_verify_claim.go), each marked as its words and sanitised.
 
 // Outcome results as a comment shows them (status.verification.outcomes).
 const (
@@ -95,6 +96,10 @@ type VerifyOutcomeResult struct {
 	AppOutput string
 	// AcceptedAt is the head an approver accepted the outcome at.
 	AcceptedAt string
+	// Claim is, for an outcome the evaluator judged not to hold that no
+	// check maul re-ran shows failing, its note and the calls it cites
+	// (intent_verify_claim.go); nil for none.
+	Claim *VerifyEvaluatorClaim
 }
 
 // outcomeDetail is a failing outcome's app output as the templates print
@@ -150,6 +155,9 @@ func outcomeViews(v *verifyView, s VerifySection, short bool) {
 			OutcomeCell: cell(verdict)})
 		if d, ok := outcomeDetailOf(o, id); ok {
 			v.Outcomes = append(v.Outcomes, d)
+		}
+		if d, ok := claimDetailOf(o, id); ok {
+			v.Claims = append(v.Claims, d)
 		}
 	}
 	for i, a := range s.Anomalies {

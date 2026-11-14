@@ -168,18 +168,7 @@ func reproFailure(f ReproductionFailure, workspace bool) reproFailureView {
 			fv.Observed = append(fv.Observed, fmt.Sprintf("%d more not shown", len(f.Observed)-i))
 			break
 		}
-		line := fmt.Sprintf("attempt %d", o.Attempt)
-		if o.Step > 0 {
-			line += fmt.Sprintf(", step %d", o.Step)
-		}
-		line += ": " + reproResult(o.Result)
-		if d := strings.TrimSpace(o.Detail); d != "" {
-			line += ": " + code(untrusted.Visible(d, verifyReproDetailBytes))
-		}
-		if r := strings.TrimSpace(o.Received); r != "" {
-			line += "; the element showed " + code(untrusted.Visible(r, verifyReproDetailBytes))
-		}
-		fv.Observed = append(fv.Observed, line)
+		fv.Observed = append(fv.Observed, observationLine(o))
 	}
 	fv.NoObserved = len(fv.Observed) == 0
 	budget := verifyReproLogLines
@@ -202,6 +191,23 @@ func reproFailure(f ReproductionFailure, workspace bool) reproFailureView {
 		}
 	}
 	return fv
+}
+
+// observationLine is one observation in maul's words, the runner's message
+// and what the element showed in code spans.
+func observationLine(o ReproductionObservation) string {
+	line := fmt.Sprintf("attempt %d", o.Attempt)
+	if o.Step > 0 {
+		line += fmt.Sprintf(", step %d", o.Step)
+	}
+	line += ": " + reproResult(o.Result)
+	if d := strings.TrimSpace(o.Detail); d != "" {
+		line += ": " + code(untrusted.Visible(d, verifyReproDetailBytes))
+	}
+	if r := strings.TrimSpace(o.Received); r != "" {
+		line += "; the element showed " + code(untrusted.Visible(r, verifyReproDetailBytes))
+	}
+	return line
 }
 
 // reproResult is a step result in maul's words; one not listed is unknown.

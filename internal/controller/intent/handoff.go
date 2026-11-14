@@ -251,7 +251,7 @@ func unconfirmedView(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificat
 func doubtedOutcomes(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) int32 {
 	var n int32
 	for _, r := range v.JudgedOutcomes() {
-		if r.Reason == acceptance.ReasonModelOnlyFail && effectiveResult(acc, v, r) == v1alpha1.OutcomeUnsure {
+		if doubted(acc, v, r) {
 			n++
 		}
 	}

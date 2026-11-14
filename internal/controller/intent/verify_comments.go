@@ -217,6 +217,9 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		if (row.Result == templates.OutcomeResultFailed || r.Reason == acceptance.ReasonSuspectedDefect) && pv != nil {
 			row.AppOutput = p.appOutput(ctx, pv, r.Basis)
 		}
+		if doubted(acc, v, r) && pv != nil {
+			row.Claim = p.evaluatorClaim(ctx, pv, o.ID)
+		}
 		s.Outcomes = append(s.Outcomes, row)
 	}
 	for _, a := range v.Anomalies {
