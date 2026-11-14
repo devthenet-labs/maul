@@ -96,6 +96,31 @@ func TestAnomalyIsANote(t *testing.T) {
 	}
 }
 
+// TestNoteDoesNotHoldAnAcceptance: a round left Unconfirmed by an outcome
+// maul could not confirm, beside a note, is ready once an approver accepts
+// that outcome: the note holds nothing.
+func TestNoteDoesNotHoldAnAcceptance(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	heads := e.verification(name).HeadSetDigest
+	j := passingJudgement(t, heldAnomaly)
+	j.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, "")
+	if v := e.judgeAt(name, 1, heads, j); v.State != v1alpha1.VerificationUnconfirmed {
+		t.Fatalf("round 1 = %s, want Unconfirmed (the case's premise)", v.State)
+	}
+	replies := e.request(name, "issue", "/maul accept "+oVersion)
+	if len(replies) != 1 || !strings.Contains(replies[0], "is done") {
+		t.Fatalf("accept replies %q, want it accepted", replies)
+	}
+	p := e.prVerifyPass(name)
+	if !outcomesReady(p.in.Status.Acceptance, p.in.Status.Verification) {
+		t.Error("not ready once the outcome is accepted, beside a note")
+	}
+	if st, _, ok := p.acceptanceStatus(); !ok || st.state != statusSuccess {
+		t.Errorf("maul/acceptance %+v (posted %v), want success once accepted", st, ok)
+	}
+}
+
 // TestCarriedNoteRecords: a note carried at the same heads keeps the round
 // that found it; judging the same round again carries nothing twice; a
 // later round repeating the note's words adds no copy; a record from before
