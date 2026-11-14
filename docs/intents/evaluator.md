@@ -295,13 +295,14 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    element, what a passing run must print, a step after the failure that never ran) or by whether a pass would prove the
    whole outcome: a check that shows one promise broken is enough, even where the outcome has a clause no step asserts
    or no assertion can express (a button wholly inside the viewport), though never one that skips or changes a condition
-   the outcome is stated under. That is safe because maul counts a later run of the check only when it fails at the same
-   step by the same assertion, holds its failure for a person, and asks the green question before a pass of it counts
-   (below). For an `exec` or `run` check it is shown the marker its program printed and answers whether the program
-   prints it only when the approved outcome is violated, never inside a retry or poll before its final judgement, on a
-   connection error, a status code, a timeout or an exception; where it prints it on more than one condition, what maul
-   recorded shows which held. The answer counts only for that assertion: another failing assertion of the check needs a
-   review of its own. Anything else and the check is not stored; the outcome stays unsure.
+   the outcome is stated under. That is safe because, until the check has passed once, maul counts a later run of it
+   only when it fails at the same step by the same assertion, and until the green question has answered `proves` every
+   failure of it waits for a person (below). For an `exec` or `run` check it is shown the marker its program printed and
+   answers whether the program prints it only when the approved outcome is violated, never inside a retry or poll before
+   its final judgement, on a connection error, a status code, a timeout or an exception; where it prints it on more than
+   one condition, what maul recorded shows which held. The answer counts only for that assertion: another failing
+   assertion of the check needs a review of its own. Anything else and the check is not stored; the outcome stays
+   unsure.
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.

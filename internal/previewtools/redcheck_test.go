@@ -318,6 +318,12 @@ func TestBrowserAssertionFailures(t *testing.T) {
 			"Error: strict mode violation: resolved to 2 elements", "toContainText"), false},
 		{"no box", at("failed", "Error: maul: size failed: the element has no box (not visible)", "toContainText"),
 			false},
+		// A maul assertion (visible, legible, clickable) whose locator
+		// resolves nothing times out finding it, before any measurement:
+		// the check reviewer is told a browser assertion failed only on an
+		// element that was there (G3-B-BR-1).
+		{"a maul assertion on no element", at("failed", "Error: locator.scrollIntoViewIfNeeded: Timeout 5000ms "+
+			"exceeded.\nCall log:\n  - waiting for getByRole('status')", "toContainText"), false},
 		{"at an action", at("failed", "Error: expect(locator).toContainText(expected) failed", ".click()"), false},
 		{"action timeout", at("failed", "Error: locator.click: Timeout 5000ms exceeded.", ".click()"), false},
 		{"test timed out", at("timedOut", "Test timeout of 30000ms exceeded.", "toContainText"), false},

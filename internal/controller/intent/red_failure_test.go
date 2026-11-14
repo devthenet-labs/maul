@@ -4,11 +4,14 @@
 package intent
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // TestRedCheckReviewGetsWhatItsFailureRecorded (G3-B-BR-1, G3-B-LIB-1):
@@ -61,6 +64,52 @@ func TestRedCheckReviewGetsWhatItsFailureRecorded(t *testing.T) {
 				t.Errorf("review = %+v, want the red question with failure %q", it, tc.want)
 			}
 		})
+	}
+}
+
+// TestAgentsRedReviewGetsItsMarkerLine (G3-B-CLI-2, G3-B-LIB-1): on a
+// workspace round the red question is handed the line the program printed
+// after its marker in each of maul's head confirmation runs (G5: "got [45
+// 150] err <nil>"), never the base's runs of it, which the ledger records
+// at a seq of their own.
+func TestAgentsRedReviewGetsItsMarkerLine(t *testing.T) {
+	const said = "the program printed its assertion marker: version: got [45 150] err <nil> for "
+	e, name := newAgentsEnv(t, repoImage)
+	check := savedCheck(t, agentsVersionRun)
+	check.Expect, check.FailedStep, check.FailedAssertion = v1alpha1.CheckExpectFail, 1, "marker version"
+	r := &fakeReviewer{}
+	e.reviewChecksWith(r)
+	pv := e.agentsEvaluated(name)
+	e.agentsConfirm(pv.Name, false, func(c v1alpha1.SavedCheck) v1alpha1.CheckRun {
+		return v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunFail, Token: "h-a1", Seq: 10,
+			DryRunSeq: 1, Expect: v1alpha1.CheckExpectFail, AssertionStep: 1, AssertionID: "marker version"}
+	}, func(c v1alpha1.SavedCheck) *v1alpha1.CheckRun {
+		return &v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunError, Token: "b-a1", Seq: 11,
+			Tree: v1alpha1.TreeBase, Cause: v1alpha1.CheckRunCauseCompile}
+	}, check)
+	entry := func(seq int64, side toolwire.Side, result toolwire.AttemptResult, tokens ...string) toolwire.LedgerEntry {
+		rec := &toolwire.CheckRunRecord{Digest: strings.TrimPrefix(check.Digest, "sha256:"), CheckID: check.ID,
+			Mode: toolwire.ModeConfirm, Result: toolwire.RunResult(result)}
+		for _, tok := range tokens {
+			s := toolwire.StepRecord{Result: result, Side: side, Detail: "the program did not compile (exit 1)"}
+			if result == toolwire.ResultFail {
+				s.Detail, s.Assertion, s.AssertionID = said+tok, true, "marker version"
+			}
+			rec.Attempts = append(rec.Attempts, toolwire.Attempt{Run: tok, Result: result,
+				Steps: []toolwire.StepRecord{s}})
+		}
+		return toolwire.LedgerEntry{Seq: seq, TS: time.Unix(seq, 0).UTC(), Kind: toolwire.KindRelay,
+			Verb: toolwire.VerbConfirm, Args: json.RawMessage(`{}`), CheckRun: rec}
+	}
+	e.ledgerOfEntries(pv.Name, entry(10, "", toolwire.ResultFail, "h-a1", "h-b2"),
+		entry(11, toolwire.SideBase, toolwire.ResultError, "b-a1", "b-b2"))
+	e.settleReviews(name)
+	if len(r.handoffs) != 1 || len(r.handoffs[0].Reviews) != 1 {
+		t.Fatalf("handoffs = %+v, want the red check reviewed", r.handoffs)
+	}
+	want := []string{said + "{{run}}", said + "{{run}}"}
+	if it := r.handoffs[0].Reviews[0]; it.Expect != "fail" || !slices.Equal(it.Failure, want) {
+		t.Errorf("review = %+v, want the head's marker lines %q", it, want)
 	}
 }
 

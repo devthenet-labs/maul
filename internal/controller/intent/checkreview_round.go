@@ -253,10 +253,13 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate, ws *agentrun.CheckReviewWorkspace,
 	request string) (agentrun.CheckReviewItem, string) {
 	it := agentrun.CheckReviewItem{CheckDigest: c.check.Digest, OutcomeDigest: outcomeDigest(c.outcome),
-		Outcome: reviewOutcomeText(c.outcome),
-		From:    untrusted.Visible(reviewFrom(request, c.outcome.From), reviewFromMaxBytes),
-		Kind:    reviewKind(c.outcome), Check: c.check.Body}
+		Outcome: reviewOutcomeText(c.outcome), From: untrusted.Visible(c.outcome.From, reviewFromMaxBytes),
+		Kind: reviewKind(c.outcome), Check: c.check.Body}
 	if c.red() {
+		// The whole line the plan's quote was cut from (G3-B-LIB-1). The
+		// red prompt does not show it (it keeps to the outcome as approved,
+		// #410, #411); a green item keeps the quote the plan approved.
+		it.From = untrusted.Visible(reviewFrom(request, c.outcome.From), reviewFromMaxBytes)
 		if c.check.FailedAssertion == "" || c.check.FailedStep == 0 {
 			return it, "it is red with no failed assertion"
 		}
