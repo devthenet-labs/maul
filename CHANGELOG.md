@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.14.2](https://github.com/devthenet-labs/maul/compare/v0.14.1...v0.14.2) (2026-11-14)
+
+
+### Features
+
+* **intent:** outcomes cover carried-over fields and example outcomes state their rule ([#414](https://github.com/devthenet-labs/maul/issues/414)) ([4b22937](https://github.com/devthenet-labs/maul/commit/4b229370f807121fadb4680ac94772ca055b8100))
+* **intent:** show the evaluator's note and reproduction for an unconfirmed failure ([#417](https://github.com/devthenet-labs/maul/issues/417)) ([9a7013d](https://github.com/devthenet-labs/maul/commit/9a7013d6a4819ad7e4fe3fc95331fe94a6bc01f5))
+
+
+### Bug Fixes
+
+* **intent:** a cli or library check is not held to the shared preview data rule ([#418](https://github.com/devthenet-labs/maul/issues/418)) ([7a12a1f](https://github.com/devthenet-labs/maul/commit/7a12a1f5678578b04fa1e0c67364a8707c492677))
+* **intent:** anomalies are reviewer notes and never hold a round ([#420](https://github.com/devthenet-labs/maul/issues/420)) ([d2c19b7](https://github.com/devthenet-labs/maul/commit/d2c19b7af4e4adbb59dc50da66fc1a851d8c20be))
+* **intent:** gate-3 small items ([#415](https://github.com/devthenet-labs/maul/issues/415)) ([42b988d](https://github.com/devthenet-labs/maul/commit/42b988d92f450808da1358396dfa8b14129a4698))
+* **intent:** the check reviewer sees what a red check's failure observed ([#416](https://github.com/devthenet-labs/maul/issues/416)) ([90b5808](https://github.com/devthenet-labs/maul/commit/90b5808f0919a01f2158c6a0ba0b1b09bd97649d))
+
 ## [0.14.1](https://github.com/devthenet-labs/maul/compare/v0.14.0...v0.14.1) (2026-11-13)
 
 
