@@ -222,7 +222,8 @@ func TestCheckReviewRedQuestion(t *testing.T) {
 		t.Fatalf("checkreview = %+v", c)
 	}
 	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
-	for _, want := range []string{"This check failed", "step 1", "would pass on a build where the outcome holds"} {
+	for _, want := range []string{"This check failed", "step 1",
+		"That assertion fails only where the outcome does not hold"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the red prompt lacks %q:\n%s", want, prompt)
 		}
@@ -288,6 +289,20 @@ func TestCheckReviewHandoffRefused(t *testing.T) {
 			i.Expect, i.FailedStep, i.FailedAssertion = "fail", 1, "x"
 			i.Observed = []string{strings.Repeat("x", 2<<10+1), "x"}
 		}), "observed"},
+		{"failure on a green check", item(func(i *CheckReviewItem) { i.Failure = []string{"x", "x"} }), "failure"},
+		{"failure over three runs", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion, i.Failure = "fail", 1, "x", []string{"x", "x", "x"}
+		}), "failure"},
+		{"failure empty", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion, i.Failure = "fail", 1, "x", []string{"x", ""}
+		}), "failure"},
+		{"failure over two lines", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion, i.Failure = "fail", 1, "x", []string{"x\ny", "x"}
+		}), "failure"},
+		{"failure over cap", item(func(i *CheckReviewItem) {
+			i.Expect, i.FailedStep, i.FailedAssertion = "fail", 1, "x"
+			i.Failure = []string{strings.Repeat("x", 2<<10+1), "x"}
+		}), "failure"},
 		{"a kind off the grammar", item(func(i *CheckReviewItem) { i.Kind = "maybe" }), "kind"},
 		{"a from over cap", item(func(i *CheckReviewItem) { i.From = strings.Repeat("x", 2<<10+1) }), "from is"},
 		{"a request over cap", func() string {

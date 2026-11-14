@@ -107,7 +107,7 @@ func TestCheckReviewPromptRedQuestion(t *testing.T) {
 	for _, want := range []string{"This check failed on the build under review",
 		"The application's own state was not fresh",
 		"at step 4, on its assertion `json /players`",
-		"It would pass on a build where the outcome holds",
+		"That assertion fails only where the outcome does not hold",
 		"That assertion, `json /players` of step 4, asserts the outcome itself",
 		"about data the check itself created"} {
 		if !strings.Contains(red, want) {

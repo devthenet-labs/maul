@@ -27,14 +27,14 @@ over at once, until the evaluator is back on.
 
 ## What runs where
 
-| Piece                   | Where                                                                   | What it holds and reaches                                                                                                                                                                                                                                                                                               |
-| ----------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The evaluator           | an `evaluate` IntentRun in the agents namespace, on maul's runner image | A pod-bound broker token; the issue, outcomes and changed paths, all framed as data. It reaches the broker and its own tool pod on port 8090, nothing else: no DNS, no internet, no application component, no copy of the pull request's code. Its prepare step proves that with the strict sandbox probe, DNS included |
-| The tool pod, `tools`   | the Preview's slot, one per round                                       | maul's relay (`preview-tools`). It runs every tool call, writes the **ledger** (every call and its result, on its own stdout) and runs the checks. No service-account token, no DNS                                                                                                                                     |
-| The tool pod, `browser` | the same pod, when the Project declares `surfaces.browser`              | Headless Chromium behind maul's CDP shim, which speaks CDP only to a caller holding the round's key (`tools`). Holds nothing secret                                                                                                                                                                                     |
-| The tool pod, `sandbox` | the same pod                                                            | maul's toolbox image (curl, grpcurl, websocat, node, python, go) and the exec shim. Programs the evaluator writes run here, as their own user, with no secret                                                                                                                                                           |
-| The check reviewer      | a `checkreview` IntentRun, one per round                                | The round's new checks as maul renders them; the outcome texts, the issue line each answers and its kind; the request, as the evaluator gets it (on the green question only); and the previewed components. Never the application, a step's name or the evaluator's notes and verdicts. Reaches only the broker         |
-| Log and event capture   | preview-controller                                                      | Bounded, redacted log tails of each component and the slot's pod events since the round began, handed to `tools`. Neither the evaluator nor the tool pod has any Kubernetes access                                                                                                                                      |
+| Piece                   | Where                                                                   | What it holds and reaches                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The evaluator           | an `evaluate` IntentRun in the agents namespace, on maul's runner image | A pod-bound broker token; the issue, outcomes and changed paths, all framed as data. It reaches the broker and its own tool pod on port 8090, nothing else: no DNS, no internet, no application component, no copy of the pull request's code. Its prepare step proves that with the strict sandbox probe, DNS included                             |
+| The tool pod, `tools`   | the Preview's slot, one per round                                       | maul's relay (`preview-tools`). It runs every tool call, writes the **ledger** (every call and its result, on its own stdout) and runs the checks. No service-account token, no DNS                                                                                                                                                                 |
+| The tool pod, `browser` | the same pod, when the Project declares `surfaces.browser`              | Headless Chromium behind maul's CDP shim, which speaks CDP only to a caller holding the round's key (`tools`). Holds nothing secret                                                                                                                                                                                                                 |
+| The tool pod, `sandbox` | the same pod                                                            | maul's toolbox image (curl, grpcurl, websocat, node, python, go) and the exec shim. Programs the evaluator writes run here, as their own user, with no secret                                                                                                                                                                                       |
+| The check reviewer      | a `checkreview` IntentRun, one per round                                | The round's new checks as maul renders them; the outcome texts, the issue line each answers and its kind; the request, as the evaluator gets it (on the green question only); the previewed components; and, for a red check, what maul recorded of its failure. Never a step's name or the evaluator's notes and verdicts. Reaches only the broker |
+| Log and event capture   | preview-controller                                                      | Bounded, redacted log tails of each component and the slot's pod events since the round began, handed to `tools`. Neither the evaluator nor the tool pod has any Kubernetes access                                                                                                                                                                  |
 
 A Project with no preview but a command-line program or a Go library has its tool pod in the agents namespace instead:
 see [Without a preview: a CLI or a library](#without-a-preview-a-cli-or-a-library).
@@ -128,14 +128,14 @@ the evaluator's run (`[maul-tool time left]`).
    request and the previewed components, and learns the application's own words from the request (a "beat" on the page
    may be a "pattern" in the API), but judges the check against the outcome only: nothing in the request relaxes the
    rule. It refuses a check that tries a rule the outcome states only on its example. The red question gets neither the
-   request nor the line, so a fix never starts outside the approved outcome; it admits an input beyond the outcome's
-   example only where the rule, as the outcome words it, covers that input and decides the value the check expects (a
-   value far from the example, where the outcome states no range, it does not decide). Each answer is kept with the
-   check's id and the reviewer's reason, and every later round's evaluator is told the newest 40 checks refused on the
-   green question by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the check
-   rather than proposes it again. Each session may take 6 turns, the last 3 kept for one repair of its report; a review
-   whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached), and
-   the run goes on to the next check.
+   request nor the line, so a fix never starts outside the approved outcome, but it gets what maul recorded of the
+   failure (see the red question below); it admits an input beyond the outcome's example only where the rule, as the
+   outcome words it, covers that input and decides the value the check expects (a value far from the example, where the
+   outcome states no range, it does not decide). Each answer is kept with the check's id and the reviewer's reason, and
+   every later round's evaluator is told the newest 40 checks refused on the green question by outcome, id and reason: a
+   form once refused is never reviewed again, so it strengthens the check rather than proposes it again. Each session
+   may take 6 turns, the last 3 kept for one repair of its report; a review whose report is refused and not repaired
+   makes that check alone `unclear` (not stored, its answer not cached), and the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
@@ -281,17 +281,28 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
    green proposal only against a green dry run, never one the replay saw red).
 3. **The red question.** The reviewer is told the check failed, at which step and by which assertion, and that the
-   application's state was not fresh. It answers `proves` only if that assertion checks something the outcome as
-   approved promises, the check would pass on a build where the outcome holds (no step, before or after the one that
-   failed, expects more than the outcome promises), and that assertion is the outcome itself and about data the check
-   created, not setup or something incidental. It judges the check by what its failure proves, not by whether a pass
-   would prove the whole outcome: a check that shows one promise broken is enough, even where the outcome has a clause
-   no step asserts or no assertion can express (a button wholly inside the viewport), though never one that skips or
-   changes a condition the outcome is stated under; a pass of it still proves nothing until the green question is asked
-   (below). For an `exec` check it is shown the marker its program printed and answers whether the program prints it
+   application's state was not fresh. It is also handed what maul recorded of that assertion's failure in each of its
+   runs, the run's token written as `{{run}}` and quoted as untrusted data: a browser assertion's measurement ("visible
+   failed: contrast 1.27 < 1.5"), with maul's fact that the locator found the one element it asserts on (on any
+   assertion but `count`), or the line a program printed after its marker ("got [45 150] err <nil>"), the other agent's
+   words, of which only a value the program's source shows it observed counts. It answers `proves` only if that
+   assertion checks something the outcome as approved promises, on a setup that does what the outcome describes, fails
+   only where the outcome does not hold, and is the outcome itself and about data the check created, not setup or
+   something incidental. Where the assertion compares more than the outcome fixes (a whole output, a whole text), it
+   proves the outcome broken only if what maul recorded shows a value the outcome fixes, and shows it wrong; a failure
+   that differs only where the outcome fixes nothing, or one maul recorded nothing of, is `does_not_prove` or `unclear`.
+   It judges the check by that failure alone, never by what its other steps or expectations ask (an earlier step that
+   passed, a locator that found its element, what a passing run must print where the program printed its marker, a step
+   after the failure that never ran) or by whether a pass would prove the whole outcome: a check that shows one promise
+   broken is enough, even where the outcome has a clause no step asserts or no assertion can express (a button wholly
+   inside the viewport), though never one that skips or changes a condition the outcome is stated under. That is safe
+   because, until the check has passed once, maul counts a later run of it only when it fails at the same step by the
+   same assertion, and until the green question has answered `proves` every failure of it waits for a person (below).
+   For an `exec` or `run` check it is shown the marker its program printed and answers whether the program prints it
    only when the approved outcome is violated, never inside a retry or poll before its final judgement, on a connection
-   error, a status code, a timeout or an exception. The answer counts only for that assertion: another failing assertion
-   of the check needs a review of its own. Anything else and the check is not stored; the outcome stays unsure.
+   error, a status code, a timeout or an exception; where it prints it on more than one condition, what maul recorded
+   shows which held. The answer counts only for that assertion: another failing assertion of the check needs a review of
+   its own. Anything else and the check is not stored; the outcome stays unsure.
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.

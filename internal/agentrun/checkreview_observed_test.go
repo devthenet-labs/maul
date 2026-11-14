@@ -47,3 +47,38 @@ func TestCheckReviewObservedReachesThePrompt(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckReviewFailureReachesThePrompt (G3-B-BR-1): what maul recorded
+// of a red check's failure in each run, a browser assertion's measurement
+// here, reaches the reviewer quoted as data.
+func TestCheckReviewFailureReachesThePrompt(t *testing.T) {
+	check := string(checks.Canonical(mustCheck(`{"id":"saved-line-legible","outcome":"readable","form":"browser",` +
+		`"browser":{"steps":[{"goto":"/"},{"fill":{"locator":{"label":"Beat name"},"text":"{{run}} beat"}},` +
+		`{"click":{"role":"button","name":"Save"}},{"expect":{"assert":"visible","locator":` +
+		`{"role":"status","hasText":"Saved: {{run}} beat"}}}]}}`)))
+	const measured = "maul: visible failed: contrast 1.27..1.27 (#2b1d57 on #140c2b) < 1.5"
+	h := CheckReviewHandoff{Reviews: []CheckReviewItem{{
+		CheckDigest: checks.Digest(mustCheck(check)), OutcomeDigest: reviewDigest("o", 0),
+		Outcome: "After a save, the Saved line can be read against the panel.", Check: check,
+		Expect: "fail", FailedStep: 4, FailedAssertion: "expect", Failure: []string{measured, measured},
+	}}}
+	raw, err := json.Marshal(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	cfg, ws := roleConfig(t, PhaseCheckReview, string(raw), &out)
+	brokeredClaude(t, &cfg)
+	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
+		"scratch/review-1.md": reviewReport("proves")}}}}
+	if c := onlyEvent(t, cfg, fx, &out).CheckReview; c == nil || len(c.Answers) != 1 {
+		t.Fatalf("checkreview = %+v", c)
+	}
+	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+	for _, want := range []string{"run 1: " + measured, "run 2: " + measured,
+		"maul recorded how that assertion failed"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+}

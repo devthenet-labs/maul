@@ -18,6 +18,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/agentresult"
 	"github.com/devthenet-labs/maul/internal/agentrun"
 	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -38,8 +39,11 @@ import (
 //  3. The candidates cached proves are stored in the next check store.
 //  4. The round is judged (judgeEvaluation).
 //
-// A cache hit launches nothing. The reviewer never sees app content, a
-// step's name or the evaluator's notes: it is handed what maul stores.
+// A cache hit launches nothing. The reviewer never sees a step's name or
+// the evaluator's notes: it is handed what maul stores and, for a red
+// check, what maul recorded of its failure (the element's text, maul's
+// measurement, or the line the evaluator's own program printed after its
+// marker), each quoted as untrusted data.
 
 // maxCachedReviews bounds status.acceptance.reviews (its schema's).
 const maxCachedReviews = 80
@@ -52,6 +56,32 @@ const (
 	reviewFromMaxBytes   = 2 << 10
 	reviewReasonMaxBytes = 600
 )
+
+// reviewFrom is the line of request that from quotes, whole: the plan
+// grammar holds a from to acceptance.MaxFromChars, so a long line of the
+// issue reaches the plan cut, often mid-word (G3-B-LIB-1). from itself when
+// it is blank, and when no line of request, or more than one, holds it (a
+// planner's trailing ellipsis aside).
+func reviewFrom(request, from string) string {
+	quote := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(from), ".…"))
+	if quote == "" {
+		return from
+	}
+	found := ""
+	for line := range strings.SplitSeq(request, "\n") {
+		if !strings.Contains(line, quote) {
+			continue
+		}
+		if found != "" {
+			return from
+		}
+		found = strings.TrimSpace(line)
+	}
+	if found == "" {
+		return from
+	}
+	return found
+}
 
 // reviewKind is an outcome's kind as the reviewer is handed it: keep, else
 // change.
@@ -183,7 +213,7 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 		h.Components = p.evaluateComponents(pv)
 	}
 	for _, c := range pending {
-		it, why := reviewItem(pv, c, h.Workspace)
+		it, why := reviewItem(pv, c, h.Workspace, request)
 		if why != "" {
 			p.r.log().LogAttrs(ctx, slog.LevelInfo, "a confirmed check is not reviewed: "+why,
 				slog.String("intent", p.in.Name), slog.String("verification", pv.Name),
@@ -191,7 +221,7 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 			continue
 		}
 		if it.Expect == string(v1alpha1.CheckExpectFail) {
-			it.Observed = p.observed(ctx, pv, c)
+			it.Observed, it.Failure = p.observed(ctx, pv, c), p.failure(ctx, pv, c)
 		}
 		h.Reviews = append(h.Reviews, it)
 	}
@@ -220,12 +250,16 @@ func (p *pass) launchCheckReview(ctx context.Context, pv *v1alpha1.PreviewVerifi
 // pass), and the base's unless the base did not build. why says why c is
 // not reviewed: a red check with no failed assertion (a bare exit code
 // never counts, SPEC-S2), or a workspace check with no head run to hand.
-func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate,
-	ws *agentrun.CheckReviewWorkspace) (agentrun.CheckReviewItem, string) {
+func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate, ws *agentrun.CheckReviewWorkspace,
+	request string) (agentrun.CheckReviewItem, string) {
 	it := agentrun.CheckReviewItem{CheckDigest: c.check.Digest, OutcomeDigest: outcomeDigest(c.outcome),
 		Outcome: reviewOutcomeText(c.outcome), From: untrusted.Visible(c.outcome.From, reviewFromMaxBytes),
 		Kind: reviewKind(c.outcome), Check: c.check.Body}
 	if c.red() {
+		// The whole line the plan's quote was cut from (G3-B-LIB-1). The
+		// red prompt does not show it (it keeps to the outcome as approved,
+		// #410, #411); a green item keeps the quote the plan approved.
+		it.From = untrusted.Visible(reviewFrom(request, c.outcome.From), reviewFromMaxBytes)
 		if c.check.FailedAssertion == "" || c.check.FailedStep == 0 {
 			return it, "it is red with no failed assertion"
 		}
@@ -266,16 +300,8 @@ func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate,
 // run has one, when a text already holds the placeholder, and when the run
 // or the ledger cannot be read: the red question is then asked as before.
 func (p *pass) observed(ctx context.Context, pv *v1alpha1.PreviewVerification, c storeCandidate) []string {
-	run := latestRun(pv.Status.Confirmations, c.check.Digest, v1alpha1.TreeHead)
-	if run == nil || run.Expect != v1alpha1.CheckExpectFail || !run.RedByAssertion() ||
-		run.AssertionStep != c.check.FailedStep || run.AssertionID != c.check.FailedAssertion {
-		return nil
-	}
-	rec := checkRunAt(ledgerEntries(p.ledgerOf(ctx, pv)), run.Seq, c.check.Digest)
+	rec := p.redRecord(ctx, pv, c)
 	if rec == nil {
-		return nil
-	}
-	if step, ok := rec.AssertionStep(); !ok || step+1 != int(run.AssertionStep) {
 		return nil
 	}
 	out := make([]string, 0, len(rec.Attempts))
@@ -292,6 +318,55 @@ func (p *pass) observed(ctx context.Context, pv *v1alpha1.PreviewVerification, c
 		return nil
 	}
 	return out
+}
+
+// failure is what maul recorded of red check c's failing assertion in each
+// run of the confirmation it was confirmed by (toolwire.StepRecord.Detail:
+// a browser assertion's measurement, or what a program printed after its
+// marker; G3-B-BR-1, G3-B-LIB-1), read from pv's own ledger, each run's
+// token written back as checks.RunPlaceholder. A program's words are the
+// evaluator's, UNTRUSTED: agent-runner holds them to their bounds and the
+// prompt quotes them as data. nil unless every run has one line of it, and
+// when the run or the ledger cannot be read: the red question is then asked
+// without it, its rule refusing a comparison it cannot judge.
+func (p *pass) failure(ctx context.Context, pv *v1alpha1.PreviewVerification, c storeCandidate) []string {
+	rec := p.redRecord(ctx, pv, c)
+	if rec == nil {
+		return nil
+	}
+	out := make([]string, 0, len(rec.Attempts))
+	for _, a := range rec.Attempts {
+		s := a.Steps[len(a.Steps)-1] // AssertionStep: the failing step is each attempt's last
+		if s.Detail == "" || a.Run == "" {
+			return nil
+		}
+		out = append(out, strings.ReplaceAll(s.Detail, a.Run, checks.RunPlaceholder))
+	}
+	if agentrun.ValidFailure(out) != nil {
+		return nil
+	}
+	return out
+}
+
+// redRecord is the ledger's record of the confirmation at the head that red
+// check c was confirmed by: red in every attempt by the step and assertion c
+// was saved failing (toolwire.CheckRunRecord.AssertionStep). nil when the
+// run or the ledger cannot be read, or does not hold.
+func (p *pass) redRecord(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	c storeCandidate) *toolwire.CheckRunRecord {
+	run := latestRun(pv.Status.Confirmations, c.check.Digest, v1alpha1.TreeHead)
+	if run == nil || run.Expect != v1alpha1.CheckExpectFail || !run.RedByAssertion() ||
+		run.AssertionStep != c.check.FailedStep || run.AssertionID != c.check.FailedAssertion {
+		return nil
+	}
+	rec := checkRunAt(ledgerEntries(p.ledgerOf(ctx, pv)), run.Seq, c.check.Digest)
+	if rec == nil {
+		return nil
+	}
+	if step, ok := rec.AssertionStep(); !ok || step+1 != int(run.AssertionStep) {
+		return nil
+	}
+	return rec
 }
 
 // latestRun is the last of runs of check digest at side, nil for none.
