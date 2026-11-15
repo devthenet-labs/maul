@@ -83,38 +83,51 @@ the evaluator's run (`[maul-tool time left]`).
    strengthening each against a list (every clause asserted, inputs other than the defaults and away from what a new,
    empty item shows, both sides and both sides of a bound, before and after, nothing changed for a claim that something
    stays, nothing the outcome does not state, the left-out item created and asserted absent beside a kept one, a whole
-   compared whole), and last naming the wrong builds a careless change could ship and finding the assertion that would
-   go red on each, within a turn budget per outcome. The reviewer's rule names the checks a plausible wrong build would
-   still pass (S1 demo: every outcome left unconfirmed on a correct build had one). An outcome it leaves unsure with no
-   check names the clause it could not exercise. It does not run again a saved check that replayed green, and writes no
-   new check for its outcome, except for a check saved red (to show a defect) that no review has yet accepted as proof
-   the outcome holds: maul names those, and the evaluator writes such an outcome a new check that proves it, confirmed
-   and reviewed like any other, so a fixed defect can pass in the round after its fix. Past an outcome's turn budget it
-   stops on a check that cannot run as the outcome needs (a wait no check step can make, more steps than a check may
-   have) and reports the outcome unsure, naming what no check could express. An outcome that states a rule (what holds
-   for any input of a kind, a bound, a "never" or an "always") is judged by the rule, its example one instance of it
-   (defect gate 2, G-B-LIB-2: a build right on the plan's example and wrong elsewhere passed its outcomes). The
-   evaluator tries the rule on inputs of its own choosing beyond the example, where a build right only on the example
-   would answer differently, and a failure there is a fail it shows with a red check of its own data; a check that tries
-   the rule only on its example is one a plausible wrong build would still pass. It stays within what the outcome
-   promises: an input the rule does not cover, a value its words do not decide (where the outcome states no range, a
-   value far from its example) and behaviour the issue leaves unsaid are never a failure. Where an outcome names only an
-   example and its issue line states the rule, the evaluator tries that rule beyond the example in calls of its own,
-   never in a check it proposes (its checks assert only what the outcome states), and a break there withholds the pass
-   (`contrary`, so unsure) but never fails the outcome: a fail and its fix are only for what the approved outcome itself
-   states. It reports such an outcome `pass` only once it has tried that rule beyond the example (a prompt rule: an
-   evaluator that never probes is still passed on its example check), and a break it saw while judging another outcome
-   that states the same rule goes in this one's `contrary` too, which withholds its pass (defect gate 3, G1: a
-   README-example outcome quoting the counting rule passed while the rule was broken). A promise that something is
-   carried over (a copy, fields kept, the rest unchanged, a round-trip through save and load) is a rule as well: the
-   evaluator tries it on the values a careless copy loses (a field left unset, zero, empty or absent, and every field
-   the promise covers) and compares the result by what using it gives against the original, what calls give for it and
-   how it is written out or read back (defect gate 3, G6: a copy that turned absent fields into empty ones could no
-   longer be encoded). A zero or absent value of what is carried over is one the outcome decides; a field it says
-   changes or does not cover, and a difference of representation alone (nil against empty) that nothing using it shows,
-   are never a failure, nor is a new item's own identity (its id, when it was made) where the copy is saved beside the
-   original. On a workspace an "unchanged" rule's expected value is the same call at the base, leaving aside what
-   differs between any two runs (a scratch path, a time).
+   compared whole, a carried-over field compared in its own type: on a workspace by the copy's encoding against the
+   original's (both errors included) beside each value, on a preview by its JSON value or `$absent`, never through text
+   that reads nil, absent and empty alike), and last naming the wrong builds a careless change could ship and finding
+   the assertion that would go red on each, within a turn budget per outcome. The reviewer's rule names the checks a
+   plausible wrong build would still pass (S1 demo: every outcome left unconfirmed on a correct build had one). An
+   outcome it leaves unsure with no check names the clause it could not exercise. It does not run again a saved check
+   that replayed green, and writes no new check for its outcome, except for a check saved red (to show a defect) that no
+   review has yet accepted as proof the outcome holds: maul names those, and the evaluator writes such an outcome a new
+   check that proves it, confirmed and reviewed like any other, so a fixed defect can pass in the round after its fix.
+   Past an outcome's turn budget it stops on a check that cannot run as the outcome needs (a wait no check step can
+   make, more steps than a check may have) and reports the outcome unsure, naming what no check could express. A check
+   counts only for the outcome it is bound to, however many outcomes its run showed. When the accepted report still
+   passes an outcome a person does not judge with no green proposal bound to it and no saved check of it (maul passed it
+   in no earlier round, and no saved check of it replayed), agent-runner resumes the evaluator's session and asks for
+   one check of each such outcome, by id, or an unsure verdict (defect gate 4, G4-B-LIB-1: at a correct fix the
+   evaluator rested eight passes on one exploring run, so the round was Unconfirmed 2/10 until a person asked again). It
+   asks at most twice, on what is left of the stage's turns, wall clock and output tokens, and stops once an ask covers
+   no further outcome. The rewritten report replaces the accepted one only when it changes nothing maul judges by but
+   those outcomes' verdicts (each keeping its `contrary` seqs; a reworded note elsewhere is no change) and adds
+   proposals of them alone; anything else, or a report that does not parse, keeps the report before, which maul puts
+   back for the second ask, saying why the rewrite was refused. Its new checks are confirmed and reviewed like any
+   other, so the ask passes nothing by itself. A run that ran out of its turns or its clock, and a harness that cannot
+   continue a session (codex), is not asked. An outcome that states a rule (what holds for any input of a kind, a bound,
+   a "never" or an "always") is judged by the rule, its example one instance of it (defect gate 2, G-B-LIB-2: a build
+   right on the plan's example and wrong elsewhere passed its outcomes). The evaluator tries the rule on inputs of its
+   own choosing beyond the example, where a build right only on the example would answer differently, and a failure
+   there is a fail it shows with a red check of its own data; a check that tries the rule only on its example is one a
+   plausible wrong build would still pass. It stays within what the outcome promises: an input the rule does not cover,
+   a value its words do not decide (where the outcome states no range, a value far from its example) and behaviour the
+   issue leaves unsaid are never a failure. Where an outcome names only an example and its issue line states the rule,
+   the evaluator tries that rule beyond the example in calls of its own, never in a check it proposes (its checks assert
+   only what the outcome states), and a break there withholds the pass (`contrary`, so unsure) but never fails the
+   outcome: a fail and its fix are only for what the approved outcome itself states. It reports such an outcome `pass`
+   only once it has tried that rule beyond the example (a prompt rule: an evaluator that never probes is still passed on
+   its example check), and a break it saw while judging another outcome that states the same rule goes in this one's
+   `contrary` too, which withholds its pass (defect gate 3, G1: a README-example outcome quoting the counting rule
+   passed while the rule was broken). A promise that something is carried over (a copy, fields kept, the rest unchanged,
+   a round-trip through save and load) is a rule as well: the evaluator tries it on the values a careless copy loses (a
+   field left unset, zero, empty or absent, and every field the promise covers) and compares the result by what using it
+   gives against the original, what calls give for it and how it is written out or read back (defect gate 3, G6: a copy
+   that turned absent fields into empty ones could no longer be encoded). A zero or absent value of what is carried over
+   is one the outcome decides; a field it says changes or does not cover, and a difference of representation alone (nil
+   against empty) that nothing using it shows, are never a failure, nor is a new item's own identity (its id, when it
+   was made) where the copy is saved beside the original. On a workspace an "unchanged" rule's expected value is the
+   same call at the base, leaving aside what differs between any two runs (a scratch path, a time).
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.

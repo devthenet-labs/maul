@@ -338,16 +338,22 @@ func TestEvaluateRepairsAMissingVerdict(t *testing.T) {
 	fx := &fakeExec{steps: []step{
 		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": missing}},
 		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": goodEvaluation}},
+		// The repaired report passes rate-battle with no check: maul then
+		// asks for one (evaluate_cover.go), which this run does not give.
+		{ws: ws, stdout: streamResumed},
 	}}
 	e := onlyEvent(t, cfg, fx, &out).Evaluation
 	if e == nil || e.Outcome != envelope.OutcomeOK || e.ReportMarkdown != goodEvaluation || len(e.Verdicts) != 2 {
 		t.Fatalf("evaluation = %+v, want the repaired report", e)
 	}
-	if len(fx.specs) != 2 || !slices.Contains(fx.specs[1].Argv, "--resume") {
-		t.Fatalf("commands = %d, want the stage and one resumed repair", len(fx.specs))
+	if len(fx.specs) != 3 || !slices.Contains(fx.specs[1].Argv, "--resume") {
+		t.Fatalf("commands = %d, want the stage, one resumed repair and the ask for a check", len(fx.specs))
 	}
 	if repair := argvFlag(t, fx.specs[1].Argv, "-p"); !strings.Contains(repair, "verdicts is required") {
 		t.Errorf("repair prompt does not name the missing verdicts:\n%s", repair)
+	}
+	if ask := argvFlag(t, fx.specs[2].Argv, "-p"); !strings.Contains(ask, "Outcomes you passed with no check") {
+		t.Errorf("the run after the repair is not the ask for a check:\n%s", ask)
 	}
 }
 

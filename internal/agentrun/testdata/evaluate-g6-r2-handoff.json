@@ -1,0 +1,144 @@
+{
+ "round": 2,
+ "run_token": "ev2a1-f19cfd",
+ "outcomes": [
+  {
+   "id": "repeat-rule",
+   "outcome": "`synth.Repeat(p, track, length)` for a valid p, track in kick/snare/hat and length 1 to 16 returns a pattern whose track plays on step i (1 to 16) exactly when p's track plays on step ((i-1) mod length)+1, for example snare with length 6 on the README pattern gives steps 5 and 11 only.",
+   "from": "A new exported function `synth.Repeat(p synth.Pattern, track string, length int) (synth.Pattern, error)` returns a copy of `p` in which the named track (`\"kick\"`, `\"snare\"` or `\"hat\"`) repeats its first `length` steps over all 16: for every step `i` from 1 to 16 (steps numbered from 1), the copy's t",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-others-kept",
+   "outcome": "`synth.Repeat` returns a pattern whose other two tracks, name, author, bpm and swing equal p's, and whose ID, votes and createdAt fields are as in p; for example Repeat(p, \"snare\", 6) leaves kick and hat unchanged.",
+   "from": "The other two tracks, and `p`'s name, author, bpm and swing, are as in `p`, and `p` itself (its track slices included) is not modified.",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-no-mutation",
+   "outcome": "After `synth.Repeat(p, track, length)`, p's three track slices hold the same values as before the call, and changing the returned pattern's tracks does not change p's tracks.",
+   "from": "The other two tracks, and `p`'s name, author, bpm and swing, are as in `p`, and `p` itself (its track slices included) is not modified.",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-cycles",
+   "outcome": "`synth.Repeat` with a length that does not divide 16 keeps cycling to the end, for example a pattern whose kick plays only on step 2 with `Repeat(p, \"kick\", 3)` has kick on steps 2, 5, 8, 11 and 14 only.",
+   "from": "A length that does not divide 16 keeps cycling to the end: for a pattern whose kick plays only on step 2, `Repeat(p, \"kick\", 3)` has kick on steps 2, 5, 8, 11 and 14.",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-16",
+   "outcome": "`synth.Repeat(p, track, 16)` returns the named track with the same 16 steps as p's.",
+   "from": "The boundaries are allowed: a length of 16 gives back the track unchanged, and a length of 1 makes the track play on every step if `p`'s track plays on step 1, and on no step otherwise.",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-1",
+   "outcome": "`synth.Repeat(p, track, 1)` returns the track playing on all 16 steps if p's track plays on step 1, and on no step otherwise.",
+   "from": "The boundaries are allowed: a length of 16 gives back the track unchanged, and a length of 1 makes the track play on every step if `p`'s track plays on step 1, and on no step otherwise.",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-bad-length",
+   "outcome": "`synth.Repeat` with any length outside 1 to 16, for example 0, -1 or 17, returns the zero `synth.Pattern` and an error for which `errors.Is(err, synth.ErrInvalid)` holds.",
+   "from": "A length outside 1 to 16 (for example 0, -1 or 17), a track name other than exactly `\"kick\"`, `\"snare\"` or `\"hat\"` (for example `\"Snare\"` or `\"\"`), or a pattern that `Validate` refuses (for example one whose swing is 61) makes `Repeat` return the zero `synth.Pattern` and an error for which `errors.I",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-bad-track",
+   "outcome": "`synth.Repeat` with a track name other than exactly kick, snare or hat, for example \"Snare\" or \"\", returns the zero `synth.Pattern` and an error for which `errors.Is(err, synth.ErrInvalid)` holds.",
+   "from": "A length outside 1 to 16 (for example 0, -1 or 17), a track name other than exactly `\"kick\"`, `\"snare\"` or `\"hat\"` (for example `\"Snare\"` or `\"\"`), or a pattern that `Validate` refuses (for example one whose swing is 61) makes `Repeat` return the zero `synth.Pattern` and an error for which `errors.I",
+   "kind": "change"
+  },
+  {
+   "id": "repeat-bad-pattern",
+   "outcome": "`synth.Repeat` of a pattern that `Validate` refuses, for example one whose swing is 61, returns the zero `synth.Pattern` and an error for which `errors.Is(err, synth.ErrInvalid)` holds.",
+   "from": "A length outside 1 to 16 (for example 0, -1 or 17), a track name other than exactly `\"kick\"`, `\"snare\"` or `\"hat\"` (for example `\"Snare\"` or `\"\"`), or a pattern that `Validate` refuses (for example one whose swing is 61) makes `Repeat` return the zero `synth.Pattern` and an error for which `errors.I",
+   "kind": "change"
+  },
+  {
+   "id": "validate-kept",
+   "outcome": "`Pattern.Validate` still accepts a valid pattern and still rejects a pattern whose swing is 61, with an error matching `synth.ErrInvalid`.",
+   "kind": "keep"
+  }
+ ],
+ "tools": {
+  "sandbox": true,
+  "max_tool_calls": 300,
+  "workspace": {
+   "surface": "library",
+   "language": "go"
+  }
+ },
+ "changed_paths": [
+  {
+   "path": "synth/repeat.go",
+   "added": 52,
+   "deleted": 0
+  },
+  {
+   "path": "synth/repeat_test.go",
+   "added": 163,
+   "deleted": 0
+  }
+ ],
+ "prior_round": 1,
+ "prior_verdicts": [
+  {
+   "outcome": "repeat-rule",
+   "result": "passed",
+   "reason": "confirmed"
+  },
+  {
+   "outcome": "repeat-others-kept",
+   "result": "unsure",
+   "reason": "model-only-pass"
+  },
+  {
+   "outcome": "repeat-no-mutation",
+   "result": "unsure",
+   "reason": "model-only-pass"
+  },
+  {
+   "outcome": "repeat-cycles",
+   "result": "unsure",
+   "reason": "model-only-pass"
+  },
+  {
+   "outcome": "repeat-16",
+   "result": "unsure",
+   "reason": "model-only-pass"
+  },
+  {
+   "outcome": "repeat-1",
+   "result": "unsure",
+   "reason": "model-only-pass"
+  },
+  {
+   "outcome": "repeat-bad-length",
+   "result": "unsure",
+   "reason": "model-only-pass"
+  },
+  {
+   "outcome": "repeat-bad-track",
+   "result": "unsure",
+   "reason": "model-only-pass"
+  },
+  {
+   "outcome": "repeat-bad-pattern",
+   "result": "unsure",
+   "reason": "suspected-defect"
+  },
+  {
+   "outcome": "validate-kept",
+   "result": "unsure",
+   "reason": "no-confirmed-check"
+  }
+ ],
+ "not_yet_proof": [
+  {
+   "outcome": "repeat-bad-pattern",
+   "check": "repeat-bad-pattern-all"
+  }
+ ]
+}
