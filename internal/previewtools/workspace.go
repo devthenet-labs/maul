@@ -684,12 +684,11 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 
 // Bounds of the program's output a failing run's detail keeps
 // (withOutput): its end, quoted, in at most maxPrintedBytes, a stdoutJSON
-// value in at most maxGotBytes before quoting, and the whole detail within
-// a step record's detail bound (toolwire.StepRecord).
+// value in at most maxGotBytes before quoting, so the whole detail stays
+// within a step record's detail bound (toolwire.StepRecord).
 const (
-	maxPrintedBytes    = 768
-	maxGotBytes        = 128
-	maxStepDetailBytes = 2 << 10
+	maxPrintedBytes = 768
+	maxGotBytes     = 128
 )
 
 // exitOf is a run's exit code in maul's words.
@@ -720,8 +719,9 @@ func jsonMiss(ptr, raw string, present bool) string {
 // shown), quoted on one line, so the check reviewer and the evaluator see
 // what the program printed and not only that a text was missing. The
 // output is the application's bytes (or the evaluator's program's),
-// UNTRUSTED: every reader of a detail shows it as data. A detail that would
-// pass its bound keeps maul's words alone.
+// UNTRUSTED: every reader of a detail shows it as data. Its bounds keep it
+// within a step record's (TestWorkspaceFailKeepsTheProgramsOutput holds the
+// longest).
 func withOutput(words, exit, output, marker string) string {
 	if marker != "" {
 		words, output = strings.ReplaceAll(words, marker, ""), strings.ReplaceAll(output, marker, "")
@@ -730,10 +730,7 @@ func withOutput(words, exit, output, marker string) string {
 	if exit != "" {
 		d += "; " + exit
 	}
-	if d += "; " + printed(output); len(d) > maxStepDetailBytes {
-		return words
-	}
-	return d
+	return d + "; " + printed(output)
 }
 
 // printed is the end of output in maul's words: Go-quoted (one line, its

@@ -57,6 +57,13 @@ func heldToTheReviewersBounds(t *testing.T, detail, run string, markers []string
 // verdict and its assertion are unchanged.
 func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 	long := strings.Repeat("noise \"quoted\"\t\x01 line\n", 2000) + "half kick 1 3\n"
+	// The longest detail a miss can record: a pointer and a value of
+	// characters each quoted as six bytes, and a long output of them.
+	wide := strings.Repeat("\u0085", 63) + "x"
+	worstJSON := `{"id":"w.json","outcome":"w","form":"exec","exec":{"argv":["{{bin}}"],
+ "expect":{"exit":0,"stdoutJSON":{"/` + wide + `":"ok"}}}}`
+	worstOut := `{"` + wide + `":"` + strings.Repeat("\u0085", 200) + `","pad":"` +
+		strings.Repeat("\u0085", 2000) + `"}` + "\n"
 	const markerJSON = `{"id":"m.json","outcome":"m","form":"exec","exec":{"argv":["{{bin}}","m.txt"],
  "files":[{"path":"m.txt","content":"{{marker}}\n"}],"expect":{"exit":0,"stdoutJSON":{"/m":"ok"}}}}`
 	const halfJSON = `{"id":"half.json","outcome":"half","form":"exec","exec":{"argv":["{{bin}}","-json"],
@@ -89,6 +96,8 @@ func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 		// A marker that does not start its line is no marker, and is never
 		// kept.
 		{"a marker inside a line", cliRunCheck, "count=2 %M\n", 0, "stdout", []string{`"count=2 \n"`}},
+		{"the longest detail a miss records", worstJSON, worstOut, 0, "stdout", []string{
+			"did not match; the value there is", "exit 0", "the program printed (untrusted, the end of its output)"}},
 		// Nor inside the value a stdoutJSON miss names.
 		{"a marker inside a json value", markerJSON, `{"m":"%M"}` + "\n", 0, "stdout", []string{
 			`stdoutJSON "/m" did not match; the value there is`}},
