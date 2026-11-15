@@ -351,6 +351,19 @@ func TestVerifyLineStates(t *testing.T) {
 		{VerifyProgress{State: VerifyFailing, Verification: 1, MaxFixes: 2, Passing: 1, Total: 3, Outcomes: true,
 			DefectConfirmed: true, AutoFix: FixQueued},
 			"Evaluation 1: a person confirmed the defect maul found: 1/3 outcomes confirmed; a fix is queued."},
+		// Gate 5 G5-B-CLI-1: the round maul starts by itself once more says
+		// why, asked for and running; Recheck names nothing in any other
+		// state.
+		{VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2, Passing: 6, Total: 7, Outcomes: true,
+			Recheck: true}, "Evaluation 1: maul couldn't confirm every outcome: 6/7 outcomes confirmed, 0 of 2 " +
+			"automatic fixes used. A check of an outcome the evaluator says holds was not accepted, so maul is " +
+			"checking once more by itself at the same commits."},
+		{VerifyProgress{State: VerifyEvaluating, Verification: 2, MaxFixes: 2, Total: 7, Outcomes: true,
+			Recheck: true}, "Evaluation 2 running: 0/7 outcomes confirmed, 0 of 2 automatic fixes used. A check of " +
+			"an outcome the evaluator says holds was not accepted, so maul is checking once more by itself at the " +
+			"same commits."},
+		{VerifyProgress{State: VerifyPassed, Verification: 2, Passing: 7, Total: 7, Outcomes: true, Recheck: true},
+			"Evaluation 2 passed: 7/7 outcomes confirmed."},
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)

@@ -1700,6 +1700,11 @@ spec:
                         description: HeadSetDigest is the head set it is for.
                         pattern: ^sha256:[0-9a-f]{64}$
                         type: string
+                      recheck:
+                        description: |-
+                          Recheck: a full round asked for it, left unsure only on outcomes its
+                          evaluator passed with no check accepted, so maul checks once more.
+                        type: boolean
                       round:
                         description: Round is the round that asked for it.
                         format: int32

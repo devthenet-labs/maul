@@ -104,7 +104,8 @@ func TestNoteDoesNotHoldAnAcceptance(t *testing.T) {
 	e.review(name, 3)
 	heads := e.verification(name).HeadSetDigest
 	j := passingJudgement(t, heldAnomaly)
-	j.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, "")
+	// No check and no verdict: unsure, and nothing a recheck is asked for.
+	j.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonNoCheck, "")
 	if v := e.judgeAt(name, 1, heads, j); v.State != v1alpha1.VerificationUnconfirmed {
 		t.Fatalf("round 1 = %s, want Unconfirmed (the case's premise)", v.State)
 	}

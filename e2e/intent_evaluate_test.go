@@ -876,7 +876,9 @@ func TestIntentEvaluateDispute(t *testing.T) {
 // check (a status alone), is refused by the dry run (rule 2) and so never
 // confirmed; a substantive check the reviewer answers does_not_prove is
 // never stored. Either way maul confirms nothing it cannot show: the
-// evaluator's "pass" is unsure, the verification Unconfirmed, the hand-off
+// evaluator's "pass" is unsure, and maul checks once more by itself (the
+// recheck: round 2, full, at the same heads); confirming nothing again, the
+// verification stays Unconfirmed, no round 3 starts, the hand-off is
 // released as "maul couldn't confirm this", and maul/acceptance an error.
 func TestIntentEvaluateCanary(t *testing.T) {
 	for _, tc := range []struct {
@@ -889,10 +891,14 @@ func TestIntentEvaluateCanary(t *testing.T) {
 			e := startEvaluate(t, evalOptions{mode: tc.mode, review: tc.review})
 			_, name, pr := e.toReview(t)
 			e.serve(t, name, pr.HeadSHA)
-			in := e.waitEval(t, name, "the evaluation to stay unconfirmed", func(v *v1alpha1.IntentVerification) bool {
-				return v.State == v1alpha1.VerificationUnconfirmed
+			in := e.waitEval(t, name, "the recheck to stay unconfirmed", func(v *v1alpha1.IntentVerification) bool {
+				return v.Round == 2 && v.State == v1alpha1.VerificationUnconfirmed
 			})
 			v := in.Status.Verification
+			if esc := v.Escalation; esc == nil || esc.Round != 1 || !esc.Recheck ||
+				e.round(t, name, 2).Spec.Rung != v1alpha1.RungFull {
+				t.Errorf("escalation %+v, round 2 %s; want round 1's recheck, full", esc, e.round(t, name, 2).Spec.Rung)
+			}
 			for _, o := range v.Outcomes {
 				if o.Result == "passed" {
 					t.Errorf("outcome %+v passed on an unproven check", o)
@@ -926,9 +932,11 @@ func TestIntentEvaluateCanary(t *testing.T) {
 						pv.Status.Ledger.Entries, len(pv.Status.Confirmed))
 				}
 			default:
-				if len(pv.Status.Confirmed) != 2 || len(in.Status.Acceptance.Reviews) != 2 {
-					t.Errorf("confirmed %d, reviews %+v; want both confirmed and both reviewed", len(pv.Status.Confirmed),
-						in.Status.Acceptance.Reviews)
+				// Round 2's evaluator, told of the refusals, wrote each
+				// check again: confirmed, reviewed and refused too.
+				if len(pv.Status.Confirmed) != 2 || len(in.Status.Acceptance.Reviews) != 4 {
+					t.Errorf("confirmed %d, reviews %+v; want both confirmed and every round's reviewed",
+						len(pv.Status.Confirmed), in.Status.Acceptance.Reviews)
 				}
 				for _, r := range in.Status.Acceptance.Reviews {
 					if r.Answer != "does_not_prove" {
@@ -936,8 +944,66 @@ func TestIntentEvaluateCanary(t *testing.T) {
 					}
 				}
 			}
+			consistently(t, "no round 3: a head set is rechecked once", func() bool {
+				return len(e.verifications(t, name)) == 2
+			})
 		})
 	}
+}
+
+// TestIntentEvaluateRecheckPasses (gate 5 G5-B-CLI-1): on a correct build
+// the evaluator passes both outcomes, and the reviewer refuses both checks
+// as too weak. Round 1 is held only by those refusals, so maul checks once
+// more by itself: round 2, full and automatic at the same heads, whose
+// evaluator is told of the refusals and writes stronger checks, which the
+// reviewer accepts. Round 2 passes on the same rules as any round, the
+// hand-off is released ready and maul/acceptance is success; no round 3.
+func TestIntentEvaluateRecheckPasses(t *testing.T) {
+	e := startEvaluate(t, evalOptions{review: "weak-refused"})
+	_, name, pr := e.toReview(t)
+	e.serve(t, name, pr.HeadSHA)
+	in := e.waitEval(t, name, "the recheck to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.Round == 2 && v.State == v1alpha1.VerificationPassed
+	})
+	v := in.Status.Verification
+	for _, o := range v.Outcomes {
+		if o.Result != "passed" || o.Reason != "confirmed" || !strings.HasPrefix(o.Line, "http to shop: GET") {
+			t.Errorf("outcome %+v, want confirmed on the recheck's stronger check", o)
+		}
+	}
+	first, recheck := e.round(t, name, 1), e.round(t, name, 2)
+	if recheck.Spec.Rung != v1alpha1.RungFull || recheck.Spec.HeadSetDigest != first.Spec.HeadSetDigest ||
+		recheck.Annotations["maul.run/verification-trigger"] != "automatic" {
+		t.Errorf("round 2 = %s at %s by %q, want the full recheck at round 1's heads, automatic", recheck.Spec.Rung,
+			recheck.Spec.HeadSetDigest, recheck.Annotations["maul.run/verification-trigger"])
+	}
+	if esc := v.Escalation; esc == nil || esc.Round != 1 || !esc.Recheck || v.Automatic != 2 {
+		t.Errorf("escalation %+v, automatic %d; want round 1's recheck, counted", esc, v.Automatic)
+	}
+	if n := len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)); n != 2 {
+		t.Errorf("evaluate runs = %d, want round 1's and the recheck's", n)
+	}
+	refused, proven := 0, 0
+	for _, r := range in.Status.Acceptance.Reviews {
+		switch {
+		case r.Answer == "does_not_prove" && !strings.HasSuffix(r.Check, ".again"):
+			refused++
+		case r.Answer == "proves" && strings.HasSuffix(r.Check, ".again"):
+			proven++
+		default:
+			t.Errorf("review %+v, want round 1's checks refused and the recheck's proven", r)
+		}
+	}
+	if refused != 2 || proven != 2 {
+		t.Errorf("%d refused, %d proven; want both of round 1's refused and both stronger ones proven", refused,
+			proven)
+	}
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	if h := e.intent(t, name).Status.Verification.Handoff; h == nil || !h.Released ||
+		h.Reason != v1alpha1.HandoffReasonReady {
+		t.Errorf("handoff %+v, want released ready after the recheck", h)
+	}
+	consistently(t, "no round 3", func() bool { return len(e.verifications(t, name)) == 2 })
 }
 
 // TestIntentEvaluateEarlyHandoff (case 5): under --intent-default-handoff

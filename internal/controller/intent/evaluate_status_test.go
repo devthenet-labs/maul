@@ -39,19 +39,23 @@ func TestAcceptanceStatusWhileEvaluating(t *testing.T) {
 		t.Fatalf("an unchanged status was posted again: %d statuses, had %d", got, n)
 	}
 
-	// The round runs and is judged; then the evaluation ceiling, lowered
-	// under what was spent, starts no more: Unconfirmed for good.
+	// The round runs; the evaluation ceiling, lowered under what was
+	// spent, starts no more (neither the recheck the round asks for nor a
+	// request): Unconfirmed for good.
 	pv := e.onlyVerification(name)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
 	e.runRuns()
 	e.runRuns()
-	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
-	e.review(name, 3)
 	proj := e.project0()
 	proj.Spec.Limits.MaxEvaluateCostMicroUSD = new(int64(100000))
 	if err := e.c.Update(context.Background(), proj); err != nil {
 		t.Fatal(err)
+	}
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
+	e.review(name, 3)
+	if n := len(e.verifications(name)); n != 1 {
+		t.Fatalf("verifications = %d, want no recheck past the evaluation ceiling", n)
 	}
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		in.Status.Verification.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: 7,

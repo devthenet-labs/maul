@@ -439,19 +439,32 @@ starts as usual) or dispute it. A head set gets one escalation: a later unsure r
 none. A replay round unsure only on a manual outcome escalates to nothing. The full round after a dispute that could not
 be a replay spends that head set's escalation too.
 
+**Recheck.** A full round left unsure only on outcomes its evaluator passed with no check maul accepted (the reviewer
+answered `does_not_prove` or `unclear`, or no check was proposed: `model-only-pass`) asks for that same one full round
+at the same heads (`status.verification.escalation` with `recheck`): the reviewer's refusal reaches an evaluator only in
+a later round's handoff, and without the recheck no later round starts at unchanged heads. Its evaluator is told each
+refusal, as any later round's is, and can write a stronger check. The comments say maul is checking once more by itself
+because a check was not accepted, `maul/acceptance` stays pending and the hand-off waits for it. It is judged by exactly
+the rules in [What makes a pass](#what-makes-a-pass). A round with anything else open asks for none: an outcome failed,
+quarantined, suspected, held by an earlier finding, or doubted in any other way, a dispute, a fix, an objection from the
+evaluator (a fail verdict or a contrary entry on any outcome) or a failing environment. Those stay as they are, for a
+person or a fix round. The recheck spends the head set's one escalation, so a later unsure round at the same heads asks
+for nothing by itself.
+
 | Round                                            | Model spend          |
 | ------------------------------------------------ | -------------------- |
 | `/maul verify` at unchanged heads                | none: a replay round |
 | the round after a dispute (every outcome proven) | none: a replay round |
 | an unsure replay round's escalation              | one full round       |
+| a full round held only by checks not accepted    | one full round       |
 | `/maul verify explore`                           | one full round       |
 
-Replay and escalation rounds count toward `maxVerifications` like any automatic round, and a request's round counts as
-before. A replay round runs past the evaluation ceiling (`limits.maxEvaluateCostMicroUSD`), since it spends nothing; an
-escalation does not, and past the ceiling the round stays unconfirmed with the budget as the reason. The escalation is
-not spaced by the five minutes automatic rounds wait while automatic fixes are halted: it is the replay round's own
-follow-up, once per head set. The scoped rung (a model re-exploring only what a diff touches) is not built: after the
-heads move, a round is full.
+Replay, escalation and recheck rounds count toward `maxVerifications` like any automatic round, and a request's round
+counts as before. A replay round runs past the evaluation ceiling (`limits.maxEvaluateCostMicroUSD`), since it spends
+nothing; an escalation or a recheck does not, and past the ceiling the round stays unconfirmed with the budget as the
+reason. Neither is spaced by the five minutes automatic rounds wait while automatic fixes are halted: each is the round
+before's own follow-up, once per head set. The scoped rung (a model re-exploring only what a diff touches) is not built:
+after the heads move, a round is full.
 
 ## Look-around
 

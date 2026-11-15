@@ -30,6 +30,7 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			"-ledger", "-evidence", "-checks-", "status.ledger",
 			"replay round", "/maul verify explore", "status.verification.rung", "modelRound",
 			"status.verification.escalation", "replayed saved checks, no model", "never fails an outcome",
+			"**Recheck.**", "checking once more by itself",
 		},
 		"docs/intents/acceptance.md": {
 			"evaluator.md", "outcomes", "from:", "kind: keep", "manual: true", "not covered",
