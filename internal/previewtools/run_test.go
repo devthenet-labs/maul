@@ -286,6 +286,16 @@ func liveCompileCauses(t *testing.T, h *harness, check string, cr toolwire.Respo
 	if cr.Refused != "" || cr.Observed.CheckRun.Result != toolwire.RunError || cr.Observed.CheckRun.Cause() != "" {
 		t.Errorf("a run check whose import did not load: %+v", cr)
 	}
+	// One long line puts the undefined name past column 255, where the
+	// compiler prints no column (G5-B-LIB-1): still the compile cause.
+	oneLine := strings.Replace(strings.Replace(check, "bb.parse", "bb.oneline", 1), `\n\nfunc main() {`,
+		`; func main() {`+strings.Repeat(" ", 300), 1)
+	oneLine = strings.Replace(oneLine, `package main\n\nimport`, `package main; import`, 1)
+	_, cr = h.callKeyed(toolwire.VerbCheckRun, mustJSON(t, map[string]json.RawMessage{"check": json.RawMessage(oneLine)}))
+	if cr.Refused != "" || cr.Observed.CheckRun.Result != toolwire.RunError ||
+		cr.Observed.CheckRun.Cause() != toolwire.CauseCompile {
+		t.Errorf("a one-line run check that does not compile: %+v", cr)
+	}
 }
 
 // TestExecSocketDirsUntouched: the relay does nothing under a sandbox's

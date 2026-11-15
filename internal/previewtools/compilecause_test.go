@@ -46,6 +46,18 @@ const (
 		"/work/home/.cache/go-build/12/1234-d: no such file or directory)\n"
 	goOutICE = "# maulcheck\n./main.go:5:2: internal compiler error: panic: runtime error\n"
 	goOutOOM = "# maulcheck\nfatal error: runtime: out of memory\n"
+	// The compiler prints no column for a position at or past column 255
+	// (cmd/internal/src: colMax, 8 bits, is "unknown"), as in a program
+	// written on one long line (defect gate 5, G5-B-LIB-1; go1.26.11).
+	goOutNoColumn    = "# maulcheck\n./main.go:1: undefined: synth.Retime\n"
+	goOutMixedColumn = "# maulcheck\n./main.go:1:251: undefined: synth.Retime\n./main.go:1: undefined: synth.Old\n" +
+		"./helper.go:4: undefined: synth.Count\n"
+	// What a program can print when it runs, or a test prints when it
+	// fails: never the go build's own output, and none of them the
+	// compiler's refusal.
+	goOutPanic = "panic: assignment to entry in nil map\n\ngoroutine 1 [running]:\nmain.main()\n" +
+		"\t/work/scratch/abc/main.go:5 +0x59\nexit status 2\n"
+	goOutTestFail = "--- FAIL: TestX (0.00s)\n    main_test.go:12: got 1, want 2\nFAIL\n"
 )
 
 // TestCompilerRefused: a compile is the compiler's refusal of the program
@@ -91,7 +103,31 @@ func TestCompilerRefused(t *testing.T) {
 		{"a continuation before any diagnostic", "# maulcheck\n\thave m()\n" + goOutUndefined[12:], main, false},
 		{"a path in a subdirectory", "# maulcheck\n./sub/main.go:3:26: undefined: x\n", main, false},
 		{"a file name only sharing a suffix", "# maulcheck\n./xmain.go:3:26: undefined: x\n", main, false},
-		{"a diagnostic without a column", "# maulcheck\n./main.go:3: undefined: x\n", main, false},
+		{"a diagnostic without a column", goOutNoColumn, main, true},
+		{"diagnostics with and without a column", goOutMixedColumn, []string{"main.go", "helper.go"}, true},
+		{"a diagnostic without a column in a file not the program's", goOutMixedColumn, main, false},
+		{"a diagnostic without a column in the tree's own file",
+			"# maulcheck\n../tree/synth/s.go:3: undefined: x\n", main, false},
+		{"a diagnostic without a column and without the header", "./main.go:1: undefined: synth.Retime\n", main,
+			false},
+		{"a diagnostic without a column under another package's header",
+			"# example.com/tree/synth\n./main.go:1: undefined: x\n", main, false},
+		{"a diagnostic without a column after a go line", "# maulcheck\ngo: warning\n./main.go:1: undefined: x\n",
+			main, false},
+		{"a diagnostic without a column carrying an environmental marker",
+			"# maulcheck\n./main.go:1: open x: no space left on device\n", main, false},
+		{"a position with no line", "# maulcheck\n./main.go: undefined: x\n", main, false},
+		{"a position with an empty line", "# maulcheck\n./main.go:: undefined: x\n", main, false},
+		{"a position with an empty column", "# maulcheck\n./main.go:1:: undefined: x\n", main, false},
+		{"a position with a word for a line", "# maulcheck\n./main.go:one: undefined: x\n", main, false},
+		{"a position with no message", "# maulcheck\n./main.go:1:\n", main, false},
+		{"a position with no space before the message", "# maulcheck\n./main.go:1:undefined: x\n", main, false},
+		{"a position with three numbers", "# maulcheck\n./main.go:1:2:3: undefined: x\n", main, false},
+		{"a runtime panic", goOutPanic, main, false},
+		{"a runtime panic under the header", "# maulcheck\n" + goOutPanic, main, false},
+		{"a test failure", goOutTestFail, []string{"main.go", "main_test.go"}, false},
+		{"a test failure under the header", "# maulcheck\n" + goOutTestFail, []string{"main.go", "main_test.go"},
+			false},
 		{"no program files", goOutUndefined, nil, false},
 		{"a carriage return in a line", "# maulcheck\r\n./main.go:3:26: undefined: pkg.New\r\n", main, false},
 	}
@@ -124,15 +160,17 @@ var environmentalMarkers = []string{
 func TestCompilerRefusedProperty(t *testing.T) {
 	files := []string{"main.go", "helper.go"}
 	own := []string{"./main.go:3:26: undefined: pkg.New", "./helper.go:12:4: x declared and not used",
+		"./main.go:1: undefined: synth.Retime", "helper.go:2: undefined: synth.Old",
 		"main.go:7:1: syntax error: non-declaration statement outside function body",
 		"./main.go:6:16: cannot use T{} as I value", "\t\thave m()", "\t\twant M()"}
 	foreign := []string{"../tree/pkg/pkg.go:3:25: cannot use \"x\" as int value", "./other.go:1:1: undefined: y",
-		"/work/tree/bb.go:9:2: undefined: z", "./sub/main.go:2:2: undefined: w", "vendor/x/x.go:1:1: undefined: v"}
+		"/work/tree/bb.go:9:2: undefined: z", "./sub/main.go:2:2: undefined: w", "vendor/x/x.go:1:1: undefined: v",
+		"../tree/pkg/pkg.go:3: undefined: u", "./other.go:1: undefined: t", "/work/scratch/a/main.go:5 +0x59"}
 	prop := func(seed uint64) bool {
 		rng := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 		n := rng.IntN(8)
 		lines := make([]string, 0, n+2)
-		lines = append(lines, "# maulcheck", own[rng.IntN(2)])
+		lines = append(lines, "# maulcheck", own[rng.IntN(4)])
 		for range n {
 			lines = append(lines, own[rng.IntN(len(own))])
 		}
