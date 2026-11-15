@@ -33,7 +33,7 @@ const (
 	checkReviewHandoffMaxBytes = 512 << 10
 	// checkReviewFromMaxBytes bounds an item's line of the request, and
 	// checkReviewRequestMaxBytes the request (the evaluate handoff's bound).
-	checkReviewFromMaxBytes    = 2 << 10
+	checkReviewFromMaxBytes    = templates.CheckReviewFromMaxBytes
 	checkReviewRequestMaxBytes = 32 << 10
 )
 
