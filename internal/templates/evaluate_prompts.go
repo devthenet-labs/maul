@@ -90,11 +90,23 @@ const LayoutReadRule = "A browser check that writes nothing and asserts only the
 	"on every run: it needs no data it created, and is not refused for that, unless what it measures is a row or " +
 	"record that other runs make, or is sized or placed by them."
 
-// GreenRubric and LayoutReadRule, wrapped as the templates are, for them.
+// ToleranceRule is the green rule's word on a box assertion's tolerance
+// (G4-B-BR-2): a reviewer is shown it, beside maul's own line for each
+// tolerance the check carries, only for a check that carries one.
+const ToleranceRule = "A tolerance lets its assertion pass on a layout that misses the measure by up to that " +
+	"many px, as listed above. Judge each one against the outcome's words, not by its size alone: answer " +
+	"`does_not_prove` if it lets through what the outcome's wording excludes (an overlap where the outcome says " +
+	"above, below, beside, inside or not covering; a gap it forbids; a size or a position past one it states " +
+	"exactly). A tolerance of a px or two for rounding is fine, and so is one the outcome's wording leaves room " +
+	"for, such as an offset between two things it says only sit beside or right after one another."
+
+// GreenRubric, LayoutReadRule and ToleranceRule, wrapped as the templates
+// are, for them.
 func (evaluateView) GreenRubric() string       { return wrap(GreenRubric, "", "") }
 func (evaluateView) LayoutReadRule() string    { return wrap(LayoutReadRule, "", "") }
 func (checkReviewView) GreenRubric() string    { return wrap(GreenRubric, "", "") }
 func (checkReviewView) LayoutReadRule() string { return wrap(LayoutReadRule, "", "") }
+func (checkReviewView) ToleranceRule() string  { return wrap(ToleranceRule, "", "") }
 
 // runToken is the exploration token's grammar: what the prompt states
 // as maul's own, outside any fence, so nothing but this can pass.
@@ -599,8 +611,10 @@ type CheckReviewPrompt struct {
 	// outcome's kind (empty is change). Request is the intent's request, as
 	// the evaluator is given it, and Components the previewed components
 	// (coverage design C1): context, so a reviewer judges the application's
-	// own words by the request. From and Request are UNTRUSTED, quoted as
-	// data; empty ones, and no components, leave their sections out.
+	// own words by the request, and takes what they state as fact as
+	// given, on the red question too (G4-B-CLI-2). From and Request are
+	// UNTRUSTED, quoted as data; empty ones, and no components, leave their
+	// sections out.
 	From       string
 	Kind       acceptance.OutcomeKind
 	Request    string
@@ -735,6 +749,9 @@ type checkReviewView struct {
 	// LayoutRead: a green question about a layout read (checks.LayoutRead):
 	// the green rule's layout exception is shown beside it.
 	LayoutRead bool
+	// Tolerances are, on the green question, maul's own line for each box
+	// assertion's tolerance (G4-B-BR-2); ToleranceRule is shown with them.
+	Tolerances []string
 	// ObservedBlock is Observed as the reviewer reads it, one line per run;
 	// RunScoped, with it, a text assertion on an element the check finds by
 	// its own run data (checks.FailsRunScopedText) that showed that run's
@@ -787,12 +804,6 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		RequestBlock:      strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
 		KindSentence:      "It is a change: something the change makes true.",
 	}
-	if p.ExpectFail {
-		// The red question keeps to the outcome as approved: a request
-		// that says more than its narrowed outcome must not push a
-		// reviewer toward a fix outside that contract (coverage review).
-		v.FromBlock, v.RequestBlock = "", ""
-	}
 	if p.Kind == acceptance.OutcomeKindKeep {
 		v.KindSentence = "It is a keep: something the change must leave true."
 	}
@@ -806,6 +817,10 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 	}
 	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
 	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
+	if !p.ExpectFail {
+		// On the red question a tolerance only makes the failure harder.
+		v.Tolerances = toleranceLines(p.Check)
+	}
 	if p.ExpectFail {
 		v.FailureBlock = observedBlock(p.Failure)
 		v.FoundOne = shown.Form == checks.FormBrowser && failsOnFoundElements(p.Check, p.FailedStep-1)
@@ -816,6 +831,51 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 			!slices.ContainsFunc(p.Observed, func(o string) bool { return !strings.Contains(o, checks.RunPlaceholder) })
 	}
 	return render("prompt_checkreview.md.tmpl", v)
+}
+
+// toleranceLines is maul's own line for each browser assertion of c with a
+// tolerance, by its 1-based step: what the compiled helper
+// (checks/playwright/support.go) lets through, never the check's words.
+func toleranceLines(c checks.Check) []string {
+	if c.Browser == nil {
+		return nil
+	}
+	var lines []string
+	for i, s := range c.Browser.Steps {
+		a := s.Expect
+		if a == nil || a.Tolerance == 0 {
+			continue
+		}
+		n := strconv.FormatFloat(a.Tolerance, 'f', -1, 64) + " px"
+		head := "step " + strconv.Itoa(i+1) + ", `" + quotedLine(string(a.Assert), 32) + "`"
+		var lets string
+		switch a.Assert {
+		case checks.AssertAbove:
+			lets = "its element's bottom edge is up to " + n + " below the top edge of its `other`, so the two may " +
+				"overlap by up to " + n
+		case checks.AssertLeftOf:
+			lets = "its element's right edge is up to " + n + " past the left edge of its `other`, so the two may " +
+				"overlap by up to " + n
+		case checks.AssertNoOverlap:
+			lets = "the two boxes overlap, so long as the overlap is at most " + n + " wide or at most " + n + " tall"
+		case checks.AssertEqualSize:
+			lets = "the two widths, and the two heights, differ by up to " + n
+		case checks.AssertAligned:
+			edges := "top"
+			if a.Axis == "x" {
+				edges = "left"
+			}
+			head += " on " + quotedLine(a.Axis, 8)
+			lets = "the " + edges + " edges of its element and its `other` are up to " + n + " apart"
+		case checks.AssertSize:
+			lets = "the box's width or height misses what the step states (an exact size, an at least or an at " +
+				"most) by up to " + n
+		default:
+			lets = "what it measures misses by up to " + n
+		}
+		lines = append(lines, head+", tolerance "+n+": it passes while "+lets)
+	}
+	return lines
 }
 
 // failsOnFoundElements reports a browser check whose step failing

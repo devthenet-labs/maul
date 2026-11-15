@@ -133,7 +133,7 @@ func TestGreenRubricRefusesAnExampleOnlyCheck(t *testing.T) {
 // an example-only outcome whose line states the rule and that tries nothing
 // beyond it; the red question admits an input beyond the example only where
 // the rule, as the outcome words it, covers it and decides its value, and
-// still never shows the request.
+// shows the request only for its facts.
 func TestCheckReviewPromptJudgesTheRule(t *testing.T) {
 	green := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
 	green.From, green.Request = "ratings should update after every battle", "# Elo\n"
@@ -171,8 +171,10 @@ func TestCheckReviewPromptJudgesTheRule(t *testing.T) {
 					t.Errorf("prompt lacks %q", want)
 				}
 			}
-			if tt.p.ExpectFail && strings.Contains(got, sentinel) {
-				t.Error("the red question shows the request or its line")
+			// The red question shows the request for its facts
+			// (G4-B-CLI-2), and judges by the outcome only.
+			if tt.p.ExpectFail && !strings.Contains(flat(got), redContract) {
+				t.Errorf("the red question lacks %q", redContract)
 			}
 			// The green question judges the check against the outcome only:
 			// it never asks a check to go beyond an outcome that names only

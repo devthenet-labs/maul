@@ -825,9 +825,13 @@ func TestCheckReviewPromptShowsTheRequest(t *testing.T) {
 	}
 }
 
-// TestCheckReviewPromptRedKeepsToTheOutcome (coverage review): the red
-// question is not shown the request or the outcome's line, which can say
-// more than the approved outcome and so push a fix outside it.
+// TestCheckReviewPromptRedKeepsToTheOutcome (coverage review, G4-B-CLI-2):
+// the red question is shown the request and the outcome's line, quoted as
+// data, for the facts they state (how the program is run, how things are
+// numbered); since they can say more than the approved outcome, it is told
+// that a failure of what only the request asks proves nothing, so no fix
+// starts outside the outcome, and never the green question's word that a
+// narrowed check proves its outcome.
 func TestCheckReviewPromptRedKeepsToTheOutcome(t *testing.T) {
 	p := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
 	p.From, p.Request = sentinel+" every battle", "# "+sentinel+"\n- use Elo\n"
@@ -836,12 +840,13 @@ func TestCheckReviewPromptRedKeepsToTheOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(got, sentinel) {
-		t.Error("the red question shows the request or its line")
-	}
-	for _, gone := range []string{"line of the request", "planned from", "as is the request", "context only"} {
-		if strings.Contains(got, gone) {
-			t.Errorf("the red question still says %q", gone)
+	for _, want := range []string{sentinel + " every battle", "planned from", "as is the request", redContract,
+		"where the request and the outcome differ, judge by the outcome"} {
+		if !strings.Contains(flat(got), want) {
+			t.Errorf("the red question lacks %q", want)
 		}
+	}
+	if strings.Contains(flat(got), "a check that shows the outcome as written proves it") {
+		t.Error("the red question is told a narrowed check proves its outcome")
 	}
 }

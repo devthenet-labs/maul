@@ -182,9 +182,10 @@ func TestCheckReviewRedShowsWhatItsFailureRecorded(t *testing.T) {
 					t.Errorf("the red question lacks %q", want)
 				}
 			}
-			// The red question still keeps to the outcome as approved.
-			if strings.Contains(got, tc.p.Request) && tc.p.Request != "" {
-				t.Error("the red question shows the request")
+			// The red question shows the request for its facts
+			// (G4-B-CLI-2) and still keeps to the outcome as approved.
+			if !strings.Contains(flat(got), redContract) {
+				t.Errorf("the red question lacks %q", redContract)
 			}
 		})
 	}
