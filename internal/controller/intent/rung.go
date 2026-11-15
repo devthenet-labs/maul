@@ -89,7 +89,8 @@ func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptanc
 // escalationDue reports the one full round an unsure replay round or a
 // recheckable full round asked for (status.verification.escalation) as due
 // at the same heads: the round that asked is the current one, judged there,
-// Unconfirmed, not made ready since by an approver's acceptance, with no
+// Unconfirmed and not since found unable to run there (a settle cause:
+// settleUnrun), not made ready since by an approver's acceptance, with no
 // request waiting, within maxVerifications and below the evaluation
 // ceiling (a full round spends; past it the verification stays
 // Unconfirmed, and the hand-off says why). It is not spaced by
@@ -98,7 +99,7 @@ func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptanc
 // set, and that round already ran when it was asked for.
 func (p *pass) escalationDue(v *v1alpha1.IntentVerification) bool {
 	return escalationAsked(v, v.HeadSetDigest) && v.State == v1alpha1.VerificationUnconfirmed && v.Ref != nil &&
-		v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) &&
+		v.Cause == "" && v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) &&
 		!outcomesReady(p.in.Status.Acceptance, v) &&
 		v.Automatic < p.proj.Spec.Limits.MaxVerificationsLimit() && !p.atEvaluationCeiling()
 }
@@ -132,9 +133,11 @@ func escalationAsked(v *v1alpha1.IntentVerification, hs string) bool {
 // followUpDue reports an automatic round at v's heads still to come after
 // its judged round: a dispute's (its round may then be full, past the
 // evaluation ceiling it is answered as exhausted and the dispute dropped:
-// evaluationExhausted), or the escalation. The hand-off waits for it.
+// evaluationExhausted), or the escalation. The hand-off waits for it,
+// unless the round was found unable to run at these heads (a settle cause:
+// settleUnrun), which ends both.
 func (p *pass) followUpDue(v *v1alpha1.IntentVerification) bool {
-	return (len(v.Disputed) > 0 && v.Ref != nil && p.verifyBounded(v)) || p.escalationDue(v)
+	return (len(v.Disputed) > 0 && v.Ref != nil && v.Cause == "" && p.verifyBounded(v)) || p.escalationDue(v)
 }
 
 // recordRound records on nv, as the round of rung at hs is created, its

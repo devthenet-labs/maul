@@ -451,7 +451,8 @@ the rules in [What makes a pass](#what-makes-a-pass). A round with anything else
 quarantined, suspected, held by an earlier finding, or doubted in any other way, a dispute, a fix, an objection from the
 evaluator (a fail verdict or a contrary entry on any outcome) or a failing environment. Those stay as they are, for a
 person or a fix round. The recheck spends the head set's one escalation, so a later unsure round at the same heads asks
-for nothing by itself.
+for nothing by itself. On a Project with no preview, a recheck (or any automatic follow-up round) that can no longer run
+at those heads, because the accepted image is gone, settles as "maul couldn't confirm this" instead of waiting.
 
 | Round                                            | Model spend          |
 | ------------------------------------------------ | -------------------- |

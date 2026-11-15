@@ -259,7 +259,7 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 // its tool pod unable to build the head) is not still awaiting a replay
 // (S2-B3).
 func (p *pass) replayDue(v *v1alpha1.IntentVerification) bool {
-	return v.State == v1alpha1.VerificationUnconfirmed && len(v.Disputed) > 0 && v.Ref != nil &&
+	return v.State == v1alpha1.VerificationUnconfirmed && len(v.Disputed) > 0 && v.Ref != nil && v.Cause == "" &&
 		v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) && v.Requested == nil && p.verifyBounded(v)
 }
 

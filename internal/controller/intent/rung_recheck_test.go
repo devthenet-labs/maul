@@ -7,6 +7,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -119,6 +120,18 @@ func TestRecheckable(t *testing.T) {
 		{name: "a dispute's replay due", rs: []v1alpha1.OutcomeResult{refused, passedR("a")},
 			mutate: func(v *v1alpha1.IntentVerification, _ *v1alpha1.IntentAcceptance, j *roundJudgement) {
 				j.decision.ReplayRound = true
+				v.Disputed = []string{recheckHeads}
+			}},
+		{name: "a suspected defect this round", rs: []v1alpha1.OutcomeResult{refused, passedR("a")},
+			mutate: func(_ *v1alpha1.IntentVerification, _ *v1alpha1.IntentAcceptance, j *roundJudgement) {
+				j.decision.Suspected = &acceptance.FixRequest{}
+			}},
+		{name: "a replay round asked for", rs: []v1alpha1.OutcomeResult{refused, passedR("a")},
+			mutate: func(_ *v1alpha1.IntentVerification, _ *v1alpha1.IntentAcceptance, j *roundJudgement) {
+				j.decision.ReplayRound = true
+			}},
+		{name: "disputed checks on record", rs: []v1alpha1.OutcomeResult{refused, passedR("a")},
+			mutate: func(v *v1alpha1.IntentVerification, _ *v1alpha1.IntentAcceptance, _ *roundJudgement) {
 				v.Disputed = []string{recheckHeads}
 			}},
 		{name: "a suspected defect on record at the heads", rs: []v1alpha1.OutcomeResult{refused, passedR("a")},
@@ -397,5 +410,101 @@ func TestFindingIsNeverRechecked(t *testing.T) {
 	}
 	if r := v.Outcomes[0]; r.ID != oVersion || r.Result == v1alpha1.OutcomePassed {
 		t.Errorf("version outcome %+v, want the evaluator's finding kept, never passed", r)
+	}
+}
+
+// TestAgentsRecheckThatCannotRunSettles: on a Project the agents tool pod
+// evaluates, a recheck (or a dispute's replay) due at heads whose round can
+// no longer run there (the accepted image gone) settles
+// once, as an approver's request there does: no round starts, the
+// judgement's outcomes stand, the recheck is no longer due, the hand-off is
+// released as couldn't confirm and maul/acceptance is no longer pending.
+// Left due, it held the hand-off and maul/acceptance pending for ever.
+func TestAgentsRecheckThatCannotRunSettles(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// replay: a dispute's replay round is the follow-up due, not the
+		// recheck.
+		replay bool
+	}{
+		{name: "the recheck"},
+		{name: "a dispute's replay", replay: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, name := newAgentsEnv(t, repoImage)
+			e.reviewReady(name, 4)
+			pv := e.onlyVerification(name)
+			// Round 1 judged Unconfirmed only on outcomes its evaluator
+			// passed with no check accepted: the recheck is due (or, in the
+			// replay case, the replay a dispute asked for).
+			e.setStatus(name, func(in *v1alpha1.Intent) {
+				v := in.Status.Verification
+				v.State, v.Cause, v.Round, v.Rung = v1alpha1.VerificationUnconfirmed, "", 1, v1alpha1.RungFull
+				v.Ref = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}
+				v.OutcomesRound, v.OutcomesHeadSetDigest, v.Outcomes = 1, v.HeadSetDigest, nil
+				for _, o := range in.Status.Acceptance.Outcomes {
+					v.Outcomes = append(v.Outcomes, unsureR(o.ID, acceptance.ReasonModelOnlyPass))
+				}
+				v.Escalation = &v1alpha1.VerificationEscalation{Round: 1, HeadSetDigest: v.HeadSetDigest,
+					Recheck: true}
+				if tc.replay {
+					v.Escalation, v.Disputed = nil, []string{recheckHeads}
+				}
+			})
+			if p := e.prVerifyPass(name); !p.followUpDue(p.in.Status.Verification) {
+				t.Fatal("no follow-up is due (the case's premise)")
+			}
+			dropRunnerImages(t, e)
+			e.review(name, 3)
+
+			p := e.prVerifyPass(name)
+			v := p.in.Status.Verification
+			if v.State != v1alpha1.VerificationUnconfirmed || v.Cause != v1alpha1.SettleSandboxImage ||
+				p.followUpDue(v) {
+				t.Fatalf("verification %s (%s), follow-up due %v; want Unconfirmed (no image), nothing due", v.State,
+					v.Cause, p.followUpDue(v))
+			}
+			if len(v.Outcomes) != len(p.in.Status.Acceptance.Outcomes) ||
+				v.Outcomes[0].Reason != acceptance.ReasonModelOnlyPass {
+				t.Errorf("outcomes %+v, want round 1's judgement kept", v.Outcomes)
+			}
+			if vs := e.verifications(name); len(vs) != 1 {
+				t.Fatalf("%d verifications, want round 1 alone", len(vs))
+			}
+			if h := v.Handoff; h == nil || !h.Released || h.Reason != v1alpha1.HandoffReasonUnconfirmed {
+				t.Errorf("hand-off %+v, want released as couldn't confirm", h)
+			}
+			if st, _, ok := p.acceptanceStatus(); ok && st.state == statusPending {
+				t.Errorf("maul/acceptance %+v, want no longer pending", st)
+			}
+			e.review(name, 3) // the comments catch up
+			rv := e.get(name).ResourceVersion
+			e.review(name, 3)
+			if got := e.get(name).ResourceVersion; got != rv {
+				t.Errorf("the intent was written again (%s -> %s) with nothing changed", rv, got)
+			}
+		})
+	}
+}
+
+// TestRecheckWaitsForAHuman: the human always wins. A changes-requested
+// review pending when the recheck is due starts no model round in its
+// quiet window; the human's round comes first.
+func TestRecheckWaitsForAHuman(t *testing.T) {
+	e, name, _, _ := refusedRound(t, evaluationReport)
+	e.recheckAsked(name)
+	e.reviewOn(e.prNumber(name), 4401, "Please also log the version.")
+	for range 10 {
+		e.clock.Advance(10 * time.Second)
+		e.mustIntent(name)
+	}
+	e.review(name, 6)
+	for _, p := range e.verifications(name) {
+		if p.Spec.Round > 1 {
+			t.Fatalf("round %d (%s) started over a human's pending review", p.Spec.Round, p.Spec.Rung)
+		}
+	}
+	if e.stageCount(name, v1alpha1.IntentStageRevise) == 0 {
+		t.Error("the human's round never started")
 	}
 }
