@@ -133,7 +133,17 @@ type VerifyProgress struct {
 	// (UnconfirmedCause, review H2). Workspace is a Project with no preview.
 	Why       string
 	Workspace bool
+	// Recheck: maul checks once more by itself at the same commits (gate 5
+	// G5-B-CLI-1), because the only open outcomes of the evaluation before
+	// were ones the evaluator says hold with no check maul accepted: the
+	// line of that unconfirmed evaluation, or of the one running, says so.
+	Recheck bool
 }
+
+// RecheckSentence is what the line adds while maul checks once more by
+// itself because a check was not accepted.
+const RecheckSentence = "A check of an outcome the evaluator says holds was not accepted, so maul is checking " +
+	"once more by itself at the same commits."
 
 // verifyRestingLine is the sentence of a state nothing is checked in:
 // whole for one that never carries counts, else its head; "" for any other
@@ -250,6 +260,9 @@ func verifyLine(p VerifyProgress) string {
 	}
 	if p.ManualOpen > 0 {
 		head += fmt.Sprintf(", %d for a human", p.ManualOpen)
+	}
+	if p.Recheck && (p.State == VerifyUnconfirmed || p.State == VerifyEvaluating) {
+		return head + fixClause(p) + ". " + RecheckSentence
 	}
 	return head + fixClause(p) + "."
 }
@@ -446,7 +459,11 @@ type VerifyComment struct {
 	Round, Attempt    int32
 	// Replay: the round replayed maul's saved checks with no model (the
 	// replay rung), which its heading says.
-	Replay  bool
+	Replay bool
+	// Recheck: maul started the round by itself because a check of the
+	// round before was not accepted (gate 5 G5-B-CLI-1), which its heading
+	// says.
+	Recheck bool
 	Section VerifySection
 }
 
@@ -535,11 +552,11 @@ func renderVerifySection(s *VerifySection) (string, error) {
 func RenderVerifyComment(c VerifyComment) (string, error) {
 	return fitVerify(c.Section, MaxCommentBytes, func(v verifyView) (string, error) {
 		return render("intent_verify_issue.md.tmpl", struct {
-			Marker         string
-			Round, Attempt int32
-			Replay         bool
+			Marker          string
+			Round, Attempt  int32
+			Replay, Recheck bool
 			verifyView
-		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, c.Replay, v})
+		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, c.Replay, c.Recheck, v})
 	})
 }
 

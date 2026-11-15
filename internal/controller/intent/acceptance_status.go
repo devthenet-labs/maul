@@ -161,8 +161,8 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 // evaluationStatus is the status of an intent the agent evaluator verifies,
 // in a state that counts outcomes: success only once every approved outcome
 // is confirmed or an approver accepted it at the current heads, naming who
-// accepted; pending while maul evaluates, or a dispute's replay round is
-// due ("maul is checking this"); error once maul could not confirm an
+// accepted; pending while maul evaluates, or a dispute's replay round or the
+// head set's escalation is due ("maul is checking this"); error once maul could not confirm an
 // outcome ("maul couldn't confirm this"), final until an approver accepts
 // it or the heads move; failure while an outcome fails. ok is false in the
 // states slice 1's descriptions already say (waiting, unavailable, needs
@@ -193,9 +193,10 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
 		switch {
 		case outcomesReady(acc, v):
-		case p.replayDue(v):
-			// The model-free replay round a dispute asked for is due:
-			// maul is still checking.
+		case p.replayDue(v), p.escalationDue(v):
+			// The model-free replay round a dispute asked for, or the head
+			// set's one full round (an unsure replay's escalation, a
+			// recheck), is due: maul is still checking.
 			return checkingStatus(v.Round, total, used, most), true
 		default:
 			// Final until an approver accepts what maul could not

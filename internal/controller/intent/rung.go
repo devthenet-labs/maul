@@ -38,7 +38,11 @@ import (
 // automatic full round at its heads (status.verification.escalation),
 // once per head set. A dispute's model-free round goes through the same
 // rung: when a replay could not pass every outcome it is full, and spends
-// the head set's escalation. So at one head set the automatic rounds are
+// the head set's escalation. A full round judged unsure only because the
+// check reviewer has not accepted a check of an outcome its evaluator
+// passed asks for the same escalation (recheckable, gate 5 G5-B-CLI-1): the
+// refusal reaches an evaluator only in a later round's handoff, and nothing
+// else starts one at unchanged heads. So at one head set the automatic rounds are
 // at most full (dispute) -> replay -> full (escalation, dispute) -> replay:
 // a dispute is only a full round's, an escalation only once, and each
 // automatic round counts against maxVerifications.
@@ -82,9 +86,11 @@ func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptanc
 	return false
 }
 
-// escalationDue reports the one full round an unsure replay round asked
-// for (status.verification.escalation) as due at the same heads: the
-// replay round is the current one, judged there, Unconfirmed, with no
+// escalationDue reports the one full round an unsure replay round or a
+// recheckable full round asked for (status.verification.escalation) as due
+// at the same heads: the round that asked is the current one, judged there,
+// Unconfirmed and not since found unable to run there (a settle cause:
+// settleUnrun), not made ready since by an approver's acceptance, with no
 // request waiting, within maxVerifications and below the evaluation
 // ceiling (a full round spends; past it the verification stays
 // Unconfirmed, and the hand-off says why). It is not spaced by
@@ -93,26 +99,45 @@ func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptanc
 // set, and that round already ran when it was asked for.
 func (p *pass) escalationDue(v *v1alpha1.IntentVerification) bool {
 	return escalationAsked(v, v.HeadSetDigest) && v.State == v1alpha1.VerificationUnconfirmed && v.Ref != nil &&
-		v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) &&
+		v.Cause == "" && v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) &&
+		!outcomesReady(p.in.Status.Acceptance, v) &&
 		v.Automatic < p.proj.Spec.Limits.MaxVerificationsLimit() && !p.atEvaluationCeiling()
 }
 
-// escalationAsked reports the escalation the current round, a replay at hs,
-// asked for and that has not run: the next round at hs is full whatever
-// starts it, an approver's request included, so a request never replays
-// again in its place and spends it unrun.
+// rechecking reports maul checking once more by itself because a check was
+// not accepted: the recheck a full round asked for is due
+// (escalationDue), or it is the round being evaluated now. The comments say
+// so.
+func (p *pass) rechecking(v *v1alpha1.IntentVerification) bool {
+	return rechecked(v) && v.State == v1alpha1.VerificationEvaluating || p.escalationDue(v) && v.Escalation.Recheck
+}
+
+// rechecked reports v's current round as the recheck the round before it
+// asked for at its heads, which its verification comment's heading says.
+func rechecked(v *v1alpha1.IntentVerification) bool {
+	e := v.Escalation
+	return e != nil && e.Recheck && e.HeadSetDigest == v.HeadSetDigest && v.Round == e.Round+1
+}
+
+// escalationAsked reports the escalation the current round at hs (an
+// unsure replay, or a recheckable full round) asked for and that has not
+// run: the next round at hs is full whatever starts it, an approver's
+// request included, so a request never replays in its place and spends it
+// unrun.
 func escalationAsked(v *v1alpha1.IntentVerification, hs string) bool {
 	e := v.Escalation
 	return e != nil && e.Round == v.Round && e.HeadSetDigest == hs && v.HeadSetDigest == hs &&
-		v.Rung == v1alpha1.RungReplay
+		(v.Rung == v1alpha1.RungReplay || e.Recheck)
 }
 
 // followUpDue reports an automatic round at v's heads still to come after
 // its judged round: a dispute's (its round may then be full, past the
 // evaluation ceiling it is answered as exhausted and the dispute dropped:
-// evaluationExhausted), or the escalation. The hand-off waits for it.
+// evaluationExhausted), or the escalation. The hand-off waits for it,
+// unless the round was found unable to run at these heads (a settle cause:
+// settleUnrun), which ends both.
 func (p *pass) followUpDue(v *v1alpha1.IntentVerification) bool {
-	return (len(v.Disputed) > 0 && v.Ref != nil && p.verifyBounded(v)) || p.escalationDue(v)
+	return (len(v.Disputed) > 0 && v.Ref != nil && v.Cause == "" && p.verifyBounded(v)) || p.escalationDue(v)
 }
 
 // recordRound records on nv, as the round of rung at hs is created, its
@@ -134,17 +159,54 @@ func escalatedAt(v *v1alpha1.IntentVerification, hs string) bool {
 
 // recordLadder records on nv what j, its round's judgement, means for the
 // next round's rung: a full round judged on its evaluator's report is the
-// latest model round, clear or not; a replay round judged unsure asks for
+// latest model round, clear or not; a replay round judged unsure, or a full
+// round judged unsure only on a check not accepted (recheckable), asks for
 // the head set's one escalation, unless it was asked for already.
 func recordLadder(nv *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance, j roundJudgement) {
 	if !j.replay && j.evaluation != nil && acc.OutcomesDigest != "" && nv.HeadSetDigest != "" && nv.Round > 0 {
 		nv.ModelRound = &v1alpha1.VerificationModelRound{Round: nv.Round, HeadSetDigest: nv.HeadSetDigest,
 			OutcomesDigest: acc.OutcomesDigest, Clear: j.clear}
 	}
-	if j.replay && nv.State == v1alpha1.VerificationUnconfirmed && !escalatedAt(nv, nv.HeadSetDigest) &&
-		modelCouldSettle(nv, acc, j) {
-		nv.Escalation = &v1alpha1.VerificationEscalation{Round: nv.Round, HeadSetDigest: nv.HeadSetDigest}
+	if nv.State != v1alpha1.VerificationUnconfirmed || escalatedAt(nv, nv.HeadSetDigest) {
+		return
 	}
+	switch {
+	case j.replay && modelCouldSettle(nv, acc, j):
+		nv.Escalation = &v1alpha1.VerificationEscalation{Round: nv.Round, HeadSetDigest: nv.HeadSetDigest}
+	case recheckable(nv, acc, j):
+		nv.Escalation = &v1alpha1.VerificationEscalation{Round: nv.Round, HeadSetDigest: nv.HeadSetDigest,
+			Recheck: true}
+	}
+}
+
+// recheckable reports a full round, judged on its evaluator's report, that
+// nothing keeps from Passed but outcomes its evaluator passed with no check
+// proven (acceptance.ReasonModelOnlyPass: the reviewer did not accept the
+// check, or none was proposed yet): no outcome failed, quarantined, doubted
+// or held, no suspected defect, fix, dispute or replay due, the evaluator
+// raised nothing (clear: no fail verdict, no contrary entry on any outcome)
+// and the environment was clean. A manual outcome left open, or one an
+// approver accepted, is a person's either way. The round it asks for is
+// judged by acceptance.Decide unchanged.
+func recheckable(nv *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance, j roundJudgement) bool {
+	if j.replay || j.evaluation == nil || !j.clear || !j.decision.Env.Clean() || j.decision.Fix != nil ||
+		j.decision.Suspected != nil || j.decision.ReplayRound || len(j.disputes) > 0 || nv.Suspected != nil ||
+		len(nv.Disputed) > 0 || nv.HeadSetDigest == "" || nv.Round == 0 {
+		return false
+	}
+	unaccepted := false
+	for _, r := range nv.Outcomes {
+		i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == r.ID })
+		switch {
+		case r.Result == v1alpha1.OutcomePassed, r.Result == v1alpha1.OutcomeAccepted:
+		case i >= 0 && acc.Outcomes[i].Manual && r.Reason == acceptance.ReasonManual:
+		case r.Result == v1alpha1.OutcomeUnsure && r.Reason == acceptance.ReasonModelOnlyPass:
+			unaccepted = true
+		default:
+			return false
+		}
+	}
+	return unaccepted
 }
 
 // modelCouldSettle reports an unsure replay round a full round could

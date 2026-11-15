@@ -1529,8 +1529,9 @@ type VerificationModelRound struct {
 
 // VerificationEscalation records the one automatic full round a head set
 // gets after an unsure round there: the escalation of an unsure replay
-// round, or a full round in a replay's place after a dispute when a replay
-// could not pass every outcome.
+// round, a full round in a replay's place after a dispute when a replay
+// could not pass every outcome, or the recheck of a full round left unsure
+// only by checks not accepted.
 type VerificationEscalation struct {
 	// Round is the round that asked for it.
 	// +kubebuilder:validation:Minimum=1
@@ -1539,6 +1540,10 @@ type VerificationEscalation struct {
 	// HeadSetDigest is the head set it is for.
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	HeadSetDigest string `json:"headSetDigest"`
+	// Recheck: a full round asked for it, left unsure only on outcomes its
+	// evaluator passed with no check accepted, so maul checks once more.
+	// +optional
+	Recheck bool `json:"recheck,omitempty"`
 }
 
 // OutcomesJudgedAt reports that v's outcome results (and anomalies) were

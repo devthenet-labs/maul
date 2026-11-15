@@ -149,12 +149,12 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 	case v1alpha1.VerificationWaitingForPreview:
 		out.State = templates.VerifyWaiting
 	case v1alpha1.VerificationEvaluating:
-		out.State = templates.VerifyEvaluating
+		out.State, out.Recheck = templates.VerifyEvaluating, p.rechecking(v)
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
 		if outcomesReady(acc, v) {
 			return judged(templates.VerifyPassed)
 		}
-		out.Why, out.Workspace = p.gaveUp(acc, v), p.set.linkless(p.proj)
+		out.Why, out.Workspace, out.Recheck = p.gaveUp(acc, v), p.set.linkless(p.proj), p.rechecking(v)
 		return judged(templates.VerifyUnconfirmed)
 	case v1alpha1.VerificationFailing:
 		switch {
@@ -456,7 +456,7 @@ func (p *pass) syncVerifyComment(ctx context.Context) {
 	}
 	body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: p.in.Namespace,
 		Intent: p.in.Name, Round: round, Attempt: attempt, Section: *sec,
-		Replay: round == v.Round && v.Rung == v1alpha1.RungReplay})
+		Replay: round == v.Round && v.Rung == v1alpha1.RungReplay, Recheck: round == v.Round && rechecked(v)})
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelError, "render the verification comment",
 			slog.String("intent", p.in.Name), slog.Any("error", err))

@@ -240,8 +240,10 @@ func checkEvaluateHandoff(t *testing.T, raw string, pv *v1alpha1.PreviewVerifica
 
 // TestEvaluationRoundCollects: the evaluator's report is kept on its run,
 // and once preview-controller settles the verification the round is judged,
-// both in hand: until maul judges the facts every outcome is unsure, the
-// verification Unconfirmed, and nothing more is started at those heads.
+// both in hand: until maul judges the facts every outcome is unsure and the
+// verification Unconfirmed. With no check proven for the outcomes its
+// evaluator passed, the round asks for its heads' one recheck (recheckable),
+// a full round started by itself, and nothing more.
 func TestEvaluationRoundCollects(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
@@ -260,7 +262,7 @@ func TestEvaluationRoundCollects(t *testing.T) {
 	}
 
 	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
-	e.review(name, 3)
+	e.review(name, 1)
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationUnconfirmed || len(v.Outcomes) != 3 {
 		t.Fatalf("verification = %+v, want Unconfirmed with every outcome", v)
@@ -273,18 +275,32 @@ func TestEvaluationRoundCollects(t *testing.T) {
 	if v.EvaluationCostMicroUSD != 400000 {
 		t.Errorf("evaluation cost = %d, want the evaluate run's 400000", v.EvaluationCostMicroUSD)
 	}
-	if n := len(e.verifications(name)); n != 1 {
-		t.Errorf("verifications = %d, want the one round", n)
+	if esc := v.Escalation; esc == nil || esc.Round != 1 || esc.HeadSetDigest != v.HeadSetDigest {
+		t.Errorf("escalation %+v, want round 1's recheck at its heads", esc)
+	}
+	recheck := e.roundOf(name, 2)
+	if recheck.Spec.Rung != v1alpha1.RungFull || recheck.Spec.HeadSetDigest != pv.Spec.HeadSetDigest ||
+		recheck.Annotations[annotationVerificationTrigger] != verificationByAutomatic {
+		t.Errorf("round 2 = %s at %s by %q, want the full recheck at round 1's heads, automatic",
+			recheck.Spec.Rung, recheck.Spec.HeadSetDigest, recheck.Annotations[annotationVerificationTrigger])
+	}
+	e.review(name, 3)
+	if n := len(e.verifications(name)); n != 2 {
+		t.Errorf("verifications = %d, want the round and its one recheck", n)
 	}
 }
 
 // TestEvaluationCeilingSparesTheFixBudget: the evaluation's spend counts
 // against its own ceiling only. An evaluation dearer than the Project's
 // shared ceiling neither blocks the intent nor stops a revise round's lease;
-// once the evaluation ceiling is spent, a requested round starts nothing
-// (Unconfirmed, the request consumed) and the intent is still not blocked.
+// once the evaluation ceiling is spent, neither the recheck round 1 asks for
+// nor a requested round starts (Unconfirmed, the request consumed) and the
+// intent is still not blocked.
 func TestEvaluationCeilingSparesTheFixBudget(t *testing.T) {
-	e, name := newEvaluatorEnv(t, 2.0, func(p *v1alpha1.Project) { p.Spec.Limits.MaxCostMicroUSD = 1000000 })
+	e, name := newEvaluatorEnv(t, 2.0, func(p *v1alpha1.Project) {
+		p.Spec.Limits.MaxCostMicroUSD = 1000000
+		p.Spec.Limits.MaxEvaluateCostMicroUSD = new(int64(2000000))
+	})
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
@@ -304,6 +320,10 @@ func TestEvaluationCeilingSparesTheFixBudget(t *testing.T) {
 	p.runs = e.runPtrs(name)
 	if p.atCeiling() || p.evaluationSpend() != 2000000 || p.sharedSpend() >= 1000000 {
 		t.Fatalf("shared %d at ceiling %v, evaluation %d", p.sharedSpend(), p.atCeiling(), p.evaluationSpend())
+	}
+	if v := in.Status.Verification; v.Escalation == nil || len(e.verifications(name)) != 1 {
+		t.Fatalf("escalation %+v, %d verifications; want the recheck asked for and held at the ceiling",
+			v.Escalation, len(e.verifications(name)))
 	}
 
 	// The evaluation ceiling, lowered under what was spent: a request
