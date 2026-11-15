@@ -31,6 +31,10 @@ func TestCoverPromptGoldens(t *testing.T) {
 	hostile := g6Cover()
 	hostile.Outcomes = hostile.Outcomes[:1]
 	hostile.Dropped = []CoverDropped{{ID: "rep-others", Outcome: "repeat-others-kept", Reason: hostileRepairError}}
+	hostile.Refused = hostileRepairError
+	// The second ask after a rewrite maul refused.
+	refused := g6Cover()
+	refused.Round, refused.Refused = 2, "it changed the verdict of repeat-rule, which maul did not ask about"
 	for _, tt := range []struct {
 		name string
 		p    CoverPrompt
@@ -38,6 +42,7 @@ func TestCoverPromptGoldens(t *testing.T) {
 		{"prompt_evaluate_cover_library.md", g6Cover()},
 		{"prompt_evaluate_cover_slot.md", slot},
 		{"prompt_evaluate_cover_hostile.md", hostile},
+		{"prompt_evaluate_cover_refused.md", refused},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := RenderCoverPrompt(tt.p)

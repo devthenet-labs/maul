@@ -19,9 +19,9 @@ import (
 // verdict, and nothing else may change in the report.
 //
 // Outcomes are ids, which the report parser has held to the outcome id
-// grammar. Dropped is UNTRUSTED: each reason is derived from a file the
-// agent wrote, so RenderCoverPrompt bounds it and fences it under a
-// statement that it is data, as a repair's reason is quoted.
+// grammar. Dropped and Refused are UNTRUSTED: each reason is derived from
+// a file the agent wrote, so RenderCoverPrompt bounds it and fences it under
+// a statement that it is data, as a repair's reason is quoted.
 type CoverPrompt struct {
 	// ReportPath is the evaluator's report; ChecksDir where it writes its
 	// checks.
@@ -35,6 +35,9 @@ type CoverPrompt struct {
 	// Dropped are the report's proposals for those outcomes that maul
 	// dropped, with why.
 	Dropped []CoverDropped
+	// Refused is why maul refused the report the ask before this one
+	// rewrote, "" for none: maul put back the report it kept.
+	Refused string
 	// Round is this ask's ordinal, of at most Rounds.
 	Round, Rounds int
 }
@@ -74,6 +77,7 @@ func RenderCoverPrompt(p CoverPrompt) (string, error) {
 		fmt.Fprintf(&b, "- proposal %s, of outcome %s, was dropped. Why, quoted: %s\n", quotedLine(d.ID, 80),
 			quotedLine(d.Outcome, 64), quotedLine(plainText(d.Reason), coverReasonMaxBytes))
 	}
+	p.Refused = quotableError(p.Refused)
 	return render("prompt_evaluate_cover.md.tmpl", coverView{CoverPrompt: p,
 		DroppedBlock: strings.TrimSuffix(b.String(), "\n")})
 }

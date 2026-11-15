@@ -6,6 +6,8 @@ package agentrun
 import (
 	"bytes"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -66,8 +68,10 @@ func TestEvaluateAsksForTheChecksOfUncoveredPasses(t *testing.T) {
 		t.Errorf("the ask names leaderboard, which the report leaves unsure:\n%s", ask)
 	}
 	// What is left of the stage's 100 turns: the first run took 7.
-	if got := argvFlag(t, fx.specs[1].Argv, "--max-turns"); got != "93" {
-		t.Errorf("ask --max-turns = %s, want the 93 the stage has left", got)
+	// What is left of the stage's 100 turns, the first run's 7 spent,
+	// less the 3 a second ask needs.
+	if got := argvFlag(t, fx.specs[1].Argv, "--max-turns"); got != "90" {
+		t.Errorf("ask --max-turns = %s, want 90", got)
 	}
 	if e.NumTurns != 7+2 {
 		t.Errorf("num turns = %d, want both runs' 9", e.NumTurns)
@@ -80,18 +84,23 @@ func TestEvaluateAsksForTheChecksOfUncoveredPasses(t *testing.T) {
 }
 
 // TestEvaluateCoverAskKeepsTheReport: an ask whose rewrite is not
-// acceptable keeps the report maul accepted before, as it was: a rewrite
-// that does not parse, one that changes a verdict maul did not ask about,
-// and one that drops a contrary seq. A rewrite that covers nothing ends the
-// asks after the first.
+// acceptable keeps the report maul accepted before: a rewrite that does not
+// parse, one that changes a verdict maul did not ask about, and one that
+// drops a contrary seq. maul puts that report back and its second ask says
+// why; a second rewrite as bad keeps it still. A rewrite that covers
+// nothing, or withdraws the pass, is the stage's, and ends the asks.
 func TestEvaluateCoverAskKeepsTheReport(t *testing.T) {
-	for name, tt := range map[string]struct{ before, rewrite string }{
-		"unparsable": {goodEvaluation, "---\nverdicts: [\n---\n"},
-		"another verdict": {goodEvaluation,
-			strings.Replace(goodEvaluation, "verdict: unsure", "verdict: fail\n    ledger: [3]", 1)},
-		"a contrary lost":    {contraryEvaluation, goodEvaluation},
-		"nothing covered":    {goodEvaluation, goodEvaluation},
-		"the pass withdrawn": {goodEvaluation, noPassEvaluation},
+	for name, tt := range map[string]struct {
+		before, rewrite, why string
+		accepted             bool
+	}{
+		"unparsable": {before: goodEvaluation, rewrite: "---\nverdicts: [\n---\n", why: "yaml"},
+		"another verdict": {before: goodEvaluation,
+			rewrite: strings.Replace(goodEvaluation, "verdict: unsure", "verdict: fail\n    ledger: [3]", 1),
+			why:     "it changed the verdict of leaderboard, which maul did not ask about"},
+		"a contrary lost":    {before: contraryEvaluation, rewrite: goodEvaluation, why: "contrary"},
+		"nothing covered":    {before: goodEvaluation, rewrite: goodEvaluation, accepted: true},
+		"the pass withdrawn": {before: goodEvaluation, rewrite: noPassEvaluation, accepted: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -101,21 +110,85 @@ func TestEvaluateCoverAskKeepsTheReport(t *testing.T) {
 				{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": tt.before}},
 				{ws: ws, stdout: streamResumed, writes: map[string]string{"scratch/report.md": tt.rewrite}},
 			}}
+			if !tt.accepted {
+				// The second ask rewrites it as badly again.
+				fx.steps = append(fx.steps, step{ws: ws, stdout: streamResumed,
+					writes: map[string]string{"scratch/report.md": tt.rewrite}})
+			}
 			e := onlyEvent(t, cfg, fx, &out).Evaluation
 			if e == nil || e.Outcome != envelope.OutcomeOK {
 				t.Fatalf("evaluation = %+v, want ok", e)
 			}
-			want := tt.before
-			if name == "the pass withdrawn" || name == "nothing covered" {
-				want = tt.rewrite // an acceptable rewrite is the stage's
+			want, commands := tt.before, 3
+			if tt.accepted {
+				want, commands = tt.rewrite, 2
 			}
 			if e.ReportMarkdown != want {
 				t.Errorf("report = %q, want %q", e.ReportMarkdown, want)
 			}
-			if len(fx.specs) != 2 {
-				t.Errorf("commands = %d, want the stage and one ask", len(fx.specs))
+			if len(fx.specs) != commands {
+				t.Fatalf("commands = %d, want %d", len(fx.specs), commands)
+			}
+			if tt.accepted {
+				return
+			}
+			second := strings.Join(strings.Fields(argvFlag(t, fx.specs[2].Argv, "-p")), " ")
+			for _, want := range []string{"## Your rewritten report was refused",
+				"put the report you wrote before it back", tt.why, "This is ask 2 of at most 2."} {
+				if !strings.Contains(second, want) {
+					t.Errorf("the second ask lacks %q:\n%s", want, second)
+				}
 			}
 		})
+	}
+}
+
+// TestEvaluateCoverAskRefusedThenFixed: a rewrite refused in the first ask
+// is not the end: maul puts back the report it kept, the evaluator rewrites
+// that one adding only its check, and that report is the stage's.
+func TestEvaluateCoverAskRefusedThenFixed(t *testing.T) {
+	var out bytes.Buffer
+	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
+	brokeredClaude(t, &cfg)
+	digest := checks.Digest(rateBattleCheck)
+	fixed := proposingEvaluation("rate-battle.api", "rate-battle", digest)
+	// It adds the check, but also fails leaderboard, which maul did not ask
+	// about.
+	overreach := strings.Replace(fixed, "verdict: unsure", "verdict: fail\n    ledger: [3]", 1)
+	fx := &fakeExec{steps: []step{
+		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": goodEvaluation}},
+		{ws: ws, stdout: streamResumed, writes: map[string]string{
+			"scratch/report.md":                   overreach,
+			"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
+		}},
+		// No write: the report the second ask leaves is the one maul put back.
+		{ws: ws, stdout: streamResumed},
+	}}
+	e := onlyEvent(t, cfg, fx, &out).Evaluation
+	if e == nil || e.Outcome != envelope.OutcomeOK || e.ReportMarkdown != goodEvaluation {
+		t.Fatalf("evaluation = %+v, want the report maul kept, put back for the second ask", e)
+	}
+	if len(fx.specs) != 3 {
+		t.Fatalf("commands = %d, want the stage and two asks", len(fx.specs))
+	}
+
+	out.Reset()
+	cfg, ws = roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
+	brokeredClaude(t, &cfg)
+	fx = &fakeExec{steps: []step{
+		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": goodEvaluation}},
+		{ws: ws, stdout: streamResumed, writes: map[string]string{
+			"scratch/report.md":                   overreach,
+			"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
+		}},
+		{ws: ws, stdout: streamResumed, writes: map[string]string{"scratch/report.md": fixed}},
+	}}
+	e = onlyEvent(t, cfg, fx, &out).Evaluation
+	if e == nil || e.Outcome != envelope.OutcomeOK || e.ReportMarkdown != fixed {
+		t.Fatalf("evaluation = %+v, want the report fixed in the second ask", e)
+	}
+	if len(e.Proposed) != 1 || e.Proposed[0].Digest != digest {
+		t.Errorf("proposed = %+v, want the check", e.Proposed)
 	}
 }
 
@@ -175,31 +248,19 @@ func TestEvaluateNoCoverAsk(t *testing.T) {
 	}
 }
 
-// g6Handoff is the outcomes and previous round of gate 4's G6 round 2
-// (render-library-100-ev-r2-a1-input): ten outcomes, repeat-rule passed in
-// round 1 on its saved check repeat-rule-all, repeat-bad-pattern failed
-// there on its saved red check, not yet proof.
-func g6Handoff() EvaluateHandoff {
-	ids := []string{"repeat-rule", "repeat-others-kept", "repeat-no-mutation", "repeat-cycles", "repeat-16",
-		"repeat-1", "repeat-bad-length", "repeat-bad-track", "repeat-bad-pattern", "validate-kept"}
-	h := EvaluateHandoff{Round: 2, PriorRound: 1}
-	for _, id := range ids {
-		kind := acceptance.OutcomeKindChange
-		if id == "validate-kept" {
-			kind = acceptance.OutcomeKindKeep
-		}
-		h.Outcomes = append(h.Outcomes, acceptance.PlanOutcome{ID: id, Outcome: id, Kind: kind})
-		result, reason := "unsure", "model-only-pass"
-		switch id {
-		case "repeat-rule":
-			result, reason = "passed", "confirmed"
-		case "repeat-bad-pattern":
-			reason = "suspected-defect"
-		}
-		h.PriorVerdicts = append(h.PriorVerdicts, PriorVerdict{Outcome: id, Result: result, Reason: reason})
+// g6Handoff is gate 4's G6 round 2 handoff (render-library-100-ev-r2-a1
+// input, its request and fix diff left out): ten outcomes, repeat-rule
+// passed in round 1, repeat-bad-pattern's saved red check not yet proof.
+func g6Handoff(t *testing.T) EvaluateHandoff {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "evaluate-g6-r2-handoff.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	h.PriorReplay = []PriorReplay{{Check: "repeat-bad-pattern-all", Outcome: "repeat-bad-pattern", Result: "fail"}}
-	h.NotYetProof = []NotYetProof{{Outcome: "repeat-bad-pattern", Check: "repeat-bad-pattern-all"}}
+	var h EvaluateHandoff
+	if err := decodeHandoff(raw, "evaluate", &h); err != nil {
+		t.Fatal(err)
+	}
 	return h
 }
 
@@ -220,7 +281,7 @@ func g6Report(h EvaluateHandoff) *evaluationReport {
 // saved check passed in round 1, nor repeat-bad-pattern, which the report
 // proposes a check of.
 func TestUncoveredPassesG6(t *testing.T) {
-	h := g6Handoff()
+	h := g6Handoff(t)
 	got := uncoveredPasses(h, g6Report(h))
 	want := []string{"repeat-others-kept", "repeat-no-mutation", "repeat-cycles", "repeat-16", "repeat-1",
 		"repeat-bad-length", "repeat-bad-track", "validate-kept"}
@@ -323,7 +384,11 @@ func TestCoverRewriteRefused(t *testing.T) {
 			e.Verdicts[0].Contrary = nil
 		}, true},
 		{"another verdict changed", func(e *report.Evaluation) { e.Verdicts[1].Verdict = report.VerdictPass }, true},
-		{"another verdict's note changed", func(e *report.Evaluation) { e.Verdicts[1].Note = "n" }, true},
+		{"another verdict's note reworded", func(e *report.Evaluation) { e.Verdicts[1].Note = "n" }, false},
+		{"a dispute's reason reworded", func(e *report.Evaluation) { e.Disputes[0].Reason = "r2" }, false},
+		{"another verdict's ledger changed", func(e *report.Evaluation) { e.Verdicts[1].Ledger = []int32{4, 7} },
+			true},
+		{"a dispute's replacement changed", func(e *report.Evaluation) { e.Disputes[0].Replacement = "x" }, true},
 		{"a verdict left out", func(e *report.Evaluation) { e.Verdicts = e.Verdicts[:1] }, true},
 		{"a verdict renamed", func(e *report.Evaluation) { e.Verdicts[1].ID = "c" }, true},
 		{"a proposal dropped", func(e *report.Evaluation) { e.Proposed = nil }, true},

@@ -6,6 +6,7 @@ package agentrun
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -35,7 +36,11 @@ const coverRounds = 2
 // changes nothing but what was asked (coverRewriteRefused): new proposals
 // of the asked outcomes, and those outcomes' verdicts, each keeping its
 // contrary seqs. Anything else keeps the earlier report, so an ask can never
-// lose a contrary, a dispute or a verdict maul did not ask about. A stage
+// lose a contrary, a dispute or a verdict maul did not ask about; maul puts
+// that report back where the evaluator reads it, and the next ask, if any,
+// says why the rewrite was refused. The stage's tool pod outlives its wall
+// clock by the confirmation margin (intent.EvaluationToolsMargin), so an ask
+// that spends the clock still leaves its checks time to confirm. A stage
 // that ran out of its turns or its clock is not asked, nor is a harness
 // that cannot continue a session (codex): either keeps its report as it is.
 func (a *Agent) coverChecks(ctx context.Context, sr *stageRun, st *envelope.Stage, h EvaluateHandoff,
@@ -51,6 +56,7 @@ func (a *Agent) coverChecks(ctx context.Context, sr *stageRun, st *envelope.Stag
 		// No repair ran, which would have counted the first run's turns.
 		sr.used = countedTurns(st.NumTurns, sr.req.MaxTurns)
 	}
+	refused := ""
 	for round := 1; round <= coverRounds; round++ {
 		asked := uncoveredPasses(h, e)
 		if len(asked) == 0 {
@@ -61,30 +67,44 @@ func (a *Agent) coverChecks(ctx context.Context, sr *stageRun, st *envelope.Stag
 				"outcomes", strings.Join(asked, ","), "why", why)
 			return e, raw
 		}
-		if !a.coverRound(ctx, sr, st, resumer, h, e, asked, round) {
+		if !a.coverRound(ctx, sr, st, resumer, h, e, coverAsk{outcomes: asked, refused: refused, round: round}) {
 			return e, raw
 		}
 		next, nextRaw, outcome, detail := readReportAs(a.cfg.evaluationPath(), readReport, a.parseEvaluation)
-		why := detail
+		refused = detail
 		if outcome == envelope.OutcomeOK {
-			why = coverRewriteRefused(e.Evaluation, next.Evaluation, asked)
+			refused = coverRewriteRefused(e.Evaluation, next.Evaluation, asked)
 		}
-		if why != "" {
-			a.cfg.Log.Warn("refused the report rewritten for the outcomes passed with no check; keeping the one "+
-				"before", "phase", a.cfg.Phase, "round", round, "reason", oneLine(why, repairFailureBytes))
-			if sr.rec != nil {
-				sr.rec.Notice("maul refused the report rewritten in ask %d and kept the one before: %s", round,
-					oneLine(why, repairFailureBytes))
+		if refused == "" {
+			covered := len(asked) - len(uncoveredPasses(h, next))
+			e, raw = next, nextRaw
+			if covered == 0 {
+				return e, raw
 			}
-			return e, raw
+			continue
 		}
-		covered := len(asked) - len(uncoveredPasses(h, next))
-		e, raw = next, nextRaw
-		if covered == 0 {
+		a.cfg.Log.Warn("refused the report rewritten for the outcomes passed with no check; keeping the one before",
+			"phase", a.cfg.Phase, "round", round, "reason", oneLine(refused, repairFailureBytes))
+		if sr.rec != nil {
+			sr.rec.Notice("maul refused the report rewritten in ask %d and kept the one before: %s", round,
+				oneLine(refused, repairFailureBytes))
+		}
+		// The next ask starts from the report maul kept, put back where
+		// the evaluator reads it.
+		if err := os.WriteFile(a.cfg.evaluationPath(), raw, 0o644); err != nil {
+			a.cfg.Log.Warn("could not put the kept report back; asking no more", "error", err)
 			return e, raw
 		}
 	}
 	return e, raw
+}
+
+// coverAsk is one ask's terms: the outcomes it names, why maul refused the
+// report the ask before it rewrote ("" for none), and its ordinal.
+type coverAsk struct {
+	outcomes []string
+	refused  string
+	round    int
 }
 
 // coverRound runs one ask: the evaluator's session resumed with the cover
@@ -92,10 +112,12 @@ func (a *Agent) coverChecks(ctx context.Context, sr *stageRun, st *envelope.Stag
 // tokens, its spend added to st. It reports whether the run started and the
 // stage was not cancelled during it.
 func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage, resumer harness.Resumer,
-	h EvaluateHandoff, e *evaluationReport, asked []string, round int) bool {
+	h EvaluateHandoff, e *evaluationReport, ask coverAsk) bool {
+	asked, round := ask.outcomes, ask.round
 	prompt, err := templates.RenderCoverPrompt(templates.CoverPrompt{
 		ReportPath: a.cfg.evaluationPath(), ChecksDir: a.cfg.checksDir(), Workspace: h.Tools.Workspace != nil,
-		Outcomes: asked, Dropped: coverDropped(e.dropped, asked), Round: round, Rounds: coverRounds,
+		Outcomes: asked, Dropped: coverDropped(e.dropped, asked), Refused: ask.refused, Round: round,
+		Rounds: coverRounds,
 	})
 	if err != nil {
 		a.cfg.Log.Warn("could not render the ask for outcomes passed with no check", "error", err)
@@ -108,8 +130,11 @@ func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage
 	}
 	req := sr.req
 	req.Prompt, req.Env, req.Gateway = prompt, env, gateway
-	if sr.turns > 0 {
-		req.MaxTurns = sr.turns - sr.used
+	if left := sr.turns - sr.used; sr.turns > 0 {
+		// Every turn left, but a later ask's minimum while that leaves this
+		// one its own.
+		later := (coverRounds - round) * repairMinTurns
+		req.MaxTurns = max(left-later, min(left, repairMinTurns))
 	}
 	budget := 0
 	if sr.budget > 0 {
@@ -206,7 +231,7 @@ func coverRewriteRefused(before, after *report.Evaluation, asked []string) strin
 	if !slices.EqualFunc(after.Disputes, before.Disputes, sameDispute) {
 		return "it changed the disputes"
 	}
-	if !slices.Equal(after.Retire, before.Retire) {
+	if !slices.EqualFunc(after.Retire, before.Retire, sameRetire) {
 		return "it changed the retirements"
 	}
 	if !slices.EqualFunc(after.Anomalies, before.Anomalies, sameAnomaly) {
@@ -226,18 +251,22 @@ func coverRewriteRefused(before, after *report.Evaluation, asked []string) strin
 	return ""
 }
 
+// sameVerdict, sameDispute, sameRetire and sameAnomaly compare what maul
+// judges a round by (acceptance.Decide, agentresult): a reworded note,
+// reason or summary is the same entry, any other change is not.
 func sameVerdict(a, b report.OutcomeVerdict) bool {
-	return a.ID == b.ID && a.Verdict == b.Verdict && a.Note == b.Note && slices.Equal(a.Ledger, b.Ledger) &&
+	return a.ID == b.ID && a.Verdict == b.Verdict && slices.Equal(a.Ledger, b.Ledger) &&
 		slices.Equal(a.Contrary, b.Contrary)
 }
 
 func sameDispute(a, b report.Dispute) bool {
-	return a.CheckDigest == b.CheckDigest && a.Reason == b.Reason && a.Replacement == b.Replacement &&
-		slices.Equal(a.Ledger, b.Ledger)
+	return a.CheckDigest == b.CheckDigest && a.Replacement == b.Replacement && slices.Equal(a.Ledger, b.Ledger)
 }
 
+func sameRetire(a, b report.Retire) bool { return a.CheckDigest == b.CheckDigest }
+
 func sameAnomaly(a, b report.Anomaly) bool {
-	return a.Summary == b.Summary && a.Route == b.Route && slices.Equal(a.Ledger, b.Ledger)
+	return a.Route == b.Route && slices.Equal(a.Ledger, b.Ledger)
 }
 
 // sameProposal compares two resolved proposals by what maul confirms: the
