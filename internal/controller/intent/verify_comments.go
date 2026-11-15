@@ -185,7 +185,8 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 // outcomeSection fills s with the evaluator's outcomes in plan order, each
 // with its result as reported now (an approver's acceptance at the heads
 // included), maul's line on the check it rests on and, for a failure, the
-// application's output from pv's ledger; and the look-around anomalies.
+// application's output from pv's ledger, for an unsure one the evaluator's
+// claim or its own unsure note; and the look-around anomalies.
 // Only the judgement of the current round at the current heads is shown
 // (JudgedOutcomes): a round that settled unjudged shows none of an earlier
 // round's results.
@@ -221,6 +222,9 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		}
 		if doubted(acc, v, r) && pv != nil {
 			row.Claim = p.evaluatorClaim(ctx, pv, o.ID)
+		}
+		if row.Result == templates.OutcomeResultUnsure && pv != nil {
+			row.UnsureNote = p.evaluatorUnsureNote(pv, o.ID)
 		}
 		s.Outcomes = append(s.Outcomes, row)
 	}

@@ -76,6 +76,24 @@ func (p *pass) evaluatorClaim(ctx context.Context, pv *v1alpha1.PreviewVerificat
 	return c
 }
 
+// evaluatorUnsureNote is the evaluator's note on outcome id in pv's
+// evaluate run when it judged id unsure itself (gate 5 G5-B-BR-1: often a
+// question for a person, which the comments otherwise never showed); ""
+// for any other verdict, no note, or no evaluate run (a replay round).
+// Display only, as a claim is: it is read at render time from the report,
+// never written to status, and reaches no Decide input and no agent.
+func (p *pass) evaluatorUnsureNote(pv *v1alpha1.PreviewVerification, id string) string {
+	ev := evaluationClaims(p.evaluateRun(pv))
+	if ev == nil {
+		return ""
+	}
+	i := slices.IndexFunc(ev.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == id })
+	if i < 0 || ev.Verdicts[i].Verdict != report.VerdictUnsure {
+		return ""
+	}
+	return ev.Verdicts[i].Note
+}
+
 // citedCall is entry e of pv's ledger as a claim shows it; ok is false for
 // a call that reproduces nothing or was refused, and for a relay entry
 // other than a check run: maul's own call, not one the evaluator sent. A
