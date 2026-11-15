@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.5](https://github.com/devthenet-labs/maul/compare/v0.14.4...v0.14.5) (2026-11-15)
+
+
+### Bug Fixes
+
+* **intent:** show the evaluator's note when it is unsure of an outcome ([#429](https://github.com/devthenet-labs/maul/issues/429)) ([374c05f](https://github.com/devthenet-labs/maul/commit/374c05f8f72f7f71eaf51e999eba028e4fbcf1a3))
+* **intent:** the next round is shown the check the reviewer refused ([#430](https://github.com/devthenet-labs/maul/issues/430)) ([fd6ca11](https://github.com/devthenet-labs/maul/commit/fd6ca119fb933af8924a43ce6229b108097562d3))
+
 ## [0.14.4](https://github.com/devthenet-labs/maul/compare/v0.14.3...v0.14.4) (2026-11-15)
 
 
