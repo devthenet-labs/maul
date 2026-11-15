@@ -699,19 +699,28 @@ const (
 type locator struct {
 	by, value, name, hasText string
 	nth                      int
+	// exact is Playwright's exact option on a label or a role name.
+	exact bool
 }
 
 // finds reports el matched as Playwright's locators match: a role and an
 // accessible name containing name (case-insensitive), a label or a text
-// containing value, a test id exactly.
+// containing value, a test id exactly; an exact label or name is the
+// whole name, case-sensitive, its whitespace normalised.
 func (l *locator) finds(el ScriptedElement) bool {
 	in := func(have, want string) bool { return strings.Contains(strings.ToLower(have), strings.ToLower(want)) }
+	named := in
+	if l.exact {
+		named = func(have, want string) bool {
+			return strings.Join(strings.Fields(have), " ") == strings.Join(strings.Fields(want), " ")
+		}
+	}
 	var ok bool
 	switch l.by {
 	case "role":
-		ok = el.Role == l.value && (l.name == "" || in(el.Name, l.name))
+		ok = el.Role == l.value && (l.name == "" || named(el.Name, l.name))
 	case "label":
-		ok = el.Label != "" && in(el.Label, l.value)
+		ok = el.Label != "" && named(el.Label, l.value)
 	case "text":
 		ok = in(el.Text, l.value) || (el.Text == "" && in(el.Name, l.value))
 	case "testid":
@@ -846,9 +855,16 @@ func (p *exprParser) finder(l *locator, m string) error {
 	l.by, l.value = map[string]string{"getByRole": "role", "getByLabel": "label", "getByText": "text",
 		"getByTestId": "testid", "locator": "css"}[m], v
 	if m == "getByRole" && p.eat(", { name: ") {
-		if l.name, ok = p.str(); !ok || !p.eat(" }") {
+		if l.name, ok = p.str(); !ok {
 			return errLocator
 		}
+		l.exact = p.eat(", exact: true")
+		if !p.eat(" }") {
+			return errLocator
+		}
+	}
+	if m == "getByLabel" {
+		l.exact = p.eat(", { exact: true }")
 	}
 	if !p.eat(")") || l.by == "css" {
 		// A CSS selector is not something the page model can match.

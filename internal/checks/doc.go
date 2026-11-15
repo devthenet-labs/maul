@@ -21,8 +21,10 @@
 //     Playwright: goto, waitForURL, click, fill, select (by label),
 //     press, scroll; locators by role and name, label, text, test id or
 //     CSS (last resort), scoped with within, hasText and nth, never a
-//     snapshot ref; and the assertions visible and legible (human
-//     visibility and WCAG contrast, Q9), text, count, url, the box
+//     snapshot ref, a label or role name matching exactly when it says
+//     exact (ParseProposal writes it into a proposed check: proposal.go);
+//     and the assertions visible and legible (human visibility and WCAG
+//     contrast, Q9), text, count, url, the box
 //     relations left-of, above, no-overlap, equal-size, aligned and size
 //     (each within a tolerance in px), and clickable.
 //   - exec (exec.go): an argv run in the slot's sandbox container with

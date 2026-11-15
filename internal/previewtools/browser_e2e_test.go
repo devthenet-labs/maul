@@ -203,3 +203,37 @@ func TestE2EBrowserSeam(t *testing.T) {
 		t.Errorf("browser %+v on %s, want the scripted one on its front", br, front.Addr())
 	}
 }
+
+// TestScriptedLocatorsMatchExact: the scripted browser reads a compiled
+// exact label or role name as Playwright does: the whole name,
+// case-sensitive, its whitespace normalised; without exact a part of it.
+func TestScriptedLocatorsMatchExact(t *testing.T) {
+	field := ScriptedElement{Role: "textbox", Label: "Beat name"}
+	remix := ScriptedElement{Role: "button", Name: "Remix tok cover long beat name",
+		Label: "Remix tok cover long beat name"}
+	play := ScriptedElement{Role: "button", Name: "▶ Play"}
+	for _, tc := range []struct {
+		expr string
+		el   ScriptedElement
+		want bool
+	}{
+		{`page.getByLabel("Beat name", { exact: true })`, field, true},
+		{`page.getByLabel("Beat name", { exact: true })`, remix, false},
+		{`page.getByLabel("Beat name")`, remix, true},
+		{`page.getByLabel("beat name", { exact: true })`, field, false},
+		{`page.getByLabel(" Beat  name ", { exact: true })`, field, true},
+		{`page.getByRole("button", { name: "Play", exact: true })`, play, false},
+		{`page.getByRole("button", { name: "▶ Play", exact: true })`, play, true},
+		{`page.getByRole("button", { name: "Play" })`, play, true},
+	} {
+		p := &exprParser{s: tc.expr}
+		l, err := p.locator()
+		if err != nil || !p.done() {
+			t.Errorf("%s: not read: %v", tc.expr, err)
+			continue
+		}
+		if got := l.finds(tc.el); got != tc.want {
+			t.Errorf("%s finds %+v = %v, want %v", tc.expr, tc.el, got, tc.want)
+		}
+	}
+}

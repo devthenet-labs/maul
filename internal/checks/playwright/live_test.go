@@ -94,7 +94,28 @@ func liveCases() []liveCase {
 		liveCase{"b-size-at-most", "fail", checks.Assertion{Assert: checks.AssertSize, Locator: css("#b-left"),
 			MaxWidth: &atMost}},
 	)
+	out = append(out, nameCases()...)
 	return append(out, clippedCases()...)
+}
+
+// nameCases are G4-B-BR-1's: an exact label or role name is Playwright's
+// exact, the whole name, case-sensitive, whitespace runs one space; without
+// exact a part of it in any case, so "Beat name" also finds the button
+// labelled after a run's beat and matches two elements.
+func nameCases() []liveCase {
+	yes := true
+	see := func(name, want string, l checks.Locator) liveCase {
+		return liveCase{name, want, checks.Assertion{Assert: checks.AssertVisible, Locator: &l}}
+	}
+	return []liveCase{
+		see("n-label-exact", "pass", checks.Locator{Label: "Beat name", Exact: &yes}),
+		see("n-label-part", "fail", checks.Locator{Label: "Beat name"}),
+		see("n-label-exact-case", "fail", checks.Locator{Label: "beat name", Exact: &yes}),
+		see("n-label-exact-space", "pass", checks.Locator{Label: " Beat  name ", Exact: &yes}),
+		see("n-role-exact-icon", "fail", checks.Locator{Role: "button", Name: "Play", Exact: &yes}),
+		see("n-role-exact", "pass", checks.Locator{Role: "button", Name: "▶ Play", Exact: &yes}),
+		see("n-role-part", "pass", checks.Locator{Role: "button", Name: "Play"}),
+	}
 }
 
 // clippedCases are bug 12's: box relations measure what is drawn, each box

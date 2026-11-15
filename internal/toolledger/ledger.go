@@ -340,20 +340,21 @@ func ConfirmedChecks(entries []toolwire.LedgerEntry, outcomes []v1alpha1.Accepta
 	return out
 }
 
-// checkOf rereads the check a dry-run entry recorded, held to digest.
+// checkOf rereads the check a dry-run entry recorded, held to digest: the
+// form the relay ran it as (checks.ParseRecorded).
 func checkOf(dry toolwire.LedgerEntry, digest string, outcomes []v1alpha1.AcceptanceOutcome) (v1alpha1.SavedCheck,
 	bool) {
 	var req toolwire.CheckRunRequest
 	if err := json.Unmarshal(dry.Args, &req); err != nil {
 		return v1alpha1.SavedCheck{}, false
 	}
-	c, err := checks.Parse(req.Spec)
+	c, err := checks.ParseRecorded(req.Spec, "sha256:"+digest)
 	if err != nil {
 		return v1alpha1.SavedCheck{}, false
 	}
 	body := checks.Canonical(c)
 	bound := slices.ContainsFunc(outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == c.Outcome })
-	if checks.Digest(c) != "sha256:"+digest || len(body) > v1alpha1.MaxSavedCheckBytes || !bound {
+	if len(body) > v1alpha1.MaxSavedCheckBytes || !bound {
 		return v1alpha1.SavedCheck{}, false
 	}
 	return v1alpha1.SavedCheck{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form), Body: string(body),

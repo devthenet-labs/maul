@@ -35,6 +35,14 @@ type BrowserStep struct {
 // (with an optional Name), Label, Text, TestID or CSS (last resort),
 // optionally inside Within, filtered by HasText, and picked by Nth (-1 the
 // last). Without Nth it must match exactly one element at run time.
+//
+// Exact, only on a Label or a Role's Name, is Playwright's exact option:
+// true matches the whole name, case-sensitively (whitespace trimmed and
+// collapsed); false or absent matches a part of it, case-insensitively.
+// ParseProposal writes true on a proposed check that says nothing (G4-B-BR-1:
+// "Beat name" also matched a button labelled "Remix <run> cover long beat
+// name"); absent is the form of a check saved before that, which replays as
+// it was proven.
 type Locator struct {
 	Role    string   `json:"role,omitempty"`
 	Name    string   `json:"name,omitempty"`
@@ -45,6 +53,9 @@ type Locator struct {
 	Within  *Locator `json:"within,omitempty"`
 	HasText string   `json:"hasText,omitempty"`
 	Nth     *int     `json:"nth,omitempty"`
+	// Exact is declared last and omitted when unset, so a locator without
+	// it keeps its canonical form and digest.
+	Exact *bool `json:"exact,omitempty"`
 }
 
 // Fill types Text into the control Locator finds.
@@ -53,10 +64,12 @@ type Fill struct {
 	Text    string  `json:"text"`
 }
 
-// Select picks the option labelled Option in the control labelled Label.
+// Select picks the option labelled Option in the control labelled Label,
+// the label matched as a Locator's is by Exact.
 type Select struct {
 	Label  string `json:"label"`
 	Option string `json:"option"`
+	Exact  *bool  `json:"exact,omitempty"`
 }
 
 // Press presses Key, on Locator when given, else on the page.
@@ -292,6 +305,8 @@ func validateLocator(field string, l Locator, depth int) *Refusal {
 		return refuse(RuleGrammar, "%s: a locator is exactly one of role, label, text, testid, css", field)
 	case l.Name != "" && l.Role == "":
 		return refuse(RuleGrammar, "%s: name goes with role", field)
+	case l.Exact != nil && l.Label == "" && l.Name == "":
+		return refuse(RuleGrammar, "%s: exact goes with label, or role and name", field)
 	case l.Role != "" && !rolePattern.MatchString(l.Role):
 		return refuse(RuleGrammar, "%s: role %q is not an ARIA role", field, l.Role)
 	case l.Nth != nil && (*l.Nth < -1 || *l.Nth > MaxNth):

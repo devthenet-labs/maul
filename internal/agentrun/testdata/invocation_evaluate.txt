@@ -305,7 +305,11 @@ A check is bound to one outcome and has one form:
 - `browser`: steps in a fresh browser, each exactly one of `goto` (a path), `waitForURL`, `click`, `fill`, `select`
   (by the control's label and the option's), `press`, `scroll` (`dx`, `dy` on a locator) and `expect`. A locator is
   one of `role` (with `name`), `label`, `text`, `testid` or `css` (last resort), optionally with `within`, `hasText`
-  and `nth`; never a snapshot ref such as `e21`. `expect` takes one `assert`: `visible` (a person can see it),
+  and `nth`; never a snapshot ref such as `e21`. A `label` (a `select`'s too) and a `role`'s `name` match the whole
+  name, case included, as the snapshot shows it (`▶ Play`, not `Play`), so an element whose name only contains it,
+  such as one named after data a run saved, is not found by it; `"exact": false` there matches a part of the name in
+  any case, as a `count`'s locators do unless they say `"exact": true`. `text` and `hasText` always match a part.
+  `expect` takes one `assert`: `visible` (a person can see it),
   `legible` (a person can read it: enough contrast against its background), `clickable` (it, not something over it,
   receives a click), `text` (`equals`, `contains` or `matches`), `count`, `url`, and the box relations `left-of`,
   `above`, `no-overlap`, `equal-size`, `aligned` (`axis` x or y) and `size`, each with an `other` locator where it

@@ -228,9 +228,15 @@ func storedCheck(t *testing.T, src string) StoredCheck {
 	return StoredCheck{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}
 }
 
+// bareDigest is the digest a dry run of src as proposed is recorded
+// against (checks.ParseProposal).
 func bareDigest(t *testing.T, src string) string {
 	t.Helper()
-	return strings.TrimPrefix(storedCheck(t, src).Digest, "sha256:")
+	c, err := checks.ParseProposal([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseProposal: %v", err)
+	}
+	return strings.TrimPrefix(checks.Digest(c), "sha256:")
 }
 
 // entryOf is a ledger entry for record.

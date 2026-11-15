@@ -120,6 +120,10 @@ func (genCheck) Generate(r *rand.Rand, _ int) reflect.Value {
 
 func randomBrowserStep(r *rand.Rand) BrowserStep {
 	loc := &Locator{Role: "button", Name: word(r)}
+	if e := r.Intn(3); e < 2 {
+		exact := e == 0
+		loc.Exact = &exact
+	}
 	if r.Intn(2) == 0 {
 		loc = &Locator{Text: word(r), Within: &Locator{TestID: word(r)}}
 	}
@@ -171,6 +175,30 @@ func TestCanonicalIdempotent(t *testing.T) {
 			return false
 		}
 		return bytes.Equal(once, Canonical(back)) && Digest(back) == Digest(g.c)
+	}
+	if err := quick.Check(prop, quickConfig(500)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestProposalRecordsItsForm: a proposal's canonical form reads back with
+// plain Parse to the same digest, ParseProposal of it changes nothing, and
+// every exact false the check wrote is kept.
+func TestProposalRecordsItsForm(t *testing.T) {
+	prop := func(g genCheck) bool {
+		p, err := ParseProposal(Canonical(g.c))
+		if err != nil {
+			t.Logf("ParseProposal(%s): %v", Canonical(g.c), err)
+			return false
+		}
+		body := Canonical(p)
+		back, err1 := Parse(body)
+		again, err2 := ParseProposal(body)
+		if err1 != nil || err2 != nil || Digest(back) != Digest(p) || Digest(again) != Digest(p) {
+			return false
+		}
+		substring := []byte(`"exact":false`)
+		return bytes.Count(body, substring) == bytes.Count(Canonical(g.c), substring)
 	}
 	if err := quick.Check(prop, quickConfig(500)); err != nil {
 		t.Fatal(err)
