@@ -246,3 +246,32 @@ func TestRunTokenSubstituted(t *testing.T) {
 		}
 	}
 }
+
+// TestSavedChecksCompileAsSaved: the checks defect gate 4 saved
+// (../testdata/saved-gate4.json), written and proven while every label and
+// role name matched a part of an element's name, compile to the very spec
+// they replayed as then (goldens written before exact matching): their
+// replays keep the meaning they were confirmed with.
+func TestSavedChecksCompileAsSaved(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "testdata", "saved-gate4.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []struct{ ID, Body string }
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range saved {
+		t.Run(s.ID, func(t *testing.T) {
+			c, err := checks.Parse([]byte(s.Body))
+			if err != nil || c.Browser == nil {
+				t.Fatalf("saved check %s: %v", s.ID, err)
+			}
+			got, err := Compile(*c.Browser, Options{RunToken: testToken})
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			golden(t, "saved-"+s.ID+".spec.ts", got)
+		})
+	}
+}
