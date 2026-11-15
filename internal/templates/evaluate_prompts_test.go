@@ -976,6 +976,18 @@ func TestEvaluatePromptNeverShowsARefusedCheckCut(t *testing.T) {
 	if strings.Count(got, "The refused check, as") == 0 {
 		t.Error("no refused check shown, want the newest that fit")
 	}
+	// JSON that is no check, and one check whose shown form alone is past
+	// the per-check bound though within the bound in all, are not shown.
+	p.PriorRefused = []PriorRefusal{
+		{Check: "o-1.n", Outcome: "o-1", Reason: "weak", Body: `{"note":"not a check"}`},
+		{Check: "o-1.e", Outcome: "o-1", Reason: "weak", Body: deepCheck(t, 1, 100)},
+	}
+	if got, err = RenderEvaluatePrompt(p); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "The refused check, as") || strings.Count(got, "Its body is not shown.") != 2 {
+		t.Error("JSON that is no check, or a check past the per-check bound once indented, was shown")
+	}
 	// Each refusal's own lines are a few hundred bytes; the bodies add at
 	// most RefusedBodiesMaxBytes, their indentation included.
 	if grown := len(got) - len(base); grown > RefusedBodiesMaxBytes+PriorRefusedMax*(priorReasonMaxBytes+400) {

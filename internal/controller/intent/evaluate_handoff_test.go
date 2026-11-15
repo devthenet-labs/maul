@@ -394,3 +394,47 @@ func TestEvaluateHandoffDropsRefusedBodiesBeforeChangedPaths(t *testing.T) {
 		t.Errorf("refused = %d, want all four", len(got.PriorRefused))
 	}
 }
+
+// TestEvaluateHandoffRefusedBodyIsCanonicalAndBounded (G5R-B-CLI-1
+// review): a recorded body is handed over only in maul's canonical form
+// and within a saved check's bound, even where its digest is the review's:
+// another spelling of the check, or one past the bound, is named without
+// its body.
+func TestEvaluateHandoffRefusedBodyIsCanonicalAndBounded(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	pv1 := e.onlyVerification(name)
+	version := savedCheck(t, versionCheck)
+	respelt := version
+	respelt.Body = versionCheck
+	big := savedCheck(t, strings.Replace(versionCheck, `"/version?q={{run}}"`,
+		`"/version?q={{run}}&pad=`+strings.Repeat("x", v1alpha1.MaxSavedCheckBytes)+`"`, 1))
+	pv1.Status.Phase = v1alpha1.VerificationObserved
+	pv1.Status.Confirmed = []v1alpha1.SavedCheck{respelt, big}
+	if err := e.c.Update(context.Background(), &pv1); err != nil {
+		t.Fatal(err)
+	}
+	text := map[string]string{}
+	for _, o := range e.get(name).Status.Acceptance.Outcomes {
+		text[o.ID] = outcomeDigest(o)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		for _, c := range []v1alpha1.SavedCheck{respelt, big} {
+			in.Status.Acceptance.Reviews = append(in.Status.Acceptance.Reviews, v1alpha1.CheckReviewRecord{
+				CheckDigest: c.Digest, OutcomeDigest: text[c.Outcome], Answer: v1alpha1.ReviewDoesNotProve,
+				Run: "r1", Check: c.ID, Reason: "too weak"})
+		}
+	})
+	pv2 := pv1.DeepCopy()
+	pv2.Name, pv2.UID = pv1.Name+"-next", types.UID("pv2-uid")
+	pv2.Spec.Round, pv2.Status = 2, v1alpha1.PreviewVerificationStatus{}
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), pv2))
+	if len(h.PriorRefused) != 2 {
+		t.Fatalf("refused = %+v, want both refusals", h.PriorRefused)
+	}
+	for i, why := range []string{"a non-canonical spelling", "a body past a saved check's bound"} {
+		if h.PriorRefused[i].Body != "" {
+			t.Errorf("%s was handed over as the refused check", why)
+		}
+	}
+}
