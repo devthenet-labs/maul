@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.4](https://github.com/devthenet-labs/maul/compare/v0.14.3...v0.14.4) (2026-11-15)
+
+
+### Bug Fixes
+
+* **intent:** a compile error without a column still counts as a compile cause ([#426](https://github.com/devthenet-labs/maul/issues/426)) ([e07c59a](https://github.com/devthenet-labs/maul/commit/e07c59a8a5f759121e5fa893dd77c37de2ba08fc))
+* **intent:** a round held only by an unaccepted check gets one more round on its own ([#428](https://github.com/devthenet-labs/maul/issues/428)) ([4a4657c](https://github.com/devthenet-labs/maul/commit/4a4657c3919d48f723ce5f8759cfa73afea1c6a5))
+
 ## [0.14.3](https://github.com/devthenet-labs/maul/compare/v0.14.2...v0.14.3) (2026-11-15)
 
 
