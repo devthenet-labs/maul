@@ -133,14 +133,15 @@ the evaluator's run (`[maul-tool time left]`).
    box assertion's `tolerance` and what it lets through ("the two may overlap by up to 14 px"), and the reviewer refuses
    one that lets through what the outcome's words exclude (an overlap where it says above or beside); a px or two for
    rounding, or an offset the wording leaves room for, is fine. On the red question a failure of what only the request
-   asks proves nothing, so a fix never starts outside the approved outcome, and it gets what maul recorded of the
-   failure (see the red question below); it admits an input beyond the outcome's example only where the rule, as the
-   outcome words it, covers that input and decides the value the check expects (a value far from the example, where the
-   outcome states no range, it does not decide). Each answer is kept with the check's id and the reviewer's reason, and
-   every later round's evaluator is told the newest 40 checks refused on the green question by outcome, id and reason: a
-   form once refused is never reviewed again, so it strengthens the check rather than proposes it again. Each session
-   may take 6 turns, the last 3 kept for one repair of its report; a review whose report is refused and not repaired
-   makes that check alone `unclear` (not stored, its answer not cached), and the run goes on to the next check.
+   asks proves nothing (the facts it takes as given still set up any check), so a fix never starts outside the approved
+   outcome, and it gets what maul recorded of the failure (see the red question below); it admits an input beyond the
+   outcome's example only where the rule, as the outcome words it, covers that input and decides the value the check
+   expects (a value far from the example, where the outcome states no range, it does not decide). Each answer is kept
+   with the check's id and the reviewer's reason, and every later round's evaluator is told the newest 40 checks refused
+   on the green question by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the
+   check rather than proposes it again. Each session may take 6 turns, the last 3 kept for one repair of its report; a
+   review whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached),
+   and the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
