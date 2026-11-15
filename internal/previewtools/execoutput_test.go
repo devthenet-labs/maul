@@ -57,6 +57,8 @@ func heldToTheReviewersBounds(t *testing.T, detail, run string, markers []string
 // verdict and its assertion are unchanged.
 func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 	long := strings.Repeat("noise \"quoted\"\t\x01 line\n", 2000) + "half kick 1 3\n"
+	const markerJSON = `{"id":"m.json","outcome":"m","form":"exec","exec":{"argv":["{{bin}}","m.txt"],
+ "files":[{"path":"m.txt","content":"{{marker}}\n"}],"expect":{"exit":0,"stdoutJSON":{"/m":"ok"}}}}`
 	const halfJSON = `{"id":"half.json","outcome":"half","form":"exec","exec":{"argv":["{{bin}}","-json"],
  "expect":{"exit":0,"stdoutJSON":{"/half/kick":[3,1]}}}}`
 	for _, tt := range []struct {
@@ -87,6 +89,9 @@ func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 		// A marker that does not start its line is no marker, and is never
 		// kept.
 		{"a marker inside a line", cliRunCheck, "count=2 %M\n", 0, "stdout", []string{`"count=2 \n"`}},
+		// Nor inside the value a stdoutJSON miss names.
+		{"a marker inside a json value", markerJSON, `{"m":"%M"}` + "\n", 0, "stdout", []string{
+			`stdoutJSON "/m" did not match; the value there is`}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var markers []string

@@ -716,19 +716,19 @@ func jsonMiss(ptr, raw string, present bool) string {
 // withOutput is the detail of a run that failed without its marker
 // (G4-B-CLI-1): maul's words, the exit code when they do not already name
 // it, then the end of what the program printed, the attempt's marker taken
-// out (a marker that does not start its line is no marker, but is never
+// out of both (a marker that does not start its line is no marker, but is never
 // shown), quoted on one line, so the check reviewer and the evaluator see
 // what the program printed and not only that a text was missing. The
 // output is the application's bytes (or the evaluator's program's),
 // UNTRUSTED: every reader of a detail shows it as data. A detail that would
 // pass its bound keeps maul's words alone.
 func withOutput(words, exit, output, marker string) string {
+	if marker != "" {
+		words, output = strings.ReplaceAll(words, marker, ""), strings.ReplaceAll(output, marker, "")
+	}
 	d := words
 	if exit != "" {
 		d += "; " + exit
-	}
-	if marker != "" {
-		output = strings.ReplaceAll(output, marker, "")
 	}
 	if d += "; " + printed(output); len(d) > maxStepDetailBytes {
 		return words
