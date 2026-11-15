@@ -79,7 +79,8 @@ func TestCoverPromptStatesTheRules(t *testing.T) {
 		"keep every `contrary` seq",
 		"maul refuses a rewrite that changes anything else, and keeps the report you wrote before",
 		"`maul-tool check run --base <file>`",
-		"If a saved check bound to it replayed green this round",
+		"If a saved check bound to it replayed green this round (`maul-tool check results`) and your instructions " +
+			"do not list it under **Saved checks that are not yet proof**, that check already counts",
 		"This is ask 1 of at most 2.",
 	} {
 		if !strings.Contains(flat, want) {

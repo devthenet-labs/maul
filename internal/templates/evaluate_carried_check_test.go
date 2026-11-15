@@ -27,8 +27,9 @@ func TestEvaluatePromptCarriedCheckComparesByType(t *testing.T) {
 	workspace := []string{
 		"For a claim that something is carried over (a copy, fields kept, the rest as it was), compare what using " +
 			"the result gives, in its own types:",
-		"its encoding against the original's, as it is written out (for a Go value of a type with JSON tags, " +
-			"`json.Marshal` of each: the same bytes, and an error from both or neither), beside each field's value",
+		"its encoding against the original's, as it is written out, once what the outcome says changes is set alike " +
+			"in both (for a Go value of a type with JSON tags, `json.Marshal` of each: the same bytes, and an error " +
+			"from both or neither), beside each field's value",
 		"Never compare only through text or a comparison that shows a nil, an absent and an empty value alike " +
 			"(`string(x)`, `bytes.Equal`, `fmt.Sprint`, `%v`): a copy that turns one into the other passes it.",
 		"Give it originals with those fields set, zero, empty and absent",

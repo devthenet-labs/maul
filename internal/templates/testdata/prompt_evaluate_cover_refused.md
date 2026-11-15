@@ -30,8 +30,8 @@ This is ask 2 of at most 2.
 
 For each outcome above:
 
-- If a saved check bound to it replayed green this round (`maul-tool check results`), that check already counts:
-  leave the outcome as it is.
+- If a saved check bound to it replayed green this round (`maul-tool check results`) and your instructions do not
+  list it under **Saved checks that are not yet proof**, that check already counts: leave the outcome as it is.
 - Otherwise write a check bound to it, held to **What a check must cover**, as a new file under
   `/work/scratch/checks`: one check per outcome. A check of another outcome that already asserts this one is a fine
   start: copy its program into a new file, bind it to this outcome by its id, and keep every assertion of this

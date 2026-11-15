@@ -67,7 +67,6 @@ func TestEvaluateAsksForTheChecksOfUncoveredPasses(t *testing.T) {
 	if strings.Contains(ask, "`leaderboard`") {
 		t.Errorf("the ask names leaderboard, which the report leaves unsure:\n%s", ask)
 	}
-	// What is left of the stage's 100 turns: the first run took 7.
 	// What is left of the stage's 100 turns, the first run's 7 spent,
 	// less the 3 a second ask needs.
 	if got := argvFlag(t, fx.specs[1].Argv, "--max-turns"); got != "90" {
@@ -190,6 +189,55 @@ func TestEvaluateCoverAskRefusedThenFixed(t *testing.T) {
 	if len(e.Proposed) != 1 || e.Proposed[0].Digest != digest {
 		t.Errorf("proposed = %+v, want the check", e.Proposed)
 	}
+}
+
+// TestEvaluateCoverAsksStayWithinTheStageLimits: each ask runs on what is
+// left of the stage's output tokens and turns, after the first run and
+// every ask before it, never on the stage's whole allowance again.
+func TestEvaluateCoverAsksStayWithinTheStageLimits(t *testing.T) {
+	refused := strings.Replace(goodEvaluation, "verdict: unsure", "verdict: fail\n    ledger: [3]", 1)
+	t.Run("output tokens", func(t *testing.T) {
+		// 100 for the stage, 30 spent by the first run: the ask's kill
+		// switch trips past 70.
+		trip := `{"type":"assistant","message":{"usage":{"output_tokens":71}}}`
+		var out bytes.Buffer
+		cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
+		brokeredClaude(t, &cfg)
+		cfg.InvestigateTokenBudget = 100
+		fx := &fakeExec{steps: []step{
+			{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": goodEvaluation}},
+			{ws: ws, stdout: trip, budgetLines: []string{trip}},
+		}}
+		if e := onlyEvent(t, cfg, fx, &out).Evaluation; e == nil || e.ReportMarkdown != goodEvaluation {
+			t.Fatalf("evaluation = %+v, want the report as written", e)
+		}
+		if len(fx.specs) != 2 {
+			t.Fatalf("commands = %d, want the stage and one ask", len(fx.specs))
+		}
+		// The transcript's JSON escapes the ">".
+		if !strings.Contains(out.String(), `output token budget exceeded (71 \u003e 70)`) {
+			t.Errorf("the ask was not held to the 70 output tokens left:\n%s", out.String())
+		}
+	})
+	t.Run("turns", func(t *testing.T) {
+		var out bytes.Buffer
+		cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
+		brokeredClaude(t, &cfg)
+		cfg.InvestigateMaxTurns = 100
+		fx := &fakeExec{steps: []step{
+			{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": goodEvaluation}},
+			{ws: ws, stdout: streamResumed, writes: map[string]string{"scratch/report.md": refused}},
+			{ws: ws, stdout: streamResumed},
+		}}
+		onlyEvent(t, cfg, fx, &out)
+		if len(fx.specs) != 3 {
+			t.Fatalf("commands = %d, want the stage and two asks", len(fx.specs))
+		}
+		// The stage's 100, less the first run's 7 and the first ask's 2.
+		if got := argvFlag(t, fx.specs[2].Argv, "--max-turns"); got != "91" {
+			t.Errorf("second ask --max-turns = %s, want 91", got)
+		}
+	})
 }
 
 // TestEvaluateNoCoverAsk: no ask is sent for a report whose passes all have
