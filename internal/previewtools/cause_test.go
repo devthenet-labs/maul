@@ -53,6 +53,13 @@ func TestBaseErrorCauses(t *testing.T) {
 			do: compileThen(toolexec.Result{Exit: 1, Output: "# maulcheck\n./main.go:5:9: undefined: bb.Parse\n"}, ok,
 				nil),
 			want: toolwire.CauseCompile},
+		{name: "a compile error without a column", check: cliRunCheck,
+			do:   compileThen(toolexec.Result{Exit: 1, Output: goOutNoColumn}, ok, nil),
+			want: toolwire.CauseCompile},
+		{name: "a compile error without a column at another exit", check: cliRunCheck,
+			do: compileThen(toolexec.Result{Exit: 2, Output: goOutNoColumn}, ok, nil)},
+		{name: "a compile error without a column whose output was cut", check: cliRunCheck,
+			do: compileThen(toolexec.Result{Exit: 1, Output: goOutNoColumn, Truncated: true}, ok, nil)},
 		{name: "a compile whose imports did not load", check: cliRunCheck,
 			do: compileThen(toolexec.Result{Exit: 1, Output: goOutNewPackage}, ok, nil)},
 		{name: "a compile that ran out of memory", check: cliRunCheck,
@@ -148,5 +155,26 @@ func TestUnreadableTreeHasNoCause(t *testing.T) {
 	run := resp.Observed.CheckRun
 	if run == nil || run.Result != toolwire.RunError || run.Cause() != "" {
 		t.Errorf("an unreadable tree: %+v", resp)
+	}
+}
+
+// TestRunOutputIsNeverACompileCause: only the go build step's own output
+// is read for a compile cause. A program that compiled and then printed
+// what looks like the compiler's refusal (the header and a diagnostic in
+// its own file, with or without a column), panicked or printed a test
+// failure is judged as a run: a fail at a wrong exit, never an error with
+// a cause, so it can never stand for "no base comparison".
+func TestRunOutputIsNeverACompileCause(t *testing.T) {
+	outputs := []string{goOutNoColumn, goOutUndefined, goOutMixedColumn, goOutPanic, goOutTestFail}
+	for _, out := range outputs {
+		for _, exit := range []int{1, 2} {
+			h := newWorkspaceHarness(t, wsConfig(), &fakeSandbox{}, &fakeSandbox{do: compileThen(toolexec.Result{},
+				toolexec.Result{Exit: exit, Output: out}, nil)})
+			_, resp := h.dryRunKeyed(cliRunCheck, toolwire.SideBase)
+			run := resp.Observed.CheckRun
+			if run == nil || run.Result != toolwire.RunFail || run.Cause() != "" {
+				t.Errorf("a run printing %q at exit %d: %+v", out, exit, resp)
+			}
+		}
 	}
 }

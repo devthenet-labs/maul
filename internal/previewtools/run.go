@@ -228,8 +228,11 @@ func (c compiled) cause() toolwire.StepCause {
 const consumerHeader = "# " + consumerModule
 
 // diagnosticLine is a compiler diagnostic: a file in the build's directory,
-// its line and column, the message.
-var diagnosticLine = regexp.MustCompile(`^(?:\./)?([A-Za-z0-9_][A-Za-z0-9_.-]*\.go):[0-9]+:[0-9]+: \S`)
+// its line and, when the compiler knows it, its column, the message. The
+// compiler prints no column for one it cannot hold (column 255 and past:
+// cmd/internal/src's colMax is "unknown"), as in a program on one long
+// line (G5-B-LIB-1).
+var diagnosticLine = regexp.MustCompile(`^(?:\./)?([A-Za-z0-9_][A-Za-z0-9_.-]*\.go):[0-9]+(?::[0-9]+)?: \S`)
 
 // environmental are what the go command prints when a build ended for a
 // reason outside the program (a killed compiler or linker, memory, disk,
@@ -258,9 +261,9 @@ func environmentalFailure(output string) bool {
 // compilerRefused reports whether output, a failed `go build` of the
 // program whose .go files are files, is the compiler's refusal of the
 // program itself: the program package's header, then only diagnostics
-// located in the program's own files (file.go:line:col) and their
-// tab-indented continuation lines, at least one diagnostic, and no
-// environmental marker. Anything else (a load failure, which prints no
+// located in the program's own files (file.go:line:col, or file.go:line
+// when the compiler printed no column) and their tab-indented continuation
+// lines, at least one diagnostic, and no environmental marker. Anything else (a load failure, which prints no
 // header; another package's header; a diagnostic in the tree's own files;
 // a go command line) is not (SPEC-S2 S2-20b): zero false passes outranks
 // the confirmed rate, so a doubt leaves the base with no evidence.
