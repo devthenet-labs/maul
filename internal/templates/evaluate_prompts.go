@@ -90,6 +90,11 @@ const LayoutReadRule = "A browser check that writes nothing and asserts only the
 	"on every run: it needs no data it created, and is not refused for that, unless what it measures is a row or " +
 	"record that other runs make, or is sized or placed by them."
 
+// CheckReviewFromMaxBytes bounds the line of the request a check review
+// quotes: on a red item the whole line its outcome answers, which the plan's
+// quote (acceptance.MaxFromChars) may have cut.
+const CheckReviewFromMaxBytes = 2 << 10
+
 // ToleranceRule is the green rule's word on a box assertion's tolerance
 // (G4-B-BR-2): a reviewer is shown it, beside maul's own line for each
 // tolerance the check carries, only for a check that carries one.
@@ -97,7 +102,7 @@ const ToleranceRule = "A tolerance lets its assertion pass on a layout that miss
 	"many px, as listed above. Judge each one against the outcome's words, not by its size alone: answer " +
 	"`does_not_prove` if it lets through what the outcome's wording excludes (an overlap where the outcome says " +
 	"above, below, beside, inside or not covering; a gap it forbids; a size or a position past one it states " +
-	"exactly). A tolerance of a px or two for rounding is fine, and so is one the outcome's wording leaves room " +
+	"exactly). A tolerance of a few px for sub-pixel rounding is fine, and so is one the outcome's wording leaves room " +
 	"for, such as an offset between two things it says only sit beside or right after one another."
 
 // GreenRubric, LayoutReadRule and ToleranceRule, wrapped as the templates
@@ -800,7 +805,7 @@ func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
 		Files:             files,
 		Assertion:         quotedLine(p.FailedAssertion, 512),
 		Viewport:          playwright.DefaultViewport,
-		FromBlock:         quotedLine(p.From, acceptance.MaxFromChars*4),
+		FromBlock:         quotedLine(p.From, CheckReviewFromMaxBytes),
 		RequestBlock:      strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
 		KindSentence:      "It is a change: something the change makes true.",
 	}

@@ -127,21 +127,22 @@ the evaluator's run (`[maul-tool time left]`).
    any other is dropped. On both questions the reviewer is given the issue line the outcome answers, its kind, the
    request and the previewed components, and learns the application's own words from the request (a "beat" on the page
    may be a "pattern" in the API). It takes as given what the outcome, its line and the request state as fact (how the
-   program is run and its input given, how steps are numbered) and maul's own records, never the other agent's claims or
-   the check's own comments, and judges the check against the outcome only: nothing in the request relaxes the rule. It
-   refuses a check that tries a rule the outcome states only on its example. On the green question maul also lists each
-   box assertion's `tolerance` and what it lets through ("the two may overlap by up to 14 px"), and the reviewer refuses
-   one that lets through what the outcome's words exclude (an overlap where it says above or beside); a px or two for
-   rounding, or an offset the wording leaves room for, is fine. On the red question a failure of what only the request
-   asks proves nothing (the facts it takes as given still set up any check), so a fix never starts outside the approved
-   outcome, and it gets what maul recorded of the failure (see the red question below); it admits an input beyond the
-   outcome's example only where the rule, as the outcome words it, covers that input and decides the value the check
-   expects (a value far from the example, where the outcome states no range, it does not decide). Each answer is kept
-   with the check's id and the reviewer's reason, and every later round's evaluator is told the newest 40 checks refused
-   on the green question by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the
-   check rather than proposes it again. Each session may take 6 turns, the last 3 kept for one repair of its report; a
-   review whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached),
-   and the run goes on to the next check.
+   program is run and its input given, how steps are numbered) and maul's own records of each run, what a program
+   printed among them, never the other agent's claims, the check's own comments or what a printed line claims about the
+   check, and judges the check against the outcome only: nothing in the request relaxes the rule. It refuses a check
+   that tries a rule the outcome states only on its example. On the green question maul also lists each box assertion's
+   `tolerance` and what it lets through ("the two may overlap by up to 14 px"), and the reviewer refuses one that lets
+   through what the outcome's words exclude (an overlap where it says above or beside); a few px for sub-pixel rounding,
+   or an offset the wording leaves room for, is fine. On the red question a failure of what only the request asks proves
+   nothing (the facts it takes as given still set up any check), so a fix never starts outside the approved outcome, and
+   it gets what maul recorded of the failure (see the red question below); it admits an input beyond the outcome's
+   example only where the rule, as the outcome words it, covers that input and decides the value the check expects (a
+   value far from the example, where the outcome states no range, it does not decide). Each answer is kept with the
+   check's id and the reviewer's reason, and every later round's evaluator is told the newest 40 checks refused on the
+   green question by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the check
+   rather than proposes it again. Each session may take 6 turns, the last 3 kept for one repair of its report; a review
+   whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached), and
+   the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.

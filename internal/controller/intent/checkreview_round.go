@@ -256,9 +256,9 @@ func reviewItem(pv *v1alpha1.PreviewVerification, c storeCandidate, ws *agentrun
 		Outcome: reviewOutcomeText(c.outcome), From: untrusted.Visible(c.outcome.From, reviewFromMaxBytes),
 		Kind: reviewKind(c.outcome), Check: c.check.Body}
 	if c.red() {
-		// The whole line the plan's quote was cut from (G3-B-LIB-1). The
-		// red prompt does not show it (it keeps to the outcome as approved,
-		// #410, #411); a green item keeps the quote the plan approved.
+		// The whole line the plan's quote was cut from (G3-B-LIB-1), shown
+		// on the red question for the facts it states (G4-B-CLI-2); a
+		// green item keeps the quote the plan approved.
 		it.From = untrusted.Visible(reviewFrom(request, c.outcome.From), reviewFromMaxBytes)
 		if c.check.FailedAssertion == "" || c.check.FailedStep == 0 {
 			return it, "it is red with no failed assertion"
