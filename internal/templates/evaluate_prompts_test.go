@@ -4,6 +4,7 @@
 package templates
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"strings"
@@ -84,7 +85,11 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 			p.PriorReplay = []PriorReplay{{Check: "leaderboard-still-loads", Outcome: "leaderboard-still-loads",
 				Result: "pass"}}
 			p.PriorRefused = []PriorRefusal{{Check: "winner-rises-api", Outcome: "winner-rises",
-				Reason: "It reads the leaderboard after the battle only: it never shows the order before it."}}
+				Reason: "It reads the leaderboard after the battle only: it never shows the order before it.",
+				Body: string(checks.Canonical(mustCheck(t, `{"id":"winner-rises-api","outcome":"winner-rises",`+
+					`"form":"http","http":{"target":"api","steps":[{"request":{"method":"POST","path":"/battles",`+
+					`"json":{"winner":"{{run}}-a","loser":"{{run}}-b"}},"expect":{"status":[201]}},`+
+					`{"request":{"path":"/leaderboard?q={{run}}"},"expect":{"json":{"/0/name":"{{run}}-a"}}}]}}`)))}}
 			p.NotYetProof = []NotYetProof{{Check: "winner-rises-red", Outcome: "winner-rises"}}
 			return RenderEvaluatePrompt(p)
 		}},
@@ -388,13 +393,13 @@ func TestEvaluatePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 	p.PriorRound = 1
 	p.PriorVerdicts = []PriorVerdict{{Outcome: hostile, Result: hostile, Reason: hostile}}
 	p.PriorReplay = []PriorReplay{{Check: hostile, Outcome: hostile, Result: hostile}}
-	p.PriorRefused = []PriorRefusal{{Check: hostile, Outcome: hostile, Reason: hostile}}
+	p.PriorRefused = []PriorRefusal{{Check: hostile, Outcome: hostile, Reason: hostile, Body: hostileCheck(t, hostile)}}
 	p.NotYetProof = []NotYetProof{{Check: hostile, Outcome: hostile}}
 	got, err := RenderEvaluatePrompt(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(strings.ToUpper(got), sentinel); n < 21 {
+	if n := strings.Count(strings.ToUpper(got), sentinel); n < 23 {
 		t.Fatalf("only %d sentinels rendered; the test no longer reaches every field", n)
 	}
 	for _, line := range unfenced(got) {
@@ -759,7 +764,7 @@ func TestEvaluatePromptStatesRefusedChecks(t *testing.T) {
 	for _, want := range []string{"### Checks the reviewer refused",
 		"- check c-0, of outcome o-1, was refused. Why, quoted: rrr",
 		"A check refused in one form is never reviewed again in that form",
-		"Strengthen it to answer the reason"} {
+		"strengthen the check to answer the reason"} {
 		if !strings.Contains(flat(got), want) {
 			t.Errorf("prompt lacks %q", want)
 		}
@@ -769,6 +774,83 @@ func TestEvaluatePromptStatesRefusedChecks(t *testing.T) {
 	}
 	if strings.Contains(got, strings.Repeat("r", priorReasonMaxBytes+1)) {
 		t.Error("a refusal's reason is not bounded")
+	}
+}
+
+// hostileCheck is a valid check whose expected output is s: what a hostile
+// previous evaluator could make maul confirm.
+func hostileCheck(t *testing.T, s string) string {
+	t.Helper()
+	want, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(checks.Canonical(mustCheck(t, `{"id":"x","outcome":"x","form":"exec","exec":{"argv":["{{bin}}"],`+
+		`"expect":{"exit":0,"stdoutContains":`+string(want)+`}}}`)))
+}
+
+// bigCheck is a valid http check of about size bytes, named by i.
+func bigCheck(t *testing.T, i, size int) string {
+	t.Helper()
+	return string(checks.Canonical(mustCheck(t, fmt.Sprintf(`{"id":"o-1.c%d","outcome":"o-1","form":"http","http":`+
+		`{"target":"api","steps":[{"request":{"path":"/r?q={{run}}&p=%s"},"expect":{"bodyContains":"{{run}}"}}]}}`, i,
+		strings.Repeat("x", size)))))
+}
+
+// TestEvaluatePromptShowsRefusedCheckBodies (G5R-B-CLI-1): beside each
+// refusal the evaluator is shown the refused check itself, indented, as data
+// in the section's fence, with the rule to amend it (keeping what it tests
+// and what the outcome names) rather than write an unrelated one. A body
+// that is no check, and a refusal with none, are named as not shown; the
+// bodies are bounded in all, the newest refusals' first.
+func TestEvaluatePromptShowsRefusedCheckBodies(t *testing.T) {
+	p := testEvaluatePrompt()
+	p.PriorRefused = []PriorRefusal{
+		{Check: "o-1.a", Outcome: "o-1", Reason: "weak", Body: bigCheck(t, 1, 10)},
+		{Check: "o-1.b", Outcome: "o-1", Reason: "weak", Body: "not a check"},
+		{Check: "o-1.c", Outcome: "o-1", Reason: "weak"},
+	}
+	got, err := RenderEvaluatePrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"The refused check, as the previous evaluator proposed it and maul confirmed it:\n" +
+			"      {\n        \"id\": \"o-1.c1\",\n",
+		"was refused. Why, quoted: weak\n    Its body is not shown.\n- check o-1.c,",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+	if strings.Contains(got, "not a check") {
+		t.Error("a body that is no check was shown")
+	}
+	for _, line := range unfenced(got) {
+		if strings.Contains(line, `"id": "o-1.c1"`) {
+			t.Errorf("a refused check's body outside a fence: %q", line)
+		}
+	}
+	for _, want := range []string{"amend that check", "keep everything it already tests",
+		"every example value the outcome names", "it is never replayed or counted"} {
+		if !strings.Contains(flat(got), want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+
+	p.PriorRefused = nil
+	for i := range 6 {
+		p.PriorRefused = append(p.PriorRefused, PriorRefusal{Check: fmt.Sprintf("o-1.c%d", i), Outcome: "o-1",
+			Reason: "weak", Body: bigCheck(t, i, 7000)})
+	}
+	if got, err = RenderEvaluatePrompt(p); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(got, "The refused check, as"); n != RefusedBodiesMaxBytes/(8<<10) {
+		t.Errorf("%d bodies shown, want %d", n, RefusedBodiesMaxBytes/(8<<10))
+	}
+	if !strings.Contains(got, `"id": "o-1.c5"`) || strings.Contains(got, `"id": "o-1.c0"`) {
+		t.Error("the bodies shown are not the newest refusals'")
 	}
 }
 

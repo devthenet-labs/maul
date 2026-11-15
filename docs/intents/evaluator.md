@@ -153,9 +153,15 @@ the evaluator's run (`[maul-tool time left]`).
    value far from the example, where the outcome states no range, it does not decide). Each answer is kept with the
    check's id and the reviewer's reason, and every later round's evaluator is told the newest 40 checks refused on the
    green question by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the check
-   rather than proposes it again. Each session may take 6 turns, the last 3 kept for one repair of its report; a review
-   whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer not cached), and
-   the run goes on to the next check.
+   rather than proposes it again. Beside each refusal it is shown the refused check itself, as the previous evaluator
+   proposed it and maul confirmed it (its canonical JSON from that round's `status.confirmed`, which `tools` read from
+   the verified ledger, kept only when it is the very check reviewed under that digest), quoted as the previous
+   evaluator's untrusted text: up to 32 KiB of them in all, the newest refusals' first, the rest named without their
+   bodies, as is a saved check the round replays. It amends that check to answer the reason, keeping what it already
+   tests and every example value the outcome names, rather than writing an unrelated one; the refused check is never
+   replayed or counted, and the amended one is a new check, confirmed and reviewed like any other. Each session may take
+   6 turns, the last 3 kept for one repair of its report; a review whose report is refused and not repaired makes that
+   check alone `unclear` (not stored, its answer not cached), and the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
@@ -443,16 +449,17 @@ be a replay spends that head set's escalation too.
 answered `does_not_prove` or `unclear`, or no check was proposed: `model-only-pass`) asks for that same one full round
 at the same heads (`status.verification.escalation` with `recheck`): the reviewer's refusal reaches an evaluator only in
 a later round's handoff, and without the recheck no later round starts at unchanged heads. Its evaluator is told each
-refusal, as any later round's is, and can write a stronger check. The comments say maul is checking once more by itself
-because a check was not accepted (the recheck's verification comment says so in its heading), `maul/acceptance` stays
-pending and the hand-off waits for it. An approver's `/maul accept` of the open outcomes before it starts settles it
-with no round, and an approver's `/maul verify` while it is due runs that full round as theirs. It is judged by exactly
-the rules in [What makes a pass](#what-makes-a-pass). A round with anything else open asks for none: an outcome failed,
-quarantined, suspected, held by an earlier finding, or doubted in any other way, a dispute, a fix, an objection from the
-evaluator (a fail verdict or a contrary entry on any outcome) or a failing environment. Those stay as they are, for a
-person or a fix round. The recheck spends the head set's one escalation, so a later unsure round at the same heads asks
-for nothing by itself. On a Project with no preview, a recheck (or any automatic follow-up round) that can no longer run
-at those heads, because the accepted image is gone, settles as "maul couldn't confirm this" instead of waiting.
+refusal and the refused check, as any later round's is, and can amend it into a stronger check. The comments say maul is
+checking once more by itself because a check was not accepted (the recheck's verification comment says so in its
+heading), `maul/acceptance` stays pending and the hand-off waits for it. An approver's `/maul accept` of the open
+outcomes before it starts settles it with no round, and an approver's `/maul verify` while it is due runs that full
+round as theirs. It is judged by exactly the rules in [What makes a pass](#what-makes-a-pass). A round with anything
+else open asks for none: an outcome failed, quarantined, suspected, held by an earlier finding, or doubted in any other
+way, a dispute, a fix, an objection from the evaluator (a fail verdict or a contrary entry on any outcome) or a failing
+environment. Those stay as they are, for a person or a fix round. The recheck spends the head set's one escalation, so a
+later unsure round at the same heads asks for nothing by itself. On a Project with no preview, a recheck (or any
+automatic follow-up round) that can no longer run at those heads, because the accepted image is gone, settles as "maul
+couldn't confirm this" instead of waiting.
 
 | Round                                            | Model spend          |
 | ------------------------------------------------ | -------------------- |

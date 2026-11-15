@@ -19,6 +19,7 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/untrusted"
@@ -103,7 +104,11 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	if err := p.previousRound(ctx, pv, &h); err != nil {
 		return "", err
 	}
-	h.PriorRefused = p.priorRefused()
+	bodies, err := p.refusedBodies(ctx, pv)
+	if err != nil {
+		return "", err
+	}
+	h.PriorRefused = p.priorRefused(bodies)
 	h.NotYetProof = p.notYetProof(ctx)
 	return encodeEvaluateHandoff(h)
 }
@@ -256,7 +261,13 @@ func (p *pass) evaluateComponents(pv *v1alpha1.PreviewVerification) []agentrun.E
 // red review's refusal is left out: it judged a failure, not whether the
 // check proves its outcome, and a green review of the same check is still
 // open. At most the newest templates.PriorRefusedMax, oldest first.
-func (p *pass) priorRefused() []agentrun.PriorRefusal {
+//
+// Each carries the refused check itself where bodies (refusedBodies) holds
+// it, so the evaluator amends that check to answer the reason rather than
+// writing an unrelated one (G5R-B-CLI-1): the newest refusals' first,
+// within templates.RefusedBodiesMaxBytes in all, a refusal past that bound
+// named without its body.
+func (p *pass) priorRefused(bodies map[string]string) []agentrun.PriorRefusal {
 	acc := p.in.Status.Acceptance
 	if acc == nil {
 		return nil
@@ -266,6 +277,7 @@ func (p *pass) priorRefused() []agentrun.PriorRefusal {
 		outcomes[outcomeDigest(o)] = o.ID
 	}
 	var out []agentrun.PriorRefusal
+	shown := 0
 	for i := len(acc.Reviews) - 1; i >= 0 && len(out) < templates.PriorRefusedMax; i-- {
 		r := acc.Reviews[i]
 		id, ok := outcomes[r.OutcomeDigest]
@@ -276,11 +288,56 @@ func (p *pass) priorRefused() []agentrun.PriorRefusal {
 		if check == "" {
 			check = r.CheckDigest
 		}
-		out = append(out, agentrun.PriorRefusal{Outcome: id, Check: check,
-			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)})
+		refusal := agentrun.PriorRefusal{Outcome: id, Check: check,
+			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)}
+		if body := bodies[r.CheckDigest]; body != "" && shown+len(body) <= templates.RefusedBodiesMaxBytes {
+			refusal.Body, shown = body, shown+len(body)
+		}
+		out = append(out, refusal)
 	}
 	slices.Reverse(out)
 	return out
+}
+
+// refusedBodies are the bodies of the checks the intent's verifications
+// confirmed, by digest (G5R-B-CLI-1): what maul confirmed each by, read from
+// status.confirmed, which tools read from the verified ledger and never
+// from an evaluator's report, and kept only when it parses as a check in
+// canonical form whose digest is its own, so a body is exactly the check
+// reviewed under that digest. A check pv replays (a stored check refused on
+// the green question, which the evaluator is told to leave as it is) has
+// none. A body is shown to the evaluator as data only: nothing runs it or
+// counts it as a check.
+func (p *pass) refusedBodies(ctx context.Context, pv *v1alpha1.PreviewVerification) (map[string]string, error) {
+	if acc := p.in.Status.Acceptance; acc == nil || len(acc.Reviews) == 0 {
+		return nil, nil
+	}
+	pvs, err := p.ownVerifications(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, v := range pvs {
+		for _, c := range v.Status.Confirmed {
+			if isCheckOf(c.Body, c.Digest) {
+				out[c.Digest] = c.Body
+			}
+		}
+	}
+	for _, c := range pv.Spec.Checks {
+		delete(out, c.Digest)
+	}
+	return out, nil
+}
+
+// isCheckOf reports that body is a check of maul's grammar, in canonical
+// form, whose digest is d.
+func isCheckOf(body, d string) bool {
+	if len(body) > v1alpha1.MaxSavedCheckBytes {
+		return false
+	}
+	c, err := checks.Parse([]byte(body))
+	return err == nil && string(checks.Canonical(c)) == body && checks.Digest(c) == d
 }
 
 // browserEntry is the Project's surfaces.browser.entry when the round has a
@@ -456,9 +513,10 @@ func (p *pass) changedPaths(ctx context.Context) []agentrun.ChangedPath {
 
 // encodeEvaluateHandoff encodes h as agent-runner decodes it, within its
 // bound: changed paths are dropped from the end until it fits, then the
-// oldest refused checks, and a handoff that does not fit without either is
-// refused.
+// refused checks' bodies, the oldest first, then the oldest refused checks,
+// and a handoff that does not fit without any is refused.
 func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
+	h.PriorRefused = slices.Clone(h.PriorRefused)
 	for {
 		b, err := json.Marshal(h)
 		if err != nil {
@@ -470,6 +528,8 @@ func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 		switch {
 		case len(h.ChangedPaths) > 0:
 			h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
+		case slices.ContainsFunc(h.PriorRefused, hasBody):
+			h.PriorRefused[slices.IndexFunc(h.PriorRefused, hasBody)].Body = ""
 		case len(h.PriorRefused) > 0:
 			// The newest refusals are the last: keep them.
 			h.PriorRefused = h.PriorRefused[len(h.PriorRefused)/2+len(h.PriorRefused)%2:]
@@ -478,6 +538,9 @@ func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 		}
 	}
 }
+
+// hasBody reports that r carries its refused check's body.
+func hasBody(r agentrun.PriorRefusal) bool { return r.Body != "" }
 
 // encodeCheckReviewHandoff encodes the check reviewer's handoff as
 // agent-runner decodes it: one review per new check, keyed by the check's

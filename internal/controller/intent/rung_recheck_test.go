@@ -279,7 +279,7 @@ func (e *env) recheckAsked(name string) {
 
 // recheckStarted holds round 2 to the recheck: full and automatic at round
 // 1's heads, counted, said in the comments while it runs, its evaluator
-// handed the health check's refusal.
+// handed the health check's refusal and the refused check itself (G5R-B-CLI-1).
 func (e *env) recheckStarted(name string, pv1 v1alpha1.PreviewVerification) {
 	t := e.t
 	t.Helper()
@@ -298,8 +298,8 @@ func (e *env) recheckStarted(name string, pv1 v1alpha1.PreviewVerification) {
 	}
 	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv2))
 	if len(h.PriorRefused) != 1 || h.PriorRefused[0] != (agentrun.PriorRefusal{Outcome: oHealthy,
-		Check: "still-healthy", Reason: "read the steps"}) {
-		t.Errorf("round 2's refused checks = %+v, want the health check's refusal", h.PriorRefused)
+		Check: "still-healthy", Reason: "read the steps", Body: savedCheck(t, healthCheck).Body}) {
+		t.Errorf("round 2's refused checks = %+v, want the health check's refusal with the check itself", h.PriorRefused)
 	}
 }
 

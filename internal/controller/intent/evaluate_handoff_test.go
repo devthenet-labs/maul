@@ -202,3 +202,129 @@ func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 		t.Errorf("refusals run %s..%s, want the newest in order", first, last)
 	}
 }
+
+// TestEvaluateHandoffCarriesRefusedCheckBodies (G5R-B-CLI-1): beside each
+// refusal the next round's evaluator is handed the refused check itself,
+// read from maul's own record of it (an earlier round's
+// status.confirmed, which tools read from the verified ledger) by the
+// reviewed digest, so it can amend that check rather than write an
+// unrelated one. A body that is not its digest, a check this round
+// replays (a stored check refused on the green question), and a check no
+// round still records are named without one.
+func TestEvaluateHandoffCarriesRefusedCheckBodies(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	pv1 := e.onlyVerification(name)
+	version, health, again := savedCheck(t, versionCheck), savedCheck(t, healthCheck), savedCheck(t, healthCheck2)
+	tampered := again
+	tampered.Body = strings.Replace(again.Body, "again=1", "again=2", 1)
+	pv1.Status.Phase = v1alpha1.VerificationObserved
+	pv1.Status.Confirmed = []v1alpha1.SavedCheck{version, health, tampered}
+	if err := e.c.Update(context.Background(), &pv1); err != nil {
+		t.Fatal(err)
+	}
+	text := map[string]string{}
+	for _, o := range e.get(name).Status.Acceptance.Outcomes {
+		text[o.ID] = outcomeDigest(o)
+	}
+	gone := digest([]byte("a check no round records"))
+	refuse := func(c v1alpha1.SavedCheck, d string) v1alpha1.CheckReviewRecord {
+		return v1alpha1.CheckReviewRecord{CheckDigest: d, OutcomeDigest: text[c.Outcome],
+			Answer: v1alpha1.ReviewDoesNotProve, Run: "r1", Check: c.ID, Reason: "too weak"}
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Reviews = []v1alpha1.CheckReviewRecord{refuse(version, version.Digest),
+			refuse(health, health.Digest), refuse(again, again.Digest), refuse(again, gone)}
+	})
+	pv2 := pv1.DeepCopy()
+	pv2.Name, pv2.UID = pv1.Name+"-next", types.UID("pv2-uid")
+	pv2.Spec.Round, pv2.Status = 2, v1alpha1.PreviewVerificationStatus{}
+	pv2.Spec.Checks = []v1alpha1.SavedCheck{health}
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), pv2))
+	if len(h.PriorRefused) != 4 {
+		t.Fatalf("refused = %+v, want all four refusals", h.PriorRefused)
+	}
+	for i, want := range []string{version.Body, "", "", ""} {
+		if got := h.PriorRefused[i].Body; got != want {
+			t.Errorf("refused[%d] (%s) body = %q, want %q", i, h.PriorRefused[i].Check, got, want)
+		}
+	}
+}
+
+// TestEvaluateHandoffDropsRefusedBodiesFirst (G5R-B-CLI-1): over
+// agent-runner's bound the refused checks' bodies go before any refusal
+// does, the oldest first, so every refusal keeps its reason; the caller's
+// handoff is left as it was.
+func TestEvaluateHandoffDropsRefusedBodiesFirst(t *testing.T) {
+	h := agentrun.EvaluateHandoff{Round: 2, RunToken: "ev2a1-abcdef",
+		Request: strings.Repeat("r", evaluateHandoffMaxBytes-30<<10)}
+	for i := range 4 {
+		h.PriorRefused = append(h.PriorRefused, agentrun.PriorRefusal{Outcome: "o", Check: fmt.Sprintf("c-%d", i),
+			Reason: "weak", Body: strings.Repeat("b", templates.RefusedBodiesMaxBytes/4)})
+	}
+	raw, err := encodeEvaluateHandoff(h)
+	if err != nil || len(raw) > evaluateHandoffMaxBytes {
+		t.Fatalf("encode with refused bodies = %d bytes, %v", len(raw), err)
+	}
+	got := decodeEvaluateHandoff(t, raw)
+	if len(got.PriorRefused) != 4 || got.PriorRefused[0].Body != "" || got.PriorRefused[3].Body == "" {
+		t.Errorf("refused = %d, want all four, the oldest body dropped and the newest kept", len(got.PriorRefused))
+	}
+	if h.PriorRefused[0].Body == "" {
+		t.Error("encoding dropped a body from the caller's handoff")
+	}
+}
+
+// TestEvaluateHandoffBoundsRefusedCheckBodies (G5R-B-CLI-1): the refused
+// checks' bodies are handed over within templates.RefusedBodiesMaxBytes in
+// all, the newest refusals' first; an older one past the bound is named
+// with its reason and without its body.
+func TestEvaluateHandoffBoundsRefusedCheckBodies(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	pv1 := e.onlyVerification(name)
+	text := map[string]string{}
+	for _, o := range e.get(name).Status.Acceptance.Outcomes {
+		text[o.ID] = outcomeDigest(o)
+	}
+	reviews := make([]v1alpha1.CheckReviewRecord, 0, templates.PriorRefusedMax)
+	pv1.Status.Phase = v1alpha1.VerificationObserved
+	for i := range templates.PriorRefusedMax {
+		c := savedCheck(t, strings.Replace(versionCheck, `"/version?q={{run}}"`,
+			fmt.Sprintf(`"/version?q={{run}}&n=%d&pad=%s"`, i, strings.Repeat("x", 3000)), 1))
+		pv1.Status.Confirmed = append(pv1.Status.Confirmed, c)
+		reviews = append(reviews, v1alpha1.CheckReviewRecord{CheckDigest: c.Digest, OutcomeDigest: text[c.Outcome],
+			Answer: v1alpha1.ReviewDoesNotProve, Run: "r1", Check: c.ID, Reason: "too weak"})
+	}
+	if err := e.c.Update(context.Background(), &pv1); err != nil {
+		t.Fatal(err)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Acceptance.Reviews = reviews })
+	pv2 := pv1.DeepCopy()
+	pv2.Name, pv2.UID = pv1.Name+"-next", types.UID("pv2-uid")
+	pv2.Spec.Round, pv2.Status = 2, v1alpha1.PreviewVerificationStatus{}
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), pv2))
+	if len(h.PriorRefused) != templates.PriorRefusedMax {
+		t.Fatalf("%d refusals, want every one named", len(h.PriorRefused))
+	}
+	total, shown := 0, 0
+	for i, r := range h.PriorRefused {
+		if r.Reason == "" {
+			t.Errorf("refused[%d] lost its reason", i)
+		}
+		if r.Body == "" {
+			if shown > 0 {
+				t.Errorf("refused[%d] has no body after a shown one: an older body kept over a newer", i)
+			}
+			continue
+		}
+		shown++
+		total += len(r.Body)
+	}
+	if shown == 0 || h.PriorRefused[len(h.PriorRefused)-1].Body == "" || h.PriorRefused[0].Body != "" {
+		t.Errorf("%d bodies shown, want the newest only", shown)
+	}
+	if total > templates.RefusedBodiesMaxBytes {
+		t.Errorf("bodies total %d bytes, over %d", total, templates.RefusedBodiesMaxBytes)
+	}
+}

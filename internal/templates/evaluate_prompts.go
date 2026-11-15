@@ -53,6 +53,13 @@ const (
 // newest this many.
 const PriorRefusedMax = 40
 
+// RefusedBodiesMaxBytes bounds the refused checks' bodies the evaluate
+// prompt shows, in all (G5R-B-CLI-1): four checks of the largest a check
+// may be (v1alpha1.MaxSavedCheckBytes), the newest refusals' first. The
+// controller hands over no more; a refusal past it is named without its
+// body.
+const RefusedBodiesMaxBytes = 4 * v1alpha1.MaxSavedCheckBytes
+
 // NotYetProofMax bounds the saved checks not yet proof of a pass the
 // evaluate prompt names (gate D-B9): every check a store holds.
 const NotYetProofMax = v1alpha1.MaxSavedChecks
@@ -189,9 +196,12 @@ type NotYetProof struct {
 }
 
 // PriorRefusal is one check the reviewer refused in an earlier round, by
-// its id and outcome, with the reviewer's reason.
+// its id and outcome, with the reviewer's reason and, when maul still holds
+// it, the refused check's canonical JSON as maul confirmed it (Body,
+// G5R-B-CLI-1): the previous evaluator's text, quoted as data for this one
+// to amend.
 type PriorRefusal struct {
-	Check, Outcome, Reason string
+	Check, Outcome, Reason, Body string
 }
 
 // PriorVerdict is maul's result of one outcome in a previous round, with
@@ -481,20 +491,53 @@ func notYetBlock(cs []NotYetProof) string {
 
 // refusedBlock lists the checks the reviewer refused, as priorBlock lists a
 // round's results: each by its id and outcome with the reviewer's reason,
-// at most PriorRefusedMax; "" for none.
+// at most PriorRefusedMax, then the refused check itself where it is shown
+// (refusedBodies); "" for none.
 func refusedBlock(rs []PriorRefusal) string {
+	rs = rs[:min(len(rs), PriorRefusedMax)]
+	bodies := refusedBodies(rs)
 	var b strings.Builder
 	for i, r := range rs {
-		if i == PriorRefusedMax {
-			break
-		}
 		fmt.Fprintf(&b, "- check %s, of outcome %s, was refused.", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64))
 		if r.Reason != "" {
 			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
 		}
-		b.WriteString("\n")
+		if bodies[i] == "" {
+			b.WriteString("\n    Its body is not shown.\n")
+			continue
+		}
+		b.WriteString("\n    The refused check, as the previous evaluator proposed it and maul confirmed it:\n")
+		for line := range strings.SplitSeq(bodies[i], "\n") {
+			b.WriteString("      " + line + "\n")
+		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// refusedBodies are rs's bodies as the prompt shows them, by index (G5R-B-
+// CLI-1): each that is a check of maul's grammar, at most
+// v1alpha1.MaxSavedCheckBytes, indented as JSON and made visible; the
+// newest refusals' first, within RefusedBodiesMaxBytes in all. A body that
+// is no check, or past the bound, is "": never shown cut, since a cut check
+// is another check.
+func refusedBodies(rs []PriorRefusal) []string {
+	out := make([]string, len(rs))
+	total := 0
+	for i := len(rs) - 1; i >= 0; i-- {
+		body := rs[i].Body
+		if body == "" || len(body) > v1alpha1.MaxSavedCheckBytes || total+len(body) > RefusedBodiesMaxBytes {
+			continue
+		}
+		if _, err := checks.Parse([]byte(body)); err != nil {
+			continue
+		}
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, []byte(body), "", "  "); err != nil {
+			continue
+		}
+		out[i], total = untrusted.Visible(buf.String(), checkShownMaxBytes), total+len(body)
+	}
+	return out
 }
 
 // priorBlock lists a previous round's results as the prompt quotes them, in

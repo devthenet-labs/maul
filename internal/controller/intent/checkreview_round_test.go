@@ -219,12 +219,13 @@ func TestCheckReviewStoresProvenChecks(t *testing.T) {
 		t.Errorf("state = %s, want the round judged once its checks are stored", v.State)
 	}
 	// Coverage design C3: the next round's evaluator is told of the refusal,
-	// by outcome, check id and the reviewer's reason.
+	// by outcome, check id and the reviewer's reason, with the refused check
+	// itself as round 1 confirmed it (G5R-B-CLI-1).
 	next := e.onlyVerification(name)
 	next.Name, next.Spec.Round = next.Name+"-next", 2
 	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &next))
 	if len(h.PriorRefused) != 1 || h.PriorRefused[0] != (agentrun.PriorRefusal{Outcome: health.Outcome,
-		Check: health.ID, Reason: "read the steps"}) {
+		Check: health.ID, Reason: "read the steps", Body: health.Body}) {
 		t.Errorf("next round's refused checks = %+v, want the health check's refusal", h.PriorRefused)
 	}
 }

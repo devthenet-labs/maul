@@ -780,14 +780,20 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 	}
 }
 
-// TestEvaluateHandoffCarriesRefusedChecks (coverage design C3): the checks
-// the reviewer refused in earlier rounds decode strictly and reach the
-// prompt by outcome, check id and the reviewer's reason.
+// TestEvaluateHandoffCarriesRefusedChecks (coverage design C3,
+// G5R-B-CLI-1): the checks the reviewer refused in earlier rounds decode
+// strictly and reach the prompt by outcome, check id, the reviewer's reason
+// and the refused check itself, shown as data.
 func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
+	c, err := checks.Parse([]byte(templates.ExampleHTTPCheck))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(checks.Canonical(c))
 	raw := evalHandoff(func(h *EvaluateHandoff) {
 		h.Round = 2
 		h.PriorRefused = []PriorRefusal{{Outcome: "rate-battle", Check: "rate-battle.api",
-			Reason: "It never reads the loser's rating."}}
+			Reason: "It never reads the loser's rating.", Body: body}}
 	})
 	if !strings.Contains(raw, `"prior_refused":[{"outcome":"rate-battle","check":"rate-battle.api",`) {
 		t.Errorf("handoff %s lacks the refused check", raw)
@@ -801,7 +807,7 @@ func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 	}
 	p := h.prompt("", "", "", templates.StageLimits{})
 	if len(p.PriorRefused) != 1 || p.PriorRefused[0] != (templates.PriorRefusal{Outcome: "rate-battle",
-		Check: "rate-battle.api", Reason: "It never reads the loser's rating."}) {
+		Check: "rate-battle.api", Reason: "It never reads the loser's rating.", Body: body}) {
 		t.Errorf("prompt refused = %+v, want the refused check", p.PriorRefused)
 	}
 	prompt, err := templates.RenderEvaluatePrompt(h.prompt("/r", "/c", "/s", templates.StageLimits{MaxTurns: 10}))
@@ -810,5 +816,8 @@ func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "It never reads the loser's rating.") {
 		t.Error("the reviewer's reason does not reach the prompt")
+	}
+	if !strings.Contains(prompt, "        \"id\": \""+c.ID+"\",") {
+		t.Error("the refused check does not reach the prompt")
 	}
 }

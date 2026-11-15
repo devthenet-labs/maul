@@ -57,7 +57,8 @@ func TestEvaluateWorkspacePromptGoldens(t *testing.T) {
 			p.PriorVerdicts = []PriorVerdict{{Outcome: "parse-too-long", Result: "failed",
 				Reason: "65 steps parse without an error."}}
 			p.PriorRefused = []PriorRefusal{{Check: "parse-too-long-errors", Outcome: "parse-too-long",
-				Reason: "It prints true whatever Parse returns."}}
+				Reason: "It prints true whatever Parse returns.",
+				Body:   string(checks.Canonical(mustCheck(t, ExampleLibraryRunCheck)))}}
 			return p
 		}},
 	} {
@@ -236,7 +237,7 @@ func TestEvaluateWorkspacePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 	p.PriorRound = 1
 	p.PriorVerdicts = []PriorVerdict{{Outcome: hostile, Result: hostile, Reason: hostile}}
 	p.PriorReplay = []PriorReplay{{Check: hostile, Outcome: hostile, Result: hostile}}
-	p.PriorRefused = []PriorRefusal{{Check: hostile, Outcome: hostile, Reason: hostile}}
+	p.PriorRefused = []PriorRefusal{{Check: hostile, Outcome: hostile, Reason: hostile, Body: hostileCheck(t, hostile)}}
 	w := testCLIWorkspace
 	w.Build = []string{"go", "build", "-o", "/work/bin/bbrender\u202e", "./cmd/x`y"}
 	p.Workspace = &w
@@ -244,7 +245,7 @@ func TestEvaluateWorkspacePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(strings.ToUpper(got), sentinel); n < 17 {
+	if n := strings.Count(strings.ToUpper(got), sentinel); n < 19 {
 		t.Fatalf("only %d sentinels rendered; the test no longer reaches every field", n)
 	}
 	for _, line := range unfenced(got) {
