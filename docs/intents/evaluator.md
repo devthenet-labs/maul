@@ -155,13 +155,14 @@ the evaluator's run (`[maul-tool time left]`).
    green question by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the check
    rather than proposes it again. Beside each refusal it is shown the refused check itself, as the previous evaluator
    proposed it and maul confirmed it (its canonical JSON from that round's `status.confirmed`, which `tools` read from
-   the verified ledger, kept only when it is the very check reviewed under that digest), quoted as the previous
-   evaluator's untrusted text: up to 32 KiB of them in all, the newest refusals' first, the rest named without their
-   bodies, as is a saved check the round replays. It amends that check to answer the reason, keeping what it already
-   tests and every example value the outcome names, rather than writing an unrelated one; the refused check is never
-   replayed or counted, and the amended one is a new check, confirmed and reviewed like any other. Each session may take
-   6 turns, the last 3 kept for one repair of its report; a review whose report is refused and not repaired makes that
-   check alone `unclear` (not stored, its answer not cached), and the run goes on to the next check.
+   the verified ledger, kept only when it is the very check reviewed under that digest and bound to the outcome the
+   refusal is named under), quoted as the previous evaluator's untrusted text: up to 32 KiB of them in all as shown, the
+   newest refusals' first, never cut, the rest named without their bodies, as is a saved check the round replays. It
+   amends that check to answer the reason, keeping what it already tests and every example value the outcome names,
+   rather than writing an unrelated one; the refused check is never replayed or counted, and the amended one is a new
+   check, confirmed and reviewed like any other. Each session may take 6 turns, the last 3 kept for one repair of its
+   report; a review whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer
+   not cached), and the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.

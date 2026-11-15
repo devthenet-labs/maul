@@ -132,9 +132,9 @@ A refused check is the previous evaluator's work, not maul's and no evidence: it
 or counted for its outcome. A check refused in one form is never reviewed again in that form: maul keeps each review by
 the check's digest, so the same check proposed again is refused again. Where the check is shown, amend that check
 rather than write an unrelated one: change what the reason faults, and keep everything it already tests that the
-reason does not fault, with every example value the outcome names and every value the line of the request it quotes
-states. Write the amended check as a new file, run it, and propose it like any new check: maul confirms it and the
-reviewer judges it afresh.
+reason does not fault, with every example value the outcome names and every value stated in the line of the request
+the outcome quotes. Write the amended check as a new file, run it, and propose it like any new check: maul confirms it
+and the reviewer judges it afresh.
 Where it is not shown, strengthen the check to answer the reason, run it, and propose the new form.
 
 ### Saved checks that are not yet proof
