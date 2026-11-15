@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.14.3](https://github.com/devthenet-labs/maul/compare/v0.14.2...v0.14.3) (2026-11-15)
+
+
+### Bug Fixes
+
+* **intent:** browser check locators match a label exactly ([#424](https://github.com/devthenet-labs/maul/issues/424)) ([303472a](https://github.com/devthenet-labs/maul/commit/303472aa759232e3233fc1d9ce110c8d58a9cd67))
+* **intent:** the check reviewer sees a failing exec check's output ([#422](https://github.com/devthenet-labs/maul/issues/422)) ([5dcdf2a](https://github.com/devthenet-labs/maul/commit/5dcdf2a6a48587e00100f5f8b9f10f92da2d6d59))
+* **intent:** the check reviewer takes the issue's stated facts as given and judges a check's tolerance ([#421](https://github.com/devthenet-labs/maul/issues/421)) ([e1118d3](https://github.com/devthenet-labs/maul/commit/e1118d3edac0d39c048207d544c304d9ceaf0505))
+* **intent:** the evaluator saves a check for each outcome it passes and compares carried-over values by type ([#423](https://github.com/devthenet-labs/maul/issues/423)) ([27888eb](https://github.com/devthenet-labs/maul/commit/27888ebda09d2f393d11abbe155b6d0afdc86519))
+
 ## [0.14.2](https://github.com/devthenet-labs/maul/compare/v0.14.1...v0.14.2) (2026-11-14)
 
 
