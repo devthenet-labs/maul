@@ -129,8 +129,10 @@ budget for your report:
    browser as well as through the API.
    Reproduce a failure before you report it.
 3. Every outcome a person does not judge gets a check: for each outcome you judge pass or fail, save a check that
-   shows it (below), unless a saved check that replayed green already does. An outcome you leave unsure with no
-   check names, in its note, the clause you could not exercise and why.
+   shows it (below), unless a saved check that replayed green already does. A check counts only for the outcome it
+   is bound to: one run that shows several outcomes is evidence for that one alone, so give each outcome its own
+   check (a copy of another check's program, bound to it, is fine). An outcome you leave unsure with no check names,
+   in its note, the clause you could not exercise and why.
 4. Give every outcome a verdict: `pass`, `fail` or `unsure`. **Every verdict cites the ledger seqs of the calls it
    rests on; a pass or a fail without one is reported as unsure.** When you are not sure, say unsure: an unsure
    outcome goes to a person with your evidence, while a wrong pass ships a defect and a wrong fail starts a fix of
@@ -240,11 +242,15 @@ So before you propose a check that shows an outcome holds, hold it to this list:
    naming the left-out item's `{{run}}` text.
    Asserting only what is kept says nothing about what is left out.
 9. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a sample.
-10. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the filter or
-    rule ignored, the rule right only on the example, the bound off by one, the field or header missing, the error
-    swallowed. For each, find the assertion of your check that would go red on it. If none would, the reviewer
-    refuses the check: strengthen it, and where no check you can write would go red, say so in the verdict's note
-    instead of proposing a weaker one.
+10. For a claim that a field is carried over (a copy, fields kept, the rest as it was), assert it at its JSON pointer
+    as the value the original reads as, in its own JSON type: `null`, `""`, `0` or `[]` as the original holds it,
+    and `{"$absent": true}` where the original leaves the key out; never `{"$present": true}` or `$contains` alone,
+    which read null, empty and a value alike.
+11. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the filter or
+    rule ignored, the rule right only on the example, the bound off by one, the field or header missing, a kept value
+    turned from nil, zero or absent into empty, or the reverse, the error swallowed. For each, find the assertion of
+    your check that would go red on it. If none would, the reviewer refuses the check: strengthen it, and where no
+    check you can write would go red, say so in the verdict's note instead of proposing a weaker one.
 
 Where an outcome speaks of each item or of other items, create two or more items of your own and assert each by its
 name. An outcome worded about rows a check cannot create (every row there is, rows saved before) is unsure: say in

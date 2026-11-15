@@ -182,8 +182,10 @@ budget for your report:
    program using it would, at the head and the same way at the base, to see whether it holds. Reproduce a failure
    before you report it.
 3. Every outcome a person does not judge gets a check: for each outcome you judge pass or fail, save a check that
-   shows it (below), unless a saved check that replayed green already does. An outcome you leave unsure with no
-   check names, in its note, the clause you could not exercise and why.
+   shows it (below), unless a saved check that replayed green already does. A check counts only for the outcome it
+   is bound to: one run that shows several outcomes is evidence for that one alone, so give each outcome its own
+   check (a copy of another check's program, bound to it, is fine). An outcome you leave unsure with no check names,
+   in its note, the clause you could not exercise and why.
 4. Give every outcome a verdict: `pass`, `fail` or `unsure`. **Every verdict cites the ledger seqs of the calls it
    rests on; a pass or a fail without one is reported as unsure.** When you are not sure, say unsure: an unsure
    outcome goes to a person with your evidence, while a wrong pass ships a defect and a wrong fail starts a fix of
@@ -308,9 +310,18 @@ So before you propose a check that shows an outcome holds, hold it to this list:
    assert that it is, beside an assertion of one that is kept, so an empty answer does not pass.
 6. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a
    sample.
-7. Assert only what the outcome states: no wording, value, order or timing it does not promise.
-8. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the flag or
-   rule ignored, the rule right only on the example, the bound off by one, the field missing, the error swallowed.
+7. For a claim that something is carried over (a copy, fields kept, the rest as it was), compare what using the
+   result gives, in its own types: its encoding against the original's, as it is written out (for a Go value of a
+   type with JSON tags, `json.Marshal` of each: the same bytes, and an error from both or neither), beside each
+   field's value. Never compare only through text or a comparison that shows a nil, an absent and an empty value
+   alike (`string(x)`, `bytes.Equal`, `fmt.Sprint`, `%v`): a copy that turns one into the other passes it. Give it
+   originals with those fields set, zero, empty and absent, and where they differ print both after the marker with
+   `%#v`. A nil against an empty value that no use tells apart is no failure (**Judge what is carried over**), so
+   never assert one by `== nil` or `reflect.DeepEqual` alone.
+8. Assert only what the outcome states: no wording, value, order or timing it does not promise.
+9. Last, name the wrong builds a careless change could ship: the value fixed or left at its default, the flag or
+   rule ignored, the rule right only on the example, the bound off by one, the field missing, a kept value turned
+   from nil, zero or absent into empty, or the reverse, the error swallowed.
    For each, find the assertion of your check that would go red on it. If none would, the reviewer refuses the check:
    strengthen it, and where no check you can write would go red, say so in the verdict's note instead of proposing a
    weaker one.

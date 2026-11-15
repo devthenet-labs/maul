@@ -86,8 +86,9 @@ func TestEvaluateAsksForTheChecksOfUncoveredPasses(t *testing.T) {
 // asks after the first.
 func TestEvaluateCoverAskKeepsTheReport(t *testing.T) {
 	for name, tt := range map[string]struct{ before, rewrite string }{
-		"unparsable":         {goodEvaluation, "---\nverdicts: [\n---\n"},
-		"another verdict":    {goodEvaluation, strings.Replace(goodEvaluation, "verdict: unsure", "verdict: fail\n    ledger: [3]", 1)},
+		"unparsable": {goodEvaluation, "---\nverdicts: [\n---\n"},
+		"another verdict": {goodEvaluation,
+			strings.Replace(goodEvaluation, "verdict: unsure", "verdict: fail\n    ledger: [3]", 1)},
 		"a contrary lost":    {contraryEvaluation, goodEvaluation},
 		"nothing covered":    {goodEvaluation, goodEvaluation},
 		"the pass withdrawn": {goodEvaluation, noPassEvaluation},
