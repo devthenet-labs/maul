@@ -39,7 +39,7 @@ type evaluationReport struct {
 
 // droppedProposal is a proposal left out of an accepted report, and why.
 type droppedProposal struct {
-	id, file, reason string
+	id, outcome, file, reason string
 }
 
 // parseEvaluation parses an evaluation report (report.ParseEvaluation) and
@@ -93,7 +93,7 @@ func resolveProposedFiles(scratch string, e *report.Evaluation) []droppedProposa
 		}
 		digest, err := resolveFile(scratch, p)
 		if err != nil {
-			dropped = append(dropped, droppedProposal{id: p.ID, file: p.File, reason: err.Error()})
+			dropped = append(dropped, droppedProposal{id: p.ID, outcome: p.Outcome, file: p.File, reason: err.Error()})
 			continue
 		}
 		p.Digest = digest

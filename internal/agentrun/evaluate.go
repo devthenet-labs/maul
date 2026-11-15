@@ -483,6 +483,7 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 		}
 		return fail(outcome, detail)
 	}
+	e, raw = a.coverChecks(ctx, sr, &ev.Stage, in, e, raw)
 	for _, d := range e.dropped {
 		reason := oneLine(d.reason, repairFailureBytes)
 		a.cfg.Log.Warn("dropped a proposed check: the file it names does not resolve to a check to confirm",
