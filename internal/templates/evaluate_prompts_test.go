@@ -935,3 +935,50 @@ func TestCheckReviewPromptRedKeepsToTheOutcome(t *testing.T) {
 		t.Error("the red question is told a narrowed check proves its outcome")
 	}
 }
+
+// deepCheck is a valid check of a few hundred bytes whose expected JSON
+// literal nests depth arrays: indented, it grows far past its own size.
+func deepCheck(t *testing.T, i, depth int) string {
+	t.Helper()
+	return string(checks.Canonical(mustCheck(t, fmt.Sprintf(`{"id":"o-1.d%d","outcome":"o-1","form":"http","http":`+
+		`{"target":"api","steps":[{"request":{"path":"/r?q={{run}}"},"expect":{"json":{"/a":%s1%s},`+
+		`"bodyContains":"{{run}}"}}]}}`, i, strings.Repeat("[", depth), strings.Repeat("]", depth)))))
+}
+
+// TestEvaluatePromptNeverShowsARefusedCheckCut (G5R-B-CLI-1 review): a
+// refused check whose indented form is past the bound is marked not shown,
+// never shown cut (a cut check is another check), and the bodies are
+// bounded by what the prompt shows, not by their compact size: a few
+// hundred bytes of nested JSON indent to tens of KiB, and the prompt is one
+// argument of the CLI's command line.
+func TestEvaluatePromptNeverShowsARefusedCheckCut(t *testing.T) {
+	p := testEvaluatePrompt()
+	base, err := RenderEvaluatePrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.PriorRefused = []PriorRefusal{{Check: "o-1.d", Outcome: "o-1", Reason: "weak", Body: deepCheck(t, 0, 300)}}
+	got, err := RenderEvaluatePrompt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "The refused check, as") || !strings.Contains(got, "Its body is not shown.") {
+		t.Error("a refused check past the bound once indented was shown (cut) instead of marked not shown")
+	}
+	p.PriorRefused = nil
+	for i := range PriorRefusedMax {
+		p.PriorRefused = append(p.PriorRefused, PriorRefusal{Check: fmt.Sprintf("o-1.d%d", i), Outcome: "o-1",
+			Reason: "weak", Body: deepCheck(t, i, 40)})
+	}
+	if got, err = RenderEvaluatePrompt(p); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(got, "The refused check, as") == 0 {
+		t.Error("no refused check shown, want the newest that fit")
+	}
+	// Each refusal's own lines are a few hundred bytes; the bodies add at
+	// most RefusedBodiesMaxBytes, their indentation included.
+	if grown := len(got) - len(base); grown > RefusedBodiesMaxBytes+PriorRefusedMax*(priorReasonMaxBytes+400) {
+		t.Errorf("40 refusals grew the prompt by %d bytes, past the bodies' bound", grown)
+	}
+}

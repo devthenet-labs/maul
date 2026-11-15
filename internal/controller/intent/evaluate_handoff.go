@@ -263,11 +263,13 @@ func (p *pass) evaluateComponents(pv *v1alpha1.PreviewVerification) []agentrun.E
 // open. At most the newest templates.PriorRefusedMax, oldest first.
 //
 // Each carries the refused check itself where bodies (refusedBodies) holds
-// it, so the evaluator amends that check to answer the reason rather than
-// writing an unrelated one (G5R-B-CLI-1): the newest refusals' first,
-// within templates.RefusedBodiesMaxBytes in all, a refusal past that bound
-// named without its body.
-func (p *pass) priorRefused(bodies map[string]string) []agentrun.PriorRefusal {
+// it and it is bound to the outcome the refusal is named under (a review
+// is cached by its outcome's text, which a replan may give another id), so
+// the evaluator amends that check to answer the reason rather than writing
+// an unrelated one (G5R-B-CLI-1): the newest refusals' first, within
+// templates.RefusedBodiesMaxBytes in all, a refusal past that bound named
+// without its body.
+func (p *pass) priorRefused(bodies map[string]refusedBody) []agentrun.PriorRefusal {
 	acc := p.in.Status.Acceptance
 	if acc == nil {
 		return nil
@@ -290,8 +292,8 @@ func (p *pass) priorRefused(bodies map[string]string) []agentrun.PriorRefusal {
 		}
 		refusal := agentrun.PriorRefusal{Outcome: id, Check: check,
 			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)}
-		if body := bodies[r.CheckDigest]; body != "" && shown+len(body) <= templates.RefusedBodiesMaxBytes {
-			refusal.Body, shown = body, shown+len(body)
+		if b, ok := bodies[r.CheckDigest]; ok && b.outcome == id && shown+len(b.body) <= templates.RefusedBodiesMaxBytes {
+			refusal.Body, shown = b.body, shown+len(b.body)
 		}
 		out = append(out, refusal)
 	}
@@ -308,7 +310,7 @@ func (p *pass) priorRefused(bodies map[string]string) []agentrun.PriorRefusal {
 // the green question, which the evaluator is told to leave as it is) has
 // none. A body is shown to the evaluator as data only: nothing runs it or
 // counts it as a check.
-func (p *pass) refusedBodies(ctx context.Context, pv *v1alpha1.PreviewVerification) (map[string]string, error) {
+func (p *pass) refusedBodies(ctx context.Context, pv *v1alpha1.PreviewVerification) (map[string]refusedBody, error) {
 	if acc := p.in.Status.Acceptance; acc == nil || len(acc.Reviews) == 0 {
 		return nil, nil
 	}
@@ -316,11 +318,11 @@ func (p *pass) refusedBodies(ctx context.Context, pv *v1alpha1.PreviewVerificati
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{}
+	out := map[string]refusedBody{}
 	for _, v := range pvs {
 		for _, c := range v.Status.Confirmed {
-			if isCheckOf(c.Body, c.Digest) {
-				out[c.Digest] = c.Body
+			if outcome, ok := checkOf(c.Body, c.Digest); ok {
+				out[c.Digest] = refusedBody{body: c.Body, outcome: outcome}
 			}
 		}
 	}
@@ -330,14 +332,21 @@ func (p *pass) refusedBodies(ctx context.Context, pv *v1alpha1.PreviewVerificati
 	return out, nil
 }
 
-// isCheckOf reports that body is a check of maul's grammar, in canonical
-// form, whose digest is d.
-func isCheckOf(body, d string) bool {
+// refusedBody is a confirmed check's canonical JSON and the id of the
+// outcome it is bound to.
+type refusedBody struct{ body, outcome string }
+
+// checkOf reports that body is a check of maul's grammar, in canonical
+// form, whose digest is d, and the outcome it is bound to.
+func checkOf(body, d string) (string, bool) {
 	if len(body) > v1alpha1.MaxSavedCheckBytes {
-		return false
+		return "", false
 	}
 	c, err := checks.Parse([]byte(body))
-	return err == nil && string(checks.Canonical(c)) == body && checks.Digest(c) == d
+	if err != nil || string(checks.Canonical(c)) != body || checks.Digest(c) != d {
+		return "", false
+	}
+	return c.Outcome, true
 }
 
 // browserEntry is the Project's surfaces.browser.entry when the round has a
@@ -512,9 +521,10 @@ func (p *pass) changedPaths(ctx context.Context) []agentrun.ChangedPath {
 }
 
 // encodeEvaluateHandoff encodes h as agent-runner decodes it, within its
-// bound: changed paths are dropped from the end until it fits, then the
-// refused checks' bodies, the oldest first, then the oldest refused checks,
-// and a handoff that does not fit without any is refused.
+// bound: the refused checks' bodies are dropped, the oldest first (only a
+// hint, never what the handoff carried before them), then changed paths
+// from the end until it fits, then the oldest refused checks, and a
+// handoff that does not fit without any is refused.
 func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 	h.PriorRefused = slices.Clone(h.PriorRefused)
 	for {
@@ -526,10 +536,10 @@ func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 			return string(b), nil
 		}
 		switch {
-		case len(h.ChangedPaths) > 0:
-			h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
 		case slices.ContainsFunc(h.PriorRefused, hasBody):
 			h.PriorRefused[slices.IndexFunc(h.PriorRefused, hasBody)].Body = ""
+		case len(h.ChangedPaths) > 0:
+			h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
 		case len(h.PriorRefused) > 0:
 			// The newest refusals are the last: keep them.
 			h.PriorRefused = h.PriorRefused[len(h.PriorRefused)/2+len(h.PriorRefused)%2:]

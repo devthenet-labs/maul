@@ -53,10 +53,11 @@ const (
 // newest this many.
 const PriorRefusedMax = 40
 
-// RefusedBodiesMaxBytes bounds the refused checks' bodies the evaluate
-// prompt shows, in all (G5R-B-CLI-1): four checks of the largest a check
-// may be (v1alpha1.MaxSavedCheckBytes), the newest refusals' first. The
-// controller hands over no more; a refusal past it is named without its
+// RefusedBodiesMaxBytes bounds the refused checks' bodies, in all
+// (G5R-B-CLI-1): four checks of the largest a check may be
+// (v1alpha1.MaxSavedCheckBytes), the newest refusals' first. The controller
+// hands over no more in their compact form, and the evaluate prompt shows
+// no more in their indented form; a refusal past it is named without its
 // body.
 const RefusedBodiesMaxBytes = 4 * v1alpha1.MaxSavedCheckBytes
 
@@ -514,18 +515,25 @@ func refusedBlock(rs []PriorRefusal) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
+// refusedBodyShownMaxBytes bounds one refused check as the evaluate prompt
+// shows it, indented and made visible: twice the largest a check may be,
+// room for an ordinary check's indentation, while a few hundred bytes of
+// nested JSON that indent to tens of KiB are not shown.
+const refusedBodyShownMaxBytes = 2 * v1alpha1.MaxSavedCheckBytes
+
 // refusedBodies are rs's bodies as the prompt shows them, by index (G5R-B-
 // CLI-1): each that is a check of maul's grammar, at most
 // v1alpha1.MaxSavedCheckBytes, indented as JSON and made visible; the
-// newest refusals' first, within RefusedBodiesMaxBytes in all. A body that
-// is no check, or past the bound, is "": never shown cut, since a cut check
-// is another check.
+// newest refusals' first, within RefusedBodiesMaxBytes in all as shown (the
+// prompt is one argument of the CLI's command line). A body that is no
+// check, or whose shown form is past refusedBodyShownMaxBytes or the bound
+// left, is "": never shown cut, since a cut check is another check.
 func refusedBodies(rs []PriorRefusal) []string {
 	out := make([]string, len(rs))
 	total := 0
 	for i := len(rs) - 1; i >= 0; i-- {
 		body := rs[i].Body
-		if body == "" || len(body) > v1alpha1.MaxSavedCheckBytes || total+len(body) > RefusedBodiesMaxBytes {
+		if body == "" || len(body) > v1alpha1.MaxSavedCheckBytes {
 			continue
 		}
 		if _, err := checks.Parse([]byte(body)); err != nil {
@@ -535,7 +543,11 @@ func refusedBodies(rs []PriorRefusal) []string {
 		if err := json.Indent(&buf, []byte(body), "", "  "); err != nil {
 			continue
 		}
-		out[i], total = untrusted.Visible(buf.String(), checkShownMaxBytes), total+len(body)
+		shown := untrusted.Escape(buf.String())
+		if len(shown) > refusedBodyShownMaxBytes || total+len(shown) > RefusedBodiesMaxBytes {
+			continue
+		}
+		out[i], total = shown, total+len(shown)
 	}
 	return out
 }

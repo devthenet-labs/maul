@@ -328,3 +328,69 @@ func TestEvaluateHandoffBoundsRefusedCheckBodies(t *testing.T) {
 		t.Errorf("bodies total %d bytes, over %d", total, templates.RefusedBodiesMaxBytes)
 	}
 }
+
+// TestEvaluateHandoffRefusedBodyIsOfItsOutcome (G5R-B-CLI-1 review): a
+// review is cached by its outcome's text, so after a replan that renames
+// outcomes a refusal can be named under another outcome id than the one
+// its check is bound to. Its body is then left out: the evaluator is never
+// shown a check of one outcome as the refused check of another.
+func TestEvaluateHandoffRefusedBodyIsOfItsOutcome(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	pv1 := e.onlyVerification(name)
+	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
+	pv1.Status.Phase = v1alpha1.VerificationObserved
+	pv1.Status.Confirmed = []v1alpha1.SavedCheck{version, health}
+	if err := e.c.Update(context.Background(), &pv1); err != nil {
+		t.Fatal(err)
+	}
+	text := map[string]string{}
+	for _, o := range e.get(name).Status.Acceptance.Outcomes {
+		text[o.ID] = outcomeDigest(o)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Reviews = []v1alpha1.CheckReviewRecord{
+			{CheckDigest: health.Digest, OutcomeDigest: text[version.Outcome], Answer: v1alpha1.ReviewDoesNotProve,
+				Run: "r1", Check: health.ID, Reason: "too weak"},
+			{CheckDigest: version.Digest, OutcomeDigest: text[version.Outcome], Answer: v1alpha1.ReviewDoesNotProve,
+				Run: "r1", Check: version.ID, Reason: "too weak"}}
+	})
+	pv2 := pv1.DeepCopy()
+	pv2.Name, pv2.UID = pv1.Name+"-next", types.UID("pv2-uid")
+	pv2.Spec.Round, pv2.Status = 2, v1alpha1.PreviewVerificationStatus{}
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), pv2))
+	if len(h.PriorRefused) != 2 {
+		t.Fatalf("refused = %+v, want both refusals", h.PriorRefused)
+	}
+	if h.PriorRefused[0].Body != "" {
+		t.Errorf("a check of %s shown as the refused check of %s", health.Outcome, h.PriorRefused[0].Outcome)
+	}
+	if h.PriorRefused[1].Body != version.Body {
+		t.Errorf("the refused check of its own outcome lost its body: %q", h.PriorRefused[1].Body)
+	}
+}
+
+// TestEvaluateHandoffDropsRefusedBodiesBeforeChangedPaths (G5R-B-CLI-1
+// review): the refused checks' bodies are only a hint to the evaluator, so
+// over the bound they go before the changed paths a handoff carried
+// before they were added.
+func TestEvaluateHandoffDropsRefusedBodiesBeforeChangedPaths(t *testing.T) {
+	h := agentrun.EvaluateHandoff{Round: 2, RunToken: "ev2a1-abcdef",
+		Request:      strings.Repeat("r", evaluateHandoffMaxBytes-24<<10),
+		ChangedPaths: []agentrun.ChangedPath{{Path: "a.go"}, {Path: "b.go"}}}
+	for i := range 4 {
+		h.PriorRefused = append(h.PriorRefused, agentrun.PriorRefusal{Outcome: "o", Check: fmt.Sprintf("c-%d", i),
+			Reason: "weak", Body: strings.Repeat("b", templates.RefusedBodiesMaxBytes/4)})
+	}
+	raw, err := encodeEvaluateHandoff(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decodeEvaluateHandoff(t, raw)
+	if len(got.ChangedPaths) != 2 {
+		t.Errorf("changed paths = %d, want both kept while a refused body could go", len(got.ChangedPaths))
+	}
+	if len(got.PriorRefused) != 4 {
+		t.Errorf("refused = %d, want all four", len(got.PriorRefused))
+	}
+}
