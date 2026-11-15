@@ -114,6 +114,9 @@ func TestUnsureOutcomeShowsTheEvaluatorsNote(t *testing.T) {
 		})
 	}
 	with, without := results["unsure with a note"], results["unsure with a blank note"]
+	if with.status == "" {
+		t.Fatal("no status comment to compare")
+	}
 	if with != without {
 		t.Errorf("showing the note changed the verdict or the status:\nwith    %+v\nwithout %+v", with, without)
 	}

@@ -4,6 +4,7 @@
 package templates
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -123,5 +124,49 @@ func TestVerifyUnsureNoteCutNamed(t *testing.T) {
 	left[pieceUnsureNote] = 1
 	if got := cutNote(left, false); !strings.Contains(got, "1 evaluator's note on an outcome it was unsure of") {
 		t.Errorf("cut note = %q", got)
+	}
+}
+
+// TestVerifyUnsureNotesFitGitHub: the evaluator's unsure notes are held to
+// the comment budget as the rest of the evidence is: with every outcome
+// unsure and carrying the longest note, both comments fit GitHub's limit
+// and keep every verdict line.
+func TestVerifyUnsureNotesFitGitHub(t *testing.T) {
+	for _, fill := range budgetFills {
+		t.Run(fmt.Sprintf("%q", fill), func(t *testing.T) {
+			s := worstSection(fill)
+			for i := range s.Outcomes {
+				o := &s.Outcomes[i]
+				o.Result, o.Reason, o.UnsureNote = OutcomeResultUnsure, acceptance.ReasonNoCheck, repeatTo(fill, 1000)
+			}
+			issue, err := RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "i", Round: 3, Attempt: 1,
+				Section: s})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := testPreviewComment(PreviewLive, "", "/api")
+			c.Verify = &s
+			preview, err := RenderIntentPreviewComment(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, body := range map[string]string{"issue": issue, "preview": preview} {
+				if len(body) > MaxCommentBytes {
+					t.Errorf("%s comment is %d bytes, over %d", name, len(body), MaxCommentBytes)
+				}
+				// Each note is shown or named as left out.
+				if n, cut := strings.Count(body, "The evaluator was unsure of"),
+					strings.Contains(body, "evaluator's note"); n < len(s.Outcomes) && !cut {
+					t.Errorf("%s comment shows %d unsure notes and names none left out", name, n)
+				}
+				for _, o := range s.Outcomes {
+					id, verdict := code(shown(o.ID)), outcomeVerdict(o, outcomeResultWords[o.Result])
+					if !strings.Contains(body, "- "+id+" ("+code("change")+"): "+verdict+". ") &&
+						!strings.Contains(body, "| "+cell(id)+" | "+cell(code("change"))+" | "+cell(verdict)+" |") {
+						t.Errorf("%s comment lost %s's verdict line", name, o.ID)
+					}
+				}
+			}
+		})
 	}
 }
