@@ -31,14 +31,17 @@ const g1Output = "kick 4\nsnare 1\nhat 1\ntotal 6\nhalf kick 1 3\nhalf snare 0 1
 
 // heldToTheReviewersBounds fails t unless detail, its attempt's run token
 // written back as {{run}} as the controller writes it, is a failure line the
-// check reviewer is handed (agentrun.ValidFailure) and holds no marker.
-func heldToTheReviewersBounds(t *testing.T, detail, run, marker string) {
+// check reviewer is handed (agentrun.ValidFailure) and holds none of the
+// attempts' markers.
+func heldToTheReviewersBounds(t *testing.T, detail, run string, markers []string) {
 	t.Helper()
 	if len(detail) > 2<<10 || !utf8.ValidString(detail) {
 		t.Errorf("detail (%d bytes) is over the ledger's bound or not UTF-8", len(detail))
 	}
-	if marker != "" && strings.Contains(detail, marker) {
-		t.Errorf("detail %q holds the attempt's marker", detail)
+	for _, m := range markers {
+		if strings.Contains(detail, m) {
+			t.Errorf("detail %q holds an attempt's marker", detail)
+		}
 	}
 	line := strings.ReplaceAll(detail, run, checks.RunPlaceholder)
 	if err := agentrun.ValidFailure([]string{line, line}); err != nil {
@@ -54,6 +57,8 @@ func heldToTheReviewersBounds(t *testing.T, detail, run, marker string) {
 // verdict and its assertion are unchanged.
 func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 	long := strings.Repeat("noise \"quoted\"\t\x01 line\n", 2000) + "half kick 1 3\n"
+	const halfJSON = `{"id":"half.json","outcome":"half","form":"exec","exec":{"argv":["{{bin}}","-json"],
+ "expect":{"exit":0,"stdoutJSON":{"/half/kick":[3,1]}}}}`
 	for _, tt := range []struct {
 		name, check, out string
 		exit             int
@@ -68,20 +73,38 @@ func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 		{"the program printed nothing", g1HalfRuleSplit, "", 0, "stdout", []string{
 			"exit 0", "the program printed nothing"}},
 		{"a run token printed", g1HalfRuleSplit, "seen %R\n", 0, "stdout", []string{`"seen %R\n"`}},
-		{"a json value differs", `{"id":"half.json","outcome":"half","form":"exec","exec":{"argv":["{{bin}}","-json"],
- "expect":{"exit":0,"stdoutJSON":{"/half/kick":[3,1]}}}}`, `{"half":{"kick":[1,3]}}` + "\n", 0, "stdout", []string{
-			`stdoutJSON "/half/kick" did not match`, "exit 0", `"{\"half\":{\"kick\":[1,3]}}\n"`}},
+		{"a json value differs", halfJSON, `{"half":{"kick":[1,3]}}` + "\n", 0, "stdout", []string{
+			`stdoutJSON "/half/kick" did not match; the value there is "[1,3]"`, "exit 0",
+			`"{\"half\":{\"kick\":[1,3]}}\n"`}},
+		// The tail of a long document can miss the value: it is kept apart.
+		{"a json value differs early in a long document", halfJSON,
+			`{"half":{"kick":[1,3]},"pad":"` + strings.Repeat("x", 4000) + `"}` + "\n", 0, "stdout", []string{
+				`stdoutJSON "/half/kick" did not match; the value there is "[1,3]"`, "the end of"}},
 		{"a wrong exit", g1HalfRuleSplit, "usage: bbcount [-half] file\n", 2, "", []string{
 			"exit 2, expected 0", `"usage: bbcount [-half] file\n"`}},
 		{"a library run check", cliRunCheck, "count=2\n", 0, "stdout", []string{
 			"the output does not contain the expected text", "exit 0", `"count=2\n"`}},
+		// A marker that does not start its line is no marker, and is never
+		// kept.
+		{"a marker inside a line", cliRunCheck, "count=2 %M\n", 0, "stdout", []string{`"count=2 \n"`}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			var markers []string
+			marker := ""
 			head := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
 				if req.Kind == toolexec.KindBuild {
 					return toolexec.Result{}, nil
 				}
-				return toolexec.Result{Output: strings.ReplaceAll(tt.out, "%R", req.Run), Exit: tt.exit}, nil
+				for _, f := range req.Files {
+					if m := attemptMarkerPattern.FindString(string(f.Content)); m != "" {
+						marker, markers = m, append(markers, m)
+					}
+				}
+				out := strings.ReplaceAll(tt.out, "%R", req.Run)
+				if marker != "" {
+					out = strings.ReplaceAll(out, "%M", marker)
+				}
+				return toolexec.Result{Output: out, Exit: tt.exit}, nil
 			}}
 			h := newWorkspaceHarness(t, wsConfig(), head, &fakeSandbox{})
 			_, resp := h.callKeyed(toolwire.VerbCheckRun, mustJSON(t, toolwire.CheckRunRequest{Spec: json.RawMessage(tt.check)}))
@@ -98,7 +121,7 @@ func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 						t.Errorf("detail %q lacks %q", s.Detail, w)
 					}
 				}
-				heldToTheReviewersBounds(t, s.Detail, a.Run, "")
+				heldToTheReviewersBounds(t, s.Detail, a.Run, markers)
 			}
 		})
 	}
@@ -119,11 +142,13 @@ func TestSlotExecFailKeepsTheProgramsOutput(t *testing.T) {
 		{"a wrong exit", "Traceback: boom\n", 1, []string{"exit 1, expected 0", `"Traceback: boom\n"`}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			var marker string
+			var markers []string
 			ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {
-				marker = attemptMarker(t, req)
-				// Half the marker is no marker, and is never kept whole.
-				return toolexec.Result{Exit: tt.exit, Output: strings.ReplaceAll(tt.out, "%M", "")}, nil
+				m := attemptMarker(t, req)
+				markers = append(markers, m)
+				// A marker that does not start its line is no marker, and
+				// is never kept.
+				return toolexec.Result{Exit: tt.exit, Output: strings.ReplaceAll(tt.out, "%M", m)}, nil
 			}}
 			h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
 			rec := h.relay.runCheck(context.Background(), parseCheck(t, markedExecCheck), toolwire.ModeDryRun)
@@ -140,7 +165,7 @@ func TestSlotExecFailKeepsTheProgramsOutput(t *testing.T) {
 						t.Errorf("detail %q lacks %q", s.Detail, w)
 					}
 				}
-				heldToTheReviewersBounds(t, s.Detail, a.Run, marker)
+				heldToTheReviewersBounds(t, s.Detail, a.Run, markers)
 			}
 		})
 	}

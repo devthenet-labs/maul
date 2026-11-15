@@ -652,7 +652,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 	case res.Truncated:
 		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
-		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", res.Output), "")
+		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", res.Output, marker), "")
 	}
 	// After the expected exit, content missing is the outcome's assertion.
 	content := func(ok bool) string {
@@ -667,7 +667,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 			return errStep("the expected text could not be built")
 		}
 		if !strings.Contains(res.Output, needle) {
-			return fail(withOutput("the output does not contain the expected text", exitOf(res), res.Output),
+			return fail(withOutput("the output does not contain the expected text", exitOf(res), res.Output, marker),
 				content(true))
 		}
 	}
@@ -675,7 +675,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 	for _, ptr := range sortedKeys(x.StdoutJSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
-			return fail(withOutput("stdoutJSON "+fmt.Sprintf("%q", ptr)+" did not match", exitOf(res), res.Output),
+			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), res.Output, marker),
 				content(valid && present))
 		}
 	}
@@ -683,29 +683,52 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 }
 
 // Bounds of the program's output a failing run's detail keeps
-// (withOutput): its end, quoted, in at most maxPrintedBytes, and the whole
-// detail within a step record's detail bound (toolwire.StepRecord).
+// (withOutput): its end, quoted, in at most maxPrintedBytes, a stdoutJSON
+// value in at most maxGotBytes before quoting, and the whole detail within
+// a step record's detail bound (toolwire.StepRecord).
 const (
 	maxPrintedBytes    = 768
+	maxGotBytes        = 128
 	maxStepDetailBytes = 2 << 10
 )
 
 // exitOf is a run's exit code in maul's words.
 func exitOf(res toolexec.Result) string { return fmt.Sprintf("exit %d", res.Exit) }
 
+// jsonMiss is maul's words for a stdoutJSON pointer that did not match:
+// with the value there, when there is one, quoted and cut to maxGotBytes,
+// as the end of a long output may not show it.
+func jsonMiss(ptr, raw string, present bool) string {
+	words := "stdoutJSON " + strconv.Quote(ptr) + " did not match"
+	if !present {
+		return words
+	}
+	if len(raw) > maxGotBytes {
+		cut := maxGotBytes
+		for cut > 0 && !utf8.RuneStart(raw[cut]) {
+			cut--
+		}
+		raw = raw[:cut]
+	}
+	return words + "; the value there is " + strconv.Quote(raw)
+}
+
 // withOutput is the detail of a run that failed without its marker
 // (G4-B-CLI-1): maul's words, the exit code when they do not already name
-// it, then the end of what the program printed, quoted on one line, so the
-// check reviewer and the evaluator see what the program printed and not
-// only that a text was missing. The output is the application's bytes (or
-// the evaluator's program's), UNTRUSTED: every reader of a detail shows it
-// as data. It never holds the attempt's marker: a run that printed it is
-// judged by markedDetail. A detail that would pass its bound keeps maul's
-// words alone.
-func withOutput(words, exit, output string) string {
+// it, then the end of what the program printed, the attempt's marker taken
+// out (a marker that does not start its line is no marker, but is never
+// shown), quoted on one line, so the check reviewer and the evaluator see
+// what the program printed and not only that a text was missing. The
+// output is the application's bytes (or the evaluator's program's),
+// UNTRUSTED: every reader of a detail shows it as data. A detail that would
+// pass its bound keeps maul's words alone.
+func withOutput(words, exit, output, marker string) string {
 	d := words
 	if exit != "" {
 		d += "; " + exit
+	}
+	if marker != "" {
+		output = strings.ReplaceAll(output, marker, "")
 	}
 	if d += "; " + printed(output); len(d) > maxStepDetailBytes {
 		return words
