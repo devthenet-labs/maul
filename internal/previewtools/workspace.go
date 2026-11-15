@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -651,7 +652,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 	case res.Truncated:
 		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
-		return fail(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "")
+		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", res.Output), "")
 	}
 	// After the expected exit, content missing is the outcome's assertion.
 	content := func(ok bool) string {
@@ -666,17 +667,75 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 			return errStep("the expected text could not be built")
 		}
 		if !strings.Contains(res.Output, needle) {
-			return fail("the output does not contain the expected text", content(true))
+			return fail(withOutput("the output does not contain the expected text", exitOf(res), res.Output),
+				content(true))
 		}
 	}
 	doc, valid := decodeJSON([]byte(res.Output))
 	for _, ptr := range sortedKeys(x.StdoutJSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
-			return fail("stdoutJSON "+fmt.Sprintf("%q", ptr)+" did not match", content(valid && present))
+			return fail(withOutput("stdoutJSON "+fmt.Sprintf("%q", ptr)+" did not match", exitOf(res), res.Output),
+				content(valid && present))
 		}
 	}
 	return []toolwire.StepRecord{{Result: toolwire.ResultPass}}
+}
+
+// Bounds of the program's output a failing run's detail keeps
+// (withOutput): its end, quoted, in at most maxPrintedBytes, and the whole
+// detail within a step record's detail bound (toolwire.StepRecord).
+const (
+	maxPrintedBytes    = 768
+	maxStepDetailBytes = 2 << 10
+)
+
+// exitOf is a run's exit code in maul's words.
+func exitOf(res toolexec.Result) string { return fmt.Sprintf("exit %d", res.Exit) }
+
+// withOutput is the detail of a run that failed without its marker
+// (G4-B-CLI-1): maul's words, the exit code when they do not already name
+// it, then the end of what the program printed, quoted on one line, so the
+// check reviewer and the evaluator see what the program printed and not
+// only that a text was missing. The output is the application's bytes (or
+// the evaluator's program's), UNTRUSTED: every reader of a detail shows it
+// as data. It never holds the attempt's marker: a run that printed it is
+// judged by markedDetail. A detail that would pass its bound keeps maul's
+// words alone.
+func withOutput(words, exit, output string) string {
+	d := words
+	if exit != "" {
+		d += "; " + exit
+	}
+	if d += "; " + printed(output); len(d) > maxStepDetailBytes {
+		return words
+	}
+	return d
+}
+
+// printed is the end of output in maul's words: Go-quoted (one line, its
+// newlines and invisible characters escaped), at most maxPrintedBytes.
+func printed(output string) string {
+	if output == "" {
+		return "the program printed nothing"
+	}
+	tail := output
+	if len(tail) > maxPrintedBytes {
+		tail = tail[len(tail)-maxPrintedBytes:]
+	}
+	for tail != "" && !utf8.RuneStart(tail[0]) {
+		tail = tail[1:]
+	}
+	q := strconv.Quote(tail)
+	for len(q) > maxPrintedBytes {
+		_, n := utf8.DecodeRuneInString(tail)
+		tail = tail[n:]
+		q = strconv.Quote(tail)
+	}
+	if len(tail) < len(output) {
+		return "the program printed (untrusted, the end of its output): " + q
+	}
+	return "the program printed (untrusted): " + q
 }
 
 // maxMarkedBytes bounds the program's own words a marked run's detail

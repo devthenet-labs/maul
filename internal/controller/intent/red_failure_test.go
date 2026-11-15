@@ -113,6 +113,45 @@ func TestAgentsRedReviewGetsItsMarkerLine(t *testing.T) {
 	}
 }
 
+// TestAgentsRedReviewGetsWhatTheProgramPrinted (G4-B-CLI-1): a check red
+// by its stdout assertion (no marker: the expected text is missing after
+// the expected exit) hands the reviewer what the tools relay recorded of
+// each head run, the exit code and the end of what the program printed,
+// each run's token written back as {{run}}. In G1 the reviewer refused all
+// four red checks because the record held only "the output does not
+// contain the expected text".
+func TestAgentsRedReviewGetsWhatTheProgramPrinted(t *testing.T) {
+	const said = `the output does not contain the expected text; exit 0; the program printed (untrusted): ` +
+		`"kick 4\nsnare 1\nhat 1\ntotal 6\nhalf kick 1 3\nhalf snare 0 1\nhalf hat 1 0\nrun `
+	e, name := newAgentsEnv(t, repoImage)
+	check := savedCheck(t, agentsVersionRun)
+	check.Expect, check.FailedStep, check.FailedAssertion = v1alpha1.CheckExpectFail, 1, "stdout"
+	r := &fakeReviewer{}
+	e.reviewChecksWith(r)
+	pv := e.agentsEvaluated(name)
+	e.agentsConfirm(pv.Name, false, func(c v1alpha1.SavedCheck) v1alpha1.CheckRun {
+		return v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunFail, Token: "h-a1", Seq: 10,
+			DryRunSeq: 1, Expect: v1alpha1.CheckExpectFail, AssertionStep: 1, AssertionID: "stdout"}
+	}, func(v1alpha1.SavedCheck) *v1alpha1.CheckRun { return nil }, check)
+	rec := &toolwire.CheckRunRecord{Digest: strings.TrimPrefix(check.Digest, "sha256:"), CheckID: check.ID,
+		Mode: toolwire.ModeConfirm, Result: toolwire.RunFail}
+	for _, tok := range []string{"h-a1", "h-b2"} {
+		rec.Attempts = append(rec.Attempts, toolwire.Attempt{Run: tok, Result: toolwire.ResultFail,
+			Steps: []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: said + tok + `\n"`, Assertion: true,
+				AssertionID: "stdout"}}})
+	}
+	e.ledgerOfEntries(pv.Name, toolwire.LedgerEntry{Seq: 10, TS: time.Unix(10, 0).UTC(), Kind: toolwire.KindRelay,
+		Verb: toolwire.VerbConfirm, Args: json.RawMessage(`{}`), CheckRun: rec})
+	e.settleReviews(name)
+	if len(r.handoffs) != 1 || len(r.handoffs[0].Reviews) != 1 {
+		t.Fatalf("handoffs = %+v, want the red check reviewed", r.handoffs)
+	}
+	want := []string{said + `{{run}}\n"`, said + `{{run}}\n"`}
+	if it := r.handoffs[0].Reviews[0]; it.Expect != "fail" || !slices.Equal(it.Failure, want) {
+		t.Errorf("review = %+v, want what the program printed %q", it, want)
+	}
+}
+
 // TestReviewFromIsTheRequestLine (G3-B-LIB-1 point 5): an outcome's from is
 // held to 300 characters by the plan grammar, so a long issue line reaches
 // the plan cut mid-word; the reviewer is handed the whole line of the

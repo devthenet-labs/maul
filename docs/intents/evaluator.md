@@ -337,7 +337,9 @@ What may be saved green is unchanged. Every one of these must hold before a defe
    only when the approved outcome is violated, never inside a retry or poll before its final judgement, on a connection
    error, a status code, a timeout or an exception; where it prints it on more than one condition, what maul recorded
    shows which held. The answer counts only for that assertion: another failing assertion of the check needs a review of
-   its own. Anything else and the check is not stored; the outcome stays unsure.
+   its own. Anything else and the check is not stored; the outcome stays unsure. A program red by its `stdout`
+   expectation printed no marker: what maul recorded of its failure is then its exit code and the end of what it printed
+   (at most 768 bytes, quoted on one line), the application's bytes, shown as untrusted data.
 4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
    run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
    passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.

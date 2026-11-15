@@ -245,7 +245,9 @@ type StepRecord struct {
 	// Side is the sandbox the step ran in; empty is the head, and only
 	// base is ever written.
 	Side Side `json:"side,omitempty"`
-	// Detail is the runner's message for a step that did not pass.
+	// Detail is the runner's message for a step that did not pass. An exec
+	// or run step's may quote what its program printed (after its marker,
+	// or the end of its output): UNTRUSTED, shown only as data.
 	Detail string `json:"detail,omitempty"`
 	// Assertion marks a failing step that failed an assertion the outcome
 	// is the judge of, about data the check's own run made, in a check that
