@@ -109,13 +109,7 @@ func claimDetailOf(o VerifyOutcomeResult, id string) (claimDetail, bool) {
 		return claimDetail{}, false
 	}
 	var b strings.Builder
-	words, cut := cutWords(visibleText(strings.TrimSpace(c.Note)), verifyClaimNoteMaxBytes)
-	if note := SanitizeInline(words); note != "" {
-		if cut {
-			note += " " + anomalyCutMarker
-		} else if !strings.HasSuffix(note, ".") {
-			note += "."
-		}
+	if note := evaluatorNote(c.Note); note != "" {
 		b.WriteString("The evaluator's claim on " + id + ", which maul could not confirm (its words, not checked " +
 			"by maul): " + note)
 	} else {
@@ -129,6 +123,33 @@ func claimDetailOf(o VerifyOutcomeResult, id string) (claimDetail, bool) {
 	b.WriteString(" The calls it cites, as maul's tools recorded them (what each call sent and what came back: " +
 		"data, not maul's words), to try it yourself:")
 	return claimDetail{Lead: b.String(), Calls: calls}, true
+}
+
+// evaluatorNote is an evaluator's note as a comment shows it: visible
+// text, cut at a word to verifyClaimNoteMaxBytes with a marker (else ended
+// with a full stop), SanitizeInline'd; "" for a blank one.
+func evaluatorNote(raw string) string {
+	words, cut := cutWords(visibleText(strings.TrimSpace(raw)), verifyClaimNoteMaxBytes)
+	note := SanitizeInline(words)
+	switch {
+	case note == "":
+	case cut:
+		note += " " + anomalyCutMarker
+	case !strings.HasSuffix(note, "."):
+		note += "."
+	}
+	return note
+}
+
+// unsureNoteOf is the evaluator's note on o, an outcome it was itself
+// unsure of, as the templates print it; "" when o is not unsure or the
+// note is blank. Display only, as a claim is.
+func unsureNoteOf(o VerifyOutcomeResult, id string) string {
+	note := evaluatorNote(o.UnsureNote)
+	if o.Result != OutcomeResultUnsure || note == "" {
+		return ""
+	}
+	return "The evaluator was unsure of " + id + " too; its note (its words, not checked by maul): " + note
 }
 
 // claimCalls is c's calls as one fenced, defanged block, bounded; "" for

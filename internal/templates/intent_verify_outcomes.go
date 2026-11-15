@@ -15,9 +15,10 @@ import (
 // decided result, maul's words on why and the check it rests on, rendered by
 // maul from structured data, and for a failure the application's output in
 // a fenced, sanitised and defanged "app output" block naming the outcome.
-// The evaluator's own words appear only as a look-around anomaly's summary
-// and as the note of an outcome it judged not to hold that maul could not
-// confirm (intent_verify_claim.go), each marked as its words and sanitised.
+// The evaluator's own words appear only as a look-around anomaly's summary,
+// as the note of an outcome it judged not to hold that maul could not
+// confirm (intent_verify_claim.go) and as the note of an outcome it was
+// itself unsure of, each marked as its words and sanitised.
 
 // Outcome results as a comment shows them (status.verification.outcomes).
 const (
@@ -126,6 +127,10 @@ type VerifyOutcomeResult struct {
 	// check maul re-ran shows failing, its note and the calls it cites
 	// (intent_verify_claim.go); nil for none.
 	Claim *VerifyEvaluatorClaim
+	// UnsureNote is, for an outcome the evaluator was itself unsure of,
+	// its note (often a question for a person, gate 5 G5-B-BR-1), shown
+	// only while the outcome is unsure; "" for none.
+	UnsureNote string
 	// Unkept is why maul did not keep a check proposed to show the outcome
 	// failing (an Unkept constant); "" for none. It never says the check
 	// ran red: a refused check may not have.
@@ -183,6 +188,9 @@ func outcomeViews(v *verifyView, s VerifySection, short bool) {
 		}
 		if d, ok := claimDetailOf(o, id); ok {
 			v.Claims = append(v.Claims, d)
+		}
+		if n := unsureNoteOf(o, id); n != "" {
+			v.UnsureNotes = append(v.UnsureNotes, n)
 		}
 	}
 	for i, a := range s.Anomalies {
