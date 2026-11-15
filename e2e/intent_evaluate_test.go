@@ -960,7 +960,7 @@ func TestIntentEvaluateCanary(t *testing.T) {
 // hand-off is released ready and maul/acceptance is success; no round 3.
 func TestIntentEvaluateRecheckPasses(t *testing.T) {
 	e := startEvaluate(t, evalOptions{review: "weak-refused"})
-	_, name, pr := e.toReview(t)
+	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
 	in := e.waitEval(t, name, "the recheck to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.Round == 2 && v.State == v1alpha1.VerificationPassed
@@ -999,6 +999,10 @@ func TestIntentEvaluateRecheckPasses(t *testing.T) {
 			proven)
 	}
 	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	eventually(t, "round 2's comment to say maul checked once more", func() bool {
+		return strings.Contains(strings.Join(e.gh.Comments(number), ""), "### maul: verification 2, attempt 1 "+
+			"(maul checked once more by itself: a check was not accepted)")
+	})
 	if h := e.intent(t, name).Status.Verification.Handoff; h == nil || !h.Released ||
 		h.Reason != v1alpha1.HandoffReasonReady {
 		t.Errorf("handoff %+v, want released ready after the recheck", h)

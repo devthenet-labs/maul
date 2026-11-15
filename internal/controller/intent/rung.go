@@ -86,9 +86,10 @@ func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptanc
 	return false
 }
 
-// escalationDue reports the one full round an unsure replay round asked
-// for (status.verification.escalation) as due at the same heads: the
-// replay round is the current one, judged there, Unconfirmed, with no
+// escalationDue reports the one full round an unsure replay round or a
+// recheckable full round asked for (status.verification.escalation) as due
+// at the same heads: the round that asked is the current one, judged there,
+// Unconfirmed, not made ready since by an approver's acceptance, with no
 // request waiting, within maxVerifications and below the evaluation
 // ceiling (a full round spends; past it the verification stays
 // Unconfirmed, and the hand-off says why). It is not spaced by
@@ -98,6 +99,7 @@ func openFindingAt(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptanc
 func (p *pass) escalationDue(v *v1alpha1.IntentVerification) bool {
 	return escalationAsked(v, v.HeadSetDigest) && v.State == v1alpha1.VerificationUnconfirmed && v.Ref != nil &&
 		v.Requested == nil && v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) &&
+		!outcomesReady(p.in.Status.Acceptance, v) &&
 		v.Automatic < p.proj.Spec.Limits.MaxVerificationsLimit() && !p.atEvaluationCeiling()
 }
 
@@ -106,22 +108,25 @@ func (p *pass) escalationDue(v *v1alpha1.IntentVerification) bool {
 // (escalationDue), or it is the round being evaluated now. The comments say
 // so.
 func (p *pass) rechecking(v *v1alpha1.IntentVerification) bool {
+	return rechecked(v) && v.State == v1alpha1.VerificationEvaluating || p.escalationDue(v) && v.Escalation.Recheck
+}
+
+// rechecked reports v's current round as the recheck the round before it
+// asked for at its heads, which its verification comment's heading says.
+func rechecked(v *v1alpha1.IntentVerification) bool {
 	e := v.Escalation
-	if e == nil || !e.Recheck || e.HeadSetDigest != v.HeadSetDigest {
-		return false
-	}
-	return v.State == v1alpha1.VerificationEvaluating && v.Round == e.Round+1 || p.escalationDue(v)
+	return e != nil && e.Recheck && e.HeadSetDigest == v.HeadSetDigest && v.Round == e.Round+1
 }
 
 // escalationAsked reports the escalation the current round at hs (an
 // unsure replay, or a recheckable full round) asked for and that has not
 // run: the next round at hs is full whatever starts it, an approver's
 // request included, so a request never replays in its place and spends it
-// unrun. A dispute's full follow-up records the escalation as the round
-// before its own, so it is never asked for by the round that spent it.
+// unrun.
 func escalationAsked(v *v1alpha1.IntentVerification, hs string) bool {
 	e := v.Escalation
-	return e != nil && e.Round == v.Round && e.HeadSetDigest == hs && v.HeadSetDigest == hs
+	return e != nil && e.Round == v.Round && e.HeadSetDigest == hs && v.HeadSetDigest == hs &&
+		(v.Rung == v1alpha1.RungReplay || e.Recheck)
 }
 
 // followUpDue reports an automatic round at v's heads still to come after

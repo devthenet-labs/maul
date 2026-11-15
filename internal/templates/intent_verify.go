@@ -459,7 +459,11 @@ type VerifyComment struct {
 	Round, Attempt    int32
 	// Replay: the round replayed maul's saved checks with no model (the
 	// replay rung), which its heading says.
-	Replay  bool
+	Replay bool
+	// Recheck: maul started the round by itself because a check of the
+	// round before was not accepted (gate 5 G5-B-CLI-1), which its heading
+	// says.
+	Recheck bool
 	Section VerifySection
 }
 
@@ -548,11 +552,11 @@ func renderVerifySection(s *VerifySection) (string, error) {
 func RenderVerifyComment(c VerifyComment) (string, error) {
 	return fitVerify(c.Section, MaxCommentBytes, func(v verifyView) (string, error) {
 		return render("intent_verify_issue.md.tmpl", struct {
-			Marker         string
-			Round, Attempt int32
-			Replay         bool
+			Marker          string
+			Round, Attempt  int32
+			Replay, Recheck bool
 			verifyView
-		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, c.Replay, v})
+		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, c.Replay, c.Recheck, v})
 	})
 }
 

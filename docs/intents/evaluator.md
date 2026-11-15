@@ -444,7 +444,9 @@ answered `does_not_prove` or `unclear`, or no check was proposed: `model-only-pa
 at the same heads (`status.verification.escalation` with `recheck`): the reviewer's refusal reaches an evaluator only in
 a later round's handoff, and without the recheck no later round starts at unchanged heads. Its evaluator is told each
 refusal, as any later round's is, and can write a stronger check. The comments say maul is checking once more by itself
-because a check was not accepted, `maul/acceptance` stays pending and the hand-off waits for it. It is judged by exactly
+because a check was not accepted (the recheck's verification comment says so in its heading), `maul/acceptance` stays
+pending and the hand-off waits for it. An approver's `/maul accept` of the open outcomes before it starts settles it
+with no round, and an approver's `/maul verify` while it is due runs that full round as theirs. It is judged by exactly
 the rules in [What makes a pass](#what-makes-a-pass). A round with anything else open asks for none: an outcome failed,
 quarantined, suspected, held by an earlier finding, or doubted in any other way, a dispute, a fix, an objection from the
 evaluator (a fail verdict or a contrary entry on any outcome) or a failing environment. Those stay as they are, for a

@@ -644,6 +644,11 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref, nv.RetryOwed = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}, false
 		recordRound(nv, pv.Spec.Rung, followUp, prevRound, hs.digest)
+		if e := nv.Escalation; kind == verifyRequest && e != nil && e.Round == prevRound {
+			// An approver's request spends the round's recheck: the round
+			// is theirs, not maul's own.
+			e.Recheck = false
+		}
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if kind != verifyRetry {

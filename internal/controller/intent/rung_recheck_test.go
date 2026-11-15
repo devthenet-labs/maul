@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/agentrun"
@@ -318,6 +320,10 @@ func TestRefusedCheckIsRecheckedOnce(t *testing.T) {
 			if n := len(e.verifications(name)); n != 2 || e.verification(name).Round != 2 {
 				t.Fatalf("%d verifications, round %d: a head set is rechecked once", n, e.verification(name).Round)
 			}
+			if cs := e.verifyComments(name, 2); len(cs) != 1 || !strings.Contains(cs[0].Body,
+				"### maul: verification 2, attempt 1 (maul checked once more by itself: a check was not accepted)") {
+				t.Errorf("round 2's comments %+v, want its heading to say maul checked once more", cs)
+			}
 			if tc.want == v1alpha1.VerificationPassed {
 				return
 			}
@@ -329,6 +335,51 @@ func TestRefusedCheckIsRecheckedOnce(t *testing.T) {
 				t.Errorf("maul/acceptance %+v (posted %v), want the final error", st, ok)
 			}
 		})
+	}
+}
+
+// TestAcceptanceOvertakesTheRecheck: an approver's /maul accept of the
+// outcome left open, before the recheck starts, makes the heads ready: no
+// model round re-rolls them, and maul/acceptance is success.
+func TestAcceptanceOvertakesTheRecheck(t *testing.T) {
+	e, name, _, _ := refusedRound(t, evaluationReport)
+	e.recheckAsked(name)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Accepted = append(in.Status.Acceptance.Accepted, v1alpha1.AcceptanceRecord{ID: oHealthy,
+			By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()), CommentID: 98,
+			HeadSetDigest: in.Status.Verification.HeadSetDigest})
+	})
+	e.review(name, 8)
+	if n := len(e.verifications(name)); n != 1 {
+		t.Fatalf("%d verifications: a recheck re-rolled heads an approver made ready", n)
+	}
+	p := e.prVerifyPass(name)
+	if !outcomesReady(p.in.Status.Acceptance, p.in.Status.Verification) || p.rechecking(p.in.Status.Verification) {
+		t.Error("not ready, or still rechecking, once the open outcome is accepted")
+	}
+	if st, _, ok := p.acceptanceStatus(); !ok || st.state != statusSuccess {
+		t.Errorf("maul/acceptance %+v (posted %v), want success once accepted", st, ok)
+	}
+}
+
+// TestRequestSpendsTheRecheck: an approver's /maul verify while the recheck
+// is due runs that full round as theirs: the recheck is spent, its round's
+// comment never says maul checked by itself, and no round follows it.
+func TestRequestSpendsTheRecheck(t *testing.T) {
+	e, name, _, _ := refusedRound(t, evaluationReport)
+	e.recheckAsked(name)
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.Requested = &v1alpha1.VerifyRequest{By: approver, ByID: actorOf(approver).ID,
+			At: metav1.NewTime(e.clock.Now()), CommentID: 4403}
+	})
+	pv := e.roundOf(name, 2)
+	v := e.verification(name)
+	if pv.Spec.Rung != v1alpha1.RungFull || pv.Annotations[annotationVerificationTrigger] != verificationByRequest {
+		t.Fatalf("round 2 = %s by %q, want the request's full round", pv.Spec.Rung,
+			pv.Annotations[annotationVerificationTrigger])
+	}
+	if esc := v.Escalation; esc == nil || esc.Round != 1 || esc.Recheck || rechecked(v) {
+		t.Errorf("escalation %+v, want round 1's spent by the request, no recheck", esc)
 	}
 }
 
