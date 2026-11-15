@@ -103,7 +103,7 @@ func citedCall(pv *v1alpha1.PreviewVerification, entries []toolwire.LedgerEntry,
 	}
 	var req toolwire.CheckRunRequest
 	if json.Unmarshal(e.Args, &req) == nil {
-		if parsed, err := checks.Parse(req.Spec); err == nil {
+		if parsed, err := checks.ParseRecorded(req.Spec, "sha256:"+e.CheckRun.Digest); err == nil {
 			call.Check = &parsed
 		}
 	}

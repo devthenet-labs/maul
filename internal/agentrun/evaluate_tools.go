@@ -44,12 +44,12 @@ type droppedProposal struct {
 
 // parseEvaluation parses an evaluation report (report.ParseEvaluation) and
 // holds its proposals to the check files the agent wrote. A proposal by
-// digest alone must be the digest (checks.Digest) of a check file under the
-// checks directory, whose id and outcome are the proposal's; anything else
-// refuses the report, so its repair (settleReport) can fix it in the
-// agent's own session. A proposal naming its file is resolved from that
-// file (resolveProposedFiles): one that does not resolve is dropped with
-// its reason, never the whole report. The files are the agent's own claim
+// digest alone must be the digest a dry run of a check file under the
+// checks directory records (checks.ParseProposal, checks.Digest), whose id
+// and outcome are the proposal's; anything else refuses the report, so its
+// repair (settleReport) can fix it in the agent's own session. A proposal
+// naming its file is resolved from that file (resolveProposedFiles): one
+// that does not resolve is dropped with its reason, never the whole report. The files are the agent's own claim
 // either way: the tools container confirms only a digest it saw dry-run
 // green, and the body it ran is the ledger's.
 //
@@ -128,7 +128,7 @@ func resolveFile(scratch string, p report.ProposedCheck) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s cannot be read: %w", p.File, err)
 	}
-	c, err := checks.Parse(data)
+	c, err := checks.ParseProposal(data)
 	if err != nil {
 		return "", fmt.Errorf("%s is not a check: %w", p.File, err)
 	}
@@ -181,8 +181,9 @@ type checkFile struct {
 
 // readCheckFiles reads the regular files directly under dir, each at most
 // toolwire.MaxCheckBytes, following no symlink, and keys each that parses
-// as a check (checks.Parse) by its digest; the first of two alike wins. A
-// file that does not parse, or is too large, is no check: it is skipped.
+// as a check by the digest a dry run of it records (checks.ParseProposal);
+// the first of two alike wins. A file that does not parse, or is too
+// large, is no check: it is skipped.
 func readCheckFiles(dir string) (map[string]checkFile, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
@@ -208,7 +209,7 @@ func readCheckFiles(dir string) (map[string]checkFile, error) {
 		if err != nil {
 			continue
 		}
-		c, err := checks.Parse(data)
+		c, err := checks.ParseProposal(data)
 		if err != nil {
 			continue
 		}

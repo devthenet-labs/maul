@@ -479,7 +479,7 @@ func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) res
 	if req.Side.Recorded() != "" {
 		return refusal(toolwire.RefusedInvalid, reasonOneTree)
 	}
-	c, err := checks.Parse(req.Spec)
+	c, err := checks.ParseProposal(req.Spec)
 	if err == nil {
 		preview := checks.Preview{Paths: r.cfg.paths(), Components: r.cfg.keys()}
 		err = checks.Validate(c, checks.Context{Preview: &preview})
@@ -520,7 +520,7 @@ func (r *Relay) headDryRun(ctx context.Context, c checks.Check) result {
 // (MaxBaseRuns): the agent's calls bound it.
 func (r *Relay) workspaceCheckRun(ctx context.Context, req *toolwire.CheckRunRequest) result {
 	side := req.Side.Recorded()
-	c, err := checks.Parse(req.Spec)
+	c, err := checks.ParseProposal(req.Spec)
 	if err == nil {
 		err = checks.Validate(c, r.workspaceSurface())
 	}

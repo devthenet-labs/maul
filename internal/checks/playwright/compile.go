@@ -245,8 +245,8 @@ func (w *writer) step(n int, st checks.BrowserStep) {
 		w.do(w.locator(st.Fill.Locator) + ".fill(" + w.lit(st.Fill.Text) + ")")
 	case st.Select != nil:
 		w.line("  " + label + "select")
-		w.do("page.getByLabel(" + w.lit(st.Select.Label) + ").selectOption({ label: " + w.lit(st.Select.Option) +
-			" })")
+		w.do("page.getByLabel(" + w.lit(st.Select.Label) + exactOpt(st.Select.Exact, ", { exact: true }") +
+			").selectOption({ label: " + w.lit(st.Select.Option) + " })")
 	case st.Press != nil:
 		w.line("  " + label + "press")
 		if st.Press.Locator != nil {
@@ -374,11 +374,11 @@ func (w *writer) locator(l checks.Locator) string {
 	case l.Role != "":
 		e = scope + ".getByRole(" + w.lit(l.Role)
 		if l.Name != "" {
-			e += ", { name: " + w.lit(l.Name) + " }"
+			e += ", { name: " + w.lit(l.Name) + exactOpt(l.Exact, ", exact: true") + " }"
 		}
 		e += ")"
 	case l.Label != "":
-		e = scope + ".getByLabel(" + w.lit(l.Label) + ")"
+		e = scope + ".getByLabel(" + w.lit(l.Label) + exactOpt(l.Exact, ", { exact: true }") + ")"
 	case l.Text != "":
 		e = scope + ".getByText(" + w.lit(l.Text) + ")"
 	case l.TestID != "":
@@ -399,6 +399,16 @@ func (w *writer) locator(l checks.Locator) string {
 		}
 	}
 	return e
+}
+
+// exactOpt is opt when exact is true; false and absent are Playwright's
+// default (a part of the name, case-insensitive), so they write nothing and
+// a check saved without exact compiles as it always did.
+func exactOpt(exact *bool, opt string) string {
+	if exact != nil && *exact {
+		return opt
+	}
+	return ""
 }
 
 // walkLocators calls f on every locator of b, within parents included.

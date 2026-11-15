@@ -211,6 +211,16 @@ clipped is indeterminate. An element clipped away entirely, scrolled out of its 
 relation on it is indeterminate, never a fail. A saved check is at most 8 KiB as maul stores it, and an intent keeps at
 most 40.
 
+A browser check's `label` (a `select`'s too) and a `role`'s `name` match an element's whole name, case-sensitively, with
+leading and trailing whitespace ignored and each run of it read as one space (Playwright's `exact`):
+`{"label": "Beat name"}` finds the beat name field and not a button labelled `Remix <run> cover long beat name` that a
+run's own data added to the page, and `{"role": "button", "name": "Play"}` does not find a button named `▶ Play`. maul
+writes `"exact": true` into every such locator of a check the evaluator proposes that does not say `"exact": false` (a
+part of the name, in any case), except in a `count`, whose locators keep the part match unless they say `"exact": true`:
+an exact name would let a count of 0 pass beside an element named a little differently. The `exact` maul wrote is part
+of the check as saved, its digest included, and a check saved before maul did this has none, so it replays as it was
+proven, matching a part of the name. `text` and `hasText` always match a part.
+
 Everything else:
 
 | Situation                                                                                     | The outcome                                                                                                                                     |

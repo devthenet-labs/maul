@@ -78,6 +78,13 @@ var goldenCases = []struct {
 		{"scroll":{"locator":{"role":"grid","name":"Steps"},"dx":0,"dy":40}},
 		{"expect":{"assert":"aligned","locator":{"role":"row","name":"Kick {{run}}"},
 			"other":{"role":"row","name":"Snare {{run}}"},"axis":"x","tolerance":1}}]}`},
+	{"exact", `{"steps":[
+		{"goto":"/"},
+		{"fill":{"locator":{"label":"Beat name","exact":true},"text":"{{run}} a"}},
+		{"select":{"label":"Tempo","option":"120 bpm","exact":true}},
+		{"click":{"role":"button","name":"Save","exact":true,"within":{"role":"region","name":"Save a beat",
+			"exact":false}}},
+		{"expect":{"assert":"visible","locator":{"role":"button","name":"Vote for {{run}} a","exact":true}}}]}`},
 }
 
 func parseBrowser(t *testing.T, s string) checks.BrowserCheck {
@@ -243,6 +250,56 @@ func TestRunTokenSubstituted(t *testing.T) {
 		}
 		if strings.Contains(tc.check, "{{run}}") && !bytes.Contains(out, []byte(testToken)) {
 			t.Errorf("%s: the run token is missing", tc.name)
+		}
+	}
+}
+
+// TestSavedChecksCompileAsSaved: the checks defect gate 4 saved
+// (../testdata/saved-gate4.json), written and proven while every label and
+// role name matched a part of an element's name, compile to the very spec
+// they replayed as then (goldens written before exact matching): their
+// replays keep the meaning they were confirmed with.
+func TestSavedChecksCompileAsSaved(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "testdata", "saved-gate4.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []struct{ ID, Body string }
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range saved {
+		t.Run(s.ID, func(t *testing.T) {
+			c, err := checks.Parse([]byte(s.Body))
+			if err != nil || c.Browser == nil {
+				t.Fatalf("saved check %s: %v", s.ID, err)
+			}
+			got, err := Compile(*c.Browser, Options{RunToken: testToken})
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			golden(t, "saved-"+s.ID+".spec.ts", got)
+		})
+	}
+}
+
+// TestCompileExact: a label, a role name and a select label that say exact
+// true compile to Playwright's exact option; false and absent to its
+// default, a case-insensitive part of the name.
+func TestCompileExact(t *testing.T) {
+	b := parseBrowser(t, goldenCases[len(goldenCases)-1].check)
+	got, err := Compile(b, Options{RunToken: testToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`page.getByLabel("Beat name", { exact: true }).fill(`,
+		`page.getByLabel("Tempo", { exact: true }).selectOption({ label: "120 bpm" })`,
+		`page.getByRole("region", { name: "Save a beat" }).getByRole("button", { name: "Save", exact: true }).click()`,
+		`maul.visible(page.getByRole("button", { name: "Vote for v1a1t1-abc123 a", exact: true }))`,
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("compiled spec lacks %s:\n%s", want, got)
 		}
 	}
 }
