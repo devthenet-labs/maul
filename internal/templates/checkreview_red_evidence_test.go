@@ -114,6 +114,34 @@ func g10Review(t *testing.T) CheckReviewPrompt {
 	return p
 }
 
+// Gate 4's G1 red check (bbcount-102 half-rule-split, G4-B-CLI-1): a cli
+// exec check red by its stdout assertion, refused in both rounds because
+// maul recorded only that the expected text was missing. g4HalfRecorded is
+// what the tools relay records of such a run now: the exit code and the end
+// of what the program printed (A and B swapped).
+const (
+	g4HalfRuleSplit = `{"id":"half-rule-split","outcome":"half-rule-split","form":"exec","exec":{` +
+		`"argv":["{{bin}}","-half","p.json"],"files":[{"path":"p.json","content":"{\"tracks\":{\"kick\":` +
+		`[false,true,true,false,true,false,false,false,false,false,false,true,false,false,false,false]}}\n"}],` +
+		`"timeout":"30s","expect":{"exit":0,"stdoutContains":"half kick 3 1"}}}`
+	g4HalfRecorded = `the output does not contain the expected text; exit 0; the program printed (untrusted): ` +
+		`"kick 4\nsnare 1\nhat 1\ntotal 6\nhalf kick 1 3\nhalf snare 0 1\nhalf hat 1 0\n"`
+)
+
+// g4HalfReview is gate 4 G1's red question, failure as maul now records it.
+func g4HalfReview(t *testing.T) CheckReviewPrompt {
+	t.Helper()
+	w := testReviewCLI
+	w.Head = ReviewRun{Result: string(v1alpha1.CheckRunFail), Assertion: "stdout"}
+	w.Base = ReviewRun{Result: string(v1alpha1.CheckRunFail)}
+	p := testWorkspaceReview(t, g4HalfRuleSplit, w)
+	p.Outcome = "For any pattern, `bbcount -half` prints `half <track> A B` where A counts the track's playing " +
+		"steps among steps 1-8 and B among steps 9-16; a kick playing steps 2, 3, 5 and 12 prints `half kick 3 1`."
+	p.ExpectFail, p.FailedStep, p.FailedAssertion = true, 1, "stdout"
+	p.Failure = []string{g4HalfRecorded, g4HalfRecorded}
+	return p
+}
+
 // The red rule's words that judge a red check by its failure alone.
 const (
 	// judgeTheFailure: grounds a red check's failure does not raise are no
@@ -166,6 +194,7 @@ func TestCheckReviewRedShowsWhatItsFailureRecorded(t *testing.T) {
 			[]string{programWords, setExpectAside}},
 		{"G10 saved-line-legible", g10Review(t), g10Recorded,
 			[]string{elementFound, "a locator that found its element"}},
+		{"gate 4 G1 half-rule-split, red by its stdout", g4HalfReview(t), g4HalfRecorded, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := RenderCheckReviewPrompt(tc.p)

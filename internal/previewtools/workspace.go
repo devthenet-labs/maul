@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -651,7 +652,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 	case res.Truncated:
 		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
-		return fail(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "")
+		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", res.Output, marker), "")
 	}
 	// After the expected exit, content missing is the outcome's assertion.
 	content := func(ok bool) string {
@@ -666,17 +667,95 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 			return errStep("the expected text could not be built")
 		}
 		if !strings.Contains(res.Output, needle) {
-			return fail("the output does not contain the expected text", content(true))
+			return fail(withOutput("the output does not contain the expected text", exitOf(res), res.Output, marker),
+				content(true))
 		}
 	}
 	doc, valid := decodeJSON([]byte(res.Output))
 	for _, ptr := range sortedKeys(x.StdoutJSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
-			return fail("stdoutJSON "+fmt.Sprintf("%q", ptr)+" did not match", content(valid && present))
+			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), res.Output, marker),
+				content(valid && present))
 		}
 	}
 	return []toolwire.StepRecord{{Result: toolwire.ResultPass}}
+}
+
+// Bounds of the program's output a failing run's detail keeps
+// (withOutput): its end, quoted, in at most maxPrintedBytes, a stdoutJSON
+// value in at most maxGotBytes before quoting, so the whole detail stays
+// within a step record's detail bound (toolwire.StepRecord).
+const (
+	maxPrintedBytes = 768
+	maxGotBytes     = 128
+)
+
+// exitOf is a run's exit code in maul's words.
+func exitOf(res toolexec.Result) string { return fmt.Sprintf("exit %d", res.Exit) }
+
+// jsonMiss is maul's words for a stdoutJSON pointer that did not match:
+// with the value there, when there is one, quoted and cut to maxGotBytes,
+// as the end of a long output may not show it.
+func jsonMiss(ptr, raw string, present bool) string {
+	words := "stdoutJSON " + strconv.Quote(ptr) + " did not match"
+	if !present {
+		return words
+	}
+	if len(raw) > maxGotBytes {
+		cut := maxGotBytes
+		for cut > 0 && !utf8.RuneStart(raw[cut]) {
+			cut--
+		}
+		raw = raw[:cut]
+	}
+	return words + "; the value there is " + strconv.Quote(raw)
+}
+
+// withOutput is the detail of a run that failed without its marker
+// (G4-B-CLI-1): maul's words, the exit code when they do not already name
+// it, then the end of what the program printed, the attempt's marker taken
+// out of both (a marker that does not start its line is no marker, but is never
+// shown), quoted on one line, so the check reviewer and the evaluator see
+// what the program printed and not only that a text was missing. The
+// output is the application's bytes (or the evaluator's program's),
+// UNTRUSTED: every reader of a detail shows it as data. Its bounds keep it
+// within a step record's (TestWorkspaceFailKeepsTheProgramsOutput holds the
+// longest).
+func withOutput(words, exit, output, marker string) string {
+	if marker != "" {
+		words, output = strings.ReplaceAll(words, marker, ""), strings.ReplaceAll(output, marker, "")
+	}
+	d := words
+	if exit != "" {
+		d += "; " + exit
+	}
+	return d + "; " + printed(output)
+}
+
+// printed is the end of output in maul's words: Go-quoted (one line, its
+// newlines and invisible characters escaped), at most maxPrintedBytes.
+func printed(output string) string {
+	if output == "" {
+		return "the program printed nothing"
+	}
+	tail := output
+	if len(tail) > maxPrintedBytes {
+		tail = tail[len(tail)-maxPrintedBytes:]
+	}
+	for tail != "" && !utf8.RuneStart(tail[0]) {
+		tail = tail[1:]
+	}
+	q := strconv.Quote(tail)
+	for len(q) > maxPrintedBytes {
+		_, n := utf8.DecodeRuneInString(tail)
+		tail = tail[n:]
+		q = strconv.Quote(tail)
+	}
+	if len(tail) < len(output) {
+		return "the program printed (untrusted, the end of its output): " + q
+	}
+	return "the program printed (untrusted): " + q
 }
 
 // maxMarkedBytes bounds the program's own words a marked run's detail

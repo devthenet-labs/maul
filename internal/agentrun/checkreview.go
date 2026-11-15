@@ -112,10 +112,11 @@ type CheckReviewItem struct {
 	Observed []string `json:"observed,omitempty"`
 	// Failure is, on a red item, what maul recorded of the failing
 	// assertion in each of its runs (toolwire.StepRecord.Detail: a browser
-	// assertion's measurement, or what a program printed after its marker),
-	// that run's token written as checks.RunPlaceholder, held to
-	// ValidFailure (G3-B-BR-1, G3-B-LIB-1). UNTRUSTED: a program's words
-	// are the evaluator's, quoted to the reviewer as data.
+	// assertion's measurement, what a program printed after its marker, or
+	// a program's exit code and the end of its output), that run's token
+	// written as checks.RunPlaceholder, held to ValidFailure (G3-B-BR-1,
+	// G3-B-LIB-1, G4-B-CLI-1). UNTRUSTED: a program's words are the
+	// evaluator's or the application's, quoted to the reviewer as data.
 	Failure []string `json:"failure,omitempty"`
 	// Head and Base are the check's runs at each side on a workspace round
 	// (only there): Head always, as confirmed (green a pass, red the fail by

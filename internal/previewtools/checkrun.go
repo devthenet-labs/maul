@@ -382,19 +382,19 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 		// truncated run is never a pass, nor a fail of the outcome.
 		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
-		return fail(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit))
+		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", res.Output, marker))
 	}
 	if x.StdoutContains != "" {
 		needle, err := httpstep.Substitute(x.StdoutContains, run, nil)
 		if err != nil || !strings.Contains(res.Output, needle) {
-			return fail("the output does not contain the expected text")
+			return fail(withOutput("the output does not contain the expected text", exitOf(res), res.Output, marker))
 		}
 	}
 	doc, valid := decodeJSON([]byte(res.Output))
 	for _, ptr := range sortedKeys(x.StdoutJSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
-			return fail("stdoutJSON " + strconv.Quote(ptr) + " did not match")
+			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), res.Output, marker))
 		}
 	}
 	return []toolwire.StepRecord{{Result: toolwire.ResultPass}}
