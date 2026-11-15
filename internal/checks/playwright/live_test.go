@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -107,16 +108,28 @@ func nameCases() []liveCase {
 	see := func(name, want string, l checks.Locator) liveCase {
 		return liveCase{name, want, checks.Assertion{Assert: checks.AssertVisible, Locator: &l}}
 	}
+	icon := checks.Locator{Role: "button", Name: "Play", Exact: &yes}
 	return []liveCase{
 		see("n-label-exact", "pass", checks.Locator{Label: "Beat name", Exact: &yes}),
 		see("n-label-part", "fail", checks.Locator{Label: "Beat name"}),
 		see("n-label-exact-case", "fail", checks.Locator{Label: "beat name", Exact: &yes}),
 		see("n-label-exact-space", "pass", checks.Locator{Label: " Beat  name ", Exact: &yes}),
-		see("n-role-exact-icon", "fail", checks.Locator{Role: "button", Name: "Play", Exact: &yes}),
+		see("n-role-exact-icon", "fail", icon),
 		see("n-role-exact", "pass", checks.Locator{Role: "button", Name: "▶ Play", Exact: &yes}),
 		see("n-role-part", "pass", checks.Locator{Role: "button", Name: "Play"}),
+		{"n-miss-legible", "fail", checks.Assertion{Assert: checks.AssertLegible, Locator: &icon}},
+		{"n-miss-clickable", "fail", checks.Assertion{Assert: checks.AssertClickable, Locator: &icon}},
+		{"n-miss-no-overlap", "fail", checks.Assertion{Assert: checks.AssertNoOverlap, Locator: css("#n-beat"),
+			Other: &icon}},
 	}
 }
+
+// missesNoElement are the name cases whose exact locator finds nothing:
+// each must fail as Playwright's own timeout, never as maul's "<what>
+// failed:" words, which previewtools reads as a failed assertion; so an
+// exact name that misses can never make a check red by assertion.
+var missesNoElement = []string{"n-label-exact-case", "n-role-exact-icon", "n-miss-legible", "n-miss-clickable",
+	"n-miss-no-overlap"}
 
 // clippedCases are bug 12's: box relations measure what is drawn, each box
 // cut by its clipping ancestors, and an element clipped away entirely is
@@ -219,7 +232,18 @@ export default defineConfig({
 			t.Errorf("%s: verdict %s, want %s (%s)", c.name, v.verdict, c.want, v.why)
 		}
 	}
+	for _, name := range missesNoElement {
+		why := strings.TrimPrefix(stripEscapes(got[name+".spec.ts"].why), "Error: ")
+		if !strings.Contains(why, "Timeout") || strings.HasPrefix(why, "maul: ") {
+			t.Errorf("%s: an exact name that finds nothing failed as %q, want Playwright's timeout", name, why)
+		}
+	}
 }
+
+// colourEscape is a terminal's colour escape in a runner message.
+var colourEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripEscapes(s string) string { return colourEscape.ReplaceAllString(s, "") }
 
 // typecheck runs tsc --noEmit --strict over the live specs, the goldens and
 // the support module.
