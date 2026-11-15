@@ -248,6 +248,9 @@ func TestEvaluateWorkspacePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 	if n := strings.Count(strings.ToUpper(got), sentinel); n < 19 {
 		t.Fatalf("only %d sentinels rendered; the test no longer reaches every field", n)
 	}
+	if !strings.Contains(got, "The refused check, as the previous evaluator") {
+		t.Fatal("the hostile refused check is not shown; the test no longer reaches its body")
+	}
 	for _, line := range unfenced(got) {
 		if strings.Contains(strings.ToUpper(line), sentinel) {
 			t.Errorf("untrusted text outside a fence: %q", line)
