@@ -80,14 +80,49 @@ Results:
 ### Checks the reviewer refused
 
 The check reviewer refused these checks of earlier rounds, each named by its id and its outcome, with the reviewer's
-reason, quoted:
+reason, quoted, and below it the refused check itself, as the previous evaluator proposed it and maul confirmed it.
+maul shows the newest refusals' checks first, up to a bound in all; a check past it, or one maul no longer holds, is
+marked as not shown.
 
 ```text
 - check parse-too-long-errors, of outcome parse-too-long, was refused. Why, quoted: It prints true whatever Parse returns.
+    The refused check, as the previous evaluator proposed it and maul confirmed it:
+      {
+        "id": "parse-too-long-errors",
+        "outcome": "parse-too-long",
+        "form": "run",
+        "run": {
+          "language": "go",
+          "files": [
+            {
+              "path": "main.go",
+              "content": "package main\n// Parse of 64 and 65 steps; prints {run, ok64, tooLong65} or {{marker}} too-long: <err>\n"
+            }
+          ],
+          "args": [
+            "{{run}}"
+          ],
+          "timeout": "30s",
+          "expect": {
+            "exit": 0,
+            "stdoutJSON": {
+              "/ok64": true,
+              "/run": "{{run}}",
+              "/tooLong65": true
+            }
+          }
+        }
+      }
 ```
 
-A check refused in one form is never reviewed again in that form: maul keeps each review by the check's digest, so the
-same check proposed again is refused again. Strengthen it to answer the reason, run it, and propose the new form.
+A refused check is the previous evaluator's work, not maul's and no evidence: it may be wrong, and it is never replayed
+or counted for its outcome. A check refused in one form is never reviewed again in that form: maul keeps each review by
+the check's digest, so the same check proposed again is refused again. Where the check is shown, amend that check
+rather than write an unrelated one: change what the reason faults, and keep everything it already tests that the
+reason does not fault, with every example value the outcome names and every value stated in the line of the request
+the outcome quotes. Write the amended check as a new file, run it, and propose it like any new check: maul confirms it
+and the reviewer judges it afresh.
+Where it is not shown, strengthen the check to answer the reason, run it, and propose the new form.
 
 ## The two builds and your tools
 

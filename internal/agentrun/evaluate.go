@@ -83,11 +83,18 @@ type NotYetProof struct {
 }
 
 // PriorRefusal is one check the reviewer refused in an earlier round: its
-// outcome's id, its own id, and the reviewer's reason.
+// outcome's id, its own id, the reviewer's reason, and the refused check
+// itself (G5R-B-CLI-1): its canonical JSON as maul confirmed it, read from
+// the verified ledger's record of that round, never from an evaluator's
+// report. Body is the previous evaluator's text, UNTRUSTED: the prompt
+// quotes it as data for the evaluator to amend, and it is never run,
+// replayed or counted as a check. Empty when maul no longer holds it or
+// left it out to keep the handoff bounded (templates.RefusedBodiesMaxBytes).
 type PriorRefusal struct {
 	Outcome string `json:"outcome"`
 	Check   string `json:"check"`
 	Reason  string `json:"reason,omitempty"`
+	Body    string `json:"body,omitempty"`
 }
 
 // PriorVerdict is maul's result of one outcome in a previous round, with
@@ -354,7 +361,7 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 	}
 	for _, r := range h.PriorRefused {
 		p.PriorRefused = append(p.PriorRefused, templates.PriorRefusal{Check: r.Check, Outcome: r.Outcome,
-			Reason: r.Reason})
+			Reason: r.Reason, Body: r.Body})
 	}
 	for _, c := range h.NotYetProof {
 		p.NotYetProof = append(p.NotYetProof, templates.NotYetProof{Check: c.Check, Outcome: c.Outcome})

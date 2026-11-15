@@ -131,10 +131,10 @@
 #                              "unclear"; "weak-refused" answers proves for
 #                              a check sending the X-Maul-Stronger header and
 #                              does_not_prove for any other. In "pass" mode
-#                              an evaluator whose prompt lists checks the
-#                              reviewer refused writes each outcome's check
-#                              again as "<outcome>.again", sending that
-#                              header: a stronger check.
+#                              an evaluator whose prompt shows the check
+#                              the reviewer refused of an outcome amends it
+#                              as "<outcome>.again", sending that header: a
+#                              stronger check.
 #   MAUL_FAKE_CLAUDE_CAPPED    set: the evaluator runs out of turns, as every
 #                              live evaluator of S1 bug 3 did: its first run
 #                              makes every call above but, instead of writing
@@ -367,8 +367,12 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     pass)
       # The report as the live evaluators write it (S1 bug 5): each verdict
       # names its outcome as outcome, each proposal the file it ran green.
-      case "$prompt" in
-      *'### Checks the reviewer refused'*)
+      # The live evaluator amends the refused check maul shows beside its
+      # refusal (G5R-B-CLI-1): with none of this outcome's shown, it writes
+      # its first check again, which the reviewer's cached answer refuses.
+      refused=$(printf '%s\n' "$prompt" | sed -n '/^### Checks the reviewer refused/,/^##/p')
+      case "$refused" in
+      *"\"id\": \"$o\","*)
         cid="$o.again"
         printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"GET","path":"%s","headers":{"X-Maul-Stronger":"1"}},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
           "$cid" "$o" "$key" "$path" "$text" >"checks/$cid.json"
