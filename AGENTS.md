@@ -818,7 +818,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   Context{Preview|Workspace})` refuses with a named rule (not substantive, unscoped to `{{run}}` data, too many steps,
   over 8 KiB, `RuleOffSurface`; an empty or double context refuses every check); a workspace refuses http and browser,
   a cli check runs `{{bin}}` (`BinPlaceholder`), a library check is a `run`, each asserting on stdout content;
-  `{{tree}}` (`TreePlaceholder`) is the writable tree. `checks/playwright` compiles a
+  `{{tree}}` (`TreePlaceholder`) is the writable tree. A label, role name or select label may say `exact`
+  (Playwright's); `ParseProposal`, the only reading of an agent's own check (the relay's check run, agent-runner's
+  check files), writes `exact: true` where it says nothing, a `count`'s locators excepted, into the canonical body and
+  digest, so a check saved before (no `exact`) replays unchanged; `ParseRecorded` rereads a ledger's request as the
+  form whose digest it was recorded under (G4-B-BR-1). `checks/playwright` compiles a
   browser check to a readable `.spec.ts` at a fixed 1280x800, maul's page functions (`pagefns.js`) judging human
   visibility, WCAG contrast and hit-tested clicks, indeterminate as a check error, never a fail.
 - `toolwire` — the evaluator's tool wire and ledger v2, stdlib only: one endpoint per verb (`POST /v1/<verb>`), typed
