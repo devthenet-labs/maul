@@ -413,14 +413,14 @@ func randomMarkerNonce() string {
 func execRequest(e checks.ExecCheck, run, marker string) (*toolwire.ExecRequest, error) {
 	req := &toolwire.ExecRequest{}
 	for _, a := range e.Argv {
-		s, err := substitute(a, run, "", places{})
+		s, err := substitute(a, run, places{})
 		if err != nil {
 			return nil, err
 		}
 		req.Argv = append(req.Argv, s)
 	}
 	for _, f := range e.Files {
-		s, err := substitute(f.Content, run, marker, places{})
+		s, err := substituteProgram(f.Content, run, marker, places{})
 		if err != nil {
 			return nil, err
 		}

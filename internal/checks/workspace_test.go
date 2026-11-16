@@ -78,6 +78,10 @@ func TestWorkspaceChecksAreValid(t *testing.T) {
 		{"run with a timeout", runCheck(`"language":"go",` + libMain + `,"timeout":"1m",` + okOut), libCtx},
 		{"run in a subdirectory", runCheck(`"language":"go","files":[{"path":"main.go","content":"package main"},
 			{"path":"wav/wav.go","content":"package wav"}],` + okOut), libCtx},
+		// Gate 5 G5R-B-LIB-1: a Go nested composite literal is program text,
+		// not a placeholder.
+		{"run with a nested composite literal", runCheck(`"language":"go","files":[{"path":"main.go",` +
+			`"content":"package main\nvar pairs = [][2]int{{p.ID, g.ID}, {p.Votes, g.Votes}}\n"}],` + okOut), libCtx},
 	} {
 		c := mustParse(t, tc.check)
 		if err := Validate(c, tc.ctx); err != nil {

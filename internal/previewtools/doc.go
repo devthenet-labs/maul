@@ -89,7 +89,8 @@
 // pristine trees through an os.Root; run compiles a Go consumer against the
 // side's writable tree (maul's go.mod, go work init, offline, read-only
 // module files) and runs it; one substitute pass serves every check path
-// ({{marker}}, {{bin}}, {{tree}}, then {{run}}); judgeWorkspace says how a
+// ({{marker}} in program files only, {{bin}}, {{tree}}, then {{run}}; a
+// program file's other "{{" is its own text); judgeWorkspace says how a
 // workspace run maps to a result, never a bare exit an assertion.
 //
 // dial.go and, under the e2edial tag only, dial_e2e.go are the e2e

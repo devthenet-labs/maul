@@ -188,6 +188,48 @@ type EvaluatePrompt struct {
 	// prompt asks for a new check of each one's outcome even when it
 	// replays green. None omits the section.
 	NotYetProof []NotYetProof
+
+	// shed is what RenderEvaluatePrompt left out to keep the prompt within
+	// EvaluatePromptMaxBytes, which the prompt says.
+	shed evaluateShed
+}
+
+// EvaluatePromptMaxBytes bounds the rendered evaluate prompt: it is one
+// argument of the CLI's command line (harness.Claude.PromptSpec), and Linux
+// refuses an argument of 128 KiB or more, its NUL included (MAX_ARG_STRLEN).
+const EvaluatePromptMaxBytes = 128<<10 - 1
+
+// evaluateShed counts what a prompt over EvaluatePromptMaxBytes left out:
+// changed paths and the oldest refusals.
+type evaluateShed struct {
+	paths, refusals int
+}
+
+// shedOne leaves out the next part of p in the order a prompt over its
+// bound gives them up, and reports false when nothing is left to leave out:
+// a refused check's body, the oldest first; then half the changed paths;
+// then the older half of the refusals. The request, the fix diff (the
+// guard against a fix that special-cases a check), the outcomes and a
+// previous round's results always stay: an evaluator is never asked to
+// judge without them. Each is left out whole and the prompt says so, never
+// cut.
+func (p *EvaluatePrompt) shedOne() bool {
+	switch {
+	case slices.ContainsFunc(p.PriorRefused, func(r PriorRefusal) bool { return r.Body != "" }):
+		p.PriorRefused[slices.IndexFunc(p.PriorRefused, func(r PriorRefusal) bool { return r.Body != "" })].Body = ""
+	case len(p.ChangedPaths) > 0:
+		keep := len(p.ChangedPaths) / 2
+		p.shed.paths += len(p.ChangedPaths) - keep
+		p.ChangedPaths = p.ChangedPaths[:keep]
+	case len(p.PriorRefused) > 0:
+		// The newest refusals are the last: keep them.
+		drop := len(p.PriorRefused)/2 + len(p.PriorRefused)%2
+		p.shed.refusals += drop
+		p.PriorRefused = p.PriorRefused[drop:]
+	default:
+		return false
+	}
+	return true
 }
 
 // NotYetProof is one saved check saved red that is not yet proof of a
@@ -406,7 +448,26 @@ type evaluateExamples struct {
 }
 
 // RenderEvaluatePrompt renders the evaluate-stage prompt.
+//
+// A prompt over EvaluatePromptMaxBytes gives up parts as shedOne orders
+// them, each said to be not shown, until it fits; one that still does not
+// is refused, never cut.
 func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
+	p.PriorRefused, p.shed = slices.Clone(p.PriorRefused), evaluateShed{}
+	for {
+		s, err := renderEvaluate(p)
+		if err != nil || len(s) <= EvaluatePromptMaxBytes {
+			return s, err
+		}
+		if !p.shedOne() {
+			return "", fmt.Errorf("render evaluate prompt: %d bytes with every part that may be left out left out, "+
+				"over %d", len(s), EvaluatePromptMaxBytes)
+		}
+	}
+}
+
+// renderEvaluate is RenderEvaluatePrompt's one render of p.
+func renderEvaluate(p EvaluatePrompt) (string, error) {
 	if len(p.Outcomes) == 0 {
 		return "", errors.New("render evaluate prompt: no outcome to evaluate")
 	}
@@ -461,7 +522,7 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 		EvaluatePrompt:  p,
 		RequestBlock:    strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
 		OutcomesBlock:   outcomesBlock(p.Outcomes),
-		ChangedBlock:    changedBlock(p.ChangedPaths),
+		ChangedBlock:    changedBlock(p.ChangedPaths, p.shed.paths),
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
@@ -472,7 +533,7 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 	if p.PriorRound > 0 {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
 	}
-	v.RefusedBlock = refusedBlock(p.PriorRefused)
+	v.RefusedBlock = refusedBlock(p.PriorRefused, p.shed.refusals)
 	v.NotYetBlock = notYetBlock(p.NotYetProof)
 	return v
 }
@@ -493,11 +554,15 @@ func notYetBlock(cs []NotYetProof) string {
 // refusedBlock lists the checks the reviewer refused, as priorBlock lists a
 // round's results: each by its id and outcome with the reviewer's reason,
 // at most PriorRefusedMax, then the refused check itself where it is shown
-// (refusedBodies); "" for none.
-func refusedBlock(rs []PriorRefusal) string {
+// (refusedBodies), after a line counting the earlier ones left out (shed);
+// "" for none.
+func refusedBlock(rs []PriorRefusal, shed int) string {
 	rs = rs[:min(len(rs), PriorRefusedMax)]
 	bodies := refusedBodies(rs)
 	var b strings.Builder
+	if shed > 0 {
+		fmt.Fprintf(&b, "- %d earlier refused checks are not shown, to keep this prompt within its size bound.\n", shed)
+	}
 	for i, r := range rs {
 		fmt.Fprintf(&b, "- check %s, of outcome %s, was refused.", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64))
 		if r.Reason != "" {
@@ -637,8 +702,9 @@ func outcomesBlock(os []acceptance.PlanOutcome) string {
 }
 
 // changedBlock lists the changed paths, "+added -deleted path", at most
-// ChangedPathsMax of them; "" for none.
-func changedBlock(ps []ChangedPath) string {
+// ChangedPathsMax of them, then counts the rest and the shed ones left out
+// to keep the prompt within its bound; "" for none.
+func changedBlock(ps []ChangedPath, shed int) string {
 	var lines []string
 	for _, p := range ps {
 		path := quotedLine(p.Path, changedPathMaxBytes)
@@ -647,9 +713,9 @@ func changedBlock(ps []ChangedPath) string {
 		}
 		lines = append(lines, fmt.Sprintf("+%d -%d %s", max(p.Added, 0), max(p.Deleted, 0), path))
 	}
-	if len(lines) > ChangedPathsMax {
-		more := len(lines) - ChangedPathsMax
-		lines = append(lines[:ChangedPathsMax], "[and "+strconv.Itoa(more)+" more paths]")
+	more := max(len(lines)-ChangedPathsMax, 0) + shed
+	if more > 0 {
+		lines = append(lines[:min(len(lines), ChangedPathsMax)], "[and "+strconv.Itoa(more)+" more paths]")
 	}
 	return strings.Join(lines, "\n")
 }

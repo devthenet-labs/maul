@@ -169,6 +169,9 @@ argv, the args and the program files:
 - `{{run}}` for a fresh token;
 - `{{marker}}` for the marker (below).
 
+In a program file maul replaces only these exact tokens, so other code with `{{` in it, such as a nested composite
+literal, runs as you wrote it; in the argv and the args every `{{` opens a placeholder.
+
 While you explore with `maul-tool run`, maul replaces `{{tree}}` for you,
 but never `{{run}}` or `{{marker}}`: name every file, name and value you make up with
 `v1a1-3f9c2a` (for example `v1a1-3f9c2a-beat`). Each call runs in a fresh working directory under

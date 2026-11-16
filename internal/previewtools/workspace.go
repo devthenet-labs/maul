@@ -449,16 +449,13 @@ func (r *Relay) places() places {
 	return places{bin: r.cfg.Workspace.Binary, tree: r.workTree}
 }
 
-// substitute is the one placeholder pass of every check path (replay,
-// confirmation, a dry run, a red dry run; SPEC S2-04): the attempt's
-// marker (a program file's only: marker "" elsewhere), then {{bin}}, then
-// {{tree}}, each where p has it, then {{run}} through httpstep.Substitute,
-// which refuses any other placeholder, those p lacks included. Values are
-// maul's and never hold a placeholder.
-func substitute(s, run, marker string, p places) (string, error) {
-	if marker != "" {
-		s = checks.ExecProgram(s, marker)
-	}
+// substitute is the placeholder pass of every check path (replay,
+// confirmation, a dry run, a red dry run; SPEC S2-04) for an argument or an
+// expectation: {{bin}}, then {{tree}}, each where p has it, then {{run}}
+// through httpstep.Substitute, which refuses any other placeholder, those p
+// lacks and {{marker}} included. A program file's content takes
+// substituteProgram. Values are maul's and never hold a placeholder.
+func substitute(s, run string, p places) (string, error) {
 	if p.bin != "" {
 		s = strings.ReplaceAll(s, checks.BinPlaceholder, p.bin)
 	}
@@ -466,6 +463,23 @@ func substitute(s, run, marker string, p places) (string, error) {
 		s = strings.ReplaceAll(s, checks.TreePlaceholder, p.tree)
 	}
 	return httpstep.Substitute(s, run, nil)
+}
+
+// substituteProgram is substitute for a program file's content: the
+// attempt's marker, then {{bin}}, {{tree}} and {{run}}, but only those exact
+// tokens (gate 5 G5R-B-LIB-1). Any other "{{" is the program's own text, such as a Go
+// nested composite literal, and runs as written, as the reviewer is shown
+// it. {{bin}} or {{tree}} where p has no value for it is still refused.
+func substituteProgram(s, run, marker string, p places) (string, error) {
+	s = checks.ExecProgram(s, marker)
+	for _, ph := range []struct{ token, value string }{{checks.BinPlaceholder, p.bin},
+		{checks.TreePlaceholder, p.tree}} {
+		if ph.value == "" && strings.Contains(s, ph.token) {
+			return "", fmt.Errorf("%s has no value here", ph.token)
+		}
+		s = strings.ReplaceAll(s, ph.token, ph.value)
+	}
+	return strings.ReplaceAll(s, checks.RunPlaceholder, run), nil
 }
 
 // explore substitutes {{bin}} and {{tree}} in an agent's own exec or run
@@ -547,14 +561,14 @@ func (r *Relay) workspaceExecAttempt(ctx context.Context, e checks.ExecCheck, ru
 	req := &toolexec.Request{Side: side, Run: run, Env: r.programEnv(), Fresh: true,
 		TimeoutMs: timeoutMs(e.Timeout)}
 	for _, a := range e.Argv {
-		s, err := substitute(a, run, "", p)
+		s, err := substitute(a, run, p)
 		if err != nil {
 			return errStep("the program could not be built: " + err.Error())
 		}
 		req.Argv = append(req.Argv, s)
 	}
 	for _, f := range e.Files {
-		s, err := substitute(f.Content, run, marker, p)
+		s, err := substituteProgram(f.Content, run, marker, p)
 		if err != nil {
 			return errStep("the program could not be built: " + err.Error())
 		}
@@ -662,7 +676,7 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 		return ""
 	}
 	if x.StdoutContains != "" {
-		needle, err := substitute(x.StdoutContains, run, "", p)
+		needle, err := substitute(x.StdoutContains, run, p)
 		if err != nil {
 			return errStep("the expected text could not be built")
 		}
