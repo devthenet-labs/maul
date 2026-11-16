@@ -381,7 +381,7 @@ func (r *Relay) workspaceRunAttempt(ctx context.Context, rc checks.RunCheck, run
 	pl := r.places()
 	files := make([]toolwire.File, 0, len(rc.Files))
 	for _, f := range rc.Files {
-		s, err := substitute(f.Content, run, marker, pl)
+		s, err := substituteProgram(f.Content, run, marker, pl)
 		if err != nil {
 			return errStep("the program could not be built: " + err.Error())
 		}
@@ -389,7 +389,7 @@ func (r *Relay) workspaceRunAttempt(ctx context.Context, rc checks.RunCheck, run
 	}
 	args := make([]string, 0, len(rc.Args))
 	for _, a := range rc.Args {
-		s, err := substitute(a, run, "", pl)
+		s, err := substitute(a, run, pl)
 		if err != nil {
 			return errStep("the program could not be built: " + err.Error())
 		}

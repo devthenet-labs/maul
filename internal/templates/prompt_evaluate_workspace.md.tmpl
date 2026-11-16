@@ -92,6 +92,9 @@ argv, the args and the program files:
 - `{{.RunPlaceholder}}` for a fresh token;
 - `{{.ExecMarker}}` for the marker (below).
 
+In a program file maul replaces only these exact tokens, so other code with `{{"{{"}}` in it, such as a nested composite
+literal, runs as you wrote it; in the argv and the args every `{{"{{"}}` opens a placeholder.
+
 While you explore with {{if .WS.CLI}}`maul-tool exec` and {{end}}`maul-tool run`, maul replaces
 {{- if .WS.CLI}} `{{.BinPlaceholder}}` and{{end}} `{{.TreePlaceholder}}` for you,
 but never `{{.RunPlaceholder}}` or `{{.ExecMarker}}`: name every file, name and value you make up with

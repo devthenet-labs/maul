@@ -296,7 +296,9 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      named no valid assertion id, so the evaluator can rename it. On a valid id, what the program printed after its
      marker (`<id>: <what it saw>`, each such line, the marker itself left out, at most 1 KiB) is kept in the failing
      step's message, so the issue, the pull request and the reproduction show the value the program observed, as the
-     application's data.
+     application's data. In a program's files maul replaces only the exact placeholder tokens (`{{marker}}`, `{{bin}}`,
+     `{{tree}}`, `{{run}}`); any other `{{` there, such as a Go nested composite literal, is the program's own text and
+     runs as written.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
      or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
      `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,
