@@ -216,6 +216,12 @@ only on the example the outcome or the request names (a build right only on that
 program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
 cannot tell from what is shown.
 
+How the check finds an element (a role and its accessible name, a label, a test id or CSS) is not what it proves, so
+long as it finds the element the outcome is about: the application may name that element otherwise than the outcome
+does (a `Double` button whose accessible name is `Double tempo`), and a name that matches nothing only makes the check
+fail. A check proves only what it asserts: refuse it for something it does not assert (the label a person sees, a
+wording) only when the outcome's own words promise that thing.
+
 Its assertions with a tolerance, as maul reads the check:
 
 - step 16, `above`, tolerance 14 px: it passes while its element's bottom edge is up to 14 px below the top edge of its `other`, so the two may overlap by up to 14 px.
