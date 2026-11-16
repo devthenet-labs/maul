@@ -200,25 +200,19 @@ type EvaluatePrompt struct {
 const EvaluatePromptMaxBytes = 128<<10 - 1
 
 // evaluateShed counts what a prompt over EvaluatePromptMaxBytes left out:
-// changed paths and the oldest refusals, and whether the fix diff and the
-// request were.
+// changed paths and the oldest refusals.
 type evaluateShed struct {
-	paths, refusals  int
-	fixDiff, request bool
+	paths, refusals int
 }
-
-// Notices standing for a part left out of an over-long evaluate prompt.
-const (
-	fixDiffNotShown = "[The diff is not shown, to keep this prompt within its size bound.]"
-	requestNotShown = "[The request is not shown, to keep this prompt within its size bound.]"
-)
 
 // shedOne leaves out the next part of p in the order a prompt over its
 // bound gives them up, and reports false when nothing is left to leave out:
 // a refused check's body, the oldest first; then half the changed paths;
-// then the older half of the refusals; then the fix diff; then the request.
-// The outcomes and a previous round's results always stay. Each is left
-// out whole and the prompt says so, never cut.
+// then the older half of the refusals. The request, the fix diff (the
+// guard against a fix that special-cases a check), the outcomes and a
+// previous round's results always stay: an evaluator is never asked to
+// judge without them. Each is left out whole and the prompt says so, never
+// cut.
 func (p *EvaluatePrompt) shedOne() bool {
 	switch {
 	case slices.ContainsFunc(p.PriorRefused, func(r PriorRefusal) bool { return r.Body != "" }):
@@ -232,10 +226,6 @@ func (p *EvaluatePrompt) shedOne() bool {
 		drop := len(p.PriorRefused)/2 + len(p.PriorRefused)%2
 		p.shed.refusals += drop
 		p.PriorRefused = p.PriorRefused[drop:]
-	case strings.TrimSpace(p.FixDiff) != "":
-		p.FixDiff, p.shed.fixDiff = "", true
-	case p.Request != "":
-		p.Request, p.shed.request = "", true
 	default:
 		return false
 	}
@@ -539,12 +529,6 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay, p.NotYetProof)
 	if strings.TrimSpace(p.FixDiff) != "" {
 		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")
-	}
-	if p.shed.fixDiff {
-		v.FixDiffBlock = fixDiffNotShown
-	}
-	if p.shed.request {
-		v.RequestBlock = requestNotShown
 	}
 	if p.PriorRound > 0 {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)

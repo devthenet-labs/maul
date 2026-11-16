@@ -58,13 +58,13 @@ func maxEvaluatePrompt(t *testing.T, workspace bool, char string) EvaluatePrompt
 }
 
 // TestEvaluatePromptFitsOneArgument: the evaluate prompt is one argument of
-// the CLI's command line, so at every part's bound it still renders within
-// EvaluatePromptMaxBytes, under Linux's bound on one argument. What it
-// leaves out to fit, it says it left out: the refused checks' bodies first,
-// then changed paths, then the oldest refusals, then the fix diff, then the
-// request; never an outcome or a previous round's result. (Outcomes of
-// 4-byte characters at their bounds can still be too long: see
-// TestEvaluatePromptRefusesOverTheBound.)
+// the CLI's command line, so with the request and the fix diff at their
+// bounds and every part it may leave out past its own it still renders
+// within EvaluatePromptMaxBytes, under Linux's bound on one argument. What
+// it leaves out to fit, it says it left out: the refused checks' bodies
+// first, then changed paths, then the oldest refusals; never the request,
+// the fix diff (the guard against a fix that special-cases a check), an
+// outcome or a previous round's result.
 func TestEvaluatePromptFitsOneArgument(t *testing.T) {
 	if EvaluatePromptMaxBytes >= 128<<10 {
 		t.Fatalf("EvaluatePromptMaxBytes = %d, not under MAX_ARG_STRLEN (128 KiB with its NUL)",
@@ -72,6 +72,9 @@ func TestEvaluatePromptFitsOneArgument(t *testing.T) {
 	}
 	for _, ws := range []bool{false, true} {
 		p := maxEvaluatePrompt(t, ws, "a")
+		// A quarter of the previous round's results, so the parts that always
+		// stay fit beside the request and the fix diff at their bounds.
+		p.PriorVerdicts, p.PriorReplay, p.NotYetProof = p.PriorVerdicts[:5], p.PriorReplay[:10], p.NotYetProof[:10]
 		got, err := RenderEvaluatePrompt(p)
 		if err != nil {
 			t.Fatalf("workspace %v: %v", ws, err)
@@ -79,10 +82,8 @@ func TestEvaluatePromptFitsOneArgument(t *testing.T) {
 		if len(got) > EvaluatePromptMaxBytes {
 			t.Errorf("workspace %v: %d bytes, over %d", ws, len(got), EvaluatePromptMaxBytes)
 		}
-		// At these bounds it gives up the bodies, the paths, the refusals
-		// and the fix diff, and keeps the request.
-		for _, want := range []string{"more paths]", "earlier refused checks are not shown", "[The diff is not shown",
-			strings.Repeat("r", RequestQuoteMaxBytes)} {
+		for _, want := range []string{"more paths]", "earlier refused checks are not shown",
+			strings.Repeat("r", RequestQuoteMaxBytes), strings.Repeat("d", FixDiffMaxBytes)} {
 			if !strings.Contains(got, want) {
 				t.Errorf("workspace %v: the prompt does not hold %.40q", ws, want)
 			}
@@ -99,22 +100,6 @@ func TestEvaluatePromptFitsOneArgument(t *testing.T) {
 			strings.Count(got, "replayed pass") != len(p.PriorReplay) {
 			t.Errorf("workspace %v: a previous round's result is left out", ws)
 		}
-	}
-}
-
-// TestEvaluatePromptLeavesOutTheRequestLast: outcomes of 4-byte characters
-// leave out the request too, last, and say so.
-func TestEvaluatePromptLeavesOutTheRequestLast(t *testing.T) {
-	p := maxEvaluatePrompt(t, false, wide)
-	p.Outcomes = p.Outcomes[:18]
-	got, err := RenderEvaluatePrompt(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) > EvaluatePromptMaxBytes || !strings.Contains(got, "[The request is not shown") ||
-		!strings.Contains(got, "[The diff is not shown") {
-		t.Errorf("%d bytes; want within %d with the request and the diff said to be left out", len(got),
-			EvaluatePromptMaxBytes)
 	}
 }
 
@@ -156,21 +141,24 @@ func TestEvaluatePromptShedsOnlyWhatItMust(t *testing.T) {
 		strings.Count(got, "Its body is not shown.") != 1 {
 		t.Error("not only the oldest refused body was left out")
 	}
-	for _, not := range []string{"more paths]", "earlier refused checks", "[The diff is not shown",
-		"[The request is not shown"} {
+	for _, not := range []string{"more paths]", "earlier refused checks"} {
 		if strings.Contains(got, not) {
 			t.Errorf("the prompt left out more than the oldest body: %q", not)
 		}
 	}
 }
 
-// TestEvaluatePromptRefusesOverTheBound: outcomes and a previous round's
-// results are never left out, so a prompt over the bound with every other
-// part left out (here: 20 outcomes of 4-byte characters at their bounds)
-// is refused, never cut.
+// TestEvaluatePromptRefusesOverTheBound: the request, the fix diff,
+// outcomes and a previous round's results are never left out, so a prompt
+// over the bound with every other part left out (here: every part at its
+// bound) is refused, never cut: the run fails as maul's own failure and the
+// round is never judged on a prompt without them.
 func TestEvaluatePromptRefusesOverTheBound(t *testing.T) {
-	p := maxEvaluatePrompt(t, false, wide)
-	if got, err := RenderEvaluatePrompt(p); err == nil {
-		t.Fatalf("rendered %d bytes, want a refusal", len(got))
+	for _, char := range []string{"a", wide} {
+		for _, ws := range []bool{false, true} {
+			if got, err := RenderEvaluatePrompt(maxEvaluatePrompt(t, ws, char)); err == nil {
+				t.Errorf("%q, workspace %v: rendered %d bytes, want a refusal", char, ws, len(got))
+			}
+		}
 	}
 }

@@ -162,8 +162,8 @@ the evaluator's run (`[maul-tool time left]`).
    rather than writing an unrelated one; the refused check is never replayed or counted, and the amended one is a new
    check, confirmed and reviewed like any other. The evaluate prompt is one argument of the CLI's command line, which
    Linux bounds at 128 KiB: a prompt over it leaves out, in this order, the refused checks' bodies (oldest first), half
-   the changed paths at a time, the older half of the refusals at a time, the fix diff, then the request, each said to
-   be not shown, never cut; the outcomes and the previous round's results always stay, and a prompt still over the bound
+   the changed paths at a time, then the older half of the refusals at a time, each said to be not shown, never cut; the
+   request, the fix diff, the outcomes and the previous round's results always stay, and a prompt still over the bound
    fails the run (maul's own failure, never a verdict). Each session may take 6 turns, the last 3 kept for one repair of
    its report; a review whose report is refused and not repaired makes that check alone `unclear` (not stored, its
    answer not cached), and the run goes on to the next check.
