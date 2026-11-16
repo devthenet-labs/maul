@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.6](https://github.com/devthenet-labs/maul/compare/v0.14.5...v0.14.6) (2026-11-16)
+
+
+### Bug Fixes
+
+* **intent:** evaluator small bugs (placeholders in check programs, prompt size, agents recheck e2e) ([#433](https://github.com/devthenet-labs/maul/issues/433)) ([e641e1b](https://github.com/devthenet-labs/maul/commit/e641e1b3675b2199f96a7d0c6b5576ef9d48a0c3))
+* **intent:** the evaluator is taught the check grammar it trips on ([#432](https://github.com/devthenet-labs/maul/issues/432)) ([4822787](https://github.com/devthenet-labs/maul/commit/48227874e4cfbe7e4990bbe6965737d1bea60497))
+
 ## [0.14.5](https://github.com/devthenet-labs/maul/compare/v0.14.4...v0.14.5) (2026-11-15)
 
 
