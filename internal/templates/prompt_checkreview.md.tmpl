@@ -259,6 +259,14 @@ representation alone.
 {{- else}}
 
 {{.GreenRubric}}
+{{- if eq .Form "browser"}}
+
+How the check finds an element it clicks or fills, or whose text or state it asserts (a role and its accessible name,
+a label, a test id or CSS), is not what it proves, so long as that element is the one the outcome is about: the
+application may name it otherwise than the outcome does (a `Double` button whose accessible name is `Double tempo`).
+Do not refuse a check for not asserting the label a person sees on that element unless the outcome's own words promise
+that label.
+{{- end}}
 {{- if .LayoutRead}}
 
 {{.LayoutReadRule}}

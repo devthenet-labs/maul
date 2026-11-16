@@ -183,10 +183,17 @@ func validateExec(e ExecCheck, ws *Workspace) *Refusal {
 			"preview", e.Argv)
 	}
 	if e.Expect.StdoutContains == "" && !contentJSON(e.Expect.StdoutJSON) {
-		return refuse(RuleNotSubstantive, "no assertion on stdout; an exit code alone only says the run worked")
+		return refuse(RuleNotSubstantive, noStdoutAssertion)
 	}
 	return runScoped("stdoutJSON", e.Expect.StdoutJSON)
 }
+
+// noStdoutAssertion is the refusal of an exec or run check whose expect
+// asserts nothing on stdout, saying what to write instead: the evaluator's
+// marker-only drafts tripped on it (defect gate 5).
+const noStdoutAssertion = "no assertion on stdout; an exit code alone only says the run worked: assert what " +
+	"it printed with stdoutContains or stdoutJSON (a program that prints the marker on a mismatch prints what " +
+	"it observed too, for expect to assert)"
 
 func validateFiles(fs []File) *Refusal {
 	if len(fs) > MaxFiles {
@@ -209,6 +216,10 @@ func validateFiles(fs []File) *Refusal {
 func validateExecExpect(e ExecExpect) *Refusal {
 	if e.Exit != nil && (*e.Exit < 0 || *e.Exit > 255) {
 		return refuse(RuleGrammar, "exit is 0 to 255")
+	}
+	if strings.ContainsAny(e.StdoutContains, "\r\n") {
+		return refuse(RuleGrammar, "stdoutContains is text on one line, with no newline: to assert several "+
+			"lines, have a program print them as one JSON string and assert it with stdoutJSON")
 	}
 	if r := checkText("stdoutContains", e.StdoutContains); r != nil {
 		return r

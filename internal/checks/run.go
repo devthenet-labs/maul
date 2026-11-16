@@ -61,7 +61,7 @@ func validateRun(r RunCheck, ws *Workspace) *Refusal {
 			BinPlaceholder)
 	}
 	if r.Expect.StdoutContains == "" && !contentJSON(r.Expect.StdoutJSON) {
-		return refuse(RuleNotSubstantive, "no assertion on stdout; an exit code alone only says the run worked")
+		return refuse(RuleNotSubstantive, noStdoutAssertion)
 	}
 	return runScoped("stdoutJSON", r.Expect.StdoutJSON)
 }

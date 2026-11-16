@@ -96,6 +96,12 @@ only on the example the outcome or the request names (a build right only on that
 program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
 cannot tell from what is shown.
 
+How the check finds an element it clicks or fills, or whose text or state it asserts (a role and its accessible name,
+a label, a test id or CSS), is not what it proves, so long as that element is the one the outcome is about: the
+application may name it otherwise than the outcome does (a `Double` button whose accessible name is `Double tempo`).
+Do not refuse a check for not asserting the label a person sees on that element unless the outcome's own words promise
+that label.
+
 A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a measure
 (size, left-of, above, no-overlap, equal-size, aligned or legible), on elements it finds by role, label, test id or CSS
 rather than by their text or position, reads the same markup on every run: it needs no data it created, and is not

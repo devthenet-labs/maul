@@ -197,6 +197,12 @@ only on the example the outcome or the request names (a build right only on that
 program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
 cannot tell from what is shown.
 
+How the check finds an element it clicks or fills, or whose text or state it asserts (a role and its accessible name,
+a label, a test id or CSS), is not what it proves, so long as that element is the one the outcome is about: the
+application may name it otherwise than the outcome does (a `Double` button whose accessible name is `Double tempo`).
+Do not refuse a check for not asserting the label a person sees on that element unless the outcome's own words promise
+that label.
+
 You need no tool but Write: do not try to run, fetch or read anything. This review may take at most
 4 agent turns, 4000 output tokens and 3 minutes.
 

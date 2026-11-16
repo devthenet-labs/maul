@@ -304,7 +304,8 @@ check, run it at both sides: `maul-tool check run <file>`, then `maul-tool check
 
 A check is a JSON file that maul validates, runs on every later round with a fresh token at both sides, and shows to
 the human reviewers. Write each check with the Write tool, as a new file under `/work/scratch/checks`, one check per
-file. Then run `maul-tool check run <file>` on it, and fix and rerun it until it passes. **Get a green
+file. Then run `maul-tool check run <file>` on it, and fix and rerun it until it passes. Run your first check file
+before you write the others, so that a mistake in its form is not copied into every one. **Get a green
 `maul-tool check run` before you propose a check that shows an outcome holds**: maul accepts only a check whose
 digest it has seen pass, and you propose it by its file, which maul reads that digest from: leave the file as it ran.
 
@@ -388,9 +389,14 @@ A check is bound to one outcome and has one form:
   and an `expect` on its `exit` code, `stdoutContains` and `stdoutJSON`. It imports the library's packages and calls
   them the way the outcome says.
 
+`stdoutContains` is one string on one line, never a list and never with a newline: text the output must contain.
 `stdoutJSON` reads the whole output as one JSON document, each JSON pointer to a value or a matcher:
 `{"$present": true}`, `{"$absent": true}`, `{"$contains": "text"}`, `{"$approx": n, "$tolerance": n}`,
-`{"$range": [lo, hi]}`, `{"$includes": value}` and `{"$order": [...], "$by": pointer}`.
+`{"$range": [lo, hi]}`, `{"$includes": value}` and `{"$order": [...], "$by": pointer}`. To assert several lines, have the program
+print them as one JSON string and let `stdoutJSON` compare it.
+Every `expect` asserts on stdout with `stdoutContains` or `stdoutJSON`, a program that prints the marker on a
+mismatch included: when it finds none, it prints the values it observed for `expect` to assert. maul refuses any other
+check as `not-substantive`.
 
 Rules every check keeps:
 

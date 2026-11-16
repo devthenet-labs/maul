@@ -240,22 +240,24 @@ A check is bound to one outcome and has one form{{if not .Tools.Browser}} (this 
   any case, as a `count`'s locators do unless they say `"exact": true`. `text` and `hasText` always match a part.
   `expect` takes one `assert`: `visible` (a person can see it),
   `legible` (a person can read it: enough contrast against its background), `clickable` (it, not something over it,
-  receives a click), `text` (`equals`, `contains` or `matches`), `count`, `url`, and the box relations `left-of`,
-  `above`, `no-overlap`, `equal-size`, `aligned` (`axis` x or y) and `size`, each with an `other` locator where it
-  compares two and a `tolerance` in px. `size` takes an exact `width` or `height`, or the bounds `minWidth`,
-  `maxWidth`, `minHeight` and `maxHeight` for an outcome that says "at least" or "at most" (an axis takes one or the
-  other): write "at least 48 px" as `minWidth: 48`, never an exact 48. A box relation on an element scrolled out of
-  view or clipped away by its container comes back indeterminate, so scroll it into view in the check first (a
-  `scroll` step on that container). Assert `legible` for "can a person read it" and `visible` for "is it there".
-  Never assert a colour value: a colour literal is refused.
+  receives a click), `text` (its matcher nested under `text`: `{"assert": "text", "locator": {"css": "#bpm-out"},
+  "text": {"equals": "90"}}`, or `contains` or `matches` in place of `equals`; it reads the text an element shows,
+  never the value of an input or slider), `count`, `url`, and the box relations `left-of`, `above`, `no-overlap`,
+  `equal-size`, `aligned` (`axis` x or y) and `size`, each with an `other` locator where it compares two and a
+  `tolerance` in px. `size` takes an exact `width` or `height`, or the bounds `minWidth`, `maxWidth`, `minHeight` and
+  `maxHeight` for an outcome that says "at least" or "at most" (an axis takes one or the other): write "at least 48
+  px" as `minWidth: 48`, never an exact 48. A box relation on an element scrolled out of view or clipped away by its
+  container comes back indeterminate, so scroll it into view in the check first (a `scroll` step on that container).
+  Assert `legible` for "can a person read it" and `visible` for "is it there". Never assert a colour value: a colour
+  literal is refused.
 {{- end}}
 {{- if .Tools.Sandbox}}
 - `exec`: an `argv` run in the sandbox without a shell, with its program `files`, asserting on its `exit` code,
-  `stdoutContains` and `stdoutJSON`. maul fails an exec check whose output has a line that starts with what
-  `{{.ExecMarker}}` in its program files stands for (a secret maul draws for every run), whatever its exit code and
-  its `expect`: have the program print `{{.ExecMarker}} <id>: <what it saw>` when its final judgement of an
-  assertion finds the outcome does not hold, never inside a retry or poll, on a connection error, a status code or an
-  exception. Let `expect` assert on what the program read from the preview (`stdoutJSON`, its whole output one JSON
+  `stdoutContains` (one string, on one line) and `stdoutJSON`. maul fails an exec check whose output has a line that
+  starts with what `{{.ExecMarker}}` in its program files stands for (a secret maul draws for every run), whatever its
+  exit code and its `expect`: have the program print `{{.ExecMarker}} <id>: <what it saw>` when its final judgement of
+  an assertion finds the outcome does not hold, never inside a retry or poll, on a connection error, a status code or
+  an exception. Let `expect` assert on what the program read from the preview (`stdoutJSON`, its whole output one JSON
   document of the values it observed), never only on a line it prints whatever happened (`DONE`). A run whose output
   is too long to keep whole (over 64 KiB) never passes: print only what the check needs.
 {{- end}}
