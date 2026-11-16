@@ -160,9 +160,13 @@ the evaluator's run (`[maul-tool time left]`).
    newest refusals' first, never cut, the rest named without their bodies, as is a saved check the round replays. It
    amends that check to answer the reason, keeping what it already tests and every example value the outcome names,
    rather than writing an unrelated one; the refused check is never replayed or counted, and the amended one is a new
-   check, confirmed and reviewed like any other. Each session may take 6 turns, the last 3 kept for one repair of its
-   report; a review whose report is refused and not repaired makes that check alone `unclear` (not stored, its answer
-   not cached), and the run goes on to the next check.
+   check, confirmed and reviewed like any other. The evaluate prompt is one argument of the CLI's command line, which
+   Linux bounds at 128 KiB: a prompt over it leaves out, in this order, the refused checks' bodies (oldest first), half
+   the changed paths at a time, the older half of the refusals at a time, the fix diff, then the request, each said to
+   be not shown, never cut; the outcomes and the previous round's results always stay, and a prompt still over the bound
+   fails the run (maul's own failure, never a verdict). Each session may take 6 turns, the last 3 kept for one repair of
+   its report; a review whose report is refused and not repaired makes that check alone `unclear` (not stored, its
+   answer not cached), and the run goes on to the next check.
 9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
    full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
