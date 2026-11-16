@@ -360,6 +360,73 @@ func checkConfirmedAtBoth(t *testing.T, pv v1alpha1.PreviewVerification, head st
 	}
 }
 
+// TestIntentAgentsRecheckPasses is TestIntentEvaluateRecheckPasses (#428) on
+// a Project with no preview: on a correct cli build the evaluator passes the
+// outcome and the reviewer refuses its check as too weak. Round 1 is held
+// only by that refusal, so maul checks once more by itself: round 2, full
+// and automatic at the same heads, whose evaluator is shown the refused
+// check and amends it, which the reviewer accepts. Round 2 passes, the
+// hand-off is ready with no link and maul/acceptance is success; no round 3.
+func TestIntentAgentsRecheckPasses(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
+		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
+			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally", "MAUL_FAKE_CLAUDE_REVIEW": "weak-refused"},
+	})
+	number, name, pr := e.toReview(t)
+	in := e.waitEval(t, name, "the recheck to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.Round == 2 && v.State == v1alpha1.VerificationPassed
+	})
+	v := in.Status.Verification
+	for _, o := range v.Outcomes {
+		if o.Result != "passed" || o.Reason != "confirmed" {
+			t.Errorf("outcome %+v, want confirmed on the recheck's amended check", o)
+		}
+	}
+	first, recheck := e.round(t, name, 1), e.round(t, name, 2)
+	if !first.Spec.IsAgents() || !recheck.Spec.IsAgents() {
+		t.Errorf("rounds %s and %s, want both on the agents host", first.Name, recheck.Name)
+	}
+	if recheck.Spec.Rung != v1alpha1.RungFull || recheck.Spec.HeadSetDigest != first.Spec.HeadSetDigest ||
+		recheck.Annotations["maul.run/verification-trigger"] != "automatic" {
+		t.Errorf("round 2 = %s at %s by %q, want the full recheck at round 1's heads, automatic", recheck.Spec.Rung,
+			recheck.Spec.HeadSetDigest, recheck.Annotations["maul.run/verification-trigger"])
+	}
+	if esc := v.Escalation; esc == nil || esc.Round != 1 || !esc.Recheck || v.Automatic != 2 {
+		t.Errorf("escalation %+v, automatic %d; want round 1's recheck, counted", esc, v.Automatic)
+	}
+	if n := len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)); n != 2 {
+		t.Errorf("evaluate runs = %d, want round 1's and the recheck's", n)
+	}
+	refused, proven := 0, 0
+	for _, r := range in.Status.Acceptance.Reviews {
+		switch {
+		case r.Answer == "does_not_prove" && r.Check == "greets":
+			refused++
+		case r.Answer == "proves" && r.Check == "greets.again":
+			proven++
+		default:
+			t.Errorf("review %+v, want round 1's check refused and the recheck's proven", r)
+		}
+	}
+	if refused != 1 || proven != 1 {
+		t.Errorf("%d refused, %d proven; want round 1's refused and the amended one proven", refused, proven)
+	}
+	checkConfirmedAtBoth(t, recheck, pr.HeadSHA)
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	eventually(t, "round 2's comment to say maul checked once more", func() bool {
+		return strings.Contains(strings.Join(e.gh.Comments(number), ""), "### maul: verification 2, attempt 1 "+
+			"(maul checked once more by itself: a check was not accepted)")
+	})
+	if h := e.intent(t, name).Status.Verification.Handoff; h == nil || !h.Released ||
+		h.Reason != v1alpha1.HandoffReasonReady {
+		t.Errorf("handoff %+v, want released ready after the recheck", h)
+	}
+	consistently(t, "no round 3", func() bool { return len(e.verifications(t, name)) == 2 })
+	e.checkNoPreview(t)
+}
+
 // tallyKeepOutcome is a plan stating that echoing stays: true at the base,
 // so a defect there is a regression maul can show.
 const tallyKeepOutcome = `acceptance:

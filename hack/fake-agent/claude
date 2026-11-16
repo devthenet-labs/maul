@@ -134,7 +134,9 @@
 #                              an evaluator whose prompt shows the check
 #                              the reviewer refused of an outcome amends it
 #                              as "<outcome>.again", sending that header: a
-#                              stronger check.
+#                              stronger check; in "cli-pass" mode as
+#                              "<outcome>.again" with one more argument,
+#                              X-Maul-Stronger.
 #   MAUL_FAKE_CLAUDE_CAPPED    set: the evaluator runs out of turns, as every
 #                              live evaluator of S1 bug 3 did: its first run
 #                              makes every call above but, instead of writing
@@ -527,19 +529,32 @@ if [ "$MAUL_PHASE" = evaluate ]; then
       # shellcheck disable=SC2086 # the args are split as given
       tool exec -- "$bin" ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}
       explored=$seq
-      cli_check "$o" "$o" >"checks/$o.json"
-      tool check run "checks/$o.json"
+      # As in "pass": shown its refused check, it amends it as
+      # "<outcome>.again", one more argument X-Maul-Stronger.
+      cid=$o
+      refused=$(printf '%s\n' "$prompt" | sed -n '/^### Checks the reviewer refused/,/^##/p')
+      case "$refused" in
+      *"\"id\": \"$o\","*)
+        cid="$o.again"
+        (
+          MAUL_FAKE_CLAUDE_CLI_ARGS="${MAUL_FAKE_CLAUDE_CLI_ARGS:---help} X-Maul-Stronger"
+          cli_check "$cid" "$o"
+        ) >"checks/$cid.json"
+        ;;
+      *) cli_check "$o" "$o" >"checks/$o.json" ;;
+      esac
+      tool check run "checks/$cid.json"
       head=$seq digest=$(green_digest dry-run)
-      tool check run --base "checks/$o.json"
+      tool check run --base "checks/$cid.json"
       if [ -n "$digest" ]; then
         verdicts="$verdicts
   - outcome: $o
     verdict: pass
     ledger: [$explored, $head, $seq]"
         proposed="$proposed
-  - id: \"$o\"
+  - id: \"$cid\"
     outcome: $o
-    file: \"checks/$o.json\""
+    file: \"checks/$cid.json\""
       else
         verdicts="$verdicts
   - outcome: $o
