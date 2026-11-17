@@ -994,3 +994,39 @@ func TestEvaluatePromptNeverShowsARefusedCheckCut(t *testing.T) {
 		t.Errorf("40 refusals grew the prompt by %d bytes, past the bodies' bound", grown)
 	}
 }
+
+// TestEvaluatePromptAmendsRefusedCheck (L6-B-BROWSER-2): in both the slot
+// and the workspace prompt, a refused check that is shown is to be amended,
+// not rewritten: start from its body, change only what the reason faults,
+// keep every other case on the control it used, judge inherited expected
+// values as its own, compare the two before confirming, and never drop or
+// change an unfaulted case silently.
+func TestEvaluatePromptAmendsRefusedCheck(t *testing.T) {
+	refused := []PriorRefusal{{Check: "o-1.a", Outcome: "o-1", Reason: "weak", Body: bigCheck(t, 1, 10)}}
+	slot := testEvaluatePrompt()
+	slot.PriorRefused = refused
+	workspace := testWorkspacePrompt(testLibraryWorkspace)
+	workspace.PriorRefused = refused
+	for _, tt := range []struct {
+		name string
+		p    EvaluatePrompt
+	}{{"slot", slot}, {"workspace", workspace}} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := RenderEvaluatePrompt(tt.p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"Start from its body as shown and change only what the reason faults",
+				"every other step, case and assertion, each input sent to the same control or call as before",
+				"judge every expected value it states against the outcome as worded, as you would your own",
+				"Before you confirm the amended check, compare it with the refused one case by case",
+				"say in that outcome's verdict note which case and why, never silently",
+			} {
+				if !strings.Contains(flat(got), want) {
+					t.Errorf("prompt lacks %q", want)
+				}
+			}
+		})
+	}
+}
