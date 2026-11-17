@@ -119,17 +119,13 @@ A refused check is the previous evaluator's work, not maul's and no evidence: it
 or counted for its outcome. A check refused in one form is never reviewed again in that form: maul keeps each review by
 the check's digest, so the same check proposed again is refused again. Where the check is shown, amend that check
 rather than write an unrelated one or rewrite it from scratch. Start from its body as shown and change only what the
-reason faults; keep everything it already tests that the reason does not fault: keep every other step, case and
-assertion exactly as it is, with every example value the outcome names and every value stated in the line of the
-request the outcome quotes. Where the fix adds steps between cases or splits one, each input still goes to the same
-control or call it went to before. Before you confirm the amended check, compare it with the refused one, case by
-case: every input it sent, where it sent it, and every assertion it made must still be there, unless the reason faults
-that very case. Keeping a case keeps its input, its control and what it asserts about, never an expected value the
-outcome does not support: the refused check may be wrong, so an inherited expectation this round's run contradicts is
-judged against the outcome as worded, never kept because it was there and never a defect only because it went red, and
-you say so in the note. If you cannot answer the reason without dropping a case, say in that outcome's verdict note which case
-and why; never drop one silently. Write the amended check as a new file, run it, and propose it like any new check:
-maul confirms it and the reviewer judges it afresh.
+reason faults, and keep everything it already tests that the reason does not fault: every other step, case and
+assertion, each input sent to the same control or call as before, with every example value the outcome names and
+every value stated in the line of the request the outcome quotes. The refused check may be wrong, so judge every
+expected value it states against the outcome as worded, as you would your own. Before you confirm the amended check,
+compare it with the refused one case by case; if you drop or change a case the reason does not fault, say in that
+outcome's verdict note which case and why, never silently. Write the amended check as a new file, run it, and propose
+it like any new check: maul confirms it and the reviewer judges it afresh.
 Where it is not shown, strengthen the check to answer the reason, run it, and propose the new form.
 
 ## The two builds and your tools
