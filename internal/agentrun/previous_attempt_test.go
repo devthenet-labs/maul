@@ -85,7 +85,7 @@ func TestRetryPromptCarriesPreviousAttempt(t *testing.T) {
 			if len(fx.specs) != 1 || len(fx.specs[0].Argv) < 3 || fx.specs[0].Argv[1] != "-p" {
 				t.Fatalf("stage commands = %+v, want one claude -p run", fx.specs)
 			}
-			prompt := fx.specs[0].Argv[2]
+			prompt := fx.specs[0].Stdin
 			for _, want := range tt.want {
 				if !strings.Contains(prompt, want) {
 					t.Errorf("prompt lacks %q:\n%s", want, prompt)

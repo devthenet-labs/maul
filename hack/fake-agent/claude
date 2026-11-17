@@ -23,10 +23,10 @@
 # (the "### Acceptance outcomes" section a verifying Project's plan prompt
 # carries) and MAUL_FAKE_PLAN_ACCEPTANCE is
 # set (YAML lines), the plan's frontmatter declares that acceptance block, as
-# a model asked for them would; a prompt that does not ask gets none. Every run's prompt (the -p
-# argument) is written to $HOME/.fake-claude/prompt-<phase> for the test to
-# read. What a build does is chosen by the environment, a test's stand-in
-# for a model:
+# a model asked for them would; a prompt that does not ask gets none. Every
+# run's prompt (its standard input, as maul gives the real CLI) is written to
+# $HOME/.fake-claude/prompt-<phase> for the test to read. What a build does
+# is chosen by the environment, a test's stand-in for a model:
 #
 #   MAUL_FAKE_CLAUDE_REPORT  the first run's report: "ok" (default), or the
 #                              two slips that threw builds away live:
@@ -163,7 +163,7 @@ while [ $# -gt 0 ]; do
   --resume) mode=resume session=$2; shift 2 ;;
   --max-turns) turns=$2; shift 2 ;;
   --allowedTools) tools=$2; shift 2 ;;
-  -p) prompt=$2; shift 2 ;;
+  -p) shift ;;
   --model | --output-format | --tools | --disallowedTools | --setting-sources | --permission-mode | --add-dir | \
     --append-system-prompt) shift 2 ;;
   *) shift ;;
@@ -174,7 +174,9 @@ workspace="${MAUL_WORKSPACE:?MAUL_WORKSPACE is unset}"
 state="$HOME/.fake-claude"
 mkdir -p "$state/sessions"
 printf '%s %s %s %s\n' "$mode" "$session" "$turns" "$tools" >>"$state/calls"
-printf '%s' "$prompt" >"$state/prompt-${MAUL_PHASE:-none}"
+# The prompt is the standard input, recorded byte for byte.
+cat >"$state/prompt-${MAUL_PHASE:-none}"
+prompt=$(cat "$state/prompt-${MAUL_PHASE:-none}")
 
 case "${MAUL_PHASE:-}" in
 plan | build | evaluate | checkreview) ;;

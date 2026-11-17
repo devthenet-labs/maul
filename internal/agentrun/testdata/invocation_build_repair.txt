@@ -4,6 +4,50 @@ claude
 --- argv[1]
 -p
 --- argv[2]
+--model
+--- argv[3]
+claude-sonnet-5
+--- argv[4]
+--output-format
+--- argv[5]
+stream-json
+--- argv[6]
+--verbose
+--- argv[7]
+--max-turns
+--- argv[8]
+6
+--- argv[9]
+--allowedTools
+--- argv[10]
+Read Glob Grep Edit Write NotebookEdit Bash
+--- argv[11]
+--disallowedTools
+--- argv[12]
+WebFetch WebSearch
+--- argv[13]
+--setting-sources
+--- argv[14]
+user
+--- argv[15]
+--permission-mode
+--- argv[16]
+dontAsk
+--- argv[17]
+--strict-mcp-config
+--- argv[18]
+--add-dir
+--- argv[19]
+/workspace/repo
+--- argv[20]
+--add-dir
+--- argv[21]
+/workspace
+--- argv[22]
+--resume
+--- argv[23]
+5e3f9a1c-8b2d-4f6e-9c7a-1d2e3f4a5b6c
+--- stdin
 ## Your report was refused
 
 maul could not accept the report you wrote at `/workspace/reports/build.md`, so everything this run did would be
@@ -27,50 +71,6 @@ report: frontmatter: yaml: unmarshal errors:
   instructions asked for it and you have not.
 - When the report is fixed, reply with one short line saying so.
 
---- argv[3]
---model
---- argv[4]
-claude-sonnet-5
---- argv[5]
---output-format
---- argv[6]
-stream-json
---- argv[7]
---verbose
---- argv[8]
---max-turns
---- argv[9]
-6
---- argv[10]
---allowedTools
---- argv[11]
-Read Glob Grep Edit Write NotebookEdit Bash
---- argv[12]
---disallowedTools
---- argv[13]
-WebFetch WebSearch
---- argv[14]
---setting-sources
---- argv[15]
-user
---- argv[16]
---permission-mode
---- argv[17]
-dontAsk
---- argv[18]
---strict-mcp-config
---- argv[19]
---add-dir
---- argv[20]
-/workspace/repo
---- argv[21]
---add-dir
---- argv[22]
-/workspace
---- argv[23]
---resume
---- argv[24]
-5e3f9a1c-8b2d-4f6e-9c7a-1d2e3f4a5b6c
 --- env
 ANTHROPIC_CUSTOM_HEADERS=X-Maul-Broker-Token: caller-token-first-0001
 --- env

@@ -194,9 +194,12 @@ type EvaluatePrompt struct {
 	shed evaluateShed
 }
 
-// EvaluatePromptMaxBytes bounds the rendered evaluate prompt: it is one
-// argument of the CLI's command line (harness.Claude.PromptSpec), and Linux
-// refuses an argument of 128 KiB or more, its NUL included (MAX_ARG_STRLEN).
+// EvaluatePromptMaxBytes bounds the rendered evaluate prompt. It was set when
+// the prompt was one argument of the CLI's command line, which Linux refuses
+// at 128 KiB or more, its NUL included (MAX_ARG_STRLEN); the prompt is now
+// the CLI's standard input (harness.Claude.PromptSpec), so argv no longer
+// limits it, and the bound is kept for itself: an evaluator's prompt stays
+// one it can take in whole, and what it leaves out it says it left out.
 const EvaluatePromptMaxBytes = 128<<10 - 1
 
 // evaluateShed counts what a prompt over EvaluatePromptMaxBytes left out:
@@ -590,7 +593,7 @@ const refusedBodyShownMaxBytes = 2 * v1alpha1.MaxSavedCheckBytes
 // CLI-1): each that is a check of maul's grammar, at most
 // v1alpha1.MaxSavedCheckBytes, indented as JSON and made visible; the
 // newest refusals' first, within RefusedBodiesMaxBytes in all as shown (the
-// prompt is one argument of the CLI's command line). A body that is no
+// prompt is held to EvaluatePromptMaxBytes). A body that is no
 // check, or whose shown form is past refusedBodyShownMaxBytes or the bound
 // left, is "": never shown cut, since a cut check is another check.
 func refusedBodies(rs []PriorRefusal) []string {

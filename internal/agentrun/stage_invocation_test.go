@@ -48,13 +48,15 @@ func stageInvocation(t *testing.T, phase Phase, s step, ws string, cfg Config) s
 }
 
 // renderInvocation writes a command spec one argument per block, so a golden
-// diff shows exactly which argument moved.
+// diff shows exactly which argument moved, then its standard input (the
+// prompt).
 func renderInvocation(spec runner.CommandSpec, ws string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "dir: %s\n", spec.Dir)
 	for i, arg := range spec.Argv {
 		fmt.Fprintf(&b, "--- argv[%d]\n%s\n", i, arg)
 	}
+	fmt.Fprintf(&b, "--- stdin\n%s\n", spec.Stdin)
 	for _, kv := range spec.Env {
 		// A run's cutoff is the clock's: the golden pins the name alone.
 		if strings.HasPrefix(kv, maultool.EnvDeadline+"=") {

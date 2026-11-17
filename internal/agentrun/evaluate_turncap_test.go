@@ -61,11 +61,11 @@ func TestEvaluateTurnCapCollectsTheReport(t *testing.T) {
 	if got := argvFlag(t, fx.specs[1].Argv, "--max-turns"); got != "6" {
 		t.Errorf("resumed run --max-turns = %s, want the 6 turns kept for the report", got)
 	}
-	first := strings.Join(strings.Fields(argvFlag(t, fx.specs[0].Argv, "-p")), " ")
+	first := strings.Join(strings.Fields(fx.specs[0].Stdin), " ")
 	if !strings.Contains(first, "at most 90 agent turns") {
 		t.Errorf("the evaluate prompt does not state the first run's 90 turns:\n%s", first)
 	}
-	repair := strings.Join(strings.Fields(argvFlag(t, fx.specs[1].Argv, "-p")), " ")
+	repair := strings.Join(strings.Fields(fx.specs[1].Stdin), " ")
 	for _, want := range []string{"reached its turn limit", "Write your report now", "/scratch/report.md"} {
 		if !strings.Contains(repair, want) {
 			t.Errorf("the resumed run's prompt lacks %q:\n%s", want, repair)

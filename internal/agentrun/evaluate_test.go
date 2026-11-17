@@ -307,7 +307,7 @@ func checkEvaluateCommand(t *testing.T, spec runner.CommandSpec, ws string) {
 	if spec.Dir != filepath.Join(ws, "scratch") {
 		t.Errorf("stage ran in %s, want the scratch directory", spec.Dir)
 	}
-	prompt := argvFlag(t, spec.Argv, "-p")
+	prompt := spec.Stdin
 	for _, want := range []string{
 		"You are maul's evaluator.",
 		"This is round 1 of this change's evaluation.",
@@ -349,10 +349,10 @@ func TestEvaluateRepairsAMissingVerdict(t *testing.T) {
 	if len(fx.specs) != 3 || !slices.Contains(fx.specs[1].Argv, "--resume") {
 		t.Fatalf("commands = %d, want the stage, one resumed repair and the ask for a check", len(fx.specs))
 	}
-	if repair := argvFlag(t, fx.specs[1].Argv, "-p"); !strings.Contains(repair, "verdicts is required") {
+	if repair := fx.specs[1].Stdin; !strings.Contains(repair, "verdicts is required") {
 		t.Errorf("repair prompt does not name the missing verdicts:\n%s", repair)
 	}
-	if ask := argvFlag(t, fx.specs[2].Argv, "-p"); !strings.Contains(ask, "Outcomes you passed with no check") {
+	if ask := fx.specs[2].Stdin; !strings.Contains(ask, "Outcomes you passed with no check") {
 		t.Errorf("the run after the repair is not the ask for a check:\n%s", ask)
 	}
 }

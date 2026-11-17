@@ -236,15 +236,19 @@ var claudeEvaluateBash = []string{"BASH_DEFAULT_TIMEOUT_MS=600000", "BASH_MAX_TI
 // model's own maximum.
 const ClaudeMaxOutputTokensEnv = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 
-// PromptSpec builds the headless claude invocation for one prompted run.
-// stream-json with --verbose emits one JSON event per line, which is what
-// ParseResult and ScanUsage parse. Optional request fields append their flag
+// PromptSpec builds the headless claude invocation for one prompted run. The
+// prompt is the CLI's standard input (Stdin), never an argument: -p with no
+// prompt argument reads it from there, and Linux caps one argument at
+// 128 KiB (MAX_ARG_STRLEN), which a prompt can pass (TestClaudePostureProbe
+// pins that the pinned CLI reads one past it whole). stream-json with
+// --verbose emits one JSON event per line, which is what ParseResult and
+// ScanUsage parse. Optional request fields append their flag
 // only when set, in a stable order. A posture also pins where the run's
 // settings come from (claudeSettingSources) and its permission mode
 // (claudePermissionMode); the request's Env is never written through.
 func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 	argv := []string{
-		"claude", "-p", req.Prompt,
+		"claude", "-p",
 		"--model", req.Model,
 		"--output-format", "stream-json",
 		"--verbose",
@@ -290,15 +294,15 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 	if req.SystemPromptAppend != "" {
 		argv = append(argv, "--append-system-prompt", req.SystemPromptAppend)
 	}
-	return runner.CommandSpec{Argv: argv, Dir: ws, Env: env}
+	return runner.CommandSpec{Argv: argv, Dir: ws, Env: env, Stdin: req.Prompt}
 }
 
 // ResumeSpec continues session sessionID: PromptSpec's own command for req,
 // so every flag the first run had is rendered again — the CLI keeps none of
 // them, and a resumed run without its tool grammar would leave its sandbox
-// posture — with --resume in place of --session-id, which the CLI refuses
-// beside it. It is meant to run in the first run's directory, where the CLI
-// filed the session.
+// posture — and req's prompt on its standard input, with --resume in place
+// of --session-id, which the CLI refuses beside it. It is meant to run in
+// the first run's directory, where the CLI filed the session.
 //
 // What claude 2.1.291 and 2.1.322 do on a resumed run (probed; production
 // pins 2.1.322): the result event repeats the same session_id; num_turns and

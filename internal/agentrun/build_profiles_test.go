@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -43,14 +42,9 @@ func TestPlanPromptStatesTheBuildProfile(t *testing.T) {
 			if ev := onlyEvent(t, cfg, fx, &out); ev.Plan == nil || ev.Plan.Outcome != envelope.OutcomeOK {
 				t.Fatalf("event = %+v, want an ok plan", ev)
 			}
-			argv := fx.specs[0].Argv
-			i := slices.Index(argv, "-p")
-			if i < 0 || i+1 >= len(argv) {
-				t.Fatalf("argv lacks -p: %q", argv)
-			}
-			stated := strings.Contains(argv[i+1], "runs with the operator's network profile `go`")
+			stated := strings.Contains(fx.specs[0].Stdin, "runs with the operator's network profile `go`")
 			if stated != (tt.handoff != "") {
-				t.Errorf("prompt states the profile = %v, want %v:\n%s", stated, tt.handoff != "", argv[i+1])
+				t.Errorf("prompt states the profile = %v, want %v:\n%s", stated, tt.handoff != "", fx.specs[0].Stdin)
 			}
 		})
 	}

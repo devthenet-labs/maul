@@ -57,7 +57,7 @@ func TestClaudePromptSpecAllFlags(t *testing.T) {
 		Env:                []string{"ANTHROPIC_API_KEY=k"},
 	})
 	want := []string{
-		"claude", "-p", "fix the finding",
+		"claude", "-p",
 		"--model", "claude-fable-5",
 		"--output-format", "stream-json",
 		"--verbose",
@@ -78,6 +78,9 @@ func TestClaudePromptSpecAllFlags(t *testing.T) {
 	if spec.Dir != "/work/ws" {
 		t.Errorf("Dir = %q, want the workspace", spec.Dir)
 	}
+	if spec.Stdin != "fix the finding" {
+		t.Errorf("Stdin = %q, want the prompt", spec.Stdin)
+	}
 	if want := []string{"ANTHROPIC_API_KEY=k", claudeMDFromAddDirs}; !slices.Equal(spec.Env, want) {
 		t.Errorf("Env = %q, want the request env and then %q", spec.Env, want)
 	}
@@ -86,10 +89,13 @@ func TestClaudePromptSpecAllFlags(t *testing.T) {
 func TestClaudePromptSpecMinimal(t *testing.T) {
 	c := NewClaude()
 	spec := c.PromptSpec("/ws", PromptRequest{Prompt: "hi", Model: "m"})
-	want := []string{"claude", "-p", "hi", "--model", "m", "--output-format", "stream-json", "--verbose"}
+	want := []string{"claude", "-p", "--model", "m", "--output-format", "stream-json", "--verbose"}
 	// SandboxDefault (the zero value) imposes no tool grammar.
 	if !slices.Equal(spec.Argv, want) {
 		t.Errorf("Argv = %q, want no optional flags: %q", spec.Argv, want)
+	}
+	if spec.Stdin != "hi" {
+		t.Errorf("Stdin = %q, want the prompt", spec.Stdin)
 	}
 	if spec.Env != nil {
 		t.Errorf("Env = %q, want none: an unset posture leaves the CLI's defaults", spec.Env)
@@ -104,7 +110,7 @@ func TestClaudePromptSpecReadOnly(t *testing.T) {
 	c := NewClaude()
 	spec := c.PromptSpec("/ws", PromptRequest{Prompt: "look", Model: "m", Sandbox: SandboxReadOnly})
 	want := []string{
-		"claude", "-p", "look", "--model", "m", "--output-format", "stream-json", "--verbose",
+		"claude", "-p", "--model", "m", "--output-format", "stream-json", "--verbose",
 		"--tools", "Read,Glob,Grep,Edit,Write",
 		"--allowedTools", "Read Glob Grep Write",
 		"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit", "--restricted",
@@ -195,7 +201,7 @@ func TestClaudePromptSpecEvaluate(t *testing.T) {
 		Env:                reqEnv,
 	}
 	head := []string{
-		"claude", "-p", "evaluate", "--model", "m", "--output-format", "stream-json", "--verbose",
+		"claude", "-p", "--model", "m", "--output-format", "stream-json", "--verbose",
 		"--max-turns", "40",
 		"--tools", "Bash,Read,Write",
 		"--allowedTools", "Bash(maul-tool:*) Read(//work/scratch/**) Edit(//work/scratch/**)",
@@ -217,6 +223,9 @@ func TestClaudePromptSpecEvaluate(t *testing.T) {
 	} {
 		if !slices.Equal(tc.spec.Argv, tc.want) {
 			t.Errorf("%s: Argv =\n%q\nwant\n%q", tc.name, tc.spec.Argv, tc.want)
+		}
+		if tc.spec.Stdin != "evaluate" {
+			t.Errorf("%s: Stdin = %q, want the prompt", tc.name, tc.spec.Stdin)
 		}
 		if tc.spec.Dir != "/work/scratch" {
 			t.Errorf("%s: Dir = %q, want the scratch directory as the CLI's cwd", tc.name, tc.spec.Dir)

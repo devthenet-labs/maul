@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -78,12 +77,7 @@ func TestPlanPromptListsOpenPullRequests(t *testing.T) {
 			if ev := onlyEvent(t, cfg, fx, &out); ev.Plan == nil || ev.Plan.Outcome != envelope.OutcomeOK {
 				t.Fatalf("event = %+v, want an ok plan", ev)
 			}
-			argv := fx.specs[0].Argv
-			i := slices.Index(argv, "-p")
-			if i < 0 || i+1 >= len(argv) {
-				t.Fatalf("argv lacks -p: %q", argv)
-			}
-			prompt := argv[i+1]
+			prompt := fx.specs[0].Stdin
 			if tt.handoff == "" {
 				if strings.Contains(prompt, "## Other open pull requests") {
 					t.Errorf("a plan handed no open pull request lists some:\n%s", prompt)

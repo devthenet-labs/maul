@@ -135,8 +135,10 @@ func TestClaudePostureProbe(t *testing.T) {
 				t.Errorf("report = %q, want it written and then edited in place", b)
 			}
 
-			// The report repair resumes the session with the same request.
+			// The report repair resumes the session with the same request
+			// and a prompt of its own.
 			resume := repairScript(p)
+			req.Prompt = "probe: the report repair's prompt"
 			got = p.run(t, NewClaude().ResumeSpec(p.tree, req.SessionID, req), resume)
 			got.assertPinned(t, resume)
 			p.assertTreeUntouched(t)
@@ -376,9 +378,15 @@ func (p *postureProbe) request(sandbox Sandbox) PromptRequest {
 	if sandbox == SandboxReadOnly {
 		req.WriteDirs = []string{p.reports}
 		req.SessionID = "00000000-0000-4000-8000-00000000beef"
+		req.Prompt = probeLargePrompt
 	}
 	return req
 }
+
+// probeLargePrompt is the read-only runs' prompt: past Linux's bound on one
+// argument (MAX_ARG_STRLEN, 128 KiB), so it reaches the model whole only on
+// the CLI's standard input, which every probe run asserts it does.
+var probeLargePrompt = "probe: PROMPT-BEGIN\n" + strings.Repeat("a line of the stage's prompt\n", 6000) + "PROMPT-END"
 
 // unpinned is argv with the settings pins taken back out, as the pod ran it
 // before them: every settings source and every MCP configuration, no
@@ -440,7 +448,7 @@ func (o probeOutcome) marker(line string) bool { return slices.Contains(o.marker
 // and the script as the model's replies.
 func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeScript) probeOutcome {
 	t.Helper()
-	p.upstream.reset(script.steps)
+	p.upstream.reset(script.steps, spec.Stdin)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	argv := slices.Clone(spec.Argv)
@@ -460,7 +468,7 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 		"DISABLE_AUTOUPDATER=1",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	}, spec.Env...)
-	cmd.Stdin = strings.NewReader("")
+	cmd.Stdin = strings.NewReader(spec.Stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -476,6 +484,9 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 	out := probeOutcome{results: map[string]toolResult{}}
 	out.headerSeen, out.guidance, out.leaked = p.upstream.seen()
 	out.maxTokens = p.upstream.maxTokensSeen()
+	if !p.upstream.promptSeen() {
+		t.Errorf("the prompt (%d bytes, on the CLI's standard input) did not reach the model intact", len(spec.Stdin))
+	}
 	for _, name := range []string{"hooks", "mcp"} {
 		b, _ := os.ReadFile(filepath.Join(p.marks, name))
 		for line := range strings.Lines(string(b)) {
@@ -659,6 +670,10 @@ type fakeUpstream struct {
 	leaked   []string
 	// maxTokens is each Messages request's max_tokens, in order.
 	maxTokens []int
+	// prompt is the run's prompt as a Messages request body carries it (a
+	// JSON string's content); carried, that a request carried it whole.
+	prompt  string
+	carried bool
 }
 
 // probeSecretEnv is a variable every probe run carries, holding
@@ -679,11 +694,23 @@ func newFakeUpstream(t *testing.T) *fakeUpstream {
 
 func (f *fakeUpstream) url() string { return f.srv.URL }
 
-// reset arms the upstream for one run.
-func (f *fakeUpstream) reset(steps [][]toolCall) {
+// reset arms the upstream for one run whose prompt is prompt.
+func (f *fakeUpstream) reset(steps [][]toolCall, prompt string) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(prompt)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.steps, f.header, f.guidance, f.leaked, f.maxTokens = steps, false, false, nil, nil
+	f.prompt, f.carried = strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(b.String(), `"`), "\n"), `"`), false
+}
+
+// promptSeen reports whether a request of the run carried its whole prompt.
+func (f *fakeUpstream) promptSeen() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.carried
 }
 
 // maxTokensSeen reports each Messages request's max_tokens.
@@ -720,6 +747,9 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.mu.Lock()
+	if bytes.Contains(body, []byte(f.prompt)) {
+		f.carried = true
+	}
 	for _, canary := range []string{probeEnvCanary, probeTokenCanary} {
 		if bytes.Contains(body, []byte(canary)) && !slices.Contains(f.leaked, canary) {
 			f.leaked = append(f.leaked, canary)
