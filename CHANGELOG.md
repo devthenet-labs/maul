@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.7](https://github.com/devthenet-labs/maul/compare/v0.14.6...v0.14.7) (2026-11-17)
+
+
+### Bug Fixes
+
+* **harness:** claude prompts go on stdin, not argv ([#436](https://github.com/devthenet-labs/maul/issues/436)) ([4d262d9](https://github.com/devthenet-labs/maul/commit/4d262d996c85518615006b5a7ef475ff847ddc43))
+* **intent:** a refused check is amended, not rewritten, in the recheck ([#435](https://github.com/devthenet-labs/maul/issues/435)) ([e4c7e3e](https://github.com/devthenet-labs/maul/commit/e4c7e3e5b595e61e111dbb90689d4a4ec4f09f26))
+
 ## [0.14.6](https://github.com/devthenet-labs/maul/compare/v0.14.5...v0.14.6) (2026-11-16)
 
 
