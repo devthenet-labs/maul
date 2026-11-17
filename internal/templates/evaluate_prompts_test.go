@@ -994,3 +994,39 @@ func TestEvaluatePromptNeverShowsARefusedCheckCut(t *testing.T) {
 		t.Errorf("40 refusals grew the prompt by %d bytes, past the bodies' bound", grown)
 	}
 }
+
+// TestEvaluatePromptAmendsRefusedCheck (L6-B-BROWSER-2): in both the slot
+// and the workspace prompt, a refused check that is shown is to be amended,
+// not rewritten: start from its body, change only what the reason faults,
+// keep every other case on the control it used, compare the two before
+// confirming, and never drop a case silently.
+func TestEvaluatePromptAmendsRefusedCheck(t *testing.T) {
+	refused := []PriorRefusal{{Check: "o-1.a", Outcome: "o-1", Reason: "weak", Body: bigCheck(t, 1, 10)}}
+	slot := testEvaluatePrompt()
+	slot.PriorRefused = refused
+	workspace := testWorkspacePrompt(testLibraryWorkspace)
+	workspace.PriorRefused = refused
+	for _, tt := range []struct {
+		name string
+		p    EvaluatePrompt
+	}{{"slot", slot}, {"workspace", workspace}} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := RenderEvaluatePrompt(tt.p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"Start from its body as shown and change only what the reason faults",
+				"keep every other step, case and assertion exactly as it is",
+				"each input still goes to the same control or call it went to before",
+				"Before you confirm the amended check, compare it with the refused one",
+				"never drop one silently",
+				"never kept because it was there and never a defect only because it went red",
+			} {
+				if !strings.Contains(flat(got), want) {
+					t.Errorf("prompt lacks %q", want)
+				}
+			}
+		})
+	}
+}
