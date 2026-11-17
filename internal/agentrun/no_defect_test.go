@@ -72,11 +72,11 @@ func TestBuildPromptOffersNoDefect(t *testing.T) {
 		fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess,
 			writes: map[string]string{"reports/build.md": noDefectBuild}}}}
 		onlyEvent(t, cfg, fx, &out)
-		var argv []string
+		prompts := make([]string, 0, len(fx.specs))
 		for _, spec := range fx.specs {
-			argv = append(argv, spec.Argv...)
+			prompts = append(prompts, spec.Stdin)
 		}
-		prompt := strings.Join(argv, "\n")
+		prompt := strings.Join(prompts, "\n")
 		if got := strings.Contains(prompt, "no_defect: true"); got != fix {
 			t.Errorf("acceptance fix %v: prompt offers no_defect = %v:\n%s", fix, got, prompt)
 		}

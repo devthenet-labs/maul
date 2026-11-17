@@ -72,11 +72,11 @@ func TestEvaluateWallClockCollectsTheReport(t *testing.T) {
 	if got := fx.timeouts[1]; got != repairTimeout {
 		t.Errorf("resumed run's clock = %s, want a round's %s of what the stage has left", got, repairTimeout)
 	}
-	first := strings.Join(strings.Fields(argvFlag(t, fx.specs[0].Argv, "-p")), " ")
+	first := strings.Join(strings.Fields(fx.specs[0].Stdin), " ")
 	if !strings.Contains(first, "and 16 minutes.") {
 		t.Errorf("the evaluate prompt does not state the first run's 16 minutes:\n%s", first)
 	}
-	repair := strings.Join(strings.Fields(argvFlag(t, fx.specs[1].Argv, "-p")), " ")
+	repair := strings.Join(strings.Fields(fx.specs[1].Stdin), " ")
 	for _, want := range []string{"reached its wall clock limit", "Write your report now", "/scratch/report.md"} {
 		if !strings.Contains(repair, want) {
 			t.Errorf("the resumed run's prompt lacks %q:\n%s", want, repair)

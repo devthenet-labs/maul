@@ -4,6 +4,50 @@ claude
 --- argv[1]
 -p
 --- argv[2]
+--model
+--- argv[3]
+claude-sonnet-5
+--- argv[4]
+--output-format
+--- argv[5]
+stream-json
+--- argv[6]
+--verbose
+--- argv[7]
+--max-turns
+--- argv[8]
+120
+--- argv[9]
+--allowedTools
+--- argv[10]
+Read Glob Grep Edit Write NotebookEdit Bash
+--- argv[11]
+--disallowedTools
+--- argv[12]
+WebFetch WebSearch
+--- argv[13]
+--setting-sources
+--- argv[14]
+user
+--- argv[15]
+--permission-mode
+--- argv[16]
+dontAsk
+--- argv[17]
+--strict-mcp-config
+--- argv[18]
+--add-dir
+--- argv[19]
+/workspace/repo
+--- argv[20]
+--add-dir
+--- argv[21]
+/workspace
+--- argv[22]
+--session-id
+--- argv[23]
+00000000-0000-4000-8000-000000000001
+--- stdin
 You are a security-remediation agent. A finding against this repository has been triaged and approved for automated
 remediation; your job is to fix it. You are running in the repository's working tree (the current directory).
 
@@ -83,50 +127,6 @@ issue and the pull request verbatim.
   before you finish, restore (`git checkout -- <path>`) or delete anything else your verification created or
   changed: build output, caches, a binary the repository tracks that a build overwrote. Never commit those.
 
---- argv[3]
---model
---- argv[4]
-claude-sonnet-5
---- argv[5]
---output-format
---- argv[6]
-stream-json
---- argv[7]
---verbose
---- argv[8]
---max-turns
---- argv[9]
-120
---- argv[10]
---allowedTools
---- argv[11]
-Read Glob Grep Edit Write NotebookEdit Bash
---- argv[12]
---disallowedTools
---- argv[13]
-WebFetch WebSearch
---- argv[14]
---setting-sources
---- argv[15]
-user
---- argv[16]
---permission-mode
---- argv[17]
-dontAsk
---- argv[18]
---strict-mcp-config
---- argv[19]
---add-dir
---- argv[20]
-/workspace/repo
---- argv[21]
---add-dir
---- argv[22]
-/workspace
---- argv[23]
---session-id
---- argv[24]
-00000000-0000-4000-8000-000000000001
 --- env
 ANTHROPIC_CUSTOM_HEADERS=X-Maul-Broker-Token: caller-token
 --- env

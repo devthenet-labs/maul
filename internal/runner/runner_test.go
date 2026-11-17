@@ -237,3 +237,21 @@ func TestRunLongLines(t *testing.T) {
 		t.Error("needle at the end of a 128 KiB line was not collected")
 	}
 }
+
+// TestRunWritesStdin: a spec's Stdin is the process's whole standard input,
+// written and closed, however large; a spec without one keeps an empty
+// standard input, as before.
+func TestRunWritesStdin(t *testing.T) {
+	big := "head\n" + strings.Repeat("x", 300<<10) + "\ntail\n"
+	for _, in := range []string{"", "hi", big} {
+		spec := sh(`cat`)
+		spec.Stdin = in
+		res, err := (&Exec{}).Run(context.Background(), spec, 10*time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(res.Stdout) != in {
+			t.Errorf("stdin of %d bytes: stdout has %d bytes, want them all", len(in), len(res.Stdout))
+		}
+	}
+}

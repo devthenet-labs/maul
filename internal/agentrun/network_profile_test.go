@@ -54,7 +54,7 @@ func TestNetworkProfileReachesThePrompt(t *testing.T) {
 				if len(fx.specs) == 0 || len(fx.specs[0].Argv) < 3 || fx.specs[0].Argv[1] != "-p" {
 					t.Fatalf("stage commands = %+v, want a claude -p run", fx.specs)
 				}
-				prompt := strings.Join(strings.Fields(fx.specs[0].Argv[2]), " ")
+				prompt := strings.Join(strings.Fields(fx.specs[0].Stdin), " ")
 				route := strings.Contains(prompt, "the operator's dependency route `go`")
 				offline := strings.Contains(prompt, "no network access")
 				if route != (profile != "") || offline != (profile == "") {
@@ -128,5 +128,5 @@ func stagePrompt(t *testing.T, phase Phase, edit func(*Config)) string {
 	if len(fx.specs) == 0 || len(fx.specs[0].Argv) < 3 || fx.specs[0].Argv[1] != "-p" {
 		t.Fatalf("stage commands = %+v, want a claude -p run", fx.specs)
 	}
-	return strings.Join(strings.Fields(fx.specs[0].Argv[2]), " ")
+	return strings.Join(strings.Fields(fx.specs[0].Stdin), " ")
 }

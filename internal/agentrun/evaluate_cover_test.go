@@ -58,7 +58,7 @@ func TestEvaluateAsksForTheChecksOfUncoveredPasses(t *testing.T) {
 	if len(fx.specs) != 2 || !slices.Contains(fx.specs[1].Argv, "--resume") {
 		t.Fatalf("commands = %d, want the stage and one resumed ask", len(fx.specs))
 	}
-	ask := strings.Join(strings.Fields(argvFlag(t, fx.specs[1].Argv, "-p")), " ")
+	ask := strings.Join(strings.Fields(fx.specs[1].Stdin), " ")
 	for _, want := range []string{"Outcomes you passed with no check", "- `rate-battle`", "This is ask 1 of at most 2."} {
 		if !strings.Contains(ask, want) {
 			t.Errorf("the ask lacks %q:\n%s", want, ask)
@@ -131,7 +131,7 @@ func TestEvaluateCoverAskKeepsTheReport(t *testing.T) {
 			if tt.accepted {
 				return
 			}
-			second := strings.Join(strings.Fields(argvFlag(t, fx.specs[2].Argv, "-p")), " ")
+			second := strings.Join(strings.Fields(fx.specs[2].Stdin), " ")
 			for _, want := range []string{"## Your rewritten report was refused",
 				"put the report you wrote before it back", tt.why, "This is ask 2 of at most 2."} {
 				if !strings.Contains(second, want) {

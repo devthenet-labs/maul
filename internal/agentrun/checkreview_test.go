@@ -110,7 +110,7 @@ func TestCheckReviewEvent(t *testing.T) {
 		if got := argvFlag(t, spec.Argv, "--session-id"); got != wantID {
 			t.Errorf("session %d id = %s, want a fresh one, %s", i, got, wantID)
 		}
-		checkReviewPrompt(t, i, argvFlag(t, spec.Argv, "-p"), ws)
+		checkReviewPrompt(t, i, spec.Stdin, ws)
 	}
 }
 
@@ -221,7 +221,7 @@ func TestCheckReviewRedQuestion(t *testing.T) {
 	if c == nil || c.Outcome != envelope.OutcomeOK || len(c.Answers) != 1 {
 		t.Fatalf("checkreview = %+v", c)
 	}
-	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+	prompt := fx.specs[0].Stdin
 	for _, want := range []string{"This check failed", "step 1",
 		"That assertion fails only where the outcome does not hold"} {
 		if !strings.Contains(prompt, want) {
@@ -361,7 +361,7 @@ func TestCheckReviewGetsTheRequest(t *testing.T) {
 	if len(fx.specs) != 1 {
 		t.Fatalf("commands run = %d, want 1", len(fx.specs))
 	}
-	prompt := strings.Join(strings.Fields(argvFlag(t, fx.specs[0].Argv, "-p")), " ")
+	prompt := strings.Join(strings.Fields(fx.specs[0].Stdin), " ")
 	for _, want := range []string{"# Beat pages", "each beat links to its page",
 		"It is a keep: something the change must leave true.", "- `api`: served under `/api`"} {
 		if !strings.Contains(prompt, want) {

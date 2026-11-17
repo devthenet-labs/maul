@@ -75,7 +75,7 @@ func TestPlanPromptStatesItsLimits(t *testing.T) {
 			if got := argvFlag(t, argv, "--max-turns"); got != strconv.Itoa(tt.wantTurns) {
 				t.Errorf("--max-turns = %s, want %d", got, tt.wantTurns)
 			}
-			prompt := argvFlag(t, argv, "-p")
+			prompt := fx.specs[0].Stdin
 			own := fmt.Sprintf("This stage may take at most %d agent turns, %d output tokens and 20 minutes.",
 				tt.wantTurns, tt.wantTok)
 			if !strings.Contains(prompt, own) {
@@ -127,7 +127,7 @@ func TestBuildPromptStatesItsLimits(t *testing.T) {
 			}
 			own := fmt.Sprintf("This run may take at most %d agent turns, %d output tokens and 45 minutes.",
 				tt.wantTurns, tt.wantTok)
-			if prompt := argvFlag(t, argv, "-p"); !strings.Contains(prompt, own) {
+			if prompt := fx.specs[0].Stdin; !strings.Contains(prompt, own) {
 				t.Errorf("the prompt does not state the run's own limits %q:\n%s", own, prompt)
 			}
 		})

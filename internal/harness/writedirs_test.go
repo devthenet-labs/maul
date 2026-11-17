@@ -35,7 +35,7 @@ func TestClaudePromptSpecReadOnlyWriteDirs(t *testing.T) {
 				Prompt: "plan", Model: "m", Sandbox: SandboxReadOnly, WriteDirs: tt.dirs,
 			})
 			want := []string{
-				"claude", "-p", "plan", "--model", "m", "--output-format", "stream-json", "--verbose",
+				"claude", "-p", "--model", "m", "--output-format", "stream-json", "--verbose",
 				"--tools", "Read,Glob,Grep,Edit,Write",
 				"--allowedTools", tt.want,
 				"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit", "--restricted",

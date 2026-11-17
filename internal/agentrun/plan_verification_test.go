@@ -60,7 +60,8 @@ func TestPlanPromptTeachesAcceptance(t *testing.T) {
 				if ev := onlyEvent(t, cfg, fx, &out); ev.Plan == nil || ev.Plan.Outcome != envelope.OutcomeOK {
 					t.Fatalf("event = %+v, want an ok plan", ev)
 				}
-				prompt := strings.Join(fx.specs[0].Argv, "\n")
+				// claude's prompt is its standard input, codex's an argument.
+				prompt := fx.specs[0].Stdin + "\n" + strings.Join(fx.specs[0].Argv, "\n")
 				taught := strings.Contains(prompt, "### Acceptance outcomes")
 				if taught != (tt.handoff != "") {
 					t.Fatalf("prompt teaches acceptance = %v, want %v:\n%s", taught, tt.handoff != "", prompt)
@@ -126,7 +127,7 @@ func TestPlanPromptAsksForOutcomes(t *testing.T) {
 			if ev := onlyEvent(t, cfg, fx, &out); ev.Plan == nil || ev.Plan.Outcome != envelope.OutcomeOK {
 				t.Fatalf("event = %+v, want an ok plan", ev)
 			}
-			prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+			prompt := fx.specs[0].Stdin
 			if got := strings.Contains(prompt, "### Acceptance outcomes"); got != tt.outcomes {
 				t.Errorf("prompt asks for outcomes = %v, want %v", got, tt.outcomes)
 			}

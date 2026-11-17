@@ -39,7 +39,7 @@ func TestCheckReviewObservedReachesThePrompt(t *testing.T) {
 	if c := onlyEvent(t, cfg, fx, &out).CheckReview; c == nil || len(c.Answers) != 1 {
 		t.Fatalf("checkreview = %+v", c)
 	}
-	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+	prompt := fx.specs[0].Stdin
 	for _, want := range []string{"run 1: {{run}}-beat1 · by ana · 120 bpm · swing 0%",
 		"That element is the check's own", "4. The text the element showed contradicts the outcome"} {
 		if !strings.Contains(prompt, want) {
@@ -74,7 +74,7 @@ func TestCheckReviewFailureReachesThePrompt(t *testing.T) {
 	if c := onlyEvent(t, cfg, fx, &out).CheckReview; c == nil || len(c.Answers) != 1 {
 		t.Fatalf("checkreview = %+v", c)
 	}
-	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+	prompt := fx.specs[0].Stdin
 	for _, want := range []string{"run 1: " + measured, "run 2: " + measured,
 		"maul recorded how that assertion failed"} {
 		if !strings.Contains(prompt, want) {

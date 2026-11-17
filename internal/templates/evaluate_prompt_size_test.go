@@ -57,17 +57,18 @@ func maxEvaluatePrompt(t *testing.T, workspace bool, char string) EvaluatePrompt
 	return p
 }
 
-// TestEvaluatePromptFitsOneArgument: the evaluate prompt is one argument of
-// the CLI's command line, so with the request and the fix diff at their
-// bounds and every part it may leave out past its own it still renders
-// within EvaluatePromptMaxBytes, under Linux's bound on one argument. What
+// TestEvaluatePromptFitsItsBound: with the request and the fix diff at their
+// bounds and every part it may leave out past its own, the evaluate prompt
+// still renders within EvaluatePromptMaxBytes (128 KiB, set when the prompt
+// was one argument of the CLI's command line; it is now its standard
+// input, and the bound is kept for itself). What
 // it leaves out to fit, it says it left out: the refused checks' bodies
 // first, then changed paths, then the oldest refusals; never the request,
 // the fix diff (the guard against a fix that special-cases a check), an
 // outcome or a previous round's result.
-func TestEvaluatePromptFitsOneArgument(t *testing.T) {
+func TestEvaluatePromptFitsItsBound(t *testing.T) {
 	if EvaluatePromptMaxBytes >= 128<<10 {
-		t.Fatalf("EvaluatePromptMaxBytes = %d, not under MAX_ARG_STRLEN (128 KiB with its NUL)",
+		t.Fatalf("EvaluatePromptMaxBytes = %d, not under 128 KiB, the bound this suite proves the prompt within",
 			EvaluatePromptMaxBytes)
 	}
 	for _, ws := range []bool{false, true} {

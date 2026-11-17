@@ -133,12 +133,12 @@ func (c repairCase) detailOf(t *testing.T, rep string) string {
 	return err.Error()
 }
 
-// flagValues maps each --flag of a claude argv to its value; the prompt,
-// the turn cap and the session flags are left out, since a repair changes
-// exactly those.
+// flagValues maps each --flag of a claude argv to its value; the turn cap
+// and the session flags are left out, since a repair changes exactly those
+// (and its prompt, which is the standard input, not an argument).
 func flagValues(argv []string) map[string][]string {
 	out := map[string][]string{}
-	for i := 3; i+1 < len(argv); i++ {
+	for i := 2; i+1 < len(argv); i++ {
 		if !strings.HasPrefix(argv[i], "--") || argv[i] == "--verbose" {
 			continue
 		}
@@ -285,8 +285,8 @@ func (c repairCase) checkRepairCommand(t *testing.T, ws string, first, repair ru
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repair.Argv[2] != want {
-		t.Errorf("repair prompt =\n%s\nwant\n%s", repair.Argv[2], want)
+	if repair.Stdin != want {
+		t.Errorf("repair prompt =\n%s\nwant\n%s", repair.Stdin, want)
 	}
 }
 
@@ -382,8 +382,8 @@ func TestRepairMissingReport(t *testing.T) {
 				t.Fatalf("outcome %q (detail %q) after %d commands, want ok after one repair",
 					stage.Outcome, stage.Detail, len(fx.specs))
 			}
-			if !strings.Contains(fx.specs[1].Argv[2], "maul found no report at `"+filepath.Join(ws, c.report)+"`") {
-				t.Errorf("repair prompt does not say the report is missing:\n%s", fx.specs[1].Argv[2])
+			if !strings.Contains(fx.specs[1].Stdin, "maul found no report at `"+filepath.Join(ws, c.report)+"`") {
+				t.Errorf("repair prompt does not say the report is missing:\n%s", fx.specs[1].Stdin)
 			}
 		})
 	}

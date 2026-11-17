@@ -180,7 +180,7 @@ func TestEvaluateRefusedReportNamesItsKeys(t *testing.T) {
 	if len(fx.specs) < 2 {
 		t.Fatalf("commands = %d, want a repair", len(fx.specs))
 	}
-	repair := argvFlag(t, fx.specs[1].Argv, "-p")
+	repair := fx.specs[1].Stdin
 	for _, want := range []string{strings.TrimSuffix(templates.ExampleEvaluationReport, "\n"),
 		"line 5: field evidence not found"} {
 		if !strings.Contains(repair, want) {

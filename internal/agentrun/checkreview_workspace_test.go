@@ -95,7 +95,7 @@ func TestCheckReviewWorkspaceFacts(t *testing.T) {
 				len(ev.CheckReview.Answers) != 1 {
 				t.Fatalf("event = %+v, want one answer", ev)
 			}
-			prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+			prompt := fx.specs[0].Stdin
 			for _, want := range tt.wants {
 				if !strings.Contains(prompt, want) {
 					t.Errorf("prompt lacks %q:\n%s", want, prompt)

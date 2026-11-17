@@ -188,7 +188,7 @@ func TestPlanRunsReadOnly(t *testing.T) {
 	if got := flag("--max-turns"); got != "30" {
 		t.Errorf("--max-turns = %s, want the grant below the stage's limit", got)
 	}
-	prompt := flag("-p")
+	prompt := fx.specs[0].Stdin
 	// The build budget the planner sizes its plan against is the build
 	// stage's ceiling on this Job, which the controller sets to the build's
 	// grant.
@@ -246,8 +246,7 @@ func TestPlanContext(t *testing.T) {
 			if ev := onlyEvent(t, cfg, fx, &out); ev.Plan == nil || ev.Plan.Outcome != envelope.OutcomeOK {
 				t.Fatalf("event = %+v, want an ok plan", ev)
 			}
-			argv := fx.specs[0].Argv
-			prompt := argv[slices.Index(argv, "-p")+1]
+			prompt := fx.specs[0].Stdin
 			named := strings.Contains(prompt, "## Earlier work on this intent") &&
 				strings.Contains(prompt, "`"+path+"` holds what came of that")
 			if named != tt.want {
@@ -557,7 +556,7 @@ func TestBuildRunsOnTheGrant(t *testing.T) {
 	if got := at("--max-turns"); got != "40" {
 		t.Errorf("--max-turns = %s, want the grant, not the automated budget", got)
 	}
-	prompt := at("-p")
+	prompt := fx.specs[0].Stdin
 	for _, want := range []string{
 		"Read the approved plan first: `" + filepath.Join(ws, "input", "investigation.md") + "`",
 		"`" + filepath.Join(ws, "reports", "build.md") + "`",

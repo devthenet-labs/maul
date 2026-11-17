@@ -98,12 +98,7 @@ func planPrompt(t *testing.T, fx *fakeExec) string {
 	if len(fx.specs) != 1 {
 		t.Fatalf("commands run = %d, want the one plan command", len(fx.specs))
 	}
-	argv := fx.specs[0].Argv
-	i := slices.Index(argv, "-p")
-	if i < 0 || i+1 >= len(argv) {
-		t.Fatalf("argv lacks -p: %q", argv)
-	}
-	return argv[i+1]
+	return fx.specs[0].Stdin
 }
 
 // TestPlanOverTrees: a plan Job holding several trees tells the planner
@@ -158,12 +153,12 @@ func TestPlanOverTrees(t *testing.T) {
 	}
 }
 
-// withoutPrompt is argv with the prompt and the session id blanked and the
+// withoutPrompt is argv with the session id blanked and the
 // workspace path made generic, for comparing two stages' invocations.
 func withoutPrompt(argv []string, ws string) []string {
 	out := slices.Clone(argv)
 	for i := range out {
-		if i > 0 && (out[i-1] == "-p" || out[i-1] == "--session-id") {
+		if i > 0 && out[i-1] == "--session-id" {
 			out[i] = ""
 		}
 		out[i] = strings.ReplaceAll(out[i], ws, "/workspace")

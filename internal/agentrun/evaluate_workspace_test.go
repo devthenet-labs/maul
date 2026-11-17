@@ -101,7 +101,7 @@ func TestEvaluateWorkspaceRound(t *testing.T) {
 	}
 	checkKeyFile(t, filepath.Join(ws, "input", "tools-key"))
 
-	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+	prompt := fx.specs[0].Stdin
 	for _, want := range []string{
 		"maul built the repository twice",
 		"which writes the program to `/work/bin/bbcount`",
@@ -155,7 +155,7 @@ func TestEvaluateWorkspaceLibraryRound(t *testing.T) {
 	if ev.Evaluation == nil || ev.Evaluation.Outcome != envelope.OutcomeOK {
 		t.Fatalf("event = %+v, want an ok evaluation", ev)
 	}
-	prompt := argvFlag(t, fx.specs[0].Argv, "-p")
+	prompt := fx.specs[0].Stdin
 	if !strings.Contains(prompt, "a Go\nlibrary") || strings.Contains(prompt, "writes the program to") {
 		t.Errorf("prompt is not the library variant:\n%s", prompt)
 	}

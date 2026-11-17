@@ -34,6 +34,11 @@ type CommandSpec struct {
 	Argv []string // Argv[0] is the CLI, resolved on PATH by exec unless already absolute
 	Dir  string   // workspace the agent runs in
 	Env  []string // extras appended to os.Environ()
+	// Stdin is the process's whole standard input, written and then closed;
+	// empty leaves it empty (the null device). A harness puts its prompt
+	// here rather than in Argv, where Linux caps one argument at 128 KiB
+	// (MAX_ARG_STRLEN).
+	Stdin string
 }
 
 // obs lazily builds the tracer and instruments on first Run, after telemetry
@@ -143,6 +148,11 @@ func (e *Exec) Run(ctx context.Context, spec CommandSpec, timeout time.Duration,
 	cmd := exec.CommandContext(runCtx, spec.Argv[0], spec.Argv[1:]...)
 	cmd.Dir = spec.Dir
 	cmd.Env = append(os.Environ(), spec.Env...)
+	if spec.Stdin != "" {
+		// exec copies it in from a goroutine of its own and closes the pipe,
+		// so a prompt past the pipe's buffer cannot stall the stdout loop.
+		cmd.Stdin = strings.NewReader(spec.Stdin)
+	}
 	configureProcessTreeKill(cmd)
 	cmd.WaitDelay = waitDelay
 
