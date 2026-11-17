@@ -301,8 +301,8 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 // so every flag the first run had is rendered again — the CLI keeps none of
 // them, and a resumed run without its tool grammar would leave its sandbox
 // posture — and req's prompt on its standard input, with --resume in place
-// of --session-id, which the CLI refuses beside it. It is meant to run in the first run's directory, where the CLI
-// filed the session.
+// of --session-id, which the CLI refuses beside it. It is meant to run in
+// the first run's directory, where the CLI filed the session.
 //
 // What claude 2.1.291 and 2.1.322 do on a resumed run (probed; production
 // pins 2.1.322): the result event repeats the same session_id; num_turns and
