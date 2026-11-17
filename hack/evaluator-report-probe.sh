@@ -16,7 +16,7 @@
 # the evaluate model, about $0.20 in all, each CLI run capped at $0.40 and
 # its cost printed. The credential is the CLI's own: ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN from
 # `claude setup-token`. Without one it says so and exits 0.
-# MAUL_EVALUATOR_PROBE_MODEL overrides the model (default claude-sonnet-5,
+# MAUL_EVALUATOR_PROBE_MODEL overrides the model (default claude-sonnet-5-5,
 # intent-controller's --intent-evaluate-model).
 #
 #   hack/evaluator-report-probe.sh                  # always run
@@ -30,6 +30,9 @@ cd "$(dirname "$0")/.."
 watched=(
   Dockerfile.claude-agent-runner
   internal/templates/prompt_evaluate.md.tmpl
+  internal/templates/prompt_evaluate_parts.md.tmpl
+  internal/templates/prompt_evaluate_cover.md.tmpl
+  internal/templates/evaluate_cover.go
   internal/templates/evaluate_prompts.go
   internal/templates/prompt_repair.md.tmpl
   internal/templates/repair.go

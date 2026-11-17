@@ -23,6 +23,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/provider"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/runner"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -38,7 +39,7 @@ const (
 	evalProbeModelEnv = "MAUL_EVALUATOR_PROBE_MODEL"
 	// evalProbeModel is the model the probe asks by default: the CLI id of
 	// intent-controller's --intent-evaluate-model default.
-	evalProbeModel = "claude-sonnet-5"
+	evalProbeModel = "claude-sonnet-5-5"
 	// evalProbeToolEnv turns the test binary into the stand-in maul-tool
 	// (TestEvaluatorReportProbeTool); its value is the tool's state
 	// directory.
@@ -226,6 +227,7 @@ func (p *evalReportProbe) handoff() EvaluateHandoff {
 func (p *evalReportProbe) request(prompt string, turns int) harness.PromptRequest {
 	return harness.PromptRequest{
 		Prompt: prompt, Model: p.model, MaxTurns: turns, Sandbox: harness.SandboxEvaluate,
+		MaxOutputTokens: provider.EvaluateMaxOutputTokens,
 	}
 }
 
@@ -256,7 +258,7 @@ func (p *evalReportProbe) repairSpec(t *testing.T, prev probeRun, detail string,
 	t.Helper()
 	prompt, err := templates.RenderRepairPrompt(templates.RepairPrompt{
 		ReportPath: p.reportPath(), Missing: true, OutOfTurns: true, Error: detail,
-		Round: 1, Rounds: repairRounds,
+		Round: 1, Rounds: repairRounds, Example: templates.ExampleEvaluationReport,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -469,7 +471,7 @@ func probeCheckRun(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := checks.Validate(c, checks.Preview{Components: []string{"api"}}); err != nil {
+	if err := checks.Validate(c, checks.Context{Preview: &checks.Preview{Components: []string{"api"}}}); err != nil {
 		return "", err
 	}
 	digest := strings.TrimPrefix(checks.Digest(c), "sha256:")
