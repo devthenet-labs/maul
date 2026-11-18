@@ -149,3 +149,109 @@ func TestExecMarkerFailsTheCheckIsStated(t *testing.T) {
 		t.Error("an http check's review names the exec marker")
 	}
 }
+
+// TestExcludesOnASharedListSendsTheNamedRequest (O7-B-1, beatbattle-59): an
+// excludes outcome on a shared list could not be proved, because rule 8 told
+// the evaluator to narrow the outcome's request to its run's data and the
+// green rule refused any check altering that request. Both now say the same
+// thing: the named request is sent unchanged in a step of its own, asserting
+// only what holds whatever other runs saved, and the narrowed request is a
+// further step keeping every named parameter, with a kept item of the run
+// and a control showing the narrowing alone lists the left-out item. The
+// green rule still refuses a check that drops or changes a named parameter
+// or narrows the left-out item away.
+func TestExcludesOnASharedListSendsTheNamedRequest(t *testing.T) {
+	rubric := []string{
+		"A step adding to a request the outcome names only a narrowing to the check's own run (`{{run}}` text), " +
+			"every named parameter kept as named, alters nothing if the check also sends that request unchanged, " +
+			"asserts a kept item of its run in the narrowed answer, and lists the left-out item by the narrowing " +
+			"alone.",
+		// The exception sits between the rule it narrows and the
+		// wrong-build rule, which still refuses a check whose unchanged
+		// step a build ignoring the named parameters would pass.
+		"tests less than the outcome: answer `does_not_prove`, even if what it does test is a reasonable reading " +
+			"of the outcome. A step adding to a request",
+		"lists the left-out item by the narrowing alone. Answer `does_not_prove` too for a check that a plausible " +
+			"wrong build would still pass",
+	}
+	for _, want := range rubric {
+		if !strings.Contains(GreenRubric, want) {
+			t.Errorf("the green rule lacks %q", want)
+		}
+	}
+	ev, err := RenderEvaluatePrompt(testEvaluatePrompt())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]string{"evaluate": ev, "checkreview": cr} {
+		if !strings.Contains(flat(got), rubric[0]) {
+			t.Errorf("the %s prompt is not shown the narrowing rule", name)
+		}
+	}
+	// The reviewer of an http check is also told what the unchanged step
+	// must hold: reads of rows it did not create only for what holds of any
+	// data, and one assertion a build ignoring the named parameters without
+	// the narrowing fails; a dropped or changed parameter still refused.
+	shared := "For such a narrowing, the step of the unchanged request may read rows the check did not create, but " +
+		"only for what holds of any data, and one of its assertions must fail on a build that ignores the " +
+		"outcome's parameters where nothing narrows the list (the first item it lists meeting the outcome's rule, " +
+		"with the left-out item created last on a newest-first list). Without such an assertion, or with a " +
+		"parameter the outcome names dropped or changed, the check tests less than the outcome: answer " +
+		"`does_not_prove`."
+	if !strings.Contains(flat(cr), shared) {
+		t.Errorf("http review prompt lacks %q", shared)
+	}
+	for name, src := range map[string]string{"browser": ExampleBrowserCheck, "exec": ExampleExecCheck} {
+		got, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, src)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(got, "For such a narrowing") {
+			t.Errorf("a %s check's review is told of a request narrowing", name)
+		}
+	}
+	for _, want := range []string{
+		"On a list other runs share, narrow to your run's data as the rule above admits",
+		"in the narrowed answer assert your kept items by index and assert that the index after the last is " +
+			"`{\"$absent\": true}`, so the list ends there",
+		"on the unchanged request assert only what holds of any data, its status and the first item " +
+			"meeting the outcome's rule (`{\"$range\": [lo, hi]}` at its field), never your items' places",
+		"on a newest-first list create the left-out item last",
+	} {
+		if !strings.Contains(flat(ev), want) {
+			t.Errorf("evaluate prompt lacks %q", want)
+		}
+	}
+}
+
+// TestExcludesRecipeIsAdmitted (O7-B-1): the check rule 8 now asks for is
+// one maul stores: the named request unchanged with a range assertion on its
+// first item (no {{run}}, which only $order and $includes need), the
+// narrowed request with the kept item and the end of the list, and the
+// narrowing alone listing the left-out item.
+func TestExcludesRecipeIsAdmitted(t *testing.T) {
+	beat := func(name string, bpm int, capture string) string {
+		return fmt.Sprintf(`{"request":{"method":"POST","path":"/api/patterns","json":{"name":"{{run}}-%s",`+
+			`"bpm":%d}},"expect":{"status":[201],"json":{"/bpm":%d}},"capture":{"%s":"/id"}}`, name, bpm, bpm, capture)
+	}
+	src := `{"id":"bpm-range-excludes.shared","outcome":"bpm-range-excludes","form":"http","http":{"target":"api",` +
+		`"steps":[` + beat("in150", 150, "inid") + `,` + beat("out70", 70, "outid") + `,` +
+		`{"request":{"method":"GET","path":"/api/patterns?minBpm=100&maxBpm=200"},` +
+		`"expect":{"status":[200],"json":{"/0/bpm":{"$range":[100,200]}}}},` +
+		`{"request":{"method":"GET","path":"/api/patterns?minBpm=100&maxBpm=200&q={{run}}"},` +
+		`"expect":{"status":[200],"json":{"/0/id":"{{capture.inid}}","/1":{"$absent":true}}}},` +
+		`{"request":{"method":"GET","path":"/api/patterns?q={{run}}"},` +
+		`"expect":{"status":[200],"json":{"/0/id":"{{capture.outid}}","/1/id":"{{capture.inid}}"}}}]}}`
+	c, err := checks.ParseProposal([]byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ctx := checks.Context{Preview: &checks.Preview{Paths: []string{"/", "/api"}, Components: []string{"api", "web"}}}
+	if err := checks.Validate(c, ctx); err != nil {
+		t.Errorf("the recipe is refused: %v", err)
+	}
+}
