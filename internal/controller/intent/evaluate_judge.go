@@ -553,9 +553,9 @@ func carryAnomalies(carried, own []v1alpha1.AnomalyRecord, round int32) []v1alph
 }
 
 // heldOutcomes are the outcomes v's latest judgement at headSet found
-// failing (findsFailing: a check failed and the evaluator agreed, a check
-// saved red failed, or the evaluator saw it fail with no check maul could
-// confirm), when that judgement was of a round before round, and those it
+// failing (foundFailing: a check failed and the evaluator agreed, a check
+// saved red failed, or the evaluator saw it fail, whatever reason Decide
+// recorded), when that judgement was of a round before round, and those it
 // held already (ReasonHeldFinding), each by the check it rested on ("" for
 // the evaluator's word alone) (G-B-LIB-1): a failure seen at heads is a
 // finding about them, which a later round there does not erase. nil once
@@ -580,11 +580,24 @@ func heldOutcomes(v *v1alpha1.IntentVerification, headSet string, round int32) m
 			// rests on.
 			continue
 		}
-		if r.Reason == acceptance.ReasonHeldFinding || findsFailing(r.Reason) && v.OutcomesRound != round {
+		switch {
+		case r.Reason == acceptance.ReasonHeldFinding, findsFailing(r.Reason) && v.OutcomesRound != round:
 			out[r.ID] = r.Basis
+		case r.Objected && v.OutcomesRound != round:
+			// The evaluator saw it fail under a reason that rests on no
+			// check of maul's: its word alone, which no retirement answers.
+			out[r.ID] = ""
 		}
 	}
 	return out
+}
+
+// foundFailing reports a result of a round that found its outcome failing
+// at the round's heads: a reason that says so (findsFailing), or the
+// evaluator's objection recorded beside any other reason (Objected; code
+// review 2026-11-18, judge 1).
+func foundFailing(r v1alpha1.OutcomeResult) bool {
+	return findsFailing(r.Reason) || r.Objected
 }
 
 // findsFailing reports a judged reason that is a finding of the outcome
@@ -631,7 +644,7 @@ func holdOutcomes(rs []v1alpha1.OutcomeResult, failing map[string]string, acc *v
 	headSet string, j roundJudgement) []v1alpha1.OutcomeResult {
 	for i := range rs {
 		basis, ok := failing[rs[i].ID]
-		if !ok || findsFailing(rs[i].Reason) {
+		if !ok || foundFailing(rs[i]) {
 			continue // not held, or found failing again this round
 		}
 		if basis != "" && j.stored != nil &&
@@ -668,7 +681,7 @@ func outcomeResults(acc *v1alpha1.IntentAcceptance, headSet string, j roundJudge
 	out := make([]v1alpha1.OutcomeResult, 0, len(j.decision.PerOutcome))
 	for _, r := range j.decision.PerOutcome {
 		res := v1alpha1.OutcomeResult{ID: r.ID, Result: v1alpha1.OutcomeResultValue(r.Result), Basis: r.Basis,
-			Reason: r.Reason}
+			Reason: r.Reason, Objected: slices.Contains(j.decision.Objected, r.ID)}
 		if i := slices.IndexFunc(j.checks, func(c v1alpha1.SavedCheck) bool { return c.Digest == r.Basis }); i >= 0 {
 			res.Line = checkLine(j.checks[i])
 			if r.Result == acceptance.ResultPassed && res.Line != "" && changeOutcome(acc, r.ID) {

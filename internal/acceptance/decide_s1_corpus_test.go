@@ -48,6 +48,8 @@ func TestDecideS1Corpus(t *testing.T) {
 			t.Fatalf("case %d: an S1 input has a base", i)
 		}
 		got := Decide(c.In)
+		// 0.13.13 had no Objected; checkDecision holds it to its oracle.
+		got.Objected = nil
 		if reflect.DeepEqual(normalise(got), normalise(c.Decision)) {
 			continue
 		}

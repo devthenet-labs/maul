@@ -387,6 +387,11 @@ type Decision struct {
 	// controller records them, and from the next round on they are
 	// StoredCheck.Narrowed.
 	Narrowed []string
+	// Objected are the outcomes, in plan order, the evaluator says it saw
+	// fail this round (a fail verdict, or contrary entries; never a manual
+	// one), whatever reason PerOutcome records for them: a finding about the
+	// round's heads, which the controller holds them to (G-B-LIB-1).
+	Objected []string
 	// Env is the environment's class.
 	Env     httpstep.EnvClass
 	Handoff Handoff
@@ -591,6 +596,7 @@ func decide(in Input, guard bool) Decision {
 	}
 	out.Retire, out.ReplayRound = d.replacements()
 	out.Narrowed = d.narrowed()
+	out.Objected = d.objected()
 	if out.Fix == nil && !out.ReplayRound && d.env.Clean() && allPassed(out.PerOutcome) {
 		out.Handoff = HandoffReady
 	}
@@ -725,7 +731,7 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 // at the base).
 func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, withheld, noBase bool) {
 	for _, c := range bound {
-		if d.notReproduced[c.Digest] || !d.passes(c, o) || !d.runs[c.Digest].clean() {
+		if !d.counts(c, o) {
 			continue
 		}
 		if !d.discriminates(c, o) {
@@ -741,16 +747,44 @@ func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, wit
 	return "", withheld, noBase
 }
 
+// counts reports rules 1-4 for c and o this round, on runs Decide counts:
+// its runs are not dropped as not reproduced, it passes o (one of maul's
+// forms, valid, reviewed proves) and every run of it this round passed
+// cleanly with a tools token.
+func (d decider) counts(c StoredCheck, o OutcomeRef) bool {
+	return !d.notReproduced[c.Digest] && d.passes(c, o) && d.runs[c.Digest].clean()
+}
+
 // sawFailure reports the evaluator saying it saw o fail this round: a fail
 // verdict, or any verdict naming contrary entries (S1 demo bug 13). It only
-// ever withholds a pass, which is then unsure: it never fails an outcome or
-// starts a fix, so a correct build is never failed by it. A check that passes
+// ever withholds a pass, which is then unsure, and a dispute's retirement
+// on a replacement it would not let pass (replacements): it never fails an
+// outcome or starts a fix, so a correct build is never failed by it. A check that passes
 // shows only what it asserts; when the evaluator saw the outcome as worded
 // fail, the check asserted less than the outcome, whatever the reviewer said.
 func (d decider) sawFailure(o OutcomeRef) bool {
-	return d.guard && slices.ContainsFunc(d.in.Verdicts, func(v EvaluatorVerdict) bool {
+	return d.guard && d.objects(o)
+}
+
+// objects reports a verdict of the evaluator's this round saying it saw o
+// fail: a fail, or any verdict naming contrary entries.
+func (d decider) objects(o OutcomeRef) bool {
+	return slices.ContainsFunc(d.in.Verdicts, func(v EvaluatorVerdict) bool {
 		return v.Outcome == o.ID && (v.Claim == ClaimFail || len(v.Contrary) > 0)
 	})
+}
+
+// objected are the outcomes, in plan order, each once, the evaluator says
+// it saw fail this round (objects), manual ones aside: a person closes
+// those whatever it says.
+func (d decider) objected() []string {
+	var out []string
+	for _, o := range d.in.Outcomes {
+		if !o.Manual && d.objects(o) && !slices.Contains(out, o.ID) {
+			out = append(out, o.ID)
+		}
+	}
+	return out
 }
 
 // narrowed are the checks, sorted, each once, that passed cleanly this
@@ -760,7 +794,7 @@ func (d decider) sawFailure(o OutcomeRef) bool {
 func (d decider) narrowed() []string {
 	var out []string
 	for _, o := range d.in.Outcomes {
-		if o.Manual || !d.sawFailure(o) {
+		if !d.narrows(o) {
 			continue
 		}
 		for _, c := range d.bound(o.ID) {
@@ -771,6 +805,13 @@ func (d decider) narrowed() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// narrows reports o as an outcome whose cleanly passing checks are narrowed
+// this round: one a check may pass (not manual) that the evaluator says it
+// saw fail (sawFailure).
+func (d decider) narrows(o OutcomeRef) bool {
+	return !o.Manual && d.sawFailure(o)
 }
 
 // failure judges an outcome with failing checks (rule 6 already denies it
@@ -964,17 +1005,24 @@ func (d decider) discriminates(c StoredCheck, o OutcomeRef) bool {
 }
 
 // replacements are the disputed checks whose replacement is stored for the
-// same outcome, valid, cleanly confirmed and reviewed proves: they are
-// retired, and one replay round may then pass the outcome.
+// same outcome and would count toward its pass itself (DESIGN 4.3: it must
+// clear rules 1-6 like any other): rules 1-4 (counts), discriminating at
+// the base (rule 5), and never narrowed: not in an earlier round, and not
+// in this one, where the evaluator says it saw the outcome fail (narrows:
+// passBasis withholds its pass, and narrowed names it). Rule 6 and the
+// dispute's own unsure are the dispute round's, which the replay round
+// judges again. They are retired, and one replay round may then pass the
+// outcome. A replacement that shows nothing at base, or asserts less than
+// the outcome, retires nothing: the failing check stands.
 func (d decider) replacements() ([]string, bool) {
 	var retire []string
 	for digest, dp := range d.disputed {
 		o, ok := d.outcomeOf(digest)
-		if !ok || dp.Replacement == "" || dp.Replacement == digest {
+		if !ok || dp.Replacement == "" || dp.Replacement == digest || d.narrows(o) {
 			continue
 		}
 		for _, c := range d.bound(o.ID) {
-			if c.Digest == dp.Replacement && d.passes(c, o) && d.runs[c.Digest].clean() {
+			if c.Digest == dp.Replacement && !c.Narrowed && d.counts(c, o) && d.discriminates(c, o) {
 				retire = append(retire, digest)
 				break
 			}
