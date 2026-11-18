@@ -148,7 +148,6 @@ func TestExecAssertionFailures(t *testing.T) {
 			"SyntaxError: invalid syntax\n"}, false},
 		{"output missing", toolexec.Result{Exit: 0, Output: "nothing"}, false},
 		{"a marker naming no assertion", toolexec.Result{Exit: 1, Output: "%M no\n"}, false},
-		{"the marker mid-line", toolexec.Result{Exit: 1, Output: "echo " + marked}, false},
 		{"the bare marker the application echoed", toolexec.Result{Exit: 1,
 			Output: "MAUL-ASSERTION-FAILED: upset-stake: x\n"}, false},
 	} {
@@ -224,7 +223,21 @@ func TestExecMarkerFailsTheCheck(t *testing.T) {
 		{"a marker, then exit 0 and the sentinel",
 			toolexec.Result{Output: "%M header-present: no X-Duration-Ms\nDONE\n"}, toolwire.RunFail, true},
 		{"a marker naming no assertion", toolexec.Result{Output: "%M no header\nDONE\n"}, toolwire.RunFail, false},
-		{"the marker mid-line", toolexec.Result{Output: "echo %M a: x\nDONE\n"}, toolwire.RunPass, false},
+		// Code review 2026-11-18, relay 1: a marker no line starts with
+		// may be the program's judgement printed after output with no
+		// trailing newline, or a source line echoed; maul cannot tell
+		// which, so the run errs: never a pass, never red by assertion.
+		{"the marker mid-line", toolexec.Result{Output: "echo %M a: x\nDONE\n"}, toolwire.RunError, false},
+		{"the marker after output with no newline",
+			toolexec.Result{Output: `{"bpm":150}%M header-present: no` + "\nDONE\n"}, toolwire.RunError, false},
+		{"the marker after a space", toolexec.Result{Output: " %M header-present: no\nDONE\n"},
+			toolwire.RunError, false},
+		{"the marker after a carriage return", toolexec.Result{Output: "x\r%M header-present: no\nDONE\n"},
+			toolwire.RunError, false},
+		{"the marker mid-line, exit 1", toolexec.Result{Exit: 1, Output: "echo %M a: x\n"},
+			toolwire.RunError, false},
+		{"the marker mid-line and at a line start",
+			toolexec.Result{Output: "echo %M a: x\n%M header-present: no\nDONE\n"}, toolwire.RunFail, true},
 		{"the application's text echoed", toolexec.Result{Output: "MAUL-ASSERTION-FAILED: header-present: " +
 			"from a response body\nMAUL-ASSERTION-FAILED-0123: a: x\nDONE\n"}, toolwire.RunPass, false},
 		{"another attempt's marker", toolexec.Result{Output: checks.ExecMarker(strings.Repeat("ab", 16)) +

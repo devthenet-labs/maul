@@ -64,8 +64,6 @@ func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
  "expect":{"exit":0,"stdoutJSON":{"/` + wide + `":"ok"}}}}`
 	worstOut := `{"` + wide + `":"` + strings.Repeat("\u0085", 200) + `","pad":"` +
 		strings.Repeat("\u0085", 2000) + `"}` + "\n"
-	const markerJSON = `{"id":"m.json","outcome":"m","form":"exec","exec":{"argv":["{{bin}}","m.txt"],
- "files":[{"path":"m.txt","content":"{{marker}}\n"}],"expect":{"exit":0,"stdoutJSON":{"/m":"ok"}}}}`
 	const halfJSON = `{"id":"half.json","outcome":"half","form":"exec","exec":{"argv":["{{bin}}","-json"],
  "expect":{"exit":0,"stdoutJSON":{"/half/kick":[3,1]}}}}`
 	for _, tt := range []struct {
@@ -93,14 +91,10 @@ func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 			"exit 2, expected 0", `"usage: bbcount [-half] file\n"`}},
 		{"a library run check", cliRunCheck, "count=2\n", 0, "stdout", []string{
 			"the output does not contain the expected text", "exit 0", `"count=2\n"`}},
-		// A marker that does not start its line is no marker, and is never
-		// kept.
-		{"a marker inside a line", cliRunCheck, "count=2 %M\n", 0, "stdout", []string{`"count=2 \n"`}},
 		{"the longest detail a miss records", worstJSON, worstOut, 0, "stdout", []string{
 			"did not match; the value there is", "exit 0", "the program printed (untrusted, the end of its output)"}},
-		// Nor inside the value a stdoutJSON miss names.
-		{"a marker inside a json value", markerJSON, `{"m":"%M"}` + "\n", 0, "stdout", []string{
-			`stdoutJSON "/m" did not match; the value there is`}},
+		// A marker that starts no line errs instead, its detail holding no
+		// marker either: TestMarkerUnplacedIsAnError.
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var markers []string
@@ -151,8 +145,8 @@ func TestSlotExecFailKeepsTheProgramsOutput(t *testing.T) {
 		exit      int
 		want      []string
 	}{
-		{"the expected text is missing", "PENDING %M\n", 0, []string{
-			"the output does not contain the expected text", "exit 0", `"PENDING \n"`}},
+		{"the expected text is missing", "PENDING\n", 0, []string{
+			"the output does not contain the expected text", "exit 0", `"PENDING\n"`}},
 		{"a wrong exit", "Traceback: boom\n", 1, []string{"exit 1, expected 0", `"Traceback: boom\n"`}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -160,8 +154,6 @@ func TestSlotExecFailKeepsTheProgramsOutput(t *testing.T) {
 			ex := &fakeExec{run: func(req *toolwire.ExecRequest, _ int) (toolexec.Result, error) {
 				m := attemptMarker(t, req)
 				markers = append(markers, m)
-				// A marker that does not start its line is no marker, and
-				// is never kept.
 				return toolexec.Result{Exit: tt.exit, Output: strings.ReplaceAll(tt.out, "%M", m)}, nil
 			}}
 			h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })

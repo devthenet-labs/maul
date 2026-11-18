@@ -614,8 +614,11 @@ func causedStep(cause toolwire.StepCause, detail string) []toolwire.StepRecord {
 //   - the shim did not answer, refused, the run left processes behind
 //     (Unclean), or was killed at its time limit: error, n/a; a hanging or
 //     leaking program is no evidence about the outcome at either side;
-//   - the program printed its attempt's marker: fail, by assertion when it
-//     named the assertion's id (checks.ExecAssertion);
+//   - the program printed its attempt's marker at the start of a line:
+//     fail, by assertion when it named the assertion's id
+//     (checks.ExecAssertion);
+//   - the marker is in the output but starts no line: error
+//     (checks.ExecMarkerUnplaced), never a pass nor a fail;
 //   - the output was cut: error (a marker past the cut would be lost);
 //   - the exit was not the expected one: fail, never by assertion: a
 //     crashed, unbuilt or argument-refusing program shows that too (O4);
@@ -663,6 +666,8 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 		return fail(markedDetail(res.Output, marker), "marker "+id)
 	}
 	switch {
+	case checks.ExecMarkerUnplaced(res.Output, marker):
+		return errStep(markerUnplaced)
 	case res.Truncated:
 		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:

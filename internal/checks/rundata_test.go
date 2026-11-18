@@ -124,6 +124,40 @@ func TestExecMarked(t *testing.T) {
 	}
 }
 
+// TestExecMarkerUnplaced (code review 2026-11-18, relay 1): the attempt's
+// marker in the output with no line starting with it (after output with
+// no trailing newline, a space, a carriage return, a source line echoed)
+// is unplaced: the program may have said the outcome does not hold, so the
+// run can be judged neither way. A marker that starts a line is not
+// unplaced (ExecMarked judges it), nor is any text without the attempt's
+// own marker.
+func TestExecMarkerUnplaced(t *testing.T) {
+	for _, tc := range []struct {
+		out  string
+		want bool
+	}{
+		{`{"bpm":150}` + testMarker + " header-present: no\nDONE\n", true},
+		{" " + testMarker + " a: x\n", true},
+		{"x\r" + testMarker + " a: x\n", true},
+		{"echo " + testMarker + " a: x\n", true},
+		{"x" + testMarker, true},
+		{testMarker + " a: x\n", false},
+		{"x\n" + testMarker + " a: x\r\n", false},
+		{"echo " + testMarker + " a: x\n" + testMarker + " a: x\n", false},
+		{"MAUL-ASSERTION-FAILED: a: x\nDONE\n", false},
+		{"x " + ExecMarker("ffffffffffffffffffffffffffffffff") + " a: x\n", false},
+		{"nothing\nDONE\n", false},
+		{"", false},
+	} {
+		if got := ExecMarkerUnplaced(tc.out, testMarker); got != tc.want {
+			t.Errorf("ExecMarkerUnplaced(%q) = %v, want %v", tc.out, got, tc.want)
+		}
+	}
+	if ExecMarkerUnplaced("x MAUL-ASSERTION-FAILED-: a\n", "") || ExecMarkerUnplaced("x\n", "") {
+		t.Error("an empty marker matched")
+	}
+}
+
 // TestExecProgram (PR #320 F1): {{marker}} in a program file stands for
 // the attempt's marker; nothing else is touched.
 func TestExecProgram(t *testing.T) {
