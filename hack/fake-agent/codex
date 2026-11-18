@@ -14,7 +14,8 @@
 # refused, so a suite cannot pass with the prompt on the command line),
 # printing the --json events (thread.started, turn.started, item.completed,
 # turn.completed with usage). Every run's prompt is written to
-# $HOME/.fake-codex/prompt-<phase> for the test to read. Codex has no
+# $HOME/.fake-codex/prompt-<phase> for the test to read, and an empty one
+# ends the run with exit 1, as the real CLI ends it. Codex has no
 # session to resume and no task output file, so neither exists here.
 #
 # Unlike the scripted claude it reaches a model: every run sends one
@@ -72,6 +73,12 @@ mkdir -p "$state"
 # The prompt is the standard input, recorded byte for byte.
 cat >"$state/prompt-${MAUL_PHASE:-none}"
 prompt=$(cat "$state/prompt-${MAUL_PHASE:-none}")
+# As the real CLI: a prompt that is empty once trimmed ends the run before
+# any model request.
+if [ -z "$(printf '%s' "$prompt" | tr -d ' \t\r\n')" ]; then
+  echo "No prompt provided via stdin." >&2
+  exit 1
+fi
 
 # The one model request: the bearer is the placeholder key, every header is
 # filled from the variable it names. Neither is ever on this command line.

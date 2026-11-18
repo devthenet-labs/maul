@@ -55,6 +55,40 @@ func TestCodexPromptReachesTheCLIOnStdin(t *testing.T) {
 	}
 }
 
+// TestScriptedCodexRefusesAnEmptyPrompt: the scripted CLI ends as the real
+// pinned one does on `codex exec -` with nothing to read (rust-v0.167.0,
+// read_prompt_from_stdin: a prompt that is empty once trimmed prints "No
+// prompt provided via stdin." and exits 1), before any model request, so an
+// e2e suite cannot pass on a run whose prompt never reached standard input.
+func TestScriptedCodexRefusesAnEmptyPrompt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the scripted CLI is a POSIX shell script")
+	}
+	_, here, _, _ := runtime.Caller(0)
+	cli := filepath.Join(filepath.Dir(here), "..", "..", "hack", "fake-agent", "codex")
+	for name, stdin := range map[string]string{"empty": "", "blank": " \n\t\r\n"} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			spec := NewCodex().PromptSpec(t.TempDir(), PromptRequest{Prompt: stdin, Model: "m"})
+			spec.Argv = slices.Clone(spec.Argv)
+			spec.Argv[0] = cli
+			spec.Env = append(slices.Clone(spec.Env), "HOME="+home, "MAUL_WORKSPACE="+spec.Dir, "MAUL_PHASE=plan")
+			res, err := (&runner.Exec{}).Run(context.Background(), spec, 30*time.Second, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.ExitCode != 1 || !strings.Contains(res.StderrTail, "No prompt provided via stdin.") ||
+				len(res.Stdout) != 0 {
+				t.Errorf("exit %d, stdout %q, stderr %q, want exit 1 and the real CLI's refusal, no event",
+					res.ExitCode, res.Stdout, res.StderrTail)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".fake-codex", "calls")); err == nil {
+				t.Error("a model request was sent for an empty prompt")
+			}
+		})
+	}
+}
+
 // TestEvaluateHarnessesTakeThePromptOnStdin: every harness that can hold a
 // run to the evaluate posture takes its prompt on standard input, never as
 // an argument, so the evaluate prompt has one bound whatever its harness
