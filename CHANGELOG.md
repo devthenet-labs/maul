@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.8](https://github.com/devthenet-labs/maul/compare/v0.14.7...v0.14.8) (2026-11-18)
+
+
+### Bug Fixes
+
+* **intent:** an excludes outcome on a shared list can be proved ([#438](https://github.com/devthenet-labs/maul/issues/438)) ([4b09df8](https://github.com/devthenet-labs/maul/commit/4b09df8a7a7251e80b5b740e2bad8b8b4687fdcc))
+
 ## [0.14.7](https://github.com/devthenet-labs/maul/compare/v0.14.6...v0.14.7) (2026-11-17)
 
 
