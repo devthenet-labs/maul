@@ -40,6 +40,13 @@ var markedWithoutID = fmt.Sprintf("the program printed its assertion marker but 
 	"(<marker> <id>: <what>, the id lowercase letters, digits and hyphens, starting with a letter, at most %d), "+
 	"so the run is not red by assertion", checks.MaxExecAssertionIDLen)
 
+// markerUnplaced is the detail of a run whose output carries its marker
+// with no line starting with it (checks.ExecMarkerUnplaced): an error, never
+// a pass nor a fail, which the evaluator is told so it can fix the program
+// (code review 2026-11-18, relay 1).
+const markerUnplaced = "the program printed its assertion marker but not at the start of a line, so maul cannot " +
+	"judge the run: print a newline before the marker"
+
 // runCheck runs c and returns its record; mode says why it ran.
 func (r *Relay) runCheck(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode) toolwire.CheckRunRecord {
 	return r.runCheckAs(ctx, c, mode, false)
@@ -356,6 +363,11 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 		// the cut: never a pass, nor a fail (by assertion or bare).
 		return errStep(reasonTimeLimit)
 	}
+	return judgeExec(res, e.Expect, marker, run)
+}
+
+// judgeExec is execAttempt's judgement of a run that ended on its own.
+func judgeExec(res toolexec.Result, x checks.ExecExpect, marker, run string) []toolwire.StepRecord {
 	// fail is an unmet expectation. It is an assertion only when the
 	// program said it judged one of its own assertions, by id, and found the
 	// outcome does not hold (checks.ExecAssertion): an exit code or missing
@@ -368,7 +380,6 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 		}
 		return []toolwire.StepRecord{rec}
 	}
-	x := e.Expect
 	switch {
 	case checks.ExecMarked(res.Output, marker):
 		// The program said the outcome does not hold: never a pass,
@@ -377,6 +388,10 @@ func (r *Relay) execAttempt(ctx context.Context, e checks.ExecCheck, run string)
 			return fail(markedWithoutID)
 		}
 		return fail(markedDetail(res.Output, marker))
+	case checks.ExecMarkerUnplaced(res.Output, marker):
+		// The program may have said the outcome does not hold, after
+		// output with no trailing newline: never a pass, nor a fail.
+		return errStep(markerUnplaced)
 	case res.Truncated:
 		// A marker past the cut would be lost (PR #320 review F3): a
 		// truncated run is never a pass, nor a fail of the outcome.

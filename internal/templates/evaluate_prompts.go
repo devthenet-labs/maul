@@ -431,7 +431,8 @@ func replayedGreen(replays []PriorReplay) map[string]bool {
 
 // ExecMarker is checks.ExecMarkerPlaceholder, for the templates: a line of an
 // exec check's output that starts with what it stands for fails the check
-// (checks.ExecMarked).
+// (checks.ExecMarked); found only elsewhere in a line, it errs the run
+// (checks.ExecMarkerUnplaced).
 func (evaluateView) ExecMarker() string    { return checks.ExecMarkerPlaceholder }
 func (checkReviewView) ExecMarker() string { return checks.ExecMarkerPlaceholder }
 

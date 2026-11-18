@@ -111,6 +111,16 @@ func ExecMarked(output, marker string) bool {
 	return false
 }
 
+// ExecMarkerUnplaced reports whether a program's output carries the
+// attempt's marker with no line starting with it (code review 2026-11-18,
+// relay 1): the program may have printed its judgement after output with
+// no trailing newline, or a traceback may have echoed its source line.
+// maul cannot tell which, so such a run is judged neither way: never a
+// pass, never a fail. A marker that starts a line is ExecMarked's.
+func ExecMarkerUnplaced(output, marker string) bool {
+	return validMarker(marker) && strings.Contains(output, marker) && !ExecMarked(output, marker)
+}
+
 // File is one program file, at a relative path under the run directory.
 type File struct {
 	Path       string `json:"path"`

@@ -706,6 +706,26 @@ func TestWorkspaceExecJudging(t *testing.T) {
 			return toolexec.Result{Output: markedID(req, strings.Repeat("a", checks.MaxExecAssertionIDLen+1)),
 				Exit: 1}, nil
 		}, toolwire.ResultFail, ""},
+		// Code review 2026-11-18, relay 1: a marker no line starts with
+		// errs, whatever the exit and the expected text.
+		{"the marker after output with no newline", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: "count=3" + marked(req)}, nil
+		}, toolwire.ResultError, ""},
+		{"the marker after a space", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: "count=3\n " + marked(req)}, nil
+		}, toolwire.ResultError, ""},
+		{"the marker after a carriage return", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: "count=3\r" + marked(req)}, nil
+		}, toolwire.ResultError, ""},
+		{"the marker mid-line, exit 1", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: "echo " + marked(req), Exit: 1}, nil
+		}, toolwire.ResultError, ""},
+		{"the marker mid-line, stdout missed", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: "count=2" + marked(req)}, nil
+		}, toolwire.ResultError, ""},
+		{"the marker mid-line and at a line start", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
+			return toolexec.Result{Output: "echo " + marked(req) + marked(req) + "count=3\n"}, nil
+		}, toolwire.ResultFail, "marker count-is-three"},
 		{"the marker beside a connection error", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
 			return toolexec.Result{Output: marked(req), Exit: 1, NetError: true}, nil
 		}, toolwire.ResultError, ""},

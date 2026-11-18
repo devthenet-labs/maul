@@ -197,7 +197,8 @@ func TestEvaluatePromptStatesTheRules(t *testing.T) {
 		"maul-tool then prints `red by assertion at step <n>`",
 		"No status is an assertion for such a check, a 500 included",
 		"a JSON pointer or a header that resolves to nothing is not one either",
-		"prints `{{marker}} <id>: <what it saw>` at the start of a line of its output",
+		"prints `{{marker}} <id>: <what it saw>` at the start of a new line of its output (stdout and stderr; " +
+			"mid-line it errs)",
 		"maul replaces it on every run with a secret line start only that run's program is given",
 		"Print it for the final judgement of an assertion and nothing else, never inside a retry or poll",
 		"An exit code alone, a crash or a traceback never shows a defect",
