@@ -196,10 +196,11 @@ An outcome is **confirmed** only on a check bound to it that:
    data (its status, the first item meeting the outcome's rule), beside a further step adding only a narrowing to the
    run's own data, every named parameter kept, where a kept item of the run is listed and the list ends, and a step
    where the narrowing alone lists the left-out item; the reviewer refuses a check that drops or changes a named
-   parameter. A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once
-   by a measure (a size, an alignment, a box relation, legibility), on elements it finds by role, label, test id or CSS
-   rather than by their text or position, needs no data of its own, and the reviewer's green question says so; its
-   failure is always held for a person;
+   parameter, or whose unchanged request has no assertion a build ignoring the outcome's parameters there would fail
+   (the evaluator creates the left-out item last on a newest-first list). A browser check that writes nothing and
+   asserts only the layout of the page's fixed markup, at least once by a measure (a size, an alignment, a box relation,
+   legibility), on elements it finds by role, label, test id or CSS rather than by their text or position, needs no data
+   of its own, and the reviewer's green question says so; its failure is always held for a person;
 3. passed in this round's confirmation or replay, run by `tools` at the current heads with a token `tools` made;
 4. was reviewed `proves` for this outcome's text (a check saved red: on the red question);
 5. and no other live check of the outcome failed this round;

@@ -163,9 +163,9 @@ func TestExecMarkerFailsTheCheckIsStated(t *testing.T) {
 func TestExcludesOnASharedListSendsTheNamedRequest(t *testing.T) {
 	rubric := []string{
 		"A step adding to a request the outcome names only a narrowing to the check's own run (`{{run}}` text), " +
-			"every named parameter kept as named, alters nothing if it also sends that request unchanged " +
-			"(asserting what holds of any data), asserts a kept item of its run in the narrowed answer, and lists " +
-			"the left-out item by the narrowing alone.",
+			"every named parameter kept as named, alters nothing if the check also sends that request unchanged, " +
+			"asserts a kept item of its run in the narrowed answer, and lists the left-out item by the narrowing " +
+			"alone.",
 		// The exception sits between the rule it narrows and the
 		// wrong-build rule, which still refuses a check whose unchanged
 		// step a build ignoring the named parameters would pass.
@@ -192,14 +192,35 @@ func TestExcludesOnASharedListSendsTheNamedRequest(t *testing.T) {
 			t.Errorf("the %s prompt is not shown the narrowing rule", name)
 		}
 	}
+	// The reviewer of an http check is also told what the unchanged step
+	// must hold: reads of rows it did not create only for what holds of any
+	// data, and one assertion a build ignoring the named parameters without
+	// the narrowing fails; a dropped or changed parameter still refused.
+	shared := "For such a narrowing, the step of the unchanged request may read rows the check did not create, but " +
+		"only for what holds of any data, and one of its assertions must fail on a build that ignores the " +
+		"outcome's parameters where nothing narrows the list (the first item it lists meeting the outcome's rule, " +
+		"with the left-out item created last on a newest-first list). Without such an assertion, or with a " +
+		"parameter the outcome names dropped or changed, the check tests less than the outcome: answer " +
+		"`does_not_prove`."
+	if !strings.Contains(flat(cr), shared) {
+		t.Errorf("http review prompt lacks %q", shared)
+	}
+	for name, src := range map[string]string{"browser": ExampleBrowserCheck, "exec": ExampleExecCheck} {
+		got, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, src)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(got, "For such a narrowing") {
+			t.Errorf("a %s check's review is told of a request narrowing", name)
+		}
+	}
 	for _, want := range []string{
-		"On a list other runs share, write the check the rule above admits for a narrowing to your run's data " +
-			"(by `{{run}}` text)",
+		"On a list other runs share, narrow to your run's data as the rule above admits",
 		"in the narrowed answer assert your kept items by index and assert that the index after the last is " +
 			"`{\"$absent\": true}`, so the list ends there",
 		"on the unchanged request assert only what holds of any data, its status and the first item " +
 			"meeting the outcome's rule (`{\"$range\": [lo, hi]}` at its field), never your items' places",
-		"where the list is newest first create the left-out item last",
+		"on a newest-first list create the left-out item last",
 	} {
 		if !strings.Contains(flat(ev), want) {
 			t.Errorf("evaluate prompt lacks %q", want)

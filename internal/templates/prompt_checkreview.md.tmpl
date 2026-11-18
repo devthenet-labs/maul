@@ -259,6 +259,14 @@ representation alone.
 {{- else}}
 
 {{.GreenRubric}}
+{{- if eq .Form "http"}}
+
+For such a narrowing, the step of the unchanged request may read rows the check did not create, but only for what
+holds of any data, and one of its assertions must fail on a build that ignores the outcome's parameters where nothing
+narrows the list (the first item it lists meeting the outcome's rule, with the left-out item created last on a
+newest-first list). Without such an assertion, or with a parameter the outcome names dropped or changed, the check
+tests less than the outcome: answer `does_not_prove`.
+{{- end}}
 {{- if eq .Form "browser"}}
 
 How the check finds an element it clicks or fills, or whose text or state it asserts (a role and its accessible name,
