@@ -938,8 +938,10 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `.mcp.json` must stay inert, a scripted fake model on loopback, no credential. Codex renders the broker as a `maul`
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
-  plugins and web search off; its argv and stream are pinned from the real pinned CLI (rust-v0.167.0) run against a
-  recording Responses server (`internal/harness/testdata/codex-0.167.0-*.jsonl`). `SandboxEvaluate` is the
+  plugins and web search off; like claude's, its prompt is the CLI's standard input (`codex exec -`, read whole,
+  neither trimmed nor wrapped), never an argument, which Linux caps at 128 KiB; its argv and stream are pinned from the
+  real pinned CLI (rust-v0.167.0) run against a recording Responses server
+  (`internal/harness/testdata/codex-0.167.0-*.jsonl`). `SandboxEvaluate` is the
   evaluator's posture: claude with `--restricted`, `--tools Bash,Read,Write`, `Bash(maul-tool:*)` and Read/Edit under
   `//work/scratch/**` only, cwd `/work/scratch`, auto memory off, the long Bash timeouts maul-tool needs, pinned by the
   posture probe; codex is held structurally (no data, no route); copilot refuses it (`CheckPosture`).

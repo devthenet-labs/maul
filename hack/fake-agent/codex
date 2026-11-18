@@ -9,10 +9,13 @@
 # The e2e fake kubelet runs it for the Jobs a test asks for (useAgentRunner).
 #
 # It speaks the parts of codex 0.167.0 agent-runner relies on: `--version`;
-# `exec <prompt> --json ... -c key=value ...`, printing the --json events
-# (thread.started, turn.started, item.completed, turn.completed with usage).
-# Codex has no session to resume and no task output file, so neither exists
-# here.
+# `exec - --json ... -c key=value ...`, the prompt read whole from standard
+# input as `-` makes the real CLI read it (any other prompt argument is
+# refused, so a suite cannot pass with the prompt on the command line),
+# printing the --json events (thread.started, turn.started, item.completed,
+# turn.completed with usage). Every run's prompt is written to
+# $HOME/.fake-codex/prompt-<phase> for the test to read. Codex has no
+# session to resume and no task output file, so neither exists here.
 #
 # Unlike the scripted claude it reaches a model: every run sends one
 # Responses request to the provider its -c overrides configure, as codex
@@ -42,11 +45,12 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 
-model='' base_url='' env_key='' headers='' prompt=''
-if [ "${1:-}" = exec ] && [ $# -ge 2 ]; then
-  prompt=$2
-  shift 2
+if [ "${1:-}" != exec ] || [ "${2:-}" != - ]; then
+  echo "the scripted codex runs only as: codex exec - ... (the prompt on standard input)" >&2
+  exit 2
 fi
+shift 2
+model='' base_url='' env_key='' headers=''
 while [ $# -gt 0 ]; do
   case "$1" in
   --model) model=$2; shift 2 ;;
@@ -65,6 +69,9 @@ done
 workspace="${MAUL_WORKSPACE:?MAUL_WORKSPACE is unset}"
 state="$HOME/.fake-codex"
 mkdir -p "$state"
+# The prompt is the standard input, recorded byte for byte.
+cat >"$state/prompt-${MAUL_PHASE:-none}"
+prompt=$(cat "$state/prompt-${MAUL_PHASE:-none}")
 
 # The one model request: the bearer is the placeholder key, every header is
 # filled from the variable it names. Neither is ever on this command line.

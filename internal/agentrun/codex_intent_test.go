@@ -12,6 +12,7 @@ import (
 
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 // codexIntentConfig is an intent stage's config on brokered codex: the
@@ -80,11 +81,22 @@ func TestIntentStagesOnBrokeredCodex(t *testing.T) {
 			if !slices.Contains(spec.Env, provider.CodexTokenEnv+"=codex-token") || strings.Contains(argv, "codex-token") {
 				t.Errorf("the caller token is not in the env alone: env %v", spec.Env)
 			}
-			if tt.phase == PhasePlan && (!strings.Contains(argv, "This stage is read-only, and that is yours to keep") ||
-				strings.Contains(argv, "the sandbox holds you to it")) {
-				t.Error("the codex plan prompt claims a sandbox codex does not enforce")
-			}
+			assertCodexPrompt(t, tt.phase, spec)
 		})
+	}
+}
+
+// assertCodexPrompt: a codex stage's prompt is its standard input alone
+// (codex exec -), and a plan's never claims a sandbox codex does not enforce.
+func assertCodexPrompt(t *testing.T, phase Phase, spec runner.CommandSpec) {
+	t.Helper()
+	if spec.Argv[2] != "-" || !strings.Contains(spec.Stdin, "## ") ||
+		strings.Contains(strings.Join(spec.Argv, "\n"), spec.Stdin) {
+		t.Errorf("argv = %q, want the prompt on standard input alone (codex exec -)", spec.Argv)
+	}
+	if phase == PhasePlan && (!strings.Contains(spec.Stdin, "This stage is read-only, and that is yours to keep") ||
+		strings.Contains(spec.Stdin, "the sandbox holds you to it")) {
+		t.Error("the codex plan prompt claims a sandbox codex does not enforce")
 	}
 }
 
