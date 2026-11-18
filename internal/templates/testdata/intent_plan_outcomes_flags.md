@@ -9,6 +9,7 @@ maul's evaluator checks each outcome below in the running preview; a manual one 
 
 - `own-beat`: a beat you save at 90 BPM shows 90 bpm. It answers the issue's line: show the BPM
 - `every-beat`: every beat links to its page. It answers the issue's line: each beat links to its page
+- `every-field`: with Every at 4, Fill kick turns on kick steps 1, 5, 9 and 13. It answers the issue's line: a fill with `Every` at N turns on steps 1, 1+N, ...
 - `beat-links`: a beat you create links to its page. It answers the issue's line: each beat links to its page
 - `still-works` (must keep holding): the sequencer still works
 - `sounds-good` (manual): every drum sounds good
