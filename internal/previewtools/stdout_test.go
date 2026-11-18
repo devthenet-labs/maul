@@ -4,6 +4,7 @@
 package previewtools
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -105,4 +106,69 @@ func mustValue(t *testing.T, v any) httpstep.Value {
 		t.Fatal(err)
 	}
 	return val
+}
+
+// stdoutSeed is TestStdoutJudgedOnStdoutOrNotAtAll's seed, so the gate is
+// deterministic.
+const stdoutSeed = 20261119
+
+// TestStdoutJudgedOnStdoutOrNotAtAll is a seeded property over both judges
+// (code review 2026-11-18, checks 6): for any split of a program's text
+// across stdout and stderr, any exit and any expect,
+//
+//   - a pass means expect's stdout assertions hold on stdout alone, and the
+//     exit was the one expect names, or 0 when it names none;
+//   - the verdict is the one the same text all on one stream (stdout, then
+//     stderr, as a single pipe would hold it) gets, or an error: keeping
+//     the streams apart never makes a pass or a fail of its own;
+//   - the two judges agree.
+func TestStdoutJudgedOnStdoutOrNotAtAll(t *testing.T) {
+	const run = "v1a1t1-abc"
+	marker := checks.ExecMarker(strings.Repeat("cd", 16))
+	needle := run + "-item"
+	frags := []string{"", "\n", "x\n", "warn", needle, needle + "\n", "  assert \"" + needle + "\" in body\n",
+		`{"n":"` + needle + `"}`, `{"n":"` + needle + `"}` + "\n", `{"n":"other"}`, run, "-item\n", marker + " a: no\n",
+		"count=2", "Traceback\n"}
+	zero, one := int32(0), int32(1)
+	expects := []checks.ExecExpect{
+		{StdoutContains: "{{run}}-item"},
+		{Exit: &zero, StdoutContains: "{{run}}-item"},
+		{Exit: &one, StdoutContains: "{{run}}-item"},
+		{StdoutJSON: map[string]httpstep.Value{"/n": mustValue(t, "{{run}}-item")}},
+		{Exit: &zero, StdoutJSON: map[string]httpstep.Value{"/n": mustValue(t, "{{run}}-item")}},
+	}
+	r := rand.New(rand.NewSource(stdoutSeed))
+	side := func() string {
+		var b strings.Builder
+		for range r.Intn(3) {
+			b.WriteString(frags[r.Intn(len(frags))])
+		}
+		return b.String()
+	}
+	tally := map[toolwire.AttemptResult]int{}
+	for i := range 4000 {
+		stdout, stderr, exit := side(), side(), r.Intn(3)
+		x := expects[r.Intn(len(expects))]
+		res := streams(exit, stdout, stderr)
+		single := streams(exit, stdout+stderr, "")
+		slot, ws := judgeExec(res, x, marker, run)[0], judgeWorkspace(res, nil, x, marker, run, places{})[0]
+		was := judgeExec(single, x, marker, run)[0]
+		tally[slot.Result]++
+		switch {
+		case slot.Result != ws.Result:
+			t.Fatalf("#%d stdout %q stderr %q exit %d %+v: slot %s, workspace %s", i, stdout, stderr, exit, x,
+				slot.Result, ws.Result)
+		case slot.Result != was.Result && slot.Result != toolwire.ResultError:
+			t.Fatalf("#%d stdout %q stderr %q exit %d %+v: %s, on one stream %s", i, stdout, stderr, exit, x,
+				slot.Result, was.Result)
+		case slot.Result == toolwire.ResultPass && (!stdoutHolds(stdout, x, needle, run) ||
+			x.Exit == nil && exit != 0 || x.Exit != nil && int32(exit) != *x.Exit):
+			t.Fatalf("#%d stdout %q stderr %q exit %d %+v: a pass", i, stdout, stderr, exit, x)
+		}
+	}
+	for _, res := range []toolwire.AttemptResult{toolwire.ResultPass, toolwire.ResultFail, toolwire.ResultError} {
+		if tally[res] < 200 {
+			t.Fatalf("%v: the property is near vacuous", tally)
+		}
+	}
 }

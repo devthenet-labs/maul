@@ -454,9 +454,11 @@ func streamsOpen(res toolexec.Result) bool {
 // review 2026-11-18, checks 6). They are judged on the program's stdout
 // alone, and a run is judged at all only where that agrees with the
 // judgement of its stdout and stderr together, which a check saved before
-// was judged by: the expected text only on stderr (a traceback echoing a
-// source line, a usage error echoing an argument), or stdout JSON beside
-// stderr text, is an error, never a pass nor a fail. So is a run that
+// was judged by, read both as the program wrote each (programText) and as
+// the shim read them (Output): the expected text only on stderr (a
+// traceback echoing a source line, a usage error echoing an argument), or
+// across the two, or stdout JSON beside stderr text, is an error, never a
+// pass nor a fail. So is a run that
 // passes with no exit expected after exiting non-zero: what it printed may
 // be an error message. A shim that does not keep the streams apart (an
 // older toolbox image) leaves stdout unknown: an error too.
@@ -470,7 +472,8 @@ func stdoutUnsettled(res toolexec.Result, x checks.ExecExpect, needle, run strin
 	}
 	onStdout := stdoutHolds(*res.Stdout, x, needle, run)
 	switch {
-	case onStdout != stdoutHolds(programText(res), x, needle, run):
+	case onStdout != stdoutHolds(programText(res), x, needle, run),
+		onStdout != stdoutHolds(res.Output, x, needle, run):
 		return "what expect asserts on stdout holds on the program's stdout and stderr together but not on " +
 			"stdout alone, or the reverse, so maul cannot judge the run: print the result on stdout and nothing on stderr"
 	case onStdout && x.Exit == nil && res.Exit != 0:
