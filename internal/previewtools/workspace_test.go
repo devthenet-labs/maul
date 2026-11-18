@@ -306,6 +306,17 @@ func TestBuildResults(t *testing.T) {
 			maulv1.BuildError},
 		{"connection refused", false, toolexec.Result{Exit: 1, NetError: true,
 			Output: "npm ERR! code ECONNREFUSED\n"}, nil, maulv1.BuildError},
+		// A connection that timed out, or a name that did not resolve, is the
+		// network's too, though the shim's NetError (bind and connect errors)
+		// does not name it.
+		{"connection timed out", false, toolexec.Result{Exit: 1,
+			Output: "npm ERR! code ETIMEDOUT\nnpm ERR! network request to https://registry/x failed\n"}, nil,
+			maulv1.BuildError},
+		{"name did not resolve", false, toolexec.Result{Exit: 1,
+			Output: "npm ERR! code EAI_AGAIN\nnpm ERR! getaddrinfo EAI_AGAIN registry\n"}, nil, maulv1.BuildError},
+		{"read timed out", false, toolexec.Result{Exit: 2,
+			Output: "curl: (28) Connection timed out after 30001 milliseconds\nmake: *** Error 28\n"}, nil,
+			maulv1.BuildError},
 		// One that exited 0 built, whatever retries it logged on the way.
 		{"built after a retried connection", false, toolexec.Result{NetError: true,
 			Output: "npm WARN registry ECONNRESET, retrying\nadded 12 packages\n"}, nil, maulv1.BuildBuilt},
