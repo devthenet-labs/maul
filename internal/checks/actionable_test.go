@@ -72,3 +72,24 @@ func TestRefusalsSayHowToFixThem(t *testing.T) {
 		})
 	}
 }
+
+// TestRefusalHintsAreWritable (L6-B-BROWSER-1): what the css-length and
+// regex refusals say to write instead is a check Validate accepts, so a hint
+// never leads to a second refusal.
+func TestRefusalHintsAreWritable(t *testing.T) {
+	for name, expect := range map[string]string{
+		"a text locator scoped with within": `{"assert":"visible","locator":{"text":"Fill kick",` +
+			`"within":{"testid":"fills"}}}`,
+		"a role locator scoped with hasText": `{"assert":"visible","locator":{"role":"button","hasText":"kick"}}`,
+		"a label locator":                    `{"assert":"visible","locator":{"label":"Every"}}`,
+		"an empty text by matches":           `{"assert":"text","locator":{"testid":"error"},"text":{"matches":"^\\s*$"}}`,
+		"a text by contains":                 `{"assert":"text","locator":{"testid":"error"},"text":{"contains":"must"}}`,
+		"a text by equals":                   `{"assert":"text","locator":{"testid":"error"},"text":{"equals":"must"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := Validate(mustParse(t, browserExpect(expect)), slotCtx); err != nil {
+				t.Errorf("Validate refused what the hint says to write: %v", err)
+			}
+		})
+	}
+}
