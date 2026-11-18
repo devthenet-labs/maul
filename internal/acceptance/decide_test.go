@@ -1043,11 +1043,35 @@ func checkDecision(in Input, d Decision) error {
 	if err := oracleNarrowed(in, d); err != nil {
 		return err
 	}
+	if err := oracleObjected(in, d); err != nil {
+		return err
+	}
 	ready := allPassed && httpstep.ClassifyEnvironment(in.Env) == httpstep.EnvOK &&
 		d.Fix == nil &&
 		!d.ReplayRound
 	if (d.Handoff == HandoffReady) != ready {
 		return fmt.Errorf("handoff %s, want ready=%v", d.Handoff, ready)
+	}
+	return nil
+}
+
+// oracleObjected: Objected is exactly the outcomes, in plan order, that are
+// not manual and that a verdict calls failing or cites contrary entries
+// for. A failed head build records none, whatever the evaluator said.
+func oracleObjected(in Input, d Decision) error {
+	var want []string
+	for _, o := range in.Outcomes {
+		if !o.Manual && !slices.Contains(want, o.ID) && slices.ContainsFunc(in.Verdicts, func(v EvaluatorVerdict) bool {
+			return v.Outcome == o.ID && (v.Claim == ClaimFail || len(v.Contrary) > 0)
+		}) {
+			want = append(want, o.ID)
+		}
+	}
+	if httpstep.HeadBuildFailed(in.Env) {
+		want = nil
+	}
+	if !slices.Equal(d.Objected, want) {
+		return fmt.Errorf("Objected %v, want %v", d.Objected, want)
 	}
 	return nil
 }

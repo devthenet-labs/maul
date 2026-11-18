@@ -1938,6 +1938,13 @@ spec:
                           maxLength: 1024
                           pattern: ^[^\r\n]*$
                           type: string
+                        objected:
+                          description: |-
+                            Objected records that the round's evaluator said it saw the outcome
+                            fail (a fail verdict, or contrary entries), whatever Reason says: a
+                            finding about the round's heads, which holds every later round there
+                            (G-B-LIB-1).
+                          type: boolean
                         reason:
                           description: |-
                             Reason says why the result is not passed. It may quote the

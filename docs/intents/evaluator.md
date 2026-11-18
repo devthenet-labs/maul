@@ -536,15 +536,17 @@ never covered it.
 - **A look-around anomaly holds nothing.** It is carried onto every later round at those heads as a note
   (`status.verification.anomalies`, each with the `round` that found it), so the reviewers still see it, and the comment
   names the round that found it; once the heads move it is gone.
-- **An outcome found failing, or suspected defective,** on a saved check, or one the evaluator saw fail with no check
-  maul could confirm (`model-only-fail`, `evaluator-saw-failure`), is unsure in every later round there that would pass
-  it (`held-finding`: a check that failed and then passed at the same commits shows nothing was fixed, and a model that
-  no longer sees a failure has not shown it is gone). Two more ways out are recorded evidence. A check retired through a
-  dispute with a confirmed, reviewed replacement releases the hold once the retirement is stored (the check was wrong);
-  the dispute round itself still holds it. A fix round handed the reproduction at these commits that concludes, with its
-  reason, that the code has no defect releases what it was handed (a reproduced failure, or a suspected defect an
-  approver confirmed), so a round after `/maul verify` can pass once what failed was the environment; it releases
-  nothing it was not handed, and nothing once a later round at these commits finds the failure again.
+- **An outcome found failing, or suspected defective,** on a saved check, or one the evaluator saw fail (a `fail`
+  verdict or `contrary` entries, recorded as the outcome's `objected`) whatever reason the round shows for it
+  (`model-only-fail` and `evaluator-saw-failure`, but also `no-base-evidence`, `quarantined`, `checks-disagree` and the
+  rest), is unsure in every later round there that would pass it (`held-finding`: a check that failed and then passed at
+  the same commits shows nothing was fixed, and a model that no longer sees a failure has not shown it is gone). Two
+  more ways out are recorded evidence. A check retired through a dispute with a confirmed, reviewed replacement releases
+  the hold once the retirement is stored (the check was wrong); the dispute round itself still holds it. A fix round
+  handed the reproduction at these commits that concludes, with its reason, that the code has no defect releases what it
+  was handed (a reproduced failure, or a suspected defect an approver confirmed), so a round after `/maul verify` can
+  pass once what failed was the environment; it releases nothing it was not handed, and nothing once a later round at
+  these commits finds the failure again.
 - **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
   every outcome maul could not confirm. The acceptance holds only at those commits. `/maul verify --reset` does not end
   a hold: it changes the preview's data, not the commits.

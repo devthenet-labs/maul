@@ -387,6 +387,11 @@ type Decision struct {
 	// controller records them, and from the next round on they are
 	// StoredCheck.Narrowed.
 	Narrowed []string
+	// Objected are the outcomes, in plan order, the evaluator says it saw
+	// fail this round (a fail verdict, or contrary entries; never a manual
+	// one), whatever reason PerOutcome records for them: a finding about the
+	// round's heads, which the controller holds them to (G-B-LIB-1).
+	Objected []string
 	// Env is the environment's class.
 	Env     httpstep.EnvClass
 	Handoff Handoff
@@ -591,6 +596,7 @@ func decide(in Input, guard bool) Decision {
 	}
 	out.Retire, out.ReplayRound = d.replacements()
 	out.Narrowed = d.narrowed()
+	out.Objected = d.objected()
 	if out.Fix == nil && !out.ReplayRound && d.env.Clean() && allPassed(out.PerOutcome) {
 		out.Handoff = HandoffReady
 	}
@@ -748,9 +754,28 @@ func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, wit
 // shows only what it asserts; when the evaluator saw the outcome as worded
 // fail, the check asserted less than the outcome, whatever the reviewer said.
 func (d decider) sawFailure(o OutcomeRef) bool {
-	return d.guard && slices.ContainsFunc(d.in.Verdicts, func(v EvaluatorVerdict) bool {
+	return d.guard && d.objects(o)
+}
+
+// objects reports a verdict of the evaluator's this round saying it saw o
+// fail: a fail, or any verdict naming contrary entries.
+func (d decider) objects(o OutcomeRef) bool {
+	return slices.ContainsFunc(d.in.Verdicts, func(v EvaluatorVerdict) bool {
 		return v.Outcome == o.ID && (v.Claim == ClaimFail || len(v.Contrary) > 0)
 	})
+}
+
+// objected are the outcomes, in plan order, each once, the evaluator says
+// it saw fail this round (objects), manual ones aside: a person closes
+// those whatever it says.
+func (d decider) objected() []string {
+	var out []string
+	for _, o := range d.in.Outcomes {
+		if !o.Manual && d.objects(o) && !slices.Contains(out, o.ID) {
+			out = append(out, o.ID)
+		}
+	}
+	return out
 }
 
 // narrowed are the checks, sorted, each once, that passed cleanly this

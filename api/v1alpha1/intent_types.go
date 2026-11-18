@@ -919,6 +919,12 @@ type OutcomeResult struct {
 	// +kubebuilder:validation:MaxLength=1024
 	// +kubebuilder:validation:Pattern=`^[^\r\n]*$`
 	Line string `json:"line,omitempty"`
+	// Objected records that the round's evaluator said it saw the outcome
+	// fail (a fail verdict, or contrary entries), whatever Reason says: a
+	// finding about the round's heads, which holds every later round there
+	// (G-B-LIB-1).
+	// +optional
+	Objected bool `json:"objected,omitempty"`
 }
 
 // AnomalyRecord is one look-around anomaly the evaluator reported, with the
