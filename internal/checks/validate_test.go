@@ -285,6 +285,53 @@ func TestAbsenceBesideAPositiveAssertion(t *testing.T) {
 	}
 }
 
+// TestRefuseCountZeroBeforeThePageShowsAnything (code review 2026-11-18,
+// checks 6): a count of 0 holds before the page has rendered its data, and
+// on an error page, so it stands only after an assertion of something that
+// is there, with no step acting on the page between the two.
+func TestRefuseCountZeroBeforeThePageShowsAnything(t *testing.T) {
+	gone := `{"expect":{"assert":"count","locator":{"role":"listitem","hasText":"{{run}}-gone"},"count":0}}`
+	kept := `{"expect":{"assert":"visible","locator":{"role":"listitem","hasText":"{{run}}-kept"}}}`
+	runRefusals(t, RuleNotSubstantive, []refusalCase{
+		{"count 0 only", browserCheck(`{"goto":"/items"},` + gone), Preview{}},
+		{"count 0 first", browserCheck(`{"goto":"/items"},` + gone + `,` + kept), Preview{}},
+		{"an action between", browserCheck(`{"goto":"/items"},` + kept +
+			`,{"click":{"role":"button","name":"Delete {{run}}-gone"}},` + gone), Preview{}},
+		{"a navigation between", browserCheck(`{"goto":"/items"},` + kept + `,{"goto":"/items?page=2"},` + gone),
+			Preview{}},
+		{"a wait between", browserCheck(`{"goto":"/items"},` + kept + `,{"waitForURL":"/items*"},` + gone),
+			Preview{}},
+		{"after a url only", browserCheck(`{"goto":"/items"},{"expect":{"assert":"url","url":"/items"}},` + gone),
+			Preview{}},
+		{"after another count 0", browserCheck(`{"goto":"/items"},` + strings.Replace(gone, "-gone", "-x", 1) +
+			`,` + gone), Preview{}},
+	})
+	var r *Refusal
+	if err := Substantive(mustParse(t, browserCheck(`{"goto":"/items"},`+gone))); !errors.As(err, &r) ||
+		r.Rule != RuleNotSubstantive {
+		t.Errorf("Substantive = %v, want %s", err, RuleNotSubstantive)
+	}
+	for name, s := range map[string]string{
+		"after a kept item": browserCheck(`{"goto":"/items"},` + kept + `,` + gone),
+		"after an action and a kept item": browserCheck(`{"goto":"/items"},` + kept +
+			`,{"click":{"role":"button","name":"Delete {{run}}-gone"}},` + kept + `,` + gone),
+		"after a url and a kept item": browserCheck(`{"goto":"/items"},` + kept +
+			`,{"expect":{"assert":"url","url":"/items"}},` + gone),
+		"after a count of 1": browserCheck(`{"goto":"/items"},` +
+			`{"expect":{"assert":"count","locator":{"role":"listitem","hasText":"{{run}}-kept"},"count":1}},` + gone),
+		"two in a row": browserCheck(`{"goto":"/items"},` + kept + `,` + gone + `,` +
+			strings.Replace(gone, "-gone", "-x", 1)),
+	} {
+		c := mustParse(t, s)
+		if err := Validate(c, slotCtx); err != nil {
+			t.Errorf("%s: Validate: %v", name, err)
+		}
+		if err := Substantive(c); err != nil {
+			t.Errorf("%s: Substantive: %v", name, err)
+		}
+	}
+}
+
 func TestRefuseRunTokenScoping(t *testing.T) {
 	runRefusals(t, RuleRunToken, []refusalCase{
 		{"global order", httpCheck(`{"request":{"path":"/api/leaderboard"},"expect":{"json":{"/entries":
