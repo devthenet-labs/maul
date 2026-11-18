@@ -731,7 +731,7 @@ func (d decider) outcome(o OutcomeRef) (OutcomeResult, []FixFailure) {
 // at the base).
 func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, withheld, noBase bool) {
 	for _, c := range bound {
-		if d.notReproduced[c.Digest] || !d.passes(c, o) || !d.runs[c.Digest].clean() {
+		if !d.counts(c, o) {
 			continue
 		}
 		if !d.discriminates(c, o) {
@@ -745,6 +745,14 @@ func (d decider) passBasis(o OutcomeRef, bound []StoredCheck) (basis string, wit
 		return c.Digest, false, false
 	}
 	return "", withheld, noBase
+}
+
+// counts reports rules 1-4 for c and o this round, on runs Decide counts:
+// its runs are not dropped as not reproduced, it passes o (one of maul's
+// forms, valid, reviewed proves) and every run of it this round passed
+// cleanly with a tools token.
+func (d decider) counts(c StoredCheck, o OutcomeRef) bool {
+	return !d.notReproduced[c.Digest] && d.passes(c, o) && d.runs[c.Digest].clean()
 }
 
 // sawFailure reports the evaluator saying it saw o fail this round: a fail
@@ -989,8 +997,13 @@ func (d decider) discriminates(c StoredCheck, o OutcomeRef) bool {
 }
 
 // replacements are the disputed checks whose replacement is stored for the
-// same outcome, valid, cleanly confirmed and reviewed proves: they are
-// retired, and one replay round may then pass the outcome.
+// same outcome and would count toward its pass itself (DESIGN 4.3: it must
+// clear rules 1-6 like any other): rules 1-4 (counts), discriminating at
+// the base (rule 5), and never narrowed in an earlier round. Rule 6 and the
+// dispute's own unsure are the dispute round's, which the replay round
+// judges again. They are retired, and one replay round may then pass the
+// outcome. A replacement that shows nothing at base, or asserts less than
+// the outcome, retires nothing: the failing check stands.
 func (d decider) replacements() ([]string, bool) {
 	var retire []string
 	for digest, dp := range d.disputed {
@@ -999,7 +1012,7 @@ func (d decider) replacements() ([]string, bool) {
 			continue
 		}
 		for _, c := range d.bound(o.ID) {
-			if c.Digest == dp.Replacement && d.passes(c, o) && d.runs[c.Digest].clean() {
+			if c.Digest == dp.Replacement && !c.Narrowed && d.counts(c, o) && d.discriminates(c, o) {
 				retire = append(retire, digest)
 				break
 			}

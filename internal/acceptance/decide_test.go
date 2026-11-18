@@ -676,13 +676,7 @@ func genBiased(r *rand.Rand, in *Input) {
 		}
 	}
 	if len(in.Checks) > 1 && r.Intn(2) == 0 {
-		// A replacement is proposed green, for the disputed check's outcome.
-		in.Checks[1].ExpectFail = false
-		if r.Intn(2) == 0 {
-			in.Checks[1].Outcome = in.Checks[0].Outcome
-		}
-		in.Disputes = append(in.Disputes, CheckDispute{CheckDigest: in.Checks[0].Digest,
-			Replacement: in.Checks[1].Digest, Ledger: []int32{1}})
+		genReplacement(r, in)
 	}
 	for range r.Intn(3) {
 		d := CheckDispute{CheckDigest: pickOf(r, genDigests), Ledger: []int32{1}}
@@ -691,6 +685,46 @@ func genBiased(r *rand.Rand, in *Input) {
 		}
 		in.Disputes = append(in.Disputes, d)
 	}
+}
+
+// genReplacement disputes in.Checks[0] with in.Checks[1] as its
+// replacement, proposed green, for the disputed check's outcome half the
+// time; at a base, half the time one proven at head (genProvenReplacement).
+func genReplacement(r *rand.Rand, in *Input) {
+	in.Checks[1].ExpectFail = false
+	if r.Intn(2) == 0 {
+		in.Checks[1].Outcome = in.Checks[0].Outcome
+	}
+	in.Disputes = append(in.Disputes, CheckDispute{CheckDigest: in.Checks[0].Digest,
+		Replacement: in.Checks[1].Digest, Ledger: []int32{1}})
+	if in.Base != nil && r.Intn(2) == 0 {
+		genProvenReplacement(r, in)
+	}
+}
+
+// genProvenReplacement makes the dispute of in.Checks[0] (failing red by
+// assertion this round) name a replacement, in.Checks[1], that clears
+// rules 1-4 for the same outcome, with one base run of it that may or may
+// not discriminate (rule 5), so retirements at a base and refusals on rule
+// 5 alone are both judged (review 2026-11-18, judge 2).
+func genProvenReplacement(r *rand.Rand, in *Input) {
+	a, rp := &in.Checks[0], &in.Checks[1]
+	*rp = StoredCheck{Digest: rp.Digest, Outcome: a.Outcome, Form: CheckFormHTTP, Valid: true,
+		Narrowed: r.Intn(6) == 0}
+	in.Replay = append(in.Replay, CheckRun{CheckDigest: a.Digest, Result: RunFail, Token: "tok", Seq: 2,
+		AssertionStep: 1, AssertionID: "json /a"})
+	in.Confirmations = slices.DeleteFunc(in.Confirmations, func(c CheckRun) bool { return c.CheckDigest == rp.Digest })
+	in.Replay = slices.DeleteFunc(in.Replay, func(c CheckRun) bool { return c.CheckDigest == rp.Digest })
+	in.Confirmations = append(in.Confirmations, CheckRun{CheckDigest: rp.Digest, Result: RunPass, Token: "tok",
+		Seq: 9})
+	in.Reviews = slices.DeleteFunc(in.Reviews, func(v CheckReview) bool { return v.CheckDigest == rp.Digest })
+	in.Reviews = append(in.Reviews, CheckReview{CheckDigest: rp.Digest, OutcomeDigest: od(rp.Outcome),
+		Answer: ReviewProves})
+	in.Base.Runs = slices.DeleteFunc(in.Base.Runs, func(c CheckRun) bool { return c.CheckDigest == rp.Digest })
+	in.Base.Runs = append(in.Base.Runs, pickOf(r, []CheckRun{
+		{CheckDigest: rp.Digest, Result: RunFail, Token: "tok-b", AssertionStep: 1, AssertionID: "json /a"},
+		{CheckDigest: rp.Digest, Result: RunPass, Token: "tok-b"},
+		{CheckDigest: rp.Digest, Result: RunError, Token: "tok-b"}}))
 }
 
 // genClaims gives most outcomes a verdict, most of them cited.
@@ -937,9 +971,28 @@ type decideStats struct {
 	// VC-3: passes with a required replay set, outcomes left unsure by a
 	// required check with no replay run.
 	replayRequiredPasses, notReplayed int
+	// Review 2026-11-18 (judge 2): retirements with a base, and disputes
+	// whose replacement cleared rules 1-4 but not rule 5 at a base.
+	baseRetires, rule5Refusals int
+}
+
+// addDisputes counts the retirements at a base, and the disputes whose
+// replacement cleared rules 1-4 but not rule 5, and retired nothing.
+func (s *decideStats) addDisputes(in Input, d Decision) {
+	if in.Base != nil && len(d.Retire) > 0 {
+		s.baseRetires++
+	}
+	for _, dp := range in.Disputes {
+		o, ok := oracleDisputedOutcome(in, dp)
+		if ok && !slices.Contains(d.Retire, dp.CheckDigest) && oracleRules1To4(in, o, dp.Replacement) == nil &&
+			oracleRule5(in, o, dp.Replacement) != nil {
+			s.rule5Refusals++
+		}
+	}
 }
 
 func (s *decideStats) add(in Input, d Decision) {
+	s.addDisputes(in, d)
 	for _, r := range d.PerOutcome {
 		if r.Result == ResultPassed {
 			s.passed++
@@ -1003,7 +1056,8 @@ func TestDecideNoPassWithoutAllSixRules(t *testing.T) {
 	}
 	if stats.passed == 0 || stats.fixes == 0 || stats.clearedFixes == 0 || stats.suspected == 0 ||
 		stats.replays == 0 || stats.ready == 0 || stats.notAsserted == 0 || stats.buildFailed == 0 ||
-		stats.replayRequiredPasses == 0 || stats.notReplayed == 0 {
+		stats.replayRequiredPasses == 0 || stats.notReplayed == 0 || stats.baseRetires == 0 ||
+		stats.rule5Refusals == 0 {
 		t.Errorf("the generator is too weak: %+v", stats)
 	}
 }
@@ -1037,14 +1091,11 @@ func checkDecision(in Input, d Decision) error {
 		}
 		allPassed = allPassed && r.Result == ResultPassed
 	}
-	if err := oracleFixRequests(in, d); err != nil {
-		return err
-	}
-	if err := oracleNarrowed(in, d); err != nil {
-		return err
-	}
-	if err := oracleObjected(in, d); err != nil {
-		return err
+	for _, oracle := range []func(Input, Decision) error{oracleFixRequests, oracleNarrowed, oracleObjected,
+		oracleRetire} {
+		if err := oracle(in, d); err != nil {
+			return err
+		}
 	}
 	ready := allPassed && httpstep.ClassifyEnvironment(in.Env) == httpstep.EnvOK &&
 		d.Fix == nil &&
@@ -1053,6 +1104,39 @@ func checkDecision(in Input, d Decision) error {
 		return fmt.Errorf("handoff %s, want ready=%v", d.Handoff, ready)
 	}
 	return nil
+}
+
+// oracleRetire: a check is retired only through a dispute of it whose
+// replacement, another check stored for the same outcome, could pass that
+// outcome itself: rules 1-4 and rule 5 at the base, and never narrowed in
+// an earlier round (DESIGN 4.3). Rule 6 and the round's own dispute are
+// left to the replay round.
+func oracleRetire(in Input, d Decision) error {
+	for _, digest := range d.Retire {
+		if !slices.ContainsFunc(in.Disputes, func(dp CheckDispute) bool {
+			o, ok := oracleDisputedOutcome(in, dp)
+			if !ok || dp.CheckDigest != digest || dp.Replacement == digest {
+				return false
+			}
+			r, stored := oracleStored(in, dp.Replacement, o.ID)
+			return stored && !r.Narrowed && oracleRules1To4(in, o, dp.Replacement) == nil &&
+				oracleRule5(in, o, dp.Replacement) == nil
+		}) {
+			return fmt.Errorf("%s retired with no replacement that could pass its outcome", digest)
+		}
+	}
+	return nil
+}
+
+// oracleDisputedOutcome is the outcome the disputed check is stored,
+// unretired, for.
+func oracleDisputedOutcome(in Input, dp CheckDispute) (OutcomeRef, bool) {
+	for _, o := range in.Outcomes {
+		if c, ok := oracleStored(in, dp.CheckDigest, o.ID); ok && !c.Retired {
+			return o, true
+		}
+	}
+	return OutcomeRef{}, false
 }
 
 // oracleObjected: Objected is exactly the outcomes, in plan order, that are
