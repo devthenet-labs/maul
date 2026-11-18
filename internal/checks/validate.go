@@ -504,15 +504,19 @@ func runScoped(field string, m map[string]httpstep.Value) *Refusal {
 	return nil
 }
 
-// contentJSON reports whether an expected-JSON map asserts on content:
-// any expectation but the bare presence or absence of a whole document.
+// contentJSON reports whether an expected-JSON map asserts something
+// positive about content: any expectation but the bare presence of a whole
+// document and an absence anywhere. An absence ({$absent: true}) holds of
+// a body that is not JSON, empty, null or an error object too (code review
+// 2026-11-18, checks 6), so it stands only beside an assertion of content
+// that is there.
 func contentJSON(m map[string]httpstep.Value) bool {
 	for ptr, v := range m {
-		if ptr != "" {
-			return true
-		}
-		obj, ok := v.Decoded().(map[string]any)
-		if !ok || (obj["$present"] == nil && obj["$absent"] == nil) {
+		obj, isObj := v.Decoded().(map[string]any)
+		switch {
+		case isObj && obj["$absent"] != nil:
+			continue
+		case ptr != "" || !isObj || obj["$present"] == nil:
 			return true
 		}
 	}

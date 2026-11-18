@@ -224,6 +224,67 @@ func TestRefuseNotSubstantive(t *testing.T) {
 	})
 }
 
+// TestRefuseAssertingNothingPositive (code review 2026-11-18, checks 6): an
+// assertion that something is not there, or that a header is or is not
+// sent, holds of an empty body, an HTML page, null or an error object too,
+// so on its own it says nothing about content.
+func TestRefuseAssertingNothingPositive(t *testing.T) {
+	runRefusals(t, RuleNotSubstantive, []refusalCase{
+		{"json absent only", httpCheck(`{"request":{"path":"/api/users/1"},"expect":{"json":
+			{"/email":{"$absent":true}}}}`), Preview{}},
+		{"deep json absent only", httpCheck(`{"request":{"path":"/api/x"},"expect":{"json":
+			{"/a/b/c":{"$absent":true}}}}`), Preview{}},
+		{"two absents", httpCheck(`{"request":{"path":"/api/x"},"expect":{"json":
+			{"/a":{"$absent":true},"/b":{"$absent":true}}}}`), Preview{}},
+		{"header present only", httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"Content-Type":{"$present":true}}}}`), Preview{}},
+		{"header absent only", httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"X-Debug":{"$absent":true}},"json":{"/a":{"$absent":true}}}}`), Preview{}},
+		{"exec stdoutJSON absent only", execCheck(execBase + `,"expect":{"exit":0,"stdoutJSON":
+			{"/error":{"$absent":true}}}`), Preview{}},
+	})
+	for _, s := range []string{
+		httpCheck(`{"request":{"path":"/api/users/1"},"expect":{"json":{"/email":{"$absent":true}}}}`),
+		httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":{"Content-Type":{"$present":true}}}}`),
+		execCheck(execBase + `,"expect":{"stdoutJSON":{"/error":{"$absent":true}}}`),
+	} {
+		var r *Refusal
+		if err := Substantive(mustParse(t, s)); !errors.As(err, &r) || r.Rule != RuleNotSubstantive {
+			t.Errorf("Substantive(%s) = %v, want %s", s, err, RuleNotSubstantive)
+		}
+	}
+}
+
+// TestAbsenceBesideAPositiveAssertion: an absence or a header's presence
+// still stands beside an assertion of content that is there, in the same
+// step or another, as rule 8 of the evaluate prompt asks (the list's kept
+// items by index, then the index after the last absent).
+func TestAbsenceBesideAPositiveAssertion(t *testing.T) {
+	for name, s := range map[string]string{
+		"kept item, then the end": httpCheck(`{"request":{"path":"/api/items?q={{run}}"},"expect":{"json":
+			{"/0/name":"{{run}}-kept","/1":{"$absent":true}}}}`),
+		"present pointer": httpCheck(`{"request":{"path":"/api/x"},"expect":{"json":{"/id":{"$present":true},
+			"/email":{"$absent":true}}}}`),
+		"header beside a body": httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"Retry-After":{"$present":true}},"bodyContains":"slow down"}}`),
+		"header value": httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"Content-Type":{"$contains":"json"}}}}`),
+		"positive in another step": httpCheck(`{"request":{"method":"POST","path":"/api/x","json":{"n":"{{run}}"}},
+			"expect":{"status":201,"json":{"/n":"{{run}}"}}},
+			{"request":{"path":"/api/x?q={{run}}"},"expect":{"json":{"/email":{"$absent":true}}}}`),
+		"exec absent beside text": execCheck(execBase + `,"expect":{"exit":0,"stdoutContains":"{{run}}",
+			"stdoutJSON":{"/error":{"$absent":true}}}`),
+	} {
+		c := mustParse(t, s)
+		if err := Validate(c, slotCtx); err != nil {
+			t.Errorf("%s: Validate: %v", name, err)
+		}
+		if err := Substantive(c); err != nil {
+			t.Errorf("%s: Substantive: %v", name, err)
+		}
+	}
+}
+
 func TestRefuseRunTokenScoping(t *testing.T) {
 	runRefusals(t, RuleRunToken, []refusalCase{
 		{"global order", httpCheck(`{"request":{"path":"/api/leaderboard"},"expect":{"json":{"/entries":

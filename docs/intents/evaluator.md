@@ -190,20 +190,22 @@ An outcome is **confirmed** only on a check bound to it that:
 
 1. maul stored, is not retired, and is one of maul's forms: an HTTP step list, a browser check in maul's JSON grammar
    (compiled by maul to a Playwright test), or a sandbox program whose output `tools` asserts on;
-2. is **substantive**: at least one step acts on the application and at least one assertion is about content (a status
-   or exit code alone is not), and every list assertion is filtered to data the check created itself, named with
-   `{{run}}`. A check over shared data (a global ranking, a global count) is refused when it is saved. A check stored
-   before these rules came to refuse it still replays as it was saved, but confirms and fails nothing, and the next
-   round is a full one, so the evaluator can save a check that asserts something. An outcome that a shared list leaves
-   an item out is shown by the request it names, sent unchanged and asserting only what holds of any data (its status,
-   the first item meeting the outcome's rule), beside a further step adding only a narrowing to the run's own data,
-   every named parameter kept, where a kept item of the run is listed and the list ends, and a step where the narrowing
-   alone lists the left-out item; the reviewer refuses a check that drops or changes a named parameter, or whose
-   unchanged request has no assertion a build ignoring the outcome's parameters there would fail (the evaluator creates
-   the left-out item last on a newest-first list). A browser check that writes nothing and asserts only the layout of
-   the page's fixed markup, at least once by a measure (a size, an alignment, a box relation, legibility), on elements
-   it finds by role, label, test id or CSS rather than by their text or position, needs no data of its own, and the
-   reviewer's green question says so; its failure is always held for a person;
+2. is **substantive**: at least one step acts on the application and at least one assertion is about content that is
+   there (a status or exit code alone is not, nor an absence (`$absent`) or a header's bare presence or absence, which
+   hold of an empty, HTML or error answer too: they stand only beside an assertion of something that is there), and
+   every list assertion is filtered to data the check created itself, named with `{{run}}`. A check over shared data (a
+   global ranking, a global count) is refused when it is saved. A check stored before these rules came to refuse it
+   still replays as it was saved, but confirms and fails nothing, and the next round is a full one, so the evaluator can
+   save a check that asserts something. An outcome that a shared list leaves an item out is shown by the request it
+   names, sent unchanged and asserting only what holds of any data (its status, the first item meeting the outcome's
+   rule), beside a further step adding only a narrowing to the run's own data, every named parameter kept, where a kept
+   item of the run is listed and the list ends, and a step where the narrowing alone lists the left-out item; the
+   reviewer refuses a check that drops or changes a named parameter, or whose unchanged request has no assertion a build
+   ignoring the outcome's parameters there would fail (the evaluator creates the left-out item last on a newest-first
+   list). A browser check that writes nothing and asserts only the layout of the page's fixed markup, at least once by a
+   measure (a size, an alignment, a box relation, legibility), on elements it finds by role, label, test id or CSS
+   rather than by their text or position, needs no data of its own, and the reviewer's green question says so; its
+   failure is always held for a person;
 3. passed in this round's confirmation or replay, run by `tools` at the current heads with a token `tools` made;
 4. was reviewed `proves` for this outcome's text (a check saved red: on the red question);
 5. and no other live check of the outcome failed this round;

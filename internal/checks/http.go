@@ -67,15 +67,31 @@ func validateHTTP(h HTTPCheck, p Preview) *Refusal {
 	return nil
 }
 
-// httpSubstance refuses an http check no step of which asserts on content.
+// httpSubstance refuses an http check no step of which asserts something
+// positive about content: a json value or matcher other than an absence, a
+// header's value, or bodyContains. An absence and a header's bare presence
+// or absence hold of an HTML page, an empty body or an error too (code
+// review 2026-11-18, checks 6); they stand only beside such an assertion.
 func httpSubstance(h HTTPCheck) *Refusal {
 	for _, st := range h.Steps {
-		if contentJSON(st.Expect.JSON) || len(st.Expect.Headers) > 0 || st.Expect.BodyContains != "" {
+		if contentJSON(st.Expect.JSON) || headerValues(st.Expect.Headers) || st.Expect.BodyContains != "" {
 			return nil
 		}
 	}
-	return refuse(RuleNotSubstantive, "no step asserts on content (json, headers or bodyContains); a status "+
-		"alone only says the call worked")
+	return refuse(RuleNotSubstantive, "no step asserts content that is there (a json value, a header's value or "+
+		"bodyContains); a status, an absence or a header's presence alone holds of an empty or error answer too: "+
+		"assert an item that is there beside it")
+}
+
+// headerValues reports an expected header asserted by its value, not by
+// its bare presence or absence.
+func headerValues(hs map[string]httpstep.Value) bool {
+	for _, v := range hs {
+		if !presence(v) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateHTTPExpect(e httpstep.Expect, captured map[string]bool) *Refusal {

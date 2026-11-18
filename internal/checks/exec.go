@@ -208,11 +208,13 @@ func stdoutSubstance(x ExecExpect) *Refusal {
 }
 
 // noStdoutAssertion is the refusal of an exec or run check whose expect
-// asserts nothing on stdout, saying what to write instead: the evaluator's
-// marker-only drafts tripped on it (defect gate 5).
+// asserts nothing on stdout, or only an absence there (code review
+// 2026-11-18, checks 6: it holds of output that is not JSON at all), saying
+// what to write instead: the evaluator's marker-only drafts tripped on it
+// (defect gate 5).
 const noStdoutAssertion = "no assertion on stdout; an exit code alone only says the run worked: assert what " +
 	"it printed with stdoutContains or stdoutJSON (a program that prints the marker on a mismatch prints what " +
-	"it observed too, for expect to assert)"
+	"it observed too, for expect to assert; an absence alone holds of any output)"
 
 func validateFiles(fs []File) *Refusal {
 	if len(fs) > MaxFiles {
