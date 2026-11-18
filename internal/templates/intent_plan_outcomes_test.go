@@ -57,6 +57,10 @@ func TestPlanOutcomesGoldens(t *testing.T) {
 			Outcomes: []PlanOutcome{
 				{ID: "own-beat", Outcome: "a beat you save at 90 BPM shows 90 bpm", From: "show the BPM"},
 				{ID: "every-beat", Outcome: "every beat links to its page", From: "each beat links to its page"},
+				// A field named Every is a name, never flagged
+				// (L6-B-BROWSER-3).
+				{ID: "every-field", Outcome: "with Every at 4, Fill kick turns on kick steps 1, 5, 9 and 13",
+					From: "a fill with `Every` at N turns on steps 1, 1+N, ..."},
 				{ID: "beat-links", Outcome: "a beat you create links to its page", From: "each beat links to its page"},
 				{ID: "still-works", Outcome: "the sequencer still works", Keep: true},
 				{ID: "sounds-good", Outcome: "every drum sounds good", Manual: true},

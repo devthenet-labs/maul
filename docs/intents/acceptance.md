@@ -149,7 +149,9 @@ Under "Before you approve" it also flags each outcome that says "every", "each",
 ("still work" too), as one the evaluator may not be able to show, and, under a lead of its own, each that answers an
 "each", "every" or "all" line while speaking of fewer items, as the planner is asked to: approve it if that is enough.
 For a Project with no preview, whose checks run in a workspace built for the round with no other run's data and whose
-planner is asked to state each line's rule, it flags only "still works". Both are advice for the approver only, which
+planner is asked to state each line's rule, it flags only "still works". A name is not read as one of these words: text
+in a code span, or a capitalised word inside a sentence, such as a field named `Every` ("with Every at 4"); a sentence
+that starts with "Every" or "Each", or one in capitals, is still flagged. Both are advice for the approver only, which
 never refuses a plan and never decides a result.
 
 A plan that states slice 1's acceptance criteria instead is refused while the evaluator is on, and the planner's retry

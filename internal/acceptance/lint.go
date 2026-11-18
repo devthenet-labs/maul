@@ -6,6 +6,7 @@ package acceptance
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // LintRule names what LintOutcomes flags in an outcome.
@@ -70,12 +71,56 @@ func LintOutcomes(os []PlanOutcome) []OutcomeFlag {
 }
 
 // lintWords is s as the lint reads it: its runs of letters and digits,
-// lowercased, one space between each and one at either end.
+// lowercased, one space between each and one at either end. A name is
+// read as "_", which no lint word matches and no phrase spans: a code
+// span, or a word in title case ("Every") that does not start a sentence,
+// such as a field named Every (L6-B-BROWSER-3). A word that starts a
+// sentence, or is all capitals, is read as a word.
 func lintWords(s string) string {
-	fields := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
-	return " " + strings.Join(fields, " ") + " "
+	var (
+		words []string
+		word  []rune
+	)
+	start := true // at the start of s or of a sentence
+	flush := func() {
+		if len(word) == 0 {
+			return
+		}
+		w := string(word)
+		if !start && titleCase(w) {
+			w = "_"
+		}
+		words = append(words, strings.ToLower(w))
+		word, start = word[:0], false
+	}
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r == '`' {
+			if end := strings.IndexByte(s[i+1:], '`'); end >= 0 {
+				flush()
+				words, start, i = append(words, "_"), false, i+1+end+1
+				continue
+			}
+		}
+		i += n
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			word = append(word, r)
+			continue
+		}
+		flush()
+		if strings.ContainsRune(".!?", r) {
+			start = true
+		}
+	}
+	flush()
+	return " " + strings.Join(words, " ") + " "
+}
+
+// titleCase reports whether w starts with a capital and holds a lower-case
+// letter after it ("Every", not "EVERY" or "every").
+func titleCase(w string) bool {
+	first, n := utf8.DecodeRuneInString(w)
+	return unicode.IsUpper(first) && strings.IndexFunc(w[n:], unicode.IsLower) >= 0
 }
 
 // hasWord reports whether words (lintWords) holds w as whole words.
