@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.9](https://github.com/devthenet-labs/maul/compare/v0.14.8...v0.14.9) (2026-11-18)
+
+
+### Bug Fixes
+
+* **intent:** evaluate prompt headroom, and keep outcomes on a capped shared list ([#440](https://github.com/devthenet-labs/maul/issues/440)) ([f054fe4](https://github.com/devthenet-labs/maul/commit/f054fe4be99737570586b633ac513ff1cd523e47))
+* **intent:** gate-5 low bugs (files grep flags, check grammar hints, every lint, review answer file) ([#441](https://github.com/devthenet-labs/maul/issues/441)) ([bc08dfe](https://github.com/devthenet-labs/maul/commit/bc08dfefad42f49b4ac255199f6758a3016e56d4))
+
 ## [0.14.8](https://github.com/devthenet-labs/maul/compare/v0.14.7...v0.14.8) (2026-11-18)
 
 
