@@ -9,6 +9,12 @@ import (
 	"testing"
 )
 
+// browserExpect is a browser check that opens the root and makes one
+// expectation.
+func browserExpect(expect string) string {
+	return `{"id":"o-c","outcome":"o","form":"browser","browser":{"steps":[{"goto":"/"},{"expect":` + expect + `}]}}`
+}
+
 // TestRefusalsSayHowToFixThem (defect gate 5, the evaluator's first drafts):
 // the two refusals of a stdout assertion that the evaluator's drafts tripped
 // on in every CLI round still refuse the same checks under the same rule,
@@ -38,6 +44,16 @@ func TestRefusalsSayHowToFixThem(t *testing.T) {
 			`"argv":["{{bin}}","p.json"],"files":[{"path":"p.json","content":"{}"}],"timeout":"30s",` +
 			`"expect":{"exit":0}}}`, cliCtx, RuleNotSubstantive,
 			[]string{"exit code alone", "stdoutContains or stdoutJSON"}},
+		// L6-B-BROWSER-1: the css-length and regex refusals say what to
+		// write instead, as the selector-list and css-depth ones do.
+		{"a css locator over the length bound", browserExpect(`{"assert":"count","locator":{"css":"` +
+			strings.Repeat("a", MaxTextChars+1) + `"},"count":1}`), slotCtx, RuleGrammar,
+			[]string{"201 characters, over 200", "an expect of its own", "located by role, label, text or testid",
+				"within"}},
+		// Gate 5's refused pattern, a text that does not say something.
+		{"a text match with a lookahead", browserExpect(`{"assert":"text","locator":{"testid":"error"},` +
+			`"text":{"matches":"^(?![\\s\\S]*Every must)"}}`), slotCtx, RuleGrammar,
+			[]string{"not a regular expression", "no lookahead", "not what it is not", `^\s*$`}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := mustParse(t, tc.check)

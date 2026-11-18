@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // BrowserCheck is browser steps run in order in a fresh browser, compiled
@@ -333,6 +334,10 @@ func validateLocator(field string, l Locator, depth int) *Refusal {
 // MaxCSSCompounds compound selectors.
 func checkCSS(field, css string) *Refusal {
 	if r := checkLine(field+" css", css); r != nil {
+		if utf8.RuneCountInString(css) > MaxTextChars {
+			r.Reason += "; assert each element in an expect of its own, located by role, label, text or testid " +
+				"(scoped with within or hasText), instead of one long selector"
+		}
 		return r
 	}
 	compounds, list, ok := cssCompounds(css)
@@ -523,7 +528,9 @@ func validateTextMatch(t TextMatch) *Refusal {
 	}
 	if t.Matches != "" {
 		if _, err := regexp.Compile(t.Matches); err != nil {
-			return refuse(RuleGrammar, "text matches %q is not a regular expression: %v", t.Matches, err)
+			return refuse(RuleGrammar, "text matches %q is not a regular expression: %v; matches is RE2, with no "+
+				"lookahead, lookbehind or backreference: assert what the text is, not what it is not, with equals, "+
+				"contains or a plain matches (^\\s*$ for an empty text), one text expect per condition", t.Matches, err)
 		}
 	}
 	return nil
