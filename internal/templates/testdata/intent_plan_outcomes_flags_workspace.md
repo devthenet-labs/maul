@@ -10,6 +10,7 @@ maul's evaluator checks each outcome below in a workspace it builds at the pull 
 - `every-step`: `pattern.Shift` moves every step of a pattern one later. It answers the issue's line: shift steps
 - `each-err`: `pattern.Validate` refuses each pattern of 65 steps. It answers the issue's line: validate patterns
 - `still-works` (must keep holding): `pattern.Parse` still works
+- `still-work` (must keep holding): `pattern.Parse` and `pattern.Format` still work
 - `one-track`: `pattern.Shift` of a kick track moves it. It answers the issue's line: each track shifts
 
 ### Before you approve
@@ -17,6 +18,7 @@ maul's evaluator checks each outcome below in a workspace it builds at the pull 
 These outcomes may be ones maul's evaluator cannot show; if one should be worded otherwise, ask for a new plan:
 
 - `still-works` says "still works": an outcome a check can show names one action and what a person then sees.
+- `still-work` says "still work": an outcome a check can show names one action and what a person then sees.
 
 The plan has 1 line longer than 100 columns. GitHub does not wrap a code block, so on most screens such a line runs past the right edge of the block below: scroll the block sideways to read each to its end, since at the edge a line can look finished when it is not.
 

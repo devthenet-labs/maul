@@ -14,7 +14,7 @@ type LintRule string
 const (
 	// LintSharedData flags an outcome that quantifies over data a check does
 	// not create ("every", "each", "others", "existing") or that only says
-	// something "still works": the evaluator's checks run against a preview
+	// something "still works" (or "still work"): the evaluator's checks run against a preview
 	// whose data persists and is shared, so such an outcome is one no check
 	// can show. "all" and "other" are left out: they name a check's own
 	// items as often ("all 16 steps", "the other beat you create").
@@ -35,7 +35,13 @@ type OutcomeFlag struct {
 
 // sharedDataWords are what LintSharedData looks for, in the order it
 // reports the first: whole words, or a phrase of whole words.
-var sharedDataWords = []string{"every", "each", "others", "existing", "still works"}
+var sharedDataWords = []string{"every", "each", "others", "existing", "still works", "still work"}
+
+// StillWorks reports whether f flags an outcome for only saying something
+// "still works" or "still work", which no data of a check's own shows.
+func (f OutcomeFlag) StillWorks() bool {
+	return f.Rule == LintSharedData && (f.Word == "still works" || f.Word == "still work")
+}
 
 // narrowingWords are what LintNarrowedFrom looks for in a from line.
 var narrowingWords = []string{"each", "every", "all"}

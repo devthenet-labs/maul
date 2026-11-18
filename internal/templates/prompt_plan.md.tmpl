@@ -326,6 +326,12 @@ How to word an outcome so the evaluator can show it:
   its label reads On, its text can be read against its background), or mark the outcome manual.
 - An outcome only data a check cannot create can show (rows the application seeds or makes in the background) is
   `manual: true`, with that as its reason.
+- A list the application cuts to its first rows (a top 10, the newest 20) holds every check's items, so an item a
+  check creates need not be in it. Read the code to see whether a list is cut. State an outcome about such a list,
+  `keep` ones too, through what a check sees of its own item: its own page or API path, a filter or search the
+  application offers narrowed to it, or what an action on it changes. An outcome about the list itself (its order, its
+  cut, which items it holds) that no such filter narrows to a check's own items, and one the request promises nothing
+  a check can see that way, is `manual: true`, with that as its reason.
 - Name where a person sees each outcome, a page's route or an API path, in the application's own words, with the
   API's name in brackets where it differs from the page's ("a beat (a pattern, /api/patterns)").
 {{- with .Verification }}

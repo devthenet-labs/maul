@@ -91,6 +91,7 @@ func TestPlanOutcomesFlagsWorkspace(t *testing.T) {
 		{ID: "every-step", Outcome: "`pattern.Shift` moves every step of a pattern one later", From: "shift steps"},
 		{ID: "each-err", Outcome: "`pattern.Validate` refuses each pattern of 65 steps", From: "validate patterns"},
 		{ID: "still-works", Outcome: "`pattern.Parse` still works", Keep: true},
+		{ID: "still-work", Outcome: "`pattern.Parse` and `pattern.Format` still work", Keep: true},
 		{ID: "one-track", Outcome: "`pattern.Shift` of a kick track moves it", From: "each track shifts"},
 	}}
 	got, err := RenderPlanComment(pc)
@@ -103,7 +104,8 @@ func TestPlanOutcomesFlagsWorkspace(t *testing.T) {
 			t.Errorf("a workspace plan comment says %q:\n%s", unwanted, got)
 		}
 	}
-	for _, want := range []string{"`still-works` says \"still works\""} {
+	for _, want := range []string{"`still-works` says \"still works\"",
+		"`still-work` says \"still work\": an outcome a check can show names one action"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("a workspace plan comment lacks %q:\n%s", want, got)
 		}

@@ -131,6 +131,12 @@ it:
   gives ("at least 48 by 48 px"), at the browser's fixed 1280x800 window;
 - no colour: an outcome states a visible state a check can read, or is manual;
 - an outcome only data a check cannot create can show (rows the application seeds) is manual;
+- a list the application cuts to its first rows (a top 10, the newest 20) holds every check's items, so a check's own
+  item need not be in it: an outcome about such a list, `keep` ones too, is stated through what a check sees of its own
+  item (its own page or API path, a filter or search narrowed to it, what an action on it changes). One about the list
+  itself (its order, its cut, which items it holds) that no such filter narrows to a check's own items, and one the
+  request promises nothing a check can see that way, is manual. A check of the cut list alone could pass on a wrong
+  list, and one of its own item there would fail whenever other checks' items crowd it out;
 - where a person sees it, a page's route or an API path, in the application's own words, with the API's name in brackets
   where it differs ("a beat (a pattern, /api/patterns)").
 
@@ -139,12 +145,12 @@ outcome quotes in `from` (ignoring case, whitespace, trailing punctuation and in
 and link targets; a quote shortened with "..." or "…" counts when its pieces, each at least 4 letters or digits and 12
 together, appear in the line in order): "No outcome answers these lines of the issue, so nothing checks them." That not
 covered list is the approver's prompt to ask for a new plan before approving, if one of those lines should be checked.
-Under "Before you approve" it also flags each outcome that says "every", "each", "others", "existing" or "still works",
-as one the evaluator may not be able to show, and, under a lead of its own, each that answers an "each", "every" or
-"all" line while speaking of fewer items, as the planner is asked to: approve it if that is enough. For a Project with
-no preview, whose checks run in a workspace built for the round with no other run's data and whose planner is asked to
-state each line's rule, it flags only "still works". Both are advice for the approver only, which never refuses a plan
-and never decides a result.
+Under "Before you approve" it also flags each outcome that says "every", "each", "others", "existing" or "still works"
+("still work" too), as one the evaluator may not be able to show, and, under a lead of its own, each that answers an
+"each", "every" or "all" line while speaking of fewer items, as the planner is asked to: approve it if that is enough.
+For a Project with no preview, whose checks run in a workspace built for the round with no other run's data and whose
+planner is asked to state each line's rule, it flags only "still works". Both are advice for the approver only, which
+never refuses a plan and never decides a result.
 
 A plan that states slice 1's acceptance criteria instead is refused while the evaluator is on, and the planner's retry
 is told why. An intent whose approved plan still carries criteria when the evaluator is switched on is no longer

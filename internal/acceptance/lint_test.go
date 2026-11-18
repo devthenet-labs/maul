@@ -35,6 +35,12 @@ func TestLintOutcomes(t *testing.T) {
 			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "existing"}}},
 		{"still works", PlanOutcome{ID: "a", Outcome: "The sequencer still   works.", Kind: OutcomeKindKeep},
 			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "still works"}}},
+		// O7-B-2, beatbattle-49's keep outcome on two capped, shared lists.
+		{"still work", PlanOutcome{ID: "leaderboard-ratings-unaffected", Outcome: "The main leaderboard and the " +
+			"ratings list still work exactly as before, unaffected by the new stakes field.", Kind: OutcomeKindKeep},
+			[]OutcomeFlag{{Outcome: "leaderboard-ratings-unaffected", Rule: LintSharedData, Word: "still work"}}},
+		{"work after still, not still work", PlanOutcome{ID: "a", Outcome: "A beat you save is still there; " +
+			"its steps work."}, nil},
 		{"the first one only", PlanOutcome{ID: "a", Outcome: "Every beat and each battle and all players."},
 			[]OutcomeFlag{{Outcome: "a", Rule: LintSharedData, Word: "every"}}},
 		// Inside a word is not the word.
@@ -86,10 +92,10 @@ func TestLintOutcomesOrderAndPurity(t *testing.T) {
 // rule is raised per outcome, a manual outcome is never flagged, and an
 // outcome flagged shared-data holds its word as a whole word.
 func TestLintOutcomesProperty(t *testing.T) {
-	words := []string{"every", "each", "all", "other", "others", "existing", "still", "works", "a", "beat",
+	words := []string{"every", "each", "all", "other", "others", "existing", "still", "works", "work", "a", "beat",
 		"you", "create", "Each,", "ALL.", "eachother", "overall", "\u202e", "`x`", "@team"}
 	own := map[string]bool{"every": true, "each": true, "all": true, "other": true, "others": true,
-		"existing": true, "still works": true}
+		"existing": true, "still works": true, "still work": true}
 	rng := rand.New(rand.NewSource(7))
 	text := func() string {
 		n := rng.Intn(8)
