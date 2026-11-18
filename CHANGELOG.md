@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.10](https://github.com/devthenet-labs/maul/compare/v0.14.9...v0.14.10) (2026-11-18)
+
+
+### Bug Fixes
+
+* **intent:** a check's failure marker not at a line start is an error, never a pass ([#444](https://github.com/devthenet-labs/maul/issues/444)) ([da02700](https://github.com/devthenet-labs/maul/commit/da027002b522cc4bfc10e6f282558d4a97945060))
+* **intent:** an evaluator's objection holds its commits, and a dispute needs a replacement that could pass ([#443](https://github.com/devthenet-labs/maul/issues/443)) ([fda5c37](https://github.com/devthenet-labs/maul/commit/fda5c3796e43bf4436679321d2971c04ac262b0d))
+
 ## [0.14.9](https://github.com/devthenet-labs/maul/compare/v0.14.8...v0.14.9) (2026-11-18)
 
 
