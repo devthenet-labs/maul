@@ -144,7 +144,7 @@ func TestMarkerAnywhereIsNeverAPass(t *testing.T) {
 		}
 		_, asserted := checks.ExecAssertion(out, marker)
 
-		ws := judgeOutput(toolexec.Result{Output: out}, x, marker, "r1", places{})[0]
+		ws := judgeOutput(onStdout(out), x, marker, "r1", places{})[0]
 		// The slot judge draws its own marker per attempt: put it where
 		// the property's marker is.
 		slotOut := out

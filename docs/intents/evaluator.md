@@ -303,24 +303,30 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to keep. The
      check may list only success statuses.
    - `exec`: only a program that says so itself, printing `{{marker}} <id>: <what it saw>` at the start of a line of its
-     output (stdout and stderr combined), `<id>` naming the assertion (lowercase letters, digits and hyphens, starting
-     with a letter, at most 128 characters). maul replaces `{{marker}}` in the program's files, and nowhere else, with a
-     line start drawn afresh for every attempt (`MAUL-ASSERTION-FAILED-` and 32 random hex characters), so text the
-     application answers with that the program echoes (a body, a traceback) can never pass for one; only lines carrying
-     that attempt's own marker count, the first with a valid id naming the assertion. A line that starts with the marker
-     fails the check whatever its exit code and its expectation, so a program that prints it and goes on to exit 0 is
-     never a pass. A marker that is in the output but starts no line (printed after output with no trailing newline,
-     after a space or a carriage return, or in a source line a traceback echoes) makes the run an error, never a pass
-     nor a fail: maul cannot tell the program's judgement from an echo, and its detail tells the evaluator to print a
-     newline before the marker. A run whose output is cut at its 64 KiB bound is never a pass either (a marker past the
-     cut would be lost): it errs, unless a marker was kept. An exit code alone, a crash, `127` or a traceback never
-     makes a check red by assertion. Neither does a marker line with no valid id after it: the run fails, and its detail
-     says the marker named no valid assertion id, so the evaluator can rename it. On a valid id, what the program
-     printed after its marker (`<id>: <what it saw>`, each such line, the marker itself left out, at most 1 KiB) is kept
-     in the failing step's message, so the issue, the pull request and the reproduction show the value the program
-     observed, as the application's data. In a program's files maul replaces only the exact placeholder tokens
-     (`{{marker}}`, `{{bin}}`, `{{tree}}`, `{{run}}`); any other `{{` there, such as a Go nested composite literal, is
-     the program's own text and runs as written.
+     stdout or its stderr (each read as the program wrote it; when both hold text and one ends on an open line, the
+     order the two were written in is unknown and the run errs, as for a marker that starts no line), `<id>` naming the
+     assertion (lowercase letters, digits and hyphens, starting with a letter, at most 128 characters). maul replaces
+     `{{marker}}` in the program's files, and nowhere else, with a line start drawn afresh for every attempt
+     (`MAUL-ASSERTION-FAILED-` and 32 random hex characters), so text the application answers with that the program
+     echoes (a body, a traceback) can never pass for one; only lines carrying that attempt's own marker count, the first
+     with a valid id naming the assertion. A line that starts with the marker fails the check whatever its exit code and
+     its expectation, so a program that prints it and goes on to exit 0 is never a pass. A marker that is in the output
+     but starts no line (printed after output with no trailing newline, after a space or a carriage return, or in a
+     source line a traceback echoes) makes the run an error, never a pass nor a fail: maul cannot tell the program's
+     judgement from an echo, and its detail tells the evaluator to print a newline before the marker. A run whose output
+     is cut at its 64 KiB bound is never a pass either (a marker past the cut would be lost): it errs, unless a marker
+     was kept. An exit code alone, a crash, `127` or a traceback never makes a check red by assertion. Neither does a
+     marker line with no valid id after it: the run fails, and its detail says the marker named no valid assertion id,
+     so the evaluator can rename it. On a valid id, what the program printed after its marker (`<id>: <what it saw>`,
+     each such line, the marker itself left out, at most 1 KiB) is kept in the failing step's message, so the issue, the
+     pull request and the reproduction show the value the program observed, as the application's data. In a program's
+     files maul replaces only the exact placeholder tokens (`{{marker}}`, `{{bin}}`, `{{tree}}`, `{{run}}`); any other
+     `{{` there, such as a Go nested composite literal, is the program's own text and runs as written. `stdoutContains`
+     and `stdoutJSON` are judged on the program's stdout alone, never on what it printed on stderr (a traceback or a
+     usage error that echoes the expected text). A run whose stdout assertions would be judged otherwise on stdout and
+     stderr together (the text only on stderr, JSON on stdout beside stderr text), a run that would pass after exiting
+     non-zero when `expect` names no exit, and a run on a sandbox that does not keep stdout apart (an older toolbox
+     image) err: never a pass nor a fail.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
      or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
      `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,

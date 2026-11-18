@@ -16,8 +16,11 @@
 // withheld). One program runs at a time, for at most Timeout; past it the
 // program is killed with every process of its group, as is anything a
 // finished program left behind. stdout and stderr are kept together, in
-// order, at most MaxOutputBytes of valid UTF-8, a longer output ending in
-// toolwire.TruncationMarker and a killed one in TimeoutMarker.
+// the order the shim read them, at most MaxOutputBytes of valid UTF-8, a
+// longer output ending in toolwire.TruncationMarker and a killed one in
+// TimeoutMarker, and each apart as the program wrote it (Result.Stdout,
+// Result.Stderr), so the tools container judges a stdout assertion on
+// stdout alone; a build's two streams share one pipe, kept together only.
 //
 // A workspace shim (Options.Work; SPEC S2-07) is the sandbox of an
 // agents-namespace tool pod instead, one per side (head, base), on the

@@ -34,7 +34,7 @@ type ExecCheck struct {
 // when it reached and judged one of its own assertions and found the
 // outcome does not hold, <id> naming that assertion (lowercase letters,
 // digits and hyphens, at most 32, starting with a letter). The output is the
-// program's stdout and stderr combined, so text the application controls
+// program's stdout and stderr, each read as written, so text the application controls
 // that the program echoes (a body, a traceback) lands there too; it cannot
 // know the nonce, so it can never pass for a marker.
 //

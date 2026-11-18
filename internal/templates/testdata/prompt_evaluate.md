@@ -336,7 +336,7 @@ A check is bound to one outcome and has one form:
   starts with what `{{marker}}` in its program files stands for (a secret maul draws for every run), whatever its
   exit code and its `expect`: have the program print `{{marker}} <id>: <what it saw>` when its final judgement of
   an assertion finds the outcome does not hold, never inside a retry or poll, on a connection error, a status code or
-  an exception. Let `expect` assert on what the program read from the preview (`stdoutJSON`, its whole output one JSON
+  an exception. Let `expect` assert on what the program read from the preview (`stdoutJSON`, its whole stdout one JSON
   document of the values it observed), never only on a line it prints whatever happened (`DONE`). A run whose output
   is too long to keep whole (over 64 KiB) never passes: print only what the check needs.
 

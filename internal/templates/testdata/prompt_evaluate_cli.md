@@ -221,7 +221,7 @@ each alone with a fresh token, and counts a check for its outcome only where the
 kind:
 
 - A change outcome's check must pass at the head and fail at the base by an assertion: its program printed
-  `{{marker}} <id>: <what it saw>`, or it exited as `expect` says and its output missed what `expect` asserts.
+  `{{marker}} <id>: <what it saw>`, or it exited as `expect` says and its stdout missed what `expect` asserts.
   That shows the check tells the change from its absence. Neither a check that passes at the base nor one that
   fails there only by its exit code, a crash or a traceback shows anything the change did, and neither ever passes
   its outcome.
@@ -308,7 +308,7 @@ fail: it asserts exactly what the outcome states. Its `maul-tool check run` must
 itself: its program printed `{{marker}} <id>: <what it saw>` at the start of a new line of its output (stdout
 and stderr; mid-line it errs), the id naming that assertion (lowercase letters, digits and hyphens, starting with a
 letter, at most 128 characters), or it exited as `expect` says and its
-output missed what `expect` asserts. Write `{{marker}}` as it is in the program file: maul replaces it on every
+stdout missed what `expect` asserts. Write `{{marker}}` as it is in the program file: maul replaces it on every
 run with a secret line start only that run's program is given, so nothing the change prints can pass for it. Print
 it for the final judgement of an assertion and nothing else, never inside a retry or poll, on an error starting a
 program or on an exception of your own program. An exit code alone, a crash, a traceback, a compile error or a
@@ -332,8 +332,8 @@ A check is bound to one outcome and has one form:
   and the same `expect`. It runs the built program as `{{bin}}` and reads what it wrote: use it for what
   `exec` cannot see, such as a file the program writes.
 
-`stdoutContains` is one string on one line, never a list and never with a newline: text the output must contain.
-`stdoutJSON` reads the whole output as one JSON document, each JSON pointer to a value or a matcher:
+`stdoutContains` is one string on one line, never a list and never with a newline: text stdout must contain.
+`stdoutJSON` reads the whole stdout as one JSON document, each JSON pointer to a value or a matcher:
 `{"$present": true}`, `{"$absent": true}`, `{"$contains": "text"}`, `{"$approx": n, "$tolerance": n}`,
 `{"$range": [lo, hi]}`, `{"$includes": value}` and `{"$order": [...], "$by": pointer}`. To assert several lines of
 plain-text output, write a `run` check whose program runs `{{bin}}` and prints what it printed as one JSON

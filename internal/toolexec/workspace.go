@@ -382,8 +382,7 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 		if err != nil {
 			return refused(toolwire.RefusedInvalid, err.Error())
 		}
-		res = s.execute(ctx, req.Argv, dir, s.workspaceEnv(req), req.execTimeout(s.timeout),
-			&capWriter{limit: MaxOutputBytes})
+		res = s.execute(ctx, req.Argv, dir, s.workspaceEnv(req), req.execTimeout(s.timeout), newProgramSink())
 	}
 	if err := s.sweep.run(); err != nil {
 		s.unclean = true

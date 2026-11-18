@@ -499,8 +499,14 @@ func (sb *wsSandbox) serveExec(w http.ResponseWriter, r *http.Request) {
 	mapped := sb.mount(req)
 	res := sb.srv.Do(r.Context(), &mapped)
 	res.Output = strings.ReplaceAll(res.Output, sb.work, toolexec.WorkDir)
+	for _, s := range []*string{res.Stdout, res.Stderr} {
+		if s != nil {
+			*s = strings.ReplaceAll(*s, sb.work, toolexec.WorkDir)
+		}
+	}
 	if req.Kind != toolexec.KindBuild && sb.garble != nil && sb.garble() {
-		res.Output = garbledOutput
+		stdout, stderr := garbledOutput, ""
+		res.Output, res.Stdout, res.Stderr = garbledOutput, &stdout, &stderr
 	}
 	writeShimResult(w, http.StatusOK, res)
 }

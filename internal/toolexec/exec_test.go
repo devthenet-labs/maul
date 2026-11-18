@@ -42,6 +42,10 @@ func TestRun(t *testing.T) {
 		exit     int
 		output   string
 		contains string
+		// stdout and stderr, when set, are the streams apart; output is
+		// then left unchecked, the two streams' order in it being only the
+		// order the shim read them.
+		stdout, stderr string
 	}{
 		{
 			name:   "argv is not a shell line",
@@ -52,7 +56,8 @@ func TestRun(t *testing.T) {
 			name:   "a shell runs only when argv names one",
 			req:    toolwire.ExecRequest{Argv: []string{"sh", "-c", "echo out; echo err >&2; exit 3"}},
 			exit:   3,
-			output: "out\nerr\n",
+			stdout: "out\n",
+			stderr: "err\n",
 		},
 		{
 			name: "files are written under scratch and the program runs there",
@@ -83,7 +88,13 @@ func TestRun(t *testing.T) {
 			if got.Exit != tc.exit {
 				t.Errorf("exit %d, want %d (output %q)", got.Exit, tc.exit, got.Output)
 			}
-			if tc.contains != "" {
+			if tc.stdout != "" || tc.stderr != "" {
+				if got.Stdout == nil || *got.Stdout != tc.stdout || got.Stderr == nil || *got.Stderr != tc.stderr ||
+					len(got.Output) != len(tc.stdout)+len(tc.stderr) {
+					t.Errorf("stdout %q, stderr %q, output %q; want %q and %q", deref(got.Stdout),
+						deref(got.Stderr), got.Output, tc.stdout, tc.stderr)
+				}
+			} else if tc.contains != "" {
 				if !strings.Contains(got.Output, tc.contains) {
 					t.Errorf("output %q does not contain %q", got.Output, tc.contains)
 				}

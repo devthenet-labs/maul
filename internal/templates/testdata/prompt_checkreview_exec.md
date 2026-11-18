@@ -81,7 +81,7 @@ import json, sys
 ```
 
 How maul runs it: the program runs without a shell in a
-sandbox that can reach the running preview, and the check fails unless its exit code and output match its
+sandbox that can reach the running preview, and the check fails unless its exit code and stdout match its
 `expect`. It also fails whenever a line of its output starts with what `{{marker}}` in its program files stands
 for, a secret maul draws afresh for every run and gives only the program, whatever its exit code and whatever else it
 prints; a run whose output is too long to keep whole never passes.

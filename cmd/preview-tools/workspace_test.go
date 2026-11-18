@@ -51,6 +51,10 @@ func serveShim(t *testing.T, sock, output string) *fakeShim {
 		res := toolexec.Result{Output: output}
 		if req.Kind == toolexec.KindBuild {
 			res.Output = "built"
+		} else {
+			// A program's streams apart, as the shim keeps them: all on stdout.
+			stdout, stderr := output, ""
+			res.Stdout, res.Stderr = &stdout, &stderr
 		}
 		_ = json.NewEncoder(w).Encode(res)
 	})
