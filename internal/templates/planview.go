@@ -306,12 +306,12 @@ func outcomeFlags(os []PlanOutcome, workspace bool) (shared, narrowed []string) 
 	for _, f := range acceptance.LintOutcomes(in) {
 		id, word := code(oneLine(f.Outcome)), `"`+f.Word+`"`
 		switch {
-		case workspace && f.Word != "still works":
+		case workspace && !f.StillWorks():
 			// No shared preview for the flag to be about.
 		case f.Rule == acceptance.LintNarrowedFrom:
 			narrowed = append(narrowed, id+" answers an issue line that says "+word+", but speaks of fewer: the "+
 				"evaluator checks only what the outcome says, on items its own checks create.")
-		case f.Word == "still works":
+		case f.StillWorks():
 			shared = append(shared, id+" says "+word+": an outcome a check can show names one action and what a "+
 				"person then sees.")
 		default:

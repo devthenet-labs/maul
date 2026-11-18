@@ -566,6 +566,13 @@ func TestPlanPromptOutcomes(t *testing.T) {
 		"Do not promise a colour: a check cannot assert one.",
 		"An outcome only data a check cannot create can show (rows the application seeds or makes in the " +
 			"background) is `manual: true`, with that as its reason.",
+		// O7-B-2: a list cut to its first rows, shared with every check.
+		"A list the application cuts to its first rows (a top 10, the newest 20) holds every check's items, so " +
+			"an item a check creates need not be in it",
+		"its own page or API path, a filter or search the application offers narrowed to it, or what an action " +
+			"on it changes",
+		"An outcome about the list itself (its order, its cut, which items it holds) that no such filter narrows to a " +
+			"check's own items, and one the request promises nothing a check can see that way, is `manual: true`",
 		"with the API's name in brackets where it differs from the page's",
 		"- `api`, under `/api`"} {
 		if !strings.Contains(got, want) && !strings.Contains(flat, want) {

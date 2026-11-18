@@ -163,10 +163,12 @@ the evaluator's run (`[maul-tool time left]`).
    reason faults, keeps every other input on the control it went to, compares the two case by case before confirming,
    and names in its verdict note any case it drops or changes that the reason does not fault (an expected value it
    inherits is judged against the outcome like its own); the refused check is never replayed or counted, and the amended
-   one is a new check, confirmed and reviewed like any other. The evaluate prompt is bounded at 128 KiB (the CLI reads
-   every prompt on its standard input, so this is maul's own bound, not the command line's): a prompt over it leaves
-   out, in this order, the refused checks' bodies (oldest first), half the changed paths at a time, then the older half
-   of the refusals at a time, each said to be not shown, never cut; the request, the fix diff, the outcomes and the
+   one is a new check, confirmed and reviewed like any other. The evaluate prompt is bounded at 256 KiB when the harness
+   reads it on its standard input (claude: maul's own bound, which every part the prompt always keeps fits with room to
+   spare), and under 128 KiB when it takes it as one argument of its command line (codex, which Linux bounds there; with
+   every part at its bound such a prompt does not fit, and the run fails as below): a prompt over its bound leaves out,
+   in this order, the refused checks' bodies (oldest first), half the changed paths at a time, then the older half of
+   the refusals at a time, each said to be not shown, never cut; the request, the fix diff, the outcomes and the
    previous round's results always stay, and a prompt still over the bound fails the run (maul's own failure, never a
    verdict). Each session may take 6 turns, the last 3 kept for one repair of its report; a review whose report is
    refused and not repaired makes that check alone `unclear` (not stored, its answer not cached), and the run goes on to
