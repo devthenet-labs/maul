@@ -67,7 +67,8 @@ func (genStatusOnly) Generate(r *rand.Rand, _ int) reflect.Value {
 
 // TestNothingStatusOnlyIsAccepted: rule 2 of DESIGN 4.3 as a seeded
 // property: Validate never accepts a check whose only assertions are a
-// status or an exit code.
+// status or an exit code, and neither does Substantive, which a stored
+// check is held to before it supports a pass.
 func TestNothingStatusOnlyIsAccepted(t *testing.T) {
 	prop := func(g genStatusOnly) bool {
 		err := Validate(g.c, slotCtx)
@@ -76,6 +77,10 @@ func TestNothingStatusOnlyIsAccepted(t *testing.T) {
 			return false
 		}
 		var r *Refusal
+		if serr := Substantive(g.c); !errors.As(serr, &r) || r.Rule != RuleNotSubstantive {
+			t.Logf("Substantive = %v: %s", serr, Canonical(g.c))
+			return false
+		}
 		return errors.As(err, &r)
 	}
 	if err := quick.Check(prop, quickConfig(500)); err != nil {

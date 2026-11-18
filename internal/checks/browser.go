@@ -186,13 +186,33 @@ func validateBrowser(b BrowserCheck, p Preview) *Refusal {
 	if len(b.Steps) == 0 {
 		return refuse(RuleGrammar, "a browser check has at least one step")
 	}
-	acts, content := false, false
 	for i, st := range b.Steps {
 		r := validateBrowserStep(st, p)
 		if r != nil {
 			r.Reason = "step " + strconv.Itoa(i+1) + ": " + r.Reason
 			return r
 		}
+	}
+	if r := browserSubstance(b); r != nil {
+		return r
+	}
+	for i, st := range b.Steps {
+		if st.Expect == nil {
+			continue
+		}
+		if r := assertionRunScoped(*st.Expect); r != nil {
+			r.Reason = "step " + strconv.Itoa(i+1) + ": " + r.Reason
+			return r
+		}
+	}
+	return nil
+}
+
+// browserSubstance refuses a browser check with no step acting on the
+// page or no assertion about content.
+func browserSubstance(b BrowserCheck) *Refusal {
+	acts, content := false, false
+	for _, st := range b.Steps {
 		if st.Expect == nil {
 			acts = acts || st.WaitForURL == ""
 		} else {
@@ -204,15 +224,6 @@ func validateBrowser(b BrowserCheck, p Preview) *Refusal {
 	}
 	if !content {
 		return refuse(RuleNotSubstantive, "no assertion is about content; a url alone only says navigation worked")
-	}
-	for i, st := range b.Steps {
-		if st.Expect == nil {
-			continue
-		}
-		if r := assertionRunScoped(*st.Expect); r != nil {
-			r.Reason = "step " + strconv.Itoa(i+1) + ": " + r.Reason
-			return r
-		}
 	}
 	return nil
 }

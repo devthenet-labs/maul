@@ -54,6 +54,9 @@ func TestSavedChecksKeepTheirForm(t *testing.T) {
 			if err := Validate(c, slotCtx); err != nil {
 				t.Errorf("the saved check no longer validates: %v", err)
 			}
+			if err := Substantive(c); err != nil {
+				t.Errorf("the saved check is no longer substantive: %v", err)
+			}
 		})
 	}
 }

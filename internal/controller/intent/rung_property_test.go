@@ -38,7 +38,7 @@ func genLadderRound(r *rand.Rand) (*v1alpha1.IntentAcceptance, []v1alpha1.SavedC
 	for i := range 1 + r.Intn(5) {
 		o := acc.Outcomes[r.Intn(len(acc.Outcomes))]
 		c := v1alpha1.SavedCheck{ID: fmt.Sprintf("c%d", i), Outcome: o.ID, Form: forms[r.Intn(len(forms))],
-			Body: `{"id":"c"}`, Digest: "sha256:" + fmt.Sprintf("%064x", i+1)}
+			Body: healthCheck, Digest: "sha256:" + fmt.Sprintf("%064x", i+1)}
 		if r.Intn(5) == 0 {
 			c.Expect, c.FailedStep, c.FailedAssertion = v1alpha1.CheckExpectFail, int32(1+r.Intn(2)), "json /a"
 		}

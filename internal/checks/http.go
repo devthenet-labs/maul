@@ -41,7 +41,6 @@ func validateHTTP(h HTTPCheck, p Preview) *Refusal {
 	}
 	captured := map[string]bool{}
 	names := map[string]bool{}
-	content := false
 	for i, st := range h.Steps {
 		if st.Name != "" {
 			if !stepNamePattern.MatchString(st.Name) || names[st.Name] {
@@ -56,11 +55,9 @@ func validateHTTP(h HTTPCheck, p Preview) *Refusal {
 		if err := httpstep.ValidateStepShape(st, captured); err != nil {
 			return refuse(RuleGrammar, "step %d: %v", i+1, err)
 		}
-		content = content || contentJSON(st.Expect.JSON) || len(st.Expect.Headers) > 0 || st.Expect.BodyContains != ""
 	}
-	if !content {
-		return refuse(RuleNotSubstantive, "no step asserts on content (json, headers or bodyContains); a status "+
-			"alone only says the call worked")
+	if r := httpSubstance(h); r != nil {
+		return r
 	}
 	for i, st := range h.Steps {
 		if r := runScoped("step "+strconv.Itoa(i+1)+" json", st.Expect.JSON); r != nil {
@@ -68,6 +65,17 @@ func validateHTTP(h HTTPCheck, p Preview) *Refusal {
 		}
 	}
 	return nil
+}
+
+// httpSubstance refuses an http check no step of which asserts on content.
+func httpSubstance(h HTTPCheck) *Refusal {
+	for _, st := range h.Steps {
+		if contentJSON(st.Expect.JSON) || len(st.Expect.Headers) > 0 || st.Expect.BodyContains != "" {
+			return nil
+		}
+	}
+	return refuse(RuleNotSubstantive, "no step asserts on content (json, headers or bodyContains); a status "+
+		"alone only says the call worked")
 }
 
 func validateHTTPExpect(e httpstep.Expect, captured map[string]bool) *Refusal {

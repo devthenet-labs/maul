@@ -192,10 +192,19 @@ func validateExec(e ExecCheck, ws *Workspace) *Refusal {
 		return refuse(RuleNotSubstantive, "argv %q runs a program that proves nothing; run a client against the "+
 			"preview", e.Argv)
 	}
-	if e.Expect.StdoutContains == "" && !contentJSON(e.Expect.StdoutJSON) {
-		return refuse(RuleNotSubstantive, noStdoutAssertion)
+	if r := stdoutSubstance(e.Expect); r != nil {
+		return r
 	}
 	return runScoped("stdoutJSON", e.Expect.StdoutJSON)
+}
+
+// stdoutSubstance refuses an exec or run check whose expect asserts
+// nothing on stdout.
+func stdoutSubstance(x ExecExpect) *Refusal {
+	if x.StdoutContains == "" && !contentJSON(x.StdoutJSON) {
+		return refuse(RuleNotSubstantive, noStdoutAssertion)
+	}
+	return nil
 }
 
 // noStdoutAssertion is the refusal of an exec or run check whose expect

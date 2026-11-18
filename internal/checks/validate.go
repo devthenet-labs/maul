@@ -135,6 +135,33 @@ func validate(c Check, ctx Context) *Refusal {
 	}
 }
 
+// Substantive holds c to the saved-check grammar's substance rules alone
+// (DESIGN 4.3 rule 2: an act on the surface and an assertion about
+// content), on no surface: what a check stored under earlier rules must
+// still hold to before it supports a pass (StoredCheck.Valid). A refused
+// check is a *Refusal of RuleNotSubstantive; Validate holds every check to
+// the same rules, in its own order.
+func Substantive(c Check) error {
+	var r *Refusal
+	switch {
+	case c.HTTP != nil:
+		r = httpSubstance(*c.HTTP)
+	case c.Browser != nil:
+		r = browserSubstance(*c.Browser)
+	case c.Exec != nil:
+		r = stdoutSubstance(c.Exec.Expect)
+	case c.Run != nil:
+		r = stdoutSubstance(c.Run.Expect)
+	default:
+		r = refuse(RuleGrammar, "form must be one of http, browser, exec, run, with exactly that body")
+	}
+	if r != nil {
+		r.Check = c.ID
+		return r
+	}
+	return nil
+}
+
 // validateContext refuses a context naming no surface or both, and a
 // workspace that is not exactly one of a cli and a library of a language
 // maul builds programs in.
