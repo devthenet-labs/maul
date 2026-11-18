@@ -299,6 +299,16 @@ func TestBuildResults(t *testing.T) {
 		{"could not start", false, toolexec.Result{Exit: 127,
 			Output: `[maul: could not start make: exec: "make": executable file not found in $PATH]`}, nil,
 			maulv1.BuildError},
+		// A bind or connection error (Result.NetError) is the environment's,
+		// never the tree's: head and base build at once on one loopback.
+		{"bind error", false, toolexec.Result{Exit: 2, NetError: true,
+			Output: "listen tcp 127.0.0.1:8080: bind: address already in use\nmake: *** Error 1\n"}, nil,
+			maulv1.BuildError},
+		{"connection refused", false, toolexec.Result{Exit: 1, NetError: true,
+			Output: "npm ERR! code ECONNREFUSED\n"}, nil, maulv1.BuildError},
+		// One that exited 0 built, whatever retries it logged on the way.
+		{"built after a retried connection", false, toolexec.Result{NetError: true,
+			Output: "npm WARN registry ECONNRESET, retrying\nadded 12 packages\n"}, nil, maulv1.BuildBuilt},
 	}
 	markers := make([]row, 0, len(environmental))
 	for _, m := range environmental {
@@ -333,6 +343,8 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 		"network": {Exit: 1, Output: "go: example.com/m@v1.0.0: dial tcp: i/o timeout"},
 		"cut":     {Exit: 2, Truncated: true},
 		"timeout": {Exit: -1, TimedOut: true},
+		"bind": {Exit: 2, NetError: true,
+			Output: "listen tcp 127.0.0.1:8080: bind: address already in use\nmake: *** Error 1\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := wsConfig()

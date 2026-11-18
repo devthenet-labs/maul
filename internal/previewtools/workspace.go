@@ -342,9 +342,11 @@ const buildCutMarker = "[maul: the build's output is cut to its end]\n"
 // buildSide runs side's build once its shim serves. Only a build that ran
 // and exited 0, leaving nothing behind, built. Only one that ran to its own
 // end and refused the tree failed: a normal exit (RefusalExit), clean, its
-// output whole and no environmental marker in it (environmentalFailure, the
-// compile cause's screen). Anything else (left processes, a signal, output
-// cut, an environmental failure, a build maul could not run) is an error:
+// output whole, naming no bind or connection error (Result.NetError: head
+// and base build at once on one loopback) and no environmental marker in it
+// (environmentalFailure, the compile cause's screen). Anything else (left
+// processes, a signal, output cut, a bind or connection error, an
+// environmental failure, a build maul could not run) is an error:
 // a failed base is unbuildable, which waives rule 5 for every check, so a
 // doubt must give no base evidence instead (review VC-1).
 func (r *Relay) buildSide(ctx context.Context, side toolwire.Side) built {
@@ -370,7 +372,7 @@ func (r *Relay) buildSide(ctx context.Context, side toolwire.Side) built {
 		res.Output += "\nmaul: processes the build started outlived it"
 	case res.Exit == 0:
 		args.Result = maulv1.BuildBuilt
-	case RefusalExit(res.Exit) && !res.Truncated && !environmentalFailure(res.Output):
+	case RefusalExit(res.Exit) && !res.Truncated && !res.NetError && !environmentalFailure(res.Output):
 		args.Result = maulv1.BuildFailed
 	}
 	return built{args: args, res: res}
