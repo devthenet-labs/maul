@@ -296,10 +296,13 @@ outcome does not hold: it checks something else or only part of the outcome, it 
 page loaded, it is keyed to fixed values that an implementation could special-case, or it depends on data it did not
 create. A check that leaves out, replaces or alters anything the outcome's words name (a field of a body it says to
 send, a step, a value, a page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does
-test is a reasonable reading of the outcome. Answer `does_not_prove` too for a check that a plausible wrong build would
-still pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the
-item to be left out and assert that item is not there), one that compares only some of what the outcome says must match
-(a few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
+test is a reasonable reading of the outcome. A step adding to a request the outcome names only a narrowing to the
+check's own run (`{{run}}` text), every named parameter kept as named, alters nothing if it also sends that request
+unchanged (asserting what holds of any data), asserts a kept item of its run in the narrowed answer, and lists the
+left-out item by the narrowing alone. Answer `does_not_prove` too for a check that a plausible wrong build would still
+pass: one that shows something is left out, refused or absent only by asserting what is there (it must create the item
+to be left out and assert that item is not there), one that compares only some of what the outcome says must match (a
+few items of a list it says is the same), one whose inputs make the expected result the one a fixed or default answer
 gives (a new, empty item where the outcome's value depends on what is in it), one that tries a rule the outcome states
 only on the example the outcome or the request names (a build right only on that example would pass it), and one whose
 program can print what its `expect` looks for and exit as it expects whatever it observed. Answer `unclear` if you
@@ -326,9 +329,12 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 7. Assert only what the outcome states: no wording, value, order or layout it does not promise.
 8. For a claim that something is left out, refused, hidden or absent (does not list it, only those, excludes),
    create the item that must be left out yourself and assert that it is not there, beside an assertion of an item
-   that is there, so an empty answer does not pass. Narrow the answer to your run's own data (a search or filter
-   the application offers, by `{{run}}` text), assert your kept items by index, and assert that the index after
-   the last is `{"$absent": true}`, so the list ends there.
+   that is there, so an empty answer does not pass. On a list other runs share, write the check the rule above
+   admits for a narrowing to your run's data (by `{{run}}` text): in the narrowed answer assert your kept items by
+   index and assert that the index after the last is `{"$absent": true}`, so the list ends there; on the unchanged
+   request assert only what holds of any data, its status and the first item meeting the outcome's rule
+   (`{"$range": [lo, hi]}` at its field), never your items' places, and where the list is newest first create the
+   left-out item last.
    Asserting only what is kept says nothing about what is left out.
 9. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a sample.
 10. For a claim that a field is carried over (a copy, fields kept, the rest as it was), assert it at its JSON pointer

@@ -76,7 +76,12 @@ const GreenRubric = "Answer `proves` only if a pass of this check really shows t
 	"implementation could special-case, or it depends on data it did not create. A check that leaves out, " +
 	"replaces or alters anything the outcome's words name (a field of a body it says to send, a step, a value, a " +
 	"page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does test is a " +
-	"reasonable reading of the outcome. Answer `does_not_prove` too for a check that a plausible wrong build " +
+	"reasonable reading of the outcome. A step adding to a request the outcome names only a narrowing to the " +
+	"check's own run (`{{run}}` text), every named parameter kept as named, alters nothing if it also sends " +
+	"that request unchanged (asserting what holds of any data), asserts a kept item of its run in the narrowed " +
+	"answer, and lists the " +
+	"left-out item by the narrowing alone. " +
+	"Answer `does_not_prove` too for a check that a plausible wrong build " +
 	"would still pass: one " +
 	"that shows something is left out, refused or absent only by asserting what is there (it must create the " +
 	"item to be left out and assert that item is not there), one that compares only some of what the outcome " +
