@@ -210,3 +210,23 @@ func TestJudgingAnObjectedRoundAgainIsNotHeldByIt(t *testing.T) {
 		t.Errorf("round 1 judged again is held by its own objection: %s %+v", v.State, v.Outcomes[0])
 	}
 }
+
+// TestContraryEntriesAloneHoldTheHeads: an objection is a fail verdict or
+// contrary entries; a pass verdict naming contrary entries, under a masked
+// reason, holds its heads as a fail verdict does.
+func TestContraryEntriesAloneHoldTheHeads(t *testing.T) {
+	in := objectionInput(t, false, maskedReasons[0].mutate)
+	in.Verdicts[0].Contrary = []int32{7}
+	first := objectionJudgement(t, in)
+	if got := first.decision.PerOutcome[0].Reason; got != acceptance.ReasonNoBaseEvidence {
+		t.Fatalf("round 1 reason %q, want no-base-evidence (the case's premise)", got)
+	}
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	heads := e.verification(name).HeadSetDigest
+	e.judgeAt(name, 1, heads, first)
+	if v := e.judgeAt(name, 2, heads, passingJudgement(t)); v.State == v1alpha1.VerificationPassed ||
+		v.Outcomes[0].Reason != acceptance.ReasonHeldFinding {
+		t.Errorf("round 2 at H after contrary entries: %s %+v; want the outcome held", v.State, v.Outcomes[0])
+	}
+}

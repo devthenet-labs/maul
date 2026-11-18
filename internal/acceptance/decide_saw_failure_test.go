@@ -150,15 +150,17 @@ func indexVerdict(vs []EvaluatorVerdict, id string) int {
 
 // TestDecideSawFailureOnlyWithholdsPasses is the guard's safety property:
 // the evaluator saying it saw an outcome fail (a fail verdict, or contrary
-// entries) can only turn a pass into unsure. Every other result, the fix
-// and suspected requests, the replay round and the retirements are those
-// of the same round judged on the original verdicts, wherever those
-// verdicts did not already decide them; it never fails an outcome, never
-// starts a fix.
+// entries) can only turn a pass into unsure, and keep a disputed check of
+// such an outcome from being retired (its replacement could not pass
+// either: the outcome stays unsure, disputed). Every other result, the fix
+// and suspected requests, and every other retirement are those of the same
+// round judged on the original verdicts, wherever those verdicts did not
+// already decide them; it never fails an outcome, never starts a fix, and
+// never retires a check.
 func TestDecideSawFailureOnlyWithholdsPasses(t *testing.T) {
-	withheld := 0
+	withheld, kept := 0, 0
 	prop := func(g genSawFailure) bool {
-		if err := sawFailureOnlyWithholds(g, &withheld); err != nil {
+		if err := sawFailureOnlyWithholds(g, &withheld, &kept); err != nil {
 			t.Logf("%v\ninput %+v", err, g.saw)
 			return false
 		}
@@ -167,12 +169,12 @@ func TestDecideSawFailureOnlyWithholdsPasses(t *testing.T) {
 	if err := quick.Check(prop, quickConfig(5000)); err != nil {
 		t.Error(err)
 	}
-	if withheld == 0 {
-		t.Error("the generator never withheld a pass")
+	if withheld == 0 || kept == 0 {
+		t.Errorf("the generator never withheld a pass (%d) or a retirement (%d)", withheld, kept)
 	}
 }
 
-func sawFailureOnlyWithholds(g genSawFailure, withheld *int) error {
+func sawFailureOnlyWithholds(g genSawFailure, withheld, kept *int) error {
 	// The baseline: the same round with every changed verdict's fail
 	// standing, so the fail paths (which need the evaluator's fail) are
 	// compared like for like; only contrary entries and the pass guard
@@ -195,11 +197,36 @@ func sawFailureOnlyWithholds(g genSawFailure, withheld *int) error {
 		}
 	}
 	if !reflect.DeepEqual(a.Fix, b.Fix) || !reflect.DeepEqual(a.Suspected, b.Suspected) ||
-		a.ReplayRound != b.ReplayRound || !reflect.DeepEqual(a.Retire, b.Retire) {
+		b.ReplayRound != (len(b.Retire) > 0) {
 		return fmt.Errorf("the requests changed: %+v became %+v", a, b)
 	}
+	if err := retirementsOnlyWithheld(g.saw, a, b); err != nil {
+		return err
+	}
+	*kept += len(a.Retire) - len(b.Retire)
 	if b.Handoff == HandoffReady && a.Handoff != HandoffReady {
 		return fmt.Errorf("the hand-off became ready")
+	}
+	return nil
+}
+
+// retirementsOnlyWithheld: the guard retires nothing the unguarded round
+// did not, and withholds exactly the retirements of checks whose outcome
+// the evaluator says it saw fail.
+func retirementsOnlyWithheld(in Input, unguarded, guarded Decision) error {
+	for _, digest := range guarded.Retire {
+		if !slices.Contains(unguarded.Retire, digest) {
+			return fmt.Errorf("%s is retired only under the guard", digest)
+		}
+	}
+	for _, digest := range unguarded.Retire {
+		objected := slices.ContainsFunc(in.Checks, func(c StoredCheck) bool {
+			return c.Digest == digest && !c.Retired && slices.Contains(guarded.Objected, c.Outcome)
+		})
+		if objected == slices.Contains(guarded.Retire, digest) {
+			return fmt.Errorf("%s: retired %v under the guard with its outcome objected %v", digest, !objected,
+				objected)
+		}
 	}
 	return nil
 }

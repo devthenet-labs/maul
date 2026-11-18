@@ -185,14 +185,50 @@ func TestChecksDisagreeNeedsADiscriminatingSibling(t *testing.T) {
 	}
 }
 
-// TestDisputeUnderAnObjectionNarrowsTheReplacement: the saw-failure guard
-// only ever withholds passes, so a dispute under an outcome the evaluator
-// also saw fail still retires on a replacement that could pass; that
-// replacement is narrowed the same round, so it never passes the outcome
-// later.
-func TestDisputeUnderAnObjectionNarrowsTheReplacement(t *testing.T) {
-	d := Decide(with(disputeRound(), func(in *Input) { in.Verdicts[0].Contrary = []int32{4} }))
-	if !slices.Equal(d.Retire, []string{dg("a")}) || !slices.Contains(d.Narrowed, dg("r")) {
-		t.Errorf("Retire %v Narrowed %v, want a retired and r narrowed", d.Retire, d.Narrowed)
+// TestDisputeUnderAnObjectionRetiresNothing: a replacement that passes
+// where this round's evaluator says it saw the outcome fail (a fail
+// verdict, or contrary entries) asserts less than the outcome: the
+// saw-failure guard withholds its pass and it is narrowed this very round,
+// so it could never pass the outcome. The disputed check stands; the same
+// dispute with no objection still retires (no false fail).
+func TestDisputeUnderAnObjectionRetiresNothing(t *testing.T) {
+	objections := map[string]func(in *Input){
+		"contrary entries": func(in *Input) { in.Verdicts[0].Contrary = []int32{4} },
+		"a fail verdict":   func(in *Input) { in.Verdicts[0].Claim = ClaimFail },
+	}
+	for name, object := range objections {
+		t.Run(name, func(t *testing.T) {
+			d := Decide(with(disputeRound(), func(in *Input) {
+				disputeBase(in, RunFail, true)
+				object(in)
+			}))
+			if len(d.Retire) > 0 || d.ReplayRound {
+				t.Errorf("Retire %v ReplayRound %v on a replacement narrowed this round; want a standing", d.Retire,
+					d.ReplayRound)
+			}
+			if r := d.PerOutcome[0]; r.Result != ResultUnsure || r.Reason != ReasonDisputed {
+				t.Errorf("outcome = %+v, want unsure (disputed)", r)
+			}
+			if !slices.Contains(d.Narrowed, dg("r")) || !slices.Contains(d.Objected, "elo") {
+				t.Errorf("Narrowed %v Objected %v, want r narrowed and the outcome objected", d.Narrowed, d.Objected)
+			}
+		})
+	}
+	if d := Decide(with(disputeRound(), func(in *Input) { disputeBase(in, RunFail, true) })); !slices.Equal(d.Retire,
+		[]string{dg("a")}) {
+		t.Errorf("no objection: Retire %v, want a retired", d.Retire)
+	}
+}
+
+// TestDisputeReplacementNotReproducedRetiresNothing: a replacement whose
+// runs this round maul does not count (also proposed to show a defect, its
+// confirmation not red) is no evidence either way, so it retires nothing.
+func TestDisputeReplacementNotReproducedRetiresNothing(t *testing.T) {
+	d := Decide(with(disputeRound(), func(in *Input) {
+		in.Replay = append(in.Replay, CheckRun{CheckDigest: dg("r"), Result: RunPass, Token: "tok-r", Seq: 6})
+		in.Confirmations[0].ExpectFail = true
+	}))
+	if len(d.Retire) > 0 || d.ReplayRound {
+		t.Errorf("Retire %v ReplayRound %v on a replacement not reproduced; want a standing", d.Retire, d.ReplayRound)
 	}
 }

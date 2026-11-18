@@ -1109,13 +1109,14 @@ func checkDecision(in Input, d Decision) error {
 // oracleRetire: a check is retired only through a dispute of it whose
 // replacement, another check stored for the same outcome, could pass that
 // outcome itself: rules 1-4 and rule 5 at the base, and never narrowed in
-// an earlier round (DESIGN 4.3). Rule 6 and the round's own dispute are
-// left to the replay round.
+// an earlier round, nor in this one by the evaluator saying it saw the
+// outcome fail (DESIGN 4.3). Rule 6 and the round's own dispute are left to
+// the replay round.
 func oracleRetire(in Input, d Decision) error {
 	for _, digest := range d.Retire {
 		if !slices.ContainsFunc(in.Disputes, func(dp CheckDispute) bool {
 			o, ok := oracleDisputedOutcome(in, dp)
-			if !ok || dp.CheckDigest != digest || dp.Replacement == digest {
+			if !ok || dp.CheckDigest != digest || dp.Replacement == digest || slices.Contains(d.Objected, o.ID) {
 				return false
 			}
 			r, stored := oracleStored(in, dp.Replacement, o.ID)

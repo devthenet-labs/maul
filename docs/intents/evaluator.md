@@ -416,8 +416,9 @@ a replacement check.
   head set's one escalation (see [The cost ladder](#the-cost-ladder-replay-rounds)). It counts toward
   `maxVerifications`. The replacement could pass when it is confirmed with a run token, reviewed `proves`, discriminates
   at the base on an agents round (red by assertion there for a `change` outcome, not red for a `keep` one, as for any
-  pass), and was not narrowed in an earlier round. A replacement that shows nothing at the base, or asserts less than
-  the outcome, retires nothing: the failing check stands and the outcome stays unsure.
+  pass), and is not narrowed: neither in an earlier round, nor in this one by the evaluator also reporting that it saw
+  the outcome fail (a `fail` verdict or `contrary` entries). A replacement that shows nothing at the base, or asserts
+  less than the outcome, retires nothing: the failing check stands and the outcome stays unsure.
 - A check that failed in an earlier round is retired only this way, through a dispute with a confirmed replacement.
 
 A dispute only ever moves an outcome from failed to unsure, and the replacement must meet every rule above, so it can
