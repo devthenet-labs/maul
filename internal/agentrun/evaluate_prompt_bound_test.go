@@ -6,7 +6,6 @@ package agentrun
 import (
 	"bytes"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
@@ -14,23 +13,13 @@ import (
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// TestPromptOnArgv: the evaluate prompt's bound follows how the run's
-// harness takes its prompt, read from the harness's own command: claude
-// reads it on standard input, codex takes it as one argument of `codex
-// exec`, which Linux bounds at 128 KiB; the fake replays a fixture and
-// takes none. A harness maul does not know gets the command line's bound,
-// the smaller.
-func TestPromptOnArgv(t *testing.T) {
-	for id, want := range map[string]bool{"claude": false, "codex": true, "fake": false, "nope": true} {
-		if got := promptOnArgv(id); got != want {
-			t.Errorf("promptOnArgv(%q) = %v, want %v", id, got, want)
-		}
-	}
-}
+// argMax is the most one argument of a command line may hold: Linux
+// refuses one of 128 KiB or more, its NUL included (MAX_ARG_STRLEN).
+const argMax = 128<<10 - 1
 
-// TestEvaluateHandoffBoundByHarness: a handoff whose prompt fits only the
-// standard input's bound is valid for claude and refused for codex before
-// any run, never cut.
+// TestEvaluateHandoffBoundByHarness: a handoff whose prompt is past what one
+// argument of a command line may hold is valid, on codex as on claude: both
+// take the prompt on standard input, under one bound.
 func TestEvaluateHandoffBoundByHarness(t *testing.T) {
 	var h EvaluateHandoff
 	if err := decodeHandoff([]byte(evalHandoff(func(h *EvaluateHandoff) {
@@ -53,25 +42,23 @@ func TestEvaluateHandoffBoundByHarness(t *testing.T) {
 		h.PriorVerdicts = append(h.PriorVerdicts, PriorVerdict{Outcome: o.ID, Result: "unsure",
 			Reason: strings.Repeat("v", 600)})
 	}
-	p := h.prompt("", "", "", templates.StageLimits{})
-	p.OnArgv = true
-	if _, err := templates.RenderEvaluatePrompt(p); err == nil {
-		t.Fatal("the fixture fits the command line's bound: it cannot tell the two apart")
+	got, err := templates.RenderEvaluatePrompt(h.prompt("", "", "", templates.StageLimits{}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := validEvaluateHandoff(h, promptOnArgv("claude")); err != nil {
-		t.Errorf("claude: %v", err)
+	if len(got) <= argMax {
+		t.Fatalf("the fixture renders %d bytes, within one argument's bound: it shows nothing", len(got))
 	}
-	if err := validEvaluateHandoff(h, promptOnArgv("codex")); err == nil {
-		t.Error("codex: a prompt over the command line's bound is valid")
+	if err := validEvaluateHandoff(h); err != nil {
+		t.Errorf("validEvaluateHandoff = %v, want the handoff valid", err)
 	}
 }
 
 // TestEvaluateRunPromptBoundByHarness: the prompt the run itself is given
-// follows its harness too, not only the handoff's check before it. A
-// handoff over the command line's bound only by parts the prompt may leave
-// out reaches claude whole on its standard input, and codex as one argument
-// under 128 KiB (at or over it Linux refuses to start the command), saying
-// what it left out.
+// reaches claude and codex alike whole on standard input, a handoff past
+// what one argument of a command line may hold included (at or over it
+// Linux refuses to start the command), and no argument of the command line
+// comes near that bound.
 func TestEvaluateRunPromptBoundByHarness(t *testing.T) {
 	handoff := evalHandoff(func(h *EvaluateHandoff) {
 		h.Request = strings.Repeat("r", templates.RequestQuoteMaxBytes)
@@ -100,23 +87,14 @@ func TestEvaluateRunPromptBoundByHarness(t *testing.T) {
 			}
 			spec := fx.specs[0]
 			for i, a := range spec.Argv {
-				if len(a) > templates.EvaluatePromptArgvMaxBytes {
-					t.Errorf("argument %d is %d bytes, over %d: Linux refuses to start the command", i, len(a),
-						templates.EvaluatePromptArgvMaxBytes)
+				if len(a) > argMax {
+					t.Errorf("argument %d is %d bytes, over %d: Linux refuses to start the command", i, len(a), argMax)
 				}
 			}
-			if id == "claude" {
-				if len(spec.Stdin) <= templates.EvaluatePromptArgvMaxBytes || !strings.Contains(spec.Stdin, lastPath) {
-					t.Errorf("claude's prompt is %d bytes on standard input, want the handoff whole, over %d",
-						len(spec.Stdin), templates.EvaluatePromptArgvMaxBytes)
-				}
-				return
-			}
-			prompt := slices.MaxFunc(spec.Argv, func(a, b string) int { return len(a) - len(b) })
-			if !strings.Contains(prompt, "more paths]") || strings.Contains(prompt, lastPath) ||
-				!strings.Contains(prompt, strings.Repeat("d", templates.FixDiffMaxBytes)) {
-				t.Errorf("codex's prompt (%d bytes) does not say it left changed paths out, or lost the fix diff",
-					len(prompt))
+			if len(spec.Stdin) <= argMax || !strings.Contains(spec.Stdin, lastPath) ||
+				strings.Contains(spec.Stdin, "more paths]") {
+				t.Errorf("%s's prompt is %d bytes on standard input, want the handoff whole, over %d",
+					id, len(spec.Stdin), argMax)
 			}
 		})
 	}

@@ -767,7 +767,7 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
 		t.Fatal(err)
 	}
-	if err := validEvaluateHandoff(h, false); err != nil {
+	if err := validEvaluateHandoff(h); err != nil {
 		t.Fatal(err)
 	}
 	p := h.prompt("", "", "", templates.StageLimits{})
@@ -802,7 +802,7 @@ func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
 		t.Fatal(err)
 	}
-	if err := validEvaluateHandoff(h, false); err != nil {
+	if err := validEvaluateHandoff(h); err != nil {
 		t.Fatal(err)
 	}
 	p := h.prompt("", "", "", templates.StageLimits{})

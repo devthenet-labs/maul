@@ -36,8 +36,12 @@ func NewCodex() *Codex {
 	}}
 }
 
-// PromptSpec builds the headless codex invocation for one prompted run.
-// `codex exec --json` emits one JSON event per line, which is what
+// PromptSpec builds the headless codex invocation for one prompted run. The
+// prompt is the CLI's standard input (Stdin), never an argument: `codex exec
+// -` reads it from there whole, neither trimmed nor wrapped (rust-v0.167.0,
+// exec's resolve_prompt), and Linux caps one argument at 128 KiB
+// (MAX_ARG_STRLEN), which a prompt can pass. `codex exec --json` emits one
+// JSON event per line, which is what
 // ParseResult and ScanUsage parse. Codex's own Landlock/Seatbelt sandbox is
 // always disabled: maul confines the agent at the pod layer (no network
 // egress beyond the egress broker, no credentials, locked-down
@@ -73,7 +77,7 @@ func (c *Codex) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		prompt = req.SystemPromptAppend + "\n\n" + prompt
 	}
 	argv := []string{
-		"codex", "exec", prompt,
+		"codex", "exec", "-",
 		"--json",
 		"--skip-git-repo-check",
 		"--sandbox", "danger-full-access",
@@ -87,7 +91,7 @@ func (c *Codex) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 			argv = append(argv, "-c", kv)
 		}
 	}
-	return runner.CommandSpec{Argv: argv, Dir: ws, Env: req.Env}
+	return runner.CommandSpec{Argv: argv, Dir: ws, Env: req.Env, Stdin: prompt}
 }
 
 // codexQuietConfig are the -c overrides every codex run carries: no

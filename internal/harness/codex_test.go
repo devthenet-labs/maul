@@ -57,7 +57,7 @@ func TestCodexPromptSpec(t *testing.T) {
 		Env:       []string{"OPENAI_API_KEY=k"},
 	})
 	want := []string{
-		"codex", "exec", "fix the finding",
+		"codex", "exec", "-",
 		"--json",
 		"--skip-git-repo-check",
 		"--sandbox", "danger-full-access",
@@ -73,6 +73,9 @@ func TestCodexPromptSpec(t *testing.T) {
 	if spec.Dir != "/work/ws" {
 		t.Errorf("Dir = %q, want the workspace", spec.Dir)
 	}
+	if spec.Stdin != "fix the finding" {
+		t.Errorf("Stdin = %q, want the prompt", spec.Stdin)
+	}
 	if !slices.Equal(spec.Env, []string{"OPENAI_API_KEY=k"}) {
 		t.Errorf("Env = %q, want the request env", spec.Env)
 	}
@@ -86,8 +89,11 @@ func TestCodexPromptSpecSystemPromptAppend(t *testing.T) {
 		SystemPromptAppend: "never push",
 	})
 	// codex exec has no system-prompt channel; the append folds into the prompt.
-	if got := spec.Argv[2]; got != "never push\n\nfix it" {
+	if got := spec.Stdin; got != "never push\n\nfix it" {
 		t.Errorf("prompt = %q, want the system append folded in", got)
+	}
+	if slices.ContainsFunc(spec.Argv, func(a string) bool { return strings.Contains(a, "fix it") }) {
+		t.Errorf("Argv = %q carries the prompt", spec.Argv)
 	}
 }
 
@@ -213,7 +219,8 @@ func TestCodexEnvKeys(t *testing.T) {
 
 // TestCodexPromptSpecGateway pins the brokered provider config, the argv
 // a real codex (rust-v0.167.0) was run with against a recording server to
-// capture testdata/codex-0.167.0-exec.jsonl: the broker's route as the
+// capture testdata/codex-0.167.0-exec.jsonl, its prompt on standard input
+// ("-": read whole, never trimmed or wrapped): the broker's route as the
 // Responses provider, the placeholder key and the caller-token header named
 // by variable only, no websockets, one retry. No token value is in argv.
 func TestCodexPromptSpecGateway(t *testing.T) {
@@ -227,7 +234,7 @@ func TestCodexPromptSpecGateway(t *testing.T) {
 		Env: []string{"MAUL_BROKER_TOKEN=secret-token"},
 	})
 	want := []string{
-		"codex", "exec", "p", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access",
+		"codex", "exec", "-", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access",
 		"--model", "gpt-5.3-codex",
 		"-c", "analytics.enabled=false",
 		"-c", `otel.metrics_exporter="none"`,
@@ -250,6 +257,9 @@ func TestCodexPromptSpecGateway(t *testing.T) {
 		if strings.Contains(a, "secret-token") {
 			t.Errorf("argv carries the token: %q", a)
 		}
+	}
+	if spec.Stdin != "p" {
+		t.Errorf("Stdin = %q, want the prompt", spec.Stdin)
 	}
 	if !slices.Equal(spec.Env, []string{"MAUL_BROKER_TOKEN=secret-token"}) {
 		t.Errorf("Env = %q, want the request env", spec.Env)
@@ -274,6 +284,9 @@ func TestCodexPromptSpecEvaluate(t *testing.T) {
 	spec := NewCodex().PromptSpec("/work/scratch", eval)
 	if !slices.Equal(spec.Argv, build.Argv) {
 		t.Errorf("evaluate Argv =\n%q\nwant the build posture's\n%q", spec.Argv, build.Argv)
+	}
+	if spec.Stdin != "p" {
+		t.Errorf("Stdin = %q, want the prompt", spec.Stdin)
 	}
 	if spec.Dir != "/work/scratch" {
 		t.Errorf("Dir = %q, want the scratch directory", spec.Dir)
@@ -326,7 +339,7 @@ func TestCodexRecordedStream(t *testing.T) {
 	c := NewCodex()
 	res, ok := c.ParseResult(stdout)
 	if !ok || res.IsError || res.FinalText != "Done: the report is written." || res.NumTurns != 1 ||
-		res.SessionID != "01a1c3fc-690a-74a3-929c-77eb06f5fc27" {
+		res.SessionID != "01a1f0ba-48a2-76d0-a972-92c425e0f1e6" {
 		t.Fatalf("ParseResult = %+v, %v", res, ok)
 	}
 	if got, want := usageOf(res.Usage), [4]int{2400 - 2048, 2048, 0, 80}; got != want {

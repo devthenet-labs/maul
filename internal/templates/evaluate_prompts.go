@@ -193,36 +193,19 @@ type EvaluatePrompt struct {
 	// replays green. None omits the section.
 	NotYetProof []NotYetProof
 
-	// OnArgv is set when the run's harness takes the prompt as one argument
-	// of its command line (codex exec), not on its standard input: the
-	// prompt is then held to EvaluatePromptArgvMaxBytes.
-	OnArgv bool
-
 	// shed is what RenderEvaluatePrompt left out to keep the prompt within
-	// its bound (maxBytes), which the prompt says.
+	// its bound, which the prompt says.
 	shed evaluateShed
 }
 
-// EvaluatePromptMaxBytes bounds the rendered evaluate prompt a harness reads
-// on its standard input (harness.Claude.PromptSpec). Nothing but maul limits
-// such a prompt; the bound is kept for itself: an evaluator's prompt stays
-// one it can take in whole, and what it leaves out it says it left out.
-// Every part the prompt always keeps, each at its own bound, fits within it
-// with room to spare (TestEvaluatePromptHeadroom).
+// EvaluatePromptMaxBytes bounds the rendered evaluate prompt. Every harness
+// that runs the evaluate stage reads it on its standard input
+// (harness.Claude.PromptSpec, harness.Codex.PromptSpec), never as an
+// argument, so nothing but maul limits it; the bound is kept for itself: an
+// evaluator's prompt stays one it can take in whole, and what it leaves out
+// it says it left out. Every part the prompt always keeps, each at its own
+// bound, fits within it with room to spare (TestEvaluatePromptHeadroom).
 const EvaluatePromptMaxBytes = 256 << 10
-
-// EvaluatePromptArgvMaxBytes bounds the rendered evaluate prompt a harness
-// takes as one argument of its command line (harness.Codex.PromptSpec),
-// which Linux refuses at 128 KiB or more, its NUL included (MAX_ARG_STRLEN).
-const EvaluatePromptArgvMaxBytes = 128<<10 - 1
-
-// maxBytes is p's bound: the command line's or the standard input's.
-func (p EvaluatePrompt) maxBytes() int {
-	if p.OnArgv {
-		return EvaluatePromptArgvMaxBytes
-	}
-	return EvaluatePromptMaxBytes
-}
 
 // evaluateShed counts what a prompt over its bound left out:
 // changed paths and the oldest refusals.
@@ -475,20 +458,24 @@ type evaluateExamples struct {
 
 // RenderEvaluatePrompt renders the evaluate-stage prompt.
 //
-// A prompt over its bound (EvaluatePromptMaxBytes, or
-// EvaluatePromptArgvMaxBytes when OnArgv) gives up parts as shedOne orders
+// A prompt over EvaluatePromptMaxBytes gives up parts as shedOne orders
 // them, each said to be not shown, until it fits; one that still does not
 // is refused, never cut.
 func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
+	return renderEvaluateWithin(p, EvaluatePromptMaxBytes)
+}
+
+// renderEvaluateWithin is RenderEvaluatePrompt held to maxBytes.
+func renderEvaluateWithin(p EvaluatePrompt, maxBytes int) (string, error) {
 	p.PriorRefused, p.shed = slices.Clone(p.PriorRefused), evaluateShed{}
 	for {
 		s, err := renderEvaluate(p)
-		if err != nil || len(s) <= p.maxBytes() {
+		if err != nil || len(s) <= maxBytes {
 			return s, err
 		}
 		if !p.shedOne() {
 			return "", fmt.Errorf("render evaluate prompt: %d bytes with every part that may be left out left out, "+
-				"over %d", len(s), p.maxBytes())
+				"over %d", len(s), maxBytes)
 		}
 	}
 }
@@ -617,7 +604,7 @@ const refusedBodyShownMaxBytes = 2 * v1alpha1.MaxSavedCheckBytes
 // CLI-1): each that is a check of maul's grammar, at most
 // v1alpha1.MaxSavedCheckBytes, indented as JSON and made visible; the
 // newest refusals' first, within RefusedBodiesMaxBytes in all as shown (the
-// prompt is held to its bound, maxBytes). A body that is no
+// prompt is held to its bound). A body that is no
 // check, or whose shown form is past refusedBodyShownMaxBytes or the bound
 // left, is "": never shown cut, since a cut check is another check.
 func refusedBodies(rs []PriorRefusal) []string {

@@ -276,7 +276,8 @@ disabled for exactly this reason.
 For turning codex on, the migration and checking it on a live cluster, see [The codex runner](codex.md). Codex is
 configured on its command line, so agent-runner points it at the broker itself, stage by stage. The pod carries
 `MAUL_CODEX_BASE_URL` (the broker's `/openai/v1` route, stamped by the controller) and the projected token file; each
-stage then runs `codex exec` with a `maul` model provider (`-c model_provider=maul` and
+stage then runs `codex exec -`, its prompt on standard input (never on the command line, where Linux caps one argument
+at 128 KiB), with a `maul` model provider (`-c model_provider=maul` and
 `model_providers.maul.{base_url, wire_api="responses", env_key, env_http_headers, supports_websockets=false}`, one
 request and one stream retry) and sets, in the CLI's own environment only, `MAUL_BROKER_TOKEN` (the token, read fresh
 per stage, sent as `X-Maul-Broker-Token` and registered for scrubbing) and `MAUL_CODEX_PLACEHOLDER_KEY` (the fixed,

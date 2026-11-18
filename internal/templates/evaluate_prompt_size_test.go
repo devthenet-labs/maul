@@ -58,31 +58,32 @@ func maxEvaluatePrompt(t *testing.T, workspace bool, char string) EvaluatePrompt
 	return p
 }
 
-// TestEvaluatePromptFitsItsBound: on a harness that takes the prompt as one
-// argument of its command line (OnArgv: codex), with the request and the
-// fix diff at their bounds and every part it may leave out past its own, the
-// evaluate prompt still renders within EvaluatePromptArgvMaxBytes, under
-// the 128 KiB Linux allows one argument. What it leaves out to fit, it says
-// it left out: the refused checks' bodies first, then changed paths, then
-// the oldest refusals; never the request, the fix diff (the guard against a
-// fix that special-cases a check), an outcome or a previous round's result.
+// shedBound is the bound the shedding tests hold a prompt to: under half of
+// EvaluatePromptMaxBytes (the bound one argument of a command line has,
+// which the evaluate prompt was held to while codex took it as one), so
+// their fixtures, every part at its own bound, reach it; at
+// EvaluatePromptMaxBytes they fit whole (TestEvaluatePromptHeadroom).
+const shedBound = 128<<10 - 1
+
+// TestEvaluatePromptFitsItsBound: with the request and the fix diff at their
+// bounds and every part it may leave out past its own, the evaluate prompt
+// still renders within its bound (here shedBound). What it leaves out to
+// fit, it says it left out: the refused checks' bodies first, then changed
+// paths, then the oldest refusals; never the request, the fix diff (the
+// guard against a fix that special-cases a check), an outcome or a previous
+// round's result.
 func TestEvaluatePromptFitsItsBound(t *testing.T) {
-	if EvaluatePromptArgvMaxBytes >= 128<<10 {
-		t.Fatalf("EvaluatePromptArgvMaxBytes = %d, not under 128 KiB (MAX_ARG_STRLEN, its NUL included)",
-			EvaluatePromptArgvMaxBytes)
-	}
 	for _, ws := range []bool{false, true} {
 		p := maxEvaluatePrompt(t, ws, "a")
-		p.OnArgv = true
 		// A quarter of the previous round's results, so the parts that always
 		// stay fit beside the request and the fix diff at their bounds.
 		p.PriorVerdicts, p.PriorReplay, p.NotYetProof = p.PriorVerdicts[:5], p.PriorReplay[:10], p.NotYetProof[:10]
-		got, err := RenderEvaluatePrompt(p)
+		got, err := renderEvaluateWithin(p, shedBound)
 		if err != nil {
 			t.Fatalf("workspace %v: %v", ws, err)
 		}
-		if len(got) > EvaluatePromptArgvMaxBytes {
-			t.Errorf("workspace %v: %d bytes, over %d", ws, len(got), EvaluatePromptArgvMaxBytes)
+		if len(got) > shedBound {
+			t.Errorf("workspace %v: %d bytes, over %d", ws, len(got), shedBound)
 		}
 		for _, want := range []string{"more paths]", "earlier refused checks are not shown",
 			strings.Repeat("r", RequestQuoteMaxBytes), strings.Repeat("d", FixDiffMaxBytes)} {
@@ -106,11 +107,10 @@ func TestEvaluatePromptFitsItsBound(t *testing.T) {
 }
 
 // TestEvaluatePromptShedsOnlyWhatItMust: a prompt within the bound leaves
-// out nothing; one just over it, only the oldest refused body. Shown on the
-// command line's bound, which a fix diff within its own can reach.
+// out nothing; one just over it, only the oldest refused body. Shown on
+// shedBound, which a fix diff within its own can reach.
 func TestEvaluatePromptShedsOnlyWhatItMust(t *testing.T) {
 	p := testEvaluatePrompt()
-	p.OnArgv = true
 	p.Request = strings.Repeat("r", RequestQuoteMaxBytes)
 	p.PriorRound = 1
 	for i := range acceptance.MaxOutcomes {
@@ -122,7 +122,7 @@ func TestEvaluatePromptShedsOnlyWhatItMust(t *testing.T) {
 			Reason: "weak", Body: bigCheck(t, i, 7000)})
 	}
 	p.FixDiff = "d"
-	small, err := RenderEvaluatePrompt(p)
+	small, err := renderEvaluateWithin(p, shedBound)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,16 +130,16 @@ func TestEvaluatePromptShedsOnlyWhatItMust(t *testing.T) {
 		t.Fatal("a prompt within the bound left something out")
 	}
 	// 2000 bytes over: one body (over 7000 bytes shown) is enough.
-	p.FixDiff = strings.Repeat("d", EvaluatePromptArgvMaxBytes-len(small)+2000)
+	p.FixDiff = strings.Repeat("d", shedBound-len(small)+2000)
 	if len(p.FixDiff) > FixDiffMaxBytes {
 		t.Fatalf("the fixture cannot reach the bound: a %d-byte fix diff", len(p.FixDiff))
 	}
-	got, err := RenderEvaluatePrompt(p)
+	got, err := renderEvaluateWithin(p, shedBound)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) > EvaluatePromptArgvMaxBytes {
-		t.Fatalf("%d bytes, over %d", len(got), EvaluatePromptArgvMaxBytes)
+	if len(got) > shedBound {
+		t.Fatalf("%d bytes, over %d", len(got), shedBound)
 	}
 	if strings.Contains(got, `"id": "o-1.c0"`) || !strings.Contains(got, `"id": "o-1.c3"`) ||
 		strings.Count(got, "Its body is not shown.") != 1 {
@@ -154,15 +154,14 @@ func TestEvaluatePromptShedsOnlyWhatItMust(t *testing.T) {
 
 // TestEvaluatePromptRefusesOverTheBound: the request, the fix diff,
 // outcomes and a previous round's results are never left out, so a prompt
-// over the command line's bound with every other part left out (here: every
-// part at its bound) is refused, never cut: the run fails as maul's own
-// failure and the round is never judged on a prompt without them.
+// over its bound (here shedBound) with every other part left out (here:
+// every part at its bound) is refused, never cut: the run fails as maul's
+// own failure and the round is never judged on a prompt without them.
 func TestEvaluatePromptRefusesOverTheBound(t *testing.T) {
 	for _, char := range []string{"a", wide} {
 		for _, ws := range []bool{false, true} {
 			p := maxEvaluatePrompt(t, ws, char)
-			p.OnArgv = true
-			if got, err := RenderEvaluatePrompt(p); err == nil {
+			if got, err := renderEvaluateWithin(p, shedBound); err == nil {
 				t.Errorf("%q, workspace %v: rendered %d bytes, want a refusal", char, ws, len(got))
 			}
 		}
@@ -170,19 +169,9 @@ func TestEvaluatePromptRefusesOverTheBound(t *testing.T) {
 }
 
 // evaluateHeadroomMin is the least room the parts an evaluate prompt always
-// keeps must leave under its bound on a harness that reads it on standard
-// input: a prompt addition that eats into it fails here, not in a live
-// render.
+// keeps must leave under its bound: a prompt addition that eats into it
+// fails here, not in a live render.
 const evaluateHeadroomMin = 8 << 10
-
-// evaluateArgvHeadroomMin is that room under the command line's bound for
-// TestEvaluatePromptFitsItsBound's case (a quarter of the previous round's
-// results) on a preview, the larger prompt: 93 bytes when it was set, as
-// before the bound followed the harness, since what that prompt always
-// keeps is unchanged. Everything at its bound cannot fit there at all
-// (TestEvaluatePromptRefusesOverTheBound). On codex, the command line is
-// what an evaluate prompt addition must fit.
-const evaluateArgvHeadroomMin = 64
 
 // alwaysKept is the size of p rendered with every part it may leave out
 // left out as shedOne leaves them out, its notices included: what
@@ -199,12 +188,11 @@ func alwaysKept(t *testing.T, p EvaluatePrompt) int {
 	return len(s)
 }
 
-// TestEvaluatePromptHeadroom: on a harness that reads the prompt on its
-// standard input (claude), every part at its bound, 4-byte characters
+// TestEvaluatePromptHeadroom: every part at its bound, 4-byte characters
 // included, renders with no refusal, and what it always keeps leaves at
-// least evaluateHeadroomMin under EvaluatePromptMaxBytes; on the command
-// line's bound, TestEvaluatePromptFitsItsBound's case leaves at least
-// evaluateArgvHeadroomMin.
+// least evaluateHeadroomMin under EvaluatePromptMaxBytes, the one bound:
+// every harness running the evaluate stage, claude and codex alike, reads
+// the prompt on its standard input.
 func TestEvaluatePromptHeadroom(t *testing.T) {
 	for _, char := range []string{"a", wide} {
 		for _, ws := range []bool{false, true} {
@@ -217,24 +205,12 @@ func TestEvaluatePromptHeadroom(t *testing.T) {
 				t.Errorf("%q, workspace %v: %d bytes, over %d", char, ws, len(got), EvaluatePromptMaxBytes)
 			}
 			n := alwaysKept(t, p)
-			t.Logf("%q, workspace %v: standard input: always kept %d bytes, %d under the bound", char, ws, n,
+			t.Logf("%q, workspace %v: always kept %d bytes, %d under the bound", char, ws, n,
 				EvaluatePromptMaxBytes-n)
 			if n > EvaluatePromptMaxBytes-evaluateHeadroomMin {
 				t.Errorf("%q, workspace %v: the parts always kept are %d bytes, %d under the bound, want at "+
 					"least %d", char, ws, n, EvaluatePromptMaxBytes-n, evaluateHeadroomMin)
 			}
-		}
-	}
-	for _, ws := range []bool{false, true} {
-		p := maxEvaluatePrompt(t, ws, "a")
-		p.OnArgv = true
-		p.PriorVerdicts, p.PriorReplay, p.NotYetProof = p.PriorVerdicts[:5], p.PriorReplay[:10], p.NotYetProof[:10]
-		n := alwaysKept(t, p)
-		t.Logf("workspace %v: command line: always kept %d bytes, %d under the bound", ws, n,
-			EvaluatePromptArgvMaxBytes-n)
-		if n > EvaluatePromptArgvMaxBytes-evaluateArgvHeadroomMin {
-			t.Errorf("workspace %v: on the command line, the parts always kept are %d bytes, %d under the "+
-				"bound, want at least %d", ws, n, EvaluatePromptArgvMaxBytes-n, evaluateArgvHeadroomMin)
 		}
 	}
 }

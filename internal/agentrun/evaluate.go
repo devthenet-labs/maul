@@ -12,8 +12,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"slices"
-	"strings"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/envelope"
@@ -243,7 +241,7 @@ func (a *Agent) evaluateInput() (evaluateInput, error) {
 	if err := decodeHandoff(raw, "evaluate", &h); err != nil {
 		return evaluateInput{}, err
 	}
-	if err := validEvaluateHandoff(h, promptOnArgv(a.cfg.InvestigateHarness)); err != nil {
+	if err := validEvaluateHandoff(h); err != nil {
 		return evaluateInput{}, fmt.Errorf("input handoff: %w", err)
 	}
 	tools, err := maultool.NewClient(a.cfg.ToolsURL)
@@ -284,9 +282,8 @@ func (a *Agent) stageToolsKey(key string, tools *maultool.Client) error {
 // validEvaluateHandoff holds a handoff to what the prompt needs: a round,
 // at least one valid outcome, and a tool-call bound. The run token's
 // grammar is the prompt's own (RenderEvaluatePrompt), checked here first so
-// a bad one is refused before the run, as is a prompt over the bound of a
-// harness that takes it on its command line (onArgv, promptOnArgv).
-func validEvaluateHandoff(h EvaluateHandoff, onArgv bool) error {
+// a bad one is refused before the run, as is a prompt over its bound.
+func validEvaluateHandoff(h EvaluateHandoff) error {
 	var errs []error
 	if h.Round < 1 {
 		errs = append(errs, fmt.Errorf("round %d is not 1 or more", h.Round))
@@ -303,29 +300,10 @@ func validEvaluateHandoff(h EvaluateHandoff, onArgv bool) error {
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
-	p := h.prompt("", "", "", templates.StageLimits{})
-	p.OnArgv = onArgv
-	if _, err := templates.RenderEvaluatePrompt(p); err != nil {
+	if _, err := templates.RenderEvaluatePrompt(h.prompt("", "", "", templates.StageLimits{})); err != nil {
 		return err
 	}
 	return nil
-}
-
-// promptOnArgv reports whether the harness id takes its prompt as an
-// argument of its command line (codex exec), read from the command it
-// builds, so the evaluate prompt's bound cannot drift from it
-// (templates.EvaluatePrompt.OnArgv). A harness maul does not know gets the
-// command line's bound, the smaller. The evaluate stage sets no
-// SystemPromptAppend, so nothing is folded into that argument beside the
-// prompt.
-func promptOnArgv(id string) bool {
-	h, ok := harness.ByID(id)
-	if !ok {
-		return true
-	}
-	const probe = "maul-evaluate-prompt-probe"
-	spec := h.PromptSpec("", harness.PromptRequest{Prompt: probe, Sandbox: harness.SandboxEvaluate})
-	return slices.ContainsFunc(spec.Argv, func(a string) bool { return strings.Contains(a, probe) })
 }
 
 // validWorkspaceTools holds a handoff's key to its placement: a workspace
@@ -464,7 +442,6 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 	reserve := clockReserve(a.cfg.InvestigateTimeout)
 	p := in.prompt(a.cfg.evaluationPath(), a.cfg.checksDir(), a.cfg.shotsDir(),
 		templates.StageLimits{MaxTurns: firstTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout - reserve})
-	p.OnArgv = promptOnArgv(a.cfg.InvestigateHarness)
 	prompt, err := templates.RenderEvaluatePrompt(p)
 	if err != nil {
 		return fail(envelope.OutcomeRuntimeError, err.Error())

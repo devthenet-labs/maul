@@ -236,7 +236,7 @@ func (p *evalReportProbe) request(prompt string, turns int) harness.PromptReques
 func (p *evalReportProbe) firstSpec(t *testing.T, stated, turns int) runner.CommandSpec {
 	t.Helper()
 	h := p.handoff()
-	if err := validEvaluateHandoff(h, false); err != nil {
+	if err := validEvaluateHandoff(h); err != nil {
 		t.Fatalf("the probe's handoff: %v", err)
 	}
 	prompt, err := templates.RenderEvaluatePrompt(h.prompt(p.reportPath(), p.checksDir(),
