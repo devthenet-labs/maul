@@ -72,9 +72,19 @@ func (r *Relay) files(req *toolwire.FilesRequest) result {
 		out, err = grepTree(root, name, req.Pattern)
 	}
 	if err != nil {
-		return sideRefusal(side, toolwire.RefusedInvalid, fmt.Sprintf("%s %q %v", req.Op, req.Path, err))
+		return sideRefusal(side, toolwire.RefusedInvalid, filesReason(req, name, err))
 	}
 	return withSide(side, result{output: out, inline: out})
+}
+
+// filesReason is a refused files call's reason: the path named as the path
+// and, for a grep, the pattern as the pattern, so neither reads as the
+// other (L6-B-CLI-1).
+func filesReason(req *toolwire.FilesRequest, name string, err error) string {
+	if req.Op == toolwire.OpGrep {
+		return fmt.Sprintf("grep for %q: path %q %v", req.Pattern, name, err)
+	}
+	return fmt.Sprintf("%s: path %q %v", req.Op, name, err)
 }
 
 // listDir lists the directory name.

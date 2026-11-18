@@ -115,6 +115,22 @@ func TestFilesVerb(t *testing.T) {
 			}
 		})
 	}
+	// L6-B-CLI-1: a refusal names the path as the path and the pattern as
+	// the pattern, never one for the other.
+	for _, tt := range []struct {
+		req  toolwire.FilesRequest
+		want string
+	}{
+		{toolwire.FilesRequest{Op: toolwire.OpGrep, Pattern: "-i", Path: "README"},
+			`grep for "-i": path "README" names nothing in the tree`},
+		{toolwire.FilesRequest{Op: toolwire.OpRead, Path: "nope.go"}, `read: path "nope.go" names nothing in the tree`},
+		{toolwire.FilesRequest{Op: toolwire.OpLs, Path: "go.mod"}, `ls: path "go.mod" is not a directory in the tree`},
+	} {
+		_, resp := h.callKeyed(toolwire.VerbFiles, mustJSON(t, tt.req))
+		if resp.Refused != toolwire.RefusedInvalid || resp.Reason != tt.want {
+			t.Errorf("%+v: refused %q reason %q, want %q", tt.req, resp.Refused, resp.Reason, tt.want)
+		}
+	}
 	l := h.finishKeyed()
 	for _, e := range l.Entries {
 		if strings.Contains(e.Output, secret) {

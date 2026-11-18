@@ -657,6 +657,8 @@ func TestSideAndNewVerbsReachTheirEndpoints(t *testing.T) {
 			&toolwire.FilesRequest{Op: toolwire.OpRead, Side: toolwire.SideBase, Path: "--base"}},
 		{"files read", []string{"files", "read", "go.mod"}, "/v1/files",
 			&toolwire.FilesRequest{Op: toolwire.OpRead, Path: "go.mod"}},
+		{"files grep a dash pattern after --", []string{"files", "grep", "--", "-i", "README"}, "/v1/files",
+			&toolwire.FilesRequest{Op: toolwire.OpGrep, Pattern: "-i", Path: "README"}},
 		{"run head", []string{"run", "prog"}, "/v1/run",
 			&toolwire.RunRequest{Language: "go", Files: files}},
 		{"run base args", []string{"run", "prog", "--base", "--", "-n", "3"}, "/v1/run",
@@ -681,6 +683,38 @@ func TestSideAndNewVerbsReachTheirEndpoints(t *testing.T) {
 			want, _ := json.Marshal(tc.want)
 			if !jsonEqual(t, c.Body, want) {
 				t.Errorf("body %s, want %s", c.Body, want)
+			}
+		})
+	}
+}
+
+// TestFilesUnknownFlag (L6-B-CLI-1): a dash argument before -- other than
+// --base is refused as an unknown flag, named, with the op's usage, and
+// never sent as a pattern or a path.
+func TestFilesUnknownFlag(t *testing.T) {
+	for name, tt := range map[string]struct {
+		args []string
+		want []string
+	}{
+		"grep -i": {[]string{"files", "grep", "-i", "README"},
+			[]string{`files grep: unknown flag "-i"`, "files grep [--base] [--] <pattern> [<path>]"}},
+		"grep -r after the pattern": {[]string{"files", "grep", "x", "-r"},
+			[]string{`files grep: unknown flag "-r"`}},
+		"ls -la": {[]string{"files", "ls", "-la"},
+			[]string{`files ls: unknown flag "-la"`, "files ls [--base] [--] [<path>]"}},
+		"read --base=x": {[]string{"files", "read", "--base=x", "go.mod"},
+			[]string{`files read: unknown flag "--base=x"`, "files read [--base] [--] <path>"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, srv := newRelay(t)
+			res := run(t, srv.URL, t.TempDir(), tt.args...)
+			if res.code != ExitUsage || r.count() != 0 {
+				t.Fatalf("exit %d, %d calls reached the relay (stderr %q)", res.code, r.count(), res.stderr)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(res.stderr, w) {
+					t.Errorf("stderr lacks %q:\n%s", w, res.stderr)
+				}
 			}
 		})
 	}

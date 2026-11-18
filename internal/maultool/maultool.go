@@ -276,15 +276,47 @@ func takeBase(args []string) (toolwire.Side, []string, error) {
 	return side, out, nil
 }
 
+// filesUsage is each files op's usage line.
+var filesUsage = map[toolwire.Op]string{
+	toolwire.OpLs:   "maul-tool files ls [--base] [--] [<path>]",
+	toolwire.OpGrep: "maul-tool files grep [--base] [--] <pattern> [<path>]",
+	toolwire.OpRead: "maul-tool files read [--base] [--] <path>",
+}
+
+// unknownFlag is the first argument before -- that reads as a flag and is
+// not --base (a lone "-" is an argument), or "". It is refused rather than
+// taken as a pattern or a path (L6-B-CLI-1: `files grep -i README` once
+// grepped for "-i" under README).
+func unknownFlag(args []string) string {
+	for _, a := range args {
+		if a == "--" {
+			return ""
+		}
+		if len(a) > 1 && a[0] == '-' && a != "--base" {
+			return a
+		}
+	}
+	return ""
+}
+
 func parseFiles(rest []string) (toolwire.Verb, toolwire.Request, error) {
 	if len(rest) == 0 {
 		return "", nil, usagef("files takes ls, grep or read")
+	}
+	op := toolwire.Op(rest[0])
+	line, ok := filesUsage[op]
+	if !ok {
+		return "", nil, usagef("files takes ls, grep or read, not %q", rest[0])
+	}
+	if flag := unknownFlag(rest[1:]); flag != "" {
+		return "", nil, usagef("files %s: unknown flag %q; the only flag is --base, and a pattern or path that "+
+			"starts with - goes after --: %s", op, flag, line)
 	}
 	side, args, err := takeBase(rest[1:])
 	if err != nil {
 		return "", nil, err
 	}
-	req := &toolwire.FilesRequest{Side: side, Op: toolwire.Op(rest[0])}
+	req := &toolwire.FilesRequest{Side: side, Op: op}
 	switch req.Op {
 	case toolwire.OpLs:
 		if len(args) > 1 {
@@ -306,8 +338,6 @@ func parseFiles(rest []string) (toolwire.Verb, toolwire.Request, error) {
 		if len(args) == 2 {
 			req.Path = args[1]
 		}
-	default:
-		return "", nil, usagef("files takes ls, grep or read, not %q", rest[0])
 	}
 	return toolwire.VerbFiles, req, nil
 }
