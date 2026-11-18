@@ -75,7 +75,7 @@ func LintOutcomes(os []PlanOutcome) []OutcomeFlag {
 // read as "_", which no lint word matches and no phrase spans: a code
 // span, or a word in title case ("Every") that does not start a sentence,
 // such as a field named Every (L6-B-BROWSER-3). A word that starts a
-// sentence, or is all capitals, is read as a word.
+// sentence (after any list marker), or is all capitals, is read as a word.
 func lintWords(s string) string {
 	var (
 		words []string
@@ -91,7 +91,10 @@ func lintWords(s string) string {
 			w = "_"
 		}
 		words = append(words, strings.ToLower(w))
-		word, start = word[:0], false
+		// A list marker ("1)", "(a)", "[x]") is no word of the sentence:
+		// the word after it still starts it.
+		start = start && listMarker(w)
+		word = word[:0]
 	}
 	for i := 0; i < len(s); {
 		r, n := utf8.DecodeRuneInString(s[i:])
@@ -121,6 +124,12 @@ func lintWords(s string) string {
 func titleCase(w string) bool {
 	first, n := utf8.DecodeRuneInString(w)
 	return unicode.IsUpper(first) && strings.IndexFunc(w[n:], unicode.IsLower) >= 0
+}
+
+// listMarker reports whether w reads as a list marker: one character, or a
+// number.
+func listMarker(w string) bool {
+	return utf8.RuneCountInString(w) == 1 || strings.IndexFunc(w, func(r rune) bool { return !unicode.IsDigit(r) }) < 0
 }
 
 // hasWord reports whether words (lintWords) holds w as whole words.
