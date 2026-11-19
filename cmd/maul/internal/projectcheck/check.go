@@ -147,6 +147,7 @@ func (r *run) isReady() bool {
 func (r *run) forges(ctx context.Context) {
 	var list v1alpha1.ForgeList
 	listErr := r.cfg.Reader.List(ctx, &list, client.InNamespace(r.p.Namespace))
+	unreadable := r.unreadableForge(list.Items)
 	for _, t := range r.repositories() {
 		if listErr != nil {
 			r.add(CheckForge, t.key, checkreport.Skip, "cannot list Forges: %v", listErr)
@@ -155,7 +156,7 @@ func (r *run) forges(ctx context.Context) {
 		res, err := forge.Resolve(list.Items, t.url)
 		if err != nil {
 			r.add(CheckForge, t.key, checkreport.Fail, "%v; a Forge in namespace %s must cover it (spec.orgs, "+
-				"spec.repositories)", err, r.p.Namespace)
+				"spec.repositories)%s", err, r.p.Namespace, createForgeHint(t.url, r.p.Namespace, err))
 			continue
 		}
 		f := res.Forge
@@ -167,10 +168,62 @@ func (r *run) forges(ctx context.Context) {
 		case ready.Status != metav1.ConditionTrue:
 			r.add(CheckForge, t.key, checkreport.Fail, "%s, but it is not Ready: %s: %s", covers, ready.Reason,
 				ready.Message)
+		case unreadable != "" && f.Name == unreadable:
+			r.add(CheckForge, t.key, checkreport.Pass, "%s and is Ready for source-controller only; "+
+				"intent-controller cannot read its Secret (see ready)", covers)
 		default:
 			r.add(CheckForge, t.key, checkreport.Pass, "%s and is Ready (%s)", covers, ready.Reason)
 		}
 	}
+}
+
+// reasonForgeSecretUnreadable is the Ready reason intent-controller writes
+// when it cannot read a Forge's credential Secret (missing, or not granted
+// to it), a copy of its ReasonForgeSecretUnreadable pinned by a test.
+const reasonForgeSecretUnreadable = "ForgeSecretUnreadable"
+
+// forgeCovering opens the repository URL in the Ready message
+// intent-controller writes for an unreadable Forge Secret ("... of the Forge
+// covering <url> ..."), which is how the Forge it is about is told from the
+// Project's other Forges.
+const forgeCovering = "Forge covering "
+
+// unreadableForge is the name of the Forge whose credential Secret
+// intent-controller reported it cannot read: the one covering the
+// repository its Ready message names (it stops at the first). Empty when
+// Ready says no such thing, or names no repository of the Project that
+// resolves to a Forge.
+func (r *run) unreadableForge(forges []v1alpha1.Forge) string {
+	if r.ready == nil || r.ready.Reason != reasonForgeSecretUnreadable {
+		return ""
+	}
+	for _, t := range r.repositories() {
+		// The space ends the URL, so a repository whose URL only extends
+		// the named one is not taken for it.
+		if !strings.Contains(r.ready.Message, forgeCovering+t.url+" ") {
+			continue
+		}
+		if res, err := forge.Resolve(forges, t.url); err == nil {
+			return res.Forge.Name
+		}
+	}
+	return ""
+}
+
+// createForgeHint names the command that creates a Forge for the
+// repository's owner, in the Project's namespace, when no Forge covers it
+// (resolveErr is ErrNoMatch); empty otherwise, when the URL does not parse,
+// or for a repository off github.com, the only host maul setup github-app
+// registers an App on.
+func createForgeHint(repoURL, namespace string, resolveErr error) string {
+	if !errors.Is(resolveErr, forge.ErrNoMatch) {
+		return ""
+	}
+	host, repo, err := forge.ParseRepoURL(repoURL)
+	if err != nil || host != "github.com" {
+		return ""
+	}
+	return fmt.Sprintf("; create one: maul setup github-app --org %s --intents -n %s", repo.Owner, namespace)
 }
 
 // target is one repository a check is about.
@@ -322,7 +375,9 @@ func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, n
 			why = fmt.Sprintf("%s declares no agent image: %s is not for maul (%s)", at, decl.Manifest, decl.Reason)
 		}
 		if need.required() {
-			r.add(CheckAgentImage, key, checkreport.Fail, "%s, and %s, so %s", why, need.by(), need.consequence())
+			r.add(CheckAgentImage, key, checkreport.Fail, "%s, and %s, so %s; scaffold one in that repository: "+
+				"maul init app --existing --registry <registry> (docs/intents/onboarding-app.md)",
+				why, need.by(), need.consequence())
 		} else {
 			r.add(CheckAgentImage, key, checkreport.Skip, "%s; build and revise runs use the default runner image "+
 				"(requireRepositoryImage: false)", why)

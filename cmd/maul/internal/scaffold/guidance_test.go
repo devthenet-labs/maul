@@ -4,6 +4,8 @@
 package scaffold
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -182,6 +184,71 @@ func TestNextStepsAdaptExisting(t *testing.T) {
 		"removing .maul/agent.yaml and .maul/Dockerfile"} {
 		if !strings.Contains(over, want) {
 			t.Errorf("--existing over an earlier scaffold lacks %q:\n%s", want, over)
+		}
+	}
+}
+
+// TestNextStepsGolden pins the printed next steps, byte for byte, for a new
+// application and for --existing (run with -update to accept a change).
+func TestNextStepsGolden(t *testing.T) {
+	for name, existing := range map[string]bool{"app": false, "existing": true} {
+		t.Run(name, func(t *testing.T) {
+			got := NextSteps(testOptions(existing), Present{})
+			path := filepath.Join("testdata", "nextsteps", name+".txt")
+			if *update {
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s (run with -update to create): %v", path, err)
+			}
+			if got != string(want) {
+				t.Errorf("next steps differ from %s (run with -update to accept):\n--- want\n%s\n--- got\n%s",
+					path, want, got)
+			}
+		})
+	}
+}
+
+// TestNextStepsEndWithTheProject: the last numbered step adds the
+// repository to its Project and the App's installation, then checks the
+// Project, so a person is never left without the command that comes next.
+func TestNextStepsEndWithTheProject(t *testing.T) {
+	steps := NextSteps(testOptions(false), Present{})
+	want := "  5. Add the repository to its Project:\n" +
+		"       maul setup project <name> ... --repo hello-web=acme/Hello.Web\n" +
+		"       kubectl apply -f <name>.project.yaml\n" +
+		"     add acme/Hello.Web to the GitHub App's installation, then check the Project:\n" +
+		"       GH_TOKEN=$(gh auth token) maul check project <name> -n <namespace>\n"
+	if !strings.Contains(steps, want) {
+		t.Errorf("next steps lack %q:\n%s", want, steps)
+	}
+	if strings.Index(steps, "  4. ") > strings.Index(steps, "  5. ") {
+		t.Errorf("step 5 is not after step 4:\n%s", steps)
+	}
+}
+
+// TestProjectRepoArg: maul setup project keys a repository by its lowercased
+// name, which the Project CRD holds to a DNS label of at most 16 characters;
+// a name that is not one is printed with a key that is, never as a command
+// the CLI would refuse.
+func TestProjectRepoArg(t *testing.T) {
+	for _, tt := range []struct{ owner, name, image, want string }{
+		{"acme", "app", "app", "acme/app"},
+		{"acme", "Shop-API", "shop-api", "acme/Shop-API"},
+		{"acme", "Hello.Web", "hello-web", "hello-web=acme/Hello.Web"},
+		{"acme", "a-very-long-repository", "a-very-long-repository", "<key>=acme/a-very-long-repository"},
+		{"acme", "trailing-", "trailing", "trailing=acme/trailing-"},
+		{"acme", "under_score", "under_score", "<key>=acme/under_score"},
+	} {
+		o := Options{Repo: Repo{Owner: tt.owner, Name: tt.name}, ImageName: tt.image}
+		if got := projectRepoArg(o); got != tt.want {
+			t.Errorf("projectRepoArg(%s/%s, image %s) = %q, want %q", tt.owner, tt.name, tt.image, got, tt.want)
 		}
 	}
 }

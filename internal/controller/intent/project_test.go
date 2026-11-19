@@ -46,7 +46,10 @@ func TestProjectValidation(t *testing.T) {
 		other      *v1alpha1.Project
 		resolveErr error
 		installErr error
+		labelErr   error
 		wantReason string
+		wantIn     []string
+		wantNotIn  []string
 	}{
 		{name: "valid", wantReason: ReasonValidated},
 		{name: "two repositories", mutate: func(p *v1alpha1.Project) {
@@ -60,15 +63,37 @@ func TestProjectValidation(t *testing.T) {
 		}, wantReason: v1alpha1.ReasonAmbiguousIntentRepository},
 		{name: "no forge", resolveErr: fmt.Errorf("x: %w", forge.ErrNoMatch), wantReason: v1alpha1.ReasonForgeUnresolved},
 		{name: "not installed", installErr: ghError(http.StatusNotFound, "Not Found"),
-			wantReason: v1alpha1.ReasonAppNotInstalled},
+			wantReason: v1alpha1.ReasonAppNotInstalled,
+			wantIn: []string{"; install or extend the App's installation: " +
+				"https://github.com/organizations/acme/settings/installations " +
+				"(a personal account: https://github.com/settings/installations)"}},
 		{name: "repository not in the installation", installErr: ghError(http.StatusUnprocessableEntity, "x"),
-			wantReason: v1alpha1.ReasonAppNotInstalled},
+			wantReason: v1alpha1.ReasonAppNotInstalled,
+			wantIn:     []string{"https://github.com/organizations/acme/settings/installations"}},
+		{name: "label refused by the installation", labelErr: ghError(http.StatusNotFound, "Not Found"),
+			wantReason: v1alpha1.ReasonAppNotInstalled,
+			wantIn: []string{"cannot be created on " + intentRepoURL,
+				"https://github.com/organizations/acme/settings/installations"}},
 		{name: "forge secret not readable", installErr: fmt.Errorf("get forge secret maul/other: %w",
 			kerrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "other", errors.New("not in resourceNames"))),
-			wantReason: ReasonForgeSecretUnreadable},
+			wantReason: ReasonForgeSecretUnreadable,
+			// maul check project finds the Forge by "Forge covering <url> ".
+			wantIn: []string{"intent-controller may not read the credential Secret of the Forge covering " +
+				intentRepoURL + " (", "not in resourceNames", "apply the <secret-name>.forge.yaml file maul setup github-app wrote",
+				"intentController.forgeSecrets"},
+			wantNotIn: []string{"does not exist"}},
 		{name: "forge secret missing", installErr: fmt.Errorf("get forge secret maul/gone: %w",
 			kerrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "gone")),
-			wantReason: ReasonForgeSecretUnreadable},
+			wantReason: ReasonForgeSecretUnreadable,
+			wantIn: []string{"the credential Secret of the Forge covering " + intentRepoURL + " does not exist (",
+				`"gone" not found`,
+				"kubectl create -f <secret-name>.secret.yaml"},
+			wantNotIn: []string{"forgeSecrets", "forge.yaml"}},
+		{name: "label forge secret missing",
+			labelErr:   kerrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "gone"),
+			wantReason: ReasonForgeSecretUnreadable,
+			wantIn:     []string{"covering " + intentRepoURL + " does not exist"},
+			wantNotIn:  []string{"forgeSecrets"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,10 +107,23 @@ func TestProjectValidation(t *testing.T) {
 			}
 			e := newEnv(t, objs...)
 			e.gh.resolveErr, e.gh.installedErr = tt.resolveErr, tt.installErr
+			if tt.labelErr != nil {
+				e.gh.failNext("EnsureLabel", tt.labelErr)
+			}
 			e.reconcileProject()
 			c := meta.FindStatusCondition(e.getProject().Status.Conditions, v1alpha1.ConditionReady)
 			if c == nil || c.Reason != tt.wantReason {
 				t.Fatalf("Ready = %+v, want reason %s", c, tt.wantReason)
+			}
+			for _, want := range tt.wantIn {
+				if !strings.Contains(c.Message, want) {
+					t.Errorf("message %q does not say %q", c.Message, want)
+				}
+			}
+			for _, not := range tt.wantNotIn {
+				if strings.Contains(c.Message, not) {
+					t.Errorf("message %q says %q", c.Message, not)
+				}
 			}
 			if want := tt.wantReason == ReasonValidated; (c.Status == metav1.ConditionTrue) != want {
 				t.Errorf("Ready status = %s", c.Status)
@@ -783,4 +821,24 @@ func TestTTL(t *testing.T) {
 		t.Error("the expired intent was not deleted")
 	}
 	e.get("target-2")
+}
+
+// TestInstallationHint: the installations page is the repository owner's,
+// on the repository's own host; a URL that does not parse gets no link.
+func TestInstallationHint(t *testing.T) {
+	for _, tt := range []struct{ url, want string }{
+		{intentRepoURL, "; install or extend the App's installation: " +
+			"https://github.com/organizations/acme/settings/installations " +
+			"(a personal account: https://github.com/settings/installations)"},
+		{"https://GHE.example.com/Platform/intents.git", "; install or extend the App's installation: " +
+			"https://ghe.example.com/organizations/Platform/settings/installations " +
+			"(a personal account: https://ghe.example.com/settings/installations)"},
+		{"https://github.com/acme", ""},
+		{"git@github.com:acme/intents.git", ""},
+		{"", ""},
+	} {
+		if got := installationHint(tt.url); got != tt.want {
+			t.Errorf("installationHint(%q) = %q, want %q", tt.url, got, tt.want)
+		}
+	}
 }

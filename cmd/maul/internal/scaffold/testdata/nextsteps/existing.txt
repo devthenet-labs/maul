@@ -1,0 +1,78 @@
+Next steps for acme/Hello.Web (image name hello-web):
+
+  1. Create its two ECR repositories, with immutable tags, and one publisher role for
+     each. maul's reference terraform module does that; in your terraform root:
+       module "maul_app_hello_web" {
+         source = "git::https://github.com/devthenet-labs/maul.git//deploy/terraform/aws/modules/app?ref=vX.Y.Z"
+
+         slug = "hello-web"
+         github = {
+           owner            = "acme"
+           name             = "Hello.Web"
+           repository_id    = "<id>" # gh api repos/acme/Hello.Web --jq .id
+           owner_id         = "<id>" # gh api repos/acme/Hello.Web --jq .owner.id
+           default_branch   = "main"
+           sub_claim_prefix = "<prefix>" # gh api repos/acme/Hello.Web/actions/oidc/customization/sub --jq .sub_claim_prefix
+         }
+         # The account's GitHub Actions OIDC provider, created once per account.
+         github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+         # Optional: sign the agent image with this KMS key (.github/actions/publish/README.md).
+         # agent_signing_key_arn = "arn:aws:kms:eu-west-2:123456789012:key/<key-id>"
+       }
+       output "maul_app_hello_web_variables" {
+         value = module.maul_app_hello_web.github_variables_dotenv
+       }
+     This CLI is a development build: pin ref to the maul release you deploy.
+     It creates
+       agent    123456789012.dkr.ecr.eu-west-2.amazonaws.com/maul/app-envs/hello-web
+       runtime  123456789012.dkr.ecr.eu-west-2.amazonaws.com/maul/previews/hello-web
+     and roles that each trust only this repository's main branch and their own
+     publisher workflow, .github/workflows/publish-agent.yml or publish-runtime.yml.
+     With the platform module (deploy/terraform/aws, at the same ref), add an apps
+     entry keyed hello-web instead: its github_variables_dotenv output holds the same
+     variables under that key.
+  2. Set the publishers' repository variables (none is secret) from the module's
+     output, on this repository only: an organization variable reaches every
+     repository with these workflows, a template repository and its copies included.
+       terraform output -raw maul_app_hello_web_variables | gh variable set -f - --repo acme/Hello.Web
+     With the platform module, from a root output that re-exports its
+     github_variables_dotenv:
+       terraform output -json github_variables_dotenv | jq -r '."hello-web"' | gh variable set -f - --repo acme/Hello.Web
+     Without the module, .github/actions/publish/README.md lists the variables. Then
+     switch on the agent image's publisher:
+       gh variable set AGENT_PUBLISH_ENABLED --repo acme/Hello.Web --body true
+  3. Commit and push to main. The push builds the agent image and publishes it as
+     toolchain-v1, the tag .maul/agent.yaml declares. If it was pushed before step 2, run
+       gh workflow run "agent image" --repo acme/Hello.Web
+     and confirm the tag exists before creating the Project:
+       aws ecr describe-images --region eu-west-2 --repository-name maul/app-envs/hello-web --image-ids imageTag=toolchain-v1
+  4. When the Project previews this repository, publish its runtime images:
+       gh variable set PREVIEW_PUBLISH_ENABLED --repo acme/Hello.Web --body true
+     The Project's preview fields for it:
+       imageRepository: 123456789012.dkr.ecr.eu-west-2.amazonaws.com/maul/previews/hello-web
+       port: <the one port your Dockerfile EXPOSEs>
+       readinessPath: <a path that answers 200 once the service is ready>
+  5. Add the repository to its Project:
+       maul setup project <name> ... --repo hello-web=acme/Hello.Web
+       kubectl apply -f <name>.project.yaml
+     add acme/Hello.Web to the GitHub App's installation, then check the Project:
+       GH_TOKEN=$(gh auth token) maul check project <name> -n <namespace>
+
+To change the agent toolchain later, edit .maul/Dockerfile and bump the tag in
+.maul/agent.yaml (toolchain-v2, ...) in the same commit: tags are immutable.
+If the registry moves, change ECR_REGISTRY, AGENT_IMAGE_REPOSITORY and the image in
+.maul/agent.yaml together. .github/actions/publish/README.md describes the publishers.
+
+Adapt the application (--existing wrote only .maul/ and the CI publishers):
+  - Add ./Dockerfile, the runtime image runtime-image.yml builds at the repository root.
+    A preview runs it as uid 65532 with a read-only root filesystem, no writable /tmp
+    and every capability dropped: declare USER 65532:65532, write nothing to disk,
+    EXPOSE one port and answer the readiness path with 200 once ready. It must build
+    for linux/amd64 and stay under 128 MiB as an OCI archive.
+  - There is no go.mod at the repository root, and .maul/Dockerfile builds the
+    agent's Go module cache from one: adapt it to where the module lives.
+  - publish-images.yml starts on the workflows named "runtime image" and "agent image": rename
+    any workflow of yours that already has one of those names.
+  - Your own CI keeps testing the application; runtime-image.yml only tests the publishers
+    and builds the runtime image. The publishers' tests write __pycache__ under
+    .github/actions/publish when run locally: add __pycache__/ to .gitignore.

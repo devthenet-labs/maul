@@ -533,13 +533,82 @@ func TestRunForges(t *testing.T) {
 		w := newWorld(t)
 		w.repo("lib").URL = "https://github.com/other/shop-lib"
 		r := w.run()
-		expect(t, r, CheckForge, "lib", checkreport.Fail, "no forge matches repository", "namespace maul")
+		expect(t, r, CheckForge, "lib", checkreport.Fail, "no forge matches repository", "namespace maul",
+			"; create one: maul setup github-app --org other --intents -n "+testNamespace)
 		expect(t, r, CheckForge, "web", checkreport.Pass)
+	})
+	// maul setup github-app registers an App on github.com only: a
+	// repository on another host is not sent to it.
+	t.Run("unresolved on another host", func(t *testing.T) {
+		w := newWorld(t)
+		w.repo("lib").URL = "https://ghe.example.com/other/shop-lib"
+		r := w.run()
+		expect(t, r, CheckForge, "lib", checkreport.Fail, "no forge matches repository", "namespace maul")
+		if l := line(t, r, CheckForge, "lib"); strings.Contains(l.Reason, "create one") {
+			t.Errorf("a repository off github.com is told to run setup github-app: %q", l.Reason)
+		}
+	})
+	// A Forge source-controller validated whose Secret intent-controller
+	// cannot read: the forge line still passes, but no longer reads as if
+	// the Forge were the whole story; ready carries the fix.
+	t.Run("secret unreadable by intent-controller", func(t *testing.T) {
+		w := newWorld(t)
+		w.project.Status.Conditions[0].Status = metav1.ConditionFalse
+		w.project.Status.Conditions[0].Reason = "ForgeSecretUnreadable"
+		w.project.Status.Conditions[0].Message = "intent-controller may not read the credential Secret of the " +
+			"Forge covering " + intentsURL + " (secrets \"github-app\" is forbidden): apply the file"
+		r := w.run()
+		// One Forge covers every repository, so every line is about it.
+		for _, key := range []string{IntentRepository, "web", "api", "lib"} {
+			expect(t, r, CheckForge, key, checkreport.Pass, "Forge github covers acme/", " and is Ready for "+
+				"source-controller only; intent-controller cannot read its Secret (see ready)")
+		}
+		expect(t, r, CheckReady, "", checkreport.Fail, "ForgeSecretUnreadable: intent-controller may not read")
+	})
+	// Ready names the one repository whose Forge's Secret is unreadable: a
+	// second Forge, whose Secret nobody refused, is not blamed for it.
+	t.Run("secret unreadable names one Forge of two", func(t *testing.T) {
+		w := newWorld(t)
+		w.repo("lib").URL = "https://github.com/other/shop-lib"
+		w.repo("api").URL = "https://github.com/other/shop-lib2"
+		other := w.forges[0].DeepCopy()
+		other.Name, other.Spec.Orgs, other.Spec.SecretRef.Name = "other", []string{"other"}, "other-app"
+		w.forges = append(w.forges, other)
+		w.project.Status.Conditions[0].Status = metav1.ConditionFalse
+		w.project.Status.Conditions[0].Reason = "ForgeSecretUnreadable"
+		w.project.Status.Conditions[0].Message = "the credential Secret of the Forge covering " +
+			"https://github.com/other/shop-lib does not exist (secrets \"other-app\" not found): create it"
+		r := w.run()
+		const unreadable = "Ready for source-controller only; intent-controller cannot read its Secret (see ready)"
+		// lib is named; api shares its Forge, though its URL only extends lib's.
+		expect(t, r, CheckForge, "lib", checkreport.Pass, "Forge other covers other/shop-lib and is "+unreadable)
+		expect(t, r, CheckForge, "api", checkreport.Pass, "Forge other covers other/shop-lib2 and is "+unreadable)
+		for _, key := range []string{IntentRepository, "web"} {
+			expect(t, r, CheckForge, key, checkreport.Pass, "Forge github covers", "and is Ready (CredentialValid)")
+			if l := line(t, r, CheckForge, key); strings.Contains(l.Reason, "cannot read its Secret") {
+				t.Errorf("%s: a Forge whose Secret was not refused is blamed: %q", key, l.Reason)
+			}
+		}
+	})
+	// A message naming no repository of the Project blames no Forge, though
+	// the URL it names extends one of the Project's.
+	t.Run("secret unreadable naming no repository", func(t *testing.T) {
+		w := newWorld(t)
+		w.project.Status.Conditions[0].Status = metav1.ConditionFalse
+		w.project.Status.Conditions[0].Reason = "ForgeSecretUnreadable"
+		w.project.Status.Conditions[0].Message = "the credential Secret of the Forge covering " +
+			"https://github.com/acme/shop-web2 does not exist"
+		expect(t, w.run(), CheckForge, "web", checkreport.Pass, "and is Ready (CredentialValid)")
 	})
 	t.Run("ambiguous", func(t *testing.T) {
 		w := newWorld(t)
 		w.forges = append(w.forges, testForge("second", metav1.ConditionTrue, "acme"))
-		expect(t, w.run(), CheckForge, IntentRepository, checkreport.Fail, "ambiguous forge match", "github, second")
+		r := w.run()
+		expect(t, r, CheckForge, IntentRepository, checkreport.Fail, "ambiguous forge match", "github, second")
+		// Two Forges cover it: creating a third is not the fix.
+		if l := line(t, r, CheckForge, IntentRepository); strings.Contains(l.Reason, "create one") {
+			t.Errorf("an ambiguous match is told to create a Forge: %q", l.Reason)
+		}
 	})
 	t.Run("most constrained wins", func(t *testing.T) {
 		w := newWorld(t)
@@ -571,7 +640,8 @@ func TestRunAgentImage(t *testing.T) {
 	}{
 		{"none declared, one required", func(w *world) { delete(w.github.files[w.repo("api").URL], ".maul/agent.yaml") },
 			"api", checkreport.Fail, []string{"declares no agent image", "exists as a regular file",
-				"requireRepositoryImage", "ImageRequired"}},
+				"requireRepositoryImage", "ImageRequired", "; scaffold one in that repository: maul init app " +
+					"--existing --registry <registry> (docs/intents/onboarding-app.md)"}},
 		{"none declared, none required", func(w *world) {
 			delete(w.github.files[w.repo("api").URL], ".maul/agent.yaml")
 			w.project.Spec.RequireRepositoryImage = &no

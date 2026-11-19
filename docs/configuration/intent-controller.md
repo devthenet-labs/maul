@@ -472,12 +472,13 @@ The Project reports `Ready` once:
 - it lists one repository, or `--intent-multi-repo` is on (`UnsupportedRepositories` otherwise);
 - it asks for claude, or for codex with `--intent-codex` on (`HarnessNotEnabled` otherwise);
 - each of its repositories resolves to exactly one Forge (`ForgeUnresolved` otherwise), whose credential Secret
-  intent-controller may read (`ForgeSecretUnreadable` otherwise); the message names the repository;
+  intent-controller may read (`ForgeSecretUnreadable` otherwise); the message names the repository and the fix;
 - the App is installed on the intent repository and every app repository, with the permissions intents use: issues write
   on the intent repository; contents and pull requests write and issues read (a reviewer's permission and the rate
   budget are read with it) on each app repository; when `spec.checks.fix` names a check, checks, statuses and actions
   read on each app repository too; and when `spec.checks.rerunFailed` is set beside it, actions write there as well
-  (`AppNotInstalled` otherwise, naming the repository and the permission);
+  (`AppNotInstalled` otherwise, naming the repository, the permission and the installations page of the repository's
+  owner, `https://github.com/organizations/<owner>/settings/installations`);
 - no other Project shares its intent repository and trigger label (`AmbiguousIntentRepository`).
 
 Statuses write on each app repository (the `maul/acceptance` commit status, minted alone) is never part of `Ready`. A
@@ -769,10 +770,19 @@ controller is rolled forward again.
 intent-controller is the second code path that writes to a forge (remediation-controller is the first):
 
 - **Secrets:** in the release namespace, `secrets get` is restricted by `resourceNames` to the Secrets your Forges
-  reference (`intentController.forgeSecrets` in the chart, `rbac.yaml` in the kustomize component). A Forge that
-  references any other Secret, or a Secret that does not exist, leaves its Projects not Ready with the reason
-  `ForgeSecretUnreadable`, whose message names the Secret. Its agent-jobs Role can get, create, update and delete any
-  Secret in the agents namespace, including model keys, image-pull credentials and other Jobs' handoffs.
+  reference (`intentController.forgeSecrets` in the chart, `rbac.yaml` in the kustomize component), plus any Secret a
+  Role grants it, such as the one in the `<secret-name>.forge.yaml` file `maul setup github-app` writes. A Forge whose
+  Secret it cannot read leaves its Projects not Ready with the reason `ForgeSecretUnreadable`, whose message quotes the
+  API server's error (naming the Secret, and for a denied read the ServiceAccount) and says which of two cases it is:
+  - the Secret "does not exist": create it from the file `maul setup github-app` wrote
+    (`kubectl create -f <secret-name>.secret.yaml`);
+  - "intent-controller may not read" it: apply the `<secret-name>.forge.yaml` file `maul setup github-app` wrote (its
+    Role grants exactly that Secret), or add the name to `intentController.forgeSecrets` (Helm) or the component's
+    `rbac.yaml` (kustomize).
+
+  Its agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including model keys,
+  image-pull credentials and other Jobs' handoffs.
+
 - **GitHub tokens:** each GitHub operation mints its own token, scoped to one repository and one permission. Opening a
   pull request is the one exception: it also asks contents read, without which GitHub refuses a pull request in a
   private repository. The unscoped installation client is never used.
