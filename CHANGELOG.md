@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.12](https://github.com/devthenet-labs/maul/compare/v0.14.11...v0.14.12) (2026-11-19)
+
+
+### Bug Fixes
+
+* **intent,check:** not-Ready messages and check project name the exact fix ([#454](https://github.com/devthenet-labs/maul/issues/454)) ([8e7e7f8](https://github.com/devthenet-labs/maul/commit/8e7e7f836c78adc6ba85506936cad497587fd7cf))
+* **intent:** maul's own browser failures are errors, never a failed check ([#451](https://github.com/devthenet-labs/maul/issues/451)) ([f156e0f](https://github.com/devthenet-labs/maul/commit/f156e0f75b307838fa9a1afeba761fe2c0042c5b))
+* **intent:** the evaluator is told when the fix diff is cut, and maul/acceptance follows an approver's accept ([#453](https://github.com/devthenet-labs/maul/issues/453)) ([6ee88a6](https://github.com/devthenet-labs/maul/commit/6ee88a69af92407ce9d0df40feb9380e62f4f161))
+* **intent:** visible means a person can see it; what maul cannot judge is unsure ([#452](https://github.com/devthenet-labs/maul/issues/452)) ([acf4623](https://github.com/devthenet-labs/maul/commit/acf46238058d82e7e5302feec782305a33958c0d))
+* **toolexec:** the sweep does not treat a zombie leader with live threads as dead ([#450](https://github.com/devthenet-labs/maul/issues/450)) ([d33322f](https://github.com/devthenet-labs/maul/commit/d33322fe38c6af5da929e52e5ebf513e9e6c1015))
+
 ## [0.14.11](https://github.com/devthenet-labs/maul/compare/v0.14.10...v0.14.11) (2026-11-19)
 
 
