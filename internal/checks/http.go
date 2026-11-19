@@ -71,16 +71,34 @@ func validateHTTP(h HTTPCheck, p Preview) *Refusal {
 // positive about content: a json value or matcher other than an absence, a
 // header's value, or bodyContains. An absence and a header's bare presence
 // or absence hold of an HTML page, an empty body or an error too (code
-// review 2026-11-18, checks 6); they stand only beside such an assertion.
+// review 2026-11-18, checks 6), and of whatever answer they are asserted
+// on, so each stands only beside a positive assertion on the same step's
+// answer: a json absence beside a json assertion of something that is
+// there (the body is then JSON of the expected shape; body text or a
+// header's value holds of an error page echoing the request too), a
+// header's presence or absence beside any of the three.
 func httpSubstance(h HTTPCheck) *Refusal {
-	for _, st := range h.Steps {
-		if contentJSON(st.Expect.JSON) || headerValues(st.Expect.Headers) || st.Expect.BodyContains != "" {
-			return nil
+	content := false
+	for i, st := range h.Steps {
+		inJSON := contentJSON(st.Expect.JSON)
+		positive := inJSON || headerValues(st.Expect.Headers) || st.Expect.BodyContains != ""
+		content = content || positive
+		switch {
+		case !inJSON && absences(st.Expect.JSON):
+			return refuse(RuleNotSubstantive, "step %d: an absence holds of a body that is not JSON, an empty one "+
+				"and an error object too: assert a json value that is there in the same step's json beside it", i+1)
+		case !positive && len(st.Expect.Headers) > 0:
+			return refuse(RuleNotSubstantive, "step %d: a header's presence or absence alone holds of an error "+
+				"answer too: assert content that is there (a json value, a header's value or bodyContains) in "+
+				"the same step beside it", i+1)
 		}
 	}
-	return refuse(RuleNotSubstantive, "no step asserts content that is there (a json value, a header's value or "+
-		"bodyContains); a status, an absence or a header's presence alone holds of an empty or error answer too: "+
-		"assert an item that is there beside it")
+	if !content {
+		return refuse(RuleNotSubstantive, "no step asserts content that is there (a json value, a header's value or "+
+			"bodyContains); a status, an absence or a header's presence alone holds of an empty or error answer too: "+
+			"assert an item that is there beside it")
+	}
+	return nil
 }
 
 // headerValues reports an expected header asserted by its value, not by

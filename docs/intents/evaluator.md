@@ -192,7 +192,8 @@ An outcome is **confirmed** only on a check bound to it that:
    (compiled by maul to a Playwright test), or a sandbox program whose output `tools` asserts on;
 2. is **substantive**: at least one step acts on the application and at least one assertion is about content that is
    there (a status or exit code alone is not, nor an absence (`$absent`) or a header's bare presence or absence, which
-   hold of an empty, HTML or error answer too: they stand only beside an assertion of something that is there; a browser
+   hold of an empty, HTML or error answer too: they stand only beside an assertion of something that is there on the
+   same answer, a JSON absence beside a JSON value in the same step's `json` or the same `stdoutJSON`; a browser
    `count` of 0, which holds before a page has rendered its data, stands only after such an assertion with no step
    acting on the page between them), and every list assertion is filtered to data the check created itself, named with
    `{{run}}`. A check over shared data (a global ranking, a global count) is refused when it is saved. A check stored

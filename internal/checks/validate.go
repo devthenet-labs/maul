@@ -162,6 +162,16 @@ func Substantive(c Check) error {
 	return nil
 }
 
+// absences reports an expected-JSON map asserting an absence somewhere.
+func absences(m map[string]httpstep.Value) bool {
+	for _, v := range m {
+		if obj, ok := v.Decoded().(map[string]any); ok && obj["$absent"] != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // validateContext refuses a context naming no surface or both, and a
 // workspace that is not exactly one of a cli and a library of a language
 // maul builds programs in.

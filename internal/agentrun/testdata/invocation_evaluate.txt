@@ -275,7 +275,7 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 7. Assert only what the outcome states: no wording, value, order or layout it does not promise.
 8. For a claim that something is left out, refused, hidden or absent (does not list it, only those, excludes),
    create the item that must be left out yourself and assert that it is not there, after an assertion of an item
-   that is there, so an empty answer does not pass. On a list other runs share, narrow to your run's data as the
+   that is there in the same answer (the same step's `json`), so an empty answer does not pass. On a list other runs share, narrow to your run's data as the
    rule above admits: in the narrowed answer assert your kept items by index and assert that the index after the
    last is `{"$absent": true}`, so the list ends there; on the unchanged request assert only what holds of any data,
    its status and the first item meeting the outcome's rule (`{"$range": [lo, hi]}` at its field), never your items'

@@ -60,7 +60,7 @@ func TestEvaluatePromptAsksForChecksThatCanGoRed(t *testing.T) {
 	}
 	for _, want := range []string{
 		"create the item that must be left out yourself and assert that it is not there, after an assertion of " +
-			"an item that is there, so an empty answer does not pass",
+			"an item that is there in the same answer (the same step's `json`), so an empty answer does not pass",
 		"assert that the index after the last is `{\"$absent\": true}`",
 		"assert a `count` of 0 for a locator naming the left-out item's `{{run}}` text",
 		"compare all of it, not a sample",

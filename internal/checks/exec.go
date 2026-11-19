@@ -199,10 +199,16 @@ func validateExec(e ExecCheck, ws *Workspace) *Refusal {
 }
 
 // stdoutSubstance refuses an exec or run check whose expect asserts
-// nothing on stdout.
+// nothing on stdout, or a stdoutJSON absence beside no stdoutJSON assertion
+// of something that is there: stdoutContains holds of output that is not
+// JSON, of which every absence holds too.
 func stdoutSubstance(x ExecExpect) *Refusal {
 	if x.StdoutContains == "" && !contentJSON(x.StdoutJSON) {
 		return refuse(RuleNotSubstantive, noStdoutAssertion)
+	}
+	if absences(x.StdoutJSON) && !contentJSON(x.StdoutJSON) {
+		return refuse(RuleNotSubstantive, "a stdoutJSON absence holds of output that is not JSON at all, whatever "+
+			"stdoutContains finds in it: assert a stdoutJSON value that is there beside it")
 	}
 	return nil
 }
