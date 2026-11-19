@@ -105,10 +105,9 @@ func scanFixDiff(text string, at int, prefix string, stops *[]int) []fixDiffFile
 			*stops = append(*stops, o)
 		case strings.HasPrefix(line, "diff --git "):
 			*stops = append(*stops, o)
-			rest, _ := strings.CutPrefix(line, "diff --git a/")
-			if i := strings.LastIndex(rest, " b/"); rest != line && i >= 0 {
+			if path, ok := fixDiffHeaderPath(line); ok {
 				closeLast(o)
-				files = append(files, fixDiffFile{path: prefix + strings.TrimRight(rest[i+3:], "\r\n"), end: -1})
+				files = append(files, fixDiffFile{path: prefix + path, end: -1})
 			}
 		case strings.HasPrefix(line, "@@"):
 			*stops = append(*stops, o)
@@ -117,6 +116,25 @@ func scanFixDiff(text string, at int, prefix string, stops *[]int) []fixDiffFile
 	}
 	closeLast(o)
 	return files
+}
+
+// fixDiffHeaderPath is the file a "diff --git" line names (its new name),
+// as the diff spells it: git quotes a name holding a non-ASCII character,
+// a quote or a control character ("b/caf\303\251.go"), and the name is
+// then what the quotes hold. ok is false for a line that is no file's
+// header (a commit message's own text).
+func fixDiffHeaderPath(line string) (path string, ok bool) {
+	rest, _ := strings.CutPrefix(strings.TrimRight(line, "\r\n"), "diff --git ")
+	if !strings.HasPrefix(rest, "a/") && !strings.HasPrefix(rest, `"a/`) {
+		return "", false
+	}
+	if i := strings.LastIndex(rest, ` "b/`); i >= 0 && strings.HasSuffix(rest, `"`) {
+		return rest[i+4 : len(rest)-1], true
+	}
+	if i := strings.LastIndex(rest, " b/"); i >= 0 {
+		return rest[i+3:], true
+	}
+	return "", false
 }
 
 // notShownWhole are the files whose part of the diff does not end within

@@ -467,9 +467,9 @@ func priorReplay(prev *v1alpha1.PreviewVerification) []agentrun.PriorReplay {
 // compare per component whose head moved, under its repository's name,
 // bounded to what the prompt quotes and made visible (boundFixDiff), and
 // what it leaves out of the fix (nil: nothing); "" and nil when no head
-// moved. A compare that fails is logged and named as unavailable: the
-// evaluator judges without it rather than not at all, told that it has not
-// seen the whole fix.
+// moved. A compare that fails is logged and named as unavailable, as is a
+// component the last round did not evaluate: the evaluator judges without
+// it rather than not at all, told that it has not seen the whole fix.
 func (p *pass) fixDiff(ctx context.Context, prev, pv *v1alpha1.PreviewVerification) (string,
 	*agentrun.FixDiffCut) {
 	var parts []fixDiffPart
@@ -477,7 +477,13 @@ func (p *pass) fixDiff(ctx context.Context, prev, pv *v1alpha1.PreviewVerificati
 		i := slices.IndexFunc(prev.Spec.Heads, func(o v1alpha1.VerificationHead) bool {
 			return o.Component == head.Component
 		})
-		if i < 0 || prev.Spec.Heads[i].Revision == head.Revision {
+		if i < 0 {
+			// A component the last round did not evaluate: no heads to
+			// compare from, so none of its change is shown, and said so.
+			parts = append(parts, fixDiffPart{repo: repoSlug(head.Repository), unavailable: true})
+			continue
+		}
+		if prev.Spec.Heads[i].Revision == head.Revision {
 			continue
 		}
 		part := fixDiffPart{repo: repoSlug(head.Repository), base: prev.Spec.Heads[i].Revision, head: head.Revision}

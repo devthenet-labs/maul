@@ -108,6 +108,14 @@ func TestEvaluateHandoffSaysWhenTheFixDiffIsCut(t *testing.T) {
 // whose head moved, the compare answering patch or err.
 func fixRoundHandoff(t *testing.T, patch string, err error) agentrun.EvaluateHandoff {
 	t.Helper()
+	return fixRoundHandoffWith(t, patch, err, func(*v1alpha1.PreviewVerification) {})
+}
+
+// fixRoundHandoffWith is fixRoundHandoff with the round's verification
+// changed by next before it is rendered.
+func fixRoundHandoffWith(t *testing.T, patch string, err error,
+	next func(*v1alpha1.PreviewVerification)) agentrun.EvaluateHandoff {
+	t.Helper()
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	pv1 := e.onlyVerification(name)
@@ -125,7 +133,39 @@ func fixRoundHandoff(t *testing.T, patch string, err error) agentrun.EvaluateHan
 	pv2.Name, pv2.UID = pv1.Name+"-next", types.UID("pv2-uid")
 	pv2.Spec.Round, pv2.Status = 2, v1alpha1.PreviewVerificationStatus{}
 	pv2.Spec.Heads[0].Revision = strings.Repeat("b", 40)
+	next(pv2)
 	return decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), pv2))
+}
+
+// TestBoundFixDiffNamesAQuotedPath: git quotes a path with a non-ASCII
+// character, a quote or a control character in a file's header
+// ("a/caf\303\251.go"). A cut through such a file names it, as the diff
+// spells it, and never the file before it, which is shown whole.
+func TestBoundFixDiffNamesAQuotedPath(t *testing.T) {
+	quoted := strings.Replace(fileDiff("Q", 40<<10), "diff --git a/Q b/Q",
+		`diff --git "a/caf\303\251 b/x.go" "b/caf\303\251 b/x.go"`, 1)
+	patch := fileDiff("api/small.go", 300) + quoted + fileDiff("z/last.go", 300)
+	got, cut := boundFixDiff([]fixDiffPart{{repo: "acme/app", base: "aaaaaaa", head: "bbbbbbb", patch: patch}})
+	if cut == nil || cut.ShownBytes != len(got) || cut.ShownBytes >= cut.ReadBytes {
+		t.Fatalf("cut = %+v over a %d-byte diff, want it cut", cut, len(got))
+	}
+	if want := []string{`caf\303\251 b/x.go`, "z/last.go"}; !slices.Equal(cut.Files, want) {
+		t.Errorf("files not shown in full = %q, want %q", cut.Files, want)
+	}
+}
+
+// TestEvaluateHandoffNamesAComponentNewToTheRound: a head of a component
+// the last round did not evaluate has no heads to compare from, so none of
+// its change is shown; the handoff says so, never leaves it out silently.
+func TestEvaluateHandoffNamesAComponentNewToTheRound(t *testing.T) {
+	h := fixRoundHandoffWith(t, fileDiff("api/battle.go", 200), nil, func(pv *v1alpha1.PreviewVerification) {
+		pv.Spec.Heads = append(pv.Spec.Heads, v1alpha1.VerificationHead{Component: "worker",
+			Repository: "https://github.com/acme/worker", Revision: strings.Repeat("c", 40)})
+	})
+	if c := h.FixDiffCut; c == nil || !slices.Equal(c.Unavailable, []string{"acme/worker"}) ||
+		c.ShownBytes != c.ReadBytes || !strings.Contains(h.FixDiff, "api/battle.go") {
+		t.Errorf("fix diff cut = %+v, want acme/worker said unavailable beside the app's whole diff", c)
+	}
 }
 
 // TestBoundFixDiffSeeded is a seeded property over the moved heads'
