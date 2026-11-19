@@ -155,7 +155,7 @@ func (r *run) forges(ctx context.Context) {
 		res, err := forge.Resolve(list.Items, t.url)
 		if err != nil {
 			r.add(CheckForge, t.key, checkreport.Fail, "%v; a Forge in namespace %s must cover it (spec.orgs, "+
-				"spec.repositories)%s", err, r.p.Namespace, createForgeHint(t.url))
+				"spec.repositories)%s", err, r.p.Namespace, createForgeHint(t.url, err))
 			continue
 		}
 		f := res.Forge
@@ -183,8 +183,12 @@ func (r *run) forges(ctx context.Context) {
 const reasonForgeSecretUnreadable = "ForgeSecretUnreadable"
 
 // createForgeHint names the command that creates a Forge for the
-// repository's owner; empty when the URL does not parse.
-func createForgeHint(repoURL string) string {
+// repository's owner when no Forge covers it (resolveErr is ErrNoMatch);
+// empty otherwise, or when the URL does not parse.
+func createForgeHint(repoURL string, resolveErr error) string {
+	if !errors.Is(resolveErr, forge.ErrNoMatch) {
+		return ""
+	}
 	_, repo, err := forge.ParseRepoURL(repoURL)
 	if err != nil {
 		return ""

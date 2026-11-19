@@ -553,7 +553,12 @@ func TestRunForges(t *testing.T) {
 	t.Run("ambiguous", func(t *testing.T) {
 		w := newWorld(t)
 		w.forges = append(w.forges, testForge("second", metav1.ConditionTrue, "acme"))
-		expect(t, w.run(), CheckForge, IntentRepository, checkreport.Fail, "ambiguous forge match", "github, second")
+		r := w.run()
+		expect(t, r, CheckForge, IntentRepository, checkreport.Fail, "ambiguous forge match", "github, second")
+		// Two Forges cover it: creating a third is not the fix.
+		if l := line(t, r, CheckForge, IntentRepository); strings.Contains(l.Reason, "create one") {
+			t.Errorf("an ambiguous match is told to create a Forge: %q", l.Reason)
+		}
 	})
 	t.Run("most constrained wins", func(t *testing.T) {
 		w := newWorld(t)
