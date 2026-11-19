@@ -73,8 +73,9 @@ func (s *sweeper) run() error {
 }
 
 // survivors lists the live processes of the sandbox's UID, by real or
-// effective UID, but the shim and pid 1. A zombie is already dead, holding
-// no port and running no code.
+// effective UID, but the shim and pid 1. A zombie with no other thread is
+// already dead, holding no port and running no code; a zombie leader whose
+// other threads still run is not, and SIGKILL to its pid ends them all.
 func (s *sweeper) survivors() ([]int, error) {
 	entries, err := os.ReadDir(s.proc)
 	if err != nil {
@@ -97,10 +98,13 @@ func (s *sweeper) survivors() ([]int, error) {
 	return pids, nil
 }
 
-// parseStatus reads a /proc/<pid>/status: whether the process is live (not
-// a zombie or dead) and its real and effective UIDs (-1 when absent).
+// parseStatus reads a /proc/<pid>/status: whether the process is live and
+// its real and effective UIDs (-1 when absent). A process is live unless
+// its leader is a zombie or dead and no other thread of it remains: a
+// leader that exited alone (State Z) still counts its running threads in
+// Threads, which is 1 for a process that has wholly exited.
 func parseStatus(raw []byte) (bool, [2]int) {
-	live, uids := false, [2]int{-1, -1}
+	leaderLive, threads, uids := false, 0, [2]int{-1, -1}
 	sc := bufio.NewScanner(bytes.NewReader(raw))
 	for sc.Scan() {
 		key, val, ok := strings.Cut(sc.Text(), ":")
@@ -110,7 +114,9 @@ func parseStatus(raw []byte) (bool, [2]int) {
 		fields := strings.Fields(val)
 		switch {
 		case key == "State" && len(fields) > 0:
-			live = fields[0] != "Z" && fields[0] != "X"
+			leaderLive = fields[0] != "Z" && fields[0] != "X"
+		case key == "Threads" && len(fields) > 0:
+			threads, _ = strconv.Atoi(fields[0])
 		case key == "Uid" && len(fields) >= 2:
 			for i := range uids {
 				if n, err := strconv.Atoi(fields[i]); err == nil {
@@ -119,5 +125,5 @@ func parseStatus(raw []byte) (bool, [2]int) {
 			}
 		}
 	}
-	return live, uids
+	return leaderLive || threads > 1, uids
 }
