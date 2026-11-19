@@ -34,8 +34,9 @@
 // download), with no module network unless the request names a proxy. The
 // image's WORKDIR never matters: every place is absolute. Before it answers,
 // the shim kills the program's group and then every other process of its
-// UID (the sweep), so nothing a program left, a loopback listener above
-// all, lives into the next run; when some survive, the Result is Unclean
+// UID (the sweep; a zombie leader whose other threads still run counts as
+// live), so nothing a program left, a loopback listener above all, lives
+// into the next run; when some survive, the Result is Unclean
 // and nothing more runs until a sweep finds none. Output naming a bind or
 // connection error is marked NetError, which the relay counts an error,
 // never an assertion (SPEC 8a). After a build that built, the shim keeps a
