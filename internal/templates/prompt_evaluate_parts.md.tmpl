@@ -23,7 +23,7 @@ The files the pull requests change, with the lines added and deleted in each:
 
 {{fence . | chomp}}
 {{- end}}
-{{- with .FixDiffBlock}}
+{{- if .FixDiffBlock}}
 
 ### The fix since the last round
 
@@ -32,8 +32,27 @@ sometimes a person pushed. This is the diff since those heads. A fix agent sees 
 failure, so read the diff for special-casing: code that recognises a check's requests or data instead of fixing the
 behaviour. Where you find any, judge the outcome it touches with data of your own the fix could not have foreseen,
 and say what you found in its note.
+{{- with .FixDiffNote}}
+
+{{.}}
+{{- end}}
+
+{{fence .FixDiffBlock | chomp}}
+{{- with .FixDiffFilesBlock}}
+
+The files not shown in full, as the diff names them:
 
 {{fence . | chomp}}
+{{- end}}
+{{- else if .FixDiffNote}}
+
+### The fix since the last round
+
+The code changed since the heads the last round evaluated: most often an agent fixed a failure that round found,
+sometimes a person pushed. A fix agent sees how a failing check reproduced the failure, and may special-case it: code
+that recognises a check's requests or data instead of fixing the behaviour.
+
+{{.FixDiffNote}}
 {{- end}}
 {{- with .PriorBlock}}
 

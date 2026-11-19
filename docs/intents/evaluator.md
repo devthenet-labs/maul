@@ -596,7 +596,13 @@ checks:
   dry run it confirmed.
 
 `{{run}}` stays a placeholder in it: the fix must make the outcome hold for any token. The next round replays the check
-(with a new token) and the evaluator reads the fix's diff for special cases.
+(with a new token) and the evaluator reads the fix's diff for special cases. A diff of up to 32 KiB, with the names of
+any files it does not show in full, is quoted whole. A longer one is cut to at most 28 KiB, at a commit, file or hunk
+boundary where it can be, keeping 4 KiB for those names (with several repositories, each under its repository's), and
+the prompt says that the evaluator has not seen the whole fix: how many bytes it shows of how many maul read, which
+files it does not show in full, which repositories' diffs GitHub had already cut, and which could not be read at all (a
+compare that failed is said to be unavailable, never left out). It tells the evaluator that finding no special-casing in
+what is shown proves nothing, and to judge every outcome the fix may touch with data of its own.
 
 ## The hand-off
 

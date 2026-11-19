@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -401,7 +400,7 @@ func (p *pass) previousRound(ctx context.Context, pv *v1alpha1.PreviewVerificati
 	}
 	h.PriorRound = int(prev.Spec.Round)
 	h.PriorReplay = priorReplay(prev)
-	h.FixDiff = p.fixDiff(ctx, prev, pv)
+	h.FixDiff, h.FixDiffCut = p.fixDiff(ctx, prev, pv)
 	return nil
 }
 
@@ -466,28 +465,32 @@ func priorReplay(prev *v1alpha1.PreviewVerification) []agentrun.PriorReplay {
 
 // fixDiff is the diff since the heads prev evaluated (SPEC Q15): one
 // compare per component whose head moved, under its repository's name,
-// bounded to what the prompt quotes and made visible; "" when no head
-// moved. A compare that fails is logged and left out: the evaluator judges
-// without it rather than not at all.
-func (p *pass) fixDiff(ctx context.Context, prev, pv *v1alpha1.PreviewVerification) string {
-	var b strings.Builder
+// bounded to what the prompt quotes and made visible (boundFixDiff), and
+// what it leaves out of the fix (nil: nothing); "" and nil when no head
+// moved. A compare that fails is logged and named as unavailable: the
+// evaluator judges without it rather than not at all, told that it has not
+// seen the whole fix.
+func (p *pass) fixDiff(ctx context.Context, prev, pv *v1alpha1.PreviewVerification) (string,
+	*agentrun.FixDiffCut) {
+	var parts []fixDiffPart
 	for _, head := range pv.Spec.Heads {
 		i := slices.IndexFunc(prev.Spec.Heads, func(o v1alpha1.VerificationHead) bool {
 			return o.Component == head.Component
 		})
-		if i < 0 || prev.Spec.Heads[i].Revision == head.Revision || b.Len() >= templates.FixDiffMaxBytes {
+		if i < 0 || prev.Spec.Heads[i].Revision == head.Revision {
 			continue
 		}
-		patch, err := p.r.GitHub.ComparePatch(ctx, head.Repository, prev.Spec.Heads[i].Revision, head.Revision)
+		part := fixDiffPart{repo: repoSlug(head.Repository), base: prev.Spec.Heads[i].Revision, head: head.Revision}
+		patch, err := p.r.GitHub.ComparePatch(ctx, head.Repository, part.base, part.head)
 		if err != nil {
-			p.r.log().LogAttrs(ctx, slog.LevelWarn, "compare the heads for the evaluator's fix diff; left out",
+			p.r.log().LogAttrs(ctx, slog.LevelWarn, "compare the heads for the evaluator's fix diff; said unavailable",
 				slog.String("intent", p.in.Name), slog.String("repository", head.Repository), slog.Any("error", err))
-			continue
+			part.unavailable = true
 		}
-		fmt.Fprintf(&b, "# %s %s...%s\n%s\n", repoSlug(head.Repository), prev.Spec.Heads[i].Revision,
-			head.Revision, strings.TrimRight(patch, "\n"))
+		part.patch = patch
+		parts = append(parts, part)
 	}
-	return untrusted.Visible(b.String(), templates.FixDiffMaxBytes)
+	return boundFixDiff(parts)
 }
 
 // requestText is the intent's request as its input snapshot recorded it,

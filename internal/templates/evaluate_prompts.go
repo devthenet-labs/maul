@@ -29,6 +29,15 @@ const (
 	LookAroundToolCalls = 40
 	// FixDiffMaxBytes bounds the fix diff a round after a fix quotes.
 	FixDiffMaxBytes = 32 << 10
+	// FixDiffFilesMaxBytes bounds the files a cut fix diff names as not
+	// shown in full, each at most FixDiffPathMaxBytes; the rest are counted.
+	// A controller cutting the diff keeps the diff and its files within
+	// FixDiffMaxBytes together.
+	FixDiffFilesMaxBytes = 4 << 10
+	FixDiffPathMaxBytes  = 256
+	// fixDiffReposMax bounds the repositories a fix diff note names: a
+	// Project's.
+	fixDiffReposMax = 8
 	// ChangedPathsMax bounds the changed paths the prompt lists; the rest
 	// are counted.
 	ChangedPathsMax = 200
@@ -133,7 +142,7 @@ var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 // the approved outcomes against the running preview with maul-tool, save
 // checks for them, look around what the change touched, and report.
 //
-// Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay,
+// Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files, PriorVerdicts, PriorReplay,
 // PriorRefused and NotYetProof are UNTRUSTED (DESIGN 4.4):
 // the issue anyone may have written, the plan's
 // outcome text, paths and diff text from the pull request, and a previous
@@ -175,8 +184,13 @@ type EvaluatePrompt struct {
 	// line counts (SPEC Q15).
 	ChangedPaths []ChangedPath
 	// FixDiff is the fix's diff since the last evaluated heads, on a round
-	// after a fix; "" omits the section.
+	// after a fix; "" omits the section unless FixDiffCut says a diff
+	// could not be read.
 	FixDiff string
+	// FixDiffCut is what FixDiff leaves out of the fix (code review
+	// 2026-11-18, agent-prompts 8), which the prompt states as maul's own
+	// fact beside the quoted diff; the zero value: FixDiff is the whole fix.
+	FixDiffCut FixDiffCut
 	// PriorRound is the last judged round before this one, and
 	// PriorVerdicts and PriorReplay its results (SPEC Q15): maul's result
 	// per outcome, and how each saved check replayed at its start. Zero, or
@@ -364,10 +378,15 @@ type evaluateView struct {
 	OutcomesBlock string
 	ChangedBlock  string
 	FixDiffBlock  string
-	PriorBlock    string
-	RefusedBlock  string
-	NotYetBlock   string
-	Examples      evaluateExamples
+	// FixDiffNote is maul's statement of what the fix diff leaves out, ""
+	// when it is whole; FixDiffFilesBlock the files it names as not shown
+	// in full (fixDiffView).
+	FixDiffNote       string
+	FixDiffFilesBlock string
+	PriorBlock        string
+	RefusedBlock      string
+	NotYetBlock       string
+	Examples          evaluateExamples
 	// WS is the workspace, on a round with no preview.
 	WS workspaceView
 	// LookAroundCalls is LookAroundToolCalls, for the template.
@@ -543,9 +562,7 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 		ReportBy:        reportBy(p.Limits.MaxTurns),
 	}
 	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay, p.NotYetProof)
-	if strings.TrimSpace(p.FixDiff) != "" {
-		v.FixDiffBlock = strings.Trim(untrusted.Visible(p.FixDiff, FixDiffMaxBytes), "\n")
-	}
+	v.FixDiffBlock, v.FixDiffNote, v.FixDiffFilesBlock = fixDiffView(p.FixDiff, p.FixDiffCut)
 	if p.PriorRound > 0 {
 		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
 	}

@@ -755,10 +755,13 @@ func TestDryEvaluateOnFakeHarness(t *testing.T) {
 func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 	raw := evalHandoff(func(h *EvaluateHandoff) {
 		h.Round, h.PriorRound, h.FixDiff = 2, 1, "+k := 32\n"
+		h.FixDiffCut = &FixDiffCut{ShownBytes: 9, ReadBytes: 40000, Files: []string{"vendor/big.go"},
+			Unavailable: []string{"acme/web"}}
 		h.PriorVerdicts = []PriorVerdict{{Outcome: "rate-battle", Result: "failed", Reason: "stays put"}}
 		h.PriorReplay = []PriorReplay{{Check: "leaderboard", Outcome: "leaderboard", Result: "pass"}}
 	})
-	for _, key := range []string{`"prior_round":1`, `"prior_verdicts":[`, `"prior_replay":[`, `"fix_diff":`} {
+	for _, key := range []string{`"prior_round":1`, `"prior_verdicts":[`, `"prior_replay":[`, `"fix_diff":`,
+		`"fix_diff_cut":{`} {
 		if !strings.Contains(raw, key) {
 			t.Errorf("handoff %s lacks %s", raw, key)
 		}
@@ -777,6 +780,9 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 		len(p.PriorReplay) != 1 || p.PriorReplay[0] != (templates.PriorReplay{Check: "leaderboard",
 		Outcome: "leaderboard", Result: "pass"}) {
 		t.Errorf("prompt = %+v, want the previous round's results", p)
+	}
+	if c := p.FixDiffCut; c.ShownBytes != 9 || c.ReadBytes != 40000 || len(c.Files) != 1 || len(c.Unavailable) != 1 {
+		t.Errorf("fix diff cut = %+v, want the handoff's", c)
 	}
 }
 
