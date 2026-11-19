@@ -283,7 +283,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
    build right only on the example would be wrong.
 5. For a claim that something is left out, refused or absent, give the input that must be left out or refused and
-   assert that it is, beside an assertion of one that is kept, so an empty answer does not pass.
+   assert that it is, beside an assertion of one that is kept, so an empty answer does not pass (in `stdoutJSON`,
+   an `{"$absent": true}` beside a value that is there).
 6. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a
    sample.
 7. For a claim that something is carried over (a copy, fields kept, the rest as it was), compare what using the

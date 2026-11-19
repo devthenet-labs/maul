@@ -118,7 +118,8 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 // question answered proves for the outcome's current text, or a review of
 // it refused (the predicate acceptance's passes holds a check saved red
 // to); and the stored checks the substance rules have come to refuse
-// (storedValid, marked Refused), which support nothing. A green replay of
+// (storedValid, marked Refused), which support nothing, while their
+// outcome has no stored check that can pass it. A green replay of
 // either passes nothing, so the evaluator is told to write its outcome a
 // new check that proves it: without that the prompt's rule against a new
 // check for an outcome whose saved check replayed green would leave a
@@ -142,9 +143,16 @@ func (p *pass) notYetProof(ctx context.Context) []agentrun.NotYetProof {
 		if i < 0 || acc.Outcomes[i].Manual {
 			continue
 		}
+		proven := func(c v1alpha1.SavedCheck) bool {
+			return storedValid(c) && (c.Expect != v1alpha1.CheckExpectFail ||
+				greenProven(acc.Reviews, c.Digest, outcomeDigest(acc.Outcomes[i])))
+		}
 		refused := !storedValid(c)
-		if !refused && (c.Expect != v1alpha1.CheckExpectFail ||
-			greenProven(acc.Reviews, c.Digest, outcomeDigest(acc.Outcomes[i]))) {
+		// A refused check is named only while its outcome has no stored
+		// check that can pass it: once one is saved, no round asks more.
+		if proven(c) || refused && slices.ContainsFunc(stored, func(o v1alpha1.SavedCheck) bool {
+			return o.Outcome == c.Outcome && proven(o)
+		}) {
 			continue
 		}
 		out = append(out, agentrun.NotYetProof{Outcome: c.Outcome, Check: c.ID, Refused: refused})

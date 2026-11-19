@@ -231,4 +231,11 @@ func TestEvaluateHandoffNamesRefusedStoredChecks(t *testing.T) {
 	if !slices.Equal(h.NotYetProof, want) {
 		t.Errorf("not yet proof = %+v, want %+v", h.NotYetProof, want)
 	}
+	// Once the outcome has a stored check that can pass it, the refused one
+	// is no longer named: no round after asks for yet another check.
+	e.storeChecks(name, refused, valid, savedCheck(t, healthCheck))
+	h = decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv))
+	if len(h.NotYetProof) != 0 {
+		t.Errorf("not yet proof = %+v beside a stored check that can pass the outcome, want none", h.NotYetProof)
+	}
 }

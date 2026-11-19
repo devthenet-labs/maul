@@ -382,6 +382,15 @@ func TestUncoveredPasses(t *testing.T) {
 			h.PriorReplay = []PriorReplay{{Check: "a", Outcome: "a", Result: "pass"}}
 			h.NotYetProof = []NotYetProof{{Outcome: "a", Check: "a"}}
 		}, []string{"a"}},
+		{"passed in the previous round on a saved check since refused", func(h *EvaluateHandoff, _ *evaluationReport) {
+			h.PriorVerdicts = []PriorVerdict{{Outcome: "a", Result: "passed"}}
+			h.PriorReplay = []PriorReplay{{Check: "a", Outcome: "a", Result: "pass"}}
+			h.NotYetProof = []NotYetProof{{Outcome: "a", Check: "a", Refused: true}}
+		}, []string{"a"}},
+		{"passed in the previous round, a saved red check not yet proof", func(h *EvaluateHandoff, _ *evaluationReport) {
+			h.PriorVerdicts = []PriorVerdict{{Outcome: "a", Result: "passed"}}
+			h.NotYetProof = []NotYetProof{{Outcome: "a", Check: "a"}}
+		}, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			h, e := base()
