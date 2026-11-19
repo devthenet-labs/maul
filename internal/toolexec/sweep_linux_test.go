@@ -23,9 +23,14 @@ import (
 // thread exits while another thread keeps running.
 const zombieLeaderEnv = "MAUL_TOOLEXEC_ZOMBIE_LEADER"
 
+// zombieLeaderLife bounds the helper's life, well past the test's own waits.
+const zombieLeaderLife = 2 * time.Minute
+
 // init runs on the main thread (the thread-group leader) before any test:
 // under zombieLeaderEnv it starts a thread of its own and exits the main
-// thread alone, leaving /proc/<pid>/status at State Z with Threads > 1.
+// thread alone, leaving /proc/<pid>/status at State Z with Threads > 1. The
+// helper ends itself after zombieLeaderLife, so a test run that dies before
+// its cleanup leaves no process behind.
 func init() {
 	if os.Getenv(zombieLeaderEnv) != "1" {
 		return
@@ -34,9 +39,8 @@ func init() {
 	go func() {
 		runtime.LockOSThread()
 		close(started)
-		for {
-			time.Sleep(time.Hour)
-		}
+		time.Sleep(zombieLeaderLife)
+		os.Exit(0)
 	}()
 	<-started
 	_, _, _ = syscall.RawSyscall(syscall.SYS_EXIT, 0, 0, 0)
