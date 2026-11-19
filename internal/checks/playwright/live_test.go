@@ -97,6 +97,7 @@ func liveCases() []liveCase {
 	)
 	out = append(out, nameCases()...)
 	out = append(out, seenCases()...)
+	out = append(out, unmeasuredCases()...)
 	return append(out, clippedCases()...)
 }
 
@@ -139,6 +140,43 @@ func seenCases() []liveCase {
 			Locator: &checks.Locator{Role: "button", Name: "Save"}}},
 		{"v-navlink-legible", "pass", checks.Assertion{Assert: checks.AssertLegible, Locator: css("#v-navlink")}},
 	}
+}
+
+// unmeasuredCases are review finding 10's: text over an <img>, a <canvas>
+// or a positioned ::before scrim is indeterminate for visible and legible
+// whichever way it reads (maul does not know what they paint), while a
+// flow ::before beside the text judges as before; a web component's
+// button in an open shadow root is hit-tested and its background resolved
+// through the root, so it passes clickable, visible and legible, a covered
+// one still fails clickable, and text slotted over the component's own
+// shadow background is judged against it.
+func unmeasuredCases() []liveCase {
+	both := func(id, want string) []liveCase {
+		return []liveCase{
+			{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}},
+			{id + "-legible", want, checks.Assertion{Assert: checks.AssertLegible, Locator: css("#" + id)}},
+		}
+	}
+	yes := true
+	shadow := &checks.Locator{Role: "button", Name: "Shadow button", Exact: &yes}
+	covered := &checks.Locator{Role: "button", Name: "Covered shadow button", Exact: &yes}
+	var out []liveCase
+	for _, id := range []string{"i-dark-img", "i-white-img", "i-dark-canvas", "i-white-canvas", "i-dark-before",
+		"i-white-before"} {
+		out = append(out, both(id, "indeterminate")...)
+	}
+	out = append(out, both("i-dot", "pass")...)
+	out = append(out, both("sh-slotted", "pass")...)
+	return append(out,
+		liveCase{"sh-button-clickable", "pass", checks.Assertion{Assert: checks.AssertClickable, Locator: shadow}},
+		liveCase{"sh-button-visible", "pass", checks.Assertion{Assert: checks.AssertVisible, Locator: shadow}},
+		liveCase{"sh-button-legible", "pass", checks.Assertion{Assert: checks.AssertLegible, Locator: shadow}},
+		liveCase{"sh-covered-clickable", "fail", checks.Assertion{Assert: checks.AssertClickable, Locator: covered}},
+		liveCase{"sh-covered-visible", "indeterminate", checks.Assertion{Assert: checks.AssertVisible, Locator: covered}},
+		liveCase{"sh-text-legible", "pass", checks.Assertion{Assert: checks.AssertLegible,
+			Locator: &checks.Locator{Text: "Shadow text, pointer-events none"}}},
+		liveCase{"sh-host-visible", "pass", checks.Assertion{Assert: checks.AssertVisible, Locator: css("#sh-light-host")}},
+	)
 }
 
 // notFailed are the cases whose verdict is not a fail: none may carry

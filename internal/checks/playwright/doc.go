@@ -26,10 +26,12 @@
 // readable passes, all unreadable fails). legible is WCAG AA, 4.5:1
 // (3:1 for large text). The background is what is painted under the
 // element (the hit-test stack at its centre, pointer-events lifted), a
-// gradient judged per colour stop by unanimity, a background image
-// indeterminate, and a paint effect (text-shadow, blend, filter,
-// background-clip text) never a fail. clickable is a hit test at the box
-// centre, a fail final and a pass confirmed by a trial click. An
+// gradient judged per colour stop by unanimity, a background image, a
+// replaced element (img, canvas, video, SVG), a ::before or ::after over
+// the text and shadow content out of sight indeterminate, and a paint
+// effect (text-shadow, blend, filter, background-clip text) never a fail.
+// clickable is a hit test at the box centre in the element's own root (a
+// shadow root's too), a fail final and a pass confirmed by a trial click. An
 // indeterminate judgement adds the AnnotationIndeterminate annotation and
 // throws: a check error (unsure), never a fail. Box relations (left-of,
 // above, no-overlap, equal-size, aligned, size) compare Playwright

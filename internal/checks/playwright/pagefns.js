@@ -36,7 +36,14 @@
 // chain only when the element is not in that stack. A gradient is judged
 // against each of its colour stops composited over what lies beneath, by
 // unanimity: every stop passes, pass; every stop fails, fail; otherwise
-// indeterminate. A background image is indeterminate. Paint effects the
+// indeterminate. A background image is indeterminate, and so is a layer
+// whose paint the arithmetic does not know: a replaced element (<img>,
+// <canvas>, <video>, SVG, an embed), a ::before or ::after with a
+// background placed over the point, and a web component's shadow content
+// out of reach (a closed root, or an open one beside the text). Shadow
+// roots are measured through: the stack is the element's own root's, its
+// chains run through slots and hosts, and text slotted into a component
+// is measured from inside that component's root. Paint effects the
 // arithmetic cannot model (text-shadow, mix-blend-mode, filter,
 // backdrop-filter) turn a computed fail into indeterminate, and
 // background-clip text is always indeterminate. Known miss, never a false
@@ -112,38 +119,89 @@
     return /\bdark\b/.test(cs) && !/\blight\b/.test(cs) ? { r: 18, g: 18, b: 18, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
   };
 
-  // stackAt is the hit-test stack at (x, y), top first, with pointer-events
-  // lifted for the one measurement (a layer with pointer-events none still
-  // paints).
-  const stackAt = (x, y) => {
-    const st = document.createElement('style');
-    st.textContent = '*{pointer-events:auto!important}';
-    document.documentElement.appendChild(st);
-    const stack = document.elementsFromPoint(x, y).filter((n) => n !== st);
-    st.remove();
-    return stack;
+  // up is n's parent in the rendered (flat) tree: its slot when slotted,
+  // the host above a shadow root's top.
+  const up = (n) => n.assignedSlot || n.parentElement || (n.parentNode && n.parentNode.host) || null;
+  // within reports whether n is a, or inside it in the rendered tree.
+  const within = (n, a) => {
+    for (; n; n = up(n)) if (n === a) return true;
+    return false;
+  };
+  // rootOf is the document or shadow root that hit-tests n's tree.
+  const rootOf = (n) => {
+    const r = n.getRootNode();
+    return r instanceof ShadowRoot ? r : document;
+  };
+  // scopesOf lists the roots whose elements root r's hit test shows as
+  // themselves: r and every root above its host.
+  const scopesOf = (r) => {
+    const out = new Set();
+    for (; r; r = r instanceof ShadowRoot ? rootOf(r.host) : null) out.add(r);
+    return out;
+  };
+  // insideOf reports whether n is in host h's shadow tree, at any depth.
+  const insideOf = (n, h) => {
+    for (let r = n.getRootNode(); r instanceof ShadowRoot; r = r.host.getRootNode()) if (r.host === h) return true;
+    return false;
   };
 
-  // layersBelow lists the layers painted under t, top first: the hit-test
-  // stack at its centre, else the ancestor chain.
+  // stackAt is root r's hit-test stack at (x, y), top first, with
+  // pointer-events lifted for the one measurement in the document and in
+  // every open shadow root (a layer with pointer-events none still paints).
+  const LIFT = '*,*::before,*::after{pointer-events:auto!important}';
+  const stackAt = (r, x, y) => {
+    const roots = [document];
+    for (let i = 0; i < roots.length; i++) {
+      for (const n of roots[i].querySelectorAll('*')) if (n.shadowRoot) roots.push(n.shadowRoot);
+    }
+    const sts = roots.map((o) => {
+      const st = document.createElement('style');
+      st.textContent = LIFT;
+      (o === document ? document.documentElement : o).appendChild(st);
+      return st;
+    });
+    try {
+      return r.elementsFromPoint(x, y).filter((n) => !sts.includes(n));
+    } finally {
+      for (const st of sts) st.remove();
+    }
+  };
+
+  // layersBelow lists the layers painted under t, top first, with the
+  // point and the roots they were measured in: the hit-test stack at its
+  // centre in t's own root, else the ancestor chain. Text slotted into a
+  // component whose own shadow content is out of that root's sight is
+  // measured from inside the component's root instead, where both show.
   const layersBelow = (t) => {
     const r = t.getBoundingClientRect();
-    const stack = stackAt(r.left + r.width / 2, r.top + r.height / 2);
-    const i = stack.indexOf(t);
-    if (i >= 0) return stack.slice(i);
-    const chain = [];
-    for (let n = t; n && n.nodeType === 1; n = n.parentElement) chain.push(n);
-    return chain;
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    let root = rootOf(t);
+    for (let tries = 0; tries < 8; tries++) {
+      const stack = stackAt(root, x, y);
+      const i = stack.indexOf(t);
+      if (i < 0) break;
+      const layers = stack.slice(i);
+      const scopes = scopesOf(root);
+      const host = layers.find((n) => n !== t && n.shadowRoot && !scopes.has(n.shadowRoot) && within(t, n));
+      if (!host) return { layers, x, y, scopes };
+      root = host.shadowRoot;
+    }
+    const layers = [];
+    for (let n = t; n && n.nodeType === 1; n = up(n)) layers.push(n);
+    return { layers, x, y, scopes: scopesOf(rootOf(t)) };
   };
 
   // resolveBackground returns the opaque background candidates under t,
   // or why they cannot be known. background-color paints below
   // background-image; a gradient contributes each stop as a candidate.
   const resolveBackground = (t) => {
-    const layers = layersBelow(t);
+    const { layers, x, y, scopes } = layersBelow(t);
     const walk = (k) => {
       if (k >= layers.length) return { colours: [canvasColour()] };
       const node = layers[k];
+      const unknown = unknownPaint(node, x, y, scopes);
+      if (unknown) return { indeterminate: unknown };
       const cs = getComputedStyle(node);
       const img = cs.backgroundImage;
       const bg = parseColour(cs.backgroundColor);
@@ -188,7 +246,7 @@
 
   const effectiveOpacity = (e) => {
     let o = 1;
-    for (let n = e; n && n.nodeType === 1; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+    for (let n = e; n && n.nodeType === 1; n = up(n)) o *= parseFloat(getComputedStyle(n).opacity);
     return o;
   };
 
@@ -204,7 +262,7 @@
       if (f && f.a === 0) return { indeterminate: 'transparent text fill' };
     }
     const effects = [];
-    for (let n = t; n && n.nodeType === 1; n = n.parentElement) {
+    for (let n = t; n && n.nodeType === 1; n = up(n)) {
       const s = getComputedStyle(n);
       if (/text/.test(s.backgroundClip) || /text/.test(s.webkitBackgroundClip || '')) {
         return { indeterminate: 'background-clip text on ' + desc(n) };
@@ -241,13 +299,71 @@
     return { verdict: 'indeterminate', why: ['background colours disagree: contrast ' + range() + ' vs ' + floor] };
   };
 
-  // paints says what n paints over its whole box, or '' for nothing a
-  // person would see: faded out, or no background, image or replaced
-  // content (text alone, a floating label, is not a cover).
+  // pseudoAt says whether a ::before or ::after of n with a background or
+  // image may paint at (x, y): one laid out in the flow sits beside n's
+  // text, never under it; an absolutely positioned one in n's own box is
+  // placed by its insets; any other is unknown, so it may.
+  const pseudoAt = (n, x, y) => {
+    for (const which of ['::before', '::after']) {
+      const s = getComputedStyle(n, which);
+      if (/^(none|normal)$/.test(s.content) || s.display === 'none' || s.visibility !== 'visible') continue;
+      if (parseFloat(s.opacity) === 0) continue;
+      const bg = parseColour(s.backgroundColor);
+      if (bg && bg.a === 0 && s.backgroundImage === 'none' && !/url\(|gradient\(/.test(s.content)) continue;
+      const still = (k) => s[k] === 'auto' || s[k] === '0px';
+      const flow =
+        (s.position === 'static' || (/^(relative|sticky)$/.test(s.position) && ['top', 'right', 'bottom', 'left'].every(still))) &&
+        s.transform === 'none' &&
+        (!s.translate || s.translate === 'none') &&
+        ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'].every((k) => parseFloat(s[k]) >= 0);
+      if (flow) continue;
+      const own = getComputedStyle(n);
+      if (s.position !== 'absolute' || s.transform !== 'none' || (own.position === 'static' && !establishesFixedBlock(own))) {
+        return which + ' of ' + desc(n);
+      }
+      const r = n.getBoundingClientRect();
+      const pad = (a, b) =>
+        parseFloat(s['padding' + a]) + parseFloat(s['padding' + b]) + parseFloat(s['border' + a + 'Width']) + parseFloat(s['border' + b + 'Width']);
+      const l = r.left + n.clientLeft + parseFloat(s.left);
+      const t = r.top + n.clientTop + parseFloat(s.top);
+      const w = parseFloat(s.width) + pad('Left', 'Right');
+      const h = parseFloat(s.height) + pad('Top', 'Bottom');
+      if (![l, t, w, h].every(Number.isFinite)) return which + ' of ' + desc(n);
+      if (x >= l && x <= l + w && y >= t && y <= t + h) return which + ' of ' + desc(n);
+    }
+    return '';
+  };
+
+  // unknownPaint says why what n paints at (x, y) is not known, measured
+  // in the roots scopes: a replaced element, a ::before or ::after over the
+  // point, a shadow root out of sight whose content paints there, or a
+  // custom element whose root may be closed. '' when nothing is unknown.
   const REPLACED = /^(IMG|CANVAS|VIDEO|OBJECT|EMBED|IFRAME)$/;
-  const paints = (n) => {
+  const unknownPaint = (n, x, y, scopes) => {
+    if (REPLACED.test(n.tagName) || n instanceof SVGElement || (n.tagName === 'INPUT' && n.type === 'image')) {
+      return 'unknown paint of ' + desc(n);
+    }
+    const p = pseudoAt(n, x, y);
+    if (p) return 'unknown paint of ' + p;
+    if (n.shadowRoot && !scopes.has(n.shadowRoot)) {
+      const inner = scopesOf(n.shadowRoot);
+      for (const i of stackAt(n.shadowRoot, x, y)) {
+        if (insideOf(i, n) && paints(i, x, y, inner)) return 'the shadow content of ' + desc(n);
+      }
+    } else if (!n.shadowRoot && n.localName.includes('-') && customElements.get(n.localName)) {
+      return 'unknown paint of ' + desc(n) + ' (a closed shadow root?)';
+    }
+    return '';
+  };
+
+  // paints says what n paints at (x, y), or '' for nothing a person would
+  // see: faded out, or no background, image, replaced content or other
+  // paint maul cannot rule out (text alone, a floating label, is not a
+  // cover).
+  const paints = (n, x, y, scopes) => {
     if (effectiveOpacity(n) <= VISIBLE_MIN_OPACITY) return '';
-    if (REPLACED.test(n.tagName) || n instanceof SVGElement) return desc(n);
+    const unknown = unknownPaint(n, x, y, scopes);
+    if (unknown) return unknown;
     const s = getComputedStyle(n);
     const bg = parseColour(s.backgroundColor);
     if (!bg || bg.a > 0) return 'the background of ' + desc(n);
@@ -267,12 +383,13 @@
       const x = r.left + r.width / 2;
       const y = r.top + r.height / 2;
       if (!(x >= 0 && x < innerWidth && y >= 0 && y < innerHeight)) continue;
-      const stack = stackAt(x, y);
+      const root = rootOf(el);
+      const stack = stackAt(root, x, y);
       const i = stack.indexOf(el);
       if (i < 0) continue;
       for (const n of stack.slice(0, i)) {
-        if (el.contains(n)) continue;
-        const what = paints(n);
+        if (within(n, el)) continue;
+        const what = paints(n, x, y, scopesOf(root));
         if (what) return 'centre (' + Math.round(x) + ',' + Math.round(y) + ') covered by ' + what;
       }
       return '';
@@ -298,7 +415,16 @@
   const descendantText = () => {
     const verdicts = [];
     let more = false;
-    for (const d of el.querySelectorAll('*')) {
+    const all = [];
+    const add = (r) => {
+      for (const d of r.querySelectorAll('*')) {
+        all.push(d);
+        if (d.shadowRoot) add(d.shadowRoot);
+      }
+    };
+    if (el.shadowRoot) add(el.shadowRoot);
+    add(el);
+    for (const d of all) {
       if (!ownText(d) || !shown(d)) continue;
       if (verdicts.length === DESCENDANTS_MAX) {
         more = true;
@@ -362,8 +488,8 @@
     const r = el.getBoundingClientRect();
     const x = r.left + r.width / 2;
     const y = r.top + r.height / 2;
-    const top = document.elementFromPoint(x, y);
-    if (top && (top === el || el.contains(top))) return { verdict: 'pass', why: [] };
+    const top = rootOf(el).elementFromPoint(x, y);
+    if (top && within(top, el)) return { verdict: 'pass', why: [] };
     return {
       verdict: 'fail',
       why: ['centre (' + Math.round(x) + ',' + Math.round(y) + ') hits ' + (top ? desc(top) : 'nothing')],
@@ -477,9 +603,9 @@
     const root = document.documentElement;
     const own = getComputedStyle(t);
     clipBy(t, own);
-    for (let a = t.parentElement; a && a !== root; a = a.parentElement) if (warps(getComputedStyle(a))) warped.push(desc(a));
+    for (let a = up(t); a && a !== root; a = up(a)) if (warps(getComputedStyle(a))) warped.push(desc(a));
     let pos = own.position;
-    for (let a = t.parentElement; a && a !== root && a !== document.body; a = a.parentElement) {
+    for (let a = up(t); a && a !== root && a !== document.body; a = up(a)) {
       const s = getComputedStyle(a);
       if (pos === 'fixed' && !establishesFixedBlock(s)) continue;
       if (pos === 'absolute' && s.position === 'static' && !establishesFixedBlock(s)) continue;
