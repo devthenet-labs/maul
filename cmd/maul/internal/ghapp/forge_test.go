@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/yaml"
 
 	"github.com/devthenet-labs/maul/api/v1alpha1"
@@ -116,5 +117,22 @@ func TestForgeRenderersRefuseEmpty(t *testing.T) {
 				t.Errorf("rendered %q, err %v; want an error and nothing", out, err)
 			}
 		})
+	}
+}
+
+// TestForgeNameFor: the default Forge name is one the API server accepts
+// whatever login GitHub reports, and the login itself where it already is.
+func TestForgeNameFor(t *testing.T) {
+	for login, want := range map[string]string{
+		"acme": "acme", "Acme-Corp": "acme-corp", "123": "123", "Alice_Corp": "alice-corp", "-Bob-": "bob",
+		"a__b": "a-b", "": "github", "___": "github", strings.Repeat("a", 62) + "_b": strings.Repeat("a", 62),
+	} {
+		got := ForgeNameFor(login)
+		if got != want {
+			t.Errorf("ForgeNameFor(%q) = %q, want %q", login, got, want)
+		}
+		if errs := validation.IsDNS1123Label(got); len(errs) > 0 {
+			t.Errorf("ForgeNameFor(%q) = %q is no object name: %v", login, got, errs)
+		}
 	}
 }

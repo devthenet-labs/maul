@@ -7,7 +7,7 @@ Contents read, see [its credentials](../integrations/sources/github.md#credentia
 
 !!! tip "Let the CLI register it"
 
-    `maul setup github-app` checks that you are an Owner of the organization, registers the App from a manifest
+    `maul setup github-app` checks that you are an Owner of the organization (given a token in `GH_TOKEN`), registers the App from a manifest
     holding exactly the permissions and events below for the features you choose, and writes two files: the
     `maul-github-<org>` Secret manifest with its credentials (mode 0600: create it, then delete the file), and
     `maul-github-<org>.forge.yaml`, the `Forge` for the organization plus, with `--intents`, a `Role` letting

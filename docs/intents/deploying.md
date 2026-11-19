@@ -191,15 +191,20 @@ re-running a failed check before a round needs (a Project with `spec.checks.reru
 needs a webhook, because intent-controller polls GitHub:
 
 ```sh
-maul setup github-app --org acme --intents --checks
+maul setup github-app --org acme --intents --checks --secret-name maul-github
 # With the security-findings pipeline too, which does need the webhook:
-maul setup github-app --org acme --intents --checks --security --webhook-url https://maul.acme.dev/github/webhooks
+maul setup github-app --org acme --intents --checks --secret-name maul-github \
+  --security --webhook-url https://maul.acme.dev/github/webhooks
 ```
 
 You must be an owner of the organization. A browser page opens and posts the App manifest to GitHub; check the form and
 click **Create GitHub App**. The CLI writes the App's credentials as a Secret manifest, `maul-github.secret.yaml`, mode
 0600; it holds the only copy of the private key, so apply it in step 5 and then delete it (or encrypt it, with
-`-o - | sops ...`). [Creating the GitHub App](../cli.md#creating-the-github-app) has every flag, and
+`-o - | sops ...`). `--secret-name maul-github` keeps the name the rest of this page and the chart's default
+`forgeSecrets` use; without it the Secret is `maul-github-acme`. The CLI also writes `maul-github.forge.yaml` and ends
+with a `next:` block of commands: that is the short path for adding an organization to an install that is already
+running. Nothing is installed yet here, so keep to the steps below, which create the Secret in step 5 and the Forge in
+step 6. [Creating the GitHub App](../cli.md#creating-the-github-app) has every flag, and
 [Create the GitHub App](../getting-started/github-app.md#intents) the permissions and why each is needed:
 
 | Repository                     | Permission                               | Access       |

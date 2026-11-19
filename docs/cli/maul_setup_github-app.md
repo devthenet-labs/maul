@@ -61,7 +61,9 @@ secret, so keep it. It holds the Forge (--forge-name, default the App owner's
 login lowercased) covering the App owner's repositories with that Secret
 and, with --intents, a Role and RoleBinding that let intent-controller's
 ServiceAccount (--intent-controller-sa, default maul-intent-controller, as
-in a release named maul) get exactly that one Secret.
+in a release named maul) get exactly that one Secret. Once the App exists,
+change that subject in the forge file rather than run again: another run
+creates another App.
 
 Everything else goes to stderr, ending with a numbered next: block: the
 link to install the App ("Only select repositories" is enough: for

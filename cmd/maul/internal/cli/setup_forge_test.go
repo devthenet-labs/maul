@@ -12,6 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/yaml"
+
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/cmd/maul/internal/ghapp"
 )
 
@@ -162,6 +166,23 @@ func TestSetupGitHubAppNoOwnerCheckOnDryRun(t *testing.T) {
 	}
 }
 
+// TestSetupGitHubAppNoOwnerCheckForUser: --user names no organization to be
+// an Owner of, so the token goes nowhere and nothing is warned about.
+func TestSetupGitHubAppNoOwnerCheckForUser(t *testing.T) {
+	g := newFakeAppGitHub(t)
+	var started string
+	deps := g.deps(g.browser(false, &started), nil)
+	deps.getenv = func(string) string { return "tok" }
+	_, stderr, err := execSetup(t, deps, "setup", "github-app", "--user", "--intents", "-o",
+		filepath.Join(t.TempDir(), "s.yaml"), "--timeout", "20s")
+	if err != nil {
+		t.Fatalf("setup: %v\n%s", err, stderr)
+	}
+	if g.memberAsks() != 0 || strings.Contains(stderr, "an Owner of") {
+		t.Errorf("--user checked an organization's Owner (%d requests):\n%s", g.memberAsks(), stderr)
+	}
+}
+
 // TestSetupGitHubAppForgeFile: beside the Secret goes the forge file: the
 // Forge for the App's organization, plus the Secret reader Role and
 // RoleBinding with --intents. It holds no secret, and the stderr carries
@@ -229,7 +250,7 @@ func TestSetupGitHubAppForgeOutput(t *testing.T) {
 	}
 	g := newFakeAppGitHub(t)
 	_, _, err := execSetup(t, g.deps(neverOpen(t), nil), "setup", "github-app", "--org", "acme", "--intents",
-		"-o", secret, "--forge-output", forge)
+		"-o", secret, "--forge-output", forge, "--timeout", "2s")
 	if !errors.Is(err, ghapp.ErrExists) {
 		t.Errorf("an existing forge file = %v, want ErrExists", err)
 	}
@@ -269,5 +290,89 @@ func TestSetupGitHubAppForgeOutput(t *testing.T) {
 				t.Errorf("error = %v (exit %d), want a usage error naming %s", err, exitCode(err), tt.want)
 			}
 		})
+	}
+}
+
+// TestSetupGitHubAppForgeOutputIsNeverTheSecretFile: the forge file is
+// written after the Secret file, and --force replaces what is there, so a
+// forge path that reaches the Secret file by another spelling would destroy
+// the only copy of the private key. Every such spelling is a usage error
+// before GitHub hears of anything.
+func TestSetupGitHubAppForgeOutputIsNeverTheSecretFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(dir, "link")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	t.Chdir(dir)
+	for _, tt := range []struct {
+		name          string
+		secret, forge string
+	}{
+		{"relative and absolute", "s.yaml", filepath.Join(dir, "s.yaml")},
+		{"through a symlinked directory", filepath.Join("real", "s.yaml"), filepath.Join("link", "s.yaml")},
+		{"names differing only in case", "s.yaml", "S.yaml"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			g := newFakeAppGitHub(t)
+			_, _, err := execSetup(t, g.deps(neverOpen(t), nil), "setup", "github-app", "--org", "acme",
+				"--intents", "-o", tt.secret, "--forge-output", tt.forge, "--force", "--timeout", "2s")
+			if exitCode(err) != ExitUsage || !strings.Contains(fmtErr(err), "--forge-output") {
+				t.Errorf("error = %v (exit %d), want a usage error naming --forge-output", err, exitCode(err))
+			}
+			if _, created := g.received(); len(created) != 0 || g.conversions() != 0 {
+				t.Errorf("GitHub was asked to create an App: %v", created)
+			}
+			if _, statErr := os.Stat(tt.secret); !errors.Is(statErr, os.ErrNotExist) {
+				t.Error("a file was written")
+			}
+		})
+	}
+}
+
+// TestSetupGitHubAppUserForgeName: a user's login is known only once the
+// App exists, and GitHub issues logins no Kubernetes object can be named
+// (a managed user's has an underscore). The Forge still gets a name the API
+// server accepts, and covers the login as GitHub spells it.
+func TestSetupGitHubAppUserForgeName(t *testing.T) {
+	for login, want := range map[string]string{"Alice_Corp": "alice-corp", "alice": "alice", "-Bob-": "bob"} {
+		t.Run(login, func(t *testing.T) {
+			g := newFakeAppGitHub(t)
+			g.owner = login
+			dir := t.TempDir()
+			var started string
+			if _, stderr, err := execSetup(t, g.deps(g.browser(false, &started), nil), "setup", "github-app",
+				"--user", "--intents", "-o", filepath.Join(dir, "s.yaml"), "--timeout", "20s"); err != nil {
+				t.Fatalf("setup: %v\n%s", err, stderr)
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, "maul-github.forge.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var forge v1alpha1.Forge
+			if err := yaml.UnmarshalStrict([]byte(strings.Split(string(raw), "---\n")[0]), &forge); err != nil {
+				t.Fatal(err)
+			}
+			if forge.Name != want || len(forge.Spec.Orgs) != 1 || forge.Spec.Orgs[0] != login {
+				t.Errorf("Forge %q covers %v, want %q covering [%s]", forge.Name, forge.Spec.Orgs, want, login)
+			}
+			if errs := validation.IsDNS1123Subdomain(forge.Name); len(errs) > 0 {
+				t.Errorf("the API server refuses the Forge's name %q: %v", forge.Name, errs)
+			}
+		})
+	}
+}
+
+// TestSetupGitHubAppServiceAccountNeedsIntents: --intent-controller-sa
+// names the subject of a Role only --intents writes, so without --intents
+// it would be dropped silently.
+func TestSetupGitHubAppServiceAccountNeedsIntents(t *testing.T) {
+	g := newFakeAppGitHub(t)
+	_, _, err := execSetup(t, g.deps(neverOpen(t), nil), "setup", "github-app", "--org", "acme", "--security",
+		"--webhook-url", setupWebhook, "--intent-controller-sa", "x-ic", "--timeout", "2s")
+	if exitCode(err) != ExitUsage || !strings.Contains(fmtErr(err), "--intent-controller-sa") {
+		t.Errorf("error = %v (exit %d), want a usage error naming --intent-controller-sa", err, exitCode(err))
 	}
 }

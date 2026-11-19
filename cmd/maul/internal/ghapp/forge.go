@@ -6,6 +6,8 @@ package ghapp
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -22,6 +24,27 @@ const secretReaderPrefix = "maul-forge-secret-"
 // SecretReaderManifests renders for secretName.
 func SecretReaderName(secretName string) string {
 	return secretReaderPrefix + secretName
+}
+
+// notNameChars is every run of characters a Kubernetes object name cannot
+// hold, as ForgeNameFor reads one.
+var notNameChars = regexp.MustCompile(`[^a-z0-9]+`)
+
+// ForgeNameFor is the default name of the Forge for the account login: the
+// login lowercased, with whatever a Kubernetes object name cannot hold made
+// a hyphen. GitHub issues logins that are not such names (a managed user's
+// has an underscore, an old one may end in a hyphen), and a user's login is
+// known only once its App exists, when refusing it would strand the App.
+// A login with nothing to name a Forge by gives "github".
+func ForgeNameFor(login string) string {
+	name := strings.Trim(notNameChars.ReplaceAllString(strings.ToLower(login), "-"), "-")
+	if len(name) > 63 {
+		name = strings.Trim(name[:63], "-")
+	}
+	if name == "" {
+		return "github"
+	}
+	return name
 }
 
 // forgeManifest is a maul.run/v1alpha1 Forge with only the fields this

@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/devthenet-labs/maul/cmd/maul/internal/ghapp"
 )
 
 // setupNext is what `setup github-app` leaves the person to do, rendered as
@@ -58,13 +60,23 @@ func (n setupNext) render() string {
 		secret := shellQuote(n.secretFile)
 		fmt.Fprintf(&b, "  2. kubectl create -f %s && rm %s && kubectl apply -f %s\n", secret, secret, forge)
 	}
+	// On a first install neither exists yet when the App is created.
+	fmt.Fprintf(&b, "     Run it once maul is installed: it needs namespace %s and maul's CRDs.\n", n.namespace)
 	if n.intents {
 		fmt.Fprintf(&b, "  3. maul setup project <name> --intent-repo %s/<intent-repo> --repo %s/<app-repo> "+
 			"--approver <github-login> -n %s\n", n.owner, n.owner, n.namespace)
 	}
-	if n.serviceAccount != "" {
+	switch n.serviceAccount {
+	case "":
+	case ghapp.DefaultIntentControllerSA:
+		// Running again would create a second App, so the fix for this one
+		// is the file.
 		fmt.Fprintf(&b, "maul: the Role binds ServiceAccount %s in %s; pass --intent-controller-sa if your release "+
-			"is not named maul.\n", n.serviceAccount, n.namespace)
+			"is not named maul.\nmaul: for the App just created, change the subject's name in %s instead "+
+			"(kubectl -n %s get serviceaccounts lists it): another run creates another App.\n",
+			n.serviceAccount, n.namespace, forge, n.namespace)
+	default:
+		fmt.Fprintf(&b, "maul: the Role binds ServiceAccount %s in %s.\n", n.serviceAccount, n.namespace)
 	}
 	return b.String()
 }

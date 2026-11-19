@@ -98,7 +98,7 @@ var ErrExists = errors.New("the file exists")
 func CheckWritable(path string, force bool) error {
 	if info, err := os.Lstat(path); err == nil {
 		if info.IsDir() {
-			return fmt.Errorf("%s is a directory: name a file to write the Secret to", path)
+			return fmt.Errorf("%s is a directory: name a file to write to", path)
 		}
 		if !force {
 			return fmt.Errorf("%s: %w; pass --force to replace it", path, ErrExists)

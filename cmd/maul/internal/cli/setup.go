@@ -144,7 +144,9 @@ func newSetupGitHubAppCmd(opts *Options) *cobra.Command {
 			"login lowercased) covering the App owner's repositories with that Secret\n" +
 			"and, with --intents, a Role and RoleBinding that let intent-controller's\n" +
 			"ServiceAccount (--intent-controller-sa, default maul-intent-controller, as\n" +
-			"in a release named maul) get exactly that one Secret.\n\n" +
+			"in a release named maul) get exactly that one Secret. Once the App exists,\n" +
+			"change that subject in the forge file rather than run again: another run\n" +
+			"creates another App.\n\n" +
 			"Everything else goes to stderr, ending with a numbered next: block: the\n" +
 			"link to install the App (\"Only select repositories\" is enough: for\n" +
 			"intents, the intent repository and every application repository), the\n" +
@@ -294,16 +296,24 @@ func planFiles(p *setupPlan, f *setupGitHubAppFlags) error {
 			validation.DNS1123SubdomainMaxLength))
 	}
 	p.forgeName = f.forgeName
-	if p.forgeName == "" {
-		p.forgeName = strings.ToLower(f.org)
-	} else if err := validateName("--forge-name", p.forgeName); err != nil {
-		return err
+	switch {
+	case p.forgeName != "":
+		if err := validateName("--forge-name", p.forgeName); err != nil {
+			return err
+		}
+	case f.org != "":
+		p.forgeName = ghapp.ForgeNameFor(f.org)
 	}
-	if f.intents {
+	switch {
+	case f.intents:
 		if err := validateName("--intent-controller-sa", f.intentSA); err != nil {
 			return err
 		}
 		p.serviceAccount = f.intentSA
+	case f.intentSA != ghapp.DefaultIntentControllerSA:
+		// Only --intents writes the Role: the name would be dropped silently.
+		return errUsage(errors.New("--intent-controller-sa names the ServiceAccount of the Role --intents writes: " +
+			"add --intents, or leave it out"))
 	}
 	p.output = f.output
 	if p.output == "" {
@@ -325,7 +335,7 @@ func validateName(flag, value string) error {
 
 // forgeOutput is the forge file's path: flag, or <secretName>.forge.yaml
 // beside the Secret file (in the working directory with -o -). It is never
-// stdout, and never the Secret file itself.
+// stdout, and never the Secret file itself, by any spelling.
 func forgeOutput(flag, output, secretName string) (string, error) {
 	path := flag
 	switch {
@@ -337,10 +347,36 @@ func forgeOutput(flag, output, secretName string) (string, error) {
 	case path == "":
 		path = filepath.Join(filepath.Dir(output), secretName+".forge.yaml")
 	}
-	if output != "-" && filepath.Clean(path) == filepath.Clean(output) {
-		return "", errUsage(fmt.Errorf("--forge-output %s is the Secret file: name another", path))
+	if output != "-" && sameFile(path, output) {
+		return "", errUsage(fmt.Errorf("--forge-output %s is the Secret file %s: name another", path, output))
 	}
 	return path, nil
+}
+
+// sameFile reports whether paths a and b may name one file: the same
+// directory, however each path spells it (relative or absolute, through a
+// symlink), and names that differ at most in case, which a case-insensitive
+// file system reads as one. It errs towards yes: the forge file is written
+// after the Secret file and --force replaces what is there, so a miss would
+// destroy the only copy of the private key.
+func sameFile(a, b string) bool {
+	if !strings.EqualFold(filepath.Base(a), filepath.Base(b)) {
+		return false
+	}
+	dirA, dirB := filepath.Dir(a), filepath.Dir(b)
+	infoA, errA := os.Stat(dirA)
+	infoB, errB := os.Stat(dirB)
+	if errA == nil && errB == nil {
+		return os.SameFile(infoA, infoB)
+	}
+	// A directory that cannot be read is refused by CheckWritable; until
+	// then compare the spellings.
+	absA, errA := filepath.Abs(dirA)
+	absB, errB := filepath.Abs(dirB)
+	if errA != nil || errB != nil {
+		return filepath.Clean(dirA) == filepath.Clean(dirB)
+	}
+	return absA == absB
 }
 
 // runSetupGitHubApp creates the App and writes its Secret.
@@ -642,15 +678,20 @@ func writeSecret(opts *Options, plan setupPlan, deps setupDeps, app *ghapp.App, 
 func writeForge(opts *Options, plan setupPlan, app *ghapp.App, force bool) error {
 	name := plan.forgeName
 	if name == "" {
-		name = strings.ToLower(app.Owner)
+		name = ghapp.ForgeNameFor(app.Owner)
 	}
 	data, err := ghapp.ForgeFile(name, plan.namespace, plan.secretName, app.Owner, plan.serviceAccount)
 	if err == nil {
 		err = ghapp.WriteFile(plan.forgeOutput, data, force)
 	}
 	if err != nil {
+		role := ""
+		if plan.serviceAccount != "" {
+			role = fmt.Sprintf(", and a Role and RoleBinding letting ServiceAccount %s get exactly that Secret",
+				plan.serviceAccount)
+		}
 		return fmt.Errorf("%w; the Secret was saved, but the forge file was not: write a Forge %s/%s naming "+
-			"Secret %s and org %s by hand", err, plan.namespace, name, plan.secretName, app.Owner)
+			"Secret %s and org %s by hand%s", err, plan.namespace, name, plan.secretName, app.Owner, role)
 	}
 	what := "Forge " + plan.namespace + "/" + name
 	if plan.serviceAccount != "" {

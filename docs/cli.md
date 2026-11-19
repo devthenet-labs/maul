@@ -481,12 +481,21 @@ maul: next:
      https://github.com/apps/maul-acme/installations/new
      Select the intent repository and every application repository.
   2. kubectl create -f maul-github-acme.secret.yaml && rm maul-github-acme.secret.yaml && kubectl apply -f maul-github-acme.forge.yaml
+     Run it once maul is installed: it needs namespace maul and maul's CRDs.
   3. maul setup project <name> --intent-repo acme/<intent-repo> --repo acme/<app-repo> --approver <github-login> -n maul
 maul: the Role binds ServiceAccount maul-intent-controller in maul; pass --intent-controller-sa if your release is not named maul.
+maul: for the App just created, change the subject's name in maul-github-acme.forge.yaml instead (kubectl -n maul get serviceaccounts lists it): another run creates another App.
 ```
 
 `kubectl create` refuses to replace a Secret that already exists, so a credential is never overwritten by accident; with
-`-o -` step 2 applies only the forge file. Only github.com is supported, and nothing here talks to a cluster.
+`-o -` step 2 applies only the forge file. The Role's subject is right for a release named `maul`. For another release,
+find intent-controller's ServiceAccount with `kubectl -n maul get serviceaccounts` (the chart names it
+`<release>-intent-controller` when the release name contains `maul`, else `<release>-maul-intent-controller`, unless
+`fullnameOverride` or `intentController.serviceAccount.name` says otherwise) and pass it as `--intent-controller-sa`
+(only with `--intents`; without it the flag is a usage error). Once the App exists, change the subject's name in the
+forge file and apply it again instead: a second run would create a second App. A `--user` App's Forge is named after
+your login, with any character an object name cannot hold made a hyphen. `--forge-output` may not be the Secret file by
+any spelling. Only github.com is supported, and nothing here talks to a cluster.
 
 ## Checking a Project
 

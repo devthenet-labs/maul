@@ -360,8 +360,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   docker shaped like the agent pod; engine in `cmd/maul/internal/imagecheck`), `setup github-app` (creates the GitHub
   App through the manifest flow with exactly `intentperm.ForApp`'s permissions and events for
   `--security`/`--intents`/`--checks`/`--rerun-failed`, then writes its ghsecret-keyed Secret manifest to a 0600 file or
-  a pipe, never to the cluster and never the private key to a terminal or a file other users can read; engine in
-  `cmd/maul/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
+  a pipe, never to the cluster and never the private key to a terminal or a file other users can read; with `--org`
+  and a `GH_TOKEN` it first refuses a non-Owner (`checkOrgOwner`, the token on that one request only); the Secret
+  defaults to `maul-github-<org>`, and beside it goes the secret-free forge file (`ghapp.ForgeFile`: the Forge, and with
+  `--intents` a Role and RoleBinding letting `--intent-controller-sa` get exactly that Secret, never empty
+  `resourceNames`; never the Secret file by any spelling, `sameFile`), then a numbered `next:` block (`setup_next.go`);
+  engine in `cmd/maul/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
   agent image, CI builds and split trusted ECR publishers from embedded templates; engine in
   `cmd/maul/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `setup
   previews` (`.claude/plans/preview-setup-design.md`; engine in `cmd/maul/internal/previewsetup`; operator guide
