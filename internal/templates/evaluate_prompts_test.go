@@ -93,6 +93,27 @@ func TestEvaluatePromptGoldens(t *testing.T) {
 			p.NotYetProof = []NotYetProof{{Check: "winner-rises-red", Outcome: "winner-rises"}}
 			return RenderEvaluatePrompt(p)
 		}},
+		// A fix diff the controller cut (code review 2026-11-18,
+		// agent-prompts 8): maul says how much it shows of how much, which
+		// files are not shown in full, and that the evaluator has not seen
+		// the whole fix.
+		{"prompt_evaluate_fix_cut.md", func() (string, error) {
+			p := testEvaluatePrompt()
+			p.Round, p.PriorRound = 2, 1
+			p.FixDiff = "# acme/api aaaaaaa...bbbbbbb\ndiff --git a/api/ratings.go b/api/ratings.go\n" +
+				"--- a/api/ratings.go\n+++ b/api/ratings.go\n@@ -1 +1 @@\n-k := 16\n+k := 32\n"
+			p.FixDiffCut = FixDiffCut{ShownBytes: 140, ReadBytes: 52000, ForgeCut: []string{"acme/web"},
+				Files: []string{"vendor/gen/big.go", "api/battles.go"}, MoreFiles: 3,
+				Unavailable: []string{"acme/worker"}}
+			return RenderEvaluatePrompt(p)
+		}},
+		// No diff could be read at all: the section says so, never absent.
+		{"prompt_evaluate_fix_unavailable.md", func() (string, error) {
+			p := testEvaluatePrompt()
+			p.Round, p.PriorRound = 2, 1
+			p.FixDiffCut = FixDiffCut{Unavailable: []string{"acme/api"}}
+			return RenderEvaluatePrompt(p)
+		}},
 		{"prompt_checkreview.md", func() (string, error) {
 			return RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck)))
 		}},
@@ -391,6 +412,7 @@ func TestEvaluatePromptQuotesUntrustedOnlyFenced(t *testing.T) {
 		Kind: acceptance.OutcomeKind(sentinel), Manual: true, Reason: hostile}}
 	p.ChangedPaths = []ChangedPath{{Path: hostile, Added: 1}}
 	p.FixDiff = hostile
+	p.FixDiffCut = FixDiffCut{ShownBytes: 1, ReadBytes: 2, Files: []string{hostile}}
 	p.PriorRound = 1
 	p.PriorVerdicts = []PriorVerdict{{Outcome: hostile, Result: hostile, Reason: hostile}}
 	p.PriorReplay = []PriorReplay{{Check: hostile, Outcome: hostile, Result: hostile}}

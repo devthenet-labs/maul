@@ -105,7 +105,8 @@ func actorFromUser(u *github.User) Actor {
 
 const maxPatchBytes = 48 << 10
 
-const patchTruncated = "\n[compare patch truncated at 48 KiB]\n"
+// PatchTruncated is the notice ComparePatch ends a patch it cut with.
+const PatchTruncated = "\n[compare patch truncated at 48 KiB]\n"
 
 var errPatchLimit = errors.New("patch byte limit reached")
 
@@ -136,7 +137,7 @@ func (c *Client) ComparePatch(ctx context.Context, repo Repo, base, head string)
 		return "", fmt.Errorf("ghclient: compare patch %s %s...%s: %w", repo, base, head, err)
 	}
 	if body.Len() > maxPatchBytes {
-		return body.String()[:maxPatchBytes-len(patchTruncated)] + patchTruncated, nil
+		return body.String()[:maxPatchBytes-len(PatchTruncated)] + PatchTruncated, nil
 	}
 	return body.String(), nil
 }

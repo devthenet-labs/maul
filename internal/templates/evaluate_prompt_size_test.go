@@ -28,7 +28,20 @@ func maxEvaluatePrompt(t *testing.T, workspace bool, char string) EvaluatePrompt
 		p.Workspace = &EvaluateWorkspace{Surface: SurfaceLibrary, Language: "go"}
 	}
 	p.Request = strings.Repeat("r", RequestQuoteMaxBytes)
-	p.FixDiff = strings.Repeat("d", FixDiffMaxBytes)
+	// A cut diff and its note at their widest: every count, repositories
+	// and files at their bounds, the diff with its files within
+	// FixDiffMaxBytes, as the controller keeps them.
+	p.FixDiff = strings.Repeat("d", FixDiffMaxBytes-FixDiffFilesMaxBytes)
+	p.FixDiffCut = FixDiffCut{ShownBytes: len(p.FixDiff), ReadBytes: 1 << 30, MoreFiles: 1 << 30}
+	for i := range 2 * fixDiffReposMax {
+		repo := fmt.Sprintf("%02d", i) + strings.Repeat(char, 100)
+		p.FixDiffCut.ForgeCut = append(p.FixDiffCut.ForgeCut, repo)
+		p.FixDiffCut.Unavailable = append(p.FixDiffCut.Unavailable, repo)
+	}
+	for i := range FixDiffFilesMaxBytes {
+		p.FixDiffCut.Files = append(p.FixDiffCut.Files, fmt.Sprintf("%04d", i)+strings.Repeat(char,
+			FixDiffPathMaxBytes))
+	}
 	p.Outcomes = nil
 	for i := range acceptance.MaxOutcomes {
 		p.Outcomes = append(p.Outcomes, acceptance.PlanOutcome{ID: fmt.Sprintf("o-%d", i),
@@ -75,10 +88,11 @@ const shedBound = 128<<10 - 1
 func TestEvaluatePromptFitsItsBound(t *testing.T) {
 	for _, ws := range []bool{false, true} {
 		p := maxEvaluatePrompt(t, ws, "a")
-		// A quarter of the previous round's results (two fewer of its checks
-		// not yet proof, since their section says more), so the parts that
-		// always stay fit beside the request and the fix diff at their bounds.
-		p.PriorVerdicts, p.PriorReplay, p.NotYetProof = p.PriorVerdicts[:5], p.PriorReplay[:10], p.NotYetProof[:8]
+		// A few of the previous round's results (fewer of its checks not yet
+		// proof, since their section says more, and fewer verdicts beside
+		// the cut fix diff's note), so the parts that always stay fit beside
+		// the request and the fix diff at their bounds.
+		p.PriorVerdicts, p.PriorReplay, p.NotYetProof = p.PriorVerdicts[:2], p.PriorReplay[:8], p.NotYetProof[:8]
 		got, err := renderEvaluateWithin(p, shedBound)
 		if err != nil {
 			t.Fatalf("workspace %v: %v", ws, err)
@@ -87,7 +101,7 @@ func TestEvaluatePromptFitsItsBound(t *testing.T) {
 			t.Errorf("workspace %v: %d bytes, over %d", ws, len(got), shedBound)
 		}
 		for _, want := range []string{"more paths]", "earlier refused checks are not shown",
-			strings.Repeat("r", RequestQuoteMaxBytes), strings.Repeat("d", FixDiffMaxBytes)} {
+			strings.Repeat("r", RequestQuoteMaxBytes), p.FixDiff, notWhole} {
 			if !strings.Contains(got, want) {
 				t.Errorf("workspace %v: the prompt does not hold %.40q", ws, want)
 			}

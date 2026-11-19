@@ -36,7 +36,7 @@ const evaluateHandoffMaxBytes = 256 << 10
 // the intent controller encodes as strict JSON (encoding/json of this
 // type). agent-runner renders the evaluate prompt from it
 // (templates.RenderEvaluatePrompt), which quotes every untrusted field
-// (Request, Outcomes, ChangedPaths, FixDiff, PriorVerdicts, PriorReplay,
+// (Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files, PriorVerdicts, PriorReplay,
 // PriorRefused, NotYetProof) as fenced data.
 type EvaluateHandoff struct {
 	// Round is the verification round, 1-based.
@@ -59,6 +59,9 @@ type EvaluateHandoff struct {
 	// FixDiff is the fix's diff since the last evaluated heads, on a round
 	// after a fix; empty on round 1.
 	FixDiff string `json:"fix_diff,omitempty"`
+	// FixDiffCut is what FixDiff leaves out of the fix (code review
+	// 2026-11-18, agent-prompts 8); nil when it is the whole fix.
+	FixDiffCut *FixDiffCut `json:"fix_diff_cut,omitempty"`
 	// PriorRound is the last judged round before this one, 0 for none;
 	// PriorVerdicts are maul's results of its outcomes, and PriorReplay how
 	// its saved checks replayed (SPEC Q15).
@@ -73,6 +76,20 @@ type EvaluateHandoff struct {
 	// green replay of one passes nothing, so the prompt asks for a new
 	// check of its outcome.
 	NotYetProof []NotYetProof `json:"not_yet_proof,omitempty"`
+}
+
+// FixDiffCut is what a round's fix diff leaves out of the fix, as
+// templates.FixDiffCut says it: of the diff maul read, made visible, the
+// bytes shown; the repositories whose diff GitHub had already cut; the
+// files not shown in full (UNTRUSTED: the pull request's names), and how
+// many more; and the repositories whose diff could not be read.
+type FixDiffCut struct {
+	ShownBytes  int      `json:"shown_bytes"`
+	ReadBytes   int      `json:"read_bytes"`
+	ForgeCut    []string `json:"forge_cut,omitempty"`
+	Files       []string `json:"files,omitempty"`
+	MoreFiles   int      `json:"more_files,omitempty"`
+	Unavailable []string `json:"unavailable,omitempty"`
 }
 
 // NotYetProof is one saved check that is not yet proof of a pass (saved
@@ -350,6 +367,10 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 			MaxToolCalls: h.Tools.MaxToolCalls, LookAroundRoutes: h.Tools.LookAroundRoutes,
 		},
 		Request: h.Request, Outcomes: h.Outcomes, FixDiff: h.FixDiff, PriorRound: h.PriorRound,
+	}
+	if c := h.FixDiffCut; c != nil {
+		p.FixDiffCut = templates.FixDiffCut{ShownBytes: c.ShownBytes, ReadBytes: c.ReadBytes, ForgeCut: c.ForgeCut,
+			Files: c.Files, MoreFiles: c.MoreFiles, Unavailable: c.Unavailable}
 	}
 	if w := h.Tools.Workspace; w != nil {
 		p.Workspace = &templates.EvaluateWorkspace{Surface: w.Surface, Binary: w.Binary, Language: w.Language,

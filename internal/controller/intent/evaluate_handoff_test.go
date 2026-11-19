@@ -107,6 +107,9 @@ func checkPriorRound(t *testing.T, h agentrun.EvaluateHandoff, check v1alpha1.Sa
 	if !strings.Contains(h.FixDiff, "+new") || len(h.FixDiff) > templates.FixDiffMaxBytes {
 		t.Errorf("fix diff = %d bytes, want the compare bounded to %d", len(h.FixDiff), templates.FixDiffMaxBytes)
 	}
+	if c := h.FixDiffCut; c == nil || c.ShownBytes != len(h.FixDiff) || c.ReadBytes <= c.ShownBytes {
+		t.Errorf("fix diff cut = %+v, want the cut said", c)
+	}
 }
 
 // mustHandoff renders pv's evaluate handoff on p.
