@@ -61,6 +61,11 @@ func TestStdoutAssertionsReadStdout(t *testing.T) {
 		{"json on stdout, a warning on stderr", streams(0, `{"n":"`+run+`-item"}`, "warning: slow\n"), jsonExit,
 			toolwire.ResultError},
 		{"json on stdout alone", streams(0, `{"n":"`+run+`-item"}`+"\n", ""), jsonExit, toolwire.ResultPass},
+		{"the needle half on stdout and half on stderr", streams(0, run, "-item\n"), containsExit,
+			toolwire.ResultError},
+		{"the needle on stderr, cut in two by stdout as the shim read them", toolexec.Result{Exit: 0,
+			Output: run + "ok\n-item\n", Stdout: ptr("ok\n"), Stderr: ptr(run + "-item\n")}, containsExit,
+			toolwire.ResultError},
 		{"the needle nowhere, exit 0 expected", streams(0, "nothing\n", "warning\n"), containsExit,
 			toolwire.ResultFail},
 		{"the needle nowhere, exited 1, no exit expected", streams(1, "", "boom\n"), contains, toolwire.ResultFail},
@@ -98,6 +103,8 @@ func TestStdoutAssertionsReadStdout(t *testing.T) {
 		}
 	}
 }
+
+func ptr(s string) *string { return &s }
 
 func mustValue(t *testing.T, v any) httpstep.Value {
 	t.Helper()
