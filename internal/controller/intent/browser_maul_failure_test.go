@@ -86,3 +86,62 @@ func TestBrowserCheckErrorNeverFailsItsOutcome(t *testing.T) {
 		})
 	}
 }
+
+// shownNoteCheck is a second check of the same outcome, by another route.
+const shownNoteCheck = `{"id":"note-shown","outcome":"note-listed","form":"browser","browser":{"steps":[` +
+	`{"goto":"/notes/new"},{"fill":{"locator":{"testid":"name"},"text":"{{run}}-s"}},` +
+	`{"click":{"role":"button","name":"Save"}},` +
+	`{"expect":{"assert":"text","locator":{"testid":"notes"},"text":{"contains":"{{run}}-s"}}}]}}`
+
+// TestBrowserCheckErrorBesideAPassingCheck (code review 2026-11-18, relay
+// finding 9): a browser check that erred for maul's own reason is no
+// evidence either way, as every check error is. Beside another proven
+// check of the same outcome that passed cleanly it neither fails the
+// outcome nor starts a fix, and the outcome passes on the other check
+// only while the evaluator saw nothing fail: its fail verdict, or a pass
+// naming contrary entries, withholds the pass (unsure).
+func TestBrowserCheckErrorBesideAPassingCheck(t *testing.T) {
+	o := v1alpha1.AcceptanceOutcome{ID: "note-listed", Outcome: "A saved note is listed"}
+	erred, passed := savedCheck(t, namedNoteCheck), savedCheck(t, shownNoteCheck)
+	review := func(c v1alpha1.SavedCheck) v1alpha1.CheckReviewRecord {
+		return v1alpha1.CheckReviewRecord{CheckDigest: c.Digest, OutcomeDigest: outcomeDigest(o),
+			Answer: v1alpha1.ReviewProves, Run: "r1", Check: c.ID, Reason: "yes"}
+	}
+	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o}, OutcomesDigest: "sha256:o",
+		Reviews: []v1alpha1.CheckReviewRecord{review(erred), review(passed)}}
+	stored := []v1alpha1.SavedCheck{erred, passed}
+	for _, tc := range []struct {
+		name    string
+		verdict report.OutcomeVerdict
+		result  acceptance.Result
+		reason  string
+	}{
+		{name: "the evaluator passes the outcome",
+			verdict: report.OutcomeVerdict{ID: o.ID, Verdict: report.VerdictPass, Ledger: []int32{4}},
+			result:  acceptance.ResultPassed, reason: acceptance.ReasonConfirmed},
+		{name: "the evaluator fails the outcome",
+			verdict: report.OutcomeVerdict{ID: o.ID, Verdict: report.VerdictFail, Ledger: []int32{3}},
+			result:  acceptance.ResultUnsure, reason: acceptance.ReasonEvaluatorSawFailure},
+		{name: "the evaluator passes it but names contrary entries",
+			verdict: report.OutcomeVerdict{ID: o.ID, Verdict: report.VerdictPass, Ledger: []int32{4},
+				Contrary: []int32{3}},
+			result: acceptance.ResultUnsure, reason: acceptance.ReasonEvaluatorSawFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &v1alpha1.PreviewVerification{
+				Spec: v1alpha1.PreviewVerificationSpec{Rung: v1alpha1.RungFull, Checks: stored},
+				Status: v1alpha1.PreviewVerificationStatus{Replay: []v1alpha1.CheckRun{
+					{CheckDigest: erred.Digest, Token: "t1", Seq: 3, Result: v1alpha1.CheckRunError},
+					{CheckDigest: passed.Digest, Token: "t2", Seq: 4, Result: v1alpha1.CheckRunPass},
+				}, Ledger: &v1alpha1.LedgerSummary{Count: 6}},
+			}
+			d := judgeRound(acc, pv, stored, &report.Evaluation{Verdicts: []report.OutcomeVerdict{tc.verdict}}).decision
+			if got := d.PerOutcome[0]; got.Result != tc.result || got.Reason != tc.reason {
+				t.Fatalf("outcome = %+v, want %s %s", got, tc.result, tc.reason)
+			}
+			if d.Fix != nil || d.Suspected != nil {
+				t.Fatalf("decision = %+v: want no fix and no suspected defect", d)
+			}
+		})
+	}
+}

@@ -65,7 +65,7 @@ export MAUL_LIVE_BROWSER=1
 
 go test -count=1 -v -run '^TestLiveCDPShim$' ./internal/cdpshim
 go test -count=1 -v -timeout 20m \
-  -run '^(TestPlaywrightCLIFormat|TestFixtureTypechecks|TestLiveBrowser|TestLiveBrowserText)$' ./internal/previewtools
+  -run '^(TestPlaywrightCLIFormat|TestFixtureTypechecks|TestLiveBrowser|TestLiveBrowserText|TestLiveBrowserMaulFailures|TestLiveBrowserGone)$' ./internal/previewtools
 
 if [[ "${MAUL_LIVE_PAGE_FUNCTIONS:-}" == 1 ]]; then
   (cd "$node_dir" && node node_modules/playwright/cli.js install chromium)

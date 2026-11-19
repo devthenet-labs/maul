@@ -206,7 +206,7 @@ func maulsOwn(res jsonResult, located bool) string {
 		return "the browser did not answer"
 	case !located:
 		return reasonOutsideSteps
-	case browserGone(res.Errors[0].Message):
+	case browserGone(res):
 		return reasonBrowserGone
 	}
 	return ""
@@ -214,38 +214,53 @@ func maulsOwn(res jsonResult, located bool) string {
 
 // Playwright's words for a page, context or browser that closed under a
 // call (a TargetClosedError with no reason: maul's spec never gives one)
-// and for a crashed one.
+// and for a renderer that crashed under one: the pinned runner says "Page
+// crashed" under an action, a navigation and an expect matcher, "Target
+// crashed" under clickable's trial click (captured with the renderer
+// killed: testdata/browser-reports/crashed-*.json).
 const (
-	targetClosed  = "Target page, context or browser has been closed"
-	targetCrashed = "Target crashed"
+	targetClosed = "Target page, context or browser has been closed"
+	goneWords    = `(?:` + targetClosed + `|Target crashed|Page crashed)`
+)
+
+var (
+	// actionGone is the whole first line of an action's error when the
+	// browser went away under it: "<api>.<method>: <words>" and nothing
+	// more, so a page's own error (a thrown Error is "<api>.<method>:
+	// Error: <its message>") never reads as one.
+	actionGone = regexp.MustCompile(`^[A-Za-z]+\.[A-Za-z]+: ` + goneWords + `$`)
+	// trialGone is the same under maul's clickable, which quotes the trial
+	// click's error, its name first, after its own words.
+	trialGone = regexp.MustCompile(`^maul: clickable failed: trial click: (?:[A-Za-z]+: )?[A-Za-z]+\.[A-Za-z]+: ` +
+		goneWords + `$`)
+	// logGone is the call-log line an expect matcher's message ends with
+	// when the browser went away under it.
+	logGone = regexp.MustCompile(`^- ` + goneWords + `$`)
 )
 
 // browserGone reports a failed step's error saying the browser went away
-// under it, read only where Playwright writes its own words: the first
-// line of an action's error (in maul's clickable, the trial click's), or
-// a line of an expect matcher's call log, which the browser closing ends
-// early, whatever text the matcher had seen so far. Page text elsewhere in
-// a message (a Received value, an element's markup in the call log) is
-// never read for it.
-func browserGone(msg string) bool {
-	msg = stripANSI(msg)
+// under it, read only where Playwright alone writes: the whole first line
+// of an action's error (in maul's clickable, of the trial click's, right
+// after maul's own words), or the last line of an expect matcher's
+// message, the call-log line the browser closing ends it with, whatever
+// text the matcher had seen so far. The application's text can sit in
+// neither place: a matcher's message quotes it (a Received value, an
+// element's markup, each unexpected value of the call log, line breaks
+// kept) but always closes the quote after it, and maul's hit test names a
+// covering element only before "trial click". The matcher's message is
+// the runner's own (the result's error), not the reporter's copy, which
+// appends the spec's source after it.
+func browserGone(res jsonResult) bool {
+	msg := res.Errors[0].Message
 	first := firstLine(msg)
-	gone := func(s string) bool { return strings.Contains(s, targetClosed) || strings.Contains(s, targetCrashed) }
-	if why, ok := strings.CutPrefix(first, "maul: "); ok {
-		_, trial, ok := strings.Cut(why, "trial click: ")
-		return ok && gone(trial)
-	}
 	if !strings.Contains(first, "expect(") {
-		return gone(first)
+		return actionGone.MatchString(first) || trialGone.MatchString(first)
 	}
-	_, log, _ := strings.Cut(msg, "\nCall log:\n")
-	for _, l := range strings.Split(log, "\n") {
-		l = strings.TrimSpace(l)
-		if l == "- "+targetClosed || strings.HasPrefix(l, "- "+targetCrashed) {
-			return true
-		}
+	if res.Error != nil && res.Error.Message != "" {
+		msg = res.Error.Message
 	}
-	return false
+	lines := strings.Split(strings.TrimRight(stripANSI(msg), " \t\r\n"), "\n")
+	return logGone.MatchString(strings.TrimSpace(lines[len(lines)-1]))
 }
 
 // firstLine is a message's first line, its "Error: " prefix cut.

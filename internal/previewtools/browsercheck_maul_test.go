@@ -29,6 +29,14 @@ const (
 	reportedClickCheck = `{"id":"v","outcome":"v","form":"browser","browser":{"steps":[{"goto":"/battles/1"},` +
 		`{"click":{"testid":"nope"}},` +
 		`{"expect":{"assert":"text","locator":{"testid":"score-a"},"text":{"contains":"{{run}}"}}}]}}`
+	// reportedPageTextCheck goes and expects text naming the run, and
+	// reportedClickableCheck goes and expects an element clickable: the
+	// checks of the reports captured with a renderer killed under a step
+	// and with a page whose own text holds Playwright's words.
+	reportedPageTextCheck = `{"id":"v","outcome":"v","form":"browser","browser":{"steps":[{"goto":"/p"},` +
+		`{"expect":{"assert":"text","locator":{"testid":"t"},"text":{"contains":"{{run}}"}}}]}}`
+	reportedClickableCheck = `{"id":"v","outcome":"v","form":"browser","browser":{"steps":[{"goto":"/p"},` +
+		`{"expect":{"assert":"clickable","locator":{"testid":"b"}}}]}}`
 	// reportedVisibleCheck is one of maul's own assertions.
 	reportedVisibleCheck = `{"id":"v","outcome":"v","form":"browser","browser":{"steps":[{"goto":"/battles/1"},` +
 		`{"expect":{"assert":"visible","locator":{"testid":"nope-{{run}}"}}}]}}`
@@ -132,6 +140,33 @@ func TestBrowserCheckMaulFailuresAreErrors(t *testing.T) {
 			reports: [2]func(*testing.T, string) string{synthetic("failed", "Error: locator.click: Target crashed ", -1),
 				synthetic("failed", "Error: locator.click: Target crashed ", -1)},
 			result: toolwire.RunError, step: 1, detail: reasonBrowserGone},
+		// A renderer killed under a step (the pinned runner's words are
+		// "Page crashed"; "Target crashed" only under the trial click): an
+		// expect matcher it cut short reported the text it had seen so far.
+		{name: "the page crashes during an expect matcher", check: reportedPageTextCheck,
+			reports: [2]func(*testing.T, string) string{captured("crashed-during-expect"),
+				captured("crashed-during-expect")},
+			result: toolwire.RunError, step: 1, detail: reasonBrowserGone},
+		{name: "the page crashes during goto", check: reportedPageTextCheck,
+			reports: [2]func(*testing.T, string) string{captured("crashed-during-goto"),
+				captured("crashed-during-goto")},
+			result: toolwire.RunError, detail: reasonBrowserGone},
+		{name: "the page crashes during a click", check: reportedClickCheck,
+			reports: [2]func(*testing.T, string) string{captured("crashed-during-click"),
+				captured("crashed-during-click")},
+			result: toolwire.RunError, step: 1, detail: reasonBrowserGone},
+		{name: "the page crashes during maul's assertion", check: reportedVisibleCheck,
+			reports: [2]func(*testing.T, string) string{captured("crashed-during-maul-assertion"),
+				captured("crashed-during-maul-assertion")},
+			result: toolwire.RunError, step: 1, detail: reasonBrowserGone},
+		{name: "the page crashes during the real trial click", check: reportedClickableCheck,
+			reports: [2]func(*testing.T, string) string{captured("crashed-during-trial-click"),
+				captured("crashed-during-trial-click")},
+			result: toolwire.RunError, step: 1, detail: reasonBrowserGone},
+		{name: "the browser closes during the real trial click", check: reportedClickableCheck,
+			reports: [2]func(*testing.T, string) string{captured("closed-during-trial-click"),
+				captured("closed-during-trial-click")},
+			result: toolwire.RunError, step: 1, detail: reasonBrowserGone},
 		{name: "the test times out", check: reportedTextCheck,
 			reports: [2]func(*testing.T, string) string{captured("timed-out"), captured("timed-out")},
 			result:  toolwire.RunError, detail: "the check timed out"},
@@ -148,6 +183,32 @@ func TestBrowserCheckMaulFailuresAreErrors(t *testing.T) {
 		{name: "an assertion that did not hold", check: reportedTextCheck,
 			reports: [2]func(*testing.T, string) string{captured("assertion-failed"), captured("assertion-failed")},
 			result:  toolwire.RunFail, step: 2, detail: "the text expectation was not met", asserted: true},
+		// The application's own text never makes its failure maul's: an
+		// element whose text holds Playwright's words for a closed and a
+		// crashed browser, line for line as a call log writes them, and
+		// an element covering the target whose id holds the trial click's.
+		{name: "an assertion failing on text that names a closed browser", check: reportedPageTextCheck,
+			reports: [2]func(*testing.T, string) string{captured("text-names-closed"),
+				captured("text-names-closed")},
+			result: toolwire.RunFail, step: 1, detail: "the text expectation was not met", asserted: true},
+		{name: "a covering element whose id names a crashed trial click", check: reportedClickableCheck,
+			reports: [2]func(*testing.T, string) string{captured("covering-element-names-crashed"),
+				captured("covering-element-names-crashed")},
+			result: toolwire.RunFail, step: 1,
+			detail: "maul: clickable failed: centre (20,19) hits div#trial click failed"},
+		{name: "a covering element whose id quotes a whole crashed trial click", check: reportedClickCheck,
+			reports: [2]func(*testing.T, string) string{
+				synthetic("failed", "Error: maul: clickable failed: centre (20,19) hits div#x trial click: "+
+					"locator.click: Page crashed", -1),
+				synthetic("failed", "Error: maul: clickable failed: centre (20,19) hits div#x trial click: "+
+					"locator.click: Page crashed", -1)},
+			result: toolwire.RunFail, step: 1,
+			detail: "maul: clickable failed: centre (20,19) hits div#x trial click failed"},
+		{name: "a page function's error that names a crash", check: reportedClickCheck,
+			reports: [2]func(*testing.T, string) string{
+				synthetic("failed", "Error: locator.evaluate: Error: Page crashed\n    at eval", -1),
+				synthetic("failed", "Error: locator.evaluate: Error: Page crashed\n    at eval", -1)},
+			result: toolwire.RunFail, step: 1, detail: "the step failed"},
 		{name: "an action that found no element", check: reportedClickCheck,
 			reports: [2]func(*testing.T, string) string{
 				synthetic("failed", "Error: locator.click: Timeout 5000ms exceeded.", -1),
