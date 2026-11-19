@@ -230,19 +230,23 @@ something opaque that is not part of it, and its text with at least 1.5:1 contra
 (with no text of its own, the text of what it holds: a button whose label span is the colour of the button fails).
 `legible` is WCAG's 4.5:1 (3:1 for large text); `clickable` means the element itself receives the click, inside a web
 component's open shadow root too. What maul cannot judge makes such an assertion indeterminate: the check errs, which is
-unsure, never a pass and never a fail. That is an element covered at its centre, one under a scaled or rotated container
-or clipped by a `clip-path` shape, and text over a background image, an `<img>`, a `<canvas>`, a video or SVG, a
-`::before` or `::after` layer, a paint effect, or a web component's shadow content maul cannot see into. Its `size`
-assertion takes an exact `width` or `height`, within the assertion's `tolerance`, or bounds: `minWidth`, `maxWidth`,
-`minHeight` and `maxHeight`, the same tolerance as slack. An axis takes an exact value or its bounds, never both, and a
-minimum is never over its maximum. So an outcome that says "at least 48 px" is checked by `minHeight: 48`, never by an
-exact 48, which would fail a correct 56 px pad and which the reviewer refuses. The box relations (`left-of`, `above`,
-`no-overlap`, `equal-size`, `aligned`) and `size` measure what is drawn, where the page left it (the check's own scrolls
-are kept): each box is cut by every ancestor whose overflow clips it, by a `clip` or `clip-path` inset, and by the
-page's extent (the viewport, for a fixed element). `left-of`, `above` and `no-overlap` judge the drawn parts;
-`equal-size`, `aligned` and `size` (exact or bounded) judge the whole box, and a fail on a box partly clipped is
-indeterminate. An element clipped away entirely, scrolled out of its container say, is not drawn, so a relation on it is
-indeterminate, never a fail. A saved check is at most 8 KiB as maul stores it, and an intent keeps at most 40.
+unsure, never a pass and never a fail. That is an element covered at its centre or not found there (a `clip-path` shape
+cut it away, a modal dialog is open over it), one clipped away under a scaled or rotated container, and text over a
+background image, an `<img>`, a `<canvas>`, a video or SVG (SVG text too), a `::before` or `::after` layer that may lie
+under it (one beside the text, a bullet or an underline, does not count), a paint effect, or a web component's shadow
+content maul cannot see into (a closed shadow root, or text put straight into a component's slot). A checkbox or radio
+hidden as a 1px screen-reader input behind a styled box is indeterminate too: assert on the label or the box a person
+sees. Its `size` assertion takes an exact `width` or `height`, within the assertion's `tolerance`, or bounds:
+`minWidth`, `maxWidth`, `minHeight` and `maxHeight`, the same tolerance as slack. An axis takes an exact value or its
+bounds, never both, and a minimum is never over its maximum. So an outcome that says "at least 48 px" is checked by
+`minHeight: 48`, never by an exact 48, which would fail a correct 56 px pad and which the reviewer refuses. The box
+relations (`left-of`, `above`, `no-overlap`, `equal-size`, `aligned`) and `size` measure what is drawn, where the page
+left it (the check's own scrolls are kept): each box is cut by every ancestor whose overflow clips it, by a `clip` or
+`clip-path` inset, and by the page's extent (the viewport, for a fixed element). `left-of`, `above` and `no-overlap`
+judge the drawn parts; `equal-size`, `aligned` and `size` (exact or bounded) judge the whole box, and a fail on a box
+partly clipped is indeterminate. An element clipped away entirely, scrolled out of its container say, is not drawn, so a
+relation on it is indeterminate, never a fail. A saved check is at most 8 KiB as maul stores it, and an intent keeps at
+most 40.
 
 A browser check's `label` (a `select`'s too) and a `role`'s `name` match an element's whole name, case-sensitively, with
 leading and trailing whitespace ignored and each run of it read as one space (Playwright's `exact`):

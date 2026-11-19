@@ -98,6 +98,7 @@ func liveCases() []liveCase {
 	out = append(out, nameCases()...)
 	out = append(out, seenCases()...)
 	out = append(out, unmeasuredCases()...)
+	out = append(out, ordinaryCases()...)
 	return append(out, clippedCases()...)
 }
 
@@ -176,6 +177,58 @@ func unmeasuredCases() []liveCase {
 		liveCase{"sh-text-legible", "pass", checks.Assertion{Assert: checks.AssertLegible,
 			Locator: &checks.Locator{Text: "Shadow text, pointer-events none"}}},
 		liveCase{"sh-host-visible", "pass", checks.Assertion{Assert: checks.AssertVisible, Locator: css("#sh-light-host")}},
+	)
+}
+
+// ordinaryCases are the review of the two findings' fix: pages that must
+// judge as before it (a nav link whose underline is scaled away until
+// hover, a bullet drawn by a negative-margin ::before, a ::before bar
+// placed by a positioned ancestor or at the right edge, text in a
+// light-DOM custom element, a heading in a slanted hero, a round avatar,
+// a table row found by its role, a panel inside an overflow clip margin),
+// and paint maul must not guess at, in either direction: a ::before an
+// ancestor places under the text, text positioned over a flow ::before or
+// sharing its grid cell, text slotted into a closed shadow root, a cover
+// painted by its flow ::before, a clip-path shape that leaves nothing, and
+// a clip maul's arithmetic gets wrong while the element is found at its
+// centre, and a screen-reader checkbox behind its styled label (never a
+// fail; a field in a collapsed panel still fails). A component's button
+// is judged by the label slotted into it.
+func ordinaryCases() []liveCase {
+	both := func(id, want string) []liveCase {
+		return []liveCase{
+			{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}},
+			{id + "-legible", want, checks.Assertion{Assert: checks.AssertLegible, Locator: css("#" + id)}},
+		}
+	}
+	see := func(id, want string) liveCase {
+		return liveCase{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}}
+	}
+	var out []liveCase
+	for _, id := range []string{"r-underline", "r-bullet", "r-topbar", "r-rightbar", "r-frame", "r-slant", "r-avatar"} {
+		out = append(out, both(id, "pass")...)
+	}
+	for _, id := range []string{"r-veil", "r-closed", "r-band-white", "r-band-dark", "r-stack-white"} {
+		out = append(out, both(id, "indeterminate")...)
+	}
+	return append(out,
+		see("r-gone", "indeterminate"),
+		see("r-row", "pass"),
+		see("r-margin", "pass"),
+		see("r-margin-box", "indeterminate"),
+		see("r-flowlid", "indeterminate"),
+		see("r-peer", "indeterminate"),
+		see("r-peer-box", "pass"),
+		see("r-collapsed-input", "fail"),
+		// A component's button found by its role: its slotted label is its
+		// text. Bare text is not measured (never a pass on the box alone),
+		// a slotted element is judged inside the component.
+		liveCase{"r-pill-white-visible", "indeterminate", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "White slotted label"}}},
+		liveCase{"r-pill-span-visible", "fail", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "White slotted span"}}},
+		liveCase{"r-pill-read-visible", "pass", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "Readable slotted span"}}},
 	)
 }
 

@@ -11,14 +11,19 @@
 //            viewport (the caller scrolls it in first), visibility
 //            visible, effective opacity above 0.1, and drawn: clipped to
 //            nothing (or to at most 1x1 px, a screen-reader span) by an
-//            overflow, clip or clip-path inset is a fail, under a scaled,
-//            rotated or zoomed ancestor, or another clip-path shape,
-//            indeterminate. Covered at its centre by an opaque layer that
-//            is not the element or inside it: indeterminate, never a pass.
+//            overflow, clip or clip-path inset is a fail, but under a
+//            scaled, rotated or zoomed ancestor, or when the hit test
+//            finds it at its centre all the same, or for a form control
+//            that clips itself away (a screen-reader checkbox behind a
+//            styled box), indeterminate. Not
+//            found at its centre (another clip-path shape cut it away,
+//            say), or covered there by an opaque layer that is not the
+//            element or inside it: indeterminate, never a pass.
 //            Its own non-emoji text needs a contrast of at least 1.5:1
 //            against what is painted under it; with none, the text of its
 //            shown descendants is judged so: one passing passes, all
-//            failing fails, otherwise indeterminate.
+//            failing fails, otherwise indeterminate (bare text a slot
+//            shows inside it is not measured: indeterminate).
 //   legible: WCAG AA contrast of its own non-emoji text, 4.5:1, or 3:1
 //            for large text (24px, or 18.66px at weight 700 and over).
 //   hit:     the topmost element at the box centre is the element or
@@ -39,8 +44,11 @@
 // indeterminate. A background image is indeterminate, and so is a layer
 // whose paint the arithmetic does not know: a replaced element (<img>,
 // <canvas>, <video>, SVG, an embed), a ::before or ::after with a
-// background placed over the point, and a web component's shadow content
-// out of reach (a closed root, or an open one beside the text). Shadow
+// background that may lie under the text (placed over the point by its
+// insets, or in the flow of a box the text is positioned over or shares
+// a grid cell with; one in the flow beside the text does not), and a web
+// component's shadow content out of reach (a closed root, found by a
+// probe child no root slots, or an open one beside the text). Shadow
 // roots are measured through: the stack is the element's own root's, its
 // chains run through slots and hosts, and text slotted into a component
 // is measured from inside that component's root. Paint effects the
@@ -200,7 +208,7 @@
     const walk = (k) => {
       if (k >= layers.length) return { colours: [canvasColour()] };
       const node = layers[k];
-      const unknown = unknownPaint(node, x, y, scopes);
+      const unknown = unknownPaint(node, x, y, scopes, t);
       if (unknown) return { indeterminate: unknown };
       const cs = getComputedStyle(node);
       const img = cs.backgroundImage;
@@ -299,59 +307,156 @@
     return { verdict: 'indeterminate', why: ['background colours disagree: contrast ' + range() + ' vs ' + floor] };
   };
 
+  // still reports whether a box with style s sits where the normal flow
+  // put it: not positioned away, moved or pulled over a neighbour by one
+  // of the negative margins named.
+  const still = (s, margins) =>
+    (s.position === 'static' ||
+      (/^(relative|sticky)$/.test(s.position) &&
+        ['top', 'right', 'bottom', 'left'].every((k) => s[k] === 'auto' || s[k] === '0px'))) &&
+    s.transform === 'none' &&
+    (!s.translate || s.translate === 'none') &&
+    margins.every((k) => parseFloat(s[k]) >= 0);
+  const MARGINS = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'];
+
+  // besideFlow reports whether a ::before or ::after of n laid out in the
+  // flow (style s) is sure to sit beside t's text, never under it: t is n
+  // or in n's normal flow all the way up (a box positioned, floated,
+  // moved or pulled by a negative margin may lie over the pseudo-element),
+  // the pseudo-element is not pulled over n's content (a ::before by its
+  // right or bottom margin, an ::after by its left or top one), and in a
+  // grid it is placed automatically, in a cell of its own.
+  const besideFlow = (n, which, s, t) => {
+    if (!t) return false;
+    const pulls = which === '::before' ? ['marginRight', 'marginBottom'] : ['marginLeft', 'marginTop'];
+    if (!still(s, pulls) || s.float !== 'none') return false;
+    if (
+      /grid/.test(getComputedStyle(n).display) &&
+      !['gridRowStart', 'gridRowEnd', 'gridColumnStart', 'gridColumnEnd'].every((k) => s[k] === 'auto')
+    ) {
+      return false;
+    }
+    for (let a = t; a; a = up(a)) {
+      if (a === n) return true;
+      const as = getComputedStyle(a);
+      if (!still(as, MARGINS) || as.float !== 'none') return false;
+    }
+    return false;
+  };
+
+  // shrinks reports whether a transform only scales the box down about a
+  // point inside it (an underline scaled away until hover), so the box it
+  // was laid out with still bounds what it paints.
+  const shrinks = (s, w, h) => {
+    if ((s.translate && s.translate !== 'none') || (s.scale && s.scale !== 'none')) return false;
+    if (s.rotate && s.rotate !== 'none') return false;
+    if (s.transform === 'none') return true;
+    const m = /^matrix\(([^)]*)\)$/.exec(s.transform);
+    if (!m) return false;
+    const [a, b, c, d, e, f] = m[1].split(',').map(parseFloat);
+    const [ox, oy] = s.transformOrigin.split(' ').map(parseFloat);
+    return b === 0 && c === 0 && e === 0 && f === 0 && a >= 0 && a <= 1 && d >= 0 && d <= 1 && ox >= 0 && ox <= w && oy >= 0 && oy <= h;
+  };
+
+  // pseudoOrigin is the viewport point an absolutely positioned or fixed
+  // ::before or ::after of n is placed from: the padding box of its
+  // containing block, the page or the viewport; null when that block is
+  // an inline box over several lines, or scaled, rotated or zoomed, so its
+  // place is not known.
+  const pseudoOrigin = (n, position) => {
+    let cb = null;
+    for (let a = n; a && !cb; a = up(a)) {
+      const as = getComputedStyle(a);
+      if (establishesFixedBlock(as) || (position === 'absolute' && as.position !== 'static')) cb = a;
+    }
+    for (let a = cb || n; a; a = up(a)) if (warps(getComputedStyle(a))) return null;
+    if (!cb) return position === 'fixed' ? { x: 0, y: 0 } : { x: -scrollX, y: -scrollY };
+    const r = cb.getBoundingClientRect();
+    const display = getComputedStyle(cb).display;
+    if (display === 'contents') return null;
+    // An inline block's is its one line box; over more lines it is unknown.
+    if (display === 'inline') {
+      if (cb.getClientRects().length !== 1) return null;
+      const cs = getComputedStyle(cb);
+      return { x: r.left + parseFloat(cs.borderLeftWidth), y: r.top + parseFloat(cs.borderTopWidth) };
+    }
+    return { x: r.left + cb.clientLeft - cb.scrollLeft, y: r.top + cb.clientTop - cb.scrollTop };
+  };
+
   // pseudoAt says whether a ::before or ::after of n with a background or
-  // image may paint at (x, y): one laid out in the flow sits beside n's
-  // text, never under it; an absolutely positioned one in n's own box is
-  // placed by its insets; any other is unknown, so it may.
-  const pseudoAt = (n, x, y) => {
+  // image may paint at (x, y), under t's text when t is given: one laid
+  // out in the flow beside that text does not (besideFlow); an absolutely
+  // positioned or fixed one is placed by its insets in its containing
+  // block; any other is unknown, so it may.
+  const pseudoAt = (n, x, y, t) => {
     for (const which of ['::before', '::after']) {
       const s = getComputedStyle(n, which);
       if (/^(none|normal)$/.test(s.content) || s.display === 'none' || s.visibility !== 'visible') continue;
       if (parseFloat(s.opacity) === 0) continue;
       const bg = parseColour(s.backgroundColor);
       if (bg && bg.a === 0 && s.backgroundImage === 'none' && !/url\(|gradient\(/.test(s.content)) continue;
-      const still = (k) => s[k] === 'auto' || s[k] === '0px';
-      const flow =
-        (s.position === 'static' || (/^(relative|sticky)$/.test(s.position) && ['top', 'right', 'bottom', 'left'].every(still))) &&
-        s.transform === 'none' &&
-        (!s.translate || s.translate === 'none') &&
-        ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'].every((k) => parseFloat(s[k]) >= 0);
-      if (flow) continue;
-      const own = getComputedStyle(n);
-      if (s.position !== 'absolute' || s.transform !== 'none' || (own.position === 'static' && !establishesFixedBlock(own))) {
-        return which + ' of ' + desc(n);
+      const may = which + ' of ' + desc(n);
+      if (!/^(absolute|fixed)$/.test(s.position)) {
+        if (besideFlow(n, which, s, t)) continue;
+        return may;
       }
-      const r = n.getBoundingClientRect();
+      const o = pseudoOrigin(n, s.position);
+      if (!o) return may;
+      const border = s.boxSizing === 'border-box';
       const pad = (a, b) =>
-        parseFloat(s['padding' + a]) + parseFloat(s['padding' + b]) + parseFloat(s['border' + a + 'Width']) + parseFloat(s['border' + b + 'Width']);
-      const l = r.left + n.clientLeft + parseFloat(s.left);
-      const t = r.top + n.clientTop + parseFloat(s.top);
+        border
+          ? 0
+          : parseFloat(s['padding' + a]) +
+            parseFloat(s['padding' + b]) +
+            parseFloat(s['border' + a + 'Width']) +
+            parseFloat(s['border' + b + 'Width']);
+      const l = o.x + parseFloat(s.left);
+      const top = o.y + parseFloat(s.top);
       const w = parseFloat(s.width) + pad('Left', 'Right');
       const h = parseFloat(s.height) + pad('Top', 'Bottom');
-      if (![l, t, w, h].every(Number.isFinite)) return which + ' of ' + desc(n);
-      if (x >= l && x <= l + w && y >= t && y <= t + h) return which + ' of ' + desc(n);
+      if (![l, top, w, h].every(Number.isFinite) || !shrinks(s, w, h)) return may;
+      if (x >= l && x <= l + w && y >= top && y <= top + h) return may;
     }
     return '';
   };
 
+  // closedRoot reports whether n, a defined custom element with no open
+  // shadow root, may have a closed one: a child given a slot name no root
+  // has is laid out only where there is no shadow root at all.
+  const closedRoot = (n) => {
+    const p = document.createElement('span');
+    p.slot = 'maul-probe-' + Math.random().toString(36).slice(2);
+    p.style.cssText =
+      'display:block!important;position:absolute!important;visibility:hidden!important;width:1px!important;height:1px!important';
+    try {
+      n.appendChild(p);
+      return p.getClientRects().length === 0;
+    } catch {
+      return true;
+    } finally {
+      p.remove();
+    }
+  };
+
   // unknownPaint says why what n paints at (x, y) is not known, measured
-  // in the roots scopes: a replaced element, a ::before or ::after over the
-  // point, a shadow root out of sight whose content paints there, or a
-  // custom element whose root may be closed. '' when nothing is unknown.
+  // in the roots scopes, under t's text when t is given: a replaced
+  // element, a ::before or ::after that may paint at the point, a shadow
+  // root out of sight whose content paints there, or a custom element
+  // with a closed root. '' when nothing is unknown.
   const REPLACED = /^(IMG|CANVAS|VIDEO|OBJECT|EMBED|IFRAME)$/;
-  const unknownPaint = (n, x, y, scopes) => {
+  const unknownPaint = (n, x, y, scopes, t) => {
     if (REPLACED.test(n.tagName) || n instanceof SVGElement || (n.tagName === 'INPUT' && n.type === 'image')) {
       return 'unknown paint of ' + desc(n);
     }
-    const p = pseudoAt(n, x, y);
+    const p = pseudoAt(n, x, y, t);
     if (p) return 'unknown paint of ' + p;
     if (n.shadowRoot && !scopes.has(n.shadowRoot)) {
       const inner = scopesOf(n.shadowRoot);
       for (const i of stackAt(n.shadowRoot, x, y)) {
         if (insideOf(i, n) && paints(i, x, y, inner)) return 'the shadow content of ' + desc(n);
       }
-    } else if (!n.shadowRoot && n.localName.includes('-') && customElements.get(n.localName)) {
-      return 'unknown paint of ' + desc(n) + ' (a closed shadow root?)';
+    } else if (!n.shadowRoot && n.localName.includes('-') && customElements.get(n.localName) && closedRoot(n)) {
+      return 'unknown paint of ' + desc(n) + ' (a closed shadow root)';
     }
     return '';
   };
@@ -372,11 +477,13 @@
     return '';
   };
 
-  // covered says what covers el where a person would look for it: at the
-  // centre of its box, or, when that point misses it (a link wrapped over
-  // two lines), of the first of its line boxes it is found at. Its own
-  // descendants are its content, never a cover; '' when nothing does.
-  const covered = () => {
+  // found is where a person would look for el and find it: the centre of
+  // its box, or, when that point misses it (a link wrapped over two
+  // lines), of the first of its line boxes it is found at, with the
+  // layers the hit-test stack has above el there or, for an element that
+  // is never hit itself (a table row), above the topmost thing inside it,
+  // its own descendants left out. null when it is found at none of them.
+  const found = () => {
     const rs = [el.getBoundingClientRect(), ...el.getClientRects()];
     for (const r of rs) {
       if (r.width <= 0 || r.height <= 0) continue;
@@ -385,16 +492,22 @@
       if (!(x >= 0 && x < innerWidth && y >= 0 && y < innerHeight)) continue;
       const root = rootOf(el);
       const stack = stackAt(root, x, y);
-      const i = stack.indexOf(el);
-      if (i < 0) continue;
-      for (const n of stack.slice(0, i)) {
-        if (within(n, el)) continue;
-        const what = paints(n, x, y, scopesOf(root));
-        if (what) return 'centre (' + Math.round(x) + ',' + Math.round(y) + ') covered by ' + what;
-      }
-      return '';
+      let i = stack.indexOf(el);
+      if (i < 0) i = stack.findIndex((n) => within(n, el));
+      if (i >= 0) return { x, y, root, above: stack.slice(0, i).filter((n) => !within(n, el)) };
     }
-    return 'not found at its centre';
+    return null;
+  };
+
+  // covered says what covers el where it is found: a layer above it that
+  // paints. Its own descendants are its content, never a cover; '' when
+  // nothing does.
+  const covered = (at) => {
+    for (const n of at.above) {
+      const what = paints(n, at.x, at.y, scopesOf(at.root));
+      if (what) return 'centre (' + Math.round(at.x) + ',' + Math.round(at.y) + ') covered by ' + what;
+    }
+    return '';
   };
 
   // shown reports whether a person could see descendant d at all: a
@@ -410,16 +523,29 @@
 
   // descendantText judges the text of el's shown descendants as own text
   // is judged: one passing passes, all failing fails, anything else is
+  // indeterminate. What a slot inside el shows is its content too: a
+  // slotted element is judged with the rest, slotted bare text is
   // indeterminate. With no text at all, the element is seen by its box.
   const DESCENDANTS_MAX = 50;
   const descendantText = () => {
     const verdicts = [];
     let more = false;
-    const all = [];
+    const all = new Set();
+    const loose = [];
     const add = (r) => {
       for (const d of r.querySelectorAll('*')) {
-        all.push(d);
+        all.add(d);
         if (d.shadowRoot) add(d.shadowRoot);
+        if (d.tagName !== 'SLOT') continue;
+        for (const a of d.assignedNodes({ flatten: true })) {
+          if (a.nodeType === 1 && !all.has(a)) {
+            all.add(a);
+            if (a.shadowRoot) add(a.shadowRoot);
+            add(a);
+          } else if (a.nodeType === 3 && a.data.trim().replace(EMOJI, '').trim() && a.parentElement !== el) {
+            loose.push(a.parentElement);
+          }
+        }
       }
     };
     if (el.shadowRoot) add(el.shadowRoot);
@@ -433,6 +559,11 @@
       const v = judge(contrast(d), VISIBLE_MIN_CONTRAST);
       if (v.verdict === 'pass') return v;
       verdicts.push({ ...v, why: v.why.map((w) => desc(d) + ': ' + w) });
+    }
+    // Bare text a slot shows inside el takes the slot's colour, which is
+    // not measured: never a pass on the box alone.
+    for (const h of loose.slice(0, 1)) {
+      verdicts.push({ verdict: 'indeterminate', why: ['the text ' + desc(h) + ' slots into it is not measured'] });
     }
     if (!verdicts.length) return { verdict: 'pass', why: [] };
     if (!more && verdicts.every((v) => v.verdict === 'fail')) return { verdict: 'fail', why: verdicts[0].why };
@@ -462,6 +593,7 @@
     if (op <= VISIBLE_MIN_OPACITY) why.push('opacity ' + op.toFixed(2) + ' <= ' + VISIBLE_MIN_OPACITY);
     if (why.length) return { verdict: 'fail', why };
     const m = drawn(el);
+    const at = found();
     if (nothing(m)) {
       const what =
         m.verdict === 'pass'
@@ -469,10 +601,19 @@
           : 'clipped away';
       const where = what + (m.by.length ? ' by ' + m.by.join(', ') : '');
       if (m.warped.length) return { verdict: 'indeterminate', why: [where + ' under ' + m.warped.join(', ')] };
+      // A form control that hides itself this way stands behind what a
+      // person does see (a styled box, its label), which maul cannot name;
+      // one its container clipped away (a collapsed panel) is not shown.
+      const own = (r.width <= 1 && r.height <= 1) || (m.by.length > 0 && m.by.every((w) => w === desc(el)));
+      if (own && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
+        return { verdict: 'indeterminate', why: [where + ': a hidden form control, assert on what is shown in its place'] };
+      }
+      // The arithmetic and the hit test disagree: neither is believed.
+      if (at && (r.width > 1 || r.height > 1)) return { verdict: 'indeterminate', why: [where + ', yet found at its centre'] };
       return { verdict: 'fail', why: ['not drawn: ' + where] };
     }
-    if (m.shaped.length) return { verdict: 'indeterminate', why: ['clipped by a shape: ' + m.shaped.join(', ')] };
-    const cover = covered();
+    if (!at) return { verdict: 'indeterminate', why: ['not found at its centre'] };
+    const cover = covered(at);
     if (cover) return { verdict: 'indeterminate', why: [cover] };
     if (ownText(el)) return judge(contrast(el), VISIBLE_MIN_CONTRAST);
     return descendantText();
@@ -518,7 +659,8 @@
 
   // clipOf is the box n's own clip (absolutely positioned only) and
   // clip-path inset() leave of it, in viewport coordinates, or null when
-  // neither clips; shape names a clip-path the arithmetic cannot model.
+  // neither clips. Any other clip-path shape is left to the hit test: a
+  // point it cuts away is not found.
   const clipOf = (n, s) => {
     const r = n.getBoundingClientRect();
     let l = -Infinity;
@@ -526,7 +668,6 @@
     let rr = Infinity;
     let b = Infinity;
     let clips = false;
-    let shape = '';
     const m = /^rect\((.*)\)$/.exec(s.clip);
     if (m && /^(absolute|fixed)$/.test(s.position)) {
       const v = m[1].split(/\s*,\s*|\s+/);
@@ -549,10 +690,10 @@
         b = Math.min(b, r.bottom - pxOf(ib, r.height));
         l = Math.max(l, r.left + pxOf(il, r.width));
         clips = true;
-      } else shape = 'clip-path ' + s.clipPath + ' on ' + desc(n);
+      }
     }
-    if (![l, t, rr, b].every((x) => !Number.isNaN(x))) return { shape: 'clip ' + s.clip + ' on ' + desc(n) };
-    return { box: clips ? { l, t, r: rr, b } : null, shape };
+    if (!clips || [l, t, rr, b].some(Number.isNaN)) return null;
+    return { l, t, r: rr, b };
   };
 
   // warps reports whether style s maps n's own box to the viewport other
@@ -575,9 +716,9 @@
   // and body are left to the last cut: the page's scrollable extent, or
   // the viewport for a box fixed to it, so a box below the fold is drawn
   // (a person scrolls the page to it) but one placed off the page is not.
-  // clip and clip-path inset() cut too, t's own and its clipping chain's;
-  // another clip-path shape is named in shaped, and an ancestor that
-  // scales, rotates or zooms in warped, since its cut is then unsure.
+  // clip and clip-path inset() cut too, t's own and its clipping chain's,
+  // and an ancestor that scales, rotates or zooms is named in warped,
+  // since its cut is then unsure.
   const drawn = (t) => {
     const r = t.getBoundingClientRect();
     const box = { x: r.left, y: r.top, width: r.width, height: r.height };
@@ -593,12 +734,10 @@
       right = Math.min(right, rr);
       bottom = Math.min(bottom, b);
     };
-    const shaped = [];
     const warped = [];
     const clipBy = (n, s) => {
       const c = clipOf(n, s);
-      if (c.shape) shaped.push(c.shape);
-      if (c.box) cut(c.box.l, c.box.t, c.box.r, c.box.b, desc(n));
+      if (c) cut(c.l, c.t, c.r, c.b, desc(n));
     };
     const root = document.documentElement;
     const own = getComputedStyle(t);
@@ -615,10 +754,12 @@
       const clipY = s.overflowY !== 'visible';
       if ((!clipX && !clipY) || /^(inline|contents)$/.test(s.display)) continue;
       const ar = a.getBoundingClientRect();
-      const l = ar.left + a.clientLeft;
-      const t = ar.top + a.clientTop;
-      const w = clipX ? a.clientWidth : Infinity;
-      const h = clipY ? a.clientHeight : Infinity;
+      // overflow: clip paints past the padding box by its clip margin.
+      const mg = s.overflowX === 'clip' && s.overflowY === 'clip' ? pxOf(s.overflowClipMargin || '0px', 0) || 0 : 0;
+      const l = ar.left + a.clientLeft - mg;
+      const t = ar.top + a.clientTop - mg;
+      const w = clipX ? a.clientWidth + 2 * mg : Infinity;
+      const h = clipY ? a.clientHeight + 2 * mg : Infinity;
       cut(clipX ? l : -Infinity, clipY ? t : -Infinity, l + w, t + h, desc(a));
     }
     if (pos === 'fixed') cut(0, 0, root.clientWidth, root.clientHeight, 'the viewport');
@@ -626,9 +767,9 @@
     const clip = { x: left, y: top, width: right - left, height: bottom - top };
     const empty = (w, full) => w < 0 || (full > 0 && w <= 0);
     if (empty(clip.width, box.width) || empty(clip.height, box.height)) {
-      return { verdict: 'indeterminate', why: ['not drawn: clipped away by ' + by.join(', ')], box, clip, by, shaped, warped };
+      return { verdict: 'indeterminate', why: ['not drawn: clipped away by ' + by.join(', ')], box, clip, by, warped };
     }
-    return { verdict: 'pass', why: [], box, clip, by, shaped, warped };
+    return { verdict: 'pass', why: [], box, clip, by, warped };
   };
 
   switch (kind) {
