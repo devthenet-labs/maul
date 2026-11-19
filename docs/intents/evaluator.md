@@ -335,7 +335,9 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      an action, a locator that resolved nothing or more than one element, an element with no box, a trial click or an
      indeterminate judgement. The failing step is read from the compiled spec's own stack frame. maul's own runs of such
      a check (its confirmation, and its replays once saved) wait 15 seconds for each judgement instead of 5, so a slow
-     but correct page is not read as the defect.
+     but correct page is not read as the defect. A failure that is maul's own errs, never a fail: the browser not
+     answering or its key unreadable before any step ran, a failure placed at no step of the spec, the browser closing
+     or crashing under a step (an expect matcher it cut short included), and the test timing out.
 
    `maul-tool` prints `red by assertion at step <n> (<assertion>)` for such a run. The check must also write data of its
    own run: `{{run}}` in a POST, PUT or PATCH (its path or body; in a JSON body, a value, never an object key), a

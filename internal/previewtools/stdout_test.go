@@ -70,6 +70,14 @@ func TestStdoutAssertionsReadStdout(t *testing.T) {
 			toolwire.ResultFail},
 		{"the needle nowhere, exited 1, no exit expected", streams(1, "", "boom\n"), contains, toolwire.ResultFail},
 		{"a shim that keeps no streams apart", old, containsExit, toolwire.ResultError},
+		// Code review 2026-11-18 (relay): the shim's own words for a
+		// program it could not start are on stderr, never stdout.
+		{"the shim could not start the program, the needle in its words", streams(127, "",
+			"[maul: could not start /work/bin/"+run+"-item: fork/exec /work/bin/"+run+
+				"-item: no such file or directory]"), contains, toolwire.ResultError},
+		{"the same from a shim that keeps no streams apart", toolexec.Result{Exit: 127,
+			Output: "[maul: could not start /work/bin/" + run + "-item: no such file or directory]"}, contains,
+			toolwire.ResultError},
 		{"the marker starts a stderr line after an open stdout line", streams(0, "count=2", "%M a: no\n"),
 			containsExit, toolwire.ResultError},
 		{"the marker starts a stdout line, stderr left open", streams(0, "%M a: no\n", "warn"), containsExit,

@@ -526,3 +526,42 @@ func (e *liveEnv) driveSession(t *testing.T, h *harness, k *DirArtifacts) {
 		t.Errorf("entries do not start with the session and end with finish")
 	}
 }
+
+// TestLiveBrowserMaulFailures (code review 2026-11-18, relay finding 9):
+// with the pinned test runner, maul's own failures to reach the browser
+// (the shim refusing the connection, an unreadable key file) are check
+// errors, never a fail, while an assertion that ran against the real
+// page and did not hold still fails red by assertion. The reports in
+// testdata/browser-reports were captured from this runner the same way.
+func TestLiveBrowserMaulFailures(t *testing.T) {
+	e := newLiveEnv(t, "correct")
+	c := parseCheck(t, reportedTextCheck)
+	for _, tc := range []struct {
+		name            string
+		cdpURL, keyFile string
+		result          toolwire.RunResult
+		asserted        bool
+	}{
+		{name: "the shim refuses the connection", cdpURL: "http://127.0.0.1:1", keyFile: e.keyFile,
+			result: toolwire.RunError},
+		{name: "the key file is unreadable", cdpURL: e.shimURL, keyFile: filepath.Join(t.TempDir(), "absent"),
+			result: toolwire.RunError},
+		{name: "an assertion that did not hold", cdpURL: e.shimURL, keyFile: e.keyFile, result: toolwire.RunFail,
+			asserted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := e.relay(t)
+			h.relay.br.Runner = NodeRunner{Node: e.node, NodeDir: e.nodeDir, TmpDir: t.TempDir(), CDPURL: tc.cdpURL,
+				KeyFile: tc.keyFile, BaseURL: e.frontURL}
+			rec := h.relay.runCheck(context.Background(), c, toolwire.ModeReplay)
+			if rec.Result != tc.result {
+				t.Fatalf("result %s, want %s (%+v)", rec.Result, tc.result, rec.Attempts)
+			}
+			for _, a := range rec.Attempts {
+				if last := a.Steps[len(a.Steps)-1]; last.Assertion != tc.asserted {
+					t.Errorf("attempt ends %+v, want assertion %v", last, tc.asserted)
+				}
+			}
+		})
+	}
+}

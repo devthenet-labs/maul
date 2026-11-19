@@ -1,0 +1,76 @@
+{
+  "suites": [
+    {
+      "column": 0,
+      "file": "check.spec.ts",
+      "line": 0,
+      "specs": [
+        {
+          "column": 5,
+          "file": "check.spec.ts",
+          "id": "4fb1cd52b186e0ed6daf-a5e815811ea898508f41",
+          "line": 9,
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "contentType": "text/markdown",
+                      "name": "error-context",
+                      "path": "/tmp/check-1/test-results/check-maul-check/error-context.md"
+                    }
+                  ],
+                  "duration": 0,
+                  "error": {
+                    "location": {
+                      "column": 44,
+                      "file": "/tmp/check-1/maul-fixture.ts",
+                      "line": 27
+                    },
+                    "message": "Error: browserType.connectOverCDP: Unexpected status 503 when connecting to http://127.0.0.1:37425/json/version/.\nThis does not look like a DevTools server, try connecting via ws://.\nCall log:\n\u001b[2m  - <ws preparing> retrieving websocket url from http://127.0.0.1:37425\u001b[22m\n",
+                    "snippet": "   at maul-fixture.ts:27\n\n\u001b[0m \u001b[90m 25 |\u001b[39m     browser\u001b[33m:\u001b[39m [\n \u001b[90m 26 |\u001b[39m         \u001b[36masync\u001b[39m ({}\u001b[33m,\u001b[39m use) \u001b[33m=>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 27 |\u001b[39m             \u001b[36mconst\u001b[39m browser \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m chromium\u001b[33m.\u001b[39mconnectOverCDP(required(\u001b[32m\"MAUL_CDP_URL\"\u001b[39m)\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m                                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 28 |\u001b[39m                 headers\u001b[33m:\u001b[39m { \u001b[32m\"X-Maul-Cdp-Key\"\u001b[39m\u001b[33m:\u001b[39m cdpKey() }\u001b[33m,\u001b[39m\n \u001b[90m 29 |\u001b[39m                 timeout\u001b[33m:\u001b[39m \u001b[35m10\u001b[39m_000\u001b[33m,\u001b[39m\n \u001b[90m 30 |\u001b[39m             })\u001b[33m;\u001b[39m\u001b[0m",
+                    "stack": "Error: browserType.connectOverCDP: Unexpected status 503 when connecting to http://127.0.0.1:37425/json/version/.\nThis does not look like a DevTools server, try connecting via ws://.\nCall log:\n\u001b[2m  - <ws preparing> retrieving websocket url from http://127.0.0.1:37425\u001b[22m\n\n    at Object.exports.test._test.test.extend.browser.scope (/tmp/check-1/maul-fixture.ts:27:44)"
+                  },
+                  "errorLocation": {
+                    "column": 44,
+                    "file": "/tmp/check-1/maul-fixture.ts",
+                    "line": 27
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "column": 44,
+                        "file": "/tmp/check-1/maul-fixture.ts",
+                        "line": 27
+                      },
+                      "message": "Error: browserType.connectOverCDP: Unexpected status 503 when connecting to http://127.0.0.1:37425/json/version/.\nThis does not look like a DevTools server, try connecting via ws://.\nCall log:\n\u001b[2m  - <ws preparing> retrieving websocket url from http://127.0.0.1:37425\u001b[22m\n\n\n   at maul-fixture.ts:27\n\n  25 |     browser: [\n  26 |         async ({}, use) => {\n> 27 |             const browser = await chromium.connectOverCDP(required(\"MAUL_CDP_URL\"), {\n     |                                            ^\n  28 |                 headers: { \"X-Maul-Cdp-Key\": cdpKey() },\n  29 |                 timeout: 10_000,\n  30 |             });\n    at Object.exports.test._test.test.extend.browser.scope (/tmp/check-1/maul-fixture.ts:27:44)"
+                    }
+                  ],
+                  "parallelIndex": 0,
+                  "retry": 0,
+                  "startTime": "2026-11-19T19:30:59.889Z",
+                  "status": "failed",
+                  "stderr": [],
+                  "stdout": [],
+                  "workerIndex": 0
+                }
+              ],
+              "status": "unexpected",
+              "timeout": 30000
+            }
+          ],
+          "title": "maul check"
+        }
+      ],
+      "title": "check.spec.ts"
+    }
+  ]
+}
