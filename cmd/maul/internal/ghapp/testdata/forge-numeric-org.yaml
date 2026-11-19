@@ -1,0 +1,40 @@
+apiVersion: maul.run/v1alpha1
+kind: Forge
+metadata:
+  name: "123"
+  namespace: maul
+spec:
+  orgs:
+  - "123"
+  provider: github
+  secretRef:
+    name: maul-github-123
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: maul-forge-secret-maul-github-123
+  namespace: maul
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - maul-github-123
+  resources:
+  - secrets
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: maul-forge-secret-maul-github-123
+  namespace: maul
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: maul-forge-secret-maul-github-123
+subjects:
+- kind: ServiceAccount
+  name: custom-intent-controller
+  namespace: maul

@@ -72,6 +72,14 @@ type fakeAppGitHub struct {
 	noWebhookSecret bool
 	// owner is the converted App's owner login; "" is acme.
 	owner string
+	// memberStatus, memberRole and memberState answer the membership
+	// check; a zero status is 404.
+	memberStatus            int
+	memberRole, memberState string
+	// asks and auth record the membership requests and the last one's
+	// Authorization header.
+	asks int
+	auth string
 }
 
 func newFakeAppGitHub(t *testing.T) *fakeAppGitHub {
@@ -86,6 +94,7 @@ func newFakeAppGitHub(t *testing.T) *fakeAppGitHub {
 	mux.HandleFunc("POST /organizations/{org}/settings/apps/new", g.create)
 	mux.HandleFunc("POST /settings/apps/new", g.create)
 	mux.HandleFunc("POST /app-manifests/{code}/conversions", g.convert)
+	mux.HandleFunc("GET /user/memberships/orgs/{org}", g.membership)
 	g.srv = httptest.NewServer(mux)
 	t.Cleanup(g.srv.Close)
 	return g
@@ -102,7 +111,44 @@ func (g *fakeAppGitHub) deps(open func(string) error, stdin io.Reader) *setupDep
 		client:   g.srv.Client(),
 		tempDir:  g.t.TempDir(),
 		terminal: func(io.Writer) bool { return false },
+		// No token, whatever the environment the tests run in holds.
+		getenv: func(string) string { return "" },
 	}
+}
+
+// membership is GET /user/memberships/orgs/{org}: the caller's membership
+// of the organization, as memberStatus, memberRole and memberState say.
+func (g *fakeAppGitHub) membership(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.asks++
+	g.auth = r.Header.Get("Authorization")
+	if g.memberStatus != http.StatusOK {
+		status := g.memberStatus
+		if status == 0 {
+			status = http.StatusNotFound
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"message":"Not Found"}`))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"state": g.memberState, "role": g.memberRole,
+		"organization": map[string]any{"login": r.PathValue("org")}})
+}
+
+// memberAsks is how many membership requests GitHub received.
+func (g *fakeAppGitHub) memberAsks() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.asks
+}
+
+// memberAuth is the last membership request's Authorization header.
+func (g *fakeAppGitHub) memberAuth() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.auth
 }
 
 // create is GitHub's form: it registers the posted manifest and sends the
@@ -359,8 +405,8 @@ func (g *fakeAppGitHub) checkManifest(t *testing.T, features []intentperm.Featur
 	}
 }
 
-// checkSecretFile asserts the file at path is a 0600 Secret maul-github in
-// namespace with exactly keys, the App's ID and key, and no OAuth secret.
+// checkSecretFile asserts the file at path is a 0600 Secret maul-github-acme
+// in namespace with exactly keys, the App's ID and key, and no OAuth secret.
 func checkSecretFile(t *testing.T, g *fakeAppGitHub, path, namespace string, keys []string) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -368,7 +414,7 @@ func checkSecretFile(t *testing.T, g *fakeAppGitHub, path, namespace string, key
 		t.Fatal(err)
 	}
 	s := readSecret(t, raw)
-	if s.Name != ghapp.DefaultSecretName || s.Namespace != namespace ||
+	if s.Name != "maul-github-acme" || s.Namespace != namespace ||
 		!slices.Equal(slices.Sorted(maps.Keys(s.Data)), keys) || string(s.Data[ghapp.KeyAppID]) != "4242" ||
 		string(s.Data[ghapp.KeyPrivateKey]) != g.key {
 		t.Errorf("the Secret is %s/%s with %v", s.Namespace, s.Name, slices.Sorted(maps.Keys(s.Data)))
@@ -471,8 +517,14 @@ func TestSetupGitHubAppStdout(t *testing.T) {
 	if leaked := g.leaks(stderr); len(leaked) > 0 {
 		t.Errorf("stderr leaks %v:\n%s", leaked, stderr)
 	}
-	if entries, _ := os.ReadDir("."); len(entries) != 0 {
-		t.Errorf("-o - wrote %v to disk", entries)
+	if entries, _ := os.ReadDir("."); len(entries) != 1 || entries[0].Name() != "maul-github-acme.forge.yaml" {
+		t.Errorf("-o - wrote %v to disk, want only the forge file", entries)
+	}
+	next := setupNext{owner: "acme", org: true, installURL: g.srv.URL + "/apps/maul-acme/installations/new",
+		secretFile: "-", forgeFile: "maul-github-acme.forge.yaml", namespace: "maul", intents: true,
+		serviceAccount: ghapp.DefaultIntentControllerSA}
+	if !strings.Contains(stderr, next.render()) {
+		t.Errorf("stderr lacks the -o - next: block\n%s\nin\n%s", next.render(), stderr)
 	}
 
 	g = newFakeAppGitHub(t)
@@ -491,6 +543,7 @@ func TestSetupGitHubAppStdout(t *testing.T) {
 // mode perm, as a shell's `> file` makes one, and answers its path.
 func runSetupToFile(t *testing.T, deps *setupDeps, perm os.FileMode) (string, error) {
 	t.Helper()
+	t.Chdir(t.TempDir()) // where the forge file goes
 	path := filepath.Join(t.TempDir(), "maul-github.yaml")
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
@@ -651,6 +704,12 @@ func TestSetupGitHubAppRefusesAnotherOwner(t *testing.T) {
 	if leaked := g.leaks(stderr + err.Error()); len(leaked) > 0 {
 		t.Errorf("the refusal leaks %v", leaked)
 	}
+	// The App mallory owns is not under acme's settings: the link is the
+	// App's own page, which GitHub resolves for whoever owns it.
+	if !strings.Contains(err.Error(), "delete it at "+g.srv.URL+"/settings/apps/maul-acme") ||
+		strings.Contains(err.Error(), "/organizations/") {
+		t.Errorf("the refusal does not link the App's own page: %v", err)
+	}
 
 	// The owner's login is matched without regard to case.
 	g = newFakeAppGitHub(t)
@@ -670,6 +729,7 @@ func (failWriter) Write([]byte) (int, error) { return 0, syscall.EPIPE }
 // stdout after GitHub created the App, the error says so and links the
 // App's settings page, where a new key is generated.
 func TestSetupGitHubAppStdoutLost(t *testing.T) {
+	t.Chdir(t.TempDir())
 	g := newFakeAppGitHub(t)
 	var started string
 	errOut := &bytes.Buffer{}

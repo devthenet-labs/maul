@@ -1,0 +1,5 @@
+maul: next:
+  1. Install the App on acme (choose the organization, not your own account):
+     https://github.com/apps/maul-acme/installations/new
+     Select the repositories maul works on.
+  2. kubectl create -f '/tmp/my dir/s.yaml' && rm '/tmp/my dir/s.yaml' && kubectl apply -f '/tmp/my dir/f.yaml'

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -23,8 +24,20 @@ const (
 	KeyWebhookSecret = "webhookSecret"
 )
 
-// DefaultSecretName is the Secret the docs and the chart's examples name.
+// DefaultSecretName is the Secret the docs and the chart's examples name,
+// and the default for a user's App, whose login is known only once it
+// exists.
 const DefaultSecretName = "maul-github"
+
+// DefaultSecretNameFor is the default Secret for owner's App:
+// maul-github-<org> lowercased, so the Apps of two organizations never
+// share a name, or DefaultSecretName for a user's.
+func DefaultSecretNameFor(owner Owner) string {
+	if owner.Org == "" {
+		return DefaultSecretName
+	}
+	return DefaultSecretName + "-" + strings.ToLower(owner.Org)
+}
 
 // secretManifest is a v1 Secret, without the empty fields a corev1.Secret
 // would add.
