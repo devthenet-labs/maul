@@ -256,3 +256,39 @@ func TestBrowserCheckMaulFailuresAreErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestBrowserGoneReadsOnlyTheRunnersLines: the browser going away is read
+// from the last line of the runner's own matcher message, and an escape
+// sequence the page's text opens never swallows the quote the runner
+// closes that text with, so the page cannot end the message with those
+// words itself.
+func TestBrowserGoneReadsOnlyTheRunnersLines(t *testing.T) {
+	const head = "Error: expect(locator).toContainText(expected) failed\n\nLocator: getByTestId('t')\n\nCall log:\n" +
+		"\x1b[2m  - waiting for getByTestId('t')\x1b[22m\n"
+	for _, tc := range []struct {
+		name, tail string
+		gone       bool
+	}{
+		{"the runner's closing line", "\x1b[2m  - Page crashed\x1b[22m\n", true},
+		{"the runner's closing line, no colour", "  - Target page, context or browser has been closed\n", true},
+		{"the page's text, its quote closed", "\x1b[2m      - unexpected value \"x\x1b[22m\n" +
+			"\x1b[2m- Page crashed\"\x1b[22m\n", false},
+		{"the page's text opening a CSI sequence", "\x1b[2m      - unexpected value \"x\x1b[22m\n" +
+			"\x1b[2m- Page crashed\x1b[\"\x1b[22m\n", false},
+		{"the page's text opening an OSC sequence", "\x1b[2m      - unexpected value \"x\x1b[22m\n" +
+			"\x1b[2m- Page crashed\x1b]\"\x1b[22m\n", false},
+		{"the page's text opening a CSI sequence, no colour", "      - unexpected value \"x\n- Page crashed\x1b[\"\n",
+			false},
+		{"the words on an earlier line", "\x1b[2m  - Page crashed\x1b[22m\n\x1b[2m  - unexpected value \"1\"\x1b[22m\n",
+			false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := head + tc.tail
+			res := jsonResult{Status: "failed", Errors: []jsonError{{Message: msg + "\n\n  1 | x\n    at check.spec.ts:1:1"}},
+				Error: &jsonError{Message: msg}}
+			if got := browserGone(res); got != tc.gone {
+				t.Errorf("browserGone = %v, want %v", got, tc.gone)
+			}
+		})
+	}
+}

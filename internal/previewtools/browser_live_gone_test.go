@@ -94,9 +94,11 @@ func TestLiveBrowserGone(t *testing.T) {
 				t.Fatal(err)
 			}
 			done := make(chan struct{})
-			defer close(done)
+			killed := make(chan int, 1)
 			if tc.kill != "" {
 				go func() {
+					n := 0
+					defer func() { killed <- n }()
 					// Once the page has a renderer, give the check time to
 					// reach a step, then kill.
 					for len(chromiumProcesses("--type=renderer")) == 0 {
@@ -112,14 +114,20 @@ func TestLiveBrowserGone(t *testing.T) {
 					case <-time.After(3 * time.Second):
 					}
 					for _, pid := range chromiumProcesses(tc.kill) {
-						if p, err := os.FindProcess(pid); err == nil {
-							_ = p.Kill()
+						if p, err := os.FindProcess(pid); err == nil && p.Kill() == nil {
+							n++
 						}
 					}
 				}()
 			}
 			report, err := NodeRunner{Node: e.node, NodeDir: e.nodeDir, TmpDir: t.TempDir(), CDPURL: e.shimURL,
 				KeyFile: e.keyFile, BaseURL: tc.base}.RunSpec(context.Background(), spec)
+			close(done)
+			if tc.kill != "" {
+				if n := <-killed; n == 0 {
+					t.Fatalf("killed no %s process below this test: the test did not run its case", tc.kill)
+				}
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
