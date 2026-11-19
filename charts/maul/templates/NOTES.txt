@@ -79,8 +79,11 @@ intent-controller is enabled. It does nothing until a Project exists: add
 one per project to the maul-config chart's `projects` array, then check
 `kubectl get projects -n {{ .Release.Namespace }}` reports Ready. It reads only
 the Forge Secrets named in intentController.forgeSecrets in the release namespace
-({{ join ", " .Values.intentController.forgeSecrets }}): the Projects of a Forge referencing any other Secret report
-Ready=False with reason ForgeSecretUnreadable, naming the Secret.
+({{ join ", " .Values.intentController.forgeSecrets }}), plus any Secret a Role grants it: the
+<secret-name>.forge.yaml file `maul setup github-app` writes holds a Role granting
+exactly its Secret, the alternative to listing the name here. The Projects of a
+Forge whose Secret it cannot read report Ready=False with reason
+ForgeSecretUnreadable, naming the Secret and the fix.
 Its agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including model keys,
 image-pull credentials and other Jobs' handoffs.
 {{- if not (.Values.agent.repositoryImages | default dict).enabled }}

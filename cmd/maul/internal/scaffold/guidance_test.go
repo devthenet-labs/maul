@@ -4,6 +4,8 @@
 package scaffold
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -183,5 +185,50 @@ func TestNextStepsAdaptExisting(t *testing.T) {
 		if !strings.Contains(over, want) {
 			t.Errorf("--existing over an earlier scaffold lacks %q:\n%s", want, over)
 		}
+	}
+}
+
+// TestNextStepsGolden pins the printed next steps, byte for byte, for a new
+// application and for --existing (run with -update to accept a change).
+func TestNextStepsGolden(t *testing.T) {
+	for name, existing := range map[string]bool{"app": false, "existing": true} {
+		t.Run(name, func(t *testing.T) {
+			got := NextSteps(testOptions(existing), Present{})
+			path := filepath.Join("testdata", "nextsteps", name+".txt")
+			if *update {
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s (run with -update to create): %v", path, err)
+			}
+			if got != string(want) {
+				t.Errorf("next steps differ from %s (run with -update to accept):\n--- want\n%s\n--- got\n%s",
+					path, want, got)
+			}
+		})
+	}
+}
+
+// TestNextStepsEndWithTheProject: the last numbered step adds the
+// repository to its Project and the App's installation, then checks the
+// Project, so a person is never left without the command that comes next.
+func TestNextStepsEndWithTheProject(t *testing.T) {
+	steps := NextSteps(testOptions(false), Present{})
+	want := "  5. Add the repository to its Project:\n" +
+		"       maul setup project <name> ... --repo acme/Hello.Web\n" +
+		"       kubectl apply -f <name>.project.yaml\n" +
+		"     add acme/Hello.Web to the GitHub App's installation, then check the Project:\n" +
+		"       GH_TOKEN=$(gh auth token) maul check project <name>\n"
+	if !strings.Contains(steps, want) {
+		t.Errorf("next steps lack %q:\n%s", want, steps)
+	}
+	if strings.Index(steps, "  4. ") > strings.Index(steps, "  5. ") {
+		t.Errorf("step 5 is not after step 4:\n%s", steps)
 	}
 }

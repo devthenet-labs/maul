@@ -509,11 +509,11 @@ func (r *ProjectReconciler) validate(ctx context.Context, p *v1alpha1.Project) (
 	} {
 		if err := r.GitHub.EnsureLabel(ctx, p.Spec.IntentRepository, l.name, l.color, l.description); err != nil {
 			if secretUnreadable(err) {
-				return notReady(ReasonForgeSecretUnreadable, forgeSecretMessage, p.Spec.IntentRepository, err)
+				return notReady(ReasonForgeSecretUnreadable, "%s", forgeSecretMessage(p.Spec.IntentRepository, err))
 			}
 			if installationRefused(err) {
-				return notReady(v1alpha1.ReasonAppNotInstalled,
-					"the label %q cannot be created on %s: %v", l.name, p.Spec.IntentRepository, err)
+				return notReady(v1alpha1.ReasonAppNotInstalled, "the label %q cannot be created on %s: %v%s",
+					l.name, p.Spec.IntentRepository, err, installationHint(p.Spec.IntentRepository))
 			}
 			return metav1.Condition{}, err
 		}
@@ -538,10 +538,10 @@ func (r *ProjectReconciler) proveGrants(ctx context.Context, p *v1alpha1.Project
 			switch {
 			case err == nil:
 			case secretUnreadable(err):
-				return ReasonForgeSecretUnreadable, fmt.Sprintf(forgeSecretMessage, need.URL, err), nil
+				return ReasonForgeSecretUnreadable, forgeSecretMessage(need.URL, err), nil
 			case installationRefused(err):
-				return v1alpha1.ReasonAppNotInstalled,
-					fmt.Sprintf("the App cannot act on %s with %s%s: %v", need.URL, g, grantPurpose(g), err), nil
+				return v1alpha1.ReasonAppNotInstalled, fmt.Sprintf("the App cannot act on %s with %s%s: %v%s",
+					need.URL, g, grantPurpose(g), err, installationHint(need.URL)), nil
 			default:
 				return "", "", err
 			}
@@ -592,11 +592,33 @@ func grantPurpose(g intentperm.Grant) string {
 	return ""
 }
 
-// forgeSecretMessage explains a ForgeSecretUnreadable Project: the
-// repository, then the error, which names the Secret.
-const forgeSecretMessage = "the credential Secret of the Forge covering %s cannot be read (%v); " +
-	"intent-controller reads only the Secrets its RBAC names: add it to intentController.forgeSecrets " +
-	"(Helm) or to the component's rbac.yaml (kustomize)"
+// forgeSecretMessage explains a ForgeSecretUnreadable Project and names its
+// fix: the repository, then the API server's error (which names the Secret
+// and, when the read is denied, the ServiceAccount), then what to apply. A
+// missing Secret is created from the file maul setup github-app wrote; a
+// denied one is granted by the Role in its forge file or the chart's list.
+func forgeSecretMessage(repo string, err error) string {
+	if kerrors.IsNotFound(err) {
+		return fmt.Sprintf("the credential Secret of the Forge covering %s does not exist (%v): create it from "+
+			"the file maul setup github-app wrote (kubectl create -f <secret-name>.secret.yaml)", repo, err)
+	}
+	return fmt.Sprintf("intent-controller may not read the credential Secret of the Forge covering %s (%v): "+
+		"apply the <secret-name>.forge.yaml file maul setup github-app wrote (its Role grants exactly that "+
+		"Secret), or add the name to intentController.forgeSecrets (Helm) or the component's rbac.yaml "+
+		"(kustomize)", repo, err)
+}
+
+// installationHint is the fix appended to an AppNotInstalled message: where
+// the App's installation on the repository's owner is installed or
+// extended. Empty when the repository URL does not parse.
+func installationHint(repoURL string) string {
+	host, repo, err := forge.ParseRepoURL(repoURL)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("; install or extend the App's installation: https://%s/organizations/%s/settings/installations "+
+		"(a personal account: https://%s/settings/installations)", host, repo.Owner, host)
+}
 
 // secretUnreadable reports a Forge credential Secret the API server will not
 // hand over: missing, or not one intent-controller may read (its secrets

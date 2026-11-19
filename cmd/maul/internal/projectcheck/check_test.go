@@ -533,8 +533,22 @@ func TestRunForges(t *testing.T) {
 		w := newWorld(t)
 		w.repo("lib").URL = "https://github.com/other/shop-lib"
 		r := w.run()
-		expect(t, r, CheckForge, "lib", checkreport.Fail, "no forge matches repository", "namespace maul")
+		expect(t, r, CheckForge, "lib", checkreport.Fail, "no forge matches repository", "namespace maul",
+			"; create one: maul setup github-app --org other --intents")
 		expect(t, r, CheckForge, "web", checkreport.Pass)
+	})
+	// A Forge source-controller validated whose Secret intent-controller
+	// cannot read: the forge line still passes, but no longer reads as if
+	// the Forge were the whole story; ready carries the fix.
+	t.Run("secret unreadable by intent-controller", func(t *testing.T) {
+		w := newWorld(t)
+		w.project.Status.Conditions[0].Status = metav1.ConditionFalse
+		w.project.Status.Conditions[0].Reason = "ForgeSecretUnreadable"
+		w.project.Status.Conditions[0].Message = "intent-controller may not read the credential Secret"
+		r := w.run()
+		expect(t, r, CheckForge, "api", checkreport.Pass, "Forge github covers acme/shop-api and is Ready for "+
+			"source-controller only; intent-controller cannot read its Secret (see ready)")
+		expect(t, r, CheckReady, "", checkreport.Fail, "ForgeSecretUnreadable: intent-controller may not read")
 	})
 	t.Run("ambiguous", func(t *testing.T) {
 		w := newWorld(t)
@@ -571,7 +585,8 @@ func TestRunAgentImage(t *testing.T) {
 	}{
 		{"none declared, one required", func(w *world) { delete(w.github.files[w.repo("api").URL], ".maul/agent.yaml") },
 			"api", checkreport.Fail, []string{"declares no agent image", "exists as a regular file",
-				"requireRepositoryImage", "ImageRequired"}},
+				"requireRepositoryImage", "ImageRequired", "; scaffold one in that repository: maul init app " +
+					"--existing --registry <registry> (docs/intents/onboarding-app.md)"}},
 		{"none declared, none required", func(w *world) {
 			delete(w.github.files[w.repo("api").URL], ".maul/agent.yaml")
 			w.project.Spec.RequireRepositoryImage = &no

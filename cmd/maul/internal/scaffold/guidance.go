@@ -88,6 +88,11 @@ func NextSteps(o Options, present Present) string {
 		w("       port: %d", Port)
 		w("       readinessPath: %s", ReadinessPath)
 	}
+	w("  5. Add the repository to its Project:")
+	w("       maul setup project <name> ... --repo %s", repo)
+	w("       kubectl apply -f <name>.project.yaml")
+	w("     add %s to the GitHub App's installation, then check the Project:", repo)
+	w("       GH_TOKEN=$(gh auth token) maul check project <name>")
 	w("")
 	w("To change the agent toolchain later, edit .maul/Dockerfile and bump the tag in")
 	w(".maul/agent.yaml (toolchain-v2, ...) in the same commit: tags are immutable.")
