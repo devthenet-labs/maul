@@ -11,6 +11,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/agentrun"
 	"github.com/devthenet-labs/maul/internal/report"
 )
 
@@ -202,4 +203,32 @@ func refusedDecideNothing(r *rand.Rand, acc *v1alpha1.IntentAcceptance, stored [
 		}
 	}
 	return nil
+}
+
+// absentOnlyCheck asserts only an absence: valid when it was stored, and
+// refused by the substance rules since (code review 2026-11-18, checks 6).
+const absentOnlyCheck = `{"id":"still-healthy.no-error","outcome":"still-healthy","form":"http","http":{"target":"app",
+ "steps":[{"request":{"path":"/healthz"},"expect":{"json":{"/error":{"$absent":true}}}}]}}`
+
+// TestEvaluateHandoffNamesRefusedStoredChecks: a stored check the substance
+// rules now refuse supports nothing, so its green replay must not keep the
+// evaluator from writing its outcome a check that asserts something: the
+// handoff names it as not yet proof, marked refused, which lifts the
+// prompt's rule against a new check for an outcome whose saved check
+// replayed green, counts the outcome as uncovered in the turn budget and
+// in the cover repair. A valid stored check is not named.
+func TestEvaluateHandoffNamesRefusedStoredChecks(t *testing.T) {
+	refused, valid := savedCheck(t, absentOnlyCheck), savedCheck(t, versionCheck)
+	if storedValid(refused) || !storedValid(valid) {
+		t.Fatalf("storedValid: refused %v, valid %v", storedValid(refused), storedValid(valid))
+	}
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.storeChecks(name, refused, valid)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	h := decodeEvaluateHandoff(t, mustHandoff(t, e.prVerifyPass(name), &pv))
+	want := []agentrun.NotYetProof{{Outcome: refused.Outcome, Check: refused.ID, Refused: true}}
+	if !slices.Equal(h.NotYetProof, want) {
+		t.Errorf("not yet proof = %+v, want %+v", h.NotYetProof, want)
+	}
 }

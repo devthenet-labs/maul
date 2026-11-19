@@ -75,11 +75,15 @@ type EvaluateHandoff struct {
 	NotYetProof []NotYetProof `json:"not_yet_proof,omitempty"`
 }
 
-// NotYetProof is one saved check saved red that is not yet proof of a
-// pass: its outcome's id and its own id.
+// NotYetProof is one saved check that is not yet proof of a pass (saved
+// red, or Refused): its outcome's id and its own id.
 type NotYetProof struct {
 	Outcome string `json:"outcome"`
 	Check   string `json:"check"`
+	// Refused marks a check that is no proof because the saved-check
+	// substance rules have come to refuse it (code review 2026-11-18,
+	// checks 6), not because it was saved red.
+	Refused bool `json:"refused,omitempty"`
 }
 
 // PriorRefusal is one check the reviewer refused in an earlier round: its
@@ -364,7 +368,8 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 			Reason: r.Reason, Body: r.Body})
 	}
 	for _, c := range h.NotYetProof {
-		p.NotYetProof = append(p.NotYetProof, templates.NotYetProof{Check: c.Check, Outcome: c.Outcome})
+		p.NotYetProof = append(p.NotYetProof, templates.NotYetProof{Check: c.Check, Outcome: c.Outcome,
+			Refused: c.Refused})
 	}
 	for _, c := range h.Components {
 		p.Components = append(p.Components, templates.EvaluateComponent{Key: c.Key, Path: c.Path})

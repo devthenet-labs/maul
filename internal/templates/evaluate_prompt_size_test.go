@@ -75,9 +75,10 @@ const shedBound = 128<<10 - 1
 func TestEvaluatePromptFitsItsBound(t *testing.T) {
 	for _, ws := range []bool{false, true} {
 		p := maxEvaluatePrompt(t, ws, "a")
-		// A quarter of the previous round's results, so the parts that always
-		// stay fit beside the request and the fix diff at their bounds.
-		p.PriorVerdicts, p.PriorReplay, p.NotYetProof = p.PriorVerdicts[:5], p.PriorReplay[:10], p.NotYetProof[:10]
+		// A quarter of the previous round's results (two fewer of its checks
+		// not yet proof, since their section says more), so the parts that
+		// always stay fit beside the request and the fix diff at their bounds.
+		p.PriorVerdicts, p.PriorReplay, p.NotYetProof = p.PriorVerdicts[:5], p.PriorReplay[:10], p.NotYetProof[:8]
 		got, err := renderEvaluateWithin(p, shedBound)
 		if err != nil {
 			t.Fatalf("workspace %v: %v", ws, err)
