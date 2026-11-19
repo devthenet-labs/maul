@@ -33,9 +33,10 @@ func word(r *rand.Rand) string { return words[r.Intn(len(words))] }
 // genStatusOnly is a random check that asserts nothing positive about
 // content: HTTP steps with statuses (any, 4xx and 5xx included) and at
 // most absences ({$absent} at JSON pointers) and headers' bare presence or
-// absence, at times after a step asserting content on another answer; an exec with only an exit code and stdoutJSON absences; or a
-// browser check whose only assertions are urls and counts of 0 (code
-// review 2026-11-18, checks 6).
+// absence, at times after a step asserting content on another answer; an
+// exec with only an exit code and stdoutJSON absences; or a browser check
+// whose only assertions are urls and counts of 0 (code review 2026-11-18,
+// checks 6).
 type genStatusOnly struct{ c Check }
 
 func (genStatusOnly) Generate(r *rand.Rand, _ int) reflect.Value {
