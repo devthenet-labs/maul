@@ -18,9 +18,12 @@
 //
 // visible, legible and clickable run maul's page functions (pagefns.js,
 // embedded, run through locator.evaluate so nothing is installed in the
-// page). visible is human visible: a non-zero box with its centre in the
-// viewport after scrolling, effective opacity above 0.1 and, for its own
-// non-emoji text, contrast of at least 1.5:1. legible is WCAG AA, 4.5:1
+// page). visible is what a person can see: a non-zero box with its centre
+// in the viewport after scrolling, effective opacity above 0.1, not
+// clipped to nothing (a fail), not covered at its centre by an opaque
+// layer outside it (indeterminate), and contrast of at least 1.5:1 for
+// its own non-emoji text, or else for its shown descendants' text (one
+// readable passes, all unreadable fails). legible is WCAG AA, 4.5:1
 // (3:1 for large text). The background is what is painted under the
 // element (the hit-test stack at its centre, pointer-events lifted), a
 // gradient judged per colour stop by unanimity, a background image

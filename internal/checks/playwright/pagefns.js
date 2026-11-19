@@ -7,10 +7,18 @@
 // returns {verdict: "pass" | "fail" | "indeterminate", why: [...]}; an
 // indeterminate verdict is a check error (unsure), never a fail.
 //
-//   visible: a non-zero box whose centre is in the viewport (the caller
-//            scrolls it in first), visibility visible, effective opacity
-//            above 0.1 and, with its own non-emoji text, contrast of at
-//            least 1.5:1 against what is painted under it.
+//   visible: a person can see it. A non-zero box whose centre is in the
+//            viewport (the caller scrolls it in first), visibility
+//            visible, effective opacity above 0.1, and drawn: clipped to
+//            nothing (or to at most 1x1 px, a screen-reader span) by an
+//            overflow, clip or clip-path inset is a fail, under a scaled,
+//            rotated or zoomed ancestor, or another clip-path shape,
+//            indeterminate. Covered at its centre by an opaque layer that
+//            is not the element or inside it: indeterminate, never a pass.
+//            Its own non-emoji text needs a contrast of at least 1.5:1
+//            against what is painted under it; with none, the text of its
+//            shown descendants is judged so: one passing passes, all
+//            failing fails, otherwise indeterminate.
 //   legible: WCAG AA contrast of its own non-emoji text, 4.5:1, or 3:1
 //            for large text (24px, or 18.66px at weight 700 and over).
 //   hit:     the topmost element at the box centre is the element or
@@ -104,29 +112,35 @@
     return /\bdark\b/.test(cs) && !/\blight\b/.test(cs) ? { r: 18, g: 18, b: 18, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
   };
 
-  // layersBelow lists the layers painted under el, top first: the hit-test
-  // stack at its centre, with pointer-events lifted for the one
-  // measurement (a layer with pointer-events none still paints), else the
-  // ancestor chain.
-  const layersBelow = () => {
-    const r = el.getBoundingClientRect();
+  // stackAt is the hit-test stack at (x, y), top first, with pointer-events
+  // lifted for the one measurement (a layer with pointer-events none still
+  // paints).
+  const stackAt = (x, y) => {
     const st = document.createElement('style');
     st.textContent = '*{pointer-events:auto!important}';
     document.documentElement.appendChild(st);
-    const stack = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2).filter((n) => n !== st);
+    const stack = document.elementsFromPoint(x, y).filter((n) => n !== st);
     st.remove();
-    const i = stack.indexOf(el);
+    return stack;
+  };
+
+  // layersBelow lists the layers painted under t, top first: the hit-test
+  // stack at its centre, else the ancestor chain.
+  const layersBelow = (t) => {
+    const r = t.getBoundingClientRect();
+    const stack = stackAt(r.left + r.width / 2, r.top + r.height / 2);
+    const i = stack.indexOf(t);
     if (i >= 0) return stack.slice(i);
     const chain = [];
-    for (let n = el; n && n.nodeType === 1; n = n.parentElement) chain.push(n);
+    for (let n = t; n && n.nodeType === 1; n = n.parentElement) chain.push(n);
     return chain;
   };
 
-  // resolveBackground returns the opaque background candidates under el,
+  // resolveBackground returns the opaque background candidates under t,
   // or why they cannot be known. background-color paints below
   // background-image; a gradient contributes each stop as a candidate.
-  const resolveBackground = () => {
-    const layers = layersBelow();
+  const resolveBackground = (t) => {
+    const layers = layersBelow(t);
     const walk = (k) => {
       if (k >= layers.length) return { colours: [canvasColour()] };
       const node = layers[k];
@@ -156,33 +170,33 @@
     return walk(0);
   };
 
-  // ownText is el's own text, colour emoji left out (they ignore the CSS
+  // ownText is e's own text, colour emoji left out (they ignore the CSS
   // colour); a form control's value counts as its own text.
   const EMOJI = /[\p{Emoji_Presentation}\u{FE0F}\u{200D}\u{20E3}\u{1F3FB}-\u{1F3FF}]/gu;
-  const ownText = () => {
+  const ownText = (e) => {
     let t = '';
-    for (const n of el.childNodes) if (n.nodeType === 3) t += n.data;
+    for (const n of e.childNodes) if (n.nodeType === 3) t += n.data;
     if (
-      (el.tagName === 'INPUT' && !/^(checkbox|radio|range|color|file|hidden|image)$/.test(el.type)) ||
-      el.tagName === 'TEXTAREA'
+      (e.tagName === 'INPUT' && !/^(checkbox|radio|range|color|file|hidden|image)$/.test(e.type)) ||
+      e.tagName === 'TEXTAREA'
     ) {
-      t += el.value || el.placeholder || '';
+      t += e.value || e.placeholder || '';
     }
-    if (el.tagName === 'SELECT' && el.selectedOptions[0]) t += el.selectedOptions[0].text;
+    if (e.tagName === 'SELECT' && e.selectedOptions[0]) t += e.selectedOptions[0].text;
     return t.trim().replace(EMOJI, '').trim();
   };
 
-  const effectiveOpacity = () => {
+  const effectiveOpacity = (e) => {
     let o = 1;
-    for (let n = el; n && n.nodeType === 1; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+    for (let n = e; n && n.nodeType === 1; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
     return o;
   };
 
-  // contrast returns the contrast range of el's text over its background
-  // candidates, or why it cannot be known. The text colour's alpha is
-  // multiplied by the effective opacity before compositing.
-  const contrast = () => {
-    const cs = getComputedStyle(el);
+  // contrast returns the contrast range of t's own text over its
+  // background candidates, or why it cannot be known. The text colour's
+  // alpha is multiplied by the effective opacity before compositing.
+  const contrast = (t) => {
+    const cs = getComputedStyle(t);
     const fg = parseColour(cs.color);
     if (!fg) return { indeterminate: 'unparsed color ' + cs.color };
     if (cs.webkitTextFillColor && cs.webkitTextFillColor !== cs.color) {
@@ -190,19 +204,19 @@
       if (f && f.a === 0) return { indeterminate: 'transparent text fill' };
     }
     const effects = [];
-    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    for (let n = t; n && n.nodeType === 1; n = n.parentElement) {
       const s = getComputedStyle(n);
       if (/text/.test(s.backgroundClip) || /text/.test(s.webkitBackgroundClip || '')) {
         return { indeterminate: 'background-clip text on ' + desc(n) };
       }
-      if (n === el && s.textShadow !== 'none') effects.push('text-shadow');
+      if (n === t && s.textShadow !== 'none') effects.push('text-shadow');
       if (s.mixBlendMode !== 'normal') effects.push('mix-blend-mode on ' + desc(n));
       if (s.filter !== 'none') effects.push('filter on ' + desc(n));
       if (s.backdropFilter && s.backdropFilter !== 'none') effects.push('backdrop-filter on ' + desc(n));
     }
-    const bg = resolveBackground();
+    const bg = resolveBackground(t);
     if (bg.indeterminate) return bg;
-    const fgA = { ...fg, a: fg.a * effectiveOpacity() };
+    const fgA = { ...fg, a: fg.a * effectiveOpacity(t) };
     const ratios = bg.colours.map((b) => ratio(over(fgA, b), b));
     const size = parseFloat(cs.fontSize);
     const weight = parseInt(cs.fontWeight, 10) || 400;
@@ -227,6 +241,86 @@
     return { verdict: 'indeterminate', why: ['background colours disagree: contrast ' + range() + ' vs ' + floor] };
   };
 
+  // paints says what n paints over its whole box, or '' for nothing a
+  // person would see: faded out, or no background, image or replaced
+  // content (text alone, a floating label, is not a cover).
+  const REPLACED = /^(IMG|CANVAS|VIDEO|OBJECT|EMBED|IFRAME)$/;
+  const paints = (n) => {
+    if (effectiveOpacity(n) <= VISIBLE_MIN_OPACITY) return '';
+    if (REPLACED.test(n.tagName) || n instanceof SVGElement) return desc(n);
+    const s = getComputedStyle(n);
+    const bg = parseColour(s.backgroundColor);
+    if (!bg || bg.a > 0) return 'the background of ' + desc(n);
+    if (s.backgroundImage !== 'none') return 'the background image of ' + desc(n);
+    if (s.backdropFilter && s.backdropFilter !== 'none') return 'the backdrop-filter of ' + desc(n);
+    return '';
+  };
+
+  // covered says what covers el where a person would look for it: at the
+  // centre of its box, or, when that point misses it (a link wrapped over
+  // two lines), of the first of its line boxes it is found at. Its own
+  // descendants are its content, never a cover; '' when nothing does.
+  const covered = () => {
+    const rs = [el.getBoundingClientRect(), ...el.getClientRects()];
+    for (const r of rs) {
+      if (r.width <= 0 || r.height <= 0) continue;
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      if (!(x >= 0 && x < innerWidth && y >= 0 && y < innerHeight)) continue;
+      const stack = stackAt(x, y);
+      const i = stack.indexOf(el);
+      if (i < 0) continue;
+      for (const n of stack.slice(0, i)) {
+        if (el.contains(n)) continue;
+        const what = paints(n);
+        if (what) return 'centre (' + Math.round(x) + ',' + Math.round(y) + ') covered by ' + what;
+      }
+      return '';
+    }
+    return 'not found at its centre';
+  };
+
+  // shown reports whether a person could see descendant d at all: a
+  // non-zero box, visibility visible, not faded out and drawn beyond a
+  // pixel (a screen-reader label is not shown).
+  const shown = (d) => {
+    const r = d.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    if (getComputedStyle(d).visibility !== 'visible' || effectiveOpacity(d) <= VISIBLE_MIN_OPACITY) return false;
+    const m = drawn(d);
+    return !nothing(m);
+  };
+
+  // descendantText judges the text of el's shown descendants as own text
+  // is judged: one passing passes, all failing fails, anything else is
+  // indeterminate. With no text at all, the element is seen by its box.
+  const DESCENDANTS_MAX = 50;
+  const descendantText = () => {
+    const verdicts = [];
+    let more = false;
+    for (const d of el.querySelectorAll('*')) {
+      if (!ownText(d) || !shown(d)) continue;
+      if (verdicts.length === DESCENDANTS_MAX) {
+        more = true;
+        break;
+      }
+      const v = judge(contrast(d), VISIBLE_MIN_CONTRAST);
+      if (v.verdict === 'pass') return v;
+      verdicts.push({ ...v, why: v.why.map((w) => desc(d) + ': ' + w) });
+    }
+    if (!verdicts.length) return { verdict: 'pass', why: [] };
+    if (!more && verdicts.every((v) => v.verdict === 'fail')) return { verdict: 'fail', why: verdicts[0].why };
+    const why = verdicts.find((v) => v.verdict === 'indeterminate');
+    return {
+      verdict: 'indeterminate',
+      why: why ? why.why : ['no readable text among its first ' + DESCENDANTS_MAX + ' text descendants'],
+    };
+  };
+
+  // nothing reports whether a drawn measure leaves a person nothing to
+  // see: clipped away, or to at most a pixel each way.
+  const nothing = (m) => m.verdict !== 'pass' || (m.clip.width <= 1 && m.clip.height <= 1);
+
   const visible = () => {
     const r = el.getBoundingClientRect();
     const why = [];
@@ -238,16 +332,29 @@
     }
     const vis = getComputedStyle(el).visibility;
     if (vis !== 'visible') why.push('visibility ' + vis);
-    const op = effectiveOpacity();
+    const op = effectiveOpacity(el);
     if (op <= VISIBLE_MIN_OPACITY) why.push('opacity ' + op.toFixed(2) + ' <= ' + VISIBLE_MIN_OPACITY);
     if (why.length) return { verdict: 'fail', why };
-    if (!ownText()) return { verdict: 'pass', why: [] };
-    return judge(contrast(), VISIBLE_MIN_CONTRAST);
+    const m = drawn(el);
+    if (nothing(m)) {
+      const what =
+        m.verdict === 'pass'
+          ? 'drawn only ' + m.clip.width.toFixed(1) + 'x' + m.clip.height.toFixed(1) + ' px'
+          : 'clipped away';
+      const where = what + (m.by.length ? ' by ' + m.by.join(', ') : '');
+      if (m.warped.length) return { verdict: 'indeterminate', why: [where + ' under ' + m.warped.join(', ')] };
+      return { verdict: 'fail', why: ['not drawn: ' + where] };
+    }
+    if (m.shaped.length) return { verdict: 'indeterminate', why: ['clipped by a shape: ' + m.shaped.join(', ')] };
+    const cover = covered();
+    if (cover) return { verdict: 'indeterminate', why: [cover] };
+    if (ownText(el)) return judge(contrast(el), VISIBLE_MIN_CONTRAST);
+    return descendantText();
   };
 
   const legible = () => {
-    if (!ownText()) return { verdict: 'indeterminate', why: ['no own text (colour emoji are not text)'] };
-    const c = contrast();
+    if (!ownText(el)) return { verdict: 'indeterminate', why: ['no own text (colour emoji are not text)'] };
+    const c = contrast(el);
     return judge(c, c.large ? LEGIBLE_MIN_CONTRAST_LARGE : LEGIBLE_MIN_CONTRAST);
   };
 
@@ -273,15 +380,80 @@
     /\b(paint|layout|strict|content)\b/.test(s.contain) ||
     /\b(transform|perspective|filter)\b/.test(s.willChange);
 
-  // drawn cuts el's layout box by each ancestor that clips it, following
+  // pxOf reads a computed length in px against a reference size for a
+  // percentage; NaN when it is neither.
+  const pxOf = (v, ref) => {
+    v = v.trim();
+    if (/^-?[\d.]+px$/.test(v)) return parseFloat(v);
+    if (/^-?[\d.]+%$/.test(v)) return (parseFloat(v) / 100) * ref;
+    if (v === '0') return 0;
+    return NaN;
+  };
+
+  // clipOf is the box n's own clip (absolutely positioned only) and
+  // clip-path inset() leave of it, in viewport coordinates, or null when
+  // neither clips; shape names a clip-path the arithmetic cannot model.
+  const clipOf = (n, s) => {
+    const r = n.getBoundingClientRect();
+    let l = -Infinity;
+    let t = -Infinity;
+    let rr = Infinity;
+    let b = Infinity;
+    let clips = false;
+    let shape = '';
+    const m = /^rect\((.*)\)$/.exec(s.clip);
+    if (m && /^(absolute|fixed)$/.test(s.position)) {
+      const v = m[1].split(/\s*,\s*|\s+/);
+      const side = (i, ref, base, edge) => (v[i] === 'auto' ? edge : base + pxOf(v[i], ref));
+      if (v.length === 4) {
+        t = side(0, r.height, r.top, -Infinity);
+        rr = side(1, r.width, r.left, Infinity);
+        b = side(2, r.height, r.top, Infinity);
+        l = side(3, r.width, r.left, -Infinity);
+        clips = true;
+      }
+    }
+    if (s.clipPath && s.clipPath !== 'none') {
+      const im = /^inset\(([^)]*?)(?:\s+round\s[^)]*)?\)(?:\s+border-box)?$/.exec(s.clipPath);
+      const v = im ? im[1].trim().split(/\s+/) : [];
+      if (v.length >= 1 && v.length <= 4) {
+        const [it, ir = it, ib = it, il = ir] = v;
+        t = Math.max(t, r.top + pxOf(it, r.height));
+        rr = Math.min(rr, r.right - pxOf(ir, r.width));
+        b = Math.min(b, r.bottom - pxOf(ib, r.height));
+        l = Math.max(l, r.left + pxOf(il, r.width));
+        clips = true;
+      } else shape = 'clip-path ' + s.clipPath + ' on ' + desc(n);
+    }
+    if (![l, t, rr, b].every((x) => !Number.isNaN(x))) return { shape: 'clip ' + s.clip + ' on ' + desc(n) };
+    return { box: clips ? { l, t, r: rr, b } : null, shape };
+  };
+
+  // warps reports whether style s maps n's own box to the viewport other
+  // than by a translation, so its client size and its viewport box
+  // disagree and a cut by it is not to be trusted.
+  const warps = (s) => {
+    if (s.zoom && s.zoom !== '1' && s.zoom !== 'normal') return true;
+    if ((s.scale && s.scale !== 'none') || (s.rotate && s.rotate !== 'none')) return true;
+    if (s.transform === 'none') return false;
+    const m = /^matrix\(([^)]*)\)$/.exec(s.transform);
+    if (!m) return true;
+    const [a, b, c, d] = m[1].split(',').map(parseFloat);
+    return !(a === 1 && b === 0 && c === 0 && d === 1);
+  };
+
+  // drawn cuts t's layout box by each ancestor that clips it, following
   // the containing-block chain: an absolutely positioned box escapes the
   // clipping of ancestors below its positioned containing block, a fixed
   // one every ancestor below one with a transform (or the like). The root
   // and body are left to the last cut: the page's scrollable extent, or
   // the viewport for a box fixed to it, so a box below the fold is drawn
   // (a person scrolls the page to it) but one placed off the page is not.
-  const drawn = () => {
-    const r = el.getBoundingClientRect();
+  // clip and clip-path inset() cut too, t's own and its clipping chain's;
+  // another clip-path shape is named in shaped, and an ancestor that
+  // scales, rotates or zooms in warped, since its cut is then unsure.
+  const drawn = (t) => {
+    const r = t.getBoundingClientRect();
     const box = { x: r.left, y: r.top, width: r.width, height: r.height };
     let left = r.left;
     let top = r.top;
@@ -295,13 +467,24 @@
       right = Math.min(right, rr);
       bottom = Math.min(bottom, b);
     };
+    const shaped = [];
+    const warped = [];
+    const clipBy = (n, s) => {
+      const c = clipOf(n, s);
+      if (c.shape) shaped.push(c.shape);
+      if (c.box) cut(c.box.l, c.box.t, c.box.r, c.box.b, desc(n));
+    };
     const root = document.documentElement;
-    let pos = getComputedStyle(el).position;
-    for (let a = el.parentElement; a && a !== root && a !== document.body; a = a.parentElement) {
+    const own = getComputedStyle(t);
+    clipBy(t, own);
+    for (let a = t.parentElement; a && a !== root; a = a.parentElement) if (warps(getComputedStyle(a))) warped.push(desc(a));
+    let pos = own.position;
+    for (let a = t.parentElement; a && a !== root && a !== document.body; a = a.parentElement) {
       const s = getComputedStyle(a);
       if (pos === 'fixed' && !establishesFixedBlock(s)) continue;
       if (pos === 'absolute' && s.position === 'static' && !establishesFixedBlock(s)) continue;
       pos = s.position;
+      clipBy(a, s);
       const clipX = s.overflowX !== 'visible';
       const clipY = s.overflowY !== 'visible';
       if ((!clipX && !clipY) || /^(inline|contents)$/.test(s.display)) continue;
@@ -317,9 +500,9 @@
     const clip = { x: left, y: top, width: right - left, height: bottom - top };
     const empty = (w, full) => w < 0 || (full > 0 && w <= 0);
     if (empty(clip.width, box.width) || empty(clip.height, box.height)) {
-      return { verdict: 'indeterminate', why: ['not drawn: clipped away by ' + by.join(', ')], box, clip, by };
+      return { verdict: 'indeterminate', why: ['not drawn: clipped away by ' + by.join(', ')], box, clip, by, shaped, warped };
     }
-    return { verdict: 'pass', why: [], box, clip, by };
+    return { verdict: 'pass', why: [], box, clip, by, shaped, warped };
   };
 
   switch (kind) {
@@ -330,7 +513,7 @@
     case 'hit':
       return hit();
     case 'drawn':
-      return drawn();
+      return drawn(el);
     default:
       return { verdict: 'indeterminate', why: ['unknown page function ' + kind] };
   }

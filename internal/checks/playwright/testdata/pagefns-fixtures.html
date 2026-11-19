@@ -51,6 +51,20 @@
       .seq .steps { display: flex; gap: 16px; }
       .seq .step { width: 48px; height: 30px; flex: none; background: #c33; }
       .seq .sticky { position: sticky; left: 0; z-index: 1; }
+      /* Finding 2: visible means a person can see it. */
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+      .lid { position: absolute; inset: 0; background: #eee; }
+      .pane { position: absolute; inset: 0; }
+      .collapsed { height: 0; overflow: hidden; }
+      .flap { position: absolute; left: 0; top: 0; width: 40px; height: 100%; background: #eee; }
+      .wide { display: inline-block; width: 300px; }
+      .feed { height: 120px; overflow: auto; }
+      .feed .head { position: sticky; top: 0; height: 40px; background: #333; color: #fff; }
+      .feed .gap { height: 300px; }
+      .nav a { position: relative; color: #1a0dab; text-decoration: none; }
+      .nav a::after { content: ""; position: absolute; left: 0; bottom: -2px; height: 2px; width: 100%; background: #1a0dab; }
+      .tip { position: absolute; opacity: 0; background: #000; color: #fff; }
+      .narrow { width: 180px; }
     </style>
   </head>
   <body>
@@ -98,6 +112,27 @@
         <div class="step" id="s-stepa"></div><div class="step"></div><div class="step" id="s-stepc"></div>
       </div></div>
     </div>
+    <!-- Finding 2: an element a person cannot see (covered, clipped away, a 1px screen-reader span, text the colour of
+         its button) and the controls that must judge as before. -->
+    <div class="case"><span id="v-occluded">Under an opaque sibling</span><div class="lid"></div></div>
+    <div class="case"><div class="collapsed"><p id="v-collapsed">In a collapsed panel</p></div></div>
+    <div class="case"><span class="sr-only" id="v-sronly">Screen readers only</span></div>
+    <div class="case"><span id="v-clippath" style="display: inline-block; clip-path: inset(50%)">Clipped by inset(50%)</span></div>
+    <div class="case"><button id="v-childwhite" type="button" style="background: #fff; border: 0"><span style="color: #fff">Save</span></button></div>
+    <div class="case"><p id="v-plain">An ordinary paragraph</p></div>
+    <div class="case"><span id="v-glass">Under a transparent overlay</span><div class="pane"></div></div>
+    <div class="case"><span class="wide" id="v-partly">Partly covered, its centre clear</span><div class="flap"></div></div>
+    <div class="case"><button id="v-childdark" type="button"><span>Open</span></button></div>
+    <div class="case"><div class="feed" id="v-feed-clear"><div class="head">Feed</div><div class="gap"></div><button id="v-below-sticky" type="button">Below the fold</button><div class="gap"></div></div></div>
+    <div class="case"><div class="feed" id="v-feed-under"><div class="head">Feed</div><div class="gap"></div><button id="v-under-sticky" type="button">Under the header</button><div class="gap"></div></div></div>
+    <nav class="case nav"><a id="v-navlink" href="#battles">Battles</a> <a href="#board">Leaderboard</a></nav>
+    <div class="case narrow"><p>Read the rules, then <a id="v-wrapped" href="#rules">open the full battle rules page</a> now.</p></div>
+    <article class="case side" id="v-card">
+      <h4>Beat one</h4>
+      <button id="v-play" type="button"><span aria-hidden="true">&#9654;</span> <span>Listen</span></button>
+      <button id="v-icon" type="button"><svg width="16" height="16" aria-hidden="true"><rect width="16" height="16" fill="#333" /></svg><span class="sr-only">Vote</span></button>
+      <button id="v-tipped" type="button"><svg width="16" height="16" aria-hidden="true"><rect width="16" height="16" fill="#333" /></svg><span class="tip">Share</span></button>
+    </article>
     <!-- Names (G4-B-BR-1): a field, a button whose label holds the field's name, a button with an icon. -->
     <div class="case">
       <input id="n-beat" aria-label="Beat name" />
@@ -106,6 +141,9 @@
     </div>
     <script>
       for (const s of document.querySelectorAll('.scroller')) s.scrollLeft = s.scrollWidth;
+      // The button scrolled to just under the feed's sticky header: in the feed's view, covered.
+      const feed = document.getElementById('v-feed-under');
+      feed.scrollTop = document.getElementById('v-under-sticky').offsetTop - feed.offsetTop - 10;
     </script>
   </body>
 </html>

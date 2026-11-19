@@ -223,11 +223,15 @@ And every saved check of the outcome that the round was to replay has a replay r
 (the round was cut short before it) may be the very check that fails, so the outcome is unsure with the reason
 `not-replayed`, whatever its other checks show.
 
-A browser check never names a snapshot ref or a colour literal. Its `visible` assertion means visible to a person (in
-the viewport, a non-zero box, opacity above 0.1, text with at least 1.5:1 contrast against what is painted under it),
-not merely present in the page; `legible` is WCAG's 4.5:1 (3:1 for large text); `clickable` means the element itself
-receives the click. A background maul cannot judge (an image, a paint effect) makes such an assertion indeterminate: the
-check errs, which is unsure, never a fail. Its `size` assertion takes an exact `width` or `height`, within the
+A browser check never names a snapshot ref or a colour literal. Its `visible` assertion means a person can see it, not
+merely that it is in the page: in the viewport, a non-zero box, opacity above 0.1, not clipped away by a container, a
+`clip` or a `clip-path` inset (a collapsed panel or a 1px screen-reader label fails), not covered at its centre by
+something opaque that is not part of it, and its text with at least 1.5:1 contrast against what is painted under it
+(with no text of its own, the text of what it holds: a button whose label span is the colour of the button fails).
+`legible` is WCAG's 4.5:1 (3:1 for large text); `clickable` means the element itself receives the click. What maul
+cannot judge makes such an assertion indeterminate: the check errs, which is unsure, never a pass and never a fail. That
+is an element covered at its centre, one under a scaled or rotated container or clipped by a `clip-path` shape, and text
+over a background image or a paint effect. Its `size` assertion takes an exact `width` or `height`, within the
 assertion's `tolerance`, or bounds: `minWidth`, `maxWidth`, `minHeight` and `maxHeight`, the same tolerance as slack. An
 axis takes an exact value or its bounds, never both, and a minimum is never over its maximum. So an outcome that says
 "at least 48 px" is checked by `minHeight: 48`, never by an exact 48, which would fail a correct 56 px pad and which the
