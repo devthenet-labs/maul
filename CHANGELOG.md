@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.11](https://github.com/devthenet-labs/maul/compare/v0.14.10...v0.14.11) (2026-11-19)
+
+
+### Bug Fixes
+
+* **harness:** codex reads its prompt on stdin ([#446](https://github.com/devthenet-labs/maul/issues/446)) ([cd2fc40](https://github.com/devthenet-labs/maul/commit/cd2fc403b5354ebe39e3179eb04db38659f56d87))
+* **intent:** a base build that failed on the environment is not an unbuildable base ([#447](https://github.com/devthenet-labs/maul/issues/447)) ([57c8cb4](https://github.com/devthenet-labs/maul/commit/57c8cb49ded6b3fc1dc349d0db41d9bea8cb7c30))
+* **intent:** a check that asserts nothing positive is not substantive, and stdout assertions read stdout only ([#448](https://github.com/devthenet-labs/maul/issues/448)) ([65c2779](https://github.com/devthenet-labs/maul/commit/65c2779e89300a464e3dc16556b2cc042831b28c))
+
 ## [0.14.10](https://github.com/devthenet-labs/maul/compare/v0.14.9...v0.14.10) (2026-11-18)
 
 
