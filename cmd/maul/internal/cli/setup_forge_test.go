@@ -258,6 +258,7 @@ func TestSetupGitHubAppForgeOutput(t *testing.T) {
 		{"the Secret's path", []string{"-o", secret, "--forge-output", dir + "/./s.yaml"}, "--forge-output"},
 		{"forge name", []string{"--forge-name", "Acme_Forge"}, "--forge-name"},
 		{"service account", []string{"--intent-controller-sa", "Bad SA"}, "--intent-controller-sa"},
+		{"no service account", []string{"--intent-controller-sa", ""}, "--intent-controller-sa"},
 		{"secret name too long for its Role", []string{"--secret-name", strings.Repeat("a", 240)}, "--secret-name"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

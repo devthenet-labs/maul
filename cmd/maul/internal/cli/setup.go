@@ -621,7 +621,7 @@ func writeSecret(opts *Options, plan setupPlan, deps setupDeps, app *ghapp.App, 
 			return fmt.Errorf("%w%s", err, lost)
 		}
 		notef(opts.ErrOut, "maul: wrote Secret %s/%s (%s) to %s, mode 0600. It holds the only copy of the "+
-			"private key: apply or encrypt it, then delete it.\n", plan.namespace, plan.secretName, keys, plan.output)
+			"private key: create or encrypt it, then delete it.\n", plan.namespace, plan.secretName, keys, plan.output)
 	}
 	if err := writeForge(opts, plan, app, force); err != nil {
 		return err

@@ -620,6 +620,17 @@ func TestSetupGitHubAppPaste(t *testing.T) {
 		t.Fatal(err)
 	}
 	readSecret(t, raw)
+	// A user App's Forge is named after the login GitHub converted it to,
+	// the one thing not known before the App exists.
+	wantForge, err := ghapp.ForgeFile("acme", "maul", ghapp.DefaultSecretName, "acme",
+		ghapp.DefaultIntentControllerSA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(filepath.Dir(out), "maul-github.forge.yaml")); string(got) !=
+		string(wantForge) {
+		t.Errorf("the user App's forge file is\n%s\nwant\n%s", got, wantForge)
+	}
 	if pages, _ := filepath.Glob(filepath.Join(deps.tempDir, "*")); len(pages) != 0 {
 		t.Errorf("the start page was left behind: %v", pages)
 	}

@@ -12,8 +12,8 @@ Contents read, see [its credentials](../integrations/sources/github.md#credentia
     `maul-github-<org>` Secret manifest with its credentials (mode 0600: create it, then delete the file), and
     `maul-github-<org>.forge.yaml`, the `Forge` for the organization plus, with `--intents`, a `Role` letting
     intent-controller read exactly that Secret (no secret: keep it). It ends by printing the install link and the
-    commands to run next. See [Creating the GitHub App](../cli.md#creating-the-github-app); the steps below are the
-    same thing by hand.
+    commands to run next. For `--security`, name the same Secret in the `Integration`'s `spec.secretRef`. See
+    [Creating the GitHub App](../cli.md#creating-the-github-app); the steps below are the same thing by hand.
 
 ## Register the App
 
