@@ -67,6 +67,17 @@ type TestRunner interface {
 // maxReportBytes bounds a report: one test.
 const maxReportBytes = 1 << 20
 
+// maul's words for a check run that failed for a reason of maul's own, not
+// the application's (code review 2026-11-18, relay finding 9).
+const (
+	// reasonOutsideSteps: the failure is at no step of the check (maul's
+	// fixture, the runner).
+	reasonOutsideSteps = "the check failed outside its steps (maul's browser fixture or the test runner), so maul " +
+		"cannot judge it"
+	// reasonBrowserGone: the browser closed or crashed under a step.
+	reasonBrowserGone = "the browser closed or crashed during the check, so maul cannot judge it"
+)
+
 // checkRunTimeout bounds one runner process: the test's own timeout, the
 // CDP attach and the runner's start.
 const checkRunTimeout = time.Duration(playwright.PatientTestTimeoutMS)*time.Millisecond + 60*time.Second
@@ -152,17 +163,17 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 	for _, a := range append(annotations, res.Annotations...) {
 		indeterminate = indeterminate || a.Type == playwright.AnnotationIndeterminate
 	}
-	result := toolwire.ResultFail
-	switch {
-	case indeterminate:
-		result = toolwire.ResultError
-	case res.Status != "failed" && res.Status != "timedOut":
-		result = toolwire.ResultError
-	}
 	at, detail := 0, failureDetail(res)
 	line, located := failedLine(res)
 	if located {
 		at = stepAt(starts, line)
+	}
+	result := toolwire.ResultFail
+	switch own := maulsOwn(res, located); {
+	case indeterminate:
+		result = toolwire.ResultError
+	case own != "":
+		result, detail = toolwire.ResultError, own
 	}
 	assertion := result == toolwire.ResultFail && res.Status == "failed" && located &&
 		at < len(starts) && expectStep(spec, starts[at]) && assertionMessage(res.Errors[0].Message)
@@ -176,6 +187,86 @@ func judgeReport(report, spec []byte) []toolwire.StepRecord {
 		rec.Received = textReceived(res.Errors[0].Message)
 	}
 	return append(out, rec)
+}
+
+// maulsOwn is maul's words for a result that did not pass for a reason of
+// maul's own, "" for one the check's steps decided (code review
+// 2026-11-18, relay finding 9). Only a step can show the application
+// failing: a status other than failed (the test timing out included: the
+// browser, the shim or the application may have been slow), a failure at
+// no step of the spec (maul's worker fixture failing to attach to the
+// browser, to read its key or to close it; the runner itself), and the
+// browser closing or crashing under a step are maul's, a check error that
+// leaves the outcome unsure, never a fail.
+func maulsOwn(res jsonResult, located bool) string {
+	switch {
+	case res.Status != "failed":
+		return failureDetail(res)
+	case !located && len(res.Errors) > 0 && strings.Contains(firstLine(res.Errors[0].Message), "connectOverCDP"):
+		return "the browser did not answer"
+	case !located:
+		return reasonOutsideSteps
+	case browserGone(res):
+		return reasonBrowserGone
+	}
+	return ""
+}
+
+// Playwright's words for a page, context or browser that closed under a
+// call (a TargetClosedError with no reason: maul's spec never gives one)
+// and for a renderer that crashed under one: the pinned runner says "Page
+// crashed" under an action, a navigation and an expect matcher, "Target
+// crashed" under clickable's trial click (captured with the renderer
+// killed: testdata/browser-reports/crashed-*.json).
+const (
+	targetClosed = "Target page, context or browser has been closed"
+	goneWords    = `(?:` + targetClosed + `|Target crashed|Page crashed)`
+)
+
+var (
+	// actionGone is the whole first line of an action's error when the
+	// browser went away under it: "<api>.<method>: <words>" and nothing
+	// more, so a page's own error (a thrown Error is "<api>.<method>:
+	// Error: <its message>") never reads as one.
+	actionGone = regexp.MustCompile(`^[A-Za-z]+\.[A-Za-z]+: ` + goneWords + `$`)
+	// trialGone is the same under maul's clickable, which quotes the trial
+	// click's error, its name first, after its own words.
+	trialGone = regexp.MustCompile(`^maul: clickable failed: trial click: (?:[A-Za-z]+: )?[A-Za-z]+\.[A-Za-z]+: ` +
+		goneWords + `$`)
+	// logGone is the call-log line an expect matcher's message ends with
+	// when the browser went away under it.
+	logGone = regexp.MustCompile(`^- ` + goneWords + `$`)
+)
+
+// browserGone reports a failed step's error saying the browser went away
+// under it, read only where Playwright alone writes: the whole first line
+// of an action's error (in maul's clickable, of the trial click's, right
+// after maul's own words), or the last line of an expect matcher's
+// message, the call-log line the browser closing ends it with, whatever
+// text the matcher had seen so far. The application's text can sit in
+// neither place: a matcher's message quotes it (a Received value, an
+// element's markup, each unexpected value of the call log, line breaks
+// kept) but always closes the quote after it, and maul's hit test names a
+// covering element only before "trial click". The matcher's message is
+// the runner's own (the result's error), not the reporter's copy, which
+// appends the spec's source after it.
+func browserGone(res jsonResult) bool {
+	msg := res.Errors[0].Message
+	first := firstLine(msg)
+	if !strings.Contains(first, "expect(") {
+		return actionGone.MatchString(first) || trialGone.MatchString(first)
+	}
+	if res.Error != nil && res.Error.Message != "" {
+		msg = res.Error.Message
+	}
+	lines := strings.Split(strings.TrimRight(stripANSI(msg), " \t\r\n"), "\n")
+	return logGone.MatchString(strings.TrimSpace(lines[len(lines)-1]))
+}
+
+// firstLine is a message's first line, its "Error: " prefix cut.
+func firstLine(msg string) string {
+	first, _, _ := strings.Cut(stripANSI(msg), "\n")
+	return strings.TrimPrefix(strings.TrimSpace(first), "Error: ")
 }
 
 // expectStep reports whether the step whose comment is at line (1-based)

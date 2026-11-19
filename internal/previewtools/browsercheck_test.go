@@ -134,9 +134,9 @@ func TestBrowserCheckVerdicts(t *testing.T) {
 			return report("failed", []string{playwright.AnnotationIndeterminate},
 				"Error: maul: indeterminate legible: background image", lineOf(spec, "toContainText"))
 		}, toolwire.RunError, 2, "maul: indeterminate legible: background image"},
-		{"timed out", func(int, string) string {
+		{"timed out is an error", func(int, string) string {
 			return report("timedOut", nil, "Test timeout of 30000ms exceeded.", 0)
-		}, toolwire.RunFail, 0, "the check timed out"},
+		}, toolwire.RunError, 0, "the check timed out"},
 		{"no result", func(int, string) string { return `{"suites":[]}` }, toolwire.RunError, 0,
 			"the test runner reported no result"},
 		{"not a report", func(int, string) string { return `nope` }, toolwire.RunError, 0,
@@ -187,7 +187,13 @@ func TestJudgeReportBounds(t *testing.T) {
 	for _, line := range []int{-5, 0, 1, 3, 5, 99} {
 		steps := judgeReport([]byte(report("failed", nil, "Error: boom", line)), []byte(spec))
 		last := steps[len(steps)-1]
-		if last.Index < 0 || last.Index > 1 || last.Result != toolwire.ResultFail {
+		// A failure placed at no line of the spec is at no step: maul's
+		// own, an error (code review 2026-11-18, relay finding 9).
+		want := toolwire.ResultFail
+		if line <= 0 {
+			want = toolwire.ResultError
+		}
+		if last.Index < 0 || last.Index > 1 || last.Result != want {
 			t.Errorf("line %d: %+v", line, steps)
 		}
 	}

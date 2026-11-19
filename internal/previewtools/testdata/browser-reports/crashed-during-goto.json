@@ -1,0 +1,76 @@
+{
+  "suites": [
+    {
+      "column": 0,
+      "file": "check.spec.ts",
+      "line": 0,
+      "specs": [
+        {
+          "column": 5,
+          "file": "check.spec.ts",
+          "id": "4fb1cd52b186e0ed6daf-a5e815811ea898508f41",
+          "line": 9,
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "contentType": "text/markdown",
+                      "name": "error-context",
+                      "path": "/tmp/check-1/test-results/check-maul-check/error-context.md"
+                    }
+                  ],
+                  "duration": 1814,
+                  "error": {
+                    "location": {
+                      "column": 14,
+                      "file": "/tmp/check-1/check.spec.ts",
+                      "line": 14
+                    },
+                    "message": "Error: page.goto: Page crashed\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:46437/slow\", waiting until \"load\"\u001b[22m\n",
+                    "snippet": "\u001b[0m \u001b[90m 12 |\u001b[39m\n \u001b[90m 13 |\u001b[39m   \u001b[90m// step 1: goto\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 14 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/slow\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m              \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 15 |\u001b[39m   \u001b[36mawait\u001b[39m maul\u001b[33m.\u001b[39msettled(page)\u001b[33m;\u001b[39m\n \u001b[90m 16 |\u001b[39m\n \u001b[90m 17 |\u001b[39m   \u001b[90m// step 2: expect text\u001b[39m\u001b[0m",
+                    "stack": "Error: page.goto: Page crashed\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:46437/slow\", waiting until \"load\"\u001b[22m\n\n    at /tmp/check-1/check.spec.ts:14:14"
+                  },
+                  "errorLocation": {
+                    "column": 14,
+                    "file": "/tmp/check-1/check.spec.ts",
+                    "line": 14
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "column": 14,
+                        "file": "/tmp/check-1/check.spec.ts",
+                        "line": 14
+                      },
+                      "message": "Error: page.goto: Page crashed\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:46437/slow\", waiting until \"load\"\u001b[22m\n\n\n  12 |\n  13 |   // step 1: goto\n> 14 |   await page.goto(\"/slow\");\n     |              ^\n  15 |   await maul.settled(page);\n  16 |\n  17 |   // step 2: expect text\n    at /tmp/check-1/check.spec.ts:14:14"
+                    }
+                  ],
+                  "parallelIndex": 0,
+                  "retry": 0,
+                  "startTime": "2026-11-19T20:47:49.910Z",
+                  "status": "failed",
+                  "stderr": [],
+                  "stdout": [],
+                  "workerIndex": 0
+                }
+              ],
+              "status": "unexpected",
+              "timeout": 30000
+            }
+          ],
+          "title": "maul check"
+        }
+      ],
+      "title": "check.spec.ts"
+    }
+  ]
+}

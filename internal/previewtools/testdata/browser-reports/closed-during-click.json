@@ -1,0 +1,76 @@
+{
+  "suites": [
+    {
+      "column": 0,
+      "file": "check.spec.ts",
+      "line": 0,
+      "specs": [
+        {
+          "column": 5,
+          "file": "check.spec.ts",
+          "id": "4fb1cd52b186e0ed6daf-a5e815811ea898508f41",
+          "line": 9,
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "contentType": "text/markdown",
+                      "name": "error-context",
+                      "path": "/tmp/check-1/test-results/check-maul-check/error-context.md"
+                    }
+                  ],
+                  "duration": 1870,
+                  "error": {
+                    "location": {
+                      "column": 34,
+                      "file": "/tmp/check-1/check.spec.ts",
+                      "line": 18
+                    },
+                    "message": "Error: locator.click: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - waiting for getByTestId('nope')\u001b[22m\n",
+                    "snippet": "\u001b[0m \u001b[90m 16 |\u001b[39m\n \u001b[90m 17 |\u001b[39m   \u001b[90m// step 2: click\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 18 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByTestId(\u001b[32m\"nope\"\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 19 |\u001b[39m   \u001b[36mawait\u001b[39m maul\u001b[33m.\u001b[39msettled(page)\u001b[33m;\u001b[39m\n \u001b[90m 20 |\u001b[39m\n \u001b[90m 21 |\u001b[39m   \u001b[90m// step 3: expect text\u001b[39m\u001b[0m",
+                    "stack": "Error: locator.click: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - waiting for getByTestId('nope')\u001b[22m\n\n    at /tmp/check-1/check.spec.ts:18:34"
+                  },
+                  "errorLocation": {
+                    "column": 34,
+                    "file": "/tmp/check-1/check.spec.ts",
+                    "line": 18
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "column": 34,
+                        "file": "/tmp/check-1/check.spec.ts",
+                        "line": 18
+                      },
+                      "message": "Error: locator.click: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - waiting for getByTestId('nope')\u001b[22m\n\n\n  16 |\n  17 |   // step 2: click\n> 18 |   await page.getByTestId(\"nope\").click();\n     |                                  ^\n  19 |   await maul.settled(page);\n  20 |\n  21 |   // step 3: expect text\n    at /tmp/check-1/check.spec.ts:18:34"
+                    }
+                  ],
+                  "parallelIndex": 0,
+                  "retry": 0,
+                  "startTime": "2026-11-19T19:36:43.205Z",
+                  "status": "failed",
+                  "stderr": [],
+                  "stdout": [],
+                  "workerIndex": 0
+                }
+              ],
+              "status": "unexpected",
+              "timeout": 30000
+            }
+          ],
+          "title": "maul check"
+        }
+      ],
+      "title": "check.spec.ts"
+    }
+  ]
+}
