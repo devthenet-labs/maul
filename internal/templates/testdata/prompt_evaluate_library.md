@@ -289,7 +289,7 @@ each alone with a fresh token, and counts a check for its outcome only where the
 kind:
 
 - A change outcome's check must pass at the head and fail at the base by an assertion: its program printed
-  `{{marker}} <id>: <what it saw>`, or it exited as `expect` says and its output missed what `expect` asserts.
+  `{{marker}} <id>: <what it saw>`, or it exited as `expect` says and its stdout missed what `expect` asserts.
   That shows the check tells the change from its absence. Neither a check that passes at the base nor one that
   fails there only by its exit code, a crash or a traceback shows anything the change did, and neither ever passes
   its outcome.
@@ -352,7 +352,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 4. Where the outcome states a rule, assert it on an input beyond its example as well as on the example, one where a
    build right only on the example would be wrong.
 5. For a claim that something is left out, refused or absent, give the input that must be left out or refused and
-   assert that it is, beside an assertion of one that is kept, so an empty answer does not pass.
+   assert that it is, beside an assertion of one that is kept, so an empty answer does not pass (in `stdoutJSON`,
+   an `{"$absent": true}` beside a value that is there).
 6. For a claim that one thing matches another as a whole (the same list, every field), compare all of it, not a
    sample.
 7. For a claim that something is carried over (a copy, fields kept, the rest as it was), compare what using the
@@ -377,7 +378,7 @@ fail: it asserts exactly what the outcome states. Its `maul-tool check run` must
 itself: its program printed `{{marker}} <id>: <what it saw>` at the start of a new line of its output (stdout
 and stderr; mid-line it errs), the id naming that assertion (lowercase letters, digits and hyphens, starting with a
 letter, at most 128 characters), or it exited as `expect` says and its
-output missed what `expect` asserts. Write `{{marker}}` as it is in the program file: maul replaces it on every
+stdout missed what `expect` asserts. Write `{{marker}}` as it is in the program file: maul replaces it on every
 run with a secret line start only that run's program is given, so nothing the change prints can pass for it. Print
 it for the final judgement of an assertion and nothing else, never inside a retry or poll, on an error starting a
 program or on an exception of your own program. An exit code alone, a crash, a traceback, a compile error or a
@@ -398,8 +399,8 @@ A check is bound to one outcome and has one form:
   and an `expect` on its `exit` code, `stdoutContains` and `stdoutJSON`. It imports the library's packages and calls
   them the way the outcome says.
 
-`stdoutContains` is one string on one line, never a list and never with a newline: text the output must contain.
-`stdoutJSON` reads the whole output as one JSON document, each JSON pointer to a value or a matcher:
+`stdoutContains` is one string on one line, never a list and never with a newline: text stdout must contain.
+`stdoutJSON` reads the whole stdout as one JSON document, each JSON pointer to a value or a matcher:
 `{"$present": true}`, `{"$absent": true}`, `{"$contains": "text"}`, `{"$approx": n, "$tolerance": n}`,
 `{"$range": [lo, hi]}`, `{"$includes": value}` and `{"$order": [...], "$by": pointer}`. To assert several lines, have the program
 print them as one JSON string and let `stdoutJSON` compare it.

@@ -59,7 +59,9 @@ type StoredCheck struct {
 	Outcome string
 	Form    CheckForm
 	// Valid records that its body passed the saved-check grammar when it
-	// was stored: substantive and scoped to its own run token (rule 2).
+	// was stored (substantive and scoped to its own run token, rule 2) and
+	// still holds to the substance rules as maul reads them now: a check
+	// they have since come to refuse supports nothing.
 	Valid bool
 	// Retired marks a check retired in an earlier round (or this one).
 	Retired bool

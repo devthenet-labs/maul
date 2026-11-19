@@ -31,7 +31,7 @@ type narrowedRound struct {
 
 func newNarrowedRound() narrowedRound {
 	check := func(id, outcome, digit string) v1alpha1.SavedCheck {
-		return v1alpha1.SavedCheck{ID: id, Outcome: outcome, Form: v1alpha1.CheckFormHTTP, Body: `{}`,
+		return v1alpha1.SavedCheck{ID: id, Outcome: outcome, Form: v1alpha1.CheckFormHTTP, Body: healthCheck,
 			Digest: "sha256:" + strings.Repeat(digit, 64)}
 	}
 	r := narrowedRound{

@@ -54,9 +54,9 @@ func (f *fakeSandbox) Do(ctx context.Context, req *toolexec.Request) (toolexec.R
 		}
 	}
 	if f.do == nil {
-		return toolexec.Result{}, nil
+		return apart(toolexec.Result{}, nil)
 	}
-	return f.do(req, n)
+	return apart(f.do(req, n))
 }
 
 func (f *fakeSandbox) Ready(context.Context) error {

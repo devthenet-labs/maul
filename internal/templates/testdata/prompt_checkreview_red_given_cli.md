@@ -77,7 +77,7 @@ Program file `p.json`, run with the check:
 
 How maul runs it: the program the Project builds,
 `{{bin}}`, runs without a shell in a fresh working directory holding the check's files, and the check fails
-unless its exit code and output match its `expect`. It also fails whenever a line of its output starts with what
+unless its exit code and stdout match its `expect`. It also fails whenever a line of its output starts with what
 `{{marker}}` in its program files stands for, a secret maul draws afresh for every run and gives only the
 program, whatever its exit code and whatever else it prints; a run whose output is too long to keep whole never
 passes.

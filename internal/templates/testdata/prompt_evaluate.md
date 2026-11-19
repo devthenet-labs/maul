@@ -237,8 +237,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 6. For a claim that something is left as it was (read only, not moved), act on it, then assert that nothing changed.
 7. Assert only what the outcome states: no wording, value, order or layout it does not promise.
 8. For a claim that something is left out, refused, hidden or absent (does not list it, only those, excludes),
-   create the item that must be left out yourself and assert that it is not there, beside an assertion of an item
-   that is there, so an empty answer does not pass. On a list other runs share, narrow to your run's data as the
+   create the item that must be left out yourself and assert that it is not there, after an assertion of an item
+   that is there in the same answer (the same step's `json`), so an empty answer does not pass. On a list other runs share, narrow to your run's data as the
    rule above admits: in the narrowed answer assert your kept items by index and assert that the index after the
    last is `{"$absent": true}`, so the list ends there; on the unchanged request assert only what holds of any data,
    its status and the first item meeting the outcome's rule (`{"$range": [lo, hi]}` at its field), never your items'
@@ -336,7 +336,7 @@ A check is bound to one outcome and has one form:
   starts with what `{{marker}}` in its program files stands for (a secret maul draws for every run), whatever its
   exit code and its `expect`: have the program print `{{marker}} <id>: <what it saw>` when its final judgement of
   an assertion finds the outcome does not hold, never inside a retry or poll, on a connection error, a status code or
-  an exception. Let `expect` assert on what the program read from the preview (`stdoutJSON`, its whole output one JSON
+  an exception. Let `expect` assert on what the program read from the preview (`stdoutJSON`, its whole stdout one JSON
   document of the values it observed), never only on a line it prints whatever happened (`DONE`). A run whose output
   is too long to keep whole (over 64 KiB) never passes: print only what the check needs.
 

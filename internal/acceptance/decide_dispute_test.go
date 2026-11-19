@@ -232,3 +232,31 @@ func TestDisputeReplacementNotReproducedRetiresNothing(t *testing.T) {
 		t.Errorf("Retire %v ReplayRound %v on a replacement not reproduced; want a standing", d.Retire, d.ReplayRound)
 	}
 }
+
+// TestDisputeRetiresACheckTheRulesNowRefuse: a stored check the substance
+// rules have come to refuse (Valid false; code review 2026-11-18, checks 6)
+// that fails this round withholds its outcome's pass like any failing check
+// (rule 6), never failing it nor asking a fix; a dispute with a replacement
+// that could pass retires it as it retires any other, so the outcome is not
+// held unsure for ever.
+func TestDisputeRetiresACheckTheRulesNowRefuse(t *testing.T) {
+	in := disputeRound()
+	for i := range in.Checks {
+		if in.Checks[i].Digest == dg("a") {
+			in.Checks[i].Valid = false
+		}
+	}
+	d := Decide(in)
+	if !slices.Equal(d.Retire, []string{dg("a")}) || !d.ReplayRound {
+		t.Fatalf("retire = %v, replay round %v: want the refused check retired and a replay round", d.Retire,
+			d.ReplayRound)
+	}
+	if d.Fix != nil || d.Suspected != nil || d.PerOutcome[0].Result == ResultFailed {
+		t.Fatalf("decision = %+v: a refused check fails nothing and asks no fix", d)
+	}
+	in.Disputes = nil
+	in.Verdicts[0].Claim, in.Verdicts[0].Ledger = ClaimFail, []int32{3}
+	if d = Decide(in); d.Fix != nil || d.Suspected != nil || d.PerOutcome[0].Result != ResultUnsure {
+		t.Fatalf("undisputed, the evaluator citing a fail: %+v, want unsure with no fix", d)
+	}
+}

@@ -240,10 +240,12 @@ func (p *EvaluatePrompt) shedOne() bool {
 	return true
 }
 
-// NotYetProof is one saved check saved red that is not yet proof of a
-// pass, by its id and outcome.
+// NotYetProof is one saved check that is not yet proof of a pass, by its
+// id and outcome: saved red, or (Refused) one the saved-check substance
+// rules have come to refuse, which counts for nothing however it replays.
 type NotYetProof struct {
 	Check, Outcome string
+	Refused        bool
 }
 
 // PriorRefusal is one check the reviewer refused in an earlier round, by
@@ -560,7 +562,11 @@ func notYetBlock(cs []NotYetProof) string {
 		if i == NotYetProofMax {
 			break
 		}
-		fmt.Fprintf(&b, "- check %s, of outcome %s\n", quotedLine(c.Check, 72), quotedLine(c.Outcome, 64))
+		fmt.Fprintf(&b, "- check %s, of outcome %s", quotedLine(c.Check, 72), quotedLine(c.Outcome, 64))
+		if c.Refused {
+			b.WriteString(": asserts nothing that is there")
+		}
+		b.WriteString("\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

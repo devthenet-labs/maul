@@ -143,17 +143,20 @@ Where it is not shown, strengthen the check to answer the reason, run it, and pr
 
 ### Saved checks that are not yet proof
 
-These saved checks were saved to show a defect of their outcome, each named by its id and its outcome:
+A green replay of these saved checks is no evidence that their outcome holds, each named by its id and its outcome:
 
 ```text
 - check winner-rises-red, of outcome winner-rises
 ```
 
-Such a check shows only that the build it failed on was wrong. When it replays green, that is not yet evidence that
-its outcome holds: a reviewer judges it again as proof of the pass, and a check written to catch one wrong value
-rarely pins every clause of the outcome. So for each of these outcomes whose saved checks replay green this round,
-write a new check that shows the outcome holds, held to **What a check must cover** like any other, run it green,
-propose it, and cite its run in the verdict. Leave the saved check as it is: do not dispute or retire it.
+One listed as asserting nothing that is there asserts only what holds of an empty or error answer too (an absence, a
+header's bare presence, a count of 0 before the page shows anything): maul counts it for nothing, however it replays.
+Every other one was saved to show a defect of its outcome, and shows only that the build it failed on was wrong. When it
+replays green, that is not yet evidence that its outcome holds: a reviewer judges it again as proof of the pass, and a
+check written to catch one wrong value rarely pins every clause of the outcome. So for each of these outcomes whose
+saved checks replay green this round, write a new check that shows the outcome holds, held to **What a check must
+cover** like any other, run it green, propose it, and cite its run in the verdict. Leave the saved check as it is: do
+not dispute or retire it.
 
 ## The preview and your tools
 
@@ -327,8 +330,8 @@ So before you propose a check that shows an outcome holds, hold it to this list:
 6. For a claim that something is left as it was (read only, not moved), act on it, then assert that nothing changed.
 7. Assert only what the outcome states: no wording, value, order or layout it does not promise.
 8. For a claim that something is left out, refused, hidden or absent (does not list it, only those, excludes),
-   create the item that must be left out yourself and assert that it is not there, beside an assertion of an item
-   that is there, so an empty answer does not pass. On a list other runs share, narrow to your run's data as the
+   create the item that must be left out yourself and assert that it is not there, after an assertion of an item
+   that is there in the same answer (the same step's `json`), so an empty answer does not pass. On a list other runs share, narrow to your run's data as the
    rule above admits: in the narrowed answer assert your kept items by index and assert that the index after the
    last is `{"$absent": true}`, so the list ends there; on the unchanged request assert only what holds of any data,
    its status and the first item meeting the outcome's rule (`{"$range": [lo, hi]}` at its field), never your items'

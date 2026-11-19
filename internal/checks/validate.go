@@ -135,6 +135,43 @@ func validate(c Check, ctx Context) *Refusal {
 	}
 }
 
+// Substantive holds c to the saved-check grammar's substance rules alone
+// (DESIGN 4.3 rule 2: an act on the surface and an assertion about
+// content), on no surface: what a check stored under earlier rules must
+// still hold to before it supports a pass (StoredCheck.Valid). A refused
+// check is a *Refusal of RuleNotSubstantive; Validate holds every check to
+// the same rules, in its own order.
+func Substantive(c Check) error {
+	var r *Refusal
+	switch {
+	case c.HTTP != nil:
+		r = httpSubstance(*c.HTTP)
+	case c.Browser != nil:
+		r = browserSubstance(*c.Browser)
+	case c.Exec != nil:
+		r = stdoutSubstance(c.Exec.Expect)
+	case c.Run != nil:
+		r = stdoutSubstance(c.Run.Expect)
+	default:
+		r = refuse(RuleGrammar, "form must be one of http, browser, exec, run, with exactly that body")
+	}
+	if r != nil {
+		r.Check = c.ID
+		return r
+	}
+	return nil
+}
+
+// absences reports an expected-JSON map asserting an absence somewhere.
+func absences(m map[string]httpstep.Value) bool {
+	for _, v := range m {
+		if obj, ok := v.Decoded().(map[string]any); ok && obj["$absent"] != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // validateContext refuses a context naming no surface or both, and a
 // workspace that is not exactly one of a cli and a library of a language
 // maul builds programs in.
@@ -477,15 +514,19 @@ func runScoped(field string, m map[string]httpstep.Value) *Refusal {
 	return nil
 }
 
-// contentJSON reports whether an expected-JSON map asserts on content:
-// any expectation but the bare presence or absence of a whole document.
+// contentJSON reports whether an expected-JSON map asserts something
+// positive about content: any expectation but the bare presence of a whole
+// document and an absence anywhere. An absence ({$absent: true}) holds of
+// a body that is not JSON, empty, null or an error object too (code review
+// 2026-11-18, checks 6), so it stands only beside an assertion of content
+// that is there.
 func contentJSON(m map[string]httpstep.Value) bool {
 	for ptr, v := range m {
-		if ptr != "" {
-			return true
-		}
-		obj, ok := v.Decoded().(map[string]any)
-		if !ok || (obj["$present"] == nil && obj["$absent"] == nil) {
+		obj, isObj := v.Decoded().(map[string]any)
+		switch {
+		case isObj && obj["$absent"] != nil:
+			continue
+		case ptr != "" || !isObj || obj["$present"] == nil:
 			return true
 		}
 	}

@@ -67,6 +67,54 @@ func TestEvaluatePromptAsksForProofOfARedCheck(t *testing.T) {
 	}
 }
 
+// TestEvaluatePromptAsksForProofBesideARefusedCheck (code review 2026-11-18,
+// checks 6): a saved check the substance rules have come to refuse counts
+// for nothing however it replays, so both evaluate prompts list it as not
+// yet proof, saying why, and ask its outcome a new check: without that, the
+// rule against a new check for an outcome whose saved check replayed green
+// would leave the outcome unsure in every round.
+func TestEvaluatePromptAsksForProofBesideARefusedCheck(t *testing.T) {
+	for name, base := range map[string]func() EvaluatePrompt{
+		"preview": testEvaluatePrompt,
+		"cli":     func() EvaluatePrompt { return testWorkspacePrompt(testCLIWorkspace) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := base()
+			p.NotYetProof = []NotYetProof{{Check: "swing-red", Outcome: "swing-shown"},
+				{Check: "swing-gone", Outcome: "swing-hidden", Refused: true}}
+			got, err := RenderEvaluatePrompt(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"### Saved checks that are not yet proof",
+				"- check swing-red, of outcome swing-shown\n",
+				"- check swing-gone, of outcome swing-hidden: asserts nothing that is there\n",
+				"One listed as asserting nothing that is there asserts only what holds of an empty or error answer too",
+				"maul counts it for nothing, however it replays.",
+				"Every other one was saved to show a defect of its outcome",
+				"When it replays green, that is not yet evidence that its outcome holds",
+				"write a new check that shows the outcome holds",
+				"or it is listed under **Saved checks that are not yet proof**.",
+			} {
+				if !strings.Contains(flat(got), want) && !strings.Contains(got, want) {
+					t.Errorf("prompt lacks %q", want)
+				}
+			}
+			if strings.Contains(strings.Join(unfenced(got), "\n"), "swing-gone") {
+				t.Error("a listed check's id is outside its fence")
+			}
+			p.NotYetProof = p.NotYetProof[:1]
+			if got, err = RenderEvaluatePrompt(p); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(got, ": asserts nothing that is there\n") {
+				t.Error("a check saved red is listed as asserting nothing")
+			}
+		})
+	}
+}
+
 // TestEvaluatePromptStatesTheClock (gate D-B8): both evaluate prompts tell
 // the evaluator that maul-tool shows the time left, when to write its
 // report by it, and to report an outcome unsure, naming what no check could

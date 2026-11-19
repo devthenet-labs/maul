@@ -90,44 +90,45 @@ the evaluator's run (`[maul-tool time left]`).
    plausible wrong build would still pass (S1 demo: every outcome left unconfirmed on a correct build had one). An
    outcome it leaves unsure with no check names the clause it could not exercise. It does not run again a saved check
    that replayed green, and writes no new check for its outcome, except for a check saved red (to show a defect) that no
-   review has yet accepted as proof the outcome holds: maul names those, and the evaluator writes such an outcome a new
-   check that proves it, confirmed and reviewed like any other, so a fixed defect can pass in the round after its fix.
-   Past an outcome's turn budget it stops on a check that cannot run as the outcome needs (a wait no check step can
-   make, more steps than a check may have) and reports the outcome unsure, naming what no check could express. A check
-   counts only for the outcome it is bound to, however many outcomes its run showed. When the accepted report still
-   passes an outcome a person does not judge with no green proposal bound to it and no saved check of it (maul passed it
-   in no earlier round, and no saved check of it replayed), agent-runner resumes the evaluator's session and asks for
-   one check of each such outcome, by id, or an unsure verdict (defect gate 4, G4-B-LIB-1: at a correct fix the
-   evaluator rested eight passes on one exploring run, so the round was Unconfirmed 2/10 until a person asked again). It
-   asks at most twice, on what is left of the stage's turns, wall clock and output tokens, and stops once an ask covers
-   no further outcome. The rewritten report replaces the accepted one only when it changes nothing maul judges by but
-   those outcomes' verdicts (each keeping its `contrary` seqs; a reworded note elsewhere is no change) and adds
-   proposals of them alone; anything else, or a report that does not parse, keeps the report before, which maul puts
-   back for the second ask, saying why the rewrite was refused. Its new checks are confirmed and reviewed like any
-   other, so the ask passes nothing by itself. A run that ran out of its turns or its clock, and a harness that cannot
-   continue a session (codex), is not asked. An outcome that states a rule (what holds for any input of a kind, a bound,
-   a "never" or an "always") is judged by the rule, its example one instance of it (defect gate 2, G-B-LIB-2: a build
-   right on the plan's example and wrong elsewhere passed its outcomes). The evaluator tries the rule on inputs of its
-   own choosing beyond the example, where a build right only on the example would answer differently, and a failure
-   there is a fail it shows with a red check of its own data; a check that tries the rule only on its example is one a
-   plausible wrong build would still pass. It stays within what the outcome promises: an input the rule does not cover,
-   a value its words do not decide (where the outcome states no range, a value far from its example) and behaviour the
-   issue leaves unsaid are never a failure. Where an outcome names only an example and its issue line states the rule,
-   the evaluator tries that rule beyond the example in calls of its own, never in a check it proposes (its checks assert
-   only what the outcome states), and a break there withholds the pass (`contrary`, so unsure) but never fails the
-   outcome: a fail and its fix are only for what the approved outcome itself states. It reports such an outcome `pass`
-   only once it has tried that rule beyond the example (a prompt rule: an evaluator that never probes is still passed on
-   its example check), and a break it saw while judging another outcome that states the same rule goes in this one's
-   `contrary` too, which withholds its pass (defect gate 3, G1: a README-example outcome quoting the counting rule
-   passed while the rule was broken). A promise that something is carried over (a copy, fields kept, the rest unchanged,
-   a round-trip through save and load) is a rule as well: the evaluator tries it on the values a careless copy loses (a
-   field left unset, zero, empty or absent, and every field the promise covers) and compares the result by what using it
-   gives against the original, what calls give for it and how it is written out or read back (defect gate 3, G6: a copy
-   that turned absent fields into empty ones could no longer be encoded). A zero or absent value of what is carried over
-   is one the outcome decides; a field it says changes or does not cover, and a difference of representation alone (nil
-   against empty) that nothing using it shows, are never a failure, nor is a new item's own identity (its id, when it
-   was made) where the copy is saved beside the original. On a workspace an "unchanged" rule's expected value is the
-   same call at the base, leaving aside what differs between any two runs (a scratch path, a time).
+   review has yet accepted as proof the outcome holds, and a saved check the substance rules have since come to refuse
+   (it asserts nothing that is there): maul names those, and the evaluator writes such an outcome a new check that
+   proves it, confirmed and reviewed like any other, so a fixed defect can pass in the round after its fix. Past an
+   outcome's turn budget it stops on a check that cannot run as the outcome needs (a wait no check step can make, more
+   steps than a check may have) and reports the outcome unsure, naming what no check could express. A check counts only
+   for the outcome it is bound to, however many outcomes its run showed. When the accepted report still passes an
+   outcome a person does not judge with no green proposal bound to it and no saved check of it (maul passed it in no
+   earlier round, and no saved check of it replayed), agent-runner resumes the evaluator's session and asks for one
+   check of each such outcome, by id, or an unsure verdict (defect gate 4, G4-B-LIB-1: at a correct fix the evaluator
+   rested eight passes on one exploring run, so the round was Unconfirmed 2/10 until a person asked again). It asks at
+   most twice, on what is left of the stage's turns, wall clock and output tokens, and stops once an ask covers no
+   further outcome. The rewritten report replaces the accepted one only when it changes nothing maul judges by but those
+   outcomes' verdicts (each keeping its `contrary` seqs; a reworded note elsewhere is no change) and adds proposals of
+   them alone; anything else, or a report that does not parse, keeps the report before, which maul puts back for the
+   second ask, saying why the rewrite was refused. Its new checks are confirmed and reviewed like any other, so the ask
+   passes nothing by itself. A run that ran out of its turns or its clock, and a harness that cannot continue a session
+   (codex), is not asked. An outcome that states a rule (what holds for any input of a kind, a bound, a "never" or an
+   "always") is judged by the rule, its example one instance of it (defect gate 2, G-B-LIB-2: a build right on the
+   plan's example and wrong elsewhere passed its outcomes). The evaluator tries the rule on inputs of its own choosing
+   beyond the example, where a build right only on the example would answer differently, and a failure there is a fail
+   it shows with a red check of its own data; a check that tries the rule only on its example is one a plausible wrong
+   build would still pass. It stays within what the outcome promises: an input the rule does not cover, a value its
+   words do not decide (where the outcome states no range, a value far from its example) and behaviour the issue leaves
+   unsaid are never a failure. Where an outcome names only an example and its issue line states the rule, the evaluator
+   tries that rule beyond the example in calls of its own, never in a check it proposes (its checks assert only what the
+   outcome states), and a break there withholds the pass (`contrary`, so unsure) but never fails the outcome: a fail and
+   its fix are only for what the approved outcome itself states. It reports such an outcome `pass` only once it has
+   tried that rule beyond the example (a prompt rule: an evaluator that never probes is still passed on its example
+   check), and a break it saw while judging another outcome that states the same rule goes in this one's `contrary` too,
+   which withholds its pass (defect gate 3, G1: a README-example outcome quoting the counting rule passed while the rule
+   was broken). A promise that something is carried over (a copy, fields kept, the rest unchanged, a round-trip through
+   save and load) is a rule as well: the evaluator tries it on the values a careless copy loses (a field left unset,
+   zero, empty or absent, and every field the promise covers) and compares the result by what using it gives against the
+   original, what calls give for it and how it is written out or read back (defect gate 3, G6: a copy that turned absent
+   fields into empty ones could no longer be encoded). A zero or absent value of what is carried over is one the outcome
+   decides; a field it says changes or does not cover, and a difference of representation alone (nil against empty) that
+   nothing using it shows, are never a failure, nor is a new item's own identity (its id, when it was made) where the
+   copy is saved beside the original. On a workspace an "unchanged" rule's expected value is the same call at the base,
+   leaving aside what differs between any two runs (a scratch path, a time).
 6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
@@ -190,18 +191,24 @@ An outcome is **confirmed** only on a check bound to it that:
 
 1. maul stored, is not retired, and is one of maul's forms: an HTTP step list, a browser check in maul's JSON grammar
    (compiled by maul to a Playwright test), or a sandbox program whose output `tools` asserts on;
-2. is **substantive**: at least one step acts on the application and at least one assertion is about content (a status
-   or exit code alone is not), and every list assertion is filtered to data the check created itself, named with
-   `{{run}}`. A check over shared data (a global ranking, a global count) is refused when it is saved. An outcome that a
-   shared list leaves an item out is shown by the request it names, sent unchanged and asserting only what holds of any
-   data (its status, the first item meeting the outcome's rule), beside a further step adding only a narrowing to the
-   run's own data, every named parameter kept, where a kept item of the run is listed and the list ends, and a step
-   where the narrowing alone lists the left-out item; the reviewer refuses a check that drops or changes a named
-   parameter, or whose unchanged request has no assertion a build ignoring the outcome's parameters there would fail
-   (the evaluator creates the left-out item last on a newest-first list). A browser check that writes nothing and
-   asserts only the layout of the page's fixed markup, at least once by a measure (a size, an alignment, a box relation,
-   legibility), on elements it finds by role, label, test id or CSS rather than by their text or position, needs no data
-   of its own, and the reviewer's green question says so; its failure is always held for a person;
+2. is **substantive**: at least one step acts on the application and at least one assertion is about content that is
+   there (a status or exit code alone is not, nor an absence (`$absent`) or a header's bare presence or absence, which
+   hold of an empty, HTML or error answer too: they stand only beside an assertion of something that is there on the
+   same answer, a JSON absence beside a JSON value in the same step's `json` or the same `stdoutJSON`; a browser `count`
+   of 0, which holds before a page has rendered its data, stands only after such an assertion with no step acting on the
+   page between them), and every list assertion is filtered to data the check created itself, named with `{{run}}`. A
+   check over shared data (a global ranking, a global count) is refused when it is saved. A check stored before these
+   rules came to refuse it still replays as it was saved, but confirms and fails nothing, and the next round is a full
+   one, in which maul names it to the evaluator as no proof, so the evaluator saves a check that asserts something. An
+   outcome that a shared list leaves an item out is shown by the request it names, sent unchanged and asserting only
+   what holds of any data (its status, the first item meeting the outcome's rule), beside a further step adding only a
+   narrowing to the run's own data, every named parameter kept, where a kept item of the run is listed and the list
+   ends, and a step where the narrowing alone lists the left-out item; the reviewer refuses a check that drops or
+   changes a named parameter, or whose unchanged request has no assertion a build ignoring the outcome's parameters
+   there would fail (the evaluator creates the left-out item last on a newest-first list). A browser check that writes
+   nothing and asserts only the layout of the page's fixed markup, at least once by a measure (a size, an alignment, a
+   box relation, legibility), on elements it finds by role, label, test id or CSS rather than by their text or position,
+   needs no data of its own, and the reviewer's green question says so; its failure is always held for a person;
 3. passed in this round's confirmation or replay, run by `tools` at the current heads with a token `tools` made;
 4. was reviewed `proves` for this outcome's text (a check saved red: on the red question);
 5. and no other live check of the outcome failed this round;
@@ -298,24 +305,30 @@ What may be saved green is unchanged. Every one of these must hold before a defe
      total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to keep. The
      check may list only success statuses.
    - `exec`: only a program that says so itself, printing `{{marker}} <id>: <what it saw>` at the start of a line of its
-     output (stdout and stderr combined), `<id>` naming the assertion (lowercase letters, digits and hyphens, starting
-     with a letter, at most 128 characters). maul replaces `{{marker}}` in the program's files, and nowhere else, with a
-     line start drawn afresh for every attempt (`MAUL-ASSERTION-FAILED-` and 32 random hex characters), so text the
-     application answers with that the program echoes (a body, a traceback) can never pass for one; only lines carrying
-     that attempt's own marker count, the first with a valid id naming the assertion. A line that starts with the marker
-     fails the check whatever its exit code and its expectation, so a program that prints it and goes on to exit 0 is
-     never a pass. A marker that is in the output but starts no line (printed after output with no trailing newline,
-     after a space or a carriage return, or in a source line a traceback echoes) makes the run an error, never a pass
-     nor a fail: maul cannot tell the program's judgement from an echo, and its detail tells the evaluator to print a
-     newline before the marker. A run whose output is cut at its 64 KiB bound is never a pass either (a marker past the
-     cut would be lost): it errs, unless a marker was kept. An exit code alone, a crash, `127` or a traceback never
-     makes a check red by assertion. Neither does a marker line with no valid id after it: the run fails, and its detail
-     says the marker named no valid assertion id, so the evaluator can rename it. On a valid id, what the program
-     printed after its marker (`<id>: <what it saw>`, each such line, the marker itself left out, at most 1 KiB) is kept
-     in the failing step's message, so the issue, the pull request and the reproduction show the value the program
-     observed, as the application's data. In a program's files maul replaces only the exact placeholder tokens
-     (`{{marker}}`, `{{bin}}`, `{{tree}}`, `{{run}}`); any other `{{` there, such as a Go nested composite literal, is
-     the program's own text and runs as written.
+     stdout or its stderr (each read as the program wrote it; when both hold text and one ends on an open line, the
+     order the two were written in is unknown and the run errs, as for a marker that starts no line), `<id>` naming the
+     assertion (lowercase letters, digits and hyphens, starting with a letter, at most 128 characters). maul replaces
+     `{{marker}}` in the program's files, and nowhere else, with a line start drawn afresh for every attempt
+     (`MAUL-ASSERTION-FAILED-` and 32 random hex characters), so text the application answers with that the program
+     echoes (a body, a traceback) can never pass for one; only lines carrying that attempt's own marker count, the first
+     with a valid id naming the assertion. A line that starts with the marker fails the check whatever its exit code and
+     its expectation, so a program that prints it and goes on to exit 0 is never a pass. A marker that is in the output
+     but starts no line (printed after output with no trailing newline, after a space or a carriage return, or in a
+     source line a traceback echoes) makes the run an error, never a pass nor a fail: maul cannot tell the program's
+     judgement from an echo, and its detail tells the evaluator to print a newline before the marker. A run whose output
+     is cut at its 64 KiB bound is never a pass either (a marker past the cut would be lost): it errs, unless a marker
+     was kept. An exit code alone, a crash, `127` or a traceback never makes a check red by assertion. Neither does a
+     marker line with no valid id after it: the run fails, and its detail says the marker named no valid assertion id,
+     so the evaluator can rename it. On a valid id, what the program printed after its marker (`<id>: <what it saw>`,
+     each such line, the marker itself left out, at most 1 KiB) is kept in the failing step's message, so the issue, the
+     pull request and the reproduction show the value the program observed, as the application's data. In a program's
+     files maul replaces only the exact placeholder tokens (`{{marker}}`, `{{bin}}`, `{{tree}}`, `{{run}}`); any other
+     `{{` there, such as a Go nested composite literal, is the program's own text and runs as written. `stdoutContains`
+     and `stdoutJSON` are judged on the program's stdout alone, never on what it printed on stderr (a traceback or a
+     usage error that echoes the expected text). A run whose stdout assertions would be judged otherwise on stdout and
+     stderr together (the text only on stderr, JSON on stdout beside stderr text), a run that would pass after exiting
+     non-zero when `expect` names no exit, and a run on a sandbox that does not keep stdout apart (an older toolbox
+     image) err: never a pass nor a fail.
    - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
      or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
      `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,

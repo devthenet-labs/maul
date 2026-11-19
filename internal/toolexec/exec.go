@@ -45,12 +45,20 @@ type Result struct {
 	// Exit is the program's exit code: -1 when a signal ended it, 127 when
 	// it could not be found, 126 when it could not be started.
 	Exit int `json:"exit"`
-	// Output is stdout and stderr together, in order, bounded and valid
-	// UTF-8.
-	Output     string `json:"output"`
-	Truncated  bool   `json:"truncated,omitempty"`
-	TimedOut   bool   `json:"timedOut,omitempty"`
-	DurationMs int64  `json:"durationMs"`
+	// Output is stdout and stderr together, bounded and valid UTF-8: a
+	// build's in the order written; a program's in the order the shim read
+	// its two streams.
+	Output string `json:"output"`
+	// Stdout and Stderr are a program's two streams apart, each as it
+	// wrote it, bounded (MaxOutputBytes, past which the run is Truncated)
+	// and valid UTF-8 (code review 2026-11-18, checks 6: a stdout assertion
+	// is judged on stdout alone). nil for a build, a refusal and a shim
+	// that does not keep them apart.
+	Stdout     *string `json:"stdout,omitempty"`
+	Stderr     *string `json:"stderr,omitempty"`
+	Truncated  bool    `json:"truncated,omitempty"`
+	TimedOut   bool    `json:"timedOut,omitempty"`
+	DurationMs int64   `json:"durationMs"`
 	// Refused is a toolwire refusal code when nothing ran; Reason is the
 	// shim's words for it.
 	Refused string `json:"refused,omitempty"`
@@ -167,7 +175,7 @@ func (s *Server) Run(ctx context.Context, req *toolwire.ExecRequest) Result {
 	if err := s.writeFiles(req.Files); err != nil {
 		return refused(toolwire.RefusedInvalid, err.Error())
 	}
-	return s.execute(ctx, req.Argv, s.scratch, s.env, s.timeout, &capWriter{limit: MaxOutputBytes})
+	return s.execute(ctx, req.Argv, s.scratch, s.env, s.timeout, newProgramSink())
 }
 
 func refused(code, reason string) Result {
@@ -225,6 +233,10 @@ func (s *Server) execute(ctx context.Context, argv []string, dir string, env []s
 	cmd.Env = env
 	cmd.Stdout = out
 	cmd.Stderr = out
+	program, apart := out.(*programSink)
+	if apart {
+		cmd.Stdout, cmd.Stderr = program.stream(&program.out), program.stream(&program.err)
+	}
 	cmd.WaitDelay = waitDelay
 	ownGroup(cmd)
 	start := time.Now()
@@ -234,20 +246,30 @@ func (s *Server) execute(ctx context.Context, argv []string, dir string, env []s
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			exit = 127
 		}
-		return Result{Exit: exit, Output: fmt.Sprintf("[maul: could not start %s: %v]", argv[0], err),
+		res := Result{Exit: exit, Output: fmt.Sprintf("[maul: could not start %s: %v]", argv[0], err),
 			DurationMs: time.Since(start).Milliseconds()}
+		if apart {
+			// maul's words, as the program's stderr: it printed nothing.
+			stdout, stderr := "", res.Output
+			res.Stdout, res.Stderr = &stdout, &stderr
+		}
+		return res
 	}
 	_ = cmd.Wait()
 	killGroup(cmd)
 	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 	output, truncated := out.output(timedOut)
-	return Result{
+	res := Result{
 		Exit:       cmd.ProcessState.ExitCode(),
 		Output:     output,
 		Truncated:  truncated,
 		TimedOut:   timedOut,
 		DurationMs: time.Since(start).Milliseconds(),
 	}
+	if apart {
+		program.apart(&res)
+	}
+	return res
 }
 
 // finish makes raw a bounded, valid UTF-8 output: cut on a rune boundary
@@ -271,6 +293,47 @@ func finish(raw []byte, overflow, timedOut bool) (string, bool) {
 		v = v[:cut] + toolwire.TruncationMarker
 	}
 	return v + suffix, truncated
+}
+
+// programSink is a program's sink (an exec's, never a build's): its stdout
+// and stderr each on a pipe of its own, kept apart (out, err) and together
+// (all) in the order the shim read them. The two pipes are read
+// concurrently, so all's order between the streams is only the order of
+// reading; a judgement reads the streams apart.
+type programSink struct {
+	all, out, err capWriter
+}
+
+func newProgramSink() *programSink {
+	return &programSink{all: capWriter{limit: MaxOutputBytes}, out: capWriter{limit: MaxOutputBytes},
+		err: capWriter{limit: MaxOutputBytes}}
+}
+
+func (p *programSink) Write(b []byte) (int, error) { return p.all.Write(b) }
+
+func (p *programSink) output(timedOut bool) (string, bool) { return p.all.output(timedOut) }
+
+// stream is the writer of one of the program's streams, w: written to w
+// and to all.
+func (p *programSink) stream(w *capWriter) io.Writer { return streamWriter{all: &p.all, own: w} }
+
+// apart records the two streams on res, each finished as Output is (no
+// timeout marker: TimedOut says so), a stream past the cap truncating the
+// run.
+func (p *programSink) apart(res *Result) {
+	stdout, outCut := p.out.output(false)
+	stderr, errCut := p.err.output(false)
+	res.Stdout, res.Stderr = &stdout, &stderr
+	res.Truncated = res.Truncated || outCut || errCut
+}
+
+// streamWriter writes one stream of a program to its own writer and to
+// the combined one.
+type streamWriter struct{ all, own *capWriter }
+
+func (w streamWriter) Write(b []byte) (int, error) {
+	_, _ = w.all.Write(b) // a capWriter never refuses a write
+	return w.own.Write(b)
 }
 
 // capWriter keeps the first limit bytes written to it and notes that more

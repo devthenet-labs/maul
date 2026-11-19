@@ -616,14 +616,19 @@ func causedStep(cause toolwire.StepCause, detail string) []toolwire.StepRecord {
 //   - the shim did not answer, refused, the run left processes behind
 //     (Unclean), or was killed at its time limit: error, n/a; a hanging or
 //     leaking program is no evidence about the outcome at either side;
-//   - the program printed its attempt's marker at the start of a line:
-//     fail, by assertion when it named the assertion's id
-//     (checks.ExecAssertion);
-//   - the marker is in the output but starts no line: error
-//     (checks.ExecMarkerUnplaced), never a pass nor a fail;
+//   - the program printed its attempt's marker at the start of a line of
+//     its stdout or its stderr (programText), neither left open beside
+//     text of the other (streamsOpen): fail, by assertion when it named the
+//     assertion's id (checks.ExecAssertion);
+//   - the marker is in the output but starts no line, or one beside an
+//     open line of the other stream: error (checks.ExecMarkerUnplaced),
+//     never a pass nor a fail;
 //   - the output was cut: error (a marker past the cut would be lost);
 //   - the exit was not the expected one: fail, never by assertion: a
 //     crashed, unbuilt or argument-refusing program shows that too (O4);
+//   - stdout's judgement differs from that of stdout and stderr together,
+//     or it would pass with no exit expected after a non-zero exit, or the
+//     shim kept no stdout apart: error (stdoutUnsettled);
 //   - with an expected exit met, stdout lacks the expected text, or a
 //     stdoutJSON pointer resolves in a JSON stdout to another value: fail
 //     by assertion ("stdout"); with no exit expected, or stdout not JSON or
@@ -660,20 +665,21 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: detail, Assertion: id != "",
 			AssertionID: toolwireID(id)}}
 	}
-	if checks.ExecMarked(res.Output, marker) {
-		id, asserted := checks.ExecAssertion(res.Output, marker)
+	text := programText(res)
+	if checks.ExecMarked(text, marker) && !streamsOpen(res) {
+		id, asserted := checks.ExecAssertion(text, marker)
 		if !asserted {
 			return fail(markedWithoutID, "")
 		}
-		return fail(markedDetail(res.Output, marker), "marker "+id)
+		return fail(markedDetail(text, marker), "marker "+id)
 	}
 	switch {
-	case checks.ExecMarkerUnplaced(res.Output, marker):
+	case checks.ExecMarkerUnplaced(text, marker) || streamsOpen(res) && strings.Contains(text, marker):
 		return errStep(markerUnplaced)
 	case res.Truncated:
 		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
-		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", res.Output, marker), "")
+		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", text, marker), "")
 	}
 	// After the expected exit, content missing is the outcome's assertion.
 	content := func(ok bool) string {
@@ -682,21 +688,22 @@ func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p
 		}
 		return ""
 	}
-	if x.StdoutContains != "" {
-		needle, err := substitute(x.StdoutContains, run, p)
-		if err != nil {
-			return errStep("the expected text could not be built")
-		}
-		if !strings.Contains(res.Output, needle) {
-			return fail(withOutput("the output does not contain the expected text", exitOf(res), res.Output, marker),
-				content(true))
-		}
+	needle, err := substitute(x.StdoutContains, run, p)
+	if err != nil {
+		return errStep("the expected text could not be built")
 	}
-	doc, valid := decodeJSON([]byte(res.Output))
+	if why := stdoutUnsettled(res, x, needle, run); why != "" {
+		return errStep(why)
+	}
+	if x.StdoutContains != "" && !strings.Contains(text, needle) {
+		return fail(withOutput("the output does not contain the expected text", exitOf(res), text, marker),
+			content(true))
+	}
+	doc, valid := decodeJSON([]byte(text))
 	for _, ptr := range sortedKeys(x.StdoutJSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
-			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), res.Output, marker),
+			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), text, marker),
 				content(valid && present))
 		}
 	}

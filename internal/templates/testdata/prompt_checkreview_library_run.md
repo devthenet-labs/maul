@@ -75,7 +75,7 @@ package main
 
 How maul runs it: maul builds the program against the tree, with
 a `go.mod` it writes itself from the tree's own so that the program uses the tree and nothing in its place, and runs
-it with the check's `args` in a fresh working directory; the check fails unless its exit code and output match its
+it with the check's `args` in a fresh working directory; the check fails unless its exit code and stdout match its
 `expect`. It also fails whenever a line of its output starts with what `{{marker}}` in its program files stands
 for, a secret maul draws afresh for every run and gives only the program, whatever its exit code and whatever else it
 prints; a run whose output is too long to keep whole never passes.

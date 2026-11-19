@@ -186,24 +186,15 @@ func validateBrowser(b BrowserCheck, p Preview) *Refusal {
 	if len(b.Steps) == 0 {
 		return refuse(RuleGrammar, "a browser check has at least one step")
 	}
-	acts, content := false, false
 	for i, st := range b.Steps {
 		r := validateBrowserStep(st, p)
 		if r != nil {
 			r.Reason = "step " + strconv.Itoa(i+1) + ": " + r.Reason
 			return r
 		}
-		if st.Expect == nil {
-			acts = acts || st.WaitForURL == ""
-		} else {
-			content = content || st.Expect.Assert != AssertURL
-		}
 	}
-	if !acts {
-		return refuse(RuleNotSubstantive, "no step acts on the page (goto, click, fill, select, press, scroll)")
-	}
-	if !content {
-		return refuse(RuleNotSubstantive, "no assertion is about content; a url alone only says navigation worked")
+	if r := browserSubstance(b); r != nil {
+		return r
 	}
 	for i, st := range b.Steps {
 		if st.Expect == nil {
@@ -216,6 +207,42 @@ func validateBrowser(b BrowserCheck, p Preview) *Refusal {
 	}
 	return nil
 }
+
+// browserSubstance refuses a browser check with no step acting on the
+// page or no assertion about content, and one asserting a count of 0
+// before the page has shown anything: a count of 0 holds before a page has
+// rendered its data, and on an error page (code review 2026-11-18, checks
+// 6), so it stands only after an assertion of something that is there
+// (any but a url or another count of 0), with no other step between.
+func browserSubstance(b BrowserCheck) *Refusal {
+	acts, content, shown := false, false, false
+	for i, st := range b.Steps {
+		if st.Expect == nil {
+			acts = acts || st.WaitForURL == ""
+			shown = false
+			continue
+		}
+		content = content || st.Expect.Assert != AssertURL
+		switch {
+		case countsNone(*st.Expect) && !shown:
+			return refuse(RuleNotSubstantive, "step %d: a count of 0 holds before the page has shown its data "+
+				"and on an error page too: assert an item that is there first, after the last step that acts "+
+				"on the page", i+1)
+		case !countsNone(*st.Expect) && st.Expect.Assert != AssertURL:
+			shown = true
+		}
+	}
+	if !acts {
+		return refuse(RuleNotSubstantive, "no step acts on the page (goto, click, fill, select, press, scroll)")
+	}
+	if !content {
+		return refuse(RuleNotSubstantive, "no assertion is about content; a url alone only says navigation worked")
+	}
+	return nil
+}
+
+// countsNone reports a count assertion of 0.
+func countsNone(a Assertion) bool { return a.Assert == AssertCount && a.Count != nil && *a.Count == 0 }
 
 func validateBrowserStep(st BrowserStep, p Preview) *Refusal {
 	set := 0

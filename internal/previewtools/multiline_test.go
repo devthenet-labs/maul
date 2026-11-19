@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/checks"
-	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -35,7 +34,7 @@ func TestSeveralLinesAsOneJSONString(t *testing.T) {
 		{"other lines", `{"stdout":"kick 4\n"}`, toolwire.ResultFail, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			steps := judgeOutput(toolexec.Result{Output: tc.output}, c.Run.Expect, "MARK-x", "r1", places{})
+			steps := judgeOutput(onStdout(tc.output), c.Run.Expect, "MARK-x", "r1", places{})
 			if steps[0].Result != tc.want || steps[0].Assertion != tc.asserted {
 				t.Errorf("judged %+v, want %s with assertion %v", steps[0], tc.want, tc.asserted)
 			}

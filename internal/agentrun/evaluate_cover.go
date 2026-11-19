@@ -165,12 +165,20 @@ func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage
 // with no proposal of e bound to it that ran green (a dropped one is no
 // longer in e), and not covered by a saved check: neither passed by maul in
 // the previous round nor bound to a saved check of that round's replay
-// (one saved to show a defect that is not yet proof aside, which the prompt
-// already asks a new check of).
+// (one saved to show a defect that is not yet proof aside, and one the
+// substance rules have come to refuse, with the pass a round before may
+// have given on it: the prompt already asks a new check of each).
 func uncoveredPasses(h EvaluateHandoff, e *evaluationReport) []string {
 	saved := map[string]bool{}
 	for _, v := range h.PriorVerdicts {
-		if v.Result == string(acceptance.ResultPassed) {
+		// A pass of the previous round may have stood on a saved check
+		// the substance rules have since come to refuse, which counts for
+		// nothing now: only a saved check of this round's replay covers
+		// such an outcome.
+		refused := slices.ContainsFunc(h.NotYetProof, func(n NotYetProof) bool {
+			return n.Refused && n.Outcome == v.Outcome
+		})
+		if v.Result == string(acceptance.ResultPassed) && !refused {
 			saved[v.Outcome] = true
 		}
 	}

@@ -28,9 +28,9 @@ func TestNarrowedCheckIsNotAVoteNextRound(t *testing.T) {
 	outcome := v1alpha1.AcceptanceOutcome{ID: "steps-on-remix",
 		Outcome: "A remix's stepsOn equals the original's"}
 	green := v1alpha1.SavedCheck{ID: "steps-on-remix", Outcome: outcome.ID, Form: v1alpha1.CheckFormHTTP,
-		Body: `{}`, Digest: digest("5")}
+		Body: healthCheck, Digest: digest("5")}
 	red := v1alpha1.SavedCheck{ID: "steps-on-remix-hatheavy-api", Outcome: outcome.ID,
-		Form: v1alpha1.CheckFormHTTP, Body: `{}`, Digest: digest("6"), Expect: v1alpha1.CheckExpectFail,
+		Form: v1alpha1.CheckFormHTTP, Body: healthCheck, Digest: digest("6"), Expect: v1alpha1.CheckExpectFail,
 		FailedStep: 4, FailedAssertion: "json /stepsOn"}
 	headSet := digest("3")
 	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{outcome},

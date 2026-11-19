@@ -34,7 +34,7 @@ type ExecCheck struct {
 // when it reached and judged one of its own assertions and found the
 // outcome does not hold, <id> naming that assertion (lowercase letters,
 // digits and hyphens, at most 32, starting with a letter). The output is the
-// program's stdout and stderr combined, so text the application controls
+// program's stdout and stderr, each read as written, so text the application controls
 // that the program echoes (a body, a traceback) lands there too; it cannot
 // know the nonce, so it can never pass for a marker.
 //
@@ -192,18 +192,35 @@ func validateExec(e ExecCheck, ws *Workspace) *Refusal {
 		return refuse(RuleNotSubstantive, "argv %q runs a program that proves nothing; run a client against the "+
 			"preview", e.Argv)
 	}
-	if e.Expect.StdoutContains == "" && !contentJSON(e.Expect.StdoutJSON) {
-		return refuse(RuleNotSubstantive, noStdoutAssertion)
+	if r := stdoutSubstance(e.Expect); r != nil {
+		return r
 	}
 	return runScoped("stdoutJSON", e.Expect.StdoutJSON)
 }
 
+// stdoutSubstance refuses an exec or run check whose expect asserts
+// nothing on stdout, or a stdoutJSON absence beside no stdoutJSON assertion
+// of something that is there: stdoutContains holds of output that is not
+// JSON, of which every absence holds too.
+func stdoutSubstance(x ExecExpect) *Refusal {
+	if x.StdoutContains == "" && !contentJSON(x.StdoutJSON) {
+		return refuse(RuleNotSubstantive, noStdoutAssertion)
+	}
+	if absences(x.StdoutJSON) && !contentJSON(x.StdoutJSON) {
+		return refuse(RuleNotSubstantive, "a stdoutJSON absence holds of output that is not JSON at all, whatever "+
+			"stdoutContains finds in it: assert a stdoutJSON value that is there beside it")
+	}
+	return nil
+}
+
 // noStdoutAssertion is the refusal of an exec or run check whose expect
-// asserts nothing on stdout, saying what to write instead: the evaluator's
-// marker-only drafts tripped on it (defect gate 5).
+// asserts nothing on stdout, or only an absence there (code review
+// 2026-11-18, checks 6: it holds of output that is not JSON at all), saying
+// what to write instead: the evaluator's marker-only drafts tripped on it
+// (defect gate 5).
 const noStdoutAssertion = "no assertion on stdout; an exit code alone only says the run worked: assert what " +
 	"it printed with stdoutContains or stdoutJSON (a program that prints the marker on a mismatch prints what " +
-	"it observed too, for expect to assert)"
+	"it observed too, for expect to assert; an absence alone holds of any output)"
 
 func validateFiles(fs []File) *Refusal {
 	if len(fs) > MaxFiles {

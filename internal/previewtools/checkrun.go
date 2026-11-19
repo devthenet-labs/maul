@@ -372,7 +372,8 @@ func judgeExec(res toolexec.Result, x checks.ExecExpect, marker, run string) []t
 	// program said it judged one of its own assertions, by id, and found the
 	// outcome does not hold (checks.ExecAssertion): an exit code or missing
 	// output alone is what a crashed or broken program shows too.
-	id, asserted := checks.ExecAssertion(res.Output, marker)
+	text := programText(res)
+	id, asserted := checks.ExecAssertion(text, marker)
 	fail := func(detail string) []toolwire.StepRecord {
 		rec := toolwire.StepRecord{Result: toolwire.ResultFail, Detail: detail, Assertion: asserted}
 		if asserted {
@@ -381,14 +382,14 @@ func judgeExec(res toolexec.Result, x checks.ExecExpect, marker, run string) []t
 		return []toolwire.StepRecord{rec}
 	}
 	switch {
-	case checks.ExecMarked(res.Output, marker):
+	case checks.ExecMarked(text, marker) && !streamsOpen(res):
 		// The program said the outcome does not hold: never a pass,
 		// whatever it went on to print or exit with (S1 demo #57).
 		if !asserted {
 			return fail(markedWithoutID)
 		}
-		return fail(markedDetail(res.Output, marker))
-	case checks.ExecMarkerUnplaced(res.Output, marker):
+		return fail(markedDetail(text, marker))
+	case checks.ExecMarkerUnplaced(text, marker) || streamsOpen(res) && strings.Contains(text, marker):
 		// The program may have said the outcome does not hold, after
 		// output with no trailing newline: never a pass, nor a fail.
 		return errStep(markerUnplaced)
@@ -397,22 +398,104 @@ func judgeExec(res toolexec.Result, x checks.ExecExpect, marker, run string) []t
 		// truncated run is never a pass, nor a fail of the outcome.
 		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
 	case x.Exit != nil && int32(res.Exit) != *x.Exit:
-		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", res.Output, marker))
+		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", text, marker))
 	}
-	if x.StdoutContains != "" {
-		needle, err := httpstep.Substitute(x.StdoutContains, run, nil)
-		if err != nil || !strings.Contains(res.Output, needle) {
-			return fail(withOutput("the output does not contain the expected text", exitOf(res), res.Output, marker))
+	needle, err := httpstep.Substitute(x.StdoutContains, run, nil)
+	if err == nil {
+		if why := stdoutUnsettled(res, x, needle, run); why != "" {
+			return errStep(why)
 		}
 	}
-	doc, valid := decodeJSON([]byte(res.Output))
+	if x.StdoutContains != "" && (err != nil || !strings.Contains(text, needle)) {
+		return fail(withOutput("the output does not contain the expected text", exitOf(res), text, marker))
+	}
+	doc, valid := decodeJSON([]byte(text))
 	for _, ptr := range sortedKeys(x.StdoutJSON) {
 		raw, present := pointerValue(doc, valid, ptr)
 		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
-			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), res.Output, marker))
+			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), text, marker))
 		}
 	}
 	return []toolwire.StepRecord{{Result: toolwire.ResultPass}}
+}
+
+// programText is the text a program's run is judged in: with a shim that
+// keeps its streams apart, its stdout and then its stderr, each as the
+// program wrote it, stderr starting a line of its own, so its marker starts
+// a line only where it starts one of the program's own lines whatever the
+// order the shim read the two in; with one that does not, its combined
+// output.
+func programText(res toolexec.Result) string {
+	if res.Stdout == nil || res.Stderr == nil {
+		return res.Output
+	}
+	out := *res.Stdout
+	if out != "" && *res.Stderr != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return out + *res.Stderr
+}
+
+// streamsOpen reports a run whose stdout and stderr both hold text, one of
+// them ending on an open line. The order the program wrote the two in is
+// unknown (the shim reads them on two pipes), so its marker at the start of
+// a line of one may have followed the other's open line, mid-line as
+// written: such a run is judged as one whose marker starts no line, an
+// error, never a pass nor a fail.
+func streamsOpen(res toolexec.Result) bool {
+	if res.Stdout == nil || res.Stderr == nil || *res.Stdout == "" || *res.Stderr == "" {
+		return false
+	}
+	return !strings.HasSuffix(*res.Stdout, "\n") || !strings.HasSuffix(*res.Stderr, "\n")
+}
+
+// stdoutUnsettled is why a run's stdout assertions (x's, needle its
+// stdoutContains substituted) cannot be judged, "" when they can (code
+// review 2026-11-18, checks 6). They are judged on the program's stdout
+// alone, and a run is judged at all only where that agrees with the
+// judgement of its stdout and stderr together, which a check saved before
+// was judged by, read both as the program wrote each (programText) and as
+// the shim read them (Output): the expected text only on stderr (a
+// traceback echoing a source line, a usage error echoing an argument), or
+// across the two, or stdout JSON beside stderr text, is an error, never a
+// pass nor a fail. So is a run that
+// passes with no exit expected after exiting non-zero: what it printed may
+// be an error message. A shim that does not keep the streams apart (an
+// older toolbox image) leaves stdout unknown: an error too.
+func stdoutUnsettled(res toolexec.Result, x checks.ExecExpect, needle, run string) string {
+	if x.StdoutContains == "" && len(x.StdoutJSON) == 0 {
+		return ""
+	}
+	if res.Stdout == nil || res.Stderr == nil {
+		return "the sandbox did not keep the program's stdout apart from its stderr, so maul cannot judge an " +
+			"assertion on stdout"
+	}
+	onStdout := stdoutHolds(*res.Stdout, x, needle, run)
+	switch {
+	case onStdout != stdoutHolds(programText(res), x, needle, run),
+		onStdout != stdoutHolds(res.Output, x, needle, run):
+		return "what expect asserts on stdout holds on the program's stdout and stderr together but not on " +
+			"stdout alone, or the reverse, so maul cannot judge the run: print the result on stdout and nothing on stderr"
+	case onStdout && x.Exit == nil && res.Exit != 0:
+		return fmt.Sprintf("the program exited %d and expect names no exit, so maul cannot tell its output from "+
+			"an error message: expect the exit code the outcome gives", res.Exit)
+	}
+	return ""
+}
+
+// stdoutHolds reports x's stdout assertions holding of text.
+func stdoutHolds(text string, x checks.ExecExpect, needle, run string) bool {
+	if x.StdoutContains != "" && !strings.Contains(text, needle) {
+		return false
+	}
+	doc, valid := decodeJSON([]byte(text))
+	for _, ptr := range sortedKeys(x.StdoutJSON) {
+		raw, present := pointerValue(doc, valid, ptr)
+		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
+			return false
+		}
+	}
+	return true
 }
 
 // randomMarkerNonce is 32 random lowercase hex characters (crypto/rand):

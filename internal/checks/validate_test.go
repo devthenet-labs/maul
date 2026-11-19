@@ -224,6 +224,153 @@ func TestRefuseNotSubstantive(t *testing.T) {
 	})
 }
 
+// TestRefuseAssertingNothingPositive (code review 2026-11-18, checks 6): an
+// assertion that something is not there, or that a header is or is not
+// sent, holds of an empty body, an HTML page, null or an error object too,
+// so on its own it says nothing about content.
+func TestRefuseAssertingNothingPositive(t *testing.T) {
+	runRefusals(t, RuleNotSubstantive, []refusalCase{
+		{"json absent only", httpCheck(`{"request":{"path":"/api/users/1"},"expect":{"json":
+			{"/email":{"$absent":true}}}}`), Preview{}},
+		{"deep json absent only", httpCheck(`{"request":{"path":"/api/x"},"expect":{"json":
+			{"/a/b/c":{"$absent":true}}}}`), Preview{}},
+		{"two absents", httpCheck(`{"request":{"path":"/api/x"},"expect":{"json":
+			{"/a":{"$absent":true},"/b":{"$absent":true}}}}`), Preview{}},
+		{"header present only", httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"Content-Type":{"$present":true}}}}`), Preview{}},
+		{"header absent only", httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"X-Debug":{"$absent":true}},"json":{"/a":{"$absent":true}}}}`), Preview{}},
+		{"exec stdoutJSON absent only", execCheck(execBase + `,"expect":{"exit":0,"stdoutJSON":
+			{"/error":{"$absent":true}}}`), Preview{}},
+	})
+	for _, s := range []string{
+		httpCheck(`{"request":{"path":"/api/users/1"},"expect":{"json":{"/email":{"$absent":true}}}}`),
+		httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":{"Content-Type":{"$present":true}}}}`),
+		execCheck(execBase + `,"expect":{"stdoutJSON":{"/error":{"$absent":true}}}`),
+	} {
+		var r *Refusal
+		if err := Substantive(mustParse(t, s)); !errors.As(err, &r) || r.Rule != RuleNotSubstantive {
+			t.Errorf("Substantive(%s) = %v, want %s", s, err, RuleNotSubstantive)
+		}
+	}
+}
+
+// TestAbsenceBesideAPositiveAssertion: an absence or a header's presence
+// still stands beside an assertion of content that is there on the same
+// answer, as rule 8 of the evaluate prompt asks (the list's kept items by
+// index, then the index after the last absent).
+func TestAbsenceBesideAPositiveAssertion(t *testing.T) {
+	for name, s := range map[string]string{
+		"kept item, then the end": httpCheck(`{"request":{"path":"/api/items?q={{run}}"},"expect":{"json":
+			{"/0/name":"{{run}}-kept","/1":{"$absent":true}}}}`),
+		"present pointer": httpCheck(`{"request":{"path":"/api/x"},"expect":{"json":{"/id":{"$present":true},
+			"/email":{"$absent":true}}}}`),
+		"header beside a body": httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"Retry-After":{"$present":true}},"bodyContains":"slow down"}}`),
+		"header value": httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"Content-Type":{"$contains":"json"}}}}`),
+		"positive in each step": httpCheck(`{"request":{"method":"POST","path":"/api/x","json":{"n":"{{run}}"}},
+			"expect":{"status":201,"json":{"/n":"{{run}}"}}},
+			{"request":{"path":"/api/x?q={{run}}"},"expect":{"json":{"/n":"{{run}}","/email":{"$absent":true}}}}`),
+		"header absent beside a header value": httpCheck(`{"request":{"path":"/api/x"},"expect":{"headers":
+			{"X-Debug":{"$absent":true},"Content-Type":{"$contains":"json"}}}}`),
+		"exec absent beside a value": execCheck(execBase + `,"expect":{"exit":0,"stdoutContains":"{{run}}",
+			"stdoutJSON":{"/name":"{{run}}","/error":{"$absent":true}}}`),
+	} {
+		c := mustParse(t, s)
+		if err := Validate(c, slotCtx); err != nil {
+			t.Errorf("%s: Validate: %v", name, err)
+		}
+		if err := Substantive(c); err != nil {
+			t.Errorf("%s: Substantive: %v", name, err)
+		}
+	}
+}
+
+// TestRefuseAbsenceOnAnotherAnswer (code review 2026-11-18, checks 6): an
+// absence holds of whatever answer it is asserted on, so an assertion of
+// content on another step's answer does not make it say anything: the
+// second step below passes on an HTML fallback, an empty body, null and
+// {"error":"boom"}. A JSON absence stands only beside a JSON assertion of
+// something that is there in the same document (so the document is JSON of
+// the expected shape), a header's bare presence or absence only beside a
+// positive assertion on the same answer; in stdoutJSON likewise, where
+// stdoutContains holds of output that is not JSON at all.
+func TestRefuseAbsenceOnAnotherAnswer(t *testing.T) {
+	post := `{"request":{"method":"POST","path":"/api/x","json":{"n":"{{run}}"}},
+		"expect":{"status":201,"json":{"/n":"{{run}}"}}},`
+	cases := []refusalCase{
+		{"json absent, positive in another step", httpCheck(post + `{"request":{"path":"/api/x?q={{run}}"},
+			"expect":{"json":{"/email":{"$absent":true}}}}`), Preview{}},
+		{"json absent beside body text only", httpCheck(`{"request":{"path":"/api/x?q={{run}}"},
+			"expect":{"bodyContains":"{{run}}","json":{"/email":{"$absent":true}}}}`), Preview{}},
+		{"json absent beside a header value only", httpCheck(`{"request":{"path":"/api/x?q={{run}}"},
+			"expect":{"headers":{"Content-Type":{"$contains":"json"}},"json":{"/email":{"$absent":true}}}}`), Preview{}},
+		{"json absent beside the whole body present", httpCheck(post + `{"request":{"path":"/api/x?q={{run}}"},
+			"expect":{"json":{"":{"$present":true},"/email":{"$absent":true}}}}`), Preview{}},
+		{"header absent, positive in another step", httpCheck(post + `{"request":{"path":"/api/x?q={{run}}"},
+			"expect":{"headers":{"X-Debug":{"$absent":true}}}}`), Preview{}},
+		{"header present, positive in another step", httpCheck(post + `{"request":{"path":"/api/x?q={{run}}"},
+			"expect":{"headers":{"Retry-After":{"$present":true}}}}`), Preview{}},
+		{"exec absent beside text only", execCheck(execBase + `,"expect":{"exit":0,"stdoutContains":"{{run}}",
+			"stdoutJSON":{"/error":{"$absent":true}}}`), Preview{}},
+	}
+	runRefusals(t, RuleNotSubstantive, cases)
+	for _, c := range cases {
+		var r *Refusal
+		if err := Substantive(mustParse(t, c.check)); !errors.As(err, &r) || r.Rule != RuleNotSubstantive {
+			t.Errorf("%s: Substantive = %v, want %s", c.name, err, RuleNotSubstantive)
+		}
+	}
+}
+
+// TestRefuseCountZeroBeforeThePageShowsAnything (code review 2026-11-18,
+// checks 6): a count of 0 holds before the page has rendered its data, and
+// on an error page, so it stands only after an assertion of something that
+// is there, with no step acting on the page between the two.
+func TestRefuseCountZeroBeforeThePageShowsAnything(t *testing.T) {
+	gone := `{"expect":{"assert":"count","locator":{"role":"listitem","hasText":"{{run}}-gone"},"count":0}}`
+	kept := `{"expect":{"assert":"visible","locator":{"role":"listitem","hasText":"{{run}}-kept"}}}`
+	runRefusals(t, RuleNotSubstantive, []refusalCase{
+		{"count 0 only", browserCheck(`{"goto":"/items"},` + gone), Preview{}},
+		{"count 0 first", browserCheck(`{"goto":"/items"},` + gone + `,` + kept), Preview{}},
+		{"an action between", browserCheck(`{"goto":"/items"},` + kept +
+			`,{"click":{"role":"button","name":"Delete {{run}}-gone"}},` + gone), Preview{}},
+		{"a navigation between", browserCheck(`{"goto":"/items"},` + kept + `,{"goto":"/items?page=2"},` + gone),
+			Preview{}},
+		{"a wait between", browserCheck(`{"goto":"/items"},` + kept + `,{"waitForURL":"/items*"},` + gone),
+			Preview{}},
+		{"after a url only", browserCheck(`{"goto":"/items"},{"expect":{"assert":"url","url":"/items"}},` + gone),
+			Preview{}},
+		{"after another count 0", browserCheck(`{"goto":"/items"},` + strings.Replace(gone, "-gone", "-x", 1) +
+			`,` + gone), Preview{}},
+	})
+	var r *Refusal
+	if err := Substantive(mustParse(t, browserCheck(`{"goto":"/items"},`+gone))); !errors.As(err, &r) ||
+		r.Rule != RuleNotSubstantive {
+		t.Errorf("Substantive = %v, want %s", err, RuleNotSubstantive)
+	}
+	for name, s := range map[string]string{
+		"after a kept item": browserCheck(`{"goto":"/items"},` + kept + `,` + gone),
+		"after an action and a kept item": browserCheck(`{"goto":"/items"},` + kept +
+			`,{"click":{"role":"button","name":"Delete {{run}}-gone"}},` + kept + `,` + gone),
+		"after a url and a kept item": browserCheck(`{"goto":"/items"},` + kept +
+			`,{"expect":{"assert":"url","url":"/items"}},` + gone),
+		"after a count of 1": browserCheck(`{"goto":"/items"},` +
+			`{"expect":{"assert":"count","locator":{"role":"listitem","hasText":"{{run}}-kept"},"count":1}},` + gone),
+		"two in a row": browserCheck(`{"goto":"/items"},` + kept + `,` + gone + `,` +
+			strings.Replace(gone, "-gone", "-x", 1)),
+	} {
+		c := mustParse(t, s)
+		if err := Validate(c, slotCtx); err != nil {
+			t.Errorf("%s: Validate: %v", name, err)
+		}
+		if err := Substantive(c); err != nil {
+			t.Errorf("%s: Substantive: %v", name, err)
+		}
+	}
+}
+
 func TestRefuseRunTokenScoping(t *testing.T) {
 	runRefusals(t, RuleRunToken, []refusalCase{
 		{"global order", httpCheck(`{"request":{"path":"/api/leaderboard"},"expect":{"json":{"/entries":

@@ -100,9 +100,20 @@ func (f *fakeExec) Exec(ctx context.Context, req *toolwire.ExecRequest) (toolexe
 	f.reqs = append(f.reqs, *req)
 	f.mu.Unlock()
 	if f.runCtx != nil {
-		return f.runCtx(ctx, req, n)
+		return apart(f.runCtx(ctx, req, n))
 	}
-	return f.run(req, n)
+	return apart(f.run(req, n))
+}
+
+// apart is a fake shim's answer as the real shim gives it, its streams
+// kept apart: a program the fake answers with Output alone printed it all
+// on stdout. A fake that sets Stdout answers as it says.
+func apart(res toolexec.Result, err error) (toolexec.Result, error) {
+	if err == nil && res.Refused == "" && res.Stdout == nil && res.Stderr == nil {
+		stdout, stderr := res.Output, ""
+		res.Stdout, res.Stderr = &stdout, &stderr
+	}
+	return res, err
 }
 
 // fakeArtifacts is an artifact store keyed by sha256.

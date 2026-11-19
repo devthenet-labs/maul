@@ -117,8 +117,13 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 // yet evidence their outcome holds (gate D-B9): no review of the green
 // question answered proves for the outcome's current text, or a review of
 // it refused (the predicate acceptance's passes holds a check saved red
-// to). A green replay of one passes nothing, so the evaluator is told to
-// write its outcome a new check that proves it. A store that cannot be
+// to); and the stored checks the substance rules have come to refuse
+// (storedValid, marked Refused), which support nothing, while their
+// outcome has no stored check that can pass it. A green replay of
+// either passes nothing, so the evaluator is told to write its outcome a
+// new check that proves it: without that the prompt's rule against a new
+// check for an outcome whose saved check replayed green would leave a
+// refused check's outcome unsure in every round. A store that cannot be
 // read hands over none (the round is judged without it, as reviewChecks
 // does).
 func (p *pass) notYetProof(ctx context.Context) []agentrun.NotYetProof {
@@ -135,11 +140,22 @@ func (p *pass) notYetProof(ctx context.Context) []agentrun.NotYetProof {
 	var out []agentrun.NotYetProof
 	for _, c := range stored {
 		i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == c.Outcome })
-		if c.Expect != v1alpha1.CheckExpectFail || i < 0 || acc.Outcomes[i].Manual ||
-			greenProven(acc.Reviews, c.Digest, outcomeDigest(acc.Outcomes[i])) {
+		if i < 0 || acc.Outcomes[i].Manual {
 			continue
 		}
-		out = append(out, agentrun.NotYetProof{Outcome: c.Outcome, Check: c.ID})
+		proven := func(c v1alpha1.SavedCheck) bool {
+			return storedValid(c) && (c.Expect != v1alpha1.CheckExpectFail ||
+				greenProven(acc.Reviews, c.Digest, outcomeDigest(acc.Outcomes[i])))
+		}
+		refused := !storedValid(c)
+		// A refused check is named only while its outcome has no stored
+		// check that can pass it: once one is saved, no round asks more.
+		if proven(c) || refused && slices.ContainsFunc(stored, func(o v1alpha1.SavedCheck) bool {
+			return o.Outcome == c.Outcome && proven(o)
+		}) {
+			continue
+		}
+		out = append(out, agentrun.NotYetProof{Outcome: c.Outcome, Check: c.ID, Refused: refused})
 	}
 	return out
 }

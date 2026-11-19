@@ -361,7 +361,8 @@ func decideInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerificatio
 
 // storeInput is Decide's view of the store for the round named
 // verification: the approved outcomes (each with the digest its reviews are
-// keyed by), the checks cs (valid: only valid checks are ever stored) with
+// keyed by), the checks cs (valid while they hold to the substance rules as
+// maul reads them now: storedValid) with
 // their clearance and narrowing records from rounds before it, and the
 // cached reviews. decideInput and the rung (rungFor) share it, so the rung
 // reads the store exactly as the round's judgement will.
@@ -373,7 +374,7 @@ func storeInput(acc *v1alpha1.IntentAcceptance, cs []v1alpha1.SavedCheck, verifi
 	}
 	for _, c := range cs {
 		in.Checks = append(in.Checks, acceptance.StoredCheck{Digest: c.Digest, Outcome: c.Outcome,
-			Form: acceptance.CheckForm(c.Form), Valid: true, ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
+			Form: acceptance.CheckForm(c.Form), Valid: storedValid(c), ExpectFail: c.Expect == v1alpha1.CheckExpectFail,
 			FailedStep: c.FailedStep, FailedAssertion: c.FailedAssertion,
 			Cleared: clearedBefore(acc, c.Digest, verification), NoRunData: noRunData(c),
 			Narrowed: narrowedBefore(acc, c.Digest, verification)})
@@ -385,6 +386,18 @@ func storeInput(acc *v1alpha1.IntentAcceptance, cs []v1alpha1.SavedCheck, verifi
 			FailedAssertion: r.FailedAssertion})
 	}
 	return in
+}
+
+// storedValid reports a stored check that still holds to the saved-check
+// substance rules (checks.Substantive; code review 2026-11-18, checks 6). A
+// check stored under earlier rules that they now refuse keeps its body and
+// digest and replays as stored, but supports nothing: Decide never passes
+// or fails an outcome on it nor asks a fix of it, and the rung is full, so
+// a round can save a check that asserts something. A body that does not
+// parse counts as refused: the safe side.
+func storedValid(c v1alpha1.SavedCheck) bool {
+	parsed, err := checks.Parse([]byte(c.Body))
+	return err == nil && checks.Substantive(parsed) == nil
 }
 
 // resolvedDisputes are ev's disputes with each replacement, which the

@@ -60,8 +60,8 @@ func validateRun(r RunCheck, ws *Workspace) *Refusal {
 		return refuse(RuleNotSubstantive, "in a cli workspace a run check's program invokes the built binary as %s",
 			BinPlaceholder)
 	}
-	if r.Expect.StdoutContains == "" && !contentJSON(r.Expect.StdoutJSON) {
-		return refuse(RuleNotSubstantive, noStdoutAssertion)
+	if rf := stdoutSubstance(r.Expect); rf != nil {
+		return rf
 	}
 	return runScoped("stdoutJSON", r.Expect.StdoutJSON)
 }
