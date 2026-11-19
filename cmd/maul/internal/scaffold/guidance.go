@@ -5,6 +5,7 @@ package scaffold
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -89,10 +90,10 @@ func NextSteps(o Options, present Present) string {
 		w("       readinessPath: %s", ReadinessPath)
 	}
 	w("  5. Add the repository to its Project:")
-	w("       maul setup project <name> ... --repo %s", repo)
+	w("       maul setup project <name> ... --repo %s", projectRepoArg(o))
 	w("       kubectl apply -f <name>.project.yaml")
 	w("     add %s to the GitHub App's installation, then check the Project:", repo)
-	w("       GH_TOKEN=$(gh auth token) maul check project <name>")
+	w("       GH_TOKEN=$(gh auth token) maul check project <name> -n <namespace>")
 	w("")
 	w("To change the agent toolchain later, edit .maul/Dockerfile and bump the tag in")
 	w(".maul/agent.yaml (toolchain-v2, ...) in the same commit: tags are immutable.")
@@ -192,4 +193,26 @@ func adapt(o Options, present Present) string {
 	w("    and builds the runtime image. The publishers' tests write __pycache__ under")
 	w("    .github/actions/publish when run locally: add __pycache__/ to .gitignore.")
 	return b.String()
+}
+
+// projectKey is the Project CRD's rule for a repository's key: a DNS label
+// of at most projectKeyMax characters.
+var projectKey = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+const projectKeyMax = 16
+
+// projectRepoArg is the repository as maul setup project's --repo takes
+// it. The key defaults to the lowercased repository name; when that is not
+// one the Project CRD admits, the argument spells a key out: the image
+// name when it is one, else a placeholder to fill in.
+func projectRepoArg(o Options) string {
+	valid := func(key string) bool { return len(key) <= projectKeyMax && projectKey.MatchString(key) }
+	switch {
+	case valid(strings.ToLower(o.Repo.Name)):
+		return o.Repo.String()
+	case valid(o.ImageName):
+		return o.ImageName + "=" + o.Repo.String()
+	default:
+		return "<key>=" + o.Repo.String()
+	}
 }

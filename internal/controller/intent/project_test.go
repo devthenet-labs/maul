@@ -77,14 +77,16 @@ func TestProjectValidation(t *testing.T) {
 		{name: "forge secret not readable", installErr: fmt.Errorf("get forge secret maul/other: %w",
 			kerrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "other", errors.New("not in resourceNames"))),
 			wantReason: ReasonForgeSecretUnreadable,
-			wantIn: []string{"intent-controller may not read the credential Secret of the Forge covering",
-				"not in resourceNames", "apply the <secret-name>.forge.yaml file maul setup github-app wrote",
+			// maul check project finds the Forge by "Forge covering <url> ".
+			wantIn: []string{"intent-controller may not read the credential Secret of the Forge covering " +
+				intentRepoURL + " (", "not in resourceNames", "apply the <secret-name>.forge.yaml file maul setup github-app wrote",
 				"intentController.forgeSecrets"},
 			wantNotIn: []string{"does not exist"}},
 		{name: "forge secret missing", installErr: fmt.Errorf("get forge secret maul/gone: %w",
 			kerrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "gone")),
 			wantReason: ReasonForgeSecretUnreadable,
-			wantIn: []string{"the credential Secret of the Forge covering", "does not exist", `"gone" not found`,
+			wantIn: []string{"the credential Secret of the Forge covering " + intentRepoURL + " does not exist (",
+				`"gone" not found`,
 				"kubectl create -f <secret-name>.secret.yaml"},
 			wantNotIn: []string{"forgeSecrets", "forge.yaml"}},
 		{name: "label forge secret missing",
@@ -819,4 +821,24 @@ func TestTTL(t *testing.T) {
 		t.Error("the expired intent was not deleted")
 	}
 	e.get("target-2")
+}
+
+// TestInstallationHint: the installations page is the repository owner's,
+// on the repository's own host; a URL that does not parse gets no link.
+func TestInstallationHint(t *testing.T) {
+	for _, tt := range []struct{ url, want string }{
+		{intentRepoURL, "; install or extend the App's installation: " +
+			"https://github.com/organizations/acme/settings/installations " +
+			"(a personal account: https://github.com/settings/installations)"},
+		{"https://GHE.example.com/Platform/intents.git", "; install or extend the App's installation: " +
+			"https://ghe.example.com/organizations/Platform/settings/installations " +
+			"(a personal account: https://ghe.example.com/settings/installations)"},
+		{"https://github.com/acme", ""},
+		{"git@github.com:acme/intents.git", ""},
+		{"", ""},
+	} {
+		if got := installationHint(tt.url); got != tt.want {
+			t.Errorf("installationHint(%q) = %q, want %q", tt.url, got, tt.want)
+		}
+	}
 }

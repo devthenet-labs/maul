@@ -53,10 +53,10 @@ Next steps for acme/Hello.Web (image name hello-web):
        port: <the one port your Dockerfile EXPOSEs>
        readinessPath: <a path that answers 200 once the service is ready>
   5. Add the repository to its Project:
-       maul setup project <name> ... --repo acme/Hello.Web
+       maul setup project <name> ... --repo hello-web=acme/Hello.Web
        kubectl apply -f <name>.project.yaml
      add acme/Hello.Web to the GitHub App's installation, then check the Project:
-       GH_TOKEN=$(gh auth token) maul check project <name>
+       GH_TOKEN=$(gh auth token) maul check project <name> -n <namespace>
 
 To change the agent toolchain later, edit .maul/Dockerfile and bump the tag in
 .maul/agent.yaml (toolchain-v2, ...) in the same commit: tags are immutable.

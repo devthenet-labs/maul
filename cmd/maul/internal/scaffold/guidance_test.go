@@ -221,14 +221,34 @@ func TestNextStepsGolden(t *testing.T) {
 func TestNextStepsEndWithTheProject(t *testing.T) {
 	steps := NextSteps(testOptions(false), Present{})
 	want := "  5. Add the repository to its Project:\n" +
-		"       maul setup project <name> ... --repo acme/Hello.Web\n" +
+		"       maul setup project <name> ... --repo hello-web=acme/Hello.Web\n" +
 		"       kubectl apply -f <name>.project.yaml\n" +
 		"     add acme/Hello.Web to the GitHub App's installation, then check the Project:\n" +
-		"       GH_TOKEN=$(gh auth token) maul check project <name>\n"
+		"       GH_TOKEN=$(gh auth token) maul check project <name> -n <namespace>\n"
 	if !strings.Contains(steps, want) {
 		t.Errorf("next steps lack %q:\n%s", want, steps)
 	}
 	if strings.Index(steps, "  4. ") > strings.Index(steps, "  5. ") {
 		t.Errorf("step 5 is not after step 4:\n%s", steps)
+	}
+}
+
+// TestProjectRepoArg: maul setup project keys a repository by its lowercased
+// name, which the Project CRD holds to a DNS label of at most 16 characters;
+// a name that is not one is printed with a key that is, never as a command
+// the CLI would refuse.
+func TestProjectRepoArg(t *testing.T) {
+	for _, tt := range []struct{ owner, name, image, want string }{
+		{"acme", "app", "app", "acme/app"},
+		{"acme", "Shop-API", "shop-api", "acme/Shop-API"},
+		{"acme", "Hello.Web", "hello-web", "hello-web=acme/Hello.Web"},
+		{"acme", "a-very-long-repository", "a-very-long-repository", "<key>=acme/a-very-long-repository"},
+		{"acme", "trailing-", "trailing", "trailing=acme/trailing-"},
+		{"acme", "under_score", "under_score", "<key>=acme/under_score"},
+	} {
+		o := Options{Repo: Repo{Owner: tt.owner, Name: tt.name}, ImageName: tt.image}
+		if got := projectRepoArg(o); got != tt.want {
+			t.Errorf("projectRepoArg(%s/%s, image %s) = %q, want %q", tt.owner, tt.name, tt.image, got, tt.want)
+		}
 	}
 }

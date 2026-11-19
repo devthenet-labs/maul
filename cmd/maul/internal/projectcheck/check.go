@@ -147,6 +147,7 @@ func (r *run) isReady() bool {
 func (r *run) forges(ctx context.Context) {
 	var list v1alpha1.ForgeList
 	listErr := r.cfg.Reader.List(ctx, &list, client.InNamespace(r.p.Namespace))
+	unreadable := r.unreadableForge(list.Items)
 	for _, t := range r.repositories() {
 		if listErr != nil {
 			r.add(CheckForge, t.key, checkreport.Skip, "cannot list Forges: %v", listErr)
@@ -167,8 +168,7 @@ func (r *run) forges(ctx context.Context) {
 		case ready.Status != metav1.ConditionTrue:
 			r.add(CheckForge, t.key, checkreport.Fail, "%s, but it is not Ready: %s: %s", covers, ready.Reason,
 				ready.Message)
-		case r.ready != nil && r.ready.Status != metav1.ConditionTrue &&
-			r.ready.Reason == reasonForgeSecretUnreadable:
+		case unreadable != "" && f.Name == unreadable:
 			r.add(CheckForge, t.key, checkreport.Pass, "%s and is Ready for source-controller only; "+
 				"intent-controller cannot read its Secret (see ready)", covers)
 		default:
@@ -181,6 +181,34 @@ func (r *run) forges(ctx context.Context) {
 // when it cannot read a Forge's credential Secret (missing, or not granted
 // to it), a copy of its ReasonForgeSecretUnreadable pinned by a test.
 const reasonForgeSecretUnreadable = "ForgeSecretUnreadable"
+
+// forgeCovering opens the repository URL in the Ready message
+// intent-controller writes for an unreadable Forge Secret ("... of the Forge
+// covering <url> ..."), which is how the Forge it is about is told from the
+// Project's other Forges.
+const forgeCovering = "Forge covering "
+
+// unreadableForge is the name of the Forge whose credential Secret
+// intent-controller reported it cannot read: the one covering the
+// repository its Ready message names (it stops at the first). Empty when
+// Ready says no such thing, or names no repository of the Project that
+// resolves to a Forge.
+func (r *run) unreadableForge(forges []v1alpha1.Forge) string {
+	if r.ready == nil || r.ready.Reason != reasonForgeSecretUnreadable {
+		return ""
+	}
+	for _, t := range r.repositories() {
+		// The space ends the URL, so a repository whose URL only extends
+		// the named one is not taken for it.
+		if !strings.Contains(r.ready.Message, forgeCovering+t.url+" ") {
+			continue
+		}
+		if res, err := forge.Resolve(forges, t.url); err == nil {
+			return res.Forge.Name
+		}
+	}
+	return ""
+}
 
 // createForgeHint names the command that creates a Forge for the
 // repository's owner when no Forge covers it (resolveErr is ErrNoMatch);
