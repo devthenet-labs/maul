@@ -156,7 +156,7 @@ func (r *run) forges(ctx context.Context) {
 		res, err := forge.Resolve(list.Items, t.url)
 		if err != nil {
 			r.add(CheckForge, t.key, checkreport.Fail, "%v; a Forge in namespace %s must cover it (spec.orgs, "+
-				"spec.repositories)%s", err, r.p.Namespace, createForgeHint(t.url, err))
+				"spec.repositories)%s", err, r.p.Namespace, createForgeHint(t.url, r.p.Namespace, err))
 			continue
 		}
 		f := res.Forge
@@ -211,17 +211,19 @@ func (r *run) unreadableForge(forges []v1alpha1.Forge) string {
 }
 
 // createForgeHint names the command that creates a Forge for the
-// repository's owner when no Forge covers it (resolveErr is ErrNoMatch);
-// empty otherwise, or when the URL does not parse.
-func createForgeHint(repoURL string, resolveErr error) string {
+// repository's owner, in the Project's namespace, when no Forge covers it
+// (resolveErr is ErrNoMatch); empty otherwise, when the URL does not parse,
+// or for a repository off github.com, the only host maul setup github-app
+// registers an App on.
+func createForgeHint(repoURL, namespace string, resolveErr error) string {
 	if !errors.Is(resolveErr, forge.ErrNoMatch) {
 		return ""
 	}
-	_, repo, err := forge.ParseRepoURL(repoURL)
-	if err != nil {
+	host, repo, err := forge.ParseRepoURL(repoURL)
+	if err != nil || host != "github.com" {
 		return ""
 	}
-	return fmt.Sprintf("; create one: maul setup github-app --org %s --intents", repo.Owner)
+	return fmt.Sprintf("; create one: maul setup github-app --org %s --intents -n %s", repo.Owner, namespace)
 }
 
 // target is one repository a check is about.

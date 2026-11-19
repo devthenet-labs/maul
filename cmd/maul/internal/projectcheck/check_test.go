@@ -534,8 +534,19 @@ func TestRunForges(t *testing.T) {
 		w.repo("lib").URL = "https://github.com/other/shop-lib"
 		r := w.run()
 		expect(t, r, CheckForge, "lib", checkreport.Fail, "no forge matches repository", "namespace maul",
-			"; create one: maul setup github-app --org other --intents")
+			"; create one: maul setup github-app --org other --intents -n "+testNamespace)
 		expect(t, r, CheckForge, "web", checkreport.Pass)
+	})
+	// maul setup github-app registers an App on github.com only: a
+	// repository on another host is not sent to it.
+	t.Run("unresolved on another host", func(t *testing.T) {
+		w := newWorld(t)
+		w.repo("lib").URL = "https://ghe.example.com/other/shop-lib"
+		r := w.run()
+		expect(t, r, CheckForge, "lib", checkreport.Fail, "no forge matches repository", "namespace maul")
+		if l := line(t, r, CheckForge, "lib"); strings.Contains(l.Reason, "create one") {
+			t.Errorf("a repository off github.com is told to run setup github-app: %q", l.Reason)
+		}
 	})
 	// A Forge source-controller validated whose Secret intent-controller
 	// cannot read: the forge line still passes, but no longer reads as if
