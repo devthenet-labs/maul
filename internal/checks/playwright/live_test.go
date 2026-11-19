@@ -96,7 +96,153 @@ func liveCases() []liveCase {
 			MaxWidth: &atMost}},
 	)
 	out = append(out, nameCases()...)
+	out = append(out, seenCases()...)
+	out = append(out, unmeasuredCases()...)
+	out = append(out, ordinaryCases()...)
 	return append(out, clippedCases()...)
+}
+
+// seenCases are review finding 2's: visible means a person can see it. An
+// element clipped to nothing (a collapsed panel, a 1px screen-reader span,
+// clip-path inset(50%)) fails; one covered at its centre by something
+// opaque is indeterminate, never a pass; text only in its descendants is
+// judged as its own text is. The controls judge as before: a transparent
+// or pointer-events:none layer, a cover that leaves the centre clear, a
+// sticky header the element is scrolled clear of, readable label spans,
+// an icon button with a screen-reader or faded-out label, an underlined
+// nav link, a link wrapped over two lines.
+func seenCases() []liveCase {
+	see := func(id, want string) liveCase {
+		return liveCase{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}}
+	}
+	return []liveCase{
+		see("v-occluded", "indeterminate"),
+		see("v-collapsed", "fail"),
+		see("v-sronly", "fail"),
+		see("v-clippath", "fail"),
+		see("v-childwhite", "fail"),
+		see("v-under-sticky", "indeterminate"),
+		see("c-covered", "indeterminate"),
+		see("v-plain", "pass"),
+		see("v-glass", "pass"),
+		see("c-veiled", "pass"),
+		see("v-partly", "pass"),
+		see("v-childdark", "pass"),
+		see("v-below-sticky", "pass"),
+		see("v-navlink", "pass"),
+		see("v-wrapped", "pass"),
+		see("v-card", "pass"),
+		see("v-play", "pass"),
+		see("v-icon", "pass"),
+		see("v-tipped", "pass"),
+		{"v-play-role-visible", "pass", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "Listen"}}},
+		{"v-childwhite-role-visible", "fail", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "Save"}}},
+		{"v-navlink-legible", "pass", checks.Assertion{Assert: checks.AssertLegible, Locator: css("#v-navlink")}},
+	}
+}
+
+// unmeasuredCases are review finding 10's: text over an <img>, a <canvas>
+// or a positioned ::before scrim is indeterminate for visible and legible
+// whichever way it reads (maul does not know what they paint), while a
+// flow ::before beside the text judges as before; a web component's
+// button in an open shadow root is hit-tested and its background resolved
+// through the root, so it passes clickable, visible and legible, a covered
+// one still fails clickable, and text slotted over the component's own
+// shadow background is judged against it.
+func unmeasuredCases() []liveCase {
+	both := func(id, want string) []liveCase {
+		return []liveCase{
+			{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}},
+			{id + "-legible", want, checks.Assertion{Assert: checks.AssertLegible, Locator: css("#" + id)}},
+		}
+	}
+	yes := true
+	shadow := &checks.Locator{Role: "button", Name: "Shadow button", Exact: &yes}
+	covered := &checks.Locator{Role: "button", Name: "Covered shadow button", Exact: &yes}
+	var out []liveCase
+	for _, id := range []string{"i-dark-img", "i-white-img", "i-dark-canvas", "i-white-canvas", "i-dark-before",
+		"i-white-before"} {
+		out = append(out, both(id, "indeterminate")...)
+	}
+	out = append(out, both("i-dot", "pass")...)
+	out = append(out, both("sh-slotted", "pass")...)
+	return append(out,
+		liveCase{"sh-button-clickable", "pass", checks.Assertion{Assert: checks.AssertClickable, Locator: shadow}},
+		liveCase{"sh-button-visible", "pass", checks.Assertion{Assert: checks.AssertVisible, Locator: shadow}},
+		liveCase{"sh-button-legible", "pass", checks.Assertion{Assert: checks.AssertLegible, Locator: shadow}},
+		liveCase{"sh-covered-clickable", "fail", checks.Assertion{Assert: checks.AssertClickable, Locator: covered}},
+		liveCase{"sh-covered-visible", "indeterminate", checks.Assertion{Assert: checks.AssertVisible, Locator: covered}},
+		liveCase{"sh-text-legible", "pass", checks.Assertion{Assert: checks.AssertLegible,
+			Locator: &checks.Locator{Text: "Shadow text, pointer-events none"}}},
+		liveCase{"sh-host-visible", "pass", checks.Assertion{Assert: checks.AssertVisible, Locator: css("#sh-light-host")}},
+	)
+}
+
+// ordinaryCases are the review of the two findings' fix: pages that must
+// judge as before it (a nav link whose underline is scaled away until
+// hover, a bullet drawn by a negative-margin ::before, a ::before bar
+// placed by a positioned ancestor or at the right edge, text in a
+// light-DOM custom element, a heading in a slanted hero, a round avatar,
+// a table row found by its role, a panel inside an overflow clip margin),
+// and paint maul must not guess at, in either direction: a ::before an
+// ancestor places under the text, text positioned over a flow ::before or
+// sharing its grid cell, text slotted into a closed shadow root, a cover
+// painted by its flow ::before, a clip-path shape that leaves nothing, and
+// a clip maul's arithmetic gets wrong while the element is found at its
+// centre, and a screen-reader checkbox behind its styled label (never a
+// fail; a field in a collapsed panel still fails). A component's button
+// is judged by the label slotted into it.
+func ordinaryCases() []liveCase {
+	both := func(id, want string) []liveCase {
+		return []liveCase{
+			{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}},
+			{id + "-legible", want, checks.Assertion{Assert: checks.AssertLegible, Locator: css("#" + id)}},
+		}
+	}
+	see := func(id, want string) liveCase {
+		return liveCase{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}}
+	}
+	var out []liveCase
+	for _, id := range []string{"r-underline", "r-bullet", "r-topbar", "r-rightbar", "r-frame", "r-slant", "r-avatar"} {
+		out = append(out, both(id, "pass")...)
+	}
+	for _, id := range []string{"r-veil", "r-closed", "r-band-white", "r-band-dark", "r-stack-white"} {
+		out = append(out, both(id, "indeterminate")...)
+	}
+	return append(out,
+		see("r-gone", "indeterminate"),
+		see("r-row", "pass"),
+		see("r-margin", "pass"),
+		see("r-margin-box", "indeterminate"),
+		see("r-flowlid", "indeterminate"),
+		see("r-peer", "indeterminate"),
+		see("r-peer-box", "pass"),
+		see("r-collapsed-input", "fail"),
+		// A component's button found by its role: its slotted label is its
+		// text. Bare text is not measured (never a pass on the box alone),
+		// a slotted element is judged inside the component.
+		liveCase{"r-pill-white-visible", "indeterminate", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "White slotted label"}}},
+		liveCase{"r-pill-span-visible", "fail", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "White slotted span"}}},
+		liveCase{"r-pill-read-visible", "pass", checks.Assertion{Assert: checks.AssertVisible,
+			Locator: &checks.Locator{Role: "button", Name: "Readable slotted span"}}},
+	)
+}
+
+// notFailed are the cases whose verdict is not a fail: none may carry
+// maul's "<what> failed:" words, which previewtools reads as a failed
+// assertion, so an element maul cannot judge is never red by assertion.
+func notFailed(cases []liveCase) []string {
+	var out []string
+	for _, c := range cases {
+		if c.want != "fail" {
+			out = append(out, c.name)
+		}
+	}
+	return out
 }
 
 // nameCases are G4-B-BR-1's: an exact label or role name is Playwright's
@@ -230,6 +376,11 @@ export default defineConfig({
 	for _, c := range cases {
 		if v := got[c.name+".spec.ts"]; v.verdict != c.want {
 			t.Errorf("%s: verdict %s, want %s (%s)", c.name, v.verdict, c.want, v.why)
+		}
+	}
+	for _, name := range notFailed(cases) {
+		if why := stripEscapes(got[name+".spec.ts"].why); strings.Contains(why, " failed: ") {
+			t.Errorf("%s: judged %q, which reads as a failed assertion", name, why)
 		}
 	}
 	for _, name := range missesNoElement {

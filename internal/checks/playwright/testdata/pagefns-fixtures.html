@@ -51,6 +51,54 @@
       .seq .steps { display: flex; gap: 16px; }
       .seq .step { width: 48px; height: 30px; flex: none; background: #c33; }
       .seq .sticky { position: sticky; left: 0; z-index: 1; }
+      /* Finding 2: visible means a person can see it. */
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+      .lid { position: absolute; inset: 0; background: #eee; }
+      .pane { position: absolute; inset: 0; }
+      .collapsed { height: 0; overflow: hidden; }
+      .flap { position: absolute; left: 0; top: 0; width: 40px; height: 100%; background: #eee; }
+      .wide { display: inline-block; width: 300px; }
+      .feed { height: 120px; overflow: auto; }
+      .feed .head { position: sticky; top: 0; height: 40px; background: #333; color: #fff; }
+      .feed .gap { height: 300px; }
+      .nav a { position: relative; color: #1a0dab; text-decoration: none; }
+      .nav a::after { content: ""; position: absolute; left: 0; bottom: -2px; height: 2px; width: 100%; background: #1a0dab; }
+      .tip { position: absolute; opacity: 0; background: #000; color: #fff; }
+      .narrow { width: 180px; }
+      /* Finding 10: text over what maul cannot measure, and elements inside a shadow root. */
+      .under { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .over { position: relative; }
+      .dark { color: #111; }
+      .light { color: #fff; }
+      .scrim::before { content: ""; position: absolute; inset: 0; background: #000; }
+      .dot::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 4px; background: #c33; }
+      /* PR 452 review: ordinary pages that must judge as before, and paint maul must not guess at. */
+      .ul a { position: relative; color: #1a0dab; text-decoration: none; }
+      .ul a::after { content: ""; position: absolute; left: 0; bottom: -2px; height: 2px; width: 100%; background: #1a0dab; transform: scaleX(0); transform-origin: left; }
+      .bul li { list-style: none; padding-left: 20px; }
+      .bul li::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: -16px; margin-right: 8px; background: #c33; }
+      .topbar { padding-top: 40px; }
+      .topbar h4 { margin: 0; }
+      .topbar h4::before { content: ""; position: absolute; left: 0; top: 5px; width: 100%; height: 8px; background: #06c; }
+      .rightbar h4 { position: relative; margin: 0; box-sizing: border-box; }
+      .rightbar h4::before { content: ""; position: absolute; right: 0; top: 0; width: 4px; height: 100%; padding: 0 2px; box-sizing: border-box; background: #06c; }
+      .veil h4 { margin: 0; }
+      .veil h4::before { content: ""; position: absolute; left: 0; top: 20px; width: 100%; height: 40px; background: #000; z-index: -1; }
+      .veil { z-index: 0; padding-top: 30px; }
+      .slant { clip-path: polygon(0 0, 100% 0, 100% 85%, 0 100%); background: #024; color: #fff; }
+      .avatar { display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; clip-path: circle(50%); background: #024; color: #fff; }
+      .gone { display: inline-block; clip-path: circle(0); }
+      .rows { border-collapse: collapse; }
+      .rows td { padding: 4px; border: 1px solid #999; }
+      .band::before { content: ""; display: block; height: 40px; background: #000; }
+      .band { height: 60px; }
+      .band .abs { position: absolute; top: 14px; left: 10px; }
+      .stack { display: grid; }
+      .stack::before { content: ""; grid-area: 1 / 1; background: #000; }
+      .stack > span { grid-area: 1 / 1; }
+      .margin { height: 0; overflow: clip; overflow-clip-margin: 30px; }
+      .margin p { margin: 0; }
+      .flowlid::before { content: ""; display: block; height: 100%; background: #eee; }
     </style>
   </head>
   <body>
@@ -98,6 +146,71 @@
         <div class="step" id="s-stepa"></div><div class="step"></div><div class="step" id="s-stepc"></div>
       </div></div>
     </div>
+    <!-- Finding 2: an element a person cannot see (covered, clipped away, a 1px screen-reader span, text the colour of
+         its button) and the controls that must judge as before. -->
+    <div class="case"><span id="v-occluded">Under an opaque sibling</span><div class="lid"></div></div>
+    <div class="case"><div class="collapsed"><p id="v-collapsed">In a collapsed panel</p></div></div>
+    <div class="case"><span class="sr-only" id="v-sronly">Screen readers only</span></div>
+    <div class="case"><span id="v-clippath" style="display: inline-block; clip-path: inset(50%)">Clipped by inset(50%)</span></div>
+    <div class="case"><button id="v-childwhite" type="button" style="background: #fff; border: 0"><span style="color: #fff">Save</span></button></div>
+    <div class="case"><p id="v-plain">An ordinary paragraph</p></div>
+    <div class="case"><span id="v-glass">Under a transparent overlay</span><div class="pane"></div></div>
+    <div class="case"><span class="wide" id="v-partly">Partly covered, its centre clear</span><div class="flap"></div></div>
+    <div class="case"><button id="v-childdark" type="button"><span>Open</span></button></div>
+    <div class="case"><div class="feed" id="v-feed-clear"><div class="head">Feed</div><div class="gap"></div><button id="v-below-sticky" type="button">Below the fold</button><div class="gap"></div></div></div>
+    <div class="case"><div class="feed" id="v-feed-under"><div class="head">Feed</div><div class="gap"></div><button id="v-under-sticky" type="button">Under the header</button><div class="gap"></div></div></div>
+    <nav class="case nav"><a id="v-navlink" href="#battles">Battles</a> <a href="#board">Leaderboard</a></nav>
+    <div class="case narrow"><p>Read the rules, then <a id="v-wrapped" href="#rules">open the full battle rules page</a> now.</p></div>
+    <article class="case side" id="v-card">
+      <h4>Beat one</h4>
+      <button id="v-play" type="button"><span aria-hidden="true">&#9654;</span> <span>Listen</span></button>
+      <button id="v-icon" type="button"><svg width="16" height="16" aria-hidden="true"><rect width="16" height="16" fill="#333" /></svg><span class="sr-only">Vote</span></button>
+      <button id="v-tipped" type="button"><svg width="16" height="16" aria-hidden="true"><rect width="16" height="16" fill="#333" /></svg><span class="tip">Share</span></button>
+    </article>
+    <!-- Finding 10: text over an <img>, a <canvas> or a ::before scrim, dark (unreadable) and white (readable): maul
+         cannot measure either, so both are indeterminate; a flow ::before dot beside the text judges as before. -->
+    <div class="case"><img class="under" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Crect width='10' height='10' fill='%23000'/%3E%3C/svg%3E" /><span class="over dark" id="i-dark-img">Dark on a black img</span></div>
+    <div class="case"><img class="under" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Crect width='10' height='10' fill='%23000'/%3E%3C/svg%3E" /><span class="over light" id="i-white-img">White on a black img</span></div>
+    <div class="case"><canvas class="under black"></canvas><span class="over dark" id="i-dark-canvas">Dark on a black canvas</span></div>
+    <div class="case"><canvas class="under black"></canvas><span class="over light" id="i-white-canvas">White on a black canvas</span></div>
+    <div class="case scrim"><span class="over dark" id="i-dark-before">Dark on a black ::before</span></div>
+    <div class="case scrim"><span class="over light" id="i-white-before">White on a black ::before</span></div>
+    <div class="case"><span class="dot" id="i-dot">Live, after a flow ::before dot</span></div>
+    <!-- Finding 10: a web component's button, and slotted text, inside shadow roots (filled by the script below). -->
+    <div class="case" style="background: #000"><div id="sh-host"></div></div>
+    <div class="case"><div id="sh-covered-host"></div><div class="lid"></div></div>
+    <div class="case"><sh-card id="sh-card"><span class="light" id="sh-slotted">White slotted on the card's black</span></sh-card></div>
+    <div class="case"><div id="sh-light-host"></div></div>
+    <!-- PR 452 review. Ordinary pages that judge as before: a nav link whose underline is scaled away until hover, a
+         bullet drawn by a negative-margin ::before, a ::before bar placed by a positioned ancestor or at the right
+         edge, text in a light-DOM custom element (no shadow root), a heading in a slanted hero, a round avatar, a
+         table row, a panel under overflow: clip with a clip margin. And paint maul must not guess at: a ::before
+         placed under the text by an ancestor, text positioned over a flow ::before, a ::before sharing the text's
+         grid cell, text slotted into a closed shadow root, a cover painted by its flow ::before, a clip-path shape
+         that leaves nothing, a screen-reader checkbox behind its styled label,
+         a component's button whose label is slotted into it. -->
+    <nav class="case ul"><a id="r-underline" href="#battles">Animated underline</a></nav>
+    <ul class="case bul"><li id="r-bullet">Bullet drawn by a ::before</li></ul>
+    <div class="case topbar"><h4 id="r-topbar">Bar placed by the card</h4></div>
+    <div class="case rightbar"><h4 id="r-rightbar">Bar at the right edge</h4></div>
+    <div class="case veil"><h4 class="light" id="r-veil">White over a ::before placed by the card</h4></div>
+    <div class="case"><maul-frame><p id="r-frame">Text in a light-DOM custom element</p></maul-frame></div>
+    <div class="case"><maul-closed><span class="light" id="r-closed">White slotted into a closed root</span></maul-closed></div>
+    <div class="case slant"><h4 id="r-slant">Heading in a slanted hero</h4></div>
+    <div class="case"><span class="avatar" id="r-avatar">PG</span></div>
+    <div class="case"><span class="gone" id="r-gone">Cut to nothing by a circle</span></div>
+    <div class="case"><table class="rows"><tbody><tr id="r-row"><td>Beat one</td><td>12 votes</td></tr></tbody></table></div>
+    <div class="case band"><span class="abs light" id="r-band-white">White over a flow ::before</span></div>
+    <div class="case band"><span class="abs dark" id="r-band-dark">Dark over a flow ::before</span></div>
+    <div class="case stack"><span class="light" id="r-stack-white">White in the ::before's grid cell</span></div>
+    <div class="case"><div class="margin"><p id="r-margin">Inside the clip margin</p></div></div>
+    <div class="case"><div class="margin" style="overflow-clip-margin: content-box 30px"><p id="r-margin-box">Inside a content-box clip margin</p></div></div>
+    <div class="case"><label><input type="checkbox" class="sr-only" id="r-peer" /><span id="r-peer-box">Remember me</span></label></div>
+    <div class="case"><div class="collapsed"><input id="r-collapsed-input" value="In a collapsed panel" /></div></div>
+    <div class="case"><maul-pill id="r-pill-white" data-ink="#fff" data-fill="#fff">White slotted label</maul-pill></div>
+    <div class="case"><maul-pill id="r-pill-span" data-ink="#fff" data-fill="#fff"><span>White slotted span</span></maul-pill></div>
+    <div class="case"><maul-pill id="r-pill-read" data-ink="#fff" data-fill="#06c"><span>Readable slotted span</span></maul-pill></div>
+    <div class="case"><span id="r-flowlid">Under a cover painted by its ::before</span><div class="pane flowlid"></div></div>
     <!-- Names (G4-B-BR-1): a field, a button whose label holds the field's name, a button with an icon. -->
     <div class="case">
       <input id="n-beat" aria-label="Beat name" />
@@ -106,6 +219,47 @@
     </div>
     <script>
       for (const s of document.querySelectorAll('.scroller')) s.scrollLeft = s.scrollWidth;
+      for (const c of document.querySelectorAll('canvas.black')) {
+        c.width = c.clientWidth;
+        c.height = c.clientHeight;
+        const g = c.getContext('2d');
+        g.fillStyle = '#000';
+        g.fillRect(0, 0, c.width, c.height);
+      }
+      document.getElementById('sh-host').attachShadow({ mode: 'open' }).innerHTML =
+        '<button type="button" style="background: transparent; color: #fff; border: 1px solid #fff">Shadow button</button>';
+      document.getElementById('sh-covered-host').attachShadow({ mode: 'open' }).innerHTML =
+        '<button type="button">Covered shadow button</button>';
+      document.getElementById('sh-card').attachShadow({ mode: 'open' }).innerHTML =
+        '<div style="background: #000; padding: 8px"><slot></slot></div>';
+      document.getElementById('sh-light-host').attachShadow({ mode: 'open' }).innerHTML =
+        '<p style="color: #111; margin: 0"><span>Shadow text, pointer-events none</span></p><style>p { pointer-events: none; }</style>';
+      customElements.define('maul-frame', class extends HTMLElement {});
+      customElements.define(
+        'maul-pill',
+        class extends HTMLElement {
+          constructor() {
+            super();
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.style.cssText = 'border: 0; color: ' + this.dataset.ink + '; background: ' + this.dataset.fill;
+            b.append(document.createElement('slot'));
+            this.attachShadow({ mode: 'open' }).append(b);
+          }
+        },
+      );
+      customElements.define(
+        'maul-closed',
+        class extends HTMLElement {
+          constructor() {
+            super();
+            this.attachShadow({ mode: 'closed' }).innerHTML = '<div style="background: #000; padding: 4px"><slot></slot></div>';
+          }
+        },
+      );
+      // The button scrolled to just under the feed's sticky header: in the feed's view, covered.
+      const feed = document.getElementById('v-feed-under');
+      feed.scrollTop = document.getElementById('v-under-sticky').offsetTop - feed.offsetTop - 10;
     </script>
   </body>
 </html>

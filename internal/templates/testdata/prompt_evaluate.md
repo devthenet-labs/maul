@@ -328,9 +328,9 @@ A check is bound to one outcome and has one form:
   `tolerance` in px. `size` takes an exact `width` or `height`, or the bounds `minWidth`, `maxWidth`, `minHeight` and
   `maxHeight` for an outcome that says "at least" or "at most" (an axis takes one or the other): write "at least 48
   px" as `minWidth: 48`, never an exact 48. A box relation on an element scrolled out of view or clipped away by its
-  container comes back indeterminate, so scroll it into view in the check first (a `scroll` step on that container).
-  Assert `legible` for "can a person read it" and `visible` for "is it there". Never assert a colour value: a colour
-  literal is refused.
+  container comes back indeterminate, so scroll it into view first (a `scroll` step on that container). Assert
+  `legible` for "can a person read it" and `visible` for "can a person see it" (covered, or over an image: unsure).
+  Never assert a colour value: a colour literal is refused.
 - `exec`: an `argv` run in the sandbox without a shell, with its program `files`, asserting on its `exit` code,
   `stdoutContains` (one string, on one line) and `stdoutJSON`. maul fails an exec check whose output has a line that
   starts with what `{{marker}}` in its program files stands for (a secret maul draws for every run), whatever its
