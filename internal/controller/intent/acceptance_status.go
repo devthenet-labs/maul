@@ -164,14 +164,25 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 // accepted; pending while maul evaluates, or a dispute's replay round or the
 // head set's escalation is due ("maul is checking this"); error once maul could not confirm an
 // outcome ("maul couldn't confirm this"), final until an approver accepts
-// it or the heads move; failure while an outcome fails. ok is false in the
-// states slice 1's descriptions already say (waiting, unavailable, needs
-// replan).
+// it or the heads move; failure while an outcome fails, until an approver
+// accepts every outcome maul did not confirm there (outcomesReady, as the
+// hand-off reads it: code review 2026-11-18, rounds 11). ok is false in
+// the states slice 1's descriptions already say (waiting, unavailable,
+// needs replan).
 func (p *pass) evaluationStatus() (acceptanceState, bool) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	used, most := p.verifyFixesUsed()
 	total := int32(len(acc.Outcomes))
 	confirmed := templates.OutcomeCount(confirmedCount(acc, v), total)
+	if outcomesReady(acc, v) {
+		// Judged at its heads, every outcome confirmed or accepted there:
+		// whatever state the judgement settled in (Passed, Unconfirmed, or
+		// Failing or Exhausted with every failing outcome accepted).
+		if who := outcomeAccepters(acc, v); len(who) > 0 {
+			return acceptanceState{statusSuccess, confirmed + "; some accepted by hand " + acceptedBy(who)}, true
+		}
+		return acceptanceState{statusSuccess, confirmed}, true
+	}
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
 		if evaluable(acc.Outcomes) {
@@ -191,23 +202,15 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationEvaluating:
 		return checkingStatus(v.Round, total, used, most), true
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
-		switch {
-		case outcomesReady(acc, v):
-		case p.replayDue(v), p.escalationDue(v):
+		if p.replayDue(v) || p.escalationDue(v) {
 			// The model-free replay round a dispute asked for, or the head
 			// set's one full round (an unsure replay's escalation, a
 			// recheck), is due: maul is still checking.
 			return checkingStatus(v.Round, total, used, most), true
-		default:
-			// Final until an approver accepts what maul could not
-			// confirm, or the heads move: never a pending status that
-			// waits for nothing.
-			return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed + p.unconfirmedCause()}, true
 		}
-		if who := outcomeAccepters(acc, v); len(who) > 0 {
-			return acceptanceState{statusSuccess, confirmed + "; some accepted by hand " + acceptedBy(who)}, true
-		}
-		return acceptanceState{statusSuccess, confirmed}, true
+		// Final until an approver accepts what maul could not confirm, or
+		// the heads move: never a pending status that waits for nothing.
+		return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed + p.unconfirmedCause()}, true
 	case v1alpha1.VerificationFailing:
 		switch {
 		case v.AutoFix.State == v1alpha1.AutoFixHalted:

@@ -13,6 +13,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // acceptanceStatuses are the maul/acceptance statuses on sha, newest first.
@@ -410,6 +411,74 @@ func TestAcceptanceStatusRepostsWhenTheHeadSetMoves(t *testing.T) {
 	ss := e.acceptanceStatuses(head)
 	if len(ss) != n+1 || ss[0].State != statusPending || ss[0].Description != headsMoved.description {
 		t.Fatalf("statuses = %+v", ss)
+	}
+}
+
+// TestAcceptanceStatusFollowsAnAcceptOfAFailure (code review 2026-11-18,
+// rounds 11): a round judged Failing with its automatic fixes halted, or
+// Exhausted, stays failure while an approver has accepted only part of what
+// maul did not confirm, and turns success, naming them, once every such
+// outcome is accepted at the current heads, as the hand-off says ready; a
+// push then leaves the acceptance at the heads it was given for, and the
+// status is no longer success.
+func TestAcceptanceStatusFollowsAnAcceptOfAFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		project func(*v1alpha1.Project)
+		state   v1alpha1.IntentVerificationState
+	}{
+		{"exhausted", func(p *v1alpha1.Project) { p.Spec.Limits.MaxVerifyFixes = new(int32(0)) },
+			v1alpha1.VerificationExhausted},
+		{"failing, fixes halted", func(p *v1alpha1.Project) { p.Spec.Limits.MaxCostMicroUSD = 1 },
+			v1alpha1.VerificationFailing},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, name, _ := failingEvaluation(t)
+			proj := e.getProject()
+			tc.project(proj)
+			if err := e.c.Update(context.Background(), proj); err != nil {
+				t.Fatal(err)
+			}
+			e.review(name, 2)
+			head := e.get(name).Status.PullRequests[0].HeadSHA
+			if v := e.verification(name); v.State != tc.state {
+				t.Fatalf("verification = %s, want %s (the case's premise)", v.State, tc.state)
+			}
+			if s := e.latestAcceptance(head); s.State != statusFailure {
+				t.Fatalf("judged: %+v, want failure", s)
+			}
+			// Part of it: the failing outcome, the manual one still open.
+			e.gh.comment(approver, "/maul accept "+oVersion)
+			e.settleActions(name)
+			e.review(name, 2)
+			if s := e.latestAcceptance(head); s.State != statusFailure {
+				t.Fatalf("with the manual outcome open: %+v, want failure", s)
+			}
+			e.gh.comment(approver, "/maul accept "+oManual)
+			e.settleActions(name)
+			e.review(name, 2)
+			s := e.latestAcceptance(head)
+			if s.State != statusSuccess || !strings.Contains(s.Description, approver) || len(s.Description) > 140 {
+				t.Fatalf("with every outcome accepted: %+v, want success naming %s within 140 bytes", s, approver)
+			}
+			if v := e.verification(name); v.State != tc.state {
+				t.Fatalf("verification = %s, want %s: an acceptance moves no state", v.State, tc.state)
+			}
+			if h := e.prVerifyPass(name).handoffView(); h == nil || h.State != templates.HandoffReady {
+				t.Fatalf("hand-off = %+v, want ready", h)
+			}
+			moved := strings.Repeat("e", 40)
+			e.pushHead(e.prNumber(name), moved)
+			e.review(name, 2)
+			for _, s := range e.acceptanceStatuses(moved) {
+				if s.State == statusSuccess {
+					t.Fatalf("after a push: %+v, want no success for acceptances of other heads", s)
+				}
+			}
+			if st, _, ok := e.prVerifyPass(name).acceptanceStatus(); !ok || st.state == statusSuccess {
+				t.Fatalf("after a push: maul/acceptance %+v (posted %v), want one, not success", st, ok)
+			}
+		})
 	}
 }
 

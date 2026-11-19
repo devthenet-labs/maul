@@ -133,13 +133,19 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 
 // evaluationProgress is verifyProgress for the agent evaluator's outcomes
 // (out holds the round and fix counts): evaluations, and outcomes confirmed
-// or accepted out of every approved one. nil when it says nothing.
+// or accepted out of every approved one; passed once every outcome is
+// confirmed or accepted at its heads (outcomesReady), whatever state the
+// judgement settled in, as maul/acceptance and the hand-off say (code
+// review 2026-11-18, rounds 11). nil when it says nothing.
 func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.VerifyProgress {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	out.Outcomes = true
 	judged := func(state string) *templates.VerifyProgress {
 		out.State, out.Passing, out.Total = state, confirmedCount(acc, v), int32(len(acc.Outcomes))
 		return out
+	}
+	if outcomesReady(acc, v) {
+		return judged(templates.VerifyPassed)
 	}
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
@@ -151,9 +157,6 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 	case v1alpha1.VerificationEvaluating:
 		out.State, out.Recheck = templates.VerifyEvaluating, p.rechecking(v)
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
-		if outcomesReady(acc, v) {
-			return judged(templates.VerifyPassed)
-		}
 		out.Why, out.Workspace, out.Recheck = p.gaveUp(acc, v), p.set.linkless(p.proj), p.rechecking(v)
 		return judged(templates.VerifyUnconfirmed)
 	case v1alpha1.VerificationFailing:

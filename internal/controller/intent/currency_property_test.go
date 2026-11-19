@@ -7,9 +7,12 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/command"
@@ -25,11 +28,56 @@ type currencyCase struct {
 	moved, otherRound, otherHeads, unjudged bool
 	// shift moves the record's round and its outcomes' round together.
 	shift int32
+	// verdict is the judgement's state (verdictReady keeps the ready one;
+	// the others record one outcome failing or unsure), and accept how an
+	// approver accepted that outcome after the judgement (code review
+	// 2026-11-18, rounds 11).
+	verdict verdictCase
+	accept  acceptCase
 }
+
+// verdictCase is the state a judgement settled in.
+type verdictCase int
+
+const (
+	verdictReady verdictCase = iota
+	verdictFailing
+	verdictExhausted
+	verdictUnconfirmed
+	verdictCases
+)
+
+// acceptCase is how an approver accepted the outcome maul did not
+// confirm, after the judgement: at the record's head set, not at all (a
+// partial acceptance: the manual outcome only), or at another head set.
+type acceptCase int
+
+const (
+	acceptAtHeads acceptCase = iota
+	acceptNone
+	acceptOtherHeads
+	acceptCases
+)
 
 func (c currencyCase) key() string {
 	return fmt.Sprintf("moved=%v otherRound=%v otherHeads=%v unjudged=%v",
 		c.moved, c.otherRound, c.otherHeads, c.unjudged)
+}
+
+// verdictKey is c's judgement shape: its verdict and, for any but the
+// ready one, how it was accepted.
+func (c currencyCase) verdictKey() string {
+	if c.verdict == verdictReady {
+		return "ready"
+	}
+	return fmt.Sprintf("verdict=%d accept=%d", c.verdict, c.accept)
+}
+
+// ready is the oracle's readiness of c's judgement, its currency apart:
+// every outcome maul did not confirm accepted by an approver at the
+// record's head set, whatever state the judgement settled in.
+func (c currencyCase) ready() bool {
+	return c.verdict == verdictReady || c.accept == acceptAtHeads
 }
 
 // reporterViews is whether each reporter presents the record's judgement
@@ -42,14 +90,20 @@ type reporterViews struct {
 
 // TestReportersAgreeOnCurrencySeeded (S4 PR 9) is a seeded property over
 // (recorded heads, current heads, round, judged round and head set, an
-// unjudged settle) on a ready judgement, for the slot, the agents host and
+// unjudged settle, and the state the judgement settled in with an
+// approver's acceptance after it: Passed, or Failing, Exhausted or
+// Unconfirmed with the outcome maul did not confirm accepted at the heads,
+// not at all, or at other heads) on a judgement, for the slot, the agents
+// host and
 // the agents host switched off: every reporter (maul/acceptance, the
 // hand-off, the comments' progress, the not-run answer's standing
 // judgement and /maul accept) agrees on whether the record is current. The
 // oracle is computed from the case alone: a judgement is current only at
 // the pull requests' heads now, written by the record's round at the
-// record's head set, by a round that ran; an acceptance binds only at the
-// heads now, where something checks them. No reporter presents a judgement
+// record's head set, by a round that ran; it is ready only when every
+// outcome maul did not confirm was accepted at the record's head set,
+// whatever state it settled in; an acceptance binds only at the heads
+// now, where something checks them. No reporter presents a judgement
 // that is not current (a false pass) or refuses one that is (a false
 // fail).
 func TestReportersAgreeOnCurrencySeeded(t *testing.T) {
@@ -79,12 +133,13 @@ func TestReportersAgreeOnCurrencySeeded(t *testing.T) {
 				got.statusPass != pl.statuses || got.accepted != pl.accepts {
 				t.Fatalf("views of the ready judgement = %+v, want it presented as current", got)
 			}
-			seen := map[string]bool{}
-			for seed := range int64(256) {
+			seen, verdicts := map[string]bool{}, map[string]bool{}
+			for seed := range int64(512) {
 				rng := rand.New(rand.NewSource(seed))
 				c := currencyCase{moved: rng.Intn(2) == 0, otherRound: rng.Intn(3) == 0,
-					otherHeads: rng.Intn(3) == 0, unjudged: rng.Intn(4) == 0, shift: int32(rng.Intn(3))}
-				seen[c.key()] = true
+					otherHeads: rng.Intn(3) == 0, unjudged: rng.Intn(4) == 0, shift: int32(rng.Intn(3)),
+					verdict: verdictCase(rng.Intn(int(verdictCases))), accept: acceptCase(rng.Intn(int(acceptCases)))}
+				seen[c.key()], verdicts[c.verdictKey()] = true, true
 				e.setStatus(name, func(in *v1alpha1.Intent) {
 					in.Status = *base.DeepCopy()
 					c.apply(in, rng)
@@ -92,8 +147,9 @@ func TestReportersAgreeOnCurrencySeeded(t *testing.T) {
 				got := currencyViews(t, e, name)
 				current := !c.moved
 				judged := current && !c.otherRound && !c.otherHeads && !c.unjudged
+				ready := judged && c.ready()
 				want := reporterViews{
-					statusPass: judged && pl.statuses, handoffReady: judged, commentPass: judged,
+					statusPass: ready && pl.statuses, handoffReady: ready, commentPass: ready,
 					notRunStands: judged, accepted: current && pl.accepts,
 					statusMoved: c.moved && pl.statuses, commentMoved: c.moved,
 					// Still checking at moved heads; with the host off
@@ -105,11 +161,14 @@ func TestReportersAgreeOnCurrencySeeded(t *testing.T) {
 					want.handoffChecking = !pl.hostOff
 				}
 				if got != want {
-					t.Errorf("seed %d (%s): views = %+v, want %+v", seed, c.key(), got, want)
+					t.Errorf("seed %d (%s %s): views = %+v, want %+v", seed, c.key(), c.verdictKey(), got, want)
 				}
 			}
 			if len(seen) != 16 {
 				t.Errorf("the seeds reached %d of the 16 shapes", len(seen))
+			}
+			if want := 1 + int(verdictCases-1)*int(acceptCases); len(verdicts) != want {
+				t.Errorf("the seeds reached %d of the %d judgement shapes", len(verdicts), want)
 			}
 		})
 	}
@@ -117,6 +176,7 @@ func TestReportersAgreeOnCurrencySeeded(t *testing.T) {
 
 // apply writes c onto in's ready judgement.
 func (c currencyCase) apply(in *v1alpha1.Intent, rng *rand.Rand) {
+	c.applyVerdict(in)
 	v := in.Status.Verification
 	v.Round += c.shift
 	v.OutcomesRound += c.shift
@@ -132,6 +192,37 @@ func (c currencyCase) apply(in *v1alpha1.Intent, rng *rand.Rand) {
 	if c.moved {
 		in.Status.PullRequests[0].HeadSHA = strings.Repeat(string(rune('d'+rng.Intn(3))), 40)
 	}
+}
+
+// applyVerdict writes c's verdict onto in's ready judgement as the
+// round's judge would have (the version outcome failing, or unsure), then
+// the approver's acceptance of that outcome after it, as recordAcceptance
+// writes one: the state stays as judged.
+func (c currencyCase) applyVerdict(in *v1alpha1.Intent) {
+	v := in.Status.Verification
+	if c.verdict == verdictReady {
+		return
+	}
+	i := slices.IndexFunc(v.Outcomes, func(r v1alpha1.OutcomeResult) bool { return r.ID == oVersion })
+	v.Outcomes[i].Result, v.Outcomes[i].Basis, v.Passed = v1alpha1.OutcomeFailed, "", v.Passed-1
+	switch c.verdict {
+	case verdictFailing:
+		v.State, v.Failed = v1alpha1.VerificationFailing, v.Failed+1
+	case verdictExhausted:
+		v.State, v.Failed = v1alpha1.VerificationExhausted, v.Failed+1
+	default:
+		v.State, v.Outcomes[i].Result = v1alpha1.VerificationUnconfirmed, v1alpha1.OutcomeUnsure
+	}
+	headSet := v.HeadSetDigest
+	switch c.accept {
+	case acceptNone:
+		return
+	case acceptOtherHeads:
+		headSet = "sha256:" + strings.Repeat("e", 64)
+	}
+	in.Status.Acceptance.Accepted = append(in.Status.Acceptance.Accepted, v1alpha1.AcceptanceRecord{
+		ID: oVersion, By: approver, ByID: 7, At: metav1.Now(), CommentID: 98, HeadSetDigest: headSet,
+		Heads: []string{"abcdef1"}})
 }
 
 // currencyViews reads every reporter over name's Intent as it stands. The

@@ -324,7 +324,10 @@ move; `success` once every outcome is confirmed or an approver accepted it at th
 confirmed", "3/3 outcomes confirmed; some accepted by hand by octocat"); `failure` while one fails ("2/3 outcomes
 confirmed, 1 failing"), a fix runs ("automatic fix 1 of 2 running"), automatic fixes are halted or none is left. An
 outcome maul could not confirm never turns green on its own: an approver who has looked accepts it with
-`/maul accept <id>`, or every open one with `/maul accept all`.
+`/maul accept <id>`, or every open one with `/maul accept all`. That holds for an outcome maul found failing too: once
+an approver has accepted every outcome maul did not confirm at the current heads, the status is `success` and the
+hand-off ready, with no automatic fix running; accepting only some of them, or at commits the pull requests have since
+moved from, leaves it as it was.
 
 Make it count: add a ruleset or branch protection that **requires `maul/acceptance` from the maul App**. Without a
 required check, a person can still merge past a red status. With it, every pull request of a verifying Project waits for
