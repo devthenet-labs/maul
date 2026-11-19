@@ -972,6 +972,55 @@ func TestIntentAgentsBaseBuildError(t *testing.T) {
 	}
 }
 
+// tallyBaseBuildBindError is a base whose build fails with a bind error in
+// its output: a stand-in for a build that runs a server and finds its port
+// held (head and base build at once on one loopback). The compiler quotes
+// the constant, so the real shim reads the build's output as naming one.
+const tallyBaseBuildBindError = `package main
+
+var port int = "listen tcp 127.0.0.1:8080: bind: address already in use"
+
+func main() {}
+`
+
+// TestIntentAgentsBaseBuildNetError (review 2026-11-18 finding 7): the
+// base's build fails, but its output names a bind error, which may be the
+// environment's (the other side's build holding the port), never evidence
+// the base tree is unbuildable. The build is an error, not a failed build,
+// so rule 5 is not waived: every base run is an error with no cause, and
+// the outcome the check passes at the head is unsure (no-base-evidence),
+// never a pass.
+func TestIntentAgentsBaseBuildNetError(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBaseBuildBindError},
+		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
+			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
+	})
+	_, name, pr := e.toReview(t)
+	pv := e.waitUnsureNoBaseEvidence(t, name, pr.HeadSHA)
+	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildError {
+		t.Errorf("base build %q, want error", got)
+	}
+	if b := pv.Status.Base; b == nil || b.Unbuildable {
+		t.Errorf("base %+v, want it not unbuildable", b)
+	}
+	runs := e.kubelet.WorkspaceRuns()
+	if len(runs) != 1 {
+		t.Fatalf("%d agents tool pods ran, want one", len(runs))
+	}
+	ledger := string(runs[0].Stdout)
+	for _, want := range []string{"bind: address already in use",
+		"base-build-error: the base tree's build did not finish"} {
+		if !strings.Contains(ledger, want) {
+			t.Errorf("the ledger does not record %s:\n%s", want, ledger)
+		}
+	}
+	if strings.Contains(ledger, `"cause":"base-unbuildable"`) {
+		t.Errorf("the ledger counts a base build's bind error as unbuildable:\n%s", ledger)
+	}
+}
+
 // TestIntentAgentsRunningToolPodDeleted (wave 3): a round whose heads move
 // while its tool pod still runs settles, and its tool Job, unfinished, is
 // deleted at once, never kept for the linger a finished one gets. A person

@@ -299,6 +299,27 @@ func TestBuildResults(t *testing.T) {
 		{"could not start", false, toolexec.Result{Exit: 127,
 			Output: `[maul: could not start make: exec: "make": executable file not found in $PATH]`}, nil,
 			maulv1.BuildError},
+		// A bind or connection error (Result.NetError) is the environment's,
+		// never the tree's: head and base build at once on one loopback.
+		{"bind error", false, toolexec.Result{Exit: 2, NetError: true,
+			Output: "listen tcp 127.0.0.1:8080: bind: address already in use\nmake: *** Error 1\n"}, nil,
+			maulv1.BuildError},
+		{"connection refused", false, toolexec.Result{Exit: 1, NetError: true,
+			Output: "npm ERR! code ECONNREFUSED\n"}, nil, maulv1.BuildError},
+		// A connection that timed out, or a name that did not resolve, is the
+		// network's too, though the shim's NetError (bind and connect errors)
+		// does not name it.
+		{"connection timed out", false, toolexec.Result{Exit: 1,
+			Output: "npm ERR! code ETIMEDOUT\nnpm ERR! network request to https://registry/x failed\n"}, nil,
+			maulv1.BuildError},
+		{"name did not resolve", false, toolexec.Result{Exit: 1,
+			Output: "npm ERR! code EAI_AGAIN\nnpm ERR! getaddrinfo EAI_AGAIN registry\n"}, nil, maulv1.BuildError},
+		{"read timed out", false, toolexec.Result{Exit: 2,
+			Output: "curl: (28) Connection timed out after 30001 milliseconds\nmake: *** Error 28\n"}, nil,
+			maulv1.BuildError},
+		// One that exited 0 built, whatever retries it logged on the way.
+		{"built after a retried connection", false, toolexec.Result{NetError: true,
+			Output: "npm WARN registry ECONNRESET, retrying\nadded 12 packages\n"}, nil, maulv1.BuildBuilt},
 	}
 	markers := make([]row, 0, len(environmental))
 	for _, m := range environmental {
@@ -333,6 +354,8 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 		"network": {Exit: 1, Output: "go: example.com/m@v1.0.0: dial tcp: i/o timeout"},
 		"cut":     {Exit: 2, Truncated: true},
 		"timeout": {Exit: -1, TimedOut: true},
+		"bind": {Exit: 2, NetError: true,
+			Output: "listen tcp 127.0.0.1:8080: bind: address already in use\nmake: *** Error 1\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := wsConfig()

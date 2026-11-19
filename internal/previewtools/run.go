@@ -248,6 +248,11 @@ var environmental = []string{
 	"toolchain", "requires go", "go: downloading", "dial tcp", "could not import", "no such file or directory",
 	"permission denied", "read-only file system", "input/output error", "checksum mismatch", "verifying ",
 	"cannot find module", "not in std", "no required module", "[maul: could not start",
+	// A connection that timed out or a name that did not resolve: the
+	// network's, beside the shim's bind and connection errors
+	// (toolexec.NetError), which a tree build reads too.
+	"timed out", "i/o timeout", "handshake timeout", "etimedout", "eai_again", "enotfound",
+	"temporary failure in name resolution", "could not resolve host", "no such host", "socket hang up",
 }
 
 // environmentalFailure reports an environmental marker anywhere in output:

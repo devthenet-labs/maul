@@ -861,6 +861,13 @@ environmental failure. The cost: a check whose program imports a package the cha
 (`cannot find module providing package`), which is not a compile refusal, so it leaves its outcome unsure. Prefer a
 check that uses the new symbol from a package that already exists at the base, or an `exec` of the binary.
 
+**"The base did not build" is as narrow.** The base counts as unbuildable only when its build ran to its own end and
+refused the tree: a plain exit of 1 to 125, nothing left running, output that is not cut, and no sign of the environment
+in it (the same signs as above, plus a bind or connection error: the head and the base build at once on one loopback, so
+a port the other build held is not the tree's fault). A build that timed out, was killed, left processes behind, cut its
+output, named a bind or connection error, a connection that timed out or a name that did not resolve, or that maul could
+not run is no base evidence: its outcomes are unsure, never confirmed on the head alone.
+
 A check run that errs at the base carries its cause (`compile`, `vendored-tree`, `replace-outside-tree`, `no-module`,
 `base-unbuildable`) on the request's `status.base.runs`, the cause the check reviewer sees too. Only those causes mean
 no base comparison; an error without one means no base evidence.
