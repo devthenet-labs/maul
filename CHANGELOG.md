@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.14](https://github.com/devthenet-labs/maul/compare/v0.14.13...v0.14.14) (2026-11-20)
+
+
+### Bug Fixes
+
+* **cli:** setup's printed steps survive an interactive rm, and two dead ends name their way out ([#460](https://github.com/devthenet-labs/maul/issues/460)) ([e8913f4](https://github.com/devthenet-labs/maul/commit/e8913f4f28c474d4d8f0788b88a295e0430a2289))
+
 ## [0.14.13](https://github.com/devthenet-labs/maul/compare/v0.14.12...v0.14.13) (2026-11-20)
 
 
