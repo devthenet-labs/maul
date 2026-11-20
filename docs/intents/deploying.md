@@ -1045,6 +1045,11 @@ slot.
 - **A new resource class goes into `maul` before a Project picks it**, and a class leaves the Project before it leaves
   `maul`; out of order, the repository's builds wait (they are never lost) until both agree. See
   [Sizing agents](#sizing-agents).
+- **An install made before `maul setup project` existed keeps its Forge and Projects in the `maul-config` release**,
+  with the Secret `maul-github` named in `intentController.forgeSecrets`. Nothing needs to move. Wherever this page
+  edits and applies a Project file, edit that release's `projects` entry and `helm upgrade maul-config` instead, and
+  record its revision too; do not also apply a file for the same Forge or Project
+  ([GitOps and the maul-config chart](add-an-organization.md#gitops-and-the-maul-config-chart)).
 - **Record the rollback point** (the release's revision) before each `helm upgrade`, and read `helm status` before
   retrying one that failed: an upgrade interrupted by a network drop may have applied part of a revision.
 - **Re-run the isolation probe** after every EKS, Auto Mode or VPC CNI upgrade, and before relying on previews again. An

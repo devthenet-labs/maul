@@ -192,9 +192,7 @@ Project takes are in [intent-controller](../configuration/intent-controller.md) 
   (`maul:approved`) on the intent repository itself, once the App is installed there.
 - **Keep the `.forge.yaml` and `.project.yaml` files in git.** They hold no secret, and they are what a rebuilt cluster
   re-applies. The Secret file is deleted once it is applied; the private key then exists only in the cluster. If the
-  cluster is lost, generate a new private key on the App's settings page
-  (`https://github.com/organizations/<org>/settings/apps/<app>`) and create the Secret again with the same name and
-  keys.
+  cluster is lost, [create the Secret again from a new private key](#if-the-private-key-is-lost).
 - **An application repository with no agent image can be planned but not built.** A build runs in the application's own
   toolchain image, which the repository declares in `.maul/agent.yaml`. `maul check project` fails `agent-image` until
   it exists. [Onboarding an application](onboarding-app.md) sets it up; for a repository that already has code, run
@@ -204,15 +202,32 @@ Project takes are in [intent-controller](../configuration/intent-controller.md) 
 
 ## When a check fails
 
-| `maul check project` reports                                                                                                                                                   | Fix                                                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`: `intent-controller has not reported on this Project: ...`, or `Ready describes generation ...`                                                                        | Wait a minute and run the check again. If it stays, intent-controller is not running in that namespace (`kubectl -n maul get deploy maul-intent-controller`).                                                                                                                       |
-| `ready`: `ForgeSecretUnreadable: the credential Secret of the Forge covering <repo> does not exist (...)`                                                                      | The Secret was never created, or was created in another namespace. Run command 2 (`kubectl create -f <secret-name>.secret.yaml`). If that file is gone too, generate a new private key on the App's settings page and create the Secret by hand with keys `appID` and `privateKey`. |
-| `ready`: `ForgeSecretUnreadable: intent-controller may not read the credential Secret of the Forge covering <repo> (...)`                                                      | Apply the forge file (`kubectl apply -f <secret-name>.forge.yaml`). If it is applied, the error names the ServiceAccount the cluster refused: when that is not the one in the forge file's RoleBinding, your release is not named `maul` ([below](#a-release-not-named-maul)).      |
-| `ready`: `AppNotInstalled: the App cannot act on <repo> with ...; install or extend the App's installation: https://github.com/organizations/<org>/settings/installations ...` | Add the repository to the App's installation at that address (**Configure**, then **Repository access**). The same fix applies to `the label ... cannot be created on <repo>`.                                                                                                      |
-| `forge`: `no forge matches repository: <url>; ...; create one: maul setup github-app --org <owner> --intents -n maul`                                                          | No Forge covers that organization: run command 1 for it, or apply its forge file if you already did.                                                                                                                                                                                |
-| `forge`: `ambiguous forge match: <url> matched by <a>, <b>; ...` (and `ready`: `ForgeUnresolved`)                                                                              | Two Forges list the same organization, typically an older one from the `maul-config` chart beside the forge file's. Keep one: delete the other (`kubectl -n maul delete forge <name>`, or remove it from the `maul-config` values and upgrade that release).                        |
-| `agent-image`: `... declares no agent image: ...; scaffold one in that repository: maul init app --existing --registry <registry> (docs/intents/onboarding-app.md)`            | Follow [Onboarding an application](onboarding-app.md): `maul init app --existing` in the repository, then publish its agent image. Plans run without it; builds wait for it.                                                                                                        |
+| `maul check project` reports                                                                                                                                                   | Fix                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ready`: `intent-controller has not reported on this Project: ...`, or `Ready describes generation ...`                                                                        | Wait a minute and run the check again. If it stays, intent-controller is not running in that namespace (`kubectl -n maul get deploy maul-intent-controller`).                                                                                                                  |
+| `ready`: `ForgeSecretUnreadable: the credential Secret of the Forge covering <repo> does not exist (...)`                                                                      | The Secret was never created, or was created in another namespace. Run command 2 (`kubectl create -f <secret-name>.secret.yaml`). If that file is gone too, [create the Secret from a new private key](#if-the-private-key-is-lost).                                           |
+| `ready`: `ForgeSecretUnreadable: intent-controller may not read the credential Secret of the Forge covering <repo> (...)`                                                      | Apply the forge file (`kubectl apply -f <secret-name>.forge.yaml`). If it is applied, the error names the ServiceAccount the cluster refused: when that is not the one in the forge file's RoleBinding, your release is not named `maul` ([below](#a-release-not-named-maul)). |
+| `ready`: `AppNotInstalled: the App cannot act on <repo> with ...; install or extend the App's installation: https://github.com/organizations/<org>/settings/installations ...` | Add the repository to the App's installation at that address (**Configure**, then **Repository access**). The same fix applies to `the label ... cannot be created on <repo>`.                                                                                                 |
+| `forge`: `no forge matches repository: <url>; ...; create one: maul setup github-app --org <owner> --intents -n maul`                                                          | No Forge covers that organization: run command 1 for it, or apply its forge file if you already did.                                                                                                                                                                           |
+| `forge`: `ambiguous forge match: <url> matched by <a>, <b>; ...` (and `ready`: `ForgeUnresolved`)                                                                              | Two Forges list the same organization, typically an older one from the `maul-config` chart beside the forge file's. Keep one: delete the other (`kubectl -n maul delete forge <name>`, or remove it from the `maul-config` values and upgrade that release).                   |
+| `agent-image`: `... declares no agent image: ...; scaffold one in that repository: maul init app --existing --registry <registry> (docs/intents/onboarding-app.md)`            | Follow [Onboarding an application](onboarding-app.md): `maul init app --existing` in the repository, then publish its agent image. Plans run without it; builds wait for it.                                                                                                   |
+
+## If the private key is lost
+
+GitHub keeps no copy of the private key, and neither does maul once the Secret file is deleted. If the Secret is gone (a
+lost cluster, a deleted namespace) and so is the file, the App itself is fine: give it a new key. Open the App's
+settings page, `https://github.com/organizations/overdubstudio/settings/apps/maul-overdubstudio`, note the **App ID** at
+the top, and under **Private keys** click **Generate a private key**; the browser downloads a `.pem` file. Create the
+Secret under the name the Forge's `secretRef` has, with the two keys maul reads, then delete the download:
+
+```sh
+kubectl -n maul create secret generic maul-github-overdubstudio \
+  --from-literal=appID=1234567 \
+  --from-file=privateKey=./maul-overdubstudio.private-key.pem
+rm ./maul-overdubstudio.private-key.pem
+```
+
+Delete the old key on the same page once `maul check project` passes.
 
 ## A release not named maul
 
@@ -231,6 +246,10 @@ The files are plain Kubernetes resources: commit them and apply them with whatev
 (Argo CD, Flux, `kubectl apply -k`). Kustomize installs use them unchanged.
 
 If you keep Forges and Projects in the `maul-config` chart's values instead, paste each file's `spec` into its `forges`
-or `projects` list, and never also apply the file under the same name: the next `helm upgrade` then fails with
-`exists and cannot be imported`. The Role and RoleBinding have no place in those values; apply them from the forge file,
-or list the Secret in the `maul` chart's `intentController.forgeSecrets`.
+or `projects` list, and never also apply the file. Helm refuses an object of the same name that it did not create (the
+next `helm upgrade` fails with `exists and cannot be imported`), and a second Forge under another name for the same
+organization makes every repository's Forge ambiguous. The Role and RoleBinding have no place in those values; apply
+them from the forge file, or list the Secret in the `maul` chart's `intentController.forgeSecrets`.
+
+An install whose Forge and Projects already live in `maul-config` needs no change: they keep working as they are, and a
+further organization or Project can come from this page beside them.
