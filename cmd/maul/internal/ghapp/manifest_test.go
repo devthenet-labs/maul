@@ -217,6 +217,8 @@ func TestURLs(t *testing.T) {
 		{SettingsURL(DefaultWebURL, org, "maul-acme"),
 			"https://github.com/organizations/acme/settings/apps/maul-acme"},
 		{SettingsURL(DefaultWebURL, user, "maul"), "https://github.com/settings/apps/maul"},
+		{InstallationsURL(DefaultWebURL, org), "https://github.com/organizations/acme/settings/installations"},
+		{InstallationsURL("https://ghe.example.com", user), "https://ghe.example.com/settings/installations"},
 	} {
 		if tt.got != tt.want {
 			t.Errorf("got %s, want %s", tt.got, tt.want)

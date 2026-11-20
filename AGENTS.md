@@ -354,7 +354,7 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`; field manager
   the binary's file name, `maul` or `kubectl-maul`); enforcement of the custom verbs for direct API writes is the
   ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's own SelfSubjectAccessReview
-  (that is ergonomics). Five cluster-free commands ride along: `dev` (the generic-integration test harness), `mirror`
+  (that is ergonomics). Six cluster-free commands ride along: `dev` (the generic-integration test harness), `mirror`
   (vendored chart/artifact mirroring over `internal/mirror`; kubeconfig flags inert, git never touched), `check image`
   (source-controller's runner-image checks through `resolve.Inspect`, plus `--run`: `agent-runner preflight` in a local
   docker shaped like the agent pod; engine in `cmd/maul/internal/imagecheck`), `setup github-app` (creates the GitHub
@@ -365,7 +365,10 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   defaults to `maul-github-<org>`, and beside it goes the secret-free forge file (`ghapp.ForgeFile`: the Forge, and with
   `--intents` a Role and RoleBinding letting `--intent-controller-sa` get exactly that Secret, never empty
   `resourceNames`; never the Secret file by any spelling, `sameFile`), then a numbered `next:` block (`setup_next.go`);
-  engine in `cmd/maul/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
+  engine in `cmd/maul/internal/ghapp`, plain net/http, no GitHub client), `setup project` (writes a secret-free Project
+  manifest to `kubectl apply`, held to the CRD's own rules before any write, and a `next:` block: the installations
+  page per owner, approvers' write access, apply, `check project`; engine the pure `cmd/maul/internal/projectsetup`) and
+  `init app` (scaffolds an application repository's
   agent image, CI builds and split trusted ECR publishers from embedded templates; engine in
   `cmd/maul/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `setup
   previews` (`.claude/plans/preview-setup-design.md`; engine in `cmd/maul/internal/previewsetup`; operator guide

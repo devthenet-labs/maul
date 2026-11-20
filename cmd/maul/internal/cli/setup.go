@@ -42,7 +42,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 			"kubeconfig flags are inert, and -n only names the namespace a written manifest carries.",
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newSetupGitHubAppCmd(opts), newSetupPreviewsCmd(opts))
+	cmd.AddCommand(newSetupGitHubAppCmd(opts), newSetupProjectCmd(opts), newSetupPreviewsCmd(opts))
 	return cmd
 }
 

@@ -282,6 +282,12 @@ func InstallURL(webURL, slug string) string {
 	return strings.TrimSuffix(webURL, "/") + "/apps/" + url.PathEscape(slug) + "/installations/new"
 }
 
+// InstallationsURL is where owner sees the Apps installed on it, and which
+// repositories each one may reach.
+func InstallationsURL(webURL string, owner Owner) string {
+	return ownerSettings(webURL, owner) + "/installations"
+}
+
 // ownerSettings is owner's settings root on webURL.
 func ownerSettings(webURL string, owner Owner) string {
 	base := strings.TrimSuffix(webURL, "/")
