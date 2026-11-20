@@ -15,5 +15,6 @@ cmd/maul/internal/scaffold/testdata/**
 hack/testdata/chart-render/golden/**
 cmd/maul/internal/previewsetup/testdata/**
 cmd/maul/internal/ghapp/testdata/**
+cmd/maul/internal/projectsetup/testdata/**
 internal/checks/playwright/testdata/**
 internal/previewtools/node/node_modules/**
