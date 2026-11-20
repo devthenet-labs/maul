@@ -414,6 +414,7 @@ writes its credentials as the Secret manifest a `Forge` and an `Integration` rea
 ([what the App needs, and why](getting-started/github-app.md)):
 
 ```sh
+GH_TOKEN=$(gh auth token) maul setup github-app --org acme --intents --checks -n maul   # checks you are an Owner first
 maul setup github-app --org acme --intents --checks                    # intents, with check-fix rounds
 maul setup github-app --org acme --intents --checks --rerun-failed     # and re-runs of failed Actions checks
 maul setup github-app --org acme --security --webhook-url https://maul.acme.dev/github/webhooks
@@ -437,26 +438,64 @@ grants against before it is Ready, so an App created with `--intents` (and `--ch
 `--security` needs `--webhook-url`, the integration-controller's `https://<host>/github/webhooks`; an App without it has
 no webhook.
 
+With `--org` and a GitHub token in `GH_TOKEN` or `GITHUB_TOKEN` (`gh auth token` prints yours), maul first asks GitHub
+(`GET /user/memberships/orgs/<org>`) whether you are an Owner of the organization, and refuses to go on if you are only
+a member: GitHub would create nothing, or the App under your own account. Without a token, or when GitHub's answer
+settles nothing, it warns and goes on. The token is used for that one request and is never printed or stored.
+
 The flow: maul listens on a random `127.0.0.1` port and opens a page in your browser that posts the manifest to GitHub's
 "create a GitHub App" form, for `--org` (you must be an owner of it) or, with `--user`, your own account. Check the form
 and click **Create GitHub App**. GitHub sends the browser back with a one-time code, which maul accepts only with the
 random state it started the flow with; it exchanges the code for the App's ID, private key and webhook secret
 (`POST /app-manifests/{code}/conversions`, which needs no credential) and stops listening. The page carries that state,
 so it is served once: if your browser says it was served already, something else on the machine read it first, so stop
-maul and run it again. A code for an App that an account other than `--org` owns is refused, and nothing is written. On
-a machine without a browser, `--no-browser` writes the page to a file you open anywhere, and you paste back the address
-GitHub sends you to (it asks again until it gets one from this run, and after a bare code GitHub does not accept). A
-code works once, within an hour; if the run ends without one, the error says where to delete the App or how to finish
-it.
+maul and run it again. A code for an App that an account other than `--org` owns is refused, nothing is written, and the
+error links that App's own settings page to delete it from. On a machine without a browser, `--no-browser` writes the
+page to a file you open anywhere, and you paste back the address GitHub sends you to (it asks again until it gets one
+from this run, and after a bare code GitHub does not accept). A code works once, within an hour; if the run ends without
+one, the error says where to delete the App or how to finish it.
 
 The Secret (`appID`, `privateKey`, and `webhookSecret` for an App with a webhook; `--secret-name`, default
-`maul-github`, in `-n`, default `maul`) is written to `<secret-name>.secret.yaml` with mode 0600, and an existing file
-is never replaced without `--force`; a file maul could not write, in a directory it cannot write to, is refused before
-anything is created. `-o -` writes it to stdout for a pipe, and refuses a stdout that is a terminal or a file other
-users can read, as a shell's `> file` is under the usual umask: name the file with `-o <file>` instead. The private key
-appears nowhere else, and GitHub keeps no copy: apply or encrypt the file, then delete it. Finally, install the App with
-the link printed on stderr, on the repositories maul works on: for intents, the intent repository and every application
-repository. Only github.com is supported, and nothing here talks to a cluster.
+`maul-github-<org>` lowercased, or `maul-github` with `--user`, in `-n`, default `maul`) is written to
+`<secret-name>.secret.yaml` with mode 0600, and an existing file is never replaced without `--force`; a file maul could
+not write, in a directory it cannot write to, is refused before anything is created. `-o -` writes it to stdout for a
+pipe, and refuses a stdout that is a terminal or a file other users can read, as a shell's `> file` is under the usual
+umask: name the file with `-o <file>` instead. The private key appears nowhere else, and GitHub keeps no copy: create or
+encrypt the file, then delete it.
+
+Beside it goes the forge file, `<secret-name>.forge.yaml` (`--forge-output`; always a file, even with `-o -`). It holds
+no secret, so keep it and apply it again after a cluster rebuild:
+
+- a `Forge` (`--forge-name`, default the owner's login lowercased) with `secretRef` naming the Secret and `orgs` the
+  App's owner, so every repository of that organization resolves to this App;
+- with `--intents`, a `Role` and `RoleBinding` named `maul-forge-secret-<secret-name>`, whose single rule lets
+  intent-controller's ServiceAccount (`--intent-controller-sa`, default `maul-intent-controller`, as in a release named
+  `maul` and in the kustomize component) `get` exactly that one Secret. RBAC rules add up across Roles, so this grants
+  the read without touching the chart's `intentController.forgeSecrets`.
+
+Everything else goes to stderr, ending with what to do next, each command ready to paste:
+
+```text
+maul: next:
+  1. Install the App on acme (choose the organization, not your own account):
+     https://github.com/apps/maul-acme/installations/new
+     Select the intent repository and every application repository.
+  2. kubectl create -f maul-github-acme.secret.yaml && rm maul-github-acme.secret.yaml && kubectl apply -f maul-github-acme.forge.yaml
+     Run it once maul is installed: it needs namespace maul and maul's CRDs.
+  3. maul setup project <name> --intent-repo acme/<intent-repo> --repo acme/<app-repo> --approver <github-login> -n maul
+maul: the Role binds ServiceAccount maul-intent-controller in maul; pass --intent-controller-sa if your release is not named maul.
+maul: for the App just created, change the subject's name in maul-github-acme.forge.yaml instead (kubectl -n maul get serviceaccounts lists it): another run creates another App.
+```
+
+`kubectl create` refuses to replace a Secret that already exists, so a credential is never overwritten by accident; with
+`-o -` step 2 applies only the forge file. The Role's subject is right for a release named `maul`. For another release,
+find intent-controller's ServiceAccount with `kubectl -n maul get serviceaccounts` (the chart names it
+`<release>-intent-controller` when the release name contains `maul`, else `<release>-maul-intent-controller`, unless
+`fullnameOverride` or `intentController.serviceAccount.name` says otherwise) and pass it as `--intent-controller-sa`
+(only with `--intents`; without it the flag is a usage error). Once the App exists, change the subject's name in the
+forge file and apply it again instead: a second run would create a second App. A `--user` App's Forge is named after
+your login, with any character an object name cannot hold made a hyphen. `--forge-output` may not be the Secret file by
+any spelling. Only github.com is supported, and nothing here talks to a cluster.
 
 ## Checking a Project
 

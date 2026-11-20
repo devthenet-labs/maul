@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -23,8 +24,20 @@ const (
 	KeyWebhookSecret = "webhookSecret"
 )
 
-// DefaultSecretName is the Secret the docs and the chart's examples name.
+// DefaultSecretName is the Secret the docs and the chart's examples name,
+// and the default for a user's App, whose login is known only once it
+// exists.
 const DefaultSecretName = "maul-github"
+
+// DefaultSecretNameFor is the default Secret for owner's App:
+// maul-github-<org> lowercased, so the Apps of two organizations never
+// share a name, or DefaultSecretName for a user's.
+func DefaultSecretNameFor(owner Owner) string {
+	if owner.Org == "" {
+		return DefaultSecretName
+	}
+	return DefaultSecretName + "-" + strings.ToLower(owner.Org)
+}
 
 // secretManifest is a v1 Secret, without the empty fields a corev1.Secret
 // would add.
@@ -85,7 +98,7 @@ var ErrExists = errors.New("the file exists")
 func CheckWritable(path string, force bool) error {
 	if info, err := os.Lstat(path); err == nil {
 		if info.IsDir() {
-			return fmt.Errorf("%s is a directory: name a file to write the Secret to", path)
+			return fmt.Errorf("%s is a directory: name a file to write to", path)
 		}
 		if !force {
 			return fmt.Errorf("%s: %w; pass --force to replace it", path, ErrExists)

@@ -1,0 +1,11 @@
+apiVersion: maul.run/v1alpha1
+kind: Forge
+metadata:
+  name: acme
+  namespace: maul
+spec:
+  orgs:
+  - Acme
+  provider: github
+  secretRef:
+    name: maul-github-acme

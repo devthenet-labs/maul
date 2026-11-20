@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -58,6 +59,9 @@ type setupGitHubAppFlags struct {
 	homepageURL string
 	secretName  string
 	output      string
+	forgeOutput string
+	forgeName   string
+	intentSA    string
 	force       bool
 	noBrowser   bool
 	dryRun      bool
@@ -77,6 +81,9 @@ type setupDeps struct {
 	tempDir string
 	// terminal reports whether a stream is a terminal: -o - refuses one.
 	terminal func(io.Writer) bool
+	// getenv reads the environment: GH_TOKEN or GITHUB_TOKEN for the
+	// Owner check. nil reads nothing.
+	getenv func(string) string
 }
 
 // newSetupGitHubAppCmd creates the GitHub App through the manifest flow.
@@ -117,25 +124,40 @@ func newSetupGitHubAppCmd(opts *Options) *cobra.Command {
 			"in any browser, GitHub sends you back to your GitHub Apps settings, and you\n" +
 			"paste that page's address (or just its code) into the terminal. A code works\n" +
 			"once, within an hour.\n\n" +
-			"The Secret manifest (--secret-name, default maul-github, in -n, default\n" +
-			"maul) holds appID, privateKey and, for an App with a webhook, webhookSecret.\n" +
+			"With --org and a GitHub token in GH_TOKEN or GITHUB_TOKEN (gh auth token\n" +
+			"prints yours), maul first asks GitHub whether you are an Owner of the\n" +
+			"organization, and refuses to go on if you are only a member. Without a\n" +
+			"token it warns and goes on. The token is used for that one request only.\n\n" +
+			"The Secret manifest (--secret-name, default maul-github-<org> lowercased, or\n" +
+			"maul-github with --user, in -n, default maul) holds appID, privateKey and, for\n" +
+			"an App with a webhook, webhookSecret.\n" +
 			"It is written to -o, default <secret-name>.secret.yaml, with mode 0600 (not\n" +
 			"enforced on Windows), and an existing file is never replaced without --force.\n" +
 			"-o - writes it to stdout instead, to pipe into an encryption tool such as\n" +
 			"sops, and refuses a stdout that is a terminal or a file other users can\n" +
 			"read (as a shell's > file is under the usual umask: use -o <file>). The\n" +
-			"private key is printed nowhere else and GitHub keeps no copy: apply or\n" +
-			"encrypt the file, then delete it. Everything else, including the install\n" +
-			"link, goes to stderr.\n" +
-			"Install the App on the repositories maul works on (\"Only select\n" +
-			"repositories\" is enough): for intents, the intent repository and every\n" +
-			"application repository.\n\n" +
+			"private key is printed nowhere else and GitHub keeps no copy: create or\n" +
+			"encrypt the file, then delete it.\n\n" +
+			"Beside it, maul writes the forge file (--forge-output, default\n" +
+			"<secret-name>.forge.yaml in the Secret file's directory, always a file): no\n" +
+			"secret, so keep it. It holds the Forge (--forge-name, default the App owner's\n" +
+			"login lowercased) covering the App owner's repositories with that Secret\n" +
+			"and, with --intents, a Role and RoleBinding that let intent-controller's\n" +
+			"ServiceAccount (--intent-controller-sa, default maul-intent-controller, as\n" +
+			"in a release named maul) get exactly that one Secret. Once the App exists,\n" +
+			"change that subject in the forge file rather than run again: another run\n" +
+			"creates another App.\n\n" +
+			"Everything else goes to stderr, ending with a numbered next: block: the\n" +
+			"link to install the App (\"Only select repositories\" is enough: for\n" +
+			"intents, the intent repository and every application repository), the\n" +
+			"kubectl command that creates the Secret, deletes its file and applies the\n" +
+			"forge file, and, with --intents, the maul setup project command to run next.\n\n" +
 			"--dry-run prints the manifest as JSON and creates nothing. github.com only.",
 		Example: "  maul setup github-app --org acme --intents --checks\n" +
 			"  maul setup github-app --org acme --security --webhook-url https://maul.acme.dev/github/webhooks\n" +
 			"  maul setup github-app --org acme --intents --dry-run\n" +
 			"  maul setup github-app --org acme --intents -o - | sops --encrypt --input-type yaml " +
-			"--output-type yaml /dev/stdin > maul-github.enc.yaml\n" +
+			"--output-type yaml /dev/stdin > maul-github-acme.enc.yaml\n" +
 			"  maul setup github-app --user --intents --no-browser",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: noFileCompletion,
@@ -147,6 +169,7 @@ func newSetupGitHubAppCmd(opts *Options) *cobra.Command {
 				stdin:    cmd.InOrStdin(),
 				client:   &http.Client{Timeout: opts.RequestTimeout},
 				terminal: printer.IsTerminal,
+				getenv:   os.Getenv,
 			}
 			if opts.setupDeps != nil {
 				deps = *opts.setupDeps
@@ -166,11 +189,18 @@ func newSetupGitHubAppCmd(opts *Options) *cobra.Command {
 		"with --security: the integration-controller's https://<host>/github/webhooks")
 	fl.StringVar(&f.name, "name", "", "the App's name, at most 34 characters (default maul-<org>, or maul)")
 	fl.StringVar(&f.homepageURL, "homepage-url", ghapp.DefaultHomepageURL, "the App's homepage")
-	fl.StringVar(&f.secretName, "secret-name", ghapp.DefaultSecretName, "name of the Secret written")
+	fl.StringVar(&f.secretName, "secret-name", "",
+		"name of the Secret written (default maul-github-<org> lowercased, or maul-github with --user)")
 	// -o names a file here, not an output format: this command's only output
 	// is the Secret manifest. The local flag shadows the global one.
 	fl.StringVarP(&f.output, "output", "o", "",
 		"file to write the Secret manifest to, or - for stdout (default <secret-name>.secret.yaml)")
+	fl.StringVar(&f.forgeOutput, "forge-output", "",
+		"file to write the Forge (and with --intents its Secret reader Role) to "+
+			"(default <secret-name>.forge.yaml beside the Secret file)")
+	fl.StringVar(&f.forgeName, "forge-name", "", "name of the Forge written (default the App owner's login lowercased)")
+	fl.StringVar(&f.intentSA, "intent-controller-sa", ghapp.DefaultIntentControllerSA,
+		"with --intents: intent-controller's ServiceAccount, which the Role lets read the Secret")
 	fl.BoolVar(&f.force, "force", false, "replace an existing output file")
 	fl.BoolVar(&f.noBrowser, "no-browser", false,
 		"open no browser and listen on no port: write the page to a file and paste the code back")
@@ -181,6 +211,8 @@ func newSetupGitHubAppCmd(opts *Options) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("name", noFileCompletion)
 	_ = cmd.RegisterFlagCompletionFunc("homepage-url", noFileCompletion)
 	_ = cmd.RegisterFlagCompletionFunc("secret-name", noFileCompletion)
+	_ = cmd.RegisterFlagCompletionFunc("forge-name", noFileCompletion)
+	_ = cmd.RegisterFlagCompletionFunc("intent-controller-sa", noFileCompletion)
 	return cmd
 }
 
@@ -191,6 +223,14 @@ type setupPlan struct {
 	secretName string
 	namespace  string
 	output     string // "-" for stdout
+	// forgeOutput is the forge file, always a file.
+	forgeOutput string
+	// forgeName is the Forge's name; "" (--user) takes the App owner's
+	// login, known only once the App exists.
+	forgeName string
+	// serviceAccount is the one the Secret reader Role binds; "" without
+	// --intents, which writes no Role.
+	serviceAccount string
 }
 
 // planSetup validates the flags into a plan; every refusal is a usage error.
@@ -209,11 +249,7 @@ func planSetup(opts *Options, f *setupGitHubAppFlags) (setupPlan, error) {
 	if f.timeout <= 0 {
 		return p, errUsage(errors.New("--timeout must be positive"))
 	}
-	if errs := validation.IsDNS1123Subdomain(f.secretName); len(errs) > 0 {
-		return p, errUsage(fmt.Errorf("--secret-name %q: %s", f.secretName, strings.Join(errs, "; ")))
-	}
 	p.owner = ghapp.Owner{Org: f.org}
-	p.secretName = f.secretName
 	p.namespace = opts.Namespace
 	if p.namespace == "" {
 		p.namespace = defaultSetupNamespace
@@ -221,9 +257,8 @@ func planSetup(opts *Options, f *setupGitHubAppFlags) (setupPlan, error) {
 	if errs := validation.IsDNS1123Label(p.namespace); len(errs) > 0 {
 		return p, errUsage(fmt.Errorf("-n %q: %s", p.namespace, strings.Join(errs, "; ")))
 	}
-	p.output = f.output
-	if p.output == "" {
-		p.output = f.secretName + ".secret.yaml"
+	if err := planFiles(&p, f); err != nil {
+		return p, err
 	}
 	name := f.name
 	if name == "" {
@@ -240,6 +275,108 @@ func planSetup(opts *Options, f *setupGitHubAppFlags) (setupPlan, error) {
 		return p, errUsage(err)
 	}
 	return p, nil
+}
+
+// planFiles fills in what the two files are called and name: the Secret,
+// the Forge, the ServiceAccount the Secret reader Role binds, and both
+// paths. Everything is checked here, before an App exists.
+func planFiles(p *setupPlan, f *setupGitHubAppFlags) error {
+	p.secretName = f.secretName
+	if p.secretName == "" {
+		p.secretName = ghapp.DefaultSecretNameFor(p.owner)
+	}
+	if err := validateName("--secret-name", p.secretName); err != nil {
+		return err
+	}
+	// The Role and RoleBinding are named after the Secret, within the same
+	// 253 characters.
+	if n := len(ghapp.SecretReaderName(p.secretName)); n > validation.DNS1123SubdomainMaxLength {
+		return errUsage(fmt.Errorf("--secret-name %q is too long: its Secret reader Role %q would have %d "+
+			"characters, more than %d", p.secretName, ghapp.SecretReaderName(p.secretName), n,
+			validation.DNS1123SubdomainMaxLength))
+	}
+	p.forgeName = f.forgeName
+	switch {
+	case p.forgeName != "":
+		if err := validateName("--forge-name", p.forgeName); err != nil {
+			return err
+		}
+	case f.org != "":
+		p.forgeName = ghapp.ForgeNameFor(f.org)
+	}
+	switch {
+	case f.intents:
+		if err := validateName("--intent-controller-sa", f.intentSA); err != nil {
+			return err
+		}
+		p.serviceAccount = f.intentSA
+	case f.intentSA != ghapp.DefaultIntentControllerSA:
+		// Only --intents writes the Role: the name would be dropped silently.
+		return errUsage(errors.New("--intent-controller-sa names the ServiceAccount of the Role --intents writes: " +
+			"add --intents, or leave it out"))
+	}
+	p.output = f.output
+	if p.output == "" {
+		p.output = p.secretName + ".secret.yaml"
+	}
+	var err error
+	p.forgeOutput, err = forgeOutput(f.forgeOutput, p.output, p.secretName)
+	return err
+}
+
+// validateName refuses, as a usage error naming flag, a value that is not
+// a DNS subdomain, as Kubernetes object names must be.
+func validateName(flag, value string) error {
+	if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
+		return errUsage(fmt.Errorf("%s %q: %s", flag, value, strings.Join(errs, "; ")))
+	}
+	return nil
+}
+
+// forgeOutput is the forge file's path: flag, or <secretName>.forge.yaml
+// beside the Secret file (in the working directory with -o -). It is never
+// stdout, and never the Secret file itself, by any spelling.
+func forgeOutput(flag, output, secretName string) (string, error) {
+	path := flag
+	switch {
+	case path == "-":
+		return "", errUsage(errors.New("--forge-output names a file: the forge file is kept and applied " +
+			"again, so it is never written to stdout"))
+	case path == "" && output == "-":
+		path = secretName + ".forge.yaml"
+	case path == "":
+		path = filepath.Join(filepath.Dir(output), secretName+".forge.yaml")
+	}
+	if output != "-" && sameFile(path, output) {
+		return "", errUsage(fmt.Errorf("--forge-output %s is the Secret file %s: name another", path, output))
+	}
+	return path, nil
+}
+
+// sameFile reports whether paths a and b may name one file: the same
+// directory, however each path spells it (relative or absolute, through a
+// symlink), and names that differ at most in case, which a case-insensitive
+// file system reads as one. It errs towards yes: the forge file is written
+// after the Secret file and --force replaces what is there, so a miss would
+// destroy the only copy of the private key.
+func sameFile(a, b string) bool {
+	if !strings.EqualFold(filepath.Base(a), filepath.Base(b)) {
+		return false
+	}
+	dirA, dirB := filepath.Dir(a), filepath.Dir(b)
+	infoA, errA := os.Stat(dirA)
+	infoB, errB := os.Stat(dirB)
+	if errA == nil && errB == nil {
+		return os.SameFile(infoA, infoB)
+	}
+	// A directory that cannot be read is refused by CheckWritable; until
+	// then compare the spellings.
+	absA, errA := filepath.Abs(dirA)
+	absB, errB := filepath.Abs(dirB)
+	if errA != nil || errB != nil {
+		return filepath.Clean(dirA) == filepath.Clean(dirB)
+	}
+	return absA == absB
 }
 
 // runSetupGitHubApp creates the App and writes its Secret.
@@ -259,6 +396,14 @@ func runSetupGitHubApp(ctx context.Context, opts *Options, f *setupGitHubAppFlag
 		}
 	} else if err := ghapp.CheckWritable(plan.output, f.force); err != nil {
 		return err
+	}
+	if err := ghapp.CheckWritable(plan.forgeOutput, f.force); err != nil {
+		return err
+	}
+	if plan.owner.Org != "" {
+		if err := checkOrgOwner(ctx, opts, deps, plan.owner.Org); err != nil {
+			return err
+		}
 	}
 	state, err := ghapp.NewState()
 	if err != nil {
@@ -291,9 +436,15 @@ func runSetupGitHubApp(ctx context.Context, opts *Options, f *setupGitHubAppFlag
 	// else's, and its key must not become this Forge's credential. A user
 	// App has no login to hold it to.
 	if plan.owner.Org != "" && !strings.EqualFold(app.Owner, plan.owner.Org) {
+		// The App is not under --org's settings: link its own page, which
+		// GitHub serves to whoever owns it.
+		page := ghapp.AppsURL(deps.webURL, ghapp.Owner{})
+		if app.Slug != "" {
+			page = ghapp.SettingsURL(deps.webURL, ghapp.Owner{}, app.Slug)
+		}
 		return fmt.Errorf("refused: the code converts to App %q owned by %q, not by --org %s, so its "+
 			"credentials were not written; if you created an App on GitHub's form just now, delete it at %s",
-			app.Name, app.Owner, plan.owner.Org, ghapp.AppsURL(deps.webURL, plan.owner))
+			app.Name, app.Owner, plan.owner.Org, page)
 	}
 	return writeSecret(opts, plan, deps, app, f.force)
 }
@@ -506,21 +657,47 @@ func writeSecret(opts *Options, plan setupPlan, deps setupDeps, app *ghapp.App, 
 			return fmt.Errorf("%w%s", err, lost)
 		}
 		notef(opts.ErrOut, "maul: wrote Secret %s/%s (%s) to %s, mode 0600. It holds the only copy of the "+
-			"private key: apply or encrypt it, then delete it.\n", plan.namespace, plan.secretName, keys, plan.output)
+			"private key: create or encrypt it, then delete it.\n", plan.namespace, plan.secretName, keys, plan.output)
 	}
+	if err := writeForge(opts, plan, app, force); err != nil {
+		return err
+	}
+	next := setupNext{owner: app.Owner, org: plan.owner.Org != "", settingsURL: settings,
+		secretFile: plan.output, forgeFile: plan.forgeOutput, namespace: plan.namespace,
+		intents: plan.config.Features.Intents, serviceAccount: plan.serviceAccount}
 	if app.Slug != "" {
-		notef(opts.ErrOut, "maul: install the App: %s\n", ghapp.InstallURL(deps.webURL, app.Slug))
-	} else {
-		notef(opts.ErrOut, "maul: install the App from its page under %s\n", settings)
+		next.installURL = ghapp.InstallURL(deps.webURL, app.Slug)
 	}
-	if plan.config.Features.Intents {
-		notef(opts.ErrOut, "maul: for intents, install it on the intent repository and every application "+
-			"repository.\n")
+	notef(opts.ErrOut, "%s", next.render())
+	return nil
+}
+
+// writeForge writes the forge file: the Forge for the App's owner and, with
+// --intents, the Role and RoleBinding letting intent-controller read its
+// Secret. The Secret is already saved, so a failure here loses no key.
+func writeForge(opts *Options, plan setupPlan, app *ghapp.App, force bool) error {
+	name := plan.forgeName
+	if name == "" {
+		name = ghapp.ForgeNameFor(app.Owner)
 	}
-	if plan.secretName != ghapp.DefaultSecretName {
-		notef(opts.ErrOut, "maul: name %q in the Forge's (and Integration's) spec.secretRef and in the chart's "+
-			"intentController.forgeSecrets.\n", plan.secretName)
+	data, err := ghapp.ForgeFile(name, plan.namespace, plan.secretName, app.Owner, plan.serviceAccount)
+	if err == nil {
+		err = ghapp.WriteFile(plan.forgeOutput, data, force)
 	}
+	if err != nil {
+		role := ""
+		if plan.serviceAccount != "" {
+			role = fmt.Sprintf(", and a Role and RoleBinding letting ServiceAccount %s get exactly that Secret",
+				plan.serviceAccount)
+		}
+		return fmt.Errorf("%w; the Secret was saved, but the forge file was not: write a Forge %s/%s naming "+
+			"Secret %s and org %s by hand%s", err, plan.namespace, name, plan.secretName, app.Owner, role)
+	}
+	what := "Forge " + plan.namespace + "/" + name
+	if plan.serviceAccount != "" {
+		what += " and the Role letting intent-controller read Secret " + plan.secretName
+	}
+	notef(opts.ErrOut, "maul: wrote %s to %s. It holds no secret: keep it.\n", what, plan.forgeOutput)
 	return nil
 }
 

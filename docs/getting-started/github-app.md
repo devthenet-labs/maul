@@ -7,8 +7,12 @@ Contents read, see [its credentials](../integrations/sources/github.md#credentia
 
 !!! tip "Let the CLI register it"
 
-    `maul setup github-app` registers the App from a manifest holding exactly the permissions and events below for
-    the features you choose, and writes the `maul-github` Secret manifest with its credentials. See
+    `maul setup github-app` checks that you are an Owner of the organization (given a token in `GH_TOKEN`), registers the App from a manifest
+    holding exactly the permissions and events below for the features you choose, and writes two files: the
+    `maul-github-<org>` Secret manifest with its credentials (mode 0600: create it, then delete the file), and
+    `maul-github-<org>.forge.yaml`, the `Forge` for the organization plus, with `--intents`, a `Role` letting
+    intent-controller read exactly that Secret (no secret: keep it). It ends by printing the install link and the
+    commands to run next. For `--security`, name the same Secret in the `Integration`'s `spec.secretRef`. See
     [Creating the GitHub App](../cli.md#creating-the-github-app); the steps below are the same thing by hand.
 
 ## Register the App
