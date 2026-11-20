@@ -87,6 +87,9 @@ installed as a second release once the CRDs exist:
 helm install maul oci://ghcr.io/devthenet-labs/maul/charts/maul --namespace maul --create-namespace
 ```
 
+Once maul runs, connecting a GitHub organization and adding its Projects is five commands, each printing the next:
+[Add a GitHub organization or a Project](docs/intents/add-an-organization.md).
+
 ## The CLI
 
 The workstation CLI ships separately from the cluster components, as the `maul-cli` archive attached to each

@@ -188,6 +188,11 @@ fails the install before anything is applied) and again server-side by the CRD �
 is the full field walkthrough (GHES base URLs, org allowlists, repository regexes). Prefer applying the CRs yourself?
 Skip this chart and `kubectl apply` the same objects after the install.
 
+If `maul setup github-app` created the App, it also wrote the Forge as a file, `maul-github-<org>.forge.yaml`, and named
+the Secret `maul-github-<org>`: apply that file instead of a `forges` entry (never both for the same organization, or
+the two Forges are ambiguous), and name that Secret in the Integration's `secretRef`. See
+[Add a GitHub organization or a Project](../intents/add-an-organization.md).
+
 ## Expose the webhook
 
 Expose the **integration-controller** — the single internet-facing component — and point the GitHub App's webhook URL at

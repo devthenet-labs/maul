@@ -150,24 +150,24 @@ Each row is one step. The sections after the table give the commands and the val
 | --- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0   | Prerequisites                            | [Above](#prerequisites): Auto Mode, NetworkPolicy enforcement, zones, subnets, a model credential                                                          |
 | 1   | Install the CLI                          | The release archive from `devthenet-labs/maul`, verified with cosign ([Install](../cli.md#install))                                                        |
-| 2   | Create the intent repository and the App | `gh repo create acme/intents`; `maul setup github-app --org acme --intents --checks` writes the App's Secret manifest; install the App on the repositories |
+| 2   | Create the intent repository and the App | `gh repo create acme/intents`; `maul setup github-app --org acme --intents --checks` writes the Secret and Forge; then install the App on the repositories |
 | 3   | Scaffold the application repository      | `maul init app` ([Onboarding an application](onboarding-app.md)); push it                                                                                  |
 | 4   | Terraform, phase 1                       | The reference module: OIDC provider, source-controller identity, preview node role, certificates, each app's ECR repositories and publisher roles          |
-| 5   | Namespace and Secrets                    | The `maul` namespace with the `restricted` Pod Security labels; `maul-github` from step 2; `maul-anthropic`                                                |
-| 6   | Helm stage 1: controllers and intents    | `maul` with your values and `helm_values`, previews off; `maul-config` with the Forge                                                                      |
+| 5   | Namespace and Secrets                    | The `maul` namespace with the `restricted` Pod Security labels; `maul-github-acme` from step 2; `maul-anthropic`                                           |
+| 6   | Helm stage 1: controllers and intents    | `maul` with your values and `helm_values`, previews off; the Forge from step 2's forge file                                                                |
 | 7   | Edge DNS                                 | `create_edge_alias_records = true`, apply again                                                                                                            |
 | 8   | Publish the application's agent image    | The module's dotenv into the repository's variables; `AGENT_PUBLISH_ENABLED`; run `agent image`; confirm the tag                                           |
-| 9   | Project, and the first intent            | A `projects` entry in `maul-config`; `maul check project shop-web`; an issue with the trigger label. Intents work from here on, without previews           |
+| 9   | Project, and the first intent            | `maul setup project`, `kubectl apply`; `maul check project shop-web`; an issue with the trigger label. Intents work from here on, without previews         |
 | 10  | Helm stage 2: the preview foundation     | `preview.enabled`, `preview.nodeIsolation.create`, the placeholder. The preview load balancer is created and starts billing                                |
 | 11  | Preview DNS                              | `create_preview_alias_record = true`, apply again                                                                                                          |
 | 12  | The isolation probe                      | `PREVIEW_PUBLISH_ENABLED`; a disposable pull request's image; `hack/preview-isolation-probe/run.sh`                                                        |
 | 13  | Helm stage 3: the preview controller     | `previewController.enabled`                                                                                                                                |
 | 14  | Preview the Project                      | `preview` on the Project; `maul check project shop-web` again; the next intent's pull request gets a URL                                                   |
 
-Record a rollback point before every Helm step: the current revision of both releases.
+Record a rollback point before every Helm step: the current revision of the release.
 
 ```sh
-helm history maul -n maul --max 1; helm history maul-config -n maul --max 1
+helm history maul -n maul --max 1
 ```
 
 ## 1. Install the CLI
@@ -191,20 +191,26 @@ re-running a failed check before a round needs (a Project with `spec.checks.reru
 needs a webhook, because intent-controller polls GitHub:
 
 ```sh
-maul setup github-app --org acme --intents --checks --secret-name maul-github
+GH_TOKEN=$(gh auth token) maul setup github-app --org acme --intents --checks -n maul
 # With the security-findings pipeline too, which does need the webhook:
-maul setup github-app --org acme --intents --checks --secret-name maul-github \
+GH_TOKEN=$(gh auth token) maul setup github-app --org acme --intents --checks -n maul \
   --security --webhook-url https://maul.acme.dev/github/webhooks
 ```
 
-You must be an owner of the organization. A browser page opens and posts the App manifest to GitHub; check the form and
-click **Create GitHub App**. The CLI writes the App's credentials as a Secret manifest, `maul-github.secret.yaml`, mode
-0600; it holds the only copy of the private key, so apply it in step 5 and then delete it (or encrypt it, with
-`-o - | sops ...`). `--secret-name maul-github` keeps the name the rest of this page and the chart's default
-`forgeSecrets` use; without it the Secret is `maul-github-acme`. The CLI also writes `maul-github.forge.yaml` and ends
-with a `next:` block of commands: that is the short path for adding an organization to an install that is already
-running. Nothing is installed yet here, so keep to the steps below, which create the Secret in step 5 and the Forge in
-step 6. [Creating the GitHub App](../cli.md#creating-the-github-app) has every flag, and
+You must be an Owner of the organization; with your token, the CLI checks that first and refuses a plain member. A
+browser page opens and posts the App manifest to GitHub; check the form and click **Create GitHub App**. The CLI writes
+two files:
+
+- `maul-github-acme.secret.yaml`, mode 0600: the Secret `maul-github-acme` with the App's ID and private key. It holds
+  the only copy of the key, so create it in step 5, which deletes the file (or encrypt it, with `-o - | sops ...`).
+- `maul-github-acme.forge.yaml`, no secret: the Forge `acme` covering the organization's repositories with that Secret,
+  and a Role and RoleBinding that let intent-controller read exactly that one Secret. Apply it in step 6, and keep it in
+  git: a rebuilt cluster re-applies it.
+
+It ends with a numbered `next:` block: the install link, the `kubectl` command that creates the Secret and applies the
+forge file, and the `maul setup project` command. That block is the whole path for an install that is already running,
+on [Add a GitHub organization or a Project](add-an-organization.md); here maul is not installed yet, so its kubectl
+command waits for steps 5 and 6. [Creating the GitHub App](../cli.md#creating-the-github-app) has every flag, and
 [Create the GitHub App](../getting-started/github-app.md#intents) the permissions and why each is needed:
 
 | Repository                     | Permission                               | Access       |
@@ -218,9 +224,6 @@ step 6. [Creating the GitHub App](../cli.md#creating-the-github-app) has every f
 Then install the App from the link the CLI prints. Choose **Only select repositories** and pick the intent repository
 and every application repository: an App installed on all repositories can act on all of them. Add each new application
 repository to the installation as you onboard it; until then its Project reports `AppNotInstalled`.
-
-If you name the Secret something other than `maul-github` (`--secret-name`), name it in the Forge's `secretRef` and in
-the chart's `intentController.forgeSecrets` too: intent-controller may read only the Secrets listed there.
 
 ## 3. Scaffold the application repository
 
@@ -359,7 +362,7 @@ kubectl label namespace maul \
   pod-security.kubernetes.io/audit=restricted \
   pod-security.kubernetes.io/warn=restricted
 
-kubectl apply -f maul-github.secret.yaml && rm maul-github.secret.yaml
+kubectl create -f maul-github-acme.secret.yaml && rm maul-github-acme.secret.yaml
 kubectl -n maul create secret generic maul-anthropic --from-literal=api-key="$ANTHROPIC_API_KEY"
 ```
 
@@ -429,8 +432,6 @@ agent:
 
 intentController:
   enabled: true
-  forgeSecrets:
-    - maul-github
 ```
 
 ```sh
@@ -458,33 +459,24 @@ Ingress serves only the security pipeline (`--security`), and the status Ingress
 is harmless and leaves the webhook ready for `--security` later. Without them, set both `ingress.enabled: false`, leave
 `edgeIngressClass` and the module's `edge` out, and skip step 7.
 
-Then the `maul-config` release, with the Forge that lets the controllers reach `acme`'s repositories (and, for the
-security pipeline, an Integration as in
-[Install with Helm](../getting-started/install.md#switch-the-pipeline-on-the-maul-config-chart)):
-
-```yaml
-# maul-config-values.yaml
-forges:
-  - name: github
-    spec:
-      provider: github
-      secretRef:
-        name: maul-github # keys appID and privateKey
-      orgs: [acme]
-      interval: 10m
-projects: [] # step 9
-```
+Then the Forge that lets the controllers reach `acme`'s repositories, with the Role that lets intent-controller read its
+Secret, from step 2's forge file:
 
 ```sh
-helm upgrade --install maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
-  --namespace maul -f maul-config-values.yaml
+kubectl apply -f maul-github-acme.forge.yaml
 kubectl -n maul get deploy,forges
 ```
 
 Every Deployment should be available and the Forge `Ready`. The status page starts in its rollups-only posture (public
 statistics, no findings, no sign-in), the one posture safe to expose without an identity provider; see
 [the status page](../status-ui.md#access-model) before you configure sign-in. **Rollback point:** none before the first
-install (`helm uninstall` removes it, keeping the CRDs); record the revisions now.
+install (`helm uninstall` removes it, keeping the CRDs); record the revision now.
+
+The chart's `intentController.forgeSecrets` (default `[maul-github]`) is still there for a Forge whose Secret no forge
+file's Role covers, one written by hand, say. The security pipeline also needs an Integration, which the `maul-config`
+chart carries, as in [Install with Helm](../getting-started/install.md#switch-the-pipeline-on-the-maul-config-chart):
+name the Secret `maul-github-acme` in its `secretRef`, and leave that chart's `forges` list empty, since the forge file
+is the Forge. A Forge under the same organization in both makes every repository's Forge ambiguous.
 
 ## 7. Edge DNS
 
@@ -522,25 +514,41 @@ aws ecr describe-images --region us-west-2 --repository-name maul/app-envs/shop-
 
 ## 9. The Project, and the first intent
 
-A `Project` ties an intent repository, its approvers and the application repository together. Add it to
-`maul-config-values.yaml` and upgrade the release:
+A `Project` ties an intent repository, its approvers and the application repository together. `maul setup project`
+writes it as a file, without touching the cluster or GitHub. The approvers are the only accounts whose labels and
+commands count: include your own login to open the first intents yourself. `Shop.Web` is not a valid repository key, so
+give it one (`shop-web=`):
+
+```sh
+maul setup project shop-web --intent-repo acme/intents --repo shop-web=acme/Shop.Web --approver octocat -n maul
+```
+
+It writes `shop-web.project.yaml` (no secret: keep it in git beside the forge file) and prints what is next:
+
+```text
+maul: wrote Project maul/shop-web to shop-web.project.yaml (trigger label maul:shop-web, approve label maul:approved; intent-controller creates both)
+maul: next:
+  1. The App must be installed on every repository listed. Add any it cannot reach at:
+     https://github.com/organizations/acme/settings/installations
+     (an account that is a person's, not an organization's: https://github.com/settings/installations)
+  2. Each approver (octocat) needs write access to https://github.com/acme/intents
+  3. kubectl apply -f shop-web.project.yaml
+  4. GH_TOKEN=$(gh auth token) maul check project shop-web -n maul
+maul: no Forge for acme yet? run maul setup github-app --org acme --intents -n maul first
+```
+
+The file holds only what the flags say. Add the check-fix rounds by hand, under `spec`:
 
 ```yaml
-projects:
-  - name: shop-web # at most 25 characters; its intents are shop-web-<issue>
-    spec:
-      intentRepository: https://github.com/acme/intents
-      approvers:
-        # The only accounts whose labels and commands count. Include your own login to open
-        # the first intents yourself.
-        logins: [octocat]
-      repositories:
-        - name: shop-web # the key: a DNS label of at most 16 characters
-          url: https://github.com/acme/Shop.Web
-      checks:
-        fix: [test] # a failing `test` check on maul's PR starts a fix round
-        # rerunFailed: true # re-run a failed Actions check once first; needs Actions read & write
+spec:
+  # ... as written
+  checks:
+    fix: [test] # a failing `test` check on maul's PR starts a fix round
+    # rerunFailed: true # re-run a failed Actions check once first; needs Actions read & write
 ```
+
+Once you edit the file, change it by editing it again: re-running `maul setup project --force` writes it anew from the
+flags and drops what you added.
 
 `checks.fix` names check runs: `test` is the job of the CI `init app` generates for a new application. A repository
 scaffolded with `--existing` has no `test` check from maul (its `runtime image` workflow's job is `build`), so name your
@@ -559,8 +567,7 @@ gh api -X PUT orgs/acme/teams/intent-approvers/repos/acme/intents -f permission=
 ```
 
 ```sh
-helm upgrade maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
-  --namespace maul -f maul-config-values.yaml
+kubectl apply -f shop-web.project.yaml
 GH_TOKEN=$(gh auth token) maul check project shop-web -n maul
 ```
 
@@ -568,14 +575,17 @@ The repositories are private, so the check reads them with your GitHub token; wi
 and `agent-image` is a SKIP. It reads ECR with the AWS SDK's default chain: add `AWS_PROFILE=<profile>` when that is not
 the cluster's account. Every line should be PASS; the preview checks are SKIP until step 14.
 
-Then open an issue in `acme/intents` with the label `maul:shop-web` (the trigger label; intent-controller creates it).
-maul posts a plan on the issue; an approver adds `maul:approved` or comments `/maul approve`, and the pull request
-follows. An issue form per Project in the intent repository (`.github/ISSUE_TEMPLATE/shop-web.yml` with
-`labels: ["maul:shop-web"]`) saves typing the label. A label applied as the issue is created, by a form or by
-`gh issue create --label maul:shop-web`, is the issue author's label event, so it starts an intent only when the author
-is an approver with write access; anyone else's closes the intent with one notice before it plans. Give people who are
-not approvers a form without `labels:`, and let an approver add the label. What happens on the issue is in
-[intent-controller](../configuration/intent-controller.md#on-the-issue).
+intent-controller validates a new Project within about a minute; run the check again if `ready` says it has not reported
+yet. Each FAIL names its fix; [When a check fails](add-an-organization.md#when-a-check-fails) lists them.
+
+Then open an issue in `acme/intents` with the label `maul:shop-web`. There is no label to create: intent-controller
+creates the trigger and approve labels on the intent repository itself. maul posts a plan on the issue; an approver adds
+`maul:approved` or comments `/maul approve`, and the pull request follows. An issue form per Project in the intent
+repository (`.github/ISSUE_TEMPLATE/shop-web.yml` with `labels: ["maul:shop-web"]`) saves typing the label. A label
+applied as the issue is created, by a form or by `gh issue create --label maul:shop-web`, is the issue author's label
+event, so it starts an intent only when the author is an approver with write access; anyone else's closes the intent
+with one notice before it plans. Give people who are not approvers a form without `labels:`, and let an approver add the
+label. What happens on the issue is in [intent-controller](../configuration/intent-controller.md#on-the-issue).
 
 ## 10. Helm stage 2: the preview foundation
 
@@ -725,23 +735,21 @@ Project with a `preview` block is previewed. Roll back with `helm rollback maul 
 
 ## 14. Preview the Project
 
-Add the runtime contract to the Project. Only the operator writes it: the image repository, the port and the readiness
-path never come from an issue or an agent, and the tag only from the pull request's observed head.
+Add the runtime contract to the Project, in `shop-web.project.yaml`. Only the operator writes it: the image repository,
+the port and the readiness path never come from an issue or an agent, and the tag only from the pull request's observed
+head.
 
 ```yaml
-projects:
-  - name: shop-web
-    spec:
-      # ... as in step 9
-      preview:
-        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
-        port: 8080 # the one port the runtime image listens on
-        readinessPath: /healthz # also the load balancer's health check
+spec:
+  # ... as in step 9
+  preview:
+    imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
+    port: 8080 # the one port the runtime image listens on
+    readinessPath: /healthz # also the load balancer's health check
 ```
 
 ```sh
-helm upgrade maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
-  --namespace maul -f maul-config-values.yaml
+kubectl apply -f shop-web.project.yaml
 GH_TOKEN=$(gh auth token) maul check project shop-web -n maul
 ```
 
@@ -818,8 +826,6 @@ multi-repository intents on, in step 6's `intentController` block, and upgrade t
 # maul-values.yaml
 intentController:
   enabled: true
-  forgeSecrets:
-    - maul-github
   config:
     multiRepo: true
     maxConcurrentRuns: 2 # at least the repositories one intent usually changes, or its builds run one at a time
@@ -830,27 +836,27 @@ read-only. `spec.preview`, the one-repository shorthand, is refused beside a sec
 first repository's entry, and give each other previewed repository a `preview` of its own, under its own `path`:
 
 ```yaml
-projects:
-  - name: shop-web
-    spec:
-      # intentRepository, approvers and checks as in step 9
-      repositories:
-        - name: shop-web # the first: the plan's working tree
-          url: https://github.com/acme/Shop.Web
-          preview: # step 14's spec.preview, moved here; path defaults to /
-            imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
-            port: 8080
-            readinessPath: /healthz
-        - name: shop-api
-          url: https://github.com/acme/Shop.Api
-          preview:
-            imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-api
-            port: 8080
-            readinessPath: /api/healthz # the app serves under its path: the load balancer does not rewrite it
-            path: /api
+# shop-web.project.yaml
+spec:
+  # intentRepository, approvers and checks as in step 9
+  repositories:
+    - name: shop-web # the first: the plan's working tree
+      url: https://github.com/acme/Shop.Web
+      preview: # step 14's spec.preview, moved here; path defaults to /
+        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
+        port: 8080
+        readinessPath: /healthz
+    - name: shop-api
+      url: https://github.com/acme/Shop.Api
+      preview:
+        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-api
+        port: 8080
+        readinessPath: /api/healthz # the app serves under its path: the load balancer does not rewrite it
+        path: /api
 ```
 
-Upgrade `maul-config` and run `GH_TOKEN=$(gh auth token) maul check project shop-web -n maul` again. What changes:
+Apply it (`kubectl apply -f shop-web.project.yaml`) and run
+`GH_TOKEN=$(gh auth token) maul check project shop-web -n maul` again. What changes:
 
 - **Without `multiRepo`**, a Project listing several repositories is not `Ready` (`UnsupportedRepositories`), and its
   intents are held where they stand. Turning it off is the supported rollback; do not roll the chart back below 0.12.16
@@ -907,20 +913,18 @@ agent:
 ```
 
 ```yaml
-# maul-config-values.yaml
-projects:
-  - name: shop-web
-    spec:
-      # intentRepository, approvers and checks as in step 9
-      repositories:
-        - name: shop-web
-          url: https://github.com/acme/Shop.Web
-          agentResourceClass: large
+# shop-web.project.yaml
+spec:
+  # intentRepository, approvers and checks as in step 9
+  repositories:
+    - name: shop-web
+      url: https://github.com/acme/Shop.Web
+      agentResourceClass: large
 ```
 
-Upgrade `maul` first, then `maul-config`. The `maul` upgrade adds the field to the Project CRD and defines the class,
-and restarts intent-controller alone; an older CRD would drop `agentResourceClass` without a word, and a Project that
-picks a class intent-controller does not define holds that repository's builds (see below). Each class must set
+Upgrade `maul` first, then apply the Project. The `maul` upgrade adds the field to the Project CRD and defines the
+class, and restarts intent-controller alone; an older CRD would drop `agentResourceClass` without a word, and a Project
+that picks a class intent-controller does not define holds that repository's builds (see below). Each class must set
 `requests.cpu`, `requests.memory` and `limits.memory`; every one is checked when intent-controller starts (positive, at
 most 64 CPUs and 512 GiB, each request at or below its limit), and a bad one stops it from starting, its log naming the
 class. Check `kubectl -n maul get pods` after the upgrade.
@@ -1038,10 +1042,15 @@ slot.
 
 - **One release, three artifacts.** Upgrade the chart, the CLI and the module ref together: `helm_values` carries chart
   keys, and `maul init app` scaffolds against its own release.
-- **A new resource class goes into `maul` before `maul-config` picks it**, and a class leaves `maul-config` before it
-  leaves `maul`; out of order, the repository's builds wait (they are never lost) until both agree. See
+- **A new resource class goes into `maul` before a Project picks it**, and a class leaves the Project before it leaves
+  `maul`; out of order, the repository's builds wait (they are never lost) until both agree. See
   [Sizing agents](#sizing-agents).
-- **Record the rollback point** (both releases' revisions) before each `helm upgrade`, and read `helm status` before
+- **An install made before `maul setup project` existed keeps its Forge and Projects in the `maul-config` release**,
+  with the Secret `maul-github` named in `intentController.forgeSecrets`. Nothing needs to move. Wherever this page
+  edits and applies a Project file, edit that release's `projects` entry and `helm upgrade maul-config` instead, and
+  record its revision too; do not also apply a file for the same Forge or Project
+  ([GitOps and the maul-config chart](add-an-organization.md#gitops-and-the-maul-config-chart)).
+- **Record the rollback point** (the release's revision) before each `helm upgrade`, and read `helm status` before
   retrying one that failed: an upgrade interrupted by a network drop may have applied part of a revision.
 - **Re-run the isolation probe** after every EKS, Auto Mode or VPC CNI upgrade, and before relying on previews again. An
   upgraded network policy agent is exactly what the probe exists to catch.
@@ -1060,10 +1069,10 @@ slot.
 
 In this order; each step depends on the one before it.
 
-1. **Stop new intents and previews.** Remove each Project's `preview` block, or delete its `projects` entry, upgrade
-   `maul-config`, and wait until `kubectl get previews -A` lists nothing: each Preview's finalizer empties its slot.
-   `spec.suspend: true` is not enough on its own: it stops new intents and runs, but leaves the Previews of open pull
-   requests in place.
+1. **Stop new intents and previews.** Remove each Project's `preview` block and apply its file again, or delete the
+   Project (`kubectl delete -f shop-web.project.yaml`), and wait until `kubectl get previews -A` lists nothing: each
+   Preview's finalizer empties its slot. `spec.suspend: true` is not enough on its own: it stops new intents and runs,
+   but leaves the Previews of open pull requests in place.
 2. **Turn the publishers off**: `gh variable set PREVIEW_PUBLISH_ENABLED --repo acme/Shop.Web --body false`, and the
    same for `AGENT_PUBLISH_ENABLED`.
 3. **Preview DNS**: `create_preview_alias_record = false`, apply.
@@ -1077,10 +1086,11 @@ In this order; each step depends on the one before it.
    once each slot is empty (`kubectl get all,ingresses -n maul-preview-0`, and each other slot), delete the slot
    namespaces, the `maul-preview-*` ValidatingAdmissionPolicies and bindings, and the `alb-preview` IngressClass and
    IngressClassParams, deliberately. Keep the guards while any preview workload or node remains.
-8. **Edge DNS and maul**: `create_edge_alias_records = false`, apply; `helm uninstall maul-config -n maul`, then
-   `helm uninstall maul -n maul`. The edge Ingresses go with the release, and their load balancer with them; the kept
-   edge IngressClass and IngressClassParams, and the CRDs (with any custom resources left), are deleted by hand if you
-   mean to.
+8. **Edge DNS and maul**: `create_edge_alias_records = false`, apply; `kubectl delete -f maul-github-acme.forge.yaml`
+   and the Secret (`kubectl -n maul delete secret maul-github-acme`), `helm uninstall maul-config -n maul` if you
+   installed it for the security pipeline, then `helm uninstall maul -n maul`. The edge Ingresses go with the release,
+   and their load balancer with them; the kept edge IngressClass and IngressClassParams, and the CRDs (with any custom
+   resources left), are deleted by hand if you mean to.
 9. **Terraform**: `terraform destroy`. An ECR repository that still holds images fails to delete, on purpose (no
    `force_delete`): delete its images first if you mean to.
 10. **GitHub**: uninstall and delete the App, and delete the repositories' Actions variables.

@@ -1385,6 +1385,11 @@ intentController:
     # The Secrets your Forges reference (spec.secretRef): intent-controller's
     # `secrets get` is restricted to exactly these names. Required and
     # non-empty — RBAC reads an empty resourceNames list as every Secret.
+    # On the usual path leave the default as it is (never empty the list):
+    # `maul setup github-app --intents` writes a forge file whose Role grants
+    # intent-controller exactly its Forge's Secret, and RBAC rules add up, so
+    # that Secret needs no entry here. Add a name only for a Forge no such
+    # Role covers, such as one written by hand.
     forgeSecrets:
         - maul-github
     resources:

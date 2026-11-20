@@ -125,7 +125,9 @@ If the referencing `Forge`/`Integration` will name a forward proxy that requires
 ## Install the App
 
 Finally, **Install App** on your organization and select the repositories maul should watch (the ones with code scanning
-enabled). The controllers resolve the installation per repository automatically — no installation ID needs configuring.
+enabled; for intents, the intent repository and every application repository). The controllers resolve the installation
+per repository automatically — no installation ID needs configuring. For intents,
+[Add a GitHub organization or a Project](../intents/add-an-organization.md) is the whole path from here, App included.
 
 !!! info "GitHub Enterprise Server"
 

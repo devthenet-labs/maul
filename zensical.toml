@@ -51,6 +51,7 @@ nav = [
   ] },
   { "Intents & previews" = [
     { "Deploying intents and previews" = "intents/deploying.md" },
+    { "Add a GitHub organization or a Project" = "intents/add-an-organization.md" },
     { "Set up previews" = "intents/set-up-previews.md" },
     { "Acceptance verification" = "intents/acceptance.md" },
     { "The agent evaluator" = "intents/evaluator.md" },

@@ -10,8 +10,8 @@ It adds, beside what you have already installed:
 - the **intent-controller** (`intentController.enabled`), which polls GitHub and needs no webhook;
 - **repository-declared agent images** (`agent.repositoryImages`), because a build runs in the application's own
   toolchain image, never the default one;
-- a `Project` per application, in the `maul-config` chart, over one repository or, with multi-repository intents on
-  (`intentController.config.multiRepo`), several;
+- a `Project` per application, a file `maul setup project` writes and you apply, over one repository or, with
+  multi-repository intents on (`intentController.config.multiRepo`), several;
 - the GitHub App's intent permissions (issues on the intent repository; contents and pull requests on each application
   repository), which `maul setup github-app --intents` asks for;
 - with previews, the preview foundation and the **preview-controller**, which need **EKS Auto Mode** and **ECR**, and
@@ -19,4 +19,6 @@ It adds, beside what you have already installed:
 
 [Deploying intents and previews](../intents/deploying.md) is the whole path, from prerequisites to a merged intent with
 a working preview, and [Onboarding an application](../intents/onboarding-app.md) is the part you repeat for each
-application repository.
+application repository. On an install that already runs,
+[Add a GitHub organization or a Project](../intents/add-an-organization.md) connects another organization or adds a
+Project in a few commands.
