@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.13](https://github.com/devthenet-labs/maul/compare/v0.14.12...v0.14.13) (2026-11-20)
+
+
+### Features
+
+* **setup:** github-app checks Owner, writes the Forge and Secret-reader Role, prints the next commands ([#455](https://github.com/devthenet-labs/maul/issues/455)) ([47f1a92](https://github.com/devthenet-labs/maul/commit/47f1a923d526b870f770f72f79776bf88150bf2a))
+* **setup:** maul setup project writes a Project manifest and the next commands ([#458](https://github.com/devthenet-labs/maul/issues/458)) ([f201fb6](https://github.com/devthenet-labs/maul/commit/f201fb6038a70d4e79996212378c5bd869d0f7d9))
+
 ## [0.14.12](https://github.com/devthenet-labs/maul/compare/v0.14.11...v0.14.12) (2026-11-19)
 
 
