@@ -423,10 +423,14 @@ func runSetupGitHubApp(ctx context.Context, opts *Options, f *setupGitHubAppFlag
 	if errors.Is(err, ghapp.ErrNoCode) {
 		// The App may exist although its code never arrived: a browser on
 		// another machine cannot reach this one's loopback address, and a
-		// person can give up after clicking Create.
+		// person can give up after clicking Create. And GitHub's Create
+		// button does nothing, showing no error, for the name of an App
+		// deleted shortly before.
 		return fmt.Errorf("%w; if GitHub created the App, delete it at %s, or within the hour run again with "+
-			"--no-browser and paste the code= value from the address GitHub sent the browser to",
-			err, ghapp.AppsURL(deps.webURL, plan.owner))
+			"--no-browser and paste the code= value from the address GitHub sent the browser to; if clicking "+
+			"\"Create GitHub App\" did nothing, GitHub may still hold the name %q for an App deleted "+
+			"recently: run again with another --name",
+			err, ghapp.AppsURL(deps.webURL, plan.owner), plan.config.Name)
 	}
 	if err != nil {
 		return err

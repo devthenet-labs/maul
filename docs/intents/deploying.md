@@ -362,7 +362,7 @@ kubectl label namespace maul \
   pod-security.kubernetes.io/audit=restricted \
   pod-security.kubernetes.io/warn=restricted
 
-kubectl create -f maul-github-acme.secret.yaml && rm maul-github-acme.secret.yaml
+kubectl create -f maul-github-acme.secret.yaml && rm -f maul-github-acme.secret.yaml
 kubectl -n maul create secret generic maul-anthropic --from-literal=api-key="$ANTHROPIC_API_KEY"
 ```
 
