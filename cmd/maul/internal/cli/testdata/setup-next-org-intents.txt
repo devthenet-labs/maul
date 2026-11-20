@@ -2,7 +2,7 @@ maul: next:
   1. Install the App on acme (choose the organization, not your own account):
      https://github.com/apps/maul-acme/installations/new
      Select the intent repository and every application repository.
-  2. kubectl create -f maul-github-acme.secret.yaml && rm maul-github-acme.secret.yaml && kubectl apply -f maul-github-acme.forge.yaml
+  2. kubectl create -f maul-github-acme.secret.yaml && rm -f maul-github-acme.secret.yaml && kubectl apply -f maul-github-acme.forge.yaml
      Run it once maul is installed: it needs namespace maul and maul's CRDs.
   3. maul setup project <name> --intent-repo acme/<intent-repo> --repo acme/<app-repo> --approver <github-login> -n maul
 maul: the Role binds ServiceAccount maul-intent-controller in maul; pass --intent-controller-sa if your release is not named maul.

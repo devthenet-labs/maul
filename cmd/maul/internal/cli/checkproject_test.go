@@ -216,6 +216,11 @@ func TestCheckProjectExitCodes(t *testing.T) {
 			if code := exitCode(err); code != tc.want {
 				t.Errorf("exit code = %d (%v), want %d", code, err, tc.want)
 			}
+			// A Project that is not there is most often one in another
+			// namespace: the error says how to find it.
+			if hint := "kubectl get projects.maul.run -A"; (tc.name == "not found") != strings.Contains(errText(err), hint) {
+				t.Errorf("error = %v; only a Project not found names %q", err, hint)
+			}
 		})
 	}
 }
@@ -260,4 +265,12 @@ func TestCheckCommandHelp(t *testing.T) {
 			t.Errorf("check --help lacks %q:\n%s", want, out)
 		}
 	}
+}
+
+// errText is err's message, "" for none.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

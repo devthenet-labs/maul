@@ -66,7 +66,7 @@ maul: next:
   1. Install the App on overdubstudio (choose the organization, not your own account):
      https://github.com/apps/maul-overdubstudio/installations/new
      Select the intent repository and every application repository.
-  2. kubectl create -f maul-github-overdubstudio.secret.yaml && rm maul-github-overdubstudio.secret.yaml && kubectl apply -f maul-github-overdubstudio.forge.yaml
+  2. kubectl create -f maul-github-overdubstudio.secret.yaml && rm -f maul-github-overdubstudio.secret.yaml && kubectl apply -f maul-github-overdubstudio.forge.yaml
      Run it once maul is installed: it needs namespace maul and maul's CRDs.
   3. maul setup project <name> --intent-repo overdubstudio/<intent-repo> --repo overdubstudio/<app-repo> --approver <github-login> -n maul
 maul: the Role binds ServiceAccount maul-intent-controller in maul; pass --intent-controller-sa if your release is not named maul.
@@ -90,7 +90,7 @@ installed on all repositories could act on all of them; select only the ones mau
 Paste step 2 of the `next:` block:
 
 ```sh
-kubectl create -f maul-github-overdubstudio.secret.yaml && rm maul-github-overdubstudio.secret.yaml && kubectl apply -f maul-github-overdubstudio.forge.yaml
+kubectl create -f maul-github-overdubstudio.secret.yaml && rm -f maul-github-overdubstudio.secret.yaml && kubectl apply -f maul-github-overdubstudio.forge.yaml
 ```
 
 `kubectl create` never replaces a Secret that already exists: if it refuses, nothing after it runs and the file is kept.
@@ -197,6 +197,14 @@ Project takes are in [intent-controller](../configuration/intent-controller.md) 
   toolchain image, which the repository declares in `.maul/agent.yaml`. `maul check project` fails `agent-image` until
   it exists. [Onboarding an application](onboarding-app.md) sets it up; for a repository that already has code, run
   `maul init app --existing` in it.
+- **Reinstalling: give the new App a new name.** To start over, delete the App on GitHub (the organization's Settings,
+  Developer settings, GitHub Apps, the App, Advanced, **Delete GitHub App**), delete the Forge, its Role and RoleBinding
+  and the Secret from the cluster, and run command 1 again with `--name`, for example `--name maul-overdub`. For a while
+  after an App is deleted GitHub still holds its name: on the form for that name, **Create GitHub App** does nothing and
+  shows no error. The Secret and the files are named after the organization, not the App, so nothing else changes.
+- **Every command takes `-n maul`.** The Project lives in maul's namespace, not your kubeconfig context's. A
+  `maul check project` that answers `not found` is most often looking in another namespace:
+  `kubectl get projects.maul.run -A` shows where the Project is.
 - **A personal account** works too: `maul setup github-app --user --intents` creates the App under your own account,
   with the Secret named `maul-github`.
 

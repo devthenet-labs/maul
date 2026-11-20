@@ -58,7 +58,7 @@ func (n setupNext) render() string {
 		b.WriteString("     The Secret went to stdout: create it in the cluster from wherever you sent it.\n")
 	} else {
 		secret := shellQuote(n.secretFile)
-		fmt.Fprintf(&b, "  2. kubectl create -f %s && rm %s && kubectl apply -f %s\n", secret, secret, forge)
+		fmt.Fprintf(&b, "  2. kubectl create -f %s && rm -f %s && kubectl apply -f %s\n", secret, secret, forge)
 	}
 	// On a first install neither exists yet when the App is created.
 	fmt.Fprintf(&b, "     Run it once maul is installed: it needs namespace %s and maul's CRDs.\n", n.namespace)

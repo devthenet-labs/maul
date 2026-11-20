@@ -933,6 +933,11 @@ func TestSetupGitHubAppFailures(t *testing.T) {
 		t.Errorf("no code before the timeout = %v (exit %d), want ErrNoCode naming where to clean up", err,
 			exitCode(err))
 	}
+	// GitHub's Create button does nothing, with no error shown, for the name
+	// of an App deleted shortly before: the error names the way out.
+	if !strings.Contains(err.Error(), "--name") {
+		t.Errorf("no code before the timeout = %v, want it to suggest another --name", err)
+	}
 	if _, statErr := os.Stat(out); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("a file was written without a code: %v", statErr)
 	}

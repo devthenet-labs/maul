@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/spf13/cobra"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/devthenet-labs/maul/cmd/maul/internal/checkreport"
 	"github.com/devthenet-labs/maul/cmd/maul/internal/previewcheck"
@@ -159,6 +160,11 @@ func runCheckProject(ctx context.Context, opts *Options, name string, deps check
 		GitHub: deps.github, Keychain: deps.keychain, Resolver: deps.resolver, DialTLS: deps.dialTLS,
 		HTTP: deps.http,
 	})
+	if apierrors.IsNotFound(err) {
+		// Most often the Project is in another namespace than the context's.
+		return fmt.Errorf("project %s in namespace %s: %w; kubectl get projects.maul.run -A shows which "+
+			"namespace holds it: pass that with -n", name, env.Namespace, err)
+	}
 	if err != nil {
 		return fmt.Errorf("project %s in namespace %s: %w", name, env.Namespace, err)
 	}
