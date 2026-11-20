@@ -1,0 +1,7 @@
+maul: next:
+  1. The App must be installed on every repository listed. Add any it cannot reach at:
+     https://ghe.example.com:8443/organizations/team/settings/installations
+     (an account that is a person's, not an organization's: https://ghe.example.com:8443/settings/installations)
+  2. Each approver (alice) needs write access to https://ghe.example.com:8443/team/intents
+  3. kubectl apply -f web.project.yaml
+  4. GH_HOST=ghe.example.com GH_ENTERPRISE_TOKEN=$(gh auth token -h ghe.example.com) maul check project web -n maul

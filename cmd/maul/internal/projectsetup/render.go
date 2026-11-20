@@ -6,6 +6,7 @@ package projectsetup
 import (
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -31,6 +32,11 @@ var (
 	repoURLPattern = regexp.MustCompile(`^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$`)
 	keyPattern     = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 	loginPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	// shorthandPattern is owner/repo in GitHub's own name grammar. The
+	// CRD's URL pattern is wider (it admits @ and : in a path), so without
+	// this an SSH remote, git@github.com:owner/repo.git, would be written
+	// as a github.com URL the cluster admits and no Forge ever covers.
+	shorthandPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 )
 
 // Input is what `maul setup project` was given.
@@ -57,11 +63,28 @@ type Repository struct {
 // account is the GitHub account the repository belongs to.
 func (r Repository) account() Account { return Account{Host: r.host, Owner: r.owner} }
 
-// Account is a GitHub account on a host: where an App is installed.
+// Account is a GitHub account on a host: where an App is installed. Host is
+// lowercased and keeps a port the repository URL names.
 type Account struct {
 	Host  string
 	Owner string
 }
+
+// Web is the address the account's host serves people on.
+func (a Account) Web() string { return "https://" + a.Host }
+
+// Hostname is the host without any port: the name gh and `maul check
+// project` (GH_HOST) know it by.
+func (a Account) Hostname() string {
+	if h, _, err := net.SplitHostPort(a.Host); err == nil {
+		return h
+	}
+	return a.Host
+}
+
+// GitHubCom reports whether the account is on github.com, the one host
+// `maul setup github-app` creates Apps on and GH_TOKEN is read for.
+func (a Account) GitHubCom() bool { return a.Host == "github.com" }
 
 // Project is a validated `maul setup project` invocation.
 type Project struct {
@@ -157,8 +180,7 @@ func checkName(name string) error {
 func parseRepo(flag, raw string) (Repository, error) {
 	u := raw
 	if !strings.Contains(raw, "://") {
-		parts := strings.Split(raw, "/")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		if !shorthandPattern.MatchString(raw) {
 			return Repository{}, fmt.Errorf("%s %q: write owner/repo or https://host/owner/repo", flag, raw)
 		}
 		u = "https://github.com/" + raw
@@ -170,10 +192,13 @@ func parseRepo(flag, raw string) (Repository, error) {
 		return Repository{}, fmt.Errorf("%s %q: write owner/repo or https://host/owner/repo (https, no "+
 			"credentials, query or deeper path)", flag, raw)
 	}
-	host, repo, err := forge.ParseRepoURL(u)
+	_, repo, err := forge.ParseRepoURL(u)
 	if err != nil {
 		return Repository{}, fmt.Errorf("%s: %w", flag, err)
 	}
+	// The host keeps its port, which the pattern has just held to no
+	// slash: the installations page is served there, not on 443.
+	host := strings.ToLower(strings.SplitN(strings.TrimPrefix(u, "https://"), "/", 2)[0])
 	return Repository{URL: u, host: host, owner: repo.Owner, Key: strings.ToLower(repo.Name)}, nil
 }
 
@@ -194,13 +219,13 @@ func planRepositories(raws []string) ([]Repository, error) {
 		if err != nil {
 			return nil, err
 		}
-		if keys[r.Key] {
-			return nil, fmt.Errorf("--repo %q: key %s is used twice: write --repo <short>=owner/repo with "+
-				"another key", raw, r.Key)
-		}
 		u := strings.ToLower(strings.TrimSuffix(r.URL, ".git"))
 		if urls[u] {
 			return nil, fmt.Errorf("--repo %q: names the same repository as another --repo", raw)
+		}
+		if keys[r.Key] {
+			return nil, fmt.Errorf("--repo %q: key %s is used twice: write --repo <short>=owner/repo with "+
+				"another key", raw, r.Key)
 		}
 		keys[r.Key], urls[u] = true, true
 		out = append(out, r)
@@ -272,6 +297,11 @@ func checkLabels(p Project) error {
 	} {
 		if utf8.RuneCountInString(l.value) > maxLabelLength {
 			return fmt.Errorf("%s %q: a GitHub label is at most %d characters", l.flag, l.value, maxLabelLength)
+		}
+		// GitHub trims a label's name: one with outer blanks would be
+		// admitted by the schema and matched by no issue.
+		if strings.TrimSpace(l.value) != l.value {
+			return fmt.Errorf("%s %q: a GitHub label neither starts nor ends with a blank", l.flag, l.value)
 		}
 	}
 	if strings.EqualFold(p.Trigger(), p.Approve()) {

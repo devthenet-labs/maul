@@ -95,6 +95,27 @@ func TestPlanRefuses(t *testing.T) {
 			in.ApproveLabel = "maul:overdub"
 		}, "differ"},
 		{"a Project named approved", func(in *Input) { in.Name = "approved" }, "--trigger-label"},
+		// An SSH remote is one slash too: never a github.com owner/repo.
+		{"intent repository an SSH remote", func(in *Input) {
+			in.IntentRepo = "git@github.com:acme/intents.git"
+		}, "--intent-repo"},
+		{"repository an SSH remote", func(in *Input) {
+			in.Repos = []string{"app=git@github.com:acme/app.git"}
+		}, "https://host/owner/repo"},
+		{"shorthand owner not a GitHub name", func(in *Input) { in.Repos = []string{"app=ac:me/app"} }, "--repo"},
+		{"shorthand repository not a GitHub name", func(in *Input) {
+			in.Repos = []string{"app=acme/a%20b"}
+		}, "--repo"},
+		// GitHub trims a label's name, so one written with outer blanks
+		// could never be matched: the Project would wait for a label no
+		// issue can carry.
+		{"trigger label blank", func(in *Input) { in.TriggerLabel = " " }, "--trigger-label"},
+		{"approve label with a trailing blank", func(in *Input) { in.ApproveLabel = "ok " }, "--approve-label"},
+		// The same repository under two spellings is one repository,
+		// whatever its keys: another key would not help.
+		{"duplicate URL with the same default key", func(in *Input) {
+			in.Repos = []string{"O/app.git", "o/App"}
+		}, "same repository"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			in := valid()
@@ -133,6 +154,12 @@ func TestPlanExpands(t *testing.T) {
 			Account{Host: "github.com", Owner: "overdubstudio"}},
 		{"git suffix", "overdubstudio/app.git", Repository{Key: "app", URL: "https://github.com/overdubstudio/app.git"},
 			Account{Host: "github.com", Owner: "overdubstudio"}},
+		{"a GitHub name with a dot and an underscore", "js=over_dub/app.js",
+			Repository{Key: "js", URL: "https://github.com/over_dub/app.js"},
+			Account{Host: "github.com", Owner: "over_dub"}},
+		{"a host with a port", "https://GHE.example.com:8443/Team/web",
+			Repository{Key: "web", URL: "https://GHE.example.com:8443/Team/web"},
+			Account{Host: "ghe.example.com:8443", Owner: "Team"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			in := valid()
@@ -189,6 +216,29 @@ func TestOwners(t *testing.T) {
 	want := []Account{{"github.com", "Overdubstudio"}, {"ghe.example.com", "team"}, {"github.com", "acme"}}
 	if got := p.Owners(); !reflect.DeepEqual(got, want) {
 		t.Errorf("Owners() = %+v, want %+v", got, want)
+	}
+}
+
+// TestAccountLinks: an account's web address keeps its host's port, which
+// the name gh and check project know the host by leaves out.
+func TestAccountLinks(t *testing.T) {
+	for _, tt := range []struct {
+		a             Account
+		web, hostname string
+		wantGitHubCom bool
+	}{
+		{Account{Host: "github.com", Owner: "o"}, "https://github.com", "github.com", true},
+		{Account{Host: "ghe.example.com:8443", Owner: "o"}, "https://ghe.example.com:8443", "ghe.example.com", false},
+	} {
+		if got := tt.a.Web(); got != tt.web {
+			t.Errorf("%+v.Web() = %s, want %s", tt.a, got, tt.web)
+		}
+		if got := tt.a.Hostname(); got != tt.hostname {
+			t.Errorf("%+v.Hostname() = %s, want %s", tt.a, got, tt.hostname)
+		}
+		if got := tt.a.GitHubCom(); got != tt.wantGitHubCom {
+			t.Errorf("%+v.GitHubCom() = %v, want %v", tt.a, got, tt.wantGitHubCom)
+		}
 	}
 }
 

@@ -123,17 +123,16 @@ func projectNext(p projectsetup.Project, file string) string {
 	var b strings.Builder
 	b.WriteString("maul: next:\n")
 	b.WriteString("  1. The App must be installed on every repository listed. Add any it cannot reach at:\n")
-	var hosts []string
+	var webs []string
 	for _, a := range p.Owners() {
-		web := "https://" + a.Host
-		fmt.Fprintf(&b, "     %s\n", ghapp.InstallationsURL(web, ghapp.Owner{Org: a.Owner}))
-		if !slices.Contains(hosts, a.Host) {
-			hosts = append(hosts, a.Host)
+		fmt.Fprintf(&b, "     %s\n", ghapp.InstallationsURL(a.Web(), ghapp.Owner{Org: a.Owner}))
+		if !slices.Contains(webs, a.Web()) {
+			webs = append(webs, a.Web())
 		}
 	}
-	for _, h := range hosts {
+	for _, web := range webs {
 		fmt.Fprintf(&b, "     (an account that is a person's, not an organization's: %s)\n",
-			ghapp.InstallationsURL("https://"+h, ghapp.Owner{}))
+			ghapp.InstallationsURL(web, ghapp.Owner{}))
 	}
 	fmt.Fprintf(&b, "  2. Each approver (%s) needs write access to %s\n", strings.Join(p.Approvers, ", "),
 		p.IntentRepository.URL)
@@ -142,13 +141,40 @@ func projectNext(p projectsetup.Project, file string) string {
 	} else {
 		fmt.Fprintf(&b, "  3. kubectl apply -f %s\n", shellQuote(file))
 	}
-	fmt.Fprintf(&b, "  4. GH_TOKEN=$(gh auth token) maul check project %s -n %s\n", p.Name, p.Namespace)
+	fmt.Fprintf(&b, "  4. %smaul check project %s -n %s\n", checkTokens(p.Owners()), p.Name, p.Namespace)
 	for _, a := range p.Owners() {
-		// setup github-app creates Apps on github.com only.
-		if a.Host == "github.com" {
-			fmt.Fprintf(&b, "maul: no Forge for %s yet? run maul setup github-app --org %s --intents first\n",
-				a.Owner, a.Owner)
+		// setup github-app creates Apps on github.com only. A Forge covers
+		// a Project of its own namespace, so the command names this one.
+		if a.GitHubCom() {
+			fmt.Fprintf(&b, "maul: no Forge for %s yet? run maul setup github-app --org %s --intents -n %s first\n",
+				a.Owner, a.Owner, p.Namespace)
 		}
+	}
+	return b.String()
+}
+
+// checkTokens is the environment `maul check project` reads the accounts'
+// repositories with, as a prefix of its command: GH_TOKEN goes to
+// github.com only, and another host (GitHub Enterprise Server) is read with
+// GH_ENTERPRISE_TOKEN only when GH_HOST names it. It names one such host,
+// the first, because check project reads one.
+func checkTokens(owners []projectsetup.Account) string {
+	var gitHubCom bool
+	enterprise := ""
+	for _, a := range owners {
+		switch {
+		case a.GitHubCom():
+			gitHubCom = true
+		case enterprise == "":
+			enterprise = a.Hostname()
+		}
+	}
+	var b strings.Builder
+	if gitHubCom {
+		b.WriteString("GH_TOKEN=$(gh auth token) ")
+	}
+	if enterprise != "" {
+		fmt.Fprintf(&b, "GH_HOST=%s GH_ENTERPRISE_TOKEN=$(gh auth token -h %s) ", enterprise, enterprise)
 	}
 	return b.String()
 }

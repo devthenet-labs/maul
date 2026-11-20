@@ -532,8 +532,12 @@ maul: next:
   2. Each approver (alice) needs write access to https://github.com/overdubstudio/intents
   3. kubectl apply -f overdub.project.yaml
   4. GH_TOKEN=$(gh auth token) maul check project overdub -n maul
-maul: no Forge for overdubstudio yet? run maul setup github-app --org overdubstudio --intents first
+maul: no Forge for overdubstudio yet? run maul setup github-app --org overdubstudio --intents -n maul first
 ```
+
+For a repository on another host (GitHub Enterprise Server), step 4 names `GH_HOST` and `GH_ENTERPRISE_TOKEN` instead,
+which is what `maul check project` reads that host with, and no `setup github-app` line is printed: that command creates
+Apps on github.com only.
 
 ## Checking a Project
 

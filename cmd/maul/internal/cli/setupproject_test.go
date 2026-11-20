@@ -23,6 +23,12 @@ func TestSetupProjectNextGolden(t *testing.T) {
 	multi := projectsetup.Input{Name: "shop", Namespace: "apps", IntentRepo: "acme/intents",
 		Repos:     []string{"acme/shop", "web=https://ghe.example.com/team/web", "lib=Acme/lib", "ui=widgets/ui"},
 		Approvers: []string{"alice", "bob"}, TriggerLabel: "shop", ApproveLabel: "ship-it"}
+	// A GitHub Enterprise Server on its own port: check project reads it
+	// only with GH_HOST and an enterprise token, and setup github-app
+	// cannot create its App.
+	enterprise := projectsetup.Input{Name: "web", Namespace: "maul",
+		IntentRepo: "https://ghe.example.com:8443/team/intents",
+		Repos:      []string{"https://ghe.example.com:8443/team/web"}, Approvers: []string{"alice"}}
 	for _, tt := range []struct {
 		name string
 		in   projectsetup.Input
@@ -31,6 +37,7 @@ func TestSetupProjectNextGolden(t *testing.T) {
 		{"setup-project-next-one.txt", one, "overdub.project.yaml"},
 		{"setup-project-next-multi.txt", multi, "my projects/shop.project.yaml"},
 		{"setup-project-next-stdout.txt", one, "-"},
+		{"setup-project-next-enterprise.txt", enterprise, "web.project.yaml"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p, err := projectsetup.Plan(tt.in)

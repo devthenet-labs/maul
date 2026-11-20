@@ -5,4 +5,4 @@ maul: next:
   2. Each approver (alice) needs write access to https://github.com/overdubstudio/intents
   3. kubectl apply -f overdub.project.yaml
   4. GH_TOKEN=$(gh auth token) maul check project overdub -n maul
-maul: no Forge for overdubstudio yet? run maul setup github-app --org overdubstudio --intents first
+maul: no Forge for overdubstudio yet? run maul setup github-app --org overdubstudio --intents -n maul first
