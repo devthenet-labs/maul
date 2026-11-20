@@ -1,0 +1,13 @@
+apiVersion: maul.run/v1alpha1
+kind: Project
+metadata:
+  name: overdub
+  namespace: maul
+spec:
+  approvers:
+    logins:
+    - alice
+  intentRepository: https://github.com/overdubstudio/intents
+  repositories:
+  - name: app
+    url: https://github.com/overdubstudio/app

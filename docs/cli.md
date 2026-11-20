@@ -497,6 +497,44 @@ forge file and apply it again instead: a second run would create a second App. A
 your login, with any character an object name cannot hold made a hyphen. `--forge-output` may not be the Secret file by
 any spelling. Only github.com is supported, and nothing here talks to a cluster.
 
+## Writing a Project
+
+`maul setup project <name>` writes the manifest of a [Project](configuration/intent-controller.md): the intent
+repository whose issues become its intents, the application repositories they build in, and the GitHub logins whose
+approval counts. It holds no secret, so keep it and apply it with kubectl. Nothing here talks to a cluster or to GitHub:
+
+```sh
+maul setup project overdub --intent-repo overdubstudio/intents --repo overdubstudio/app --approver alice -n maul
+maul setup project shop --intent-repo acme/intents --repo acme/shop --repo api=acme/backend-api --approver alice --approver bob
+maul setup project shop --intent-repo https://github.com/acme/intents --repo acme/shop --approver alice -o - | kubectl apply -f -
+```
+
+A repository is `owner/repo` (on github.com) or `https://host/owner/repo`. Each `--repo` (1 to 8; the first is also
+where intents are planned) has a key, its short name in the names of the runs built in it: the repository's name
+lowercased, unless written as `key=owner/repo`. The name (a DNS label of at most 25 characters), keys, URLs, approvers
+(at most 20) and labels are held to the Project schema's own rules before anything is written, so the manifest is one
+the cluster admits; a repository whose name makes no valid key is refused with the `key=` spelling to use. Only
+`apiVersion`, `kind`, `metadata` and `spec` (`intentRepository`, `approvers`, `repositories`, and `labels` when
+`--trigger-label` or `--approve-label` is given) are written; every other field is left to its default.
+intent-controller creates the trigger label (`maul:<name>` unless `--trigger-label`) and the approve label
+(`maul:approved` unless `--approve-label`) on the intent repository once the Project is otherwise Ready.
+
+The manifest goes to `-o`, default `<name>.project.yaml`, and an existing file is never replaced without `--force`. To
+change a Project later, say to add a repository or an approver, run the same command with every flag and `--force`, then
+apply the file again. It ends on stderr with what to do next:
+
+```text
+maul: wrote Project maul/overdub to overdub.project.yaml (trigger label maul:overdub, approve label maul:approved; intent-controller creates both)
+maul: next:
+  1. The App must be installed on every repository listed. Add any it cannot reach at:
+     https://github.com/organizations/overdubstudio/settings/installations
+     (an account that is a person's, not an organization's: https://github.com/settings/installations)
+  2. Each approver (alice) needs write access to https://github.com/overdubstudio/intents.
+  3. kubectl apply -f overdub.project.yaml
+  4. GH_TOKEN=$(gh auth token) maul check project overdub -n maul
+maul: no Forge for overdubstudio yet? run maul setup github-app --org overdubstudio --intents first
+```
+
 ## Checking a Project
 
 `maul check project <name>` is the preflight for a [Project](configuration/intent-controller.md) before its first

@@ -32,4 +32,5 @@ kubeconfig flags are inert, and -n only names the namespace a written manifest c
 * [maul](maul.md)	 - Work with maul security findings from the terminal
 * [maul setup github-app](maul_setup_github-app.md)	 - Create the GitHub App maul authenticates as, and write its Secret
 * [maul setup previews](maul_setup_previews.md)	 - Write the files that expose previews and sign viewers in to them
+* [maul setup project](maul_setup_project.md)	 - Write a Project manifest, and print the commands that make it Ready
 

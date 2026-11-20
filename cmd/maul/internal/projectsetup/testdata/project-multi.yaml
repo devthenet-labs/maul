@@ -1,0 +1,21 @@
+apiVersion: maul.run/v1alpha1
+kind: Project
+metadata:
+  name: shop
+  namespace: maul
+spec:
+  approvers:
+    logins:
+    - alice
+    - bob
+  intentRepository: https://github.com/acme/intents
+  labels:
+    approve: ship-it
+    trigger: shop
+  repositories:
+  - name: shop
+    url: https://github.com/acme/shop
+  - name: api
+    url: https://github.com/acme/backend-api
+  - name: web
+    url: https://github.com/acme/web
