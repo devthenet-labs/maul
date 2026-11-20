@@ -354,7 +354,7 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`; field manager
   the binary's file name, `maul` or `kubectl-maul`); enforcement of the custom verbs for direct API writes is the
   ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's own SelfSubjectAccessReview
-  (that is ergonomics). Five cluster-free commands ride along: `dev` (the generic-integration test harness), `mirror`
+  (that is ergonomics). Six cluster-free commands ride along: `dev` (the generic-integration test harness), `mirror`
   (vendored chart/artifact mirroring over `internal/mirror`; kubeconfig flags inert, git never touched), `check image`
   (source-controller's runner-image checks through `resolve.Inspect`, plus `--run`: `agent-runner preflight` in a local
   docker shaped like the agent pod; engine in `cmd/maul/internal/imagecheck`), `setup github-app` (creates the GitHub

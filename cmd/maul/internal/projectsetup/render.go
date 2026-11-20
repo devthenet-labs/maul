@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/yaml"
@@ -162,7 +163,7 @@ func parseRepo(flag, raw string) (Repository, error) {
 		}
 		u = "https://github.com/" + raw
 	}
-	if len(u) > maxURLLength {
+	if utf8.RuneCountInString(u) > maxURLLength {
 		return Repository{}, fmt.Errorf("%s %q: a repository URL is at most %d characters", flag, raw, maxURLLength)
 	}
 	if !repoURLPattern.MatchString(u) {
@@ -269,7 +270,7 @@ func checkLabels(p Project) error {
 	for _, l := range []struct{ flag, value string }{
 		{"--trigger-label", p.TriggerLabel}, {"--approve-label", p.ApproveLabel},
 	} {
-		if len(l.value) > maxLabelLength {
+		if utf8.RuneCountInString(l.value) > maxLabelLength {
 			return fmt.Errorf("%s %q: a GitHub label is at most %d characters", l.flag, l.value, maxLabelLength)
 		}
 	}

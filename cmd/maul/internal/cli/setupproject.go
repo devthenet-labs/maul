@@ -135,7 +135,7 @@ func projectNext(p projectsetup.Project, file string) string {
 		fmt.Fprintf(&b, "     (an account that is a person's, not an organization's: %s)\n",
 			ghapp.InstallationsURL("https://"+h, ghapp.Owner{}))
 	}
-	fmt.Fprintf(&b, "  2. Each approver (%s) needs write access to %s.\n", strings.Join(p.Approvers, ", "),
+	fmt.Fprintf(&b, "  2. Each approver (%s) needs write access to %s\n", strings.Join(p.Approvers, ", "),
 		p.IntentRepository.URL)
 	if file == "-" {
 		b.WriteString("  3. Pipe the Project printed on stdout to kubectl apply -f -\n")

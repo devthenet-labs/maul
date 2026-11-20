@@ -529,7 +529,7 @@ maul: next:
   1. The App must be installed on every repository listed. Add any it cannot reach at:
      https://github.com/organizations/overdubstudio/settings/installations
      (an account that is a person's, not an organization's: https://github.com/settings/installations)
-  2. Each approver (alice) needs write access to https://github.com/overdubstudio/intents.
+  2. Each approver (alice) needs write access to https://github.com/overdubstudio/intents
   3. kubectl apply -f overdub.project.yaml
   4. GH_TOKEN=$(gh auth token) maul check project overdub -n maul
 maul: no Forge for overdubstudio yet? run maul setup github-app --org overdubstudio --intents first

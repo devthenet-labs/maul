@@ -167,6 +167,12 @@ func TestLabels(t *testing.T) {
 	if p.Trigger() != "go" || p.Approve() != "ok" {
 		t.Errorf("labels = %q, %q", p.Trigger(), p.Approve())
 	}
+	// GitHub's 50 is characters, as the schema's maxLength is: 50 of them
+	// in 100 bytes are admitted.
+	in.TriggerLabel = strings.Repeat("ö", 50)
+	if _, err := Plan(in); err != nil {
+		t.Errorf("a 50-character label of 100 bytes: %v", err)
+	}
 }
 
 // TestOwners lists every account the App must be installed on once, the

@@ -5,7 +5,7 @@ maul: next:
      https://github.com/organizations/widgets/settings/installations
      (an account that is a person's, not an organization's: https://github.com/settings/installations)
      (an account that is a person's, not an organization's: https://ghe.example.com/settings/installations)
-  2. Each approver (alice, bob) needs write access to https://github.com/acme/intents.
+  2. Each approver (alice, bob) needs write access to https://github.com/acme/intents
   3. kubectl apply -f 'my projects/shop.project.yaml'
   4. GH_TOKEN=$(gh auth token) maul check project shop -n apps
 maul: no Forge for acme yet? run maul setup github-app --org acme --intents first
