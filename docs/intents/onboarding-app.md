@@ -319,30 +319,34 @@ both), so a toolchain change is always a human's commit. If the registry moves, 
 
 ## The Project
 
-The Project is the operator's: it lives in the `maul-config` chart's `projects` array, and writing one is admin-only,
-because a Project is the power to point agents at repositories.
+The Project is the operator's: writing one is admin-only, because a Project is the power to point agents at
+repositories. `maul setup project` writes it as a file to keep and apply
+([Add a GitHub organization or a Project](add-an-organization.md)):
+
+```sh
+maul setup project shop-web --intent-repo acme/intents --repo shop-web=acme/Shop.Web --approver octocat -n maul
+```
+
+The file holds the intent repository, the approvers (the only accounts whose labels and commands count) and the
+repositories. Add the rest under `spec` by hand:
 
 ```yaml
-projects:
-  - name: shop-web
-    spec:
-      intentRepository: https://github.com/acme/intents
-      approvers:
-        logins: [octocat] # the only accounts whose labels and commands count
-      repositories:
-        - name: shop-web
-          url: https://github.com/acme/Shop.Web
-          # agentResourceClass: large # a heavy test suite: one of the operator's classes
-      preview: # leave out for intents without previews
-        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
-        port: 8080
-        readinessPath: /healthz
-      checks:
-        fix: [test] # failing checks on maul's own PR that start a fix round
-        # rerunFailed: true # re-run a failed Actions check once before a round
-      # labels: {trigger: maul:shop-web, approve: maul:approved}   the defaults
-      # limits: {maxActiveIntents: 2, maxCostMicroUSD: 10000000}        $10 per intent
+# shop-web.project.yaml
+spec:
+  # intentRepository, approvers and repositories as written
+  preview: # leave out for intents without previews
+    imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
+    port: 8080
+    readinessPath: /healthz
+  checks:
+    fix: [test] # failing checks on maul's own PR that start a fix round
+    # rerunFailed: true # re-run a failed Actions check once before a round
+  # labels: {trigger: maul:shop-web, approve: maul:approved}   the defaults
+  # limits: {maxActiveIntents: 2, maxCostMicroUSD: 10000000}        $10 per intent
 ```
+
+Once you have edited the file, change it by editing it: re-running `maul setup project --force` writes it anew from the
+flags and drops these fields.
 
 To have maul check each intent's change against what its plan said before a human reviews it, add
 `verification: {enabled: true}` under `spec` (the operator also turns the agent evaluator on in the chart): the plan
@@ -359,11 +363,10 @@ before a fix round is spent on it, so a flaky test costs no round; the App then 
 Under `--existing` there is no `test` check from maul (`runtime-image.yml`'s job is `build`): name your own CI's check
 runs, as GitHub lists them for the default branch's head
 (`gh api repos/acme/Shop.Web/commits/main/check-runs --jq '.check_runs[].name'`). The App must be installed on the
-repository before the Project is `Ready`. Upgrade `maul-config`, then run the preflight:
+repository before the Project is `Ready`. Apply the file, then run the preflight:
 
 ```sh
-helm upgrade maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
-  --namespace maul -f maul-config-values.yaml
+kubectl apply -f shop-web.project.yaml
 GH_TOKEN=$(gh auth token) maul check project shop-web -n maul
 ```
 
