@@ -18,9 +18,11 @@ import (
 )
 
 // The maul/acceptance commit status: what the agent evaluator's
-// verification of the combined change says, posted on every open pull
-// request's head of an intent in review whose Project verifies. It is
-// maul's word on behavioural evidence, never read back as state.
+// verification of the combined change says, posted on the open pull
+// request heads it evaluated (the head set; acceptanceOn) of an intent in
+// review whose Project verifies, and on no other pull request of the
+// intent: one in a repository nothing evaluates gets none. It is maul's
+// word on behavioural evidence, never read back as state.
 //
 //   - success only in the outcomes mode (verify_mode.go), when every
 //     approved outcome is confirmed at the current head set or an approver
@@ -321,7 +323,8 @@ type acceptanceRecord struct {
 }
 
 // syncAcceptanceStatuses posts the maul/acceptance status the verification
-// calls for on every open pull request's head whose record says otherwise,
+// calls for on every open pull request's head it goes on (acceptanceOn:
+// the evaluated head set's) whose record says otherwise,
 // or where an impostor's status is the latest, under its repository's rate
 // floor, and records what it posted. A failed post is logged and tried
 // again on a later pass. changed reports a status write; only errConflict
@@ -339,20 +342,22 @@ func (p *pass) syncAcceptanceStatuses(ctx context.Context) (bool, error) {
 		headSet = v.HeadSetDigest
 	}
 	target := p.verifyTargetURL()
+	heads, known := p.headsNow()
 	var records []acceptanceRecord
 	for _, pr := range p.in.Status.PullRequests {
-		if !p.acceptanceTarget(pr, postedOnly) {
+		on, ok := p.acceptanceOn(pr, st, postedOnly, heads, known)
+		if !ok {
 			continue
 		}
-		d := acceptanceDigest(pr.HeadSHA, headSet, st)
-		if d == pr.AcceptanceDigest && !p.impostorLatest(ctx, pr, st.state) {
+		d := acceptanceDigest(pr.HeadSHA, headSet, on)
+		if d == pr.AcceptanceDigest && !p.impostorLatest(ctx, pr, on.state) {
 			continue
 		}
 		if above, err := p.rateOK(ctx, pr.Repository); err != nil || !above {
 			continue
 		}
-		id, err := p.r.GitHub.CreateCommitStatus(ctx, pr.Repository, pr.HeadSHA, st.state, acceptanceContext,
-			st.description, target)
+		id, err := p.r.GitHub.CreateCommitStatus(ctx, pr.Repository, pr.HeadSHA, on.state, acceptanceContext,
+			on.description, target)
 		if err != nil {
 			p.r.log().LogAttrs(ctx, slog.LevelWarn, "post maul/acceptance; retried at a later pass",
 				slog.String("intent", p.in.Name), slog.String("repository", pr.Repository),
@@ -378,12 +383,48 @@ func (p *pass) syncAcceptanceStatuses(ctx context.Context) (bool, error) {
 	})
 }
 
-// acceptanceTarget reports a pull request maul/acceptance goes on: open,
-// with a known head, in a repository the Project still lists, and, when the
-// status goes only where one was posted (postedOnly), carrying maul's.
-func (p *pass) acceptanceTarget(pr v1alpha1.IntentPullRequest, postedOnly bool) bool {
-	return pr.State == prOpen && pr.HeadSHA != "" && !p.leftProject(pr.Repository) &&
-		(!postedOnly || pr.AcceptanceStatusID != 0)
+// notEvaluated is the final status of a pull request outside the evaluated
+// head set that carries a maul/acceptance of an earlier pass: nothing
+// checked its commits, so maul's word there is taken back.
+var notEvaluated = acceptanceState{statusError, "maul does not evaluate this repository: nothing here was checked"}
+
+// acceptanceOn is the maul/acceptance status that goes on pr when the
+// verification calls for st; ok is false when none does. This is the one
+// per-pull-request decision: the digest, the impostor answer and the post
+// all read it.
+//
+// A pull request gets a status only when open, with a known head, in a
+// repository the Project still lists, and, when the status goes only where
+// one was posted (postedOnly), carrying maul's. And a judgement is of the
+// head set alone (code review 2026-11-18, rounds 3; SM-2): while there is
+// one (known), st goes only on a pull request whose head is in it. Any
+// other carries commits nothing checked (a repository with no preview on a
+// previewed Project, or not the surface's): nothing is posted there, at
+// its first head or after a push, and a maul/acceptance already at its
+// head is answered once by notEvaluated, never left green or pending. With
+// no head set nothing is judged, so st is never a success (acceptanceStatus
+// reports no judgement but atHeads).
+func (p *pass) acceptanceOn(pr v1alpha1.IntentPullRequest, st acceptanceState, postedOnly bool, heads headSet,
+	known bool) (acceptanceState, bool) {
+	if pr.State != prOpen || pr.HeadSHA == "" || p.leftProject(pr.Repository) ||
+		postedOnly && pr.AcceptanceStatusID == 0 {
+		return acceptanceState{}, false
+	}
+	if postedOnly || !known || inHeadSet(heads, pr) {
+		return st, true
+	}
+	if pr.AcceptanceStatusID != 0 && pr.AcceptanceHead == pr.HeadSHA {
+		return notEvaluated, true
+	}
+	return acceptanceState{}, false
+}
+
+// inHeadSet reports that pr's head is one of the heads: its repository at
+// exactly its commit.
+func inHeadSet(heads headSet, pr v1alpha1.IntentPullRequest) bool {
+	return slices.ContainsFunc(heads.heads, func(h v1alpha1.VerificationHead) bool {
+		return sameRepo(h.Repository, pr.Repository) && h.Revision == pr.HeadSHA
+	})
 }
 
 // statusesUnavailable reports a Project whose App may not post commit
