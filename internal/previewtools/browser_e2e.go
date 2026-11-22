@@ -437,7 +437,7 @@ func (s *specRun) helper(p *exprParser, stmt string) *scriptFailure {
 			return failf("page.waitForURL: Timeout %dms exceeded.", playwright.ActionTimeoutMS)
 		}
 		return failf("maul: url %s failed: the page is at %s", pattern, pathOf(s.url))
-	case "visible", "legible", "clickable", "scroll":
+	case "visible", "legible", "clickable", "scroll", "text":
 		return s.single(name, args, stmt)
 	case "size":
 		return s.size(args, stmt)
@@ -460,6 +460,8 @@ func (s *specRun) single(name string, args []any, stmt string) *scriptFailure {
 	switch {
 	case name == "visible" && el.Hidden:
 		return failf("maul: visible failed: the element is hidden")
+	case name == "text" && el.Hidden:
+		return failf("maul: text failed: its text is met only with text that is not shown")
 	case name == "legible" && el.Illegible:
 		return failf("maul: legible failed: contrast 1.4:1 is under 4.5:1")
 	case name == "clickable" && (el.Hidden || el.Covered):

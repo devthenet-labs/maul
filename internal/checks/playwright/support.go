@@ -109,6 +109,28 @@ async function drawn(loc: Locator, what: string): Promise<Drawn> {
   return (await loc.evaluate(pageFunction, "drawn")) as Drawn;
 }
 
+// Seen is the text page function's answer: the element's text as the
+// runner reads it, with only what a person can see (shown) and with what
+// is shown or unsure (maybe), and why the rest is hidden or unsure.
+type Seen = Verdict & { full: string; shown: string; maybe: string; hidden: string[]; unsure: string[] };
+
+// TextWant is a text assertion's one matcher.
+type TextWant = { equals?: string; contains?: string; matches?: string };
+
+// normal is the runner's white space rule for a text it compares.
+function normal(s: string): string {
+  return s.replace(/[\u200b\u00ad]/g, "").trim().replace(/\s+/g, " ");
+}
+
+// reads reports whether text meets want as the runner's expectation
+// judges it: a string against the text with its white space normalised,
+// a pattern against the text as it is.
+function reads(text: string, want: TextWant): boolean {
+  if (want.equals !== undefined) return normal(text) === normal(want.equals);
+  if (want.contains !== undefined) return normal(text).includes(normal(want.contains));
+  return maul.regex(want.matches ?? "").test(text);
+}
+
 // partly names the cut boxes among ds, for a measurement of the layout box
 // that a person sees only in part.
 function partly(...ds: Drawn[]): string[] {
@@ -223,6 +245,24 @@ export const maul = {
     } catch (e) {
       indeterminate("text matches", [String(e)]);
     }
+  },
+
+  // text follows the runner's own text expectation, which reads text
+  // nobody can see as it reads any other: the text that meets want must
+  // be text a person can see (defect gate 7). With nothing hidden it
+  // holds; else what shows must meet want by itself. Text met only with
+  // text that is not shown is a fail; with text maul cannot settle, or a
+  // text that changed under the check, indeterminate.
+  async text(loc: Locator, want: TextWant): Promise<void> {
+    await retry("text", async (): Promise<Verdict> => {
+      const s = (await loc.evaluate(pageFunction, "text")) as Seen;
+      if (s.verdict !== "pass" || (!s.hidden.length && !s.unsure.length) || reads(s.shown, want)) return s;
+      if (!reads(s.full, want)) return { verdict: "indeterminate", why: ["its text changed under the check"] };
+      if (s.unsure.length && reads(s.maybe, want)) {
+        return { verdict: "indeterminate", why: ["its text may not be shown: " + s.unsure.join("; ")] };
+      }
+      return { verdict: "fail", why: ["its text is met only with text that is not shown: " + s.hidden.join("; ")] };
+    });
   },
 
   async scroll(loc: Locator, dx: number, dy: number): Promise<void> {

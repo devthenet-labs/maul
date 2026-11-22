@@ -99,8 +99,63 @@ func liveCases() []liveCase {
 	out = append(out, seenCases()...)
 	out = append(out, unmeasuredCases()...)
 	out = append(out, ordinaryCases()...)
-	return append(out, clippedCases()...)
+	out = append(out, clippedCases()...)
+	return append(out, textCases()...)
 }
+
+// textCases are G7-B-1's and G7-B-2's (defect gate 7): a text assertion
+// holds only on text a person can see. A line clipped to nothing by its
+// own overflow, the same line asserted through its container, a
+// screen-reader span, a closed details, display none and a faded-out
+// line fail, in maul's words; text whose showing maul cannot settle (a
+// carousel's other slide, a clip under a scale) is indeterminate. Text
+// that shows judges as before: the rest of a container, a zero-height
+// wrapper whose text overflows it, text below the fold, a container
+// taller than the window, a list a person scrolls, a truncated title, a
+// select's options, an empty element. And visible on a zero box says what
+// hides its content, or is unsure when the content shows all the same.
+func textCases() []liveCase {
+	text := func(name, want, id string, m checks.TextMatch) liveCase {
+		return liveCase{name, want, checks.Assertion{Assert: checks.AssertText, Locator: css("#" + id), Text: &m}}
+	}
+	see := func(id, want string) liveCase {
+		return liveCase{id + "-visible", want, checks.Assertion{Assert: checks.AssertVisible, Locator: css("#" + id)}}
+	}
+	return []liveCase{
+		text("x-clipped-text", "fail", "x-clipped", checks.TextMatch{Equals: "Busiest: none"}),
+		text("x-clipped-matches", "fail", "x-clipped", checks.TextMatch{Matches: "^Busiest: "}),
+		text("x-panel-hidden", "fail", "x-panel", checks.TextMatch{Contains: "Busiest: kick (3)"}),
+		text("x-panel-shown", "pass", "x-panel", checks.TextMatch{Contains: "Loud"}),
+		text("x-sr-whole", "fail", "x-sr", checks.TextMatch{Equals: "Delete item 3"}),
+		text("x-sr-shown", "pass", "x-sr", checks.TextMatch{Contains: "Delete"}),
+		text("x-details-closed", "fail", "x-details", checks.TextMatch{Contains: "Hidden body"}),
+		text("x-details-summary", "pass", "x-details", checks.TextMatch{Contains: "More"}),
+		text("x-none-hidden", "fail", "x-none", checks.TextMatch{Contains: "Secret"}),
+		text("x-none-shown", "pass", "x-none", checks.TextMatch{Matches: "^Shown"}),
+		text("x-faded-text", "fail", "x-faded", checks.TextMatch{Equals: "Faded out"}),
+		text("x-zero-text", "pass", "x-zero", checks.TextMatch{Equals: "Overflowing"}),
+		text("x-zero-own-text", "pass", "x-zero-own", checks.TextMatch{Equals: "Own overflowing"}),
+		text("x-tall-text", "pass", "x-tall", checks.TextMatch{Contains: "Top of a tall panel"}),
+		text("x-list-scrolled", "pass", "x-list", checks.TextMatch{Contains: "Track 9"}),
+		text("x-ellipsis-text", "pass", "x-ellipsis", checks.TextMatch{Contains: "at the end"}),
+		text("x-select-text", "pass", "x-select", checks.TextMatch{Contains: "Snare"}),
+		text("x-empty-text", "pass", "x-empty", checks.TextMatch{Matches: "^$"}),
+		text("x-below-text", "pass", "x-below", checks.TextMatch{Equals: "Far below the fold"}),
+		text("x-carousel-other", "indeterminate", "x-carousel", checks.TextMatch{Contains: "Slide three"}),
+		text("x-carousel-first", "pass", "x-carousel", checks.TextMatch{Contains: "Slide one"}),
+		text("x-warped-text", "indeterminate", "x-warped", checks.TextMatch{Equals: "Under a scale"}),
+		text("x-wrong-text", "fail", "x-below", checks.TextMatch{Equals: "Another line"}),
+		see("x-clipped", "fail"),
+		see("x-zero", "indeterminate"),
+		see("x-zero-own", "indeterminate"),
+	}
+}
+
+// textUnseen are the text cases whose text is there and matches but is
+// not shown: each fails in maul's own words, apart from a text that does
+// not match (the runner's expectation, x-wrong-text).
+var textUnseen = []string{"x-clipped-text", "x-clipped-matches", "x-panel-hidden", "x-sr-whole", "x-details-closed",
+	"x-none-hidden", "x-faded-text"}
 
 // seenCases are review finding 2's: visible means a person can see it. An
 // element clipped to nothing (a collapsed panel, a 1px screen-reader span,
@@ -382,6 +437,19 @@ export default defineConfig({
 		if why := stripEscapes(got[name+".spec.ts"].why); strings.Contains(why, " failed: ") {
 			t.Errorf("%s: judged %q, which reads as a failed assertion", name, why)
 		}
+	}
+	for _, name := range textUnseen {
+		why := strings.TrimPrefix(stripEscapes(got[name+".spec.ts"].why), "Error: ")
+		if !strings.HasPrefix(why, "maul: text failed: ") {
+			t.Errorf("%s: text that is not shown failed as %q, want maul's text failure", name, why)
+		}
+	}
+	if why := stripEscapes(got["x-wrong-text.spec.ts"].why); !strings.Contains(why, "toHaveText") {
+		t.Errorf("x-wrong-text: a text that does not match failed as %q, want the runner's expectation", why)
+	}
+	if why := stripEscapes(got["x-clipped-visible.spec.ts"].why); !strings.Contains(why, "zero box") ||
+		!strings.Contains(why, "overflow") {
+		t.Errorf("x-clipped-visible: failed as %q, want the zero box and the overflow that hides its content", why)
 	}
 	for _, name := range missesNoElement {
 		why := strings.TrimPrefix(stripEscapes(got[name+".spec.ts"].why), "Error: ")

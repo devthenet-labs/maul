@@ -26,10 +26,13 @@ test("maul check", async ({ page }) => {
 
   // step 5: expect text
   await expect(page.getByRole("heading").nth(0)).toHaveText("Battle v1a1t1-abc123");
+  await maul.text(page.getByRole("heading").nth(0), { equals: "Battle v1a1t1-abc123" });
 
   // step 6: expect text
   await expect(page.locator("css=article.side").getByText("Score")).toContainText("points");
+  await maul.text(page.locator("css=article.side").getByText("Score"), { contains: "points" });
 
   // step 7: expect text
   await expect(page.getByTestId("score-a")).toHaveText(maul.regex("^[0-9]+$"));
+  await maul.text(page.getByTestId("score-a"), { matches: "^[0-9]+$" });
 });

@@ -217,6 +217,27 @@
       <button type="button" aria-label="Remix tok cover long beat name">Remix</button>
       <button type="button">&#9654; Play</button>
     </div>
+    <!-- G7-B-1: a text assertion holds only on text a person can see. The planted shape (a line clipped to nothing
+         by its own overflow), the same one level up, a screen-reader span, a closed details, display none, and what
+         must judge as before: a zero-height wrapper whose text overflows and shows, text below the fold, a container
+         taller than the window, a list a person can scroll, a truncated title, a select's options, empty text. A
+         carousel's other slide (overflow hidden, but it scrolls) and a clip under a scale are unsure. -->
+    <div class="case"><p id="x-clipped" style="height: 0; overflow: hidden; margin: 0">Busiest: none</p></div>
+    <div class="case"><div id="x-panel"><span>Loud</span><p style="height: 0; overflow: hidden; margin: 0">Busiest: kick (3)</p></div></div>
+    <div class="case"><button id="x-sr" type="button">Delete <span class="sr-only">item 3</span></button></div>
+    <div class="case"><details id="x-details"><summary>More</summary><p>Hidden body</p></details></div>
+    <div class="case"><div id="x-none">Shown <span style="display: none">Secret</span></div></div>
+    <div class="case"><p id="x-faded" style="opacity: 0">Faded out</p></div>
+    <div class="case" style="height: 30px"><div id="x-zero" style="height: 0"><span>Overflowing</span></div></div>
+    <div class="case" style="height: 30px"><div id="x-zero-own" style="height: 0">Own overflowing</div></div>
+    <div class="case"><div id="x-tall" style="height: 1700px"><p>Top of a tall panel</p></div></div>
+    <div class="case"><ul id="x-list" style="height: 60px; overflow: auto; margin: 0"><li>Track 1</li><li>Track 2</li><li>Track 3</li><li>Track 4</li><li>Track 5</li><li>Track 6</li><li>Track 7</li><li>Track 8</li><li>Track 9</li></ul></div>
+    <div class="case"><p id="x-ellipsis" style="width: 120px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 0">A long title that is cut with an ellipsis at the end</p></div>
+    <div class="case"><select id="x-select"><option>Kick</option><option>Snare</option></select></div>
+    <div class="case"><p id="x-empty" style="height: 10px; margin: 0"></p></div>
+    <div class="case"><div id="x-carousel" style="width: 200px; overflow: hidden"><div style="display: flex; width: 600px"><div style="width: 200px">Slide one</div><div style="width: 200px">Slide two</div><div style="width: 200px">Slide three</div></div></div></div>
+    <div class="case"><div style="transform: scale(0.9)"><p id="x-warped" style="height: 0; overflow: hidden; margin: 0">Under a scale</p></div></div>
+    <div class="case" style="margin-top: 1200px"><p id="x-below">Far below the fold</p></div>
     <script>
       for (const s of document.querySelectorAll('.scroller')) s.scrollLeft = s.scrollWidth;
       for (const c of document.querySelectorAll('canvas.black')) {

@@ -832,6 +832,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   form whose digest it was recorded under (G4-B-BR-1). `checks/playwright` compiles a
   browser check to a readable `.spec.ts` at a fixed 1280x800, maul's page functions (`pagefns.js`) judging human
   visibility, WCAG contrast and hit-tested clicks, indeterminate as a check error, never a fail.
+  A `text` assertion is two statements: the runner's expectation, then `maul.text`, which holds only when what
+  meets the matcher is text a person can see (the `text` page function; defect gate 7).
 - `toolwire` — the evaluator's tool wire and ledger v2, stdlib only: one endpoint per verb (`POST /v1/<verb>`), typed
   requests held to their bounds, one `Response` keeping the application's bytes (`Untrusted`) apart from maul's
   measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`), evidence lines and the `Summary` (count and sha256)

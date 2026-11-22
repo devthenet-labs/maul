@@ -236,10 +236,16 @@ background image, an `<img>`, a `<canvas>`, a video or SVG (SVG text too), a `::
 under it (one beside the text, a bullet or an underline, does not count), a paint effect, or a web component's shadow
 content maul cannot see into (a closed shadow root, or text put straight into a component's slot). A checkbox or radio
 hidden as a 1px screen-reader input behind a styled box is indeterminate too: assert on the label or the box a person
-sees. Its `size` assertion takes an exact `width` or `height`, within the assertion's `tolerance`, or bounds:
-`minWidth`, `maxWidth`, `minHeight` and `maxHeight`, the same tolerance as slack. An axis takes an exact value or its
-bounds, never both, and a minimum is never over its maximum. So an outcome that says "at least 48 px" is checked by
-`minHeight: 48`, never by an exact 48, which would fail a correct 56 px pad and which the reviewer refuses. The box
+sees. An element whose own box is zero fails `visible` saying what hides its content; when its content overflows it and
+shows all the same (a wrapper whose height collapsed), the assertion is indeterminate. Its `text` assertion holds only
+on text a person can see: the text must match, and what matches must be shown. Text that is not rendered
+(`display: none`, a closed `<details>`), hidden by `visibility` or opacity, or clipped to nothing (a collapsed line, a
+1px screen-reader span) does not count, so a text met only with it fails, naming what hides it; text in a list a person
+can scroll counts, and text maul cannot settle (another slide of a carousel, a clip under a scaled container) makes the
+assertion indeterminate. Its `size` assertion takes an exact `width` or `height`, within the assertion's `tolerance`, or
+bounds: `minWidth`, `maxWidth`, `minHeight` and `maxHeight`, the same tolerance as slack. An axis takes an exact value
+or its bounds, never both, and a minimum is never over its maximum. So an outcome that says "at least 48 px" is checked
+by `minHeight: 48`, never by an exact 48, which would fail a correct 56 px pad and which the reviewer refuses. The box
 relations (`left-of`, `above`, `no-overlap`, `equal-size`, `aligned`) and `size` measure what is drawn, where the page
 left it (the check's own scrolls are kept): each box is cut by every ancestor whose overflow clips it, by a `clip` or
 `clip-path` inset, and by the page's extent (the viewport, for a fixed element). `left-of`, `above` and `no-overlap`

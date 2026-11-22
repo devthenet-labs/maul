@@ -24,6 +24,24 @@
 //            shown descendants is judged so: one passing passes, all
 //            failing fails, otherwise indeterminate (bare text a slot
 //            shows inside it is not measured: indeterminate).
+//            A zero box fails saying what hides its content (an overflow
+//            that clips, or nothing in it showing); when its content
+//            overflows it and shows all the same (a wrapper whose height
+//            collapsed), indeterminate: assert on what shows.
+//   text:    which of its text a person can see (the text assertion's
+//            measure, defect gate 7): each text node is shown, hidden or
+//            unsure by where its own boxes are drawn. Hidden: not
+//            rendered (display none, a closed details or other content
+//            the browser skips), visibility or
+//            opacity, or clipped to nothing (at most 1x1 px) by an
+//            overflow hidden or clip, a clip or clip-path inset, or the
+//            page's extent. An overflow a person scrolls (auto, scroll)
+//            clips nothing here. Unsure: clipped under a scaled, rotated
+//            or zoomed ancestor, or by an overflow hidden box that still
+//            scrolls (a carousel's other slide). It returns the text as
+//            the runner reads it (full), with only what is shown (shown)
+//            and with what is shown or unsure (maybe); the support
+//            module matches them.
 //   legible: WCAG AA contrast of its own non-emoji text, 4.5:1, or 3:1
 //            for large text (24px, or 18.66px at weight 700 and over).
 //   hit:     the topmost element at the box centre is the element or
@@ -581,7 +599,18 @@
   const visible = () => {
     const r = el.getBoundingClientRect();
     const why = [];
-    if (r.width <= 0 || r.height <= 0) why.push('zero box ' + r.width + 'x' + r.height);
+    let overflows = false;
+    if (r.width <= 0 || r.height <= 0) {
+      // A zero box shows nothing of itself; what is in it may overflow it
+      // and show (a wrapper whose height collapsed), unless it is clipped.
+      const s = getComputedStyle(el);
+      const clips = [s.overflowX, s.overflowY].filter((o) => o !== 'visible');
+      overflows = contentShows();
+      why.push(
+        'zero box ' + r.width + 'x' + r.height +
+          (overflows ? '' : clips.length ? ', its content clipped by its overflow ' + clips[0] : ', nothing in it shows'),
+      );
+    }
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     if (!(cx >= 0 && cx < innerWidth && cy >= 0 && cy < innerHeight)) {
@@ -591,6 +620,9 @@
     if (vis !== 'visible') why.push('visibility ' + vis);
     const op = effectiveOpacity(el);
     if (op <= VISIBLE_MIN_OPACITY) why.push('opacity ' + op.toFixed(2) + ' <= ' + VISIBLE_MIN_OPACITY);
+    if (why.length === 1 && overflows) {
+      return { verdict: 'indeterminate', why: [why[0] + ', yet its content overflows it and shows: assert on that'] };
+    }
     if (why.length) return { verdict: 'fail', why };
     const m = drawn(el);
     const at = found();
@@ -719,20 +751,30 @@
   // clip and clip-path inset() cut too, t's own and its clipping chain's,
   // and an ancestor that scales, rotates or zooms is named in warped,
   // since its cut is then unsure.
-  const drawn = (t) => {
-    const r = t.getBoundingClientRect();
+  const drawn = (t) => measure(t.getBoundingClientRect(), t, up(t), getComputedStyle(t).position, false);
+
+  // measure cuts the box r as drawn cuts an element's: own is the element
+  // whose box it is (its own clip and clip-path cut it; null for a text
+  // node's boxes), first the nearest ancestor that may clip it, pos its
+  // position. reach is the text measure's: an overflow a person scrolls
+  // (auto, scroll) cuts nothing, and loose reports a cut by an overflow
+  // hidden box that still scrolls to more, which a script may yet show.
+  const measure = (r, own, first, pos, reach) => {
     const box = { x: r.left, y: r.top, width: r.width, height: r.height };
     let left = r.left;
     let top = r.top;
     let right = r.right;
     let bottom = r.bottom;
     const by = [];
+    let loose = false;
     const cut = (l, t, rr, b, who) => {
-      if (l > left || t > top || rr < right || b < bottom) by.push(who);
+      const cuts = l > left || t > top || rr < right || b < bottom;
+      if (cuts) by.push(who);
       left = Math.max(left, l);
       top = Math.max(top, t);
       right = Math.min(right, rr);
       bottom = Math.min(bottom, b);
+      return cuts;
     };
     const warped = [];
     const clipBy = (n, s) => {
@@ -740,18 +782,17 @@
       if (c) cut(c.l, c.t, c.r, c.b, desc(n));
     };
     const root = document.documentElement;
-    const own = getComputedStyle(t);
-    clipBy(t, own);
-    for (let a = up(t); a && a !== root; a = up(a)) if (warps(getComputedStyle(a))) warped.push(desc(a));
-    let pos = own.position;
-    for (let a = up(t); a && a !== root && a !== document.body; a = up(a)) {
+    if (own) clipBy(own, getComputedStyle(own));
+    for (let a = first; a && a !== root; a = up(a)) if (warps(getComputedStyle(a))) warped.push(desc(a));
+    for (let a = first; a && a !== root && a !== document.body; a = up(a)) {
       const s = getComputedStyle(a);
       if (pos === 'fixed' && !establishesFixedBlock(s)) continue;
       if (pos === 'absolute' && s.position === 'static' && !establishesFixedBlock(s)) continue;
       pos = s.position;
       clipBy(a, s);
-      const clipX = s.overflowX !== 'visible';
-      const clipY = s.overflowY !== 'visible';
+      const scrolls = /^(auto|scroll)$/;
+      const clipX = s.overflowX !== 'visible' && !(reach && scrolls.test(s.overflowX));
+      const clipY = s.overflowY !== 'visible' && !(reach && scrolls.test(s.overflowY));
       if ((!clipX && !clipY) || /^(inline|contents)$/.test(s.display)) continue;
       const ar = a.getBoundingClientRect();
       // overflow: clip paints past the padding box by its clip margin.
@@ -760,16 +801,122 @@
       const t = ar.top + a.clientTop - mg;
       const w = clipX ? a.clientWidth + 2 * mg : Infinity;
       const h = clipY ? a.clientHeight + 2 * mg : Infinity;
-      cut(clipX ? l : -Infinity, clipY ? t : -Infinity, l + w, t + h, desc(a));
+      const cuts = cut(clipX ? l : -Infinity, clipY ? t : -Infinity, l + w, t + h, desc(a));
+      if (
+        cuts &&
+        ((clipX && s.overflowX === 'hidden' && a.clientWidth > 1 && a.scrollWidth > a.clientWidth) ||
+          (clipY && s.overflowY === 'hidden' && a.clientHeight > 1 && a.scrollHeight > a.clientHeight))
+      ) {
+        loose = true;
+      }
     }
     if (pos === 'fixed') cut(0, 0, root.clientWidth, root.clientHeight, 'the viewport');
     else cut(-scrollX, -scrollY, root.scrollWidth - scrollX, root.scrollHeight - scrollY, 'the page');
     const clip = { x: left, y: top, width: right - left, height: bottom - top };
     const empty = (w, full) => w < 0 || (full > 0 && w <= 0);
     if (empty(clip.width, box.width) || empty(clip.height, box.height)) {
-      return { verdict: 'indeterminate', why: ['not drawn: clipped away by ' + by.join(', ')], box, clip, by, warped };
+      return { verdict: 'indeterminate', why: ['not drawn: clipped away by ' + by.join(', ')], box, clip, by, warped, loose };
     }
-    return { verdict: 'pass', why: [], box, clip, by, warped };
+    return { verdict: 'pass', why: [], box, clip, by, warped, loose };
+  };
+
+  // seen says whether a person can see what is drawn in box r, styled by
+  // e and clipped from first up (pos its position): 'shown', 'hidden' or
+  // 'unsure', and why it is not shown.
+  const seen = (r, e, own, first, pos) => {
+    // checkVisibility: no box, or inside content the browser skips (a
+    // closed details, content-visibility hidden), which still measures.
+    if (r.width <= 0 || r.height <= 0 || (e.checkVisibility && !e.checkVisibility())) return ['hidden', 'not rendered'];
+    const vis = getComputedStyle(e).visibility;
+    if (vis !== 'visible') return ['hidden', 'visibility ' + vis];
+    const op = effectiveOpacity(e);
+    if (op <= VISIBLE_MIN_OPACITY) return ['hidden', 'opacity ' + op.toFixed(2) + ' <= ' + VISIBLE_MIN_OPACITY];
+    const m = measure(r, own, first, pos, true);
+    if (!nothing(m)) return ['shown', ''];
+    const what =
+      m.verdict === 'pass' ? 'drawn only ' + m.clip.width.toFixed(1) + 'x' + m.clip.height.toFixed(1) + ' px' : 'clipped away';
+    const where = what + (m.by.length ? ' by ' + m.by.join(', ') : '');
+    if (m.warped.length) return ['unsure', where + ' under ' + m.warped.join(', ')];
+    if (m.loose) return ['unsure', where + ', which scrolls to more'];
+    return ['hidden', where];
+  };
+
+  // textBox is the box of text node n's own boxes, each line's: zero when
+  // it is not rendered.
+  const textBox = (n) => {
+    const range = document.createRange();
+    range.selectNodeContents(n);
+    let l = Infinity;
+    let t = Infinity;
+    let rr = -Infinity;
+    let b = -Infinity;
+    for (const c of range.getClientRects()) {
+      if (c.width <= 0 || c.height <= 0) continue;
+      l = Math.min(l, c.left);
+      t = Math.min(t, c.top);
+      rr = Math.max(rr, c.right);
+      b = Math.max(b, c.bottom);
+    }
+    if (l === Infinity) return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    return { left: l, top: t, right: rr, bottom: b, width: rr - l, height: b - t };
+  };
+
+  // textSeen reads el's text as the runner's text expectation does (text
+  // nodes in tree order, a shadow root's after its host's own, script,
+  // noscript and style skipped, a button input by its value) and sorts it
+  // by what a person can see. The text of a select or textarea is seen
+  // with its control. Whitespace is nobody's.
+  const UNSEEN_MAX = 3;
+  const textSeen = () => {
+    const out = { verdict: 'pass', why: [], full: '', shown: '', maybe: '', hidden: [], unsure: [] };
+    const put = (text, state, who, why) => {
+      out.full += text;
+      if (state === 'shown') out.shown += text;
+      if (state !== 'hidden') out.maybe += text;
+      const list = state === 'hidden' ? out.hidden : state === 'unsure' ? out.unsure : null;
+      const line = who + ' ' + why;
+      if (list && list.length < UNSEEN_MAX && !list.includes(line)) list.push(line);
+    };
+    const boxed = (text, e) => {
+      const [state, why] = seen(e.getBoundingClientRect(), e, e, up(e), getComputedStyle(e).position);
+      put(text, state, desc(e), why);
+    };
+    const walk = (root) => {
+      if (root.nodeType === 1 && /^(SCRIPT|NOSCRIPT|STYLE)$/.test(root.nodeName)) return;
+      if (root.nodeType === 1 && root.tagName === 'INPUT' && /^(submit|button|reset)$/.test(root.type)) {
+        boxed(root.value, root);
+        return;
+      }
+      for (let c = root.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 1) walk(c);
+        if (c.nodeType !== 3) continue;
+        const text = c.nodeValue || '';
+        const e = c.parentElement || (c.parentNode && c.parentNode.host);
+        if (!text.trim() || !e) {
+          put(text, 'shown', '', '');
+          continue;
+        }
+        const control = e.closest('select, textarea');
+        if (control) {
+          boxed(text, control);
+          continue;
+        }
+        const [state, why] = seen(textBox(c), e, null, e, 'static');
+        put(text, state, desc(e), why);
+      }
+      if (root.shadowRoot) walk(root.shadowRoot);
+    };
+    walk(el);
+    return out;
+  };
+
+  // contentShows reports whether anything in el shows though el's own box
+  // is zero: text of its own or a descendant's, or a descendant's box.
+  const contentShows = () => {
+    const t = textSeen();
+    if (t.maybe.trim()) return true;
+    for (const d of el.querySelectorAll('*')) if (shown(d)) return true;
+    return false;
   };
 
   switch (kind) {
@@ -777,6 +924,8 @@
       return visible();
     case 'legible':
       return legible();
+    case 'text':
+      return textSeen();
     case 'hit':
       return hit();
     case 'drawn':
