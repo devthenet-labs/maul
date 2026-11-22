@@ -347,6 +347,10 @@ func sizeWant(a checks.Assertion) string {
 	return strings.Join(dims, ", ")
 }
 
+// text writes a text assertion as two statements: the runner's own
+// expectation, which keeps the text it received, then maul.text, since
+// that expectation reads text nobody can see as any other (defect gate 7,
+// G7-B-1): what meets the matcher must be text a person can see.
 func (w *writer) text(loc string, t *checks.TextMatch) {
 	switch {
 	case t == nil:
@@ -355,10 +359,13 @@ func (w *writer) text(loc string, t *checks.TextMatch) {
 		}
 	case t.Equals != "":
 		w.do("expect(" + loc + ").toHaveText(" + w.lit(t.Equals) + w.expectOpts + ")")
+		w.do("maul.text(" + loc + ", { equals: " + w.lit(t.Equals) + " })")
 	case t.Contains != "":
 		w.do("expect(" + loc + ").toContainText(" + w.lit(t.Contains) + w.expectOpts + ")")
+		w.do("maul.text(" + loc + ", { contains: " + w.lit(t.Contains) + " })")
 	default:
 		w.do("expect(" + loc + ").toHaveText(maul.regex(" + w.lit(t.Matches) + ")" + w.expectOpts + ")")
+		w.do("maul.text(" + loc + ", { matches: " + w.lit(t.Matches) + " })")
 	}
 }
 

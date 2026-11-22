@@ -80,8 +80,9 @@ How maul runs it: {{if eq .Form "http"}}each step sends its request to the named
 in order, and fails the check unless the response matches its `expect`; `capture` keeps a value from a response for
 later steps.{{else if eq .Form "browser"}}the steps run in order in a fresh browser on the running preview, its
 window always {{.Viewport.Width}} by {{.Viewport.Height}} CSS pixels, each an action or an assertion; `visible` means a
-person can see the element (on screen, not clipped away, not covered, its text readable), `legible` that a person can read its text, and `clickable` that it, not something covering
-it, receives a click.{{else if and .WS (eq .Form "exec")}}the program the Project builds,
+person can see the element (on screen, not clipped away, not covered, its text readable), `legible` that a person can read its text, `clickable` that it, not something covering
+it, receives a click, and `text` that the element's text reads so in text that is shown (text that is hidden or
+clipped away does not count, and a failure then names what hides it; it does not judge a cover or contrast).{{else if and .WS (eq .Form "exec")}}the program the Project builds,
 `{{.BinPlaceholder}}`, runs without a shell in a fresh working directory holding the check's files, and the check fails
 unless its exit code and stdout match its `expect`. It also fails whenever a line of its output starts with what
 `{{.ExecMarker}}` in its program files stands for, a secret maul draws afresh for every run and gives only the

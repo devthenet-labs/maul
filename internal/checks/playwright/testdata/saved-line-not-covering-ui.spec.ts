@@ -37,6 +37,7 @@ test("maul check", async ({ page }) => {
 
   // step 8: expect text
   await expect(page.locator("css=#loaded")).toHaveText("Loaded: v1a1t1-abc123 cover by v1a1t1-abc123-cv");
+  await maul.text(page.locator("css=#loaded"), { equals: "Loaded: v1a1t1-abc123 cover by v1a1t1-abc123-cv" });
 
   // step 9: expect visible
   await maul.visible(page.locator("css=#loaded"));

@@ -36,6 +36,7 @@ test("maul check", async ({ page }) => {
 
   // step 8: expect text
   await expect(page.getByRole("region", { name: "Sequencer" })).toHaveText(maul.regex("^\\s*(?i:kick)"));
+  await maul.text(page.getByRole("region", { name: "Sequencer" }), { matches: "^\\s*(?i:kick)" });
 
   // step 9: expect count
   await expect(page.getByText("Loaded:").filter({ hasText: "v1a1t1-abc123" })).toHaveCount(0);
@@ -46,9 +47,11 @@ test("maul check", async ({ page }) => {
 
   // step 11: expect text
   await expect(page.getByText("Loaded:")).toHaveText("Loaded: v1a1t1-abc123 fresh by v1a1t1-abc123-fr");
+  await maul.text(page.getByText("Loaded:"), { equals: "Loaded: v1a1t1-abc123 fresh by v1a1t1-abc123-fr" });
 
   // step 12: expect text
   await expect(page.getByRole("region", { name: "Sequencer" })).toHaveText(maul.regex("^\\s*Loaded: "));
+  await maul.text(page.getByRole("region", { name: "Sequencer" }), { matches: "^\\s*Loaded: " });
 
   // step 13: goto
   await page.goto("/");
@@ -56,6 +59,7 @@ test("maul check", async ({ page }) => {
 
   // step 14: expect text
   await expect(page.getByRole("region", { name: "Sequencer" })).toHaveText(maul.regex("^\\s*(?i:kick)"));
+  await maul.text(page.getByRole("region", { name: "Sequencer" }), { matches: "^\\s*(?i:kick)" });
 
   // step 15: expect count
   await expect(page.getByText("Loaded:").filter({ hasText: "v1a1t1-abc123" })).toHaveCount(0);

@@ -331,7 +331,8 @@ A check is bound to one outcome and has one form:
   `legible` (a person can read it: enough contrast against its background), `clickable` (it, not something over it,
   receives a click), `text` (its matcher nested under `text`: `{"assert": "text", "locator": {"css": "#bpm-out"},
   "text": {"equals": "90"}}`, or `contains` or `matches` in place of `equals`; it reads the text an element shows,
-  never the value of an input or slider), `count`, `url`, and the box relations `left-of`, `above`, `no-overlap`,
+  never the value of an input or slider, and only text that is shown: met only with hidden or clipped text it
+  fails, saying what hides it; a cover or contrast is `visible`'s and `legible`'s), `count`, `url`, and the box relations `left-of`, `above`, `no-overlap`,
   `equal-size`, `aligned` (`axis` x or y) and `size`, each with an `other` locator where it compares two and a
   `tolerance` in px. `size` takes an exact `width` or `height`, or the bounds `minWidth`, `maxWidth`, `minHeight` and
   `maxHeight` for an outcome that says "at least" or "at most" (an axis takes one or the other): write "at least 48
