@@ -111,8 +111,10 @@ func liveCases() []liveCase {
 // carousel's other slide, a clip under a scale) is indeterminate. Text
 // that shows judges as before: the rest of a container, a zero-height
 // wrapper whose text overflows it, text below the fold, a container
-// taller than the window, a list a person scrolls, a truncated title, a
-// select's options, an empty element. And visible on a zero box says what
+// taller than the window, a list a person scrolls, the last line of a
+// fixed drawer that scrolls, a truncated title, an empty element; a
+// select's options are read as the runner reads them, with the control
+// (an unselected one included: not judged here). And visible on a zero box says what
 // hides its content, or is unsure when the content shows all the same.
 func textCases() []liveCase {
 	text := func(name, want, id string, m checks.TextMatch) liveCase {
@@ -141,6 +143,9 @@ func textCases() []liveCase {
 		text("x-select-text", "pass", "x-select", checks.TextMatch{Contains: "Snare"}),
 		text("x-empty-text", "pass", "x-empty", checks.TextMatch{Matches: "^$"}),
 		text("x-below-text", "pass", "x-below", checks.TextMatch{Equals: "Far below the fold"}),
+		text("x-drawer-low-text", "pass", "x-drawer-low", checks.TextMatch{Equals: "Low in a drawer"}),
+		text("x-zero-auto-text", "fail", "x-zero-auto", checks.TextMatch{Contains: "Clipped by a scroller"}),
+		see("x-zero-auto", "fail"),
 		text("x-carousel-other", "indeterminate", "x-carousel", checks.TextMatch{Contains: "Slide three"}),
 		text("x-carousel-first", "pass", "x-carousel", checks.TextMatch{Contains: "Slide one"}),
 		text("x-warped-text", "indeterminate", "x-warped", checks.TextMatch{Equals: "Under a scale"}),
@@ -155,7 +160,7 @@ func textCases() []liveCase {
 // not shown: each fails in maul's own words, apart from a text that does
 // not match (the runner's expectation, x-wrong-text).
 var textUnseen = []string{"x-clipped-text", "x-clipped-matches", "x-panel-hidden", "x-sr-whole", "x-details-closed",
-	"x-none-hidden", "x-faded-text"}
+	"x-none-hidden", "x-faded-text", "x-zero-auto-text"}
 
 // seenCases are review finding 2's: visible means a person can see it. An
 // element clipped to nothing (a collapsed panel, a 1px screen-reader span,

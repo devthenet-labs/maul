@@ -220,7 +220,9 @@
     <!-- G7-B-1: a text assertion holds only on text a person can see. The planted shape (a line clipped to nothing
          by its own overflow), the same one level up, a screen-reader span, a closed details, display none, and what
          must judge as before: a zero-height wrapper whose text overflows and shows, text below the fold, a container
-         taller than the window, a list a person can scroll, a truncated title, a select's options, empty text. A
+         taller than the window, a list a person can scroll, the last line of a fixed drawer that scrolls, a truncated
+         title, a select's options (as the runner reads them, shown or not), empty text. A scroller of no height
+         hides its text as overflow hidden does. A
          carousel's other slide (overflow hidden, but it scrolls) and a clip under a scale are unsure. -->
     <div class="case"><p id="x-clipped" style="height: 0; overflow: hidden; margin: 0">Busiest: none</p></div>
     <div class="case"><div id="x-panel"><span>Loud</span><p style="height: 0; overflow: hidden; margin: 0">Busiest: kick (3)</p></div></div>
@@ -237,7 +239,13 @@
     <div class="case"><p id="x-empty" style="height: 10px; margin: 0"></p></div>
     <div class="case"><div id="x-carousel" style="width: 200px; overflow: hidden"><div style="display: flex; width: 600px"><div style="width: 200px">Slide one</div><div style="width: 200px">Slide two</div><div style="width: 200px">Slide three</div></div></div></div>
     <div class="case"><div style="transform: scale(0.9)"><p id="x-warped" style="height: 0; overflow: hidden; margin: 0">Under a scale</p></div></div>
+    <div class="case"><p id="x-zero-auto" style="height: 0; overflow: auto; margin: 0">Clipped by a scroller of no height</p></div>
     <div class="case" style="margin-top: 1200px"><p id="x-below">Far below the fold</p></div>
+    <!-- A drawer fixed to the window's corner that scrolls by itself: its last line is past the page's own extent. -->
+    <div style="position: fixed; right: 0; bottom: 0; width: 120px; height: 40px; overflow: auto; font-size: 10px">
+      <div style="height: 3000px"></div>
+      <p id="x-drawer-low" style="margin: 0">Low in a drawer</p>
+    </div>
     <script>
       for (const s of document.querySelectorAll('.scroller')) s.scrollLeft = s.scrollWidth;
       for (const c of document.querySelectorAll('canvas.black')) {

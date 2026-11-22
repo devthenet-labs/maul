@@ -35,8 +35,9 @@
 //            the browser skips), visibility or
 //            opacity, or clipped to nothing (at most 1x1 px) by an
 //            overflow hidden or clip, a clip or clip-path inset, or the
-//            page's extent. An overflow a person scrolls (auto, scroll)
-//            clips nothing here. Unsure: clipped under a scaled, rotated
+//            page's extent. Text in a box a person scrolls (overflow
+//            auto or scroll, more than 1px) is where that box is: shown
+//            when the box is. Unsure: clipped under a scaled, rotated
 //            or zoomed ancestor, or by an overflow hidden box that still
 //            scrolls (a carousel's other slide). It returns the text as
 //            the runner reads it (full), with only what is shown (shown)
@@ -608,7 +609,11 @@
       overflows = contentShows();
       why.push(
         'zero box ' + r.width + 'x' + r.height +
-          (overflows ? '' : clips.length ? ', its content clipped by its overflow ' + clips[0] : ', nothing in it shows'),
+          (overflows
+            ? ''
+            : clips.length && (el.textContent.trim() || el.children.length)
+              ? ', its content clipped by its overflow ' + clips[0]
+              : ', nothing in it shows'),
       );
     }
     const cx = r.left + r.width / 2;
@@ -756,9 +761,10 @@
   // measure cuts the box r as drawn cuts an element's: own is the element
   // whose box it is (its own clip and clip-path cut it; null for a text
   // node's boxes), first the nearest ancestor that may clip it, pos its
-  // position. reach is the text measure's: an overflow a person scrolls
-  // (auto, scroll) cuts nothing, and loose reports a cut by an overflow
-  // hidden box that still scrolls to more, which a script may yet show.
+  // position. reach is the text measure's: what is in a box a person
+  // scrolls (overflow auto or scroll) stands where that box does, and
+  // loose reports a cut by an overflow hidden box that still scrolls to
+  // more, which a script may yet show.
   const measure = (r, own, first, pos, reach) => {
     const box = { x: r.left, y: r.top, width: r.width, height: r.height };
     let left = r.left;
@@ -791,14 +797,28 @@
       pos = s.position;
       clipBy(a, s);
       const scrolls = /^(auto|scroll)$/;
-      const clipX = s.overflowX !== 'visible' && !(reach && scrolls.test(s.overflowX));
-      const clipY = s.overflowY !== 'visible' && !(reach && scrolls.test(s.overflowY));
-      if ((!clipX && !clipY) || /^(inline|contents)$/.test(s.display)) continue;
+      // reach: along an axis a person scrolls, what is in a box they can
+      // see into is brought to where the box is, so it stands there; a
+      // scroller of no size (at most 1px) shows nothing and cuts.
+      const reachX = reach && scrolls.test(s.overflowX) && a.clientWidth > 1;
+      const reachY = reach && scrolls.test(s.overflowY) && a.clientHeight > 1;
+      const clipX = s.overflowX !== 'visible' && !reachX;
+      const clipY = s.overflowY !== 'visible' && !reachY;
+      if ((!clipX && !clipY && !reachX && !reachY) || /^(inline|contents)$/.test(s.display)) continue;
       const ar = a.getBoundingClientRect();
       // overflow: clip paints past the padding box by its clip margin.
       const mg = s.overflowX === 'clip' && s.overflowY === 'clip' ? pxOf(s.overflowClipMargin || '0px', 0) || 0 : 0;
       const l = ar.left + a.clientLeft - mg;
       const t = ar.top + a.clientTop - mg;
+      if (reachX && right > left) {
+        left = l;
+        right = l + a.clientWidth;
+      }
+      if (reachY && bottom > top) {
+        top = t;
+        bottom = t + a.clientHeight;
+      }
+      if (!clipX && !clipY) continue;
       const w = clipX ? a.clientWidth + 2 * mg : Infinity;
       const h = clipY ? a.clientHeight + 2 * mg : Infinity;
       const cuts = cut(clipX ? l : -Infinity, clipY ? t : -Infinity, l + w, t + h, desc(a));

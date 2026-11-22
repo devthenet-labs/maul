@@ -885,7 +885,7 @@ func (p *exprParser) strIn(open, closing string) (string, bool) {
 }
 
 // args reads a helper's parenthesised arguments: locators, strings,
-// numbers and { key: number } objects.
+// numbers and { key: number } or { key: string } objects.
 func (p *exprParser) args() ([]any, bool) {
 	if !p.eat("(") {
 		return nil, false
@@ -912,23 +912,37 @@ func (p *exprParser) arg() (any, bool) {
 	case strings.HasPrefix(p.s[p.i:], `"`):
 		return p.str()
 	case p.eat("{ "):
-		obj := map[string]float64{}
+		obj, text := map[string]float64{}, map[string]string{}
 		for !p.eat("}") {
-			if len(obj) > 0 && !p.eat(", ") {
+			if len(obj)+len(text) > 0 && !p.eat(", ") {
 				return nil, false
 			}
 			k := p.ident()
 			if k == "" || !p.eat(": ") {
 				return nil, false
 			}
-			v, ok := p.num()
-			if !ok {
-				return nil, false
+			if strings.HasPrefix(p.s[p.i:], `"`) {
+				v, ok := p.str()
+				if !ok {
+					return nil, false
+				}
+				text[k] = v
+			} else {
+				v, ok := p.num()
+				if !ok {
+					return nil, false
+				}
+				obj[k] = v
 			}
-			obj[k] = v
 			p.eat(" ")
 		}
-		return obj, true
+		switch {
+		case len(text) == 0:
+			return obj, true
+		case len(obj) == 0:
+			return text, true
+		}
+		return nil, false
 	}
 	return p.num()
 }
