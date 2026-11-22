@@ -921,7 +921,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   reproduced failure starts a verify-fix round (a `revise` run, trigger `verify`, own `verifyFixRounds()` counter,
   `maxVerifyFixes`, `RepeatedFailure` stop by fingerprint, never a block); the human always wins (`humanPending` halts
   auto-fix; a Pending fix is cancelled through `status.verification.cancelRun`). It posts the `maul/acceptance` commit
-  status on every open head of a verifying Project (statuses write: `intentperm.CommitStatus`, an Optional grant,
+  status on the open heads in the evaluated head set of a verifying Project, and on no other pull request of the
+  intent (`acceptanceOn`; a status of an earlier pass outside it is answered once by a final error) (statuses write:
+  `intentperm.CommitStatus`, an Optional grant,
   never part of Ready; without it the Project's `AcceptanceStatusUnavailable` and no status; success only in the
   `outcomes` mode, when every outcome is confirmed or an approver accepted it at the current heads, or for a plan
   declaring none an approver's `/maul accept all`; a final error once verification is switched off; digest-deduped,

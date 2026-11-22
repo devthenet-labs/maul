@@ -295,8 +295,12 @@ Auto-fix halts the moment a human acts:
 
 ### The `maul/acceptance` commit status
 
-Posted on every open pull request's current head, by the maul App (Commit statuses: write), with a description of counts
-only:
+Posted by the maul App (Commit statuses: write) on the current head of each open pull request maul evaluated, with a
+description of counts only. In a Project with several repositories that is each pull request in a previewed repository,
+or the one in the repository a `cli` or `library` surface builds. A pull request of the same intent in a repository maul
+does not evaluate gets no status, at any commit: nothing checked its commits, so nothing is said about them. Do not
+require `maul/acceptance` on such a repository; the check would never arrive. (A status an earlier release posted there
+is replaced once by the final `error` "maul does not evaluate this repository: nothing here was checked".)
 
 | State     | When                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -330,8 +334,8 @@ hand-off ready, with no automatic fix running; accepting only some of them, or a
 moved from, leaves it as it was.
 
 Make it count: add a ruleset or branch protection that **requires `maul/acceptance` from the maul App**. Without a
-required check, a person can still merge past a red status. With it, every pull request of a verifying Project waits for
-the status, so a plan with manual items or no criteria needs an approver's `/maul accept` before it can merge.
+required check, a person can still merge past a red status. With it, every pull request maul evaluates waits for the
+status, so a plan with manual items or no criteria needs an approver's `/maul accept` before it can merge.
 `maul check project` warns when the branch rules do not name it.
 
 ### Comments
