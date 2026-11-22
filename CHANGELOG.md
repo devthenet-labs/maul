@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.15](https://github.com/devthenet-labs/maul/compare/v0.14.14...v0.14.15) (2026-11-22)
+
+
+### Bug Fixes
+
+* **checks:** a text assertion holds only on text a person can see ([#464](https://github.com/devthenet-labs/maul/issues/464)) ([d7f867e](https://github.com/devthenet-labs/maul/commit/d7f867eb08b8d5c512adef8a05a9076207dd7c7b))
+* **intent:** maul/acceptance goes only on the evaluated head set ([#462](https://github.com/devthenet-labs/maul/issues/462)) ([00f5b92](https://github.com/devthenet-labs/maul/commit/00f5b92a22912057b860525f5caa0f265e1cd604))
+
 ## [0.14.14](https://github.com/devthenet-labs/maul/compare/v0.14.13...v0.14.14) (2026-11-20)
 
 
