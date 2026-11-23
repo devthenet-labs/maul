@@ -489,7 +489,8 @@ export function modelRows(fields: ProjectSettingsField[]): string[] {
 const STAGE_LABELS: Record<string, string> = { plan: "Plan", build: "Build", revise: "Revise", evaluate: "Evaluate" };
 const LEAF_LABELS: Record<string, string> = {
   maxTurns: "turns",
-  tokenBudget: "tokens",
+  // The runner counts output tokens only (agentrun's budgetWatcher); context re-read is not counted.
+  tokenBudget: "output tokens",
   maxCostMicroUSD: "cost",
   timeout: "time limit",
 };
