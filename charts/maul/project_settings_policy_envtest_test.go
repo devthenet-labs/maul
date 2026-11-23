@@ -51,6 +51,7 @@ const (
 	psLockedPrefix   = "the operator locked "
 	psCeilingSuffix  = " above the operator's ceiling"
 	psFloorSuffix    = " below the operator's floor"
+	psAdmitsSuffix   = " above intent-controller's ceiling"
 	psProjectEditor  = "alice"
 	psProjectEditorN = 1
 )
@@ -126,6 +127,8 @@ func TestProjectSettingsPolicyAgainstAPIServer(t *testing.T) {
 		p.Spec.Verification.Handoff = v1alpha1.HandoffEarly
 		p.Spec.Verification.PostLogs = true
 		p.Spec.Limits.Evaluate.MaxTurns = 20
+		p.Spec.Limits.Evaluate.MaxCostMicroUSD = 500_000
+		p.Spec.Limits.Build.MaxTurns = 500
 		p.Spec.Limits.CheckReview.MaxTurns = 4
 	})
 	e.project("single", withStatus, func(p *v1alpha1.Project) {
@@ -137,11 +140,18 @@ func TestProjectSettingsPolicyAgainstAPIServer(t *testing.T) {
 		p.Spec.Repositories = p.Spec.Repositories[1:]
 		p.Spec.Repositories[0].AgentResourceClass = "small"
 		p.Spec.Models = &v1alpha1.ProjectModels{Plan: "anthropic/claude-a"}
+		p.Spec.Limits.Build.MaxTurns = 100
 	})
 	e.project("blocks", withStatus, func(p *v1alpha1.Project) {
 		p.Spec.Verification, p.Spec.Models = nil, nil
 	})
 	e.project("save", withStatus)
+	// uncapped: intent-controller publishes no ceiling for the evaluation
+	// cost, the tool calls or the evaluate stage.
+	e.project("uncapped", withStatus)
+	e.patchAdmits("uncapped", func(a *v1alpha1.ProjectAdmits) {
+		a.MaxEvaluateCostMicroUSD, a.MaxToolCalls, a.Stages.Evaluate = 0, 0, v1alpha1.ProjectStageCeiling{}
+	})
 
 	// The canary: until the policy refuses, an admitted case proves
 	// nothing.
@@ -335,6 +345,16 @@ func (e *settingsEnv) project(name string, mut ...func(*v1alpha1.Project)) {
 	}
 }
 
+// patchAdmits rewrites what intent-controller publishes for a Project.
+func (e *settingsEnv) patchAdmits(name string, edit func(*v1alpha1.ProjectAdmits)) {
+	e.t.Helper()
+	p := e.get(e.t, name)
+	edit(p.Status.Admits)
+	if err := e.admin.Status().Update(e.t.Context(), p); err != nil {
+		e.t.Fatalf("status of Project %s: %v", name, err)
+	}
+}
+
 // get is the live Project, read as an admin.
 func (e *settingsEnv) get(t *testing.T, name string) *v1alpha1.Project {
 	t.Helper()
@@ -480,12 +500,14 @@ func (e *settingsEnv) checkSaves(t *testing.T) {
 			d.Limits.MaxCheckFixes = new(int32(4))
 			d.Limits.MaxVerifyFixes = new(int32(3))
 			d.Limits.MaxVerifications = 30
-			stage := func(turns int32, tokens int64, timeout int64) projectsettings.ProjectSettingsStage {
+			stage := func(turns int32, tokens, cost, timeout int64) projectsettings.ProjectSettingsStage {
 				return projectsettings.ProjectSettingsStage{MaxTurns: turns, TokenBudget: tokens,
-					MaxCostMicroUSD: 1_000_000, TimeoutSeconds: timeout * 60}
+					MaxCostMicroUSD: cost, TimeoutSeconds: timeout * 60}
 			}
-			d.Stages = projectsettings.ProjectSettingsStages{Plan: stage(30, 150_000, 15), Build: stage(100, 600_000, 50),
-				Revise: stage(60, 300_000, 40), Evaluate: stage(50, 200_000, 15)}
+			// The evaluate stage's cost at its floor, the evaluation cost's.
+			d.Stages = projectsettings.ProjectSettingsStages{Plan: stage(30, 150_000, 1_000_000, 15),
+				Build: stage(100, 600_000, 1_000_000, 50), Revise: stage(60, 300_000, 1_000_000, 40),
+				Evaluate: stage(50, 200_000, 2_000_000, 15)}
 			d.Checks = projectsettings.ProjectSettingsChecks{Fix: []string{"test", "lint", "e2e"}, TimeoutSeconds: 45 * 60,
 				RerunFailed: true}
 			d.Repositories = []projectsettings.ProjectSettingsRepository{{Name: "app", AgentResourceClass: "large"},
@@ -641,6 +663,20 @@ func (e *settingsEnv) checkRules(t *testing.T) {
 			projectsettings.StageField("evaluate", "timeout") + psFloorSuffix, checkSame},
 		{"evaluate timeout at the floor", "alpha",
 			limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.Timeout = minutes(10) }), "", checkSame},
+		{"evaluate stage cost under the floor", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxCostMicroUSD = 1_000_000 }),
+			projectsettings.StageField("evaluate", "maxCostMicroUSD") + psFloorSuffix, checkSame},
+		{"evaluate stage cost at the floor", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxCostMicroUSD = 2_000_000 }), "", checkSame},
+		{"evaluate stage cost under the floor, raised", "high",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxCostMicroUSD = 1_000_000 }), "", checkSame},
+		{"evaluate stage cost under the floor, lowered", "high",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxCostMicroUSD = 400_000 }),
+			projectsettings.StageField("evaluate", "maxCostMicroUSD") + psFloorSuffix, checkSame},
+		{"evaluate stage cost cleared", "high",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxCostMicroUSD = 0 }), "", checkSame},
+		{"another stage's cost has no floor", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Plan.MaxCostMicroUSD = 100_000 }), "", checkSame},
 		{"evaluation cost under the floor", "alpha",
 			limits(func(l *v1alpha1.ProjectLimits) { l.MaxEvaluateCostMicroUSD = new(int64(1_000_000)) }),
 			projectsettings.FieldMaxEvaluateCost + psFloorSuffix, checkSame},
@@ -664,6 +700,53 @@ func (e *settingsEnv) checkRules(t *testing.T) {
 			projectsettings.StageField("evaluate", "maxTurns") + psFloorSuffix, checkSame},
 		{"evaluate turns cleared", "high", limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxTurns = 0 }), "",
 			checkSame},
+		// The controller's own ceilings (status.admits), which bind every
+		// stated raise, the switches whatever they say.
+		{"stage turns past intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Build.MaxTurns = 151 }),
+			projectsettings.StageField("build", "maxTurns") + psAdmitsSuffix, checkSame},
+		{"stage turns at intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Build.MaxTurns = 150 }), "", checkSame},
+		{"evaluate turns past intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxTurns = 101 }),
+			projectsettings.StageField("evaluate", "maxTurns") + psAdmitsSuffix, checkSame},
+		{"stage tokens past intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Plan.TokenBudget = 200_001 }),
+			projectsettings.StageField("plan", "tokenBudget") + psAdmitsSuffix, checkSame},
+		{"stage tokens at intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Plan.TokenBudget = 200_000 }), "", checkSame},
+		{"stage timeout past intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Revise.Timeout = minutes(46) }),
+			projectsettings.StageField("revise", "timeout") + psAdmitsSuffix, checkSame},
+		{"stage timeout at intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Revise.Timeout = minutes(45) }), "", checkSame},
+		{"evaluation cost past intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.MaxEvaluateCostMicroUSD = new(int64(8_000_001)) }),
+			projectsettings.FieldMaxEvaluateCost + psAdmitsSuffix, checkSame},
+		{"evaluation cost at intent-controller's ceiling", "alpha",
+			limits(func(l *v1alpha1.ProjectLimits) { l.MaxEvaluateCostMicroUSD = new(int64(8_000_000)) }), "", checkSame},
+		{"tool calls raised past intent-controller's ceiling", "high",
+			ver(func(v *v1alpha1.ProjectVerification) { v.MaxToolCalls = new(int32(251)) }),
+			projectsettings.FieldMaxToolCalls + psAdmitsSuffix, checkSame},
+		{"tool calls raised to intent-controller's ceiling", "high",
+			ver(func(v *v1alpha1.ProjectVerification) { v.MaxToolCalls = new(int32(250)) }), "", checkSame},
+		{"unset tool calls land on the default, so under it is a lowering", "alpha",
+			ver(func(v *v1alpha1.ProjectVerification) { v.MaxToolCalls = new(int32(299)) }), "", checkSame},
+		{"a value past intent-controller's ceiling lowered", "high",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Build.MaxTurns = 300 }), "", checkSame},
+		{"a value past intent-controller's ceiling raised", "high",
+			limits(func(l *v1alpha1.ProjectLimits) { l.Build.MaxTurns = 501 }),
+			projectsettings.StageField("build", "maxTurns") + psAdmitsSuffix, checkSame},
+		{"a stage limit cleared", "high", limits(func(l *v1alpha1.ProjectLimits) { l.Build.MaxTurns = 0 }), "",
+			checkSame},
+		{"no evaluation cost ceiling published", "uncapped",
+			limits(func(l *v1alpha1.ProjectLimits) { l.MaxEvaluateCostMicroUSD = new(int64(900_000_000)) }), "", checkSame},
+		{"no tool-call ceiling published", "uncapped",
+			ver(func(v *v1alpha1.ProjectVerification) { v.MaxToolCalls = new(int32(300)) }), "", checkSame},
+		{"a stage it does not run has no ceiling to pass", "uncapped",
+			limits(func(l *v1alpha1.ProjectLimits) {
+				l.Evaluate.MaxTurns, l.Evaluate.TokenBudget, l.Evaluate.Timeout = 900, 9_000_000, minutes(200)
+			}), "", checkSame},
 		{"an approver added without the switch", "alpha", func(p *v1alpha1.Project) {
 			p.Spec.Approvers.Logins = append(p.Spec.Approvers.Logins, "carol")
 		}, psApproversOff, checkSame},
@@ -705,6 +788,17 @@ func (e *settingsEnv) checkWithoutStatus(t *testing.T) {
 		{"an unrelated edit", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.MaxRevisions = new(int32(4)) }, "",
 			checkSame},
 		{"a model cleared", "bare", func(p *v1alpha1.Project) { modelsOf(p).Plan = "" }, "", checkSame},
+		{"a stage limit raised", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.Build.MaxTurns = 101 },
+			projectsettings.StageField("build", "maxTurns") + psAdmitsSuffix, checkSame},
+		{"a stage limit stated", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.Plan.TokenBudget = 1_000 },
+			projectsettings.StageField("plan", "tokenBudget") + psAdmitsSuffix, checkSame},
+		{"a stage limit lowered", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.Build.MaxTurns = 50 }, "",
+			checkSame},
+		{"an evaluation cost raised", "bare",
+			func(p *v1alpha1.Project) { p.Spec.Limits.MaxEvaluateCostMicroUSD = new(int64(7_000_000)) },
+			projectsettings.FieldMaxEvaluateCost + psAdmitsSuffix, checkSame},
+		{"a stage timeout stated", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.Plan.Timeout = minutes(10) },
+			projectsettings.StageField("plan", "timeout") + psAdmitsSuffix, checkSame},
 	})
 }
 
@@ -807,6 +901,11 @@ func (e *settingsEnv) checkSwitches(t *testing.T) {
 		{"the checks emptied", "alpha", func(p *v1alpha1.Project) { p.Spec.Checks.Fix = nil }, "", checkSame},
 		{"evaluate turns under the floor", "alpha", func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxTurns = 10 }, "",
 			checkSame},
+		{"evaluate stage cost under the floor", "alpha",
+			func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxCostMicroUSD = 500_000 }, "", checkSame},
+		{"intent-controller's ceiling still holds", "alpha",
+			func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxTurns = 101 },
+			projectsettings.StageField("evaluate", "maxTurns") + psAdmitsSuffix, checkSame},
 		{"a ceiling still holds", "alpha", func(p *v1alpha1.Project) { p.Spec.Limits.MaxCostMicroUSD = 30_000_000 },
 			projectsettings.FieldMaxCost + psCeilingSuffix, checkSame},
 		{"a pinned field still pinned", "alpha", func(p *v1alpha1.Project) { p.Spec.Suspend = true }, psPinned, checkBlind},
@@ -814,13 +913,16 @@ func (e *settingsEnv) checkSwitches(t *testing.T) {
 }
 
 // policyReasons are Check's refusals the admission policy mirrors; the
-// rest (the schema's ranges, the controller's own ceilings, the run
-// budgets, self-removal) are the status server's alone.
+// rest (the schema's ranges, the run budgets, self-removal) are the status
+// server's alone. (The policy also refuses a raise of a limit the
+// controller bounds while it has published nothing, as Check does with
+// RefusedAdmitsUnpublished; the property's Projects all have status.)
 var policyReasons = []string{projectsettings.RefusedLocked, projectsettings.RefusedApproversNotAllowed,
 	projectsettings.RefusedApproversOneAtATime, projectsettings.RefusedApproversInvalid,
 	projectsettings.RefusedEvaluatorOffNotAllowed, projectsettings.RefusedHandoffNotAllowed,
 	projectsettings.RefusedBelowFloor, projectsettings.RefusedAboveCeiling, projectsettings.RefusedModelNotAdmitted,
-	projectsettings.RefusedClassNotAdmitted, projectsettings.RefusedChecksEmptyNotAllowed}
+	projectsettings.RefusedClassNotAdmitted, projectsettings.RefusedChecksEmptyNotAllowed,
+	projectsettings.RefusedAboveControllerCeiling}
 
 // settingsSeed keeps the property deterministic in the gate, as the
 // repository's other seeded properties are; MAUL_SETTINGS_SEED explores.
@@ -866,8 +968,8 @@ func (e *settingsEnv) checkProperty(t *testing.T, phase uint64) {
 }
 
 // randomSettings moves a few of the fields the policy judges to random
-// values inside the schema's ranges (a stage's cost never, which the
-// schema holds to the per-intent cost).
+// values inside the schema's ranges (a stage's cost only up to the least
+// per-intent cost it picks, which the schema holds it under).
 func randomSettings(rng *rand.Rand, p *v1alpha1.Project) {
 	pick := func(xs ...int64) int64 { return xs[rng.IntN(len(xs))] }
 	opt32 := func(xs ...int64) *int32 {
@@ -900,7 +1002,17 @@ func randomSettings(rng *rand.Rand, p *v1alpha1.Project) {
 				l.Evaluate.Timeout = minutes(int(n))
 			}
 		},
-		func() { l.Plan.MaxTurns = int32(pick(0, 10, 30)) },
+		func() { l.Plan.MaxTurns = int32(pick(0, 10, 30, 40, 41)) },
+		func() { l.Evaluate.MaxCostMicroUSD = pick(0, 500_000, 1_999_999, 2_000_000, 5_000_000) },
+		func() { l.Build.MaxTurns = int32(pick(0, 100, 150, 151, 500)) },
+		func() { l.Revise.TokenBudget = pick(0, 300_000, 400_000, 400_001) },
+		func() {
+			if n := pick(0, 30, 45, 46); n == 0 {
+				l.Revise.Timeout = nil
+			} else {
+				l.Revise.Timeout = minutes(int(n))
+			}
+		},
 		func() { verifyOf(p).Enabled = rng.IntN(2) == 0 },
 		func() {
 			verifyOf(p).Handoff = []v1alpha1.HandoffMode{"", v1alpha1.HandoffGated, v1alpha1.HandoffEarly}[rng.IntN(3)]

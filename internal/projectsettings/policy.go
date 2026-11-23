@@ -57,7 +57,9 @@ type Ceilings struct {
 // value is at least the floor, or at least the old value", unless
 // Allow.DisableEvaluator. Zero is no floor.
 type Floors struct {
-	// MaxEvaluateCostMicroUSD is under limits.maxEvaluateCostMicroUSD.
+	// MaxEvaluateCostMicroUSD is under limits.maxEvaluateCostMicroUSD and
+	// limits.evaluate.maxCostMicroUSD alike: an evaluate run's budget is
+	// the lesser of the two, so a floor under one alone would not hold.
 	MaxEvaluateCostMicroUSD int64 `json:"maxEvaluateCostMicroUSD"`
 	// EvaluateMaxTurns is under limits.evaluate.maxTurns.
 	EvaluateMaxTurns int32 `json:"evaluateMaxTurns"`
@@ -201,6 +203,7 @@ func (p Policy) floors() []bound {
 	f := p.Floors
 	return []bound{
 		{field: FieldMaxEvaluateCost, n: f.MaxEvaluateCostMicroUSD, floor: true},
+		{field: StageField("evaluate", leafCost), n: f.MaxEvaluateCostMicroUSD, floor: true},
 		{field: StageField("evaluate", leafTurns), n: int64(f.EvaluateMaxTurns), floor: true},
 		{field: StageField("evaluate", leafTimeout), n: wholeSeconds(time.Duration(f.EvaluateTimeout)), floor: true},
 		{field: StageField("evaluate", leafTokens), n: f.EvaluateTokenBudget, floor: true},

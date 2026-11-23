@@ -121,7 +121,12 @@ function fields(): ProjectSettingsField[] {
         floor: evaluate ? 100_000 : 0,
         effect: "new-runs",
       }),
-      field(`limits.${stage}.maxCostMicroUSD`, "stages", "microUSD", { max: 1_000_000_000, effect: "new-runs" }),
+      // The evaluate stage's cost has the evaluation cost's floor.
+      field(`limits.${stage}.maxCostMicroUSD`, "stages", "microUSD", {
+        max: 1_000_000_000,
+        floor: evaluate ? 2_000_000 : 0,
+        effect: "new-runs",
+      }),
       field(`limits.${stage}.timeout`, "stages", "seconds", {
         min: 60,
         max: 14_400,

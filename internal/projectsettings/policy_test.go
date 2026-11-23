@@ -109,8 +109,11 @@ func TestPolicyBounds(t *testing.T) {
 			t.Errorf("Ceiling(%s) = %d, %v, want %d", field, got, ok, want)
 		}
 	}
+	// The evaluation cost's floor is also the evaluate stage's: a run's
+	// budget is the lesser of the two (OWNER-DECISIONS 3, extended).
 	for field, want := range map[string]int64{FieldMaxEvaluateCost: 2_000_000, "limits.evaluate.maxTurns": 40,
-		"limits.evaluate.timeout": 600, "limits.evaluate.tokenBudget": 100_000, FieldMaxToolCalls: 100,
+		"limits.evaluate.maxCostMicroUSD": 2_000_000, "limits.evaluate.timeout": 600,
+		"limits.evaluate.tokenBudget": 100_000, FieldMaxToolCalls: 100,
 		FieldMaxVerifications: 3, FieldHandoffMax: 1800} {
 		if got, ok := p.Floor(field); !ok || got != want {
 			t.Errorf("Floor(%s) = %d, %v, want %d", field, got, ok, want)
@@ -121,6 +124,9 @@ func TestPolicyBounds(t *testing.T) {
 	}
 	if _, ok := p.Floor("limits.plan.maxTurns"); ok {
 		t.Error("a plan limit has a floor")
+	}
+	if _, ok := p.Floor("limits.build.maxCostMicroUSD"); ok {
+		t.Error("a build stage's cost has a floor")
 	}
 	p.Floors.MaxToolCalls = 0
 	if _, ok := p.Floor(FieldMaxToolCalls); ok {

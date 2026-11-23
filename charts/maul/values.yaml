@@ -1567,6 +1567,9 @@ statusServer:
         # raised. Zero (0, or 0s for a duration) is no floor. Durations in
         # whole hours, minutes and seconds (10m, 1h30m).
         floors:
+            # Under limits.maxEvaluateCostMicroUSD and the evaluate stage's
+            # own limits.evaluate.maxCostMicroUSD alike: an evaluate run's
+            # budget is the lesser of the two.
             maxEvaluateCostMicroUSD: 2000000
             evaluateMaxTurns: 40
             evaluateTimeout: 10m

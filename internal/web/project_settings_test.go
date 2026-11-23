@@ -605,6 +605,84 @@ func TestProjectSettingsSaveGateReasons(t *testing.T) {
 	}
 }
 
+// The gate asks the spec as well as the status: a login an operator took
+// off the list while intent-controller has not resolved the list again
+// still has its identity in status, and is no approver for it.
+func TestProjectSettingsSaveLoginRemovedFromSpec(t *testing.T) {
+	p := settingsProject()
+	p.ManagedFields = nil
+	p.Spec.Approvers.Logins = []string{"wil"}
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()}, p)
+	if ids := f.project().Status.Approvers.Identities; len(ids) == 0 || ids[0].Login != "octo" || !ids[0].Write {
+		t.Fatalf("the fixture's status no longer lists octo with write access: %+v", ids)
+	}
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, res := f.save(approverAlpha, req); code != http.StatusForbidden ||
+		res.Reason != projectsettings.ReasonNotApprover {
+		t.Errorf("save by a login no longer listed = %d %q, want 403 %q", code, res.Reason,
+			projectsettings.ReasonNotApprover)
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches for a login no longer listed", len(f.patches))
+	}
+}
+
+// The document has no slot for a field outside the page's editable part:
+// a body naming one (a repository's url, the harness, the labels, the
+// check reviewer's model or limits) is refused as a 400 before anything is
+// decided, and nothing is written.
+func TestProjectSettingsSaveRefusesPinnedFields(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	before := f.project()
+	good, err := json.Marshal(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(settings map[string]any)
+	}{
+		{"a repository's url", func(s map[string]any) {
+			repo := s["repositories"].([]any)[0].(map[string]any)
+			repo["url"] = "https://github.com/evil/app"
+		}},
+		{"the harness", func(s map[string]any) { s["harness"] = "codex" }},
+		{"the labels", func(s map[string]any) { s["labels"] = map[string]any{"trigger": "go"} }},
+		{"the check reviewer's model", func(s map[string]any) {
+			s["models"].(map[string]any)["checkReview"] = "anthropic/claude-b"
+		}},
+		{"the check reviewer's limits", func(s map[string]any) {
+			s["stages"].(map[string]any)["checkReview"] = map[string]any{"maxTurns": 50}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var doc map[string]any
+			if err := json.Unmarshal(good, &doc); err != nil {
+				t.Fatal(err)
+			}
+			tc.edit(doc["settings"].(map[string]any))
+			body, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) == string(good) {
+				t.Fatal("the body names nothing the good one does not")
+			}
+			if code, out := f.post(approverAlpha, "application/json", string(body)); code != http.StatusBadRequest {
+				t.Errorf("POST = %d %s, want 400", code, out)
+			}
+		})
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches for bodies naming pinned fields", len(f.patches))
+	}
+	if after := f.project(); after.ResourceVersion != before.ResourceVersion {
+		t.Errorf("resourceVersion %s -> %s", before.ResourceVersion, after.ResourceVersion)
+	}
+}
+
 // A save is one application/json object of at most 16 KiB naming only the
 // document's fields; anything else is refused before the Project is read
 // for a decision, and nothing is written.
@@ -888,6 +966,50 @@ func TestProjectSettingsSaveRetriesAStatusConflict(t *testing.T) {
 	req.Settings.Limits.MaxRevisions = &mr
 	if code, res := f.save(approverAlpha, req); code != http.StatusConflict || res.Reason != SettingsConflict {
 		t.Errorf("conflicts every time = %d %+v, want 409 %s", code, res, SettingsConflict)
+	}
+}
+
+// Another approver's save lands between this one's read and its patch: the
+// write conflicts, the retry reads the Project again and decides again, and
+// the spec's generation has moved since the page was served, so the answer
+// is a 409 that makes the page reload. The other save stands, and this one
+// writes nothing over it.
+func TestProjectSettingsSaveRacedByAnotherSave(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	start := f.project()
+	f.before = func(n int, cl client.WithWatch, obj client.Object) error {
+		if n != 1 {
+			return nil
+		}
+		var cur v1alpha1.Project
+		if err := cl.Get(context.Background(), client.ObjectKeyFromObject(obj), &cur); err != nil {
+			return err
+		}
+		cur.Spec.Limits.MaxCheckFixes = new(int32(7))
+		// The fake client keeps metadata.generation as it is given; the API
+		// server bumps it on a spec change.
+		cur.Generation++
+		return cl.Update(context.Background(), &cur)
+	}
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	code, res := f.save(approverAlpha, req)
+	if code != http.StatusConflict || res.Reason != projectsettings.ResultGenerationChanged {
+		t.Errorf("save raced by another = %d %+v, want 409 %q", code, res, projectsettings.ResultGenerationChanged)
+	}
+	if len(f.patches) != 1 {
+		t.Errorf("%d patches, want the one that conflicted and no retry write", len(f.patches))
+	}
+	stored := f.project()
+	if stored.Generation != start.Generation+1 {
+		t.Fatalf("generation %d -> %d: the race did not move it", start.Generation, stored.Generation)
+	}
+	if got := stored.Spec.Limits.MaxCheckFixes; got == nil || *got != 7 {
+		t.Errorf("maxCheckFixes = %v: the other approver's save was lost", got)
+	}
+	if got := stored.Spec.Limits.MaxRevisions; got == nil || *got != 3 {
+		t.Errorf("maxRevisions = %v: written over a save it never saw", got)
 	}
 }
 

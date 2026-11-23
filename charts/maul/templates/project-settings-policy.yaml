@@ -40,7 +40,9 @@
 #   status nothing is admitted, so a model or class choice is refused and
 #   an unrelated edit is not.
 # - The bounds come from the same object as the server's
-#   MAUL_PROJECT_SETTINGS_POLICY (maul.projectSettingsPolicy).
+#   MAUL_PROJECT_SETTINGS_POLICY (maul.projectSettingsPolicy), except
+#   intent-controller's own ceilings on the limits it clamps, which come
+#   from oldObject.status.admits, where it publishes them.
 #
 # A denial keeps the default reason (Invalid): the page shows it as a
 # refusal of the save.
@@ -121,11 +123,29 @@ number, or a duration (unit "duration"). */}}
 unset (absent, or zero) is the controller's own ceiling, the most there is,
 so it is never under a floor, and a stated value under the floor where none
 was stated is a lowering. */}}
+{{- /* The evaluate stage's cost has the evaluation cost's floor: an
+evaluate run's budget is the lesser of the two (projectsettings.Floors). */}}
 {{- $stageFloors := list
     (dict "key" "evaluateMaxTurns" "leaf" "maxTurns")
     (dict "key" "evaluateTokenBudget" "leaf" "tokenBudget")
+    (dict "key" "maxEvaluateCostMicroUSD" "leaf" "maxCostMicroUSD")
     (dict "key" "evaluateTimeout" "leaf" "timeout" "unit" "duration")
 }}
+{{- /* The limits intent-controller clamps to ceilings of its own, which it
+publishes in status.admits (projectsettings' controllerCeiling): the
+evaluation cost and the tool calls, which have a code default ("default"),
+and each stage's turns, tokens and timeout, which have none (unset is the
+controller's ceiling, the most there is). "ceiling" is the path under
+status.admits. */}}
+{{- $admitted := list
+    (dict "id" "limits.maxEvaluateCostMicroUSD" "field" "limits.?maxEvaluateCostMicroUSD" "ceiling" "maxEvaluateCostMicroUSD" "default" "6000000")
+    (dict "id" "verification.maxToolCalls" "field" "verification.?maxToolCalls" "ceiling" "maxToolCalls" "default" "300")
+}}
+{{- range $s := $stages }}
+{{- range $leaf := list "maxTurns" "tokenBudget" "timeout" }}
+{{- $admitted = append $admitted (dict "id" (printf "limits.%s.%s" $s $leaf) "field" (printf "limits.?%s.?%s" $s $leaf) "ceiling" (printf "stages.?%s.?%s" $s $leaf) "unit" (ternary "duration" "" (eq $leaf "timeout"))) }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -181,6 +201,8 @@ spec:
           expression: "oldObject.?status.?admits.?models.orValue([])"
         - name: admittedClasses
           expression: "oldObject.?status.?admits.?resourceClasses.orValue([])"
+        - name: admitsPublished
+          expression: "oldObject.?status.?admits.hasValue()"
     validations:
         # The spec, level by level: no key but the editable ones may be
         # added, changed or removed.
@@ -242,6 +264,31 @@ spec:
               object.spec.?limits.?{{ .key }}.orValue({{ .default }}) <= {{ index $c .key | int64 }} ||
               object.spec.?limits.?{{ .key }}.orValue({{ .default }}) <= oldObject.spec.?limits.?{{ .key }}.orValue({{ .default }})
           message: "project settings: limits.{{ .key }} above the operator's ceiling ({{ index $c .key | int64 }}) and higher than it was"
+        {{- end }}
+        # intent-controller's own ceilings, as status.admits publishes them,
+        # whatever the switches say: a value stated above where it was (or
+        # stated where none was, for a limit with no default) is at most
+        # the published ceiling, and with nothing published it is refused.
+        # An unset limit is never judged: the controller clamps it.
+        {{- range $admitted }}
+        {{- $new := printf "object.spec.?%s" .field }}
+        {{- $old := printf "oldObject.spec.?%s" .field }}
+        {{- $ceil := printf "oldObject.?status.?admits.?%s" .ceiling }}
+        - expression: >-
+              {{- if eq (.unit | default "") "duration" }}
+              !{{ $new }}.hasValue() ||
+              ({{ $old }}.hasValue() && duration({{ $new }}.value()) <= duration({{ $old }}.value())) ||
+              (variables.admitsPublished && (!{{ $ceil }}.hasValue() || duration({{ $new }}.value()) <= duration({{ $ceil }}.value())))
+              {{- else if .default }}
+              !{{ $new }}.hasValue() ||
+              {{ $new }}.value() <= {{ $old }}.orValue({{ .default }}) ||
+              (variables.admitsPublished && ({{ $ceil }}.orValue(0) == 0 || {{ $new }}.value() <= {{ $ceil }}.orValue(0)))
+              {{- else }}
+              {{ $new }}.orValue(0) == 0 ||
+              ({{ $old }}.orValue(0) != 0 && {{ $new }}.orValue(0) <= {{ $old }}.orValue(0)) ||
+              (variables.admitsPublished && ({{ $ceil }}.orValue(0) == 0 || {{ $new }}.orValue(0) <= {{ $ceil }}.orValue(0)))
+              {{- end }}
+          message: "project settings: {{ .id }} above intent-controller's ceiling (status.admits) and higher than it was"
         {{- end }}
         {{- if $pol.allow.approvers }}
         # The approvers, which the operator lets the page change: one login

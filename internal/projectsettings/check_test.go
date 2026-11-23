@@ -198,8 +198,8 @@ func TestCheckSwitches(t *testing.T) {
 
 func TestCheckCeilingsAndFloors(t *testing.T) {
 	evaluator := func(p *Policy) { p.Allow.DisableEvaluator = true }
-	const evaluateTurns, evaluateTimeout, evaluateTokens = "limits.evaluate.maxTurns", "limits.evaluate.timeout",
-		"limits.evaluate.tokenBudget"
+	const evaluateTurns, evaluateTimeout, evaluateTokens, evaluateCost = "limits.evaluate.maxTurns",
+		"limits.evaluate.timeout", "limits.evaluate.tokenBudget", "limits.evaluate.maxCostMicroUSD"
 	runChecks(t, []checkCase{
 		// The operator's page ceilings: at most the ceiling, or at most the
 		// old value.
@@ -294,6 +294,27 @@ func TestCheckCeilingsAndFloors(t *testing.T) {
 			want: []ProjectSettingsRefusal{bounded(FieldMaxVerifications, RefusedBelowFloor, 3)}},
 		{name: "floor: hand-off wait", edit: func(d *ProjectSettings) { d.Verification.HandoffMaxSeconds = 1799 },
 			want: []ProjectSettingsRefusal{bounded(FieldHandoffMax, RefusedBelowFloor, 1800)}},
+		// The evaluate stage's cost has the evaluation cost's floor: its run
+		// budget is the lesser of the two, so either could starve it.
+		{name: "floor: evaluate stage cost", edit: func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 1_999_999 },
+			want: []ProjectSettingsRefusal{bounded(evaluateCost, RefusedBelowFloor, 2_000_000)}},
+		{name: "floor: evaluate stage cost at the floor",
+			edit: func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 2_000_000 }},
+		{name: "floor: evaluate stage cost cleared lands on the evaluation cost",
+			project: func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxCostMicroUSD = 3_000_000 },
+			edit:    func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 0 }},
+		{name: "floor: evaluate stage cost under it, raised toward it",
+			project: func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxCostMicroUSD = 500_000 },
+			edit:    func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 1_000_000 }},
+		{name: "floor: evaluate stage cost under it, lowered",
+			project: func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxCostMicroUSD = 500_000 },
+			edit:    func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 400_000 },
+			want:    []ProjectSettingsRefusal{bounded(evaluateCost, RefusedBelowFloor, 2_000_000)}},
+		{name: "floor: evaluate stage cost under it where the evaluator may be disabled", policy: evaluator,
+			edit: func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 1_000_000 }},
+		{name: "floor: evaluate stage cost follows the evaluation cost's floor",
+			policy: func(p *Policy) { p.Floors.MaxEvaluateCostMicroUSD = 0 },
+			edit:   func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 1_000_000 }},
 		{name: "floor: a value already under it may be raised toward it",
 			project: func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxTurns = 10 },
 			edit:    func(d *ProjectSettings) { d.Stages.Evaluate.MaxTurns = 20 }},
@@ -498,11 +519,14 @@ func TestCheckRunBudgets(t *testing.T) {
 			edit: func(d *ProjectSettings) { d.Verification.Enabled = true },
 			want: []ProjectSettingsRefusal{bounded(FieldVerificationEnabled, RefusedRunBudgetOverHourly, 5_000_000)}},
 
-		{name: "reserve: an evaluate budget under what its model's requests reserve", project: cost,
+		// The reserve is judged with the operator's switch on, as below: a
+		// budget under the reserve is also under the evaluate stage's
+		// floor, which TestCheckCeilingsAndFloors judges.
+		{name: "reserve: an evaluate budget under what its model's requests reserve", project: cost, policy: evaluator,
 			edit: func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 1_500_000 },
 			want: []ProjectSettingsRefusal{{Field: evaluateCost, Reason: RefusedRunBudgetUnderReserve,
 				Limit: 1_600_000, Value: "anthropic/claude-b"}}},
-		{name: "reserve: at the floor", project: cost,
+		{name: "reserve: at the floor", project: cost, policy: evaluator,
 			edit: func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 1_600_000 }},
 		{name: "reserve: a dearer model moves the floor past the budget",
 			project: and(cost, func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxCostMicroUSD = 2_000_000 }),
@@ -537,7 +561,7 @@ func TestCheckRunBudgets(t *testing.T) {
 			edit: func(d *ProjectSettings) { d.Verification.Enabled = true },
 			want: []ProjectSettingsRefusal{{Field: FieldVerificationEnabled, Reason: RefusedRunBudgetUnderReserve,
 				Limit: 1_600_000, Value: "anthropic/claude-b"}}},
-		{name: "reserve: not judged while the Project is not verified",
+		{name: "reserve: not judged while the Project is not verified", policy: evaluator,
 			project: and(cost, func(p *v1alpha1.Project) { p.Spec.Verification.Enabled = false }),
 			edit:    func(d *ProjectSettings) { d.Stages.Evaluate.MaxCostMicroUSD = 1_000_000 }},
 	})

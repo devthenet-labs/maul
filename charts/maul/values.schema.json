@@ -2569,7 +2569,7 @@
                                 "maxEvaluateCostMicroUSD": {
                                     "type": "integer",
                                     "anyOf": [{ "const": 0 }, { "minimum": 1, "maximum": 1000000000 }],
-                                    "description": "limits.maxEvaluateCostMicroUSD, micro-USD; 0 is no floor."
+                                    "description": "limits.maxEvaluateCostMicroUSD and limits.evaluate.maxCostMicroUSD, micro-USD; 0 is no floor."
                                 },
                                 "evaluateMaxTurns": {
                                     "type": "integer",
