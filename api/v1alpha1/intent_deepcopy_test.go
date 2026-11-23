@@ -38,9 +38,29 @@ func TestIntentKindsDeepCopy(t *testing.T) {
 				Limits:                 ProjectLimits{MaxRevisions: &revisions, MaxCheckFixes: &fixes},
 				Checks:                 ProjectChecks{Fix: []string{"test"}, Timeout: &metav1.Duration{Duration: time.Minute}},
 				RequireRepositoryImage: &require,
-			}, Status: ProjectStatus{LastPolledAt: now.DeepCopy()}}
+			}, Status: ProjectStatus{
+				LastPolledAt: now.DeepCopy(),
+				Approvers: &ProjectApproversStatus{
+					Identities: []ProjectApproverIdentity{{Login: "octocat", ID: 583231, Write: true}},
+					ResolvedAt: now.DeepCopy(),
+				},
+				Admits: &ProjectAdmits{
+					Models: []string{"anthropic/claude-opus-5"},
+					Stages: ProjectStageCeilings{
+						Build: ProjectStageCeiling{MaxTurns: 150, Timeout: &metav1.Duration{Duration: time.Hour}},
+					},
+					ResourceClasses: []ProjectResourceClass{{
+						Name: "large", Requests: ProjectResourceQuantities{CPU: "4", Memory: "8Gi"},
+					}},
+				},
+			}}
 		}, func(o runtime.Object) {
 			p := o.(*Project)
+			p.Status.Approvers.Identities[0] = ProjectApproverIdentity{Login: "mallory", ID: 666, Write: true}
+			p.Status.Approvers.ResolvedAt.Time = later
+			p.Status.Admits.Models[0] = "anthropic/claude-fable-9"
+			p.Status.Admits.Stages.Build.Timeout.Duration = 24 * time.Hour
+			p.Status.Admits.ResourceClasses[0].Name = "huge"
 			p.Spec.Approvers.Logins[0] = "mallory"
 			*p.Spec.Limits.MaxRevisions = 20
 			*p.Spec.Limits.MaxCheckFixes = 20

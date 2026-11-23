@@ -156,6 +156,16 @@ const (
 	// repositories wait. Absent on a Project that picks no class. Set by
 	// intent-controller's project reconciler.
 	ConditionResourceClassesResolved = "ResourceClassesResolved"
+	// ConditionApproversResolved reports, on a Project, whether
+	// intent-controller could ask GitHub who its approvers are
+	// (status.approvers: each login's numeric account id and its write
+	// access to the intent repository). False while GitHub cannot be read
+	// for them: the identities resolved before are kept, and age, so the
+	// status page's project settings refuse every edit once they are old.
+	// It never affects Ready, and nothing in the intent flow waits on it:
+	// commands, labels and reviews are authorised against GitHub as they
+	// arrive. Set by intent-controller's project reconciler.
+	ConditionApproversResolved = "ApproversResolved"
 	// ConditionSiblingsLinked reports, on an Intent that opened more than
 	// one pull request, whether the comment cross-linking them was posted on
 	// every one whose repository the Project still holds: True once it was

@@ -623,6 +623,8 @@ func testProjectStatus(ctx context.Context, t *testing.T, c client.Client) {
 			ObservedGeneration: 1,
 			ActiveIntents:      2,
 			LastPolledAt:       schemaNow.DeepCopy(),
+			Approvers:          schemaProjectApprovers(),
+			Admits:             schemaProjectAdmits(),
 		}
 		p.Status = *want.DeepCopy()
 		if err := c.Status().Update(ctx, p); err != nil {
@@ -637,6 +639,251 @@ func testProjectStatus(ctx context.Context, t *testing.T, c client.Client) {
 		if err := c.Status().Update(ctx, got); err == nil {
 			t.Error("Status().Update(activeIntents=-1) = nil, want minimum rejection")
 		}
+	})
+	testProjectSettingsStatus(ctx, t, c)
+}
+
+// schemaProjectApprovers is a resolved approver list in every state an
+// identity can be in: with write access, without it, and unknown to GitHub.
+func schemaProjectApprovers() *maulv1.ProjectApproversStatus {
+	return &maulv1.ProjectApproversStatus{
+		Identities: []maulv1.ProjectApproverIdentity{
+			{Login: "octocat", ID: 583231, Write: true},
+			{Login: "Mona", ID: 21},
+			{Login: "ghost"},
+		},
+		ResolvedAt: schemaNow.DeepCopy(),
+	}
+}
+
+// schemaProjectAdmits is everything intent-controller publishes of its own
+// configuration, every field set.
+func schemaProjectAdmits() *maulv1.ProjectAdmits {
+	stage := func(turns int32, tokens int64, timeout time.Duration) maulv1.ProjectStageCeiling {
+		return maulv1.ProjectStageCeiling{
+			MaxTurns: turns, TokenBudget: tokens, Timeout: &metav1.Duration{Duration: timeout},
+		}
+	}
+	return &maulv1.ProjectAdmits{
+		Models: []string{"anthropic/claude-opus-5", "anthropic/claude-sonnet-5"},
+		DefaultModels: maulv1.ProjectStageModels{
+			Plan: "anthropic/claude-opus-5", Build: "anthropic/claude-sonnet-5",
+			Evaluate: "anthropic/claude-sonnet-5", CheckReview: "anthropic/claude-haiku-5",
+		},
+		Stages: maulv1.ProjectStageCeilings{
+			Plan:        stage(40, 200000, 20*time.Minute),
+			Build:       stage(150, 800000, time.Hour),
+			Revise:      stage(80, 400000, 45*time.Minute),
+			Evaluate:    stage(100, 400000, 20*time.Minute),
+			CheckReview: stage(6, 100000, 15*time.Minute),
+		},
+		MaxEvaluateCostMicroUSD: 6000000,
+		MaxToolCalls:            300,
+		CostBudgets:             true,
+		MaxRunCostMicroUSD:      25000000,
+		RunBudgetFloors: []maulv1.ProjectRunBudgetFloor{
+			{Model: "anthropic/claude-opus-5", EvaluateMicroUSD: 1600000, CheckReviewMicroUSD: 409600},
+			{Model: "anthropic/claude-sonnet-5", EvaluateMicroUSD: 960000},
+		},
+		Evaluator: true,
+		ResourceClasses: []maulv1.ProjectResourceClass{
+			{
+				Name:     "large",
+				Requests: maulv1.ProjectResourceQuantities{CPU: "4", Memory: "8Gi"},
+				Limits:   maulv1.ProjectResourceQuantities{Memory: "10Gi"},
+			},
+			{Name: "small", Requests: maulv1.ProjectResourceQuantities{CPU: "500m", Memory: "1Gi"}},
+		},
+	}
+}
+
+// testProjectSettingsStatus holds status.approvers and status.admits, which
+// intent-controller publishes for the project settings page, to their bounds
+// and, as much, to their slack: the schema must refuse a list past its bound
+// and a negative figure, and must never refuse a value for its spelling,
+// because one refused field takes the Project's whole status write, Ready
+// included, with it.
+func testProjectSettingsStatus(ctx context.Context, t *testing.T, c client.Client) {
+	t.Helper()
+	p := schemaProject("proj-settings")
+	if err := c.Create(ctx, p); err != nil {
+		t.Fatalf("Create(project) = %v", err)
+	}
+	write := func(mutate func(*maulv1.ProjectStatus)) error {
+		cur := &maulv1.Project{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(p), cur); err != nil {
+			t.Fatalf("Get(project) = %v", err)
+		}
+		cur.Status.Approvers, cur.Status.Admits = schemaProjectApprovers(), schemaProjectAdmits()
+		mutate(&cur.Status)
+		return c.Status().Update(ctx, cur)
+	}
+	identities := func(n int) []maulv1.ProjectApproverIdentity {
+		out := make([]maulv1.ProjectApproverIdentity, n)
+		for i := range out {
+			out[i] = maulv1.ProjectApproverIdentity{Login: fmt.Sprintf("user-%d", i), ID: int64(i + 1)}
+		}
+		return out
+	}
+	classes := func(n int) []maulv1.ProjectResourceClass {
+		out := make([]maulv1.ProjectResourceClass, n)
+		for i := range out {
+			out[i] = maulv1.ProjectResourceClass{Name: fmt.Sprintf("class-%d", i)}
+		}
+		return out
+	}
+	models := func(n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("anthropic/model-%d", i)
+		}
+		return out
+	}
+	floors := func(n int) []maulv1.ProjectRunBudgetFloor {
+		out := make([]maulv1.ProjectRunBudgetFloor, n)
+		for i, id := range models(n) {
+			out[i] = maulv1.ProjectRunBudgetFloor{Model: id, EvaluateMicroUSD: 1600000}
+		}
+		return out
+	}
+	accepted := []struct {
+		name   string
+		mutate func(*maulv1.ProjectStatus)
+	}{
+		{"a budget floor for every model", func(s *maulv1.ProjectStatus) {
+			s.Admits.RunBudgetFloors = floors(maulv1.MaxAdmittedModels)
+		}},
+		{"a model with no floor of its own, and one listed twice", func(s *maulv1.ProjectStatus) {
+			s.Admits.RunBudgetFloors = []maulv1.ProjectRunBudgetFloor{
+				{Model: "Fake Model"}, {Model: "Fake Model", CheckReviewMicroUSD: 1 << 40},
+			}
+		}},
+		{"an identity for every login the spec may hold", func(s *maulv1.ProjectStatus) {
+			s.Approvers.Identities = identities(maulv1.MaxProjectApprovers)
+		}},
+		{"two identities whose logins differ only in case", func(s *maulv1.ProjectStatus) {
+			s.Approvers.Identities = []maulv1.ProjectApproverIdentity{{Login: "Octocat", ID: 1}, {Login: "octocat", ID: 1}}
+		}},
+		{"resolved, with no identity and no time", func(s *maulv1.ProjectStatus) {
+			s.Approvers = &maulv1.ProjectApproversStatus{}
+		}},
+		{"nothing admitted", func(s *maulv1.ProjectStatus) { s.Admits = &maulv1.ProjectAdmits{} }},
+		{"every class an operator may define", func(s *maulv1.ProjectStatus) {
+			s.Admits.ResourceClasses = classes(maulv1.MaxAdmittedResourceClasses)
+		}},
+		{"a class name of the longest length", func(s *maulv1.ProjectStatus) {
+			s.Admits.ResourceClasses = []maulv1.ProjectResourceClass{
+				{Name: strings.Repeat("c", maulv1.MaxResourceClassNameLength)},
+			}
+		}},
+		{"the most models", func(s *maulv1.ProjectStatus) { s.Admits.Models = models(maulv1.MaxAdmittedModels) }},
+		{"the same model twice", func(s *maulv1.ProjectStatus) {
+			s.Admits.Models = []string{"anthropic/claude-opus-5", "anthropic/claude-opus-5"}
+		}},
+		{"a model id no Project could spell", func(s *maulv1.ProjectStatus) {
+			s.Admits.Models = []string{"Fake Model", strings.Repeat("m", maulv1.MaxAdmittedModelLength)}
+			s.Admits.DefaultModels.Plan = "fake"
+		}},
+		{"a stage ceiling past what a Project may ask", func(s *maulv1.ProjectStatus) {
+			s.Admits.Stages.Build = maulv1.ProjectStageCeiling{
+				MaxTurns: 5000, TokenBudget: 1 << 40, Timeout: &metav1.Duration{Duration: 12 * time.Hour},
+			}
+			s.Admits.MaxEvaluateCostMicroUSD, s.Admits.MaxRunCostMicroUSD, s.Admits.MaxToolCalls = 1<<40, 1<<40, 5000
+		}},
+	}
+	for _, tt := range accepted {
+		t.Run("status accepts "+tt.name, func(t *testing.T) {
+			if err := write(tt.mutate); err != nil {
+				t.Errorf("Status().Update = %v, want nil", err)
+			}
+		})
+	}
+	refused := []struct {
+		name   string
+		mutate func(*maulv1.ProjectStatus)
+	}{
+		{"more identities than the spec has logins", func(s *maulv1.ProjectStatus) {
+			s.Approvers.Identities = identities(maulv1.MaxProjectApprovers + 1)
+		}},
+		{"an identity with no login", func(s *maulv1.ProjectStatus) {
+			s.Approvers.Identities = []maulv1.ProjectApproverIdentity{{ID: 1, Write: true}}
+		}},
+		{"a login longer than GitHub's", func(s *maulv1.ProjectStatus) {
+			s.Approvers.Identities = []maulv1.ProjectApproverIdentity{{Login: strings.Repeat("l", 65), ID: 1}}
+		}},
+		{"a negative id", func(s *maulv1.ProjectStatus) {
+			s.Approvers.Identities = []maulv1.ProjectApproverIdentity{{Login: "octocat", ID: -1}}
+		}},
+		{"more classes than an operator may define", func(s *maulv1.ProjectStatus) {
+			s.Admits.ResourceClasses = classes(maulv1.MaxAdmittedResourceClasses + 1)
+		}},
+		{"a class with no name", func(s *maulv1.ProjectStatus) {
+			s.Admits.ResourceClasses = []maulv1.ProjectResourceClass{{}}
+		}},
+		{"a class name too long to pick", func(s *maulv1.ProjectStatus) {
+			s.Admits.ResourceClasses = []maulv1.ProjectResourceClass{
+				{Name: strings.Repeat("c", maulv1.MaxResourceClassNameLength+1)},
+			}
+		}},
+		{"two classes of one name", func(s *maulv1.ProjectStatus) {
+			s.Admits.ResourceClasses = []maulv1.ProjectResourceClass{{Name: "large"}, {Name: "large"}}
+		}},
+		{"more models than the bound", func(s *maulv1.ProjectStatus) {
+			s.Admits.Models = models(maulv1.MaxAdmittedModels + 1)
+		}},
+		{"a model id past the bound", func(s *maulv1.ProjectStatus) {
+			s.Admits.Models = []string{strings.Repeat("m", maulv1.MaxAdmittedModelLength+1)}
+		}},
+		{"more budget floors than models", func(s *maulv1.ProjectStatus) {
+			s.Admits.RunBudgetFloors = floors(maulv1.MaxAdmittedModels + 1)
+		}},
+		{"a budget floor for no model", func(s *maulv1.ProjectStatus) {
+			s.Admits.RunBudgetFloors = []maulv1.ProjectRunBudgetFloor{{EvaluateMicroUSD: 1600000}}
+		}},
+		{"a negative budget floor", func(s *maulv1.ProjectStatus) {
+			s.Admits.RunBudgetFloors = []maulv1.ProjectRunBudgetFloor{{Model: "anthropic/claude-opus-5", EvaluateMicroUSD: -1}}
+		}},
+		{"a negative check review floor", func(s *maulv1.ProjectStatus) {
+			s.Admits.RunBudgetFloors = []maulv1.ProjectRunBudgetFloor{
+				{Model: "anthropic/claude-opus-5", CheckReviewMicroUSD: -1},
+			}
+		}},
+		{"a negative stage ceiling", func(s *maulv1.ProjectStatus) { s.Admits.Stages.Plan.MaxTurns = -1 }},
+		{"a negative token ceiling", func(s *maulv1.ProjectStatus) { s.Admits.Stages.Evaluate.TokenBudget = -1 }},
+		{"a negative evaluation ceiling", func(s *maulv1.ProjectStatus) { s.Admits.MaxEvaluateCostMicroUSD = -1 }},
+		{"a negative run budget bound", func(s *maulv1.ProjectStatus) { s.Admits.MaxRunCostMicroUSD = -1 }},
+		{"a negative tool-call ceiling", func(s *maulv1.ProjectStatus) { s.Admits.MaxToolCalls = -1 }},
+	}
+	for _, tt := range refused {
+		t.Run("status refuses "+tt.name, func(t *testing.T) {
+			if err := write(tt.mutate); err == nil {
+				t.Error("Status().Update = nil, want a schema refusal")
+			}
+		})
+	}
+	t.Run("a spec write cannot set what the controller publishes", func(t *testing.T) {
+		cur := &maulv1.Project{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(p), cur); err != nil {
+			t.Fatalf("Get(project) = %v", err)
+		}
+		before := cur.Status.DeepCopy()
+		cur.Status.Approvers = &maulv1.ProjectApproversStatus{
+			Identities: []maulv1.ProjectApproverIdentity{{Login: "mallory", ID: 666, Write: true}},
+			ResolvedAt: schemaNow.DeepCopy(),
+		}
+		cur.Status.Admits = &maulv1.ProjectAdmits{Models: []string{"anthropic/anything"}}
+		cur.Spec.Limits.MaxActiveIntents = 3
+		if err := c.Update(ctx, cur); err != nil {
+			t.Fatalf("Update(project) = %v", err)
+		}
+		got := &maulv1.Project{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(p), got); err != nil {
+			t.Fatalf("Get(project) = %v", err)
+		}
+		if got.Spec.Limits.MaxActiveIntents != 3 {
+			t.Fatalf("maxActiveIntents = %d, want the spec write's 3", got.Spec.Limits.MaxActiveIntents)
+		}
+		sameJSON(t, "status after a spec write", got.Status, before)
 	})
 }
 
