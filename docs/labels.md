@@ -161,18 +161,18 @@ is in `Intent.status.phase`. The happy path is `Pending → Planning → Awaitin
 The intent-controller is the only writer of every Intent phase. The table of legal moves is separate from the Finding's
 (`intentTransitions` in `api/v1alpha1/intent_types.go`), and `SetIntentPhase` refuses any move that is not in it.
 
-| Phase              | Meaning                                                                                                                       |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `Pending`          | The issue was found with the trigger label. maul has not yet decided whether the person who applied it may start it.          |
-| `Planning`         | A plan run is waiting, running, or having its plan posted on the issue.                                                       |
-| `AwaitingApproval` | The plan is posted on the issue. maul waits for an approver to approve it or ask for a new plan.                              |
-| `Building`         | The approved plan is being built, pushed and opened as pull requests.                                                         |
-| `InReview`         | Every pull request is open. maul waits for reviews, checks and a merge.                                                       |
-| `Revising`         | A round is running on the pull request: a revision, a CI fix, or a fix after a failed verification.                           |
-| `Blocked`          | A limit or a missing precondition stops progress. The conditions say which. **Not terminal**: it resumes.                     |
-| `Merged`           | Every pull request merged, and maul closed the issue as completed. **Terminal**                                               |
-| `Closed`           | A person closed the issue or ran `/maul cancel`, a pull request was closed unmerged, or the trigger was refused. **Terminal** |
-| `Failed`           | The plan or the build ran out of attempts, or the plan was invalid twice. **Terminal**, revivable                             |
+| Phase              | Meaning                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pending`          | The issue was found with the trigger label. maul is deciding whether the trigger counts, or the intent waits for its blockers or a free active slot.    |
+| `Planning`         | A plan run is waiting, running, or having its plan posted on the issue.                                                                                 |
+| `AwaitingApproval` | The plan is posted on the issue. maul waits for an approver to approve it or ask for a new plan.                                                        |
+| `Building`         | The approved plan is being built, pushed and opened as pull requests.                                                                                   |
+| `InReview`         | Every pull request is open. maul waits for reviews, checks and a merge.                                                                                 |
+| `Revising`         | A round is running on the pull request: a revision, a CI fix, or a fix after a failed verification.                                                     |
+| `Blocked`          | A limit or a missing precondition stops progress. The conditions say which. **Not terminal**: it resumes.                                               |
+| `Merged`           | Every pull request merged, and maul closed the issue as completed. **Terminal**                                                                         |
+| `Closed`           | A person closed the issue or ran `/maul cancel`, every pull request settled with at least one closed unmerged, or the trigger was refused. **Terminal** |
+| `Failed`           | The plan or the build ran out of attempts, or the plan was invalid twice. **Terminal**, revivable                                                       |
 
 Some things to know about these phases:
 
@@ -220,24 +220,24 @@ Two sets of edges are left out of the diagram to keep it readable:
 - every non-terminal phase has an edge to `Blocked`, and `Blocked` has an edge back to each of them, and to `Merged`;
 - every non-terminal phase, `Blocked` included, has an edge to `Closed`.
 
-| Edge                                           | Trigger                                                                                |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| _(none)_ → `Pending`                           | The intent-controller found an issue carrying the trigger label                        |
-| `Pending` → `Planning`                         | The trigger label was applied by an approver                                           |
-| `Pending` → `Closed`                           | The trigger was not an approver's, or was a bot's; one notice is posted                |
-| `Planning` → `AwaitingApproval`                | A valid plan was posted on the issue                                                   |
-| `Planning` → `Failed`                          | Plan attempts exhausted, or the plan was invalid twice                                 |
-| `AwaitingApproval` → `Building`                | An approval was accepted (the approve label or `/maul approve`)                        |
-| `AwaitingApproval` → `Planning`                | An approver asked for a replan (the trigger label again, or `/maul replan`)            |
-| `Building` → `InReview`                        | Every pull request is open                                                             |
-| `Building` → `Failed`                          | Build attempts exhausted                                                               |
-| `InReview` → `Revising`                        | A revision, CI-fix or verify-fix round started                                         |
-| `Revising` → `InReview`                        | The round pushed, or failed                                                            |
-| `InReview` / `Revising` / `Blocked` → `Merged` | Every pull request merged                                                              |
-| any non-terminal → `Blocked`                   | A limit or a precondition stopped it                                                   |
-| `Blocked` → the phase it was blocked from      | The Project changed and the block no longer holds                                      |
-| any non-terminal → `Closed`                    | A person closed the issue or ran `/maul cancel`, or a pull request was closed unmerged |
-| `Failed` → `Planning`                          | Revival: an approver applied the trigger label again                                   |
+| Edge                                           | Trigger                                                                                                          |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| _(none)_ → `Pending`                           | The intent-controller found an issue carrying the trigger label                                                  |
+| `Pending` → `Planning`                         | The trigger label was applied by an approver                                                                     |
+| `Pending` → `Closed`                           | The trigger was not an approver's, or was a bot's; one notice is posted                                          |
+| `Planning` → `AwaitingApproval`                | A valid plan was posted on the issue                                                                             |
+| `Planning` → `Failed`                          | Plan attempts exhausted, or the plan was invalid twice                                                           |
+| `AwaitingApproval` → `Building`                | An approval was accepted (the approve label or `/maul approve`)                                                  |
+| `AwaitingApproval` → `Planning`                | An approver asked for a replan (the trigger label again, or `/maul replan`)                                      |
+| `Building` → `InReview`                        | Every pull request is open                                                                                       |
+| `Building` → `Failed`                          | Build attempts exhausted                                                                                         |
+| `InReview` → `Revising`                        | A revision, CI-fix or verify-fix round started                                                                   |
+| `Revising` → `InReview`                        | The round pushed, or failed                                                                                      |
+| `InReview` / `Revising` / `Blocked` → `Merged` | Every pull request merged                                                                                        |
+| any non-terminal → `Blocked`                   | A limit or a precondition stopped it                                                                             |
+| `Blocked` → the phase it was blocked from      | The Project changed and the block no longer holds                                                                |
+| any non-terminal → `Closed`                    | A person closed the issue or ran `/maul cancel`, or every pull request settled with at least one closed unmerged |
+| `Failed` → `Planning`                          | Revival: an approver applied the trigger label again                                                             |
 
 ## Why an intent is Blocked
 

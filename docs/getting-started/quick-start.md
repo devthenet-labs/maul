@@ -251,8 +251,8 @@ Intents work from here on. The remaining steps add previews.
 ## 8. Set up previews (optional)
 
 With previews, each intent's pull request also runs at a URL of its own, `https://<project>-<issue>.<host suffix>`,
-behind sign-in, until it merges or closes. Previews work on any Kubernetes cluster. They need more than intents do, so
-have these ready first:
+behind sign-in. It is removed when the intent ends, and it expires 72 hours after its last deployment; the next push
+deploys it again. Previews work on any Kubernetes cluster. They need more than intents do, so have these ready first:
 
 - **A wildcard DNS name** for the preview hosts, `*.<host suffix>`, and one more host name for sign-in, ideally on a
   different registrable domain.

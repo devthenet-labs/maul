@@ -78,7 +78,7 @@ The plan comment has these parts:
 - **The plan**: the planner's report in a code block, exactly as the build agent will read it, byte for byte. GitHub
   does not wrap a code block, so scroll sideways to read long lines to the end.
 
-The plan itself is written under the headings Approach, Steps, Test plan and Risks.
+The plan itself is written under the headings Approach, Steps, Test plan, Risks and New dependencies.
 
 ### Notes for the builder
 
@@ -147,9 +147,9 @@ A revision round is how a reviewer asks maul to change the pull request. An appr
 The agent reads the approvers' reviews and comments on that pull request. The ones since the last successful round are
 its feedback, and the earlier ones are context. Feedback that a failed round never acted on is given again.
 
-`limits.maxRevisions` on the Project bounds revision rounds (3 by default). A round that failed still counts. When the
-limit is reached, the next request does not start a round: the intent is `Blocked` with `RevisionLimitReached` until the
-limit is raised.
+`limits.maxRevisions` on the Project bounds revision rounds (3 by default). A round that failed still counts, unless it
+failed because it found no usable feedback. When the limit is reached, the next request does not start a round: the
+intent is `Blocked` with `RevisionLimitReached` until the limit is raised.
 
 If a round fails, the intent stays in review. `/maul retry` on the pull request retries the round that failed.
 
@@ -196,9 +196,9 @@ comments. Verification never blocks the intent: a person's review, command or pu
 The **hand-off** is the moment maul gives people the preview link and says whether the change is ready. A
 [preview](set-up-previews.md) is the pull request's application running in the cluster at its own address. Without the
 evaluator, the link is posted as soon as the preview is live. With it, the default is to hold the link until every
-outcome is confirmed, or until maul gives up and says why ("maul couldn't confirm this: …"); it waits at most 60 minutes
-by default. An approver's `/maul preview`, changes-requested review or `/maul revise` releases the link at once. See
-[The hand-off](evaluator.md#the-hand-off).
+outcome is confirmed or accepted by an approver, or until maul gives up and says why ("maul couldn't confirm this: …");
+it waits at most 60 minutes by default. An approver's `/maul preview`, changes-requested review or `/maul revise`
+releases the link at once. See [The hand-off](evaluator.md#the-hand-off).
 
 ## 8. Merge or close
 

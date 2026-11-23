@@ -12,13 +12,15 @@ through GitHub Security Advisories).
 
 - An agent pod holds **no credential**: no GitHub token, and no model key for the claude and codex runners.
 - A claude or codex agent pod needs only maul's own services inside the cluster: the artifact server it fetches the code
-  from, and the egress broker that carries its model traffic. It cannot reach the Kubernetes API, and with repository
-  images on (which intent builds need) its NetworkPolicy permits nothing outside the cluster either.
-  [Narrow network](#agent-pods) says when the policy is wider.
+  from, and the egress broker that carries its model traffic. It cannot reach the Kubernetes API, and with
+  repository-declared agent images on (see Repository images under [Agent pods](#agent-pods); intent builds need them)
+  its NetworkPolicy permits nothing outside the cluster either. [Narrow network](#agent-pods) says when the policy is
+  wider.
 - Everything an agent produces is checked by a controller before anything reaches GitHub, and a person approves the plan
   and merges the pull request.
 - A preview of a pull request runs agent-written code, so it runs in an isolated namespace on its own browser origin,
-  behind sign-in on the preview gateway.
+  behind sign-in on the preview gateway (on the legacy EKS load balancer path, an IP allowlist, with sign-in a separate
+  step).
 
 ## Agent pods
 
@@ -35,26 +37,28 @@ disabled and carries its own GitHub token.
 
 **No Kubernetes access.** The agent's ServiceAccount has no Role, and the pod mounts no ordinary ServiceAccount token.
 
-**Locked down.** Both namespaces enforce the `restricted` Pod Security Standard: non-root, a read-only root filesystem,
-no capabilities, the runtime's default seccomp profile. A Job never restarts on failure; retries are maul's decision.
+**Locked down.** The agents namespace enforces the `restricted` Pod Security Standard (the chart labels it), and so
+should the release namespace, which you label yourself. maul runs every pod non-root with a read-only root filesystem,
+no capabilities and the runtime's default seccomp profile. A Job never restarts on failure; retries are maul's decision.
 
 **Narrow network.** The agents namespace denies all traffic by default. A claude or codex pod needs DNS, the artifact
 server and the broker, and with `agent.networkPolicy.dns: none` not even DNS. What the policy permits beyond that
 depends on the install: the base policy also has a rule for TCP 443 to any host outside the cluster's own ranges, kept
-for the copilot runner. The chart drops it under Cilium or GKE's FQDN policies, and must drop it when repository images
-are on; otherwise (the default `agent.networkPolicy.mode: auto` on a cluster with neither) it stays, and a pod could
-reach any HTTPS host, GitHub included, as an anonymous client. See
-[Network egress](deployment/isolation.md#network-egress-the-floor-and-the-fence). The broker in turn forwards only the
-model API calls an agent needs and refuses server-side tools that reach the internet, such as web search. Before a pod
-running a repository's own image starts the agent, a trusted init container probes the internet, the Kubernetes API and
-the cloud metadata service from inside the pod; if any answers, the run fails and the agent never starts.
+for the copilot runner. The chart drops it under Cilium or GKE FQDN policies (`broadEgress: auto`). With repository
+images on, it refuses to render until the rule is gone: set `agent.networkPolicy.broadEgress: never`, or use mode cilium
+or gke. Otherwise (mode none or istio, or `broadEgress: always`) it stays, and a pod could reach any HTTPS host, GitHub
+included, as an anonymous client. See [Network egress](deployment/isolation.md#network-egress-the-floor-and-the-fence).
+The broker in turn forwards only the model API calls an agent needs and refuses server-side tools that reach the
+internet, such as web search. Before a pod running a repository's own image starts the agent, a trusted init container
+probes the internet, the Kubernetes API and the cloud metadata service from inside the pod; if any answers, the run
+fails and the agent never starts.
 
 **Read-only where it should be.** An investigation and an intent's plan run without a shell on claude, and may write
 only their own report. A remediation or a build needs a shell to build and test, so it gets one; the pod is then the
 boundary.
 
-**Dependencies.** An agent pod has no route to a package registry, so a repository's dependencies must be in its agent
-image. An operator may grant one narrow exception, a
+**Dependencies.** With narrow egress (repository images on, which builds need), an agent pod has no route to a package
+registry, so a repository's dependencies must be in its agent image. An operator may grant one narrow exception, a
 [network profile](deployment/isolation.md#network-profiles-the-go-dependency-route): a route through maul's egress proxy
 to the Go modules or package registries the operator allows, for builds and remediations on an accepted repository image
 only. The proxy holds any registry credential; the pod never does.
@@ -110,9 +114,11 @@ reviewed yet, so maul treats it as hostile:
   cannot read another's cookies or storage. Previews on paths of one shared host are not offered.
 - **An isolated slot.** A preview runs in one of a few fixed slot namespaces. Their NetworkPolicy lets traffic in only
   from the edge in front of them (the preview gateway, or on the legacy EKS path the preview load balancer's subnets)
-  and lets traffic out only to DNS: no Kubernetes API, no maul service, no metadata service, no internet. Admission
-  policies allow a preview's pods only one container, from the operator's preview image path, no ServiceAccount token
-  and no Secret references. Slot pods run on dedicated, tainted nodes unless the operator explicitly opts out.
+  and lets traffic out only to DNS: no Kubernetes API, no maul service, no metadata service, no internet. With the agent
+  evaluator on, it also admits that round's evaluator to the slot tool pod, and the tool pod to the preview's
+  components; nothing else. Admission policies allow a preview's pods only one container, from the operator's preview
+  image path, no ServiceAccount token and no Secret references. Slot pods run on dedicated, tainted nodes unless the
+  operator explicitly opts out.
 - **Separate images.** The preview image path must not overlap the agent image allowlist, so an image built from a pull
   request can never run as an agent.
 - **Sign-in.** Viewers sign in through Dex with GitHub, and maul admits them by an access review on the Preview's
@@ -128,6 +134,9 @@ A cluster whose network plugin does not enforce NetworkPolicy cannot isolate pre
 [preview sign-in](intents/preview-sign-in.md) have the details, including what a stolen session cookie can do.
 
 ## The evaluator and its tool pods
+
+An outcome is one result the approved plan promises; a round is one evaluation of the pull request heads, and each round
+gets a fresh random key that every tool call must present.
 
 With the [agent evaluator](intents/evaluator.md) on, an agent explores a preview and writes checks. It is split so that
 no part holds both the model and the application:
@@ -154,7 +163,8 @@ namespace, can read the same content directly. The built-in `view`, `edit` and `
 
 ## What is not covered
 
-- **Open HTTPS egress**, where the TCP 443 rule above is kept (repository images off, no Cilium or GKE FQDN policy).
+- **Open HTTPS egress**, where the TCP 443 rule above is kept (`broadEgress` resolves to broad: mode none or istio, or
+  `broadEgress: always`).
 - **A compromised cluster** or a compromised maul controller. The controllers hold the GitHub App credential and the
   broker holds the model credential.
 - **DNS**, unless closed. With the cluster resolver open, a determined agent can encode data in DNS queries. Close it

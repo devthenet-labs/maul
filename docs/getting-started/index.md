@@ -27,12 +27,12 @@ reach.
 
 Every install needs these:
 
-| Prerequisite                  | Why                                                                                                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Kubernetes 1.34 or later      | The chart's `kubeVersion` floor. Both of maul's namespaces enforce the `restricted` Pod Security Standard.                                                    |
-| Helm 3.8 or later             | The charts are installed from an OCI registry (`helm install oci://…`).                                                                                       |
-| A GitHub organization's Owner | To create the GitHub App maul signs in with, and to install it on the repositories maul works in.                                                             |
-| A model credential            | An Anthropic API key or a `claude setup-token` token, which the agents' `claude` CLI uses through the egress broker. Bedrock, Vertex AI and Foundry work too. |
+| Prerequisite                  | Why                                                                                                                                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Kubernetes 1.34 or later      | The chart's `kubeVersion` floor. The chart's agent namespace enforces the `restricted` Pod Security Standard, and maul's own namespace should be labelled `restricted` before you install (see the [quick start](quick-start.md), step 2). |
+| Helm 3.8 or later             | The charts are installed from an OCI registry (`helm install oci://…`).                                                                                                                                                                    |
+| A GitHub organization's Owner | To create the GitHub App maul signs in with, and to install it on the repositories maul works in.                                                                                                                                          |
+| A model credential            | An Anthropic API key or a `claude setup-token` token, which the agents' `claude` CLI uses through the egress broker. Bedrock, Vertex AI and Foundry work too.                                                                              |
 
 Each flow adds its own:
 

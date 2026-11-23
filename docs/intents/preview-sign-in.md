@@ -13,13 +13,13 @@ with its own gate ([Opening previews to the internet](#opening-previews-to-the-i
 !!! note "The preview gateway"
 
     This page is the legacy path: the preview ALB signs viewers in through the relay. The
-    [preview gateway](../configuration/preview-gateway.md) signs them in itself, on any cluster, and can run
-    beside this path while an install moves to it. Sections 1 (Dex) and 2 (who may view) apply to it unchanged, and so do key rotation and
-    [Check it](#check-it)'s `maul check project`. The permit and require stages, the slot Ingress annotations and the
-    `aws elbv2` check are the ALB's alone: a fresh gateway-only install sets no `stage` and turns sign-in on in one
-    `helm upgrade` ([Turning it on](../configuration/preview-gateway.md#turning-it-on); `maul setup previews` writes
-    it, see [Set up previews](set-up-previews.md)). Moving an EKS install from this
-    path to the gateway is
+    [preview gateway](../configuration/preview-gateway.md) signs them in itself, on any cluster, and can run beside this
+    path while an install moves to it. Sections 1 (Dex) and 2 (who may view) apply to it unchanged, and so do key
+    rotation and [Check it](#check-it)'s `maul check project`. The permit and require stages, the slot Ingress
+    annotations and the `aws elbv2` check are the ALB's alone: a fresh gateway-only install sets no `stage` and turns
+    sign-in on in one `helm upgrade` ([Turning it on](../configuration/preview-gateway.md#turning-it-on);
+    `maul setup previews` writes it, see [Set up previews](set-up-previews.md)). Moving an EKS install from this path
+    to the gateway is
     [three steps, rolled back by DNS](../configuration/preview-gateway.md#moving-off-the-preview-alb-eks-release-n).
 
 What it guarantees:

@@ -67,10 +67,10 @@ are `maul.exe` and `kubectl-maul.exe`: the bundles keep their names (`maul_windo
     The Homebrew tap `bitwise-media-group/tap/maul` is the upstream project's, an older release without `setup`,
     `init` or `check project`. `go install` builds an unstamped development build: it knows no release registry, so
     `init app` needs `--agent-base` and `check image --run` needs `--runner-image`, and neither can pin anything to a
-    release. To build from source, clone this repository and run `BUILD_TAGS= MAUL_IMAGE_REGISTRY=ghcr.io/devthenet-labs/maul
-    hack/build.sh` (it writes `bin/maul` beside the other binaries), which stamps the registry; the empty
-    `BUILD_TAGS` leaves out the status page's web UI, which a fresh clone has not built. Built anywhere but at a
-    release tag, it is still a development build to `init app`.
+    release. To build from source, clone this repository and run
+    `BUILD_TAGS= MAUL_IMAGE_REGISTRY=ghcr.io/devthenet-labs/maul hack/build.sh` (it writes `bin/maul` beside the
+    other binaries), which stamps the registry; the empty `BUILD_TAGS` leaves out the status page's web UI, which a
+    fresh clone has not built. Built anywhere but at a release tag, it is still a development build to `init app`.
 
 The archive carries `kubectl-maul`, so every command below also works as `kubectl maul …` once it is on your `PATH`:
 

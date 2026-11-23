@@ -2,8 +2,8 @@
 
 !!! info "The AWS/EKS reference path"
 
-    This guide is the reference path on AWS: EKS Auto Mode, ECR, ACM, Route53 and the reference terraform module. Intents
-    run on any cluster the chart supports, and previews too, behind the
+    This guide is the reference path on AWS: EKS Auto Mode, ECR, ACM, Route53 and the reference terraform module.
+    Intents run on any cluster the chart supports, and previews too, behind the
     [preview gateway](../configuration/preview-gateway.md). For a shorter path on another cluster, start with the
     [quick start](../getting-started/quick-start.md) and [Set up previews](set-up-previews.md).
 

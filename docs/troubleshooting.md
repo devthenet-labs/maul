@@ -84,17 +84,18 @@ Most failed runs are retried as the next attempt, so one failure does not end th
 | Outcome                            | Meaning and what to do                                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `timeout`                          | The run reached its stage time limit, or made no progress for 20 minutes (no model turn and no tool result; often one command that never returned). The run panel names the command. A Project can lower a stage's `timeout`; raising it past the operator's limit needs the chart.                                                                                     |
-| `budget_exceeded`                  | The run hit a spend or token limit: its output-token budget, or one of the egress broker's limits. The run's detail names the limit. See [Costs and usage](usage.md#limits-on-spend).                                                                                                                                                                                   |
+| `budget_exceeded`                  | The run hit a spend or token limit: its output-token budget, or one of the egress broker's limits. The run's detail (`kubectl get intentrun <name> -o yaml`, `status.detail`) names the limit; the dashboard shows only the fixed wording. See [Costs and usage](usage.md#limits-on-spend).                                                                             |
 | `report_invalid`, `report_missing` | The agent's report was missing or did not follow the format. On claude, maul first asks the same agent to repair its report, up to two times, before the attempt fails ([report repair](configuration/agent-runner.md#report-repair)).                                                                                                                                  |
 | `unschedulable`                    | No node could fit the agent pod for 10 minutes. It does not count as an attempt and is not retried: a plan or build blocks the intent with `ResourcesUnavailable` until the Project changes or intent-controller restarts. Give the repository another resource class, or add nodes that fit ([resource classes](configuration/intent-controller.md#resource-classes)). |
 | `changeset_rejected`               | maul refused the change before any push, for example because it touched `.github/`, `.maul/` or `.devcontainer/`. See [Security model](security.md#what-reaches-github).                                                                                                                                                                                                |
 | `dependency_refused`               | The build needed a dependency the egress proxy does not allow for its network profile. See [network profiles](deployment/isolation.md#network-profiles-the-go-dependency-route).                                                                                                                                                                                        |
 | `launch_refused`                   | The cluster refused to create the agent Job, for example an admission policy during an upgrade. It is retried as the next attempt.                                                                                                                                                                                                                                      |
 
-A run on a repository image that fails with `SandboxUnenforced` means the sandbox probe found the pod's network open:
-the cluster does not enforce NetworkPolicy, or not yet. The job controller then refuses repository images until it
-restarts. Fix the network plugin first. On a default-image run, a `SANDBOX NOT CONFIRMED` line in the `prepare` log is
-the same warning; the run goes on.
+A run on a repository image that carries the condition `SandboxRefused` (reason `SandboxUnenforced`) means the sandbox
+probe found the pod's network open: the cluster does not enforce NetworkPolicy, or not yet. The attempt does not count,
+but the controller that launched it (investigation-, remediation- or intent-controller) refuses repository images until
+it restarts. Fix the network plugin first. On a default-image run, a `SANDBOX NOT CONFIRMED` line in the `prepare` log
+is the same warning; the run goes on.
 
 ## Previews
 
@@ -117,14 +118,14 @@ explain each check.
 
 With the [agent evaluator](intents/evaluator.md) on, maul posts a `maul/acceptance` commit status on the pull request.
 
-| You see                                                       | Meaning                                                                                                                                                |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| No `maul/acceptance` status at all                            | Verification is off for this intent, the App lacks Commit statuses write (the Project shows `AcceptanceStatusUnavailable`), or the intent has ended    |
-| `pending`, "waiting for the preview"                          | There is no live preview at exactly the pull request heads yet. Check `kubectl get preview -n maul`                                                    |
-| `error`, "maul could not run the checks"                      | The tool pod failed three times for infrastructure reasons (scheduling, image pull, quota, deadline). It is not a verdict on the change                |
-| No preview link, "maul holds its link"                        | The evaluator is still checking. The link is released when it decides, after the hand-off limit, or at once on your comment, a push or `/maul preview` |
-| "maul couldn't confirm this"                                  | maul gave up without confirming every outcome, for the reason it names. It never blocks: accept the outcome, run `/maul verify`, or merge              |
-| An outcome "unsure", the evaluator disputes its failing check | A saved check failed and the evaluator judged that it shows no defect. No fix round runs. See [Disputes](intents/evaluator.md#disputes)                |
+| You see                                                       | Meaning                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No `maul/acceptance` status at all                            | Verification is off for this intent, the App lacks Commit statuses write (the Project shows `AcceptanceStatusUnavailable`), or the intent has ended                                                                                                                                        |
+| `pending`, "waiting for the preview"                          | There is no live preview at exactly the pull request heads yet. Check `kubectl get preview -n maul`                                                                                                                                                                                        |
+| `error`, "maul could not run the checks"                      | The tool pod failed three times for infrastructure reasons (scheduling, image pull, quota, deadline). It is not a verdict on the change                                                                                                                                                    |
+| No preview link, "maul holds its link"                        | The evaluator is still checking, and maul holds the preview link until it decides (a gated hand-off). The link is released when it decides, after the Project's `handoffMax`, or at once on your comment, a push or `/maul preview`. See [The hand-off](intents/evaluator.md#the-hand-off) |
+| "maul couldn't confirm this"                                  | maul gave up without confirming every outcome, for the reason it names. It never blocks: accept the outcome, run `/maul verify`, or merge                                                                                                                                                  |
+| An outcome "unsure", the evaluator disputes its failing check | A saved check failed and the evaluator judged that it shows no defect. No fix round runs. See [Disputes](intents/evaluator.md#disputes)                                                                                                                                                    |
 
 [When something is not what you expect](intents/acceptance.md#when-something-is-not-what-you-expect) has the full table.
 
@@ -175,13 +176,15 @@ pull request, like every other, waits for a person to merge it.
 it has no shell at all; a codex plan has one, but is told to stay read-only, and nothing it changes leaves the pod. The
 build runs the tests, in the repository's own agent image.
 
-**Can the agent install a dependency during a build?** Not by default: an agent pod has no route to a package registry,
-so dependencies must be in the agent image. An operator can grant a
-[network profile](deployment/isolation.md#network-profiles-the-go-dependency-route) for allowlisted packages.
+**Can the agent install a dependency during a build?** Not by default: with narrow egress (repository images on, which
+builds need), an agent pod has no route to a package registry, so dependencies must be in the agent image. An operator
+can grant a [network profile](deployment/isolation.md#network-profiles-the-go-dependency-route) for allowlisted
+packages.
 
 **A flaky CI check started a CI-fix round.** CI-fix rounds act on the checks the Project names in `spec.checks.fix`.
 Leave flaky checks out of that list, or set `spec.checks.rerunFailed: true`, which re-runs a failed GitHub Actions job
 once before maul spends a fix round on it (it needs the App's Actions write permission).
 
-**Is a local cluster's sandbox real?** Only if its network plugin enforces NetworkPolicy. kind's default network plugin
-ignores NetworkPolicy, so a green install there is not a working sandbox; k3s enforces it.
+**Is a local cluster's sandbox real?** Only if its network plugin enforces NetworkPolicy. Older kind releases' kindnet
+ignores NetworkPolicy, so check the sandbox probe's `SANDBOX NOT CONFIRMED` line in an agent pod's `prepare` log before
+trusting a local install; k3s enforces it.

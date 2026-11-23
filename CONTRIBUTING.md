@@ -12,10 +12,13 @@ Before you start, read [AGENTS.md](AGENTS.md), the map of the repository (where 
 The toolchain comes from the `.mise/` submodule: [mise](https://mise.jdx.dev) installs the pinned tools, and the
 `Makefile` only forwards to mise tasks (`make <task>` is `mise run <task>`).
 
+Install mise (https://mise.jdx.dev), then:
+
 ```sh
 git clone https://github.com/devthenet-labs/maul.git
 cd maul
 git submodule update --init
+mise install
 make build   # every binary into bin/
 ```
 
@@ -35,9 +38,9 @@ make build   # every binary into bin/
 | `make pr`            | The full local gate before a pull request (below)                                           |
 
 `make pr` runs tidy, format, the codegen drift check, lint, the chart, terraform and scaffold gates, the unit and
-envtest tests, the build, the CLI reference, the docs build and a binary size report. It does not run `make e2e`; run
-that too when you change a controller. Run both before you ask for review, and if a step cannot run on your machine, say
-which one in the pull request.
+envtest tests, the build, the CLI reference, the docs build and a binary size report, and finally runs `./commit.sh` if
+one exists. It does not run `make e2e`; run that too when you change a controller. Run both before you ask for review,
+and if a step cannot run on your machine, say which one in the pull request.
 
 ## Tests first
 

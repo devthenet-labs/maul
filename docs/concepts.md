@@ -138,8 +138,9 @@ The rung is how much of an evaluation one evaluator round runs. There are two:
 - `full`: the saved checks are replayed, then the evaluator explores and may write new checks;
 - `replay`: only the saved checks are replayed. No model runs, so the round costs nothing in model spend.
 
-maul picks `replay` only when nothing has changed since the evaluator last looked and every outcome already has a proven
-saved check. See [The cost ladder](intents/evaluator.md#the-cost-ladder-replay-rounds).
+maul picks `replay` only when the commits and outcomes are those of the last full round, that round's evaluator raised
+nothing, and every outcome that is not manual already has a proven saved check. See
+[The cost ladder](intents/evaluator.md#the-cost-ladder-replay-rounds).
 
 ### PreviewVerification
 

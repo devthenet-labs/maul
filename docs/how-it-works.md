@@ -126,7 +126,8 @@ has the details.
 
 With the optional **preview-controller** on, and a Project that says how to run its application, each intent's pull
 request is deployed inside the cluster and served at `https://<intent>.<host suffix>`, for example
-`https://shop-42.preview.example.com`. The `Preview` resource carries it. A preview is removed when the intent ends.
+`https://shop-42.preview.example.com`. The `Preview` resource carries it. It is removed when the intent ends, and it
+expires 72 hours after its last deployment; the next push deploys it again.
 
 [Set up previews](intents/set-up-previews.md) covers the setup.
 
@@ -159,9 +160,9 @@ A Project with no preview can be evaluated too, if it builds a command-line prog
 The **hand-off** is the moment maul gives people the preview link and says whether the change is ready.
 
 - Without the evaluator, the link is posted as soon as the preview is live.
-- With the evaluator, the default mode is `gated`: maul holds the link until every outcome is confirmed, or until it
-  gives up and says why. It waits at most 60 minutes by default. The other mode, `early`, posts the link at once and
-  labels it as still being checked.
+- With the evaluator, the default mode is `gated`: maul holds the link until every outcome is confirmed or accepted by
+  an approver, or until it gives up and says why. It waits at most 60 minutes by default. The other mode, `early`, posts
+  the link at once and labels it as still being checked.
 
 A person can always get the link sooner: `/maul preview` releases it. See
 [The hand-off](intents/evaluator.md#the-hand-off).

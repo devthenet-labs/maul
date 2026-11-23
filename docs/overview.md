@@ -55,7 +55,8 @@ describes every action on the issue and the pull request.
 Two optional parts build on intents:
 
 - **Previews.** Each intent's pull request is deployed at a URL of its own, `https://<project>-<issue>.<host suffix>`,
-  behind sign-in, until it merges or closes. See [Set up previews](intents/set-up-previews.md).
+  behind sign-in. It is removed when the intent ends, and it expires 72 hours after its last deployment; the next push
+  deploys it again. See [Set up previews](intents/set-up-previews.md).
 - **The agent evaluator.** The approved plan states _outcomes_ in plain words. Once the pull request's checks are green,
   an evaluator agent tests the change in its preview against those outcomes, and maul reports the result as the
   `maul/acceptance` commit status. See [The agent evaluator](intents/evaluator.md).
@@ -90,7 +91,8 @@ controls.
 - **An agent cannot change its own sandbox.** A build's changes are refused if they touch `.github/`, `.maul/` or
   `.devcontainer/`.
 - **Previews are isolated from each other.** Each preview gets its own host name, so one preview's page cannot read
-  another's cookies or storage, and a preview pod can reach DNS and nothing else.
+  another's cookies or storage, and a preview pod can reach DNS and, when the evaluator is on, only the other parts of
+  its own preview it declares; nothing outside its slot.
 
 One runner is an exception to the first point. The optional Copilot runner, which is off by default, carries a GitHub
 token in its pod. [The isolation model](deployment/isolation.md) describes every layer in detail.

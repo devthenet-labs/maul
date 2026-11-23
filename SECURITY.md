@@ -22,7 +22,8 @@ The agent is the least-trusted component. The full model is on the docs site:
   its pod carries its own GitHub token.
 - **Agent network access.** Agent pods run under a default-deny NetworkPolicy. A claude or codex pod needs only DNS
   (which can be closed), the artifact server and the broker; the base policy's TCP 443 rule for the copilot runner is
-  dropped under Cilium or GKE FQDN policies and whenever repository images are on, and otherwise lets a pod reach
+  dropped automatically under Cilium or GKE FQDN policies; with repository images on, the chart refuses to render until
+  it is dropped (`agent.networkPolicy.broadEgress: never`, or mode cilium or gke). Where it stays, it lets a pod reach
   external HTTPS hosts without any credential. The broker forwards only the model API calls an agent needs, and refuses
   server-side tools that reach the internet.
 - **Agent-authored outputs.** Everything an agent emits is data. Reports are schema-checked, and a changeset is
