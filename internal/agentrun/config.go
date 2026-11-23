@@ -178,6 +178,12 @@ type Config struct {
 	// build's report is refused for claiming it.
 	AcceptanceFix bool
 
+	// buildSubagents grants an intent build Job's first run subagents
+	// (harness.PromptRequest.Subagents), which its turn grant then covers
+	// with the parent's calls. Nothing sets it outside tests yet: no Job
+	// carries a grant, so no run is granted subagents.
+	buildSubagents bool
+
 	// NetworkProfile names the operator network profile the pod carries (a
 	// Go module route through the egress proxy), which the remediate and
 	// build prompts then describe instead of saying the run is offline.

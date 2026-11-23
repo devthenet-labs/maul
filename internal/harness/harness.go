@@ -112,6 +112,14 @@ type PromptRequest struct {
 	// provider. claude reads its gateway from the pod's environment and
 	// ignores it.
 	Gateway *Gateway
+	// Subagents grants a SandboxWorkspaceWrite run foreground subagents the
+	// run itself starts (depth 1), held to its turn and token limits with
+	// its own calls. The caller's kill switches read it: the delegation
+	// check admits such a subagent's start (DelegationScanner), and a turn
+	// grant counts its calls (CallScanner). No harness renders it yet, so
+	// the writable posture still denies the subagent tool whatever it says;
+	// false, every request renders and is held exactly as before.
+	Subagents bool
 }
 
 // Gateway is the egress broker as a harness CLI's model provider: the route
@@ -288,6 +296,19 @@ type DelegationScanner interface {
 	// never delegation, and neither is a task of a type never measured. The
 	// caller runs this on every line of the stream.
 	ScanDelegation(line []byte, subagents bool) (forbidden bool, reason string)
+}
+
+// CallScanner is the optional capability of seeing, on the stream, each
+// model call a run makes: its main thread's and its subagents'. It powers
+// the combined turn grant of a run granted subagents, which the CLI's own
+// turn cap does not give: that cap counts the main thread's calls alone.
+type CallScanner interface {
+	// ScanCall reports whether one stream line is a model call's (ok), the
+	// call's message id, and whether a subagent made it. A call's content
+	// blocks may come as several lines of one id, which the caller counts
+	// once; a call with no id ("") has nothing to merge on and counts as its
+	// own. The caller runs this on every line of the stream.
+	ScanCall(line []byte) (id string, subagent, ok bool)
 }
 
 // TaskEventKind says what a TaskEvent reports.

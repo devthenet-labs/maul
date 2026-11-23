@@ -955,6 +955,11 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   posture, whose stream shows a `task_started` of a workflow, or of a subagent the run was not granted (none is yet;
   a grant would admit depth 1, no parent task, foreground only), as `budget_exceeded` with the reason, maul's own words
   only, in the detail and the transcript; what a repair or cover ask that delegates wrote is not read.
+  `PromptRequest.Subagents` is that grant (not rendered by any harness yet; agentrun sets it only from an unexported
+  build config no Job sets, and clears it on repairs and cover asks); a granted run also gets agentrun's turn watcher
+  over `CallScanner` (claude, `calls.go`: a top-level assistant event's message id, and whether it carries a
+  `parent_tool_use_id`), which ends it `budget_exceeded` once parent plus subagent calls, each id once, pass its
+  `MaxTurns`, a wake resetting nothing.
   `parseStreamResult` reads every result event (a woken session prints several): the answer and error from the last
   that took a turn or erred (`terminalResult`, which `RuntimeError`, `Exhausted` and `TerminalError` share), `num_turns`
   summed, and, for a run that spawned a subagent, the tokens from `model_usage_since_last_result` summed (top-level

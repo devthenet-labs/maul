@@ -519,6 +519,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
 		Gateway:   gateway,
+		Subagents: a.cfg.buildSubagents,
 	}, a.cfg.RemediateTimeout, a.cfg.RemediateIdleTimeout, params.budget)
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)

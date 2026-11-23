@@ -166,7 +166,8 @@ func (a *Agent) newStage(h harness.Harness, cli string, req harness.PromptReques
 // start runs the stage's first run.
 func (a *Agent) start(ctx context.Context, sr *stageRun) (runner.Result, string, error) {
 	sr.started = time.Now()
-	return a.run(ctx, sr, pinCLI(sr.h.PromptSpec(a.workDir(), sr.req), sr.cli), sr.firstTimeout(), sr.budget)
+	return a.run(ctx, sr, sr.req, pinCLI(sr.h.PromptSpec(a.workDir(), sr.req), sr.cli), sr.firstTimeout(),
+		sr.budget)
 }
 
 // firstTimeout is the stage's first run's wall clock: the stage's, less
@@ -349,6 +350,10 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 
 	req := sr.req
 	req.Prompt, req.Env, req.Gateway = prompt, env, gateway
+	// A repair fixes the report in a few turns of its own: it is granted no
+	// subagents, so the delegation switch refuses one and its --max-turns
+	// covers every call it makes.
+	req.Subagents = false
 	req.MaxTurns = repairMaxTurns
 	if sr.turns > 0 {
 		req.MaxTurns = repairTurns(sr.turns-sr.used, round)
@@ -372,7 +377,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	}
 	a.cfg.Log.Info("asking the agent to repair its report", "phase", a.cfg.Phase, "round", round,
 		"outcome", outcome, "session", session)
-	res, idle, runErr := a.run(ctx, sr, pinCLI(resumer.ResumeSpec(a.workDir(), session, req), sr.cli),
+	res, idle, runErr := a.run(ctx, sr, req, pinCLI(resumer.ResumeSpec(a.workDir(), session, req), sr.cli),
 		timeout, budget)
 	var spent envelope.Stage
 	a.fillStage(&spent, sr.h, res)

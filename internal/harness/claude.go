@@ -616,16 +616,18 @@ func scanStream(stdout []byte) (results []claudeEvent, subagentTurns int) {
 		if json.Unmarshal(line, &ev) != nil {
 			continue
 		}
-		switch {
-		case ev.Type == "result":
+		if ev.Type == "result" {
 			results = append(results, ev)
-		case ev.Type == "assistant" && ev.ParentToolUseID != "":
-			if ev.Message.ID == "" {
-				subagentTurns++ // nothing to merge on: its own message
-			} else if !children[ev.Message.ID] {
-				children[ev.Message.ID] = true
-				subagentTurns++
-			}
+			continue
+		}
+		id, subagent, ok := modelCall(ev)
+		switch {
+		case !ok || !subagent:
+		case id == "":
+			subagentTurns++ // nothing to merge on: its own message
+		case !children[id]:
+			children[id] = true
+			subagentTurns++
 		}
 	}
 	return results, subagentTurns

@@ -111,6 +111,14 @@ corrected rather than hidden.
 - So does the delegation kill switch: a claude run whose CLI starts a workflow, or a subagent the run was not granted,
   is ended at that line as `budget_exceeded`, with the reason in the stage's detail and its transcript. No run is
   granted subagents. A repair run ended this way ends the rounds, and the report it wrote is not read.
+- A run granted subagents (none is yet; only a build's or a revise round's first run could be) is held to its turn grant
+  by its own and its subagents' model calls together, counted as distinct message ids on the stream. The CLI's
+  `--max-turns`, which it is still given, counts the main thread alone and restarts on each wake of the session. The run
+  whose calls pass the grant is ended at that line as `budget_exceeded`, with
+  `turn grant exceeded (P parent + C subagent turns > N)` in the stage's detail and its transcript, no report read and
+  no repair asked. The count is a floor: a foreground subagent's closing text-only call is not streamed, and the
+  delegation kill switch ends a run whose subagent starts its own. A repair round and an evaluator's ask for checks are
+  never granted subagents.
 - All the runs of a stage write one transcript: a repair's turns follow the first run's, after a notice saying why it
   was asked for.
 - A repair's spend is added to the stage's. Its tokens, turns and time are summed, since a resumed claude run reports
