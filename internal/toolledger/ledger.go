@@ -99,13 +99,14 @@ func ClampInt32[T int | int64](n T) int32 {
 	return int32(max(min(int64(n), math.MaxInt32), math.MinInt32))
 }
 
-// Index indexes every entry, in order: its facts without its output.
+// Index indexes every entry, in order: its facts without its output, its
+// side as the ledger records it (base, or none for the head).
 func Index(entries []toolwire.LedgerEntry) []v1alpha1.LedgerIndexEntry {
 	out := make([]v1alpha1.LedgerIndexEntry, 0, len(entries))
 	for _, e := range entries {
 		ie := v1alpha1.LedgerIndexEntry{Seq: ClampInt32(e.Seq), Kind: v1alpha1.LedgerKind(e.Kind),
 			Verb: v1alpha1.LedgerVerb(e.Verb), Exit: ClampInt32(e.Exit), ResultSHA256: e.OutputSHA256,
-			Refused: e.Refused != ""}
+			Refused: e.Refused != "", Side: v1alpha1.TreeSide(e.Side.Recorded())}
 		for _, a := range e.Artifacts {
 			ie.Artifacts = append(ie.Artifacts, a.SHA256)
 		}

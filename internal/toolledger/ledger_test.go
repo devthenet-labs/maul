@@ -88,6 +88,33 @@ func TestIndexAndReadiness(t *testing.T) {
 	}
 }
 
+// The index records each entry's tree in the ledger's own encoding: base
+// for a base-side call, no side for the head however the head was spelled
+// and for a verb that takes no side, so a base call is never read as
+// evidence about the head (acceptance.ValidCite).
+func TestIndexRecordsSide(t *testing.T) {
+	sha := strings.Repeat("c", 64)
+	entry := func(seq int64, verb toolwire.Verb, side toolwire.Side) toolwire.LedgerEntry {
+		return toolwire.LedgerEntry{Seq: seq, Kind: toolwire.KindAgent, Verb: verb, Side: side, OutputSHA256: sha}
+	}
+	idx := Index([]toolwire.LedgerEntry{
+		entry(1, toolwire.VerbExec, toolwire.SideBase),
+		entry(2, toolwire.VerbExec, ""),
+		entry(3, toolwire.VerbExec, toolwire.SideHead),
+		entry(4, toolwire.VerbRun, toolwire.SideBase),
+		entry(5, toolwire.VerbHTTP, ""),
+	})
+	want := []v1alpha1.TreeSide{v1alpha1.TreeBase, "", "", v1alpha1.TreeBase, ""}
+	if len(idx) != len(want) {
+		t.Fatalf("index has %d entries, want %d", len(idx), len(want))
+	}
+	for i, w := range want {
+		if idx[i].Side != w {
+			t.Errorf("entry %d side = %q, want %q", idx[i].Seq, idx[i].Side, w)
+		}
+	}
+}
+
 // What status holds of the ledger is read from the ledger alone: a
 // confirmation whose check is over the saved bound, bound to no outcome
 // under evaluation, or that failed, confirms nothing.

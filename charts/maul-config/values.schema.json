@@ -786,7 +786,7 @@
                             "additionalProperties": false
                         },
                         "checkReview": {
-                            "description": "CheckReview bounds each check reviewer run (read-only, judging the\nround's new saved checks).",
+                            "description": "CheckReview bounds each check reviewer run (read-only, judging the\nround's new saved checks). Retired with the check reviewer: the\nobserved evaluator runs none, so it bounds nothing. Removed in the\nnext release.",
                             "properties": {
                                 "maxCostMicroUSD": {
                                     "description": "MaxCostMicroUSD is the spend budget of one run of the stage in\nmicro-USD (60000000 = $60), at most the Project's per-intent\nlimits.maxCostMicroUSD. It is enforced only while the egress broker\ncounts cost (egressBroker.limits.unit cost): intent-controller then\nstamps every run's agent pod with it, the per-intent ceiling standing\nin when this is unset, and the broker ends the run's model traffic at\nthe smaller of it and the broker's own per-pod cost limit. Under the\ntoken unit (the default) it has no effect.",
@@ -980,7 +980,7 @@
                             "type": "string"
                         },
                         "checkReview": {
-                            "description": "CheckReview is the check reviewer's model (--intent-checkreview-model\nwhen unset; a codex Project's build model, as for Evaluate).",
+                            "description": "CheckReview is the check reviewer's model (--intent-checkreview-model\nwhen unset; a codex Project's build model, as for Evaluate). Retired\nwith the check reviewer: the observed evaluator runs none. Removed in\nthe next release.",
                             "maxLength": 128,
                             "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
                             "type": "string"

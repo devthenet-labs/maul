@@ -100,7 +100,9 @@ spec:
                   store (status.acceptance.checks), which preview-controller copies
                   into the slot tool pod's ConfigMap: it never reads the store, so it
                   needs no read of the release namespace's ConfigMaps (SPEC Q1). Empty
-                  on a first round, before any check is saved.
+                  on a first round, before any check is saved. Retired with saved
+                  checks: the observed evaluator never writes it. Kept for a rollback;
+                  removed in the next release.
                 items:
                   description: |-
                     SavedCheck is one confirmed, reviewed check of an approved outcome: its
@@ -181,6 +183,7 @@ spec:
                 description: |-
                   ChecksDigest is the check store's digest
                   (status.acceptance.checks.digest). Set with Checks, and only with it.
+                  Retired with saved checks, as Checks is.
                 pattern: ^sha256:[0-9a-f]{64}$
                 type: string
               headSetDigest:
@@ -342,7 +345,9 @@ spec:
               rung:
                 description: |-
                   Rung is how much of an evaluation the round runs. Set on an outcome
-                  verification, and only on one.
+                  verification, and only on one. Retired with the cost ladder: the
+                  observed evaluator always writes full, which the schema's rules still
+                  require of an outcome verification. Removed in the next release.
                 enum:
                 - full
                 - replay
@@ -591,7 +596,10 @@ spec:
                 description: |-
                   Base is an agents verification's base side: whether its outcomes need
                   a base comparison, whether the base tree built, and each check's run
-                  at base. Unset on a slot verification.
+                  at base. Unset on a slot verification. Retired with saved checks: the
+                  agents host no longer writes it (a base-side call is context, marked
+                  on its ledger index entry). Kept for a rollback; removed in the next
+                  release.
                 properties:
                   required:
                     description: |-
@@ -756,7 +764,8 @@ spec:
               confirmations:
                 description: |-
                   Confirmations is each proposed check's confirmation run, alone with
-                  a fresh run token, after the evaluator finished.
+                  a fresh run token, after the evaluator finished. Retired with saved
+                  checks, as Replay is.
                 items:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.
@@ -855,6 +864,7 @@ spec:
                   Confirmed are the proposed checks that passed their confirmation,
                   their bodies read from the verified ledger (never from the
                   evaluator's report): what intent-controller may store once reviewed.
+                  Retired with saved checks, as Replay is.
                 items:
                   description: |-
                     SavedCheck is one confirmed, reviewed check of an approved outcome: its
@@ -1131,6 +1141,16 @@ spec:
                           maximum: 512
                           minimum: 1
                           type: integer
+                        side:
+                          description: |-
+                            Side is the tree an agents tool pod ran the call against: base for
+                            the merge base, unset for the head (and for every slot entry), the
+                            ledger's own encoding (toolwire.Side.Recorded). A base-side entry is
+                            context, never evidence for an outcome.
+                          enum:
+                          - head
+                          - base
+                          type: string
                         verb:
                           description: Verb is the tool it records.
                           enum:
@@ -1294,7 +1314,8 @@ spec:
               replay:
                 description: |-
                   Replay is each saved check's replay at the start of the round, in
-                  spec order.
+                  spec order. Retired with saved checks: the tool hosts no longer write
+                  it. Kept for a rollback; removed in the next release.
                 items:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.

@@ -256,7 +256,9 @@ spec:
                   checks:
                     description: |-
                       Checks names the check store of the approved plan revision; unset
-                      until a first check is saved.
+                      until a first check is saved. Retired with saved checks: the observed
+                      evaluator leaves it untouched, so a rollback's check store resumes its
+                      numbering. Removed in the next release.
                     properties:
                       configMap:
                         description: ConfigMap names the store.
@@ -294,7 +296,8 @@ spec:
                       contrary ledger entries), each with the verification of that round.
                       From the round after, none of them is a basis for its outcome's pass,
                       whatever a later evaluator says: the outcome passes only on another
-                      check, or an approver's acceptance.
+                      check, or an approver's acceptance. Retired with saved checks, left
+                      untouched as Checks is.
                     items:
                       description: |-
                         NarrowedCheck is a saved check that passed cleanly in a round whose
@@ -388,7 +391,8 @@ spec:
                       did. Until one has, only a run red by the assertion it was saved
                       failing reproduces its defect. A clearance counts from the round
                       after the one that earned it, so that round is judged, and its fix
-                      decided, on the same facts.
+                      decided, on the same facts. Retired with saved checks, left untouched
+                      as Checks is.
                     items:
                       description: RedClearance is a check saved red that replayed
                         green.
@@ -413,7 +417,8 @@ spec:
                   reviews:
                     description: |-
                       Reviews cache the check reviewer's answers, so a check is reviewed
-                      once per outcome statement.
+                      once per outcome statement. Retired with saved checks, left untouched
+                      as Checks is.
                     items:
                       description: |-
                         CheckReviewRecord is one cached check review: the answer a checkreview
@@ -1679,7 +1684,8 @@ spec:
                     description: |-
                       Disputed are the digests of the saved checks the evaluator disputed,
                       awaiting a replay round once their replacements are confirmed and
-                      reviewed.
+                      reviewed. Retired with saved checks: cleared once when a record is
+                      superseded, never written after. Removed in the next release.
                     items:
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
@@ -1690,7 +1696,8 @@ spec:
                     description: |-
                       Escalation is the one automatic full round a head set gets after an
                       unsure round at those heads: due while Round is the replay round
-                      that asked for it, spent once a later round starts there.
+                      that asked for it, spent once a later round starts there. Retired as
+                      Rung is.
                     properties:
                       headSetDigest:
                         description: HeadSetDigest is the head set it is for.
@@ -1813,6 +1820,13 @@ spec:
                     maximum: 999
                     minimum: 0
                     type: integer
+                  judge:
+                    description: |-
+                      Judge is the rule this verification is judged under (JudgeObserved).
+                      Unset on a record written before it was.
+                    maxLength: 32
+                    pattern: ^[a-z][a-z0-9-]{0,15}/[1-9][0-9]{0,3}$
+                    type: string
                   lastAutomaticAt:
                     description: LastAutomaticAt is when the latest of them started.
                     format: date-time
@@ -1837,7 +1851,7 @@ spec:
                     description: |-
                       ModelRound is the latest full round judged on its evaluator's
                       report: a new round replays only at its heads and outcomes, and only
-                      when its evaluator raised nothing (Clear).
+                      when its evaluator raised nothing (Clear). Retired as Rung is.
                     properties:
                       clear:
                         description: |-
@@ -1924,9 +1938,26 @@ spec:
                         basis:
                           description: |-
                             Basis is the digest of the saved check the result rests on; unset
-                            when none does.
+                            when none does. Retired with saved checks: the observed evaluator
+                            never writes it (Cites is what a result rests on). Removed in the
+                            next release.
                           pattern: ^sha256:[0-9a-f]{64}$
                           type: string
+                        cites:
+                          description: |-
+                            Cites are the entries of the round's verified ledger index that the
+                            evaluator cited for its verdict and that maul admits as evidence
+                            (acceptance.ValidCite), by seq, ascending, at most MaxOutcomeCites.
+                            maul checks that each one is a call that exercised the application in
+                            that round, never that it shows what the verdict says.
+                          items:
+                            format: int32
+                            maximum: 512
+                            minimum: 1
+                            type: integer
+                          maxItems: 8
+                          type: array
+                          x-kubernetes-list-type: atomic
                         id:
                           description: ID of the outcome.
                           pattern: ^[a-z][a-z0-9-]{0,31}$
@@ -1934,7 +1965,8 @@ spec:
                         line:
                           description: |-
                             Line is the maul-rendered one-line description of the basis check
-                            (its steps and assertions in maul's words).
+                            (its steps and assertions in maul's words). Retired with saved checks,
+                            as Basis is.
                           maxLength: 1024
                           pattern: ^[^\r\n]*$
                           type: string
@@ -1943,7 +1975,9 @@ spec:
                             Objected records that the round's evaluator said it saw the outcome
                             fail (a fail verdict, or contrary entries), whatever Reason says: a
                             finding about the round's heads, which holds every later round there
-                            (G-B-LIB-1).
+                            (G-B-LIB-1). Retired with saved checks: never written by the observed
+                            evaluator, whose fail verdict is its finding. Removed in the next
+                            release.
                           type: boolean
                         reason:
                           description: |-
@@ -2014,15 +2048,18 @@ spec:
                     format: date-time
                     type: string
                   quarantined:
-                    description: Quarantined counts the criteria that passed only
-                      on retry.
+                    description: |-
+                      Quarantined counts the criteria that passed only on retry. Retired
+                      with saved checks: cleared once when a record is superseded, never
+                      written after. Removed in the next release.
                     format: int32
                     maximum: 20
                     minimum: 0
                     type: integer
                   quarantinedIDs:
-                    description: QuarantinedIDs are the criteria that passed only
-                      on retry.
+                    description: |-
+                      QuarantinedIDs are the criteria that passed only on retry. Retired
+                      as Quarantined is.
                     items:
                       pattern: ^[a-z][a-z0-9-]{0,31}$
                       type: string
@@ -2072,6 +2109,8 @@ spec:
                         description: |-
                           Explore asks for the full rung (/maul verify explore): the saved
                           checks replayed and then the evaluator, whatever a replay could show.
+                          Retired with the cost ladder: never set; /maul verify explore is read
+                          as /maul verify. Removed in the next release.
                         type: boolean
                       fix:
                         description: Fix also re-arms automatic fixes (/maul verify
@@ -2150,7 +2189,9 @@ spec:
                     description: |-
                       Rung is the rung of the latest round (Round): full, the saved checks
                       replayed and then the evaluator; or replay, the saved checks alone
-                      with no model. A retry of the round keeps it.
+                      with no model. A retry of the round keeps it. Retired with the cost
+                      ladder: cleared once when a record is superseded, never written after.
+                      Removed in the next release.
                     enum:
                     - full
                     - replay
@@ -2180,6 +2221,8 @@ spec:
                       and the evidence shown until an approver's /maul verify fix confirms it
                       (Confirmed), which starts the fix round on it. Set by each judgement,
                       shown and confirmable only while the heads are the ones it judged.
+                      Retired with saved checks: cleared once when a record is superseded,
+                      never written after. Removed in the next release.
                     properties:
                       confirmed:
                         description: Confirmed records the approver's /maul verify

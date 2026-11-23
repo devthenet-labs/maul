@@ -402,7 +402,9 @@ type ProjectLimits struct {
 	// +optional
 	Evaluate StageLimits `json:"evaluate,omitempty"`
 	// CheckReview bounds each check reviewer run (read-only, judging the
-	// round's new saved checks).
+	// round's new saved checks). Retired with the check reviewer: the
+	// observed evaluator runs none, so it bounds nothing. Removed in the
+	// next release.
 	// +optional
 	CheckReview StageLimits `json:"checkReview,omitempty"`
 	// MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
@@ -876,7 +878,9 @@ type ProjectModels struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
 	Evaluate string `json:"evaluate,omitempty"`
 	// CheckReview is the check reviewer's model (--intent-checkreview-model
-	// when unset; a codex Project's build model, as for Evaluate).
+	// when unset; a codex Project's build model, as for Evaluate). Retired
+	// with the check reviewer: the observed evaluator runs none. Removed in
+	// the next release.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
 	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`

@@ -238,7 +238,9 @@ const (
 // only, no model: a round at the heads of a model round that raised
 // nothing, every outcome bound to a proven saved check; the round after a
 // dispute among them, SPEC Q17). intent-controller picks it
-// (acceptance.StartRung).
+// (acceptance.StartRung). Retired with the cost ladder: the observed
+// evaluator writes full only, and replay is a retired spelling. Removed in
+// the next release.
 // +kubebuilder:validation:Enum=full;replay
 type VerificationRung string
 
@@ -374,7 +376,9 @@ type PreviewVerificationSpec struct {
 	// store (status.acceptance.checks), which preview-controller copies
 	// into the slot tool pod's ConfigMap: it never reads the store, so it
 	// needs no read of the release namespace's ConfigMaps (SPEC Q1). Empty
-	// on a first round, before any check is saved.
+	// on a first round, before any check is saved. Retired with saved
+	// checks: the observed evaluator never writes it. Kept for a rollback;
+	// removed in the next release.
 	// +optional
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=40
@@ -382,11 +386,14 @@ type PreviewVerificationSpec struct {
 	Checks []SavedCheck `json:"checks,omitempty"`
 	// ChecksDigest is the check store's digest
 	// (status.acceptance.checks.digest). Set with Checks, and only with it.
+	// Retired with saved checks, as Checks is.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	ChecksDigest string `json:"checksDigest,omitempty"`
 	// Rung is how much of an evaluation the round runs. Set on an outcome
-	// verification, and only on one.
+	// verification, and only on one. Retired with the cost ladder: the
+	// observed evaluator always writes full, which the schema's rules still
+	// require of an outcome verification. Removed in the next release.
 	// +optional
 	Rung VerificationRung `json:"rung,omitempty"`
 	// Tools is what the slot tool pod offers. Set on an outcome
@@ -654,13 +661,15 @@ type PreviewVerificationStatus struct {
 	// +optional
 	Ledger *LedgerSummary `json:"ledger,omitempty"`
 	// Replay is each saved check's replay at the start of the round, in
-	// spec order.
+	// spec order. Retired with saved checks: the tool hosts no longer write
+	// it. Kept for a rollback; removed in the next release.
 	// +optional
 	// +kubebuilder:validation:MaxItems=40
 	// +listType=atomic
 	Replay []CheckRun `json:"replay,omitempty"`
 	// Confirmations is each proposed check's confirmation run, alone with
-	// a fresh run token, after the evaluator finished.
+	// a fresh run token, after the evaluator finished. Retired with saved
+	// checks, as Replay is.
 	// +optional
 	// +kubebuilder:validation:MaxItems=40
 	// +listType=atomic
@@ -668,6 +677,7 @@ type PreviewVerificationStatus struct {
 	// Confirmed are the proposed checks that passed their confirmation,
 	// their bodies read from the verified ledger (never from the
 	// evaluator's report): what intent-controller may store once reviewed.
+	// Retired with saved checks, as Replay is.
 	// +optional
 	// +kubebuilder:validation:MaxItems=40
 	// +listType=atomic
@@ -678,7 +688,10 @@ type PreviewVerificationStatus struct {
 	Capture *CaptureSummary `json:"capture,omitempty"`
 	// Base is an agents verification's base side: whether its outcomes need
 	// a base comparison, whether the base tree built, and each check's run
-	// at base. Unset on a slot verification.
+	// at base. Unset on a slot verification. Retired with saved checks: the
+	// agents host no longer writes it (a base-side call is context, marked
+	// on its ledger index entry). Kept for a rollback; removed in the next
+	// release.
 	// +optional
 	Base *BaseStatus `json:"base,omitempty"`
 }
@@ -852,6 +865,12 @@ type LedgerIndexEntry struct {
 	// Refused reports that nothing ran: the call was refused.
 	// +optional
 	Refused bool `json:"refused,omitempty"`
+	// Side is the tree an agents tool pod ran the call against: base for
+	// the merge base, unset for the head (and for every slot entry), the
+	// ledger's own encoding (toolwire.Side.Recorded). A base-side entry is
+	// context, never evidence for an outcome.
+	// +optional
+	Side TreeSide `json:"side,omitempty"`
 }
 
 // CheckRunResult is what one deterministic run of a saved or proposed

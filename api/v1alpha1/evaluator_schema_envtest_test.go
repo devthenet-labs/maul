@@ -72,7 +72,7 @@ func fullEvaluatorStatus() maulv1.PreviewVerificationStatus {
 			Entries: []maulv1.LedgerIndexEntry{
 				{Seq: 1, Kind: maulv1.LedgerKindRelay, Verb: maulv1.LedgerVerbCheckRun, ResultSHA256: sha},
 				{Seq: 2, Kind: maulv1.LedgerKindAgent, Verb: maulv1.LedgerVerbBrowser, Exit: 1, ResultSHA256: sha,
-					Artifacts: []string{sha}, Refused: true},
+					Artifacts: []string{sha}, Refused: true, Side: maulv1.TreeBase},
 			}},
 		Replay: []maulv1.CheckRun{{CheckDigest: check, Result: maulv1.CheckRunPass, Token: "v1a1-0a1b2c", Seq: 1}},
 		Confirmations: []maulv1.CheckRun{{CheckDigest: check, Result: maulv1.CheckRunQuarantined,
@@ -89,10 +89,11 @@ func fullEvaluatorStatus() maulv1.PreviewVerificationStatus {
 func fullEvaluatorVerification() *maulv1.IntentVerification {
 	check := "sha256:" + strings.Repeat("1", 64)
 	return &maulv1.IntentVerification{
-		State: maulv1.VerificationUnconfirmed, Round: 1, Attempt: 1,
+		State: maulv1.VerificationUnconfirmed, Round: 1, Attempt: 1, Judge: maulv1.JudgeObserved,
 		Outcomes: []maulv1.OutcomeResult{
 			{ID: "winner-rises", Result: maulv1.OutcomePassed, Basis: check,
-				Line: "Check: POST /api/battles, GET /api/leaderboard; asserts the winner is listed above the loser."},
+				Line:  "Check: POST /api/battles, GET /api/leaderboard; asserts the winner is listed above the loser.",
+				Cites: []int32{1, 3, 4, 5, 6, 7, 8, 512}},
 			{ID: "leaderboard-still-loads", Result: maulv1.OutcomeUnsure, Reason: "the evaluator disputed the check"},
 			{ID: "sounds-good", Result: maulv1.OutcomeAccepted},
 		},
@@ -337,6 +338,15 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 			s.Verification.Disputed = []string{"winner-rises.order"}
 		}},
 		{"an unknown verification state", func(s *maulv1.IntentStatus) { s.Verification.State = "Judging" }},
+		{"nine cites on an outcome", func(s *maulv1.IntentStatus) {
+			s.Verification.Outcomes[0].Cites = []int32{1, 2, 3, 4, 5, 6, 7, 8, 9}
+		}},
+		{"a cite of 0", func(s *maulv1.IntentStatus) { s.Verification.Outcomes[0].Cites = []int32{0} }},
+		{"a cite past the ledger", func(s *maulv1.IntentStatus) { s.Verification.Outcomes[0].Cites = []int32{513} }},
+		{"a judge that is not a rule", func(s *maulv1.IntentStatus) { s.Verification.Judge = "observed" }},
+		{"a judge rule name over 16 characters", func(s *maulv1.IntentStatus) {
+			s.Verification.Judge = maulv1.VerificationJudge(strings.Repeat("o", 17) + "/1")
+		}},
 	} {
 		t.Run("status with "+tt.name, func(t *testing.T) {
 			i := fresh(t)
@@ -515,6 +525,7 @@ func testEvaluatorStatusSchema(ctx context.Context, t *testing.T, c client.Clien
 		{"a ledger hash that is not one", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.SHA256 = "abc" }},
 		{"an unknown ledger kind", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Entries[0].Kind = "app" }},
 		{"an unknown ledger verb", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Entries[0].Verb = "shell" }},
+		{"an unknown ledger side", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Entries[1].Side = "tree" }},
 		{"a ledger seq of 0", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Entries[0].Seq = 0 }},
 		{"more ledger entries than a ledger holds", func(s *maulv1.PreviewVerificationStatus) {
 			for len(s.Ledger.Entries) <= maulv1.MaxLedgerIndexEntries {

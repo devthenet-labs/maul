@@ -324,7 +324,9 @@ spec:
                   checkReview:
                     description: |-
                       CheckReview bounds each check reviewer run (read-only, judging the
-                      round's new saved checks).
+                      round's new saved checks). Retired with the check reviewer: the
+                      observed evaluator runs none, so it bounds nothing. Removed in the
+                      next release.
                     properties:
                       maxCostMicroUSD:
                         description: |-
@@ -630,7 +632,9 @@ spec:
                   checkReview:
                     description: |-
                       CheckReview is the check reviewer's model (--intent-checkreview-model
-                      when unset; a codex Project's build model, as for Evaluate).
+                      when unset; a codex Project's build model, as for Evaluate). Retired
+                      with the check reviewer: the observed evaluator runs none. Removed in
+                      the next release.
                     maxLength: 128
                     pattern: ^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$
                     type: string

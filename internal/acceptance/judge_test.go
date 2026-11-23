@@ -34,6 +34,14 @@ func TestJudgeLedgerSpellingsMatch(t *testing.T) {
 	}
 }
 
+// TestMaxCitesMatchesSchema pins the cites Judge keeps to the bound the
+// schema puts on OutcomeResult.cites, so a decision always fits its status.
+func TestMaxCitesMatchesSchema(t *testing.T) {
+	if MaxCites != maulv1.MaxOutcomeCites {
+		t.Errorf("acceptance.MaxCites = %d, v1alpha1.MaxOutcomeCites = %d", MaxCites, maulv1.MaxOutcomeCites)
+	}
+}
+
 // judgeLedger is a verified round's index: each fact at its own seq.
 func judgeLedger(facts ...LedgerFact) []LedgerFact {
 	out := make([]LedgerFact, len(facts))
