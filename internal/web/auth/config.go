@@ -270,6 +270,25 @@ func (c *Config) RequireForUsage() error {
 	return nil
 }
 
+// RequireForProjectSettings checks the configuration may serve the Project
+// settings page's write path, which ties a session to one of a Project's
+// approvers by the person's numeric GitHub id (Identity.GitHubID against the
+// identities intent-controller resolved). That is exactly what the usage
+// views key a person on, so it asks for what RequireForUsage asks: mode
+// oidc, both claim prefixes, the federated:id scope and the GitHub
+// connector. Mode none is refused whatever let it serve the intents views:
+// a development bypass admits it there for reading, and there is none for a
+// write, since its one fixed identity has no GitHub id to match. The
+// insecure cookie switch is not a mode and is not judged. Call it on what
+// LoadConfig returned.
+func (c *Config) RequireForProjectSettings() error {
+	if err := c.RequireForUsage(); err != nil {
+		return fmt.Errorf("editing Project settings needs what the usage views need, since an approver is "+
+			"matched by their GitHub id: %w", err)
+	}
+	return nil
+}
+
 // RequireForIntents checks the configuration may serve the intents views,
 // which show agent plans and transcripts (private code) per Project. Only
 // mode oidc qualifies: mode none bypasses authorization for everyone, and
