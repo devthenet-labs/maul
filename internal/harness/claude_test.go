@@ -64,7 +64,7 @@ func TestClaudePromptSpecAllFlags(t *testing.T) {
 		"--max-turns", "30",
 		"--allowedTools", "Read Glob Grep Edit Write NotebookEdit Bash",
 		"--disallowedTools", "WebFetch WebSearch Agent Task Workflow ScheduleWakeup CronCreate CronDelete CronList " +
-			"EnterWorktree ExitWorktree",
+			"EnterWorktree ExitWorktree Monitor",
 		"--setting-sources", "user", "--permission-mode", "dontAsk",
 		"--strict-mcp-config",
 		"--add-dir", "/work/ws",
@@ -158,7 +158,7 @@ func TestClaudeReadOnlyDeniesTheOtherEditTools(t *testing.T) {
 // name every tool that starts work outside the run's own main thread or
 // wakes the session again after its turn ends: a subagent (Agent, which the
 // CLI's init event still calls Task), a workflow, a scheduled wake-up, a cron
-// job, and a worktree to move into. On the pinned CLI a subagent needs no
+// job, a worktree to move into, and a monitor, whose end wakes the session. On the pinned CLI a subagent needs no
 // permission and runs in the background by default, and every wake resets
 // --max-turns, so the allow list and the mode alone do not hold the run to
 // its grant. A deny binds every depth ("disabled for this session, in
@@ -169,7 +169,7 @@ func TestClaudeWritableDeniesDelegation(t *testing.T) {
 	want := []string{
 		"WebFetch", "WebSearch",
 		"Agent", "Task", "Workflow", "ScheduleWakeup", "CronCreate", "CronDelete", "CronList",
-		"EnterWorktree", "ExitWorktree",
+		"EnterWorktree", "ExitWorktree", "Monitor",
 	}
 	for name, argv := range map[string][]string{
 		"first run": NewClaude().PromptSpec("/workspace/repo", req).Argv,

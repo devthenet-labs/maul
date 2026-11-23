@@ -86,19 +86,23 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
 - **Workspace-write** (`remediate`, and an intent's `build`): the CLI's built-in tools with a shell, so the agent can
   build and test; network tools stay denied. So does every tool that would start work off the run's own thread or wake
   the session after its turn ends: subagents (`Agent`, also named `Task`), `Workflow`, `ScheduleWakeup`, the cron tools
-  (`CronCreate`, `CronDelete`, `CronList`) and the worktree tools (`EnterWorktree`, `ExitWorktree`). On the pinned CLI a
-  subagent needs no permission and runs in the background by default, its turns are not counted by `--max-turns` (which
-  also starts again whenever the session is woken), its usage is missing from the run's own totals, and a worktree moves
-  the session out of the tree maul collects the changeset from; a deny binds subagents at every depth as well as the
-  session. The shell's own background commands are kept. The posture does not run with `--restricted`, which would take
-  its shell and refuse writes to tool-configuration files and CI definitions that a fix may need to change.
+  (`CronCreate`, `CronDelete`, `CronList`), the worktree tools (`EnterWorktree`, `ExitWorktree`) and `Monitor`. On the
+  pinned CLI a subagent needs no permission and runs in the background by default, its turns are not counted by
+  `--max-turns` (which also starts again whenever the session is woken), its usage is missing from the run's own totals,
+  and a worktree moves the session out of the tree maul collects the changeset from; a monitor of a read-only command
+  starts without asking and its end wakes the session after its turn; a deny binds subagents at every depth as well as
+  the session. The shell's own background commands are kept: a fix may build or serve in the background. A background
+  command's end also wakes the session, and `--max-turns` starts again; that wake is accepted, and the broker's spend
+  limit and the stage's wall clock bound the run. The posture does not run with `--restricted`, which would take its
+  shell and refuse writes to tool-configuration files and CI definitions that a fix may need to change.
 
 These flags are checked against the real CLI, not only as rendered argv: a probe runs the claude version the runner
 image pins with each posture's argv against a scratch repository whose hooks, `env` block, settings, untracked
 `settings.local.json` and `.mcp.json` must all stay inert, and asserts the read-only posture's file grammar on the first
 run and on a report repair's resume, and that the workspace-write posture refuses a subagent, a workflow, a wake-up, a
-cron job and a worktree (no subagent's command runs, and the run ends with a single result), with a scripted model on
-loopback and no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture changes).
+cron job, a worktree and a monitor (no subagent's command runs, and the run ends with a single result), with a scripted
+model on loopback and no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture
+changes).
 
 codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary. The
 intent stages run on brokered claude, or on brokered codex for a Project that chooses it under `--intent-codex`. An

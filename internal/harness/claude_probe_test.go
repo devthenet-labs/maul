@@ -68,11 +68,12 @@ const claudeProbeCLIEnv = "MAUL_CLAUDE_PROBE_CLI"
 // run in /work rather than scratch the parent's handoff is readable.
 //
 // The workspace-write posture is also asked for a subagent (as Agent and as
-// Task), a workflow, a wake-up, a cron job and a worktree (probeDelegation):
-// each must be unavailable, no subagent's shell may run, the init event must
-// offer none of them, and the run must print exactly one result event. Its
-// control takes those denies back out and asserts a subagent's shell does
-// run and every denied tool is offered.
+// Task), a workflow, a wake-up, a cron job, a worktree and a monitor
+// (probeDelegation): each must be unavailable, no subagent's shell may run,
+// the init event must offer none of them, and the run must print exactly one
+// result event. Its two controls take those denies back out: a subagent's
+// shell then runs and every denied tool is offered, and a monitor starts and
+// its end wakes the session after its turn, a second result event.
 func TestClaudePostureProbe(t *testing.T) {
 	cli := os.Getenv(claudeProbeCLIEnv)
 	if cli == "" {
@@ -159,19 +160,22 @@ func TestClaudePostureProbe(t *testing.T) {
 
 // probeDelegationTools are the tools the workspace-write posture denies
 // beside the web tools: a subagent (Agent; the init event still names it
-// Task), a workflow, a scheduled wake-up, cron jobs and worktrees. Each starts
-// work off the run's main thread or wakes the session after its turn, which
-// neither the allow list nor the mode stops on the pinned CLI.
+// Task), a workflow, a scheduled wake-up, cron jobs, worktrees and a monitor.
+// Each starts work off the run's main thread or wakes the session after its
+// turn, which neither the allow list nor the mode stops on the pinned CLI.
 var probeDelegationTools = []string{
 	"Agent", "Task", "Workflow", "ScheduleWakeup", "CronCreate", "CronDelete", "CronList",
-	"EnterWorktree", "ExitWorktree",
+	"EnterWorktree", "ExitWorktree", "Monitor",
 }
 
 // probeDelegation is TestClaudePostureProbe's workspace-write delegation case
 // and its control. The control renders the posture with the delegation denies
 // taken out and asserts a foreground subagent runs and its shell writes a
 // marker, and that every denied tool is in the init event's tools there, so
-// the postured run's refusals and missing tools are the denies' doing.
+// the postured run's refusals and missing tools are the denies' doing. The
+// second control asserts that without them a monitor starts and its end
+// wakes the session after its turn, so the postured run's single result
+// event is the Monitor deny's doing.
 func probeDelegation(t *testing.T, cli string) {
 	t.Run("control: a subagent runs without the writable posture's delegation denies", func(t *testing.T) {
 		p := newPostureProbe(t, cli)
@@ -193,7 +197,25 @@ func probeDelegation(t *testing.T, cli string) {
 		}
 	})
 
-	t.Run("workspace-write: delegation, wake-ups, cron and worktrees are refused", func(t *testing.T) {
+	t.Run("control: a monitor wakes the session without the writable posture's delegation denies", func(t *testing.T) {
+		p := newPostureProbe(t, cli)
+		spec := NewClaude().PromptSpec(p.tree, p.delegationRequest())
+		spec.Argv = withoutDelegationDenies(t, spec.Argv)
+		script := monitorControlScript()
+		got := p.run(t, spec, script)
+		got.assertPinned(t, script)
+		if text := got.results["toolu_monitor"].Text; !strings.Contains(text, "Monitor started") {
+			t.Errorf("toolu_monitor: result %s, want the monitor started", text)
+		}
+		if got.resultEvents < 2 {
+			t.Errorf("%d result events, want the monitor's end to wake the session after its turn", got.resultEvents)
+		}
+		if t.Failed() {
+			t.Log("without the denies the pinned CLI no longer runs a monitor or wakes on its end; update the probe")
+		}
+	})
+
+	t.Run("workspace-write: delegation, wake-ups, cron, worktrees and monitors are refused", func(t *testing.T) {
 		p := newPostureProbe(t, cli)
 		script := delegationScript(p)
 		got := p.run(t, NewClaude().PromptSpec(p.tree, p.delegationRequest()), script)
@@ -228,6 +250,28 @@ func (p *postureProbe) delegationRequest() PromptRequest {
 
 // childMarker is the file a subagent's shell writes.
 func (p *postureProbe) childMarker() string { return filepath.Join(p.marks, "child-ran") }
+
+// monitorCall asks for a monitor whose command ends shortly after, which on
+// the pinned CLI wakes the session again once its turn is over (measured: a
+// second model call and a second result event). The command is read-only on
+// purpose: the CLI runs a monitor of one without asking, as it does the
+// shell's built-in read-only commands, so neither the allow list (whose Bash
+// rule does not cover Monitor) nor dontAsk refuses it, while a command that
+// writes is refused by the mode.
+func monitorCall() toolCall {
+	return toolCall{"toolu_monitor", "Monitor", map[string]any{
+		"command":     "sleep 2; echo PROBE-MONITOR-FIRED",
+		"description": "probe monitor",
+	}}
+}
+
+// monitorControlScript starts one monitor, which must succeed.
+func monitorControlScript() probeScript {
+	return probeScript{
+		steps:  [][]toolCall{{monitorCall()}},
+		expect: map[string]bool{"toolu_monitor": true},
+	}
+}
 
 // probeChildMark is in every subagent prompt the delegation scripts send; a
 // request carrying it, and not the run's own prompt, is the subagent's.
@@ -271,10 +315,12 @@ func delegationScript(p *postureProbe) probeScript {
 			{"toolu_wakeup", "ScheduleWakeup", map[string]any{"delaySeconds": 60, "reason": "probe", "prompt": "wake"}},
 			{"toolu_cron", "CronCreate", map[string]any{"cron": "* * * * *", "prompt": "probe"}},
 			{"toolu_worktree", "EnterWorktree", map[string]any{"name": "probe"}},
+			monitorCall(),
 		}},
 		expect: map[string]bool{
 			"toolu_agent": false, "toolu_task": false, "toolu_workflow": false,
 			"toolu_wakeup": false, "toolu_cron": false, "toolu_worktree": false,
+			"toolu_monitor": false,
 		},
 		child: probeChild(p),
 	}

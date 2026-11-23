@@ -76,24 +76,33 @@ func NewClaude() *Claude {
 // every tool that starts work off the run's main thread or wakes the session
 // after its turn ends (probed on 2.1.322): a subagent (Agent; the init event
 // calls it Task, a call by either name works, and a deny of either removes
-// both), a
-// workflow (Workflow), a scheduled wake-up (ScheduleWakeup), cron jobs
-// (CronCreate, CronDelete, CronList) and worktrees (EnterWorktree,
-// ExitWorktree). Without the denies (measured the same on 2.1.263, 2.1.322
-// and 2.1.330) a subagent needs no permission, so neither the allow list nor
-// dontAsk refuses it; it runs in the background by default with tools of its
-// own; its turns escape --max-turns, which counts the main thread's calls
-// only and starts again on every wake (a wake-up or a background agent's
-// notification), and its usage is missing from the result event's top-level
-// figures; and a worktree moves the session out of the tree maul collects the
-// changeset from. A deny binds a subagent at every depth as well as the
-// session ("disabled for this session, in subagents as well as here"), so
-// these stay off for any child a later posture may allow. The shell's own
-// run_in_background is kept: a fix may build or serve something in the
-// background, and turning it off is an environment switch
-// (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS), not a deny. SandboxDefault is
-// absent by design: an unset posture imposes no grammar and leaves the CLI's
-// defaults, settings sources included (claudeSettingSources).
+// both), a workflow (Workflow), a scheduled wake-up (ScheduleWakeup), cron
+// jobs (CronCreate, CronDelete, CronList), worktrees (EnterWorktree,
+// ExitWorktree) and a monitor (Monitor). Without the denies (measured the
+// same on 2.1.263, 2.1.322 and 2.1.330) a subagent needs no permission, so
+// neither the allow list nor dontAsk refuses it; it runs in the background
+// by default with tools of its own; its turns escape --max-turns, which
+// counts the main thread's calls only and starts again on every wake (a
+// wake-up or a background agent's notification), and its usage is missing
+// from the result event's top-level figures; and a worktree moves the
+// session out of the tree maul collects the changeset from. A monitor runs
+// its command in the background and its end wakes the session after its
+// turn: a second model call and a second result event (probed on 2.1.322).
+// The allow list's Bash rule does not cover Monitor, but the CLI starts a
+// monitor of a read-only command (sleep, echo) without asking, so dontAsk
+// refuses only one that writes. A deny binds a subagent at every depth as
+// well as the session ("disabled for this session, in subagents as well as
+// here"), so these stay off for any child a later posture may allow.
+//
+// The shell's own run_in_background is kept: a fix may build or serve
+// something in the background, and turning it off is an environment switch
+// (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS), not a deny. It is the one wake
+// left: a background command's end wakes the session, which starts
+// --max-turns again (measured: three main-thread calls under --max-turns 2).
+// That is accepted: the broker's spend limit and the stage's wall clock bound
+// the run. SandboxDefault is absent by design: an unset posture imposes no
+// grammar and leaves the CLI's defaults, settings sources included
+// (claudeSettingSources).
 //
 // A multi-repository intent's planner reads its other repositories' trees
 // with the same read-only tools: they sit under the workspace the stage adds
@@ -135,7 +144,7 @@ var claudeTools = map[Sandbox]struct {
 		deny: []string{
 			"WebFetch", "WebSearch",
 			"Agent", "Task", "Workflow", "ScheduleWakeup", "CronCreate", "CronDelete", "CronList",
-			"EnterWorktree", "ExitWorktree",
+			"EnterWorktree", "ExitWorktree", "Monitor",
 		},
 	},
 	SandboxEvaluate: {

@@ -24,7 +24,7 @@ Read Glob Grep Edit Write NotebookEdit Bash
 --- argv[11]
 --disallowedTools
 --- argv[12]
-WebFetch WebSearch Agent Task Workflow ScheduleWakeup CronCreate CronDelete CronList EnterWorktree ExitWorktree
+WebFetch WebSearch Agent Task Workflow ScheduleWakeup CronCreate CronDelete CronList EnterWorktree ExitWorktree Monitor
 --- argv[13]
 --setting-sources
 --- argv[14]

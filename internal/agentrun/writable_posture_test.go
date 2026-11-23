@@ -14,14 +14,15 @@ import (
 // TestWritableStagesDenyDelegation: both writable stages, the Finding
 // remediation and the intent build, run claude with every tool that starts
 // work off the main thread or wakes the session later denied by name beside
-// the web tools: a subagent, a workflow, a wake-up, cron jobs and worktrees.
+// the web tools: a subagent, a workflow, a wake-up, cron jobs, worktrees and
+// a monitor.
 // The shell stays allowed. The posture itself, and its probe against the
 // real CLI, are internal/harness's.
 func TestWritableStagesDenyDelegation(t *testing.T) {
 	want := []string{
 		"WebFetch", "WebSearch",
 		"Agent", "Task", "Workflow", "ScheduleWakeup", "CronCreate", "CronDelete", "CronList",
-		"EnterWorktree", "ExitWorktree",
+		"EnterWorktree", "ExitWorktree", "Monitor",
 	}
 	for _, c := range repairCases() {
 		if !c.writable {
