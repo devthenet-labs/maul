@@ -101,13 +101,18 @@ func evaluable(os []v1alpha1.AcceptanceOutcome) bool {
 	return slices.ContainsFunc(os, func(o v1alpha1.AcceptanceOutcome) bool { return !o.Manual })
 }
 
-// syncEvaluation is syncVerification's evaluator shape: NotDeclared for a
-// plan with nothing to evaluate (the head set still tracked, for an
+// syncEvaluation is syncVerification's evaluator shape: first the
+// supersede of an earlier release's record (verify_migrate.go), then
+// NotDeclared for a plan with nothing to evaluate (the head set still tracked, for an
 // approver's acceptance), Off for a Project with no verified evaluator,
 // the human-round halt and the head set as slice 1 keeps them, then the
 // round in flight (settleEvaluation).
 func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	acc := p.in.Status.Acceptance
+	canRun := evaluable(acc.Outcomes) && !p.set.evaluatorUnverified(p.proj)
+	if changed, err := p.supersede(ctx, canRun); changed || err != nil {
+		return changed, err
+	}
 	hs, ok := p.headsNow()
 	if !evaluable(acc.Outcomes) {
 		if ok {
@@ -210,7 +215,8 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 // consumed), and the intent is never blocked for it (DESIGN 5).
 func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	v := p.in.Status.Verification
-	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil && len(v.Disputed) == 0 {
+	superseding := supersedePending(p.in)
+	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil && len(v.Disputed) == 0 && !superseding {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the intent's evaluations spent their ceiling; nothing more is evaluated",
@@ -224,13 +230,21 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	if err := p.answerNotRun(ctx, templates.NotRunBudget, 0); err != nil {
 		return false, err
 	}
-	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		// A dispute's round that would need the model cannot run either:
 		// none is due any more, and the hand-off says why.
 		nv.State, nv.Requested, nv.Disputed = v1alpha1.VerificationUnconfirmed, nil, nil
+		// A supersede that can start no round ends here, the earlier
+		// result still withdrawn: an approver's /maul verify, once the
+		// limit is raised, evaluates afresh.
+		nv.Judge = v1alpha1.JudgeObserved
 		return nil
 	})
+	if err == nil && superseding {
+		verificationsSuperseded.add(p.in)
+	}
+	return true, err
 }
 
 // replayDue reports the one model-free replay round a judgement asked for

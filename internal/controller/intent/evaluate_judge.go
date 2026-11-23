@@ -346,6 +346,9 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
 	nv.Suspected, nv.Disputed = nil, nil
 	nv.State = judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	countManual(nv, acc)
+	// A result judged under these rules is on record: an earlier release's
+	// withdrawn one is no longer what the comments speak of.
+	clearSuperseded(cur)
 }
 
 // judgeEvaluation settles a collected round on its judgement (Judge), its

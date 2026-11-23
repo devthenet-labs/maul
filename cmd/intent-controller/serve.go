@@ -1016,6 +1016,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := slice1Census(ctx, log, mgr.GetAPIReader(), set); err != nil {
 		return err
 	}
+	// The upgrade's supersede of earlier verifications, counted as done.
+	intent.ReportSuperseded()
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),

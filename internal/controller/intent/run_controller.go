@@ -6,7 +6,6 @@ package intent
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -110,10 +109,24 @@ func (s Settings) stageEnabled(stage v1alpha1.IntentStage) error {
 
 // roleStage reports the evaluator's and the check reviewer's stages, whose
 // Jobs run in a role (jobs.Spec.Role): no tree, no Repository, maul's own
-// runner image, and a JSON handoff the run's input carries.
+// runner image, and a JSON handoff the run's input carries. The check
+// reviewer's stays one though it is retired (retiredStage): what its runs
+// spent still counts against the evaluation ceiling (evaluationSpend).
 func roleStage(stage v1alpha1.IntentStage) bool {
 	return stage == v1alpha1.IntentStageEvaluate || stage == v1alpha1.IntentStageCheckReview
 }
+
+// retiredStage reports a stage the schema still admits whose runs this
+// release never launches or collects: the check reviewer's (no check is
+// saved, so none is reviewed). A run of it an earlier release left is
+// settled by retireRun.
+func retiredStage(stage v1alpha1.IntentStage) bool {
+	return stage == v1alpha1.IntentStageCheckReview
+}
+
+// retiredDetail says why a run of a retired stage ended.
+const retiredDetail = "the check reviewer is retired: maul's evaluator saves no checks, so nothing this run " +
+	"would report is used; its Job, if any, was deleted"
 
 // irunGVK is the owner TypeMeta a run's transcript carries.
 var irunGVK = metav1.TypeMeta{APIVersion: v1alpha1.GroupVersion.String(), Kind: "IntentRun"}
@@ -348,6 +361,9 @@ func pushHeld(run *v1alpha1.IntentRun) bool {
 // never granted one: granting it would only hand the slot back, and every
 // pass would grant it again ahead of the runs that could launch.
 func (r *RunReconciler) launchable(ctx context.Context, run *v1alpha1.IntentRun) bool {
+	if retiredStage(run.Spec.Stage) {
+		return false // retireRun settles it
+	}
 	var in v1alpha1.Intent
 	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in); err != nil ||
 		in.UID != run.Spec.IntentRef.UID || in.Spec.Suspend || terminal(in.Status.Phase) || roundEnded(&in, run) ||
@@ -460,6 +476,11 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		}
 		return ctrl.Result{}, r.rollUpUsage(ctx, &run)
 	}
+	if retiredStage(run.Spec.Stage) && !runSettled(&run) {
+		// Before the pause: stopping a run that is never used spends
+		// nothing.
+		return ctrl.Result{}, r.retireRun(ctx, &run)
+	}
 	switch run.Status.Phase {
 	case v1alpha1.RunPending, "":
 		return ctrl.Result{}, r.pending(ctx, &run)
@@ -495,6 +516,21 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		return res, r.rollUpUsage(ctx, &run)
 	}
 	return ctrl.Result{}, nil
+}
+
+// retireRun settles an unfinished run of a retired stage (retiredStage),
+// pending or running, as intentEnded settles one whose Intent ended: its
+// Job deleted, if it has one, then the run Aborted, saying why. Nothing it
+// produced is read.
+func (r *RunReconciler) retireRun(ctx context.Context, run *v1alpha1.IntentRun) error {
+	if run.Status.JobRef != nil {
+		if err := r.Jobs.Delete(ctx, run.Status.JobRef.Name); err != nil && !kerrors.IsNotFound(err) {
+			return err
+		}
+	}
+	r.log().LogAttrs(ctx, slog.LevelInfo, "a run of a retired stage is stopped", slog.String("run", run.Name),
+		slog.String("stage", string(run.Spec.Stage)))
+	return r.settle(ctx, run, result{outcome: OutcomeAborted, detail: retiredDetail})
 }
 
 // pending fails a pending run that can never launch: its Intent gone or
@@ -772,8 +808,9 @@ func (r *RunReconciler) launchTree(ctx context.Context, run *v1alpha1.IntentRun,
 	return r.launchVerified(ctx, run, proj, spec, requireImage)
 }
 
-// launchRole launches an evaluate or checkreview run (a role run): no tree
-// and no Repository, maul's own runner image, the run's JSON handoff as the
+// launchRole launches an evaluate run (a role run; one of the retired
+// check reviewer's is settled instead, retiredStage): no tree and no
+// Repository, maul's own runner image, the run's JSON handoff as the
 // Job's issue.md, and the role its egress policy selects. An evaluate run is
 // launched only while the verification it pins is current
 // (evaluationCurrent), pinned to its tool pod's address by a hostAlias and
@@ -805,36 +842,31 @@ func (r *RunReconciler) launchRole(ctx context.Context, run *v1alpha1.IntentRun,
 		// deadline that follows its stage timeout.
 		BudgetMicroUSD: r.Settings.runBudgetFor(run, proj),
 		Deadline:       r.Settings.jobDeadline(r.Settings.runTimeout(run)),
-		Role:           v1alpha1.RoleCheckReview,
+		Role:           v1alpha1.RoleEvaluator,
 	}
-	if stage == v1alpha1.IntentStageEvaluate {
-		refusal, err := r.evaluationCurrent(ctx, run)
-		switch {
-		case err != nil:
-			return err
-		case refusal != nil:
-			return r.settle(ctx, run, *refusal)
-		}
-		handoff, refusal, err := r.withToolsKey(ctx, run, spec.IssueMarkdown)
-		switch {
-		case err != nil:
-			return err
-		case refusal != nil:
-			return r.settle(ctx, run, *refusal)
-		}
-		ev := run.Spec.Evaluation
-		spec.IssueMarkdown = handoff
-		spec.Role, spec.Evaluation = v1alpha1.RoleEvaluator, string(ev.UID)
-		spec.ToolHost = &jobs.HostAlias{Name: jobs.ToolsHostName, IP: ev.ToolIP}
-	} else {
-		refusal, err := r.checkReviewCurrent(ctx, run)
-		switch {
-		case err != nil:
-			return err
-		case refusal != nil:
-			return r.settle(ctx, run, *refusal)
-		}
+	if stage != v1alpha1.IntentStageEvaluate {
+		// The check reviewer's stage is retired (retireRun settles its runs
+		// before they reach here).
+		return r.settle(ctx, run, result{outcome: OutcomeAborted, detail: retiredDetail})
 	}
+	refusal, err := r.evaluationCurrent(ctx, run)
+	switch {
+	case err != nil:
+		return err
+	case refusal != nil:
+		return r.settle(ctx, run, *refusal)
+	}
+	handoff, refusal, err := r.withToolsKey(ctx, run, spec.IssueMarkdown)
+	switch {
+	case err != nil:
+		return err
+	case refusal != nil:
+		return r.settle(ctx, run, *refusal)
+	}
+	ev := run.Spec.Evaluation
+	spec.IssueMarkdown = handoff
+	spec.Evaluation = string(ev.UID)
+	spec.ToolHost = &jobs.HostAlias{Name: jobs.ToolsHostName, IP: ev.ToolIP}
 	if _, refusal := r.stageSpec(run, &spec, &cm, proj, nil); refusal != nil {
 		return r.settle(ctx, run, *refusal)
 	}
@@ -1389,7 +1421,9 @@ func (r *RunReconciler) collect(ctx context.Context, run *v1alpha1.IntentRun) (c
 	case v1alpha1.IntentStageEvaluate:
 		return ctrl.Result{}, r.collectEvaluate(ctx, run, out.Events, transcript, st)
 	case v1alpha1.IntentStageCheckReview:
-		return ctrl.Result{}, r.collectCheckReview(ctx, run, out.Events, transcript, st)
+		// Retired: retireRun settles its runs before they are collected.
+		return ctrl.Result{}, r.settle(ctx, run, result{outcome: OutcomeAborted, detail: retiredDetail,
+			transcript: transcript})
 	case v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise:
 	}
 	return r.heldOr(r.collectBuild(ctx, run, out.Events, transcript, st))
@@ -1844,44 +1878,6 @@ func (r *RunReconciler) collectEvaluate(ctx context.Context, run *v1alpha1.Inten
 		res.outcome, res.detail = podOutcome(ev.Outcome, ev.Detail)
 	default:
 		res.outcome, res.complete, res.report = string(envelope.OutcomeOK), true, claims.Report
-	}
-	return r.settle(ctx, run, res)
-}
-
-// collectCheckReview settles a checkreview run from its checkreview event:
-// its answers, each keyed by the digests it was handed and held to the
-// report's rules (agentresult.FromCheckReview), kept as the run's report in
-// their JSON form (agentresult.ReviewAnswer, in order) for the check store
-// to read (S1-19). It never pushes.
-func (r *RunReconciler) collectCheckReview(ctx context.Context, run *v1alpha1.IntentRun, events []envelope.Event,
-	transcript *v1alpha1.TranscriptRef, st jobs.Status) error {
-	var ev *envelope.CheckReview
-	for _, e := range events {
-		switch e.Type {
-		case envelope.TypeCheckReview:
-			ev = e.CheckReview
-		case envelope.TypeFatal:
-			return r.settle(ctx, run, result{outcome: OutcomeAborted, detail: e.Error, transcript: transcript})
-		}
-	}
-	if ev == nil {
-		return r.settle(ctx, run, result{outcome: noResultOutcome(st),
-			detail: noResultDetail("agent job produced no checkreview event", st), transcript: transcript})
-	}
-	res := result{stage: &ev.Stage, transcript: transcript}
-	review, err := agentresult.FromCheckReview(ev)
-	switch {
-	case err != nil:
-		res.outcome, res.detail = string(envelope.OutcomeReportInvalid), err.Error()
-	case ev.Outcome != envelope.OutcomeOK:
-		res.outcome, res.detail = podOutcome(ev.Outcome, ev.Detail)
-	default:
-		answers, err := json.Marshal(review.Answers)
-		if err != nil {
-			res.outcome, res.detail = string(envelope.OutcomeReportInvalid), err.Error()
-			break
-		}
-		res.outcome, res.complete, res.report = string(envelope.OutcomeOK), true, string(answers)
 	}
 	return r.settle(ctx, run, res)
 }

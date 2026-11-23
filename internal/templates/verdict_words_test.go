@@ -139,6 +139,8 @@ func TestVerdictWordsNeverOverstate(t *testing.T) {
 			p := VerifyProgress{State: state, Verification: 2, FixesUsed: 1, MaxFixes: 2, Passing: 3, Total: 3,
 				ManualOpen: 1, AutoFix: FixRunning, Outcomes: true, Why: why}
 			check("progress "+state+"/"+why, verifyLine(p))
+			p.Withdrawn = true
+			check("progress withdrawn "+state+"/"+why, verifyLine(p))
 		}
 	}
 	for _, result := range []string{OutcomeResultPassed, OutcomeResultFailed, OutcomeResultUnsure,

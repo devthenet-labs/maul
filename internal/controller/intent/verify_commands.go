@@ -269,7 +269,7 @@ func (p *pass) releasePreview(ctx context.Context, c verifyCommand,
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		v := in.Status.Verification
 		if v == nil {
-			v = &v1alpha1.IntentVerification{}
+			v = newVerification()
 			in.Status.Verification = v
 		}
 		at := metav1.NewTime(p.now)
@@ -353,7 +353,7 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		v := in.Status.Verification
 		if v == nil {
-			v = &v1alpha1.IntentVerification{}
+			v = newVerification()
 			in.Status.Verification = v
 		}
 		v.Requested = &req
@@ -442,7 +442,7 @@ func (p *pass) stopAutoFix(ctx context.Context, c verifyCommand,
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
 		v := in.Status.Verification
 		if v == nil {
-			v = &v1alpha1.IntentVerification{}
+			v = newVerification()
 			in.Status.Verification = v
 		}
 		since := metav1.NewTime(p.now)

@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/report"
@@ -102,8 +104,19 @@ func (p *pass) resultMoved(v *v1alpha1.IntentVerification) bool {
 }
 
 // verifyProgress is where verification stands as the status comment's
-// preview line says it; nil when it says nothing (not reported, or Off).
+// preview line says it, saying too that an earlier release's result was
+// withdrawn while it is (verify_migrate.go); nil when it says nothing (not
+// reported, or Off).
 func (p *pass) verifyProgress() *templates.VerifyProgress {
+	prog := p.progressNow()
+	if prog != nil && meta.IsStatusConditionTrue(p.in.Status.Conditions, v1alpha1.ConditionVerificationSuperseded) {
+		prog.Withdrawn = true
+	}
+	return prog
+}
+
+// progressNow is verifyProgress without the withdrawal.
+func (p *pass) progressNow() *templates.VerifyProgress {
 	if !p.verifyReported() {
 		return nil
 	}
