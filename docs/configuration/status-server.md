@@ -57,9 +57,9 @@ its RBAC and its limits. With the flag off the server behaves exactly as before 
 
 One flag turns on the [usage views](#usage-views):
 
-| Flag              | Env                  | Default | Purpose                                                                                                                                                          |
-| ----------------- | -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--usage-enabled` | `MAUL_USAGE_ENABLED` | `false` | Serve the Usage page: each person's own usage, everyone's for holders of `usage/all`. Needs mode `oidc` as above plus the `federated:id` scope; hardens the page |
+| Flag              | Env                  | Default | Purpose                                                                                                                                                                         |
+| ----------------- | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--usage-enabled` | `MAUL_USAGE_ENABLED` | `false` | Serve the Usage page: each person's own usage, everyone's for holders of `usage/all`. Needs mode `oidc` as above plus the `federated:id` and `profile` scopes; hardens the page |
 
 One more turns on the [Account page](#account-page):
 
@@ -97,8 +97,9 @@ A person is their **GitHub numeric id**, never a login, which can be renamed and
 it from the Dex ID token's `federated_claims`: `connector_id` must equal `oidc.claims.githubConnector` (default
 `github`) and `user_id` is the id. Dex sends that claim only when asked for the `federated:id` scope, so list it. The
 GitHub connector must **not** set `useLoginAsID`: with it, `user_id` is the login, and an all-digit login would read as
-whoever holds that numeric id. The server refuses a `user_id` equal to `preferred_username` (the login) for that reason,
-so under `useLoginAsID` nobody gets a GitHub id and the views refuse everyone.
+whoever holds that numeric id. The server tells the two apart by the login, `preferred_username`, which Dex sends only
+when asked for the `profile` scope, so list that too. It trusts no `user_id` without a `preferred_username` beside it,
+and none equal to it, so under `useLoginAsID` nobody gets a GitHub id and the views refuse everyone.
 
 ```yaml
 oidc:
@@ -111,12 +112,12 @@ oidc:
 ```
 
 With `--usage-enabled` the server refuses to start unless the config passes the intents views' checks (mode `oidc`, both
-claim prefixes, `requireVerifiedEmail` for an `email` username) and lists `federated:id`. A request from an identity
-without a GitHub id (another Dex connector, or a session from before the scope was added: sign out and in again) is
-refused both views with a 403 saying why, even when it holds `usage/all`. The views turn on the same hardened browser
-envelope as the intents views. The API is `GET /api/usage?days=N` (own), `GET /api/usage/all?days=N&user=&project=`
-(everyone's; `user` is a login, `github-id:<id>` or `org`) and `GET /api/usage/access` (what the caller may see); `days`
-is 1 to 400, default 30.
+claim prefixes, `requireVerifiedEmail` for an `email` username) and lists `federated:id` and `profile`. A request from
+an identity without a GitHub id (another Dex connector, or a session from before the scope was added: sign out and in
+again) is refused both views with a 403 saying why, even when it holds `usage/all`. The views turn on the same hardened
+browser envelope as the intents views. The API is `GET /api/usage?days=N` (own),
+`GET /api/usage/all?days=N&user=&project=` (everyone's; `user` is a login, `github-id:<id>` or `org`) and
+`GET /api/usage/access` (what the caller may see); `days` is 1 to 400, default 30.
 
 ## Account page
 
@@ -134,11 +135,11 @@ refused unless `egressBroker.userCredentials.mode` is `attribute` or `enforce`, 
   picks the kind its prefix names; OpenAI takes an API key only, so its card offers no kind choice. A setup-token must
   be the person's own subscription's: it is used only for runs attributed to them.
 - **Who.** A person is their GitHub numeric id, as on the Usage page, so the server refuses to start without what the
-  usage views need (mode `oidc`, both claim prefixes, the `federated:id` scope), and an identity without a GitHub id is
-  refused with a 403 saying why. Every route also needs an access review on the virtual `modelcredentials/self`: bind
-  the chart's `<release>-credentials-self` ClusterRole with a RoleBinding in the release namespace (see
-  [who may do what](user-credentials.md#who-may-do-what)). The owner of what is stored is always the signed-in GitHub
-  id, never anything in the request.
+  usage views need (mode `oidc`, both claim prefixes, the `federated:id` and `profile` scopes), and an identity without
+  a GitHub id is refused with a 403 saying why. Every route also needs an access review on the virtual
+  `modelcredentials/self`: bind the chart's `<release>-credentials-self` ClusterRole with a RoleBinding in the release
+  namespace (see [who may do what](user-credentials.md#who-may-do-what)). The owner of what is stored is always the
+  signed-in GitHub id, never anything in the request.
 - **The API.** `GET /api/account` (each provider's facts, or why the caller cannot manage one),
   `POST /api/account/credentials/<provider>` with a JSON body `{"kind": "api-key" | "oauth-token", "credential": "..."}`
   (`oauth-token` for `anthropic` only) (`Content-Type: application/json`, at most 8 KiB, no other field), and
@@ -166,7 +167,7 @@ statusServer:
   intents:
     enabled: true # required: the page is one of the intents views
   auth:
-    existingSecret: maul-status-auth # mode oidc, both claim prefixes, the federated:id scope
+    existingSecret: maul-status-auth # mode oidc, both claim prefixes, the federated:id and profile scopes
   projectSettings:
     enabled: true
     projects: [] # the Projects the page may edit, by name; empty is every Project in the release namespace
@@ -222,8 +223,9 @@ Two more things nothing checks for you:
 - **One GitHub host.** Dex's GitHub connector and the Forge of every Project's intent repository must be the same GitHub
   (github.com, or one GitHub Enterprise Server). Ids from two hosts are two id spaces: an id could match nobody, or the
   wrong person. Run `gh api users/<login>` above against the host Dex signs people in with.
-- **Dex without `useLoginAsID`.** With it, Dex's `user_id` is the login, and the status server gives nobody a GitHub id
-  (see [usage views](#usage-views)), so nobody can save.
+- **Dex without `useLoginAsID`.** With it, Dex's `user_id` is the login. The status server then gives nobody a GitHub id
+  (see [usage views](#usage-views)), so nobody can save, because it trusts a `user_id` only beside a different
+  `preferred_username`. That needs the `profile` scope, which the server refuses to start without.
 
 Once the page is on, an approver who opens it sees their own login marked "you" and can save. An approver refused as
 "not an approver" while `status.approvers` lists their login with an id means the two ids differ.
@@ -237,11 +239,12 @@ Once the page is on, an approver who opens it sees their own login marked "you" 
 | `--project-settings-projects` | `MAUL_PROJECT_SETTINGS_PROJECTS` | _(unset)_ | Comma-separated Project names the page serves; unset is every Project. The chart sets it from `projects`, so the page and the patch grant agree     |
 
 The server refuses to start with the page on unless `--intents-enabled` is on and the auth config passes the usage
-views' checks: mode `oidc`, both claim prefixes, `requireVerifiedEmail` for an `email` username, and `federated:id` in
-the scopes. Under `--intents-dev-insecure` (mode `none`, loopback only) the page is served read-only and its save is
-refused. The chart refuses to render the page without `statusServer.intents.enabled`, without `admissionPolicy.enabled`,
-with an inline `statusServer.auth.config` that does not ask for `federated:id` (an `existingSecret` is judged by the
-server at startup), or with `floors.maxVerifications` above `ceilings.maxVerifications`.
+views' checks: mode `oidc`, both claim prefixes, `requireVerifiedEmail` for an `email` username, and `federated:id` and
+`profile` in the scopes. Under `--intents-dev-insecure` (mode `none`, loopback only) the page is served read-only and
+its save is refused. The chart refuses to render the page without `statusServer.intents.enabled`, without
+`admissionPolicy.enabled`, with an inline `statusServer.auth.config` that does not ask for `federated:id` and `profile`
+(an `existingSecret` is judged by the server at startup), or with `floors.maxVerifications` above
+`ceilings.maxVerifications`.
 
 ### The bounds
 
@@ -283,7 +286,9 @@ intent-controller bounds can be raised.
   every update of a Project by the status server's ServiceAccount. It holds each patch to the same bounds again, in the
   API server: every field outside the page's own is pinned without being named (so a field added to Project later is
   pinned too), as are the number, order and every other field of the repositories, the labels, finalizers and owner
-  references, and every annotation but `maul.run/settings-edited` (at most 1 KiB); the locks, switches, ceilings and
+  references, and every annotation but `maul.run/settings-edited` (at most 1 KiB); the record of which writer manages
+  which field (`managedFields`, which the page never writes but any patch could replace): no other writer's entry added,
+  dropped or re-dated, and none gaining or losing a field outside the page's own; the locks, switches, ceilings and
   floors; models and classes against `status.admits`; and intent-controller's own ceilings. A denial reaches the page as
   a refusal of the whole save ("The cluster refused the save as invalid"); its message starts `project settings:`, and
   the status server logs it.
@@ -297,7 +302,10 @@ What the policy cannot do: it sees the status server's ServiceAccount, not the p
 is an approver with write access, and is not removing themselves, is checked only in the status server, so a compromised
 status server could make any change within your bounds on the Projects its Role names (with `allow.approvers` on, adding
 or removing one approver per write) and write a false record annotation. `projects`, `locked: [approvers]` and leaving
-`allow.approvers` off narrow it. Project writes by people stay admin-only in RBAC; the policy does not judge them.
+`allow.approvers` off narrow it. Such a server could also rewrite who manages a field the page may edit (forging that
+Helm, or nobody, set a limit), since the policy cannot tell the ownership a save takes from a forged one; the next
+`helm upgrade` would then overwrite that field without a conflict, or conflict on it falsely. Ownership of every other
+field is pinned. Project writes by people stay admin-only in RBAC; the policy does not judge them.
 
 ### Set each field from one place
 

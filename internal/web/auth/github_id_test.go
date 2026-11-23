@@ -57,6 +57,17 @@ func TestMapClaimsGitHubID(t *testing.T) {
 			"preferred_username": "583231", "email": "a@acme.test",
 			"federated_claims": map[string]any{"connector_id": "github", "user_id": "583231"},
 		}, ClaimsConfig{Username: "email", GitHubConnector: "github"}, 0},
+		// Dex sends preferred_username only for the profile scope.
+		// Without it nothing tells a login from an id, so an all-digit
+		// login under useLoginAsID could pass as that numeric id: no id.
+		{"no preferred_username", map[string]any{
+			"email":            "a@acme.test",
+			"federated_claims": map[string]any{"connector_id": "github", "user_id": "583231"},
+		}, ClaimsConfig{Username: "email", GitHubConnector: "github"}, 0},
+		{"preferred_username not a string", map[string]any{
+			"email": "a@acme.test", "preferred_username": 583231.0,
+			"federated_claims": map[string]any{"connector_id": "github", "user_id": "583231"},
+		}, ClaimsConfig{Username: "email", GitHubConnector: "github"}, 0},
 		{"numeric login, distinct id", map[string]any{
 			"preferred_username": "583231",
 			"federated_claims":   map[string]any{"connector_id": "github", "user_id": "1024"},
@@ -112,8 +123,9 @@ func TestGitHubIDProperty(t *testing.T) {
 	}
 }
 
-// The usage views need everything the intents views do and the
-// federated:id scope; LoadConfig defaults the connector to github.
+// The usage views need everything the intents views do, the
+// federated:id scope and the profile scope; LoadConfig defaults the
+// connector to github.
 func TestRequireForUsage(t *testing.T) {
 	const base = "mode: oidc\noidc:\n  issuerURL: https://sso.acme.test\n  clientID: c\n  clientSecret: s\n"
 	const claims = "  claims:\n    username: preferred_username\n" +
@@ -129,6 +141,9 @@ func TestRequireForUsage(t *testing.T) {
 		{"oidc without prefixes", base + "  scopes: [openid, federated:id]\n", "usernamePrefix"},
 		{"default scopes", base + claims, "federated:id"},
 		{"scopes without federated:id", base + "  scopes: [openid, profile]\n" + claims, "federated:id"},
+		// Without profile Dex sends no preferred_username, and MapClaims
+		// then gives nobody a GitHub id: refused at startup, not silently.
+		{"scopes without profile", base + "  scopes: [openid, email, groups, federated:id]\n" + claims, "profile"},
 		{"dex github", base + "  scopes: [openid, profile, groups, federated:id]\n" + claims, ""},
 	}
 	for _, tc := range cases {

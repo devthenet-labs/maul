@@ -2455,7 +2455,7 @@
                 },
                 "usage": {
                     "type": "object",
-                    "description": "The usage views: each person's own usage, everyone's for holders of usage/all. Needs auth mode oidc with usernamePrefix, groupsPrefix and the federated:id scope, and hardens the whole page's browser envelope.",
+                    "description": "The usage views: each person's own usage, everyone's for holders of usage/all. Needs auth mode oidc with usernamePrefix, groupsPrefix and the federated:id and profile scopes, and hardens the whole page's browser envelope.",
                     "additionalProperties": false,
                     "required": ["enabled"],
                     "properties": {
@@ -2466,7 +2466,7 @@
                 },
                 "account": {
                     "type": "object",
-                    "description": "The Account page: each person stores, replaces or deletes their own model credential (write-only). Needs egressBroker.userCredentials.mode attribute or enforce, auth mode oidc with the federated:id scope, and hardens the whole page's browser envelope.",
+                    "description": "The Account page: each person stores, replaces or deletes their own model credential (write-only). Needs egressBroker.userCredentials.mode attribute or enforce, auth mode oidc with the federated:id and profile scopes, and hardens the whole page's browser envelope.",
                     "additionalProperties": false,
                     "required": ["enabled"],
                     "properties": {
@@ -2477,7 +2477,7 @@
                 },
                 "projectSettings": {
                     "type": "object",
-                    "description": "The Project settings page: an approver edits a Project's limits, models, evaluator, hand-off, CI checks and resource classes within these bounds, enforced twice (the status server and an admission policy on its ServiceAccount). Needs the intents views, auth mode oidc with both claim prefixes and the federated:id scope, and admissionPolicy.enabled.",
+                    "description": "The Project settings page: an approver edits a Project's limits, models, evaluator, hand-off, CI checks and resource classes within these bounds, enforced twice (the status server and an admission policy on its ServiceAccount). Needs the intents views, auth mode oidc with both claim prefixes and the federated:id and profile scopes, and admissionPolicy.enabled.",
                     "additionalProperties": false,
                     "required": ["enabled", "projects", "allow", "locked", "ceilings", "floors"],
                     "properties": {

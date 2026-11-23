@@ -239,7 +239,7 @@ func TestRequireForProjectSettings(t *testing.T) {
 // default: with no GitHub connector named no token could carry a GitHub id.
 func TestRequireForProjectSettingsNeedsTheConnector(t *testing.T) {
 	cfg := &Config{Mode: ModeOIDC, OIDC: &OIDCConfig{
-		Scopes: []string{"openid", FederatedIDScope},
+		Scopes: []string{"openid", ProfileScope, FederatedIDScope},
 		Claims: ClaimsConfig{Username: "preferred_username", UsernamePrefix: "github:", GroupsPrefix: "github:"},
 	}}
 	err := cfg.RequireForProjectSettings()

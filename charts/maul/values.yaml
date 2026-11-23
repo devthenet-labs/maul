@@ -1503,7 +1503,7 @@ statusServer:
     # mode oidc as for the intents views, and oidc.scopes lists federated:id
     # (Dex then names the connector; oidc.claims.githubConnector, default
     # github, is the one trusted; it must not set useLoginAsID, or nobody
-    # gets an id). It hardens the page as the intents views do. See
+    # gets an id) and profile (the login, without which no id is trusted). It hardens the page as the intents views do. See
     # docs/configuration/status-server.md#usage-views.
     usage:
         enabled: false
@@ -1513,8 +1513,8 @@ statusServer:
     # Write-only: a stored credential is never shown again, to anyone. It
     # needs egressBroker.userCredentials.mode attribute or enforce (the store
     # and the status server's write-only grants render with that mode), auth
-    # mode oidc with federated:id as the usage views do (a person is their
-    # GitHub id), and a binding of <release>-credentials-self (see
+    # mode oidc with federated:id and profile as the usage views do (a person
+    # is their GitHub id), and a binding of <release>-credentials-self (see
     # docs/configuration/user-credentials.md). With host set, every notice
     # that a run waits for someone's credential links the page. It hardens the
     # page as the intents views do.
@@ -1525,7 +1525,8 @@ statusServer:
     # changes its limits, models, evaluator, hand-off, CI checks and each
     # repository's resource class from the status page, within the bounds
     # below. It needs the intents views, the usage views' auth posture
-    # (mode oidc with both claim prefixes and the federated:id scope) and
+    # (mode oidc with both claim prefixes and the federated:id and profile
+    # scopes) and
     # admissionPolicy.enabled: the chart refuses to render otherwise. On, the
     # status server gains one write, patch on projects (no update, no
     # status, no other kind), and an admission policy holds every patch it

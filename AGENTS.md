@@ -376,17 +376,21 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `maul-status-server` (`projectsettings.FieldManager`), so a default server-side `helm upgrade` of maul-config that
   still states a page-edited field fails with a conflict (measured by `TestProjectSettingsOwnOnlyEditedFields`). The
   ValidatingAdmissionPolicy `<release>-project-settings` (`templates/project-settings-policy.yaml`) holds every patch
-  by the status server's ServiceAccount to the same policy again and pins every other field by key iteration;
-  `TestProjectSettingsPolicyAgainstAPIServer` holds it to `projectsettings.Check` by a seeded property. Read-only under
+  by the status server's ServiceAccount to the same policy again and pins every other field by key iteration, and
+  `metadata.managedFields` outside the page's part (no other entry added, dropped or re-dated; no field outside the
+  editable keys gained or lost; ownership inside them is the one residual); `TestProjectSettingsPolicyAgainstAPIServer`
+  holds it to `projectsettings.Check` by a seeded property. Read-only under
   `--intents-dev-insecure`. With `--usage-enabled` (chart
   `statusServer.usage.enabled`; default off, chart only) it serves the Usage page and `/api/usage*`
   (internal/web/usage.go): a person's own usage keyed by their GitHub numeric id (`auth.Identity.GitHubID`, read from
   Dex `federated_claims` of the configured GitHub connector; any other identity refused), everyone's behind an access
-  review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes, `federated:id`). Read
-  only, over a cached `UsageRollup` informer. With `--account-enabled` (chart `statusServer.account.enabled`; default
-  off, chart only, refused without `egressBroker.userCredentials.mode`) it serves the Account page and `/api/account*`
-  (internal/web/account.go): a person sets, replaces and deletes their own model credential (POST only, JSON capped at
-  8 KiB, owner stamped from the GitHub id, an access review on the virtual `modelcredentials/self`; one card per
+  review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes, `federated:id` and
+  `profile`: a federated id is trusted only beside a different `preferred_username`, so a `useLoginAsID` login never
+  passes as an id). Read only, over a cached `UsageRollup` informer. With `--account-enabled` (chart
+  `statusServer.account.enabled`; default off, chart only, refused without `egressBroker.userCredentials.mode`) it
+  serves the Account page and `/api/account*` (internal/web/account.go): a person sets, replaces and deletes their own
+  model credential (POST only, JSON capped at 8 KiB, owner stamped from the GitHub id, an access review on the virtual
+  `modelcredentials/self`; one card per
   `--account-providers` entry, default `anthropic`, the chart adding `openai` while codex runs, plus a delete-only card
   for a credential stored under a provider no longer offered), and sees its fingerprint, health and last use, never the
   credential. Its store (`internal/web/credstore`) writes the Secret in `--credentials-namespace` by create or
@@ -808,7 +812,8 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `MergeFromWithOptimisticLock` and `FieldOwner(maul-status-server)`, an API `Invalid` mapped to field refusals, an
   admission denial a field-less one, audit lines and `maul.status.project_settings.writes`); its wire types are
   `projectsettings`' own, pinned by `TestProjectSettingsWireTypesMatchTypeScript`, the UI in
-  `ui/src/projectSettings.ts` (pure, node-tested) and `components/ProjectSettingsView.tsx`.
+  `ui/src/projectSettings.ts` (pure, node-tested; `followView` rebases the draft when the post-save poll sees another
+  approver's save) and `components/ProjectSettingsView.tsx`.
 - `projectsettings` — the Project settings page's pure core (stdlib and `api/v1alpha1` only, a test pins that): one
   table of the editable spec fields (`Fields`: id, lock group, kind, the CRD's range, default, when a change takes
   effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the check

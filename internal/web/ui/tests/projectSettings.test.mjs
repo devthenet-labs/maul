@@ -12,6 +12,7 @@ import {
   draftChanges,
   fieldKey,
   fieldValue,
+  followView,
   loginManagerNote,
   managerNotes,
   microToDollars,
@@ -272,6 +273,45 @@ test("rebaseDraft re-applies the person's edits onto the Project as it now is", 
   // The same edit made by both is no conflict.
   const same = rebaseDraft(old, draft, set(now, "limits.maxActiveIntents", 4), FIELDS);
   assert.deepEqual(same.moved, []);
+});
+
+// After a save the page re-reads the Project until intent-controller has
+// observed it. A re-read showing another approver's save must move the
+// draft onto it, as a stale save would, never keep the old draft against
+// the new settings: that showed their change as the person's own edit
+// putting the old value back, and the next save, posting the new
+// generation, reverted it with no 409.
+test("followView rebases the draft when someone else saved while the page waited", () => {
+  const view = (generation, doc) => ({ generation, observedGeneration: 7, settings: doc, fields: FIELDS });
+  // A saved maxRevisions 3 -> 5 (generation 8); the draft is reset to it.
+  const saved = set(settings(), "limits.maxRevisions", 5);
+  const base = view(8, saved);
+  // B then saves maxActiveIntents 2 -> 3 (generation 9).
+  const fresh = view(9, set(saved, "limits.maxActiveIntents", 3));
+
+  const unedited = followView(base, structuredClone(saved), fresh);
+  assert.equal(unedited.rebased, true);
+  assert.equal(fieldValue(unedited.draft, "limits.maxActiveIntents"), 3, "B's value survives");
+  assert.deepEqual(draftChanges(fresh.settings, unedited.draft, FIELDS), [], "nothing is attributed to A");
+  assert.deepEqual(unedited.moved, []);
+
+  // A had started another edit: it is kept, and only it is A's.
+  const edited = followView(base, set(saved, "limits.maxRevisions", 6), fresh);
+  assert.equal(fieldValue(edited.draft, "limits.maxActiveIntents"), 3);
+  assert.deepEqual(
+    draftChanges(fresh.settings, edited.draft, FIELDS).map((c) => [c.key, c.from, c.to]),
+    [["limits.maxRevisions", 5, 6]],
+  );
+
+  // A and B edited the same setting: A's value stays, listed as moved.
+  const both = followView(base, set(saved, "limits.maxActiveIntents", 4), fresh);
+  assert.deepEqual(both.moved.map((m) => [m.key, m.was, m.now, m.yours]), [["limits.maxActiveIntents", 2, 3, 4]]);
+
+  // The same generation (only observedGeneration moved): the draft stays.
+  const draft = set(saved, "limits.maxRevisions", 6);
+  const same = followView(base, draft, { ...base, observedGeneration: 8 });
+  assert.equal(same.rebased, false);
+  assert.equal(same.draft, draft);
 });
 
 // ---- refusals -----------------------------------------------------------------------

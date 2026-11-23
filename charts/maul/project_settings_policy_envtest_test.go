@@ -21,6 +21,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -41,6 +42,7 @@ const (
 	psMetadata       = "the page may not change the Project's labels, finalizers or owner references"
 	psAnnotations    = "the page may change no annotation but maul.run/settings-edited"
 	psEditSize       = "maul.run/settings-edited is over 1 KiB"
+	psManagedFields  = "the page may not rewrite who manages the Project's other fields"
 	psApproversOff   = "the operator has not let the page change the approvers"
 	psApproversOne   = "the page may add or remove one approver at a time"
 	psApproversCase  = "two approvers differ only in case"
@@ -146,6 +148,8 @@ func TestProjectSettingsPolicyAgainstAPIServer(t *testing.T) {
 		p.Spec.Verification, p.Spec.Models = nil, nil
 	})
 	e.project("save", withStatus)
+	e.project("owned", withStatus)
+	e.coManage("owned")
 	// uncapped: intent-controller publishes no ceiling for the evaluation
 	// cost, the tool calls or the evaluate stage.
 	e.project("uncapped", withStatus)
@@ -166,6 +170,7 @@ func TestProjectSettingsPolicyAgainstAPIServer(t *testing.T) {
 	t.Run("saves", e.checkSaves)
 	t.Run("pinned", e.checkPinned)
 	t.Run("metadata", e.checkMetadata)
+	t.Run("managed fields", e.checkManagedFields)
 	t.Run("rules", e.checkRules)
 	t.Run("without status", e.checkWithoutStatus)
 	t.Run("denial", e.checkDenialShape)
@@ -374,7 +379,8 @@ func (e *settingsEnv) tryAlpha(edit func(*v1alpha1.Project)) error {
 func (e *settingsEnv) tryAs(c client.Client, live *v1alpha1.Project, edit func(*v1alpha1.Project)) error {
 	updated := live.DeepCopy()
 	edit(updated)
-	return c.Patch(e.t.Context(), updated, client.MergeFrom(live), client.DryRunAll)
+	return c.Patch(e.t.Context(), updated, client.MergeFrom(live), client.DryRunAll,
+		client.FieldOwner(projectsettings.FieldManager))
 }
 
 // settingsDenied reports an admission denial naming want.
@@ -623,6 +629,153 @@ func (e *settingsEnv) checkMetadata(t *testing.T) {
 			p.OwnerReferences = []metav1.OwnerReference{{APIVersion: "v1", Kind: "ConfigMap", Name: "x",
 				UID: "4f2d9a3c-0000-4000-8000-000000000000"}}
 		}, psMetadata, checkBlind},
+	})
+}
+
+// coManage gives Project name the field managers a Helm-installed Project
+// has beside the page: helm by server-side apply (Helm 4's default) of the
+// spec and its metadata, and an Update manager owning one editable field
+// alone (a kubectl patch), whose entry a save of that field empties.
+func (e *settingsEnv) coManage(name string) {
+	e.t.Helper()
+	ctx := e.t.Context()
+	key := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: egressRelease}}
+	apply := `{"apiVersion":"maul.run/v1alpha1","kind":"Project","metadata":{"name":"` + name + `","namespace":"` +
+		egressRelease + `","labels":{"app.kubernetes.io/managed-by":"Helm"},` +
+		`"annotations":{"meta.helm.sh/release-name":"maul-config"}},` +
+		`"spec":{"intentRepository":"https://github.com/acme/intents-` + name + `",` +
+		`"approvers":{"logins":["alice","bob"]},"repositories":[{"name":"app","url":"https://github.com/acme/app"},` +
+		`{"name":"lib","url":"https://github.com/acme/lib"}],"limits":{"maxRevisions":3},` +
+		`"checks":{"fix":["test","lint"]}}}`
+	if err := e.admin.Patch(ctx, key, client.RawPatch(types.ApplyPatchType, []byte(apply)), client.FieldOwner("helm"),
+		client.ForceOwnership); err != nil {
+		e.t.Fatalf("helm's apply of Project %s: %v", name, err)
+	}
+	if err := e.admin.Patch(ctx, key, client.RawPatch(types.MergePatchType,
+		[]byte(`{"spec":{"limits":{"maxCheckFixes":1}}}`)), client.FieldOwner("kubectl-patch")); err != nil {
+		e.t.Fatalf("kubectl's patch of Project %s: %v", name, err)
+	}
+}
+
+// fieldsOf decodes a managedFields entry's field set.
+func fieldsOf(t *testing.T, m metav1.ManagedFieldsEntry) map[string]any {
+	t.Helper()
+	out := map[string]any{}
+	if m.FieldsV1 == nil {
+		return out
+	}
+	if err := json.Unmarshal(m.FieldsV1.GetRawBytes(), &out); err != nil {
+		t.Fatalf("fieldsV1 of %s: %v", m.Manager, err)
+	}
+	return out
+}
+
+func withFields(t *testing.T, m metav1.ManagedFieldsEntry, f map[string]any) metav1.ManagedFieldsEntry {
+	t.Helper()
+	raw, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.FieldsV1 = metav1.NewFieldsV1(string(raw))
+	return m
+}
+
+// specEntry is the index of the main-resource entry of manager in p.
+func specEntry(t *testing.T, p *v1alpha1.Project, manager string) int {
+	t.Helper()
+	for i, m := range p.ManagedFields {
+		if m.Manager == manager && m.Subresource == "" {
+			return i
+		}
+	}
+	t.Fatalf("Project %s has no entry of %s: %+v", p.Name, manager, p.ManagedFields)
+	return -1
+}
+
+// checkManagedFields: the record of who manages which field is the API
+// server's, which the page never writes. A patch that strips it, drops or
+// re-dates another manager's entry, or moves another manager's ownership
+// of a field outside the page's part is refused; saves that take the
+// page's own fields from helm's apply and empty a kubectl patch's entry
+// are not.
+func (e *settingsEnv) checkManagedFields(t *testing.T) {
+	mf := func(edit func(t *testing.T, p *v1alpha1.Project)) func(*v1alpha1.Project) {
+		return func(p *v1alpha1.Project) { edit(t, p) }
+	}
+	e.run(t, []settingsCase{
+		{"stripped", "owned", mf(func(_ *testing.T, p *v1alpha1.Project) {
+			p.ManagedFields = []metav1.ManagedFieldsEntry{{}}
+		}), psManagedFields, checkBlind},
+		{"helm's entry dropped", "owned", mf(func(t *testing.T, p *v1alpha1.Project) {
+			p.ManagedFields = slices.Delete(p.ManagedFields, specEntry(t, p, "helm"), specEntry(t, p, "helm")+1)
+		}), psManagedFields, checkBlind},
+		{"helm's ownership of a pinned field dropped", "owned", mf(func(t *testing.T, p *v1alpha1.Project) {
+			i := specEntry(t, p, "helm")
+			f := fieldsOf(t, p.ManagedFields[i])
+			delete(f["f:spec"].(map[string]any), "f:intentRepository")
+			p.ManagedFields[i] = withFields(t, p.ManagedFields[i], f)
+		}), psManagedFields, checkBlind},
+		{"helm's ownership of a label dropped", "owned", mf(func(t *testing.T, p *v1alpha1.Project) {
+			i := specEntry(t, p, "helm")
+			f := fieldsOf(t, p.ManagedFields[i])
+			delete(f["f:metadata"].(map[string]any), "f:labels")
+			p.ManagedFields[i] = withFields(t, p.ManagedFields[i], f)
+		}), psManagedFields, checkBlind},
+		{"a pinned field given to kubectl", "owned", mf(func(t *testing.T, p *v1alpha1.Project) {
+			i := specEntry(t, p, "kubectl-patch")
+			f := fieldsOf(t, p.ManagedFields[i])
+			f["f:spec"].(map[string]any)["f:suspend"] = map[string]any{}
+			p.ManagedFields[i] = withFields(t, p.ManagedFields[i], f)
+		}), psManagedFields, checkBlind},
+		{"a manager forged", "owned", mf(func(t *testing.T, p *v1alpha1.Project) {
+			p.ManagedFields = append(p.ManagedFields, withFields(t, metav1.ManagedFieldsEntry{Manager: "argocd",
+				Operation: metav1.ManagedFieldsOperationApply, APIVersion: v1alpha1.GroupVersion.String(),
+				FieldsType: "FieldsV1"}, map[string]any{"f:spec": map[string]any{"f:limits": map[string]any{
+				"f:maxRevisions": map[string]any{}}}}))
+		}), psManagedFields, checkBlind},
+		{"the page's own entry given a pinned field", "owned", mf(func(t *testing.T, p *v1alpha1.Project) {
+			p.ManagedFields = append(p.ManagedFields, withFields(t, metav1.ManagedFieldsEntry{
+				Manager: projectsettings.FieldManager, Operation: metav1.ManagedFieldsOperationUpdate,
+				APIVersion: v1alpha1.GroupVersion.String(), FieldsType: "FieldsV1"},
+				map[string]any{"f:spec": map[string]any{"f:suspend": map[string]any{}}}))
+		}), psManagedFields, checkBlind},
+		// A change of timestamps alone the API server discards itself; with
+		// the field set changed too it is stored as sent.
+		{"kubectl's entry re-dated", "owned", mf(func(t *testing.T, p *v1alpha1.Project) {
+			i := specEntry(t, p, "kubectl-patch")
+			f := fieldsOf(t, p.ManagedFields[i])
+			f["f:spec"].(map[string]any)["f:limits"].(map[string]any)["f:maxRevisions"] = map[string]any{}
+			p.ManagedFields[i] = withFields(t, p.ManagedFields[i], f)
+			p.ManagedFields[i].Time = &metav1.Time{Time: p.ManagedFields[i].Time.Add(-time.Hour)}
+		}), psManagedFields, checkBlind},
+		{"the status entry dropped", "owned", mf(func(_ *testing.T, p *v1alpha1.Project) {
+			p.ManagedFields = slices.DeleteFunc(p.ManagedFields, func(m metav1.ManagedFieldsEntry) bool {
+				return m.Subresource == "status"
+			})
+		}), psManagedFields, checkBlind},
+	})
+	t.Run("saves over helm and kubectl", func(t *testing.T) {
+		stored := e.save(t, "owned", func(d *projectsettings.ProjectSettings) {
+			d.Limits.MaxRevisions = new(int32(5))
+			d.Limits.MaxCheckFixes = new(int32(3))
+			d.Repositories = []projectsettings.ProjectSettingsRepository{{Name: "app", AgentResourceClass: "large"},
+				{Name: "lib", AgentResourceClass: "small"}}
+		})
+		for _, m := range stored.ManagedFields {
+			if m.Manager == "kubectl-patch" {
+				t.Errorf("kubectl's entry outlived the save of its one field: %s", m.FieldsV1.GetRawString())
+			}
+		}
+		helm := fieldsOf(t, stored.ManagedFields[specEntry(t, stored, "helm")])
+		if _, ok := helm["f:spec"].(map[string]any)["f:limits"]; ok {
+			t.Errorf("helm still owns the limits the page saved: %v", helm)
+		}
+		// A second save re-dates only the page's own entry.
+		time.Sleep(1100 * time.Millisecond)
+		e.save(t, "owned", func(d *projectsettings.ProjectSettings) { d.Limits.MaxRevisions = new(int32(6)) })
+		// The page's own annotation, first written by that save, and a
+		// value back to one helm states.
+		e.save(t, "owned", func(d *projectsettings.ProjectSettings) { d.Limits.MaxRevisions = new(int32(3)) })
 	})
 }
 
@@ -950,7 +1103,8 @@ func (e *settingsEnv) checkProperty(t *testing.T, phase uint64) {
 		live = e.get(t, name)
 		updated := live.DeepCopy()
 		randomSettings(rng, updated)
-		err := e.sa.Patch(t.Context(), updated.DeepCopy(), client.MergeFrom(live), client.DryRunAll)
+		err := e.sa.Patch(t.Context(), updated.DeepCopy(), client.MergeFrom(live), client.DryRunAll,
+			client.FieldOwner(projectsettings.FieldManager))
 		if err != nil && !strings.Contains(err.Error(), "denied request") {
 			t.Fatalf("case %d: refused outside the policy: %v", i, err)
 		}

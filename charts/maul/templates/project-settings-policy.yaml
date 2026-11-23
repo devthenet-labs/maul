@@ -20,7 +20,11 @@
 # resource classes intent-controller admits, beside one bounded annotation
 # of the page's own. It cannot know which person a write is for (admission
 # sees the ServiceAccount), so the approver gate and "no self-removal" stay
-# the server's.
+# the server's. Nor can it tell the field ownership (managedFields) a save
+# takes from ownership a forged list moves within the page's own fields, so
+# a compromised server could rewrite who manages those (and so whether the
+# next helm upgrade conflicts on one); ownership of every other field, and
+# every other writer's entry, is pinned.
 #
 # HOW IT JUDGES
 #
@@ -55,6 +59,30 @@
 {{- /* projectsettings.MaxEditBytes */}}
 {{- $editedMax := 1024 }}
 {{- $zeroDuration := "^(0+(h|m|s))+$" }}
+{{- /* projectsettings.FieldManager: the page's own managedFields entry. */}}
+{{- $manager := "maul-status-server" }}
+{{- /*
+The field-ownership record (metadata.managedFields), which the API server
+keeps and the page never writes, but which any patch may replace. Admission
+sees it after field management ran: a save has re-dated or added the page's
+own Update entry, taken each field it changed from the other managers, and
+dropped an entry it emptied. So each other entry must be one already there
+(same manager, operation, subresource, API version and time), and no entry
+may gain or lose a field outside the page's part: the field set is compared
+at its top, in f:spec outside the editable keys, and in f:metadata but for
+the page's own annotation. Within an editable block (the limits, say)
+ownership can still be rewritten: CEL cannot tell a field the save took
+from one a forged list moved.
+*/}}
+{{- /* An entry's projection (variables.oldEntries/newEntries): its key,
+its time, and per level of its field set the keys outside the page's part
+(top, specPinned, metaPinned, annPinned) beside the level itself. */}}
+{{- $project := printf "%%[1]s.map(m, {'key': dyn([m.?manager.orValue(''), m.?operation.orValue(''), m.?subresource.orValue(''), m.?apiVersion.orValue('')]), 'time': dyn(m.?time.orValue('')), 'fv': dyn(m.?fieldsV1.orValue({})), 'top': dyn(m.?fieldsV1.orValue({}).filter(k, !(k in ['f:spec', 'f:metadata']))), 'spec': dyn(m.?fieldsV1.orValue({})[?'f:spec'].orValue({})), 'specPinned': dyn(m.?fieldsV1.orValue({})[?'f:spec'].orValue({}).filter(k, !(k in variables.editableSpecFields))), 'meta': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({})), 'metaPinned': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({}).filter(k, k != 'f:annotations')), 'ann': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({})[?'f:annotations'].orValue({})), 'annPinned': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({})[?'f:annotations'].orValue({}).filter(k, !(k in ['.', 'f:%[1]s'])))})" $edited }}
+{{- /* $samePinned: projections %[1]s and %[2]s own the same fields outside
+the page's part; $nonePinned: %[1]s owns none. */}}
+{{- $level := "(%[1]s.%[3]s.all(k, k in %[2]s.%[3]s && %[2]s.%[4]s[k] == %[1]s.%[4]s[k]) && %[2]s.%[3]s.all(k, k in %[1]s.%[3]s))" }}
+{{- $samePinned := printf "(%s && %s && %s && %s)" (printf $level "%[1]s" "%[2]s" "top" "fv") (printf $level "%[1]s" "%[2]s" "specPinned" "spec") (printf $level "%[1]s" "%[2]s" "metaPinned" "meta") (printf $level "%[1]s" "%[2]s" "annPinned" "ann") }}
+{{- $nonePinned := "(size(%[1]s.top) == 0 && size(%[1]s.specPinned) == 0 && size(%[1]s.metaPinned) == 0 && size(%[1]s.annPinned) == 0)" }}
 {{- /*
 The editable keys at each level of the spec, from the page's table
 (projectsettings.Fields): the coverage test holds them to it. models and
@@ -191,6 +219,12 @@ spec:
           expression: "oldObject.spec.?checks.?fix.orValue([])"
         - name: newFix
           expression: "object.spec.?checks.?fix.orValue([])"
+        - name: editableSpecFields
+          expression: "variables.editableSpec.map(k, 'f:' + k)"
+        - name: oldEntries
+          expression: {{ printf $project "oldObject.metadata.?managedFields.orValue([])" | quote }}
+        - name: newEntries
+          expression: {{ printf $project "object.metadata.?managedFields.orValue([])" | quote }}
         - name: oldAnnotations
           expression: "oldObject.metadata.?annotations.orValue({})"
         - name: newAnnotations
@@ -231,7 +265,8 @@ spec:
               || variables.admittedClasses.exists(c, c.name == r.agentResourceClass))
           message: "project settings: a resource class the operator does not define (status.admits.resourceClasses)"
         # The metadata: one annotation of the page's own, bounded, and
-        # nothing else.
+        # nothing else of what the page writes (the field-ownership record
+        # is judged below).
         - expression: >-
               object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({})
               && object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
@@ -244,6 +279,17 @@ spec:
         - expression: >-
               !({{ $edited | squote }} in variables.newAnnotations) || size(bytes(variables.newAnnotations[{{ $edited | squote }}])) <= {{ $editedMax }}
           message: "project settings: {{ $edited }} is over 1 KiB"
+        # Who manages the other fields: no entry of another manager lost,
+        # unless the save emptied it of all but the page's part; none added
+        # or re-dated; none gaining or losing a field outside the page's
+        # part. The page's own entry may own only its part.
+        - expression: >-
+              variables.oldEntries.all(o, variables.newEntries.exists(n, n.key == o.key && {{ printf $samePinned "o" "n" }})
+              || {{ printf $nonePinned "o" }})
+              && variables.newEntries.all(n, n.key[0] == {{ $manager | squote }} && n.key[1] == 'Update' && n.key[2] == ''
+              ? variables.oldEntries.exists(o, o.key == n.key && {{ printf $samePinned "o" "n" }}) || {{ printf $nonePinned "n" }}
+              : variables.oldEntries.exists(o, o.key == n.key && o.time == n.time && {{ printf $samePinned "o" "n" }}))
+          message: "project settings: the page may not rewrite who manages the Project's other fields (metadata.managedFields)"
         # The models: unchanged, the install's own (none chosen), or one
         # intent-controller admits for the Project.
         {{- range $m := $models }}

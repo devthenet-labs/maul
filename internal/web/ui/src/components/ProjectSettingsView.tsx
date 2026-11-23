@@ -9,7 +9,7 @@
 // plain text: operator- and GitHub-written strings are never markup.
 
 import type { ComponentChildren } from "preact";
-import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
+import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type {
   ProjectSettings,
   ProjectSettingsConfirmation,
@@ -36,6 +36,7 @@ import {
   fieldKey,
   fieldLabel,
   fieldValue,
+  followView,
   formatValue,
   loginManagerNote,
   managerNotes,
@@ -537,6 +538,10 @@ export function ProjectSettingsPage({ name }: { name: string }) {
   const [showValues, setShowValues] = useState(false);
 
   const view = loaded.kind === "view" ? loaded.view : null;
+  // The draft as last rendered, for the observe poll, which must not
+  // restart its timer on every keystroke.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const reset = useCallback((v: ProjectSettingsView, doc: ProjectSettings) => {
     setDraft(doc);
@@ -544,13 +549,17 @@ export function ProjectSettingsPage({ name }: { name: string }) {
     setInputErrors({});
   }, []);
 
-  const fetchView = useCallback(async (): Promise<ProjectSettingsView | null> => {
+  // fetchView re-reads the Project. follow, when given, runs in the same
+  // tick as the view is replaced, so the draft is never rendered against
+  // settings it was not built on.
+  const fetchView = useCallback(async (follow?: (v: ProjectSettingsView) => void): Promise<ProjectSettingsView | null> => {
     try {
       const v = await fetchProjectSettings(name);
       if (!v) {
         setLoaded({ kind: "missing" });
         return null;
       }
+      follow?.(v);
       setLoaded({ kind: "view", view: v });
       return v;
     } catch (e) {
@@ -573,7 +582,10 @@ export function ProjectSettingsPage({ name }: { name: string }) {
     });
   }, [fetchView, reset]);
 
-  // After a save, re-read until intent-controller has observed it.
+  // After a save, re-read until intent-controller has observed it. A
+  // re-read showing someone else's save moves the draft onto it
+  // (followView), so the draft, the changes listed and the generation a
+  // save posts stay those of one snapshot.
   useEffect(() => {
     if (!view || waitFor === 0) return;
     if (view.observedGeneration >= waitFor) {
@@ -583,10 +595,25 @@ export function ProjectSettingsPage({ name }: { name: string }) {
     if (polls >= OBSERVE_POLLS) return;
     const t = setTimeout(() => {
       setPolls((p) => p + 1);
-      void fetchView();
+      void fetchView((fresh) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const f = followView(view, d, fresh);
+        if (!f.rebased) return;
+        reset(fresh, f.draft);
+        setMoved(f.moved);
+        setReviewing(false);
+        setConfirm([]);
+        setArmed(false);
+        const lines = [
+          "Someone else saved this Project after you. Their change is shown now, and any edits you had not saved are applied to it: review them before saving.",
+          ...f.dropped.map((k) => `${k}: that repository is gone, so the edit was dropped.`),
+        ];
+        setNotes(lines.map((text) => ({ tone: "amber", text })));
+      });
     }, OBSERVE_POLL_MS);
     return () => clearTimeout(t);
-  }, [view, waitFor, polls, fetchView]);
+  }, [view, waitFor, polls, fetchView, reset]);
 
   const changes = useMemo(
     () => (view && draft ? draftChanges(view.settings, draft, view.fields) : []),

@@ -473,6 +473,15 @@ func TestProjectSettingsRenderFailures(t *testing.T) {
 			"statusServer.projectSettings.enabled requires statusServer.intents.enabled"},
 		{"without federated:id", append(slices.Clone(on), oidc(`["openid","email"]`)...),
 			"statusServer.projectSettings.enabled requires federated:id in statusServer.auth.config.oidc.scopes"},
+		// Without profile Dex sends no preferred_username, and the server
+		// then trusts no GitHub id.
+		{"without profile", append(slices.Clone(on), oidc(`["openid","email","federated:id"]`)...),
+			"statusServer.projectSettings.enabled requires profile in statusServer.auth.config.oidc.scopes"},
+		{"the usage views without profile", []string{"--set", "statusServer.usage.enabled=true",
+			"--set-json", `statusServer.auth.config={"mode":"oidc","oidc":{"issuerURL":"https://sso.example.com",` +
+				`"clientID":"maul-status","clientSecret":"placeholder","scopes":["openid","federated:id"],` +
+				`"claims":{"usernamePrefix":"github:","groupsPrefix":"github:"}}}`},
+			"statusServer.usage.enabled requires profile in statusServer.auth.config.oidc.scopes"},
 		{"without the admission policy", append(slices.Clone(projectSettingsArgs), "--set", "admissionPolicy.enabled=false"),
 			"statusServer.projectSettings.enabled requires admissionPolicy.enabled"},
 		// Chart.yaml's kubeVersion is stricter than the policy's 1.30, so
@@ -505,10 +514,10 @@ func TestProjectSettingsRenderFailures(t *testing.T) {
 			}
 		})
 	}
-	t.Run("with federated:id", func(t *testing.T) {
-		objs := renderObjects(t, append(slices.Clone(on), oidc(`["openid","email","federated:id"]`)...))
+	t.Run("with federated:id and profile", func(t *testing.T) {
+		objs := renderObjects(t, append(slices.Clone(on), oidc(`["openid","profile","email","federated:id"]`)...))
 		if findObject(objs, "ValidatingAdmissionPolicy", settingsPolicy) == nil {
-			t.Error("an inline oidc posture with federated:id renders no policy")
+			t.Error("an inline oidc posture with federated:id and profile renders no policy")
 		}
 	})
 }

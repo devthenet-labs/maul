@@ -163,8 +163,8 @@ with `attribution.mode: attribute`:
   tokens and cost over 30 or 90 days, stacked by Project or run kind, top intents, and the unmetered and pod-reported
   figures shown apart; holders of `get` on the virtual `usage/all` see everyone, per person and per Project;
 - a person is their GitHub numeric id from Dex's `federated_claims` (connector `oidc.claims.githubConnector`, default
-  `github`); the server refuses to start without mode oidc, both claim prefixes and the `federated:id` scope, and
-  refuses any identity without a GitHub id;
+  `github`); the server refuses to start without mode oidc, both claim prefixes and the `federated:id` and `profile`
+  scopes, and refuses any identity without a GitHub id;
 - `maul get usage [--user] [--project] [--since]`: admin-only (SelfSubjectAccessReview on `usage/all`, then the caller's
   own RBAC on `usagerollups`); the same report as the page (`internal/usageview`);
 - chart: `maul-status-server-usage` Role (usagerollups get/list/watch) and, with `rbac.userRoles`, the
