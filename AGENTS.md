@@ -945,7 +945,11 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   grammar, `--setting-sources user`, `--permission-mode dontAsk`, `--strict-mcp-config`, and `--restricted` for the
   read-only one) are probed against the REAL pinned CLI by `TestClaudePostureProbe` (`mise run claude-posture-probe`;
   CI runs it when the `CLAUDE_VERSION` pin or the posture changes): a scratch tree whose hooks, env block, settings and
-  `.mcp.json` must stay inert, a scripted fake model on loopback, no credential. Codex renders the broker as a `maul`
+  `.mcp.json` must stay inert, a scripted fake model on loopback, no credential. The workspace-write posture (remediate,
+  build, revise) also denies `Agent`/`Task`, `Workflow`, `ScheduleWakeup`, the cron and the worktree tools beside the
+  web tools (on the pin a subagent needs no permission, runs in the background and escapes `--max-turns`); the probe
+  asserts each refused, no child's shell run and one result event, against a control without the denies.
+  Codex renders the broker as a `maul`
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
   plugins and web search off; like claude's, its prompt is the CLI's standard input (`codex exec -`, read whole,
