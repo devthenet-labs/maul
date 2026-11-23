@@ -100,6 +100,46 @@ func TestApproversResolutionIsPaced(t *testing.T) {
 	}
 }
 
+// TestApproversResolvedAtOnceWhenALoginIsSwapped: a login replaced by
+// another, so the list keeps its length, is a changed login set: the list
+// is resolved again on the next pass, well before ten minutes, and the old
+// login's identity (here one with write access) is gone at once. Without
+// this an identity resolved for a removed login would keep matching for up
+// to ten minutes under the new login's name.
+func TestApproversResolvedAtOnceWhenALoginIsSwapped(t *testing.T) {
+	e := newEnv(t, approversProject())
+	e.reconcileProject()
+	calls := func() int { return e.gh.calls["Collaborator"] }
+	if calls() != 3 {
+		t.Fatalf("%d calls on the first pass, want 3", calls())
+	}
+
+	e.clock.Advance(time.Minute)
+	p := e.getProject()
+	p.Spec.Approvers.Logins = []string{"carol", "Reader", "ghost"}
+	p.Generation++
+	if err := e.c.Update(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	e.gh.perms["carol"] = "read"
+	e.reconcileProject()
+	if calls() != 6 {
+		t.Fatalf("%d calls after %s was swapped for carol, want the whole list resolved at once", calls(), approver)
+	}
+	got := e.getProject().Status.Approvers
+	want := []v1alpha1.ProjectApproverIdentity{
+		{Login: "carol", ID: actorOf("carol").ID},
+		{Login: "Reader", ID: actorOf("reader").ID},
+		{Login: "ghost", ID: actorOf("ghost").ID},
+	}
+	if !slices.Equal(got.Identities, want) {
+		t.Errorf("identities = %+v, want %+v", got.Identities, want)
+	}
+	if at := got.ResolvedAt; at == nil || !at.Time.Equal(e.clock.Now().Truncate(time.Second)) {
+		t.Errorf("resolvedAt = %v, want this pass's %v", at, e.clock.Now())
+	}
+}
+
 // TestApproversResolutionFailureKeepsTheOld: when GitHub cannot be read the
 // identities and resolvedAt stay exactly as they were, so they age, and
 // ApproversResolved is False; Ready is untouched. A failed resolution is
