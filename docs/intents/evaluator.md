@@ -844,20 +844,9 @@ with no module proxy, the module files read-only and no user `go env` file, so t
 never changes the tree's `go.mod` or `go.sum`. A tree with a `vendor` directory, a `replace` by an absolute path or a
 directory outside the tree, or no `go.mod` maul can read refuses every `run` by name. Each exploratory call gets a fresh
 scratch directory, but `HOME` and the writable tree are shared by every call at that side while the evaluator explores.
-maul's own runs of a check (a dry run, a replay, a confirmation, at either side) get a fresh scratch directory and run
-token each, and start from the tree, the build output and `HOME` exactly as that side's build left them: after the build
-the sandbox keeps a copy of the three (at most 768 MiB) and their digests, and before each check run it puts them back
-unless they still match. The caches (Go's build cache, npm's) are too large to copy: the sandbox records each entry the
-build left (its type, mode, size, inode and change time, which no program can set) and before each check run removes
-every entry that is not exactly one of those, so a check sees only the build's own entries, and one deleted stays
-deleted, a cache miss, never another answer. Each check run also gets an empty `TMPDIR` of its own. What exploration or
-an earlier check changed there never reaches a check. So a check that shows a defect need not write data of its own run
-(`{{run}}`), as one on a preview must: a fixed input file or argument is its own. It is held to the same rules otherwise
-(red by its assertion in each of maul's own runs, reviewed yes on the red question), and like every check that writes no
-data of its own run, its failure is a suspected defect a person confirms with `/maul verify fix`, never an automatic
-fix. When a copy itself no longer matches its digest (or the build's output could not be kept) the check run does not
-run: it is an error, which can never pass. Only what a program writes to `/tmp` by its absolute path, and a network
-profile's module and package caches under `/tmp`, are shared between check runs.
+Nothing is copied or put back between calls: the tree, the build output, `HOME`, the caches and the tmp root are that
+side's, and each call sees what the build and the calls before it left there, so the evaluator reads a call's output
+knowing what it ran before.
 
 ### Head and base
 

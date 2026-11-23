@@ -183,10 +183,13 @@ const (
 	// stop), so a saved check may never have run at these heads (review
 	// VC-3). Infra, never a verdict.
 	VerificationReasonReplayIncomplete PreviewVerificationReason = "replay-incomplete"
-	// VerificationReasonKeptCopyFailed: an agents tool pod's tree built,
-	// but its sandbox could not keep the tree, build output and HOME every
-	// check run starts from (together past the copy's bound, or a full work
-	// volume), so no check could run there. Infra, never a verdict.
+	// VerificationReasonKeptCopyFailed: retired spelling (evaluator
+	// observed, W9): an earlier release's agents tool pod whose sandbox
+	// could not keep the copy of its built tree every check run started
+	// from. Nothing writes it since the sandbox keeps no copy; an earlier
+	// release's relay finishing so is collected Infra evaluator-not-run or
+	// tools-not-ready. Kept in the enum for a rollback; removed in the next
+	// release.
 	VerificationReasonKeptCopyFailed PreviewVerificationReason = "kept-copy-failed"
 )
 

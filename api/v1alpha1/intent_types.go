@@ -1082,9 +1082,9 @@ const (
 	// SettleSandboxUnenforced: the last attempt's tool pod found its
 	// sandbox's network open (sandbox-unenforced).
 	SettleSandboxUnenforced SettleCause = "SandboxUnenforced"
-	// SettleToolsLost: the last attempt's tool pod was taken away, reached
-	// its deadline, or could not keep what every check run starts from
-	// (tools-evicted, tools-deadline, kept-copy-failed).
+	// SettleToolsLost: the last attempt's tool pod was taken away or
+	// reached its deadline (tools-evicted, tools-deadline; and the retired
+	// kept-copy-failed of an earlier release's record).
 	SettleToolsLost SettleCause = "ToolsLost"
 	// SettleReplayIncomplete: the last attempt, a replay, finished before
 	// the end of its replay (replay-incomplete, review VC-3).

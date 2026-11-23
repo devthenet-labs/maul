@@ -614,7 +614,9 @@ func TestCollectReplayRoundIsGuarded(t *testing.T) {
 // TestCollectEarlierReleasesKeptCopyFinishIsInfra: a relay of an earlier
 // release that finished because a sandbox could not keep a built tree (its
 // finish reason kept-copy-failed, which no relay writes since the kept copy
-// went, W9) called no evaluator, so the round is Infra, never judged.
+// went, W9) called no evaluator, so the round is Infra, never judged: here
+// evaluator-not-run, for this harness wrote status.tools (a real one never
+// served, so it is tools-not-ready; both go through toolledger.RoundReason).
 func TestCollectEarlierReleasesKeptCopyFinishIsInfra(t *testing.T) {
 	w := newWorld(t)
 	h := running(t, w)
@@ -624,8 +626,12 @@ func TestCollectEarlierReleasesKeptCopyFinishIsInfra(t *testing.T) {
 	h.tools.pod, h.tools.log = terminated(readyPod(), msg), log
 	h.reconcile(t)
 	pv := h.pv(t)
-	if pv.Status.Phase != v1alpha1.VerificationInfra || pv.Status.Reason == v1alpha1.VerificationReasonOK {
-		t.Fatalf("status = %s %s, want Infra", pv.Status.Phase, pv.Status.Reason)
+	if pv.Status.Tools == nil {
+		t.Fatal("the harness wrote no status.tools")
+	}
+	if pv.Status.Phase != v1alpha1.VerificationInfra ||
+		pv.Status.Reason != v1alpha1.VerificationReasonEvaluatorNotRun {
+		t.Fatalf("status = %s %s, want Infra evaluator-not-run", pv.Status.Phase, pv.Status.Reason)
 	}
 }
 
