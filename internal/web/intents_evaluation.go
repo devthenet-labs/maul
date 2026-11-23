@@ -212,15 +212,15 @@ func evaluationOutcomes(pv *v1alpha1.PreviewVerification, decided map[string]v1a
 
 // evaluationClaims is the run's report as the evaluator wrote it, tier 2
 // only; nil for a report that does not parse, which was never acted on (its
-// text is the run panel's report), and for one writing a key the observed
-// evaluator retired, which claims nothing (report.CarriesRetiredKeys, as
-// the controller judges it).
+// text is the run panel's report), among them one writing a key the
+// observed evaluator retired, which claims nothing, as the controller
+// judges it.
 func evaluationClaims(run *v1alpha1.IntentRun, tier authz.Tier) *report.Evaluation {
 	if tier != authz.TierTranscripts || run.Status.Report == "" {
 		return nil
 	}
 	claims, err := report.ParseEvaluation([]byte(run.Status.Report))
-	if err != nil || claims.CarriesRetiredKeys() {
+	if err != nil {
 		return nil
 	}
 	return claims

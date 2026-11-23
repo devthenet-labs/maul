@@ -1063,3 +1063,16 @@ refuses to start: `/maul cancel` such intents first, before the change.
 (`kubectl -n <namespace> get previewverifications -o json | jq -r '.items[] | select(.spec.criteria) | .metadata.name'`),
 and cancel (or delete) each open intent whose approved plan states criteria. The chart's guard and the census name
 anything left.
+
+## Migrating from saved checks
+
+The evaluator no longer writes, saves, reviews or replays checks: each verdict counts when it cites calls of the round's
+own verified ledger. The check reviewer is retired with them, and what configured it does nothing:
+
+- intent-controller's `--intent-checkreview-model` and `--intent-checkreview-max-turns`
+  (`MAUL_INTENT_CHECKREVIEW_MODEL`, `MAUL_INTENT_CHECKREVIEW_MAX_TURNS`) are accepted and ignored for one release, and
+  each one set logs a warning naming this section. Drop them; the next release removes them.
+- A Project's `spec.models.checkReview` and `spec.limits.checkReview` are kept in the schema for one release and read by
+  nothing: whatever they hold, they never keep the Project from Ready. Drop them.
+- A checkreview run an earlier release left is stopped at the upgrade, its Job deleted. What it spent still counts
+  toward the evaluation ceiling.

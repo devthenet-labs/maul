@@ -14,8 +14,7 @@ import (
 // when, each cites an entry of the round's verified tools ledger that
 // exercised the application: maul checks the citation (ValidCite), never
 // whether the cited call shows what the claim says, which is the
-// evaluator's reading and the human reviewer's to audit. It sits beside
-// Decide, which it replaces; nothing calls it yet.
+// evaluator's reading and the human reviewer's to audit.
 
 // Ledger facts as Judge reads them, the spellings of v1alpha1's LedgerKind
 // and LedgerVerb and of toolwire's recorded Side (this package imports
@@ -42,8 +41,8 @@ const (
 // schema's status.verification.outcomes[].cites).
 const MaxCites = 8
 
-// Reasons Judge gives, beside Decide's ReasonManual, ReasonEnvFailed,
-// ReasonInfra, ReasonHeldFinding and ReasonBuildFailed, which it shares.
+// Reasons Judge gives, beside ReasonManual, ReasonEnvFailed, ReasonInfra,
+// ReasonHeldFinding and ReasonBuildFailed, which it shares (result.go).
 const (
 	// ReasonNotReported: the evaluator gave no verdict on the outcome.
 	ReasonNotReported = "not-reported"

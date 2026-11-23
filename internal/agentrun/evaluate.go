@@ -37,9 +37,7 @@ const evaluateHandoffMaxBytes = 256 << 10
 // type). agent-runner renders the evaluate prompt from it
 // (templates.RenderEvaluatePrompt), which quotes every untrusted field
 // (Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files, PriorVerdicts)
-// as fenced data. PriorReplay, PriorRefused and NotYetProof are retired
-// with saved checks: they are still decoded, so a controller that sends them
-// is not refused, and never reach the prompt.
+// as fenced data.
 type EvaluateHandoff struct {
 	// Round is the verification round, 1-based.
 	Round int `json:"round"`
@@ -68,14 +66,6 @@ type EvaluateHandoff struct {
 	// PriorVerdicts are maul's results of its outcomes (SPEC Q15).
 	PriorRound    int            `json:"prior_round,omitempty"`
 	PriorVerdicts []PriorVerdict `json:"prior_verdicts,omitempty"`
-	// PriorReplay, PriorRefused and NotYetProof are retired with saved
-	// checks: how the previous round's saved checks replayed, the checks the
-	// reviewer refused, and the saved checks not yet proof. They are decoded
-	// and ignored (EvaluateHandoff.prompt never reads them), until the
-	// controller stops sending them and they are removed.
-	PriorReplay  []PriorReplay  `json:"prior_replay,omitempty"`
-	PriorRefused []PriorRefusal `json:"prior_refused,omitempty"`
-	NotYetProof  []NotYetProof  `json:"not_yet_proof,omitempty"`
 }
 
 // FixDiffCut is what a round's fix diff leaves out of the fix, as
@@ -92,43 +82,12 @@ type FixDiffCut struct {
 	Unavailable []string `json:"unavailable,omitempty"`
 }
 
-// NotYetProof is one saved check that is not yet proof of a pass (saved
-// red, or Refused): its outcome's id and its own id. Retired: decoded,
-// never read.
-type NotYetProof struct {
-	Outcome string `json:"outcome"`
-	Check   string `json:"check"`
-	// Refused marks a check that is no proof because the saved-check
-	// substance rules have come to refuse it (code review 2026-11-18,
-	// checks 6), not because it was saved red.
-	Refused bool `json:"refused,omitempty"`
-}
-
-// PriorRefusal is one check the reviewer refused in an earlier round: its
-// outcome's id, its own id, the reviewer's reason, and the refused check
-// itself (G5R-B-CLI-1). Body is the previous evaluator's text, UNTRUSTED.
-// Retired: decoded, never read.
-type PriorRefusal struct {
-	Outcome string `json:"outcome"`
-	Check   string `json:"check"`
-	Reason  string `json:"reason,omitempty"`
-	Body    string `json:"body,omitempty"`
-}
-
 // PriorVerdict is maul's result of one outcome in a previous round, with
 // why it did not pass (which may quote that round's evaluator).
 type PriorVerdict struct {
 	Outcome string `json:"outcome"`
 	Result  string `json:"result"`
 	Reason  string `json:"reason,omitempty"`
-}
-
-// PriorReplay is how one saved check, bound to Outcome, replayed in a
-// previous round. Retired: decoded, never read.
-type PriorReplay struct {
-	Check   string `json:"check"`
-	Outcome string `json:"outcome"`
-	Result  string `json:"result"`
 }
 
 // EvaluateComponent is one previewed component: the key an http check's
@@ -156,7 +115,7 @@ type EvaluateTools struct {
 	// Key is the tool pod's per-evaluation :8090 key (toolwire.IsKey,
 	// SPEC Q28), which a workspace round must carry and a preview round
 	// never does. agent-runner stages it where maul-tool reads it
-	// (maultool.KeyFile, 0400), sends it with its own confirm and finish,
+	// (maultool.KeyFile, 0400), sends it with its own finish,
 	// and keeps it out of the prompt, the event, the transcript and its
 	// logs.
 	Key string `json:"key,omitempty"`
@@ -230,19 +189,19 @@ func (a *Agent) readHandoff(limit int) ([]byte, error) {
 	return raw, nil
 }
 
-// decodeHandoff decodes a role stage's JSON handoff into v strictly:
+// decodeHandoff decodes the evaluate stage's JSON handoff into h strictly:
 // unknown fields and trailing data are refused.
-func decodeHandoff(raw []byte, what string, v any) error {
+func decodeHandoff(raw []byte, h *EvaluateHandoff) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return fmt.Errorf("input handoff: the %s handoff is empty", what)
+		return errors.New("input handoff: the evaluate handoff is empty")
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("input handoff: the %s handoff is not valid: %w", what, err)
+	if err := dec.Decode(h); err != nil {
+		return fmt.Errorf("input handoff: the evaluate handoff is not valid: %w", err)
 	}
 	if dec.More() {
-		return fmt.Errorf("input handoff: the %s handoff is not valid: trailing data", what)
+		return errors.New("input handoff: the evaluate handoff is not valid: trailing data")
 	}
 	return nil
 }
@@ -256,7 +215,7 @@ func (a *Agent) evaluateInput() (evaluateInput, error) {
 		return evaluateInput{}, err
 	}
 	var h EvaluateHandoff
-	if err := decodeHandoff(raw, "evaluate", &h); err != nil {
+	if err := decodeHandoff(raw, &h); err != nil {
 		return evaluateInput{}, err
 	}
 	if err := validEvaluateHandoff(h); err != nil {
@@ -353,8 +312,7 @@ func validWorkspaceTools(h EvaluateHandoff) []error {
 }
 
 // prompt is the handoff as the evaluate prompt's data, with maul's own
-// paths and the run's limits. The retired check fields (the prompt's
-// ChecksDir, PriorReplay, PriorRefused and NotYetProof) are left empty.
+// paths and the run's limits.
 func (h EvaluateHandoff) prompt(reportPath, shotsDir string, limits templates.StageLimits) templates.EvaluatePrompt {
 	p := templates.EvaluatePrompt{
 		ReportPath: reportPath, ShotsDir: shotsDir,
@@ -526,18 +484,6 @@ func fillEvaluation(ev *envelope.Evaluation, e *report.Evaluation) {
 		ev.Verdicts = append(ev.Verdicts, envelope.OutcomeVerdict{
 			ID: v.ID, Verdict: string(v.Verdict), Ledger: v.Ledger, Note: v.Note,
 		})
-	}
-	for _, d := range e.Disputes {
-		ev.Disputes = append(ev.Disputes, envelope.Dispute{
-			CheckDigest: d.CheckDigest, Reason: d.Reason, Replacement: d.Replacement, Ledger: d.Ledger,
-		})
-	}
-	for _, p := range e.Proposed {
-		ev.Proposed = append(ev.Proposed, envelope.ProposedCheck{ID: p.ID, Outcome: p.Outcome, Digest: p.Digest,
-			Expect: p.Expect})
-	}
-	for _, r := range e.Retire {
-		ev.Retire = append(ev.Retire, envelope.Retire{CheckDigest: r.CheckDigest, Reason: r.Reason})
 	}
 	for _, an := range e.Anomalies {
 		ev.Anomalies = append(ev.Anomalies, envelope.Anomaly{Summary: an.Summary, Route: an.Route, Ledger: an.Ledger})

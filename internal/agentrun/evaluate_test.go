@@ -73,13 +73,8 @@ func evalHandoff(edit func(*EvaluateHandoff)) string {
 // evaluateHandoff is the default evaluator handoff.
 var evaluateHandoff = evalHandoff(nil)
 
-// roleHandoff is a valid handoff for a role phase.
-func roleHandoff(phase Phase) string {
-	if phase == PhaseEvaluate {
-		return evaluateHandoff
-	}
-	return reviewHandoff(1)
-}
+// roleHandoff is a valid handoff for a role phase (evaluate, the only one).
+func roleHandoff(Phase) string { return evaluateHandoff }
 
 // roleWorkspace builds a role Job's /work as its prepare init leaves it: the
 // handoff in input/issue.md and an empty scratch directory, no clone.
@@ -470,7 +465,7 @@ func TestEvaluateHandoffRefused(t *testing.T) {
 // TestRoleStagesNeedNoClone: a role Job's workspace has no repository
 // clone, and that is no fatal; a missing handoff is.
 func TestRoleStagesNeedNoClone(t *testing.T) {
-	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
+	for _, phase := range []Phase{PhaseEvaluate} {
 		t.Run(string(phase), func(t *testing.T) {
 			var out bytes.Buffer
 			cfg, ws := roleConfig(t, phase, "", &out)
@@ -493,7 +488,7 @@ func TestRoleStagesNeedNoClone(t *testing.T) {
 	}
 }
 
-// TestRoleStagesRefuseUnfitHarnesses: an evaluate or checkreview stage runs
+// TestRoleStagesRefuseUnfitHarnesses: an evaluate stage runs
 // on brokered claude, brokered codex or the fake harness only, and never on
 // one that cannot hold it to the evaluate posture.
 func TestRoleStagesRefuseUnfitHarnesses(t *testing.T) {
@@ -503,7 +498,7 @@ func TestRoleStagesRefuseUnfitHarnesses(t *testing.T) {
 		{"copilot", "copilot", "refused"},
 		{"unbrokered claude", "claude", "must be brokered"},
 	}
-	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
+	for _, phase := range []Phase{PhaseEvaluate} {
 		for _, tt := range tests {
 			t.Run(string(phase)+"/"+tt.name, func(t *testing.T) {
 				var out bytes.Buffer
@@ -588,31 +583,26 @@ func TestDryEvaluateOnFakeHarness(t *testing.T) {
 
 // TestEvaluateHandoffCarriesThePreviousRound (S1-29, SPEC Q15): a round
 // after a judged one decodes the previous round's results and the fix diff
-// strictly, and hands them to the prompt; the retired saved-check replay
-// still decodes and reaches no prompt.
+// strictly, and hands them to the prompt.
 func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 	raw := evalHandoff(func(h *EvaluateHandoff) {
 		h.Round, h.PriorRound, h.FixDiff = 2, 1, "+k := 32\n"
 		h.FixDiffCut = &FixDiffCut{ShownBytes: 9, ReadBytes: 40000, Files: []string{"vendor/big.go"},
 			Unavailable: []string{"acme/web"}}
 		h.PriorVerdicts = []PriorVerdict{{Outcome: "rate-battle", Result: "failed", Reason: "stays put"}}
-		h.PriorReplay = []PriorReplay{{Check: "leaderboard", Outcome: "leaderboard", Result: "pass"}}
 	})
-	for _, key := range []string{`"prior_round":1`, `"prior_verdicts":[`, `"prior_replay":[`, `"fix_diff":`,
+	for _, key := range []string{`"prior_round":1`, `"prior_verdicts":[`, `"fix_diff":`,
 		`"fix_diff_cut":{`} {
 		if !strings.Contains(raw, key) {
 			t.Errorf("handoff %s lacks %s", raw, key)
 		}
 	}
 	var h EvaluateHandoff
-	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
+	if err := decodeHandoff([]byte(raw), &h); err != nil {
 		t.Fatal(err)
 	}
 	if err := validEvaluateHandoff(h); err != nil {
 		t.Fatal(err)
-	}
-	if len(h.PriorReplay) != 1 {
-		t.Errorf("handoff prior replay = %+v, want it decoded", h.PriorReplay)
 	}
 	p := h.prompt("", "", templates.StageLimits{})
 	if p.PriorRound != 1 || p.FixDiff != "+k := 32\n" ||
@@ -620,55 +610,27 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 		Result: "failed", Reason: "stays put"}) {
 		t.Errorf("prompt = %+v, want the previous round's results", p)
 	}
-	if len(p.PriorReplay) != 0 {
-		t.Errorf("prompt prior replay = %+v, want none: saved checks are retired", p.PriorReplay)
-	}
 	if c := p.FixDiffCut; c.ShownBytes != 9 || c.ReadBytes != 40000 || len(c.Files) != 1 || len(c.Unavailable) != 1 {
 		t.Errorf("fix diff cut = %+v, want the handoff's", c)
 	}
 }
 
-// TestEvaluateHandoffIgnoresRetiredCheckFields: a handoff a check-era
-// controller encodes, with the checks the reviewer refused and the saved
-// checks not yet proof, still decodes strictly and is valid, so neither side
-// refuses the other while the controller still sends them; none of it
-// reaches the prompt's data or the prompt (coverage design C3 is retired with
-// saved checks).
-func TestEvaluateHandoffIgnoresRetiredCheckFields(t *testing.T) {
-	const body = `{"id":"rate-battle.api","outcome":"rate-battle","form":"http"}`
-	raw := evalHandoff(func(h *EvaluateHandoff) {
-		h.Round = 2
-		h.PriorRefused = []PriorRefusal{{Outcome: "rate-battle", Check: "rate-battle.api",
-			Reason: "It never reads the loser's rating.", Body: body}}
-		h.NotYetProof = []NotYetProof{{Outcome: "leaderboard", Check: "leaderboard.red", Refused: true}}
-	})
-	for _, key := range []string{`"prior_refused":[{"outcome":"rate-battle","check":"rate-battle.api",`,
-		`"not_yet_proof":[{"outcome":"leaderboard","check":"leaderboard.red","refused":true}]`} {
-		if !strings.Contains(raw, key) {
-			t.Errorf("handoff %s lacks %s", raw, key)
-		}
-	}
-	var h EvaluateHandoff
-	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
-		t.Fatal(err)
-	}
-	if err := validEvaluateHandoff(h); err != nil {
-		t.Fatal(err)
-	}
-	if len(h.PriorRefused) != 1 || len(h.NotYetProof) != 1 {
-		t.Errorf("handoff = %+v, want the retired fields decoded", h)
-	}
-	p := h.prompt("/r", "/s", templates.StageLimits{MaxTurns: 10})
-	if len(p.PriorRefused) != 0 || len(p.NotYetProof) != 0 || p.ChecksDir != "" {
-		t.Errorf("prompt data = %+v, want no retired check field set", p)
-	}
-	prompt, err := templates.RenderEvaluatePrompt(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range []string{"It never reads the loser's rating.", "rate-battle.api", "leaderboard.red"} {
-		if strings.Contains(prompt, s) {
-			t.Errorf("the prompt holds %q, retired with saved checks", s)
+// TestEvaluateHandoffRefusesRetiredCheckFields: the handoff is strict JSON,
+// and the check-era fields an earlier release's controller sent (the saved
+// checks' replay, the checks the reviewer refused, the saved checks not yet
+// proof) are gone from it, so a handoff carrying any of them is refused.
+// The chart pins agent-runner's image to the controller's release, so only
+// a hand-built Job could send one.
+func TestEvaluateHandoffRefusesRetiredCheckFields(t *testing.T) {
+	for _, field := range []string{
+		`"prior_replay":[{"check":"leaderboard","outcome":"leaderboard","result":"pass"}]`,
+		`"prior_refused":[{"outcome":"rate-battle","check":"rate-battle.api"}]`,
+		`"not_yet_proof":[{"outcome":"leaderboard","check":"leaderboard.red","refused":true}]`,
+	} {
+		raw := strings.Replace(evaluateHandoff, "{", "{"+field+",", 1)
+		var h EvaluateHandoff
+		if err := decodeHandoff([]byte(raw), &h); err == nil {
+			t.Errorf("decodeHandoff(%s) accepted it, want it refused", field)
 		}
 	}
 }

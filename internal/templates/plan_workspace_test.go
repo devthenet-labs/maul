@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/report"
 )
 
@@ -84,7 +83,7 @@ func TestPlanPromptWorkspaceNamesItsSurface(t *testing.T) {
 }
 
 // TestPlanOutcomesWorkspaceExamplesHold: each surface's example is a plan
-// outcome list report.ParsePlan reads, kept to its own rules.
+// outcome list report.ParsePlan reads, within the prompt's width.
 func TestPlanOutcomesWorkspaceExamplesHold(t *testing.T) {
 	for name, ex := range map[string]string{"cli": ExamplePlanOutcomesCLI, "library": ExamplePlanOutcomesLibrary} {
 		plan := "---\nsummary: \"Render at any tempo\"\nrepositories:\n  - \"https://github.com/o/r\"\n" +
@@ -96,9 +95,6 @@ func TestPlanOutcomesWorkspaceExamplesHold(t *testing.T) {
 		}
 		if len(p.Outcomes) < 2 || p.CheckEvaluator() != nil {
 			t.Errorf("%s: %d outcomes, CheckEvaluator %v", name, len(p.Outcomes), p.CheckEvaluator())
-		}
-		for _, f := range acceptance.LintOutcomes(p.Outcomes) {
-			t.Errorf("%s: %s flagged %s on %q", name, f.Outcome, f.Rule, f.Word)
 		}
 		for i, line := range strings.Split(ex, "\n") {
 			if len(line) > 118 {

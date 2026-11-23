@@ -20,22 +20,8 @@ import (
 // no-defect conclusion is shown. Each test is named after the criteria
 // test it twins.
 
-// versionFails and healthFails are the replays of an outcome round whose
-// version, or health, check alone fails.
-func versionFails(t *testing.T, health string) []v1alpha1.CheckRun {
-	t.Helper()
-	return replays(savedCheck(t, versionCheck), savedCheck(t, health), v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)
-}
-
-func healthFails(t *testing.T, health string) []v1alpha1.CheckRun {
-	t.Helper()
-	return replays(savedCheck(t, versionCheck), savedCheck(t, health), v1alpha1.CheckRunPass, v1alpha1.CheckRunFail)
-}
-
-// oneFixEnv is newEvaluatorEnv with maxVerifyFixes 1 whose stored health
-// check writes its run's own record (so its failure is fixed, not held as
-// a suspicion), fixes answered by fix, and the first round played with the
-// version outcome failing. It returns the env and the intent's name.
+// oneFixEnv is newEvaluatorEnv with maxVerifyFixes 1, fixes answered by
+// fix, and the first round played with the version outcome failing. It returns the env and the intent's name.
 func oneFixEnv(t *testing.T, fix func(*env)) (*env, string) {
 	t.Helper()
 	e, name := newEvaluatorEnv(t, 0.4, func(p *v1alpha1.Project) {
@@ -43,10 +29,9 @@ func oneFixEnv(t *testing.T, fix func(*env)) (*env, string) {
 		p.Spec.Limits.MaxVerifyFixes = &one
 	})
 	e.evaluateReporting(failingReport)
-	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthWritesCheck))
 	e.review(name, 3)
 	fix(e)
-	e.evalRound(name, versionFails(t, healthWritesCheck)...)
+	e.evalRound(name)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing || v.Failed != 1 {
 		t.Fatalf("verification = %s %+v, want Failing on the version outcome", v.State, v.Outcomes)
 	}
@@ -81,7 +66,7 @@ func TestOutcomeVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 	if p := e.prVerifyPass(name); p.noDefectView() == nil {
 		t.Error("the note went before a new round was leased")
 	}
-	e.evalRound(name, versionFails(t, healthCheck)...)
+	e.evalRound(name)
 	e.review(name, 3)
 	if n, v := len(e.verifyRuns(name)), e.verification(name); n != 2 || v.AutoFix.State != v1alpha1.AutoFixArmed {
 		t.Fatalf("verify runs %d, verification %+v; want a second fix round after the re-arm", n, v)
@@ -99,7 +84,7 @@ func TestOutcomeVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 // fixed again, not halted as another RepeatedFailure.
 func TestOutcomeVerifyFixAfterRepeatedFailureAndRearm(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
-	v := e.fixedAndFailingAgain(name, versionFails(t, healthCheck)...)
+	v := e.fixedAndFailingAgain(name)
 	if n := len(e.verifyRuns(name)); n != 1 || v.AutoFix.Reason != v1alpha1.AutoFixRepeatedFailure {
 		t.Fatalf("verify runs %d, verification %+v; want halted RepeatedFailure after one fix", n, v)
 	}
@@ -165,7 +150,7 @@ func TestOutcomeVerifyFixRoundWhoseAgentNeverRan(t *testing.T) {
 		t.Errorf("verifyFixRounds = %d, want a round no agent ran in uncounted", got)
 	}
 	e.onAcceptanceFix(defaultOutput)
-	v := e.reevaluateFailing(name, failingReport, versionFails(t, healthCheck)...)
+	v := e.reevaluateFailing(name, failingReport)
 	if n := len(e.verifyRuns(name)); n <= before || v.AutoFix.State != v1alpha1.AutoFixArmed {
 		t.Fatalf("verify runs %d (were %d), verification %+v; want a new round", n, before, v)
 	}
@@ -206,7 +191,7 @@ func TestOutcomeStoppedRetryStillCounts(t *testing.T) {
 		t.Fatalf("no second verification: %+v", again)
 	}
 	e.evaluateReporting(healthFailingReport)
-	e.evalRound(name, healthFails(t, healthWritesCheck)...)
+	e.evalRound(name)
 	e.review(name, 3)
 	if n, v := len(e.verifyRuns(name)), e.verification(name); n != 2 ||
 		v.AutoFix.Reason != v1alpha1.AutoFixMaxVerifyFixes {
@@ -239,7 +224,7 @@ func TestOutcomeCrashingFixRoundIsBounded(t *testing.T) {
 	if got := e.prVerifyPass(name).verifyFixRounds(); got != 1 {
 		t.Fatalf("verifyFixRounds = %d, want the crashing round counted", got)
 	}
-	v := e.reevaluateFailing(name, healthFailingReport, healthFails(t, healthWritesCheck)...)
+	v := e.reevaluateFailing(name, healthFailingReport)
 	if n := len(e.verifyRuns(name)); n != len(runs) || v.AutoFix.Reason != v1alpha1.AutoFixMaxVerifyFixes {
 		t.Fatalf("verify runs %d (were %d), verification %+v; want halted MaxVerifyFixes", n, len(runs), v)
 	}
@@ -264,7 +249,7 @@ func TestOutcomeNoDefectNoteFollowsTheHeads(t *testing.T) {
 	if v.Ref == nil || v.Round != 2 {
 		t.Fatalf("no verification at the new heads: %+v", v)
 	}
-	e.evalRound(name, versionFails(t, healthCheck)...)
+	e.evalRound(name)
 	e.review(name, 3)
 	if p := e.prVerifyPass(name); p.noDefectView() != nil {
 		t.Errorf("the note outlived the heads it judged: %+v", e.verification(name).NoDefect)

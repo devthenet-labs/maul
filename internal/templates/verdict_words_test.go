@@ -36,9 +36,9 @@ var observedReasons = []string{"seen-to-hold", "seen-not-to-hold", "not-reported
 	"no-valid-evidence", "manual", "env-failed", "infra", "tools-build-failed", "held-finding"}
 
 // retiredWhys are the hand-off reasons only the saved-check machinery gave
-// (a replay round cut short, a suspected defect): the observed evaluator
-// never settles a round with them.
-var retiredWhys = map[string]bool{HandoffWhyReplay: true, HandoffWhySuspected: true}
+// (a replay round cut short): the observed evaluator never settles a round
+// with them.
+var retiredWhys = map[string]bool{HandoffWhyReplay: true}
 
 // retiredCauses are the settle causes only the saved-check machinery
 // recorded.
@@ -116,7 +116,7 @@ func TestVerdictWordsNeverOverstate(t *testing.T) {
 	for _, why := range whys {
 		for _, ws := range []bool{false, true} {
 			for _, state := range []string{HandoffReady, HandoffUnconfirmed, HandoffChecking} {
-				h := PreviewHandoff{State: state, Why: why, Doubted: 2}
+				h := PreviewHandoff{State: state, Why: why}
 				check("hand-off "+state+"/"+why, labelIn(h, ws))
 				check("workspace label "+state+"/"+why, workspaceLabel(h))
 			}

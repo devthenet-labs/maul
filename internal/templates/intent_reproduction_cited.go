@@ -49,6 +49,40 @@ const (
 	citedReproCallsBytes  = 48 << 10
 )
 
+// Bounds on what a reproduction shows of the values it quotes.
+const (
+	// verifyReproLogLines bounds the log lines one failure shows, over all
+	// its components (DESIGN 4.1: 40 lines).
+	verifyReproLogLines = 40
+	// verifyReproLogLineBytes bounds one log line.
+	verifyReproLogLineBytes = 400
+	// verifyReproValueBytes bounds one value shown in a code span (a
+	// component, a commit).
+	verifyReproValueBytes = 256
+	// verifyReproStatementBytes bounds the approved outcome's text.
+	verifyReproStatementBytes = 1 << 10
+)
+
+// ReproductionHead is one previewed component at its commit.
+type ReproductionHead struct{ Component, Revision string }
+
+// ReproductionLog is one component's log lines from the window.
+type ReproductionLog struct {
+	Component string
+	Lines     []string
+}
+
+// reproLogView is one component's log excerpt as the template reads it.
+type reproLogView struct{ Component, Block string }
+
+// reproCode is untrusted s, escaped and bounded, in a code span.
+func reproCode(s string) string {
+	if s == "" {
+		return "(none)"
+	}
+	return code(untrusted.Visible(s, verifyReproValueBytes))
+}
+
 // CitedReproduction is an observed evaluation's verify-fix round's input:
 // the verification that found outcomes failing, at its heads, and its
 // failures.
@@ -109,7 +143,7 @@ func RenderCitedReproduction(r CitedReproduction) (string, error) {
 		if len(f.Cited) == 0 {
 			return "", fmt.Errorf("render cited reproduction: outcome %q cites no call", f.Outcome)
 		}
-		v.Failures = append(v.Failures, citedFailure(f, r.Workspace))
+		v.Failures = append(v.Failures, citedFailure(f))
 	}
 	out, err := render("intent_reproduction_cited.md.tmpl", v)
 	if err != nil {
@@ -118,9 +152,8 @@ func RenderCitedReproduction(r CitedReproduction) (string, error) {
 	return strings.TrimRight(out, "\n"), nil
 }
 
-// citedFailure is one failure's view, of a workspace's calls when
-// workspace.
-func citedFailure(f CitedFailure, workspace bool) citedFailureView {
+// citedFailure is one failure's view.
+func citedFailure(f CitedFailure) citedFailureView {
 	fv := citedFailureView{Outcome: reproCode(f.Outcome),
 		Statement: chomp(fence(untrusted.Visible(f.Statement, verifyReproStatementBytes)))}
 	if note := strings.TrimSpace(f.Note); note != "" {
@@ -150,7 +183,7 @@ func citedFailure(f CitedFailure, workspace bool) citedFailureView {
 		if i == VerifyCitedCallsMax {
 			break
 		}
-		cited = append(cited, callTextWithin(c, workspace, citedReproOutputBytes))
+		cited = append(cited, callTextWithin(c, citedReproOutputBytes))
 	}
 	text, cut := cutWords(visibleText(strings.Join(cited, "\n\n")), citedReproCallsBytes)
 	if cut {

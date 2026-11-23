@@ -3,11 +3,6 @@
 
 package templates
 
-import (
-	"fmt"
-	"strings"
-)
-
 // The gated hand-off (agent evaluator, DESIGN 7.1, 7.2): how a live
 // preview's link is shown while maul's evaluator looks at the approved
 // outcomes. Held, the link is not shown at all; once released it is
@@ -52,12 +47,6 @@ const (
 	HandoffWhyEnvironment = "environment"
 	HandoffWhyUnavailable = "unavailable"
 
-	// HandoffWhyEvaluatorDoubts: the evaluator judged outcomes not to
-	// hold that no check maul re-ran shows failing (gate D-B6); the
-	// hand-off counts them (PreviewHandoff.Doubted) and never calls them
-	// failing.
-	HandoffWhyEvaluatorDoubts = "evaluator-doubts"
-
 	// The agents-namespace tool pod's (SPEC-S2): its build of the head did
 	// not finish, the repository has no accepted image to build in, or a
 	// tree could not be fetched.
@@ -66,18 +55,15 @@ const (
 	HandoffWhyTree         = "tree"
 
 	// HandoffWhyReplay: a replay round's tool pod finished before the end
-	// of its replay, so a saved check may never have run (review VC-3).
+	// of its replay (review VC-3): the words of a cause an earlier
+	// release's record may still carry (SettleReplayIncomplete, a retired
+	// spelling); no round of this release replays.
 	HandoffWhyReplay = "replay"
 
 	// HandoffWhyInfra: the environment failed for maul's own reasons (its
 	// tools, the cluster), never the change's (review H3); the change's
 	// own failure is HandoffWhyEnvironment.
 	HandoffWhyInfra = "infra"
-
-	// HandoffWhySuspected: maul suspects a defect in outcomes
-	// (PreviewHandoff.Suspected) and waits for a person to confirm it
-	// (gate D-B11): it leads, before outcomes in doubt.
-	HandoffWhySuspected = "suspected"
 )
 
 // handoffWhyWords are the reasons in maul's words; one not listed shows as
@@ -93,10 +79,6 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyEnvironment: "the preview failed during the evaluation",
 	HandoffWhyInfra:       "its own evaluation environment failed during the evaluation",
 	HandoffWhyUnavailable: "it could not run its checks",
-	// Gate D-B6; the words without a count, which doubtedWords gives.
-	HandoffWhyEvaluatorDoubts: "the evaluator judged some outcomes not to hold, but cited no evidence maul counts",
-	// Gate D-B11; the words without the outcomes, which suspectedWhy gives.
-	HandoffWhySuspected: "it suspects a defect, which a person should confirm",
 	// The agents-namespace tool pod's (SPEC-S2).
 	HandoffWhyBuildFailed:  "its own build of the pull request did not finish",
 	HandoffWhySandboxImage: "the repository has no accepted runner image to build the pull request in",
@@ -142,56 +124,15 @@ func UnconfirmedCause(why string, workspace bool) string {
 // for HandoffUnconfirmed one of the HandoffWhy constants.
 type PreviewHandoff struct {
 	State, Why string
-	// Doubted counts the outcomes the evaluator judged not to hold (gate
-	// D-B6): the reason itself for HandoffWhyEvaluatorDoubts, named after
-	// the outcomes maul suspects for HandoffWhySuspected.
-	Doubted int32
-	// Suspected are, for HandoffWhySuspected, the outcomes maul suspects a
-	// defect in (gate D-B11).
-	Suspected []string
 }
 
 // handoffWhy is why maul could not confirm, in its words (on a Project
-// with no preview when workspace): the reason, then the outcomes in doubt
-// after a suspected defect.
+// with no preview when workspace); a reason not listed is the generic one.
 func handoffWhy(h PreviewHandoff, workspace bool) string {
-	w, ok := whyWords(h.Why, workspace)
-	switch {
-	case !ok:
-		w = handoffWhyWords[HandoffWhyUnsure]
-	case h.Why == HandoffWhyEvaluatorDoubts && h.Doubted > 0:
-		w = doubtedWords(h.Doubted)
-	case h.Why == HandoffWhySuspected:
-		w = suspectedWhy(h.Suspected)
-		if h.Doubted > 0 {
-			w += ", and " + doubtedWords(h.Doubted)
-		}
+	if w, ok := whyWords(h.Why, workspace); ok {
+		return w
 	}
-	return w
-}
-
-// doubtedWords are HandoffWhyEvaluatorDoubts' words for n outcomes: the
-// evaluator's judgement, counted, and that maul did not count its evidence
-// (no saved check showed it, or, on an observed round, no cited call maul
-// counts).
-func doubtedWords(n int32) string {
-	return fmt.Sprintf("the evaluator judged %d %s not to hold, but cited no evidence maul counts", n,
-		plural(n, "outcome", "outcomes"))
-}
-
-// suspectedWhy are HandoffWhySuspected's words naming the outcomes, each
-// shown as code; the words without them when none can be shown.
-func suspectedWhy(outcomes []string) string {
-	ids := make([]string, 0, len(outcomes))
-	for _, id := range outcomes {
-		if c := shown(id); c != "" {
-			ids = append(ids, code(c))
-		}
-	}
-	if len(ids) == 0 {
-		return handoffWhyWords[HandoffWhySuspected]
-	}
-	return "it suspects a defect in " + strings.Join(ids, ", ") + ", which a person should confirm"
+	return handoffWhyWords[HandoffWhyUnsure]
 }
 
 // ReadyLabel is the label of a link released ready: what is true of it

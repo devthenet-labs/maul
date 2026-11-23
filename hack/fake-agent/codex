@@ -34,9 +34,7 @@
 # lists: it sends `maul-tool http GET` to the first component
 # (MAUL_FAKE_CLAUDE_CHECK_PATH, default its path) and gives the outcome
 # MAUL_FAKE_CODEX_EVALUATE ("pass" by default, or "fail"), citing that call
-# ("evaluator observed": no check is written or proposed). The check
-# reviewer (MAUL_PHASE=checkreview, a run an earlier release created; maul
-# launches none) answers MAUL_FAKE_CODEX_REVIEW, "proves" by default.
+# ("evaluator observed": no check is written or proposed).
 #
 # Every invocation appends "<phase> <model> <status>" to $HOME/.fake-codex/calls.
 set -eu
@@ -134,12 +132,6 @@ build)
     '  command: "go test ./..."' 'notes: []' '---' '' '## What changed' '' \
     'Scripted build from hack/fake-agent/codex: VERSION names the current version.' \
     >"$workspace/reports/build.md"
-  ;;
-checkreview)
-  out_report=$(report_path)
-  answer=${MAUL_FAKE_CODEX_REVIEW:-proves}
-  printf '%s\n' '---' "answer: $answer" "reason: \"Scripted review from hack/fake-agent/codex: $answer.\"" '---' \
-    >"$out_report"
   ;;
 evaluate)
   out_report=$(report_path)

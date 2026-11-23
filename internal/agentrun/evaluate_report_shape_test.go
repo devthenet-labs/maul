@@ -14,18 +14,16 @@ import (
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// liveShapedReport is a report shaped exactly like the ones live evaluators
-// wrote on 0.13.7 (S1 bug 5): each verdict naming its outcome as outcome,
-// the check-era keys present, and a proposal naming the file it ran as file.
+// liveShapedReport is a report shaped like the ones live evaluators wrote on
+// 0.13.7 (S1 bug 5), less the check-era keys the observed evaluator
+// retired: each verdict naming its outcome as outcome.
 const liveShapedReport = "---\nverdicts:\n  - outcome: \"rate-battle\"\n    verdict: pass\n    ledger: [12, 14]\n" +
 	"    note: \"The rating moved by 16 points.\"\n  - outcome: \"leaderboard\"\n    verdict: unsure\n" +
-	"    ledger: []\ndisputes: []\nproposed:\n  - id: \"rate-battle.api\"\n    outcome: \"rate-battle\"\n" +
-	"    file: \"checks/rate-battle-api.json\"\nretire: []\nanomalies: []\n---\nRated a battle.\n"
+	"    ledger: []\nanomalies: []\n---\nRated a battle.\n"
 
 // TestEvaluateLiveShapedReport (S1 bug 5): the live report is accepted
-// verbatim and its verdicts are the outcomes'. The proposal it still carries
-// is the model's claim as written: no check file is read for it and nothing
-// is confirmed, the stage's one tool call is its finish.
+// verbatim and its verdicts are the outcomes'; the stage's one tool call is
+// its finish.
 func TestEvaluateLiveShapedReport(t *testing.T) {
 	var out bytes.Buffer
 	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)

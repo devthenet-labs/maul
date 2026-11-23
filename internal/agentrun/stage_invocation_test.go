@@ -137,9 +137,9 @@ func TestFindingStageInvocationsUnchanged(t *testing.T) {
 	})
 }
 
-// TestRoleStageInvocations pins the command an evaluate and a checkreview
-// stage run: the evaluate posture (harness.SandboxEvaluate), in the scratch
-// directory, on the investigate stage's model, brokered. Beyond the goldens
+// TestRoleStageInvocations pins the command an evaluate stage runs: the
+// evaluate posture (harness.SandboxEvaluate), in the scratch directory, on
+// the investigate stage's model, brokered. Beyond the goldens
 // it states the posture's load-bearing properties outright: the CLI runs in
 // scratch and never in the workspace, no directory is added (neither
 // AddDirs nor the posture's own), and the shell is held to maul-tool.
@@ -152,8 +152,6 @@ func TestRoleStageInvocations(t *testing.T) {
 	}{
 		{PhaseEvaluate, evaluateHandoff, "invocation_evaluate.txt",
 			map[string]string{"scratch/report.md": goodEvaluation}, provider.EvaluateMaxOutputTokens},
-		{PhaseCheckReview, reviewHandoff(1), "invocation_checkreview.txt",
-			map[string]string{"scratch/review-1.md": reviewReport("proves")}, provider.CheckReviewMaxOutputTokens},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.phase), func(t *testing.T) {

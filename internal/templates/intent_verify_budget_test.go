@@ -21,25 +21,24 @@ func repeatTo(fill string, n int) string {
 // worstSection is a verification of the most failing outcomes a plan may
 // state (acceptance.MaxOutcomes), each with the longest statement the
 // grammar admits (acceptance.MaxOutcomeChars characters), a long check
-// line and a full app output whose bytes are the application's own, every
-// one fill, plus the most anomalies and log tails a comment shows, a
-// suspected defect's full reproduction and every note maul can add.
+// line, a full app output whose bytes are the application's own and the
+// most cited calls a verdict keeps, each sending and returning the most a
+// call shows, every one fill, plus the most anomalies and log tails a
+// comment shows and every note maul can add.
 func worstSection(fill string) VerifySection {
 	s := VerifySection{Progress: VerifyProgress{State: VerifyFailing, Verification: 3, FixesUsed: 2, MaxFixes: 2,
 		Total: acceptance.MaxOutcomes, Outcomes: true, AutoFix: FixHalted, AutoFixReason: repeatTo(fill, 200)},
 		NoDefect: &VerifyNoDefect{Run: "r", Reason: repeatTo(fill, 1000)},
-		Suspected: &VerifySuspected{Outcomes: []string{"o00", "o01"}, Reproduction: repeatTo(fill, 8192),
-			Held: true},
-		Impostor: "mallory", StatusNotPosted: true}
+		Impostor: "mallory", StatusNotPosted: true, Observed: true}
 	for i := range acceptance.MaxOutcomes {
-		s.Outcomes = append(s.Outcomes, VerifyOutcomeResult{ID: fmt.Sprintf("o%02d", i), Kind: "change",
+		o := VerifyOutcomeResult{ID: fmt.Sprintf("o%02d", i), Kind: "change",
 			Statement: repeatTo(fill, acceptance.MaxOutcomeChars), Result: OutcomeResultFailed,
-			Reason: "evaluator-disagrees", Check: repeatTo(fill, 1024), AppOutput: repeatTo(fill, 8192),
-			// Shown only for an unconfirmed outcome by the controller, but
-			// held to the same budget wherever it is given.
-			Claim: &VerifyEvaluatorClaim{Note: repeatTo(fill, 1000), Calls: []VerifyCitedCall{
-				{Seq: 4, Verb: "exec", Input: repeatTo(fill, 4096), Output: repeatTo(fill, 4096)},
-				{Seq: 5, Verb: "http", Input: repeatTo(fill, 4096), Output: repeatTo(fill, 4096)}}}})
+			Reason: "seen-not-to-hold", AppOutput: repeatTo(fill, 8192), Note: repeatTo(fill, 1000)}
+		for seq := range int64(VerifyCitedCallsMax) {
+			o.Cited = append(o.Cited, VerifyCitedCall{Seq: seq + 2, Verb: "http", Input: repeatTo(fill, 4096),
+				Output: repeatTo(fill, 4096)})
+		}
+		s.Outcomes = append(s.Outcomes, o)
 	}
 	for range verifyAnomaliesMax {
 		s.Anomalies = append(s.Anomalies, VerifyAnomaly{Summary: repeatTo(fill, 1024), Route: repeatTo(fill, 256)})
@@ -90,14 +89,14 @@ func TestVerifyCommentsFitGitHub(t *testing.T) {
 				}
 				for _, o := range s.Outcomes {
 					id := code(shown(o.ID))
-					verdict := outcomeVerdict(o, outcomeResultWords[o.Result])
+					verdict := observedVerdict(o, observedResultWords[o.Result])
 					if !strings.Contains(body, "- "+id+" ("+code("change")+"): "+verdict+". ") &&
 						!strings.Contains(body, "| "+cell(id)+" | "+cell(code("change"))+" | "+cell(verdict)+" |") {
 						t.Errorf("%s comment lost %s's verdict line", name, o.ID)
 					}
 				}
 				for _, note := range []string{"The maul App may not post commit statuses", "found no defect",
-					"maul believes", "posted its own over it"} {
+					"posted its own over it"} {
 					if !strings.Contains(body, note) {
 						t.Errorf("%s comment lost maul's note %q", name, note)
 					}
@@ -121,7 +120,6 @@ func TestVerifyCommentsFitGitHub(t *testing.T) {
 // request's section, which also shows every statement.
 func TestVerifyEvidenceCutOrder(t *testing.T) {
 	s := worstSection("v")
-	s.Suspected = nil
 	out, err := renderVerifySection(&s)
 	if err != nil {
 		t.Fatal(err)
@@ -148,20 +146,19 @@ func TestVerifyEvidenceCutOrder(t *testing.T) {
 }
 
 // TestVerifyEvidenceLargePieceSkipped: a piece too large for what is left
-// (a reproduction of backticks, fenced to three times its size) is left
-// out and named, and smaller pieces after it are still kept whole.
+// (an outcome's cited calls of backticks, fenced to three times their size)
+// is left out and named, and smaller pieces after it are still kept whole.
 func TestVerifyEvidenceLargePieceSkipped(t *testing.T) {
 	s := worstSection("`")
 	out, err := renderVerifySection(&s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "maul's reproduction:") || !strings.Contains(out, "maul's reproduction of the "+
-		"suspected defect") {
-		t.Error("the reproduction that cannot fit is not left out and named")
+	if !strings.Contains(out, "cited call bodies (each call is still listed)") {
+		t.Error("the cited calls that cannot fit are not left out and named")
 	}
-	if !strings.Contains(out, "App output of `o00`") {
-		t.Error("a smaller app output after the left-out reproduction was not kept")
+	if !strings.Contains(out, "The evaluator's note on `o00`") {
+		t.Error("a smaller piece after the left-out cited calls was not kept")
 	}
 }
 

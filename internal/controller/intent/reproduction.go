@@ -15,7 +15,6 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/untrusted"
@@ -92,32 +91,6 @@ func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 	return untrusted.Cap(out, maxVerifyEvidenceBytes), nil
 }
 
-// failingSeq is the ledger seq of check digest's first failing run in pv
-// (a replay or a confirmation), 0 for none.
-func failingSeq(pv *v1alpha1.PreviewVerification, digest string) int32 {
-	var seq int32
-	for _, r := range slices.Concat(pv.Status.Replay, pv.Status.Confirmations) {
-		if r.CheckDigest == digest && r.Result == v1alpha1.CheckRunFail && (seq == 0 || r.Seq < seq) {
-			seq = r.Seq
-		}
-	}
-	return seq
-}
-
-// logAnchor is the seq a failure's log window is taken around: the failing
-// run's own, or, for the confirmation of a check saved to show a defect
-// (run after the evaluator exited, so no read of a log follows it), the
-// red dry run that confirmation required, which the evaluator read the
-// logs after (the prompt: read the logs after a failing check run).
-func logAnchor(pv *v1alpha1.PreviewVerification, digest string, seq int32) int32 {
-	for _, r := range pv.Status.Confirmations {
-		if r.CheckDigest == digest && r.Seq == seq && r.Expect == v1alpha1.CheckExpectFail && r.DryRunSeq > 0 {
-			return r.DryRunSeq
-		}
-	}
-	return seq
-}
-
 // ledgerEntries decodes a full ledger's lines; a line that does not decode
 // is left out.
 func ledgerEntries(lines []string) []toolwire.LedgerEntry {
@@ -130,52 +103,6 @@ func ledgerEntries(lines []string) []toolwire.LedgerEntry {
 		out = append(out, e)
 	}
 	return out
-}
-
-// checkRunAt is the check run of digest ("sha256:<hex>", as status carries
-// it) recorded at seq, nil for none. The ledger records a check run's
-// digest as bare hex (toolwire.CheckRunRecord).
-func checkRunAt(entries []toolwire.LedgerEntry, seq int32, digest string) *toolwire.CheckRunRecord {
-	if seq == 0 {
-		return nil
-	}
-	for _, e := range entries {
-		if e.Seq == int64(seq) && e.CheckRun != nil && "sha256:"+e.CheckRun.Digest == digest {
-			return e.CheckRun
-		}
-	}
-	return nil
-}
-
-// observations are a check run's steps that did not pass, attempt by
-// attempt, each with what its element showed when the runner received it
-// (gate D-B10); an attempt that failed with no step recorded is one
-// observation of its own.
-func observations(r *toolwire.CheckRunRecord) []templates.ReproductionObservation {
-	var out []templates.ReproductionObservation
-	for i, a := range r.Attempts {
-		n := len(out)
-		for _, s := range a.Steps {
-			if s.Result != toolwire.ResultPass {
-				out = append(out, templates.ReproductionObservation{Attempt: i + 1, Step: s.Index + 1,
-					Result: string(s.Result), Detail: s.Detail, Received: received(s.Received, a.Run)})
-			}
-		}
-		if len(out) == n && a.Result != toolwire.ResultPass {
-			out = append(out, templates.ReproductionObservation{Attempt: i + 1, Result: string(a.Result)})
-		}
-	}
-	return out
-}
-
-// received is what a failing step's element showed (toolwire.StepRecord
-// .Received), its attempt's run token written back as checks.RunPlaceholder,
-// as the check's own steps name it; "" for none.
-func received(text, run string) string {
-	if text == "" || run == "" {
-		return text
-	}
-	return strings.ReplaceAll(text, run, checks.RunPlaceholder)
 }
 
 // logWindow is component's excerpt from the window of the run at seq: what

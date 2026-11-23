@@ -146,7 +146,8 @@ func TestStageLimitsUnknownStageErrors(t *testing.T) {
 		{PhasePlan, 25, 150000, false},
 		{PhaseBuild, 80, 400000, false},
 		{PhaseEvaluate, 25, 150000, false},
-		{PhaseCheckReview, 25, 150000, false},
+		// The retired check reviewer's phase is no stage now.
+		{Phase("checkreview"), 0, 0, true},
 		{PhaseInvestigate, 0, 0, true},
 		{PhaseRemediate, 0, 0, true},
 		{Phase("deploy"), 0, 0, true},
@@ -168,10 +169,9 @@ func TestStageLimitsUnknownStageErrors(t *testing.T) {
 	}
 }
 
-// TestRoleStageLimitsFromTheGrant: an evaluate or checkreview run is held to
-// its grant, which may lower the investigate stage's ceiling but never
-// raise it. Each stage's first run (each review session's, for checkreview:
-// S1 bug 8) is given its turns less those it keeps for its report
+// TestRoleStageLimitsFromTheGrant: an evaluate run is held to its grant,
+// which may lower the investigate stage's ceiling but never raise it. Its
+// first run is given its turns less those it keeps for its report
 // (reportReserve: 6 of 25, 3 of 6).
 func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 	tests := []struct {
@@ -183,7 +183,7 @@ func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 		{"a lower grant", 6, "3"},
 		{"a grant above the ceiling is clamped", 400, "19"},
 	}
-	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
+	for _, phase := range []Phase{PhaseEvaluate} {
 		for _, tt := range tests {
 			t.Run(string(phase)+"/"+tt.name, func(t *testing.T) {
 				var out bytes.Buffer
@@ -191,9 +191,6 @@ func TestRoleStageLimitsFromTheGrant(t *testing.T) {
 				brokeredClaude(t, &cfg)
 				cfg.GrantedMaxTurns = tt.granted
 				write := map[string]string{"scratch/report.md": goodEvaluation}
-				if phase == PhaseCheckReview {
-					write = map[string]string{"scratch/review-1.md": reviewReport("proves")}
-				}
 				fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: write}}}
 				onlyEvent(t, cfg, fx, &out)
 				if got := argvFlag(t, fx.specs[0].Argv, "--max-turns"); got != tt.want {

@@ -7,10 +7,8 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -126,17 +124,12 @@ func TestEvaluationStatusNotDeclaredNeedsEveryOutcomeManual(t *testing.T) {
 // is about B, nothing reports A's judgement on B: no success status, no
 // "ready" hand-off.
 func TestReportersRefuseAJudgementAtOtherHeads(t *testing.T) {
-	check := savedCheck(t, versionCheck)
-	pass := func(id string) acceptance.OutcomeResult {
-		return judged(id, acceptance.ResultPassed, acceptance.ReasonConfirmed, check.Digest)
-	}
-	tc := judgeRoute{version: pass(oVersion), healthy: pass(oHealthy), acceptManual: true}
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	p := e.prVerifyPass(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		routeRecords(in, tc, e.clock.Now())
-		applyChecksJudgement(in, routeJudgement(tc, check), time.Now())
+		routeRecords(in, judgeRoute{acceptManual: true}, e.clock.Now())
+		applyJudgement(in, passedJudgement(in))
 		p.releaseIfDue(in)
 	})
 	p = e.prVerifyPass(name)
@@ -190,7 +183,7 @@ func (e *env) movedHeadsChecks(name, judged string) {
 			t.Fatal("no verification section")
 		}
 		if s.Progress.State != templates.VerifyHeadsMoved || len(s.Outcomes) != 0 ||
-			len(s.Logs) != 0 || s.Suspected != nil || s.NoDefect != nil {
+			len(s.Logs) != 0 || s.NoDefect != nil {
 			t.Errorf("section with the head moved = %+v, want the moved line alone", s)
 		}
 		body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: testNS, Intent: name,
@@ -218,17 +211,12 @@ func (e *env) movedHeadsChecks(name, judged string) {
 // passed at head A, then a push of B recorded on the pull request alone.
 // Until a round is about B, no comment shows A's pass.
 func TestCommentsRefuseAPassAtOtherHeads(t *testing.T) {
-	check := savedCheck(t, versionCheck)
-	pass := func(id string) acceptance.OutcomeResult {
-		return judged(id, acceptance.ResultPassed, acceptance.ReasonConfirmed, check.Digest)
-	}
-	tc := judgeRoute{version: pass(oVersion), healthy: pass(oHealthy), acceptManual: true}
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	p := e.prVerifyPass(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		routeRecords(in, tc, e.clock.Now())
-		applyChecksJudgement(in, routeJudgement(tc, check), time.Now())
+		routeRecords(in, judgeRoute{acceptManual: true}, e.clock.Now())
+		applyJudgement(in, passedJudgement(in))
 		p.releaseIfDue(in)
 	})
 	if prog := e.prVerifyPass(name).verifyProgress(); prog == nil || prog.State != templates.VerifyPassed {

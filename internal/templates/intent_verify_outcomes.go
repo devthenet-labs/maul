@@ -86,34 +86,6 @@ var outcomeReasonWords = map[string]string{
 	"no-valid-evidence": "the evaluator's verdict cites no call of its own in this evaluation that maul counts",
 }
 
-// Why maul did not keep a check proposed to show an outcome failing
-// (VerifyOutcomeResult.Unkept; G3-B-CLI-1).
-const (
-	// UnkeptRunData: the slot's run-data rule.
-	UnkeptRunData = "run-data"
-	// UnkeptConfirmation: a confirmation run was not red by the assertion
-	// the check was proposed failing.
-	UnkeptConfirmation = "confirmation"
-	// UnkeptRules: the check's own bytes break the saved-check rules.
-	UnkeptRules = "rules"
-	// UnkeptReview: no review of the red question proved it (none ran, or
-	// one answered otherwise).
-	UnkeptReview = "review"
-	// UnkeptStoreFull: proven, but the intent's check store had no room.
-	UnkeptStoreFull = "store-full"
-)
-
-// unkeptWords are the Unkept reasons in maul's words; one not listed adds
-// nothing.
-var unkeptWords = map[string]string{
-	UnkeptRunData: "in a preview, a check that shows a defect must write data of its own run and expect only " +
-		"success statuses",
-	UnkeptConfirmation: "maul's own runs of it did not show it failing by the assertion it was proposed failing",
-	UnkeptRules:        "it breaks the saved-check rules",
-	UnkeptReview:       "no review of it found that its failure shows this outcome failing",
-	UnkeptStoreFull:    "the intent's check store is full",
-}
-
 // Bounds on what an outcome's detail shows.
 const (
 	verifyCheckLineMaxBytes = 300
@@ -147,18 +119,6 @@ type VerifyOutcomeResult struct {
 	AppOutput string
 	// AcceptedAt is the head an approver accepted the outcome at.
 	AcceptedAt string
-	// Claim is, for an outcome the evaluator judged not to hold that no
-	// check maul re-ran shows failing, its note and the calls it cites
-	// (intent_verify_claim.go); nil for none.
-	Claim *VerifyEvaluatorClaim
-	// UnsureNote is, for an outcome the evaluator was itself unsure of,
-	// its note (often a question for a person, gate 5 G5-B-BR-1), shown
-	// only while the outcome is unsure; "" for none.
-	UnsureNote string
-	// Unkept is why maul did not keep a check proposed to show the outcome
-	// failing (an Unkept constant); "" for none. It never says the check
-	// ran red: a refused check may not have.
-	Unkept string
 	// Cited are, on an observed round, the calls the outcome's verdict
 	// cites that maul counts (v1alpha1.OutcomeResult.Cites), as the round's
 	// ledger recorded them; Note the evaluator's note on it, whatever its
@@ -235,13 +195,6 @@ func outcomeViews(v *verifyView, s VerifySection, short bool) {
 			if n := observedNoteOf(o, id); n != "" {
 				v.EvaluatorNotes = append(v.EvaluatorNotes, n)
 			}
-			continue
-		}
-		if d, ok := claimDetailOf(o, id); ok {
-			v.Claims = append(v.Claims, d)
-		}
-		if n := unsureNoteOf(o, id); n != "" {
-			v.UnsureNotes = append(v.UnsureNotes, n)
 		}
 	}
 	for i, a := range s.Anomalies {
@@ -260,9 +213,6 @@ func outcomeVerdict(o VerifyOutcomeResult, word string) string {
 	if o.Result != OutcomeResultPassed && o.Result != OutcomeResultAccepted {
 		if reason := outcomeReasonWords[o.Reason]; reason != "" {
 			word += "; " + reason
-		}
-		if why := unkeptWords[o.Unkept]; why != "" {
-			word += "; a check proposed to show it failing was not kept: " + why
 		}
 	}
 	if line := shown(cutRunes(visibleText(o.Check), verifyCheckLineMaxBytes)); line != "" {
@@ -329,7 +279,7 @@ type citedDetail struct{ Lead, Calls, ListLead, List, HeadsLead, Heads string }
 // citedDetailOf is o's cited calls as the templates print them; ok is false
 // when it cites none.
 func citedDetailOf(o VerifyOutcomeResult, id string) (citedDetail, bool) {
-	calls := citedCalls(o.Cited, false)
+	calls := citedCalls(o.Cited)
 	if calls == "" {
 		return citedDetail{}, false
 	}
@@ -367,18 +317,18 @@ func cited(calls []VerifyCitedCall) []VerifyCitedCall {
 // it of its output, then is cut at a word with the cut marker, so each
 // keeps its head line, the start of what it sent and, mostly, its exit
 // status and the start of its output; "" for none.
-func citedCalls(calls []VerifyCitedCall, workspace bool) string {
+func citedCalls(calls []VerifyCitedCall) string {
 	cs := cited(calls)
 	parts := make([]string, len(cs))
 	for i, c := range cs {
-		parts[i] = strings.TrimSpace(visibleText(callText(c, workspace)))
+		parts[i] = strings.TrimSpace(visibleText(callText(c)))
 	}
 	shares := fairShares(parts, verifyCitedCallsMaxBytes-2*len(parts))
 	var kept []string
 	for i, c := range cs {
 		p := parts[i]
 		if len(p) > shares[i] {
-			p = strings.TrimSpace(visibleText(callTextIn(c, workspace, shares[i]/4, shares[i]/2)))
+			p = strings.TrimSpace(visibleText(callTextIn(c, shares[i]/4, shares[i]/2)))
 			if words, cut := cutWords(p, max(shares[i]-len(anomalyCutMarker)-1, 0)); cut {
 				p = words
 			}

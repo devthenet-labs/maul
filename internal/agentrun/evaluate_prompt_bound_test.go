@@ -36,7 +36,7 @@ func TestEvaluateHandoffBoundByHarness(t *testing.T) {
 			h.ChangedPaths = append(h.ChangedPaths, ChangedPath{Path: fmt.Sprintf("%03d/", i) +
 				strings.Repeat("p", 290)})
 		}
-	})), "evaluate", &h); err != nil {
+	})), &h); err != nil {
 		t.Fatal(err)
 	}
 	for len(h.Outcomes) < 20 {

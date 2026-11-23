@@ -15,40 +15,55 @@ import (
 )
 
 // checkEraEvaluation is goodEvaluation still carrying the check-era keys an
-// earlier evaluator wrote: a proposal by a digest no check file has, and one
-// by a file that does not exist. The observed evaluator writes neither, and
-// maul confirms nothing either way.
+// earlier evaluator wrote: a proposal by a digest, and one by a file. The
+// observed evaluator writes neither, and the report is refused for them.
 var checkEraEvaluation = strings.Replace(goodEvaluation, "anomalies:", "proposed:\n"+
 	"  - id: \"rate-battle.api\"\n    outcome: rate-battle\n    digest: \"sha256:"+strings.Repeat("ab", 32)+"\"\n"+
 	"  - id: \"rate-battle.page\"\n    outcome: rate-battle\n    file: \"checks/missing.json\"\nanomalies:", 1)
 
 // TestEvaluateFinishesWithoutConfirming: the stage explores, settles its
 // report and finishes the tool pod, and that is all. A report still
-// proposing checks is accepted as the model wrote it, in one run (no check
-// file is read, so no repair is asked for a proposal), and agent-runner
-// sends no confirm: its only call is the finish.
+// carrying the check-era keys is refused (report.ParseEvaluation), so it is
+// repaired in the agent's own session like any refused report: repaired,
+// the repaired report is the stage's; still carrying them after the
+// repairs, the stage ends report_invalid naming the key. Either way
+// agent-runner sends no confirm: its only call is the finish.
 func TestEvaluateFinishesWithoutConfirming(t *testing.T) {
-	for name, writes := range map[string]map[string]string{
-		"proposals of no file": {"scratch/report.md": checkEraEvaluation},
-		"a proposal of its file": {
-			"scratch/report.md":       resolvableProposal,
-			"scratch/checks/rb.json":  resolvableCheck,
-			"scratch/checks/note.txt": "not a check",
-		},
+	for _, tt := range []struct {
+		name    string
+		repairs []string
+		outcome envelope.Outcome
+	}{
+		{"repaired", []string{goodEvaluation}, envelope.OutcomeOK},
+		{"never repaired", []string{checkEraEvaluation, checkEraEvaluation}, envelope.OutcomeReportInvalid},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
 			cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
 			brokeredClaude(t, &cfg)
 			tools := useTools(t, &cfg)
-			s := step{ws: ws, stdout: streamSuccess, writes: writes}
-			fx := &fakeExec{steps: []step{s, s, s}}
-			e := onlyEvent(t, cfg, fx, &out).Evaluation
-			if e == nil || e.Outcome != envelope.OutcomeOK || e.ReportMarkdown != writes["scratch/report.md"] {
-				t.Fatalf("evaluation = %+v, want the report accepted verbatim", e)
+			steps := []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": checkEraEvaluation}}}
+			for _, r := range tt.repairs {
+				steps = append(steps, step{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": r}})
 			}
-			if len(fx.specs) != 1 {
-				t.Errorf("commands = %d, want the stage's one run: nothing is repaired over a proposal", len(fx.specs))
+			fx := &fakeExec{steps: steps}
+			e := onlyEvent(t, cfg, fx, &out).Evaluation
+			if e == nil || e.Outcome != tt.outcome {
+				t.Fatalf("evaluation = %+v, want %s", e, tt.outcome)
+			}
+			if len(fx.specs) != len(steps) || !strings.Contains(fx.specs[1].Stdin, "proposed") {
+				t.Errorf("commands = %d, want the stage and %d repairs naming the retired key", len(fx.specs),
+					len(tt.repairs))
+			}
+			switch tt.outcome {
+			case envelope.OutcomeOK:
+				if e.ReportMarkdown != goodEvaluation {
+					t.Errorf("report = %q, want the repaired one", e.ReportMarkdown)
+				}
+			default:
+				if e.ReportMarkdown != "" || !strings.Contains(e.Detail, "proposed") {
+					t.Errorf("evaluation = %+v, want no report and the retired key named", e)
+				}
 			}
 			if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbFinish}) {
 				t.Errorf("tool calls = %v, want finish alone: agent-runner confirms nothing", got)
@@ -56,16 +71,6 @@ func TestEvaluateFinishesWithoutConfirming(t *testing.T) {
 		})
 	}
 }
-
-// resolvableCheck is a check file a check-era evaluator wrote, and
-// resolvableProposal goodEvaluation proposing it by that file.
-const (
-	resolvableCheck = `{"id":"rate-battle.api","outcome":"rate-battle","form":"http","http":{"target":"api",` +
-		`"steps":[{"request":{"method":"GET","path":"/api/battles"},"expect":{"status":200}}]}}`
-	resolvableProposal = "---\nverdicts:\n  - id: rate-battle\n    verdict: pass\n    ledger: [12]\n" +
-		"  - id: leaderboard\n    verdict: unsure\nproposed:\n  - id: \"rate-battle.api\"\n    outcome: rate-battle\n" +
-		"    file: \"checks/rb.json\"\n---\nRated a battle.\n"
-)
 
 // TestEvaluateRunsNoCoverRound: a report that passes an outcome on what the
 // evaluator saw, with no check, is the stage's report. The evaluator's

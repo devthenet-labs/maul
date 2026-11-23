@@ -21,7 +21,6 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -33,63 +32,6 @@ func logsEntry(seq int64, component, output string) toolwire.LedgerEntry {
 	sum := sha256.Sum256([]byte(output))
 	return toolwire.LedgerEntry{Seq: seq, TS: time.Unix(seq, 0).UTC(), Kind: toolwire.KindAgent,
 		Verb: toolwire.VerbLogs, Args: args, Output: output, OutputSHA256: hex.EncodeToString(sum[:])}
-}
-
-// checkRunEntry is a replay ledger entry at seq of check digest, failing
-// on its second step with detail. The record carries the digest as the tools
-// container writes it, bare hex (toolwire.CheckRunRecord, which refuses
-// the "sha256:" form the PreviewVerification's status carries).
-func checkRunEntry(seq int64, digest, id, detail string) toolwire.LedgerEntry {
-	const step = 1
-	return toolwire.LedgerEntry{Seq: seq, TS: time.Unix(seq, 0).UTC(), Kind: toolwire.KindRelay,
-		Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{
-			Digest: strings.TrimPrefix(digest, "sha256:"), CheckID: id, Mode: toolwire.ModeReplay,
-			Result: toolwire.RunFail,
-			Attempts: []toolwire.Attempt{
-				{Run: "r1", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
-					{Index: 0, Result: toolwire.ResultPass}, {Index: step, Result: toolwire.ResultFail, Detail: detail}}},
-				{Run: "r2", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
-					{Index: step, Result: toolwire.ResultFail, Detail: detail}}}}}}
-}
-
-// TestCheckRunEntryIsWire pins checkRunEntry to the tools ledger's wire:
-// an entry the tools container could have written, so the reproduction is
-// tested on the digests it really reads.
-func TestCheckRunEntryIsWire(t *testing.T) {
-	e := checkRunEntry(2, savedCheck(t, versionCheck).Digest, "version-shown", "detail")
-	e.OutputSHA256 = hex.EncodeToString(func() []byte { s := sha256.Sum256(nil); return s[:] }())
-	if err := e.Check(); err != nil {
-		t.Errorf("checkRunEntry is no ledger entry the tools container writes: %v", err)
-	}
-}
-
-// TestObservationsCarryWhatTheElementShowed (gate D-B10): a failing step's
-// observation carries what its element showed, each attempt's own run token
-// written back as the placeholder the check's steps name, so the person and
-// the fix round see what the row showed, not only that the text did not
-// match; a step with nothing received carries nothing.
-func TestObservationsCarryWhatTheElementShowed(t *testing.T) {
-	rec := &toolwire.CheckRunRecord{Attempts: []toolwire.Attempt{
-		{Run: "t1aa", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
-			{Index: 0, Result: toolwire.ResultPass},
-			{Index: 5, Result: toolwire.ResultFail, Detail: "the text expectation was not met", Assertion: true,
-				AssertionID: "expect", Received: "t1aa 120 bpm · swing 0%"}}},
-		{Run: "t2bb", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
-			{Index: 5, Result: toolwire.ResultFail, Detail: "the text expectation was not met", Assertion: true,
-				AssertionID: "expect", Received: "t2bb 120 bpm · swing 0%"}}},
-		{Run: "t3cc", Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{
-			{Index: 2, Result: toolwire.ResultError, Detail: "timeout"}}},
-	}}
-	want := []templates.ReproductionObservation{
-		{Attempt: 1, Step: 6, Result: "fail", Detail: "the text expectation was not met",
-			Received: checks.RunPlaceholder + " 120 bpm · swing 0%"},
-		{Attempt: 2, Step: 6, Result: "fail", Detail: "the text expectation was not met",
-			Received: checks.RunPlaceholder + " 120 bpm · swing 0%"},
-		{Attempt: 3, Step: 3, Result: "error", Detail: "timeout"},
-	}
-	if got := observations(rec); !slices.Equal(got, want) {
-		t.Errorf("observations = %+v, want %+v", got, want)
-	}
 }
 
 // TestLogWindow: a failing run's window is what a component logged between
@@ -135,32 +77,6 @@ func TestLogWindow(t *testing.T) {
 				t.Errorf("logWindow = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-// TestLogAnchorOfARedConfirmation: a check saved to show a defect fails in
-// maul's confirmation run, after the evaluator exited, so no read of a log
-// follows it; its log window is its red dry run's, which the evaluator read
-// the logs after. A replay's window is its own.
-func TestLogAnchorOfARedConfirmation(t *testing.T) {
-	d := savedCheck(t, versionCheck).Digest
-	pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{
-		Confirmations: []v1alpha1.CheckRun{{CheckDigest: d, Result: v1alpha1.CheckRunFail, Token: "t", Seq: 10,
-			DryRunSeq: 4, Expect: v1alpha1.CheckExpectFail, AssertionStep: 2}},
-		Replay: []v1alpha1.CheckRun{{CheckDigest: "sha256:" + strings.Repeat("b", 64), Result: v1alpha1.CheckRunFail,
-			Token: "t", Seq: 2}},
-	}}
-	if got := logAnchor(pv, d, 10); got != 4 {
-		t.Errorf("logAnchor(red confirmation) = %d, want its dry run, 4", got)
-	}
-	if got := logAnchor(pv, "sha256:"+strings.Repeat("b", 64), 2); got != 2 {
-		t.Errorf("logAnchor(replay) = %d, want its own seq", got)
-	}
-	entries := []toolwire.LedgerEntry{logsEntry(3, "app", "boot ok\n"),
-		logsEntry(6, "app", "boot ok\npanic: upset bonus not implemented\n")}
-	if got := logWindow(entries, int64(logAnchor(pv, d, 10)), "app"); !slices.Equal(got,
-		[]string{"panic: upset bonus not implemented"}) {
-		t.Errorf("the red failure's excerpt = %q, want the panic its dry run logged", got)
 	}
 }
 
@@ -418,22 +334,17 @@ func randomWords(rng *rand.Rand, kind string) string {
 	return strings.Join(out, "-") + fmt.Sprintf("-%d", rng.Uint32())
 }
 
-// promptMarkers are the evaluate and check review prompts' own long lines,
-// rendered over plain values: none may reach a build or revise handoff.
+// promptMarkers are the evaluate prompt's own long lines, rendered over
+// plain values: none may reach a build or revise handoff.
 func promptMarkers(t *testing.T) []string {
 	t.Helper()
-	ev, err := templates.RenderEvaluatePrompt(templates.EvaluatePrompt{ReportPath: "report.md", ChecksDir: "checks",
+	ev, err := templates.RenderEvaluatePrompt(templates.EvaluatePrompt{ReportPath: "report.md",
 		ShotsDir: "shots", Round: 1, RunToken: "abcdefgh12345678", Outcomes: outcomesOf(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cr, err := templates.RenderCheckReviewPrompt(templates.CheckReviewPrompt{ReportPath: "report.md",
-		Outcome: "o", Check: parsedCheck(t, healthCheck)})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var out []string
-	for _, line := range strings.Split(ev+"\n"+cr, "\n") {
+	for _, line := range strings.Split(ev, "\n") {
 		if line = strings.TrimSpace(line); len(line) > 60 && !strings.ContainsAny(line, "`{") {
 			out = append(out, line)
 		}
@@ -448,14 +359,4 @@ func promptMarkers(t *testing.T) []string {
 func outcomesOf(t *testing.T) []acceptance.PlanOutcome {
 	t.Helper()
 	return []acceptance.PlanOutcome{{ID: "o", Outcome: "the page loads"}}
-}
-
-// parsedCheck parses raw, failing t on a bad body.
-func parsedCheck(t *testing.T, raw string) checks.Check {
-	t.Helper()
-	c, err := checks.Parse([]byte(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
 }

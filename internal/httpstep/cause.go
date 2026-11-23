@@ -26,13 +26,3 @@ const (
 	// there.
 	CauseBaseUnbuildable RunCause = "base-unbuildable"
 )
-
-// NoComparison reports a cause that leaves a check with no base
-// comparison: n/a for rule 5, never a discrimination of its own.
-func (c RunCause) NoComparison() bool {
-	switch c {
-	case CauseCompile, CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule, CauseBaseUnbuildable:
-		return true
-	}
-	return false
-}

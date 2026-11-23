@@ -6,8 +6,6 @@ package templates
 import (
 	"strings"
 	"testing"
-
-	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // TestOutcomesShownOnceWithTheirKind (S2 demo run 5): every outcome is
@@ -23,9 +21,9 @@ func TestOutcomesShownOnceWithTheirKind(t *testing.T) {
 			Outcomes: true},
 		Outcomes: []VerifyOutcomeResult{
 			{ID: "o-pass", Kind: "change", Statement: "It prints a total.", Result: OutcomeResultPassed,
-				Reason: acceptance.ReasonConfirmed, Check: "exec of {{bin}}: total; exit 0"},
+				Reason: "confirmed", Check: "exec of {{bin}}: total; exit 0"},
 			{ID: "o-unsure", Kind: "keep", Statement: "It still prints the counts.", Result: OutcomeResultUnsure,
-				Reason: acceptance.ReasonNotAsserted, Check: "exec of {{bin}}: counts; exit 0"},
+				Reason: "not-asserted", Check: "exec of {{bin}}: counts; exit 0"},
 			{ID: "o-fail-1", Statement: "It prints a density.", Result: OutcomeResultFailed,
 				Check: "exec of {{bin}}: density | a; exit 0", AppOutput: "density 30%"},
 			{ID: "o-fail-2", Kind: "keep", Statement: "It reads JSON.", Result: OutcomeResultFailed,

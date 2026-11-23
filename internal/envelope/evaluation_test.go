@@ -9,11 +9,9 @@ import (
 	"testing"
 )
 
-const testDigest = "sha256:aa00000000000000000000000000000000000000000000000000000000000000"
-
-// TestEvaluatorEventsRoundTrip: the evaluation and checkreview events are
-// additive types at the current version, as plan was: each encodes at
-// Version 4 and decodes back whole.
+// TestEvaluatorEventsRoundTrip: the evaluation event is an additive type at
+// the current version, as plan was: it encodes at Version 4 and decodes
+// back whole.
 func TestEvaluatorEventsRoundTrip(t *testing.T) {
 	stage := Stage{Outcome: OutcomeOK, Harness: "claude", Model: "anthropic/claude-sonnet-5", NumTurns: 30,
 		Usage: Usage{InputTokens: 10, OutputTokens: 20, CostUSD: 0.5}, ElapsedSeconds: 300}
@@ -28,19 +26,8 @@ func TestEvaluatorEventsRoundTrip(t *testing.T) {
 				ReportMarkdown: "---\nverdicts: []\n---\n",
 				Verdicts: []OutcomeVerdict{{ID: "rate-battle", Verdict: "pass", Ledger: []int32{12, 14},
 					Note: "moved by 16"}},
-				Disputes:  []Dispute{{CheckDigest: testDigest, Reason: "shared rows", Replacement: "own-rows", Ledger: []int32{3}}},
-				Proposed:  []ProposedCheck{{ID: "own-rows", Outcome: "leaderboard", Digest: testDigest}},
-				Retire:    []Retire{{CheckDigest: testDigest, Reason: "superseded"}},
 				Anomalies: []Anomaly{{Summary: "TypeError", Route: "/battles", Ledger: []int32{20}}},
 				Cited:     []int32{14},
-			},
-		}},
-		{"checkreview", `{"v":4,"type":"checkreview",`, Event{
-			Type: TypeCheckReview, Repo: "devthenet-labs/beat-battle", Finding: "bb-1-cr-r1-a1",
-			CheckReview: &CheckReview{
-				Stage: stage,
-				Answers: []ReviewAnswer{{CheckDigest: testDigest, OutcomeDigest: testDigest, Answer: "proves",
-					Reason: "rates its own battle"}},
 			},
 		}},
 	}
@@ -66,7 +53,9 @@ func TestEvaluatorEventsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestDecodeEvaluatorWire pins the two payloads' wire names.
+// TestDecodeEvaluatorWire pins the evaluation payload's wire names. An
+// earlier release's pod writes the retired check keys (disputes, proposed,
+// retire) too: the line still decodes, and they are dropped.
 func TestDecodeEvaluatorWire(t *testing.T) {
 	line := Prefix + `{"v":4,"type":"evaluation","repo":"o/r","finding":"x-ev-r1-a1","evaluation":{` +
 		`"outcome":"ok","harness":"claude","model":"m","usage":{"input_tokens":0,"output_tokens":0,` +
@@ -81,22 +70,8 @@ func TestDecodeEvaluatorWire(t *testing.T) {
 	}
 	e := got.Evaluation
 	if e.ReportMarkdown != "r" || e.Verdicts[0].Verdict != "fail" || e.Verdicts[0].Ledger[0] != 2 ||
-		e.Disputes[0].Replacement != "c" || e.Proposed[0].Digest != "d2" || e.Retire[0].CheckDigest != "d3" ||
 		e.Anomalies[0].Route != "/" || e.Cited[0] != 2 {
 		t.Errorf("evaluation = %+v", e)
-	}
-
-	line = Prefix + `{"v":4,"type":"checkreview","repo":"o/r","checkreview":{"outcome":"ok","harness":"claude",` +
-		`"model":"m","usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_creation_tokens":0,` +
-		`"cost_usd":0},"elapsed_seconds":1,"answers":[{"check_digest":"c","outcome_digest":"o",` +
-		`"answer":"does_not_prove","reason":"r"}]}}`
-	got, ok = Decode([]byte(line))
-	if !ok || got.Type != TypeCheckReview || got.CheckReview == nil {
-		t.Fatalf("Decode() = %+v, %v; want a checkreview event", got, ok)
-	}
-	if a := got.CheckReview.Answers; len(a) != 1 || a[0] != (ReviewAnswer{CheckDigest: "c", OutcomeDigest: "o",
-		Answer: "does_not_prove", Reason: "r"}) {
-		t.Errorf("answers = %+v", a)
 	}
 }
 

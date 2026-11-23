@@ -126,9 +126,8 @@ type evalOptions struct {
 	outcomes string
 	// noOutcomes: the plan states no acceptance at all (outcomes unused).
 	noOutcomes bool
-	// mode is MAUL_FAKE_CLAUDE_EVALUATE, review MAUL_FAKE_CLAUDE_REVIEW
-	// (empty: their defaults, pass and proves).
-	mode, review string
+	// mode is MAUL_FAKE_CLAUDE_EVALUATE (empty: its default, pass).
+	mode string
 	// intentArgs and previewArgs are extra flags for each controller.
 	intentArgs, previewArgs []string
 	// mutate edits the Project spec before it is created.
@@ -194,9 +193,6 @@ func startEvaluate(t *testing.T, o evalOptions) *evalEnv {
 	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CHECK_TEXT", "0.1.0")
 	if o.mode != "" {
 		e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", o.mode)
-	}
-	if o.review != "" {
-		e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_REVIEW", o.review)
 	}
 	return &evalEnv{verifyEnv: &verifyEnv{intentEnv: e}, app: app}
 }

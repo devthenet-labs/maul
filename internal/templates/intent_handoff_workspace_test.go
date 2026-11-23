@@ -59,11 +59,6 @@ func TestWorkspaceHandoffGoldens(t *testing.T) {
 		{"intent_status_workspace_environment.md", status(unconfirmed(HandoffWhyEnvironment),
 			&VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2, Passing: 2, Total: 2,
 				Outcomes: true, Why: HandoffWhyEnvironment, Workspace: true})},
-		// Gate D-B6: the link-less line leads with the doubted outcomes too.
-		{"intent_status_workspace_doubted.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyEvaluatorDoubts, Doubted: 1},
-			&VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2, Passing: 1, Total: 2,
-				Outcomes: true, Why: HandoffWhyEvaluatorDoubts, Workspace: true})},
 		{"intent_status_workspace_checking.md", status(&PreviewHandoff{State: HandoffChecking}, evaluating)},
 		{"intent_status_workspace_early.md", status(nil, evaluating)},
 		{"intent_evaluation_held.md", comment(&PreviewHandoff{State: HandoffHeld}, nil)},
@@ -95,10 +90,10 @@ func testWorkspaceSection() *VerifySection {
 			Outcomes: true},
 		Outcomes: []VerifyOutcomeResult{
 			{ID: "onsets-500ms", Statement: "`bbrender --bpm 120 kick.json` writes kick onsets 500 ms apart.",
-				Result: OutcomeResultPassed, Reason: acceptance.ReasonConfirmed,
+				Result: OutcomeResultPassed, Reason: "confirmed",
 				Check: "run (go) of {{bin}}: 1 file; exit 0, stdout JSON"},
 			{ID: "bpm-flag", Statement: "`bbrender --bpm 90` writes a slower beat.",
-				Result: OutcomeResultUnsure, Reason: acceptance.ReasonNotAsserted,
+				Result: OutcomeResultUnsure, Reason: "not-asserted",
 				Check: "exec of {{bin}}: --bpm 90; exit 0, stdout contains"},
 		},
 	}
@@ -202,10 +197,10 @@ func TestHandoffWhyOfVerification(t *testing.T) {
 // are worded as SPEC-S2 S2-15 states them.
 func TestOutcomeReasonWordsS2(t *testing.T) {
 	for reason, want := range map[string]string{
-		acceptance.ReasonNotAsserted: "the program failed without asserting anything about the change",
+		"not-asserted":               "the program failed without asserting anything about the change",
 		acceptance.ReasonBuildFailed: "the build did not finish, so nothing was seen",
 		// S2-20: a check that passed, withheld by its base runs alone.
-		acceptance.ReasonNoBaseEvidence: "its check passed, but its runs at the base do not tell the change " +
+		"no-base-evidence": "its check passed, but its runs at the base do not tell the change " +
 			"from its absence",
 	} {
 		got := outcomeVerdict(VerifyOutcomeResult{ID: "a", Result: OutcomeResultUnsure, Reason: reason},

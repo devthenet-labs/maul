@@ -6,8 +6,6 @@ package templates
 import (
 	"strings"
 	"testing"
-
-	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // The defect gate 2 finding G-B-LIB-2: planners turned an issue's rule into
@@ -106,73 +104,6 @@ func TestEvaluatePromptProbesTheRule(t *testing.T) {
 				if !strings.Contains(flat(got), want) {
 					t.Errorf("prompt lacks %q", want)
 				}
-			}
-		})
-	}
-}
-
-// TestGreenRubricRefusesAnExampleOnlyCheck: the reviewer's green rule, and
-// so the evaluator's, refuses a check that tries a rule only on its example.
-func TestGreenRubricRefusesAnExampleOnlyCheck(t *testing.T) {
-	want := "one that tries a rule the outcome states only on the example the outcome or the request names"
-	if !strings.Contains(GreenRubric, want) {
-		t.Errorf("the green rule lacks %q", want)
-	}
-}
-
-// TestCheckReviewPromptJudgesTheRule: the green question refuses a check of
-// an example-only outcome whose line states the rule and that tries nothing
-// beyond it; the red question admits an input beyond the example only where
-// the rule, as the outcome words it, covers it and decides its value, and
-// shows the request only for its facts.
-func TestCheckReviewPromptJudgesTheRule(t *testing.T) {
-	green := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
-	green.From, green.Request = "ratings should update after every battle", "# Elo\n"
-	wsGreen := testWorkspaceReview(t, ExampleCLIRunCheck, testReviewCLI)
-	red := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
-	red.From, red.Request = sentinel+" every battle", "# "+sentinel+"\n"
-	red.ExpectFail, red.FailedStep, red.FailedAssertion = true, 2, "json /rating"
-	wsRed := testWorkspaceReview(t, ExampleLibraryRunCheck, testReviewLibrary)
-	wsRed.From, wsRed.Request = sentinel+" over 64 steps", "# "+sentinel+"\n"
-	wsRed.Kind = acceptance.OutcomeKindChange
-	wsRed.ExpectFail, wsRed.FailedStep, wsRed.FailedAssertion = true, 1, "marker too-long"
-	for _, tt := range []struct {
-		name string
-		p    CheckReviewPrompt
-		want []string
-	}{
-		{"green", green, []string{
-			"one that tries a rule the outcome states only on the example the outcome or the request names"}},
-		{"green workspace", wsGreen, []string{
-			"one that tries a rule the outcome states only on the example the outcome or the request names"}},
-		{"red", red, []string{"an input beyond that example is still within the outcome",
-			"Answer `does_not_prove` if the rule as the outcome words it does not cover that input",
-			"Where the outcome states no range, a value far from its example (zero, a negative, a size far past " +
-				"any it names) is not one the rule decides."}},
-		{"red workspace", wsRed, []string{"an input beyond that example is still within the outcome",
-			"Where the outcome states no range, a value far from its example"}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := RenderCheckReviewPrompt(tt.p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, want := range tt.want {
-				if !strings.Contains(flat(got), want) {
-					t.Errorf("prompt lacks %q", want)
-				}
-			}
-			// The red question shows the request for its facts
-			// (G4-B-CLI-2), and judges by the outcome only.
-			if tt.p.ExpectFail && !strings.Contains(flat(got), redContract) {
-				t.Errorf("the red question lacks %q", redContract)
-			}
-			// The green question judges the check against the outcome only:
-			// it never asks a check to go beyond an outcome that names only
-			// an example (a contrary entry withholds that pass instead), so
-			// no saved green check asserts what the outcome does not state.
-			if !tt.p.ExpectFail && strings.Contains(flat(got), "names only an example") {
-				t.Error("the green question asks a check to go beyond what the outcome states")
 			}
 		})
 	}

@@ -57,11 +57,6 @@ func observedVariants(t *testing.T) map[string]string {
 	p.Round, p.PriorRound = 2, 1
 	p.FixDiff = "--- a/x\n+++ b/x\n"
 	p.PriorVerdicts = []PriorVerdict{{Outcome: "winner-rises", Result: "failed", Reason: "no"}}
-	// Retired inputs: the prompt shows none of them.
-	p.ChecksDir = "/work/scratch/checks"
-	p.PriorReplay = []PriorReplay{{Check: "c", Outcome: "winner-rises", Result: "pass"}}
-	p.PriorRefused = []PriorRefusal{{Check: "c", Outcome: "winner-rises", Reason: "weak"}}
-	p.NotYetProof = []NotYetProof{{Check: "c", Outcome: "winner-rises"}}
 	add("slot, after a fix", p)
 	p = testEvaluatePrompt()
 	p.Round, p.PriorRound = 2, 1
@@ -104,16 +99,9 @@ func TestEvaluatePromptHasNoCheckSections(t *testing.T) {
 					cited++
 				}
 			}
-			if len(v.Contrary) > 0 {
-				t.Errorf("%s report example: %s lists contrary seqs", name, v.Outcome)
-			}
 		}
 		if claims == 0 || cited != claims {
 			t.Errorf("%s report example: %d of %d passes and fails cite a call", name, cited, claims)
-		}
-		if len(e.Disputes)+len(e.Proposed)+len(e.Retire) > 0 {
-			t.Errorf("%s report example: %d disputes, %d proposed, %d retired", name, len(e.Disputes),
-				len(e.Proposed), len(e.Retire))
 		}
 	}
 }

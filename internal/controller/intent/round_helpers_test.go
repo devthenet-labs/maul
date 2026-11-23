@@ -4,18 +4,15 @@
 package intent
 
 import (
-	"context"
 	"strings"
-	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
-// Round helpers shared by the evaluation tests (the cost ladder's replay
-// rung they once drove is retired: every round is full), end to end through
-// the intent reconciler and the run scheduler, preview-controller played.
+// Round helpers shared by the evaluation tests, end to end through the
+// intent reconciler and the run scheduler, preview-controller played.
 
 // anomalyReport is an evaluator's report that both outcomes hold, with a
 // look-around anomaly it cites.
@@ -41,9 +38,6 @@ Both outcomes hold; the home page throws in the console.
 func (e *env) observedRound(name string, round int32) {
 	e.t.Helper()
 	pv := e.roundOf(name, round)
-	if pv.Spec.Rung != v1alpha1.RungFull {
-		e.t.Fatalf("round %d is %s, want full", pv.Spec.Round, pv.Spec.Rung)
-	}
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
 	e.runRuns()
@@ -100,37 +94,25 @@ func (e *env) request(name, surface, body string) []string {
 	return out
 }
 
-// stageCount is the number of intent name's runs of stage.
-func (e *env) stageCount(name string, stage v1alpha1.IntentStage) int {
-	return len(e.runsOf(name, stage))
+// settleReviews runs review passes and the run scheduler until the round
+// is judged, at most a dozen times each.
+func (e *env) settleReviews(name string) {
+	e.t.Helper()
+	for range 12 {
+		if e.verification(name).State != v1alpha1.VerificationEvaluating {
+			return
+		}
+		e.review(name, 1)
+		e.runRuns()
+		e.runRuns()
+	}
 }
 
-// TestRoundWithNoEvaluatorReportIsNoModelRound: a full round judged
-// with no evaluator report (its preview failed before the evaluator ran)
-// had no model look at anything, so it is no model round: a later round at
-// its heads is full, never a replay trusting a judgement no model made.
-func TestRoundWithNoEvaluatorReportIsNoModelRound(t *testing.T) {
-	e, name := newEvaluatorEnv(t, 0.4)
-	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
-	e.review(name, 3)
-	pv := e.onlyVerification(name)
-	e.playTools(pv.Name, v1alpha1.VerificationEnvFailed, "", false)
-	got := e.pvNamed(pv.Name)
-	got.Status.Reason = v1alpha1.VerificationReasonComponentCrashed
-	got.Status.Environment = []v1alpha1.PartFact{{Name: "app", Role: v1alpha1.PreviewRoleComponent, Ready: true,
-		CrashedDuring: true, Restarts: 1}}
-	if err := e.c.Update(context.Background(), got); err != nil {
-		t.Fatal(err)
+// commandOn posts body as the approver on surface ("issue" or "pull
+// request") of intent name, returning the comment's id.
+func (e *env) commandOn(name, surface, body string) int64 {
+	if surface == "issue" {
+		return e.gh.comment(approver, body)
 	}
-	e.settleReviews(name)
-	v := e.verification(name)
-	if v.State != v1alpha1.VerificationUnconfirmed || len(v.Outcomes) == 0 {
-		t.Fatalf("verification = %s %+v, want round 1 judged Unconfirmed", v.State, v.Outcomes)
-	}
-	if n := e.stageCount(name, v1alpha1.IntentStageEvaluate); n != 0 {
-		t.Fatalf("evaluate runs = %d, want none: the preview failed first", n)
-	}
-	if v.ModelRound != nil {
-		t.Errorf("model round %+v recorded for a round no evaluator reported on", v.ModelRound)
-	}
+	return e.prCommand(e.get(name).Status.PullRequests[0].Number, approver, body)
 }

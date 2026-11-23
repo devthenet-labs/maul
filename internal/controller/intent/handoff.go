@@ -6,7 +6,6 @@ package intent
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -110,7 +109,7 @@ func (p *pass) handoffView() *templates.PreviewHandoff {
 		return &templates.PreviewHandoff{State: templates.HandoffReady}
 	}
 	if why := p.gaveUp(acc, v); why != "" {
-		return unconfirmedView(acc, v, why)
+		return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
 	}
 	if h.Reason == v1alpha1.HandoffReasonOutOfTime {
 		return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: templates.HandoffWhyTime}
@@ -154,7 +153,7 @@ func (p *pass) hostOffHandoffView() *templates.PreviewHandoff {
 	if why == "" {
 		why = templates.HandoffWhyUnavailable
 	}
-	return unconfirmedView(acc, v, why)
+	return &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
 }
 
 // gaveUp is why the evaluation settled without confirming every outcome
@@ -171,7 +170,7 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 	}
 	switch v.State {
 	case v1alpha1.VerificationUnconfirmed:
-		return p.unconfirmedWhy(acc, v)
+		return p.unconfirmedWhy(v)
 	case v1alpha1.VerificationExhausted:
 		return templates.HandoffWhyRounds
 	case v1alpha1.VerificationFailing:
@@ -195,57 +194,15 @@ func (p *pass) gaveUp(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerifica
 }
 
 // unconfirmedWhy is gaveUp for a round that judged and settled
-// Unconfirmed: "" while its replay round is due.
-func (p *pass) unconfirmedWhy(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) string {
+// Unconfirmed.
+func (p *pass) unconfirmedWhy(v *v1alpha1.IntentVerification) string {
 	switch {
-	case p.followUpDue(v):
-		return "" // a dispute's round, or the escalation, is due
-	case suspectedPending(v):
-		// The defect maul suspects waits for a person: it leads, before the
-		// outcomes in doubt (gate D-B11).
-		return templates.HandoffWhySuspected
 	case p.atEvaluationCeiling():
 		return templates.HandoffWhyBudget
-	case len(v.Disputed) > 0:
-		return templates.HandoffWhyRounds
 	case environmentWhy(v) != "":
 		return environmentWhy(v)
-	case doubtedOutcomes(acc, v) > 0:
-		return templates.HandoffWhyEvaluatorDoubts
 	}
 	return templates.HandoffWhyUnsure
-}
-
-// unconfirmedView is the hand-off maul could not confirm for why: with the
-// outcomes maul suspects a defect in named first (gate D-B11) and the
-// outcomes the evaluator judged not to hold counted.
-func unconfirmedView(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification,
-	why string) *templates.PreviewHandoff {
-	h := &templates.PreviewHandoff{State: templates.HandoffUnconfirmed, Why: why}
-	switch why {
-	case templates.HandoffWhySuspected:
-		if v.Suspected != nil {
-			h.Suspected = slices.Clone(v.Suspected.Outcomes)
-		}
-		fallthrough
-	case templates.HandoffWhyEvaluatorDoubts:
-		h.Doubted = doubtedOutcomes(acc, v)
-	}
-	return h
-}
-
-// doubtedOutcomes counts v's outcomes, of the judgement of its current
-// round at its heads, that the evaluator judged not to hold but no check
-// maul re-ran shows failing (acceptance.ReasonModelOnlyFail), less those
-// an approver accepted. The reason is matched, never shown.
-func doubtedOutcomes(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) int32 {
-	var n int32
-	for _, r := range v.JudgedOutcomes() {
-		if doubted(acc, v, r) {
-			n++
-		}
-	}
-	return n
 }
 
 // settledWhy is why a round settled without a judgement, as the hand-off
@@ -313,13 +270,6 @@ func (p *pass) handoffDue(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVeri
 	switch {
 	case outcomesReady(acc, v):
 		return v1alpha1.HandoffReasonReady
-	case suspectedPending(v):
-		// A suspected defect waits for a person (fourth review): held, as
-		// long as the hand-off's own time bound allows.
-		if v.FirstGreenAt != nil && p.now.Sub(v.FirstGreenAt.Time) >= p.set.handoffMax(p.proj) {
-			return v1alpha1.HandoffReasonOutOfTime
-		}
-		return ""
 	case p.gaveUp(acc, v) != "":
 		return v1alpha1.HandoffReasonUnconfirmed
 	case v.FirstGreenAt != nil && p.now.Sub(v.FirstGreenAt.Time) >= p.set.handoffMax(p.proj):

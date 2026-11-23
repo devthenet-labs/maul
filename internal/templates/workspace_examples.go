@@ -3,49 +3,10 @@
 
 package templates
 
-// The examples the workspace evaluate prompt shows (SPEC-S2), one set per
-// surface: a cli's exec and run checks and a library's run check, and a
-// report naming them. Tests hold each check to checks.Validate in its
-// workspace and each report to report.ParseEvaluation, so the prompt never
-// teaches a refused shape.
+// The example reports the workspace evaluate prompt shows (SPEC-S2), one
+// per surface. Tests hold each to report.ParseEvaluation, so the prompt
+// never teaches a refused shape.
 const (
-	ExampleCLIExecCheck = `{
-  "id": "describe-bpm-json",
-  "outcome": "describe-bpm",
-  "form": "exec",
-  "exec": {
-    "argv": ["{{bin}}", "--describe", "--bpm", "90", "--name", "{{run}}-beat", "kick.json"],
-    "files": [{"path": "kick.json", "content": "{\"steps\": [1, 0, 0, 0, 1, 0, 0, 0]}\n"}],
-    "timeout": "30s",
-    "expect": {"exit": 0, "stdoutJSON": {"/name": "{{run}}-beat", "/bpm": 90, "/steps": 8}}
-  }
-}`
-	ExampleCLIRunCheck = `{
-  "id": "onsets-500ms-wav",
-  "outcome": "onsets-500ms",
-  "form": "run",
-  "run": {
-    "language": "go",
-    "files": [{"path": "main.go", "content":
-      "package main\n// runs {{bin}} on a kick it writes; prints {run, gapMs} or {{marker}} onsets: <what>\n"}],
-    "args": ["{{run}}"],
-    "timeout": "30s",
-    "expect": {"exit": 0, "stdoutJSON": {"/run": "{{run}}", "/gapMs": {"$approx": 500, "$tolerance": 5}}}
-  }
-}`
-	ExampleLibraryRunCheck = `{
-  "id": "parse-too-long-errors",
-  "outcome": "parse-too-long",
-  "form": "run",
-  "run": {
-    "language": "go",
-    "files": [{"path": "main.go", "content":
-      "package main\n// Parse of 64 and 65 steps; prints {run, ok64, tooLong65} or {{marker}} too-long: <err>\n"}],
-    "args": ["{{run}}"],
-    "timeout": "30s",
-    "expect": {"exit": 0, "stdoutJSON": {"/run": "{{run}}", "/ok64": true, "/tooLong65": true}}
-  }
-}`
 	ExampleCLIEvaluationReport = `---
 verdicts:
   - outcome: "onsets-500ms"

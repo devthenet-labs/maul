@@ -38,11 +38,10 @@ type Phase string
 // their Finding names on an intent run: MAUL_FINDING carries the
 // IntentRun's name, and input/investigation.md the approved plan.
 //
-// PhaseEvaluate and PhaseCheckReview are the agent evaluator's and the
-// check reviewer's intent stages (evaluate.go, checkreview.go). Their Jobs
-// have no tree: the workspace (/work) holds the handoff in input/, which
+// PhaseEvaluate is the agent evaluator's intent stage (evaluate.go). Its
+// Jobs have no tree: the workspace (/work) holds the handoff in input/, which
 // the agent's tools cannot reach, and the scratch directory the agent runs
-// in under the evaluate posture (harness.SandboxEvaluate). Both run on the
+// in under the evaluate posture (harness.SandboxEvaluate). It runs on the
 // investigate stage's harness, model, limits, timeout and idle limit, which
 // the intent controller sets per stage as it does a plan's, and a per-Job
 // grant may lower those limits but never raise them.
@@ -52,12 +51,11 @@ const (
 	PhasePlan        Phase = "plan"
 	PhaseBuild       Phase = "build"
 	PhaseEvaluate    Phase = "evaluate"
-	PhaseCheckReview Phase = "checkreview"
 )
 
 // role reports whether the phase is an evaluator-side stage: one whose Job
 // has no repository clone and whose agent runs in the scratch directory.
-func (p Phase) role() bool { return p == PhaseEvaluate || p == PhaseCheckReview }
+func (p Phase) role() bool { return p == PhaseEvaluate }
 
 // Config is the runner's configuration; in the pod every field arrives as
 // MAUL_* environment (see FromEnv).
@@ -281,12 +279,6 @@ func (c Config) evaluationPath() string { return filepath.Join(c.scratchDir(), "
 // shotsDir is where maul-tool writes screenshots, under scratch
 // (maultool.ShotsDir).
 func (c Config) shotsDir() string { return filepath.Join(c.scratchDir(), maultool.ShotsDir) }
-
-// reviewPath is the checkreview stage's report for its n-th review
-// (1-based), one per session.
-func (c Config) reviewPath(n int) string {
-	return filepath.Join(c.scratchDir(), "review-"+strconv.Itoa(n)+".md")
-}
 
 // branch is the remediation branch, keyed by finding name (pull-request
 // webhooks resolve the Finding from the head ref).
@@ -530,10 +522,10 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		errs = append(errs, "MAUL_FINDING is required")
 	}
 	switch cfg.Phase {
-	case PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview:
+	case PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild, PhaseEvaluate:
 	default:
-		errs = append(errs, fmt.Sprintf("MAUL_PHASE=%q is not %q, %q, %q, %q, %q or %q",
-			cfg.Phase, PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview))
+		errs = append(errs, fmt.Sprintf("MAUL_PHASE=%q is not %q, %q, %q, %q or %q",
+			cfg.Phase, PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild, PhaseEvaluate))
 	}
 	if len(errs) > 0 {
 		return Config{}, fmt.Errorf("agentrun config: %s", strings.Join(errs, "; "))

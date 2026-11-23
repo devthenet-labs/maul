@@ -437,10 +437,8 @@ func TestOutcomeVerificationAutomaticBounds(t *testing.T) {
 // a second request within five minutes of the first waits.
 func TestOutcomeVerificationRequestRunsAgain(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	if v := e.verification(name); v.State != v1alpha1.VerificationPassed && v.State != v1alpha1.VerificationUnconfirmed {
 		t.Fatalf("round 1 = %s %+v, want judged", v.State, v.Outcomes)
 	}
@@ -458,7 +456,7 @@ func TestOutcomeVerificationRequestRunsAgain(t *testing.T) {
 		t.Fatalf("after a request: %+v, %d verifications", v, len(e.verifications(name)))
 	}
 	created := e.clock.Now()
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	request(102)
 	e.review(name, 1)
 	if since := e.clock.Now().Sub(created); since >= verifyInterval {

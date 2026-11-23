@@ -160,8 +160,8 @@ func (a *Agent) followOutput(ctx context.Context, h harness.Harness, spec runner
 	secrets []string) *outputFollower {
 	switch a.cfg.Phase {
 	case PhasePlan, PhaseBuild:
-	case PhaseInvestigate, PhaseRemediate, PhaseEvaluate, PhaseCheckReview:
-		// The evaluator's and check reviewer's commands are maul-tool calls,
+	case PhaseInvestigate, PhaseRemediate, PhaseEvaluate:
+		// The evaluator's commands are maul-tool calls,
 		// whose output is the tools ledger's to keep; none is shown live.
 		return nil
 	default:

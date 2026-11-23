@@ -82,17 +82,21 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"handed to people at once")
 	f.String("intent-evaluate-model", "anthropic/claude-sonnet-5-5",
 		"canonical model a claude Project's evaluate runs run (--intent-evaluator)")
-	f.String("intent-checkreview-model", "anthropic/claude-sonnet-5-5",
-		"canonical model a claude Project's checkreview runs run (--intent-evaluator)")
+	// --intent-checkreview-model and --intent-checkreview-max-turns are
+	// RETIRED with the check reviewer: they stay registered, hidden, and
+	// ignored for one release, so a leftover value (the chart renders both
+	// until it drops them) meets a warning naming the migration
+	// (logRetiredFlags) rather than an unknown-flag error.
+	for _, name := range retiredFlags {
+		f.String(name, "", "RETIRED with the check reviewer: ignored")
+		_ = f.MarkHidden(name) // registered just above
+	}
 	f.Duration("intent-evaluate-timeout", intent.DefaultEvaluateTimeout,
 		"wall-clock limit of an evaluate run, between 1m and 55m (its tool pod lives 5m longer, within the "+
 			"hour a verification may take)")
 	f.Int("intent-evaluate-max-turns", int(intent.DefaultEvaluateMaxTurns),
 		fmt.Sprintf("most agent turns an evaluate run may take, between 1 and %d (a Project may lower it); every "+
 			"tool call is a turn, and the run's last few are kept for its report", intent.MaxStageTurns))
-	f.Int("intent-checkreview-max-turns", int(intent.DefaultCheckReviewMaxTurns),
-		fmt.Sprintf("most agent turns each check-review session may take, between 1 and %d (a Project may lower it)",
-			intent.MaxStageTurns))
 	f.String("intent-default-handoff", string(v1alpha1.HandoffGated),
 		"when a Project that sets no verification.handoff hands its preview to humans under the evaluator: "+
 			"gated (once the evaluation passes or gives up) or early (at once)")
@@ -103,7 +107,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"also evaluate the intents of codex Projects on codex (needs --intent-codex); off, they are not "+
 			"evaluated, their hand-off is early, and each such Project says so (EvaluatorUnverified)")
 	f.Int("intent-evaluation-cost-max", int(v1alpha1.DefaultMaxEvaluateCostMicroUSD),
-		"the most one intent's evaluate and checkreview runs may spend, in micro-USD, whatever its Project's "+
+		"the most one intent's evaluate runs may spend, in micro-USD, whatever its Project's "+
 			"limits.maxEvaluateCostMicroUSD says; counted apart from the per-intent ceiling, so evaluation never "+
 			"spends what fix rounds need")
 	f.Int("intent-max-tool-calls", int(v1alpha1.DefaultMaxToolCalls),
@@ -384,19 +388,13 @@ func evaluator(opts *cli.Options, s *intent.Settings) error {
 	if err != nil {
 		return err
 	}
-	reviewTurns, err := stageTurns(opts, "intent-checkreview-max-turns")
-	if err != nil {
-		return err
-	}
 	s.Verification, s.Evaluator = true, true
-	s.EvaluateModel, s.CheckReviewModel = opts.String("intent-evaluate-model"), opts.String("intent-checkreview-model")
+	s.EvaluateModel = opts.String("intent-evaluate-model")
 	s.DefaultHandoff, s.HandoffMax = handoff, handoffMax
 	s.EvaluateCodex = opts.Bool("intent-evaluate-codex")
 	s.EvaluationCostMax, s.MaxToolCalls = cost, int32(calls)
 	s.Evaluate = intent.StageCeiling{MaxTurns: evaluateTurns,
 		TokenBudget: intent.DefaultEvaluateTokenBudget, Timeout: timeout}
-	s.CheckReview = intent.StageCeiling{MaxTurns: reviewTurns,
-		TokenBudget: intent.DefaultCheckReviewTokenBudget, Timeout: intent.DefaultCheckReviewTimeout}
 	return nil
 }
 
@@ -572,7 +570,6 @@ func jobDeadlines(opts *cli.Options, s *intent.Settings) error {
 		{"--intent-revise-timeout", s.Revise.Timeout},
 		// Zero while the evaluator is off.
 		{"--intent-evaluate-timeout", s.Evaluate.Timeout},
-		{"the checkreview timeout", s.CheckReview.Timeout},
 	} {
 		if c.timeout+intent.JobDeadlineMargin > s.JobDeadlineMax {
 			return fmt.Errorf("%s %s plus %s is longer than --intent-job-deadline-max %s: its Jobs could end "+
@@ -720,9 +717,9 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 	models := []string{claude.PlanModel, claude.BuildModel}
 	var roleModels []string
 	if opts.Bool("intent-evaluator") {
-		// The evaluator's and the check reviewer's models run on the claude
-		// harness too: allowlisted and resolved with the others.
-		roleModels = []string{opts.String("intent-evaluate-model"), opts.String("intent-checkreview-model")}
+		// The evaluator's model runs on the claude harness too: allowlisted
+		// and resolved with the others.
+		roleModels = []string{opts.String("intent-evaluate-model")}
 		models = append(models, roleModels...)
 	}
 	codexOn := opts.Bool("intent-codex")
@@ -764,9 +761,8 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 			return intent.RunHarness{}, intent.RunHarness{}, err
 		}
 		if id != claude.ID {
-			return intent.RunHarness{}, intent.RunHarness{}, fmt.Errorf("--intent-evaluate-model and "+
-				"--intent-checkreview-model must resolve to the harness intents plan and build on (%s), and %s "+
-				"resolves to %s", claude.ID, m, id)
+			return intent.RunHarness{}, intent.RunHarness{}, fmt.Errorf("--intent-evaluate-model must resolve "+
+				"to the harness intents plan and build on (%s), and %s resolves to %s", claude.ID, m, id)
 		}
 	}
 	if claude.Allowed, codex.Allowed, err = allowedModels(allowlist, enabled, claude.ID, codexOn); err != nil {
@@ -1012,6 +1008,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	logVerificationOff(ctx, log, set)
+	logRetiredFlags(ctx, log, opts)
 	// Read-only, uncached, before the manager starts: the API reader.
 	if err := slice1Census(ctx, log, mgr.GetAPIReader(), set); err != nil {
 		return err
@@ -1045,4 +1042,27 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	return nil
+}
+
+// retiredFlags are the flags retired with the check reviewer, kept
+// registered and hidden for one release (logRetiredFlags).
+var retiredFlags = []string{"intent-checkreview-model", "intent-checkreview-max-turns"}
+
+// savedChecksMigration is where an operator of the retired check reviewer
+// reads what changed.
+const savedChecksMigration = "docs/intents/evaluator.md#migrating-from-saved-checks"
+
+// logRetiredFlags warns once, at startup, for each retired flag set on the
+// command line or in the environment: it is accepted and ignored, whatever
+// it holds, so a leftover value neither stops intent-controller nor reads
+// as still in force.
+func logRetiredFlags(ctx context.Context, log *slog.Logger, opts *cli.Options) {
+	for _, name := range retiredFlags {
+		if !opts.IsSet(name) {
+			continue
+		}
+		log.LogAttrs(ctx, slog.LevelWarn, "--"+name+" is retired with the check reviewer and ignored: maul's "+
+			"evaluator saves no checks, so none is reviewed; drop it, see "+savedChecksMigration,
+			slog.String("flag", name))
+	}
 }

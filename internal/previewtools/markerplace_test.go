@@ -70,7 +70,7 @@ func TestMarkerUnplacedIsAnError(t *testing.T) {
 				if a.Result != toolwire.ResultError || s.Assertion || s.Cause != "" || s.Detail != markerUnplaced {
 					t.Fatalf("attempt %+v, want an error with no assertion, no cause and the unplaced detail", a)
 				}
-				heldToTheReviewersBounds(t, s.Detail, a.Run, markers)
+				heldToTheReviewersBounds(t, s.Detail, markers)
 			}
 		})
 		t.Run("slot "+tt.name, func(t *testing.T) {

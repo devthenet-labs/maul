@@ -35,7 +35,7 @@ func TestCausesMatchAPI(t *testing.T) {
 		if string(c.wire) != string(c.api) || string(c.wire) != string(c.acc) {
 			t.Errorf("toolwire %q, v1alpha1 %q, acceptance %q", c.wire, c.api, c.acc)
 		}
-		if !c.wire.Known() || !c.acc.NoComparison() {
+		if !c.wire.Known() {
 			t.Errorf("%q is not a known cause on both sides", c.wire)
 		}
 	}

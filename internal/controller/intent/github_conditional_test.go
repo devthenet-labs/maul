@@ -125,8 +125,6 @@ func TestIdleReviewPassReads(t *testing.T) {
 func passedEvaluation(t *testing.T) (*env, string) {
 	t.Helper()
 	e, name := newEvaluatorEnv(t, 0.4)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
@@ -134,7 +132,7 @@ func passedEvaluation(t *testing.T) (*env, string) {
 			By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()), CommentID: 99,
 			HeadSetDigest: in.Status.Verification.HeadSetDigest})
 	})
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	if v := e.verification(name); v.State != v1alpha1.VerificationPassed || pv.Name != v.Ref.Name {
 		t.Fatalf("verification = %s %+v, want the round Passed", v.State, v.Outcomes)
 	}

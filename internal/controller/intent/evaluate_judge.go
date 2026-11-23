@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -102,6 +101,20 @@ func (j roundJudgement) heldTo(held []string) roundJudgement {
 	j.in.Held = held
 	j.judgement = acceptance.Judge(j.in)
 	return j
+}
+
+// outcomeTextMaxBytes bounds an outcome's text in its digest (the schema
+// holds an outcome to 500).
+const outcomeTextMaxBytes = 4 << 10
+
+// outcomeDigest is the digest of an outcome's text, bounded and made
+// visible: what a failure is fingerprinted on
+// (acceptance.OutcomeFingerprint), so a failure of the same words is a
+// repeat. It is the digest an earlier release's check reviews were cached
+// under, so a fingerprint taken before the check reviewer was retired is
+// unchanged.
+func outcomeDigest(o v1alpha1.AcceptanceOutcome) string {
+	return digest([]byte(untrusted.Visible(o.Outcome, outcomeTextMaxBytes)))
 }
 
 // judgeInput is Judge's input for pv: the approved outcomes (each with the
@@ -343,7 +356,6 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
 		}
 	}
 	nv.Anomalies = carryAnomalies(carried, j.anomalies, nv.Round)
-	nv.Suspected, nv.Disputed = nil, nil
 	nv.State = judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	countManual(nv, acc)
 	// A result judged under these rules is on record: an earlier release's
@@ -399,50 +411,19 @@ func (p *pass) evaluationFailure(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	return f, fix, j, true
 }
 
-// suspectedPending reports v's suspected defect at its current heads, not
-// yet confirmed by an approver, whatever else the round found (fifth
-// review, 5): it holds the gated hand-off and is shown on the issue.
-func suspectedPending(v *v1alpha1.IntentVerification) bool {
-	return v != nil && v.Suspected != nil && v.Suspected.Confirmed == nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
-}
-
-// suspectedConfirmable reports v's suspected defect pending in a judged
-// state (a fix round is not running, nor a new round being evaluated) and
-// a /maul verify fix created at at confirming it: created after maul
-// recorded it, so a person can have seen the evidence (fifth review, 1).
-// GitHub and the record both keep whole seconds: a comment in the record's
-// own second may predate it, and does not confirm it.
-func suspectedConfirmable(v *v1alpha1.IntentVerification, at time.Time) bool {
-	if !suspectedPending(v) {
-		return false
-	}
-	switch v.State {
-	case v1alpha1.VerificationUnconfirmed, v1alpha1.VerificationFailing, v1alpha1.VerificationExhausted:
-	default:
-		return false
-	}
-	return at.Truncate(time.Second).After(v.Suspected.RecordedAt.Truncate(time.Second))
-}
-
-// defectConfirmed reports v's suspected defect at its current heads
-// confirmed by an approver (fifth review, 6).
-func defectConfirmed(v *v1alpha1.IntentVerification) bool {
-	return v != nil && v.Suspected != nil && v.Suspected.Confirmed != nil && v.Suspected.HeadSetDigest == v.HeadSetDigest
-}
-
-// evaluationClaims is run's evaluator report, nil for none (a replay round)
-// or one that does not parse: an unreadable report claims nothing, and so
-// does one writing a key the observed evaluator retired.
+// evaluationClaims is run's evaluator report, nil for none or one that does
+// not parse: an unreadable report claims nothing.
 func evaluationClaims(run *v1alpha1.IntentRun) *report.Evaluation {
 	if run == nil || run.Status.Phase != v1alpha1.RunComplete || run.Status.Report == "" ||
 		len(run.Status.Report) > maxEvaluationReports {
 		return nil
 	}
 	ev, err := report.ParseEvaluation([]byte(run.Status.Report))
-	if err != nil || ev.CarriesRetiredKeys() {
-		// A report writing a retired key (contrary, disputes, proposed,
-		// retire) claims nothing, as one the decoder refuses: a pass beside
-		// the evaluator's own contrary seqs is never judged passed.
+	if err != nil {
+		// Among them a report writing a key the observed evaluator retired
+		// (contrary, disputes, proposed, retire), which the decoder refuses:
+		// a pass beside the evaluator's own contrary seqs is never judged
+		// passed.
 		return nil
 	}
 	return ev
@@ -526,8 +507,11 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 }
 
 // judgementReady reports v's judgement at its heads, whatever its state:
-// every outcome confirmed or accepted, no replay round pending, and a clean
-// environment, as Decide's hand-off needs (review H2).
+// every outcome seen to hold or accepted, and a clean environment, as
+// Judge's hand-off needs (review H2). A record an earlier release left
+// disputed (status.verification.disputed, retired: this release writes
+// none, and the supersede clears it) is never ready: until the Project can
+// run a round that withdraws it, it waits on a replay that will never come.
 func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	if !judgedAtRecord(v) {
 		// No judgement of its round at its heads, or the state records a

@@ -10,8 +10,6 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/devthenet-labs/maul/internal/agentrun"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -29,11 +27,11 @@ const g1HalfRuleSplit = `{"id":"half-rule-split","outcome":"half-rule-split","fo
 // round 2, ledger seq 7): A and B swapped.
 const g1Output = "kick 4\nsnare 1\nhat 1\ntotal 6\nhalf kick 1 3\nhalf snare 0 1\nhalf hat 1 0\n"
 
-// heldToTheReviewersBounds fails t unless detail, its attempt's run token
-// written back as {{run}} as the controller writes it, is a failure line the
-// check reviewer is handed (agentrun.ValidFailure) and holds none of the
-// attempts' markers.
-func heldToTheReviewersBounds(t *testing.T, detail, run string, markers []string) {
+// heldToTheReviewersBounds fails t unless detail is within the ledger's
+// bound, UTF-8, and holds none of the attempts' markers. (The retired check
+// reviewer's own bound, agentrun.ValidFailure, is gone with it; this
+// runner goes in W8.)
+func heldToTheReviewersBounds(t *testing.T, detail string, markers []string) {
 	t.Helper()
 	if len(detail) > 2<<10 || !utf8.ValidString(detail) {
 		t.Errorf("detail (%d bytes) is over the ledger's bound or not UTF-8", len(detail))
@@ -42,10 +40,6 @@ func heldToTheReviewersBounds(t *testing.T, detail, run string, markers []string
 		if strings.Contains(detail, m) {
 			t.Errorf("detail %q holds an attempt's marker", detail)
 		}
-	}
-	line := strings.ReplaceAll(detail, run, checks.RunPlaceholder)
-	if err := agentrun.ValidFailure([]string{line, line}); err != nil {
-		t.Errorf("detail %q is not handed to the reviewer: %v", detail, err)
 	}
 }
 
@@ -129,7 +123,7 @@ func TestWorkspaceFailKeepsTheProgramsOutput(t *testing.T) {
 						t.Errorf("detail %q lacks %q", s.Detail, w)
 					}
 				}
-				heldToTheReviewersBounds(t, s.Detail, a.Run, markers)
+				heldToTheReviewersBounds(t, s.Detail, markers)
 			}
 		})
 	}
@@ -171,7 +165,7 @@ func TestSlotExecFailKeepsTheProgramsOutput(t *testing.T) {
 						t.Errorf("detail %q lacks %q", s.Detail, w)
 					}
 				}
-				heldToTheReviewersBounds(t, s.Detail, a.Run, markers)
+				heldToTheReviewersBounds(t, s.Detail, markers)
 			}
 		})
 	}

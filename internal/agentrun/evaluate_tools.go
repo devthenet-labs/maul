@@ -24,11 +24,9 @@ import (
 // parseEvaluation parses an evaluation report (report.ParseEvaluation). A
 // report the parser refuses has its frontmatter's key paths, never its
 // values, added to the reason (S1 bug 5: the refused file is not kept), so a
-// refusal is diagnosable from the run's detail alone.
-//
-// A report an earlier evaluator shaped, still proposing checks, is accepted
-// as the parser accepts it: maul confirms no check (closeTools), so no check
-// file is read and a proposal is no reason to repair a report.
+// refusal is diagnosable from the run's detail alone. A report writing a
+// key the observed evaluator retired (disputes, proposed, retire,
+// contrary) is refused, so it is repaired like any other.
 func parseEvaluation(raw []byte) (*report.Evaluation, error) {
 	e, err := report.ParseEvaluation(raw)
 	if err != nil {

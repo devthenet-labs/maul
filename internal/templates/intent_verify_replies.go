@@ -49,9 +49,6 @@ const (
 	VerifyCapReached VerifyOutcome = "cap-reached"
 	// VerifyStopped: /maul verify stop halted automatic fixes.
 	VerifyStopped VerifyOutcome = "stopped"
-	// VerifyDefectConfirmed: /maul verify fix confirmed the defect maul
-	// suspected, which starts a fix round on it.
-	VerifyDefectConfirmed VerifyOutcome = "defect-confirmed"
 	// VerifyPreviewReleased: /maul preview released the held preview link.
 	VerifyPreviewReleased VerifyOutcome = "preview-released"
 	// VerifyPreviewNotHeld: nothing holds the preview link (a plan with
@@ -137,10 +134,9 @@ type VerifyCommandNotice struct {
 	Verb string
 	// Outcome is what maul made of it.
 	Outcome VerifyOutcome
-	// Fix, Reset and Explore are the verify modifiers that were applied.
-	Fix     bool
-	Reset   bool
-	Explore bool
+	// Fix and Reset are the verify modifiers that were applied.
+	Fix   bool
+	Reset bool
 	// Joined: the request joined one already waiting.
 	Joined bool
 	// AfterRound: a round is running; the verification follows it.
@@ -281,8 +277,8 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 	case VerifyAcceptUnknown:
 		return cmd + " names no outcome of the approved plan." + acceptable("outcome", n.Acceptable), "", nil
 	case VerifyAcceptAutomatic:
-		return cmd + " does nothing: that criterion is checked automatically, and only a manual one, one maul does " +
-			"not run yet or one that passed only on retry is accepted by hand." +
+		return cmd + " does nothing: that criterion is judged automatically, and only a manual one or one maul " +
+			"does not run yet is accepted by hand." +
 			acceptable("criterion", n.Acceptable), "", nil
 	case VerifyAcceptNotYet:
 		return cmd + " must wait: maul has not yet recorded the commits it verifies, and an acceptance holds only " +
@@ -293,10 +289,6 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"accept again.", cmd, joinCode(n.Heads)), "", nil
 	case VerifyStopped:
 		return stoppedText(n, actor), "", nil
-	case VerifyDefectConfirmed:
-		return fmt.Sprintf("%s from %s confirms the defect maul suspected: maul starts a fix round on it, handed "+
-			"maul's reproduction, and checks the outcomes again once the fix is pushed.",
-			slashCommand(n.Verb+" "+command.VerifyFix), actor), "", nil
 	case VerifyApplied:
 		return fmt.Sprintf("%s from %s was applied already, and is not applied again.", cmd, actor), "", nil
 	case VerifyUsage:
@@ -317,8 +309,6 @@ func verifyCommandText(n VerifyCommandNotice) string {
 		return slashCommand(n.Verb + " " + command.VerifyReset)
 	case n.Fix:
 		return slashCommand(n.Verb + " " + command.VerifyFix)
-	case n.Explore:
-		return slashCommand(n.Verb + " " + command.VerifyExplore)
 	}
 	return slashCommand(n.Verb)
 }
@@ -346,9 +336,6 @@ func requestedText(n VerifyCommandNotice, actor string) string {
 	}
 	if n.Fix {
 		b.WriteString(" maul may fix failing outcomes on its own again.")
-	}
-	if n.Explore {
-		b.WriteString(" The evaluator looks again, even where maul's saved checks alone could settle it.")
 	}
 	return b.String()
 }

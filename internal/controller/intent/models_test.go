@@ -21,7 +21,7 @@ import (
 func modelSettings() Settings {
 	s := testSettings()
 	s.Evaluator = true
-	s.EvaluateModel, s.CheckReviewModel = "anthropic/claude-sonnet-5", "anthropic/claude-haiku-4-5"
+	s.EvaluateModel = "anthropic/claude-haiku-4-5"
 	s.Claude.Allowed = NewModelList("anthropic/claude-fable-5")
 	s.Codex = RunHarness{ID: "codex", PlanModel: "openai/gpt-5.3-codex", BuildModel: "openai/gpt-5.6-sol",
 		Allowed: NewModelList("openai/gpt-5.6-luna")}
@@ -31,7 +31,7 @@ func modelSettings() Settings {
 // evaluatorOff turns the agent evaluator off as serve does without
 // --intent-evaluator: no evaluator models either.
 func evaluatorOff(s *Settings) {
-	s.Evaluator, s.EvaluateModel, s.CheckReviewModel = false, "", ""
+	s.Evaluator, s.EvaluateModel = false, ""
 }
 
 // TestStageModel: a stage the Project chooses no model for runs the
@@ -51,7 +51,7 @@ func TestStageModel(t *testing.T) {
 		return p
 	}
 	plan, build, revise := v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise
-	evaluate, review := v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview
+	evaluate := v1alpha1.IntentStageEvaluate
 	for _, tt := range []struct {
 		name         string
 		p            *v1alpha1.Project
@@ -61,8 +61,7 @@ func TestStageModel(t *testing.T) {
 		{"claude plan, none chosen", claude(nil), plan, "anthropic/claude-sonnet-5", ""},
 		{"claude build, none chosen", claude(nil), build, "anthropic/claude-opus-5", ""},
 		{"claude revise, none chosen", claude(nil), revise, "anthropic/claude-opus-5", ""},
-		{"claude evaluate, none chosen", claude(nil), evaluate, "anthropic/claude-sonnet-5", ""},
-		{"claude checkreview, none chosen", claude(nil), review, "anthropic/claude-haiku-4-5", ""},
+		{"claude evaluate, none chosen", claude(nil), evaluate, "anthropic/claude-haiku-4-5", ""},
 		{"an empty choice", claude(&v1alpha1.ProjectModels{}), build, "anthropic/claude-opus-5", ""},
 		{"plan chosen", claude(&v1alpha1.ProjectModels{Plan: "anthropic/claude-fable-5"}), plan,
 			"anthropic/claude-fable-5", "anthropic/claude-fable-5"},
@@ -71,15 +70,15 @@ func TestStageModel(t *testing.T) {
 		{"build chosen runs revise", claude(&v1alpha1.ProjectModels{Build: "anthropic/claude-fable-5"}), revise,
 			"anthropic/claude-fable-5", "anthropic/claude-fable-5"},
 		{"claude build chosen leaves evaluate", claude(&v1alpha1.ProjectModels{Build: "anthropic/claude-fable-5"}),
-			evaluate, "anthropic/claude-sonnet-5", ""},
-		{"checkreview chosen", claude(&v1alpha1.ProjectModels{CheckReview: "anthropic/claude-fable-5"}), review,
+			evaluate, "anthropic/claude-haiku-4-5", ""},
+		{"evaluate chosen", claude(&v1alpha1.ProjectModels{Evaluate: "anthropic/claude-fable-5"}), evaluate,
 			"anthropic/claude-fable-5", "anthropic/claude-fable-5"},
 		{"codex plan, none chosen", codex(nil), plan, "openai/gpt-5.3-codex", ""},
 		{"codex evaluate, none chosen", codex(nil), evaluate, "openai/gpt-5.6-sol", ""},
 		{"codex evaluate takes the build choice", codex(&v1alpha1.ProjectModels{Build: "openai/gpt-5.6-luna"}),
 			evaluate, "openai/gpt-5.6-luna", "openai/gpt-5.6-luna"},
-		{"codex checkreview chosen", codex(&v1alpha1.ProjectModels{Build: "openai/gpt-5.6-luna",
-			CheckReview: "openai/gpt-5.3-codex"}), review, "openai/gpt-5.3-codex", "openai/gpt-5.3-codex"},
+		{"codex evaluate chosen", codex(&v1alpha1.ProjectModels{Build: "openai/gpt-5.6-luna",
+			Evaluate: "openai/gpt-5.3-codex"}), evaluate, "openai/gpt-5.3-codex", "openai/gpt-5.3-codex"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := s.stageModel(tt.p, tt.stage); got != tt.want {
@@ -110,17 +109,16 @@ func TestModelRefusal(t *testing.T) {
 		{name: "the evaluator's model with the evaluator off", set: func(s *Settings) { s.Evaluator = false },
 			models:   &v1alpha1.ProjectModels{Plan: "anthropic/claude-haiku-4-5"},
 			wantPart: "spec.models.plan is anthropic/claude-haiku-4-5"},
-		// With the evaluator off no evaluate or checkreview run is ever
-		// created, so those two choices are not judged: turning the
-		// evaluator off (or never on, the default) stops no Project.
-		{name: "the evaluator's choices with the evaluator off", set: evaluatorOff,
-			models: &v1alpha1.ProjectModels{Evaluate: "anthropic/claude-sonnet-4",
-				CheckReview: "anthropic/claude-haiku-4-5"}},
+		// With the evaluator off no evaluate run is ever created, so its
+		// choice is not judged: turning the evaluator off (or never on,
+		// the default) stops no Project.
+		{name: "the evaluator's choice with the evaluator off", set: evaluatorOff,
+			models: &v1alpha1.ProjectModels{Evaluate: "anthropic/claude-sonnet-4"}},
 		{name: "a plan choice with the evaluator off is still judged", set: evaluatorOff,
-			models:   &v1alpha1.ProjectModels{Plan: "anthropic/claude-sonnet-4", CheckReview: "anthropic/claude-haiku-4-5"},
+			models:   &v1alpha1.ProjectModels{Plan: "anthropic/claude-sonnet-4", Evaluate: "anthropic/claude-haiku-4-5"},
 			wantPart: "spec.models.plan is anthropic/claude-sonnet-4"},
-		{name: "a model nobody allowlisted", models: &v1alpha1.ProjectModels{Evaluate: "anthropic/claude-haiku-4-5",
-			CheckReview: "anthropic/claude-sonnet-4"}, wantPart: "spec.models.checkReview is anthropic/claude-sonnet-4"},
+		{name: "a model nobody allowlisted", models: &v1alpha1.ProjectModels{Plan: "anthropic/claude-haiku-4-5",
+			Evaluate: "anthropic/claude-sonnet-4"}, wantPart: "spec.models.evaluate is anthropic/claude-sonnet-4"},
 		{name: "codex's model on claude", models: &v1alpha1.ProjectModels{Build: "openai/gpt-5.6-luna"},
 			wantPart: "does not run a claude Project's intents on"},
 		{name: "claude's model on codex", harness: v1alpha1.ProjectHarnessCodex,

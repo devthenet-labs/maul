@@ -64,9 +64,9 @@ func TestOutcomeFixHumanPushHalts(t *testing.T) {
 // review due on the pull request when a round is judged failing: the
 // human's round starts, and automatic fixes halt.
 func TestOutcomeHumanWinsOverAVerifyFix(t *testing.T) {
-	e, name, version, health := outcomeEnv(t)
+	e, name := outcomeEnv(t)
 	e.reviewOn(e.prNumber(name), 1501, "Return JSON, please.")
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	e.review(name, 3)
 	in := e.get(name)
 	runs := e.runsOf(name, v1alpha1.IntentStageRevise)

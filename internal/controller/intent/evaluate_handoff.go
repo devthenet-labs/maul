@@ -18,20 +18,17 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/agentrun"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
-	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
-// The evaluator's and the check reviewer's handoffs: what crosses into a
-// role Job (DESIGN 4.4). Each is strict JSON of agent-runner's own type
-// (agentrun.EvaluateHandoff, agentrun.CheckReviewHandoff), which it decodes
-// refusing unknown fields, carried in the run's input as its issue.md. The
-// prompts are agent-runner's templates; everything here is data, and every
-// string a human or the application wrote reaches the handoff bounded and
-// through untrusted.Visible, the templates quoting it as fenced data. Nothing
-// of the check store, the evaluator's transcript or its notes ever reaches a
+// The evaluator's handoff: what crosses into its Job (DESIGN 4.4). It is
+// strict JSON of agent-runner's own type (agentrun.EvaluateHandoff), which it
+// decodes refusing unknown fields, carried in the run's input as its
+// issue.md. The prompt is agent-runner's template; everything here is data,
+// and every string a human or the application wrote reaches the handoff
+// bounded and through untrusted.Visible, the template quoting it as fenced
+// data. Nothing of the evaluator's transcript or its notes ever reaches a
 // build or revise handoff: those are built elsewhere, from the plan and the
 // reviewers' feedback alone.
 
@@ -42,9 +39,6 @@ const (
 	// evaluateHandoffMaxBytes is agent-runner's bound on the evaluate
 	// handoff (256 KiB).
 	evaluateHandoffMaxBytes = 256 << 10
-	// checkReviewHandoffMaxBytes is agent-runner's bound on the checkreview
-	// handoff (512 KiB: up to 40 checks of 8 KiB each beside their outcomes).
-	checkReviewHandoffMaxBytes = 512 << 10
 	// evaluateRequestMaxBytes bounds the intent's request in the handoff.
 	evaluateRequestMaxBytes = 32 << 10
 	// changedPathMaxBytes bounds one changed path, and changedPathsMax the
@@ -103,78 +97,7 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	if err := p.previousRound(ctx, pv, &h); err != nil {
 		return "", err
 	}
-	bodies, err := p.refusedBodies(ctx, pv)
-	if err != nil {
-		return "", err
-	}
-	h.PriorRefused = p.priorRefused(bodies)
-	h.NotYetProof = p.notYetProof(ctx)
 	return encodeEvaluateHandoff(h)
-}
-
-// notYetProof are the stored checks saved to show a defect that are not
-// yet evidence their outcome holds (gate D-B9): no review of the green
-// question answered proves for the outcome's current text, or a review of
-// it refused (the predicate acceptance's passes holds a check saved red
-// to); and the stored checks the substance rules have come to refuse
-// (storedValid, marked Refused), which support nothing, while their
-// outcome has no stored check that can pass it. A green replay of
-// either passes nothing, so the evaluator is told to write its outcome a
-// new check that proves it: without that the prompt's rule against a new
-// check for an outcome whose saved check replayed green would leave a
-// refused check's outcome unsure in every round. A store that cannot be
-// read hands over none. Retired with saved checks: agent-runner reads none
-// of it, and nothing in the store is ever judged.
-func (p *pass) notYetProof(ctx context.Context) []agentrun.NotYetProof {
-	acc := p.in.Status.Acceptance
-	if acc == nil {
-		return nil
-	}
-	stored, err := p.storedChecks(ctx)
-	if err != nil {
-		p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the intent's check store; no saved red check is named to the "+
-			"evaluator", slog.String("intent", p.in.Name), slog.Any("error", err))
-		return nil
-	}
-	var out []agentrun.NotYetProof
-	for _, c := range stored {
-		i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == c.Outcome })
-		if i < 0 || acc.Outcomes[i].Manual {
-			continue
-		}
-		proven := func(c v1alpha1.SavedCheck) bool {
-			return storedValid(c) && (c.Expect != v1alpha1.CheckExpectFail ||
-				greenProven(acc.Reviews, c.Digest, outcomeDigest(acc.Outcomes[i])))
-		}
-		refused := !storedValid(c)
-		// A refused check is named only while its outcome has no stored
-		// check that can pass it: once one is saved, no round asks more.
-		if proven(c) || refused && slices.ContainsFunc(stored, func(o v1alpha1.SavedCheck) bool {
-			return o.Outcome == c.Outcome && proven(o)
-		}) {
-			continue
-		}
-		out = append(out, agentrun.NotYetProof{Outcome: c.Outcome, Check: c.ID, Refused: refused})
-	}
-	return out
-}
-
-// greenProven reports that the check of digest passes the outcome of
-// outcome digest by its reviews alone, as acceptance's passes judges a
-// check saved red: a review of the green question answered proves, and no
-// review of the pair answered anything else.
-func greenProven(reviews []v1alpha1.CheckReviewRecord, check, outcome string) bool {
-	green := false
-	for _, r := range reviews {
-		if r.CheckDigest != check || r.OutcomeDigest != outcome {
-			continue
-		}
-		if r.Answer != v1alpha1.ReviewProves {
-			return false
-		}
-		green = green || r.Expect != v1alpha1.CheckExpectFail
-	}
-	return green
 }
 
 // agentsTools fills t, an agents round's tools (S2-16, S2-20): its
@@ -253,7 +176,7 @@ func evaluateWorkspace(pv *v1alpha1.PreviewVerification) agentrun.EvaluateWorksp
 
 // evaluateComponents are the previewed components at pv's heads, by the
 // key an http check targets and the path each is served under: what the
-// evaluator and the check reviewer are told the preview serves.
+// evaluator is told the preview serves.
 func (p *pass) evaluateComponents(pv *v1alpha1.PreviewVerification) []agentrun.EvaluateComponent {
 	var out []agentrun.EvaluateComponent
 	previews := v1alpha1.EffectivePreviews(p.proj)
@@ -265,103 +188,6 @@ func (p *pass) evaluateComponents(pv *v1alpha1.PreviewVerification) []agentrun.E
 		}
 	}
 	return out
-}
-
-// priorRefused are the checks the reviewer refused, cached on the Intent
-// (status.acceptance.reviews), each for an approved outcome's current text:
-// by outcome, the check's id (its digest for a review recorded before ids
-// were kept) and the reviewer's reason, made visible (coverage design C3).
-// A check refused in one form is never reviewed again in that form, so the
-// evaluator is told why, to strengthen it rather than propose it again. A
-// red review's refusal is left out: it judged a failure, not whether the
-// check proves its outcome, and a green review of the same check is still
-// open. At most the newest templates.PriorRefusedMax, oldest first.
-//
-// Each carries the refused check itself where bodies (refusedBodies) holds
-// it and it is bound to the outcome the refusal is named under (a review
-// is cached by its outcome's text, which a replan may give another id), so
-// the evaluator amends that check to answer the reason rather than writing
-// an unrelated one (G5R-B-CLI-1): the newest refusals' first, within
-// templates.RefusedBodiesMaxBytes in all, a refusal past that bound named
-// without its body.
-func (p *pass) priorRefused(bodies map[string]refusedBody) []agentrun.PriorRefusal {
-	acc := p.in.Status.Acceptance
-	if acc == nil {
-		return nil
-	}
-	outcomes := make(map[string]string, len(acc.Outcomes))
-	for _, o := range acc.Outcomes {
-		outcomes[outcomeDigest(o)] = o.ID
-	}
-	var out []agentrun.PriorRefusal
-	shown := 0
-	for i := len(acc.Reviews) - 1; i >= 0 && len(out) < templates.PriorRefusedMax; i-- {
-		r := acc.Reviews[i]
-		id, ok := outcomes[r.OutcomeDigest]
-		if !ok || r.Answer == v1alpha1.ReviewProves || r.Expect == v1alpha1.CheckExpectFail {
-			continue
-		}
-		check := r.Check
-		if check == "" {
-			check = r.CheckDigest
-		}
-		refusal := agentrun.PriorRefusal{Outcome: id, Check: check,
-			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)}
-		if b, ok := bodies[r.CheckDigest]; ok && b.outcome == id && shown+len(b.body) <= templates.RefusedBodiesMaxBytes {
-			refusal.Body, shown = b.body, shown+len(b.body)
-		}
-		out = append(out, refusal)
-	}
-	slices.Reverse(out)
-	return out
-}
-
-// refusedBodies are the bodies of the checks the intent's verifications
-// confirmed, by digest (G5R-B-CLI-1): what maul confirmed each by, read from
-// status.confirmed, which tools read from the verified ledger and never
-// from an evaluator's report, and kept only when it parses as a check in
-// canonical form whose digest is its own, so a body is exactly the check
-// reviewed under that digest. A check pv replays (a stored check refused on
-// the green question, which the evaluator is told to leave as it is) has
-// none. A body is shown to the evaluator as data only: nothing runs it or
-// counts it as a check.
-func (p *pass) refusedBodies(ctx context.Context, pv *v1alpha1.PreviewVerification) (map[string]refusedBody, error) {
-	if acc := p.in.Status.Acceptance; acc == nil || len(acc.Reviews) == 0 {
-		return nil, nil
-	}
-	pvs, err := p.ownVerifications(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]refusedBody{}
-	for _, v := range pvs {
-		for _, c := range v.Status.Confirmed {
-			if outcome, ok := checkOf(c.Body, c.Digest); ok {
-				out[c.Digest] = refusedBody{body: c.Body, outcome: outcome}
-			}
-		}
-	}
-	for _, c := range pv.Spec.Checks {
-		delete(out, c.Digest)
-	}
-	return out, nil
-}
-
-// refusedBody is a confirmed check's canonical JSON and the id of the
-// outcome it is bound to.
-type refusedBody struct{ body, outcome string }
-
-// checkOf reports that body is a check of maul's grammar, in canonical
-// form, whose digest is d, and the outcome it is bound to.
-func checkOf(body, d string) (string, bool) {
-	if len(body) > v1alpha1.MaxSavedCheckBytes {
-		return "", false
-	}
-	c, err := checks.Parse([]byte(body))
-	if err != nil || string(checks.Canonical(c)) != body || checks.Digest(c) != d {
-		return "", false
-	}
-	return c.Outcome, true
 }
 
 // browserEntry is the Project's surfaces.browser.entry when the round has a
@@ -378,8 +204,8 @@ func (p *pass) browserEntry(browser bool) string {
 // previousRound fills h, pv's handoff, with what the controller stores of
 // the last judged round before pv (SPEC Q15), on a round after one: maul's
 // results of the approved outcomes (status.verification.outcomes, which
-// only a judgement writes), how that round's saved checks replayed, and
-// the diff since the heads it evaluated (fixDiff). Each string is bounded
+// only a judgement writes) and the diff since the heads it evaluated
+// (fixDiff). Each string is bounded
 // and made visible. A previous round's PreviewVerification already pruned
 // leaves the verdicts alone.
 func (p *pass) previousRound(ctx context.Context, pv *v1alpha1.PreviewVerification,
@@ -399,7 +225,6 @@ func (p *pass) previousRound(ctx context.Context, pv *v1alpha1.PreviewVerificati
 		return nil
 	}
 	h.PriorRound = int(prev.Spec.Round)
-	h.PriorReplay = priorReplay(prev)
 	h.FixDiff, h.FixDiffCut = p.fixDiff(ctx, prev, pv)
 	return nil
 }
@@ -444,21 +269,6 @@ func (p *pass) priorVerdicts() []agentrun.PriorVerdict {
 		r := v.Outcomes[i]
 		out = append(out, agentrun.PriorVerdict{Outcome: r.ID, Result: string(r.Result),
 			Reason: untrusted.Visible(r.Reason, priorReasonMaxBytes)})
-	}
-	return out
-}
-
-// priorReplay is how prev's saved checks replayed, in replay order: each by
-// its id and outcome, a run of a check prev does not carry left out.
-func priorReplay(prev *v1alpha1.PreviewVerification) []agentrun.PriorReplay {
-	var out []agentrun.PriorReplay
-	for _, r := range prev.Status.Replay {
-		i := slices.IndexFunc(prev.Spec.Checks, func(c v1alpha1.SavedCheck) bool { return c.Digest == r.CheckDigest })
-		if i < 0 {
-			continue
-		}
-		c := prev.Spec.Checks[i]
-		out = append(out, agentrun.PriorReplay{Check: c.ID, Outcome: c.Outcome, Result: string(r.Result)})
 	}
 	return out
 }
@@ -546,12 +356,9 @@ func (p *pass) changedPaths(ctx context.Context) []agentrun.ChangedPath {
 }
 
 // encodeEvaluateHandoff encodes h as agent-runner decodes it, within its
-// bound: the refused checks' bodies are dropped, the oldest first (only a
-// hint, never what the handoff carried before them), then changed paths
-// from the end until it fits, then the oldest refused checks, and a
+// bound: changed paths are dropped from the end until it fits, and a
 // handoff that does not fit without any is refused.
 func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
-	h.PriorRefused = slices.Clone(h.PriorRefused)
 	for {
 		b, err := json.Marshal(h)
 		if err != nil {
@@ -560,49 +367,9 @@ func encodeEvaluateHandoff(h agentrun.EvaluateHandoff) (string, error) {
 		if len(b) <= evaluateHandoffMaxBytes {
 			return string(b), nil
 		}
-		switch {
-		case slices.ContainsFunc(h.PriorRefused, hasBody):
-			h.PriorRefused[slices.IndexFunc(h.PriorRefused, hasBody)].Body = ""
-		case len(h.ChangedPaths) > 0:
-			h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
-		case len(h.PriorRefused) > 0:
-			// The newest refusals are the last: keep them.
-			h.PriorRefused = h.PriorRefused[len(h.PriorRefused)/2+len(h.PriorRefused)%2:]
-		default:
+		if len(h.ChangedPaths) == 0 {
 			return "", fmt.Errorf("the evaluate handoff is %d bytes, over %d", len(b), evaluateHandoffMaxBytes)
 		}
-	}
-}
-
-// hasBody reports that r carries its refused check's body.
-func hasBody(r agentrun.PriorRefusal) bool { return r.Body != "" }
-
-// encodeCheckReviewHandoff encodes the check reviewer's handoff as
-// agent-runner decodes it: one review per new check, keyed by the check's
-// and its outcome's digests, the check as maul's canonical JSON, beside the
-// round's context (the request and the components). Over agent-runner's
-// bound the context goes first, the request then the components; a handoff
-// still over it is refused, never cut: a cut review would be another
-// review. S1-19's check review round renders it.
-func encodeCheckReviewHandoff(h agentrun.CheckReviewHandoff) (string, error) {
-	if len(h.Reviews) == 0 {
-		return "", fmt.Errorf("a check review has no reviews")
-	}
-	for {
-		b, err := json.Marshal(h)
-		if err != nil {
-			return "", fmt.Errorf("encode the check review handoff: %w", err)
-		}
-		switch {
-		case len(b) <= checkReviewHandoffMaxBytes:
-			return string(b), nil
-		case h.Request != "":
-			h.Request = ""
-		case len(h.Components) > 0:
-			h.Components = nil
-		default:
-			return "", fmt.Errorf("the check review handoff is %d bytes, over %d", len(b),
-				checkReviewHandoffMaxBytes)
-		}
+		h.ChangedPaths = h.ChangedPaths[:len(h.ChangedPaths)/2]
 	}
 }

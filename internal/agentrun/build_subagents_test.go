@@ -52,7 +52,7 @@ func TestFromEnvBuildSubagents(t *testing.T) {
 // at startup, never quietly ignored: codex and copilot render no posture
 // for it, and the fake harness runs no agent.
 func TestFromEnvRefusesSubagentsOffTheBuild(t *testing.T) {
-	for _, phase := range []Phase{PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseEvaluate, PhaseCheckReview} {
+	for _, phase := range []Phase{PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseEvaluate} {
 		env := buildSubagentsEnv()
 		env["MAUL_PHASE"] = string(phase)
 		_, err := FromEnv(func(k string) string { return env[k] })

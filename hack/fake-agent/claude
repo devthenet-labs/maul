@@ -64,9 +64,8 @@
 #                              usage does not. "granted" or "refused" is
 #                              appended to $HOME/.fake-claude/delegation.
 #
-# The agent evaluator's and the check reviewer's stages are scripted too
-# (MAUL_PHASE=evaluate, checkreview), the evaluator driving the real
-# maul-tool against the round's tool pod:
+# The agent evaluator's stage is scripted too (MAUL_PHASE=evaluate), driving
+# the real maul-tool against the round's tool pod:
 #
 #   MAUL_FAKE_CLAUDE_EVALUATE  what the evaluator does for every outcome the
 #                              prompt lists, citing the ledger seqs maul-tool
@@ -126,12 +125,6 @@
 #                              anomaly with this summary, on the first
 #                              component's path, citing the first call the
 #                              evaluator made to the change.
-#   MAUL_FAKE_CLAUDE_REVIEW    the check reviewer's answer for every check:
-#                              "proves" (default), "does_not_prove" or
-#                              "unclear"; "weak-refused" answers proves for
-#                              a check sending the X-Maul-Stronger header and
-#                              does_not_prove for any other (a checkreview run
-#                              an earlier release created; maul launches none).
 #   MAUL_FAKE_CLAUDE_CAPPED    set: the evaluator runs out of turns, as every
 #                              live evaluator of S1 bug 3 did: its first run
 #                              makes every call above but, instead of writing
@@ -175,11 +168,11 @@ cat >"$state/prompt-${MAUL_PHASE:-none}"
 prompt=$(cat "$state/prompt-${MAUL_PHASE:-none}")
 
 case "${MAUL_PHASE:-}" in
-plan | build | evaluate | checkreview) ;;
+plan | build | evaluate) ;;
 *) mode='' ;;
 esac
 if [ -z "$mode" ]; then
-  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans, builds, evaluates and reviews checks"]}\n' "$session"
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans, builds and evaluates"]}\n' "$session"
   exit 1
 fi
 
@@ -285,9 +278,9 @@ delegate() {
     "$call" "$1"
 }
 
-# --- The evaluator's and the check reviewer's stages -----------------------
+# --- The evaluator's stage -------------------------------------------------
 #
-# Both write their report where the prompt says ("Write your report to
+# It writes its report where the prompt says ("Write your report to
 # `<path>`"). The evaluator drives the REAL maul-tool against the round's tool
 # pod (MAUL_TOOLS_URL), from the scratch directory it runs in, as a model
 # following the evaluate prompt would: per mode (MAUL_FAKE_CLAUDE_EVALUATE)
@@ -323,20 +316,6 @@ library_program() {
   printf 'package main\n\nimport (\n    "fmt"\n    "os"\n\n    lib "%s"\n)\n\nvar _ = lib.%s\n\n' "$1" "$2"
   printf 'func main() { fmt.Println(os.Args[1], "found") }\n'
 }
-
-if [ "$MAUL_PHASE" = checkreview ]; then
-  out_report=$(report_path)
-  answer=${MAUL_FAKE_CLAUDE_REVIEW:-proves}
-  if [ "$answer" = weak-refused ]; then
-    answer=does_not_prove
-    case "$prompt" in *X-Maul-Stronger*) answer=proves ;; esac
-  fi
-  printf '%s\n' '---' "answer: $answer" "reason: \"Scripted review from hack/fake-agent/claude: $answer.\"" '---' \
-    >"$out_report"
-  echo 200 >"$state/sessions/$session"
-  emit "$session" 1 300 50 0 40 0.0200 "Reviewed: $answer."
-  exit 0
-fi
 
 if [ "$MAUL_PHASE" = evaluate ]; then
   if [ "$mode" = resume ]; then

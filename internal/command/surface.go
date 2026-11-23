@@ -46,11 +46,10 @@ var (
 		summary: "check the change against the plan's acceptance criteria now; `" + VerifyFix +
 			"` also lets maul fix failures again, `" + VerifyStop + "` only stops maul fixing failures on its own, `" +
 			VerifyReset + "` first restarts the preview with fresh data, `" + VerifyExplore +
-			"` has the evaluator look again even where maul's saved checks alone could settle it"}
+			"` is a plain verify (kept for older comments)"}
 	acceptUsage = usage{verb: action.VerbAccept, args: "<id>|" + AcceptAll,
-		summary: "accept, at the current commits, a manual outcome or criterion, one maul could not confirm or " +
-			"found failing, or one that passed only on retry; `" + AcceptAll + "` accepts every one of them, and " +
-			"a note may follow on the lines below"}
+		summary: "accept, at the current commits, a manual outcome or criterion, or one maul's evaluator did not " +
+			"see hold; `" + AcceptAll + "` accepts every one of them, and a note may follow on the lines below"}
 	previewUsage = usage{verb: action.VerbPreview,
 		summary: "show the preview link now, before maul has finished checking the change; nothing else changes"}
 )

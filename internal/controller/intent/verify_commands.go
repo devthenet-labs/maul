@@ -148,7 +148,6 @@ func (p *pass) recordedVerifyNotice(c verifyCommand) templates.VerifyCommandNoti
 	}
 	if v := p.in.Status.Verification; v != nil && v.Requested != nil && v.Requested.CommentID == id {
 		n.Outcome, n.Fix, n.Reset = templates.VerifyRequested, v.Requested.Fix, v.Requested.Reset
-		n.Explore = v.Requested.Explore
 		n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 		return n
 	}
@@ -220,11 +219,7 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 			// starts: nothing is recorded, and the reply says why (S2-B8),
 			// never that it is.
 			n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
-			n.Explore = args.Explore
 			return n, nil
-		}
-		if args.Fix && !args.Reset && suspectedConfirmable(p.in.Status.Verification, c.at) {
-			return p.confirmSuspected(ctx, c, n)
 		}
 		return p.requestVerification(ctx, c, args, n)
 	case action.VerbAccept:
@@ -322,7 +317,6 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		// The agents round is known to be unable to run: say so once,
 		// here, rather than acknowledge now and answer later (S2-B10).
 		n.Outcome, n.NotRunWhy, n.Fix, n.Reset = templates.VerifyNotRun, why, args.Fix, args.Reset
-		n.Explore = args.Explore
 		n.Stands = p.standingJudgement(&cur)
 		return n, nil
 	}
@@ -333,7 +327,6 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 		// the push of a fix round a fix request starts from a failing
 		// judgement (fixesStanding).
 		n.Outcome, n.NotRunWhy, n.Fix = templates.VerifyNotRun, templates.NotRunPreviewExpired, args.Fix
-		n.Explore = args.Explore
 		n.Stands = p.standingJudgement(&cur)
 		return n, nil
 	}
@@ -371,21 +364,20 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	}); err != nil {
 		return n, err
 	}
-	n.Outcome, n.Fix, n.Reset, n.Explore = templates.VerifyRequested, args.Fix, args.Reset, args.Explore
+	n.Outcome, n.Fix, n.Reset = templates.VerifyRequested, args.Fix, args.Reset
 	n.Joined = waiting != nil
 	n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 	return n, nil
 }
 
 // joinedRequest is the request c records with args, joining waiting (nil
-// for none): the newest comment stands for both, and neither's fix, reset
-// or explore is lost.
+// for none): the newest comment stands for both, and neither's fix or reset
+// is lost. Explore is retired and never recorded.
 func joinedRequest(c verifyCommand, args command.VerifyArgs, waiting *v1alpha1.VerifyRequest) v1alpha1.VerifyRequest {
 	req := v1alpha1.VerifyRequest{By: c.actor.Login, ByID: c.actor.ID, At: metav1.NewTime(c.at), CommentID: c.id,
-		Fix: args.Fix, Reset: args.Reset, Explore: args.Explore, PullRequest: c.requestSource()}
+		Fix: args.Fix, Reset: args.Reset, PullRequest: c.requestSource()}
 	if waiting != nil {
-		req.Fix, req.Reset, req.Explore = req.Fix || waiting.Fix, req.Reset || waiting.Reset,
-			req.Explore || waiting.Explore
+		req.Fix, req.Reset = req.Fix || waiting.Fix, req.Reset || waiting.Reset
 	}
 	return req
 }
@@ -397,35 +389,6 @@ func joinedRequest(c verifyCommand, args command.VerifyArgs, waiting *v1alpha1.V
 // gate answers the request then (waitPreview).
 func (p *pass) fixesStanding(args command.VerifyArgs, v *v1alpha1.IntentVerification) bool {
 	return args.Fix && v.State == v1alpha1.VerificationFailing && p.standingJudgement(v) != 0
-}
-
-// confirmSuspected records an approver's /maul verify fix as the
-// confirmation of the suspected defect at the current heads (fourth review),
-// made after maul recorded it (fifth review, 1), in any judged state (5):
-// the verification is Failing on it and automatic fixes are armed, so the
-// verify-fix round starts exactly as an automatic one would, its failures
-// the suspected one and any the round found on saved green checks
-// (evaluationFailure). No new evaluation is run.
-func (p *pass) confirmSuspected(ctx context.Context, c verifyCommand,
-	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
-	at := metav1.NewTime(c.at)
-	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
-		v := in.Status.Verification
-		if !suspectedConfirmable(v, c.at) {
-			return nil
-		}
-		rearm := v1alpha1.Rearm{By: c.actor.Login, ByID: c.actor.ID, At: at, Round: in.Status.Rounds}
-		v.Suspected.Confirmed = &rearm
-		since := metav1.NewTime(p.now)
-		v.State = v1alpha1.VerificationFailing
-		v.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixArmed, Since: &since, Rearm: &rearm}
-		rememberApplied(in, c.id)
-		return nil
-	}); err != nil {
-		return n, err
-	}
-	n.Outcome, n.Fix = templates.VerifyDefectConfirmed, true
-	return n, nil
 }
 
 // stopAutoFix records /maul verify stop: automatic fixes halted, reason

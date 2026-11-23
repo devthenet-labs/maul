@@ -62,16 +62,14 @@ var stagePriority = map[v1alpha1.IntentStage]int32{
 
 // jobPhase is the agentrun phase each stage's Job runs.
 var jobPhase = map[v1alpha1.IntentStage]string{
-	v1alpha1.IntentStagePlan:        "plan",
-	v1alpha1.IntentStageBuild:       "build",
-	v1alpha1.IntentStageRevise:      "build",
-	v1alpha1.IntentStageEvaluate:    "evaluate",
-	v1alpha1.IntentStageCheckReview: "checkreview",
+	v1alpha1.IntentStagePlan:     "plan",
+	v1alpha1.IntentStageBuild:    "build",
+	v1alpha1.IntentStageRevise:   "build",
+	v1alpha1.IntentStageEvaluate: "evaluate",
 }
 
 // errStageNotEnabled: a stage the schema admits that this controller does
-// not run as configured (the evaluator's and the check reviewer's while
-// --intent-evaluator is off): no run of it is created, and a granted one
+// not run as configured (the evaluator's while --intent-evaluator is off): no run of it is created, and a granted one
 // launches nothing.
 var errStageNotEnabled = errors.New("this controller does not run the stage: the agent evaluator is off")
 
@@ -79,24 +77,30 @@ var errStageNotEnabled = errors.New("this controller does not run the stage: the
 // enum refuses one); nothing is created or launched for it.
 var errUnknownStage = errors.New("the stage is unknown to this controller")
 
+// errStageRetired: a stage the schema still admits whose runs this release
+// never creates or launches (retiredStage): the check reviewer's.
+var errStageRetired = errors.New("the stage is retired: maul's evaluator saves no checks, so none is reviewed")
+
 // launchEnabled reports whether this controller knows how to create and
-// launch runs of stage: nil for every stage the schema admits,
-// errUnknownStage for any other. Whether it does so as configured is
-// Settings.stageEnabled.
+// launch runs of stage: nil for every stage the schema admits but a
+// retired one (errStageRetired), errUnknownStage for any other. Whether it
+// does so as configured is Settings.stageEnabled.
 func launchEnabled(stage v1alpha1.IntentStage) error {
 	switch stage {
 	case v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise,
-		v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
+		v1alpha1.IntentStageEvaluate:
 		return nil
+	case v1alpha1.IntentStageCheckReview:
+		return fmt.Errorf("stage %q: %w", stage, errStageRetired)
 	}
 	return fmt.Errorf("stage %q: %w", stage, errUnknownStage)
 }
 
 // stageEnabled reports whether runs of stage may be created and launched
-// under these settings: launchEnabled, and for the evaluate and checkreview
-// stages the agent evaluator on (errStageNotEnabled otherwise), so a run of
-// either made by hand, or left over from before the evaluator was switched
-// off, launches nothing.
+// under these settings: launchEnabled, and for the evaluate stage the agent
+// evaluator on (errStageNotEnabled otherwise), so a run of it made by
+// hand, or left over from before the evaluator was switched off, launches
+// nothing.
 func (s Settings) stageEnabled(stage v1alpha1.IntentStage) error {
 	if err := launchEnabled(stage); err != nil {
 		return err
@@ -1205,7 +1209,7 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		}
 		r.networkProfile(run, spec)
 		return true, nil
-	case v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview:
+	case v1alpha1.IntentStageEvaluate:
 		// A role run is handed its JSON handoff alone (launchRole): no
 		// plan, no tree, maul's own image.
 		if strings.TrimSpace(spec.IssueMarkdown) == "" {

@@ -13,8 +13,6 @@ import (
 
 const (
 	digestA = "sha256:" + "aa00000000000000000000000000000000000000000000000000000000000000"
-	digestB = "sha256:" + "bb00000000000000000000000000000000000000000000000000000000000000"
-	digestC = "sha256:" + "cc00000000000000000000000000000000000000000000000000000000000000"
 )
 
 const evaluationReport = `---
@@ -25,19 +23,8 @@ verdicts:
     note: "  The rating moved by 16 points: as the outcome asks.  "
   - id: leaderboard
     verdict: unsure
-    note: "Replay failed on shared data; disputed."
-disputes:
-  - check_digest: "` + digestA + `"
-    reason: "The check counted rows other runs created."
-    replacement: leaderboard-own-rows
+    note: "The leaderboard did not load."
     ledger: [3]
-proposed:
-  - id: leaderboard-own-rows
-    outcome: leaderboard
-    digest: "` + digestB + `"
-retire:
-  - check_digest: "` + digestC + `"
-    reason: "Superseded by leaderboard-own-rows."
 anomalies:
   - summary: "Console error on /battles: TypeError"
     route: /battles
@@ -61,8 +48,8 @@ func TestParseEvaluation(t *testing.T) {
 		v.Note != "The rating moved by 16 points: as the outcome asks." {
 		t.Errorf("Verdicts[0] = %+v, want the pass trimmed", v)
 	}
-	if u := e.Verdicts[1]; u.Verdict != VerdictUnsure || len(u.Ledger) != 0 {
-		t.Errorf("Verdicts[1] = %+v, want unsure without refs", u)
+	if u := e.Verdicts[1]; u.Verdict != VerdictUnsure || !slices.Equal(u.Ledger, []int32{3}) {
+		t.Errorf("Verdicts[1] = %+v, want unsure citing what it saw", u)
 	}
 	if !strings.HasPrefix(e.Body, "## What I did") {
 		t.Errorf("Body = %q", e.Body)
@@ -77,36 +64,8 @@ func TestParseEvaluationLists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseEvaluation() error = %v", err)
 	}
-	if len(e.Disputes) != 1 || e.Disputes[0].CheckDigest != digestA ||
-		e.Disputes[0].Replacement != "leaderboard-own-rows" || !slices.Equal(e.Disputes[0].Ledger, []int32{3}) {
-		t.Errorf("Disputes = %+v", e.Disputes)
-	}
-	if len(e.Proposed) != 1 || e.Proposed[0] != (ProposedCheck{ID: "leaderboard-own-rows", Outcome: "leaderboard",
-		Digest: digestB}) {
-		t.Errorf("Proposed = %+v", e.Proposed)
-	}
-	if len(e.Retire) != 1 || e.Retire[0].CheckDigest != digestC || e.Retire[0].Reason == "" {
-		t.Errorf("Retire = %+v", e.Retire)
-	}
 	if len(e.Anomalies) != 1 || e.Anomalies[0].Route != "/battles" || !slices.Equal(e.Anomalies[0].Ledger, []int32{20}) {
 		t.Errorf("Anomalies = %+v", e.Anomalies)
-	}
-}
-
-// TestParseEvaluationRedProposal: a check proposed to show a defect names
-// the outcome it disproves, which the report says fails.
-func TestParseEvaluationRedProposal(t *testing.T) {
-	doc := "---\nverdicts:\n  - outcome: upset-pays-more\n    verdict: fail\n    ledger: [7, 9]\n" +
-		"proposed:\n  - id: upset-pays-more\n    outcome: upset-pays-more\n    file: \"checks/upset.json\"\n" +
-		"    expect: fail\n  - id: upset-pays-more.green\n    outcome: upset-pays-more\n    file: \"checks/g.json\"\n" +
-		"    expect: pass\n---\n"
-	e, err := ParseEvaluation([]byte(doc))
-	if err != nil {
-		t.Fatalf("ParseEvaluation() error = %v", err)
-	}
-	if len(e.Proposed) != 2 || e.Proposed[0].Expect != ExpectFail || e.Proposed[1].Expect != ExpectPass ||
-		!e.Proposed[0].ExpectsFail() || e.Proposed[1].ExpectsFail() {
-		t.Errorf("Proposed = %+v, want the first expected to fail", e.Proposed)
 	}
 }
 
@@ -118,7 +77,7 @@ func TestParseEvaluationMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseEvaluation() error = %v", err)
 	}
-	if len(e.Verdicts) != 1 || e.Disputes != nil || e.Proposed != nil || e.Retire != nil || e.Anomalies != nil {
+	if len(e.Verdicts) != 1 || e.Anomalies != nil {
 		t.Errorf("ParseEvaluation() = %+v", e)
 	}
 }
@@ -163,40 +122,6 @@ func TestParseEvaluationRefusals(t *testing.T) {
 		{"multi-line note", verdict("  - id: a\n    verdict: unsure\n    note: \"one\\ntwo\"\n"), "verdicts[0].note"},
 		{"long note", verdict("  - id: a\n    verdict: unsure\n    note: \"" + strings.Repeat("n", NoteMaxChars+1) +
 			"\"\n"), "over 600"},
-		{"dispute bad digest", withVerdict("disputes:\n  - check_digest: abc\n    reason: r\n    ledger: [1]\n"),
-			"disputes[0].check_digest"},
-		{"dispute no reason", withVerdict("disputes:\n  - check_digest: \"" + digestA + "\"\n    ledger: [1]\n"),
-			"disputes[0].reason is required"},
-		{"dispute no refs", withVerdict("disputes:\n  - check_digest: \"" + digestA + "\"\n    reason: r\n"),
-			"disputes[0] cites no ledger"},
-		{"dispute unknown replacement", withVerdict("disputes:\n  - check_digest: \"" + digestA +
-			"\"\n    reason: r\n    replacement: other\n    ledger: [1]\n"),
-			`disputes[0].replacement "other" names no proposed check`},
-		{"dispute twice", withVerdict("disputes:\n  - check_digest: \"" + digestA + "\"\n    reason: r\n" +
-			"    ledger: [1]\n  - check_digest: \"" + digestA + "\"\n    reason: r\n    ledger: [2]\n"),
-			"disputes[1].check_digest is listed twice"},
-		{"proposed for no verdict", withVerdict("proposed:\n  - id: c\n    outcome: other\n    digest: \"" +
-			digestB + "\"\n"), `proposed[0].outcome "other" names no verdict`},
-		{"proposed bad digest", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n    digest: x\n"),
-			"proposed[0].digest"},
-		{"proposed to fail an outcome not reported fail", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n" +
-			"    digest: \"" + digestB + "\"\n    expect: fail\n"),
-			`proposed[0] expects to fail, but its outcome "rate-battle" is not reported fail`},
-		{"proposed with another expectation", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n" +
-			"    digest: \"" + digestB + "\"\n    expect: maybe\n"), `proposed[0].expect "maybe" is not pass or fail`},
-		{"proposed body", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n    digest: \"" + digestB +
-			"\"\n    steps: []\n"), "steps"},
-		{"proposed duplicate id", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n    digest: \"" +
-			digestB + "\"\n  - id: c\n    outcome: rate-battle\n    digest: \"" + digestC + "\"\n"),
-			`proposed[1].id "c" is listed twice`},
-		{"proposed duplicate digest", withVerdict("proposed:\n  - id: c\n    outcome: rate-battle\n    digest: \"" +
-			digestB + "\"\n  - id: d\n    outcome: rate-battle\n    digest: \"" + digestB + "\"\n"),
-			"proposed[1].digest is listed twice"},
-		{"retire no reason", withVerdict("retire:\n  - check_digest: \"" + digestC + "\"\n"),
-			"retire[0].reason is required"},
-		{"retired and disputed", withVerdict("disputes:\n  - check_digest: \"" + digestA + "\"\n    reason: r\n" +
-			"    ledger: [1]\nretire:\n  - check_digest: \"" + digestA + "\"\n    reason: r\n"),
-			"retire[0].check_digest is also disputed"},
 		{"anomaly no refs", withVerdict("anomalies:\n  - summary: s\n    route: /\n"), "anomalies[0] cites no ledger"},
 		{"anomaly no summary", withVerdict("anomalies:\n  - route: /\n    ledger: [1]\n"),
 			"anomalies[0].summary is required"},
@@ -227,7 +152,6 @@ func TestParseEvaluationBounds(t *testing.T) {
 		}
 		return b.String()
 	}
-	digest := func(i int) string { return fmt.Sprintf("\"sha256:%064x\"", i) }
 	verdicts := "verdicts:\n  - id: a\n    verdict: unsure\n"
 	tests := []struct {
 		name, frontmatter, want string
@@ -235,18 +159,9 @@ func TestParseEvaluationBounds(t *testing.T) {
 		{"verdicts", "verdicts:\n" + list(EvaluationMaxVerdicts+1, func(i int) string {
 			return fmt.Sprintf("  - id: o%d\n    verdict: unsure\n", i)
 		}), "verdicts has 21 items, over 20"},
-		{"proposed", verdicts + "proposed:\n" + list(EvaluationMaxProposed+1, func(i int) string {
-			return fmt.Sprintf("  - id: c%d\n    outcome: a\n    digest: %s\n", i, digest(i))
-		}), "proposed has 41 items, over 40"},
 		{"anomalies", verdicts + "anomalies:\n" + list(EvaluationMaxAnomalies+1, func(i int) string {
 			return fmt.Sprintf("  - summary: s\n    route: /\n    ledger: [%d]\n", i)
 		}), "anomalies has 11 items, over 10"},
-		{"disputes", verdicts + "disputes:\n" + list(EvaluationMaxDisputes+1, func(i int) string {
-			return fmt.Sprintf("  - check_digest: %s\n    reason: r\n    ledger: [1]\n", digest(i))
-		}), "disputes has 41 items, over 40"},
-		{"retire", verdicts + "retire:\n" + list(EvaluationMaxRetire+1, func(i int) string {
-			return fmt.Sprintf("  - check_digest: %s\n    reason: r\n", digest(i))
-		}), "retire has 41 items, over 40"},
 		{"ledger refs", verdicts + "anomalies:\n" + list(EvaluationMaxAnomalies, func(i int) string {
 			return fmt.Sprintf("  - summary: s\n    route: /\n    ledger: [%s]\n", list(31, func(j int) string {
 				return fmt.Sprintf("%d, ", i*100+j)
@@ -300,29 +215,5 @@ func TestParseEvaluationNoEvidenceNoVerdict(t *testing.T) {
 	}
 	if accepted == 0 || refused == 0 {
 		t.Errorf("accepted %d, refused %d: the generator must exercise both sides", accepted, refused)
-	}
-}
-
-// TestParseEvaluationContrary (S1 demo bug 13): a verdict names, apart from
-// the seqs it rests on, the seqs where the evaluator saw the outcome as
-// worded fail; they are ledger refs like any other, cited for evidence.
-func TestParseEvaluationContrary(t *testing.T) {
-	doc := "---\nverdicts:\n  - outcome: \"create-round-trip\"\n    verdict: unsure\n    ledger: []\n" +
-		"    contrary: [37, 39]\n    note: \"The exact GET body posted back is a 400 (seq 37).\"\n---\nbody\n"
-	e, err := ParseEvaluation([]byte(doc))
-	if err != nil {
-		t.Fatalf("ParseEvaluation() error = %v", err)
-	}
-	if v := e.Verdicts[0]; !slices.Equal(v.Contrary, []int32{37, 39}) {
-		t.Errorf("Verdicts[0] = %+v, want contrary [37 39]", v)
-	}
-	if got := e.LedgerRefs(); !slices.Equal(got, []int32{37, 39}) {
-		t.Errorf("LedgerRefs() = %v, want the contrary seqs cited", got)
-	}
-	for name, refs := range map[string]string{"negative": "[-1]", "repeated": "[4, 4]"} {
-		bad := strings.Replace(doc, "[37, 39]", refs, 1)
-		if _, err := ParseEvaluation([]byte(bad)); err == nil || !strings.Contains(err.Error(), "contrary") {
-			t.Errorf("%s contrary ref: error = %v, want it refused", name, err)
-		}
 	}
 }

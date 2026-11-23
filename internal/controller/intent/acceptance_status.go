@@ -204,28 +204,15 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationEvaluating:
 		return checkingStatus(v.Round, total, used, most), true
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
-		if p.replayDue(v) || p.escalationDue(v) {
-			// The model-free replay round a dispute asked for, or the head
-			// set's one full round (an unsure replay's escalation, a
-			// recheck), is due: maul is still checking.
-			return checkingStatus(v.Round, total, used, most), true
-		}
 		// Final until an approver accepts what maul could not confirm, or
 		// the heads move: never a pending status that waits for nothing.
 		return acceptanceState{statusError, templates.NotReadyLead + confirmed + p.unconfirmedCause()}, true
 	case v1alpha1.VerificationFailing:
-		switch {
-		case v.AutoFix.State == v1alpha1.AutoFixHalted:
+		if v.AutoFix.State == v1alpha1.AutoFixHalted {
 			return acceptanceState{statusFailure, confirmed + "; automatic fixes halted"}, true
-		case defectConfirmed(v):
-			// A person confirmed the defect maul suspected (fifth review, 6).
-			return acceptanceState{statusFailure, confirmed + "; a person confirmed the defect, a fix is starting"}, true
 		}
 		return acceptanceState{statusFailure, fmt.Sprintf("%s, %d failing", confirmed, v.Failed)}, true
 	case v1alpha1.VerificationFixing:
-		if defectConfirmed(v) {
-			return acceptanceState{statusFailure, confirmed + "; a person confirmed the defect, a fix is running"}, true
-		}
 		return acceptanceState{statusFailure, fmt.Sprintf("%s; automatic fix %d of %d running", confirmed, used,
 			most)}, true
 	case v1alpha1.VerificationExhausted:

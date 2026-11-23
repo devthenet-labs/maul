@@ -18,11 +18,11 @@ import (
 
 // TestOutcomeVerifyCommentOncePerRound twins TestVerifyCommentOncePerRound.
 func TestOutcomeVerifyCommentOncePerRound(t *testing.T) {
-	e, name, _, _ := outcomeEnv(t)
+	e, name := outcomeEnv(t)
 	if cs := e.verifyComments(name, 1); len(cs) != 0 {
 		t.Fatalf("posted while the round runs: %+v", cs)
 	}
-	e.evalRound(name, versionFails(t, healthCheck)...)
+	e.evalRound(name)
 	e.review(name, 8)
 	cs := e.verifyComments(name, 1)
 	if len(cs) != 1 || len(e.verifyComments(name, 2)) != 0 {
@@ -81,7 +81,6 @@ func TestOutcomeVerifyLogTailsOnlyWhereAllowed(t *testing.T) {
 	for _, postLogs := range []bool{false, true} {
 		e, name := newEvaluatorEnv(t, 0.4, func(p *v1alpha1.Project) { p.Spec.Verification.PostLogs = postLogs })
 		e.evaluateReporting(failingReport)
-		e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
 		e.review(name, 3)
 		pv := e.pvNamed(e.onlyVerification(name).Name)
 		// The tool pod's own part is never a component's log: never shown.
@@ -91,7 +90,7 @@ func TestOutcomeVerifyLogTailsOnlyWhereAllowed(t *testing.T) {
 		if err := e.c.Update(t.Context(), pv); err != nil {
 			t.Fatal(err)
 		}
-		e.evalRound(name, versionFails(t, healthCheck)...)
+		e.evalRound(name)
 		e.review(name, 8)
 		cs := e.verifyComments(name, 1)
 		if len(cs) != 1 || !strings.Contains(cs[0].Body, "panic: nil map") {
@@ -140,7 +139,7 @@ func TestOutcomeVerifyStatusLineNotDeclared(t *testing.T) {
 // TestOutcomeVerifyCommentNumbering twins TestVerifyCommentNumbering.
 func TestOutcomeVerifyCommentNumbering(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
-	e.fixedAndFailingAgain(name, versionFails(t, healthCheck)...)
+	e.fixedAndFailingAgain(name)
 	comments := e.gh.withMarker("verify-r2")
 	if len(comments) != 1 {
 		t.Fatalf("verification 2 comments = %d, want one", len(comments))

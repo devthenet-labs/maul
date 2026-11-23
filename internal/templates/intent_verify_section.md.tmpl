@@ -27,18 +27,6 @@ renders a line break inside a comment as a hard break. */ -}}
 
 {{ . }}
 {{- end }}
-{{- range .Claims }}
-
-{{ .Lead }}
-{{- with .Calls }}
-
-{{ . | chomp }}
-{{- end }}
-{{- end }}
-{{- range .UnsureNotes }}
-
-{{ . }}
-{{- end }}
 {{- range .Anomalies }}
 
 {{ . }}

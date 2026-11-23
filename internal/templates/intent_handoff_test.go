@@ -48,16 +48,6 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_status_handoff_infra_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyInfra}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
 			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyInfra})},
-		// Gate D-B11: the suspected defect leads, the doubted outcome after
-		// it.
-		{"intent_status_handoff_suspected.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}, Doubted: 1},
-			&VerifyProgress{State: VerifyUnconfirmed, Verification: 4, FixesUsed: 1, MaxFixes: 2, Passing: 3,
-				Total: 5, Outcomes: true, Why: HandoffWhySuspected})},
-		// Gate D-B6: outcomes the evaluator judged not to hold lead, counted.
-		{"intent_status_handoff_doubted_two.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyEvaluatorDoubts, Doubted: 2}, &VerifyProgress{State: VerifyUnconfirmed,
-			Verification: 3, MaxFixes: 2, Passing: 3, Total: 5, Outcomes: true, Why: HandoffWhyEvaluatorDoubts})},
 		{"intent_status_handoff_out_of_time.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyTime}, evaluating)},
 		{"intent_status_handoff_checking.md", status(&PreviewHandoff{State: HandoffChecking}, evaluating)},
@@ -65,8 +55,6 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_preview_handoff_ready.md", comment(&PreviewHandoff{State: HandoffReady}, testOutcomeSection())},
 		{"intent_preview_handoff_unconfirmed.md", comment(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhySandbox}, nil)},
-		{"intent_preview_handoff_doubted.md", comment(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyEvaluatorDoubts, Doubted: 1}, nil)},
 		{"intent_verify_outcomes_issue.md", func() (string, error) {
 			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "target-1", Round: 2, Attempt: 1,
 				Section: *testOutcomeSection()})
@@ -152,36 +140,27 @@ func TestHandoffWhyIsMaulsWords(t *testing.T) {
 	}
 }
 
-// TestHandoffDoubtedWords (gate D-B6): outcomes the evaluator judged not
-// to hold lead the reason, counted, saying maul did not prove them and
-// never that they fail.
-func TestHandoffDoubtedWords(t *testing.T) {
+// TestHandoffWhyWords: an unconfirmed hand-off says its reason in maul's
+// words; one not listed, among them an earlier release's (the evaluator's
+// doubts, a suspected defect, an anomaly), shows as the generic one.
+func TestHandoffWhyWords(t *testing.T) {
 	for _, tt := range []struct {
 		h    PreviewHandoff
 		want string
 	}{
-		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 1},
-			"the evaluator judged 1 outcome not to hold, but cited no evidence maul counts."},
-		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 2},
-			"the evaluator judged 2 outcomes not to hold, but cited no evidence maul counts."},
-		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts},
-			"the evaluator judged some outcomes not to hold, but cited no evidence maul counts."},
 		{PreviewHandoff{Why: HandoffWhyUnsure}, "some outcomes are unsure."},
 		{PreviewHandoff{Why: HandoffWhyEnvironment}, "the preview failed during the evaluation."},
 		// A reason no longer listed (an anomaly's, from before 2026-11-14)
 		// shows as the generic one.
 		{PreviewHandoff{Why: "anomaly"}, "some outcomes are unsure."},
-		{PreviewHandoff{Why: "@octocat", Doubted: 3}, "some outcomes are unsure."},
+		{PreviewHandoff{Why: "evaluator-doubts"}, "some outcomes are unsure."},
+		{PreviewHandoff{Why: "suspected"}, "some outcomes are unsure."},
+		{PreviewHandoff{Why: "@octocat"}, "some outcomes are unsure."},
 	} {
 		tt.h.State = HandoffUnconfirmed
 		got := handoffLabel(tt.h)
 		if want := "maul can't call this ready: " + tt.want; got != want {
 			t.Errorf("%+v = %q, want %q", tt.h, got, want)
-		}
-		for _, claim := range []string{"fail", "defect"} {
-			if tt.h.Why == HandoffWhyEvaluatorDoubts && strings.Contains(got, claim) {
-				t.Errorf("%+v claims %q: %q", tt.h, claim, got)
-			}
 		}
 	}
 }
@@ -203,7 +182,6 @@ func TestUnconfirmedCause(t *testing.T) {
 		// Review H3: maul's own environment failing is never the preview.
 		{HandoffWhyInfra, false, "its own evaluation environment failed during the evaluation"},
 		{HandoffWhyInfra, true, "its own tools failed during the evaluation"},
-		{HandoffWhySuspected, false, ""},
 		{HandoffWhyUnsure, false, ""},
 		{HandoffWhyBudget, false, ""},
 		{"", true, ""},
@@ -235,35 +213,6 @@ func TestWorkspaceEnvironmentLabel(t *testing.T) {
 		tt.h.State = HandoffUnconfirmed
 		if got := workspaceLabel(tt.h); got != tt.want {
 			t.Errorf("%+v = %q, want %q", tt.h, got, tt.want)
-		}
-	}
-}
-
-// TestHandoffSuspectedLeads (gate D-B11): a suspected defect leads the
-// reason, naming each outcome as code (an id that shows nothing is left
-// out), before the outcomes the evaluator doubts; with no outcome it can
-// show it still says a defect is suspected.
-func TestHandoffSuspectedLeads(t *testing.T) {
-	for _, tt := range []struct {
-		h    PreviewHandoff
-		want string
-	}{
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}},
-			"it suspects a defect in `swing-shown-nonzero`, which a person should confirm."},
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"a", "b"}, Doubted: 1},
-			"it suspects a defect in `a`, `b`, which a person should confirm, and the evaluator judged 1 " +
-				"outcome not to hold, but cited no evidence maul counts."},
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"", " "}},
-			"it suspects a defect, which a person should confirm."},
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"x` @octocat #3"}},
-			"it suspects a defect in ``x` @octocat #3``, which a person should confirm."},
-	} {
-		tt.h.State = HandoffUnconfirmed
-		for _, workspace := range []bool{false, true} {
-			got := labelIn(tt.h, workspace)
-			if want := "maul can't call this ready: " + tt.want; got != want {
-				t.Errorf("%+v (workspace %v) = %q, want %q", tt.h, workspace, got, want)
-			}
 		}
 	}
 }

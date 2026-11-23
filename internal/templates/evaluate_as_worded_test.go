@@ -45,28 +45,3 @@ func TestEvaluatePromptJudgesAsWorded(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-// TestGreenRubricRefusesANarrowedCheck (S1 demo bug 13): the reviewer
-// answered proves for a check that posted a subset of the body the outcome
-// said to post back exactly. The green rule now names that: a check leaving
-// out, replacing or altering anything the outcome's words name tests less
-// than the outcome, even on a reasonable reading.
-func TestGreenRubricRefusesANarrowedCheck(t *testing.T) {
-	for _, want := range []string{
-		"A check that leaves out, replaces or alters anything the outcome's words name",
-		"a field of a body it says to send, a step, a value, a page or a surface",
-		"tests less than the outcome: answer `does_not_prove`, even if what it does test is a reasonable reading " +
-			"of the outcome",
-	} {
-		if !strings.Contains(GreenRubric, want) {
-			t.Errorf("the green rule lacks %q", want)
-		}
-	}
-	got, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(flat(got), "even if what it does test is a reasonable reading of the outcome") {
-		t.Error("a green review is not shown the narrowed-check rule")
-	}
-}

@@ -443,12 +443,9 @@ func (p *pass) settleUnrun(ctx context.Context, reason v1alpha1.PreviewVerificat
 // never due over it; a replay round keeps it) or the verification already
 // records state for reason. A pending request is never settled: it was due
 // (verifyDue), so it is consumed whatever reference is on record, or it
-// would wait, unanswered and unlogged, until the heads move. Nor is an
-// automatic follow-up due over that reference (followUpDue: a dispute's
-// replay, the escalation, the recheck): it settles, or it would hold the
-// hand-off and maul/acceptance pending for ever.
+// would wait, unanswered and unlogged, until the heads move.
 func (p *pass) roundSettled(state v1alpha1.IntentVerificationState,
 	reason v1alpha1.SettleCause) bool {
 	v := p.in.Status.Verification
-	return v.Requested == nil && (v.Ref != nil && !p.followUpDue(v) || v.State == state && v.Cause == reason)
+	return v.Requested == nil && (v.Ref != nil || v.State == state && v.Cause == reason)
 }

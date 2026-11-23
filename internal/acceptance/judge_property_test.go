@@ -422,7 +422,7 @@ func TestJudgeP6FixIsTheFailedSet(t *testing.T) {
 		var fixIDs []string
 		for _, f := range got.Fix.Failures {
 			fixIDs = append(fixIDs, f.Outcome)
-			if !oracleValid(in, f.Seq) || f.CheckDigest != "" {
+			if !oracleValid(in, f.Seq) {
 				t.Errorf("failure %+v does not rest on a valid cite alone", f)
 			}
 		}

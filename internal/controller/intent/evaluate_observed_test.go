@@ -256,9 +256,11 @@ func TestRepeatedFailureOutcomePieces(t *testing.T) {
 		{"another outcome", prior, failing(b), false},
 		{"the outcome's text changed", prior, failing(acceptance.OutcomeRef{ID: oVersion,
 			Digest: "sha256:" + strings.Repeat("3", 64)}), false},
-		{"a check-era round", priorFailure{signature: acceptance.EvaluationFingerprint([]string{oVersion},
-			[]string{"sha256:" + strings.Repeat("4", 64)}, nil), pieces: []string{"o:" + oVersion + " " +
-			acceptance.EvaluationFingerprint([]string{oVersion}, []string{""}, nil)}}, failing(a), false},
+		// An earlier release's record: a v1 fingerprint and piece, as it
+		// stored them.
+		{"a check-era round", priorFailure{signature: "maul-evaluation-fingerprint/1:" + strings.Repeat("4", 64),
+			pieces: []string{"o:" + oVersion + " maul-evaluation-fingerprint/1:" + strings.Repeat("5", 64)}},
+			failing(a), false},
 	} {
 		if got := repeatedFailure(tt.prior, tt.cur); got != tt.want {
 			t.Errorf("%s: repeatedFailure = %v, want %v", tt.name, got, tt.want)
