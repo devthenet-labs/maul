@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.16](https://github.com/devthenet-labs/maul/compare/v0.14.15...v0.14.16) (2026-11-23)
+
+
+### Features
+
+* editable Project settings page for approvers ([#467](https://github.com/devthenet-labs/maul/issues/467)) ([68ee8e1](https://github.com/devthenet-labs/maul/commit/68ee8e1b124b2deae64b934e889069332e94a336))
+* subagents in build runs, and workflows behind their own switch ([#468](https://github.com/devthenet-labs/maul/issues/468)) ([3d81b83](https://github.com/devthenet-labs/maul/commit/3d81b830a73cb05e7597ae6eb55f8bc99e9a2025))
+
+
+### Bug Fixes
+
+* **harness:** deny delegation, wake-ups, cron, worktrees and Monitor in the writable posture ([#466](https://github.com/devthenet-labs/maul/issues/466)) ([8d8b764](https://github.com/devthenet-labs/maul/commit/8d8b764db754187357a86de89a46131f44829bce))
+
 ## [0.14.15](https://github.com/devthenet-labs/maul/compare/v0.14.14...v0.14.15) (2026-11-22)
 
 
