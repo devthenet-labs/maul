@@ -47,7 +47,7 @@ func TestEvaluateHandoffBoundByHarness(t *testing.T) {
 		h.PriorVerdicts = append(h.PriorVerdicts, PriorVerdict{Outcome: o.ID, Result: "unsure",
 			Reason: strings.Repeat("v", 600)})
 	}
-	got, err := templates.RenderEvaluatePrompt(h.prompt("", "", "", templates.StageLimits{}))
+	got, err := templates.RenderEvaluatePrompt(h.prompt("", "", templates.StageLimits{}))
 	if err != nil {
 		t.Fatal(err)
 	}

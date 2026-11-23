@@ -104,12 +104,12 @@ run = "./hack/claude-posture-probe.sh"
 # The evaluator's report contract against the REAL model, through the REAL
 # CLI at the pinned version: the real evaluate prompt and its out-of-turns
 # repair prompt for a tiny synthetic round, the report held to the strict
-# decoder. Needs ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (skips without
-# one) and costs real money, about $0.20 (each CLI run capped at $0.40). CI
-# runs it when the evaluator's prompts, its report schema or the CLI pin
-# change.
+# decoder and to maul's judge over the stand-in tool's ledger. Needs
+# ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (skips without one) and costs
+# real money, about $0.20 (each CLI run capped at $0.40). CI runs it when the
+# evaluator's prompts, its report schema, its judge or the CLI pin change.
 [evaluator-report-probe]
-description = "run the evaluator report probe: the real model against the evaluate prompt and the strict report decoder"
+description = "run the evaluator report probe: the real model against the evaluate prompt, the report decoder and the judge"
 dir = "{{cwd}}"
 run = "./hack/evaluator-report-probe.sh"
 

@@ -150,10 +150,8 @@ func TestRoleStageInvocations(t *testing.T) {
 		write           map[string]string
 		maxOutput       int
 	}{
-		// A report that passes nothing, so no ask for a check follows the
-		// one command pinned here (evaluate_cover.go).
 		{PhaseEvaluate, evaluateHandoff, "invocation_evaluate.txt",
-			map[string]string{"scratch/report.md": noPassEvaluation}, provider.EvaluateMaxOutputTokens},
+			map[string]string{"scratch/report.md": goodEvaluation}, provider.EvaluateMaxOutputTokens},
 		{PhaseCheckReview, reviewHandoff(1), "invocation_checkreview.txt",
 			map[string]string{"scratch/review-1.md": reviewReport("proves")}, provider.CheckReviewMaxOutputTokens},
 	}

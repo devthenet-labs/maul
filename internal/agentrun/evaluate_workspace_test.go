@@ -53,22 +53,16 @@ func wsHandoff(w *EvaluateWorkspace, key string, edit func(*EvaluateHandoff)) st
 	})
 }
 
-// onsetsCheck is a cli run check the evaluator saves for onsets-500ms.
-var onsetsCheck = mustCheck(templates.ExampleCLIRunCheck)
-
-// onsetsReport passes onsets-500ms and proposes onsetsCheck by its file.
+// onsetsReport passes onsets-500ms, citing the calls the evaluator made.
 func onsetsReport(note string) string {
 	return "---\nverdicts:\n  - outcome: onsets-500ms\n    verdict: pass\n    ledger: [7, 9]\n    note: \"" + note +
-		"\"\nproposed:\n  - id: \"onsets-500ms-wav\"\n    outcome: onsets-500ms\n    file: \"checks/onsets.json\"\n" +
-		"---\nRan the program at the head and the base.\n"
+		"\"\n---\nRan the program at the head.\n"
 }
 
 // TestEvaluateWorkspaceRound (S2-16): a workspace round's handoff renders
 // the workspace prompt with its surface, stages the :8090 key where
-// maul-tool reads it (0400, outside scratch), and agent-runner's own
-// confirm and finish carry the key; a proposed run check is read from its
-// file under checks/ and confirmed by its digest. The key reaches no
-// prompt, event, turn or log line.
+// maul-tool reads it (0400, outside scratch), and agent-runner's own finish
+// carries the key. The key reaches no prompt, event, turn or log line.
 func TestEvaluateWorkspaceRound(t *testing.T) {
 	var out, logs bytes.Buffer
 	cfg, ws := roleConfig(t, PhaseEvaluate, wsHandoff(cliWorkspace(), testToolsKey, nil), &out)
@@ -76,8 +70,7 @@ func TestEvaluateWorkspaceRound(t *testing.T) {
 	brokeredClaude(t, &cfg)
 	tools := useTools(t, &cfg)
 	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
-		"scratch/report.md":          onsetsReport("500 ms apart at the head, 250 at the base."),
-		"scratch/checks/onsets.json": string(checks.Canonical(onsetsCheck)),
+		"scratch/report.md": onsetsReport("500 ms apart at the head, 250 at the base."),
 	}}}}
 	ev := onlyEvent(t, cfg, fx, &out)
 
@@ -85,19 +78,14 @@ func TestEvaluateWorkspaceRound(t *testing.T) {
 	if ev.Type != envelope.TypeEvaluation || e == nil || e.Outcome != envelope.OutcomeOK {
 		t.Fatalf("event = %+v, want an ok evaluation", ev)
 	}
-	if len(e.Proposed) != 1 || e.Proposed[0].Digest != checks.Digest(onsetsCheck) {
-		t.Errorf("proposed = %+v, want the run check by its file's digest", e.Proposed)
+	if len(e.Verdicts) != 1 || e.Verdicts[0].ID != "onsets-500ms" || !slices.Equal(e.Verdicts[0].Ledger, []int32{7, 9}) {
+		t.Errorf("verdicts = %+v, want the report's", e.Verdicts)
 	}
-	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbConfirm, toolwire.VerbFinish}) {
-		t.Fatalf("tool calls = %v, want confirm then finish", got)
+	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbFinish}) {
+		t.Fatalf("tool calls = %v, want finish alone", got)
 	}
-	if got := tools.keys(); !slices.Equal(got, []string{testToolsKey, testToolsKey}) {
-		t.Errorf("tool call keys = %q, want the round's key on confirm and finish", got)
-	}
-	var confirm toolwire.ConfirmRequest
-	tools.request(t, toolwire.VerbConfirm, &confirm)
-	if want := []string{strings.TrimPrefix(checks.Digest(onsetsCheck), "sha256:")}; !slices.Equal(confirm.Digests, want) {
-		t.Errorf("confirm digests = %v, want %v", confirm.Digests, want)
+	if got := tools.keys(); !slices.Equal(got, []string{testToolsKey}) {
+		t.Errorf("tool call keys = %q, want the round's key on the finish", got)
 	}
 	checkKeyFile(t, filepath.Join(ws, "input", "tools-key"))
 
@@ -263,7 +251,7 @@ func TestEvaluateWorkspaceHandoffRefused(t *testing.T) {
 // TestEvaluateKeyNeverLeaks is a seeded property over what the scripted
 // agent prints and writes: whatever turn, tool result or report carries the
 // round's key, no event, transcript turn or log line of agent-runner does,
-// and its own confirm and finish still carry it as their header only.
+// and its own finish still carries it as its header only.
 func TestEvaluateKeyNeverLeaks(t *testing.T) {
 	rng := rand.New(rand.NewPCG(16, 2))
 	for i := range 24 {
@@ -295,8 +283,7 @@ func TestEvaluateKeyNeverLeaks(t *testing.T) {
 				`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"` + key +
 				`"}]}}`
 			fx := &fakeExec{steps: []step{{ws: ws, stdout: stream, writes: map[string]string{
-				"scratch/report.md":          onsetsReport(note),
-				"scratch/checks/onsets.json": string(checks.Canonical(onsetsCheck)),
+				"scratch/report.md": onsetsReport(note),
 			}}}}
 			ev := onlyEvent(t, cfg, fx, &out)
 			if ev.Evaluation == nil {

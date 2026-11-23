@@ -36,8 +36,10 @@ const evaluateHandoffMaxBytes = 256 << 10
 // the intent controller encodes as strict JSON (encoding/json of this
 // type). agent-runner renders the evaluate prompt from it
 // (templates.RenderEvaluatePrompt), which quotes every untrusted field
-// (Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files, PriorVerdicts, PriorReplay,
-// PriorRefused, NotYetProof) as fenced data.
+// (Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files, PriorVerdicts)
+// as fenced data. PriorReplay, PriorRefused and NotYetProof are retired
+// with saved checks: they are still decoded, so a controller that sends them
+// is not refused, and never reach the prompt.
 type EvaluateHandoff struct {
 	// Round is the verification round, 1-based.
 	Round int `json:"round"`
@@ -63,19 +65,17 @@ type EvaluateHandoff struct {
 	// 2026-11-18, agent-prompts 8); nil when it is the whole fix.
 	FixDiffCut *FixDiffCut `json:"fix_diff_cut,omitempty"`
 	// PriorRound is the last judged round before this one, 0 for none;
-	// PriorVerdicts are maul's results of its outcomes, and PriorReplay how
-	// its saved checks replayed (SPEC Q15).
+	// PriorVerdicts are maul's results of its outcomes (SPEC Q15).
 	PriorRound    int            `json:"prior_round,omitempty"`
 	PriorVerdicts []PriorVerdict `json:"prior_verdicts,omitempty"`
-	PriorReplay   []PriorReplay  `json:"prior_replay,omitempty"`
-	// PriorRefused are the checks the reviewer refused in earlier rounds,
-	// with its reasons (coverage design C3).
+	// PriorReplay, PriorRefused and NotYetProof are retired with saved
+	// checks: how the previous round's saved checks replayed, the checks the
+	// reviewer refused, and the saved checks not yet proof. They are decoded
+	// and ignored (EvaluateHandoff.prompt never reads them), until the
+	// controller stops sending them and they are removed.
+	PriorReplay  []PriorReplay  `json:"prior_replay,omitempty"`
 	PriorRefused []PriorRefusal `json:"prior_refused,omitempty"`
-	// NotYetProof are the saved checks saved to show a defect that no
-	// review has yet accepted as proof their outcome holds (gate D-B9): a
-	// green replay of one passes nothing, so the prompt asks for a new
-	// check of its outcome.
-	NotYetProof []NotYetProof `json:"not_yet_proof,omitempty"`
+	NotYetProof  []NotYetProof  `json:"not_yet_proof,omitempty"`
 }
 
 // FixDiffCut is what a round's fix diff leaves out of the fix, as
@@ -93,7 +93,8 @@ type FixDiffCut struct {
 }
 
 // NotYetProof is one saved check that is not yet proof of a pass (saved
-// red, or Refused): its outcome's id and its own id.
+// red, or Refused): its outcome's id and its own id. Retired: decoded,
+// never read.
 type NotYetProof struct {
 	Outcome string `json:"outcome"`
 	Check   string `json:"check"`
@@ -105,12 +106,8 @@ type NotYetProof struct {
 
 // PriorRefusal is one check the reviewer refused in an earlier round: its
 // outcome's id, its own id, the reviewer's reason, and the refused check
-// itself (G5R-B-CLI-1): its canonical JSON as maul confirmed it, read from
-// the verified ledger's record of that round, never from an evaluator's
-// report. Body is the previous evaluator's text, UNTRUSTED: the prompt
-// quotes it as data for the evaluator to amend, and it is never run,
-// replayed or counted as a check. Empty when maul no longer holds it or
-// left it out to keep the handoff bounded (templates.RefusedBodiesMaxBytes).
+// itself (G5R-B-CLI-1). Body is the previous evaluator's text, UNTRUSTED.
+// Retired: decoded, never read.
 type PriorRefusal struct {
 	Outcome string `json:"outcome"`
 	Check   string `json:"check"`
@@ -127,7 +124,7 @@ type PriorVerdict struct {
 }
 
 // PriorReplay is how one saved check, bound to Outcome, replayed in a
-// previous round.
+// previous round. Retired: decoded, never read.
 type PriorReplay struct {
 	Check   string `json:"check"`
 	Outcome string `json:"outcome"`
@@ -321,7 +318,7 @@ func validEvaluateHandoff(h EvaluateHandoff) error {
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
-	if _, err := templates.RenderEvaluatePrompt(h.prompt("", "", "", templates.StageLimits{})); err != nil {
+	if _, err := templates.RenderEvaluatePrompt(h.prompt("", "", templates.StageLimits{})); err != nil {
 		return err
 	}
 	return nil
@@ -356,11 +353,11 @@ func validWorkspaceTools(h EvaluateHandoff) []error {
 }
 
 // prompt is the handoff as the evaluate prompt's data, with maul's own
-// paths and the run's limits.
-func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
-	limits templates.StageLimits) templates.EvaluatePrompt {
+// paths and the run's limits. The retired check fields (the prompt's
+// ChecksDir, PriorReplay, PriorRefused and NotYetProof) are left empty.
+func (h EvaluateHandoff) prompt(reportPath, shotsDir string, limits templates.StageLimits) templates.EvaluatePrompt {
 	p := templates.EvaluatePrompt{
-		ReportPath: reportPath, ChecksDir: checksDir, ShotsDir: shotsDir,
+		ReportPath: reportPath, ShotsDir: shotsDir,
 		Limits: limits, Round: h.Round, RunToken: h.RunToken,
 		Tools: templates.EvaluateTools{
 			Browser: h.Tools.Browser, BrowserEntry: h.Tools.BrowserEntry, Sandbox: h.Tools.Sandbox,
@@ -380,18 +377,6 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 		p.PriorVerdicts = append(p.PriorVerdicts, templates.PriorVerdict{Outcome: v.Outcome, Result: v.Result,
 			Reason: v.Reason})
 	}
-	for _, r := range h.PriorReplay {
-		p.PriorReplay = append(p.PriorReplay, templates.PriorReplay{Check: r.Check, Outcome: r.Outcome,
-			Result: r.Result})
-	}
-	for _, r := range h.PriorRefused {
-		p.PriorRefused = append(p.PriorRefused, templates.PriorRefusal{Check: r.Check, Outcome: r.Outcome,
-			Reason: r.Reason, Body: r.Body})
-	}
-	for _, c := range h.NotYetProof {
-		p.NotYetProof = append(p.NotYetProof, templates.NotYetProof{Check: c.Check, Outcome: c.Outcome,
-			Refused: c.Refused})
-	}
 	for _, c := range h.Components {
 		p.Components = append(p.Components, templates.EvaluateComponent{Key: c.Key, Path: c.Path})
 	}
@@ -402,10 +387,10 @@ func (h EvaluateHandoff) prompt(reportPath, checksDir, shotsDir string,
 }
 
 // evaluate runs the evaluate stage, then closes the round's tool pod: it
-// asks the tools container to confirm the checks the accepted report
-// proposes, then to finish, naming the screenshots the report cites as
-// evidence (closeTools). Finish is sent whatever the stage's outcome, so the
-// tool pod's ledger completes as soon as the evaluator is done with it.
+// asks the tools container to finish, naming the screenshots the report
+// cites as evidence (closeTools). Finish is sent whatever the stage's
+// outcome, so the tool pod's ledger completes as soon as the evaluator is
+// done with it. Nothing else is asked of the evaluator or its tool pod.
 func (a *Agent) evaluate(ctx context.Context, in evaluateInput) *envelope.Evaluation {
 	ev, accepted := a.explore(ctx, in.handoff)
 	ev.Cited = a.closeTools(ctx, in.tools, accepted)
@@ -439,13 +424,14 @@ func redactEvaluation(ev *envelope.Evaluation, key string) *envelope.Evaluation 
 // report exactly as written and its parsed frontmatter, every value of it
 // the model's claim (agentresult.FromEvaluation re-derives them from the
 // report). It returns the accepted report, nil when the stage did not end
-// OK.
-func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Evaluation, *evaluationReport) {
+// OK. The report is the run's own (after any repair, settleReport): the
+// evaluator is never asked again for anything it did not write.
+func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Evaluation, *report.Evaluation) {
 	ev := &envelope.Evaluation{Stage: envelope.Stage{
 		Harness: a.cfg.InvestigateHarness,
 		Model:   a.cfg.InvestigateModel,
 	}}
-	fail := func(outcome envelope.Outcome, detail string) (*envelope.Evaluation, *evaluationReport) {
+	fail := func(outcome envelope.Outcome, detail string) (*envelope.Evaluation, *report.Evaluation) {
 		ev.Outcome, ev.Detail = outcome, detail
 		return ev, nil
 	}
@@ -466,7 +452,7 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 	firstTurns := maxTurns - reportReserve(maxTurns)
 	// Nor the last minutes of its wall clock, for the same (gate D-B8).
 	reserve := clockReserve(a.cfg.InvestigateTimeout)
-	p := in.prompt(a.cfg.evaluationPath(), a.cfg.checksDir(), a.cfg.shotsDir(),
+	p := in.prompt(a.cfg.evaluationPath(), a.cfg.shotsDir(),
 		templates.StageLimits{MaxTurns: firstTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout - reserve})
 	prompt, err := templates.RenderEvaluatePrompt(p)
 	if err != nil {
@@ -507,7 +493,7 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 	}
 
 	e, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.evaluationPath(), readReport,
-		a.parseEvaluation)
+		parseEvaluation)
 	if outcome != envelope.OutcomeOK {
 		if sr.outOfTurns || sr.outOfTime {
 			// It still ends on the cap or the clock, as before, with why no
@@ -516,18 +502,9 @@ func (a *Agent) explore(ctx context.Context, in EvaluateHandoff) (*envelope.Eval
 		}
 		return fail(outcome, detail)
 	}
-	e, raw = a.coverChecks(ctx, sr, &ev.Stage, in, e, raw)
-	for _, d := range e.dropped {
-		reason := oneLine(d.reason, repairFailureBytes)
-		a.cfg.Log.Warn("dropped a proposed check: the file it names does not resolve to a check to confirm",
-			"phase", a.cfg.Phase, "id", oneLine(d.id, 80), "file", oneLine(d.file, 300), "reason", reason)
-		if sr.rec != nil {
-			sr.rec.Notice("maul dropped proposed check %q: %s", oneLine(d.id, 80), reason)
-		}
-	}
 	ev.Outcome = envelope.OutcomeOK
 	ev.ReportMarkdown = string(raw)
-	fillEvaluation(ev, e.Evaluation)
+	fillEvaluation(ev, e)
 	return ev, e
 }
 

@@ -278,11 +278,9 @@ func (c Config) scratchDir() string { return filepath.Join(c.Workspace, "scratch
 // evaluationPath is the evaluate stage's report.
 func (c Config) evaluationPath() string { return filepath.Join(c.scratchDir(), "report.md") }
 
-// checksDir is where the evaluator writes the check files it proposes,
-// under scratch; shotsDir is where maul-tool writes screenshots
+// shotsDir is where maul-tool writes screenshots, under scratch
 // (maultool.ShotsDir).
-func (c Config) checksDir() string { return filepath.Join(c.scratchDir(), "checks") }
-func (c Config) shotsDir() string  { return filepath.Join(c.scratchDir(), maultool.ShotsDir) }
+func (c Config) shotsDir() string { return filepath.Join(c.scratchDir(), maultool.ShotsDir) }
 
 // reviewPath is the checkreview stage's report for its n-th review
 // (1-based), one per session.

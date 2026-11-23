@@ -1133,22 +1133,25 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   keeps it in, via the optional `harness.TaskWatcher`; bounded per command and per process by constants; never
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every
   stdout line. The evaluator's stages `evaluate` (`evaluate.go`, `evaluate_tools.go`: the strict JSON handoff from
-  `/work/input`, the `SandboxEvaluate` posture in `/work/scratch`, then `confirm` and `finish` sent to the tool pod;
-  its envelope is only the model's claim) and `checkreview` (`checkreview.go`: one fresh session per new check,
-  answering `proves`, `does_not_prove` or `unclear`) run on maul's image with no tree; `report.Evaluation` and
-  `report.CheckReview` are their reports, the plan report gains `acceptance` outcomes. On an agents round the evaluate
-  handoff names the surface (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and carries `Tools.Key`,
-  which agent-runner writes to `input/tools-key` (0400, `maultool.KeyFile`) before the model runs, adds to the
-  scrubber, and sends with its own `confirm` and `finish` (a key on a slot round is refused); the check review handoff
-  carries `Workspace{surface, binary, language, build, base_unbuildable}` and each item's `head`/`base` run (result,
+  `/work/input`, the `SandboxEvaluate` posture in `/work/scratch`, then only `finish` sent to the tool pod, naming
+  at most 6 screenshots the verdicts cite first; no check is confirmed; its envelope is only the model's claim) and
+  `checkreview` (`checkreview.go`: one fresh session per new check, answering `proves`, `does_not_prove` or
+  `unclear`) run on maul's image with no tree; `report.Evaluation` and `report.CheckReview` are their reports, the
+  plan report gains `acceptance` outcomes. On an agents round the evaluate handoff names the surface
+  (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and carries `Tools.Key`, which agent-runner writes to
+  `input/tools-key` (0400, `maultool.KeyFile`) before the model runs, adds to the scrubber, and sends with its own
+  `finish` (a key on a slot round is refused); the check review handoff carries
+  `Workspace{surface, binary, language, build, base_unbuildable}` and each item's `head`/`base` run (result,
   assertion, the base run's `cause`): a green item's head run must be `pass`, a red one's `fail` by its
-  `failed_assertion`. Whether the REAL model writes
-  that report as the decoder demands is `TestEvaluatorReportProbe` (`evaluate_report_probe_test.go`, `mise run
+  `failed_assertion`. Whether the REAL model writes that report as the decoder demands, and observes as the judge
+  counts, is `TestEvaluatorReportProbe` (`evaluate_report_probe_test.go`, `mise run
   evaluator-report-probe`): the real evaluate prompt and its out-of-turns repair prompt for a tiny synthetic round,
-  the pinned CLI, a stand-in maul-tool (the test binary re-entered), the report through `readReportAs` and
-  `parseEvaluation`'s two steps; it needs `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` and costs about $0.20,
-  and CI runs it when those prompts, the schema or the CLI pin change, only where the repository secret
-  `EVALUATOR_PROBE_ANTHROPIC_API_KEY` or `EVALUATOR_PROBE_CLAUDE_CODE_OAUTH_TOKEN` exists (otherwise it warns and passes).
+  the pinned CLI, a stand-in maul-tool (the test binary re-entered, keeping a ledger), the report through
+  `readReportAs` and `parseEvaluation`, then `acceptance.Judge` over that ledger (the working outcome seen to hold,
+  the broken one seen not to, each on a cited call); it needs `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` and
+  costs about $0.20, and CI runs it when those prompts, the schema, the judge or the CLI pin change, only where the
+  repository secret `EVALUATOR_PROBE_ANTHROPIC_API_KEY` or `EVALUATOR_PROBE_CLAUDE_CODE_OAUTH_TOKEN` exists
+  (otherwise it warns and passes).
 - `jobs` — the Kubernetes Job the agent runs in. The isolation model lives here, and it STRENGTHENED with the
   broker: a brokered (claude, codex) pod holds no credential of any kind — its projected SA token (audience-bound,
   agent container only, never the init) is an identity document, not a capability; claude's fixed, non-secret

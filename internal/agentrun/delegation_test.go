@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/transcript"
 )
@@ -136,40 +135,5 @@ func TestRepairEndsOnDelegation(t *testing.T) {
 				t.Errorf("detail = %q, want %q and the delegation it refused", stage.Detail, want)
 			}
 		})
-	}
-}
-
-// TestEvaluateCoverAskEndsOnDelegation: the evaluator's ask for the checks
-// of its uncovered passes is held to the same rule. An ask that delegates
-// is ended there; the report it rewrote, a good one, is not read, the one
-// before stands and no further ask is made.
-func TestEvaluateCoverAskEndsOnDelegation(t *testing.T) {
-	var out bytes.Buffer
-	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
-	brokeredClaude(t, &cfg)
-	cfg.InvestigateMaxTurns = 100
-	useTools(t, &cfg)
-	rewritten := proposingEvaluation("rate-battle.api", "rate-battle", checks.Digest(rateBattleCheck))
-	fx := &fakeExec{steps: []step{
-		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": goodEvaluation}},
-		{ws: ws, stdout: streamResumed, budgetLines: []string{lineSubagentStarted}, writes: map[string]string{
-			"scratch/report.md":                   rewritten,
-			"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
-		}},
-	}}
-	e := onlyEvent(t, cfg, fx, &out).Evaluation
-	if e == nil || e.Outcome != envelope.OutcomeOK || e.ReportMarkdown != goodEvaluation {
-		t.Fatalf("evaluation = %+v, want the report before the ask", e)
-	}
-	if len(e.Proposed) != 0 {
-		t.Errorf("proposed = %+v, want none: the ask's check is not read", e.Proposed)
-	}
-	if len(fx.specs) != 2 {
-		t.Errorf("commands = %d, want the stage and the one ask", len(fx.specs))
-	}
-	got := turns(t, out.String())
-	if n := len(got); n == 0 || got[n-1].Kind != transcript.KindNotice ||
-		!strings.Contains(got[n-1].Text, "grants no subagents") {
-		t.Errorf("transcript = %+v, want it to end on the delegation refused", got)
 	}
 }

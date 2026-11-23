@@ -15,8 +15,21 @@ import (
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// cliExecCheck is a cli exec check under review.
-var cliExecCheck = mustCheck(templates.ExampleCLIExecCheck)
+// cliExecCheck is a cli exec check under review, and onsetsCheck a cli run
+// check.
+var (
+	cliExecCheck = mustCheck(templates.ExampleCLIExecCheck)
+	onsetsCheck  = mustCheck(templates.ExampleCLIRunCheck)
+)
+
+// mustCheck parses a check the reviewer is asked about.
+func mustCheck(raw string) checks.Check {
+	c, err := checks.Parse([]byte(raw))
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
 
 // wsReviewItem is a review of c on a workspace, green at the head and red
 // by assertion at the base.
