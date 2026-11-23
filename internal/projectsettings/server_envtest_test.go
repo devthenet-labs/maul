@@ -221,28 +221,30 @@ func (s served) viewNamesTheRealManagers(saved *v1alpha1.Project) {
 	t := s.t
 	t.Helper()
 	v := View(saved, s.pol, 0, testNow)
-	for id, want := range map[string][]string{
-		FieldMaxRevisions:        {},       // the manifest's, changed by the page
-		"limits.build.timeout":   {"helm"}, // the manifest's, untouched
-		FieldChecksFix:           {"helm"}, // "test" is still the manifest's
-		FieldApprovers:           {"helm"},
-		FieldRepositoryClass:     {"helm"}, // app's
-		FieldMaxActiveIntents:    {},       // defaulted, then the page's
+	helm := []ProjectSettingsManager{{Name: "helm", Operation: ManagerApply}} // server-side apply
+	for id, want := range map[string][]ProjectSettingsManager{
+		FieldMaxRevisions:        {},   // the manifest's, changed by the page
+		"limits.build.timeout":   helm, // the manifest's, untouched
+		FieldChecksFix:           helm, // "test" is still the manifest's
+		FieldApprovers:           helm,
+		FieldRepositoryClass:     helm, // app's
+		FieldMaxActiveIntents:    {},   // defaulted, then the page's
 		FieldVerificationEnabled: {},
 	} {
 		if got := fieldOf(t, v, id).Managers; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: managers %v, want %v", id, got, want)
 		}
 	}
-	logins := map[string][]string{}
+	logins := map[string][]ProjectSettingsManager{}
 	for _, a := range v.Approvers {
 		logins[a.Login] = a.Managers
 	}
-	if want := map[string][]string{"alice": {"helm"}, "bob": {"helm"}, "carol": {}}; !reflect.DeepEqual(logins, want) {
+	if want := map[string][]ProjectSettingsManager{"alice": helm, "bob": helm, "carol": {}}; !reflect.DeepEqual(logins,
+		want) {
 		t.Errorf("approver managers %v, want %v", logins, want)
 	}
 	app, lib := v.Facts.Repositories[0], v.Facts.Repositories[1]
-	if !reflect.DeepEqual(app.ClassManagers, []string{"helm"}) || len(lib.ClassManagers) != 0 {
+	if !reflect.DeepEqual(app.ClassManagers, helm) || len(lib.ClassManagers) != 0 {
 		t.Errorf("class managers: app %v, lib %v", app.ClassManagers, lib.ClassManagers)
 	}
 	if !app.Previewed || app.PreviewPath != "/" {

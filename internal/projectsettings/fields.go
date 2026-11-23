@@ -138,7 +138,9 @@ func Fields() []Field {
 	return append(out, classField)
 }
 
-// StageNames are the stages that have limits, in spec.limits' spelling.
+// StageNames are the stages that have limits, in spec.limits' spelling:
+// every stage the controller runs, the check reviewer's included, though the
+// page offers no limit of that one (Fields has none).
 func StageNames() []string {
 	out := make([]string, 0, len(stages))
 	for _, s := range stages {
@@ -346,7 +348,10 @@ func models(s *v1alpha1.ProjectSpec) *v1alpha1.ProjectModels {
 // stage is one stage that has limits, a model of its own or not.
 type stage struct {
 	name string
-	// limits and doc are the stage's limits in a spec and in a document.
+	// limits and doc are the stage's limits in a spec and in a document. A
+	// stage with no doc has limits the page does not offer (the check
+	// reviewer, being retired: the owner's decision 8): they are no rows of
+	// the table, but still count toward its run budget.
 	limits func(*v1alpha1.ProjectLimits) *v1alpha1.StageLimits
 	doc    func(*ProjectSettingsStages) *ProjectSettingsStage
 	// ceiling is the controller's ceiling for the stage.
@@ -374,7 +379,6 @@ var stages = []stage{
 		ceiling: func(c *v1alpha1.ProjectStageCeilings) *v1alpha1.ProjectStageCeiling { return &c.Evaluate }},
 	{name: "checkReview", role: true,
 		limits:  func(l *v1alpha1.ProjectLimits) *v1alpha1.StageLimits { return &l.CheckReview },
-		doc:     func(d *ProjectSettingsStages) *ProjectSettingsStage { return &d.CheckReview },
 		ceiling: func(c *v1alpha1.ProjectStageCeilings) *v1alpha1.ProjectStageCeiling { return &c.CheckReview }},
 }
 
@@ -387,7 +391,9 @@ func buildTable() []row {
 	rows = append(rows, modelRows()...)
 	rows = append(rows, limitRows()...)
 	for _, s := range stages {
-		rows = append(rows, stageRows(s)...)
+		if s.doc != nil {
+			rows = append(rows, stageRows(s)...)
+		}
 	}
 	return append(rows, checkRows()...)
 }
@@ -500,7 +506,7 @@ func modelRows() []row {
 		doc  func(*ProjectSettingsModels) *string
 		spec func(*v1alpha1.ProjectModels) *string
 	}
-	rows := make([]row, 0, 4)
+	rows := make([]row, 0, 3)
 	for _, m := range []model{
 		{"plan", func(d *ProjectSettingsModels) *string { return &d.Plan },
 			func(s *v1alpha1.ProjectModels) *string { return &s.Plan }},
@@ -508,8 +514,6 @@ func modelRows() []row {
 			func(s *v1alpha1.ProjectModels) *string { return &s.Build }},
 		{"evaluate", func(d *ProjectSettingsModels) *string { return &d.Evaluate },
 			func(s *v1alpha1.ProjectModels) *string { return &s.Evaluate }},
-		{"checkReview", func(d *ProjectSettingsModels) *string { return &d.CheckReview },
-			func(s *v1alpha1.ProjectModels) *string { return &s.CheckReview }},
 	} {
 		rows = append(rows, row{
 			Field: Field{ID: "models." + m.name, Group: GroupModels, Kind: KindModel, Effect: EffectNewRuns},

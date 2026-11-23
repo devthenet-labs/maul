@@ -275,7 +275,7 @@ func TestFieldTable(t *testing.T) {
 			t.Errorf("limits.%s: a stage in the schema %v, in StageNames %v", name, stage, !stage)
 		}
 	}
-	if len(Fields()) != 40 {
+	if len(Fields()) != 35 {
 		t.Errorf("%d editable fields; a field added or dropped changes the document (Schema) and the page", len(Fields()))
 	}
 }

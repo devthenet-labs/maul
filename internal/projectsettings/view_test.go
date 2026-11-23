@@ -40,8 +40,8 @@ func TestViewOfAnApprover(t *testing.T) {
 		t.Errorf("settings = %+v, want what Read gives", v.Settings)
 	}
 	wantApprovers := []ProjectSettingsApprover{
-		{Login: "alice", State: ApproverOK, You: true, Managers: []string{}},
-		{Login: "bob", State: ApproverOK, Managers: []string{}},
+		{Login: "alice", State: ApproverOK, You: true, Managers: []ProjectSettingsManager{}},
+		{Login: "bob", State: ApproverOK, Managers: []ProjectSettingsManager{}},
 	}
 	if !reflect.DeepEqual(v.Approvers, wantApprovers) {
 		t.Errorf("approvers = %+v, want %+v", v.Approvers, wantApprovers)
@@ -53,7 +53,7 @@ func TestViewOfAnApprover(t *testing.T) {
 		Published: true,
 		Models:    []string{"anthropic/claude-a", "anthropic/claude-b", "anthropic/claude-dear"},
 		DefaultModels: ProjectSettingsModels{Plan: "anthropic/claude-a", Build: "anthropic/claude-a",
-			Evaluate: "anthropic/claude-b", CheckReview: "anthropic/claude-b"},
+			Evaluate: "anthropic/claude-b"},
 		ResourceClasses: []ProjectSettingsClass{
 			{Name: "small", RequestCPU: "1", RequestMemory: "2Gi", LimitMemory: "4Gi"},
 			{Name: "large", RequestCPU: "4", RequestMemory: "8Gi", LimitMemory: "16Gi"},
@@ -68,8 +68,8 @@ func TestViewOfAnApprover(t *testing.T) {
 		Repositories: []ProjectSettingsRepositoryFact{
 			{Name: "app", URL: "https://github.com/acme/app", Previewed: true, PreviewPath: "/",
 				PreviewImage: "registry.example/app", PreviewPort: 8080, PreviewReadinessPath: "/healthz",
-				ClassManagers: []string{}},
-			{Name: "lib", URL: "https://github.com/acme/lib", ClassManagers: []string{}},
+				ClassManagers: []ProjectSettingsManager{}},
+			{Name: "lib", URL: "https://github.com/acme/lib", ClassManagers: []ProjectSettingsManager{}},
 		},
 		TriggerLabel: "maul:demo", ApproveLabel: "maul:approved", Harness: "claude", Surfaces: []string{},
 		RequireRepositoryImage: true, ActiveIntents: 1,
@@ -98,7 +98,7 @@ func TestViewBounds(t *testing.T) {
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("the view's fields %v, want every editable field in order %v", ids, want)
 	}
-	none := []string{}
+	none := []ProjectSettingsManager{}
 	for _, tc := range []ProjectSettingsField{
 		{ID: FieldMaxRevisions, Group: "rounds", Kind: "count", Max: 20, Default: 3, Ceiling: 10, Effect: "live"},
 		{ID: FieldMaxVerifications, Group: "rounds", Kind: "count", Min: 1, Max: 100, Default: 20, Ceiling: 50,
@@ -159,8 +159,7 @@ func TestViewLocks(t *testing.T) {
 	}
 	unpublished := baseProject(func(p *v1alpha1.Project) { p.Status.Admits = nil })
 	want = map[string]string{"models.plan": LockedUnpublished, "models.build": LockedUnpublished,
-		"models.evaluate": LockedUnpublished, "models.checkReview": LockedUnpublished,
-		FieldRepositoryClass: LockedUnpublished}
+		"models.evaluate": LockedUnpublished, FieldRepositoryClass: LockedUnpublished}
 	v := View(unpublished, open, 1, testNow)
 	if got := locked(v); !reflect.DeepEqual(got, want) {
 		t.Errorf("with nothing published: locked = %v, want %v", got, want)
@@ -187,7 +186,7 @@ func TestViewApproverStates(t *testing.T) {
 		v1alpha1.ProjectApproverIdentity{Login: "erin", ID: 5, Write: true},
 	), resolvedAgo(31*time.Minute))
 	v := View(p, DefaultPolicy(), 5, testNow)
-	none := []string{}
+	none := []ProjectSettingsManager{}
 	want := []ProjectSettingsApprover{
 		{Login: "alice", State: ApproverOK, Managers: none},
 		{Login: "Bob", State: ApproverNoWrite, Managers: none},
@@ -237,7 +236,7 @@ func TestViewFacts(t *testing.T) {
 		IntentRepository: "https://github.com/acme/intents",
 		Repositories: []ProjectSettingsRepositoryFact{{Name: "lib", URL: "https://github.com/acme/lib",
 			Previewed: true, PreviewPath: "/", PreviewImage: "registry.example/lib", PreviewPort: 80,
-			ClassManagers: []string{}}},
+			ClassManagers: []ProjectSettingsManager{}}},
 		TriggerLabel: "ship-it", ApproveLabel: "maul:approved", Harness: "codex", Surfaces: []string{"browser"},
 		Suspend: true, ManualGatesStatus: true, PostLogs: true, ActiveIntents: 1,
 	}
@@ -259,55 +258,69 @@ func TestViewLastEdit(t *testing.T) {
 }
 
 // The page names the other field managers that apply a field, so a person
-// knows a change made here has to be made there too (the values file, say).
-// Its own manager is never one of them.
+// knows a change made here has to be made there too (the values file, say),
+// and with each the managedFields operation it applies by, which decides
+// what its next apply does to the edit: an Apply manager (Helm's server-side
+// apply) fails with a conflict on the field, an Update manager (client-side
+// helm, kubectl apply) replaces whole lists. A manager listed under both is
+// named once, as Apply. Its own manager is never one of them.
 func TestViewNamesOtherFieldManagers(t *testing.T) {
-	managed := func(manager, fields string) metav1.ManagedFieldsEntry {
-		return metav1.ManagedFieldsEntry{Manager: manager, Operation: metav1.ManagedFieldsOperationApply,
-			FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}}
+	managed := func(manager string, op metav1.ManagedFieldsOperationType, fields string) metav1.ManagedFieldsEntry {
+		return metav1.ManagedFieldsEntry{Manager: manager, Operation: op, FieldsType: "FieldsV1",
+			FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}}
 	}
+	const apply, update = metav1.ManagedFieldsOperationApply, metav1.ManagedFieldsOperationUpdate
 	p := baseProject(func(p *v1alpha1.Project) {
 		p.ManagedFields = []metav1.ManagedFieldsEntry{
-			managed("helm", `{"f:spec":{"f:intentRepository":{},"f:approvers":{"f:logins":{"v:\"alice\"":{}}},
+			managed("helm", apply, `{"f:spec":{"f:intentRepository":{},"f:approvers":{"f:logins":{"v:\"alice\"":{}}},
 				"f:limits":{"f:maxRevisions":{},"f:plan":{"f:maxTurns":{}}},"f:checks":{"f:fix":{"v:\"test\"":{}}},
 				"f:verification":{"f:enabled":{}},
 				"f:repositories":{"k:{\"name\":\"app\"}":{".":{},"f:name":{},"f:url":{},"f:agentResourceClass":{}},
 					"k:{\"name\":\"lib\"}":{".":{},"f:name":{},"f:url":{}}}}}`),
-			managed(FieldManager, `{"f:spec":{"f:limits":{"f:maxRevisions":{},"f:maxActiveIntents":{}},
+			managed(FieldManager, update, `{"f:spec":{"f:limits":{"f:maxRevisions":{},"f:maxActiveIntents":{}},
 				"f:approvers":{"f:logins":{"v:\"bob\"":{}}}}}`),
-			managed("kubectl-patch", `{"f:spec":{"f:limits":{"f:maxRevisions":{}},"f:models":{"f:plan":{}}}}`),
-			managed("controller", `{"f:status":{"f:observedGeneration":{}}}`),
+			managed("kubectl-patch", update, `{"f:spec":{"f:limits":{"f:maxRevisions":{}},"f:models":{"f:plan":{}}}}`),
+			// The same manager by the other operation: named once, as Apply.
+			managed("helm", update, `{"f:spec":{"f:limits":{"f:maxRevisions":{},"f:maxCheckFixes":{}},
+				"f:approvers":{"f:logins":{"v:\"alice\"":{}}}}}`),
+			managed("kubectl-client-side-apply", update, `{"f:spec":{"f:checks":{"f:fix":{"v:\"lint\"":{}}},
+				"f:repositories":{"k:{\"name\":\"lib\"}":{".":{},"f:agentResourceClass":{}}}}}`),
+			managed("controller", update, `{"f:status":{"f:observedGeneration":{}}}`),
 			{Manager: "broken", FieldsV1: &metav1.FieldsV1{Raw: []byte(`not json`)}},
 			{Manager: "empty"},
 		}
 	})
 	v := View(p, openPolicy(), 1, testNow)
-	for id, want := range map[string][]string{
-		FieldMaxRevisions:        {"helm", "kubectl-patch"},
-		"limits.plan.maxTurns":   {"helm"},
+	helm := ProjectSettingsManager{Name: "helm", Operation: ManagerApply}
+	csa := ProjectSettingsManager{Name: "kubectl-client-side-apply", Operation: ManagerUpdate}
+	patch := ProjectSettingsManager{Name: "kubectl-patch", Operation: ManagerUpdate}
+	for id, want := range map[string][]ProjectSettingsManager{
+		FieldMaxRevisions:        {helm, patch},
+		FieldMaxCheckFixes:       {{Name: "helm", Operation: ManagerUpdate}},
+		"limits.plan.maxTurns":   {helm},
 		"limits.plan.timeout":    {},
 		FieldMaxActiveIntents:    {},
-		"models.plan":            {"kubectl-patch"},
-		FieldChecksFix:           {"helm"},
-		FieldVerificationEnabled: {"helm"},
-		FieldApprovers:           {"helm"},
-		FieldRepositoryClass:     {"helm"},
+		"models.plan":            {patch},
+		FieldChecksFix:           {helm, csa},
+		FieldVerificationEnabled: {helm},
+		FieldApprovers:           {helm},
+		FieldRepositoryClass:     {helm, csa},
 	} {
 		if got := fieldOf(t, v, id).Managers; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: managers %v, want %v", id, got, want)
 		}
 	}
-	if got := v.Approvers[0].Managers; !reflect.DeepEqual(got, []string{"helm"}) {
-		t.Errorf("alice: managers %v, want helm", got)
+	if got := v.Approvers[0].Managers; !reflect.DeepEqual(got, []ProjectSettingsManager{helm}) {
+		t.Errorf("alice: managers %v, want helm by Apply", got)
 	}
 	if got := v.Approvers[1].Managers; len(got) != 0 {
 		t.Errorf("bob: managers %v, want none (only the page applies bob)", got)
 	}
-	if got := v.Facts.Repositories[0].ClassManagers; !reflect.DeepEqual(got, []string{"helm"}) {
+	if got := v.Facts.Repositories[0].ClassManagers; !reflect.DeepEqual(got, []ProjectSettingsManager{helm}) {
 		t.Errorf("app: class managers %v, want helm", got)
 	}
-	if got := v.Facts.Repositories[1].ClassManagers; len(got) != 0 {
-		t.Errorf("lib: class managers %v, want none", got)
+	if got := v.Facts.Repositories[1].ClassManagers; !reflect.DeepEqual(got, []ProjectSettingsManager{csa}) {
+		t.Errorf("lib: class managers %v, want kubectl's client-side apply", got)
 	}
 }
 

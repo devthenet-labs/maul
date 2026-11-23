@@ -542,11 +542,10 @@ func TestDocumentWireShape(t *testing.T) {
 	stage := `{"maxTurns":0,"tokenBudget":0,"maxCostMicroUSD":0,"timeoutSeconds":0}`
 	want := `{"approvers":null,` +
 		`"verification":{"enabled":false,"handoff":"","handoffMaxSeconds":0,"maxToolCalls":0},` +
-		`"models":{"plan":"","build":"","evaluate":"","checkReview":""},` +
+		`"models":{"plan":"","build":"","evaluate":""},` +
 		`"limits":{"maxCostMicroUSD":0,"maxEvaluateCostMicroUSD":0,"maxRevisions":null,"maxCheckFixes":null,` +
 		`"maxVerifyFixes":null,"maxVerifications":0,"maxActiveIntents":0},` +
-		`"stages":{"plan":` + stage + `,"build":` + stage + `,"revise":` + stage + `,"evaluate":` + stage +
-		`,"checkReview":` + stage + `},` +
+		`"stages":{"plan":` + stage + `,"build":` + stage + `,"revise":` + stage + `,"evaluate":` + stage + `},` +
 		`"checks":{"fix":null,"timeoutSeconds":0,"rerunFailed":false},"repositories":null}`
 	if string(raw) != want {
 		t.Errorf("document =\n%s\nwant\n%s\n(a changed document needs a new Schema)", raw, want)

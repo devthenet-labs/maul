@@ -332,8 +332,8 @@ func TestCheckCeilingsAndFloors(t *testing.T) {
 			edit: func(d *ProjectSettings) { d.Stages.Revise.TokenBudget = 400_001 },
 			want: []ProjectSettingsRefusal{bounded("limits.revise.tokenBudget", RefusedAboveControllerCeiling, 400_000)}},
 		{name: "controller: stage timeout past the ceiling",
-			edit: func(d *ProjectSettings) { d.Stages.CheckReview.TimeoutSeconds = 901 },
-			want: []ProjectSettingsRefusal{bounded("limits.checkReview.timeout", RefusedAboveControllerCeiling, 900)}},
+			edit: func(d *ProjectSettings) { d.Stages.Plan.TimeoutSeconds = 1201 },
+			want: []ProjectSettingsRefusal{bounded("limits.plan.timeout", RefusedAboveControllerCeiling, 1200)}},
 		{name: "controller: a value already past the ceiling may come down",
 			project: func(p *v1alpha1.Project) { p.Spec.Limits.Build.MaxTurns = 500 },
 			edit:    func(d *ProjectSettings) { d.Stages.Build.MaxTurns = 300 }},
@@ -513,9 +513,15 @@ func TestCheckRunBudgets(t *testing.T) {
 			project: cost, edit: func(d *ProjectSettings) { d.Limits.MaxEvaluateCostMicroUSD = 1_000_000 },
 			want: []ProjectSettingsRefusal{{Field: FieldMaxEvaluateCost, Reason: RefusedRunBudgetUnderReserve,
 				Limit: 1_600_000, Value: "anthropic/claude-b"}}},
-		{name: "reserve: the check reviewer has a floor of its own", project: cost,
-			edit: func(d *ProjectSettings) { d.Stages.CheckReview.MaxCostMicroUSD = 300_000 },
-			want: []ProjectSettingsRefusal{{Field: "limits.checkReview.maxCostMicroUSD",
+		// The page offers no check reviewer setting, but the operator's own
+		// budget for it still counts once the Project is verified.
+		{name: "reserve: the check reviewer has a floor of its own",
+			project: and(cost, func(p *v1alpha1.Project) {
+				p.Spec.Limits.CheckReview.MaxCostMicroUSD = 300_000
+				p.Spec.Verification.Enabled = false
+			}),
+			edit: func(d *ProjectSettings) { d.Verification.Enabled = true },
+			want: []ProjectSettingsRefusal{{Field: FieldVerificationEnabled,
 				Reason: RefusedRunBudgetUnderReserve, Limit: 400_000, Value: "anthropic/claude-b"}}},
 		{name: "reserve: a model with no entry has no floor",
 			project: and(cost, func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxCostMicroUSD = 1_000_000 }),

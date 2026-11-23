@@ -25,6 +25,20 @@ const (
 	ApproverUnresolved = "unresolved"
 )
 
+// The operations another field manager applies a field by
+// (ProjectSettingsManager.Operation), as managedFields records them.
+const (
+	// ManagerApply: server-side apply, Helm 4's default. Its next apply
+	// that still states the field fails with a conflict on it, unless
+	// forced, which puts its own value back; a set element it states and
+	// the page removed comes back without one.
+	ManagerApply = "Apply"
+	// ManagerUpdate: a client-side apply, kubectl apply, a PUT or a patch.
+	// Its next apply of a changed value replaces it, and of a list the
+	// whole list.
+	ManagerUpdate = "Update"
+)
+
 // Why a field cannot be changed at all.
 const (
 	// LockedByOperator: the operator locked its group.
@@ -145,7 +159,7 @@ func options(a *v1alpha1.ProjectAdmits) ProjectSettingsOptions {
 	o.Published, o.Evaluator, o.CostBudgets = true, a.Evaluator, a.CostBudgets
 	o.Models = append(o.Models, a.Models...)
 	o.DefaultModels = ProjectSettingsModels{Plan: a.DefaultModels.Plan, Build: a.DefaultModels.Build,
-		Evaluate: a.DefaultModels.Evaluate, CheckReview: a.DefaultModels.CheckReview}
+		Evaluate: a.DefaultModels.Evaluate}
 	for _, c := range a.ResourceClasses {
 		o.ResourceClasses = append(o.ResourceClasses, ProjectSettingsClass{Name: c.Name,
 			RequestCPU: c.Requests.CPU, RequestMemory: c.Requests.Memory,
@@ -214,25 +228,48 @@ func facts(p *v1alpha1.Project, own managers) ProjectSettingsFacts {
 // apply each editable field: per field id, per approver login and per
 // repository's resource class.
 type managers struct {
-	fields, logins, classes map[string][]string
+	fields, logins, classes map[string][]ProjectSettingsManager
 }
 
-// of is the managers recorded under key, sorted, never nil.
-func (managers) of(in map[string][]string, key string) []string {
-	out := append([]string{}, in[key]...)
-	slices.Sort(out)
-	return slices.Compact(out)
+// of is the managers recorded under key, by name, never nil. A manager
+// recorded under both operations is named once, as Apply: that is the one
+// whose next apply stops on the edit.
+func (managers) of(in map[string][]ProjectSettingsManager, key string) []ProjectSettingsManager {
+	out := []ProjectSettingsManager{}
+	for _, m := range in[key] {
+		i := slices.IndexFunc(out, func(o ProjectSettingsManager) bool { return o.Name == m.Name })
+		switch {
+		case i < 0:
+			out = append(out, m)
+		case m.Operation == ManagerApply:
+			out[i].Operation = ManagerApply
+		}
+	}
+	slices.SortFunc(out, func(a, b ProjectSettingsManager) int { return strings.Compare(a.Name, b.Name) })
+	return out
+}
+
+// managerOf is a managedFields entry as the view names it: any operation
+// but Apply is an Update, as the API server records no third.
+func managerOf(name, operation string) ProjectSettingsManager {
+	op := ManagerUpdate
+	if operation == ManagerApply {
+		op = ManagerApply
+	}
+	return ProjectSettingsManager{Name: name, Operation: op}
 }
 
 // otherManagers reads p's managedFields: which managers own each editable
 // leaf of the spec (FieldsV1: "f:" a field, "v:" a set's value, "k:" a
 // keyed list's entry). An entry that does not parse owns nothing here.
 func otherManagers(p *v1alpha1.Project) managers {
-	own := managers{fields: map[string][]string{}, logins: map[string][]string{}, classes: map[string][]string{}}
+	own := managers{fields: map[string][]ProjectSettingsManager{}, logins: map[string][]ProjectSettingsManager{},
+		classes: map[string][]ProjectSettingsManager{}}
 	for _, entry := range p.ManagedFields {
 		if entry.Manager == "" || entry.Manager == FieldManager || entry.FieldsV1 == nil {
 			continue
 		}
+		who := managerOf(entry.Manager, string(entry.Operation))
 		var tree map[string]any
 		if err := json.Unmarshal(entry.FieldsV1.GetRawBytes(), &tree); err != nil {
 			continue
@@ -246,10 +283,10 @@ func otherManagers(p *v1alpha1.Project) managers {
 			if node == nil || r.Kind.list() && len(setValues(node)) == 0 {
 				continue
 			}
-			own.fields[r.ID] = append(own.fields[r.ID], entry.Manager)
+			own.fields[r.ID] = append(own.fields[r.ID], who)
 			if r.ID == FieldApprovers {
 				for _, login := range setValues(node) {
-					own.logins[login] = append(own.logins[login], entry.Manager)
+					own.logins[login] = append(own.logins[login], who)
 				}
 			}
 		}
@@ -261,8 +298,8 @@ func otherManagers(p *v1alpha1.Project) managers {
 				continue
 			}
 			if node, _ := repo.(map[string]any); under(node, "f:agentResourceClass") != nil {
-				own.classes[k.Name] = append(own.classes[k.Name], entry.Manager)
-				own.fields[FieldRepositoryClass] = append(own.fields[FieldRepositoryClass], entry.Manager)
+				own.classes[k.Name] = append(own.classes[k.Name], who)
+				own.fields[FieldRepositoryClass] = append(own.fields[FieldRepositoryClass], who)
 			}
 		}
 	}

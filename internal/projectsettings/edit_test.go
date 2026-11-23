@@ -4,6 +4,7 @@
 package projectsettings
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -60,11 +61,31 @@ func TestEditFitsTheAnnotation(t *testing.T) {
 	if !ok {
 		t.Fatalf("ParseEdit refuses its own encoding: %s", raw)
 	}
-	if back.More == 0 || len(back.Fields)+back.More != len(Fields()) {
+	if len(back.Fields)+back.More != len(Fields()) {
 		t.Errorf("kept %d fields and counted %d more, of %d", len(back.Fields), back.More, len(Fields()))
 	}
 	if !reflect.DeepEqual(back.Fields, edit.Fields[:len(back.Fields)]) {
 		t.Error("the fields kept are not the first ones")
+	}
+
+	// Every editable field's id fits today; a record of more than fits
+	// (the table grown, say) still keeps the first ones and counts the rest.
+	long := make([]ProjectSettingsChange, 0, 3*len(Fields()))
+	for i := range 3 {
+		for _, f := range Fields() {
+			long = append(long, ProjectSettingsChange{Field: f.ID + strings.Repeat("x", i)})
+		}
+	}
+	big := NewEdit(1<<62, strings.Repeat("a", MaxLoginLength), testNow, long)
+	raw = EncodeEdit(big)
+	var cut ProjectSettingsEdit
+	if err := json.Unmarshal([]byte(raw), &cut); err != nil || len(raw) > MaxEditBytes {
+		t.Fatalf("an over-long record encodes as %d bytes (%v)", len(raw), err)
+	}
+	if cut.More == 0 || len(cut.Fields)+cut.More != len(long) ||
+		!reflect.DeepEqual(cut.Fields, big.Fields[:len(cut.Fields)]) {
+		t.Errorf("an over-long record kept %d fields and counted %d more, of %d", len(cut.Fields), cut.More,
+			len(long))
 	}
 }
 

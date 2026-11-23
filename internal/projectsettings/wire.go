@@ -50,12 +50,13 @@ type ProjectSettingsVerification struct {
 }
 
 // ProjectSettingsModels are spec.models: one canonical model per stage, ""
-// for the install's.
+// for the install's. The check reviewer's (models.checkReview) is not one of
+// them: that stage is being retired, so the page neither shows nor changes
+// it (the owner's decision 8).
 type ProjectSettingsModels struct {
-	Plan        string `json:"plan"`
-	Build       string `json:"build"`
-	Evaluate    string `json:"evaluate"`
-	CheckReview string `json:"checkReview"`
+	Plan     string `json:"plan"`
+	Build    string `json:"build"`
+	Evaluate string `json:"evaluate"`
 }
 
 // ProjectSettingsLimits are the per-intent limits.
@@ -77,13 +78,13 @@ type ProjectSettingsLimits struct {
 }
 
 // ProjectSettingsStages are the per-stage limits, in spec.limits' spelling
-// of the stages.
+// of the stages. The check reviewer's (limits.checkReview) are not on the
+// page, as its model is not.
 type ProjectSettingsStages struct {
-	Plan        ProjectSettingsStage `json:"plan"`
-	Build       ProjectSettingsStage `json:"build"`
-	Revise      ProjectSettingsStage `json:"revise"`
-	Evaluate    ProjectSettingsStage `json:"evaluate"`
-	CheckReview ProjectSettingsStage `json:"checkReview"`
+	Plan     ProjectSettingsStage `json:"plan"`
+	Build    ProjectSettingsStage `json:"build"`
+	Revise   ProjectSettingsStage `json:"revise"`
+	Evaluate ProjectSettingsStage `json:"evaluate"`
 }
 
 // ProjectSettingsStage is one stage's limits. Zero means the controller's
@@ -185,7 +186,17 @@ type ProjectSettingsField struct {
 	Effect string `json:"effect"`
 	// Managers are the other field managers that apply the field (Helm,
 	// kubectl): a change made here has to be made there too.
-	Managers []string `json:"managers"`
+	Managers []ProjectSettingsManager `json:"managers"`
+}
+
+// ProjectSettingsManager is another field manager that applies a field, as
+// the Project's managedFields record it, and the operation it applies by,
+// which decides what its next apply does to an edit made here.
+type ProjectSettingsManager struct {
+	// Name is the manager's name ("helm", "kubectl-client-side-apply").
+	Name string `json:"name"`
+	// Operation is ManagerApply or ManagerUpdate.
+	Operation string `json:"operation"`
 }
 
 // ProjectSettingsApprover is one approver login and what GitHub said of it.
@@ -196,7 +207,7 @@ type ProjectSettingsApprover struct {
 	// You reports that the login resolved to the viewer's own account.
 	You bool `json:"you"`
 	// Managers are the other field managers that apply this login.
-	Managers []string `json:"managers"`
+	Managers []ProjectSettingsManager `json:"managers"`
 }
 
 // ProjectSettingsOptions are what intent-controller admits for the Project
@@ -267,7 +278,7 @@ type ProjectSettingsRepositoryFact struct {
 	PreviewReadinessPath string `json:"previewReadinessPath"`
 	// ClassManagers are the other field managers that apply this
 	// repository's agentResourceClass.
-	ClassManagers []string `json:"classManagers"`
+	ClassManagers []ProjectSettingsManager `json:"classManagers"`
 }
 
 // ProjectSettingsEdit is the record of a save, kept on the Project in the
@@ -372,7 +383,8 @@ func WireTypes() []any {
 	return []any{
 		ProjectSettings{}, ProjectSettingsVerification{}, ProjectSettingsModels{}, ProjectSettingsLimits{},
 		ProjectSettingsStages{}, ProjectSettingsStage{}, ProjectSettingsChecks{}, ProjectSettingsRepository{},
-		ProjectSettingsView{}, ProjectSettingsField{}, ProjectSettingsApprover{}, ProjectSettingsOptions{},
+		ProjectSettingsView{}, ProjectSettingsField{}, ProjectSettingsManager{}, ProjectSettingsApprover{},
+		ProjectSettingsOptions{},
 		ProjectSettingsClass{}, ProjectSettingsAllow{}, ProjectSettingsFacts{}, ProjectSettingsRepositoryFact{},
 		ProjectSettingsEdit{}, ProjectSettingsCondition{}, ProjectSettingsRequest{}, ProjectSettingsResult{},
 		ProjectSettingsChange{}, ProjectSettingsRefusal{}, ProjectSettingsConfirmation{},
