@@ -201,6 +201,15 @@ type Settings struct {
 	// provider.BudgetAnnotation. Off (the token unit, the default), no run
 	// records a budget and no Job carries one.
 	CostBudgets bool
+	// BuildSubagents is --intent-build-subagents: a build or revise run of
+	// a claude Project records at creation that it may delegate to
+	// subagents (IntentRunGrant.Subagents, grant), and a run that recorded
+	// it launches with them only while this is still on (launch narrows,
+	// never widens: RunReconciler.buildSubagents). serve refuses it without
+	// CostBudgets: the run's cost budget, which the broker enforces on the
+	// whole pod, is what bounds the run and its subagents together. Off
+	// (the default), no run records it and no Job carries it.
+	BuildSubagents bool
 	// BrokerCostPerHour is the broker's hourly cost limit in micro-USD
 	// (--broker-cost-per-hour), zero when it has none or counts tokens. A
 	// Project whose run budget is more than half of it is not Ready
@@ -497,7 +506,9 @@ func (s Settings) withDefaults() Settings {
 
 // grant is what one run of stage is granted: the Project's limit for the
 // stage clamped by the controller's ceiling (a zero limit takes the
-// ceiling), and the ceiling's wall clock.
+// ceiling), and the ceiling's wall clock; under the cost unit its cost
+// budget, and under --intent-build-subagents, on a build or revise run of a
+// Project not on codex, subagents.
 func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.IntentRunGrant {
 	ceiling, limits := s.ceiling(stage), stageLimits(p, stage)
 	turns := ceiling.MaxTurns
@@ -520,7 +531,16 @@ func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha
 	if s.CostBudgets {
 		g.BudgetMicroUSD = s.stageBudget(p, stage)
 	}
+	g.Subagents = s.BuildSubagents && subagentStage(stage) && !p.Spec.Harness.IsCodex()
 	return g
+}
+
+// subagentStage reports whether stage's runs may be granted subagents: the
+// first build and every revise round (check-fix and verify-fix rounds
+// included), the stages that run agent-runner's build phase in the writable
+// posture. A plan, evaluate or checkreview run never is.
+func subagentStage(stage v1alpha1.IntentStage) bool {
+	return stage == v1alpha1.IntentStageBuild || stage == v1alpha1.IntentStageRevise
 }
 
 // stageBudget is the cost budget of one run of stage in micro-USD, held to

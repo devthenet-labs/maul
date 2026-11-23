@@ -96,10 +96,10 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
   limit and the stage's wall clock bound the run. The posture does not run with `--restricted`, which would take its
   shell and refuse writes to tool-configuration files and CI definitions that a fix may need to change.
 
-A build granted subagents (an intent build or revise round on claude whose Job carries `MAUL_BUILD_SUBAGENTS=true`; no
-controller sets it yet) runs the same posture with `Agent` and `Task` taken off the deny list and nothing else, so every
-other tool above stays denied for the run and for every subagent it starts. One `--settings` value on the command line
-holds the CLI's own switches:
+A build granted subagents (an intent build or revise round on claude whose Job carries `MAUL_BUILD_SUBAGENTS=true`,
+under intent-controller's `--intent-build-subagents`) runs the same posture with `Agent` and `Task` taken off the deny
+list and nothing else, so every other tool above stays denied for the run and for every subagent it starts. One
+`--settings` value on the command line holds the CLI's own switches:
 
 - Every subagent runs in the foreground at depth 1, with no `Agent` tool of its own, and background work is off for the
   whole run, so the shell's `run_in_background` is refused and the session never wakes after its turn.

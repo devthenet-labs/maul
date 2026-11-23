@@ -198,7 +198,9 @@ and the egress broker's cost budget for the run, which every call of the pod is 
 Its report repairs are never granted them. agent-runner refuses the switch on any phase but `build` and on a build
 harness but `claude`. Before the report is read, it removes every worktree left under the tree's `.claude/worktrees` (an
 Agent call's `isolation: "worktree"`), with a transcript notice. A repository-image Job that does not set it blanks it,
-so an image's `ENV` cannot grant it. No controller sets it yet.
+so an image's `ENV` cannot grant it. intent-controller sets it only on a build or revise run that recorded subagents at
+creation (`spec.grant.subagents`, under `--intent-build-subagents`), and only while that flag is still on when the run
+launches.
 
 `MAUL_OPEN_PULL_REQUESTS` is the last per-Job variable, set only on an intent's plan Job, and only when other intents of
 its Project have pull requests open in the Project's repositories: a JSON list of at most 5 of them, each with its

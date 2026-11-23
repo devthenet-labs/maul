@@ -1143,6 +1143,7 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 		{"consumed reviews", func(s *maulv1.IntentRunSpec) { s.Inputs.ReviewIDs = append(s.Inputs.ReviewIDs, 5002) }},
 		{"image source", func(s *maulv1.IntentRunSpec) { s.ImageFrom.Name = "target-1-rev1-shop-a1-src" }},
 		{"grant", func(s *maulv1.IntentRunSpec) { s.Grant.MaxTurns = 1000 }},
+		{"grant's subagents", func(s *maulv1.IntentRunSpec) { s.Grant.Subagents = true }},
 		{"harness", func(s *maulv1.IntentRunSpec) { s.Harness = maulv1.ProjectHarnessCodex }},
 		{"model", func(s *maulv1.IntentRunSpec) { s.Model = "anthropic/claude-opus-5" }},
 		{"previous attempt added", func(s *maulv1.IntentRunSpec) {
@@ -1326,6 +1327,30 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 		}, true},
 		{"credentials in the repository url", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
 			s.Repository.URL = "https://x:token@github.com/acme/shop"
+		}, true},
+		// Subagents are recorded on a build or revise run on claude only:
+		// the one posture that renders them is the writable one, and codex
+		// renders none.
+		{"a build run granted subagents", maulv1.IntentStageBuild, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents = true
+		}, false},
+		{"a revise run on claude granted subagents", maulv1.IntentStageRevise, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents, s.Harness = true, maulv1.ProjectHarnessClaude
+		}, false},
+		{"a plan run granted subagents", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents = true
+		}, true},
+		{"an evaluate run granted subagents", maulv1.IntentStageEvaluate, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents = true
+		}, true},
+		{"a checkreview run granted subagents", maulv1.IntentStageCheckReview, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents = true
+		}, true},
+		{"a codex build run granted subagents", maulv1.IntentStageBuild, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents, s.Harness = true, maulv1.ProjectHarnessCodex
+		}, true},
+		{"a codex revise run granted subagents", maulv1.IntentStageRevise, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents, s.Harness = true, maulv1.ProjectHarnessCodex
 		}, true},
 	} {
 		t.Run("create with "+tt.name, func(t *testing.T) {

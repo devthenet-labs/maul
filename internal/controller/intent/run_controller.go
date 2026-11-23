@@ -30,6 +30,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/model"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/resourceclass"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
@@ -170,6 +171,18 @@ func (r *RunReconciler) runHarness(run *v1alpha1.IntentRun) RunHarness {
 	h := r.Settings.Claude
 	h.ID = r.Harness
 	return h
+}
+
+// buildSubagents reports whether run's Job is granted subagents: only when
+// the run recorded them at creation (spec.grant.subagents) AND
+// --intent-build-subagents is still on AND the run launches on brokered
+// claude, the one harness that renders the subagents posture. The launch
+// is never wider than the record, and turning the flag off narrows every
+// run recorded with it at once (owner decision 6): such a run builds
+// without subagents instead of being refused.
+func (r *RunReconciler) buildSubagents(run *v1alpha1.IntentRun) bool {
+	return run.Spec.Grant.Subagents && r.Settings.BuildSubagents && subagentStage(run.Spec.Stage) &&
+		r.runHarness(run).ID == model.HarnessClaude
 }
 
 // runModel is the canonical model run launches on: the one it recorded at
@@ -727,6 +740,8 @@ func (r *RunReconciler) launchTree(ctx context.Context, run *v1alpha1.IntentRun,
 		// deadline that follows its stage timeout.
 		BudgetMicroUSD: r.Settings.runBudgetFor(run, proj),
 		Deadline:       r.Settings.jobDeadline(r.Settings.runTimeout(run)),
+		// Subagents as the run recorded them, narrowed by the flag now.
+		BuildSubagents: r.buildSubagents(run),
 	}
 	if len(run.Spec.Trees) > 0 {
 		ready, refusal, err := r.treesSpec(ctx, run, proj, &spec)
@@ -992,6 +1007,10 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 		// Likewise a network profile the Job may not carry.
 		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused,
 			detail: "the agent Job's network profile was refused: " + err.Error()})
+	case errors.Is(err, jobs.ErrSubagentsRefused):
+		// Likewise a subagents grant on a Job that cannot carry it.
+		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused,
+			detail: "the agent Job's subagents grant was refused: " + err.Error()})
 	case errors.Is(err, jobs.ErrRoleRefused):
 		// Likewise a role the Job cannot be built in (an evaluator with no
 		// resolver to probe, say): the same launch would be refused again.

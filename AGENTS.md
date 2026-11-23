@@ -219,6 +219,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   budget (`limits.<stage>.maxCostMicroUSD`, else the per-intent ceiling) stamped on its Job and pod as
   `provider.BudgetAnnotation`, the chart's `budget-policy.yaml` letting only intent-controller set it; with
   `--broker-cost-per-hour` a Project whose run budget exceeds half of it is not Ready (`RunBudgetOverHourlyLimit`).
+  With `--intent-build-subagents` (default off; refused at startup without `--broker-limit-unit cost`, whose per-run
+  budget the broker enforces on parent and subagents together, and on any harness but brokered claude) a claude
+  Project's build and revise runs record `spec.grant.subagents` at creation (`Settings.grant`; CEL: build or revise on
+  claude only) and launch with `jobs.Spec.BuildSubagents` only while the flag is still on
+  (`RunReconciler.buildSubagents`): turning it off narrows every recorded run at once, never refuses it, and a revise
+  lease is adopted whatever its record (`sameRound`); `jobs.ErrSubagentsRefused` settles `launch_refused`.
   With `--intent-evaluator` (default off; chart `intentController.verification.evaluator`, needing previews or the
   agents tool pod; design `.claude/plans/agent-evaluator/DESIGN.md`, people's guide `docs/intents/evaluator.md`), which
   is verification's one switch (S4: `--intent-verification` and the chart's `preview.verification.enabled` are removed
@@ -1040,7 +1046,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   keeps the one SecretKeyRef; a codex evaluation Job is refused (`ErrCodexEvaluation`: evolve cannot be brokered
   yet); the init container fetches the digest-verified artifact tarball, identity-free. `Spec.BuildSubagents` puts
   `MAUL_BUILD_SUBAGENTS=true` on an intent build on claude and is refused on any other Job (`ErrSubagentsRefused`,
-  `subagents.go`); no controller sets it yet.
+  `subagents.go`); intent-controller sets it under `--intent-build-subagents` (below).
   `reservedEnv` covers every credential channel plus the provider gateway names; `Runner.Env` is the per-runner
   gateway env (wins over `Config.Env`, can never name a credential). `eval.go` is the evaluation Job flavour
   (same posture; `evolve exec-unit` instead of `agent-runner` — wrapped in a capture-once token export when

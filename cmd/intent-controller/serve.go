@@ -153,6 +153,11 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"the egress broker's --limit-unit: under cost every intent run is granted a cost budget (the stage's "+
 			"limits.<stage>.maxCostMicroUSD, else the Project's limits.maxCostMicroUSD) stamped on its agent Job "+
 			"and pod as maul.run/budget-micro-usd; under tokens (the default) none is")
+	f.Bool("intent-build-subagents", false,
+		"let a claude Project's build and revise runs delegate to subagents (foreground, one level, on the run's "+
+			"model); each run records it at creation and launches with it only while this is still on, so turning "+
+			"it off narrows every run at once. Needs --broker-limit-unit cost (the run's budget bounds the run and "+
+			"its subagents together) and brokered claude")
 	f.Int("broker-cost-per-hour", 0,
 		"the egress broker's --cost-per-hour in micro-USD (cost unit only; 0: none): a Project whose run budget "+
 			"is more than half of it is not Ready")
@@ -285,6 +290,9 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		return intent.Settings{}, err
 	}
 	if err := brokerBudgets(opts, &s); err != nil {
+		return intent.Settings{}, err
+	}
+	if err := buildSubagents(opts, &s); err != nil {
 		return intent.Settings{}, err
 	}
 	mode, err := runnercfg.Attribution(opts)
@@ -587,6 +595,24 @@ func brokerBudgets(opts *cli.Options, s *intent.Settings) error {
 	return nil
 }
 
+// buildSubagents reads --intent-build-subagents, refused unless the broker
+// counts cost (owner decision 3): the broker charges every model call of an
+// agent pod, its subagents' included, to the run's own budget, and that
+// budget is the one bound that holds a run and its subagents together (the
+// turn grant is a loose backstop on the parent, and the in-pod token count
+// a floor).
+func buildSubagents(opts *cli.Options, s *intent.Settings) error {
+	if !opts.Bool("intent-build-subagents") {
+		return nil
+	}
+	if !s.CostBudgets {
+		return errors.New("--intent-build-subagents needs --broker-limit-unit cost: a run's cost budget, which " +
+			"the egress broker enforces on every model call of its pod, is what bounds the run and its subagents")
+	}
+	s.BuildSubagents = true
+	return nil
+}
+
 // resourceClasses reads --intent-resource-classes: every class validated as
 // a whole before the controller starts, so a size the API server would
 // refuse, or a typo, is a startup error naming the class rather than a run
@@ -698,6 +724,12 @@ func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, 
 	if r := runners[claude.ID]; claude.ID == model.HarnessClaude && !r.Brokered {
 		return intent.RunHarness{}, intent.RunHarness{}, errors.New(
 			"intents run on brokered claude only, and the claude runner is not brokered")
+	}
+	if opts.Bool("intent-build-subagents") && claude.ID != model.HarnessClaude {
+		// Only brokered claude renders the subagents posture: a run
+		// recorded with them would launch without them.
+		return intent.RunHarness{}, intent.RunHarness{}, fmt.Errorf("--intent-build-subagents needs brokered "+
+			"claude, and intents run on %s", claude.ID)
 	}
 	for _, m := range roleModels {
 		id, _, err := runnercfg.ResolveHarness(m, enabled)
@@ -970,6 +1002,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Bool("evaluator", set.Evaluator),
 		slog.Bool("evaluate_codex", set.EvaluateCodex),
 		slog.Bool("evaluator_agents", set.EvaluatorAgents),
+		slog.Bool("build_subagents", set.BuildSubagents),
 		slog.Int("max_tool_pods", set.MaxToolPods),
 		slog.String("attribution_mode", string(set.Attribution)),
 		slog.String("user_credentials", string(set.UserCredentials)),

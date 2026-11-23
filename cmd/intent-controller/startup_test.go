@@ -104,6 +104,19 @@ func TestHarnessChoice(t *testing.T) {
 			wantErr: "an intent runs both stages on one harness",
 		},
 		{
+			name: "--intent-build-subagents on brokered claude",
+			args: []string{"--claude-agent-image", "claude:1", "--broker-url", "http://broker.invalid",
+				"--intent-build-subagents"},
+			want: "claude",
+		},
+		{
+			// The fake harness renders no subagents posture: every run
+			// recorded with them would launch without them.
+			name:    "--intent-build-subagents on the fake harness",
+			args:    []string{"--fake-agent-image", "fake:1", "--intent-build-subagents"},
+			wantErr: "--intent-build-subagents needs brokered claude",
+		},
+		{
 			name:    "unknown model",
 			args:    []string{"--fake-agent-image", "fake:1", "--intent-plan-model", "acme/model-1"},
 			wantErr: "acme/model-1",

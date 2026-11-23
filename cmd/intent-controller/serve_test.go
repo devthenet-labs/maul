@@ -287,6 +287,40 @@ func TestBrokerBudgetsReachSettings(t *testing.T) {
 	}
 }
 
+// TestBuildSubagentsSettings: --intent-build-subagents reaches the settings
+// only beside --broker-limit-unit cost, whose per-run budget, enforced by
+// the broker on the whole pod, is what bounds a run and its subagents
+// together (owner decision 3); without the cost unit it stops startup,
+// naming what it needs. Off is the default.
+func TestBuildSubagentsSettings(t *testing.T) {
+	load := func(t *testing.T, args ...string) (intent.Settings, error) {
+		t.Helper()
+		opts, root, _ := command(t, args...)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return settings(opts, "maul", "maul-agents")
+	}
+	s, err := load(t)
+	if err != nil || s.BuildSubagents {
+		t.Fatalf("default settings = subagents %v, %v; want off", s.BuildSubagents, err)
+	}
+	s, err = load(t, "--intent-build-subagents", "--broker-limit-unit", "cost")
+	if err != nil || !s.BuildSubagents || !s.CostBudgets {
+		t.Fatalf("subagents under the cost unit = subagents %v, budgets %v, %v; want both", s.BuildSubagents,
+			s.CostBudgets, err)
+	}
+	for _, args := range [][]string{
+		{"--intent-build-subagents"},
+		{"--intent-build-subagents", "--broker-limit-unit", "tokens"},
+	} {
+		_, err := load(t, args...)
+		if err == nil || !strings.Contains(err.Error(), "--intent-build-subagents needs --broker-limit-unit cost") {
+			t.Errorf("settings(%v) = %v, want the startup refusal naming --broker-limit-unit cost", args, err)
+		}
+	}
+}
+
 // The intent controller cannot reach the broker under its NetworkPolicy.
 // Agent pods can, so its startup must validate configuration without making
 // even an advisory controller-side broker request.
