@@ -285,6 +285,8 @@ func TestSupersedeIsShownUntilJudged(t *testing.T) {
 	if s := e.latestAcceptance(head); s.State != statusPending {
 		t.Errorf("maul/acceptance = %+v, want pending", s)
 	}
+	pr := e.get(name).Status.PullRequests[0].Number
+	e.reviewUntil(name, func() bool { return strings.Contains(e.prVerifyBody(name, pr), templates.WithdrawnSentence) })
 
 	fresh := e.verifications(name)[1]
 	e.playTools(fresh.Name, v1alpha1.VerificationRunning, toolPodIP, true)
@@ -300,8 +302,9 @@ func TestSupersedeIsShownUntilJudged(t *testing.T) {
 	if superseded(in) {
 		t.Errorf("conditions %+v: the withdrawal outlived the fresh judgement", in.Status.Conditions)
 	}
-	// reviewUntil fails if the comment never stops stating it.
+	// reviewUntil fails if the comments never stop stating it.
 	e.reviewUntil(name, func() bool { return !strings.Contains(e.statusBody(), templates.WithdrawnSentence) })
+	e.reviewUntil(name, func() bool { return !strings.Contains(e.prVerifyBody(name, pr), templates.WithdrawnSentence) })
 }
 
 // TestSupersedeAtTheEvaluationCeiling: with the evaluation ceiling already
@@ -409,6 +412,16 @@ func TestNewRecordsAreBornObserved(t *testing.T) {
 	}
 }
 
+// prVerifyBody is maul's preview comment on pull request n, "" while there
+// is none: its verification section is gated by its own digest.
+func (e *env) prVerifyBody(name string, n int64) string {
+	cs := e.previewComments(name, n)
+	if len(cs) != 1 {
+		return ""
+	}
+	return cs[0].Body
+}
+
 // pvNames are the verifications' names.
 func pvNames(pvs []v1alpha1.PreviewVerification) []string {
 	out := make([]string, 0, len(pvs))
@@ -416,4 +429,28 @@ func pvNames(pvs []v1alpha1.PreviewVerification) []string {
 		out = append(out, pv.Name)
 	}
 	return out
+}
+
+// TestUnrunnableOldResultWaitsToBeWithdrawn: an earlier release's judgement
+// on a Project that cannot evaluate now (a codex Project without
+// --intent-evaluate-codex) is neither withdrawn nor marked: marking it would
+// leave check-era results standing, read as current once the evaluator runs
+// again. Once the Project can run, the same record is withdrawn.
+func TestUnrunnableOldResultWaitsToBeWithdrawn(t *testing.T) {
+	e, name := oldRelease(t)
+	in := e.get(name)
+	p := &pass{r: e.intent, set: e.intent.Settings, in: in, proj: e.project0(), now: e.clock.Now()}
+	if changed, err := p.supersede(context.Background(), false); changed || err != nil {
+		t.Fatalf("supersede(cannot run) = %v, %v; want nothing written", changed, err)
+	}
+	if v := e.verification(name); v.Judge == v1alpha1.JudgeObserved || len(v.Outcomes) == 0 {
+		t.Fatalf("verification = %+v: marked, or withdrawn, while nothing can run", v)
+	}
+	if changed, err := p.supersede(context.Background(), true); !changed || err != nil {
+		t.Fatalf("supersede(can run) = %v, %v; want the withdrawal written", changed, err)
+	}
+	if in := e.get(name); !superseded(in) || oldJudgementKept(in.Status.Verification) {
+		t.Errorf("verification = %+v, conditions %+v: want it withdrawn", in.Status.Verification,
+			in.Status.Conditions)
+	}
 }

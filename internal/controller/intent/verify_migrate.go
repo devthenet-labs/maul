@@ -28,9 +28,10 @@ import (
 // syncEvaluation):
 //
 //  1. Nothing to withdraw (no round in flight, nothing judged, none of the
-//     retired ladder's records), or nothing this Project could run (no
-//     evaluable outcome, an unverified evaluator): the marker alone is
-//     written. Its next round is whatever is due, counted as always.
+//     retired ladder's records): the marker alone is written. Its next
+//     round is whatever is due, counted as always. Something to withdraw on
+//     a Project that can run nothing now (no evaluable outcome, an
+//     unverified evaluator) is left as it is, unmarked, until it can.
 //  2. Otherwise the in-flight round is dropped (dropInFlight: an unsettled
 //     PreviewVerification deleted; its evaluate run then stops,
 //     evaluationEnded), the old judgement and the retired ladder's records
@@ -83,8 +84,9 @@ func supersedePending(in *v1alpha1.Intent) bool {
 }
 
 // supersede is the first pass over a verification an earlier release
-// wrote (no marker): the marker alone where there is nothing to withdraw
-// or nothing canRun, else the withdrawal (step 2 above). It reports
+// wrote (no marker): the marker alone where there is nothing to withdraw,
+// the withdrawal (step 2 above) where there is and canRun, nothing where
+// there is and nothing can run. It reports
 // whether it wrote the Intent's status. Once withdrawn, and until the
 // fresh round writes the marker, it writes nothing more.
 func (p *pass) supersede(ctx context.Context, canRun bool) (bool, error) {
@@ -92,10 +94,13 @@ func (p *pass) supersede(ctx context.Context, canRun bool) (bool, error) {
 	if v.Judge == v1alpha1.JudgeObserved {
 		return false, nil
 	}
-	if canRun && withdrawable(v) {
+	switch {
+	case withdrawable(v) && canRun:
 		return true, p.withdraw(ctx)
-	}
-	if supersedePending(p.in) {
+	case withdrawable(v), supersedePending(p.in):
+		// Nothing can run: the earlier result stays as it is, unmarked,
+		// and is withdrawn once the Project can evaluate (marking it would
+		// leave it standing, read as current then).
 		return false, nil
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
