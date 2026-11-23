@@ -959,7 +959,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
-  `api/v1alpha1`, `httpstep` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
+  `api/v1alpha1` and `httpstep`): `Parse` (the `tools` log held to its termination summary), `Index`,
   `ReplayRuns`, `ConfirmationRuns`, `ConfirmedChecks` (bodies from the ledger's own dry-run records), the dry-run
   lookups and `Readiness`, all skipping base entries so they return the head's runs only, `BaseRuns` (base replays and
   base confirmations tagged `tree: base`, capped at `MaxBaseRuns`, the only source of `status.base.runs`),

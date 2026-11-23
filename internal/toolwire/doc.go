@@ -31,6 +31,11 @@
 // exec, run and files requests and on entries, and KeyHeader, the
 // per-evaluation key. An entry with no Side encodes as in slice 1.
 //
+// workspace.go holds the spellings the prompts and the relay share: the
+// placeholders an agents round's exec and run calls may name
+// (BinPlaceholder, TreePlaceholder) and the fixed DefaultViewport every
+// browser session opens at, which the plan prompt states.
+//
 // The check runner's verbs (check-run, check-results, confirm) are retired
 // spellings (RetiredVerb): an earlier release's ledger may name them, but no
 // endpoint answers them, and its check run record is no longer part of an
