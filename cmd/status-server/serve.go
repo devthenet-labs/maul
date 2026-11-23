@@ -26,6 +26,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/cli"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/projectsettings"
 	"github.com/devthenet-labs/maul/internal/telemetry"
 	"github.com/devthenet-labs/maul/internal/version"
 	"github.com/devthenet-labs/maul/internal/web"
@@ -53,7 +54,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"oidc with usernamePrefix and groupsPrefix, and turns on the hardened browser envelope")
 	f.Bool("usage-enabled", false,
 		"serve the usage views (a signed-in person's own usage, and everyone's for holders of get on the "+
-			"virtual usage/all); needs auth mode oidc as the intents views do plus Dex's federated:id scope, "+
+			"virtual usage/all); needs auth mode oidc as the intents views do plus Dex's federated:id and profile scopes, "+
 			"since a person is their GitHub id; turns on the hardened browser envelope")
 	f.Bool("account-enabled", false,
 		"serve the Account page (a signed-in person sets, replaces and deletes their own model credential, "+
@@ -68,6 +69,17 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("agents-paused", false,
 		"show the operator's agent pause (the chart's agent.paused) on the signed-in page; display only, the job "+
 			"controllers enforce it")
+	f.Bool("project-settings-enabled", false,
+		"serve the Project settings page beside the intents views: an approver of a Project whom GitHub gives "+
+			"write access to its intent repository changes its limits, models, checks and evaluator settings, "+
+			"matched by their GitHub id; needs --intents-enabled and the usage views' auth posture (federated:id, profile); "+
+			"read-only under --intents-dev-insecure")
+	f.String("project-settings-policy", "",
+		"the operator's bounds on the settings page as JSON {allow, locked, ceilings, floors} (the chart's "+
+			"statusServer.projectSettings, the same values its admission policy reads); empty is the chart's defaults")
+	f.String("project-settings-projects", "",
+		"comma-separated Projects the settings page is for (the status server's patch grant's resourceNames); "+
+			"empty is every Project")
 	f.Bool("intents-dev-insecure", false,
 		"development only: let the intents views run in auth mode none, which shows every Project to every "+
 			"visitor; refused unless --listen-addr is a loopback address")
@@ -97,9 +109,10 @@ func newIntentsWiring(opts *cli.Options, authCfg *auth.Config) (intentsWiring, e
 // viewsWiring is the optional views the flags turn on, each checked against
 // the auth posture before anything starts.
 type viewsWiring struct {
-	intents intentsWiring
-	usage   usageWiring
-	account accountWiring
+	intents  intentsWiring
+	usage    usageWiring
+	account  accountWiring
+	settings settingsWiring
 }
 
 func newViewsWiring(opts *cli.Options, authCfg *auth.Config) (viewsWiring, error) {
@@ -116,7 +129,12 @@ func newViewsWiring(opts *cli.Options, authCfg *auth.Config) (viewsWiring, error
 	if err != nil {
 		return viewsWiring{}, err
 	}
-	return viewsWiring{intents: intents, usage: usage, account: account}, nil
+	settings, err := newSettingsWiring(opts.Bool("project-settings-enabled"), intents, authCfg,
+		opts.String("project-settings-policy"), opts.StringList("project-settings-projects"))
+	if err != nil {
+		return viewsWiring{}, err
+	}
+	return viewsWiring{intents: intents, usage: usage, account: account, settings: settings}, nil
 }
 
 // registerIndexes installs the indexes of every view that is on.
@@ -131,7 +149,73 @@ func (vw viewsWiring) registerIndexes(ctx context.Context, idx client.FieldIndex
 func (vw viewsWiring) apply(srv *web.Server, c client.Client, reader client.Reader, namespace string,
 	tailer web.Tailer) *web.Server {
 	srv = vw.usage.apply(vw.intents.apply(srv, c, namespace, tailer), c, namespace)
-	return vw.account.apply(srv, c, reader, namespace)
+	return vw.settings.apply(vw.account.apply(srv, c, reader, namespace))
+}
+
+// settingsWiring is what --project-settings-enabled adds to the server,
+// decided before anything starts.
+type settingsWiring struct {
+	on bool
+	// readOnly serves the page with no write path (auth mode none).
+	readOnly bool
+	policy   projectsettings.Policy
+	projects []string
+}
+
+// newSettingsWiring checks the settings page may be served: beside the
+// intents views, whose visibility it shares, and under the usage views'
+// posture (oidc, both prefixes, federated:id, profile), since an approver is matched
+// by the GitHub id the session carries. Under the intents views'
+// development posture (mode none, which newIntentsWiring admitted only
+// behind --intents-dev-insecure on a loopback address) no session carries
+// an id to trust, so the page is served read-only and the posture is not
+// asked of it. The policy is read strictly (empty: the chart's defaults),
+// and each Project named once and in the name grammar.
+func newSettingsWiring(enabled bool, intents intentsWiring, authCfg *auth.Config, policy string,
+	projects []string) (settingsWiring, error) {
+	if !enabled {
+		return settingsWiring{}, nil
+	}
+	if !intents.on {
+		return settingsWiring{}, errors.New("--project-settings-enabled needs --intents-enabled: the page is " +
+			"shown to whoever may see a Project's intents")
+	}
+	sw := settingsWiring{on: true, policy: projectsettings.DefaultPolicy()}
+	if authCfg != nil && authCfg.Mode == auth.ModeNone {
+		sw.readOnly = true
+	} else if err := authCfg.RequireForProjectSettings(); err != nil {
+		return settingsWiring{}, fmt.Errorf("--project-settings-enabled: %w", err)
+	}
+	if strings.TrimSpace(policy) != "" {
+		p, err := projectsettings.ParsePolicy([]byte(policy))
+		if err != nil {
+			return settingsWiring{}, fmt.Errorf("--project-settings-policy: %w", err)
+		}
+		sw.policy = p
+	}
+	for _, name := range projects {
+		if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+			return settingsWiring{}, fmt.Errorf("--project-settings-projects: %q is not a Project name: %s", name,
+				strings.Join(errs, "; "))
+		}
+		if slices.Contains(sw.projects, name) {
+			return settingsWiring{}, fmt.Errorf("--project-settings-projects: %s is listed twice", name)
+		}
+		sw.projects = append(sw.projects, name)
+	}
+	return sw, nil
+}
+
+// apply turns the settings page on in srv; with it off it returns srv
+// unchanged. Its reads go through the server's uncached reader
+// (WithTranscripts' API reader), which keeps the managedFields the page
+// names other managers from.
+func (sw settingsWiring) apply(srv *web.Server) *web.Server {
+	if !sw.on {
+		return srv
+	}
+	return srv.WithProjectSettings(web.ProjectSettingsOptions{Policy: sw.policy, Projects: sw.projects,
+		ReadOnly: sw.readOnly})
 }
 
 // accountWiring is what --account-enabled adds to the server, decided
@@ -143,7 +227,7 @@ type accountWiring struct {
 }
 
 // newAccountWiring checks the auth posture may serve the Account page: as
-// the usage views, oidc with the federated:id scope, since a credential is
+// the usage views, oidc with the federated:id and profile scopes, since a credential is
 // kept under the person's GitHub id. There is no development bypass.
 func newAccountWiring(enabled bool, credentialsNamespace string, providers []string, authCfg *auth.Config) (
 	accountWiring, error) {
@@ -206,7 +290,8 @@ type usageWiring struct{ on bool }
 
 // newUsageWiring checks the auth posture may serve the usage views: oidc as
 // for the intents views, plus the federated:id scope that carries a
-// person's GitHub id. There is no development bypass: without a GitHub id
+// person's GitHub id and the profile scope its login comes with, without
+// which no id is trusted. There is no development bypass: without a GitHub id
 // no one has usage to see.
 func newUsageWiring(enabled bool, authCfg *auth.Config) (usageWiring, error) {
 	if !enabled {
@@ -424,7 +509,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("auth_mode", mode),
 		slog.Bool("intents", views.intents.on),
 		slog.Bool("usage", views.usage.on),
-		slog.Bool("account", views.account.on))
+		slog.Bool("account", views.account.on),
+		slog.Bool("project_settings", views.settings.on),
+		slog.Bool("project_settings_read_only", views.settings.readOnly))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return mgr.Start(ctx) })

@@ -710,12 +710,9 @@ func requireRepositoryImage(p *v1alpha1.Project) bool {
 }
 
 // isApprover reports whether login is one of the Project's approvers,
-// compared case-insensitively as GitHub compares logins.
+// compared case-insensitively as GitHub compares logins: the list's own rule
+// (v1alpha1.ProjectApprovers.Has), which the status page's project settings
+// gate shares.
 func isApprover(p *v1alpha1.Project, login string) bool {
-	for _, a := range p.Spec.Approvers.Logins {
-		if strings.EqualFold(a, login) {
-			return true
-		}
-	}
-	return false
+	return p.Spec.Approvers.Has(login)
 }

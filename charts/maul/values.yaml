@@ -1503,7 +1503,7 @@ statusServer:
     # mode oidc as for the intents views, and oidc.scopes lists federated:id
     # (Dex then names the connector; oidc.claims.githubConnector, default
     # github, is the one trusted; it must not set useLoginAsID, or nobody
-    # gets an id). It hardens the page as the intents views do. See
+    # gets an id) and profile (the login, without which no id is trusted). It hardens the page as the intents views do. See
     # docs/configuration/status-server.md#usage-views.
     usage:
         enabled: false
@@ -1513,13 +1513,72 @@ statusServer:
     # Write-only: a stored credential is never shown again, to anyone. It
     # needs egressBroker.userCredentials.mode attribute or enforce (the store
     # and the status server's write-only grants render with that mode), auth
-    # mode oidc with federated:id as the usage views do (a person is their
-    # GitHub id), and a binding of <release>-credentials-self (see
+    # mode oidc with federated:id and profile as the usage views do (a person
+    # is their GitHub id), and a binding of <release>-credentials-self (see
     # docs/configuration/user-credentials.md). With host set, every notice
     # that a run waits for someone's credential links the page. It hardens the
     # page as the intents views do.
     account:
         enabled: false
+    # The Project settings page: an approver of a Project (a login in its
+    # spec.approvers that GitHub says has write access, matched by GitHub id)
+    # changes its limits, models, evaluator, hand-off, CI checks and each
+    # repository's resource class from the status page, within the bounds
+    # below. It needs the intents views, the usage views' auth posture
+    # (mode oidc with both claim prefixes and the federated:id and profile
+    # scopes) and
+    # admissionPolicy.enabled: the chart refuses to render otherwise. On, the
+    # status server gains one write, patch on projects (no update, no
+    # status, no other kind), and an admission policy holds every patch it
+    # sends to these bounds again in the API server, pinning every field of
+    # the Project outside the page's own. People's guide:
+    # docs/intents/project-settings.md. The operator's side, and the
+    # co-ownership contract with the maul-config values (set each field from
+    # one place): docs/configuration/status-server.md.
+    projectSettings:
+        enabled: false
+        # The Projects the page may edit, by name (the patch grant's
+        # resourceNames). Empty: every Project in the release namespace.
+        projects: []
+        # The switches, each off unless set. approvers: approvers may add or
+        # remove one approver per save (never themselves). disableEvaluator:
+        # they may turn verification off, hand previews over early, or
+        # lower an evaluator limit under its floor below. emptyChecks: they
+        # may empty checks.fix (no CI check is waited for or fixed).
+        allow:
+            approvers: false
+            disableEvaluator: false
+            emptyChecks: false
+        # Groups the page shows read-only and the policy refuses changes to:
+        # approvers, evaluator, handoff, models, cost, rounds, activeIntents,
+        # stages, checks, resources.
+        locked: []
+        # The most the page may raise each limit intent-controller does not
+        # clamp itself. A higher value set elsewhere may be kept or lowered
+        # from the page, never raised. Money in micro-USD ($25 = 25000000).
+        ceilings:
+            maxCostMicroUSD: 25000000
+            maxRevisions: 10
+            maxCheckFixes: 10
+            maxVerifyFixes: 5
+            maxVerifications: 50
+            maxActiveIntents: 5
+        # The least the page may lower each evaluator limit to, unless
+        # allow.disableEvaluator: starved of turns, time or money every
+        # evaluation ends unconfirmed. A value already lower may be kept or
+        # raised. Zero (0, or 0s for a duration) is no floor. Durations in
+        # whole hours, minutes and seconds (10m, 1h30m).
+        floors:
+            # Under limits.maxEvaluateCostMicroUSD and the evaluate stage's
+            # own limits.evaluate.maxCostMicroUSD alike: an evaluate run's
+            # budget is the lesser of the two.
+            maxEvaluateCostMicroUSD: 2000000
+            evaluateMaxTurns: 40
+            evaluateTimeout: 10m
+            evaluateTokenBudget: 100000
+            maxToolCalls: 100
+            maxVerifications: 3
+            handoffMax: 30m
     config:
         # Extra MAUL_* keys for the status server only.
         extra: {}

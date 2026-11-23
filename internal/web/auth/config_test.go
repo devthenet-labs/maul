@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -168,5 +169,85 @@ func TestNewModes(t *testing.T) {
 	// Unknown mode is rejected (validation normally catches it earlier).
 	if _, err := New(t.Context(), &Config{Mode: "basic"}, nil); err == nil {
 		t.Error("New accepted an unknown mode")
+	}
+}
+
+// Editing Project settings ties a session to an approver by the person's
+// numeric GitHub id, so its gate admits only oidc with both claim prefixes
+// and the federated:id scope. Mode none is refused here whatever flag the
+// binary was started with: --intents-dev-insecure admits it for the read-only
+// views, and this package offers no development bypass for a write. The
+// insecure switch is another thing (cookies without Secure over plain HTTP),
+// and does not change who a session is, so oidc with it on is admitted.
+func TestRequireForProjectSettings(t *testing.T) {
+	const base = "mode: oidc\noidc:\n  issuerURL: https://sso.acme.test\n  clientID: c\n  clientSecret: s\n"
+	const scopes = "  scopes: [openid, profile, groups, federated:id]\n"
+	const claims = "  claims:\n    username: preferred_username\n" +
+		"    usernamePrefix: \"github:\"\n    groupsPrefix: \"github:\"\n"
+	cases := []struct {
+		name    string
+		yaml    string // "" means no auth config at all
+		wantErr string
+	}{
+		{"unconfigured", "", "none is configured"},
+		{"mode none, the dev-insecure posture", "mode: none\n", `not "none"`},
+		{"mode none with insecure cookies", "mode: none\ninsecure: true\n", `not "none"`},
+		{"mode anonymous", "mode: anonymous\nanonymous:\n  username: viewer\n", `not "anonymous"`},
+		{"oidc without prefixes", base + scopes + "  claims:\n    username: preferred_username\n",
+			"usernamePrefix"},
+		{"oidc with only the username prefix", base + scopes +
+			"  claims:\n    username: preferred_username\n    usernamePrefix: \"github:\"\n", "groupsPrefix"},
+		{"oidc with only the groups prefix", base + scopes +
+			"  claims:\n    username: preferred_username\n    groupsPrefix: \"github:\"\n", "usernamePrefix"},
+		{"oidc email username unverified", base + scopes +
+			"  claims:\n    usernamePrefix: \"oidc:\"\n    groupsPrefix: \"oidc:\"\n", "requireVerifiedEmail"},
+		{"default scopes", base + claims, FederatedIDScope},
+		{"scopes without federated:id", base + "  scopes: [openid, profile]\n" + claims, FederatedIDScope},
+		{"dex github", base + scopes + claims, ""},
+		{"dex github, verified email username", base + scopes + "  claims:\n    usernamePrefix: \"oidc:\"\n" +
+			"    groupsPrefix: \"oidc:\"\n    requireVerifiedEmail: true\n", ""},
+		{"dex github over plain http", "insecure: true\n" + base + scopes + claims, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg *Config
+			if tc.yaml != "" {
+				var err error
+				if cfg, err = LoadConfig(writeConfig(t, tc.yaml)); err != nil {
+					t.Fatalf("LoadConfig: %v", err)
+				}
+			}
+			err := cfg.RequireForProjectSettings()
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Errorf("RequireForProjectSettings = %v, want nil", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("RequireForProjectSettings = %v, want an error containing %q", err, tc.wantErr)
+			case tc.wantErr != "" && !strings.Contains(err.Error(), "Project settings"):
+				t.Errorf("RequireForProjectSettings = %v, want it to name Project settings", err)
+			}
+			// The page keys a person as the usage views do; the two gates
+			// must not drift apart.
+			if usage := cfg.RequireForUsage(); (usage == nil) != (err == nil) {
+				t.Errorf("RequireForProjectSettings = %v but RequireForUsage = %v, want them to agree", err, usage)
+			}
+		})
+	}
+}
+
+// A configuration built by hand, never through LoadConfig, has no connector
+// default: with no GitHub connector named no token could carry a GitHub id.
+func TestRequireForProjectSettingsNeedsTheConnector(t *testing.T) {
+	cfg := &Config{Mode: ModeOIDC, OIDC: &OIDCConfig{
+		Scopes: []string{"openid", ProfileScope, FederatedIDScope},
+		Claims: ClaimsConfig{Username: "preferred_username", UsernamePrefix: "github:", GroupsPrefix: "github:"},
+	}}
+	err := cfg.RequireForProjectSettings()
+	if err == nil || !strings.Contains(err.Error(), "githubConnector") {
+		t.Errorf("RequireForProjectSettings = %v, want a githubConnector error", err)
+	}
+	cfg.OIDC.Claims.GitHubConnector = DefaultGitHubConnector
+	if err := cfg.RequireForProjectSettings(); err != nil {
+		t.Errorf("RequireForProjectSettings with the connector = %v, want nil", err)
 	}
 }

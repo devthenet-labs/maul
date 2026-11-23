@@ -4,6 +4,7 @@
 package web
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -212,5 +213,33 @@ func TestBuildCSPHashesInlineScripts(t *testing.T) {
 	}
 	if !strings.Contains(buildCSP(nil), "script-src 'self';") {
 		t.Errorf("stub CSP = %q", buildCSP(nil))
+	}
+}
+
+// A settings save from a same-site page (a preview on the status host's
+// registrable domain, carrying the viewer's SameSite=Lax cookie), from
+// another site, or from a browser that sends no Sec-Fetch-Site is refused
+// before the handler runs: nothing is read for it and nothing written.
+func TestProjectSettingsSaveRefusedCrossSite(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	raw, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range []string{"same-site", "cross-site", ""} {
+		if code, body := f.postTo(approverAlpha, settingsPath, "application/json", string(raw), site); code !=
+			http.StatusForbidden {
+			t.Errorf("Sec-Fetch-Site %q: POST = %d %s, want 403", site, code, body)
+		}
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches from foreign pages", len(f.patches))
+	}
+	if code, body := f.postTo(approverAlpha, settingsPath, "application/json", string(raw), "same-origin"); code !=
+		http.StatusOK {
+		t.Errorf("same-origin: POST = %d %s, want 200", code, body)
 	}
 }

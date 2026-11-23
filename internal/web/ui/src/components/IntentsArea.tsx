@@ -41,7 +41,7 @@ function Panel({ title, children }: { title: string; children: ComponentChildren
   );
 }
 
-export function IntentsArea({ route }: { route: Route }) {
+export function IntentsArea({ route, settingsProjects = [] }: { route: Route; settingsProjects?: string[] }) {
   const [state, setState] = useState<Loaded>({ kind: "loading" });
   const now = useNow();
   const key = route.view === "intentRun" ? `${route.name}/${route.run}` : route.view === "intent" ? route.name : "";
@@ -94,9 +94,9 @@ export function IntentsArea({ route }: { route: Route }) {
     case "error":
       return <Panel title="Cannot load intents">{state.message}</Panel>;
     case "board":
-      return <IntentsBoard board={state.board} now={now} />;
+      return <IntentsBoard board={state.board} now={now} settingsProjects={settingsProjects} />;
     case "intent":
-      return <IntentTimeline detail={state.detail} now={now} />;
+      return <IntentTimeline detail={state.detail} now={now} settingsProjects={settingsProjects} />;
     case "run":
       return <RunPanel run={state.run} now={now} />;
   }

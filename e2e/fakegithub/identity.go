@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"maps"
 	"net/http"
@@ -278,15 +279,42 @@ func (s *Server) MarkUserMissing(login string) {
 	s.missing[strings.ToLower(login)] = true
 }
 
+// SetUserID registers login as the account with id: its permission answer
+// names it under that spelling and id, however the login is asked for.
+func (s *Server) SetUserID(login string, id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.users[strings.ToLower(login)] = Actor{Login: login, ID: id, Type: "User"}
+}
+
+// UserID is the numeric id the fake gives an account SetUserID did not
+// register: stable per login, compared case-insensitively as GitHub
+// compares logins, and positive.
+func UserID(login string) int64 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.ToLower(login)))
+	return 1_000_000 + int64(h.Sum32())
+}
+
+// user is the account a permission answer names for login.
+func (s *Server) user(login string) Actor {
+	if a, ok := s.users[strings.ToLower(login)]; ok {
+		return a
+	}
+	return Actor{Login: login, ID: UserID(login), Type: "User"}
+}
+
 // permission answers GET /repos/{o}/{r}/collaborators/{login}/permission as
 // GitHub does for a public repository (verified live): any account "read"
 // unless given a role, the App's own bot "none", a nonexistent login 404.
+// Every answer names the account with its id (user), collaborator or not.
 func (s *Server) permission(w http.ResponseWriter, r *http.Request) {
 	login := r.PathValue("login")
 	key := strings.ToLower(login)
 	s.mu.Lock()
 	role, hasRole := s.roles[key]
 	missing := s.missing[key]
+	user := s.user(login)
 	s.mu.Unlock()
 
 	switch {
@@ -296,13 +324,11 @@ func (s *Server) permission(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"permission": "none", "user": Bot})
 	case hasRole:
 		writeJSON(w, map[string]any{
-			"permission": legacyPermission[role], "role_name": role,
-			"user": Actor{Login: login, Type: "User"},
+			"permission": legacyPermission[role], "role_name": role, "user": user,
 		})
 	default:
 		writeJSON(w, map[string]any{
-			"permission": "read", "role_name": "read",
-			"user": Actor{Login: login, Type: "User"},
+			"permission": "read", "role_name": "read", "user": user,
 		})
 	}
 }

@@ -535,6 +535,10 @@ export interface Me {
 export interface ProjectAccess {
   name: string;
   tier: IntentTier;
+  // the Project settings page is served for this Project (on, and a
+  // Project it is for); not whether the caller may save there: the page's
+  // canEdit says that.
+  settings: boolean;
 }
 
 export interface IntentBoard {
@@ -1013,4 +1017,274 @@ export interface Account {
   allowed: boolean;
   reason: string;
   credentials: AccountCredential[];
+}
+
+// ---- Project settings page (internal/projectsettings, served by -----------
+// internal/web/project_settings.go). Durations are whole seconds and money
+// micro-USD, both integers; 0 is unset where the Project's own field says so.
+// The check reviewer's model and limits are not on the page.
+
+export type ProjectSettingsGroup =
+  | "approvers"
+  | "evaluator"
+  | "handoff"
+  | "models"
+  | "cost"
+  | "rounds"
+  | "activeIntents"
+  | "stages"
+  | "checks"
+  | "resources";
+
+export type ProjectSettingsKind =
+  | "count"
+  | "microUSD"
+  | "seconds"
+  | "bool"
+  | "handoff"
+  | "model"
+  | "logins"
+  | "checks"
+  | "class";
+
+export type ProjectSettingsEffect = "live" | "new-runs" | "new-intents" | "next-round";
+
+// why a field cannot be changed at all; "" when it can.
+export type ProjectSettingsLocked = "" | "locked" | "not-allowed" | "admits-unpublished" | "no-classes";
+
+export type ProjectSettingsApproverState = "ok" | "no-write-access" | "no-account" | "unresolved";
+
+// why the viewer may not save: the gate's reasons, or "read-only" for a page
+// served with no write path; "" when they may.
+export type ProjectSettingsReason =
+  | ""
+  | "no-github-identity"
+  | "not-approver"
+  | "no-write-access"
+  | "approvers-unresolved"
+  | "approvers-stale"
+  | "read-only";
+
+// "Apply": server-side apply (Helm 4's default); its next apply that still
+// states the field fails with a conflict. "Update": client-side helm,
+// kubectl apply; its next apply replaces whole lists. A manager recorded
+// under both is named once, as "Apply".
+export type ProjectSettingsManagerOperation = "Apply" | "Update";
+
+export type ProjectSettingsHandoff = "" | "gated" | "early";
+
+export interface ProjectSettings {
+  approvers: string[];
+  verification: ProjectSettingsVerification;
+  models: ProjectSettingsModels;
+  limits: ProjectSettingsLimits;
+  stages: ProjectSettingsStages;
+  checks: ProjectSettingsChecks;
+  repositories: ProjectSettingsRepository[];
+}
+
+export interface ProjectSettingsVerification {
+  enabled: boolean;
+  handoff: ProjectSettingsHandoff;
+  handoffMaxSeconds: number;
+  maxToolCalls: number;
+}
+
+export interface ProjectSettingsModels {
+  plan: string;
+  build: string;
+  evaluate: string;
+}
+
+export interface ProjectSettingsLimits {
+  maxCostMicroUSD: number;
+  maxEvaluateCostMicroUSD: number;
+  // null is the schema default (unset for maxVerifyFixes); 0 is a value.
+  maxRevisions: number | null;
+  maxCheckFixes: number | null;
+  maxVerifyFixes: number | null;
+  maxVerifications: number;
+  maxActiveIntents: number;
+}
+
+export interface ProjectSettingsStages {
+  plan: ProjectSettingsStage;
+  build: ProjectSettingsStage;
+  revise: ProjectSettingsStage;
+  evaluate: ProjectSettingsStage;
+}
+
+// 0 is the controller's own ceiling for the stage (for the cost, the
+// ceiling it is spent against).
+export interface ProjectSettingsStage {
+  maxTurns: number;
+  tokenBudget: number;
+  maxCostMicroUSD: number;
+  timeoutSeconds: number;
+}
+
+export interface ProjectSettingsChecks {
+  fix: string[];
+  timeoutSeconds: number;
+  rerunFailed: boolean;
+}
+
+export interface ProjectSettingsRepository {
+  name: string;
+  agentResourceClass: string;
+}
+
+export interface ProjectSettingsView {
+  project: string;
+  generation: number;
+  observedGeneration: number;
+  schema: number;
+  canEdit: boolean;
+  reason: ProjectSettingsReason;
+  settings: ProjectSettings;
+  fields: ProjectSettingsField[];
+  approvers: ProjectSettingsApprover[];
+  approversResolvedAt: string;
+  approversStale: boolean;
+  options: ProjectSettingsOptions;
+  allow: ProjectSettingsAllow;
+  facts: ProjectSettingsFacts;
+  lastEdit: ProjectSettingsEdit | null;
+  conditions: ProjectSettingsCondition[];
+}
+
+export interface ProjectSettingsField {
+  // the path below spec ("limits.maxRevisions"); the per-repository field
+  // is "repositories.agentResourceClass".
+  id: string;
+  group: ProjectSettingsGroup;
+  kind: ProjectSettingsKind;
+  min: number;
+  max: number;
+  default: number;
+  ceiling: number;
+  floor: number;
+  locked: ProjectSettingsLocked;
+  effect: ProjectSettingsEffect;
+  managers: ProjectSettingsManager[];
+}
+
+export interface ProjectSettingsManager {
+  name: string;
+  operation: ProjectSettingsManagerOperation;
+}
+
+export interface ProjectSettingsApprover {
+  login: string;
+  state: ProjectSettingsApproverState;
+  you: boolean;
+  managers: ProjectSettingsManager[];
+}
+
+export interface ProjectSettingsOptions {
+  published: boolean;
+  models: string[];
+  defaultModels: ProjectSettingsModels;
+  resourceClasses: ProjectSettingsClass[];
+  evaluator: boolean;
+  costBudgets: boolean;
+}
+
+export interface ProjectSettingsClass {
+  name: string;
+  requestCPU: string;
+  requestMemory: string;
+  limitCPU: string;
+  limitMemory: string;
+}
+
+export interface ProjectSettingsAllow {
+  approvers: boolean;
+  disableEvaluator: boolean;
+  emptyChecks: boolean;
+}
+
+export interface ProjectSettingsFacts {
+  intentRepository: string;
+  repositories: ProjectSettingsRepositoryFact[];
+  triggerLabel: string;
+  approveLabel: string;
+  harness: string;
+  surfaces: string[];
+  suspend: boolean;
+  requireRepositoryImage: boolean;
+  manualGatesStatus: boolean;
+  postLogs: boolean;
+  activeIntents: number;
+}
+
+export interface ProjectSettingsRepositoryFact {
+  name: string;
+  url: string;
+  previewed: boolean;
+  previewPath: string;
+  previewImage: string;
+  previewPort: number;
+  previewReadinessPath: string;
+  classManagers: ProjectSettingsManager[];
+}
+
+export interface ProjectSettingsEdit {
+  githubID: number;
+  login: string;
+  at: string;
+  fields: string[];
+  more: number;
+}
+
+// in fixed wording; never a condition's message.
+export interface ProjectSettingsCondition {
+  type: string;
+  status: string;
+  reason: string;
+  text: string;
+}
+
+export interface ProjectSettingsRequest {
+  generation: number;
+  schema: number;
+  settings: ProjectSettings;
+  confirm: string[];
+}
+
+// reason: "" when made (or nothing changed), a gate reason, or
+// "generation-changed", "schema-changed", "invalid-document", "refused",
+// "confirm-required".
+export interface ProjectSettingsResult {
+  reason: string;
+  generation: number;
+  changes: ProjectSettingsChange[];
+  refusals: ProjectSettingsRefusal[];
+  confirm: ProjectSettingsConfirmation[];
+}
+
+export interface ProjectSettingsChange {
+  field: string;
+  item: string;
+  group: ProjectSettingsGroup;
+  from: string;
+  to: string;
+  added: string[];
+  removed: string[];
+  effect: ProjectSettingsEffect;
+}
+
+export interface ProjectSettingsRefusal {
+  field: string;
+  item: string;
+  reason: string;
+  limit: number;
+  value: string;
+}
+
+export interface ProjectSettingsConfirmation {
+  key: string;
+  kind: string;
+  field: string;
+  value: string;
 }

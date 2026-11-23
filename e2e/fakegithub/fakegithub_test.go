@@ -452,6 +452,37 @@ func TestCollaboratorPermissions(t *testing.T) {
 	}
 }
 
+// TestCollaboratorIdentity: the permission answer names the account, as
+// GitHub's does for every existing login, collaborator or not (SPIKE (a)):
+// its id is the one SetUserID gave the login, else UserID's stable one, the
+// lookup is case-insensitive and answers the login as it was registered,
+// and the App's bot answers as Bot.
+func TestCollaboratorIdentity(t *testing.T) {
+	srv, c, _ := newFake(t)
+	srv.SetRole("peter", "admin")
+	srv.SetUserID("peter", 225740)
+	ctx := context.Background()
+	tests := []struct {
+		login string
+		want  ghclient.Collaborator
+	}{
+		{"PETER", ghclient.Collaborator{Login: "peter", ID: 225740, Permission: "admin"}},
+		{"octocat", ghclient.Collaborator{Login: "octocat", ID: fakegithub.UserID("octocat"), Permission: "read"}},
+		{fakegithub.BotLogin, ghclient.Collaborator{Login: fakegithub.BotLogin, ID: fakegithub.BotUserID,
+			Permission: "none"}},
+	}
+	for _, tt := range tests {
+		got, err := c.CollaboratorAccess(ctx, intents, tt.login)
+		if err != nil || got != tt.want {
+			t.Errorf("CollaboratorAccess(%s) = %+v, %v; want %+v", tt.login, got, err, tt.want)
+		}
+	}
+	if fakegithub.UserID("octocat") <= 0 || fakegithub.UserID("octocat") != fakegithub.UserID("OctoCat") ||
+		fakegithub.UserID("octocat") == fakegithub.UserID("peter") {
+		t.Errorf("UserID is not a stable, case-insensitive, per-login id")
+	}
+}
+
 // TestAppAuth: the App endpoints — slug, installation lookup and scoped
 // tokens — work against the fake, which records each token's scope.
 func TestAppAuth(t *testing.T) {

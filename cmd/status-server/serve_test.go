@@ -4,11 +4,13 @@
 package main
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/projectsettings"
 	"github.com/devthenet-labs/maul/internal/web/auth"
 	"github.com/devthenet-labs/maul/internal/web/authz"
 )
@@ -93,7 +95,8 @@ func TestUsageAuthGate(t *testing.T) {
 		{"mode none", true, &auth.Config{Mode: auth.ModeNone}, `not "none"`},
 		{"mode anonymous", true, &auth.Config{Mode: auth.ModeAnonymous}, `not "anonymous"`},
 		{"oidc without federated:id", true, oidc("openid", "profile"), "federated:id"},
-		{"dex with federated:id", true, oidc("openid", "federated:id"), ""},
+		{"oidc without profile", true, oidc("openid", "federated:id"), "profile scope"},
+		{"dex with federated:id", true, oidc("openid", "profile", "federated:id"), ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,7 +118,8 @@ func TestUsageAuthGate(t *testing.T) {
 func TestAccountProviders(t *testing.T) {
 	dex := auth.ClaimsConfig{Username: "preferred_username", UsernamePrefix: "github:", GroupsPrefix: "github:",
 		GitHubConnector: "github"}
-	cfg := &auth.Config{Mode: auth.ModeOIDC, OIDC: &auth.OIDCConfig{Claims: dex, Scopes: []string{"federated:id"}}}
+	cfg := &auth.Config{Mode: auth.ModeOIDC, OIDC: &auth.OIDCConfig{Claims: dex,
+		Scopes: []string{"profile", "federated:id"}}}
 	for _, tc := range []struct {
 		in      []string
 		want    []v1alpha1.ModelCredentialProvider
@@ -160,9 +164,9 @@ func TestAccountAuthGate(t *testing.T) {
 		{"off and unconfigured", false, "maul-credentials", nil, ""},
 		{"mode none", true, "maul-credentials", &auth.Config{Mode: auth.ModeNone}, `not "none"`},
 		{"oidc without federated:id", true, "maul-credentials", oidc("openid"), "federated:id"},
-		{"a namespace outside the grammar", true, "Maul_Creds", oidc("openid", "federated:id"),
+		{"a namespace outside the grammar", true, "Maul_Creds", oidc("openid", "profile", "federated:id"),
 			"--credentials-namespace"},
-		{"dex with federated:id", true, "maul-credentials", oidc("openid", "federated:id"), ""},
+		{"dex with federated:id", true, "maul-credentials", oidc("openid", "profile", "federated:id"), ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,5 +180,91 @@ func TestAccountAuthGate(t *testing.T) {
 				t.Errorf("on = %v, want %v", aw.on, tc.on)
 			}
 		})
+	}
+}
+
+// The Project settings page comes up only beside the intents views, under
+// the usage views' posture (oidc, both prefixes, federated:id): a session
+// is matched to an approver by its GitHub id. Under the intents views'
+// development posture (mode none) it is served read-only, never with a
+// write path. Its policy is parsed strictly and its Project list held to
+// the name grammar; off, nothing is checked.
+func TestProjectSettingsAuthGate(t *testing.T) {
+	dex := auth.ClaimsConfig{Username: "preferred_username", UsernamePrefix: "github:", GroupsPrefix: "github:",
+		GitHubConnector: "github"}
+	oidc := func(scopes ...string) *auth.Config {
+		return &auth.Config{Mode: auth.ModeOIDC, OIDC: &auth.OIDCConfig{Claims: dex, Scopes: scopes}}
+	}
+	on := intentsWiring{on: true}
+	cases := []struct {
+		name         string
+		enabled      bool
+		intents      intentsWiring
+		cfg          *auth.Config
+		policy       string
+		projects     []string
+		wantErr      string
+		wantReadOnly bool
+	}{
+		{name: "off", cfg: nil, policy: "{nonsense", projects: []string{"Bad_Name"}},
+		{name: "without the intents views", enabled: true, cfg: oidc("openid", "profile", "federated:id"),
+			wantErr: "--intents-enabled"},
+		{name: "oidc without federated:id", enabled: true, intents: on, cfg: oidc("openid"),
+			wantErr: "--project-settings-enabled: "},
+		{name: "oidc without profile", enabled: true, intents: on, cfg: oidc("openid", "federated:id"),
+			wantErr: "profile scope"},
+		{name: "mode anonymous", enabled: true, intents: on, cfg: &auth.Config{Mode: auth.ModeAnonymous},
+			wantErr: "--project-settings-enabled: "},
+		{name: "unconfigured", enabled: true, intents: on, cfg: nil, wantErr: "--project-settings-enabled: "},
+		{name: "mode none behind the development flag", enabled: true, intents: on,
+			cfg: &auth.Config{Mode: auth.ModeNone}, wantReadOnly: true},
+		{name: "dex with federated:id", enabled: true, intents: on, cfg: oidc("openid", "profile", "federated:id")},
+		{name: "a policy with an unknown switch", enabled: true, intents: on, cfg: oidc("profile", "federated:id"),
+			policy: `{"allow":{"everything":true}}`, wantErr: "--project-settings-policy: "},
+		{name: "a policy past a field's range", enabled: true, intents: on, cfg: oidc("profile", "federated:id"),
+			policy:  `{"ceilings":{"maxCostMicroUSD":1,"maxVerifications":1,"maxActiveIntents":1,"maxRevisions":99}}`,
+			wantErr: "--project-settings-policy: "},
+		{name: "a policy", enabled: true, intents: on, cfg: oidc("profile", "federated:id"),
+			policy: `{"allow":{"approvers":true},"locked":["models"],"ceilings":{"maxCostMicroUSD":5000000,` +
+				`"maxVerifications":10,"maxActiveIntents":2}}`},
+		{name: "a project outside the name grammar", enabled: true, intents: on, cfg: oidc("profile", "federated:id"),
+			projects: []string{"alpha", "Bad_Name"}, wantErr: "--project-settings-projects"},
+		{name: "a project listed twice", enabled: true, intents: on, cfg: oidc("profile", "federated:id"),
+			projects: []string{"alpha", "alpha"}, wantErr: "listed twice"},
+		{name: "projects", enabled: true, intents: on, cfg: oidc("profile", "federated:id"),
+			projects: []string{"alpha", "beta"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sw, err := newSettingsWiring(tc.enabled, tc.intents, tc.cfg, tc.policy, tc.projects)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("newSettingsWiring = %v, want an error containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("newSettingsWiring: %v", err)
+			}
+			if sw.on != tc.enabled || sw.readOnly != tc.wantReadOnly {
+				t.Errorf("on %v readOnly %v, want %v %v", sw.on, sw.readOnly, tc.enabled, tc.wantReadOnly)
+			}
+			if tc.enabled && !slices.Equal(sw.projects, tc.projects) {
+				t.Errorf("projects = %v, want %v", sw.projects, tc.projects)
+			}
+		})
+	}
+
+	sw, err := newSettingsWiring(true, on, oidc("profile", "federated:id"), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sw.policy, projectsettings.DefaultPolicy()) {
+		t.Errorf("no policy = %+v, want the default (the chart's)", sw.policy)
+	}
+	sw, err = newSettingsWiring(true, on, oidc("profile", "federated:id"), `{"allow":{"approvers":true},"ceilings":`+
+		`{"maxCostMicroUSD":5000000,"maxVerifications":10,"maxActiveIntents":2}}`, nil)
+	if err != nil || !sw.policy.Allow.Approvers || sw.policy.Ceilings.MaxCostMicroUSD != 5_000_000 {
+		t.Errorf("policy = %+v, %v", sw.policy, err)
 	}
 }

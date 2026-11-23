@@ -3,7 +3,9 @@
 The status page can show every intent a person may see: a board of intents by phase, each intent's timeline, and a panel
 for each agent run that answers the three questions a running intent raises: is it stuck, what has it spent, and when
 will it stop. It is read-only. Approval stays a GitHub fact (the approve label or `/maul approve` on the intent issue,
-bound to the plan's digest), and nothing on the dashboard can approve, cancel or replan an intent.
+bound to the plan's digest), and nothing on the dashboard can approve, cancel or replan an intent. The one page that
+writes, [Project settings](project-settings.md), is a separate switch, off unless the operator turns it on; it changes a
+Project's settings, never an intent.
 
 It is off by default. Turning it on adds per-Project access, mandatory identity hardening and a stricter browser
 envelope for the whole status page; read this page before you do. [Turning it on](#turning-it-on) has the settings.
@@ -315,7 +317,10 @@ components:
 Either grants the status server read (`get`, `list`, `watch`) on projects, intents, intentruns and previews in the
 release namespace, and `get` on Jobs in the agent namespace, for a live run's clock (it reads the Job's creation and
 start time, deadline and idle limit, and never passes the Job itself on). It writes nothing new: no intent, no status,
-no Secret.
+no Secret. Only the [Project settings page](project-settings.md), turned on by its own switch
+(`statusServer.projectSettings.enabled`), adds a write: `patch` on projects, of the settings it offers and one
+annotation recording who saved, held by an admission policy (see
+[its operator's side](../configuration/status-server.md#project-settings-page)).
 
 ### What else changes on the page
 

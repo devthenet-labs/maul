@@ -103,8 +103,10 @@ func (s *Server) WithIntents(o IntentsOptions) *Server {
 	return s
 }
 
-// registerIntents mounts the intents routes. Every one is a GET: this slice
-// has no write path, and approval stays a GitHub fact.
+// registerIntents mounts the intents routes. Every one is a GET: the views
+// write nothing, and approval stays a GitHub fact. The one write beside
+// them, a Project's settings saved by an approver, is the Project settings
+// page's (project_settings.go), mounted only while that page is on.
 func (s *Server) registerIntents(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("GET /api/intents", s.handleIntentBoard)
@@ -306,7 +308,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	me := Me{Name: id.Display(), LoggedIn: id.Session, Projects: []ProjectAccess{}}
 	for i := range projects {
 		if t := tiers[projects[i].Name]; t != authz.TierNone {
-			me.Projects = append(me.Projects, ProjectAccess{Name: projects[i].Name, Tier: tierName(t)})
+			me.Projects = append(me.Projects, ProjectAccess{Name: projects[i].Name, Tier: tierName(t),
+				Settings: s.settingsFor(projects[i].Name)})
 		}
 	}
 	writeJSON(w, me)

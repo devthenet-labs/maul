@@ -95,8 +95,18 @@ spec:
               ProjectSpec is operator configuration: where intents are filed, who may
               authorise them, which repositories they build in, and what they may spend.
               The operator writes it (through the maul-config chart); intent-controller
-              only reads it. Writing projects is admin-only in RBAC, because a Project is
-              the power to point agents at repositories.
+              only reads it. For people, writing projects is admin-only in RBAC, because
+              a Project is the power to point agents at repositories. The one other
+              writer is opt-in: with the status page's project settings on (the maul
+              chart's statusServer.projectSettings, off by default), the status server
+              patches a bounded part of the spec for an approver who has write access to
+              the intent repository: limits, models, checks, the evaluator's settings,
+              an existing repository's agentResourceClass and, behind its own switch,
+              the approver list. Where agents are pointed is never part of it: the
+              intent repository, the labels, a repository's name, url or preview, the
+              harness and the surfaces. An admission policy on the status server's
+              ServiceAccount holds every such write to that part, to the operator's
+              ceilings, floors and switches, and to what status.admits publishes.
 
               Previews are configured per repository (repositories[].preview) or, for a
               one-repository Project, by the spec.preview shorthand, never both. The
@@ -114,7 +124,8 @@ spec:
                       anyone else closes the intent with one notice). Compared
                       case-insensitively. A Bot never counts, so the pattern admits no
                       "[bot]" suffix. The operator owns this list; it is never derived from
-                      author_association.
+                      author_association. The status page's project settings change it only
+                      where the operator switched that on (see ProjectSpec).
                     items:
                       maxLength: 64
                       pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
@@ -1015,6 +1026,364 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              admits:
+                description: |-
+                  Admits is what intent-controller, as it is configured, admits for this
+                  Project: the models it may choose, the ceilings its limits are clamped
+                  to and the resource classes its repositories may pick (ProjectAdmits).
+                  It is the controller's own rules published as data, so the project
+                  settings page and its admission policy judge a change by them without
+                  a copy of the rules. Unset until intent-controller has published it;
+                  until then the page changes no model, raises no limit and offers no
+                  resource class.
+                properties:
+                  costBudgets:
+                    description: |-
+                      CostBudgets reports that the egress broker counts spend in micro-USD
+                      (--broker-limit-unit cost), so each stage's
+                      spec.limits.<stage>.maxCostMicroUSD is enforced as its runs' budget.
+                      False (omitted): the broker counts tokens and those fields have no
+                      effect.
+                    type: boolean
+                  defaultModels:
+                    description: |-
+                      DefaultModels are the models the Project's stages run on where
+                      spec.models leaves them unset.
+                    properties:
+                      build:
+                        description: Build is the build stage's model, and every revise
+                          run's.
+                        maxLength: 256
+                        type: string
+                      checkReview:
+                        description: CheckReview is the check reviewer's model; empty
+                          as Evaluate is.
+                        maxLength: 256
+                        type: string
+                      evaluate:
+                        description: |-
+                          Evaluate is the agent evaluator's model; empty while this controller
+                          runs no evaluator for the Project's harness.
+                        maxLength: 256
+                        type: string
+                      plan:
+                        description: Plan is the plan stage's model.
+                        maxLength: 256
+                        type: string
+                    type: object
+                  evaluator:
+                    description: |-
+                      Evaluator reports that the agent evaluator is on (--intent-evaluator),
+                      so a Project with spec.verification.enabled is verified. False
+                      (omitted): nothing is verified whatever a Project says
+                      (VerificationOff, EvaluatorOff).
+                    type: boolean
+                  maxEvaluateCostMicroUSD:
+                    description: |-
+                      MaxEvaluateCostMicroUSD is the most spec.limits.maxEvaluateCostMicroUSD
+                      takes effect at, in micro-USD (--intent-evaluation-cost-max). Zero
+                      (omitted): the controller sets no ceiling and the Project's value
+                      stands.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  maxRunCostMicroUSD:
+                    description: |-
+                      MaxRunCostMicroUSD is the most one run's cost budget may be while
+                      CostBudgets is true, in micro-USD: half the broker's hourly cost
+                      limit, past which the Project is not Ready
+                      (RunBudgetOverHourlyLimit). Zero (omitted): no such bound, because the
+                      broker counts tokens or has no hourly limit.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  maxToolCalls:
+                    description: |-
+                      MaxToolCalls is the most spec.verification.maxToolCalls takes effect
+                      at (--intent-max-tool-calls). Zero (omitted): the controller sets no
+                      ceiling and the Project's value stands.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  models:
+                    description: |-
+                      Models are the canonical models spec.models may name for the
+                      Project's harness: its stage flags' own and those
+                      --intent-model-allowlist adds for that harness. A model outside it
+                      makes the Project not Ready (ModelNotAllowed). Empty while the
+                      Project's harness is one this controller runs no intent on.
+                    items:
+                      maxLength: 256
+                      type: string
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  resourceClasses:
+                    description: |-
+                      ResourceClasses are the resource classes the operator defines
+                      (--intent-resource-classes), by name: what a repository's
+                      agentResourceClass may be. Empty: none is defined, and a repository's
+                      runs can only get the default.
+                    items:
+                      description: |-
+                        ProjectResourceClass is one resource class the operator defines, with its
+                        size as the operator wrote it, for a person choosing between classes.
+                      properties:
+                        limits:
+                          description: Limits are the CPU and memory the class's agent
+                            Jobs are limited to.
+                          properties:
+                            cpu:
+                              description: CPU is the CPU quantity.
+                              maxLength: 64
+                              type: string
+                            memory:
+                              description: Memory is the memory quantity.
+                              maxLength: 64
+                              type: string
+                          type: object
+                        name:
+                          description: 'Name is the class''s name: what agentResourceClass
+                            holds to pick it.'
+                          maxLength: 32
+                          minLength: 1
+                          type: string
+                        requests:
+                          description: Requests are the CPU and memory the class's
+                            agent Jobs request.
+                          properties:
+                            cpu:
+                              description: CPU is the CPU quantity.
+                              maxLength: 64
+                              type: string
+                            memory:
+                              description: Memory is the memory quantity.
+                              maxLength: 64
+                              type: string
+                          type: object
+                      required:
+                      - name
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  runBudgetFloors:
+                    description: |-
+                      RunBudgetFloors are, per model, the least cost budget one evaluate
+                      run and one checkreview run on that model may have while CostBudgets
+                      is true: twice what the egress broker reserves for each of the run's
+                      requests. A stage whose run budget is under its model's floor makes
+                      the Project not Ready (RunBudgetUnderRequestReserve), so the floor
+                      moves with the model a stage is given as much as with its budget. A
+                      model with no entry has no floor. Empty while the broker counts
+                      tokens, the evaluator is off, or the Project's harness is one whose
+                      runs are not judged (codex).
+                    items:
+                      description: |-
+                        ProjectRunBudgetFloor is the least cost budget a run of each evaluator
+                        stage may have on one model, in micro-USD.
+                      properties:
+                        checkReviewMicroUSD:
+                          description: |-
+                            CheckReviewMicroUSD is the least budget of a checkreview run on
+                            Model. Zero (omitted): no floor.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        evaluateMicroUSD:
+                          description: |-
+                            EvaluateMicroUSD is the least budget of an evaluate run on Model.
+                            Zero (omitted): no floor.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        model:
+                          description: Model is the canonical model the floors are
+                            for.
+                          maxLength: 256
+                          minLength: 1
+                          type: string
+                      required:
+                      - model
+                      type: object
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  stages:
+                    description: |-
+                      Stages are the controller's per-stage ceilings: what one run of each
+                      stage is granted when spec.limits.<stage> sets nothing, and the most
+                      it is granted whatever that says.
+                    properties:
+                      build:
+                        description: Build is the build stage's ceiling.
+                        properties:
+                          maxTurns:
+                            description: MaxTurns is the most turns one run of the
+                              stage is granted.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          timeout:
+                            description: Timeout is the longest wall clock one run
+                              of the stage is granted.
+                            type: string
+                          tokenBudget:
+                            description: |-
+                              TokenBudget is the largest output-token budget one run of the stage
+                              is granted.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                        type: object
+                      checkReview:
+                        description: CheckReview is the check reviewer's ceiling.
+                        properties:
+                          maxTurns:
+                            description: MaxTurns is the most turns one run of the
+                              stage is granted.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          timeout:
+                            description: Timeout is the longest wall clock one run
+                              of the stage is granted.
+                            type: string
+                          tokenBudget:
+                            description: |-
+                              TokenBudget is the largest output-token budget one run of the stage
+                              is granted.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                        type: object
+                      evaluate:
+                        description: Evaluate is the evaluator's ceiling.
+                        properties:
+                          maxTurns:
+                            description: MaxTurns is the most turns one run of the
+                              stage is granted.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          timeout:
+                            description: Timeout is the longest wall clock one run
+                              of the stage is granted.
+                            type: string
+                          tokenBudget:
+                            description: |-
+                              TokenBudget is the largest output-token budget one run of the stage
+                              is granted.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                        type: object
+                      plan:
+                        description: Plan is the plan stage's ceiling.
+                        properties:
+                          maxTurns:
+                            description: MaxTurns is the most turns one run of the
+                              stage is granted.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          timeout:
+                            description: Timeout is the longest wall clock one run
+                              of the stage is granted.
+                            type: string
+                          tokenBudget:
+                            description: |-
+                              TokenBudget is the largest output-token budget one run of the stage
+                              is granted.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                        type: object
+                      revise:
+                        description: Revise is the ceiling of revise and check-fix
+                          runs.
+                        properties:
+                          maxTurns:
+                            description: MaxTurns is the most turns one run of the
+                              stage is granted.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          timeout:
+                            description: Timeout is the longest wall clock one run
+                              of the stage is granted.
+                            type: string
+                          tokenBudget:
+                            description: |-
+                              TokenBudget is the largest output-token budget one run of the stage
+                              is granted.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                        type: object
+                    type: object
+                type: object
+              approvers:
+                description: |-
+                  Approvers is who GitHub says the approvers are: each login of
+                  spec.approvers.logins with its numeric account id and whether it has
+                  write access to the intent repository (ProjectApproversStatus). The
+                  status page's project settings match a signed-in person to an approver
+                  by that id, never by a login claim. Unset until intent-controller has
+                  resolved the list once; nobody can edit from the page until then.
+                properties:
+                  identities:
+                    description: |-
+                      Identities are the logins of spec.approvers.logins as they resolved at
+                      ResolvedAt, each login once. A login of the list with no identity here
+                      was added since and is not resolved yet. An identity may outlive its
+                      login's removal from the list until the next resolution, so a reader
+                      must also ask the live list (ProjectApprovers.Has): the identity alone
+                      is no authority.
+                    items:
+                      description: ProjectApproverIdentity is one approver login as
+                        GitHub resolved it.
+                      properties:
+                        id:
+                          description: |-
+                            ID is GitHub's numeric id of the account the login named when it was
+                            resolved: the account's identity, which survives a rename and is never
+                            given to another account, unlike the login. Zero (omitted) when GitHub
+                            knows no such account, which then matches nobody.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        login:
+                          description: Login is the login as spec.approvers.logins
+                            spells it.
+                          maxLength: 64
+                          minLength: 1
+                          type: string
+                        write:
+                          description: |-
+                            Write reports that GitHub gave the account write access (write,
+                            maintain or admin) to the intent repository when it was resolved, the
+                            same fact every /maul command of an approver is held to. False
+                            (omitted): on the list, but not able to act.
+                          type: boolean
+                      required:
+                      - login
+                      type: object
+                    maxItems: 20
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  resolvedAt:
+                    description: |-
+                      ResolvedAt is when GitHub last answered for every identity. While
+                      GitHub cannot be read the identities and this time are kept as they
+                      were (the Project's ApproversResolved condition is False), so a reader
+                      that requires a recent ResolvedAt stops trusting them once they are
+                      old. Unset when nothing was ever resolved.
+                    format: date-time
+                    type: string
+                type: object
               conditions:
                 description: |-
                   Conditions of the Project. Ready is True when every repository

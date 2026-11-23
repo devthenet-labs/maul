@@ -9,7 +9,7 @@ import type { IntentDetail, IntentPlanText, IntentRunRow, IntentTier } from "../
 import { fetchIntentPlan } from "../api";
 import { formatDate, formatMicroUSD } from "../format";
 import { INTENT_PHASE_LABELS, formatDuration, runLinkLabel, secondsSince } from "../intents";
-import { hrefForIntentRun, hrefForIntents } from "../router";
+import { hrefForIntentRun, hrefForIntents, hrefForProjectSettings } from "../router";
 import { Icon } from "./icons";
 import { PlainText } from "./PlainText";
 import { Pill } from "./Pills";
@@ -111,7 +111,16 @@ function RunRow({ intent, tier, run, now }: { intent: string; tier: IntentTier; 
   );
 }
 
-export function IntentTimeline({ detail, now }: { detail: IntentDetail; now: number }) {
+export function IntentTimeline({
+  detail,
+  now,
+  settingsProjects = [],
+}: {
+  detail: IntentDetail;
+  now: number;
+  // Projects whose settings page the server serves: the chip links to it.
+  settingsProjects?: string[];
+}) {
   const d = detail;
   return (
     <div class="pb-6">
@@ -124,9 +133,16 @@ export function IntentTimeline({ detail, now }: { detail: IntentDetail; now: num
           {INTENT_PHASE_LABELS[d.phase] ?? d.phase}
         </Pill>
         {d.suspended ? <Pill tone="amber">suspended</Pill> : null}
-        <span class="ps-chip">
-          {d.project} · {d.tier}
-        </span>
+        {settingsProjects.includes(d.project) ? (
+          <a class="ps-chip hover:text-fg" href={hrefForProjectSettings(d.project)} title={`${d.project}'s settings`}>
+            <Icon name="sliders" size={11} />
+            {d.project} · {d.tier}
+          </a>
+        ) : (
+          <span class="ps-chip">
+            {d.project} · {d.tier}
+          </span>
+        )}
       </div>
       {d.summary ? <p class="mt-2 mb-0 text-[14px]">{d.summary}</p> : null}
       {d.blockedReasons?.length ? (

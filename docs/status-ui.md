@@ -12,6 +12,9 @@ reads and writes the identical custom resources, so the two surfaces never disag
 With `statusServer.intents.enabled` the page also shows intents: a board, each intent's timeline and each agent run's
 panel, read-only and access-reviewed per Project. See [the intents dashboard](intents/dashboard.md).
 
+With `statusServer.projectSettings.enabled` as well, a Project's approvers can change its limits, models and evaluator
+settings from the page: see [Project settings](intents/project-settings.md).
+
 ## Views
 
 The screenshots below show the [canned dev data](deployment/dev-fake.md#canned-status-page-data) — every finding

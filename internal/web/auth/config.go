@@ -251,11 +251,18 @@ const DefaultGitHubConnector = "github"
 // upstream connector and user id) to the ID token.
 const FederatedIDScope = "federated:id"
 
+// ProfileScope is the OIDC scope under which Dex adds preferred_username
+// (and name) to the ID token.
+const ProfileScope = "profile"
+
 // RequireForUsage checks the configuration may serve the usage views, which
 // key a person by their numeric GitHub id. Everything RequireForIntents asks
 // for, plus the federated:id scope, without which Dex never says which
 // connector signed someone in or their GitHub id, so no one could be shown
-// their own usage. Call it on what LoadConfig returned.
+// their own usage, and the profile scope, without which Dex sends no
+// preferred_username and MapClaims trusts no GitHub id (it is how a
+// useLoginAsID login is told from an id). Call it on what LoadConfig
+// returned.
 func (c *Config) RequireForUsage() error {
 	if err := c.RequireForIntents(); err != nil {
 		return fmt.Errorf("the usage views need what the intents views need: %w", err)
@@ -264,8 +271,31 @@ func (c *Config) RequireForUsage() error {
 		return fmt.Errorf("the usage views need the %s scope in oidc.scopes, so Dex's ID token names the "+
 			"GitHub connector and the person's GitHub id", FederatedIDScope)
 	}
+	if !slices.Contains(c.OIDC.Scopes, ProfileScope) {
+		return fmt.Errorf("the usage views need the %s scope in oidc.scopes, so Dex's ID token carries "+
+			"preferred_username, without which no GitHub id is trusted", ProfileScope)
+	}
 	if c.OIDC.Claims.GitHubConnector == "" {
 		return fmt.Errorf("the usage views need oidc.claims.githubConnector")
+	}
+	return nil
+}
+
+// RequireForProjectSettings checks the configuration may serve the Project
+// settings page's write path, which ties a session to one of a Project's
+// approvers by the person's numeric GitHub id (Identity.GitHubID against the
+// identities intent-controller resolved). That is exactly what the usage
+// views key a person on, so it asks for what RequireForUsage asks: mode
+// oidc, both claim prefixes, the federated:id and profile scopes and the
+// GitHub connector. Mode none is refused whatever let it serve the intents views:
+// a development bypass admits it there for reading, and there is none for a
+// write, since its one fixed identity has no GitHub id to match. The
+// insecure cookie switch is not a mode and is not judged. Call it on what
+// LoadConfig returned.
+func (c *Config) RequireForProjectSettings() error {
+	if err := c.RequireForUsage(); err != nil {
+		return fmt.Errorf("editing Project settings needs what the usage views need, since an approver is "+
+			"matched by their GitHub id: %w", err)
 	}
 	return nil
 }

@@ -1,0 +1,426 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The Project settings page's containment: an admission policy on the status
+# server's own ServiceAccount, rendered only with
+# statusServer.projectSettings.enabled. Unlike the chart's other policies,
+# which exempt the status server, this one judges it alone; an admin or any
+# other writer of a Project is not matched.
+#
+# WHY THIS EXISTS
+#
+# The page lets an approver change some of a Project's settings, and the
+# status server writes the change with a patch grant on projects. The server
+# checks each save first (projectsettings.Check), but its grant alone would
+# let a bug or a compromise of the server write any field of any Project the
+# grant names: the repositories, the intent repository, the suspend switch,
+# every bound. This policy holds every patch the server sends, in the API
+# server, to what the page may do: only the page's own fields change, within
+# the operator's locks, ceilings, floors and switches, to models and
+# resource classes intent-controller admits, beside one bounded annotation
+# of the page's own. It cannot know which person a write is for (admission
+# sees the ServiceAccount), so the approver gate and "no self-removal" stay
+# the server's. Nor can it tell the field ownership (managedFields) a save
+# takes from ownership a forged list moves within the page's own fields, so
+# a compromised server could rewrite who manages those (and so whether the
+# next helm upgrade conflicts on one); ownership of every other field, and
+# every other writer's entry, is pinned.
+#
+# HOW IT JUDGES
+#
+# - Every key of the spec but the editable ones is pinned without being
+#   named: at each level the policy iterates the object's keys and lets
+#   through only those its editable list names (variables.editable*), so a
+#   field added to ProjectSpec later is pinned the day it is added.
+#   charts/maul/project_settings_coverage_test.go holds the lists to the
+#   page's table (projectsettings.Fields).
+# - A rule judges only a value that moved the wrong way ("new is at most
+#   the ceiling, or at most the old"), so a value an operator set outside
+#   the bounds never locks the rest of the Project.
+# - An unset limit is read as the value it lands on (its schema or code
+#   default), the way the server reads it.
+# - oldObject.status is never read bare: a Project intent-controller has not
+#   written status on yet has none, and every access is optional; with no
+#   status nothing is admitted, so a model or class choice is refused and
+#   an unrelated edit is not.
+# - The bounds come from the same object as the server's
+#   MAUL_PROJECT_SETTINGS_POLICY (maul.projectSettingsPolicy), except
+#   intent-controller's own ceilings on the limits it clamps, which come
+#   from oldObject.status.admits, where it publishes them.
+#
+# A denial keeps the default reason (Invalid): the page shows it as a
+# refusal of the save.
+{{- if and .Values.statusServer.enabled .Values.statusServer.projectSettings.enabled }}
+{{- $sa := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "status-server" "vals" .Values.statusServer)) }}
+{{- $pol := include "maul.projectSettingsPolicy" . | fromJson }}
+{{- $c := $pol.ceilings }}
+{{- $f := $pol.floors }}
+{{- $edited := "maul.run/settings-edited" }}
+{{- /* projectsettings.MaxEditBytes */}}
+{{- $editedMax := 1024 }}
+{{- $zeroDuration := "^(0+(h|m|s))+$" }}
+{{- /* projectsettings.FieldManager: the page's own managedFields entry. */}}
+{{- $manager := "maul-status-server" }}
+{{- /*
+The field-ownership record (metadata.managedFields), which the API server
+keeps and the page never writes, but which any patch may replace. Admission
+sees it after field management ran: a save has re-dated or added the page's
+own Update entry, taken each field it changed from the other managers, and
+dropped an entry it emptied. So each other entry must be one already there
+(same manager, operation, subresource, API version and time), and no entry
+may gain or lose a field outside the page's part: the field set is compared
+at its top, in f:spec outside the editable keys, and in f:metadata but for
+the page's own annotation. Within an editable block (the limits, say)
+ownership can still be rewritten: CEL cannot tell a field the save took
+from one a forged list moved.
+*/}}
+{{- /* An entry's projection (variables.oldEntries/newEntries): its key,
+its time, and per level of its field set the keys outside the page's part
+(top, specPinned, metaPinned, annPinned) beside the level itself. */}}
+{{- $project := printf "%%[1]s.map(m, {'key': dyn([m.?manager.orValue(''), m.?operation.orValue(''), m.?subresource.orValue(''), m.?apiVersion.orValue('')]), 'time': dyn(m.?time.orValue('')), 'fv': dyn(m.?fieldsV1.orValue({})), 'top': dyn(m.?fieldsV1.orValue({}).filter(k, !(k in ['f:spec', 'f:metadata']))), 'spec': dyn(m.?fieldsV1.orValue({})[?'f:spec'].orValue({})), 'specPinned': dyn(m.?fieldsV1.orValue({})[?'f:spec'].orValue({}).filter(k, !(k in variables.editableSpecFields))), 'meta': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({})), 'metaPinned': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({}).filter(k, k != 'f:annotations')), 'ann': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({})[?'f:annotations'].orValue({})), 'annPinned': dyn(m.?fieldsV1.orValue({})[?'f:metadata'].orValue({})[?'f:annotations'].orValue({}).filter(k, !(k in ['.', 'f:%[1]s'])))})" $edited }}
+{{- /* $samePinned: projections %[1]s and %[2]s own the same fields outside
+the page's part; $nonePinned: %[1]s owns none. */}}
+{{- $level := "(%[1]s.%[3]s.all(k, k in %[2]s.%[3]s && %[2]s.%[4]s[k] == %[1]s.%[4]s[k]) && %[2]s.%[3]s.all(k, k in %[1]s.%[3]s))" }}
+{{- $samePinned := printf "(%s && %s && %s && %s)" (printf $level "%[1]s" "%[2]s" "top" "fv") (printf $level "%[1]s" "%[2]s" "specPinned" "spec") (printf $level "%[1]s" "%[2]s" "metaPinned" "meta") (printf $level "%[1]s" "%[2]s" "annPinned" "ann") }}
+{{- $nonePinned := "(size(%[1]s.top) == 0 && size(%[1]s.specPinned) == 0 && size(%[1]s.metaPinned) == 0 && size(%[1]s.annPinned) == 0)" }}
+{{- /*
+The editable keys at each level of the spec, from the page's table
+(projectsettings.Fields): the coverage test holds them to it. models and
+limits leave out the check reviewer (owner decision 8), so its model and
+limits are pinned.
+*/}}
+{{- $models := list "plan" "build" "evaluate" }}
+{{- $stages := list "plan" "build" "revise" "evaluate" }}
+{{- $editable := list
+    (dict "var" "editableSpec" "keys" (list "approvers" "verification" "models" "limits" "checks" "repositories"))
+    (dict "var" "editableApprovers" "keys" (list "logins"))
+    (dict "var" "editableVerification" "keys" (list "enabled" "handoff" "handoffMax" "maxToolCalls"))
+    (dict "var" "editableModels" "keys" $models)
+    (dict "var" "editableLimits" "keys" (concat (list "maxCostMicroUSD" "maxEvaluateCostMicroUSD" "maxRevisions" "maxCheckFixes" "maxVerifyFixes" "maxVerifications" "maxActiveIntents") $stages))
+    (dict "var" "editableStage" "keys" (list "maxTurns" "tokenBudget" "maxCostMicroUSD" "timeout"))
+    (dict "var" "editableChecks" "keys" (list "fix" "timeout" "rerunFailed"))
+    (dict "var" "editableRepository" "keys" (list "agentResourceClass"))
+}}
+{{- /* The levels whose other keys are pinned: name, the variables holding
+the old and new block, and the list of its editable keys. */}}
+{{- $levels := list
+    (dict "name" "spec" "old" "oldSpec" "new" "newSpec" "keys" "editableSpec" "path" "")
+    (dict "name" "spec.approvers" "old" "oldApprovers" "new" "newApprovers" "keys" "editableApprovers" "path" ".?approvers")
+    (dict "name" "spec.verification" "old" "oldVerification" "new" "newVerification" "keys" "editableVerification" "path" ".?verification")
+    (dict "name" "spec.models" "old" "oldModels" "new" "newModels" "keys" "editableModels" "path" ".?models")
+    (dict "name" "spec.limits" "old" "oldLimits" "new" "newLimits" "keys" "editableLimits" "path" ".?limits")
+    (dict "name" "spec.checks" "old" "oldChecks" "new" "newChecks" "keys" "editableChecks" "path" ".?checks")
+}}
+{{- range $s := $stages }}
+{{- $levels = append $levels (dict "name" (printf "spec.limits.%s" $s) "old" (printf "old%sLimits" (title $s)) "new" (printf "new%sLimits" (title $s)) "keys" "editableStage" "path" (printf ".?limits.?%s" $s)) }}
+{{- end }}
+{{- /* The lock groups (projectsettings.Groups) and what each holds. */}}
+{{- $sameSet := "(%s.all(x, x in %s) && %s.all(x, x in %s))" }}
+{{- $locks := dict
+    "approvers" (printf $sameSet "variables.newLogins" "variables.oldLogins" "variables.oldLogins" "variables.newLogins")
+    "evaluator" "object.spec.?verification.?enabled == oldObject.spec.?verification.?enabled && object.spec.?verification.?maxToolCalls == oldObject.spec.?verification.?maxToolCalls"
+    "handoff" "object.spec.?verification.?handoff == oldObject.spec.?verification.?handoff && object.spec.?verification.?handoffMax == oldObject.spec.?verification.?handoffMax"
+    "models" "object.spec.?models.?plan == oldObject.spec.?models.?plan && object.spec.?models.?build == oldObject.spec.?models.?build && object.spec.?models.?evaluate == oldObject.spec.?models.?evaluate"
+    "cost" "object.spec.?limits.?maxCostMicroUSD == oldObject.spec.?limits.?maxCostMicroUSD && object.spec.?limits.?maxEvaluateCostMicroUSD == oldObject.spec.?limits.?maxEvaluateCostMicroUSD"
+    "rounds" "object.spec.?limits.?maxRevisions == oldObject.spec.?limits.?maxRevisions && object.spec.?limits.?maxCheckFixes == oldObject.spec.?limits.?maxCheckFixes && object.spec.?limits.?maxVerifyFixes == oldObject.spec.?limits.?maxVerifyFixes && object.spec.?limits.?maxVerifications == oldObject.spec.?limits.?maxVerifications"
+    "activeIntents" "object.spec.?limits.?maxActiveIntents == oldObject.spec.?limits.?maxActiveIntents"
+    "stages" "object.spec.?limits.?plan == oldObject.spec.?limits.?plan && object.spec.?limits.?build == oldObject.spec.?limits.?build && object.spec.?limits.?revise == oldObject.spec.?limits.?revise && object.spec.?limits.?evaluate == oldObject.spec.?limits.?evaluate"
+    "checks" (printf "%s && object.spec.?checks.?timeout == oldObject.spec.?checks.?timeout && object.spec.?checks.?rerunFailed == oldObject.spec.?checks.?rerunFailed" (printf $sameSet "variables.newFix" "variables.oldFix" "variables.oldFix" "variables.newFix"))
+    "resources" "object.spec.repositories.map(r, r.?agentResourceClass.orValue('')) == oldObject.spec.repositories.map(r, r.?agentResourceClass.orValue(''))"
+}}
+{{- /* The ceilings: the limits intent-controller does not clamp, each with
+the value an unset one lands on (projectsettings.Fields' Default, the
+v1alpha1 defaults). */}}
+{{- $ceilings := list
+    (dict "key" "maxCostMicroUSD" "default" "10000000")
+    (dict "key" "maxRevisions" "default" "3")
+    (dict "key" "maxCheckFixes" "default" "2")
+    (dict "key" "maxVerifyFixes" "default" "2")
+    (dict "key" "maxVerifications" "default" "20")
+    (dict "key" "maxActiveIntents" "default" "2")
+}}
+{{- /* The floors under the evaluator's limits that have a default: a
+number, or a duration (unit "duration"). */}}
+{{- $floors := list
+    (dict "key" "maxEvaluateCostMicroUSD" "field" "limits.?maxEvaluateCostMicroUSD" "id" "limits.maxEvaluateCostMicroUSD" "default" "6000000")
+    (dict "key" "maxToolCalls" "field" "verification.?maxToolCalls" "id" "verification.maxToolCalls" "default" "300")
+    (dict "key" "maxVerifications" "field" "limits.?maxVerifications" "id" "limits.maxVerifications" "default" "20")
+    (dict "key" "handoffMax" "field" "verification.?handoffMax" "id" "verification.handoffMax" "default" "'3600s'" "unit" "duration")
+}}
+{{- /* The floors under the evaluate stage's limits, which have no default:
+unset (absent, or zero) is the controller's own ceiling, the most there is,
+so it is never under a floor, and a stated value under the floor where none
+was stated is a lowering. */}}
+{{- /* The evaluate stage's cost has the evaluation cost's floor: an
+evaluate run's budget is the lesser of the two (projectsettings.Floors). */}}
+{{- $stageFloors := list
+    (dict "key" "evaluateMaxTurns" "leaf" "maxTurns")
+    (dict "key" "evaluateTokenBudget" "leaf" "tokenBudget")
+    (dict "key" "maxEvaluateCostMicroUSD" "leaf" "maxCostMicroUSD")
+    (dict "key" "evaluateTimeout" "leaf" "timeout" "unit" "duration")
+}}
+{{- /* The limits intent-controller clamps to ceilings of its own, which it
+publishes in status.admits (projectsettings' controllerCeiling): the
+evaluation cost and the tool calls, which have a code default ("default"),
+and each stage's turns, tokens and timeout, which have none (unset is the
+controller's ceiling, the most there is). "ceiling" is the path under
+status.admits. */}}
+{{- $admitted := list
+    (dict "id" "limits.maxEvaluateCostMicroUSD" "field" "limits.?maxEvaluateCostMicroUSD" "ceiling" "maxEvaluateCostMicroUSD" "default" "6000000")
+    (dict "id" "verification.maxToolCalls" "field" "verification.?maxToolCalls" "ceiling" "maxToolCalls" "default" "300")
+}}
+{{- range $s := $stages }}
+{{- range $leaf := list "maxTurns" "tokenBudget" "timeout" }}
+{{- $admitted = append $admitted (dict "id" (printf "limits.%s.%s" $s $leaf) "field" (printf "limits.?%s.?%s" $s $leaf) "ceiling" (printf "stages.?%s.?%s" $s $leaf) "unit" (ternary "duration" "" (eq $leaf "timeout"))) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-project-settings
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            # The main resource only: the status server holds no grant on
+            # projects/status, and a patch of projects cannot change status.
+            - apiGroups: [maul.run]
+              apiVersions: [v1alpha1]
+              operations: [UPDATE]
+              resources: [projects]
+    matchConditions:
+        - name: the-status-server
+          expression: request.userInfo.username == {{ $sa | squote }}
+    variables:
+        {{- range $editable }}
+        - name: {{ .var }}
+          expression: "[{{ range $i, $k := .keys }}{{ if $i }}, {{ end }}{{ $k | squote }}{{ end }}]"
+        {{- end }}
+        {{- range $levels }}
+        - name: {{ .old }}
+          expression: "oldObject.spec{{ if .path }}{{ .path }}.orValue({}){{ end }}"
+        - name: {{ .new }}
+          expression: "object.spec{{ if .path }}{{ .path }}.orValue({}){{ end }}"
+        {{- end }}
+        - name: oldLogins
+          expression: "oldObject.spec.approvers.logins"
+        - name: newLogins
+          expression: "object.spec.approvers.logins"
+        - name: loginsSame
+          expression: {{ printf $sameSet "variables.newLogins" "variables.oldLogins" "variables.oldLogins" "variables.newLogins" | quote }}
+        - name: oldFix
+          expression: "oldObject.spec.?checks.?fix.orValue([])"
+        - name: newFix
+          expression: "object.spec.?checks.?fix.orValue([])"
+        - name: editableSpecFields
+          expression: "variables.editableSpec.map(k, 'f:' + k)"
+        - name: oldEntries
+          expression: {{ printf $project "oldObject.metadata.?managedFields.orValue([])" | quote }}
+        - name: newEntries
+          expression: {{ printf $project "object.metadata.?managedFields.orValue([])" | quote }}
+        - name: oldAnnotations
+          expression: "oldObject.metadata.?annotations.orValue({})"
+        - name: newAnnotations
+          expression: "object.metadata.?annotations.orValue({})"
+        # What intent-controller admits for the Project, from the status
+        # it last published: empty while it has published none.
+        - name: admittedModels
+          expression: "oldObject.?status.?admits.?models.orValue([])"
+        - name: admittedClasses
+          expression: "oldObject.?status.?admits.?resourceClasses.orValue([])"
+        - name: admitsPublished
+          expression: "oldObject.?status.?admits.hasValue()"
+    validations:
+        # The spec, level by level: no key but the editable ones may be
+        # added, changed or removed.
+        {{- range $levels }}
+        - expression: >-
+              variables.{{ .new }}.all(k, k in variables.{{ .keys }} || (k in variables.{{ .old }} && variables.{{ .old }}[k] == variables.{{ .new }}[k]))
+              && variables.{{ .old }}.all(k, k in variables.{{ .keys }} || k in variables.{{ .new }})
+          message: "project settings: the page changes no key of {{ .name }} but its own"
+        {{- end }}
+        # The repositories: a merge patch carries the list whole, so its
+        # length and order are pinned (a partial list would delete
+        # repositories), every key of an entry but its resource class is
+        # pinned without being named, and a class is either the one the
+        # entry had or one the controller admits, compared by name.
+        - expression: >-
+              object.spec.repositories.map(r, r.name) == oldObject.spec.repositories.map(r, r.name)
+          message: "project settings: the page may not add, drop or reorder repositories"
+        - expression: >-
+              object.spec.repositories.all(r, oldObject.spec.repositories.exists(o, o.name == r.name
+              && r.all(k, k in variables.editableRepository || (k in o && o[k] == r[k]))
+              && o.all(k, k in variables.editableRepository || k in r)))
+          message: "project settings: the page may change only a repository's agentResourceClass"
+        - expression: >-
+              object.spec.repositories.all(r, !has(r.agentResourceClass) || r.agentResourceClass == ''
+              || oldObject.spec.repositories.exists(o, o.name == r.name && o.?agentResourceClass == optional.of(r.agentResourceClass))
+              || variables.admittedClasses.exists(c, c.name == r.agentResourceClass))
+          message: "project settings: a resource class the operator does not define (status.admits.resourceClasses)"
+        # The metadata: one annotation of the page's own, bounded, and
+        # nothing else of what the page writes (the field-ownership record
+        # is judged below).
+        - expression: >-
+              object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({})
+              && object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
+              && object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([])
+          message: "project settings: the page may not change the Project's labels, finalizers or owner references"
+        - expression: >-
+              variables.newAnnotations.all(k, k == {{ $edited | squote }} || (k in variables.oldAnnotations && variables.oldAnnotations[k] == variables.newAnnotations[k]))
+              && variables.oldAnnotations.all(k, k == {{ $edited | squote }} || k in variables.newAnnotations)
+          message: "project settings: the page may change no annotation but {{ $edited }}"
+        - expression: >-
+              !({{ $edited | squote }} in variables.newAnnotations) || size(bytes(variables.newAnnotations[{{ $edited | squote }}])) <= {{ $editedMax }}
+          message: "project settings: {{ $edited }} is over 1 KiB"
+        # Who manages the other fields: no entry of another manager lost,
+        # unless the save emptied it of all but the page's part; none added
+        # or re-dated; none gaining or losing a field outside the page's
+        # part. The page's own entry may own only its part.
+        - expression: >-
+              variables.oldEntries.all(o, variables.newEntries.exists(n, n.key == o.key && {{ printf $samePinned "o" "n" }})
+              || {{ printf $nonePinned "o" }})
+              && variables.newEntries.all(n, n.key[0] == {{ $manager | squote }} && n.key[1] == 'Update' && n.key[2] == ''
+              ? variables.oldEntries.exists(o, o.key == n.key && {{ printf $samePinned "o" "n" }}) || {{ printf $nonePinned "n" }}
+              : variables.oldEntries.exists(o, o.key == n.key && o.time == n.time && {{ printf $samePinned "o" "n" }}))
+          message: "project settings: the page may not rewrite who manages the Project's other fields (metadata.managedFields)"
+        # The models: unchanged, the install's own (none chosen), or one
+        # intent-controller admits for the Project.
+        {{- range $m := $models }}
+        - expression: >-
+              object.spec.?models.?{{ $m }}.orValue('') == oldObject.spec.?models.?{{ $m }}.orValue('')
+              || object.spec.?models.?{{ $m }}.orValue('') == ''
+              || object.spec.?models.?{{ $m }}.orValue('') in variables.admittedModels
+          message: "project settings: models.{{ $m }} is a model intent-controller does not admit for this Project (status.admits.models)"
+        {{- end }}
+        {{- range $g := $pol.locked }}
+        - expression: >-
+              {{ index $locks $g }}
+          message: "project settings: the operator locked {{ $g }} (statusServer.projectSettings.locked)"
+        {{- end }}
+        # The ceilings: at most the operator's, or at most where it was.
+        {{- range $ceilings }}
+        - expression: >-
+              object.spec.?limits.?{{ .key }}.orValue({{ .default }}) <= {{ index $c .key | int64 }} ||
+              object.spec.?limits.?{{ .key }}.orValue({{ .default }}) <= oldObject.spec.?limits.?{{ .key }}.orValue({{ .default }})
+          message: "project settings: limits.{{ .key }} above the operator's ceiling ({{ index $c .key | int64 }}) and higher than it was"
+        {{- end }}
+        # intent-controller's own ceilings, as status.admits publishes them,
+        # whatever the switches say: a value stated above where it was (or
+        # stated where none was, for a limit with no default) is at most
+        # the published ceiling, and with nothing published it is refused.
+        # An unset limit is never judged: the controller clamps it.
+        {{- range $admitted }}
+        {{- $new := printf "object.spec.?%s" .field }}
+        {{- $old := printf "oldObject.spec.?%s" .field }}
+        {{- $ceil := printf "oldObject.?status.?admits.?%s" .ceiling }}
+        - expression: >-
+              {{- if eq (.unit | default "") "duration" }}
+              !{{ $new }}.hasValue() ||
+              ({{ $old }}.hasValue() && duration({{ $new }}.value()) <= duration({{ $old }}.value())) ||
+              (variables.admitsPublished && (!{{ $ceil }}.hasValue() || duration({{ $new }}.value()) <= duration({{ $ceil }}.value())))
+              {{- else if .default }}
+              !{{ $new }}.hasValue() ||
+              {{ $new }}.value() <= {{ $old }}.orValue({{ .default }}) ||
+              (variables.admitsPublished && ({{ $ceil }}.orValue(0) == 0 || {{ $new }}.value() <= {{ $ceil }}.orValue(0)))
+              {{- else }}
+              {{ $new }}.orValue(0) == 0 ||
+              ({{ $old }}.orValue(0) != 0 && {{ $new }}.orValue(0) <= {{ $old }}.orValue(0)) ||
+              (variables.admitsPublished && ({{ $ceil }}.orValue(0) == 0 || {{ $new }}.orValue(0) <= {{ $ceil }}.orValue(0)))
+              {{- end }}
+          message: "project settings: {{ .id }} above intent-controller's ceiling (status.admits) and higher than it was"
+        {{- end }}
+        {{- if $pol.allow.approvers }}
+        # The approvers, which the operator lets the page change: one login
+        # added or removed per write, and never two that differ only in
+        # case (the schema's set compares exactly). Judged only when the
+        # list changed, so an old pair of case twins locks nothing else.
+        - expression: >-
+              variables.loginsSame
+              || size(variables.newLogins.filter(l, !(l in variables.oldLogins))) + size(variables.oldLogins.filter(l, !(l in variables.newLogins))) <= 1
+          message: "project settings: the page may add or remove one approver at a time"
+        - expression: >-
+              variables.loginsSame
+              || variables.newLogins.all(l, variables.newLogins.exists_one(m, m.lowerAscii() == l.lowerAscii()))
+          message: "project settings: two approvers differ only in case"
+        {{- else }}
+        - expression: variables.loginsSame
+          message: "project settings: the operator has not let the page change the approvers (statusServer.projectSettings.allow.approvers)"
+        {{- end }}
+        {{- if not $pol.allow.disableEvaluator }}
+        # The evaluator, which the operator does not let the page switch
+        # off: not verification, not an earlier hand-off (leaving gated may
+        # land on the install's early default, which is not published),
+        # not a limit starved under its floor.
+        - expression: >-
+              !oldObject.spec.?verification.?enabled.orValue(false) || object.spec.?verification.?enabled.orValue(false)
+          message: "project settings: the page may not turn verification off (statusServer.projectSettings.allow.disableEvaluator)"
+        - expression: >-
+              object.spec.?verification.?handoff.orValue('') == oldObject.spec.?verification.?handoff.orValue('')
+              || object.spec.?verification.?handoff.orValue('') == 'gated'
+              || oldObject.spec.?verification.?handoff.orValue('') == 'early'
+          message: "project settings: the page may not move the hand-off earlier (statusServer.projectSettings.allow.disableEvaluator)"
+        {{- range $floors }}
+        {{- $n := index $f .key }}
+        {{- if eq (.unit | default "") "duration" }}
+        {{- if not (regexMatch $zeroDuration $n) }}
+        - expression: >-
+              duration(object.spec.?{{ .field }}.orValue({{ .default }})) >= duration({{ $n | squote }}) ||
+              duration(object.spec.?{{ .field }}.orValue({{ .default }})) >= duration(oldObject.spec.?{{ .field }}.orValue({{ .default }}))
+          message: "project settings: {{ .id }} below the operator's floor ({{ $n }}) and lower than it was"
+        {{- end }}
+        {{- else if ne (int64 $n) 0 }}
+        - expression: >-
+              object.spec.?{{ .field }}.orValue({{ .default }}) >= {{ int64 $n }} ||
+              object.spec.?{{ .field }}.orValue({{ .default }}) >= oldObject.spec.?{{ .field }}.orValue({{ .default }})
+          message: "project settings: {{ .id }} below the operator's floor ({{ int64 $n }}) and lower than it was"
+        {{- end }}
+        {{- end }}
+        {{- range $stageFloors }}
+        {{- $n := index $f .key }}
+        {{- $new := printf "object.spec.?limits.?evaluate.?%s" .leaf }}
+        {{- $old := printf "oldObject.spec.?limits.?evaluate.?%s" .leaf }}
+        {{- if eq (.unit | default "") "duration" }}
+        {{- if not (regexMatch $zeroDuration $n) }}
+        - expression: >-
+              !{{ $new }}.hasValue() ||
+              duration({{ $new }}.value()) >= duration({{ $n | squote }}) ||
+              ({{ $old }}.hasValue() && duration({{ $new }}.value()) >= duration({{ $old }}.value()))
+          message: "project settings: limits.evaluate.{{ .leaf }} below the operator's floor ({{ $n }}) and lower than it was"
+        {{- end }}
+        {{- else if ne (int64 $n) 0 }}
+        - expression: >-
+              {{ $new }}.orValue(0) == 0 ||
+              {{ $new }}.orValue(0) >= {{ int64 $n }} ||
+              ({{ $old }}.orValue(0) != 0 && {{ $new }}.orValue(0) >= {{ $old }}.orValue(0))
+          message: "project settings: limits.evaluate.{{ .leaf }} below the operator's floor ({{ int64 $n }}) and lower than it was"
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- if not $pol.allow.emptyChecks }}
+        # The CI checks, which the operator does not let the page empty.
+        - expression: >-
+              size(variables.oldFix) == 0 || size(variables.newFix) > 0
+          message: "project settings: the page may not empty checks.fix (statusServer.projectSettings.allow.emptyChecks)"
+        {{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-project-settings
+    labels: {{- include "maul.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "maul.fullname" . }}-project-settings
+    # Every namespace: the matchCondition already narrows the policy to the
+    # status server, and its grant is in the release namespace alone.
+    validationActions: [Deny]
+{{- end }}

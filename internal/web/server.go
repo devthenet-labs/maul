@@ -65,6 +65,10 @@ type Server struct {
 	// account is the Account page's state, nil while it is off. Its
 	// presence also turns on the hardened browser envelope.
 	account *accountState
+	// settings is the Project settings page's state, nil while it is off.
+	// Its presence also turns on the hardened browser envelope; its routes
+	// are mounted only beside the intents views, whose visibility it shares.
+	settings *projectSettingsState
 	// agentsPaused is the operator's agent pause (agent.paused), shown on
 	// the signed-in page; display only, the job controllers enforce it.
 	agentsPaused bool
@@ -131,6 +135,9 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.account != nil {
 		s.registerAccount(mux)
+	}
+	if s.settings != nil && s.intents != nil {
+		s.registerProjectSettings(mux)
 	}
 	if s.hardened() {
 		assets, _ := uiAssets()

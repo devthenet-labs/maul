@@ -23,7 +23,14 @@
 //     a second Project cannot claim an issue with an Intent already on it.
 //     A name held by another repository's issue is reported as
 //     IntentNameConflict, never skipped silently. An issue whose
-//     ended Intent still exists is handed to that Intent (Nudger).
+//     ended Intent still exists is handed to that Intent (Nudger). For the
+//     status page's project settings it also publishes, Ready or not, who
+//     the approvers are (status.approvers: each login's GitHub account id
+//     and write access on the intent repository, asked again when the list
+//     changes and every ten minutes, kept and aging on a failure, with the
+//     ApproversResolved condition; approvers_resolve.go) and what it admits
+//     (status.admits: models, default models, stage ceilings, cost bounds,
+//     the evaluator switch and the resource classes; admits.go).
 //   - IntentReconciler runs each Intent's phase machine: it decides human
 //     authority from GitHub API facts, snapshots the request, creates the
 //     plan and build IntentRuns, writes the plan back for approval, accepts
@@ -134,7 +141,11 @@
 //	                     status.dependencies, the dependency wait)
 //	IntentRun spec       IntentReconciler, once, at creation (the lease)
 //	IntentRun status     RunReconciler
-//	Project status       ProjectReconciler
+//	Project status       ProjectReconciler (status.approvers, from GitHub
+//	                     on the intent repository, and status.admits, from
+//	                     this controller's Settings and resource classes,
+//	                     both included: the status page's project settings
+//	                     only read them)
 //	Preview spec         PreviewSourceReconciler (preview-controller writes
 //	                     its status, which the IntentReconciler only reads)
 //	PreviewVerification  IntentReconciler: creates (spec, once) and deletes

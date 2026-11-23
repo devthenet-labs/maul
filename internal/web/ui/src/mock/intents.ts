@@ -104,7 +104,7 @@ function cards(): IntentCard[] {
 }
 
 export function mockMe(): Me {
-  return { name: "demo", loggedIn: true, projects: [{ name: "storefront", tier: "transcripts" }] };
+  return { name: "demo", loggedIn: true, projects: [{ name: "storefront", tier: "transcripts", settings: true }] };
 }
 
 export function mockIntentBoard(): IntentBoard {

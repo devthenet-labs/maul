@@ -8,3 +8,7 @@
 *.tmp
 *.orig
 *~
+# The chart's Go tests (package chart_test) are not the chart. Helm keeps
+# every chart file in each release Secret, which Kubernetes caps at 1 MiB,
+# so shipping them would spend that room on code no install runs.
+*_test.go

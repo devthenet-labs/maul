@@ -199,7 +199,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Forge Secrets. Its agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including
   model keys, image-pull credentials and other Jobs' handoffs. It uses a GitHub token per operation
   (`forge.Store.TokenWith`), has no ClusterRole and no inbound surface. Only
-  writer of Project status, Intent and IntentRun. Its own flags carry an `intent-` prefix (`MAUL_INTENT_*`); it runs
+  writer of Project status, Intent and IntentRun. For the project settings page it publishes on every Project
+  `status.approvers` (each approver login's GitHub id and write access on the intent repository, re-asked on a list
+  change and every 10 minutes, kept on a failure with `ApproversResolved` False; `approvers_resolve.go`) and
+  `status.admits` (models, default models, stage ceilings, cost bounds and floors, the evaluator switch, the resource
+  classes; `admits.go`, pinned to the Settings methods by a seeded test).
+  Its own flags carry an `intent-` prefix (`MAUL_INTENT_*`); it runs
   on brokered claude (or the fake harness in dev), and with `--intent-codex` (default off; chart
   `intentController.codex.enabled`, which needs the broker's openai route) also on brokered codex for a Project with
   `spec.harness: codex` (`--intent-codex-plan-model`/`--intent-codex-build-model`; the codex runner injects agent-runner
@@ -346,32 +351,56 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded SPA +
   JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration `spec.replay`;
-  reset → delete all pipeline CRs). Rollup statistics are public; the findings surface always requires auth. Writes SPEC
-  only (`spec.approval`, `spec.suspend`, `spec.replay`) — never status, never a phase — each as a JSON merge patch of
-  only the field it sets, with the resourceVersion as an optimistic lock (`specPatch`, #193), so it never takes
-  ownership of fields Helm applied (field manager: the binary's name, `controller` in-image). `--agents-paused` (chart
+  reset → delete all pipeline CRs). Rollup statistics are public; the findings surface always requires auth. Its actions
+  write SPEC only (`spec.approval`, `spec.suspend`, `spec.replay`) — never status, never a phase — each as a JSON merge
+  patch of only the field it sets, with the resourceVersion as an optimistic lock (`specPatch`, #193), so it never
+  takes ownership of fields Helm applied (field manager: the binary's name, `controller` in-image); the Project settings
+  page below writes Project spec plus one annotation, under its own manager. `--agents-paused` (chart
   `agent.paused`) shows a pause banner to signed-in users only; display only. With `--intents-enabled` (chart
   `statusServer.intents.enabled`, kustomize component `status-intents`; default off) it also serves the read-only
   intents views (board, timeline, run panel; docs/intents/dashboard.md): per-Project access reviews on the virtual
   subresources `projects/intents` and `projects/transcripts`, mode oidc with both claim prefixes required, and a
-  hardened browser envelope for the whole page. No intent write of any kind. With `--usage-enabled` (chart
+  hardened browser envelope for the whole page. No intent write of any kind. With `--project-settings-enabled` (chart
+  `statusServer.projectSettings`; default off, chart only, refused without the intents views, the usage views' auth
+  posture and `admissionPolicy.enabled`; people's guide docs/intents/project-settings.md, operator's
+  docs/configuration/status-server.md#project-settings-page) it also serves the Project settings page,
+  `GET`/`POST /api/projects/{name}/settings` (`internal/web/project_settings*.go` over the pure
+  `internal/projectsettings`): an approver, matched by GitHub numeric id to intent-controller's `status.approvers`
+  (write access, login still in the live `spec.approvers.logins`, resolved at most 30 minutes ago; never a login claim),
+  changes the Project's limits, models (plan, build, evaluate), evaluator, hand-off, CI checks, each repository's
+  `agentResourceClass` and, under `allow.approvers`, one approver per save, within the operator's policy
+  (`--project-settings-policy`: `allow`, `locked`, `ceilings`, `floors`; `--project-settings-projects`) and what
+  `status.admits` publishes. The page's one write: a JSON merge patch on `projects` (Role
+  `<release>-status-server-project-settings`, `patch` only) of the changed spec leaves plus the
+  `maul.run/settings-edited` annotation, with the resourceVersion as an optimistic lock and field manager
+  `maul-status-server` (`projectsettings.FieldManager`), so a default server-side `helm upgrade` of maul-config that
+  still states a page-edited field fails with a conflict (measured by `TestProjectSettingsOwnOnlyEditedFields`). The
+  ValidatingAdmissionPolicy `<release>-project-settings` (`templates/project-settings-policy.yaml`) holds every patch
+  by the status server's ServiceAccount to the same policy again and pins every other field by key iteration, and
+  `metadata.managedFields` outside the page's part (no other entry added, re-dated or dropped unless a save emptied it;
+  no field outside the editable keys gained or lost; ownership inside them is the one residual);
+  `TestProjectSettingsPolicyAgainstAPIServer` holds it to `projectsettings.Check` by a seeded property. Read-only under
+  `--intents-dev-insecure`. With `--usage-enabled` (chart
   `statusServer.usage.enabled`; default off, chart only) it serves the Usage page and `/api/usage*`
   (internal/web/usage.go): a person's own usage keyed by their GitHub numeric id (`auth.Identity.GitHubID`, read from
   Dex `federated_claims` of the configured GitHub connector; any other identity refused), everyone's behind an access
-  review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes, `federated:id`). Read
-  only, over a cached `UsageRollup` informer. With `--account-enabled` (chart `statusServer.account.enabled`; default
-  off, chart only, refused without `egressBroker.userCredentials.mode`) it serves the Account page and `/api/account*`
-  (internal/web/account.go): a person sets, replaces and deletes their own model credential (POST only, JSON capped at
-  8 KiB, owner stamped from the GitHub id, an access review on the virtual `modelcredentials/self`; one card per
+  review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes, `federated:id` and
+  `profile`: a federated id is trusted only beside a different `preferred_username`, so a `useLoginAsID` login never
+  passes as an id). Read only, over a cached `UsageRollup` informer. With `--account-enabled` (chart
+  `statusServer.account.enabled`; default off, chart only, refused without `egressBroker.userCredentials.mode`) it
+  serves the Account page and `/api/account*` (internal/web/account.go): a person sets, replaces and deletes their own
+  model credential (POST only, JSON capped at 8 KiB, owner stamped from the GitHub id, an access review on the virtual
+  `modelcredentials/self`; one card per
   `--account-providers` entry, default `anthropic`, the chart adding `openai` while codex runs, plus a delete-only card
   for a credential stored under a provider no longer offered), and sees its fingerprint, health and last use, never the
   credential. Its store (`internal/web/credstore`) writes the Secret in `--credentials-namespace` by create or
-  unconditional update and never reads one: the status server's first Secret write, and its only write outside spec.
+  unconditional update and never reads one: the status server's first Secret write, and, beside the settings page's
+  `maul.run/settings-edited` annotation, its only write outside spec.
 - `cmd/maul` — the workstation CLI (the only binary not deployed): `maul <verb> <noun>` over the caller's own
   kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five action verbs; `get
   usage` is the usage report (not a kind; `internal/usageview`), admin-only by a SelfSubjectAccessReview on `usage/all`.
-  Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`; field manager
-  the binary's file name, `maul` or `kubectl-maul`); enforcement of the custom verbs for direct API writes is the
+  Writes SPEC only, same as status-server's actions, as the same merge patches (`specPatch`, native verb `patch`; field
+  manager the binary's file name, `maul` or `kubectl-maul`); enforcement of the custom verbs for direct API writes is the
   ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's own SelfSubjectAccessReview
   (that is ergonomics). Six cluster-free commands ride along: `dev` (the generic-integration test harness), `mirror`
   (vendored chart/artifact mirroring over `internal/mirror`; kubeconfig flags inert, git never touched), `check image`
@@ -592,7 +621,16 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     (MAUL_E2E_TREES_DIR, MAUL_E2E_EXEC_DIR), its stdout and termination
                     file the tools container's. fakegithub's compare returns
                     merge_base_commit, and ServeCommitTrees makes each pushed commit's
-                    tarball its own tree. The suite's timeout is 45m (hack/e2e.sh);
+                    tarball its own tree. project_settings_test.go drives the Project
+                    settings page through the shipped status-server, intent-controller
+                    and source-controller: a non-approver, an approver without write
+                    access, a stale page and an unadmitted model refused; an approver
+                    added (unresolved while intent-controller is stopped, then saving)
+                    and removed (refused at once by the live list); a lowered build
+                    turns limit reaching the run's grant and Job env; a raised
+                    maxRevisions lifting RevisionLimitReached and running the waiting
+                    /maul revise. No admission policy runs there (the chart envtest
+                    covers it). The suite's timeout is 45m (hack/e2e.sh);
                     CI runs it as two shards (MAUL_E2E_SHARD=1/2, 2/2: e2e/shard
                     splits the top-level tests by a hash of their names), and runs
                     `mise run snapshot` (goreleaser, every build and image, no push).
@@ -767,7 +805,27 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   channel: tier 2 only, live only, never part of the activity), and pins its wire types to `types.ts` by parsing it
   (`TestIntentWireTypesMatchTypeScript`). The Account page (`account.go`) writes through the `CredentialStore` port
   (adapter `web/credstore`: Secret, then record, then status, never a Secret read); its wire types are pinned by
-  `TestAccountWireTypesMatchTypeScript`.
+  `TestAccountWireTypesMatchTypeScript`. The Project settings page (`project_settings.go` the view: visibility as the
+  intents views' with one 404 for missing, invisible and unlisted, then an uncached read, since the cache strips
+  managedFields; `project_settings_write.go` the save: 16 KiB strict JSON, 10 saves a minute per person,
+  `projectsettings.Decide` inside `retry.RetryOnConflict` on the uncached read, the patch with
+  `MergeFromWithOptimisticLock` and `FieldOwner(maul-status-server)`, an API `Invalid` mapped to field refusals, an
+  admission denial a field-less one, audit lines and `maul.status.project_settings.writes`); its wire types are
+  `projectsettings`' own, pinned by `TestProjectSettingsWireTypesMatchTypeScript`, the UI in
+  `ui/src/projectSettings.ts` (pure, node-tested; `followView` rebases the draft when the post-save poll sees another
+  approver's save) and `components/ProjectSettingsView.tsx`.
+- `projectsettings` — the Project settings page's pure core (stdlib and `api/v1alpha1` only, a test pins that): one
+  table of the editable spec fields (`Fields`: id, lock group, kind, the CRD's range, default, when a change takes
+  effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the check
+  reviewer's model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
+  `ApproversMaxAge`), `Apply`, `Check` (locks, switches, ceilings, floors, `status.admits`: models, classes, the
+  controller's ceilings, run-budget bounds; only changed fields, a cleared one by its landing value), `Confirmations`,
+  and `Decide`, which runs them in order and hands back the Project to patch only when all agree; `View` (bounds, the
+  approvers' GitHub state, the other field managers with their operation, the last edit), the `Policy` the chart renders
+  once for the server and the admission policy (`DefaultPolicy` pinned to the chart's defaults), the
+  `maul.run/settings-edited` record (`NewEdit`, `ParseEdit`), and `CheckApprovers`, which `maul setup project` shares.
+  `RunBudget` is pinned to the controller's `stageBudget`; the admission policy is held to `Check` by a seeded property
+  against a real API server (chart envtest).
 - `sealed` — the shared authenticated-encryption primitives for sign-in surfaces: `PurposeKey` (HKDF-SHA256 of one
   secret, one key per purpose), `Seal`/`Open` (AES-256-GCM of a JSON value with caller-supplied AAD, so a token of one
   kind never opens as another; every failure is `ErrOpen`) and `RandomToken`. Stdlib only (a test pins that), so a pure

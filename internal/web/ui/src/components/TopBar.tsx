@@ -206,13 +206,14 @@ export function TopBar({
                 route.view !== "config" &&
                 route.view !== "usage" &&
                 route.view !== "account" &&
+                route.view !== "projectSettings" &&
                 !isIntentsRoute(route),
             )}
           >
             Findings
           </a>
           {intentsNav ? (
-            <a href={hrefForIntents()} class={navClass(isIntentsRoute(route))}>
+            <a href={hrefForIntents()} class={navClass(isIntentsRoute(route) || route.view === "projectSettings")}>
               Intents
             </a>
           ) : null}

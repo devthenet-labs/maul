@@ -201,13 +201,30 @@ type ProjectApprovers struct {
 	// anyone else closes the intent with one notice). Compared
 	// case-insensitively. A Bot never counts, so the pattern admits no
 	// "[bot]" suffix. The operator owns this list; it is never derived from
-	// author_association.
+	// author_association. The status page's project settings change it only
+	// where the operator switched that on (see ProjectSpec).
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	// +listType=set
 	// +kubebuilder:validation:items:MaxLength=64
 	// +kubebuilder:validation:items:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
 	Logins []string `json:"logins"`
+}
+
+// Has reports whether login is on the approver list, compared
+// case-insensitively as GitHub compares logins. It is the one approver-list
+// rule: intent-controller judges every trigger, label, command and review by
+// it, and the status page's project settings gate asks it about the live
+// object it is about to patch, so the two can never disagree about who is an
+// approver. Being on the list is half of an approver's authority; the other
+// half, write access to the intent repository, is GitHub's to say.
+func (a ProjectApprovers) Has(login string) bool {
+	for _, l := range a.Logins {
+		if strings.EqualFold(l, login) {
+			return true
+		}
+	}
+	return false
 }
 
 // ProjectRepository is one application repository the Project's intents may
@@ -671,8 +688,18 @@ const MaxPreviewComponents = 4
 // ProjectSpec is operator configuration: where intents are filed, who may
 // authorise them, which repositories they build in, and what they may spend.
 // The operator writes it (through the maul-config chart); intent-controller
-// only reads it. Writing projects is admin-only in RBAC, because a Project is
-// the power to point agents at repositories.
+// only reads it. For people, writing projects is admin-only in RBAC, because
+// a Project is the power to point agents at repositories. The one other
+// writer is opt-in: with the status page's project settings on (the maul
+// chart's statusServer.projectSettings, off by default), the status server
+// patches a bounded part of the spec for an approver who has write access to
+// the intent repository: limits, models, checks, the evaluator's settings,
+// an existing repository's agentResourceClass and, behind its own switch,
+// the approver list. Where agents are pointed is never part of it: the
+// intent repository, the labels, a repository's name, url or preview, the
+// harness and the surfaces. An admission policy on the status server's
+// ServiceAccount holds every such write to that part, to the operator's
+// ceilings, floors and switches, and to what status.admits publishes.
 //
 // Previews are configured per repository (repositories[].preview) or, for a
 // one-repository Project, by the spec.preview shorthand, never both. The
@@ -908,6 +935,291 @@ type ProjectStatus struct {
 	// were last listed.
 	// +optional
 	LastPolledAt *metav1.Time `json:"lastPolledAt,omitempty"`
+	// Approvers is who GitHub says the approvers are: each login of
+	// spec.approvers.logins with its numeric account id and whether it has
+	// write access to the intent repository (ProjectApproversStatus). The
+	// status page's project settings match a signed-in person to an approver
+	// by that id, never by a login claim. Unset until intent-controller has
+	// resolved the list once; nobody can edit from the page until then.
+	// +optional
+	Approvers *ProjectApproversStatus `json:"approvers,omitempty"`
+	// Admits is what intent-controller, as it is configured, admits for this
+	// Project: the models it may choose, the ceilings its limits are clamped
+	// to and the resource classes its repositories may pick (ProjectAdmits).
+	// It is the controller's own rules published as data, so the project
+	// settings page and its admission policy judge a change by them without
+	// a copy of the rules. Unset until intent-controller has published it;
+	// until then the page changes no model, raises no limit and offers no
+	// resource class.
+	// +optional
+	Admits *ProjectAdmits `json:"admits,omitempty"`
+}
+
+// The bounds of what intent-controller publishes on a Project's status for
+// the project settings page. The schema markers below repeat them as
+// literals; keep them in lockstep. They are bounds on the writer: a status
+// the schema refuses loses the whole status write, Ready included, so
+// intent-controller holds what it publishes to them (dropping, never
+// failing), and no published string carries a pattern or an enum.
+const (
+	// MaxProjectApprovers bounds status.approvers.identities: one per login
+	// spec.approvers.logins may hold.
+	MaxProjectApprovers = 20
+	// MaxAdmittedModels bounds status.admits.models and
+	// status.admits.runBudgetFloors (one entry per model), and
+	// MaxAdmittedModelLength each model id in them and in
+	// status.admits.defaultModels. A Project can name only a model of at
+	// most 128 characters (ProjectModels), so a longer id is one it could
+	// never choose.
+	MaxAdmittedModels      = 64
+	MaxAdmittedModelLength = 256
+	// MaxAdmittedResourceClasses bounds status.admits.resourceClasses, and
+	// MaxResourceClassNameLength each name there: the most classes an
+	// operator may define, and the longest name agentResourceClass may hold
+	// (internal/resourceclass's MaxClasses and MaxNameLength).
+	MaxAdmittedResourceClasses = 16
+	MaxResourceClassNameLength = 32
+)
+
+// ProjectApproversStatus is intent-controller's resolution of
+// spec.approvers.logins against GitHub: who each login is, by numeric account
+// id, and whether that account has write access to the intent repository,
+// the two facts an approver's authority rests on. intent-controller, which
+// holds the forge credential and is the only writer of Project status, asks
+// GitHub again when the list changes and every few minutes.
+type ProjectApproversStatus struct {
+	// Identities are the logins of spec.approvers.logins as they resolved at
+	// ResolvedAt, each login once. A login of the list with no identity here
+	// was added since and is not resolved yet. An identity may outlive its
+	// login's removal from the list until the next resolution, so a reader
+	// must also ask the live list (ProjectApprovers.Has): the identity alone
+	// is no authority.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=atomic
+	Identities []ProjectApproverIdentity `json:"identities,omitempty"`
+	// ResolvedAt is when GitHub last answered for every identity. While
+	// GitHub cannot be read the identities and this time are kept as they
+	// were (the Project's ApproversResolved condition is False), so a reader
+	// that requires a recent ResolvedAt stops trusting them once they are
+	// old. Unset when nothing was ever resolved.
+	// +optional
+	ResolvedAt *metav1.Time `json:"resolvedAt,omitempty"`
+}
+
+// ProjectApproverIdentity is one approver login as GitHub resolved it.
+type ProjectApproverIdentity struct {
+	// Login is the login as spec.approvers.logins spells it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	Login string `json:"login"`
+	// ID is GitHub's numeric id of the account the login named when it was
+	// resolved: the account's identity, which survives a rename and is never
+	// given to another account, unlike the login. Zero (omitted) when GitHub
+	// knows no such account, which then matches nobody.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ID int64 `json:"id,omitempty"`
+	// Write reports that GitHub gave the account write access (write,
+	// maintain or admin) to the intent repository when it was resolved, the
+	// same fact every /maul command of an approver is held to. False
+	// (omitted): on the list, but not able to act.
+	// +optional
+	Write bool `json:"write,omitempty"`
+}
+
+// ProjectAdmits is what intent-controller admits for a Project, published
+// from the settings that judge its runs. Each figure says what zero means:
+// inside a published ProjectAdmits zero is a statement ("no ceiling", "this
+// stage does not run"), which is why the whole of it being unset
+// (status.admits absent) is a different thing.
+type ProjectAdmits struct {
+	// Models are the canonical models spec.models may name for the
+	// Project's harness: its stage flags' own and those
+	// --intent-model-allowlist adds for that harness. A model outside it
+	// makes the Project not Ready (ModelNotAllowed). Empty while the
+	// Project's harness is one this controller runs no intent on.
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=atomic
+	// +kubebuilder:validation:items:MaxLength=256
+	Models []string `json:"models,omitempty"`
+	// DefaultModels are the models the Project's stages run on where
+	// spec.models leaves them unset.
+	// +optional
+	DefaultModels ProjectStageModels `json:"defaultModels,omitempty"`
+	// Stages are the controller's per-stage ceilings: what one run of each
+	// stage is granted when spec.limits.<stage> sets nothing, and the most
+	// it is granted whatever that says.
+	// +optional
+	Stages ProjectStageCeilings `json:"stages,omitempty"`
+	// MaxEvaluateCostMicroUSD is the most spec.limits.maxEvaluateCostMicroUSD
+	// takes effect at, in micro-USD (--intent-evaluation-cost-max). Zero
+	// (omitted): the controller sets no ceiling and the Project's value
+	// stands.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxEvaluateCostMicroUSD int64 `json:"maxEvaluateCostMicroUSD,omitempty"`
+	// MaxToolCalls is the most spec.verification.maxToolCalls takes effect
+	// at (--intent-max-tool-calls). Zero (omitted): the controller sets no
+	// ceiling and the Project's value stands.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxToolCalls int32 `json:"maxToolCalls,omitempty"`
+	// CostBudgets reports that the egress broker counts spend in micro-USD
+	// (--broker-limit-unit cost), so each stage's
+	// spec.limits.<stage>.maxCostMicroUSD is enforced as its runs' budget.
+	// False (omitted): the broker counts tokens and those fields have no
+	// effect.
+	// +optional
+	CostBudgets bool `json:"costBudgets,omitempty"`
+	// MaxRunCostMicroUSD is the most one run's cost budget may be while
+	// CostBudgets is true, in micro-USD: half the broker's hourly cost
+	// limit, past which the Project is not Ready
+	// (RunBudgetOverHourlyLimit). Zero (omitted): no such bound, because the
+	// broker counts tokens or has no hourly limit.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxRunCostMicroUSD int64 `json:"maxRunCostMicroUSD,omitempty"`
+	// RunBudgetFloors are, per model, the least cost budget one evaluate
+	// run and one checkreview run on that model may have while CostBudgets
+	// is true: twice what the egress broker reserves for each of the run's
+	// requests. A stage whose run budget is under its model's floor makes
+	// the Project not Ready (RunBudgetUnderRequestReserve), so the floor
+	// moves with the model a stage is given as much as with its budget. A
+	// model with no entry has no floor. Empty while the broker counts
+	// tokens, the evaluator is off, or the Project's harness is one whose
+	// runs are not judged (codex).
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=atomic
+	RunBudgetFloors []ProjectRunBudgetFloor `json:"runBudgetFloors,omitempty"`
+	// Evaluator reports that the agent evaluator is on (--intent-evaluator),
+	// so a Project with spec.verification.enabled is verified. False
+	// (omitted): nothing is verified whatever a Project says
+	// (VerificationOff, EvaluatorOff).
+	// +optional
+	Evaluator bool `json:"evaluator,omitempty"`
+	// ResourceClasses are the resource classes the operator defines
+	// (--intent-resource-classes), by name: what a repository's
+	// agentResourceClass may be. Empty: none is defined, and a repository's
+	// runs can only get the default.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=map
+	// +listMapKey=name
+	ResourceClasses []ProjectResourceClass `json:"resourceClasses,omitempty"`
+}
+
+// ProjectRunBudgetFloor is the least cost budget a run of each evaluator
+// stage may have on one model, in micro-USD.
+type ProjectRunBudgetFloor struct {
+	// Model is the canonical model the floors are for.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	Model string `json:"model"`
+	// EvaluateMicroUSD is the least budget of an evaluate run on Model.
+	// Zero (omitted): no floor.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	EvaluateMicroUSD int64 `json:"evaluateMicroUSD,omitempty"`
+	// CheckReviewMicroUSD is the least budget of a checkreview run on
+	// Model. Zero (omitted): no floor.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	CheckReviewMicroUSD int64 `json:"checkReviewMicroUSD,omitempty"`
+}
+
+// ProjectStageModels names one canonical model per stage that chooses its
+// own: ProjectModels' shape for a model intent-controller publishes, so it
+// carries no pattern (a status is never refused for a model's spelling).
+type ProjectStageModels struct {
+	// Plan is the plan stage's model.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Plan string `json:"plan,omitempty"`
+	// Build is the build stage's model, and every revise run's.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Build string `json:"build,omitempty"`
+	// Evaluate is the agent evaluator's model; empty while this controller
+	// runs no evaluator for the Project's harness.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Evaluate string `json:"evaluate,omitempty"`
+	// CheckReview is the check reviewer's model; empty as Evaluate is.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	CheckReview string `json:"checkReview,omitempty"`
+}
+
+// ProjectStageCeilings are the controller's ceilings per stage, in
+// ProjectLimits' spelling of the stages.
+type ProjectStageCeilings struct {
+	// Plan is the plan stage's ceiling.
+	// +optional
+	Plan ProjectStageCeiling `json:"plan,omitempty"`
+	// Build is the build stage's ceiling.
+	// +optional
+	Build ProjectStageCeiling `json:"build,omitempty"`
+	// Revise is the ceiling of revise and check-fix runs.
+	// +optional
+	Revise ProjectStageCeiling `json:"revise,omitempty"`
+	// Evaluate is the evaluator's ceiling.
+	// +optional
+	Evaluate ProjectStageCeiling `json:"evaluate,omitempty"`
+	// CheckReview is the check reviewer's ceiling.
+	// +optional
+	CheckReview ProjectStageCeiling `json:"checkReview,omitempty"`
+}
+
+// ProjectStageCeiling is the controller's ceiling for one stage, in
+// StageLimits' spelling: a StageLimits value of zero is granted the ceiling,
+// and one above it is clamped to it. A ceiling of zero (omitted) means the
+// controller grants the stage nothing: it runs no such stage (the
+// evaluator's two while the evaluator is off).
+type ProjectStageCeiling struct {
+	// MaxTurns is the most turns one run of the stage is granted.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxTurns int32 `json:"maxTurns,omitempty"`
+	// TokenBudget is the largest output-token budget one run of the stage
+	// is granted.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	TokenBudget int64 `json:"tokenBudget,omitempty"`
+	// Timeout is the longest wall clock one run of the stage is granted.
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+}
+
+// ProjectResourceClass is one resource class the operator defines, with its
+// size as the operator wrote it, for a person choosing between classes.
+type ProjectResourceClass struct {
+	// Name is the class's name: what agentResourceClass holds to pick it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
+	Name string `json:"name"`
+	// Requests are the CPU and memory the class's agent Jobs request.
+	// +optional
+	Requests ProjectResourceQuantities `json:"requests,omitempty"`
+	// Limits are the CPU and memory the class's agent Jobs are limited to.
+	// +optional
+	Limits ProjectResourceQuantities `json:"limits,omitempty"`
+}
+
+// ProjectResourceQuantities are a CPU and a memory quantity as Kubernetes
+// writes them ("4", "500m", "8Gi"), each empty when the class sets none.
+// Display only: nothing parses them back.
+type ProjectResourceQuantities struct {
+	// CPU is the CPU quantity.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CPU string `json:"cpu,omitempty"`
+	// Memory is the memory quantity.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Memory string `json:"memory,omitempty"`
 }
 
 // +kubebuilder:object:root=true

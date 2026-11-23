@@ -149,6 +149,9 @@ func withIntentsFor(t *testing.T, cl *cluster, gh *fakegithub.Server, spec v1alp
 	t.Helper()
 	gh.SetRole(approver.Login, "write")
 	gh.SetRole(mallory.Login, "write")
+	for _, a := range []fakegithub.Actor{approver, mallory, reader} {
+		gh.SetUserID(a.Login, a.ID)
+	}
 	_, stop := cl.stoppableController(t, "intent-controller", append(slices.Clone(intentArgs), extra...)...)
 	env := &intentEnv{cl: cl, gh: gh, kubelet: startKubelet(t, cl, intentRunKind), stopIntents: stop}
 
@@ -472,6 +475,25 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	}
 	if !slices.Contains(labels, triggerLabel) || !slices.Contains(labels, approveLabel) {
 		t.Errorf("intent repository labels = %v, want %s and %s created", labels, triggerLabel, approveLabel)
+	}
+
+	// The Project publishes who its approvers are, by GitHub account id
+	// and write access, and what the controller admits for it: the facts
+	// the status page's project settings judge an edit by.
+	eventually(t, "the project to publish its approvers and admits", func() bool {
+		p := e.project(t)
+		return p.Status.Approvers != nil && p.Status.Admits != nil
+	})
+	p := e.project(t)
+	wantIDs := []v1alpha1.ProjectApproverIdentity{{Login: approver.Login, ID: approver.ID, Write: true},
+		{Login: reader.Login, ID: reader.ID}}
+	if !slices.Equal(p.Status.Approvers.Identities, wantIDs) || p.Status.Approvers.ResolvedAt == nil ||
+		!meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha1.ConditionApproversResolved) {
+		t.Errorf("status.approvers = %+v, conditions %+v; want %+v resolved", p.Status.Approvers,
+			p.Status.Conditions, wantIDs)
+	}
+	if len(p.Status.Admits.Models) == 0 || p.Status.Admits.Stages.Build.MaxTurns == 0 {
+		t.Errorf("status.admits = %+v, want the controller's models and ceilings", p.Status.Admits)
 	}
 
 	// 1. The approver files the intent; discovery creates the Intent from

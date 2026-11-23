@@ -642,6 +642,31 @@ served and the host is set, else empty (the notice names the page unlinked).
 {{- end }}
 
 {{/*
+The Project settings page's bounds (statusServer.projectSettings allow,
+locked, ceilings and floors) as one JSON object: the status server's
+MAUL_PROJECT_SETTINGS_POLICY, which projectsettings.ParsePolicy reads, and
+the object project-settings-policy.yaml renders its admission policy from
+(through fromJson), so the two can never hold different bounds. Numbers are
+written as integers (a values file's are floats to helm), durations as the
+values spell them.
+*/}}
+{{- define "maul.projectSettingsPolicy" -}}
+{{- $ps := .Values.statusServer.projectSettings -}}
+{{- $c := $ps.ceilings -}}
+{{- $f := $ps.floors -}}
+{{- $ceilings := dict -}}
+{{- range $k := list "maxCostMicroUSD" "maxRevisions" "maxCheckFixes" "maxVerifyFixes" "maxVerifications" "maxActiveIntents" -}}
+{{- $_ := set $ceilings $k (int64 (index $c $k)) -}}
+{{- end -}}
+{{- $floors := dict "evaluateTimeout" (toString $f.evaluateTimeout) "handoffMax" (toString $f.handoffMax) -}}
+{{- range $k := list "maxEvaluateCostMicroUSD" "evaluateMaxTurns" "evaluateTokenBudget" "maxToolCalls" "maxVerifications" -}}
+{{- $_ := set $floors $k (int64 (index $f $k)) -}}
+{{- end -}}
+{{- $allow := dict "approvers" (eq (toString $ps.allow.approvers) "true") "disableEvaluator" (eq (toString $ps.allow.disableEvaluator) "true") "emptyChecks" (eq (toString $ps.allow.emptyChecks) "true") -}}
+{{- toJson (dict "allow" $allow "locked" ($ps.locked | default list) "ceilings" $ceilings "floors" $floors) -}}
+{{- end }}
+
+{{/*
 MAUL_USER_CREDENTIALS and MAUL_ACCOUNT_URL for the controllers that hold
 a person's run until their credential is valid (remediation, intent):
 egressBroker.userCredentials.mode, set into .data only while it is on, so the

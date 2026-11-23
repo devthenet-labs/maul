@@ -174,6 +174,13 @@ type projectPoll struct {
 	validatedGen    int64
 	validatedAt     time.Time
 	validatedForges int64
+	// approversFailedAt is when resolving approversFailedFor (the login
+	// list then) last failed, and approversFailure why (bounded): it is
+	// retried once per poll interval, not on every pass, and said False
+	// on every pass until then.
+	approversFailedAt  time.Time
+	approversFailedFor []string
+	approversFailure   string
 }
 
 func (r *ProjectReconciler) now() time.Time {
@@ -227,6 +234,10 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// A warning beside Ready, never part of it: an unknown class holds the
 	// builds of its repository alone, so discovery and plans go on.
 	setResourceClasses(cur, r.Classes)
+	// What the settings page judges an edit by: who the approvers are, and
+	// what this controller admits. Never part of Ready.
+	r.reconcileApprovers(ctx, &p, cur, poll, now, settings.PollInterval)
+	cur.Status.Admits = settings.admits(cur, r.Classes)
 	setVerificationOff(cur, settings)
 	setRepositoryImageRequired(cur, settings, r.RepositoryImagesOff)
 	setEvaluatorUnverified(cur, settings)
