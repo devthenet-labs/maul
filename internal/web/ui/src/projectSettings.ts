@@ -320,7 +320,8 @@ export function rebaseDraft(
 // followView decides what a re-read of the Project (fresh) does to the
 // person's draft. The draft was built on base: the settings its changes are
 // listed against and the generation a save posts, which must both stay
-// base's while the draft is. At the same generation nothing moves. When
+// base's while the draft is. At the same generation nothing moves, nor at
+// an older one (a re-read answering after the draft was reset). When
 // someone else saved in between, the draft is rebased onto fresh as a save
 // refused as stale is, so their change is never listed, nor saved, as the
 // person's own edit putting the old value back.
@@ -329,7 +330,7 @@ export function followView(
   draft: ProjectSettings,
   fresh: Pick<ProjectSettingsView, "generation" | "settings" | "fields">,
 ): { rebased: boolean; draft: ProjectSettings; moved: Moved[]; dropped: string[] } {
-  if (fresh.generation === base.generation) return { rebased: false, draft, moved: [], dropped: [] };
+  if (fresh.generation <= base.generation) return { rebased: false, draft, moved: [], dropped: [] };
   return { rebased: true, ...rebaseDraft(base.settings, draft, fresh.settings, fresh.fields) };
 }
 

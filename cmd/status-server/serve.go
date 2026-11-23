@@ -54,7 +54,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"oidc with usernamePrefix and groupsPrefix, and turns on the hardened browser envelope")
 	f.Bool("usage-enabled", false,
 		"serve the usage views (a signed-in person's own usage, and everyone's for holders of get on the "+
-			"virtual usage/all); needs auth mode oidc as the intents views do plus Dex's federated:id scope, "+
+			"virtual usage/all); needs auth mode oidc as the intents views do plus Dex's federated:id and profile scopes, "+
 			"since a person is their GitHub id; turns on the hardened browser envelope")
 	f.Bool("account-enabled", false,
 		"serve the Account page (a signed-in person sets, replaces and deletes their own model credential, "+
@@ -72,7 +72,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("project-settings-enabled", false,
 		"serve the Project settings page beside the intents views: an approver of a Project whom GitHub gives "+
 			"write access to its intent repository changes its limits, models, checks and evaluator settings, "+
-			"matched by their GitHub id; needs --intents-enabled and the usage views' auth posture (federated:id); "+
+			"matched by their GitHub id; needs --intents-enabled and the usage views' auth posture (federated:id, profile); "+
 			"read-only under --intents-dev-insecure")
 	f.String("project-settings-policy", "",
 		"the operator's bounds on the settings page as JSON {allow, locked, ceilings, floors} (the chart's "+
@@ -164,7 +164,7 @@ type settingsWiring struct {
 
 // newSettingsWiring checks the settings page may be served: beside the
 // intents views, whose visibility it shares, and under the usage views'
-// posture (oidc, both prefixes, federated:id), since an approver is matched
+// posture (oidc, both prefixes, federated:id, profile), since an approver is matched
 // by the GitHub id the session carries. Under the intents views'
 // development posture (mode none, which newIntentsWiring admitted only
 // behind --intents-dev-insecure on a loopback address) no session carries
@@ -227,7 +227,7 @@ type accountWiring struct {
 }
 
 // newAccountWiring checks the auth posture may serve the Account page: as
-// the usage views, oidc with the federated:id scope, since a credential is
+// the usage views, oidc with the federated:id and profile scopes, since a credential is
 // kept under the person's GitHub id. There is no development bypass.
 func newAccountWiring(enabled bool, credentialsNamespace string, providers []string, authCfg *auth.Config) (
 	accountWiring, error) {
@@ -290,7 +290,8 @@ type usageWiring struct{ on bool }
 
 // newUsageWiring checks the auth posture may serve the usage views: oidc as
 // for the intents views, plus the federated:id scope that carries a
-// person's GitHub id. There is no development bypass: without a GitHub id
+// person's GitHub id and the profile scope its login comes with, without
+// which no id is trusted. There is no development bypass: without a GitHub id
 // no one has usage to see.
 func newUsageWiring(enabled bool, authCfg *auth.Config) (usageWiring, error) {
 	if !enabled {

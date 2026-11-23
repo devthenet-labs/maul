@@ -312,6 +312,12 @@ test("followView rebases the draft when someone else saved while the page waited
   const same = followView(base, draft, { ...base, observedGeneration: 8 });
   assert.equal(same.rebased, false);
   assert.equal(same.draft, draft);
+
+  // A re-read older than the draft's base (a poll answering after the
+  // person's own save reset the draft) moves nothing either.
+  const older = followView(view(9, fresh.settings), draft, base);
+  assert.equal(older.rebased, false);
+  assert.equal(older.draft, draft);
 });
 
 // ---- refusals -----------------------------------------------------------------------

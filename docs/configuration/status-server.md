@@ -288,10 +288,10 @@ intent-controller bounds can be raised.
   pinned too), as are the number, order and every other field of the repositories, the labels, finalizers and owner
   references, and every annotation but `maul.run/settings-edited` (at most 1 KiB); the record of which writer manages
   which field (`managedFields`, which the page never writes but any patch could replace): no other writer's entry added,
-  dropped or re-dated, and none gaining or losing a field outside the page's own; the locks, switches, ceilings and
-  floors; models and classes against `status.admits`; and intent-controller's own ceilings. A denial reaches the page as
-  a refusal of the whole save ("The cluster refused the save as invalid"); its message starts `project settings:`, and
-  the status server logs it.
+  dropped (but one a save emptied of the page's own fields) or re-dated, and none gaining or losing a field outside the
+  page's own; the locks, switches, ceilings and floors; models and classes against `status.admits`; and
+  intent-controller's own ceilings. A denial reaches the page as a refusal of the whole save ("The cluster refused the
+  save as invalid"); its message starts `project settings:`, and the status server logs it.
 - The ConfigMap keys of the three flags.
 
 People need no new grant: whoever may see a Project's intents (`get` on `projects/intents`) can open its page, and an

@@ -542,6 +542,10 @@ export function ProjectSettingsPage({ name }: { name: string }) {
   // restart its timer on every keystroke.
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // The view that draft is built on, read when a poll answers: a save may
+  // have reset both while the poll was in flight.
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const reset = useCallback((v: ProjectSettingsView, doc: ProjectSettings) => {
     setDraft(doc);
@@ -551,15 +555,16 @@ export function ProjectSettingsPage({ name }: { name: string }) {
 
   // fetchView re-reads the Project. follow, when given, runs in the same
   // tick as the view is replaced, so the draft is never rendered against
-  // settings it was not built on.
-  const fetchView = useCallback(async (follow?: (v: ProjectSettingsView) => void): Promise<ProjectSettingsView | null> => {
+  // settings it was not built on; it returns false to keep the view (a
+  // re-read older than the one the draft is built on).
+  const fetchView = useCallback(async (follow?: (v: ProjectSettingsView) => boolean): Promise<ProjectSettingsView | null> => {
     try {
       const v = await fetchProjectSettings(name);
       if (!v) {
         setLoaded({ kind: "missing" });
         return null;
       }
-      follow?.(v);
+      if (follow && !follow(v)) return v;
       setLoaded({ kind: "view", view: v });
       return v;
     } catch (e) {
@@ -596,10 +601,12 @@ export function ProjectSettingsPage({ name }: { name: string }) {
     const t = setTimeout(() => {
       setPolls((p) => p + 1);
       void fetchView((fresh) => {
+        const base = viewRef.current;
         const d = draftRef.current;
-        if (!d) return;
-        const f = followView(view, d, fresh);
-        if (!f.rebased) return;
+        if (!base || !d) return true;
+        if (fresh.generation < base.generation) return false;
+        const f = followView(base, d, fresh);
+        if (!f.rebased) return true;
         reset(fresh, f.draft);
         setMoved(f.moved);
         setReviewing(false);
@@ -610,6 +617,7 @@ export function ProjectSettingsPage({ name }: { name: string }) {
           ...f.dropped.map((k) => `${k}: that repository is gone, so the edit was dropped.`),
         ];
         setNotes(lines.map((text) => ({ tone: "amber", text })));
+        return true;
       });
     }, OBSERVE_POLL_MS);
     return () => clearTimeout(t);

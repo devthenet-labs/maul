@@ -377,9 +377,9 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   still states a page-edited field fails with a conflict (measured by `TestProjectSettingsOwnOnlyEditedFields`). The
   ValidatingAdmissionPolicy `<release>-project-settings` (`templates/project-settings-policy.yaml`) holds every patch
   by the status server's ServiceAccount to the same policy again and pins every other field by key iteration, and
-  `metadata.managedFields` outside the page's part (no other entry added, dropped or re-dated; no field outside the
-  editable keys gained or lost; ownership inside them is the one residual); `TestProjectSettingsPolicyAgainstAPIServer`
-  holds it to `projectsettings.Check` by a seeded property. Read-only under
+  `metadata.managedFields` outside the page's part (no other entry added, re-dated or dropped unless a save emptied it;
+  no field outside the editable keys gained or lost; ownership inside them is the one residual);
+  `TestProjectSettingsPolicyAgainstAPIServer` holds it to `projectsettings.Check` by a seeded property. Read-only under
   `--intents-dev-insecure`. With `--usage-enabled` (chart
   `statusServer.usage.enabled`; default off, chart only) it serves the Usage page and `/api/usage*`
   (internal/web/usage.go): a person's own usage keyed by their GitHub numeric id (`auth.Identity.GitHubID`, read from
