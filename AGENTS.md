@@ -699,8 +699,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   refuses on one) while the agents tool pod is on; collects only the `tools` log via
   `toolledger.Parse` (a log holding the key is `ledger-mismatch`), writes builds, the head's runs, confirmed checks,
   `status.base` from `toolledger.BaseRuns` (unbuildable only when a base build ran and failed) and the head build's
-  `previewtools.BuildPart` (not built: Infra `tools-build-failed`; built but its kept copy failed, the relay's
-  `FinishKeptCopyFailed`: Infra `kept-copy-failed`); tears down at settle, a finished Job after the
+  `previewtools.BuildPart` (not built: Infra `tools-build-failed`); tears down at settle, a finished Job after the
   10-minute `linger` for the isolation probe, a running one at once, an orphan Secret with its settled PV; the
   `Sweeper` is always registered and, with the host off, deletes every `role: tools` Job: the rollback lever),
   `controller/preview` (fixed slot workload renderer,
@@ -970,12 +969,9 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `KindBuild` in the side's tree, 10m by default and at most 20m, keeping a 256 KiB output tail, `AllowedEnv` (the
   search path and the build's network profile, refusing a variable the shim sets itself: `HOME`, `TMPDIR`, `GOCACHE`,
   `GOTOOLCHAIN`, the npm cache), the UID-wide sweep before every answer (`Result.Unclean` when something survives,
-  nothing more runs until a sweep is clean), `Result.NetError`, `Request.Fresh` (every check run's first program: the
-  tree, `/work/bin` and `HOME` put back from the copy `/work/kept` taken after the build (at most `MaxKeptBytes`, else
-  `KeepFailed`) and held to their in-memory digests, refused when they cannot be; the caches (GOCACHE, npm's) pruned to
-  the build's own entries by an in-memory manifest of type, mode, size, inode and ctime, never copied (a removed Go entry
-  only a miss, an npm one fetched again or an install error, never another answer); an empty `TMPDIR` of the run's
-  own under `Options.Tmp`, shared by its later requests; `fresh.go`, `cache.go`), UID 0 refused) and `cmd/maul-tool`
+  nothing more runs until a sweep is clean), `Result.NetError`, no copy kept and nothing restored (the tree,
+  `/work/bin`, `HOME`, the caches and the tmp root are the side's, each program seeing what earlier ones left; a
+  request still asking `fresh` is refused at the wire), UID 0 refused) and `cmd/maul-tool`
   (the CLI: `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into `shots/` under the scratch
   directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).

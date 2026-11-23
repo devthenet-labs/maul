@@ -86,15 +86,9 @@ type Request struct {
 	// the shim's own environment.
 	Env []EnvVar `json:"env,omitempty"`
 	// TimeoutMs is a build's timeout, at most MaxBuildTimeout; zero is
-	// DefaultBuildTimeout. An exec's is its program's own (a check's
-	// timeout), never past the exec bound; zero is the bound. Either
-	// starts with the program, after any restore (review VC-2).
+	// DefaultBuildTimeout. An exec's is its program's own, never past the
+	// exec bound; zero is the bound. Either starts with the program.
 	TimeoutMs int64 `json:"timeoutMs,omitempty"`
-	// Fresh runs an exec on the tree and build output exactly as the last
-	// build that built left them, whatever an earlier program changed
-	// there (review VC-2): what a check run starts from. With none to
-	// restore exactly, nothing runs. A build takes none.
-	Fresh bool `json:"fresh,omitempty"`
 }
 
 var (
@@ -134,7 +128,7 @@ func (r *Request) Check() error {
 
 // workspace reports a request that sets a field only a workspace shim takes.
 func (r *Request) workspace() bool {
-	return r.Kind != "" || r.Run != "" || len(r.Env) > 0 || r.TimeoutMs != 0 || r.Fresh
+	return r.Kind != "" || r.Run != "" || len(r.Env) > 0 || r.TimeoutMs != 0
 }
 
 // build reports a build request.
@@ -200,8 +194,8 @@ func AllowedEnv(name string) bool {
 // checkWorkspace holds a request to what this workspace takes.
 func (s *Server) checkWorkspace(r *Request) error {
 	if r.build() {
-		if len(r.Files) > 0 || r.Run != "" || r.Fresh {
-			return errors.New("a build takes no files, no run and no fresh tree")
+		if len(r.Files) > 0 || r.Run != "" {
+			return errors.New("a build takes no files and no run")
 		}
 	} else if r.Run == "" {
 		return errors.New("an exec takes a run")
@@ -284,13 +278,9 @@ func (s *Server) workspaceEnv(r *Request) []string {
 			env = append(env, d.Name+"="+d.Value)
 		}
 	}
-	tmp := s.tmp
-	if !r.build() && r.Run == s.checkRun {
-		tmp = filepath.Join(s.tmp, checkTmpName)
-	}
 	return append(env,
 		"HOME="+s.home,
-		"TMPDIR="+tmp,
+		"TMPDIR="+s.tmp,
 		"GOCACHE="+filepath.Join(s.cache, "go-build"),
 		"GOTOOLCHAIN=local",
 		"NPM_CONFIG_CACHE="+filepath.Join(s.cache, "npm"),
@@ -366,16 +356,9 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 		}
 		s.unclean = false
 	}
-	if req.Fresh {
-		if err := s.fresh(req.Run); err != nil {
-			return refused(toolwire.RefusedUnavailable, "the tree, build output, HOME and caches could not be "+
-				"restored as the build left them: "+err.Error())
-		}
-	}
 	var res Result
 	if req.build() {
 		out := &tailWriter{limit: MaxBuildOutputBytes}
-		s.built, s.cached, s.checkRun = nil, nil, ""
 		res = s.execute(ctx, req.Argv, filepath.Join(s.work, "tree"), s.workspaceEnv(req), req.buildTimeout(), out)
 	} else {
 		dir, err := s.runScratch(req.Run, req.Files)
@@ -387,13 +370,6 @@ func (s *Server) Do(ctx context.Context, req *Request) Result {
 	if err := s.sweep.run(); err != nil {
 		s.unclean = true
 		res.Unclean = true
-	}
-	if req.build() && res.Exit == 0 && !res.TimedOut && !res.Unclean {
-		if err := s.keep(); err != nil {
-			res.KeepFailed = true
-			res.Output += "\nmaul: the build's tree, output and HOME could not be kept, so no check can run: " +
-				err.Error()
-		}
 	}
 	res.NetError = NetError(res.Output)
 	return res

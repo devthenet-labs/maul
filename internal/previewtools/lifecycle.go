@@ -48,8 +48,7 @@ type RunOptions struct {
 //     the round there (FinishUnreachable);
 //     in a workspace, build the head and the base instead (the first two
 //     entries); a head that did not build finishes the round there
-//     (FinishBuildFailed), never serving its readiness path, and so does
-//     a tree that built but could not be kept (FinishKeptCopyFailed);
+//     (FinishBuildFailed), never serving its readiness path;
 //  2. open the browser session, when the pod has a browser (a relay
 //     session entry), and serve the agent until the runner's finish, or
 //     finish on its own at the wall clock (FinishDeadline) or when ctx
@@ -88,10 +87,6 @@ func Run(ctx context.Context, o RunOptions) (toolwire.Summary, error) {
 		// readiness path ever answers: no evaluator is launched (S2-B5).
 		if r.buildTrees(dctx); !r.headBuilt {
 			r.finishRelay(stopReason(ctx, dctx, FinishBuildFailed))
-			return r.result()
-		}
-		if r.keptCopyFailed {
-			r.finishRelay(stopReason(ctx, dctx, FinishKeptCopyFailed))
 			return r.result()
 		}
 	case !r.awaitComponents(dctx, window):

@@ -288,16 +288,11 @@ func TestToolPodVolumesFit(t *testing.T) {
 	if toolsSum > limit("tools") {
 		t.Errorf("tools-side volumes %d bytes exceed the tools limit %d", toolsSum, limit("tools"))
 	}
-	// The work volume holds the tree's copy and the build output, and the
-	// copy of both a check run starts from (toolexec's fresh.go).
+	// The work volume holds the tree's copy, the build output and the runs'
+	// scratch directories; the shim keeps no copy of them.
 	if sizes["work-head"] < 2<<30 {
-		t.Errorf("work %d bytes is under the 2 GiB the tree, its output and their kept copy need",
+		t.Errorf("work %d bytes is under the 2 GiB the tree, its output and the runs' scratch need",
 			sizes["work-head"])
-	}
-	// The shim keeps no copy past toolexec.MaxKeptBytes, which bounds the
-	// live tree and output too: both, and 512 MiB of scratch, fit.
-	if need := 2*int64(toolexec.MaxKeptBytes) + 512<<20; sizes["work-head"] < need {
-		t.Errorf("work %d bytes is under the %d the kept copy's bound needs", sizes["work-head"], need)
 	}
 	if sizes["cache-head"] < 3<<30+512<<20 {
 		t.Errorf("cache %d bytes is under the 3.5 GB a maul-scale tree needs", sizes["cache-head"])

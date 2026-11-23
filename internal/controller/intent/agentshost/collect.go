@@ -46,8 +46,8 @@ type builds struct {
 // log, verified against its termination message. A ledger that holds and
 // does not carry the tools key is indexed onto status with its builds and
 // the head build's part, and stored whole in <pv>-ledger. A head that did
-// not build is Infra tools-build-failed; a tree built but not kept is Infra
-// kept-copy-failed; a round no evaluator called is Infra evaluator-not-run
+// not build is Infra tools-build-failed; a round no evaluator called is
+// Infra evaluator-not-run
 // (or tools-not-ready); a ledger that does not hold is Infra, never a
 // verdict (collectedAs).
 func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerification, pod *corev1.Pod,
@@ -86,9 +86,9 @@ func (r *Reconciler) collect(ctx context.Context, pv *v1alpha1.PreviewVerificati
 }
 
 // collectedAs is the phase and reason a collected attempt settles at: Infra
-// for a ledger that does not hold (out.Reason), a head that did not build, a
-// tree its sandbox could not keep (the relay's FinishKeptCopyFailed), and a
-// round no evaluator called, whatever its retired rung
+// for a ledger that does not hold (out.Reason), a head that did not build,
+// and a round no evaluator called (an earlier release's relay that finished
+// kept-copy-failed among them), whatever its retired rung
 // (toolledger.RoundReason); Observed ok otherwise.
 func collectedAs(pv *v1alpha1.PreviewVerification, out toolledger.Output, b builds) (
 	v1alpha1.PreviewVerificationPhase, v1alpha1.PreviewVerificationReason) {
@@ -97,8 +97,6 @@ func collectedAs(pv *v1alpha1.PreviewVerification, out toolledger.Output, b buil
 		return v1alpha1.VerificationInfra, out.Reason
 	case !b.headBuilt:
 		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsBuildFailed
-	case previewtools.KeptCopyFailed(out.Ledger.Entries):
-		return v1alpha1.VerificationInfra, v1alpha1.VerificationReasonKeptCopyFailed
 	}
 	if reason := toolledger.RoundReason(out.Ledger.Entries, pv.Status.Tools != nil); reason != "" {
 		return v1alpha1.VerificationInfra, reason

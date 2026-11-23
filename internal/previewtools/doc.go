@@ -72,8 +72,7 @@
 // build, BuildArgs; the head's is the httpstep.RoleBuild part,
 // BuildPart): a head that did not build runs nothing more, Run finishing
 // there (FinishBuildFailed) before its readiness path ever answers, so no
-// evaluator is launched for it (S2-B5), as does a tree that built but
-// whose sandbox could not keep it (FinishKeptCopyFailed); a base that did
+// evaluator is launched for it (S2-B5); a base that did
 // not build is never run (an exec or run there is refused,
 // base-unbuildable or base-build-error). The base is for the evaluator's
 // own exploration (--base): maul counts only what it saw at the head.

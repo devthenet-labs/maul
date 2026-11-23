@@ -484,10 +484,8 @@ preview-controller never touches such a request, and with the agents tool pod on
   confirmed checks, `status.base` (each base run with `tree: base`) and the head build's fact, and keeps the full ledger
   in `<verification>-ledger`. A log that does not hold, or that holds the round's key, is `Infra` (`ledger-mismatch`); a
   head that did not build is `Infra` (`tools-build-failed`), never a fail: its relay finishes after the two builds
-  without ever becoming ready, so `status.tools` is never written and no evaluate run is launched. A tree that built but
-  whose sandbox could not keep the copy of its tree, build output and `HOME` every check run starts from (together over
-  768 MiB, or a full work volume) is `Infra` (`kept-copy-failed`) the same way: its relay finishes after the two builds.
-  A replay round whose relay finished before its replay's end (its wall clock, or its container told to stop) is `Infra`
+  without ever becoming ready, so `status.tools` is never written and no evaluate run is launched. A replay round whose
+  relay finished before its replay's end (its wall clock, or its container told to stop) is `Infra`
   (`replay-incomplete`). Only a base build that ran and failed marks the base unbuildable; a base timeout or a build
   maul could not run does not.
 - **Teardown.** Once the round settles, its Job and Secret are deleted: at once for a pod still running, after 10

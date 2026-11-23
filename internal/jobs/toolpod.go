@@ -150,13 +150,13 @@ var sideUID = map[string]int64{ToolSideHead: toolHeadUID, ToolSideBase: toolBase
 var toolSides = []string{ToolSideHead, ToolSideBase}
 
 // toolSizes are the tool pod's emptyDir size limits. A side's work volume
-// holds the tree's copy and the build's output, and the copy of both and
-// of HOME the sandbox keeps for its check runs, at most
-// toolexec.MaxKeptBytes (toolexec's fresh.go); its cache holds GOCACHE and
-// npm's, about 3.5 GB for a maul-scale tree (SP-6: the module cache stays
-// the image's baked, read-only one, or with a go profile the profile's
-// under /tmp, about 1.3 GB, hence its tmp); /dev/shm is memory, counted in
-// the container's memory. Each side's disk volumes fit within
+// holds the tree's copy, the build's output and the runs' scratch
+// directories (a tree that outgrows it is evicted: tools-evicted); its
+// cache holds GOCACHE and npm's, about 3.5 GB for a maul-scale tree (SP-6:
+// the module cache stays the image's baked, read-only one, or with a go
+// profile the profile's under /tmp, about 1.3 GB, hence its tmp); /dev/shm
+// is memory, counted in the container's memory. Each side's disk volumes
+// fit within
 // DefaultSandboxResources' ephemeral storage, tools' and prepare's within
 // DefaultToolsResources'.
 var toolSizes = map[string]string{

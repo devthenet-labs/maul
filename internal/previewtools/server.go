@@ -103,12 +103,10 @@ type Relay struct {
 	reopened  bool // the browser session was reopened once
 	summary   toolwire.Summary
 	done      chan struct{}
-	// A workspace's state: whether each tree built, whether the base's
-	// build failed (unbuildable, not merely not built), and whether a side
-	// that built could not be kept.
+	// A workspace's state: whether each tree built, and whether the base's
+	// build failed (unbuildable, not merely not built).
 	headBuilt, baseBuilt bool
 	baseUnbuildable      bool
-	keptCopyFailed       bool
 }
 
 // NewRelay builds a Relay writing its ledger to o.Out.
@@ -459,34 +457,7 @@ const (
 	// never serves (S2-B5): no evaluator is launched for a round that
 	// cannot be judged.
 	FinishBuildFailed = ReasonBuildFailed
-	// FinishKeptCopyFailed: a workspace's tree built, but its sandbox
-	// could not keep the tree and build output (review VC-2: a full volume,
-	// a file the copy cannot make). The relay never serves; the round is
-	// maul's trouble, never judged.
-	FinishKeptCopyFailed = "kept-copy-failed"
 )
-
-// KeptCopyFailed reports a ledger the relay finished on its own account
-// because a sandbox could not keep a built tree (FinishKeptCopyFailed).
-func KeptCopyFailed(entries []toolwire.LedgerEntry) bool {
-	return relayFinish(entries) == FinishKeptCopyFailed
-}
-
-// relayFinish is the reason of the ledger's first finish entry when it is
-// the relay's own and reads; "" otherwise.
-func relayFinish(entries []toolwire.LedgerEntry) string {
-	i := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Verb == toolwire.VerbFinish })
-	if i < 0 || entries[i].Kind != toolwire.KindRelay {
-		return ""
-	}
-	var args struct {
-		Reason string `json:"reason"`
-	}
-	if json.Unmarshal(entries[i].Args, &args) != nil {
-		return ""
-	}
-	return args.Reason
-}
 
 // finish records the finish entry, emits the cited evidence, closes the
 // ledger and writes the termination message. kind is the runner's or the

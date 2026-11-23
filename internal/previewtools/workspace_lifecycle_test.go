@@ -23,10 +23,7 @@ import (
 // is launched (nor paid for); it finishes at once on its own account
 // (FinishBuildFailed) after the two build entries, so the round settles
 // Infra tools-build-failed without waiting for the deadline. A head that
-// built serves as before, whatever the base did. A side that built but
-// whose sandbox could not keep its tree and output (VC-2 follow-up) gives
-// no check run anything to start from: the relay finishes there too
-// (FinishKeptCopyFailed), its build recorded as built.
+// built serves as before, whatever the base did.
 func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 	timesOut := func(req *toolexec.Request, _ int) (toolexec.Result, error) {
 		if req.Kind == toolexec.KindBuild {
@@ -36,9 +33,6 @@ func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 	}
 	refused := func(req *toolexec.Request, _ int) (toolexec.Result, error) {
 		return toolexec.Result{Refused: "busy"}, nil
-	}
-	keepFails := func(req *toolexec.Request, _ int) (toolexec.Result, error) {
-		return toolexec.Result{KeepFailed: true}, nil
 	}
 	for _, tc := range []struct {
 		name       string
@@ -53,9 +47,6 @@ func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 		{"both fail", buildsFail, buildsFail, maulv1.BuildFailed, false, FinishBuildFailed},
 		{"base fails", nil, buildsFail, maulv1.BuildBuilt, true, ""},
 		{"both build", nil, nil, maulv1.BuildBuilt, true, ""},
-		{"head not kept", keepFails, nil, maulv1.BuildBuilt, false, FinishKeptCopyFailed},
-		{"base not kept", nil, keepFails, maulv1.BuildBuilt, false, FinishKeptCopyFailed},
-		{"head fails, base not kept", buildsFail, keepFails, maulv1.BuildFailed, false, FinishBuildFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			trees := t.TempDir()
@@ -117,9 +108,6 @@ func TestRunWorkspaceHeadNotBuiltNeverServes(t *testing.T) {
 			}
 			if r := finishReason(t, last); r != tc.finish {
 				t.Errorf("finish reason %q, want %q", r, tc.finish)
-			}
-			if got := KeptCopyFailed(led.Entries); got != (tc.finish == FinishKeptCopyFailed) {
-				t.Errorf("KeptCopyFailed = %v", got)
 			}
 		})
 	}
