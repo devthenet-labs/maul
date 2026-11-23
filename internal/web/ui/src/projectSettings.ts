@@ -298,7 +298,8 @@ export interface Moved {
 // save was refused as stale. A set takes the entries they added and loses
 // the ones they removed; any other setting takes their value, and when
 // someone else changed it too it is listed as moved, for the person to
-// review. An edit to a repository now gone is dropped.
+// review. An edit to a repository now gone is dropped, as is one turning
+// workflows on once subagents are off (droppedText says which).
 export function rebaseDraft(
   old: ProjectSettings,
   draft: ProjectSettings,
@@ -323,9 +324,21 @@ export function rebaseDraft(
     if (!same(f, current, c.from) && !same(f, current, c.to)) {
       moved.push({ key: c.key, field: c.field, item: c.item, was: c.from, now: current, yours: c.to });
     }
-    next = withFieldValue(next, c.field, c.to, c.item);
+    next = withDraftValue(next, c.field, c.to, c.item);
+  }
+  // Workflows need subagents: an edit turning workflows on cannot stand
+  // once someone else turned subagents off.
+  if (next.delegation.workflows && !next.delegation.subagents) {
+    next = withFieldValue(next, WORKFLOWS_FIELD, false);
+    dropped.push(WORKFLOWS_FIELD);
   }
   return { draft: next, moved, dropped };
+}
+
+// droppedText says why rebaseDraft dropped the edit at key.
+export function droppedText(key: string): string {
+  if (key === WORKFLOWS_FIELD) return `${key}: subagents are now off and workflows need them, so the edit was dropped.`;
+  return `${key}: that repository is gone, so the edit was dropped.`;
 }
 
 // followView decides what a re-read of the Project (fresh) does to the

@@ -608,10 +608,13 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     intent_subagents_test.go runs a build on the real
                     agent-runner whose scripted claude makes one Agent call
                     (MAUL_FAKE_CLAUDE_DELEGATE) and answers it from its argv:
+                    for a Project opting in (spec.delegation.subagents)
                     under --intent-build-subagents (and the cost unit) the
                     child runs and the run records its tokens, its turns
-                    apart and its transcript nested; with the flag off the
-                    call is refused and nothing of it appears.
+                    apart and its transcript nested; with the flag off, or
+                    the flag on and no opt-in, the call is refused and
+                    nothing of it appears. Each case also asserts
+                    status.admits.subagents (true only with the flag on).
                     intent_agents_test.go runs the no-preview evaluator (S2) end to end:
                     a cli pass (gated link-less hand-off, a foreign key refused, the
                     evaluator only after status.tools, preview-controller never touching

@@ -15,6 +15,7 @@ import {
   withDraftValue,
   dollarsToMicro,
   draftChanges,
+  droppedText,
   fieldKey,
   fieldValue,
   followView,
@@ -319,6 +320,42 @@ test("rebaseDraft re-applies the person's edits onto the Project as it now is", 
   // The same edit made by both is no conflict.
   const same = rebaseDraft(old, draft, set(now, "limits.maxActiveIntents", 4), FIELDS);
   assert.deepEqual(same.moved, []);
+});
+
+// Workflows need subagents, so a rebase must never leave workflows on with
+// subagents off: the page disables the workflows switch while subagents are
+// off, so the person could not turn it off, and every save is refused.
+test("rebaseDraft never leaves workflows on with subagents off", () => {
+  const old = withDraftValue(settings(), "delegation.subagents", true);
+  const off = withDraftValue(old, "delegation.subagents", false);
+
+  // The person turned workflows on; someone else turned subagents off.
+  const theirs = rebaseDraft(old, withDraftValue(old, "delegation.workflows", true), off, FIELDS);
+  assert.deepEqual(theirs.draft.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(theirs.dropped, ["delegation.workflows"], "the workflows edit is dropped, and said so");
+  assert.match(droppedText(theirs.dropped[0]), /subagents/);
+  assert.deepEqual(draftChanges(off, theirs.draft, FIELDS), []);
+
+  // The person turned subagents off; someone else turned workflows on.
+  const both = withDraftValue(old, "delegation.workflows", true);
+  const mine = rebaseDraft(old, off, both, FIELDS);
+  assert.deepEqual(mine.draft.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(
+    draftChanges(both, mine.draft, FIELDS).map((c) => [c.key, c.from, c.to]),
+    [
+      ["delegation.subagents", true, false],
+      ["delegation.workflows", true, false],
+    ],
+  );
+
+  // followView rebases the same way.
+  const view = (generation, doc) => ({ generation, settings: doc, fields: FIELDS });
+  const f = followView(view(8, old), withDraftValue(old, "delegation.workflows", true), view(9, off));
+  assert.deepEqual(f.draft.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(f.dropped, ["delegation.workflows"]);
+
+  // A repository gone is still worded as before.
+  assert.match(droppedText("repositories.agentResourceClass[api]"), /repository is gone/);
 });
 
 // After a save the page re-reads the Project until intent-controller has

@@ -36,6 +36,7 @@ import {
   delegationNote,
   lockText,
   draftChanges,
+  droppedText,
   fieldKey,
   fieldLabel,
   fieldValue,
@@ -621,7 +622,7 @@ export function ProjectSettingsPage({ name }: { name: string }) {
         setArmed(false);
         const lines = [
           "Someone else saved this Project after you. Their change is shown now, and any edits you had not saved are applied to it: review them before saving.",
-          ...f.dropped.map((k) => `${k}: that repository is gone, so the edit was dropped.`),
+          ...f.dropped.map(droppedText),
         ];
         setNotes(lines.map((text) => ({ tone: "amber", text })));
         return true;
@@ -745,7 +746,7 @@ export function ProjectSettingsPage({ name }: { name: string }) {
             setMoved(r.moved);
             const lines = [
               "Someone changed this Project since you loaded it. Your edits are applied to its current settings: review them and save again.",
-              ...r.dropped.map((k) => `${k}: that repository is gone, so the edit was dropped.`),
+              ...r.dropped.map(droppedText),
             ];
             setNotes(lines.map((text) => ({ tone: "amber", text })));
           }

@@ -100,8 +100,9 @@ cost limits for what one run may spend with its subagents, not on its main threa
 details and the two accepted limits of workflows:
 [Subagents and workflows in builds](../configuration/intent-controller.md#subagents-and-workflows-in-builds).
 
-Each run records what it was granted when it starts, so a change applies to runs started after the save, never to one
-already running.
+Each run records what it was granted when it is created, so a change applies only to runs created after the save. A run
+created before it keeps what it recorded, even one still waiting to launch (for a free slot, its repository or a
+credential): turning a switch off does not reach it, and neither does turning one on.
 
 A switch is locked, with the reason beside it, while intent-controller does not allow it: the operator has not turned it
 on for this install, or the Project runs on codex, whose runs never delegate. A switch that is on is never locked by
