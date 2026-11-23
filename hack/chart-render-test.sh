@@ -2177,6 +2177,44 @@ expect_fail 'intent codex models of the wrong type' 'intentController/codex/plan
   --set intentController.codex.enabled=true --set egressBroker.openai.apiKey.secret=maul-openai \
   --set intentController.codex.planModel=''
 
+# ---- subagents and workflows in builds (intentController.buildSubagents) -----
+# Off by default: neither key renders, so the default ConfigMap (and every
+# golden carrying it) is as it was.
+expect intent 'select(.kind == "ConfigMap" and .metadata.name == "maul-intent-controller-config") | .data | keys | .[] | select(test("^MAUL_INTENT_BUILD_(SUBAGENTS|WORKFLOWS)$"))' ""
+# On, it needs the broker's cost unit: the run's cost budget is the bound that
+# holds a run and its subagents together, and intent-controller refuses to
+# start without it.
+expect_fail 'build subagents under the token unit' 'intentController.buildSubagents.enabled needs egressBroker.limits.unit cost' \
+  -f "$ifx" --set intentController.buildSubagents.enabled=true
+render intent-subagents -f "$ifx" --set intentController.buildSubagents.enabled=true \
+  --set egressBroker.limits.unit=cost --set egressBroker.limits.costPerPod=60000000
+cm intent-subagents intent-controller MAUL_INTENT_BUILD_SUBAGENTS true
+cm intent-subagents intent-controller MAUL_INTENT_BUILD_WORKFLOWS null
+cm intent-subagents intent-controller MAUL_BROKER_LIMIT_UNIT cost
+if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
+  "$(get intent-subagents "$it | .metadata.annotations[\"checksum/config\"]")" ]; then
+  fail "intent-subagents: checksum/config did not change, so turning subagents on would not roll the controller"
+fi
+# Workflows are a part of subagents (the binary refuses them without), so they
+# render only beside them...
+render intent-workflows -f "$ifx" --set intentController.buildSubagents.enabled=true \
+  --set intentController.buildSubagents.workflows=true \
+  --set egressBroker.limits.unit=cost --set egressBroker.limits.costPerPod=60000000
+cm intent-workflows intent-controller MAUL_INTENT_BUILD_SUBAGENTS true
+cm intent-workflows intent-controller MAUL_INTENT_BUILD_WORKFLOWS true
+# ...and turning subagents off is the rollback lever whatever workflows says:
+# neither key renders, and no cost unit is needed.
+render intent-workflows-off -f "$ifx" --set intentController.buildSubagents.enabled=false \
+  --set intentController.buildSubagents.workflows=true
+expect intent-workflows-off 'select(.kind == "ConfigMap" and .metadata.name == "maul-intent-controller-config") | .data | keys | .[] | select(test("^MAUL_INTENT_BUILD_(SUBAGENTS|WORKFLOWS)$"))' ""
+expect_fail 'build subagents not a boolean' "/intentController/buildSubagents/enabled" \
+  -f "$ifx" --set-string intentController.buildSubagents.enabled=yes \
+  --set egressBroker.limits.unit=cost --set egressBroker.limits.costPerPod=60000000
+# With the intent controller off, the switch does nothing (and needs nothing).
+render intent-off-subagents --set intentController.buildSubagents.enabled=true \
+  --set intentController.buildSubagents.workflows=true
+expect intent-off-subagents 'select(.kind == "ConfigMap" and .metadata.name == "maul-intent-controller-config") | .kind' ""
+
 # ---- intent controller variants ----------------------------------------------
 # A bring-your-own ServiceAccount: not rendered, but still what runs and binds.
 render intent-own-sa -f "$ifx" --set intentController.serviceAccount.create=false \

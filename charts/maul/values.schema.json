@@ -2099,6 +2099,21 @@
                         }
                     }
                 },
+                "buildSubagents": {
+                    "type": "object",
+                    "description": "Subagents, and optionally workflows, in a claude Project's build and revise runs. Off by default; on, it needs egressBroker.limits.unit cost.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "description": "Let build and revise runs delegate to subagents (MAUL_INTENT_BUILD_SUBAGENTS); needs egressBroker.limits.unit cost"
+                        },
+                        "workflows": {
+                            "type": "boolean",
+                            "description": "Also let them run inline and built-in workflows (MAUL_INTENT_BUILD_WORKFLOWS); does nothing unless enabled"
+                        }
+                    }
+                },
                 "verification": {
                     "type": "object",
                     "description": "The agent evaluator. Off by default; on, it renders the maul-evaluator-labels admission policies (Kubernetes 1.30+) and the evaluator and check reviewer egress policies, leaving those roles out of every other agent egress policy (needs agent.networkPolicy.create; refused under mode istio). It is verification's one switch (preview.verification.enabled is removed): it evaluates Previews (with previewController.enabled), and with agents.enabled also Projects with no Preview; off, no intent is verified.",

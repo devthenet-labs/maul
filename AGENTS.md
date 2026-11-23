@@ -227,7 +227,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   lease is adopted whatever its record (`sameRound`); `jobs.ErrSubagentsRefused` settles `launch_refused`.
   `--intent-build-workflows` (default off; refused without `--intent-build-subagents`) records `spec.grant.workflows`
   beside subagents (CEL: only with them) and launches `jobs.Spec.BuildWorkflows` only while both flags are on
-  (`RunReconciler.buildWorkflows`), narrowed and adopted the same way.
+  (`RunReconciler.buildWorkflows`), narrowed and adopted the same way. Chart `intentController.buildSubagents.enabled`
+  and `.workflows` (off, no key renders; `enabled` fails the render without `egressBroker.limits.unit: cost`, and off
+  it turns both off). What each limit means with them on (the cost budget and the wall clock hold; turns and the live
+  token count are floors; a workflow's agents are not counted) is in
+  `docs/configuration/intent-controller.md#subagents-and-workflows-in-builds`. e2e `intent_subagents_test.go` runs a
+  delegating build through the real agent-runner.
   With `--intent-evaluator` (default off; chart `intentController.verification.evaluator`, needing previews or the
   agents tool pod; design `.claude/plans/agent-evaluator/DESIGN.md`, people's guide `docs/intents/evaluator.md`), which
   is verification's one switch (S4: `--intent-verification` and the chart's `preview.verification.enabled` are removed
@@ -560,6 +565,13 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     the Job's pod pays with the person's key, replace and delete take
                     effect within the cap. pipeline_test.go asserts a codex Job holds no
                     SecretKeyRef and mounts the projected broker token.
+                    intent_subagents_test.go runs a build on the real
+                    agent-runner whose scripted claude makes one Agent call
+                    (MAUL_FAKE_CLAUDE_DELEGATE) and answers it from its argv:
+                    under --intent-build-subagents (and the cost unit) the
+                    child runs and the run records its tokens, its turns
+                    apart and its transcript nested; with the flag off the
+                    call is refused and nothing of it appears.
                     intent_agents_test.go runs the no-preview evaluator (S2) end to end:
                     a cli pass (gated link-less hand-off, a foreign key refused, the
                     evaluator only after status.tools, preview-controller never touching

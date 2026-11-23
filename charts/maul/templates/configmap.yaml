@@ -248,6 +248,24 @@ these keys renders and the ConfigMap is as it was.
 {{- $_ := set $data "MAUL_INTENT_CODEX_PLAN_MODEL" $root.Values.intentController.codex.planModel }}
 {{- $_ := set $data "MAUL_INTENT_CODEX_BUILD_MODEL" $root.Values.intentController.codex.buildModel }}
 {{- end }}
+{{- $bs := $root.Values.intentController.buildSubagents | default dict }}
+{{- if $bs.enabled }}
+{{/*
+intentController.buildSubagents: a claude Project's build and revise runs
+may delegate to subagents, and with workflows also run workflows. It needs
+the broker's cost unit, as intent-controller does at startup: the run's cost
+budget is the one bound on a run and its subagents together. Off, no key
+renders (workflows does nothing without enabled) and the ConfigMap is as it
+was.
+*/}}
+{{- if not (include "maul.brokerCostBudgets" $root) }}
+{{- fail "intentController.buildSubagents.enabled needs egressBroker.limits.unit cost (with egressBroker.limits.costPerPod): the run's cost budget, which the egress broker enforces on every model call of the pod, is what bounds a build and its subagents together, and intent-controller refuses to start without it" }}
+{{- end }}
+{{- $_ := set $data "MAUL_INTENT_BUILD_SUBAGENTS" "true" }}
+{{- if $bs.workflows }}
+{{- $_ := set $data "MAUL_INTENT_BUILD_WORKFLOWS" "true" }}
+{{- end }}
+{{- end }}
 {{- $_ := set $data "MAUL_INTENT_POLL_INTERVAL" $own.pollInterval }}
 {{- $_ := set $data "MAUL_INTENT_APPROVAL_POLL_INTERVAL" $own.approvalPollInterval }}
 {{- $_ := set $data "MAUL_INTENT_PR_POLL_INTERVAL" $own.prPollInterval }}

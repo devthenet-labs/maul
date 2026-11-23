@@ -48,6 +48,21 @@
 #                              result. Its last line echoes the caller-token
 #                              header, which agent-runner must scrub. Unset or
 #                              0: no command, as before.
+#   MAUL_FAKE_CLAUDE_DELEGATE  set: the first run also hands part of the build
+#                              to a subagent with one Agent call, and the CLI
+#                              answers it from its argv, as claude 2.1.322 was
+#                              probed to: with Agent in --disallowedTools the
+#                              call is refused ("No such tool available");
+#                              granted (Agent off the deny list, as
+#                              agent-runner renders a build granted
+#                              subagents), a general-purpose child runs in the
+#                              foreground at depth 1 (task_started, two child
+#                              calls and their results under the Agent call,
+#                              task_notification, the hand-back), and the
+#                              result's per-model figures and subagent_stats
+#                              count the child's spend, which its top-level
+#                              usage does not. "granted" or "refused" is
+#                              appended to $HOME/.fake-claude/delegation.
 #
 # The agent evaluator's and the check reviewer's stages are scripted too
 # (MAUL_PHASE=evaluate, checkreview), the evaluator driving the real
@@ -156,16 +171,17 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 
-mode='' session='' turns='' tools='' prompt=''
+mode='' session='' turns='' tools='' denied='' prompt=''
 while [ $# -gt 0 ]; do
   case "$1" in
   --session-id) mode=first session=$2; shift 2 ;;
   --resume) mode=resume session=$2; shift 2 ;;
   --max-turns) turns=$2; shift 2 ;;
   --allowedTools) tools=$2; shift 2 ;;
+  --disallowedTools) denied=$2; shift 2 ;;
   -p) shift ;;
-  --model | --output-format | --tools | --disallowedTools | --setting-sources | --permission-mode | --add-dir | \
-    --append-system-prompt) shift 2 ;;
+  --model | --output-format | --tools | --setting-sources | --permission-mode | --add-dir | \
+    --append-system-prompt | --settings) shift 2 ;;
   *) shift ;;
   esac
 done
@@ -234,12 +250,59 @@ run_command() {
 }
 
 # emit <session> <turns> <in> <cache write> <cache read> <out> <cost> <text>
+# [<result fields>] — the last argument, when given, is appended to the
+# result event's members (a leading comma included).
 emit() {
   init "$1"
   printf '{"type":"assistant","message":{"id":"msg_%s_%s","usage":{"input_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s,"output_tokens":%s},"content":[{"type":"text","text":"%s"}]}}\n' \
     "$mode" "$2" "$3" "$4" "$5" "$6" "$8"
-  printf '{"type":"result","subtype":"success","is_error":false,"result":"%s","session_id":"%s","num_turns":%s,"total_cost_usd":%s,"usage":{"input_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s,"output_tokens":%s}}\n' \
-    "$8" "$1" "$2" "$7" "$3" "$4" "$5" "$6"
+  printf '{"type":"result","subtype":"success","is_error":false,"result":"%s","session_id":"%s","num_turns":%s,"total_cost_usd":%s,"usage":{"input_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s,"output_tokens":%s}%s}\n' \
+    "$8" "$1" "$2" "$7" "$3" "$4" "$5" "$6" "${9:-}"
+}
+
+# model_usage <in> <cache write> <cache read> <out> — a result's per-model
+# figures for the one model the scripted run calls.
+model_usage() {
+  printf '{"claude-scripted":{"inputTokens":%s,"cacheCreationInputTokens":%s,"cacheReadInputTokens":%s,"outputTokens":%s}}' \
+    "$1" "$2" "$3" "$4"
+}
+
+# delegate <session> — the parent's Agent call, answered as the CLI answers
+# it under the argv given (see MAUL_FAKE_CLAUDE_DELEGATE). A granted child
+# makes two calls, spending 2000 input, 100 cache write, 50000 cache read
+# and 600 output tokens; it writes nothing.
+delegated=''
+delegate() {
+  init "$1"
+  call=toolu_delegate task=adelegate1
+  printf '{"type":"assistant","message":{"id":"msg_delegate","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1},"content":[{"type":"tool_use","id":"%s","name":"Agent","input":{"description":"Run the suite","prompt":"Run go test ./... and report what fails.","subagent_type":"general-purpose"}}]},"parent_tool_use_id":null,"session_id":"%s"}\n' \
+    "$call" "$1"
+  case " $denied " in
+  *" Agent "*)
+    printf '%s\n' refused >>"$state/delegation"
+    printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"<tool_use_error>Error: No such tool available: Agent. Agent is disabled for this session, in subagents as well as here.</tool_use_error>","is_error":true,"tool_use_id":"%s"}]},"parent_tool_use_id":null,"session_id":"%s"}\n' \
+      "$call" "$1"
+    return 0
+    ;;
+  esac
+  printf '%s\n' granted >>"$state/delegation"
+  delegated=1
+  printf '{"type":"system","subtype":"task_started","task_id":"%s","tool_use_id":"%s","description":"Run the suite","subagent_type":"general-purpose","is_backgrounded":false,"spawn_depth":1,"task_type":"local_agent","prompt":"Run go test ./... and report what fails.","uuid":"u-%s","session_id":"%s"}\n' \
+    "$task" "$call" "$task" "$1"
+  printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Run go test ./... and report what fails."}]},"parent_tool_use_id":"%s","agent_id":"%s","session_id":"%s"}\n' \
+    "$call" "$task" "$1"
+  printf '{"type":"assistant","message":{"id":"msg_child_1","usage":{"input_tokens":1000,"cache_creation_input_tokens":100,"cache_read_input_tokens":25000,"output_tokens":1},"content":[{"type":"tool_use","id":"toolu_child_1","name":"Bash","input":{"command":"go test ./..."}}]},"parent_tool_use_id":"%s","agent_id":"%s","session_id":"%s"}\n' \
+    "$call" "$task" "$1"
+  printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_child_1","content":"ok  example.com/app","is_error":false}]},"parent_tool_use_id":"%s","agent_id":"%s","session_id":"%s"}\n' \
+    "$call" "$task" "$1"
+  printf '{"type":"assistant","message":{"id":"msg_child_2","usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":25000,"output_tokens":1},"content":[{"type":"tool_use","id":"toolu_child_2","name":"Read","input":{"file_path":"VERSION"}}]},"parent_tool_use_id":"%s","agent_id":"%s","session_id":"%s"}\n' \
+    "$call" "$task" "$1"
+  printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_child_2","content":"0.1.0"}]},"parent_tool_use_id":"%s","agent_id":"%s","session_id":"%s"}\n' \
+    "$call" "$task" "$1"
+  printf '{"type":"system","subtype":"task_notification","task_id":"%s","tool_use_id":"%s","status":"completed","output_file":"","summary":"The suite passes.","usage":{"total_tokens":52700,"tool_uses":2,"duration_ms":40},"session_id":"%s"}\n' \
+    "$task" "$call" "$1"
+  printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","content":[{"type":"text","text":"The suite passes."}]}]},"parent_tool_use_id":null,"session_id":"%s"}\n' \
+    "$call" "$1"
 }
 
 # --- The evaluator's and the check reviewer's stages -----------------------
@@ -678,6 +741,16 @@ if [ "$mode" = first ]; then
   *) write_report 'notes: []' ;;
   esac
   [ "${MAUL_FAKE_CLAUDE_OUTPUT:-0}" -eq 0 ] || run_command "$session" "$MAUL_FAKE_CLAUDE_OUTPUT"
+  [ -z "${MAUL_FAKE_CLAUDE_DELEGATE:-}" ] || delegate "$session"
+  if [ -n "$delegated" ]; then
+    # The parent's 1000/200/3000/400 and the child's 2000/100/50000/600, in
+    # the per-model figures alone; the top-level usage stays the parent's.
+    echo 3000 >"$state/sessions/$session"
+    figures=$(model_usage 3000 300 53000 1000)
+    emit "$session" 3 1000 200 3000 400 0.3000 "Built: VERSION added, the suite passes." \
+      ",\"modelUsage\":$figures,\"model_usage_since_last_result\":$figures,\"subagent_stats\":{\"spawned\":1,\"max_depth\":1,\"completed\":1}"
+    exit 0
+  fi
   # Cost in hundredths of a cent, cumulative over the session, as the CLI's.
   echo 1000 >"$state/sessions/$session"
   emit "$session" 3 1000 200 3000 400 0.1000 "Built: VERSION added, the suite passes."

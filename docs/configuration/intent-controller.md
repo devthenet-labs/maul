@@ -180,6 +180,60 @@ IntentRun with a budget.
 [Sizing limits for large features](../intents/sizing.md) gives a "large" preset (build 300 turns, 90m, \$60; revise 200
 turns, 45m, \$20), the stage ceilings and broker limits it needs, and the evidence it is sized from.
 
+### Subagents and workflows in builds
+
+Off by default. `--intent-build-subagents` (Helm: `intentController.buildSubagents.enabled`) lets a claude Project's
+build and revise runs, check-fix and verify-fix rounds included, hand parts of their work to the claude CLI's subagents.
+`--intent-build-workflows` (Helm: `intentController.buildSubagents.workflows`) also lets them run the CLI's workflows,
+inline and built-in ones. Plans, evaluate and check-review runs never delegate, and a codex Project's runs are
+unchanged. What the posture allows and refuses, as measured on the pinned CLI, is in
+[Isolation](../deployment/isolation.md#agent-tool-postures): the build's own tools and no web at every depth, subagents
+in the foreground at depth 1 on the run's model, and no workflow found by name but a built-in one.
+
+Both need the egress broker to count cost (`--broker-limit-unit cost`; Helm: `egressBroker.limits.unit: cost` with a
+`costPerPod`). Without it the controller refuses to start and the chart refuses to render. Workflows also need
+subagents. The reason is that, with delegation on, the run's cost budget (`spec.grant.budgetMicroUSD`) is the one limit
+that holds the run and everything it starts together. The broker charges every model call of the pod to it, a subagent's
+or a workflow agent's as much as the run's own. The other limits are weaker:
+
+| Limit                                  | Subagents                                                                                                                                 | Workflows (their agents)                                      |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Cost budget (the broker)               | Holds: every call is charged                                                                                                              | Holds: every call is charged                                  |
+| Wall clock (`timeout`, the Job)        | Holds                                                                                                                                     | Holds                                                         |
+| Turn grant (`maxTurns`)                | Counts the run's and its subagents' calls together, a floor: a subagent's last, text-only call is not shown, so a run may make a few more | Not counted: a workflow's agents show no calls                |
+| Token budget (`tokenBudget`, live)     | A floor, as without delegation (the CLI reports a few output tokens a call while it streams); the subagents' calls are in it              | Not seen                                                      |
+| Recorded tokens (`status.usage`)       | Everything, subagents included, read from the CLI's per-model figures when the run ends                                                   | The same, and only when the run ends                          |
+| Transcript (the run panel, the report) | Every subagent turn, under the call that started it                                                                                       | Only that a workflow started and that delegated work finished |
+| Idle watchdog                          | A subagent's turns count as progress                                                                                                      | Its progress events count as progress                         |
+
+So the turn grant is a loose backstop on the run, and a workflow's agents are bounded live only by the cost budget and
+the wall clock. That is accepted, and it is why the cost unit is required. Size a build's `maxCostMicroUSD` (or the
+per-intent ceiling it falls back to) for what you are willing to spend on one build with its subagents, not on its main
+thread alone. A run that passes its turn grant or its budget ends `budget_exceeded`, with no report.
+
+Delegation also changes what a build may do, and its prompt says so:
+
+- Background work is off for the whole run: the shell's `run_in_background` is refused, for the run as much as for its
+  subagents. A build without the flag keeps it.
+- At most four subagents run at once; a fifth call is refused, not queued. A workflow runs at most four agents at once,
+  and the rest wait their turn.
+- An `isolation: "worktree"` subagent's worktree is removed before the report is read: work left only there is not part
+  of the change.
+- A run that starts a subagent past depth 1 or in the background, or calls a workflow by a script path, a resumed run or
+  a name that is not built in, is ended `budget_exceeded` at that line. A workflow script that loads another from a file
+  is not caught ([Isolation](../deployment/isolation.md#agent-tool-postures) has the residue).
+
+If the broker's `--concurrent-per-pod` (Helm: `egressBroker.limits.concurrentPerPod`) is set, keep it at least 5 (four
+subagents and the run's own calls), and higher with workflows, whose agents run beside them. Below that a subagent's
+calls wait on the broker's `--concurrency-wait` and are then refused with the broker's limit refusal, which agent-runner
+maps to `budget_exceeded`, so it can end the run with no report.
+
+Each build and revise run records its grant when it is created (`spec.grant.subagents`, and `spec.grant.workflows`
+beside it) and is launched with it only while the flag is still on. Turning a flag off, the rollback lever, narrows at
+once every run that has not yet launched: it builds without delegation and is never refused for it. A run already
+running keeps what it launched with until it ends. A run recorded without the grant never gets it, even if the flag is
+turned on before it launches. In the chart, `enabled: false` turns both off whatever `workflows` says.
+
 ### Brokered claude, and brokered codex by choice
 
 Intents run on brokered claude by default. The runner flags are the shared ones (`--claude-agent-image`, `--broker-url`,
