@@ -90,7 +90,10 @@ type step struct {
 	// dirties the clone again after it.
 	runCommit bool
 	repoAfter map[string]string
-	ws        string
+	// inRepo, when set, runs in the clone after the writes, as a command the
+	// agent's run made there (a subagent's worktree, say).
+	inRepo func(dir string) error
+	ws     string
 	// budgetLines are streamed to this stage's usage observer, exercising
 	// the token-budget kill switch.
 	budgetLines []string
@@ -128,6 +131,11 @@ func (f *fakeExec) Run(_ context.Context, spec runner.CommandSpec, timeout time.
 		full := filepath.Join(spec.Dir, path)
 		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 			return runner.Result{}, err
+		}
+	}
+	if s.inRepo != nil {
+		if err := s.inRepo(spec.Dir); err != nil {
+			return runner.Result{}, fmt.Errorf("fakeExec: in the clone: %w", err)
 		}
 	}
 	if s.runCommit {

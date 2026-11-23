@@ -112,6 +112,40 @@ type PromptRequest struct {
 	// provider. claude reads its gateway from the pod's environment and
 	// ignores it.
 	Gateway *Gateway
+	// Subagents grants a SandboxWorkspaceWrite run foreground subagents the
+	// run itself starts (depth 1), held to its turn and token limits with
+	// its own calls. claude renders it in that posture alone: the subagent
+	// tool leaves the deny list, and the CLI is held to foreground children
+	// at depth 1 on the run's model (claudeSubagentsDeny,
+	// claudeSubagentsSettings); every other posture, and every other
+	// harness, ignores it. The caller's kill switches read it too: the
+	// delegation check admits such a subagent's start (DelegationScanner),
+	// and a turn grant counts its calls (CallScanner). False, every request
+	// renders and is held exactly as before.
+	Subagents bool
+	// Workflows grants a run granted Subagents workflows besides: scripts
+	// that run agents of their own in the background, meant to be written
+	// inline or a built-in one by name. A name reaches nothing else, but the
+	// pinned CLI reads a script path from any file the run may read, which
+	// the delegation check refuses only when the call itself names one
+	// (claudeWorkflowCall), not when a script does. claude renders it
+	// only with Subagents in that posture (Workflow allowed, its agents held
+	// to the run's model and a few at a time: claudeSubagentsSettings); every
+	// other request, and every other harness, ignores it. A workflow's agents
+	// print no turns, so neither the turn grant nor the live token budget
+	// sees them: the broker's per-pod cost cap and the wall clock are their
+	// live bounds, and their tokens reach the result only at the end. The
+	// caller's delegation check admits such a workflow (DelegationScanner),
+	// and its progress keeps the idle watchdog from ending the run
+	// (ProgressScanner).
+	Workflows bool
+}
+
+// Delegation is what a run is granted beyond its own thread
+// (PromptRequest.Subagents, PromptRequest.Workflows), as the delegation
+// check judges a stream by it.
+type Delegation struct {
+	Subagents, Workflows bool
 }
 
 // Gateway is the egress broker as a harness CLI's model provider: the route
@@ -134,11 +168,19 @@ type Gateway struct {
 type AgentResult struct {
 	FinalText string
 	SessionID string // the session id the CLI reports on its result event
-	NumTurns  int
-	Usage     *Usage // includes CostUSD from total_cost_usd; nil when unreported
-	IsError   bool
-	Subtype   string
-	Errors    []string
+	// NumTurns is the main thread's turns, summed over every result event
+	// the run printed (a session a notification woke reports each wake's
+	// turns on its own result).
+	NumTurns int
+	// SubagentTurns is the model calls of the run's subagents that its
+	// stream shows, counted by message id; 0 for a run that delegated
+	// nothing and for a harness that cannot tell. A floor, not a measure:
+	// for claude, see scanStream.
+	SubagentTurns int
+	Usage         *Usage // includes CostUSD from total_cost_usd; nil when unreported
+	IsError       bool
+	Subtype       string
+	Errors        []string
 }
 
 // Harness is the required surface every agent CLI implements. A harness
@@ -262,6 +304,47 @@ type TaskWatcher interface {
 	// assignment of a name wins) as user uid. "" when there is none to look
 	// for. The file exists only while the command runs.
 	TaskOutputGlob(env []string, uid int, session, task string) string
+}
+
+// DelegationScanner is the optional capability of seeing, on the stream, the
+// CLI start work maul did not grant the run: a subagent, a subagent's own
+// subagent, one in the background, a workflow. The posture's deny list is
+// what keeps a run from delegating; this is the check that it held,
+// observed rather than trusted, since a CLI's settings or a later release
+// could undo what the posture asks. It sees a start only once the CLI has
+// made it, so it ends a run after the fact, never before.
+type DelegationScanner interface {
+	// ScanDelegation reports whether one stream line shows the CLI starting
+	// delegated work the run was not granted, and why, in maul's own words:
+	// the reason quotes nothing the model or the repository wrote. grant
+	// says what the run is granted: subagents admit a foreground one started
+	// by the run itself and nothing else; workflows admit a workflow, and
+	// only one the run asked for inline or by a built-in name. A shell
+	// command is never delegation, and neither is a task of a type never
+	// measured. The caller runs this on every line of the stream.
+	ScanDelegation(line []byte, grant Delegation) (forbidden bool, reason string)
+}
+
+// ProgressScanner is the optional capability of seeing, on the stream,
+// delegated work progressing that prints no turns of its own: a workflow's
+// agents. The idle watchdog of a run granted workflows counts it as
+// progress, so a run waiting on a workflow that is working is not ended.
+type ProgressScanner interface {
+	// ScanProgress reports whether one stream line shows such progress.
+	ScanProgress(line []byte) bool
+}
+
+// CallScanner is the optional capability of seeing, on the stream, each
+// model call a run makes: its main thread's and its subagents'. It powers
+// the combined turn grant of a run granted subagents, which the CLI's own
+// turn cap does not give: that cap counts the main thread's calls alone.
+type CallScanner interface {
+	// ScanCall reports whether one stream line is a model call's (ok), the
+	// call's message id, and whether a subagent made it. A call's content
+	// blocks may come as several lines of one id, which the caller counts
+	// once; a call with no id ("") has nothing to merge on and counts as its
+	// own. The caller runs this on every line of the stream.
+	ScanCall(line []byte) (id string, subagent, ok bool)
 }
 
 // TaskEventKind says what a TaskEvent reports.

@@ -331,12 +331,21 @@ export function mockIntentPlan(intent: string, revision: number): IntentPlanText
   };
 }
 
+// mockRunTurns is a build that hands the store's tests to a subagent: its
+// turns name the Agent call they ran under (parent), so the panel indents
+// them there.
 export function mockRunTurns(): TranscriptTurn[] {
   return [
     { seq: 1, at: ago(22), role: "assistant", kind: "text", text: "Reading the router to find where routes register." },
-    { seq: 2, at: ago(21), role: "assistant", kind: "tool_use", tool: "Read", text: "internal/http/router.go" },
+    { seq: 2, at: ago(21), role: "assistant", kind: "tool_use", tool: "Read", text: "internal/http/router.go", call: "toolu_read1" },
     { seq: 3, at: ago(21), role: "user", kind: "tool_result", text: "package http …" },
-    { seq: 4, at: ago(9), role: "assistant", kind: "tool_use", tool: "Bash", text: "npm run test:ci" },
+    { seq: 4, at: ago(19), role: "assistant", kind: "tool_use", tool: "Agent", text: "Find how the store is probed in tests", call: "toolu_agent1" },
+    { seq: 5, at: ago(19), role: "system", kind: "notice", text: "subagent Explore started", parent: "toolu_agent1" },
+    { seq: 6, at: ago(18), role: "assistant", kind: "tool_use", tool: "Grep", text: "store.Ping", call: "toolu_grep1", parent: "toolu_agent1" },
+    { seq: 7, at: ago(18), role: "user", kind: "tool_result", text: "internal/store/store_test.go:41: s.Ping(ctx)", parent: "toolu_agent1" },
+    { seq: 8, at: ago(17), role: "system", kind: "notice", text: "delegated work finished: completed, 1 tool use", parent: "toolu_agent1" },
+    { seq: 9, at: ago(17), role: "user", kind: "tool_result", text: "The store is probed with s.Ping(ctx) in store_test.go." },
+    { seq: 10, at: ago(9), role: "assistant", kind: "tool_use", tool: "Bash", text: "npm run test:ci", call: "toolu_bash1" },
   ];
 }
 

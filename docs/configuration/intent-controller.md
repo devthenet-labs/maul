@@ -87,6 +87,8 @@ other binary binds, so the shared kustomize ConfigMap cannot set one by accident
 | `--intent-job-deadline-max`                     | `MAUL_INTENT_JOB_DEADLINE_MAX`                        | `4h30m`                                    | The most a run's stage timeout plus 15m may stretch its Job's deadline; every stage timeout plus 15m must fit under it ([Stage limits](#stage-limits))                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `--broker-limit-unit`                           | `MAUL_BROKER_LIMIT_UNIT`                              | `tokens`                                   | The egress broker's unit; `cost` grants every run a cost budget stamped on its Job ([Stage limits](#stage-limits)). Helm: `egressBroker.limits.unit`                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `--broker-cost-per-hour`                        | `MAUL_BROKER_COST_PER_HOUR`                           | `0`                                        | The broker's hourly cost limit in micro-USD (`cost` only): a Project whose run budget exceeds half is not Ready. Helm: `egressBroker.limits.costPerHour`                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `--intent-build-subagents`                      | `MAUL_INTENT_BUILD_SUBAGENTS`                         | `false`                                    | Let a claude Project's build and revise runs (check-fix and verify-fix rounds included) delegate to subagents under the posture of [Isolation](../deployment/isolation.md). Each run records it at creation (`spec.grant.subagents`) and launches with it only while the flag is still on, so turning it off narrows every run at once and a run recorded without it never gets it. Needs `--broker-limit-unit cost` (the run's cost budget bounds the run and its subagents together) and brokered claude, else startup is refused                                                                     |
+| `--intent-build-workflows`                      | `MAUL_INTENT_BUILD_WORKFLOWS`                         | `false`                                    | Let a build or revise run granted subagents also run workflows, inline and built-in ones only, under the posture of [Isolation](../deployment/isolation.md). Each run records it beside subagents at creation (`spec.grant.workflows`) and launches with it only while both flags are still on. A workflow's agents count against neither the turn grant nor the token limit, so only the run's cost budget and wall clock bound them, and the transcript shows only its start and end. Needs `--intent-build-subagents`, else startup is refused                                                       |
 | `--intent-plan-model`                           | `MAUL_INTENT_PLAN_MODEL`                              | `anthropic/claude-sonnet-5-5`              | Canonical model the plan stage runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `--intent-plan-max-turns`                       | `MAUL_INTENT_PLAN_MAX_TURNS`                          | `40`                                       | Most agent turns a plan run may take                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `--intent-plan-token-budget`                    | `MAUL_INTENT_PLAN_TOKEN_BUDGET`                       | `200000`                                   | Most output tokens a plan run may spend                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -177,6 +179,76 @@ IntentRun with a budget.
 
 [Sizing limits for large features](../intents/sizing.md) gives a "large" preset (build 300 turns, 90m, \$60; revise 200
 turns, 45m, \$20), the stage ceilings and broker limits it needs, and the evidence it is sized from.
+
+### Subagents and workflows in builds
+
+Off by default. `--intent-build-subagents` (Helm: `intentController.buildSubagents.enabled`) lets a claude Project's
+build and revise runs, check-fix and verify-fix rounds included, hand parts of their work to the claude CLI's subagents.
+`--intent-build-workflows` (Helm: `intentController.buildSubagents.workflows`) also lets them run the CLI's workflows,
+inline and built-in ones. Plans, evaluate and check-review runs never delegate, and a codex Project's runs are
+unchanged. What the posture allows and refuses, as measured on the pinned CLI, is in
+[Isolation](../deployment/isolation.md#agent-tool-postures): the build's own tools and no web at every depth, subagents
+in the foreground at depth 1 on the run's model, and no workflow found by name but a built-in one.
+
+Workflows are a setting you allow or not. Off by default, a build may not start a workflow at all, and a run that tries
+is ended. Turned on, a build may start an inline workflow (a script it writes in the call) or one of the CLI's built-in
+workflows, whose agents get the run's tools and model and no web. Two limits come with it. Both are the claude CLI's,
+and maul cannot close them today; they are accepted, not fixed:
+
+- **A workflow can run a script from a file.** A workflow script that calls `workflow({ scriptPath })` runs that file,
+  including one the run itself wrote in the repository or under HOME, and maul cannot see it happen. A `Workflow` call
+  that names a script path itself also runs: agent-runner ends the run when the call shows on the stream, but only after
+  the CLI has started it. A workflow is never found by name in the repository or under HOME, and a file-loaded
+  workflow's agents are held to the same tools, model, web refusal and cost budget as any other.
+- **A workflow always runs in the background.** Its end wakes the build for another round after the build's turn has
+  ended, so the build keeps going until the cost budget or the wall clock stops it.
+
+Subagents have neither limit: they run in the foreground, so their end wakes nothing, and a subagent is never loaded
+from a file the run wrote, in the repository or under HOME.
+
+Both need the egress broker to count cost (`--broker-limit-unit cost`; Helm: `egressBroker.limits.unit: cost` with a
+`costPerPod`). Without it the controller refuses to start and the chart refuses to render. Workflows also need
+subagents. The reason is that, with delegation on, the run's cost budget (`spec.grant.budgetMicroUSD`) is the one limit
+that holds the run and everything it starts together. The broker charges every model call of the pod to it, a subagent's
+or a workflow agent's as much as the run's own. The other limits are weaker:
+
+| Limit                                  | Subagents                                                                                                                                 | Workflows (their agents)                                      |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Cost budget (the broker)               | Holds: every call is charged                                                                                                              | Holds: every call is charged                                  |
+| Wall clock (`timeout`, the Job)        | Holds                                                                                                                                     | Holds                                                         |
+| Turn grant (`maxTurns`)                | Counts the run's and its subagents' calls together, a floor: a subagent's last, text-only call is not shown, so a run may make a few more | Not counted: a workflow's agents show no calls                |
+| Token budget (`tokenBudget`, live)     | A floor, as without delegation (the CLI reports a few output tokens a call while it streams); the subagents' calls are in it              | Not seen                                                      |
+| Recorded tokens (`status.usage`)       | Everything, subagents included, read from the CLI's per-model figures when the run ends                                                   | The same, and only when the run ends                          |
+| Transcript (the run panel, the report) | Every subagent turn, under the call that started it                                                                                       | Only that a workflow started and that delegated work finished |
+| Idle watchdog                          | A subagent's turns count as progress                                                                                                      | Its progress events count as progress                         |
+
+So the turn grant is a loose backstop on the run, and a workflow's agents are bounded live only by the cost budget and
+the wall clock. That is accepted, and it is why the cost unit is required. Size a build's `maxCostMicroUSD` (or the
+per-intent ceiling it falls back to) for what you are willing to spend on one build with its subagents, not on its main
+thread alone. A run that passes its turn grant or its budget ends `budget_exceeded`, with no report.
+
+Delegation also changes what a build may do, and its prompt says so:
+
+- Background work is off for the whole run: the shell's `run_in_background` is refused, for the run as much as for its
+  subagents. A build without the flag keeps it.
+- At most four subagents run at once; a fifth call is refused, not queued. A workflow runs at most four agents at once,
+  and the rest wait their turn.
+- An `isolation: "worktree"` subagent's worktree is removed before the report is read: work left only there is not part
+  of the change.
+- A run that starts a subagent past depth 1 or in the background, or calls a workflow by a script path, a resumed run or
+  a name that is not built in, is ended `budget_exceeded` at that line. A workflow script that loads another from a file
+  is not caught ([Isolation](../deployment/isolation.md#agent-tool-postures) has the residue).
+
+If the broker's `--concurrent-per-pod` (Helm: `egressBroker.limits.concurrentPerPod`) is set, keep it at least 5 (four
+subagents and the run's own calls), and higher with workflows, whose agents run beside them. Below that a subagent's
+calls wait on the broker's `--concurrency-wait` and are then refused with the broker's limit refusal, which agent-runner
+maps to `budget_exceeded`, so it can end the run with no report.
+
+Each build and revise run records its grant when it is created (`spec.grant.subagents`, and `spec.grant.workflows`
+beside it) and is launched with it only while the flag is still on. Turning a flag off, the rollback lever, narrows at
+once every run that has not yet launched: it builds without delegation and is never refused for it. A run already
+running keeps what it launched with until it ends. A run recorded without the grant never gets it, even if the flag is
+turned on before it launches. In the chart, `enabled: false` turns both off whatever `workflows` says.
 
 ### Brokered claude, and brokered codex by choice
 

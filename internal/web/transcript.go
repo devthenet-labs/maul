@@ -30,7 +30,9 @@ const (
 )
 
 // Turn is one conversation entry on the wire. It mirrors the SPA's
-// TranscriptTurn; keep the two in lockstep.
+// TranscriptTurn; keep the two in lockstep (TestTranscriptTurnMatchesTypeScript).
+// Call and Parent are transcript.Turn's: the SPA nests a subagent's turns
+// under the Agent call they ran under.
 type Turn struct {
 	Seq       int    `json:"seq"`
 	At        string `json:"at,omitempty"`
@@ -39,12 +41,17 @@ type Turn struct {
 	Tool      string `json:"tool,omitempty"`
 	Text      string `json:"text,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+	Call      string `json:"call,omitempty"`
+	Parent    string `json:"parent,omitempty"`
 }
 
 func wireTurn(t transcript.Turn) Turn {
 	return Turn{
 		Seq: t.Seq, At: t.At, Role: string(t.Role), Kind: string(t.Kind),
 		Tool: t.Tool, Text: t.Text, Truncated: t.Truncated,
+		// A stored record is read back as it was written, so the ids are
+		// held to the recorder's rule again rather than trusted.
+		Call: transcript.CleanRef(t.Call), Parent: transcript.CleanRef(t.Parent),
 	}
 }
 

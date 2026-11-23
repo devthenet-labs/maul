@@ -96,13 +96,81 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
   limit and the stage's wall clock bound the run. The posture does not run with `--restricted`, which would take its
   shell and refuse writes to tool-configuration files and CI definitions that a fix may need to change.
 
+A build granted subagents (an intent build or revise round on claude whose Job carries `MAUL_BUILD_SUBAGENTS=true`,
+under intent-controller's `--intent-build-subagents`) runs the same posture with `Agent` and `Task` taken off the deny
+list and nothing else, so every other tool above stays denied for the run and for every subagent it starts. One
+`--settings` value on the command line holds the CLI's own switches:
+
+- Every subagent runs in the foreground at depth 1, with no `Agent` tool of its own, and background work is off for the
+  whole run, so the shell's `run_in_background` is refused and the session never wakes after its turn.
+- Every subagent runs on the run's own model, whatever its call or agent definition asks for.
+- At most four run at once; a fifth call is refused, not queued, and the run carries on without it.
+
+These go on the command line, not in the environment, because a settings file's `env` block outranks the process
+environment, and the run can write the user settings under HOME, which the CLI reloads mid-session. Measured on the
+pinned CLI: with the switches in the environment alone, such a file written by the run's own shell undid all of them.
+`--settings` also outranks the process environment, such as a repository image's `ENV` (measured against one
+contradicting every switch). Only a managed settings file, which only a repository image can carry, outranks it. Agents
+defined in the tree's `.claude` are not found. One defined under HOME is, but it is held to the same tools and refusals.
+A report repair of such a build resumes its session without the grant, `Agent` denied.
+
+A build granted workflows as well (its Job also carries `MAUL_BUILD_WORKFLOWS=true`, under intent-controller's
+`--intent-build-workflows`, which needs `--intent-build-subagents`) also takes `Workflow` off the deny list and allows
+it, since the permission mode refuses a workflow no rule allows. The `--settings` value then leaves workflows on and
+holds a workflow's agents to at most four at once, the rest waiting their turn. Workflows are off by default, and an
+operator allows them or not. Two limits come with allowing them, both the CLI's and not closable by maul today, and both
+accepted rather than fixed: a workflow script can run another script from any file the run can read, one the run wrote
+in the tree or under HOME included (a direct `Workflow` call with a script path is ended by the stream check only after
+it starts), and a workflow always runs in the background, so its end wakes the session for another round, bounded by the
+cost budget and the wall clock. Subagents have neither limit. Measured on the pinned CLI:
+
+- A workflow runs in the background whatever the switches say: the call returns at once, and the workflow's end wakes
+  the session, a second result event.
+- Its agents have a subset of the run's tools, never `Agent` or `Workflow`. The one exception is `StructuredOutput`, the
+  tool a built-in workflow's agent returns its result with. They are refused every denied tool, the web tools included,
+  and run on the run's own model, an explicit model option included.
+- A name, from the call or from a script's own `workflow()`, finds only the CLI's built-in workflows (`deep-research`)
+  and those under HOME, which the CLI reads once, when the run starts and HOME holds none. The tree's
+  `.claude/workflows` is not read, and a workflow the run's own shell writes under HOME is not found, even one named
+  like a built-in.
+- A `scriptPath` reads a script from any file the run may read, the tree's and HOME's included, whether the call names
+  it or an inline script's own `workflow({ scriptPath })` does. No permission rule of the CLI's refuses that without
+  refusing reads, so only lookup by name is closed: a workflow read from a file is not, on this CLI. The agent runner's
+  stream check ends a run whose call asks for a workflow by a script path, a resumed run, a run operation or a name that
+  is not a built-in one, at that line, `budget_exceeded`, after the fact (the CLI may already be starting it, but
+  nothing the run did is packaged). It cannot see a script loading another from a file. Such a script reads nothing the
+  run's own `Read` could not, and its agents are held to the same posture and budget.
+
+Its limits are weaker than a subagent's, and that is accepted: a workflow's agents print no turns on the stream, so the
+turn grant does not count them, the live token budget does not see them, and the transcript shows only that a workflow
+started and finished. Their tokens reach the stage's record only from the result at the end. While they run, the egress
+broker's per-run cost budget (which the flag's `--broker-limit-unit cost` requires) and the stage's wall clock are what
+bound them. A workflow's progress counts as progress for the idle watchdog, so a run waiting on a working one is not
+ended for silence. A report repair runs without workflows, `Workflow` denied.
+
+An Agent call's `isolation: "worktree"` is an argument, not a tool, so no deny reaches it: the child runs in a git
+worktree the CLI adds at `.claude/worktrees/agent-<id>` in the tree, on a branch of its own (measured on the pinned CLI
+with the posture above). Before a granted build's report is read, the agent runner removes every worktree under the
+tree's `.claude/worktrees` and says so in the transcript. Work left only there is not part of the change, and the build
+prompt says so; left in place, the worktree would fail `commit.sh`'s clean-tree check.
+
+The deny list is not only trusted: the agent runner reads every line the CLI prints, and a run in any posture whose CLI
+reports starting a workflow, or a subagent the run was not granted, is ended at that line as `budget_exceeded`, with the
+reason in the stage's detail and the transcript. It is a check after the fact: the CLI reports a start once it has made
+it. A report repair or a request for missing checks that delegates is ended the same way, and what it wrote is not read.
+
 These flags are checked against the real CLI, not only as rendered argv: a probe runs the claude version the runner
 image pins with each posture's argv against a scratch repository whose hooks, `env` block, settings, untracked
 `settings.local.json` and `.mcp.json` must all stay inert, and asserts the read-only posture's file grammar on the first
 run and on a report repair's resume, and that the workspace-write posture refuses a subagent, a workflow, a wake-up, a
-cron job, a worktree and a monitor (no subagent's command runs, and the run ends with a single result), with a scripted
-model on loopback and no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture
-changes).
+cron job, a worktree and a monitor (no subagent's command runs, and the run ends with a single result). Granted
+subagents, every subagent of every built-in type and of a definition planted under HOME may be offered only the tools
+the run is offered, is refused the denied ones, and runs in the foreground at depth 1 on the run's model, at most four
+at once, even after the run writes user settings that try to undo that. Granted workflows, an inline workflow's agents
+are held to the run's tools and model and refused the web, at most four run at once, a name finds only a built-in
+workflow, and a script path, which the stream check refuses only when the call names it, still runs a tree's file. The
+probe uses a scripted model on loopback and no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI
+pin or the posture changes).
 
 codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary. The
 intent stages run on brokered claude, or on brokered codex for a Project that chooses it under `--intent-codex`. An

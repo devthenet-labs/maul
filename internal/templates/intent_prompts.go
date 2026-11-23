@@ -311,6 +311,23 @@ type BuildPrompt struct {
 	// report's no_defect). False omits the section and the field, and the
 	// prompt is exactly the prompt without them.
 	AcceptanceFix bool
+	// SubagentsAtOnce is, on a build or revise round granted subagents, how
+	// many may run at once (harness.ClaudeSubagentConcurrency): the prompt
+	// then says what delegation is held to, and that its subagents' model
+	// calls come out of this run's turn grant and its cost. Zero, as on
+	// every build not granted them, omits the section, and the prompt is
+	// exactly the prompt without it.
+	SubagentsAtOnce int
+	// WorkflowsAtOnce is, on a build or revise round granted workflows as
+	// well as subagents, how many of a workflow's agents may run at once
+	// (harness.ClaudeWorkflowConcurrency), and BuiltinWorkflows the workflows
+	// it may run by name (harness.ClaudeBuiltinWorkflows): the prompt then
+	// gives the opt-in the Workflow tool asks for, says what a workflow is
+	// held to, and that only the run's cost and time limit bound its agents.
+	// Zero omits the section, and the prompt is exactly the prompt without
+	// it.
+	WorkflowsAtOnce  int
+	BuiltinWorkflows []string
 }
 
 // RenderBuildPrompt renders the build-stage prompt.

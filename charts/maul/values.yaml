@@ -1269,6 +1269,45 @@ intentController:
         enabled: false
         planModel: openai/gpt-5.3-codex
         buildModel: openai/gpt-5.3-codex
+    # Subagents, and optionally workflows, in builds. Off by default; off,
+    # neither key renders and every build runs as before. On, a claude
+    # Project's build and revise runs (check-fix and verify-fix rounds
+    # included) may delegate to the CLI's subagents, under the build's own
+    # posture: the same tools, no web, depth 1, foreground only (so the
+    # build's own background shell commands are refused too), the run's
+    # model, at most four at once. Plans, the evaluator and the check
+    # reviewer never delegate, and codex Projects are unaffected.
+    #
+    # It requires egressBroker.limits.unit: cost (the render fails
+    # otherwise): the run's cost budget, which the broker enforces on every
+    # model call of the pod, is the one bound that holds a run and its
+    # subagents together. The turn grant counts the run's and its subagents'
+    # streamed calls, a floor; the in-pod token count is a floor too. With
+    # egressBroker.limits.concurrentPerPod set, keep it at least 5 (four
+    # subagents and the run's own calls), more with workflows.
+    #
+    # workflows (off by default; needs enabled) also lets those runs start
+    # the CLI's workflows, inline and built-in ones, whose agents get the
+    # run's tools and model and no web. Allow it knowing two limits of the
+    # claude CLI that maul cannot close today, accepted rather than fixed:
+    # (a) a workflow script that calls workflow({scriptPath}) runs that
+    # file, even one the run wrote in the repository or under HOME, and a
+    # Workflow call naming a script path is ended only after it starts;
+    # (b) a workflow always runs in the background, so its end wakes the
+    # build for another round, until the cost budget or the wall clock
+    # stops it. Subagents have neither limit. A workflow's agents also count
+    # against neither the turn grant nor the token limit, their tokens are
+    # recorded only when the run ends, and the transcript shows only that a
+    # workflow started and finished, so the cost budget and the stage's wall
+    # clock are the only live bounds (docs/deployment/isolation.md).
+    #
+    # Each run records its grant at creation and launches with it only while
+    # the switch is still on, so turning enabled (or workflows) off narrows
+    # every run at once; with enabled off, workflows does nothing.
+    # docs/configuration/intent-controller.md#subagents-and-workflows-in-builds.
+    buildSubagents:
+        enabled: false
+        workflows: false
     # The agent evaluator, which checks a live Preview in a sandbox. Off by
     # default, and off nothing renders. On, it renders the
     # maul-evaluator-labels admission policies: maul.run/role and

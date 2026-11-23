@@ -219,6 +219,25 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   budget (`limits.<stage>.maxCostMicroUSD`, else the per-intent ceiling) stamped on its Job and pod as
   `provider.BudgetAnnotation`, the chart's `budget-policy.yaml` letting only intent-controller set it; with
   `--broker-cost-per-hour` a Project whose run budget exceeds half of it is not Ready (`RunBudgetOverHourlyLimit`).
+  With `--intent-build-subagents` (default off; refused at startup without `--broker-limit-unit cost`, whose per-run
+  budget the broker enforces on parent and subagents together, and on any harness but brokered claude) a claude
+  Project's build and revise runs record `spec.grant.subagents` at creation (`Settings.grant`; CEL: build or revise on
+  claude only) and launch with `jobs.Spec.BuildSubagents` only while the flag is still on
+  (`RunReconciler.buildSubagents`): turning it off narrows every recorded run at once, never refuses it, and a revise
+  lease is adopted whatever its record (`sameRound`); `jobs.ErrSubagentsRefused` settles `launch_refused`.
+  `--intent-build-workflows` (default off; refused without `--intent-build-subagents`) records `spec.grant.workflows`
+  beside subagents (CEL: only with them) and launches `jobs.Spec.BuildWorkflows` only while both flags are on
+  (`RunReconciler.buildWorkflows`), narrowed and adopted the same way. Workflows are an operator's choice with two
+  ACCEPTED limits of the claude CLI (owner, 2026-11-23), which subagents do not have: a workflow script's
+  `workflow({scriptPath})` runs that file, one the run wrote in the tree or HOME included (a direct `Workflow{scriptPath}`
+  call is ended by the stream check only after it starts; lookup by name of tree/HOME workflows is closed), and a
+  workflow always runs in the background, its end waking the session for another round (bounded by the cost budget and
+  the wall clock). Chart `intentController.buildSubagents.enabled`
+  and `.workflows` (off, no key renders; `enabled` fails the render without `egressBroker.limits.unit: cost`, and off
+  it turns both off). What each limit means with them on (the cost budget and the wall clock hold; turns and the live
+  token count are floors; a workflow's agents are not counted) is in
+  `docs/configuration/intent-controller.md#subagents-and-workflows-in-builds`. e2e `intent_subagents_test.go` runs a
+  delegating build through the real agent-runner.
   With `--intent-evaluator` (default off; chart `intentController.verification.evaluator`, needing previews or the
   agents tool pod; design `.claude/plans/agent-evaluator/DESIGN.md`, people's guide `docs/intents/evaluator.md`), which
   is verification's one switch (S4: `--intent-verification` and the chart's `preview.verification.enabled` are removed
@@ -551,6 +570,13 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     the Job's pod pays with the person's key, replace and delete take
                     effect within the cap. pipeline_test.go asserts a codex Job holds no
                     SecretKeyRef and mounts the projected broker token.
+                    intent_subagents_test.go runs a build on the real
+                    agent-runner whose scripted claude makes one Agent call
+                    (MAUL_FAKE_CLAUDE_DELEGATE) and answers it from its argv:
+                    under --intent-build-subagents (and the cost unit) the
+                    child runs and the run records its tokens, its turns
+                    apart and its transcript nested; with the flag off the
+                    call is refused and nothing of it appears.
                     intent_agents_test.go runs the no-preview evaluator (S2) end to end:
                     a cli pass (gated link-less hand-off, a foreign key refused, the
                     evaluator only after status.tools, preview-controller never touching
@@ -951,6 +977,58 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   read-only monitor starts without asking and its end wakes the session); the probe asserts each refused, no child's
   shell run and one result event, against two controls without the denies (a child's shell runs; a monitor wakes the
   session). Bash `run_in_background` is kept, and its wake (which restarts `--max-turns`) is accepted.
+  `DelegationScanner` (claude, `delegation.go`) is the observed check that it held: agentrun ends any run, in any
+  posture, whose stream shows a `task_started` of a workflow, or of a subagent the run was not granted (a grant admits
+  depth 1, no parent task, foreground only), as `budget_exceeded` with the reason, maul's own words only, in the
+  detail and the transcript; what a repair or cover ask that delegates wrote is not read.
+  `PromptRequest.Subagents` is that grant (agentrun sets it on an intent build's or revise round's first run from
+  `Config.BuildSubagents`, `MAUL_BUILD_SUBAGENTS`, and clears it on repairs and cover asks). claude renders it in the
+  workspace-write posture alone (`claudeSubagentsDeny`: `Agent`/`Task` off the deny list, nothing else;
+  `claudeSubagentsSettings`: one `--settings` env block with background tasks and workflows off, spawn depth 1, the
+  child model forced to the run's, at most `ClaudeSubagentConcurrency` (4, which the build prompt states) at once, a
+  call past that refused). It is argv because a settings source's env block outranks the process env and the
+  run can rewrite the HOME user settings, which the CLI reloads mid-session; it also outranks a contrary process env (an
+  image's `ENV`), probed. The probe (`claude_probe_subagents_test.go`)
+  pins every child's request tools to a subset of the run's for each built-in type and a HOME-planted agent, the
+  refusals (the run's own web calls included), the depth, the model, the cap and the repair's resume without `Agent`,
+  beside controls that undo each lever (a grandchild then runs, still offered no denied tool), and where an Agent call's
+  `isolation: "worktree"` (an argument, which no deny reaches) leaves its worktree: `<tree>/.claude/worktrees/agent-<id>`
+  on a branch `worktree-agent-<id>`, untracked in the tree.
+  `PromptRequest.Workflows` (only with Subagents; agentrun from `Config.BuildWorkflows`, `MAUL_BUILD_WORKFLOWS`,
+  cleared on repairs and cover asks) also takes `Workflow` off the deny list and allows it (`claudeWorkflowsAllow`),
+  drops the workflows lever from `--settings` and adds `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS`
+  (`ClaudeWorkflowConcurrency`, 4, queued past it); the child model's FORCE holds workflow agents too. A workflow runs
+  in the background (a second result), its agents print no turns (neither the turn grant nor the token budget sees
+  them; `resultUsage` takes the per-model figures once the stream shows a `local_workflow` start, the CLI counting no
+  subagent for it), and its `task_progress` events are the idle watchdog's progress (`ProgressScanner`). The CLI
+  finds a workflow by name (the call's or a script's own `workflow()`) only among its built-ins
+  (`claudeBuiltinWorkflows`: `deep-research`) and HOME's, read at start, but runs a `scriptPath` from any readable
+  file, the tree's included, named by the call or by an inline script's `workflow({scriptPath})`, which no rule
+  refuses: only lookup by name is closed. `ScanDelegation(line, Delegation{...})` admits a granted workflow's start
+  and ends a run whose `Workflow` call is not a bare inline `script` or a built-in `name` (with `args`; null, false
+  and empty keys absent, as the CLI reads them), after the fact; a nested path it cannot see.
+  `claude_probe_workflows_test.go` pins the agents' tools (a subset of the run's, `StructuredOutput` aside), model,
+  web refusal and bound, built-in-only names (a tree or mid-run HOME workflow not found, nested too), the script-path
+  hole (direct and nested, an accepted limit) and the check on the direct one, and the repair without `Workflow`, beside
+  a control with the bound at five and no FORCE (five agents at once, another model; not the bound removed, since the
+  CLI's own default depends on the host's CPUs: two at once on a CI runner).
+  A granted run also gets agentrun's turn watcher
+  over `CallScanner` (claude, `calls.go`: a top-level assistant event's message id, and whether it carries a
+  `parent_tool_use_id`), which ends it `budget_exceeded` once parent plus subagent calls, each id once, pass its
+  `MaxTurns`, a wake resetting nothing.
+  `parseStreamResult` reads every result event (a woken session prints several): the answer and error from the last
+  that took a turn or erred (`terminalResult`, which `RuntimeError`, `Exhausted` and `TerminalError` share), `num_turns`
+  summed, and, for a run that spawned a subagent, the tokens from `model_usage_since_last_result` summed (top-level
+  usage is the main thread's; `modelUsage` is cumulative over a resumed session); `AgentResult.SubagentTurns`, distinct
+  child message ids, a floor, lands on the envelope's `Stage.SubagentTurns` and counts in a repair's window.
+  `ScanTurns` attributes a subagent's turns: a tool call's turn carries its `call` id, every turn of an event with a
+  `parent_tool_use_id` that id as `parent`, and a `local_agent` start and the end of delegated work (a task
+  notification carrying `usage`, which a subagent's and a workflow's do and a shell command's or monitor's does not)
+  become notices under their call, in maul's words only (a plain agent type, a plain status, the tool-use count; never
+  the description, prompt or summary). `transcript.Turn.Call`/`Parent` are omitempty (Version stays 1), held to
+  `transcript.CleanRef` by the recorder (counted in its byte cap) and again by `web.wireTurn`; the SPA nests by id
+  (`ui/src/transcript.ts`: `nestTurns`, `transcriptLines`), and `TestTranscriptTurnMatchesTypeScript` pins `web.Turn`
+  to `TranscriptTurn`.
   Codex renders the broker as a `maul`
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
@@ -969,7 +1047,19 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   others at v4); `agentresult` converts envelope results onto CR status (`FromPlan` re-derives a plan from its
   report). A missing or refused report is first repaired in the agent's own session (`repair.go`: the optional
   `harness.Resumer`, claude and fake only; at most 2 bounded rounds; one transcript per stage; a writable stage's
-  clone fingerprinted so a repair may change only the report and commit.sh). In the intent stages, a running
+  clone fingerprinted so a repair may change only the report and commit.sh). An intent build or revise round on
+  claude may be granted subagents (`MAUL_BUILD_SUBAGENTS`, "true" or unset, `Config.BuildSubagents`; `FromEnv` refuses
+  it on any other phase or build harness): its first run gets `PromptRequest.Subagents` and the build prompt's
+  subagents section (`templates.BuildPrompt.SubagentsAtOnce`: foreground only, at most four at once, one level, the
+  run's model, the same tree, no `isolation`, their calls counted in the turn grant, cost as the real bound, the
+  report and commit.sh the parent's), its repairs none, and before its report is read every worktree under the tree's
+  `.claude/worktrees` is removed with a transcript notice (`worktrees.go`), else it would fail commit.sh's clean-tree
+  check. A build so granted may also be granted workflows (`MAUL_BUILD_WORKFLOWS`, refused without the subagents key,
+  `Config.BuildWorkflows`): `PromptRequest.Workflows`, the prompt's workflows section
+  (`templates.BuildPrompt.WorkflowsAtOnce`, `BuiltinWorkflows`: the opt-in the tool asks for, inline or built-in
+  only on pain of the run ending, background with a notification to wait for, the bound, and that only cost and the
+  wall clock bound its agents), and `task_progress` counted as idle progress (`idleWatch.counting`). In the intent
+  stages, a running
   foreground command's output is printed live as `MAUL-OUTPUT:` chunks (`output.go`: read from the file the CLI
   keeps it in, via the optional `harness.TaskWatcher`; bounded per command and per process by constants; never
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every
@@ -997,7 +1087,10 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   gate and is stripped by the broker (codex's is set per stage by agent-runner, `MAUL_CODEX_PLACEHOLDER_KEY`, so a
   codex pod's env carries only `MAUL_CODEX_BASE_URL` and the token file) — while the non-brokered copilot runner
   keeps the one SecretKeyRef; a codex evaluation Job is refused (`ErrCodexEvaluation`: evolve cannot be brokered
-  yet); the init container fetches the digest-verified artifact tarball, identity-free.
+  yet); the init container fetches the digest-verified artifact tarball, identity-free. `Spec.BuildSubagents` puts
+  `MAUL_BUILD_SUBAGENTS=true` on an intent build on claude and is refused on any other Job (`ErrSubagentsRefused`,
+  `subagents.go`); intent-controller sets it under `--intent-build-subagents` (below). `Spec.BuildWorkflows` puts
+  `MAUL_BUILD_WORKFLOWS=true` beside it and is refused without it.
   `reservedEnv` covers every credential channel plus the provider gateway names; `Runner.Env` is the per-runner
   gateway env (wins over `Config.Env`, can never name a credential). `eval.go` is the evaluation Job flavour
   (same posture; `evolve exec-unit` instead of `agent-runner` — wrapped in a capture-once token export when

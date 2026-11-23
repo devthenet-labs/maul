@@ -12,6 +12,7 @@ import { streamRun } from "../api";
 import { formatDate, formatMicroUSD, formatTokens } from "../format";
 import { formatDuration, mergeRunOutput, secondsSince, stopConditions, type RunOutputState } from "../intents";
 import { hrefForIntent } from "../router";
+import { transcriptLines } from "../transcript";
 import { EvaluationEvidence } from "./EvaluationEvidence";
 import { Icon } from "./icons";
 import { LiveOutput } from "./LiveOutput";
@@ -39,11 +40,6 @@ function useRunStream(run: IntentRunDetail) {
     });
   }, [run.intent, run.name]);
   return { activity, turns, output, notice, ended };
-}
-
-function turnText(t: TranscriptTurn): string {
-  const head = `[${t.kind}${t.tool ? ` ${t.tool}` : ""}${t.at ? ` ${t.at}` : ""}]`;
-  return `${head}\n${t.text ?? ""}${t.truncated ? "\n(truncated by the recorder)" : ""}`;
 }
 
 export function RunPanel({ run, now }: { run: IntentRunDetail; now: number }) {
@@ -190,7 +186,7 @@ export function RunPanel({ run, now }: { run: IntentRunDetail; now: number }) {
             {turns.length === 0 ? (
               <p class="text-faint">{run.running ? "Waiting for the agent…" : "No conversation recorded."}</p>
             ) : (
-              <PlainText label="written by the agent and its tools" text={turns.map(turnText).join("\n\n")} />
+              <PlainText label="written by the agent and its tools" text={transcriptLines(turns)} />
             )}
           </section>
         </>

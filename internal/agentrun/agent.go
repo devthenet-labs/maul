@@ -275,7 +275,9 @@ func reproductionOf(p *report.Reproduction) *envelope.Reproduction {
 // run executes one of a stage's runs — its first, or a repair — under the
 // given wall clock (timeout), the stage's idle watchdog and the given
 // output-token budget, observing its stream (observe) into the stage's one
-// transcript and following the commands it runs (followOutput). idle is the
+// transcript and following the commands it runs (followOutput). req is the
+// request spec was rendered from: its subagent grant and turn cap are what
+// the delegation and turn kill switches hold the run to. idle is the
 // watchdog's verdict: the detail of a run it ended for making no progress,
 // also left in the transcript as its last word, or "" when it did not end
 // the run.
@@ -283,8 +285,8 @@ func reproductionOf(p *report.Reproduction) *envelope.Reproduction {
 // The commands followed are ended with the run, and their last chunks
 // printed, before it returns: nothing of a run's output is printed after
 // the stage's result.
-func (a *Agent) run(ctx context.Context, sr *stageRun, spec runner.CommandSpec, timeout time.Duration,
-	budget int) (res runner.Result, idle string, runErr error) {
+func (a *Agent) run(ctx context.Context, sr *stageRun, req harness.PromptRequest, spec runner.CommandSpec,
+	timeout time.Duration, budget int) (res runner.Result, idle string, runErr error) {
 	if sr.deadlineEnv {
 		// Its own cutoff, so the first run and each repair show theirs.
 		spec.Env = append(slices.Clone(spec.Env),
@@ -293,8 +295,11 @@ func (a *Agent) run(ctx context.Context, sr *stageRun, spec runner.CommandSpec, 
 	ctx, watch := newIdleWatch(ctx, sr.idle)
 	secrets := credentialValues(sr.h, a.scrub...)
 	output := a.followOutput(ctx, sr.h, spec, secrets)
-	onLine := a.observe(sr.h, sr.rec, budget, watch, output)
+	delegation := newDelegationWatch(sr.h, harness.Delegation{Subagents: req.Subagents, Workflows: req.Workflows})
+	onLine := a.observe(sr.h, sr.rec, budget, watch.counting(sr.h, req.Workflows), output, delegation,
+		newTurnWatch(sr.h, req))
 	res, runErr = a.exec.Run(ctx, spec, timeout, onLine)
+	sr.delegated = delegation.refused()
 	output.end()
 	if idle = watch.end(runErr, secrets); idle != "" {
 		a.cfg.Log.Warn("the idle watchdog ended the run", "phase", a.cfg.Phase, "detail", idle)
@@ -306,21 +311,23 @@ func (a *Agent) run(ctx context.Context, sr *stageRun, spec runner.CommandSpec, 
 }
 
 // observe builds the runner's per-line observer: the transcript recorder, the
-// idle watchdog's progress, the output-token budget kill switch and the live
-// command output's events, over the one pass the runner makes. Each may be
-// absent — a harness that cannot report usage, a budget of zero, a harness
-// that cannot transcribe (rec nil), a disabled watchdog, a harness that
-// cannot follow commands (output nil) — and when all are, the observer is
-// nil and the runner does no per-line work at all.
+// idle watchdog's progress, the delegation, turn-grant and output-token
+// budget kill switches and the live command output's events, over the one
+// pass the runner makes. Each may be absent — a harness that cannot report
+// usage, a budget of zero, a harness that cannot transcribe (rec nil), a
+// disabled watchdog, a harness that cannot follow commands (output nil), one
+// that cannot delegate (delegation nil), a run granted no subagents (calls
+// nil) — and when all are, the observer is nil and the runner does no
+// per-line work at all.
 //
-// Recording happens before the budget check so the turn that tripped the limit
+// Recording happens before the kill switches so the turn that tripped one
 // is in the transcript that explains why the run stopped. A command's output
 // is printed by its own goroutine, never this one, and is neither a turn nor
 // progress.
-func (a *Agent) observe(h harness.Harness, rec *transcript.Recorder, budget int,
-	idle *idleWatch, output *outputFollower) func([]byte) (bool, string) {
+func (a *Agent) observe(h harness.Harness, rec *transcript.Recorder, budget int, idle *idleWatch,
+	output *outputFollower, delegation *delegationWatch, calls *turnWatch) func([]byte) (bool, string) {
 	watch := budgetWatcher(h, budget)
-	if rec == nil && watch == nil && idle == nil && output == nil {
+	if rec == nil && watch == nil && delegation == nil && calls == nil && idle == nil && output == nil {
 		return nil
 	}
 
@@ -333,13 +340,17 @@ func (a *Agent) observe(h harness.Harness, rec *transcript.Recorder, budget int,
 				rec.RecordAll(scanned)
 			}
 			idle.progress(scanned)
+			idle.scan(line)
 		} else {
 			idle.alive()
 		}
-		if watch == nil {
-			return false, ""
+		abort, reason := delegation.scan(line)
+		if !abort {
+			abort, reason = calls.scan(line)
 		}
-		abort, reason := watch(line)
+		if !abort && watch != nil {
+			abort, reason = watch(line)
+		}
 		if abort && rec != nil {
 			rec.Notice("%s", reason)
 		}
@@ -481,6 +492,107 @@ func budgetWatcher(h harness.Harness, budget int) func([]byte) (bool, string) {
 		}
 		return false, ""
 	}
+}
+
+// delegationWatch is the kill switch ending a run whose CLI starts
+// delegated work the run was not granted (harness.DelegationScanner), and
+// what it ended the run for. It needs no budget: a posture that denies
+// delegation is checked whatever the run's limits. A nil one, for a harness
+// that cannot delegate, ends nothing.
+type delegationWatch struct {
+	scanner harness.DelegationScanner
+	grant   harness.Delegation
+	reason  string
+}
+
+// newDelegationWatch builds the kill switch for a run of h granted what
+// grant says, or nil when h cannot delegate.
+func newDelegationWatch(h harness.Harness, grant harness.Delegation) *delegationWatch {
+	scanner, ok := h.(harness.DelegationScanner)
+	if !ok {
+		return nil
+	}
+	return &delegationWatch{scanner: scanner, grant: grant}
+}
+
+// scan judges one stream line, keeping the reason of the first it ends the
+// run on: the runner stops reading lines once one has.
+func (d *delegationWatch) scan(line []byte) (bool, string) {
+	if d == nil || d.reason != "" {
+		return false, ""
+	}
+	forbidden, reason := d.scanner.ScanDelegation(line, d.grant)
+	if forbidden {
+		d.reason = reason
+	}
+	return forbidden, reason
+}
+
+// refused is why the switch ended the run, or "" when it did not.
+func (d *delegationWatch) refused() string {
+	if d == nil {
+		return ""
+	}
+	return d.reason
+}
+
+// turnWatch is the kill switch holding a run granted subagents to its turn
+// grant with its subagents' model calls counted beside its own. The CLI's
+// --max-turns, which the run is still given, counts the main thread's calls
+// alone, and each wake of the session afresh; the subagents' are capped by
+// nothing of the CLI's. This counts both, over the whole run, so a wake
+// resets nothing.
+//
+// It counts what the stream shows (harness.CallScanner): a floor of what
+// was called, since the CLI does not stream a foreground subagent's closing
+// text-only call (without --forward-subagent-text), and a subagent's own
+// subagents and a workflow's agents print no calls at all; the delegation
+// switch ends a run that starts either. A nil one, for a run granted no
+// subagents, no turn cap or a harness that shows no calls, ends nothing.
+type turnWatch struct {
+	scanner          harness.CallScanner
+	grant            int
+	seen             map[string]bool
+	parent, subagent int
+}
+
+// newTurnWatch builds the turn-grant kill switch for a run of h launched on
+// req, or nil when req grants no subagents or no turn cap, or h cannot show
+// a run's calls.
+func newTurnWatch(h harness.Harness, req harness.PromptRequest) *turnWatch {
+	scanner, ok := h.(harness.CallScanner)
+	if !ok || !req.Subagents || req.MaxTurns <= 0 {
+		return nil
+	}
+	return &turnWatch{scanner: scanner, grant: req.MaxTurns, seen: map[string]bool{}}
+}
+
+// scan counts the model call one stream line shows, once per message id,
+// and ends the run on the call that takes the total past the grant.
+func (w *turnWatch) scan(line []byte) (bool, string) {
+	if w == nil {
+		return false, ""
+	}
+	id, subagent, ok := w.scanner.ScanCall(line)
+	if !ok {
+		return false, ""
+	}
+	if id != "" {
+		if w.seen[id] {
+			return false, ""
+		}
+		w.seen[id] = true
+	}
+	if subagent {
+		w.subagent++
+	} else {
+		w.parent++
+	}
+	if w.parent+w.subagent <= w.grant {
+		return false, ""
+	}
+	return true, fmt.Sprintf("turn grant exceeded (%d parent + %d subagent turns > %d)", w.parent, w.subagent,
+		w.grant)
 }
 
 // investigate runs the analysis stage and folds everything into the event
@@ -758,6 +870,7 @@ func (a *Agent) fillStage(st *envelope.Stage, h harness.Harness, res runner.Resu
 	if ok {
 		st.SessionID = ar.SessionID
 		st.NumTurns = ar.NumTurns
+		st.SubagentTurns = ar.SubagentTurns
 	}
 	if r, edits := h.(harness.FirstEditReporter); edits {
 		st.FirstEditTurn = r.FirstEditTurn(res.Stdout)

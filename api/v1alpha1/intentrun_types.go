@@ -301,6 +301,22 @@ type IntentRunGrant struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=1000000000
 	BudgetMicroUSD int64 `json:"budgetMicroUSD,omitempty"`
+	// Subagents records that the run may delegate to subagents: stamped at
+	// creation on a build or revise run on claude while intent-controller
+	// runs with --intent-build-subagents, and on no other run
+	// (CEL-enforced). The run's Job is granted them only while the flag is
+	// still on when it launches, so turning the flag off narrows every run
+	// recorded with it, and a run recorded without it is never launched
+	// with it.
+	// +optional
+	Subagents bool `json:"subagents,omitempty"`
+	// Workflows records that the run may also run workflows (inline and
+	// built-in ones): stamped at creation beside Subagents while
+	// intent-controller runs with --intent-build-workflows, and never
+	// without Subagents (CEL-enforced). The run's Job is granted them only
+	// while both flags are still on when it launches.
+	// +optional
+	Workflows bool `json:"workflows,omitempty"`
 }
 
 // IntentRunSpec identifies one attempt of one stage on one repository. It is
@@ -338,6 +354,8 @@ type IntentRunGrant struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.inputs.contextDigest) || self.stage == 'plan'",message="inputs.contextDigest is set on plan runs only: a build or revise run is handed the approved plan alone"
 // +kubebuilder:validation:XValidation:rule="!has(self.trees) || self.stage == 'plan'",message="spec.trees is set on plan runs only: a build or revise run works on its one repository"
 // +kubebuilder:validation:XValidation:rule="(self.stage == 'evaluate') == has(self.evaluation)",message="spec.evaluation is set on evaluate runs, and only on them"
+// +kubebuilder:validation:XValidation:rule="!has(self.grant) || !has(self.grant.subagents) || !self.grant.subagents || (self.stage in ['build', 'revise'] && (!has(self.harness) || self.harness == 'claude'))",message="spec.grant.subagents is recorded on build and revise runs on claude only"
+// +kubebuilder:validation:XValidation:rule="!has(self.grant) || !has(self.grant.workflows) || !self.grant.workflows || (has(self.grant.subagents) && self.grant.subagents)",message="spec.grant.workflows is recorded only beside spec.grant.subagents"
 // +kubebuilder:validation:XValidation:rule="!has(self.trees) || self.trees.all(t, (t.url.endsWith('.git') ? t.url.substring(0, size(t.url) - 4) : t.url).lowerAscii() != (self.repository.url.endsWith('.git') ? self.repository.url.substring(0, size(self.repository.url) - 4) : self.repository.url).lowerAscii() && self.trees.exists_one(u, (u.url.endsWith('.git') ? u.url.substring(0, size(u.url) - 4) : u.url).lowerAscii() == (t.url.endsWith('.git') ? t.url.substring(0, size(t.url) - 4) : t.url).lowerAscii()))",message="every tree is a different repository from the others and from spec.repository (compared case-insensitively, ignoring a .git suffix)"
 type IntentRunSpec struct {
 	// IntentRef is the owning Intent. Its UID is required (CEL-enforced):

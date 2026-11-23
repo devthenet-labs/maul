@@ -92,6 +92,12 @@ func countedTurns(reported, granted int) int {
 	return reported
 }
 
+// spentTurns is the turns a run's accounting reports it spent: its main
+// thread's and its subagents', which a stage's cap covers together.
+func spentTurns(st envelope.Stage) int {
+	return st.NumTurns + st.SubagentTurns
+}
+
 // turnCapped reports whether a run ended because it reached its turn cap
 // (claude's error_max_turns), not on the runner's or the broker's budget,
 // the wall clock, the idle watchdog or a crash. Only such a run's session
@@ -143,6 +149,10 @@ type stageRun struct {
 	// example is the report example the stage's prompt showed, which each
 	// repair restates (RepairPrompt.Example); empty for none.
 	example string
+	// delegated is why the delegation kill switch ended the stage's last
+	// run, or "" when it did not: a run that delegated what it was not
+	// granted is not one whose report or work maul takes.
+	delegated string
 }
 
 // newStage sets up a stage's session. The recorder is built here, once,
@@ -156,7 +166,8 @@ func (a *Agent) newStage(h harness.Harness, cli string, req harness.PromptReques
 // start runs the stage's first run.
 func (a *Agent) start(ctx context.Context, sr *stageRun) (runner.Result, string, error) {
 	sr.started = time.Now()
-	return a.run(ctx, sr, pinCLI(sr.h.PromptSpec(a.workDir(), sr.req), sr.cli), sr.firstTimeout(), sr.budget)
+	return a.run(ctx, sr, sr.req, pinCLI(sr.h.PromptSpec(a.workDir(), sr.req), sr.cli), sr.firstTimeout(),
+		sr.budget)
 }
 
 // firstTimeout is the stage's first run's wall clock: the stage's, less
@@ -207,7 +218,7 @@ func settleReport[T any](ctx context.Context, a *Agent, sr *stageRun, st *envelo
 	if outcome == envelope.OutcomeOK {
 		return v, raw, outcome, ""
 	}
-	sr.used = countedTurns(st.NumTurns, sr.req.MaxTurns)
+	sr.used = countedTurns(spentTurns(*st), sr.req.MaxTurns)
 	resumer, ok := sr.h.(harness.Resumer)
 	if !ok {
 		a.cfg.Log.Info("the report was refused, and this harness cannot continue a session, so it is not repaired",
@@ -339,6 +350,10 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 
 	req := sr.req
 	req.Prompt, req.Env, req.Gateway = prompt, env, gateway
+	// A repair fixes the report in a few turns of its own: it is granted no
+	// subagents, so the delegation switch refuses one and its --max-turns
+	// covers every call it makes.
+	req.Subagents, req.Workflows = false, false
 	req.MaxTurns = repairMaxTurns
 	if sr.turns > 0 {
 		req.MaxTurns = repairTurns(sr.turns-sr.used, round)
@@ -362,16 +377,22 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	}
 	a.cfg.Log.Info("asking the agent to repair its report", "phase", a.cfg.Phase, "round", round,
 		"outcome", outcome, "session", session)
-	res, idle, runErr := a.run(ctx, sr, pinCLI(resumer.ResumeSpec(a.workDir(), session, req), sr.cli),
+	res, idle, runErr := a.run(ctx, sr, req, pinCLI(resumer.ResumeSpec(a.workDir(), session, req), sr.cli),
 		timeout, budget)
 	var spent envelope.Stage
 	a.fillStage(&spent, sr.h, res)
 	addRepair(st, spent)
-	sr.used += countedTurns(spent.NumTurns, req.MaxTurns)
+	sr.used += countedTurns(spentTurns(spent), req.MaxTurns)
 
 	r := repairResult{ran: true, failure: a.repairFailure(sr.h, res, idle, runErr)}
 	if ctx.Err() != nil {
 		r.why = fmt.Sprintf("the stage was cancelled during repair round %d", round)
+		return r
+	}
+	if sr.delegated != "" {
+		// Its report is not read: a run that ends on the budget may still
+		// have fixed it, one that delegated is not trusted to have.
+		r.why = fmt.Sprintf("repair round %d delegated what the stage was not granted", round)
 		return r
 	}
 	if sr.writable() {
@@ -423,6 +444,7 @@ func (a *Agent) repairFailure(h harness.Harness, res runner.Result, idle string,
 func addRepair(st *envelope.Stage, run envelope.Stage) {
 	st.ElapsedSeconds += run.ElapsedSeconds
 	st.NumTurns += run.NumTurns
+	st.SubagentTurns += run.SubagentTurns
 	st.Usage.InputTokens += run.Usage.InputTokens
 	st.Usage.OutputTokens += run.Usage.OutputTokens
 	st.Usage.CacheReadTokens += run.Usage.CacheReadTokens

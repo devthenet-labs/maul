@@ -579,6 +579,7 @@ func addSession(st *envelope.Stage, s envelope.Stage) {
 	}
 	st.ElapsedSeconds += s.ElapsedSeconds
 	st.NumTurns += s.NumTurns
+	st.SubagentTurns += s.SubagentTurns
 	st.Usage.InputTokens += s.Usage.InputTokens
 	st.Usage.OutputTokens += s.Usage.OutputTokens
 	st.Usage.CacheReadTokens += s.Usage.CacheReadTokens

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { Finding, TranscriptTurn, TurnKind } from "../types";
 import { streamTranscript } from "../api";
 import { formatCount } from "../format";
+import { nestTurns, type TurnNode } from "../transcript";
 import { Icon } from "./icons";
 import { Markdown } from "./Markdown";
 
@@ -60,6 +61,7 @@ function TranscriptStream({
   // Only follow the tail when the reader is already at it; yanking the view
   // away from someone reading back through the run is worse than not following.
   const pinned = useRef(true);
+  const nodes = useMemo(() => nestTurns(turns), [turns]);
 
   useEffect(() => {
     setTurns([]);
@@ -109,8 +111,8 @@ function TranscriptStream({
         class="max-h-[32rem] overflow-y-auto rounded-[11px] border border-line bg-code p-4"
       >
         <ol class="flex flex-col gap-3">
-          {turns.map((turn) => (
-            <TurnRow key={turn.seq} turn={turn} />
+          {nodes.map((node) => (
+            <TurnItem key={node.turn.seq} node={node} />
           ))}
         </ol>
       </div>
@@ -141,13 +143,32 @@ const TURN_LABEL: Record<TurnKind, string> = {
   notice: "session",
 };
 
-function TurnRow({ turn }: { turn: TranscriptTurn }) {
+// TurnItem is one turn and, nested under it, the turns a subagent printed
+// while running under its call.
+function TurnItem({ node }: { node: TurnNode }) {
+  return (
+    <>
+      <TurnRow turn={node.turn} subagent={node.subagent} />
+      {node.children.length > 0 ? (
+        <li>
+          <ol class="flex flex-col gap-3 border-l-2 border-line pl-3" aria-label="subagent turns">
+            {node.children.map((child) => (
+              <TurnItem key={child.turn.seq} node={child} />
+            ))}
+          </ol>
+        </li>
+      ) : null}
+    </>
+  );
+}
+
+function TurnRow({ turn, subagent }: { turn: TranscriptTurn; subagent: boolean }) {
   switch (turn.kind) {
     case "text":
       // Prose is the agent talking; render its markdown like the report does.
       return (
         <li class="flex flex-col gap-1">
-          <TurnLabel turn={turn} />
+          <TurnLabel turn={turn} subagent={subagent} />
           <div class="text-[13px] leading-relaxed">
             <Markdown source={turn.text ?? ""} />
           </div>
@@ -162,7 +183,7 @@ function TurnRow({ turn }: { turn: TranscriptTurn }) {
     default:
       return (
         <li class="flex flex-col gap-1">
-          <TurnLabel turn={turn} />
+          <TurnLabel turn={turn} subagent={subagent} />
           <pre class="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-line bg-code-2 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-fg">
             {turn.text}
             {turn.truncated ? <span class="text-faint"> …truncated</span> : null}
@@ -172,11 +193,12 @@ function TurnRow({ turn }: { turn: TranscriptTurn }) {
   }
 }
 
-function TurnLabel({ turn }: { turn: TranscriptTurn }) {
+function TurnLabel({ turn, subagent }: { turn: TranscriptTurn; subagent: boolean }) {
   return (
     <div class="flex items-center gap-2">
       <span class="ps-label">{TURN_LABEL[turn.kind] ?? turn.kind}</span>
       {turn.tool ? <span class="ps-mono-tag">{turn.tool}</span> : null}
+      {subagent ? <span class="text-[10px] text-faint">subagent</span> : null}
       {turn.at ? <time class="text-[10px] text-faint">{clockTime(turn.at)}</time> : null}
     </div>
   );

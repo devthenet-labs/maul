@@ -233,6 +233,16 @@ spec:
                     maximum: 1000
                     minimum: 0
                     type: integer
+                  subagents:
+                    description: |-
+                      Subagents records that the run may delegate to subagents: stamped at
+                      creation on a build or revise run on claude while intent-controller
+                      runs with --intent-build-subagents, and on no other run
+                      (CEL-enforced). The run's Job is granted them only while the flag is
+                      still on when it launches, so turning the flag off narrows every run
+                      recorded with it, and a run recorded without it is never launched
+                      with it.
+                    type: boolean
                   timeoutMilliseconds:
                     description: |-
                       TimeoutMilliseconds bounds the stage's wall clock, inside the Job
@@ -249,6 +259,14 @@ spec:
                     maximum: 100000000
                     minimum: 0
                     type: integer
+                  workflows:
+                    description: |-
+                      Workflows records that the run may also run workflows (inline and
+                      built-in ones): stamped at creation beside Subagents while
+                      intent-controller runs with --intent-build-workflows, and never
+                      without Subagents (CEL-enforced). The run's Job is granted them only
+                      while both flags are still on when it launches.
+                    type: boolean
                 type: object
               harness:
                 description: |-
@@ -638,6 +656,14 @@ spec:
               rule: '!has(self.trees) || self.stage == ''plan'''
             - message: spec.evaluation is set on evaluate runs, and only on them
               rule: (self.stage == 'evaluate') == has(self.evaluation)
+            - message: spec.grant.subagents is recorded on build and revise runs on
+                claude only
+              rule: '!has(self.grant) || !has(self.grant.subagents) || !self.grant.subagents
+                || (self.stage in [''build'', ''revise''] && (!has(self.harness) ||
+                self.harness == ''claude''))'
+            - message: spec.grant.workflows is recorded only beside spec.grant.subagents
+              rule: '!has(self.grant) || !has(self.grant.workflows) || !self.grant.workflows
+                || (has(self.grant.subagents) && self.grant.subagents)'
             - message: every tree is a different repository from the others and from
                 spec.repository (compared case-insensitively, ignoring a .git suffix)
               rule: '!has(self.trees) || self.trees.all(t, (t.url.endsWith(''.git'')

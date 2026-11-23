@@ -54,7 +54,7 @@ func (a *Agent) coverChecks(ctx context.Context, sr *stageRun, st *envelope.Stag
 	}
 	if sr.used == 0 {
 		// No repair ran, which would have counted the first run's turns.
-		sr.used = countedTurns(st.NumTurns, sr.req.MaxTurns)
+		sr.used = countedTurns(spentTurns(*st), sr.req.MaxTurns)
 	}
 	refused := ""
 	for round := 1; round <= coverRounds; round++ {
@@ -130,6 +130,7 @@ func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage
 	}
 	req := sr.req
 	req.Prompt, req.Env, req.Gateway = prompt, env, gateway
+	req.Subagents, req.Workflows = false, false // as a repair's: see repairRound
 	if left := sr.turns - sr.used; sr.turns > 0 {
 		// Every turn left, but a later ask's minimum while that leaves this
 		// one its own.
@@ -151,12 +152,18 @@ func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage
 	}
 	a.cfg.Log.Info("asking the agent for the checks of the outcomes it passed with none", "phase", a.cfg.Phase,
 		"round", round, "outcomes", strings.Join(asked, ","), "session", session)
-	res, _, _ := a.run(ctx, sr, pinCLI(resumer.ResumeSpec(a.workDir(), session, req), sr.cli),
+	res, _, _ := a.run(ctx, sr, req, pinCLI(resumer.ResumeSpec(a.workDir(), session, req), sr.cli),
 		sr.timeout-time.Since(sr.started), budget)
 	var spent envelope.Stage
 	a.fillStage(&spent, sr.h, res)
 	addRepair(st, spent)
-	sr.used += countedTurns(spent.NumTurns, req.MaxTurns)
+	sr.used += countedTurns(spentTurns(spent), req.MaxTurns)
+	if sr.delegated != "" {
+		// The report it rewrote is not read; the one before stands.
+		a.cfg.Log.Warn("an ask for checks delegated what the stage was not granted; keeping the report before",
+			"phase", a.cfg.Phase, "round", round, "reason", sr.delegated)
+		return false
+	}
 	return ctx.Err() == nil
 }
 
