@@ -24,7 +24,8 @@ import (
 // The Project settings page (statusServer.projectSettings.enabled): an
 // approver of a Project changes the settings intent-controller reads from
 // it (limits, models, the evaluator's switches, the approver list where the
-// operator allows it) without kubectl. This file is its read side: who may
+// operator allows it) without kubectl. This file is its read side
+// (project_settings_write.go the write): who may
 // see a Project's settings is who may see its intents (the intents views'
 // tier), and what the page shows, bounds and lets the viewer save is the
 // pure core's (internal/projectsettings.View) of the Project read uncached,
@@ -61,17 +62,21 @@ type projectSettingsState struct {
 	policy   projectsettings.Policy
 	projects []string
 	readOnly bool
+	// saves bounds each person's saves (project_settings_write.go).
+	saves *saveLimiter
 }
 
 // WithProjectSettings enables the Project settings page.
 func (s *Server) WithProjectSettings(o ProjectSettingsOptions) *Server {
-	s.settings = &projectSettingsState{policy: o.Policy, projects: slices.Clone(o.Projects), readOnly: o.ReadOnly}
+	s.settings = &projectSettingsState{policy: o.Policy, projects: slices.Clone(o.Projects), readOnly: o.ReadOnly,
+		saves: newSaveLimiter()}
 	return s
 }
 
 // registerProjectSettings mounts the page's routes.
 func (s *Server) registerProjectSettings(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects/{name}/settings", s.handleProjectSettings)
+	mux.HandleFunc("POST /api/projects/{name}/settings", s.handleProjectSettingsSave)
 }
 
 // settingsFor reports whether the page is served for the named Project.
@@ -87,32 +92,42 @@ func (s *Server) settingsFor(project string) bool {
 // route does, so a name the caller made up costs no access review; the
 // uncached read comes only once the caller's tier admits it.
 func (s *Server) visibleProject(r *http.Request, id auth.Identity, name string) (*v1alpha1.Project, error) {
-	if len(validation.IsDNS1123Subdomain(name)) > 0 || !s.settingsFor(name) {
-		return nil, errNotVisible
-	}
-	ctx := r.Context()
-	key := types.NamespacedName{Namespace: s.namespace, Name: name}
-	if err := s.client.Get(ctx, key, &v1alpha1.Project{}); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, errNotVisible
-		}
-		return nil, err
-	}
-	tiers, err := s.intents.projects.Tiers(ctx, id, []string{name})
+	key, err := s.settingsVisible(r, id, name)
 	if err != nil {
 		return nil, err
 	}
-	if tiers[name] == authz.TierNone {
-		return nil, errNotVisible
-	}
 	var p v1alpha1.Project
-	if err := s.reader.Get(ctx, key, &p); err != nil {
+	if err := s.reader.Get(r.Context(), key, &p); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, errNotVisible
 		}
 		return nil, err
 	}
 	return &p, nil
+}
+
+// settingsVisible is visibleProject without the read: the Project's key
+// when the caller may see its settings, errNotVisible otherwise.
+func (s *Server) settingsVisible(r *http.Request, id auth.Identity, name string) (types.NamespacedName, error) {
+	key := types.NamespacedName{Namespace: s.namespace, Name: name}
+	if len(validation.IsDNS1123Subdomain(name)) > 0 || !s.settingsFor(name) {
+		return key, errNotVisible
+	}
+	ctx := r.Context()
+	if err := s.client.Get(ctx, key, &v1alpha1.Project{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			return key, errNotVisible
+		}
+		return key, err
+	}
+	tiers, err := s.intents.projects.Tiers(ctx, id, []string{name})
+	if err != nil {
+		return key, err
+	}
+	if tiers[name] == authz.TierNone {
+		return key, errNotVisible
+	}
+	return key, nil
 }
 
 // handleProjectSettings serves one Project's settings view.

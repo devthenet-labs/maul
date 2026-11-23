@@ -4,23 +4,36 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	kfield "k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/intentview"
+	"github.com/devthenet-labs/maul/internal/kube"
 	"github.com/devthenet-labs/maul/internal/projectsettings"
 	"github.com/devthenet-labs/maul/internal/web/auth"
 	"github.com/devthenet-labs/maul/internal/web/authz"
@@ -362,4 +375,786 @@ func equalJSON(t *testing.T, a, b any) bool {
 		t.Fatal(err)
 	}
 	return string(x) == string(y)
+}
+
+// ---- The write path: POST /api/projects/{name}/settings ----
+
+// savePolicy is the chart's default policy with the approver list editable,
+// so an approver can be added (a change that needs a confirmation).
+func savePolicy() projectsettings.Policy {
+	pol := projectsettings.DefaultPolicy()
+	pol.Allow.Approvers = true
+	return pol
+}
+
+// patchCall is one Patch the server sent: the object's name, the patch's
+// body and the field manager it was sent under.
+type patchCall struct {
+	name    string
+	body    string
+	manager string
+}
+
+// saveFixture is the settings page over one fake client that is both the
+// manager's client and the uncached reader, with Project status a
+// subresource as on the API server, and every Patch recorded. before runs
+// ahead of a Patch (its call number from 1) and may answer it instead: a
+// non-nil error is returned in place of the write.
+type saveFixture struct {
+	t       *testing.T
+	s       *Server
+	c       client.Client
+	g       *tierGranter
+	logs    *syncBuffer
+	patches []patchCall
+	before  func(n int, cl client.WithWatch, obj client.Object) error
+}
+
+func newSaveFixture(t *testing.T, o ProjectSettingsOptions, objs ...client.Object) *saveFixture {
+	t.Helper()
+	if objs == nil {
+		p := settingsProject()
+		p.ManagedFields = nil
+		objs = []client.Object{p}
+	}
+	f := &saveFixture{t: t, logs: &syncBuffer{}}
+	f.c = fake.NewClientBuilder().
+		WithScheme(kube.Scheme()).
+		WithObjects(objs...).
+		WithStatusSubresource(&v1alpha1.Project{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption) error {
+				data, err := patch.Data(obj)
+				if err != nil {
+					return err
+				}
+				po := &client.PatchOptions{}
+				po.ApplyOptions(opts)
+				f.patches = append(f.patches, patchCall{name: obj.GetName(), body: string(data),
+					manager: po.FieldManager})
+				if f.before != nil {
+					if err := f.before(len(f.patches), cl, obj); err != nil {
+						return err
+					}
+				}
+				return cl.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+	f.g = fixtureGranter()
+	f.g.set(approverAlpha.Username, "alpha", authz.TierIntents)
+	f.g.set(noWriteAlpha.Username, "alpha", authz.TierIntents)
+	f.g.set(strangerAlpha.Username, "alpha", authz.TierIntents)
+	f.s = NewServer(f.c, "maul", stubAuth{}, stubGranter{grants: allGrants()},
+		slog.New(slog.NewJSONHandler(f.logs, nil)))
+	f.s.now = func() time.Time { return testClock }
+	f.s = f.s.WithTranscripts(f.c, nil).WithIntents(IntentsOptions{Projects: f.g}).WithProjectSettings(o)
+	return f
+}
+
+// strangerAlpha sees alpha and has a GitHub id the approver list resolved
+// to no one.
+var strangerAlpha = &auth.Identity{Username: "github:str", DisplayName: "Str", Session: true, GitHubID: 999}
+
+// syncBuffer is a log sink the handler's goroutine writes and the test
+// reads.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+// lines are the JSON log records whose msg is msg.
+func (b *syncBuffer) lines(t *testing.T, msg string) []map[string]any {
+	t.Helper()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []map[string]any
+	for line := range strings.SplitSeq(b.b.String(), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		if rec["msg"] == msg {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+// project is alpha as stored now.
+func (f *saveFixture) project() *v1alpha1.Project {
+	f.t.Helper()
+	var p v1alpha1.Project
+	if err := f.c.Get(f.t.Context(), client.ObjectKey{Namespace: "maul", Name: "alpha"}, &p); err != nil {
+		f.t.Fatal(err)
+	}
+	return &p
+}
+
+// request is a save of alpha's settings as they are now, at its generation.
+func (f *saveFixture) request() projectsettings.ProjectSettingsRequest {
+	p := f.project()
+	return projectsettings.ProjectSettingsRequest{Generation: p.Generation, Schema: projectsettings.Schema,
+		Settings: projectsettings.Read(&p.Spec), Confirm: []string{}}
+}
+
+// post sends body to alpha's settings as id, from the page's own origin,
+// and returns the status and the body.
+func (f *saveFixture) post(id *auth.Identity, contentType, body string) (int, string) {
+	f.t.Helper()
+	return f.postTo(id, settingsPath, contentType, body, "same-origin")
+}
+
+func (f *saveFixture) postTo(id *auth.Identity, path, contentType, body, site string) (int, string) {
+	f.t.Helper()
+	ts := as(f.t, f.s, id)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+path, strings.NewReader(body))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if site != "" {
+		req.Header.Set("Sec-Fetch-Site", site)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		f.t.Fatalf("POST %s: %v", path, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	out, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(out)
+}
+
+// save posts req as id and decodes the answer, which every answer past
+// the body checks is.
+func (f *saveFixture) save(id *auth.Identity, req projectsettings.ProjectSettingsRequest) (int,
+	projectsettings.ProjectSettingsResult) {
+	f.t.Helper()
+	raw, err := json.Marshal(req)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	code, body := f.post(id, "application/json", string(raw))
+	return code, decode[projectsettings.ProjectSettingsResult](f.t, body)
+}
+
+// Who may not edit is told why, as the gate's fixed key, with a 403 and
+// nothing written; the read-only page has no write path for anyone.
+func TestProjectSettingsSaveGateReasons(t *testing.T) {
+	stale := func(p *v1alpha1.Project) {
+		at := metav1.NewTime(testClock.Add(-projectsettings.ApproversMaxAge - time.Minute))
+		p.Status.Approvers.ResolvedAt = &at
+	}
+	for _, tc := range []struct {
+		name   string
+		id     *auth.Identity
+		mutate func(*v1alpha1.Project)
+		want   string
+	}{
+		{"no GitHub id", viewerAlpha, nil, projectsettings.ReasonNoGitHubIdentity},
+		{"not an approver", strangerAlpha, nil, projectsettings.ReasonNotApprover},
+		{"no write access", noWriteAlpha, nil, projectsettings.ReasonNoWriteAccess},
+		{"approvers unresolved", approverAlpha, func(p *v1alpha1.Project) { p.Status.Approvers = nil },
+			projectsettings.ReasonApproversUnresolved},
+		{"approvers stale", approverAlpha, stale, projectsettings.ReasonApproversStale},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := settingsProject()
+			p.ManagedFields = nil
+			if tc.mutate != nil {
+				tc.mutate(p)
+			}
+			f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()}, p)
+			req := f.request()
+			mr := int32(5)
+			req.Settings.Limits.MaxRevisions = &mr
+			code, res := f.save(tc.id, req)
+			if code != http.StatusForbidden || res.Reason != tc.want {
+				t.Errorf("save = %d %q, want 403 %q", code, res.Reason, tc.want)
+			}
+			if len(f.patches) != 0 {
+				t.Errorf("%d patches for a save the gate refused", len(f.patches))
+			}
+			if len(res.Changes) != 0 {
+				t.Errorf("the refused account learns the changes: %+v", res.Changes)
+			}
+		})
+	}
+
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy(), ReadOnly: true})
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, res := f.save(approverAlpha, req); code != http.StatusForbidden || res.Reason != SettingsReadOnly {
+		t.Errorf("read-only page: save = %d %q, want 403 %q", code, res.Reason, SettingsReadOnly)
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches on the read-only page", len(f.patches))
+	}
+}
+
+// A save is one application/json object of at most 16 KiB naming only the
+// document's fields; anything else is refused before the Project is read
+// for a decision, and nothing is written.
+func TestProjectSettingsSaveRefusesBadBodies(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	good, err := json.Marshal(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := strings.Replace(string(good), `"schema":`, `"surprise":1,"schema":`, 1)
+	nested := strings.Replace(string(good), `"maxRevisions":`, `"maxRevisionz":1,"maxRevisions":`, 1)
+	big := `{"generation":1,"schema":1,"confirm":["` + strings.Repeat("x", 17<<10) + `"]}`
+	for _, tc := range []struct {
+		name, contentType, body string
+		want                    int
+	}{
+		{"no content type", "", string(good), http.StatusUnsupportedMediaType},
+		{"a form", "application/x-www-form-urlencoded", string(good), http.StatusUnsupportedMediaType},
+		{"text", "text/plain", string(good), http.StatusUnsupportedMediaType},
+		{"an unknown field", "application/json", unknown, http.StatusBadRequest},
+		{"an unknown nested field", "application/json", nested, http.StatusBadRequest},
+		{"two objects", "application/json", string(good) + string(good), http.StatusBadRequest},
+		{"trailing data", "application/json", string(good) + "}", http.StatusBadRequest},
+		{"not JSON", "application/json", "settings please", http.StatusBadRequest},
+		{"too large", "application/json", big, http.StatusRequestEntityTooLarge},
+	} {
+		if code, body := f.post(approverAlpha, tc.contentType, tc.body); code != tc.want {
+			t.Errorf("%s: POST = %d %s, want %d", tc.name, code, body, tc.want)
+		}
+	}
+	if code, body := f.post(approverAlpha, "application/json; charset=utf-8", string(good)); code != http.StatusOK {
+		t.Errorf("application/json with a charset: POST = %d %s, want 200", code, body)
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches for refused bodies and an unchanged save", len(f.patches))
+	}
+}
+
+// Each person may save ten times a minute; the eleventh is a 429, which
+// spends nothing of anyone else's.
+func TestProjectSettingsSaveRateLimited(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	now := testClock
+	f.s.now = func() time.Time { return now }
+	raw, err := json.Marshal(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 10 {
+		if code, body := f.post(approverAlpha, "application/json", string(raw)); code != http.StatusOK {
+			t.Fatalf("save %d = %d %s", i+1, code, body)
+		}
+		now = now.Add(time.Second)
+	}
+	if code, _ := f.post(approverAlpha, "application/json", string(raw)); code != http.StatusTooManyRequests {
+		t.Errorf("the eleventh save in a minute = %d, want 429", code)
+	}
+	if code, _ := f.post(approverAlpha, "text/plain", "x"); code != http.StatusTooManyRequests {
+		t.Errorf("a refused body counts too: = %d, want 429", code)
+	}
+	if code, res := f.save(noWriteAlpha, f.request()); code != http.StatusForbidden ||
+		res.Reason != projectsettings.ReasonNoWriteAccess {
+		t.Errorf("another person = %d %q: their budget is their own", code, res.Reason)
+	}
+	now = testClock.Add(time.Minute + time.Second)
+	if code, body := f.post(approverAlpha, "application/json", string(raw)); code != http.StatusOK {
+		t.Errorf("a minute after the first save = %d %s, want 200", code, body)
+	}
+}
+
+// A save made on a page of another generation or schema is refused with a
+// 409, so the page reloads; nothing is merged.
+func TestProjectSettingsSaveStalePage(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	mr := int32(5)
+	req := f.request()
+	req.Settings.Limits.MaxRevisions = &mr
+	req.Generation--
+	if code, res := f.save(approverAlpha, req); code != http.StatusConflict ||
+		res.Reason != projectsettings.ResultGenerationChanged {
+		t.Errorf("an old generation = %d %q, want 409 %q", code, res.Reason, projectsettings.ResultGenerationChanged)
+	}
+	req = f.request()
+	req.Settings.Limits.MaxRevisions = &mr
+	req.Schema++
+	if code, res := f.save(approverAlpha, req); code != http.StatusConflict ||
+		res.Reason != projectsettings.ResultSchemaChanged {
+		t.Errorf("another schema = %d %q, want 409 %q", code, res.Reason, projectsettings.ResultSchemaChanged)
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches for stale pages", len(f.patches))
+	}
+}
+
+// A change the policy refuses is a 422 naming the field; a document the
+// page could not have posted is a 400; neither writes.
+func TestProjectSettingsSaveRefused(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	req := f.request()
+	mr := int32(15)
+	req.Settings.Limits.MaxRevisions = &mr
+	code, res := f.save(approverAlpha, req)
+	want := []projectsettings.ProjectSettingsRefusal{{Field: projectsettings.FieldMaxRevisions,
+		Reason: projectsettings.RefusedAboveCeiling, Limit: 10}}
+	if code != http.StatusUnprocessableEntity || res.Reason != projectsettings.ResultRefused ||
+		!equalJSON(t, res.Refusals, want) {
+		t.Errorf("above the ceiling = %d %+v, want 422 %+v", code, res, want)
+	}
+	req = f.request()
+	req.Settings.Repositories = append(req.Settings.Repositories,
+		projectsettings.ProjectSettingsRepository{Name: "nosuch", AgentResourceClass: "small"})
+	code, res = f.save(approverAlpha, req)
+	if code != http.StatusBadRequest || res.Reason != projectsettings.ResultInvalidDocument ||
+		len(res.Refusals) != 1 || res.Refusals[0].Reason != projectsettings.DocumentUnknownRepository {
+		t.Errorf("an unknown repository = %d %+v, want 400 %s", code, res, projectsettings.DocumentUnknownRepository)
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches for refused saves", len(f.patches))
+	}
+}
+
+// A weakening change is answered with the confirmations it needs; posted
+// again with them it is saved, and the answer carries the generation the
+// page waits for.
+func TestProjectSettingsSaveConfirmThenSave(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	req := f.request()
+	req.Settings.Approvers = append(req.Settings.Approvers, "carol")
+	code, res := f.save(approverAlpha, req)
+	if code != http.StatusConflict || res.Reason != projectsettings.ResultConfirmRequired || len(res.Confirm) != 1 {
+		t.Fatalf("adding an approver unconfirmed = %d %+v, want 409 with one confirmation", code, res)
+	}
+	if len(f.patches) != 0 {
+		t.Fatalf("%d patches before the confirmation", len(f.patches))
+	}
+	req.Confirm = []string{res.Confirm[0].Key}
+	code, res = f.save(approverAlpha, req)
+	if code != http.StatusOK || res.Reason != "" || len(res.Changes) != 1 {
+		t.Fatalf("confirmed = %d %+v, want 200 with the one change", code, res)
+	}
+	p := f.project()
+	if !slices.Equal(p.Spec.Approvers.Logins, []string{"octo", "wil", "carol"}) {
+		t.Errorf("approvers = %v after the save", p.Spec.Approvers.Logins)
+	}
+	if res.Generation != p.Generation {
+		t.Errorf("answer generation %d, stored %d", res.Generation, p.Generation)
+	}
+	e, ok := projectsettings.ParseEdit(p.Annotations[projectsettings.EditedAnnotation])
+	if !ok || e.GitHubID != approverAlpha.GitHubID || e.Login != "octo" ||
+		!slices.Equal(e.Fields, []string{projectsettings.FieldApprovers}) {
+		t.Errorf("edit record = %+v, %v", e, ok)
+	}
+}
+
+// Posting the settings unchanged is a 200 that writes nothing and logs no
+// change.
+func TestProjectSettingsSaveUnchangedWritesNothing(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	before := f.project()
+	code, res := f.save(approverAlpha, f.request())
+	if code != http.StatusOK || res.Reason != "" || len(res.Changes) != 0 || res.Generation != before.Generation {
+		t.Errorf("an unchanged save = %d %+v", code, res)
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches for an unchanged save", len(f.patches))
+	}
+	if after := f.project(); after.ResourceVersion != before.ResourceVersion {
+		t.Errorf("resourceVersion %s -> %s", before.ResourceVersion, after.ResourceVersion)
+	}
+	if got := f.logs.lines(t, "project settings changed"); len(got) != 0 {
+		t.Errorf("an unchanged save logged %v", got)
+	}
+}
+
+// The write is a JSON merge patch of exactly the changed leaves, the edit
+// record and the resourceVersion it was decided at, under the page's own
+// field manager: never the whole spec, never status.
+func TestProjectSettingsSavePatchBody(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	live := f.project()
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	req.Settings.Repositories = []projectsettings.ProjectSettingsRepository{{Name: "app", AgentResourceClass: "large"}}
+	if code, res := f.save(approverAlpha, req); code != http.StatusOK || res.Reason != "" {
+		t.Fatalf("save = %d %+v", code, res)
+	}
+	if len(f.patches) != 1 {
+		t.Fatalf("%d patches, want 1", len(f.patches))
+	}
+	got := f.patches[0]
+	if got.manager != projectsettings.FieldManager {
+		t.Errorf("field manager %q, want %q", got.manager, projectsettings.FieldManager)
+	}
+	changes := []projectsettings.ProjectSettingsChange{{Field: projectsettings.FieldMaxRevisions},
+		{Field: projectsettings.FieldRepositoryClass}}
+	edit := projectsettings.EncodeEdit(projectsettings.NewEdit(approverAlpha.GitHubID, "octo", testClock, changes))
+	want := map[string]any{
+		"metadata": map[string]any{
+			"annotations":     map[string]any{projectsettings.EditedAnnotation: edit},
+			"resourceVersion": live.ResourceVersion,
+		},
+		"spec": map[string]any{
+			"limits": map[string]any{"maxRevisions": float64(5)},
+			"repositories": []any{map[string]any{"name": "app", "url": "https://github.com/acme/app",
+				"agentResourceClass": "large"}},
+		},
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(got.body), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !equalJSON(t, body, want) {
+		t.Errorf("patch body\n got %s\nwant %s", got.body, mustJSON(t, want))
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// The controller writes status every poll, which moves the resourceVersion
+// a save was decided at: the write conflicts, and the save is read and
+// decided again, the gate included.
+func TestProjectSettingsSaveRetriesAStatusConflict(t *testing.T) {
+	bump := func(revoke bool) func(int, client.WithWatch, client.Object) error {
+		return func(n int, cl client.WithWatch, obj client.Object) error {
+			if n != 1 {
+				return nil
+			}
+			var cur v1alpha1.Project
+			if err := cl.Get(context.Background(), client.ObjectKeyFromObject(obj), &cur); err != nil {
+				return err
+			}
+			at := metav1.NewTime(testClock)
+			cur.Status.LastPolledAt = &at
+			if revoke {
+				cur.Status.Approvers.Identities[0].Write = false
+			}
+			return cl.Status().Update(context.Background(), &cur)
+		}
+	}
+	mr := int32(5)
+
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	f.before = bump(false)
+	req := f.request()
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, res := f.save(approverAlpha, req); code != http.StatusOK || res.Reason != "" {
+		t.Errorf("save over a status write = %d %+v, want 200 after the retry", code, res)
+	}
+	if len(f.patches) != 2 {
+		t.Errorf("%d patches, want the conflicted one and its retry", len(f.patches))
+	}
+	if got := f.project().Spec.Limits.MaxRevisions; got == nil || *got != 5 {
+		t.Errorf("maxRevisions = %v after the retry", got)
+	}
+
+	f = newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	f.before = bump(true)
+	req = f.request()
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, res := f.save(approverAlpha, req); code != http.StatusForbidden ||
+		res.Reason != projectsettings.ReasonNoWriteAccess {
+		t.Errorf("save while write access went = %d %+v, want 403 %s", code, res, projectsettings.ReasonNoWriteAccess)
+	}
+	if got := f.project().Spec.Limits.MaxRevisions; got == nil || *got != 3 {
+		t.Errorf("maxRevisions = %v: written for someone who lost write access", got)
+	}
+
+	f = newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	f.before = func(int, client.WithWatch, client.Object) error {
+		return apierrors.NewConflict(schema.GroupResource{Group: "maul.run", Resource: "projects"}, "alpha", nil)
+	}
+	req = f.request()
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, res := f.save(approverAlpha, req); code != http.StatusConflict || res.Reason != SettingsConflict {
+		t.Errorf("conflicts every time = %d %+v, want 409 %s", code, res, SettingsConflict)
+	}
+}
+
+// The API server is the authority on the schema and its cross-field rules,
+// which the page does not check first: its Invalid answer is told as a
+// refusal of each changed field at or below the path it names, and an
+// answer naming none still refuses the save.
+func TestProjectSettingsSaveAPIInvalid(t *testing.T) {
+	gr := schema.GroupKind{Group: "maul.run", Kind: "Project"}
+	for _, tc := range []struct {
+		name   string
+		causes kfield.ErrorList
+		want   []projectsettings.ProjectSettingsRefusal
+	}{
+		{"a cross-field rule on limits", kfield.ErrorList{kfield.Invalid(kfield.NewPath("spec", "limits"), "object",
+			"limits.plan.maxCostMicroUSD must not exceed limits.maxCostMicroUSD")},
+			[]projectsettings.ProjectSettingsRefusal{
+				{Field: projectsettings.FieldMaxCost, Reason: projectsettings.RefusedInvalid},
+				{Field: "limits.plan.maxCostMicroUSD", Reason: projectsettings.RefusedInvalid},
+			}},
+		{"a leaf", kfield.ErrorList{kfield.Invalid(kfield.NewPath("spec", "limits", "maxCostMicroUSD"), 1, "too small")},
+			[]projectsettings.ProjectSettingsRefusal{
+				{Field: projectsettings.FieldMaxCost, Reason: projectsettings.RefusedInvalid}}},
+		{"a repository's class", kfield.ErrorList{kfield.Invalid(
+			kfield.NewPath("spec", "repositories").Index(0).Child("agentResourceClass"), "huge", "no")},
+			[]projectsettings.ProjectSettingsRefusal{{Field: projectsettings.FieldRepositoryClass, Item: "app",
+				Reason: projectsettings.RefusedInvalid}}},
+		{"a path no change is under", kfield.ErrorList{kfield.Invalid(kfield.NewPath("spec", "surfaces"), "x", "no")},
+			[]projectsettings.ProjectSettingsRefusal{{Field: "surfaces", Reason: projectsettings.RefusedInvalid}}},
+		{"no causes (an admission policy's denial)", nil,
+			[]projectsettings.ProjectSettingsRefusal{{Reason: projectsettings.RefusedInvalid}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+			f.before = func(int, client.WithWatch, client.Object) error {
+				return apierrors.NewInvalid(gr, "alpha", tc.causes)
+			}
+			req := f.request()
+			req.Settings.Limits.MaxCostMicroUSD = 2_000_000
+			req.Settings.Stages.Plan.MaxCostMicroUSD = 1_000_000
+			req.Settings.Repositories = []projectsettings.ProjectSettingsRepository{{Name: "app",
+				AgentResourceClass: "large"}}
+			code, res := f.save(approverAlpha, req)
+			if code != http.StatusUnprocessableEntity || res.Reason != projectsettings.ResultRefused {
+				t.Fatalf("save = %d %+v, want 422 %s", code, res, projectsettings.ResultRefused)
+			}
+			for i := range res.Refusals {
+				res.Refusals[i].Limit = 0
+			}
+			if !equalJSON(t, res.Refusals, tc.want) {
+				t.Errorf("refusals = %+v, want %+v", res.Refusals, tc.want)
+			}
+			if len(res.Changes) != 3 {
+				t.Errorf("changes = %+v: the page shows what was refused", res.Changes)
+			}
+			if strings.Contains(mustJSON(t, res), "must not exceed") {
+				t.Error("the API server's message reached the page")
+			}
+			if got := f.logs.lines(t, "project settings refused"); len(got) != 1 ||
+				got[0]["reason"] != SettingsAPIInvalid {
+				t.Errorf("refusal log = %v", got)
+			}
+		})
+	}
+}
+
+// A write the API server forbids (the patch grant's resourceNames, an
+// admission policy denying as Forbidden) is a 403 of its own reason, with
+// nothing written and the refusal recorded.
+func TestProjectSettingsSaveForbiddenByTheCluster(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	f.before = func(int, client.WithWatch, client.Object) error {
+		return apierrors.NewForbidden(schema.GroupResource{Group: "maul.run", Resource: "projects"}, "alpha",
+			errors.New("denied"))
+	}
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, res := f.save(approverAlpha, req); code != http.StatusForbidden || res.Reason != SettingsClusterRefused {
+		t.Errorf("forbidden write = %d %+v, want 403 %s", code, res, SettingsClusterRefused)
+	}
+	if got := f.project().Spec.Limits.MaxRevisions; got == nil || *got != 3 {
+		t.Errorf("maxRevisions = %v", got)
+	}
+	if got := f.logs.lines(t, "project settings refused"); len(got) != 1 || got[0]["reason"] != SettingsClusterRefused {
+		t.Errorf("refusal lines = %v", got)
+	}
+}
+
+// Every save is recorded: a made change as "project settings changed" with
+// the editor's account, the login it resolved to, the generations and each
+// change; a refusal as "project settings refused" with its reason; both
+// counted by result.
+func TestProjectSettingsSaveAudit(t *testing.T) {
+	settingsMetrics()
+	changed := settingsWrites(t, "changed")
+	refused := settingsWrites(t, projectsettings.ResultRefused)
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, res := f.save(approverAlpha, req); code != http.StatusOK {
+		t.Fatalf("save = %d %+v", code, res)
+	}
+	lines := f.logs.lines(t, "project settings changed")
+	if len(lines) != 1 {
+		t.Fatalf("change lines = %v", lines)
+	}
+	got := lines[0]
+	want := map[string]any{"project": "alpha", "user": approverAlpha.Username, "github_id": float64(101),
+		"login": "octo", "generation": float64(4),
+		"changes": []any{map[string]any{"field": projectsettings.FieldMaxRevisions, "item": "", "from": "3",
+			"to": "5"}}}
+	for k, v := range want {
+		if !equalJSON(t, got[k], v) {
+			t.Errorf("audit %s = %v, want %v", k, got[k], v)
+		}
+	}
+	if settingsWrites(t, "changed") != changed+1 {
+		t.Error("the change was not counted")
+	}
+
+	mr = 15
+	req = f.request()
+	req.Settings.Limits.MaxRevisions = &mr
+	if code, _ := f.save(approverAlpha, req); code != http.StatusUnprocessableEntity {
+		t.Fatalf("refused save = %d", code)
+	}
+	lines = f.logs.lines(t, "project settings refused")
+	if len(lines) != 1 || lines[0]["reason"] != projectsettings.ResultRefused || lines[0]["user"] !=
+		approverAlpha.Username || lines[0]["project"] != "alpha" {
+		t.Errorf("refusal lines = %v", lines)
+	}
+	if settingsWrites(t, projectsettings.ResultRefused) != refused+1 {
+		t.Error("the refusal was not counted")
+	}
+}
+
+// settingsMetrics installs, once per test binary, a ManualReader-backed
+// global MeterProvider the package's instruments report to.
+var settingsMetrics = sync.OnceValue(func() *sdkmetric.ManualReader {
+	r := sdkmetric.NewManualReader()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(r)))
+	return r
+})
+
+// settingsWrites is maul.status.project_settings.writes for one result.
+func settingsWrites(t *testing.T, result string) int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := settingsMetrics().Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var total int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "maul.status.project_settings.writes" {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("%s is %T", m.Name, m.Data)
+			}
+			for _, dp := range sum.DataPoints {
+				if v, ok := dp.Attributes.Value(attribute.Key("result")); ok && v.AsString() == result {
+					total += dp.Value
+				}
+			}
+		}
+	}
+	return total
+}
+
+// A save of a Project the caller may not see, one that does not exist and
+// one the page is not for answer as the read does, and write nothing; a
+// save without a session is a 401.
+func TestProjectSettingsSaveInvisibleIsMissing(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy(), Projects: []string{"alpha"}})
+	raw, err := json.Marshal(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		id   *auth.Identity
+		path string
+	}{
+		"invisible":   {nobodyCaller, settingsPath},
+		"missing":     {approverAlpha, "/api/projects/nosuch/settings"},
+		"not listed":  {approverAlpha, "/api/projects/beta/settings"},
+		"not a name":  {approverAlpha, "/api/projects/Not_A_Name/settings"},
+		"to a viewer": {viewerBeta, settingsPath},
+	} {
+		if code, body := f.postTo(tc.id, tc.path, "application/json", string(raw), "same-origin"); code !=
+			http.StatusNotFound {
+			t.Errorf("%s: POST = %d %s, want 404", name, code, body)
+		}
+	}
+	if code, _ := f.postTo(nil, settingsPath, "application/json", string(raw), "same-origin"); code !=
+		http.StatusUnauthorized {
+		t.Errorf("no session: POST = %d, want 401", code)
+	}
+	if len(f.patches) != 0 {
+		t.Errorf("%d patches", len(f.patches))
+	}
+}
+
+// Through a real API server: a save bumps the generation and the answer
+// carries the new one, the edit lands under the page's field manager, and
+// a cross-field rule the page does not check first (a per-intent cost
+// under a stage's) comes back as a refusal of the fields that moved.
+func TestProjectSettingsSaveThroughARealAPIServer(t *testing.T) {
+	admin, s := startOwnershipEnv(t)
+	p := settingsProject()
+	p.ManagedFields, p.Status, p.ResourceVersion = nil, v1alpha1.ProjectStatus{}, ""
+	p.Spec.IntentRepository = "https://github.com/acme/intents"
+	p.Spec.Limits.Plan.MaxCostMicroUSD = 3_000_000
+	if err := admin.Create(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	st := settingsProject().Status
+	p.Status = st
+	if err := admin.Status().Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	g := fixtureGranter()
+	g.set(approverAlpha.Username, "alpha", authz.TierIntents)
+	s = s.WithTranscripts(s.client, nil).WithIntents(IntentsOptions{Projects: g}).
+		WithProjectSettings(ProjectSettingsOptions{Policy: savePolicy()})
+	f := &saveFixture{t: t, s: s, c: admin, g: g, logs: &syncBuffer{}}
+	s.log = slog.New(slog.NewJSONHandler(f.logs, nil))
+
+	req := f.request()
+	mr := int32(5)
+	req.Settings.Limits.MaxRevisions = &mr
+	code, res := f.save(approverAlpha, req)
+	stored := f.project()
+	if code != http.StatusOK || res.Generation != req.Generation+1 || stored.Generation != res.Generation {
+		t.Fatalf("save = %d %+v; generation sent %d, stored %d", code, res, req.Generation, stored.Generation)
+	}
+	owned := false
+	for _, m := range stored.ManagedFields {
+		if m.Manager == projectsettings.FieldManager && m.FieldsV1 != nil &&
+			strings.Contains(m.FieldsV1.GetRawString(), `"f:maxRevisions"`) {
+			owned = true
+		}
+	}
+	if !owned {
+		t.Errorf("maxRevisions is not %s's: %+v", projectsettings.FieldManager, stored.ManagedFields)
+	}
+
+	req = f.request()
+	req.Settings.Limits.MaxCostMicroUSD = 2_000_000
+	code, res = f.save(approverAlpha, req)
+	want := []projectsettings.ProjectSettingsRefusal{{Field: projectsettings.FieldMaxCost,
+		Reason: projectsettings.RefusedInvalid}}
+	if code != http.StatusUnprocessableEntity || res.Reason != projectsettings.ResultRefused ||
+		!equalJSON(t, res.Refusals, want) {
+		t.Errorf("a per-intent cost under the plan stage's = %d %+v, want 422 %+v", code, res, want)
+	}
+	// The rule is declared on spec.limits, and that is the path the API
+	// server names: the refusal above is the mapping of exactly that.
+	lines := f.logs.lines(t, "project settings refused")
+	if len(lines) != 1 || lines[0]["reason"] != SettingsAPIInvalid ||
+		!strings.HasPrefix(mustJSON(t, lines[0]["causes"]), `["spec.limits: `) {
+		t.Errorf("refusal lines = %v, want one naming the API server's cause on spec.limits", lines)
+	}
+	if got := f.project(); got.Spec.Limits.MaxCostMicroUSD != 10_000_000 || got.Generation != stored.Generation {
+		t.Errorf("refused save wrote: cost %d generation %d", got.Spec.Limits.MaxCostMicroUSD, got.Generation)
+	}
 }
