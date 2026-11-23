@@ -18,6 +18,6 @@
 // of an earlier tools image whose entries carry a check run record.
 //
 // It is the ledger's trust root and stays pure: the standard library, the
-// tool wire, the CRD types and the step and check grammars only (a test
-// pins that). The hosts keep the Kubernetes objects.
+// tool wire, the CRD types and the step grammar only (a test pins that).
+// The hosts keep the Kubernetes objects.
 package toolledger

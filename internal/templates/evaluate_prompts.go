@@ -13,9 +13,8 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
-	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/httpstep"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -185,7 +184,7 @@ const (
 // EvaluateWorkspace is what the agents-namespace tool pod built (SPEC-S2):
 // the Project's surface, maul's own and stated as fact. A cli names its
 // Build argv and its Binary (v1alpha1.ValidCLIBuild, ValidCLIBinary); a
-// library its Language, go (checks.LanguageGo), and no build.
+// library its Language, go (toolwire.LanguageGo), and no build.
 type EvaluateWorkspace struct {
 	// Surface is SurfaceCLI or SurfaceLibrary.
 	Surface  string
@@ -204,8 +203,8 @@ func (w EvaluateWorkspace) validate() error {
 				v1alpha1.CLIBinDir)
 		}
 	case SurfaceLibrary:
-		if w.Language != checks.LanguageGo || w.Binary != "" || len(w.Build) > 0 {
-			return fmt.Errorf("a library workspace names language %s and no build or binary", checks.LanguageGo)
+		if w.Language != toolwire.LanguageGo || w.Binary != "" || len(w.Build) > 0 {
+			return fmt.Errorf("a library workspace names language %s and no build or binary", toolwire.LanguageGo)
 		}
 	default:
 		return fmt.Errorf("workspace surface %q is not %s or %s", w.Surface, SurfaceCLI, SurfaceLibrary)
@@ -226,8 +225,8 @@ func buildSpan(argv []string) string { return code(shown(strings.Join(argv, " ")
 
 // The workspace placeholders an exploratory call is given (SPEC-S2 Q23),
 // for the templates.
-func (evaluateView) BinPlaceholder() string  { return checks.BinPlaceholder }
-func (evaluateView) TreePlaceholder() string { return checks.TreePlaceholder }
+func (evaluateView) BinPlaceholder() string  { return toolwire.BinPlaceholder }
+func (evaluateView) TreePlaceholder() string { return toolwire.TreePlaceholder }
 
 // ChangedPath is one file a pull request changes, with its added and
 // deleted line counts.
@@ -596,6 +595,6 @@ const ExamplePlanOutcomes = `acceptance:
 // OutcomesExample is ExamplePlanOutcomes, for the plan prompt's template.
 func (PlanPrompt) OutcomesExample() string { return ExamplePlanOutcomes }
 
-// Viewport is the fixed window a browser check runs in, for the plan
-// prompt's template.
-func (PlanPrompt) Viewport() playwright.Viewport { return playwright.DefaultViewport }
+// Viewport is the fixed window every browser session opens at, for the
+// plan prompt's template.
+func (PlanPrompt) Viewport() toolwire.Viewport { return toolwire.DefaultViewport }

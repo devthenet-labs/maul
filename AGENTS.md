@@ -908,25 +908,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `ValidateStep` and its parts (`CheckPath`, `CheckPointer`, `ValidateMatcher`, `ValidateHeaderMatcher`), `{{run}}` and
   `{{capture.x}}` substitution (`Substitute`, `BuildRequest`), the matcher engine (`MatchValue`, `MatchHeaderValue`,
   `JSONEqual`), `Transport`, `PartFact` and its roles, `ClassifyEnvironment`, `TargetWait` and `RunCause`.
-  Consumers: `acceptance`, `checks`, `previewtools`, `toolledger`, the controllers, `templates`.
-- `checks` (+ `checks/playwright`) — the evaluator's saved-check grammar, pure: a check is bound to one outcome and is
-  `http` (slice 1's steps plus `$range`, `$includes`, header presence), `browser` (a JSON step grammar: `goto`,
-  `waitForURL`, `click`, `fill`, `select`, `press`, `scroll`; scoped locators, never a snapshot ref; assertions
-  `visible`, `legible`, `text`, `count`, `url`, the box relations, `size`, `clickable`; never a colour literal) or
-  `exec` (an argv run in the sandbox), or (S2) `run` (`run.go`: a Go consumer program of at most 8 files, args, an
-  optional timeout, judged as exec is). `Canonical`/`Digest` key a check however it was spelled; `Validate(c,
-  Context{Preview|Workspace})` refuses with a named rule (not substantive, unscoped to `{{run}}` data, too many steps,
-  over 8 KiB, `RuleOffSurface`; an empty or double context refuses every check); a workspace refuses http and browser,
-  a cli check runs `{{bin}}` (`BinPlaceholder`), a library check is a `run`, each asserting on stdout content;
-  `{{tree}}` (`TreePlaceholder`) is the writable tree. A label, role name or select label may say `exact`
-  (Playwright's); `ParseProposal`, the only reading of an agent's own check (the relay's check run, agent-runner's
-  check files), writes `exact: true` where it says nothing, a `count`'s locators excepted, into the canonical body and
-  digest, so a check saved before (no `exact`) replays unchanged; `ParseRecorded` rereads a ledger's request as the
-  form whose digest it was recorded under (G4-B-BR-1). `checks/playwright` compiles a
-  browser check to a readable `.spec.ts` at a fixed 1280x800, maul's page functions (`pagefns.js`) judging human
-  visibility, WCAG contrast and hit-tested clicks, indeterminate as a check error, never a fail.
-  A `text` assertion is two statements: the runner's expectation, then `maul.text`, which holds only when what
-  meets the matcher is text that is shown, not hidden or clipped away (the `text` page function; defect gate 7).
+  Consumers: `acceptance`, `previewtools`, `toolledger`, the controllers, `templates`.
 - `toolwire` — the evaluator's tool wire and ledger v2, stdlib only: one endpoint per verb (`POST /v1/<verb>`), typed
   requests held to their bounds, one `Response` keeping the application's bytes (`Untrusted`) apart from maul's
   measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`), evidence lines and the `Summary` (count and sha256)
@@ -934,7 +916,9 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `preview-tools` and the controllers, and the capture's shared key names. S2 adds `files` (ls, literal grep, read;
   pristine tree, capped) and `run`, the relay-internal `VerbBuild` (no endpoint), `Side` (`""` head, the only recorded
   spelling, or `base`, accepted only on exec/run/files/build/check-run; write it through `Side.Recorded()`),
-  `StepCause` (`Known`), and `KeyHeader` (`X-Maul-Tools-Key`, 64 lower-case hex, `IsKey`).
+  `StepCause` (`Known`), and `KeyHeader` (`X-Maul-Tools-Key`, 64 lower-case hex, `IsKey`). `workspace.go` holds the
+  spellings the prompts and the relay share: `BinPlaceholder` (`{{bin}}`), `TreePlaceholder` (`{{tree}}`) and
+  `DefaultViewport` (1280x800, every browser session's window, which the plan prompt states).
 - `previewtools` — `cmd/preview-tools`'s engine: the `Relay` (one call at a time; `http` through the gateway's header
   hygiene, `browser` through the pinned Playwright CLI with an allowlist and a pre-opened session, `exec` through the
   exec shim, `logs`/`events` from the captured files, `check run`/`results`, and agent-runner's `confirm` and `finish`),

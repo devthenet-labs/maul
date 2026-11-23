@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/maultool"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -36,7 +35,7 @@ func cliWorkspace() *EvaluateWorkspace {
 
 // libraryWorkspace is a go library surface.
 func libraryWorkspace() *EvaluateWorkspace {
-	return &EvaluateWorkspace{Surface: templates.SurfaceLibrary, Language: checks.LanguageGo}
+	return &EvaluateWorkspace{Surface: templates.SurfaceLibrary, Language: toolwire.LanguageGo}
 }
 
 // wsHandoff is a workspace round's evaluate handoff over w with key, edited
@@ -220,7 +219,7 @@ func TestEvaluateWorkspaceHandoffRefused(t *testing.T) {
 		{"cli without a binary", wsHandoff(&EvaluateWorkspace{Surface: templates.SurfaceCLI,
 			Build: []string{"go", "build", "-o", "/work/bin/", "."}}, testToolsKey, nil), "cli workspace"},
 		{"library with a build", wsHandoff(&EvaluateWorkspace{Surface: templates.SurfaceLibrary,
-			Language: checks.LanguageGo, Build: []string{"go", "build", "./..."}}, testToolsKey, nil), "library"},
+			Language: toolwire.LanguageGo, Build: []string{"go", "build", "./..."}}, testToolsKey, nil), "library"},
 		{"unknown surface", wsHandoff(&EvaluateWorkspace{Surface: "worker"}, testToolsKey, nil), "surface"},
 		{"unknown field", strings.Replace(wsHandoff(cliWorkspace(), testToolsKey, nil), `"surface"`,
 			`"extra":1,"surface"`, 1), "not valid"},

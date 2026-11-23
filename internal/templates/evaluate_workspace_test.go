@@ -8,14 +8,14 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 var (
 	testCLIWorkspace = EvaluateWorkspace{Surface: SurfaceCLI, Binary: "/work/bin/bbrender",
 		Build: []string{"go", "build", "-o", "/work/bin/bbrender", "./cmd/bbrender"}}
-	testLibraryWorkspace = EvaluateWorkspace{Surface: SurfaceLibrary, Language: checks.LanguageGo}
+	testLibraryWorkspace = EvaluateWorkspace{Surface: SurfaceLibrary, Language: toolwire.LanguageGo}
 )
 
 // testWorkspacePrompt is a round on a Project with no preview: no
@@ -159,7 +159,7 @@ func TestEvaluateWorkspacePromptRefuses(t *testing.T) {
 		"cli binary escaping": func(p *EvaluatePrompt) { p.Workspace.Binary = "/work/bin/../etc" },
 		"cli without build":   func(p *EvaluatePrompt) { p.Workspace.Build = nil },
 		"cli build no bin":    func(p *EvaluatePrompt) { p.Workspace.Build = []string{"make"} },
-		"cli with a language": func(p *EvaluatePrompt) { p.Workspace.Language = checks.LanguageGo },
+		"cli with a language": func(p *EvaluatePrompt) { p.Workspace.Language = toolwire.LanguageGo },
 		"library node": func(p *EvaluatePrompt) {
 			*p.Workspace = EvaluateWorkspace{Surface: SurfaceLibrary, Language: "node"}
 		},

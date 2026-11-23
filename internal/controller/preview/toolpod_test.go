@@ -5,6 +5,8 @@ package preview
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -28,7 +30,6 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolpod"
 )
@@ -41,7 +42,8 @@ const (
 	testToolboxImage = "ghcr.io/devthenet-labs/maul-preview-toolbox@sha256:" +
 		"3333333333333333333333333333333333333333333333333333333333333333"
 	testCheckBody = `{"id":"items.body","outcome":"items","form":"http","http":{"target":"api","steps":[` +
-		`{"request":{"method":"POST","path":"/api/echo","json":{"n":"{{run}}"}},"expect":{"bodyContains":"{{run}}"}}]}}`
+		`{"request":{"method":"POST","path":"/api/echo","json":{"n":"{{run}}"}},"expect":{"status":[200],` +
+		`"bodyContains":"{{run}}"}}]}}`
 )
 
 // testOutcomes are an approved plan's outcomes, a manual one included.
@@ -65,15 +67,19 @@ func outcomesDigest(t *testing.T, outcomes []v1alpha1.AcceptanceOutcome) string 
 	return acceptance.OutcomesDigest(plan)
 }
 
-// savedCheck is a saved check of body.
+// savedCheck is a saved check of body as an earlier release stored it, for
+// the tests that hold a host to ignoring one: its id, outcome and form read
+// from body, which is kept as given (in the canonical spelling the retired
+// check grammar wrote), and body's sha256 as its digest.
 func savedCheck(t *testing.T, body string) v1alpha1.SavedCheck {
 	t.Helper()
-	c, err := checks.Parse([]byte(body))
-	if err != nil {
+	var head struct{ ID, Outcome, Form string }
+	if err := json.Unmarshal([]byte(body), &head); err != nil {
 		t.Fatal(err)
 	}
-	return v1alpha1.SavedCheck{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form),
-		Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}
+	sum := sha256.Sum256([]byte(body))
+	return v1alpha1.SavedCheck{ID: head.ID, Outcome: head.Outcome, Form: v1alpha1.CheckForm(head.Form), Body: body,
+		Digest: "sha256:" + hex.EncodeToString(sum[:])}
 }
 
 // toolVerification is testVerification as an outcome verification with

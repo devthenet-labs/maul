@@ -84,7 +84,7 @@
 //
 // dial.go and, under the e2edial tag only, dial_e2e.go are the e2e
 // suite's seams. The package imports only the standard library,
-// api/v1alpha1, checks (its placeholders), httpstep, previewauth, toolexec
-// and toolwire, and golang.org/x/mod/modfile (a test pins that): no
-// Kubernetes client, no credential.
+// api/v1alpha1, httpstep, previewauth, toolexec and toolwire, and
+// golang.org/x/mod/modfile (a test pins that): no Kubernetes client, no
+// credential.
 package previewtools

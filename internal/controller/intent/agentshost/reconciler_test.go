@@ -22,7 +22,6 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/attribution"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
@@ -101,12 +100,7 @@ func checkRelayConfig(t *testing.T, spec jobs.ToolPodSpec) {
 // of another store, forged, or for a replay round; and each relay config
 // carries no checks and no replay.
 func TestStartIgnoresSavedChecks(t *testing.T) {
-	c, err := checks.Parse([]byte(checkBody))
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved := v1alpha1.SavedCheck{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form),
-		Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}
+	saved := savedCheck(t, checkBody)
 	store := "sha256:" + strings.Repeat("c", 64)
 	for _, tc := range []struct {
 		name string
@@ -587,14 +581,9 @@ func TestCollectReplayRoundIsGuarded(t *testing.T) {
 		t.Run(tc.finish, func(t *testing.T) {
 			w := newWorld(t)
 			// A replay round replays the saved checks of the Intent's store.
-			c, err := checks.Parse([]byte(checkBody))
-			if err != nil {
-				t.Fatal(err)
-			}
 			store := "sha256:" + strings.Repeat("c", 64)
 			w.pv.Spec.Rung, w.pv.Spec.ChecksDigest = v1alpha1.RungReplay, store
-			w.pv.Spec.Checks = []v1alpha1.SavedCheck{{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form),
-				Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}}
+			w.pv.Spec.Checks = []v1alpha1.SavedCheck{savedCheck(t, checkBody)}
 			w.intent.Status.Acceptance.Checks = &v1alpha1.CheckStoreRef{ConfigMap: intentName + "-checks-1",
 				Digest: store, Count: 1}
 			h := running(t, w)

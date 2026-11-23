@@ -15,15 +15,14 @@ import (
 )
 
 // TestImports keeps the tools container's relay small and auditable: the
-// standard library, the check grammar's placeholders (until it goes), the
-// wire it speaks, the exec shim's client, the gateway's header hygiene and
-// the preview routing rule; no Playwright compiler, the check runner gone.
+// standard library, the wire it speaks (its placeholders included), the
+// exec shim's client, the gateway's header hygiene and the preview routing
+// rule; no saved-check grammar, no Playwright compiler, no check runner.
 // No Kubernetes client, no credential store, nothing that could reach
 // beyond the slot on its own.
 func TestImports(t *testing.T) {
 	allowed := []string{
 		"github.com/devthenet-labs/maul/api/v1alpha1",
-		"github.com/devthenet-labs/maul/internal/checks",
 		"github.com/devthenet-labs/maul/internal/httpstep",
 		"github.com/devthenet-labs/maul/internal/previewauth",
 		"github.com/devthenet-labs/maul/internal/toolexec",

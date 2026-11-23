@@ -58,8 +58,8 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			"docs/intents/evaluator.md",
 		},
 		"AGENTS.md": {
-			"cmd/preview-tools", "cmd/maul-tool", "cmd/cdp-shim", "cmd/tool-exec", "`checks`",
-			"`checks/playwright`", "`toolwire`", "`toolexec`", "`cdpshim`", "`maultool`", "`previewtools`",
+			"cmd/preview-tools", "cmd/maul-tool", "cmd/cdp-shim", "cmd/tool-exec", "`toolwire`", "`toolexec`",
+			"`cdpshim`", "`maultool`", "`previewtools`",
 			"--intent-evaluator", "docs/intents/evaluator.md", "acceptance.StartRung", "/maul verify explore",
 		},
 		"zensical.toml": {"intents/evaluator.md"},

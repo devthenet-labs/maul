@@ -60,15 +60,6 @@ const (
 	SessionName = "maul"
 )
 
-// Viewport is a browser page's size in CSS pixels.
-type Viewport struct {
-	Width, Height int
-}
-
-// DefaultViewport is the fixed viewport every browser session opens at:
-// 1280x800, so what one evaluator saw another sees at the same size.
-var DefaultViewport = Viewport{Width: 1280, Height: 800}
-
 // reasonNoBrowser is maul's words for a browser call in a pod with no
 // browser.
 const reasonNoBrowser = "the browser is unavailable in this tool pod"
@@ -283,7 +274,7 @@ func (r *Relay) openBrowser(ctx context.Context) {
 // viewport (over CDP the CLI ignores its config's viewport, SP-1), one
 // relay session entry. The caller holds r.mu.
 func (r *Relay) openSession(ctx context.Context, why string) {
-	v := DefaultViewport
+	v := toolwire.DefaultViewport
 	var outs []string
 	exit := 0
 	for _, args := range [][]string{

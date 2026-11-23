@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -24,7 +23,7 @@ import (
 // sent) are the evaluator's own from the verb alone. An agents exec runs
 // any argv with any files the evaluator supplies (workspaceExec), so it is
 // its own unless its line shows exactly the built binary
-// (checks.BinPlaceholder or binary, as argv[0]) with no files: unlabelled
+// (toolwire.BinPlaceholder or binary, as argv[0]) with no files: unlabelled
 // needs that proof, and an exec with no readable line is labelled. A
 // browser call is a page script only when its line shows an eval; with no
 // line nothing shows it was one.
@@ -49,5 +48,5 @@ func builtBinaryOnly(args json.RawMessage, binary string) bool {
 		len(req.Files) > 0 {
 		return false
 	}
-	return req.Argv[0] == checks.BinPlaceholder || req.Argv[0] == binary
+	return req.Argv[0] == toolwire.BinPlaceholder || req.Argv[0] == binary
 }

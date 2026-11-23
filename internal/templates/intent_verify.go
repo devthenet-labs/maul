@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // Acceptance verification, as maul tells people about it: the plan comment's
@@ -697,7 +697,7 @@ func (w *PlanWorkspace) valid() bool {
 	case SurfaceCLI:
 		return v1alpha1.ValidCLIBinary(w.Binary) && w.Language == ""
 	case SurfaceLibrary:
-		return w.Language == checks.LanguageGo && w.Binary == ""
+		return w.Language == toolwire.LanguageGo && w.Binary == ""
 	}
 	return false
 }

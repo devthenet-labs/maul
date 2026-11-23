@@ -18,7 +18,6 @@ import (
 	"unicode/utf8"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -147,8 +146,8 @@ func (w *Workspace) validate() error {
 		return errors.New("a workspace is a cli or a library, not both")
 	case cli && (!maulv1.ValidCLIBuild(w.Build) || !maulv1.ValidCLIBinary(w.Binary)):
 		return errors.New("a cli workspace's build must write under /work/bin and its binary be a path there")
-	case !cli && w.Language != checks.LanguageGo:
-		return fmt.Errorf("a library workspace's language must be %s", checks.LanguageGo)
+	case !cli && w.Language != toolwire.LanguageGo:
+		return fmt.Errorf("a library workspace's language must be %s", toolwire.LanguageGo)
 	case w.BuildTimeoutSeconds < MinBuildTimeoutSeconds || w.BuildTimeoutSeconds > MaxBuildTimeoutSeconds:
 		return fmt.Errorf("buildTimeoutSeconds must be %d to %d", MinBuildTimeoutSeconds, MaxBuildTimeoutSeconds)
 	}
@@ -442,10 +441,10 @@ func (r *Relay) places() places {
 func (r *Relay) explore(s string) string {
 	p := r.places()
 	if p.bin != "" {
-		s = strings.ReplaceAll(s, checks.BinPlaceholder, p.bin)
+		s = strings.ReplaceAll(s, toolwire.BinPlaceholder, p.bin)
 	}
 	if p.tree != "" {
-		s = strings.ReplaceAll(s, checks.TreePlaceholder, p.tree)
+		s = strings.ReplaceAll(s, toolwire.TreePlaceholder, p.tree)
 	}
 	return s
 }

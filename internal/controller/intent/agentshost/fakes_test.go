@@ -6,6 +6,8 @@ package agentshost
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"slices"
@@ -414,4 +416,19 @@ func terminated(pod *corev1.Pod, msg string) *corev1.Pod {
 	pod.Status.ContainerStatuses[0].State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
 		Reason: "Completed", Message: msg}}
 	return pod
+}
+
+// savedCheck is a saved check of body as an earlier release stored it, for
+// the tests that hold a host to ignoring one: its id, outcome and form read
+// from body, which is kept as given (in the canonical spelling the retired
+// check grammar wrote), and body's sha256 as its digest.
+func savedCheck(t *testing.T, body string) v1alpha1.SavedCheck {
+	t.Helper()
+	var head struct{ ID, Outcome, Form string }
+	if err := json.Unmarshal([]byte(body), &head); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(body))
+	return v1alpha1.SavedCheck{ID: head.ID, Outcome: head.Outcome, Form: v1alpha1.CheckForm(head.Form), Body: body,
+		Digest: "sha256:" + hex.EncodeToString(sum[:])}
 }

@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // The e2e suite's scripted browser (SPEC S1-24). envtest runs no Chromium,
@@ -264,7 +266,7 @@ func (c *scriptedCLI) pageResult(head, js string) (CLIResult, error) {
 
 // screenshot draws the page's boxes as a PNG at the viewport's size.
 func (c *scriptedCLI) screenshot() (CLIResult, error) {
-	v := DefaultViewport
+	v := toolwire.DefaultViewport
 	img := image.NewNRGBA(image.Rect(0, 0, v.Width, v.Height))
 	draw.Draw(img, img.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
 	for i, el := range c.page.Elements {

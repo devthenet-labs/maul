@@ -3,10 +3,9 @@
 
 // Package httpstep is the grammar of one HTTP step and the tool facts the
 // agent evaluator shares with slice-1 acceptance verification. It moved out
-// of internal/acceptance unchanged, so the saved checks (internal/checks),
-// the tools relay (internal/previewtools), the ledger reader
-// (internal/toolledger) and the controllers can build on it without the
-// criteria runtime.
+// of internal/acceptance unchanged, so the tools relay
+// (internal/previewtools), the ledger reader (internal/toolledger) and the
+// controllers can build on it without the criteria runtime.
 //
 // A Step (step.go) is one request and what its response must show: a
 // Request (method, path, headers, a JSON or raw body), an Expect (statuses,
