@@ -1145,6 +1145,22 @@ func (f *fakeUpstream) seen() (header, guidance bool, leaked []string) {
 	return f.header, f.guidance, slices.Clone(f.leaked)
 }
 
+// recordBody records what one Messages request's body carried: the prompt,
+// the tool results and any canary leaked into it.
+func (f *fakeUpstream) recordBody(body []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if bytes.Contains(body, []byte(f.prompt)) {
+		f.carried = true
+	}
+	f.recordResults(body)
+	for _, canary := range f.canaries {
+		if bytes.Contains(body, []byte(canary)) && !slices.Contains(f.leaked, canary) {
+			f.leaked = append(f.leaked, canary)
+		}
+	}
+}
+
 func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Probe-Env") != "" {
 		f.mu.Lock()
@@ -1164,17 +1180,7 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	f.mu.Lock()
-	if bytes.Contains(body, []byte(f.prompt)) {
-		f.carried = true
-	}
-	f.recordResults(body)
-	for _, canary := range f.canaries {
-		if bytes.Contains(body, []byte(canary)) && !slices.Contains(f.leaked, canary) {
-			f.leaked = append(f.leaked, canary)
-		}
-	}
-	f.mu.Unlock()
+	f.recordBody(body)
 	var req struct {
 		Stream    bool              `json:"stream"`
 		Model     string            `json:"model"`

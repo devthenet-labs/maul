@@ -1009,8 +1009,9 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   and empty keys absent, as the CLI reads them), after the fact; a nested path it cannot see.
   `claude_probe_workflows_test.go` pins the agents' tools (a subset of the run's, `StructuredOutput` aside), model,
   web refusal and bound, built-in-only names (a tree or mid-run HOME workflow not found, nested too), the script-path
-  hole (direct and nested) and the check on the direct one, and the repair without `Workflow`, beside a control
-  without the levers (five agents at once, another model).
+  hole (direct and nested, an accepted limit) and the check on the direct one, and the repair without `Workflow`, beside
+  a control with the bound at five and no FORCE (five agents at once, another model; not the bound removed, since the
+  CLI's own default depends on the host's CPUs: two at once on a CI runner).
   A granted run also gets agentrun's turn watcher
   over `CallScanner` (claude, `calls.go`: a top-level assistant event's message id, and whether it carries a
   `parent_tool_use_id`), which ends it `budget_exceeded` once parent plus subagent calls, each id once, pass its

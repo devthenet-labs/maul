@@ -1119,11 +1119,11 @@ func launchRefused(err error) bool {
 // nil to launch.
 func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *corev1.ConfigMap,
 	proj *v1alpha1.Project, repo *v1alpha1.Repository) (requireImage bool, refusal *result) {
-	model, refusal := r.runModel(run)
+	canonical, refusal := r.runModel(run)
 	if refusal != nil {
 		return false, refusal
 	}
-	spec.Model = model
+	spec.Model = canonical
 	switch run.Spec.Stage {
 	case v1alpha1.IntentStagePlan:
 		return false, r.planSpec(run, spec, cm, proj)

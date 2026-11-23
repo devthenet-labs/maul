@@ -41,8 +41,11 @@ import (
 // the background and its end wakes the session for a second result.
 //
 // The concurrency case and its control show the bound queues a workflow's
-// agents at ClaudeWorkflowConcurrency, and that without the levers five run
-// at once on the model one asks for. The ship gate's planted settings set a
+// agents at ClaudeWorkflowConcurrency, and that with the bound set to five
+// and the child model's FORCE gone five run at once, one on the model it
+// asks for. The control sets the bound rather than removing it: the CLI's
+// own default depends on the host (two at once on a CI runner, more on a
+// larger machine), so only a bound of maul's own is a stable comparison. The ship gate's planted settings set a
 // workflow agent model of their own as well, which the child model's FORCE
 // outranks, so the posture sets none. The repair case resumes a session that
 // ran a workflow with the grant cleared, as a report repair does: Workflow
@@ -64,7 +67,7 @@ func probeWorkflows(t *testing.T, cli string) {
 		},
 		{"workspace-write with workflows: four agents run at once and the fifth waits", probeWorkflowsConcurrency},
 		{
-			"control: without the workflow levers five agents run at once on the model they ask for",
+			"control: with the bound at five and no FORCE, five agents run at once on the model they ask for",
 			probeWorkflowsControl,
 		},
 		{"workspace-write with workflows: the report repair resumes the session without Workflow", probeWorkflowsRepair},
@@ -248,7 +251,7 @@ func probeWorkflowsSources(t *testing.T, cli string) {
 
 // probeWorkflowsConcurrency: ClaudeWorkflowConcurrency agents run at once,
 // and one more waits for a slot: a rendezvous of all of them is never met,
-// as it is without the bound (probeWorkflowsControl).
+// as it is with the bound at five (probeWorkflowsControl).
 func probeWorkflowsConcurrency(t *testing.T, cli string) {
 	p := newPostureProbe(t, cli)
 	req := p.workflowsRequest()
@@ -270,15 +273,17 @@ func probeWorkflowsConcurrency(t *testing.T, cli string) {
 	}
 }
 
-// probeWorkflowsControl: without the workflow levers in --settings the
-// pinned CLI runs five agents at once and one on the model it asks for, so
-// the gate's results are the levers' doing.
+// probeWorkflowsControl: with the concurrency bound in --settings raised
+// to five and the child model's FORCE removed, the pinned CLI runs five
+// agents at once and one on the model it asks for, so the gate's results
+// are the levers' doing. Removing the bound instead would leave the CLI's
+// default, which depends on the host's CPUs.
 func probeWorkflowsControl(t *testing.T, cli string) {
 	p := newPostureProbe(t, cli)
 	req := p.workflowsRequest()
 	spec := NewClaude().PromptSpec(p.tree, req)
 	spec.Argv = withSettingsEnv(t, spec.Argv, func(env map[string]string) {
-		delete(env, "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS")
+		env["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] = "5"
 		delete(env, "CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
 	})
 	script := parallelWorkflowScript(5, 5)
@@ -290,7 +295,7 @@ func probeWorkflowsControl(t *testing.T, cli string) {
 	got := p.run(t, spec, script)
 	got.assertPinned(t, script)
 	if !got.met || got.peak != 5 {
-		t.Errorf("met %v, peak %d: five workflow agents did not run at once without the bound", got.met, got.peak)
+		t.Errorf("met %v, peak %d: five workflow agents did not run at once with the bound at five", got.met, got.peak)
 	}
 	for _, r := range got.requests {
 		if r.child == wf("op") && r.model == req.Model {
@@ -301,8 +306,8 @@ func probeWorkflowsControl(t *testing.T, cli string) {
 		t.Error("the agent asking for opus never ran")
 	}
 	if t.Failed() {
-		t.Log("without the workflow levers the pinned CLI no longer runs five agents at once or on another " +
-			"model; the probe needs updating")
+		t.Log("with the bound at five and no FORCE the pinned CLI no longer runs five agents at once or on " +
+			"another model; the probe needs updating")
 	}
 }
 

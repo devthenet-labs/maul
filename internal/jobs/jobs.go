@@ -1330,6 +1330,26 @@ func stageEnvNames(phase string) (harnessEnv, modelEnv string) {
 	return "MAUL_INVESTIGATE_HARNESS", "MAUL_INVESTIGATE_MODEL"
 }
 
+// switchEnv is a Job's per-Job switches, each set to "true" only when its
+// Spec field is on: an acceptance-fix round, and a build's subagents and
+// workflows grants. Off sets nothing.
+func switchEnv(spec Spec) []corev1.EnvVar {
+	var env []corev1.EnvVar
+	for _, sw := range []struct {
+		name string
+		on   bool
+	}{
+		{"MAUL_ACCEPTANCE_FIX", spec.AcceptanceFix},
+		{"MAUL_BUILD_SUBAGENTS", spec.BuildSubagents},
+		{"MAUL_BUILD_WORKFLOWS", spec.BuildWorkflows},
+	} {
+		if sw.on {
+			env = append(env, corev1.EnvVar{Name: sw.name, Value: "true"})
+		}
+	}
+	return env
+}
+
 func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	env := make([]corev1.EnvVar, 0, len(c.cfg.Env)+10)
 	env = append(env,
@@ -1378,15 +1398,7 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	if spec.PlanVerification != "" {
 		env = append(env, corev1.EnvVar{Name: "MAUL_PLAN_VERIFICATION", Value: spec.PlanVerification})
 	}
-	if spec.AcceptanceFix {
-		env = append(env, corev1.EnvVar{Name: "MAUL_ACCEPTANCE_FIX", Value: "true"})
-	}
-	if spec.BuildSubagents {
-		env = append(env, corev1.EnvVar{Name: "MAUL_BUILD_SUBAGENTS", Value: "true"})
-	}
-	if spec.BuildWorkflows {
-		env = append(env, corev1.EnvVar{Name: "MAUL_BUILD_WORKFLOWS", Value: "true"})
-	}
+	env = append(env, switchEnv(spec)...)
 	if spec.ToolHost != nil {
 		env = append(env, corev1.EnvVar{Name: ToolsURLEnv, Value: toolsURL(spec.ToolHost)})
 	}
