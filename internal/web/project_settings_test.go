@@ -917,7 +917,13 @@ func TestProjectSettingsSaveAPIInvalid(t *testing.T) {
 				Reason: projectsettings.RefusedInvalid}}},
 		{"a path no change is under", kfield.ErrorList{kfield.Invalid(kfield.NewPath("spec", "surfaces"), "x", "no")},
 			[]projectsettings.ProjectSettingsRefusal{{Field: "surfaces", Reason: projectsettings.RefusedInvalid}}},
-		{"no causes (an admission policy's denial)", nil,
+		// How the API server words an admission policy's denial (SPIKE
+		// (d): `The projects "p" is invalid: : ValidatingAdmissionPolicy
+		// ... denied request: ...`): one cause with no field.
+		{"an admission policy's denial", kfield.ErrorList{kfield.Invalid(kfield.NewPath(""), "x",
+			"ValidatingAdmissionPolicy 'p' with binding 'p' denied request: no")},
+			[]projectsettings.ProjectSettingsRefusal{{Reason: projectsettings.RefusedInvalid}}},
+		{"no causes at all", nil,
 			[]projectsettings.ProjectSettingsRefusal{{Reason: projectsettings.RefusedInvalid}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1114,7 +1120,11 @@ func TestProjectSettingsSaveThroughARealAPIServer(t *testing.T) {
 	}
 	g := fixtureGranter()
 	g.set(approverAlpha.Username, "alpha", authz.TierIntents)
-	s = s.WithTranscripts(s.client, nil).WithIntents(IntentsOptions{Projects: g}).
+	// The admin client, not startOwnershipEnv's: that one's user agent is
+	// maul-status-server, which the API server would record as the manager
+	// even if the patch named none.
+	s.client = admin
+	s = s.WithTranscripts(admin, nil).WithIntents(IntentsOptions{Projects: g}).
 		WithProjectSettings(ProjectSettingsOptions{Policy: savePolicy()})
 	f := &saveFixture{t: t, s: s, c: admin, g: g, logs: &syncBuffer{}}
 	s.log = slog.New(slog.NewJSONHandler(f.logs, nil))
