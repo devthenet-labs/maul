@@ -86,6 +86,32 @@ refused it without the credential store).
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /*
+The Project settings page is one of the intents views (behind their
+per-Project access reviews), matches an approver by their GitHub id as the
+usage views key a person (the same posture), and is contained by its
+admission policy (project-settings-policy.yaml), so it renders with none of
+them missing. A floor over its own ceiling is refused here rather than by
+the server at startup.
+*/}}
+{{- with $vals.projectSettings }}
+{{- if .enabled }}
+{{- if not $vals.intents.enabled }}
+{{- fail "statusServer.projectSettings.enabled requires statusServer.intents.enabled: the page is one of the intents views, shown to whoever may see a Project's intents" }}
+{{- end }}
+{{- if not $.Values.admissionPolicy.enabled }}
+{{- fail "statusServer.projectSettings.enabled requires admissionPolicy.enabled: the admission policy on the status server's ServiceAccount is the page's containment, holding every write it makes to the operator's bounds" }}
+{{- end }}
+{{- with $vals.auth.config }}
+{{- if not (has "federated:id" ((.oidc | default dict).scopes | default list)) }}
+{{- fail "statusServer.projectSettings.enabled requires federated:id in statusServer.auth.config.oidc.scopes, so Dex's ID token names the GitHub connector and the approver's GitHub id" }}
+{{- end }}
+{{- end }}
+{{- if gt (int64 .floors.maxVerifications) (int64 .ceilings.maxVerifications) }}
+{{- fail (printf "statusServer.projectSettings.floors.maxVerifications (%d) is above ceilings.maxVerifications (%d)" (int64 .floors.maxVerifications) (int64 .ceilings.maxVerifications)) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if $vals.auth.config }}
 ---
 apiVersion: v1
@@ -138,6 +164,13 @@ metadata:
 {{- /* The providers the enabled runners use: anthropic (claude), openai
 (codex). user-credentials.yaml has already refused a render with neither. */}}
 {{- $_ := set $data "MAUL_ACCOUNT_PROVIDERS" (include "maul.credentialProviders" .) }}
+{{- end }}
+{{- if $vals.projectSettings.enabled }}
+{{- $_ := set $data "MAUL_PROJECT_SETTINGS_ENABLED" "true" }}
+{{- $_ := set $data "MAUL_PROJECT_SETTINGS_POLICY" (include "maul.projectSettingsPolicy" .) }}
+{{- with $vals.projectSettings.projects }}
+{{- $_ := set $data "MAUL_PROJECT_SETTINGS_PROJECTS" (join "," .) }}
+{{- end }}
 {{- end }}
 {{- /* agent.paused, shown on the page; the job controllers enforce it. */}}
 {{- $_ := include "maul.agentsPausedData" (dict "root" . "data" $data) }}
@@ -355,6 +388,45 @@ roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
     name: {{ include "maul.fullname" . }}-{{ $name }}-usage
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+---
+{{- end }}
+{{- if $vals.projectSettings.enabled }}
+# The Project settings page's one write: patch on projects, for an approver's
+# save (the read is the intents views' get). Never update, never
+# projects/status (where intent-controller publishes the approvers and what
+# it admits), never another kind; resourceNames when the operator lists the
+# Projects. The admission policy in project-settings-policy.yaml holds every
+# patch to the page's own fields and the operator's bounds.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-project-settings
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [projects]
+      {{- with $vals.projectSettings.projects }}
+      resourceNames: {{ toJson . }}
+      {{- end }}
+      verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-project-settings
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "maul.fullname" . }}-{{ $name }}-project-settings
 subjects:
     - kind: ServiceAccount
       name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}

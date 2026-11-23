@@ -2475,6 +2475,136 @@
                         }
                     }
                 },
+                "projectSettings": {
+                    "type": "object",
+                    "description": "The Project settings page: an approver edits a Project's limits, models, evaluator, hand-off, CI checks and resource classes within these bounds, enforced twice (the status server and an admission policy on its ServiceAccount). Needs the intents views, auth mode oidc with both claim prefixes and the federated:id scope, and admissionPolicy.enabled.",
+                    "additionalProperties": false,
+                    "required": ["enabled", "projects", "allow", "locked", "ceilings", "floors"],
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "projects": {
+                            "type": "array",
+                            "description": "The Projects the page may edit (the patch grant's resourceNames); empty for every Project.",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "string",
+                                "maxLength": 253,
+                                "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                            }
+                        },
+                        "allow": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["approvers", "disableEvaluator", "emptyChecks"],
+                            "properties": {
+                                "approvers": {
+                                    "type": "boolean"
+                                },
+                                "disableEvaluator": {
+                                    "type": "boolean"
+                                },
+                                "emptyChecks": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "locked": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "string",
+                                "enum": ["approvers", "evaluator", "handoff", "models", "cost", "rounds", "activeIntents", "stages", "checks", "resources"]
+                            }
+                        },
+                        "ceilings": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["maxCostMicroUSD", "maxRevisions", "maxCheckFixes", "maxVerifyFixes", "maxVerifications", "maxActiveIntents"],
+                            "properties": {
+                                "maxCostMicroUSD": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 1000000000,
+                                    "description": "limits.maxCostMicroUSD, micro-USD."
+                                },
+                                "maxRevisions": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 20,
+                                    "description": "limits.maxRevisions."
+                                },
+                                "maxCheckFixes": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 20,
+                                    "description": "limits.maxCheckFixes."
+                                },
+                                "maxVerifyFixes": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 10,
+                                    "description": "limits.maxVerifyFixes."
+                                },
+                                "maxVerifications": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 100,
+                                    "description": "limits.maxVerifications."
+                                },
+                                "maxActiveIntents": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 20,
+                                    "description": "limits.maxActiveIntents."
+                                }
+                            }
+                        },
+                        "floors": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["maxEvaluateCostMicroUSD", "evaluateMaxTurns", "evaluateTimeout", "evaluateTokenBudget", "maxToolCalls", "maxVerifications", "handoffMax"],
+                            "properties": {
+                                "maxEvaluateCostMicroUSD": {
+                                    "type": "integer",
+                                    "anyOf": [{ "const": 0 }, { "minimum": 1, "maximum": 1000000000 }],
+                                    "description": "limits.maxEvaluateCostMicroUSD, micro-USD; 0 is no floor."
+                                },
+                                "evaluateMaxTurns": {
+                                    "type": "integer",
+                                    "anyOf": [{ "const": 0 }, { "minimum": 0, "maximum": 1000 }],
+                                    "description": "limits.evaluate.maxTurns; 0 is no floor."
+                                },
+                                "evaluateTimeout": {
+                                    "type": "string",
+                                    "pattern": "^([0-9]+(h|m|s))+$",
+                                    "description": "limits.evaluate.timeout (1m to 4h); 0s is no floor."
+                                },
+                                "evaluateTokenBudget": {
+                                    "type": "integer",
+                                    "anyOf": [{ "const": 0 }, { "minimum": 0, "maximum": 100000000 }],
+                                    "description": "limits.evaluate.tokenBudget; 0 is no floor."
+                                },
+                                "maxToolCalls": {
+                                    "type": "integer",
+                                    "anyOf": [{ "const": 0 }, { "minimum": 50, "maximum": 300 }],
+                                    "description": "verification.maxToolCalls; 0 is no floor."
+                                },
+                                "maxVerifications": {
+                                    "type": "integer",
+                                    "anyOf": [{ "const": 0 }, { "minimum": 1, "maximum": 100 }],
+                                    "description": "limits.maxVerifications; 0 is no floor."
+                                },
+                                "handoffMax": {
+                                    "type": "string",
+                                    "pattern": "^([0-9]+(h|m|s))+$",
+                                    "description": "verification.handoffMax (10m to 4h); 0s is no floor."
+                                }
+                            }
+                        }
+                    }
+                },
                 "image": {
                     "$ref": "#/definitions/imageOverride"
                 },

@@ -21,6 +21,17 @@ helm template maul charts/maul \
   --set-json 'webhook.httpRoute={"enabled":true,"parentRefs":[{"name":"gw","namespace":"gateway-system"}]}' >/dev/null
 helm template maul charts/maul --set statusServer.enabled=false >/dev/null
 
+# The Project settings page (off by default): its patch grant and admission
+# policy over the intents views, and with every switch on and every group
+# locked (the policy's other branches).
+helm lint charts/maul -f hack/testdata/chart-render/status-project-settings.yaml
+helm template maul charts/maul -f hack/testdata/chart-render/status-project-settings.yaml \
+  --set statusServer.projectSettings.allow.approvers=true \
+  --set statusServer.projectSettings.allow.disableEvaluator=true \
+  --set statusServer.projectSettings.allow.emptyChecks=true \
+  --set 'statusServer.projectSettings.locked={approvers,evaluator,handoff,models,cost,rounds,activeIntents,stages,checks,resources}' \
+  --set 'statusServer.projectSettings.projects={alpha,beta}' >/dev/null
+
 # Empty preview slots are off by default; when enabled all of their guardrails
 # and the non-default EKS IngressClass must render together.
 helm lint charts/maul -f hack/testdata/chart-render/preview-foundation.yaml
