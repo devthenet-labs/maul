@@ -16,14 +16,13 @@ import (
 
 	"github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/projectsettings"
 )
 
 // The Project CRD's own limits and patterns (api/v1alpha1/project_types.go),
 // which the schema holds a kubectl-applied Project to.
 const (
 	maxRepositories = 8
-	maxApprovers    = 20
-	maxLoginLength  = 64
 	maxURLLength    = 256
 	maxLabelLength  = 50
 )
@@ -31,7 +30,6 @@ const (
 var (
 	repoURLPattern = regexp.MustCompile(`^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$`)
 	keyPattern     = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
-	loginPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 	// shorthandPattern is owner/repo in GitHub's own name grammar. The
 	// CRD's URL pattern is wider (it admits @ and : in a path), so without
 	// this an SSH remote, git@github.com:owner/repo.git, would be written
@@ -265,27 +263,25 @@ func validKey(k string) bool {
 }
 
 // planApprovers holds every --approver to GitHub's login grammar (no Bot),
-// at most 20, each once.
+// at most 20, each once. The rule is projectsettings.CheckApprovers, the one
+// the status page's project settings hold a changed list to; only the words
+// are this command's, naming the flag.
 func planApprovers(logins []string) ([]string, error) {
-	switch {
-	case len(logins) == 0:
+	err := projectsettings.CheckApprovers(logins)
+	if err == nil {
+		return logins, nil
+	}
+	switch err.Reason {
+	case projectsettings.ApproversEmpty:
 		return nil, errors.New("--approver is required: a GitHub login whose approval counts")
-	case len(logins) > maxApprovers:
-		return nil, fmt.Errorf("--approver is given %d times: a Project has at most %d approvers", len(logins),
-			maxApprovers)
+	case projectsettings.ApproversTooMany:
+		return nil, fmt.Errorf("--approver is given %d times: a Project has at most %d approvers", err.Count,
+			v1alpha1.MaxProjectApprovers)
+	case projectsettings.ApproverDuplicate:
+		return nil, fmt.Errorf("--approver %q is given twice", err.Login)
 	}
-	seen := map[string]bool{}
-	for _, l := range logins {
-		if len(l) > maxLoginLength || !loginPattern.MatchString(l) {
-			return nil, fmt.Errorf("--approver %q: not a GitHub login (a person's, at most %d characters; a Bot "+
-				"never approves)", l, maxLoginLength)
-		}
-		if seen[strings.ToLower(l)] {
-			return nil, fmt.Errorf("--approver %q is given twice", l)
-		}
-		seen[strings.ToLower(l)] = true
-	}
-	return logins, nil
+	return nil, fmt.Errorf("--approver %q: not a GitHub login (a person's, at most %d characters; a Bot "+
+		"never approves)", err.Login, projectsettings.MaxLoginLength)
 }
 
 // checkLabels holds the labels to GitHub's 50 characters and to differing
