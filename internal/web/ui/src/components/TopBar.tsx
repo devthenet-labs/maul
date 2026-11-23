@@ -10,7 +10,9 @@ import {
   hrefForRollups,
   hrefForUsage,
   hrefForAccount,
+  hrefForProjects,
   isIntentsRoute,
+  isProjectsRoute,
   type Route,
 } from "../router";
 import { Icon } from "./icons";
@@ -160,6 +162,7 @@ export function TopBar({
   intentsNav,
   usageNav,
   accountNav,
+  projectsNav,
   themeMode,
   onToggleTheme,
   persona,
@@ -180,6 +183,9 @@ export function TopBar({
   usageNav: boolean;
   // Whether the server has the Account page on for this signed-in caller.
   accountNav: boolean;
+  // Whether /api/me lists at least one Project whose settings page the
+  // server serves this signed-in caller.
+  projectsNav: boolean;
   themeMode: ThemeMode;
   onToggleTheme: () => void;
   persona: Persona;
@@ -206,15 +212,20 @@ export function TopBar({
                 route.view !== "config" &&
                 route.view !== "usage" &&
                 route.view !== "account" &&
-                route.view !== "projectSettings" &&
+                !isProjectsRoute(route) &&
                 !isIntentsRoute(route),
             )}
           >
             Findings
           </a>
           {intentsNav ? (
-            <a href={hrefForIntents()} class={navClass(isIntentsRoute(route) || route.view === "projectSettings")}>
+            <a href={hrefForIntents()} class={navClass(isIntentsRoute(route) || (!projectsNav && route.view === "projectSettings"))}>
               Intents
+            </a>
+          ) : null}
+          {projectsNav ? (
+            <a href={hrefForProjects()} class={navClass(isProjectsRoute(route))}>
+              Projects
             </a>
           ) : null}
           {usageNav ? (

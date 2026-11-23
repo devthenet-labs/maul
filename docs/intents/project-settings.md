@@ -11,10 +11,13 @@ The page is off by default. The operator turns it on and sets how far approvers 
 
 ## Opening the page
 
-With the page on, the board's and the timeline's Project chips link to it (`#/projects/<project>/settings`) for every
-Project the page serves. Anyone who may see a Project on the [intents dashboard](dashboard.md) (`get` on
-`projects/intents`) can open its page and read every setting, the approvers and their GitHub state, and the facts the
-operator set. A Project you may not see answers "not found", as on the dashboard.
+With the page on, the status page's top bar shows **Projects** whenever at least one Project's settings page is served
+to you. It opens `#/projects`, which lists each such Project with how much of it you may read and a **Settings** button
+to its page (`#/projects/<project>/settings`). A Project the page is not on for is not listed there; it still shows on
+the [intents dashboard](dashboard.md). The Project chips on the intents board and on an intent's timeline link to the
+same page, and say **Settings** when they do. Anyone who may see a Project on the [intents dashboard](dashboard.md)
+(`get` on `projects/intents`) can open its page and read every setting, the approvers and their GitHub state, and the
+facts the operator set. A Project you may not see answers "not found", as on the dashboard.
 
 ## Who can save
 

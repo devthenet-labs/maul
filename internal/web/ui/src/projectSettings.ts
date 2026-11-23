@@ -8,6 +8,8 @@
 // guard, only an early answer.
 
 import type {
+  Me,
+  ProjectAccess,
   ProjectSettings,
   ProjectSettingsConfirmation,
   ProjectSettingsFacts,
@@ -17,6 +19,19 @@ import type {
   ProjectSettingsResult,
   ProjectSettingsView,
 } from "./types";
+
+// settingsProjectsOf is the Projects /api/me says the settings page is
+// served for, in the server's order; me is undefined while loading and null
+// when the server has no /api/me.
+export function settingsProjectsOf(me: Me | null | undefined): ProjectAccess[] {
+  return (me?.projects ?? []).filter((p) => p.settings);
+}
+
+// projectsNav reports whether the top bar shows its Projects entry: only
+// when at least one Project's settings page is served to this person.
+export function projectsNav(me: Me | null | undefined): boolean {
+  return settingsProjectsOf(me).length > 0;
+}
 
 // SettingValue is one field's value in the document's own terms: a number
 // (micro-USD, whole seconds, a count; null for an unset round limit), a

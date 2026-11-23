@@ -13,6 +13,8 @@
 //   #/usage/all           everyone's usage (holders of usage/all)
 //   #/account             the signed-in person's own model credentials
 //                         (when the server has the Account page on)
+//   #/projects            the Projects whose settings page the server
+//                         serves the signed-in person, each linked
 //   #/projects/{name}/settings  one Project's settings (when the server
 //                         has the settings page on for it)
 
@@ -33,12 +35,19 @@ export type Route =
   | { view: "intentRun"; name: string; run: string }
   | { view: "usage"; all: boolean }
   | { view: "account" }
+  | { view: "projects" }
   | { view: "projectSettings"; name: string };
 
 // isIntentsRoute reports a route of the intents views, which gate
 // themselves rather than on the findings grant.
 export function isIntentsRoute(route: Route): boolean {
   return route.view === "intents" || route.view === "intent" || route.view === "intentRun";
+}
+
+// isProjectsRoute reports a route the Projects tab lights for: the list of
+// settings pages and each page itself.
+export function isProjectsRoute(route: Route): boolean {
+  return route.view === "projects" || route.view === "projectSettings";
 }
 
 const TABS: TabId[] = ["overview", "alerts", "timeline", "investigation", "remediation"];
@@ -70,6 +79,9 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "projects" && parts[1] && parts[2] === "settings") {
     return { view: "projectSettings", name: parts[1] };
   }
+  if (parts[0] === "projects" && parts.length === 1) {
+    return { view: "projects" };
+  }
   if (parts[0] === "intents") {
     if (parts[1] && parts[2] === "runs" && parts[3]) {
       return { view: "intentRun", name: parts[1], run: parts[3] };
@@ -98,6 +110,10 @@ export function hrefForUsage(all = false): string {
 
 export function hrefForAccount(): string {
   return "#/account";
+}
+
+export function hrefForProjects(): string {
+  return "#/projects";
 }
 
 export function hrefForProjectSettings(name: string): string {

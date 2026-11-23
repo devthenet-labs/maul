@@ -264,6 +264,7 @@ export const INTENTS_VIEW_FILES = [
   "src/components/IntentsArea.tsx",
   "src/components/EvaluationEvidence.tsx",
   "src/components/ProjectSettingsView.tsx",
+  "src/components/ProjectsView.tsx",
 ];
 
 // evidenceImageURL is where an evaluate run's stored evidence image is

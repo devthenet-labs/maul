@@ -21,6 +21,8 @@ import {
   followView,
   loginManagerNote,
   managerNotes,
+  projectsNav,
+  settingsProjectsOf,
   microToDollars,
   modelRows,
   parseFieldText,
@@ -37,7 +39,8 @@ import {
 } from "../src/projectSettings.ts";
 import { INTENTS_VIEW_FILES } from "../src/intents.ts";
 import { mockProjectSettings, mockSaveProjectSettings } from "../src/mock/projectSettings.ts";
-import { hrefForProjectSettings, isIntentsRoute, parseRoute } from "../src/router.ts";
+import { hrefForProjectSettings, hrefForProjects, isIntentsRoute, isProjectsRoute, parseRoute } from "../src/router.ts";
+import { mockMe } from "../src/mock/intents.ts";
 
 // ---- fixtures ---------------------------------------------------------------
 
@@ -118,9 +121,44 @@ test("the project settings route round-trips", () => {
   }
   assert.equal(hrefForProjectSettings("storefront"), "#/projects/storefront/settings");
   assert.deepEqual(parseRoute("#/projects/storefront"), { view: "list" });
-  assert.deepEqual(parseRoute("#/projects"), { view: "list" });
   // It gates itself, outside the intents area's own routes.
   assert.equal(isIntentsRoute(parseRoute(hrefForProjectSettings("p"))), false);
+});
+
+test("the projects route lists the settings pages, and is the Projects tab's", () => {
+  assert.equal(hrefForProjects(), "#/projects");
+  assert.deepEqual(parseRoute(hrefForProjects()), { view: "projects" });
+  assert.deepEqual(parseRoute("#/projects"), { view: "projects" });
+  assert.deepEqual(parseRoute("#/projects/"), { view: "projects" });
+  assert.equal(isIntentsRoute(parseRoute("#/projects")), false);
+  // The Projects tab is lit on the list and on every settings page.
+  assert.equal(isProjectsRoute(parseRoute("#/projects")), true);
+  assert.equal(isProjectsRoute(parseRoute(hrefForProjectSettings("storefront"))), true);
+  assert.equal(isProjectsRoute(parseRoute("#/intents")), false);
+  assert.equal(isProjectsRoute(parseRoute("#/account")), false);
+  // The existing routes are unchanged.
+  assert.deepEqual(parseRoute("#/account"), { view: "account" });
+  assert.deepEqual(parseRoute("#/intents"), { view: "intents" });
+  assert.deepEqual(parseRoute("#/"), { view: "list" });
+});
+
+test("the Projects tab shows only when /api/me lists a Project with its settings page", () => {
+  const p = (name, settings, tier = "intents") => ({ name, tier, settings });
+  assert.equal(projectsNav(null), false, "no /api/me answer: no tab");
+  assert.equal(projectsNav(undefined), false, "still loading: no tab");
+  assert.equal(projectsNav({ name: "a", loggedIn: true, projects: [] }), false);
+  assert.equal(projectsNav({ name: "a", loggedIn: true, projects: [p("x", false)] }), false);
+  assert.equal(projectsNav({ name: "a", loggedIn: true, projects: [p("x", false), p("y", true)] }), true);
+  assert.deepEqual(
+    settingsProjectsOf({ name: "a", loggedIn: true, projects: [p("x", false), p("y", true, "transcripts"), p("z", true)] }),
+    [p("y", true, "transcripts"), p("z", true)],
+    "only the Projects whose page is served, in the server's order",
+  );
+  assert.deepEqual(settingsProjectsOf(null), []);
+});
+
+test("mock mode lists a Project with its settings page, so the tab shows there", () => {
+  assert.equal(projectsNav(mockMe()), true);
 });
 
 // ---- dollars and durations ------------------------------------------------------

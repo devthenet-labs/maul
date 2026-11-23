@@ -152,10 +152,16 @@ export function IntentsBoard({
         <h1 class="m-0 mr-2 text-[19px] tracking-tight">Intents</h1>
         {board.projects.map((p) =>
           settingsProjects.includes(p.name) ? (
-            <a key={p.name} class="ps-chip hover:text-fg" href={hrefForProjectSettings(p.name)} title={`${p.name}'s settings`}>
+            <a
+              key={p.name}
+              class="ps-chip hover:border-turf hover:text-fg"
+              href={hrefForProjectSettings(p.name)}
+              title={`${p.name}'s settings`}
+            >
               <Icon name="sliders" size={11} />
               {p.name} · {p.tier}
               {p.suspended ? " · suspended" : ""}
+              <span class="ml-0.5 border-l border-line-2 pl-1.5 font-semibold text-ink">Settings</span>
             </a>
           ) : (
             <span key={p.name} class="ps-chip" title={p.tier === "transcripts" ? "plans and transcripts too" : "board and numbers"}>
