@@ -25,7 +25,6 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
@@ -385,34 +384,13 @@ func toolsLog(t *testing.T, o ledgerOpts) ([]byte, string) {
 	}
 	build(toolwire.SideHead, o.headBuild, nil)
 	build(toolwire.SideBase, o.baseBuild, o.baseExit)
-	c, err := checks.Parse([]byte(checkBody))
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := strings.TrimPrefix(checks.Digest(c), "sha256:")
-	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`),
-		CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: c.ID, Mode: toolwire.ModeReplay,
-			Result: toolwire.RunPass, Attempts: []toolwire.Attempt{{Run: "0123456789abcdef",
-				Result: toolwire.ResultPass}}}})
-	switch {
-	case o.baseBuild == v1alpha1.BuildBuilt:
+	// An earlier relay's replays of a saved check, at the head and (when
+	// the head built) at the base: the retired verb's entries, their check
+	// run records gone from the wire, which no reader takes for a run.
+	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`)})
+	if o.baseBuild == v1alpha1.BuildBuilt || o.headBuild == v1alpha1.BuildBuilt {
 		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Side: toolwire.SideBase,
-			Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: c.ID,
-				Mode: toolwire.ModeReplay, Result: toolwire.RunFail, Attempts: []toolwire.Attempt{
-					redAttempt("fedcba9876543210"), redAttempt("fedcba9876543211")}}})
-	case o.headBuild == v1alpha1.BuildBuilt:
-		// The relay's run on a base that did not build (baseUnbuiltRun):
-		// an error with no run token, n/a only on a base whose build
-		// failed.
-		step := toolwire.StepRecord{Result: toolwire.ResultError, Side: toolwire.SideBase,
-			Detail: "base-build-error: the base tree's build did not finish"}
-		if o.baseBuild == v1alpha1.BuildFailed {
-			step.Cause, step.Detail = toolwire.CauseBaseUnbuildable, "base-unbuildable: the base tree did not build"
-		}
-		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Side: toolwire.SideBase,
-			Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: c.ID,
-				Mode: toolwire.ModeReplay, Result: toolwire.RunError, Attempts: []toolwire.Attempt{
-					{Result: toolwire.ResultError, Steps: []toolwire.StepRecord{step}}}}})
+			Args: json.RawMessage(`{}`)})
 	}
 	if o.relayFinish != "" {
 		args, _ := json.Marshal(map[string]string{"reason": o.relayFinish})
@@ -428,12 +406,6 @@ func toolsLog(t *testing.T, o ledgerOpts) ([]byte, string) {
 		t.Fatal(err)
 	}
 	return out.Bytes(), sum.TerminationMessage()
-}
-
-// redAttempt is an attempt at base red by assertion at its one step.
-func redAttempt(run string) toolwire.Attempt {
-	return toolwire.Attempt{Run: run, Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{{Index: 0,
-		Result: toolwire.ResultFail, Side: toolwire.SideBase, Assertion: true, AssertionID: "marker steps"}}}
 }
 
 // terminated is pod with the tools container terminated with msg.

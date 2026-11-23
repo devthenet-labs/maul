@@ -34,14 +34,11 @@ func browserEntry() LedgerEntry {
 	}
 }
 
-func checkRunEntry(kind Kind, verb Verb, mode CheckRunMode, attempts ...AttemptResult) LedgerEntry {
-	rec := &CheckRunRecord{Digest: strings.Repeat("a", 64), CheckID: "winner-rises", Mode: mode}
-	for i, r := range attempts {
-		rec.Attempts = append(rec.Attempts, Attempt{Run: "run" + string(rune('a'+i)), Result: r, DurationMs: 12,
-			Steps: []StepRecord{{Index: 0, Result: r}}})
-	}
-	rec.Result = DeriveResult(rec.Attempts)
-	return LedgerEntry{TS: ts, Kind: kind, Verb: verb, Args: json.RawMessage(`{}`), CheckRun: rec}
+// relayEntry is the relay's (or the runner's) own entry of verb, as a
+// build, a readiness wait or a finish records one.
+func relayEntry(kind Kind, verb Verb) LedgerEntry {
+	return LedgerEntry{TS: ts, Kind: kind, Verb: verb, Args: json.RawMessage(`{"reason":"deadline"}`), Exit: 2,
+		Output: "maul: done"}
 }
 
 func TestWriterSealsEntries(t *testing.T) {
@@ -107,16 +104,6 @@ func TestEntryCheckRefuses(t *testing.T) {
 		"explicit head": func(e *LedgerEntry) { e.Side = SideHead },
 		"side on http":  func(e *LedgerEntry) { e.Verb, e.Side = VerbHTTP, SideBase },
 		"side on logs":  func(e *LedgerEntry) { e.Verb, e.Side = VerbLogs, SideBase },
-		"explicit step head": func(e *LedgerEntry) {
-			e.Verb, e.Kind, e.Artifacts, e.Locators = VerbCheckRun, KindAgent, nil, nil
-			e.CheckRun = checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass).CheckRun
-			e.CheckRun.Attempts[0].Steps[0].Side = SideHead
-		},
-		"unknown step side": func(e *LedgerEntry) {
-			e.Verb, e.Kind, e.Artifacts, e.Locators = VerbCheckRun, KindAgent, nil, nil
-			e.CheckRun = checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass).CheckRun
-			e.CheckRun.Attempts[0].Steps[0].Side = "x"
-		},
 		"args not json": func(e *LedgerEntry) { e.Args = json.RawMessage(`{`) },
 		"args too large": func(e *LedgerEntry) {
 			e.Args = json.RawMessage(`"` + strings.Repeat("a", MaxArgsBytes) + `"`)
@@ -136,9 +123,6 @@ func TestEntryCheckRefuses(t *testing.T) {
 		},
 		"refused with artifacts": func(e *LedgerEntry) { e.Refused = "verb-not-allowed" },
 		"refusal not a code":     func(e *LedgerEntry) { e.Refused = "Not Allowed!"; e.Artifacts = nil },
-		"check run on browser": func(e *LedgerEntry) {
-			e.CheckRun = checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass).CheckRun
-		},
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -151,67 +135,6 @@ func TestEntryCheckRefuses(t *testing.T) {
 				t.Error("Check accepted it")
 			}
 		})
-	}
-}
-
-func TestCheckRunConsistency(t *testing.T) {
-	cases := []struct {
-		name string
-		e    LedgerEntry
-		ok   bool
-	}{
-		{"agent dry run", checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass), true},
-		{"relay replay quarantined", checkRunEntry(KindRelay, VerbCheckRun, ModeReplay, ResultFail, ResultPass), true},
-		{"relay confirm fail", checkRunEntry(KindRelay, VerbConfirm, ModeConfirm, ResultFail, ResultFail), true},
-		{"agent replay", checkRunEntry(KindAgent, VerbCheckRun, ModeReplay, ResultPass), false},
-		{"relay dry run", checkRunEntry(KindRelay, VerbCheckRun, ModeDryRun, ResultPass), false},
-		{"confirm on check-run verb", checkRunEntry(KindRelay, VerbCheckRun, ModeConfirm, ResultPass), false},
-		{"rerun after pass", checkRunEntry(KindRelay, VerbCheckRun, ModeReplay, ResultPass, ResultPass), false},
-		{"three attempts", checkRunEntry(KindRelay, VerbCheckRun, ModeReplay, ResultFail, ResultFail, ResultFail), false},
-		{"no attempts", checkRunEntry(KindRelay, VerbCheckRun, ModeReplay), false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			c.e.Seq = 1
-			c.e.OutputSHA256 = sum(nil)
-			if err := c.e.Check(); (err == nil) != c.ok {
-				t.Errorf("Check() = %v, want ok %v", err, c.ok)
-			}
-		})
-	}
-	t.Run("result not derived", func(t *testing.T) {
-		e := checkRunEntry(KindRelay, VerbCheckRun, ModeReplay, ResultFail, ResultPass)
-		e.Seq, e.OutputSHA256 = 1, sum(nil)
-		e.CheckRun.Result = RunPass
-		if e.Check() == nil {
-			t.Error("a fail-then-pass recorded as pass was accepted")
-		}
-	})
-}
-
-func TestDeriveResult(t *testing.T) {
-	cases := []struct {
-		in   []AttemptResult
-		want RunResult
-	}{
-		{[]AttemptResult{ResultPass}, RunPass},
-		{[]AttemptResult{ResultFail}, RunFail},
-		{[]AttemptResult{ResultFail, ResultFail}, RunFail},
-		{[]AttemptResult{ResultFail, ResultPass}, RunQuarantined},
-		{[]AttemptResult{ResultError, ResultPass}, RunQuarantined},
-		{[]AttemptResult{ResultError}, RunError},
-		{[]AttemptResult{ResultFail, ResultError}, RunError},
-		{nil, ""},
-		{[]AttemptResult{ResultPass, ResultPass}, ""},
-	}
-	for _, c := range cases {
-		var as []Attempt
-		for _, r := range c.in {
-			as = append(as, Attempt{Result: r})
-		}
-		if got := DeriveResult(as); got != c.want {
-			t.Errorf("DeriveResult(%v) = %q, want %q", c.in, got, c.want)
-		}
 	}
 }
 
@@ -297,10 +220,11 @@ func TestSideLedger(t *testing.T) {
 			t.Fatalf("%s at base refused: %v", v, err)
 		}
 	}
-	rec := checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass)
-	rec.Side = SideBase
-	rec.CheckRun.Attempts[0].Steps[0].Side = SideBase
-	if _, err := w.Append(rec); err != nil {
+	// An earlier release's base dry run, its record gone: the verb still
+	// takes a side, so its line reads.
+	retired := LedgerEntry{TS: ts, Kind: KindAgent, Verb: VerbCheckRun, Side: SideBase, Args: json.RawMessage(`{}`),
+		Refused: "check-invalid"}
+	if _, err := w.Append(retired); err != nil {
 		t.Fatal(err)
 	}
 	sum, err := w.Close()
@@ -312,7 +236,7 @@ func TestSideLedger(t *testing.T) {
 		t.Fatalf("Verify: %v", err)
 	}
 	if len(l.Entries) != 6 || l.Entries[0].Side != "" || l.Entries[1].Side != SideBase ||
-		l.Entries[5].CheckRun.Attempts[0].Steps[0].Side != SideBase {
+		l.Entries[5].Side != SideBase {
 		t.Errorf("sides did not round trip: %+v", l.Entries)
 	}
 }

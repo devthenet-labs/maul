@@ -9,7 +9,6 @@ import (
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/toolexec"
-	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -40,47 +39,5 @@ func TestWorkspaceBuildOutputFitsTheLedger(t *testing.T) {
 	}
 	if b := buildEntries(t, l); b[""].Result != maulv1.BuildFailed {
 		t.Fatalf("head build: %+v", b[""])
-	}
-}
-
-// TestWorkspaceLedgerHeadReaders: the ledger readers of confirmations and
-// confirmed checks read the head's runs only. A check whose head
-// confirmation failed is not confirmed by its base run passing, and no base
-// confirmation is read as the head's; nothing is replayed.
-func TestWorkspaceLedgerHeadReaders(t *testing.T) {
-	headCalls := 0
-	head := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
-		if req.Kind == toolexec.KindBuild {
-			return toolexec.Result{}, nil
-		}
-		headCalls++
-		if headCalls <= 1 { // the dry run passes; the confirmation does not
-			return toolexec.Result{Output: "count=3"}, nil
-		}
-		return toolexec.Result{Output: "count=2"}, nil
-	}}
-	base := &fakeSandbox{do: printing("count=3", 0)}
-	h := newWorkspaceHarness(t, wsConfig(), head, base)
-	_, resp := h.dryRunKeyed(cliExecCheck, "")
-	if resp.Refused != "" || resp.Observed.CheckRun.Result != toolwire.RunPass {
-		t.Fatalf("dry run: %+v", resp)
-	}
-	d := resp.Observed.CheckRun.Digest
-	if _, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+d+`"]}`); resp.Refused != "" {
-		t.Fatalf("confirm: %+v", resp)
-	}
-	l := h.finishKeyed()
-	outcomes := []maulv1.AcceptanceOutcome{{ID: "count"}}
-	if got := toolledger.ConfirmedChecks(l.Entries, outcomes); len(got) != 0 {
-		t.Fatalf("a check whose head confirmation failed is confirmed: %+v", got)
-	}
-	if got := toolledger.ConfirmationRuns(l.Entries); len(got) != 1 || got[0].Result != maulv1.CheckRunFail {
-		t.Fatalf("confirmation runs = %+v, want the head's one failed run", got)
-	}
-	if got := toolledger.ReplayRuns(l.Entries); len(got) != 0 {
-		t.Fatalf("replay runs = %+v, want none", got)
-	}
-	if got := toolledger.BaseRuns(l.Entries); len(got) != 1 || got[0].Tree != maulv1.TreeBase {
-		t.Fatalf("base runs = %+v, want the base confirmation", got)
 	}
 }

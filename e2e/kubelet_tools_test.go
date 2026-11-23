@@ -75,7 +75,7 @@ type toolSide struct {
 	nextIP int
 	runs   []toolRun
 	// readyHold, while set (holdToolsReady), keeps every tool pod's tools
-	// container un-Ready, as a relay still replaying would be.
+	// container un-Ready, as a relay still waiting for its components would be.
 	readyHold chan struct{}
 	// forge, while set (forgeToolLedgers), appends one forged entry to
 	// every exited tool pod's log: a call the relay never recorded, which

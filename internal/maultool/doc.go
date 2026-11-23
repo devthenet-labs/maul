@@ -8,16 +8,15 @@
 // contract (POST /v1/<verb>).
 //
 // Verbs: http <METHOD> <path> [json], browser <verb> [args], exec
-// [--file f]... -- argv, logs <component>, events, check run <file> and
-// check results; with S2, files ls|grep|read [--base] and run <dir> [--base]
-// [-- args], and --base on exec and check run. confirm and finish are agent-runner's, never the agent's.
+// [--file f]... -- argv, logs <component> and events; with S2, files
+// ls|grep|read [--base] and run <dir> [--base] [-- args], and --base on
+// exec. finish is agent-runner's, never the agent's. The check runner's
+// `check run` and `check results` are retired: a usage error, nothing sent.
 //
 // Output, in a fixed order: the ledger line `[maul-tool ledger seq N]`;
 // the time left of the agent's run (`[maul-tool time left] 12m30s`, when
 // EnvDeadline is set); maul's own measurements (`[observed] ...`, one line
-// each, any text a runner took from the page quoted onto that line, a
-// failed text step's Received text on a line of its own marked as the
-// page's); a `[screenshot] <path>` line for each image copied; then
+// each); a `[screenshot] <path>` line for each image copied; then
 // `[untrusted output]` and the inline output exactly as the tools
 // container returned it, always last, so nothing the application chose
 // can pass for one of maul's lines. A refusal prints the time left and
@@ -25,7 +24,7 @@
 // ExitOK, ExitUsage (nothing sent), ExitRefused, ExitToolError.
 //
 // maul-tool runs as the agent, so it is held to the agent's own file
-// confinement: it reads (--file, check run) and writes (screenshots, at
+// confinement: it reads (--file, a run's directory) and writes (screenshots, at
 // shots/<seq>.png) only under the scratch directory, through os.Root, so
 // neither a path nor a symlink reaches outside it. A screenshot is fetched
 // by sha256 (toolwire.ArtifactPath) and kept only when its bytes match the

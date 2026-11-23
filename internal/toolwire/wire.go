@@ -4,7 +4,6 @@
 package toolwire
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,11 +32,6 @@ const (
 	// contents together (SPEC S1-02: program files at most 64 KiB).
 	MaxFiles        = 8
 	MaxProgramBytes = 64 << 10
-	// MaxCheckBytes bounds a check's canonical JSON (SPEC Q1: 8 KiB).
-	MaxCheckBytes = 8 << 10
-	// MaxConfirm bounds the checks one confirm names (SPEC Q1: at most 40
-	// checks).
-	MaxConfirm = 40
 	// MaxFileReadBytes, MaxGrepHits and MaxListEntries bound what the files
 	// verb returns (SPEC S2-05): a read at most 64 KiB, a grep at most 200
 	// hits, an ls at most 2000 entries. The relay cuts to them; a request
@@ -102,9 +96,10 @@ const (
 const LanguageGo = "go"
 
 // Path is the tools container's endpoint for verb: POST /v1/<verb>. The
-// relay's own VerbSession and VerbBuild have none ("").
+// relay's own VerbSession and VerbBuild have none (""), nor has a retired
+// verb (RetiredVerb).
 func Path(v Verb) string {
-	if v == VerbSession || v == VerbBuild || !knownVerb(v) {
+	if v == VerbSession || v == VerbBuild || RetiredVerb(v) || !knownVerb(v) {
 		return ""
 	}
 	return "/v1/" + string(v)
@@ -175,42 +170,6 @@ type LogsRequest struct {
 
 // EventsRequest is `maul-tool events`.
 type EventsRequest struct{}
-
-// CheckRunRequest is `maul-tool check run <file>`: a dry run of the check
-// in Spec, whose grammar the relay validates (internal/checks).
-type CheckRunRequest struct {
-	Spec json.RawMessage `json:"check"`
-	// Side is the sandbox the dry run uses; empty is the head.
-	Side Side `json:"side,omitempty"`
-}
-
-// CheckResultsRequest is `maul-tool check results`: the replay and dry-run
-// results so far.
-type CheckResultsRequest struct{}
-
-// ConfirmRequest is agent-runner's confirm: run each named check (by
-// digest) alone, with a fresh run token. The relay refuses a digest with no
-// green dry run, or, for one named in ExpectFail (a check the evaluator
-// proposes to show a defect of the outcome it is bound to), with no dry run
-// red by assertion (CheckRunRecord.AssertionStep) or with a green one.
-type ConfirmRequest struct {
-	Digests []string `json:"digests"`
-	// ExpectFail are the digests of Digests whose proposal expects them to
-	// fail: the outcome they are bound to does not hold.
-	ExpectFail []string `json:"expectFail,omitempty"`
-}
-
-// ExpectFail is the expectation a confirmation entry's args record for a
-// check confirmed as showing a defect: {"digest": <hex>, "expect": "fail"}.
-// A confirmation of a check expected to pass records the digest alone.
-const ExpectFail = "fail"
-
-// ConfirmArgs are the args of the relay's own confirmation entry, one per
-// check a confirm ran.
-type ConfirmArgs struct {
-	Digest string `json:"digest"`
-	Expect string `json:"expect,omitempty"`
-}
 
 // FinishRequest is agent-runner's finish: the ledger entries whose images
 // the report cites, emitted as evidence before the summary.
@@ -363,42 +322,6 @@ func (r *LogsRequest) Check() error {
 // Check implements Request.
 func (*EventsRequest) Check() error { return nil }
 
-// Check implements Request. The check's own grammar is internal/checks'.
-func (r *CheckRunRequest) Check() error {
-	if !r.Side.Valid() {
-		return fmt.Errorf("side %q is not a side", r.Side)
-	}
-	if len(r.Spec) == 0 || len(r.Spec) > MaxCheckBytes || !json.Valid(r.Spec) {
-		return errors.New("check is not bounded JSON")
-	}
-	return nil
-}
-
-// Check implements Request.
-func (*CheckResultsRequest) Check() error { return nil }
-
-// Check implements Request.
-func (r *ConfirmRequest) Check() error {
-	if len(r.Digests) == 0 || len(r.Digests) > MaxConfirm {
-		return errors.New("confirm names no checks or too many")
-	}
-	seen := map[string]bool{}
-	for _, d := range r.Digests {
-		if !isSHA256(d) || seen[d] {
-			return fmt.Errorf("digest %q is not a new sha256", d)
-		}
-		seen[d] = true
-	}
-	red := map[string]bool{}
-	for _, d := range r.ExpectFail {
-		if !seen[d] || red[d] {
-			return fmt.Errorf("expected failure %q names no check of the confirm, or one twice", d)
-		}
-		red[d] = true
-	}
-	return nil
-}
-
 // Check implements Request.
 func (r *FinishRequest) Check() error {
 	if len(r.Evidence) > MaxEvidence {
@@ -454,14 +377,6 @@ const (
 	RefusedVerb        = "verb-not-allowed"
 	RefusedNavigation  = "navigation-not-allowed"
 	RefusedToolCalls   = "tool-calls-exhausted"
-	RefusedNoDryRun    = "no-green-dry-run"
-	RefusedNoRedDryRun = "no-red-dry-run"
-	// RefusedRedRule: a check proposed to show a defect has its red dry
-	// run, but breaks a rule for showing one (checks.ValidateRed), told
-	// apart from RefusedNoRedDryRun so the evaluator can correct it (S1
-	// demo bug 9).
-	RefusedRedRule     = "red-check-rule"
-	RefusedCheck       = "check-invalid"
 	RefusedFinished    = "finished"
 	RefusedUnavailable = "unavailable"
 )
@@ -489,10 +404,6 @@ type Observed struct {
 	LatencyMs int64 `json:"latencyMs,omitempty"`
 	// Exit is the exit code of the process an exec or browser call ran.
 	Exit *int `json:"exit,omitempty"`
-	// CheckRun is a dry run's record; CheckRuns are check-results' and
-	// confirm's.
-	CheckRun  *CheckRunRecord  `json:"checkRun,omitempty"`
-	CheckRuns []CheckRunRecord `json:"checkRuns,omitempty"`
 	// Summary is finish's.
 	Summary *Summary `json:"summary,omitempty"`
 }

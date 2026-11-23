@@ -13,14 +13,15 @@ import (
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// ApplyStatus returns the ledger's summary and index and writes nothing of
-// the retired check runs (replay, confirmations, confirmed checks) onto
-// status, whatever the ledger holds.
+// ApplyStatus returns the ledger's summary and index and leaves none of the
+// retired check runs (replay, confirmations, confirmed checks) on status,
+// whatever an earlier write left there.
 func TestApplyStatus(t *testing.T) {
 	log, msg := toolLedger(t, testPNG(t, 8, 8))
 	out := verifiedLedger(t, log, msg)
-	outcomes := testOutcomes()
-	var st v1alpha1.PreviewVerificationStatus
+	run := []v1alpha1.CheckRun{{CheckDigest: "sha256:" + sha256Hex(nil), Result: v1alpha1.CheckRunPass}}
+	st := v1alpha1.PreviewVerificationStatus{Replay: run, Confirmations: run,
+		Confirmed: []v1alpha1.SavedCheck{{ID: "items.body"}}}
 	sum := ApplyStatus(&st, out)
 	entries := out.Ledger.Entries
 	want := &v1alpha1.LedgerSummary{Count: 7, SHA256: out.Ledger.Summary.SHA256, Entries: Index(entries)}
@@ -29,12 +30,6 @@ func TestApplyStatus(t *testing.T) {
 	}
 	if st.Ledger != nil {
 		t.Error("ApplyStatus set st.Ledger; the host names its ConfigMaps first")
-	}
-	// The fixture's ledger holds a replay, a confirmation and a confirmed
-	// check (pinned below, so this is not vacuous); none reaches status.
-	if len(ReplayRuns(entries)) != 1 || len(ConfirmationRuns(entries)) != 1 ||
-		len(ConfirmedChecks(entries, outcomes)) != 1 {
-		t.Fatal("the fixture no longer holds a replay, a confirmation and a confirmed check")
 	}
 	if st.Replay != nil || st.Confirmations != nil || st.Confirmed != nil || st.Base != nil {
 		t.Errorf("status = replay %+v, confirmations %+v, confirmed %+v, base %+v; want none: only the index "+
@@ -52,8 +47,7 @@ func TestRoundReason(t *testing.T) {
 	runner := []toolwire.LedgerEntry{{Kind: toolwire.KindRelay}, {Kind: toolwire.KindRunner}}
 	relay := []toolwire.LedgerEntry{{Kind: toolwire.KindRelay}, {Kind: toolwire.KindRelay}}
 	replay := []toolwire.LedgerEntry{{Kind: toolwire.KindRelay, Verb: toolwire.VerbHTTP},
-		{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, CheckRun: &toolwire.CheckRunRecord{
-			Mode: toolwire.ModeReplay, Result: toolwire.RunPass}},
+		{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun},
 		{Kind: toolwire.KindRelay, Verb: toolwire.VerbFinish, Args: json.RawMessage(`{"reason":"replay-only"}`)}}
 	for _, tc := range []struct {
 		name      string

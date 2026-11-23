@@ -23,8 +23,8 @@ import (
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// CallTimeout bounds one call: a check run's two attempts in a fresh
-// browser each, with room.
+// CallTimeout bounds one call: a run's compile and program, or a browser
+// call, with room.
 const CallTimeout = 10 * time.Minute
 
 // Client calls one tools container over the toolwire contract.

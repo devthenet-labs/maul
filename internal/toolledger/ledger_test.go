@@ -13,7 +13,6 @@ import (
 	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -112,53 +111,6 @@ func TestIndexRecordsSide(t *testing.T) {
 		if idx[i].Side != w {
 			t.Errorf("entry %d side = %q, want %q", idx[i].Seq, idx[i].Side, w)
 		}
-	}
-}
-
-// What status holds of the ledger is read from the ledger alone: a
-// confirmation whose check is over the saved bound, bound to no outcome
-// under evaluation, or that failed, confirms nothing.
-func TestConfirmedChecks(t *testing.T) {
-	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	var entries []toolwire.LedgerEntry
-	add := func(e toolwire.LedgerEntry) {
-		e.Seq, e.TS = int64(len(entries)+1), at
-		entries = append(entries, e)
-	}
-	pass := []toolwire.Attempt{{Run: "0123456789abcdef", Result: toolwire.ResultPass}}
-	propose := func(body string, confirmed toolwire.RunResult) string {
-		c, err := checks.Parse([]byte(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		d := strings.TrimPrefix(checks.Digest(c), "sha256:")
-		args, _ := json.Marshal(toolwire.CheckRunRequest{Spec: checks.Canonical(c)})
-		add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbCheckRun, Args: args,
-			CheckRun: &toolwire.CheckRunRecord{Digest: d, Mode: toolwire.ModeDryRun, Result: toolwire.RunPass,
-				Attempts: pass}})
-		attempts := pass
-		if confirmed == toolwire.RunFail {
-			attempts = []toolwire.Attempt{{Run: "a", Result: toolwire.ResultFail}, {Run: "b", Result: toolwire.ResultFail}}
-		}
-		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm, Args: json.RawMessage(`{}`),
-			CheckRun: &toolwire.CheckRunRecord{Digest: d, Mode: toolwire.ModeConfirm, Result: confirmed,
-				Attempts: attempts}})
-		return d
-	}
-	good := propose(testCheckBody, toolwire.RunPass)
-	propose(strings.ReplaceAll(testCheckBody, "items", "other"), toolwire.RunPass)
-	propose(strings.Replace(testCheckBody, "items.body", "items.fails", 1), toolwire.RunFail)
-	big := strings.Replace(testCheckBody, "/api/echo", "/api/"+strings.Repeat("a", v1alpha1.MaxSavedCheckBytes), 1)
-	if _, err := checks.Parse([]byte(big)); err == nil {
-		propose(strings.Replace(big, "items.body", "items.big", 1), toolwire.RunPass)
-	}
-	got := ConfirmedChecks(entries, testOutcomes())
-	if len(got) != 1 || got[0].Digest != "sha256:"+good || got[0].ID != "items.body" {
-		t.Errorf("confirmed %+v", got)
-	}
-	runs := ConfirmationRuns(entries)
-	if len(runs) < 3 || runs[0].DryRunSeq != 1 || runs[0].Seq != 2 || runs[2].Result != v1alpha1.CheckRunFail {
-		t.Errorf("confirmations %+v", runs)
 	}
 }
 

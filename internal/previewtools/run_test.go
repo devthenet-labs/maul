@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"net/http"
 	"os"
 	"os/exec"
@@ -253,48 +252,9 @@ func TestRunGoLive(t *testing.T) {
 	if before["go.mod"] != after["go.mod"] || before["go.sum"] != after["go.sum"] {
 		t.Fatal("the consumer's compile changed the tree's go.mod or go.sum")
 	}
-	// A run check's compile failure is an error, never a fail.
-	check := `{"id":"bb.parse","outcome":"bb","form":"run","run":{"language":"go","files":[
- {"path":"main.go","content":
-  "package main\n\nimport (\"fmt\"; \"example.com/bb\")\n\nfunc main() { fmt.Println(bb.Parse()) }\n"}],
- "expect":{"exit":0,"stdoutContains":"true"}}}`
-	_, cr := h.callKeyed(toolwire.VerbCheckRun, mustJSON(t, map[string]json.RawMessage{"check": json.RawMessage(check)}))
-	if cr.Refused != "" || cr.Observed.CheckRun.Result != toolwire.RunError {
-		t.Fatalf("a run check that does not compile: %+v", cr)
-	}
-	liveCompileCauses(t, h, check, cr)
 	l := h.finishKeyed()
 	if b := buildEntries(t, l); b[""].Result != "built" {
 		t.Fatalf("the live tree did not build: %+v\n%s", b, l.Entries[0].Output)
-	}
-}
-
-// liveCompileCauses: the real compiler's refusal of the program's own file
-// is the compile cause; an import the go command could not load is no
-// cause (SPEC-S2 S2-20b). check is a run check refused for an undefined
-// name, cr its check run.
-func liveCompileCauses(t *testing.T, h *harness, check string, cr toolwire.Response) {
-	t.Helper()
-	if got := cr.Observed.CheckRun.Cause(); got != toolwire.CauseCompile {
-		t.Errorf("an undefined name: cause %q, want %q (%+v)", got, toolwire.CauseCompile,
-			cr.Observed.CheckRun.Attempts)
-	}
-	unloaded := strings.Replace(strings.Replace(check, "bb.parse", "bb.load", 1), `\"example.com/bb\"`,
-		`\"example.com/bb\"; \"example.com/other/x\"`, 1)
-	unloaded = strings.Replace(unloaded, "bb.Parse()", "bb.Module(nil), x.X()", 1)
-	_, cr = h.callKeyed(toolwire.VerbCheckRun, mustJSON(t, map[string]json.RawMessage{"check": json.RawMessage(unloaded)}))
-	if cr.Refused != "" || cr.Observed.CheckRun.Result != toolwire.RunError || cr.Observed.CheckRun.Cause() != "" {
-		t.Errorf("a run check whose import did not load: %+v", cr)
-	}
-	// One long line puts the undefined name past column 255, where the
-	// compiler prints no column (G5-B-LIB-1): still the compile cause.
-	oneLine := strings.Replace(strings.Replace(check, "bb.parse", "bb.oneline", 1), `\n\nfunc main() {`,
-		`; func main() {`+strings.Repeat(" ", 300), 1)
-	oneLine = strings.Replace(oneLine, `package main\n\nimport`, `package main; import`, 1)
-	_, cr = h.callKeyed(toolwire.VerbCheckRun, mustJSON(t, map[string]json.RawMessage{"check": json.RawMessage(oneLine)}))
-	if cr.Refused != "" || cr.Observed.CheckRun.Result != toolwire.RunError ||
-		cr.Observed.CheckRun.Cause() != toolwire.CauseCompile {
-		t.Errorf("a one-line run check that does not compile: %+v", cr)
 	}
 }
 

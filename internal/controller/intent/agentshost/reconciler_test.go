@@ -82,7 +82,7 @@ func checkRelayConfig(t *testing.T, spec jobs.ToolPodSpec) {
 	}
 	ws := cfg.Workspace
 	if !cfg.IsWorkspace() || ws == nil || ws.Binary != "/work/bin/bb" || ws.BuildTimeoutSeconds != 600 ||
-		ws.SearchPath != searchPath || cfg.MaxToolCalls != 80 || len(cfg.Checks) != 0 {
+		ws.SearchPath != searchPath || cfg.MaxToolCalls != 80 {
 		t.Fatalf("config = %+v / %+v", cfg, ws)
 	}
 	want := []toolexec.EnvVar{{Name: "GOPROXY", Value: "off"}, {Name: "GOMODCACHE", Value: "/opt/go/pkg/mod"}}

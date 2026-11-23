@@ -22,17 +22,21 @@ const line014 = `{"seq":1,"ts":"2026-11-20T10:00:00Z","kind":"runner","verb":"ch
 	`"v1a1t1-abc","result":"pass","durationMs":812,"steps":[{"index":0,"result":"pass"}]}]}}`
 
 // TestReadStoredReadsAnEarlierReleasesLine: the display reader reads a
-// v0.14.15 line, checkRun fields and all, and one whose checkRun no longer
-// has the shape this release's wire gives it (W8 deletes that wire), since
-// it decodes only what a display shows.
+// v0.14.15 line, checkRun fields and all, and one whose checkRun has
+// another shape, though this release's wire refuses both (its entry has no
+// check run any more), since it decodes only what a display shows.
 func TestReadStoredReadsAnEarlierReleasesLine(t *testing.T) {
-	// The same line with a checkRun of another shape, which this release's
-	// toolwire.LedgerEntry refuses: the reader must not rest on that type.
+	// The same line with a checkRun of another shape: the reader must not
+	// rest on any check run type.
 	reshaped := strings.Replace(line014, `"attempts":[`, `"attempts":{"old":[`, 1)
 	reshaped = strings.Replace(reshaped, `]}]}}`, `]}]}}}`, 1)
-	var strict toolwire.LedgerEntry
-	if err := json.Unmarshal([]byte(reshaped), &strict); err == nil {
-		t.Fatal("the reshaped line decodes into toolwire.LedgerEntry: the case shows nothing")
+	for name, line := range map[string]string{"as stored": line014, "reshaped": reshaped} {
+		dec := json.NewDecoder(strings.NewReader(line))
+		dec.DisallowUnknownFields()
+		var strict toolwire.LedgerEntry
+		if err := dec.Decode(&strict); err == nil {
+			t.Fatalf("%s: the line decodes strictly into toolwire.LedgerEntry: the case shows nothing", name)
+		}
 	}
 	agent := `{"seq":2,"kind":"agent","verb":"browser","side":"base","args":{"verb":"eval","args":["() => 1"]},` +
 		`"exit":0,"output":"### Result\n1","outputSHA256":"` + sha256Hex([]byte("### Result\n1")) + `"}`

@@ -18,7 +18,7 @@ import (
 	"unicode"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -39,9 +39,10 @@ const (
 // DefaultConfigDir is where the tool ConfigMap is mounted.
 const DefaultConfigDir = "/etc/maul-tools"
 
-// maxConfigBytes bounds the config file: the checks (MaxSavedChecks of at
-// most MaxSavedCheckBytes each) with room for the rest.
-const maxConfigBytes = maulv1.MaxSavedChecks*(maulv1.MaxSavedCheckBytes+256) + 64<<10
+// maxConfigBytes bounds the config file: a workspace's environment
+// (toolexec.MaxEnv variables of at most toolexec.MaxEnvValueBytes) with
+// room for the rest.
+const maxConfigBytes = toolexec.MaxEnv*(toolexec.MaxEnvValueBytes+256) + 64<<10
 
 // maxComponents bounds the components: a Preview has at most four; eight
 // leaves room without leaving the grammar unbounded.
@@ -63,10 +64,6 @@ type Config struct {
 	// Viewer is the pairwise X-Maul-Viewer value the gateway would send for
 	// the evaluator.
 	Viewer string `json:"viewer"`
-	// Checks are retired: no host writes them and the relay never runs
-	// them (nothing is replayed). Still parsed and validated until the
-	// check runner goes.
-	Checks []StoredCheck `json:"checks,omitempty"`
 	// MaxToolCalls bounds the agent's calls.
 	MaxToolCalls int `json:"maxToolCalls"`
 	// TimeoutSeconds is the evaluation's wall clock from the container's
@@ -101,16 +98,6 @@ type Component struct {
 	Addr string `json:"addr"`
 }
 
-// StoredCheck is one saved check: its id, its digest
-// ("sha256:<hex>", internal/checks.Digest) and its canonical JSON.
-type StoredCheck struct {
-	ID     string `json:"id"`
-	Digest string `json:"digest"`
-	Body   string `json:"body"`
-	// Expect is "fail" for a check saved red: its replay is patient.
-	Expect string `json:"expect,omitempty"`
-}
-
 // ErrConfig is a config the relay refuses.
 var ErrConfig = errors.New("previewtools: config refused")
 
@@ -133,8 +120,8 @@ func LoadConfig(dir string) (Config, error) {
 	return ParseConfig(b)
 }
 
-// ParseConfig decodes a config strictly (unknown fields refused) and
-// validates it.
+// ParseConfig decodes a config strictly (unknown fields refused: an earlier
+// release's saved checks or replayOnly among them) and validates it.
 func ParseConfig(b []byte) (Config, error) {
 	if len(b) > maxConfigBytes {
 		return Config{}, fmt.Errorf("%w: over %d bytes", ErrConfig, maxConfigBytes)
@@ -179,7 +166,7 @@ func (c Config) Validate() error {
 	case c.TimeoutSeconds < 1 || c.TimeoutSeconds > 3600:
 		return errors.New("timeoutSeconds must be 1 to 3600")
 	}
-	return validateChecks(c.Checks)
+	return nil
 }
 
 func validateComponents(cs []Component) error {
@@ -199,33 +186,6 @@ func validateComponents(cs []Component) error {
 		if err != nil || net.ParseIP(host) == nil || port == "" {
 			return fmt.Errorf("component %s: address %q is not <ip>:<port>", comp.Key, comp.Addr)
 		}
-	}
-	return nil
-}
-
-func validateChecks(cs []StoredCheck) error {
-	if len(cs) > maulv1.MaxSavedChecks {
-		return fmt.Errorf("more than %d checks", maulv1.MaxSavedChecks)
-	}
-	seen := map[string]bool{}
-	for _, s := range cs {
-		if len(s.Body) > maulv1.MaxSavedCheckBytes {
-			return fmt.Errorf("check %q is over %d bytes", s.ID, maulv1.MaxSavedCheckBytes)
-		}
-		c, err := checks.Parse([]byte(s.Body))
-		if err != nil {
-			return fmt.Errorf("check %q: %v", s.ID, err)
-		}
-		if c.ID != s.ID || checks.Digest(c) != s.Digest {
-			return fmt.Errorf("check %q: its id or digest is not its body's", s.ID)
-		}
-		if s.Expect != "" && s.Expect != toolwire.ExpectFail {
-			return fmt.Errorf("check %q: expect %q is not fail", s.ID, s.Expect)
-		}
-		if seen[s.Digest] {
-			return fmt.Errorf("check %q is named twice", s.ID)
-		}
-		seen[s.Digest] = true
 	}
 	return nil
 }

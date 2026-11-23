@@ -26,7 +26,6 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
@@ -216,33 +215,20 @@ func toolLedger(t *testing.T, shot []byte, unreached ...string) ([]byte, string)
 		}
 		return out.Bytes(), sum.TerminationMessage()
 	}
-	saved, err := checks.Parse([]byte(testCheckBody))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pass := []toolwire.Attempt{{Run: "0123456789abcdef", Result: toolwire.ResultPass}}
-	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun,
-		Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{
-			Digest: strings.TrimPrefix(checks.Digest(saved), "sha256:"), CheckID: saved.ID, Mode: toolwire.ModeReplay,
-			Result: toolwire.RunPass, Attempts: pass}})
-	proposed, err := checks.Parse([]byte(strings.Replace(testCheckBody, `"items.body"`, `"items.echo"`, 1)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := strings.TrimPrefix(checks.Digest(proposed), "sha256:")
-	args, _ := json.Marshal(toolwire.CheckRunRequest{Spec: checks.Canonical(proposed)})
-	dry := add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbCheckRun, Args: args,
-		CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: proposed.ID, Mode: toolwire.ModeDryRun,
-			Result: toolwire.RunPass, Attempts: pass}})
+	// An earlier relay's replay, the agent's dry run, the runner's confirm
+	// and the relay's confirmation: the retired verbs' entries, their check
+	// run records gone from the wire, which no reader takes for a run.
+	digest := strings.Repeat("a", 64)
+	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`)})
+	dry := add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbCheckRun,
+		Args: json.RawMessage(`{"check":` + testCheckBody + `}`)})
 	browse := add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbBrowser,
 		Args: json.RawMessage(`{"verb":"screenshot"}`), Output: "shot",
 		Artifacts: []toolwire.Artifact{{Name: "page.png", SHA256: sha256Hex(shot), Bytes: int64(len(shot))}}})
 	add(toolwire.LedgerEntry{Kind: toolwire.KindRunner, Verb: toolwire.VerbConfirm,
 		Args: json.RawMessage(`{"digests":["` + digest + `"]}`)})
 	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm,
-		Args: json.RawMessage(`{"digest":"` + digest + `"}`), CheckRun: &toolwire.CheckRunRecord{Digest: digest,
-			CheckID: proposed.ID, Mode: toolwire.ModeConfirm, Result: toolwire.RunPass,
-			Attempts: []toolwire.Attempt{{Run: "fedcba9876543210", Result: toolwire.ResultPass}}}})
+		Args: json.RawMessage(`{"digest":"` + digest + `"}`)})
 	add(toolwire.LedgerEntry{Kind: toolwire.KindRunner, Verb: toolwire.VerbFinish, Args: json.RawMessage(`{}`)})
 	if dry.Seq != 3 {
 		t.Fatalf("dry run at %d", dry.Seq)
@@ -310,7 +296,7 @@ func TestToolsRenderedForAnOutcomeVerification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the relay refuses its config: %v", err)
 	}
-	if cfg.Components[1].Addr != "10.96.0.11:80" || len(cfg.Checks) != 0 || cfg.TimeoutSeconds != 20*60 {
+	if cfg.Components[1].Addr != "10.96.0.11:80" || cfg.TimeoutSeconds != 20*60 {
 		t.Errorf("config %+v", cfg)
 	}
 	var sec corev1.Secret
@@ -515,7 +501,10 @@ func TestToolsTamperedLogIsInfra(t *testing.T) {
 	job := e.testerJob()
 	pod := e.startToolPod(job, true)
 	log, msg := toolLedger(t, testPNG(t, 4, 4))
-	tampered := bytes.Replace(log, []byte(`"result":"pass"`), []byte(`"result":"fail"`), 1)
+	tampered := bytes.Replace(log, []byte(`"verb":"screenshot"`), []byte(`"verb":"snapshot"`), 1)
+	if bytes.Equal(tampered, log) {
+		t.Fatal("fixture: nothing was tampered with")
+	}
 	e.finishToolPod(job, pod, tampered, msg)
 	pv, _ := e.verify()
 	if pv.Status.Phase != v1alpha1.VerificationInfra || pv.Status.Reason != v1alpha1.VerificationReasonLedgerMismatch {

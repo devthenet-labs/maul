@@ -15,10 +15,15 @@ import (
 )
 
 func TestParseConfig(t *testing.T) {
-	good := func() Config {
-		c := baseConfig()
-		c.Checks = []StoredCheck{storedCheck(t, scoreCheck)}
-		return c
+	good := baseConfig
+	// An earlier host's config, which still sent its saved checks or asked
+	// for a replay: refused, as any field the relay no longer reads.
+	earlier := func(key, value string) string {
+		b, err := json.Marshal(baseConfig())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSuffix(string(b), "}") + `,"` + key + `":` + value + `}`
 	}
 	tests := []struct {
 		name string
@@ -39,12 +44,10 @@ func TestParseConfig(t *testing.T) {
 		{"a timeout over an hour", func(c *Config) { c.TimeoutSeconds = 3601 }, "", false},
 		{"no viewer", func(c *Config) { c.Viewer = "" }, "", false},
 		{"a host with a path", func(c *Config) { c.Host = "a.example/x" }, "", false},
-		{"a check whose digest is another's", func(c *Config) {
-			c.Checks[0].Digest = "sha256:" + strings.Repeat("0", 64)
-		}, "", false},
-		{"a check that does not parse", func(c *Config) { c.Checks[0].Body = "{" }, "", false},
-		{"a check over 8 KiB", func(c *Config) { c.Checks[0].Body = strings.Repeat(" ", 8193) }, "", false},
-		{"a check named twice", func(c *Config) { c.Checks = append(c.Checks, c.Checks[0]) }, "", false},
+		{"an earlier host's saved checks", nil, earlier("checks", `[{"id":"score.shows","digest":"sha256:`+
+			strings.Repeat("0", 64)+`","body":"{}"}]`), false},
+		{"an earlier host's empty saved checks", nil, earlier("checks", `[]`), false},
+		{"an earlier host's replay", nil, earlier("replayOnly", `true`), false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

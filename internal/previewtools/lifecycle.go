@@ -55,8 +55,8 @@ type RunOptions struct {
 //     finish on its own at the wall clock (FinishDeadline) or when ctx
 //     ends (FinishStopped).
 //
-// Nothing is replayed: a config's saved checks (retired) are never run.
-// The preview front (o.Front) serves the browser throughout.
+// The relay runs nothing of its own past the readiness wait and the
+// builds. The preview front (o.Front) serves the browser throughout.
 //
 // Every way out closes the ledger with its summary and writes the
 // termination message, so a crashed evaluator still leaves a ledger.

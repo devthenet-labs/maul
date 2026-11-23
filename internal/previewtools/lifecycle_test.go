@@ -19,13 +19,6 @@ import (
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// scoreCheckB is scoreCheck under another id: its own digest.
-var scoreCheckB = strings.Replace(scoreCheck, `"score.shows"`, `"score.again"`, 1)
-
-const webCheck = `{"id":"home.items","outcome":"home","form":"http","http":{"target":"web","steps":[
- {"request":{"method":"POST","path":"/items","json":{"n":"{{run}}"}},
-  "expect":{"status":201,"bodyContains":"{{run}}"}}]}}`
-
 type lifecycle struct {
 	out  *bytes.Buffer
 	term string
@@ -70,17 +63,16 @@ func finishReason(t *testing.T, e toolwire.LedgerEntry) string {
 	return args.Reason
 }
 
-// TestRunNeverReplaysSavedChecks: a config that still carries saved checks
-// (an earlier host's) runs none of them: the readiness wait, then the
+// TestRunSendsTheComponentsNothingOfItsOwn: the readiness wait, then the
 // relay serves the agent until its wall clock, and no request reaches a
-// component but the agent's.
-func TestRunNeverReplaysSavedChecks(t *testing.T) {
+// component but the agent's: the relay runs nothing of its own (no saved
+// check is replayed).
+func TestRunSendsTheComponentsNothingOfItsOwn(t *testing.T) {
 	api := fakeAPI(t, func(int) int { return 5 })
 	web := newFakeComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
 		w.WriteHeader(http.StatusCreated)
 	})
 	cfg := baseConfig()
-	cfg.Checks = []StoredCheck{storedCheck(t, scoreCheck), storedCheck(t, scoreCheckB), storedCheck(t, webCheck)}
 	l := newLifecycle(t, cfg, routes{"10.0.0.1:80": api.srv.Listener.Addr().String(),
 		"10.0.0.2:80": web.srv.Listener.Addr().String()})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -113,7 +105,7 @@ func TestRunNeverReplaysSavedChecks(t *testing.T) {
 		t.Errorf("finish reason %q, want %q", r, FinishDeadline)
 	}
 	if n := len(api.requests()) + len(web.requests()); n != 0 {
-		t.Errorf("%d requests reached the components; a saved check ran", n)
+		t.Errorf("%d requests reached the components; the relay ran something of its own", n)
 	}
 }
 
@@ -190,7 +182,6 @@ func TestRunServesUntilTheRunnerFinishes(t *testing.T) {
 func TestRunEndsWhenAComponentIsUnreachable(t *testing.T) {
 	api := fakeAPI(t, func(int) int { return 5 })
 	cfg := baseConfig()
-	cfg.Checks = []StoredCheck{storedCheck(t, scoreCheck)}
 	l := newLifecycle(t, cfg, routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}) // web never answers
 	l.o.ReadinessWindow = 200 * time.Millisecond
 	if _, err := Run(context.Background(), l.o); err != nil {
@@ -207,7 +198,7 @@ func TestRunEndsWhenAComponentIsUnreachable(t *testing.T) {
 		t.Errorf("finish reason %q", r)
 	}
 	if len(api.requests()) != 0 {
-		t.Errorf("a check ran against a slot with an unreachable component")
+		t.Errorf("a request reached a slot with an unreachable component")
 	}
 }
 

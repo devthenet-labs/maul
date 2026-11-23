@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -224,30 +223,6 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
-}
-
-// storedCheck is a check as the tool ConfigMap carries it.
-func storedCheck(t *testing.T, src string) StoredCheck {
-	t.Helper()
-	c, err := checks.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	if err := checks.Validate(c, checks.Context{Preview: &checks.Preview{}}); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-	return StoredCheck{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}
-}
-
-// bareDigest is the digest a dry run of src as proposed is recorded
-// against (checks.ParseProposal).
-func bareDigest(t *testing.T, src string) string {
-	t.Helper()
-	c, err := checks.ParseProposal([]byte(src))
-	if err != nil {
-		t.Fatalf("ParseProposal: %v", err)
-	}
-	return strings.TrimPrefix(checks.Digest(c), "sha256:")
 }
 
 // entryOf is a ledger entry for record.

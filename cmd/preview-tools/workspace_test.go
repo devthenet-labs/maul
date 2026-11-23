@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolexec"
@@ -23,9 +22,6 @@ import (
 )
 
 const wsKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
-const execCheck = `{"id":"count.prints","outcome":"count","form":"exec","exec":{"argv":["{{bin}}"],
- "expect":{"exit":0,"stdoutContains":"count=3"}}}`
 
 // fakeShim serves the exec shim's endpoints on a unix socket, answering
 // every program with output.
@@ -68,20 +64,15 @@ func serveShim(t *testing.T, sock, output string) *fakeShim {
 	return f
 }
 
-// workspaceSeams writes a workspace round's config (one saved check, an
-// earlier host's, never run; a two-second wall clock) and key, two
-// pristine trees and two shims, and returns the seams that read them.
+// workspaceSeams writes a workspace round's config (a two-second wall
+// clock) and key, two pristine trees and two shims, and returns the seams
+// that read them.
 func workspaceSeams(t *testing.T, key string) (previewtools.Seams, *fakeShim, *fakeShim) {
 	t.Helper()
-	c, err := checks.Parse([]byte(execCheck))
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := previewtools.Config{
 		Mode: previewtools.ModeWorkspace,
 		Workspace: &previewtools.Workspace{Build: []string{"go", "build", "-o", "/work/bin/bb", "."},
 			Binary: "/work/bin/bb", BuildTimeoutSeconds: 60, SearchPath: "/usr/bin"},
-		Checks:       []previewtools.StoredCheck{{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}},
 		MaxToolCalls: 50, TimeoutSeconds: 2,
 	}
 	dir := t.TempDir()
@@ -119,7 +110,7 @@ func workspaceSeams(t *testing.T, key string) (previewtools.Seams, *fakeShim, *f
 }
 
 // TestRunWorkspaceRound: a workspace's round builds both trees, each over
-// its own socket, runs no saved check, serves until its wall clock and
+// its own socket, runs nothing of its own, serves until its wall clock and
 // closes the ledger. Its side clients read the shims' peer credentials, which only
 // linux gives (toolexec.NewSideClient refuses every dial elsewhere).
 func TestRunWorkspaceRound(t *testing.T) {

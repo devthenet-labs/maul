@@ -16,28 +16,18 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-const check = `{"id":"health.body","outcome":"health","form":"http","http":{"target":"api","steps":[
- {"request":{"method":"POST","path":"/api/echo","json":{"n":"{{run}}"}},"expect":{"bodyContains":"{{run}}"}}]}}`
-
-// seamsFor writes a round's config against srv, carrying one saved check
-// (an earlier host's; never run) and a one-second wall clock, and returns
-// the seams that read it.
+// seamsFor writes a round's config against srv, with a one-second wall
+// clock, and returns the seams that read it.
 func seamsFor(t *testing.T, srv *httptest.Server, mut func(*previewtools.Config)) previewtools.Seams {
 	t.Helper()
-	c, err := checks.Parse([]byte(check))
-	if err != nil {
-		t.Fatal(err)
-	}
 	port := srv.URL[strings.LastIndex(srv.URL, ":")+1:]
 	cfg := previewtools.Config{
 		Components:   []previewtools.Component{{Key: "api", Path: "/", Addr: "127.0.0.1:" + port}},
 		Viewer:       "maul-evaluator",
-		Checks:       []previewtools.StoredCheck{{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}},
 		MaxToolCalls: 50, TimeoutSeconds: 1,
 	}
 	if mut != nil {
@@ -57,8 +47,8 @@ func seamsFor(t *testing.T, srv *httptest.Server, mut func(*previewtools.Config)
 
 // TestRunServesUntilItsWallClock: the binary waits for its component,
 // serves until its wall clock, and closes the ledger on stdout, verified
-// by the termination message; the saved check is never run, so the
-// component sees no request.
+// by the termination message; it runs nothing of its own, so the component
+// sees no request.
 func TestRunServesUntilItsWallClock(t *testing.T) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +75,7 @@ func TestRunServesUntilItsWallClock(t *testing.T) {
 		t.Errorf("ledger %+v, want readiness and finish", l.Entries)
 	}
 	if n := requests.Load(); n != 0 {
-		t.Errorf("the component saw %d requests; a saved check ran", n)
+		t.Errorf("the component saw %d requests; the relay ran something of its own", n)
 	}
 	if strings.Contains(stderr.String(), "MAUL-TOOLS") {
 		t.Errorf("the ledger leaked onto stderr")

@@ -21,8 +21,8 @@ import (
 // The ledger's bounds. The tools container never writes past them, and
 // Verify refuses a log that does.
 const (
-	// MaxEntries is the most entries one ledger holds: maxToolCalls (300)
-	// plus replay, confirmation and relay entries, with room.
+	// MaxEntries is the most entries one ledger holds: maxToolCalls (300),
+	// the refusals past them, and the relay's and the runner's own entries.
 	MaxEntries = 512
 	// MaxOutputBytes bounds an entry's full output; Writer cuts a longer
 	// one, ending it with TruncationMarker.
@@ -76,11 +76,12 @@ type Kind string
 const (
 	// KindAgent is the evaluator's call through maul-tool.
 	KindAgent Kind = "agent"
-	// KindRunner is agent-runner's call after the agent exited (confirm,
-	// finish).
+	// KindRunner is agent-runner's call after the agent exited: its finish
+	// (an earlier release's confirm too).
 	KindRunner Kind = "runner"
-	// KindRelay is the tools container's own action: a replay or
-	// confirmation run, a browser session (re)opened, a deadline finish.
+	// KindRelay is the tools container's own action: the readiness wait, a
+	// build, a browser session (re)opened, a deadline finish (an earlier
+	// release's replay and confirmation runs too).
 	KindRelay Kind = "relay"
 )
 
@@ -90,31 +91,38 @@ var kinds = map[Kind]bool{KindAgent: true, KindRunner: true, KindRelay: true}
 type Verb string
 
 // Verbs: one per tool endpoint (wire.go), plus VerbSession, the relay's
-// browser session, and VerbBuild, its build of a tree.
+// browser session, VerbBuild, its build of a tree, and the check runner's
+// retired verbs (RetiredVerb).
 const (
-	VerbHTTP         Verb = "http"
-	VerbBrowser      Verb = "browser"
-	VerbExec         Verb = "exec"
-	VerbFiles        Verb = "files"
-	VerbRun          Verb = "run"
-	VerbLogs         Verb = "logs"
-	VerbEvents       Verb = "events"
-	VerbCheckRun     Verb = "check-run"
-	VerbCheckResults Verb = "check-results"
-	VerbConfirm      Verb = "confirm"
-	VerbFinish       Verb = "finish"
-	VerbSession      Verb = "session"
+	VerbHTTP    Verb = "http"
+	VerbBrowser Verb = "browser"
+	VerbExec    Verb = "exec"
+	VerbFiles   Verb = "files"
+	VerbRun     Verb = "run"
+	VerbLogs    Verb = "logs"
+	VerbEvents  Verb = "events"
+	VerbFinish  Verb = "finish"
+	VerbSession Verb = "session"
 	// VerbBuild is the relay's own build of a side's tree (SPEC S2): no
 	// endpoint, so a caller cannot ask for one.
 	VerbBuild Verb = "build"
+	// VerbCheckRun, VerbCheckResults and VerbConfirm are retired spellings:
+	// the check runner's dry run, results and confirmation, which an earlier
+	// release's ledger may still name. No tool answers them (Path is "").
+	VerbCheckRun     Verb = "check-run"
+	VerbCheckResults Verb = "check-results"
+	VerbConfirm      Verb = "confirm"
 )
+
+// RetiredVerb reports one of the check runner's retired verbs.
+func RetiredVerb(v Verb) bool { return v == VerbCheckRun || v == VerbCheckResults || v == VerbConfirm }
 
 // Verbs lists every verb, in a fixed order.
 var Verbs = []Verb{VerbHTTP, VerbBrowser, VerbExec, VerbFiles, VerbRun, VerbLogs, VerbEvents, VerbCheckRun,
 	VerbCheckResults, VerbConfirm, VerbFinish, VerbSession, VerbBuild}
 
 // sidedVerbs are the verbs that run in a sandbox, so the only ones whose
-// entry may name a side.
+// entry may name a side (an earlier release's check-run among them).
 var sidedVerbs = map[Verb]bool{VerbExec: true, VerbRun: true, VerbFiles: true, VerbBuild: true, VerbCheckRun: true}
 
 // checkSide holds an entry's side to its one encoding: "" for the head,
@@ -149,7 +157,7 @@ type LedgerEntry struct {
 	// Side is the sandbox the call ran in: empty for the head and for a
 	// verb that has none, so an S1 entry's line is unchanged. Only base is
 	// ever written (one encoding per fact), and only on a verb that runs in
-	// a sandbox (exec, run, files, build, check-run).
+	// a sandbox (exec, run, files, build).
 	Side Side `json:"side,omitempty"`
 	// Args is the request as received, JSON.
 	Args json.RawMessage `json:"args"`
@@ -169,8 +177,7 @@ type LedgerEntry struct {
 	Inline    string     `json:"inline,omitempty"`
 	Artifacts []Artifact `json:"artifacts,omitempty"`
 	// Locators holds generate-locator's result for each ref acted on.
-	Locators []string        `json:"locators,omitempty"`
-	CheckRun *CheckRunRecord `json:"checkRun,omitempty"`
+	Locators []string `json:"locators,omitempty"`
 }
 
 // Artifact is a file a call produced (a screenshot, a snapshot file),
@@ -180,206 +187,6 @@ type Artifact struct {
 	Name   string `json:"name"`
 	SHA256 string `json:"sha256"`
 	Bytes  int64  `json:"bytes"`
-}
-
-// CheckRunMode is why a check ran.
-type CheckRunMode string
-
-// Check run modes.
-const (
-	// ModeDryRun is the agent's `maul-tool check run`.
-	ModeDryRun CheckRunMode = "dry-run"
-	// ModeReplay is the relay's replay of a stored check at start.
-	ModeReplay CheckRunMode = "replay"
-	// ModeConfirm is the relay's confirmation run of a proposed check.
-	ModeConfirm CheckRunMode = "confirm"
-)
-
-// AttemptResult is one attempt's result.
-type AttemptResult string
-
-// Attempt results. ResultError is a check error (an indeterminate
-// assertion, a runner failure): unsure, never a fail.
-const (
-	ResultPass  AttemptResult = "pass"
-	ResultFail  AttemptResult = "fail"
-	ResultError AttemptResult = "error"
-)
-
-var attemptResults = map[AttemptResult]bool{ResultPass: true, ResultFail: true, ResultError: true}
-
-// RunResult is a check run's result over its attempts (DeriveResult).
-type RunResult string
-
-// Run results.
-const (
-	RunPass        RunResult = "pass"
-	RunFail        RunResult = "fail"
-	RunError       RunResult = "error"
-	RunQuarantined RunResult = "quarantined"
-)
-
-// CheckRunRecord is one check's run: alone, in a fresh context, re-run
-// once after a failure.
-type CheckRunRecord struct {
-	// Digest is the check's digest, CheckID its id.
-	Digest   string       `json:"digest"`
-	CheckID  string       `json:"checkID"`
-	Mode     CheckRunMode `json:"mode"`
-	Result   RunResult    `json:"result"`
-	Attempts []Attempt    `json:"attempts"`
-}
-
-// Attempt is one run of a check under its own fresh run token.
-type Attempt struct {
-	Run        string        `json:"run"`
-	Result     AttemptResult `json:"result"`
-	DurationMs int64         `json:"durationMs"`
-	Steps      []StepRecord  `json:"steps,omitempty"`
-}
-
-// StepRecord is one step's result, from the runner's reporter.
-type StepRecord struct {
-	Index  int           `json:"index"`
-	Result AttemptResult `json:"result"`
-	// Side is the sandbox the step ran in; empty is the head, and only
-	// base is ever written.
-	Side Side `json:"side,omitempty"`
-	// Detail is the runner's message for a step that did not pass. An exec
-	// or run step's may quote what its program printed (after its marker,
-	// or the end of its output): UNTRUSTED, shown only as data.
-	Detail string `json:"detail,omitempty"`
-	// Assertion marks a failing step that failed an assertion the outcome
-	// is the judge of, about data the check's own run made, in a check that
-	// otherwise ran; only on a fail step (Check). Only such a failure may
-	// show a defect (a check saved red), so it is drawn conservatively.
-	// http: only content: a JSON pointer (never the whole document "") that
-	// resolves, in a JSON body, to a different value, not by a list matcher
-	// ($order, $includes); a header present with a different value; body
-	// text missing from a non-HTML body; and only when the step's path
-	// (never its query) or the expected value names {{run}} or a capture of
-	// one of the check's own writes. Never a status (a 500 included), a
-	// pointer or header that resolves to nothing, no response, an unbuilt
-	// request or a missing capture. exec: only when the program printed
-	// its attempt's checks.ExecMarker with an assertion id, never an exit code or
-	// missing output alone, never a time limit. browser: an expect step's
-	// maul assertion or Playwright matcher on an element that was there,
-	// keyed by {{run}} (its locator, text or URL), never a count, a timeout,
-	// an action, a locator that resolved nothing or more than one element,
-	// an element with no box, a trial click or an indeterminate judgement.
-	Assertion bool `json:"assertion,omitempty"`
-	// AssertionID names which assertion of the step failed, set exactly
-	// when Assertion is: "json <pointer>", "header <name>", "bodyContains"
-	// (http), "marker <id>" (exec: the id its program printed), "expect"
-	// (browser: one assertion per step). A run is red by assertion only when
-	// every attempt failed the same step and id.
-	AssertionID string `json:"assertionID,omitempty"`
-	// Cause is, on a step that errored, why, when it shows the tree lacks
-	// what the check needs rather than that the run was cut short or
-	// disturbed (StepCause); empty otherwise, and on every S1 step.
-	Cause StepCause `json:"cause,omitempty"`
-	// Received is, on a browser step that failed a text assertion by
-	// assertion (Assertion) on an element that was there, the text that
-	// element showed, as the test runner received it: one line of at most
-	// MaxReceivedBytes, the run's token as the page showed it (D-B4). It is
-	// the application's text, UNTRUSTED: shown only bounded and quoted as
-	// data. Empty on every other step, and when the runner's message held
-	// no single line of it.
-	Received string `json:"received,omitempty"`
-}
-
-// StepCause is why a workspace step errored, recorded by the tools relay
-// only for an error that is a property of the tree (SPEC-S2 S2-20): the
-// only errors at the base that leave a check with no base comparison
-// (httpstep.RunCause). A timeout, processes left behind, output cut, a
-// bind or connection error or a sandbox that refused or did not answer is
-// recorded with none: it gives no evidence about the tree.
-type StepCause string
-
-// Step causes.
-const (
-	// CauseCompile: the run program did not compile against the tree (the
-	// compiler ran to its end and refused it).
-	CauseCompile StepCause = "compile"
-	// CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule: a tree a
-	// run program cannot be built against (SPEC Q25).
-	CauseVendoredTree       StepCause = "vendored-tree"
-	CauseReplaceOutsideTree StepCause = "replace-outside-tree"
-	CauseNoModule           StepCause = "no-module"
-	// CauseBaseUnbuildable: the base tree did not build, so nothing ran.
-	CauseBaseUnbuildable StepCause = "base-unbuildable"
-)
-
-// Known reports one of the step causes.
-func (c StepCause) Known() bool {
-	switch c {
-	case CauseCompile, CauseVendoredTree, CauseReplaceOutsideTree, CauseNoModule, CauseBaseUnbuildable:
-		return true
-	}
-	return false
-}
-
-// Cause is why a run errored: the one cause every attempt errored for, and
-// only of a run that errored at every attempt, each at a step of that same
-// cause; "" for any other run (one that failed, passed or quarantined, an
-// attempt with no cause or another).
-func (r CheckRunRecord) Cause() StepCause {
-	if r.Result != RunError || len(r.Attempts) == 0 {
-		return ""
-	}
-	var cause StepCause
-	for _, a := range r.Attempts {
-		if a.Result != ResultError {
-			return ""
-		}
-		for _, s := range a.Steps {
-			switch {
-			case s.Result == ResultPass:
-				continue
-			case s.Result != ResultError || s.Cause == "" || (cause != "" && s.Cause != cause):
-				return ""
-			}
-			cause = s.Cause
-		}
-	}
-	return cause
-}
-
-// MaxAssertionIDBytes bounds a StepRecord's AssertionID.
-const MaxAssertionIDBytes = 512
-
-// MaxReceivedBytes bounds a StepRecord's Received.
-const MaxReceivedBytes = 1 << 10
-
-// Bounds of a check run record.
-const (
-	maxRunBytes     = 64
-	maxCheckIDBytes = 64
-	maxSteps        = 64
-	maxDetailBytes  = 2 << 10
-)
-
-// DeriveResult is the result of a run's attempts: a pass on the first
-// attempt passes; a non-pass followed by a pass is quarantined; otherwise
-// an error anywhere is an error and the rest fail. It is "" for attempts no
-// run has: none, more than two, or a re-run after a pass.
-func DeriveResult(as []Attempt) RunResult {
-	switch {
-	case len(as) == 0 || len(as) > 2:
-		return ""
-	case as[0].Result == ResultPass && len(as) == 1:
-		return RunPass
-	case as[0].Result == ResultPass:
-		return ""
-	case len(as) == 2 && as[1].Result == ResultPass:
-		return RunQuarantined
-	}
-	for _, a := range as {
-		if a.Result == ResultError {
-			return RunError
-		}
-	}
-	return RunFail
 }
 
 var (
@@ -399,8 +206,7 @@ func sha256Hex(b []byte) string {
 
 // Check holds an entry to the bounds and consistency the tools container
 // keeps: known kind and verb, bounded fields, an output matching its
-// digest, a refusal that ran nothing, and a check run only where its mode
-// belongs.
+// digest, and a refusal that ran nothing.
 func (e LedgerEntry) Check() error {
 	switch {
 	case e.Seq < 1:
@@ -430,11 +236,11 @@ func (e LedgerEntry) Check() error {
 		if !refusalCode.MatchString(e.Refused) {
 			return errors.New("refusal is not a code")
 		}
-		if e.Exit != 0 || len(e.Artifacts) > 0 || len(e.Locators) > 0 || e.CheckRun != nil {
+		if e.Exit != 0 || len(e.Artifacts) > 0 || len(e.Locators) > 0 {
 			return errors.New("a refused call ran nothing")
 		}
 	}
-	return e.checkRun()
+	return nil
 }
 
 func (e LedgerEntry) checkParts() error {
@@ -455,131 +261,6 @@ func (e LedgerEntry) checkParts() error {
 		}
 	}
 	return nil
-}
-
-// checkRun holds a check run to where its mode belongs: the agent's dry
-// run on check-run, the relay's replay on check-run, the relay's
-// confirmation on confirm; and to its bounds and derived result.
-func (e LedgerEntry) checkRun() error {
-	r := e.CheckRun
-	if r == nil {
-		return nil
-	}
-	switch {
-	case r.Mode == ModeDryRun && e.Kind == KindAgent && e.Verb == VerbCheckRun:
-	case r.Mode == ModeReplay && e.Kind == KindRelay && e.Verb == VerbCheckRun:
-	case r.Mode == ModeConfirm && e.Kind == KindRelay && e.Verb == VerbConfirm:
-	default:
-		return fmt.Errorf("a %s check run cannot be a %s %s entry", r.Mode, e.Kind, e.Verb)
-	}
-	if !isSHA256(r.Digest) || len(r.CheckID) > maxCheckIDBytes || !utf8.ValidString(r.CheckID) {
-		return errors.New("a check run's digest or id is out of bounds")
-	}
-	for _, a := range r.Attempts {
-		if err := a.check(); err != nil {
-			return err
-		}
-	}
-	if d := DeriveResult(r.Attempts); d == "" || d != r.Result {
-		return fmt.Errorf("a check run's result %q is not its attempts' (%q)", r.Result, d)
-	}
-	return nil
-}
-
-func (a Attempt) check() error {
-	if len(a.Run) > maxRunBytes || !utf8.ValidString(a.Run) || !attemptResults[a.Result] || a.DurationMs < 0 ||
-		len(a.Steps) > maxSteps {
-		return errors.New("an attempt is out of bounds")
-	}
-	for _, s := range a.Steps {
-		if err := s.check(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// check holds a step record to its bounds: a recorded side, a bounded
-// index and detail, an assertion only on a fail with its id, a cause only
-// on an error, one of the known, and received text only on an assertion,
-// one bounded line.
-func (s StepRecord) check() error {
-	if !s.Side.recorded() || s.Index < 0 || s.Index >= maxSteps || !attemptResults[s.Result] ||
-		len(s.Detail) > maxDetailBytes || !utf8.ValidString(s.Detail) {
-		return errors.New("a step record is out of bounds")
-	}
-	if s.Assertion && s.Result != ResultFail {
-		return errors.New("a step that did not fail is marked an assertion")
-	}
-	if s.Cause != "" && (!s.Cause.Known() || s.Result != ResultError) {
-		return errors.New("a step's cause is not an error's known cause")
-	}
-	if s.Assertion != (s.AssertionID != "") || len(s.AssertionID) > MaxAssertionIDBytes ||
-		!utf8.ValidString(s.AssertionID) || strings.ContainsAny(s.AssertionID, "\r\n") {
-		return errors.New("a step's assertion id is not its assertion's")
-	}
-	if !s.receivedHolds() {
-		return errors.New("a step's received text is not one bounded line of a failed assertion")
-	}
-	return nil
-}
-
-// receivedHolds reports s's received text none, or one line of at most
-// MaxReceivedBytes on a step that failed by assertion.
-func (s StepRecord) receivedHolds() bool {
-	return s.Received == "" || s.Assertion && len(s.Received) <= MaxReceivedBytes && utf8.ValidString(s.Received) &&
-		!strings.ContainsAny(s.Received, "\r\n")
-}
-
-// AssertionStep is the step at which a run is red by assertion, and
-// whether it is: the run failed (never quarantined, never an error), each
-// of its two attempts, under its own fresh token, failed, and each at the
-// same step, an assertion (StepRecord.Assertion) that every step before it
-// passed. A check red any other way (a check error, a timeout, an action
-// on nothing, a fail then a pass) is not red by assertion: it may show a
-// broken check, never a defect.
-func (r CheckRunRecord) AssertionStep() (int, bool) {
-	if r.Result != RunFail || len(r.Attempts) != 2 || DeriveResult(r.Attempts) != RunFail {
-		return 0, false
-	}
-	at, id := -1, ""
-	for _, a := range r.Attempts {
-		i, aid, ok := a.assertionStep()
-		if !ok || (at >= 0 && (i != at || aid != id)) {
-			return 0, false
-		}
-		at, id = i, aid
-	}
-	return at, true
-}
-
-// FailedAssertionID is the id of the assertion a run red by assertion
-// failed (StepRecord.AssertionID), "" for a run that is not.
-func (r CheckRunRecord) FailedAssertionID() string {
-	if _, ok := r.AssertionStep(); !ok {
-		return ""
-	}
-	_, id, _ := r.Attempts[0].assertionStep()
-	return id
-}
-
-// assertionStep is the index and assertion id of a failed attempt's
-// failing step when that step is its last, an assertion with an id, and
-// every step before it passed.
-func (a Attempt) assertionStep() (int, string, bool) {
-	if a.Result != ResultFail || len(a.Steps) == 0 {
-		return 0, "", false
-	}
-	for i, s := range a.Steps {
-		if s.Result == ResultPass {
-			continue
-		}
-		if s.Result != ResultFail || !s.Assertion || s.AssertionID == "" || i != len(a.Steps)-1 {
-			return 0, "", false
-		}
-		return s.Index, s.AssertionID, true
-	}
-	return 0, "", false
 }
 
 // Evidence is one cited image's bytes, as the tools container emitted

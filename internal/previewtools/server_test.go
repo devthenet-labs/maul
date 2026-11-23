@@ -17,15 +17,9 @@ import (
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// scoreCheck is an http check of the fake api: it creates a player named
-// by the run token, then reads its score back.
-const scoreCheck = `{"id":"score.shows","outcome":"score","form":"http","http":{"target":"api","steps":[
- {"request":{"method":"POST","path":"/api/players","json":{"name":"{{run}}-alice"}},
-  "expect":{"status":201,"json":{"/name":"{{run}}-alice"}},"capture":{"id":"/id"}},
- {"request":{"path":"/api/players/{{capture.id}}"},
-  "expect":{"json":{"/score":{"$range":[0,10]}},"headers":{"X-Rate":{"$present":true}}}}]}}`
-
-// fakeAPI serves scoreCheck: score is what the n-th read returns.
+// fakeAPI is a players api: a POST of /api/players creates one, a GET of
+// /api/players/<id> reads its score back, score being what the n-th read
+// returns.
 func fakeAPI(t *testing.T, score func(n int) int) *fakeComponent {
 	t.Helper()
 	var mu sync.Mutex
@@ -83,16 +77,10 @@ func TestHandlerRefusals(t *testing.T) {
 			`{"method":"GET","path":"/battles"}`, http.StatusOK, toolwire.RefusedNavigation, true},
 		{"logs of no component", http.MethodPost, toolwire.Path(toolwire.VerbLogs), `{"component":"db"}`,
 			http.StatusOK, toolwire.RefusedInvalid, true},
-		{"a refused check", http.MethodPost, toolwire.Path(toolwire.VerbCheckRun),
-			`{"check":{"id":"x","outcome":"x","form":"exec","exec":{"argv":["true"],"expect":{"exit":0}}}}`,
-			http.StatusOK, toolwire.RefusedCheck, true},
-		{"a browser check in a pod without a browser", http.MethodPost, toolwire.Path(toolwire.VerbCheckRun),
-			`{"check":{"id":"row","outcome":"row","form":"browser","browser":{"steps":[{"goto":"/api"},` +
-				`{"click":{"role":"button","name":"Add"}},` +
-				`{"expect":{"assert":"text","locator":{"role":"row","hasText":"{{run}}"},"text":{"contains":"{{run}}"}}}]}}}`,
-			http.StatusOK, toolwire.RefusedUnavailable, true},
-		{"confirm without a dry run", http.MethodPost, toolwire.Path(toolwire.VerbConfirm),
-			`{"digests":["` + strings.Repeat("a", 64) + `"]}`, http.StatusOK, toolwire.RefusedNoDryRun, true},
+		{"the retired check run", http.MethodPost, "/v1/check-run", `{"check":{}}`, http.StatusNotFound,
+			toolwire.RefusedVerb, false},
+		{"the retired confirm", http.MethodPost, "/v1/confirm", `{"digests":[]}`, http.StatusNotFound,
+			toolwire.RefusedVerb, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -114,12 +102,8 @@ func TestHandlerRefusals(t *testing.T) {
 			if tc.entry != (len(refused) == 1) {
 				t.Fatalf("refused entries %+v, want an entry: %v", refused, tc.entry)
 			}
-			kind := toolwire.KindAgent
-			if tc.path == toolwire.Path(toolwire.VerbConfirm) {
-				kind = toolwire.KindRunner // agent-runner's call, never the agent's
-			}
 			if tc.entry && (refused[0].Refused != tc.refused || refused[0].Seq != resp.Seq ||
-				refused[0].Kind != kind) {
+				refused[0].Kind != toolwire.KindAgent) {
 				t.Errorf("entry %+v does not record the refusal (response seq %d)", refused[0], resp.Seq)
 			}
 		})
@@ -142,29 +126,11 @@ func TestToolCallCap(t *testing.T) {
 	if resp.Refused != toolwire.RefusedToolCalls || resp.Seq == 0 {
 		t.Fatalf("call past the cap: %+v, want a recorded %s", resp, toolwire.RefusedToolCalls)
 	}
-	// The runner's calls are not the agent's: confirm and finish still run.
+	// The runner's calls are not the agent's: its finish still runs.
 	l := h.finish()
 	last := l.Entries[len(l.Entries)-1]
 	if last.Kind != toolwire.KindRunner || last.Verb != toolwire.VerbFinish {
 		t.Errorf("last entry %+v, want the runner's finish", last)
-	}
-}
-
-func TestToolCallCapKeepsRoomForConfirmation(t *testing.T) {
-	cfg := baseConfig()
-	cfg.MaxToolCalls = 300
-	h := newHarness(t, cfg, routes{}, nil)
-	writeFile(t, h.dir, EventsFile, "")
-	for range toolwire.MaxEntries {
-		h.call(toolwire.VerbEvents, `{}`)
-	}
-	_, resp := h.call(toolwire.VerbEvents, `{}`)
-	if resp.Refused != toolwire.RefusedToolCalls || resp.Seq != 0 {
-		t.Fatalf("a call once the agent's room is spent: %+v, want an unrecorded refusal", resp)
-	}
-	l := h.finish()
-	if n := len(l.Entries); n > toolwire.MaxEntries-reservedEntries+1 {
-		t.Errorf("%d entries: the agent ate into the room kept for confirmation", n)
 	}
 }
 
@@ -272,75 +238,6 @@ func TestExecVerb(t *testing.T) {
 	if l.Entries[0].Exit != 3 || l.Entries[0].Verb != toolwire.VerbExec {
 		t.Errorf("entry %+v", l.Entries[0])
 	}
-}
-
-func TestCheckRunThenConfirm(t *testing.T) {
-	api := fakeAPI(t, func(int) int { return 5 })
-	rt := routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}
-	h := newHarness(t, baseConfig(), rt, nil)
-	digest := bareDigest(t, scoreCheck)
-
-	_, resp := h.call(toolwire.VerbCheckRun, `{"check":`+scoreCheck+`}`)
-	run := resp.Observed
-	if resp.Refused != "" || run == nil || run.CheckRun == nil || run.CheckRun.Result != toolwire.RunPass ||
-		run.CheckRun.Digest != digest || run.CheckRun.Mode != toolwire.ModeDryRun {
-		t.Fatalf("dry run: %+v", resp)
-	}
-	dryToken := run.CheckRun.Attempts[0].Run
-
-	_, resp = h.call(toolwire.VerbConfirm, `{"digests":["`+digest+`"]}`)
-	if resp.Refused != "" || resp.Observed == nil || len(resp.Observed.CheckRuns) != 1 {
-		t.Fatalf("confirm: %+v", resp)
-	}
-	conf := resp.Observed.CheckRuns[0]
-	if conf.Result != toolwire.RunPass || conf.Mode != toolwire.ModeConfirm || conf.Attempts[0].Run == dryToken {
-		t.Errorf("confirmation %+v: want a pass under a fresh token (dry run %q)", conf, dryToken)
-	}
-
-	_, resp = h.call(toolwire.VerbCheckResults, `{}`)
-	if obs := resp.Observed; obs == nil || len(obs.CheckRuns) != 1 || obs.CheckRuns[0].Mode != toolwire.ModeDryRun {
-		t.Errorf("check results: %+v", resp)
-	}
-	assertOneConfirmEntry(t, h.finish())
-	assertRunTokens(t, api)
-}
-
-func assertOneConfirmEntry(t *testing.T, l toolwire.Ledger) {
-	t.Helper()
-	var confirmEntries []toolwire.LedgerEntry
-	for _, e := range l.Entries {
-		if e.CheckRun != nil && e.CheckRun.Mode == toolwire.ModeConfirm {
-			confirmEntries = append(confirmEntries, e)
-		}
-	}
-	if len(confirmEntries) != 1 || confirmEntries[0].Kind != toolwire.KindRelay {
-		t.Errorf("confirmation entries %+v, want one relay entry", confirmEntries)
-	}
-}
-
-// assertRunTokens: every request named its data by an attempt's token.
-func assertRunTokens(t *testing.T, api *fakeComponent) {
-	t.Helper()
-	for _, r := range api.requests() {
-		if r.Method == http.MethodPost && !strings.Contains(r.Body, "tok") {
-			t.Errorf("request %+v carries no run token", r)
-		}
-	}
-}
-
-func TestConfirmRefusesAFailedDryRun(t *testing.T) {
-	api := fakeAPI(t, func(int) int { return 99 }) // out of range: the check fails
-	rt := routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}
-	h := newHarness(t, baseConfig(), rt, nil)
-	_, resp := h.call(toolwire.VerbCheckRun, `{"check":`+scoreCheck+`}`)
-	if resp.Observed == nil || resp.Observed.CheckRun.Result != toolwire.RunFail {
-		t.Fatalf("dry run: %+v", resp)
-	}
-	_, resp = h.call(toolwire.VerbConfirm, `{"digests":["`+bareDigest(t, scoreCheck)+`"]}`)
-	if resp.Refused != toolwire.RefusedNoDryRun {
-		t.Fatalf("confirm after a failed dry run: %+v", resp)
-	}
-	h.finish()
 }
 
 func TestFinishEmitsCitedEvidence(t *testing.T) {

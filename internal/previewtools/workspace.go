@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,9 +59,6 @@ const (
 	// MaxWorkspaceTimeoutSeconds bounds a workspace's wall clock: the
 	// agents verification's 75m.
 	MaxWorkspaceTimeoutSeconds = int(maulv1.MaxAgentsVerificationTimeout / time.Second)
-	// MaxBaseRuns bounds the check runs the relay makes at the base (its
-	// confirmations). Past it a check gets no base run.
-	MaxBaseRuns = maulv1.MaxBaseRuns
 	// maxBuilds is the builds the relay records: one of each tree.
 	maxBuilds = 2
 	// defaultReadyWait bounds the wait for a sandbox's shim to serve
@@ -80,16 +76,15 @@ const (
 	// round can neither fail nor pass, httpstep.RoleBuild).
 	ReasonBuildFailed = "build-failed"
 	// ReasonBaseUnbuildable: the base did not build, so nothing runs
-	// there; every base run is n/a (status.base.unbuildable).
+	// there: an exec or run at the base is refused.
 	ReasonBaseUnbuildable = "base-unbuildable"
 	// ReasonBaseBuildError: the base's build did not end in a failure maul
 	// can tell is the tree's (a timeout, a signal, cut output, an
-	// environmental failure), so nothing runs there and every base run is
-	// an error with no cause: no base evidence, never n/a (review VC-1).
+	// environmental failure), so nothing runs there either (review VC-1).
 	ReasonBaseBuildError = "base-build-error"
 	// ReasonVendoredTree, ReasonReplaceOutsideTree and ReasonNoModule are
-	// a tree a run program cannot be built against (SPEC Q25): an error,
-	// n/a, never a pass, and never a wider network.
+	// a tree a run program cannot be built against (SPEC Q25): the run is
+	// refused, never a wider network.
 	ReasonVendoredTree       = "vendored-tree"
 	ReasonReplaceOutsideTree = "replace-outside-tree"
 	ReasonNoModule           = "no-module"
@@ -142,10 +137,7 @@ func (c Config) validateWorkspace() error {
 	case c.TimeoutSeconds < 1 || c.TimeoutSeconds > MaxWorkspaceTimeoutSeconds:
 		return fmt.Errorf("timeoutSeconds must be 1 to %d", MaxWorkspaceTimeoutSeconds)
 	}
-	if err := c.Workspace.validate(); err != nil {
-		return err
-	}
-	return validateChecks(c.Checks)
+	return c.Workspace.validate()
 }
 
 func (w *Workspace) validate() error {
@@ -342,9 +334,8 @@ const buildCutMarker = "[maul: the build's output is cut to its end]\n"
 // and base build at once on one loopback) and no environmental marker in it
 // (environmentalFailure, the compile cause's screen). Anything else (left
 // processes, a signal, output cut, a bind or connection error, an
-// environmental failure, a build maul could not run) is an error:
-// a failed base is unbuildable, which waives rule 5 for every check, so a
-// doubt must give no base evidence instead (review VC-1).
+// environmental failure, a build maul could not run) is an error, never
+// read as the tree refusing itself (review VC-1).
 func (r *Relay) buildSide(ctx context.Context, side toolwire.Side) built {
 	w := r.cfg.Workspace
 	args := BuildArgs{Argv: w.build(), TimeoutMs: int64(w.BuildTimeoutSeconds) * 1000, Result: maulv1.BuildError}
@@ -447,42 +438,8 @@ func (r *Relay) places() places {
 	return places{bin: r.cfg.Workspace.Binary, tree: r.workTree}
 }
 
-// substitute is the placeholder pass of every check path (confirmation, a
-// dry run, a red dry run; SPEC S2-04) for an argument or an
-// expectation: {{bin}}, then {{tree}}, each where p has it, then {{run}}
-// through httpstep.Substitute, which refuses any other placeholder, those p
-// lacks and {{marker}} included. A program file's content takes
-// substituteProgram. Values are maul's and never hold a placeholder.
-func substitute(s, run string, p places) (string, error) {
-	if p.bin != "" {
-		s = strings.ReplaceAll(s, checks.BinPlaceholder, p.bin)
-	}
-	if p.tree != "" {
-		s = strings.ReplaceAll(s, checks.TreePlaceholder, p.tree)
-	}
-	return httpstep.Substitute(s, run, nil)
-}
-
-// substituteProgram is substitute for a program file's content: the
-// attempt's marker, then {{bin}}, {{tree}} and {{run}}, but only those exact
-// tokens (gate 5 G5R-B-LIB-1). Any other "{{" is the program's own text, such as a Go
-// nested composite literal, and runs as written, as the reviewer is shown
-// it. {{bin}} or {{tree}} where p has no value for it is still refused.
-func substituteProgram(s, run, marker string, p places) (string, error) {
-	s = checks.ExecProgram(s, marker)
-	for _, ph := range []struct{ token, value string }{{checks.BinPlaceholder, p.bin},
-		{checks.TreePlaceholder, p.tree}} {
-		if ph.value == "" && strings.Contains(s, ph.token) {
-			return "", fmt.Errorf("%s has no value here", ph.token)
-		}
-		s = strings.ReplaceAll(s, ph.token, ph.value)
-	}
-	return strings.ReplaceAll(s, checks.RunPlaceholder, run), nil
-}
-
-// explore substitutes {{bin}} and {{tree}} in an agent's own exec or run
-// call, so a check's text runs as it will be saved; {{run}} and {{marker}}
-// are a check's alone and stay as written.
+// explore substitutes {{bin}} and {{tree}} in an agent's exec or run call;
+// anything else in braces is the agent's own text and runs as written.
 func (r *Relay) explore(s string) string {
 	p := r.places()
 	if p.bin != "" {
@@ -546,312 +503,5 @@ func withSide(side toolwire.Side, res result) result {
 	return res
 }
 
-// workspaceExecAttempt runs an exec check once at side: argv and files
-// substituted (the marker in the files only), in the attempt's own
-// scratch directory, on the tree and build output as the build left them
-// (fresh, review VC-2), judged here. The check's timeout goes to the shim,
-// which starts it with the program, after the restore: a restore of a large
-// tree is never charged to the check.
-func (r *Relay) workspaceExecAttempt(ctx context.Context, e checks.ExecCheck, run string,
-	side toolwire.Side) []toolwire.StepRecord {
-	marker := checks.ExecMarker(randomMarkerNonce())
-	p := r.places()
-	req := &toolexec.Request{Side: side, Run: run, Env: r.programEnv(), Fresh: true,
-		TimeoutMs: timeoutMs(e.Timeout)}
-	for _, a := range e.Argv {
-		s, err := substitute(a, run, p)
-		if err != nil {
-			return errStep("the program could not be built: " + err.Error())
-		}
-		req.Argv = append(req.Argv, s)
-	}
-	for _, f := range e.Files {
-		s, err := substituteProgram(f.Content, run, marker, p)
-		if err != nil {
-			return errStep("the program could not be built: " + err.Error())
-		}
-		req.Files = append(req.Files, toolwire.File{Name: f.Path, Content: []byte(s)})
-	}
-	if err := req.Check(); err != nil {
-		return errStep("the program could not be built: " + err.Error())
-	}
-	res, err := r.sandbox(side).Do(ctx, req)
-	return judgeWorkspace(res, err, e.Expect, marker, run, p)
-}
-
-// timeoutMs is a check's timeout, which checks.Validate admitted, in whole
-// milliseconds rounded up; 0, the shim's own bound, for none.
-func timeoutMs(timeout string) int64 {
-	d, err := time.ParseDuration(timeout)
-	if err != nil || d <= 0 {
-		return 0
-	}
-	return int64((d + time.Millisecond - 1) / time.Millisecond)
-}
-
-// reasonTimeLimit is a check step cut at a time limit: the check's own
-// timeout or the shim's bound on one program (toolexec.Timeout), whichever
-// came first. An error, never a fail: a program cut short judged nothing.
-const reasonTimeLimit = "the program was killed at its time limit, so maul cannot judge the run"
-
-func errStep(detail string) []toolwire.StepRecord {
-	return []toolwire.StepRecord{{Result: toolwire.ResultError, Detail: detail}}
-}
-
-// causedStep is errStep recording cause (toolwire.StepCause), "" for none.
-func causedStep(cause toolwire.StepCause, detail string) []toolwire.StepRecord {
-	steps := errStep(detail)
-	steps[0].Cause = cause
-	return steps
-}
-
-// judgeWorkspace judges a workspace program's run against x (DESIGN 4.3,
-// SPEC-S2 O4 and 7.10). How a run maps to a result, by the first that
-// holds:
-//
-//   - the shim did not answer, refused, the run left processes behind
-//     (Unclean), or was killed at its time limit: error, n/a; a hanging or
-//     leaking program is no evidence about the outcome at either side;
-//   - the program printed its attempt's marker at the start of a line of
-//     its stdout or its stderr (programText), neither left open beside
-//     text of the other (streamsOpen): fail, by assertion when it named the
-//     assertion's id (checks.ExecAssertion);
-//   - the marker is in the output but starts no line, or one beside an
-//     open line of the other stream: error (checks.ExecMarkerUnplaced),
-//     never a pass nor a fail;
-//   - the output was cut: error (a marker past the cut would be lost);
-//   - the exit was not the expected one: fail, never by assertion: a
-//     crashed, unbuilt or argument-refusing program shows that too (O4);
-//   - stdout's judgement differs from that of stdout and stderr together,
-//     or it would pass with no exit expected after a non-zero exit, or the
-//     shim kept no stdout apart: error (stdoutUnsettled);
-//   - with an expected exit met, stdout lacks the expected text, or a
-//     stdoutJSON pointer resolves in a JSON stdout to another value: fail
-//     by assertion ("stdout"); with no exit expected, or stdout not JSON or
-//     lacking the pointer, the same miss fails without one;
-//   - otherwise pass.
-//
-// Then a run that did not pass whose output names a bind or connection
-// error (Result.NetError) is an error instead: on a pod whose loopback both
-// sides share, the other side's leftover can cause it (SPEC 8a). A run that
-// passes is never turned into an error by it, so a check expecting a
-// "connection refused" message still passes.
-func judgeWorkspace(res toolexec.Result, err error, x checks.ExecExpect, marker, run string,
-	p places) []toolwire.StepRecord {
-	switch {
-	case err != nil:
-		return errStep("the sandbox did not answer")
-	case res.Refused != "":
-		return errStep("the sandbox refused the program")
-	case res.Unclean:
-		return errStep("processes the program started outlived it, so maul cannot judge the run")
-	case res.TimedOut:
-		return errStep(reasonTimeLimit)
-	}
-	steps := judgeOutput(res, x, marker, run, p)
-	if steps[0].Result == toolwire.ResultFail && res.NetError {
-		return errStep("the output names a bind or connection error, which the other side's programs can cause")
-	}
-	return steps
-}
-
-// judgeOutput is judgeWorkspace's judgement of a run that ended on its own.
-func judgeOutput(res toolexec.Result, x checks.ExecExpect, marker, run string, p places) []toolwire.StepRecord {
-	fail := func(detail, id string) []toolwire.StepRecord {
-		return []toolwire.StepRecord{{Result: toolwire.ResultFail, Detail: detail, Assertion: id != "",
-			AssertionID: toolwireID(id)}}
-	}
-	text := programText(res)
-	if checks.ExecMarked(text, marker) && !streamsOpen(res) {
-		id, asserted := checks.ExecAssertion(text, marker)
-		if !asserted {
-			return fail(markedWithoutID, "")
-		}
-		return fail(markedDetail(text, marker), "marker "+id)
-	}
-	switch {
-	case checks.ExecMarkerUnplaced(text, marker) || streamsOpen(res) && strings.Contains(text, marker):
-		return errStep(markerUnplaced)
-	case res.Truncated:
-		return errStep(fmt.Sprintf("the output is over %d bytes, so maul cannot judge it", toolexec.MaxOutputBytes))
-	case x.Exit != nil && int32(res.Exit) != *x.Exit:
-		return fail(withOutput(fmt.Sprintf("exit %d, expected %d", res.Exit, *x.Exit), "", text, marker), "")
-	}
-	// After the expected exit, content missing is the outcome's assertion.
-	content := func(ok bool) string {
-		if ok && x.Exit != nil {
-			return "stdout"
-		}
-		return ""
-	}
-	needle, err := substitute(x.StdoutContains, run, p)
-	if err != nil {
-		return errStep("the expected text could not be built")
-	}
-	if why := stdoutUnsettled(res, x, needle, run); why != "" {
-		return errStep(why)
-	}
-	if x.StdoutContains != "" && !strings.Contains(text, needle) {
-		return fail(withOutput("the output does not contain the expected text", exitOf(res), text, marker),
-			content(true))
-	}
-	doc, valid := decodeJSON([]byte(text))
-	for _, ptr := range sortedKeys(x.StdoutJSON) {
-		raw, present := pointerValue(doc, valid, ptr)
-		if !checks.MatchJSON(x.StdoutJSON[ptr], run, nil, raw, present) {
-			return fail(withOutput(jsonMiss(ptr, raw, present), exitOf(res), text, marker),
-				content(valid && present))
-		}
-	}
-	return []toolwire.StepRecord{{Result: toolwire.ResultPass}}
-}
-
-// Bounds of the program's output a failing run's detail keeps
-// (withOutput): its end, quoted, in at most maxPrintedBytes, a stdoutJSON
-// value in at most maxGotBytes before quoting, so the whole detail stays
-// within a step record's detail bound (toolwire.StepRecord).
-const (
-	maxPrintedBytes = 768
-	maxGotBytes     = 128
-)
-
-// exitOf is a run's exit code in maul's words.
-func exitOf(res toolexec.Result) string { return fmt.Sprintf("exit %d", res.Exit) }
-
-// jsonMiss is maul's words for a stdoutJSON pointer that did not match:
-// with the value there, when there is one, quoted and cut to maxGotBytes,
-// as the end of a long output may not show it.
-func jsonMiss(ptr, raw string, present bool) string {
-	words := "stdoutJSON " + strconv.Quote(ptr) + " did not match"
-	if !present {
-		return words
-	}
-	if len(raw) > maxGotBytes {
-		cut := maxGotBytes
-		for cut > 0 && !utf8.RuneStart(raw[cut]) {
-			cut--
-		}
-		raw = raw[:cut]
-	}
-	return words + "; the value there is " + strconv.Quote(raw)
-}
-
-// withOutput is the detail of a run that failed without its marker
-// (G4-B-CLI-1): maul's words, the exit code when they do not already name
-// it, then the end of what the program printed, the attempt's marker taken
-// out of both (a marker that does not start its line is no marker, but is never
-// shown), quoted on one line, so the check reviewer and the evaluator see
-// what the program printed and not only that a text was missing. The
-// output is the application's bytes (or the evaluator's program's),
-// UNTRUSTED: every reader of a detail shows it as data. Its bounds keep it
-// within a step record's (TestWorkspaceFailKeepsTheProgramsOutput holds the
-// longest).
-func withOutput(words, exit, output, marker string) string {
-	if marker != "" {
-		words, output = strings.ReplaceAll(words, marker, ""), strings.ReplaceAll(output, marker, "")
-	}
-	d := words
-	if exit != "" {
-		d += "; " + exit
-	}
-	return d + "; " + printed(output)
-}
-
-// printed is the end of output in maul's words: Go-quoted (one line, its
-// newlines and invisible characters escaped), at most maxPrintedBytes.
-func printed(output string) string {
-	if output == "" {
-		return "the program printed nothing"
-	}
-	tail := output
-	if len(tail) > maxPrintedBytes {
-		tail = tail[len(tail)-maxPrintedBytes:]
-	}
-	for tail != "" && !utf8.RuneStart(tail[0]) {
-		tail = tail[1:]
-	}
-	q := strconv.Quote(tail)
-	for len(q) > maxPrintedBytes {
-		_, n := utf8.DecodeRuneInString(tail)
-		tail = tail[n:]
-		q = strconv.Quote(tail)
-	}
-	if len(tail) < len(output) {
-		return "the program printed (untrusted, the end of its output): " + q
-	}
-	return "the program printed (untrusted): " + q
-}
-
-// maxMarkedBytes bounds the program's own words a marked run's detail
-// keeps, well inside a step record's detail bound.
-const maxMarkedBytes = 1 << 10
-
-// markedDetail is the detail of a run whose program printed marker: maul's
-// words, then what the program printed after the marker on each such line
-// (its own evidence, such as the value it observed; gate D-B1), joined by
-// "; ", valid UTF-8 and cut to maxMarkedBytes. The marker is never kept.
-// The program's words are data, which every reader of a detail shows as
-// untrusted.
-func markedDetail(output, marker string) string {
-	const words = "the program printed its assertion marker"
-	var said []string
-	for line := range strings.SplitSeq(output, "\n") {
-		if rest, ok := strings.CutPrefix(line, marker); ok {
-			if rest = strings.TrimSpace(strings.ReplaceAll(rest, marker, "")); rest != "" {
-				said = append(said, rest)
-			}
-		}
-	}
-	if len(said) == 0 {
-		return words
-	}
-	s := strings.ToValidUTF8(strings.Join(said, "; "), "�")
-	if len(s) > maxMarkedBytes {
-		cut := maxMarkedBytes
-		for cut > 0 && !utf8.RuneStart(s[cut]) {
-			cut--
-		}
-		s = s[:cut]
-	}
-	return words + ": " + s
-}
-
-// baseUnbuiltRun is the base run of check c when the base did not build:
-// no shim is asked, and the run is an error. On an unbuildable base (its
-// build failed) the error is n/a, so a Required base still has its run and
-// reads unbuildable, never missing; on a base whose build did not finish it
-// has no cause: no base evidence, never n/a (review VC-1).
-func baseUnbuiltRun(c checks.Check, mode toolwire.CheckRunMode, unbuildable bool) toolwire.CheckRunRecord {
-	steps := causedStep(toolwire.CauseBaseUnbuildable, ReasonBaseUnbuildable+": the base tree did not build")
-	if !unbuildable {
-		steps = errStep(ReasonBaseBuildError + ": the base tree's build did not finish")
-	}
-	steps[0].Side = toolwire.SideBase
-	a := toolwire.Attempt{Result: toolwire.ResultError, Steps: steps}
-	return toolwire.CheckRunRecord{Digest: bareDigestOf(checks.Digest(c)), CheckID: c.ID, Mode: mode,
-		Result: toolwire.DeriveResult([]toolwire.Attempt{a}), Attempts: []toolwire.Attempt{a}}
-}
-
-// baseRun runs c at the base for a confirmation: alone, under
-// fresh tokens, when the base built; an unbuilt run when it did not; none
-// once MaxBaseRuns are spent (ok false).
-func (r *Relay) baseRun(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode) (toolwire.CheckRunRecord,
-	bool) {
-	if r.baseRuns >= MaxBaseRuns {
-		return toolwire.CheckRunRecord{}, false
-	}
-	r.baseRuns++
-	if !r.baseBuilt {
-		return baseUnbuiltRun(c, mode, r.baseUnbuildable), true
-	}
-	return r.runCheckAt(ctx, c, mode, false, toolwire.SideBase), true
-}
-
-// workspaceSurface is the checks.Context of this workspace's surface.
-func (r *Relay) workspaceSurface() checks.Context {
-	w := r.cfg.Workspace
-	return checks.Context{Workspace: &checks.Workspace{Binary: w.Binary, Language: w.Language}}
-}
-
 // reasonNoPreview is maul's words for a preview tool in a workspace.
-const reasonNoPreview = "this tool pod has no preview: a workspace offers exec, files, run and checks"
+const reasonNoPreview = "this tool pod has no preview: a workspace offers exec, files and run"

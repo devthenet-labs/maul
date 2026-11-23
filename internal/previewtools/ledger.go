@@ -9,25 +9,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // reservedEntries is the room the ledger keeps past the agent's calls: the
-// runner's confirm, one confirmation per check it may name, and the
-// finish. An agent that spends its calls on refusals cannot crowd out the
-// entries a pass rests on.
-const reservedEntries = toolwire.MaxConfirm + 2
-
-// reserved is the room this relay keeps: a workspace confirms each check
-// at the base too, so it keeps a second confirmation's room per check.
-func (r *Relay) reserved() int {
-	if r.cfg.IsWorkspace() {
-		return reservedEntries + toolwire.MaxConfirm
-	}
-	return reservedEntries
-}
+// runner's finish, and the relay's own should the runner never come. An
+// agent that spends its calls on refusals cannot crowd out the finish, which
+// emits the cited evidence and the summary.
+const reservedEntries = 2
 
 // ArtifactStore holds the bytes of the artifacts entries record (the
 // browser relay's screenshots), by sha256. Only cited ones leave the tools
@@ -37,12 +27,12 @@ type ArtifactStore interface {
 }
 
 // errNoRoom is an agent call the ledger has no room left to record.
-var errNoRoom = errors.New("the ledger keeps its remaining room for confirmation")
+var errNoRoom = errors.New("the ledger keeps its remaining room for the finish")
 
 // record appends e to the ledger, stamped now; the caller holds r.mu. It
 // returns the entry's seq.
 func (r *Relay) record(e toolwire.LedgerEntry) (int64, error) {
-	if e.Kind == toolwire.KindAgent && r.entries >= toolwire.MaxEntries-r.reserved() {
+	if e.Kind == toolwire.KindAgent && r.entries >= toolwire.MaxEntries-reservedEntries {
 		return 0, errNoRoom
 	}
 	e.TS = r.now()
@@ -130,6 +120,3 @@ func sha256Hex(b []byte) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
 }
-
-// bareDigestOf is a check digest's hex, as the ledger records it.
-func bareDigestOf(digest string) string { return strings.TrimPrefix(digest, "sha256:") }

@@ -409,10 +409,9 @@ jobs:
     # The browser tool against a real headless Chromium (hack/live-browser.sh,
     # `mise run live-browser`): npm ci of internal/previewtools/node from its
     # exact lockfile, the keyed CDP shim, TestPlaywrightCLIFormat (the pinned
-    # Playwright CLI's snapshot and ref grammar against its golden), maul's
-    # fixture and a compiled check under tsc --strict, and TestLiveBrowser
-    # (the browser trial's matrix through the relay with no model), plus
-    # S1-04's page functions on the same pins. It runs only when the browser
+    # Playwright CLI's snapshot and ref grammar against its golden) and
+    # TestLiveBrowser (the relay's own session driven as an evaluator drives
+    # it, with no model). It runs only when the browser
     # tool changed against the base, so every renovate bump of the Playwright
     # pins runs it. Chromium is the runner image's google-chrome; node comes
     # from mise, set up as in the preview-pins job.
@@ -447,7 +446,6 @@ jobs:
             - name: Run the browser tool's live tests if it changed
               env:
                   BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-                  MAUL_LIVE_PAGE_FUNCTIONS: "1"
               run: |
                   if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ]; then
                     mise exec -- ./hack/live-browser.sh --if-changed "$BASE"
