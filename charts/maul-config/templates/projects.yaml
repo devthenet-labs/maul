@@ -13,6 +13,16 @@
 #
 # A Project is the power to point agents at repositories, so writing projects
 # is admin-only in RBAC; this chart is how the operator writes them.
+#
+# With the maul chart's statusServer.projectSettings on, a Project's
+# approvers may also change some of its spec from the status page (limits,
+# models, evaluator, hand-off, checks, each repository's
+# agentResourceClass), as field manager maul-status-server. Set each field
+# from one place: a field the page changed that these values also state
+# makes the next default (server-side) helm upgrade fail with a conflict
+# until the values agree or the upgrade is forced, which puts the values'
+# setting back; an approver or check the page removed comes back if these
+# values still list it. See docs/configuration/status-server.md.
 {{- range .Values.projects }}
 ---
 apiVersion: maul.run/v1alpha1

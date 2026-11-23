@@ -1,7 +1,8 @@
 # status-server
 
 The status page backend: the embedded web dashboard over the `Finding` state machine and the `FindingRollup` statistics,
-the sign-in surface, and the five human actions on a finding (approve, retry, expedite, suspend, resume). It is a
+the sign-in surface, and the five human actions on a finding (approve, retry, expedite, suspend, resume); optionally the
+intents views and the pages built on them, among them the [Project settings page](#project-settings-page). It is a
 server, not a controller — it runs no reconcilers and takes no leases; a controller-runtime cache gives it live watches,
 and an SSE stream tells open browsers to refetch when anything changes.
 
@@ -153,6 +154,215 @@ With `statusServer.host` set, every notice that a run waits for someone's creden
 (`https://<host>/#/account`). What the page looks like to the people who use it is in
 [Your model credential](../account.md).
 
+## Project settings page
+
+The Project settings page lets a Project's approvers change its limits, models, evaluator, hand-off, CI checks and each
+repository's machine size from the status page, within bounds the operator sets. What it shows and how people use it is
+in [Project settings](../intents/project-settings.md); this section is the operator's side. Helm:
+`statusServer.projectSettings.enabled: true` (default `false`). Chart only: there is no kustomize component.
+
+```yaml
+statusServer:
+  intents:
+    enabled: true # required: the page is one of the intents views
+  auth:
+    existingSecret: maul-status-auth # mode oidc, both claim prefixes, the federated:id scope
+  projectSettings:
+    enabled: true
+    projects: [] # the Projects the page may edit, by name; empty is every Project in the release namespace
+    allow:
+      approvers: false # approvers may add or remove one approver per save
+      disableEvaluator: false # verification off, early hand-off, an evaluator limit under its floor
+      emptyChecks: false # an empty checks.fix
+    locked: [] # groups shown read-only: approvers, evaluator, handoff, models, cost, rounds, activeIntents, stages, checks, resources
+    ceilings:
+      maxCostMicroUSD: 25000000 # $25
+      maxRevisions: 10
+      maxCheckFixes: 10
+      maxVerifyFixes: 5
+      maxVerifications: 50
+      maxActiveIntents: 5
+    floors:
+      maxEvaluateCostMicroUSD: 2000000 # also under limits.evaluate.maxCostMicroUSD
+      evaluateMaxTurns: 40
+      evaluateTimeout: 10m
+      evaluateTokenBudget: 100000
+      maxToolCalls: 100
+      maxVerifications: 3
+      handoffMax: 30m
+admissionPolicy:
+  enabled: true # the default, and required
+```
+
+### Before you turn it on
+
+Check that intent-controller can tell who your approvers are. An approver is matched by GitHub numeric account id: the
+id in the person's sign-in (Dex's `federated_claims`, as for the [usage views](#usage-views)) must equal the id
+intent-controller recorded for a login on the approver list. intent-controller asks GitHub's collaborator-permission
+endpoint on the intent repository, with the App's issues-read installation token, and records `user.id` from the answer.
+That this answer carries `user.id` under an installation token has **not been measured**: it does under a person's own
+token, and under the App's token maul has only ever read the `permission` beside it. If it does not, every approver is
+recorded as no GitHub account and nobody can save.
+
+From the release that added the page, intent-controller publishes what it found on every Project whether or not the page
+is on, so upgrade first and check before you turn the page on. No Secret is read:
+
+```sh
+kubectl -n maul get project <project> -o jsonpath='{range .status.approvers.identities[*]}{.login}{"\t"}{.id}{"\t"}{.write}{"\n"}{end}'
+kubectl -n maul get project <project> -o jsonpath='{.status.conditions[?(@.type=="ApproversResolved")].message}'
+gh api users/<login> --jq .id
+```
+
+Each approver with write access should show the id `gh api users/<login>` prints and `true`. A login that exists on
+GitHub but shows no id (the field is left out when it is 0), or that the condition's message lists under "no such GitHub
+account", means the answer under the App's token lacks the id: leave the page off.
+
+Two more things nothing checks for you:
+
+- **One GitHub host.** Dex's GitHub connector and the Forge of every Project's intent repository must be the same GitHub
+  (github.com, or one GitHub Enterprise Server). Ids from two hosts are two id spaces: an id could match nobody, or the
+  wrong person. Run `gh api users/<login>` above against the host Dex signs people in with.
+- **Dex without `useLoginAsID`.** With it, Dex's `user_id` is the login, and the status server gives nobody a GitHub id
+  (see [usage views](#usage-views)), so nobody can save.
+
+Once the page is on, an approver who opens it sees their own login marked "you" and can save. An approver refused as
+"not an approver" while `status.approvers` lists their login with an id means the two ids differ.
+
+### The page's flags
+
+| Flag                          | Env                              | Default   | Purpose                                                                                                                                             |
+| ----------------------------- | -------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--project-settings-enabled`  | `MAUL_PROJECT_SETTINGS_ENABLED`  | `false`   | Serve the page and its save. Needs `--intents-enabled` and what the usage views need                                                                |
+| `--project-settings-policy`   | `MAUL_PROJECT_SETTINGS_POLICY`   | _(unset)_ | The bounds as one JSON object `{allow, locked, ceilings, floors}`; unset is the chart's defaults above. Parsed strictly: a bad one refuses to start |
+| `--project-settings-projects` | `MAUL_PROJECT_SETTINGS_PROJECTS` | _(unset)_ | Comma-separated Project names the page serves; unset is every Project. The chart sets it from `projects`, so the page and the patch grant agree     |
+
+The server refuses to start with the page on unless `--intents-enabled` is on and the auth config passes the usage
+views' checks: mode `oidc`, both claim prefixes, `requireVerifiedEmail` for an `email` username, and `federated:id` in
+the scopes. Under `--intents-dev-insecure` (mode `none`, loopback only) the page is served read-only and its save is
+refused. The chart refuses to render the page without `statusServer.intents.enabled`, without `admissionPolicy.enabled`,
+with an inline `statusServer.auth.config` that does not ask for `federated:id` (an `existingSecret` is judged by the
+server at startup), or with `floors.maxVerifications` above `ceilings.maxVerifications`.
+
+### The bounds
+
+The four blocks are rendered once into one JSON object, which both the status server and the admission policy below
+read, so the two cannot disagree. What each bound means to the people using the page is in
+[what the operator allows](../intents/project-settings.md#what-the-operator-allows).
+
+- `allow` holds the three switches, each off by default. `approvers` lets an approver add or remove one approver per
+  save, never themselves; a new login counts only once GitHub reports its write access. `disableEvaluator` lets an
+  approver turn verification off, set the hand-off to early (or from gated to unset, since your install's default may be
+  early) and lower an evaluator limit under its floor. `emptyChecks` lets an approver empty `checks.fix`, after which
+  maul waits for and fixes no CI check; even off, an approver can leave one check that never fails, which only the audit
+  record shows.
+- `locked` takes the lock groups: `approvers`, `evaluator` (`verification.enabled`, `verification.maxToolCalls`),
+  `handoff` (`verification.handoff`, `verification.handoffMax`), `models`, `cost` (`limits.maxCostMicroUSD`,
+  `limits.maxEvaluateCostMicroUSD`), `rounds` (`maxRevisions`, `maxCheckFixes`, `maxVerifyFixes`, `maxVerifications`),
+  `activeIntents`, `stages` (`limits.<stage>.*`), `checks` and `resources` (`agentResourceClass`).
+- `ceilings` bound the six limits intent-controller does not clamp. A change is admitted when the new value is at most
+  the ceiling, or at most the old one: a higher value you set yourself can be kept or lowered from the page, never
+  raised. A cleared field is judged by the default it lands on. Money is in micro-USD.
+- `floors` bound the evaluator's limits from below unless `allow.disableEvaluator`: a change is admitted when the new
+  value is at least the floor, or at least the old one. `0` (`0s` for a duration) is no floor. The evaluation cost floor
+  also holds under the evaluate stage's own cost, because an evaluate run's budget is the lesser of the two. Durations
+  are whole hours, minutes and seconds (`10m`, `1h30m`).
+
+Beyond your bounds, the page takes only what intent-controller admits, from the facts it publishes on each Project
+(`status.admits`, see [Projects](intent-controller.md#projects)): models it admits for the Project's harness, the
+resource classes it defines (none defined: the machine size is read-only), and nothing above its own stage, evaluation
+cost and tool-call ceilings. Until `status.admits` is published, no model or class can be chosen and nothing
+intent-controller bounds can be raised.
+
+### What the chart renders
+
+- **One write.** Role and RoleBinding `<release>-status-server-project-settings` in the release namespace: `patch` on
+  `projects` (group `maul.run`), with `resourceNames` from `projects` when set. No `update`, nothing on
+  `projects/status`, no other kind. Project status is a subresource, so the patch cannot change what intent-controller
+  publishes there.
+- **An admission policy.** ValidatingAdmissionPolicy and binding `<release>-project-settings`, `failurePolicy: Fail`, on
+  every update of a Project by the status server's ServiceAccount. It holds each patch to the same bounds again, in the
+  API server: every field outside the page's own is pinned without being named (so a field added to Project later is
+  pinned too), as are the number, order and every other field of the repositories, the labels, finalizers and owner
+  references, and every annotation but `maul.run/settings-edited` (at most 1 KiB); the locks, switches, ceilings and
+  floors; models and classes against `status.admits`; and intent-controller's own ceilings. A denial reaches the page as
+  a refusal of the whole save ("The cluster refused the save as invalid"); its message starts `project settings:`, and
+  the status server logs it.
+- The ConfigMap keys of the three flags.
+
+People need no new grant: whoever may see a Project's intents (`get` on `projects/intents`) can open its page, and an
+approver can save. Such a viewer sees more than the board shows: the repositories' full URLs, the preview image
+repository and paths, and the approvers' logins with their GitHub state.
+
+What the policy cannot do: it sees the status server's ServiceAccount, not the person behind a save. Whether the person
+is an approver with write access, and is not removing themselves, is checked only in the status server, so a compromised
+status server could make any change within your bounds on the Projects its Role names (with `allow.approvers` on, adding
+or removing one approver per write) and write a false record annotation. `projects`, `locked: [approvers]` and leaving
+`allow.approvers` off narrow it. Project writes by people stay admin-only in RBAC; the policy does not judge them.
+
+### Set each field from one place
+
+A Project written by the maul-config chart (`projects` values) is written by Helm too, and the page's saves and Helm's
+upgrades then share the object. Kubernetes records which writer set each field (`managedFields`). The page writes as
+field manager `maul-status-server`, a JSON merge patch of only the fields it changed plus its record annotation, so it
+takes over exactly those fields and nothing else; the page names every other writer of a field beside it. What the next
+apply does with a page change depends on how it applies.
+
+Measured with the status server's real save on API servers 1.36.2 and 1.37.0, and pinned by a test
+(`TestProjectSettingsOwnOnlyEditedFields`), for Helm 4's default server-side apply of an unchanged manifest after a
+save:
+
+| The page changed                                       | `helm upgrade` (default)                                                                                                                          | `helm upgrade --force-conflicts`           |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| a setting the values file does not state               | applies; the page's value stays                                                                                                                   | the same                                   |
+| a setting the values file states (here `maxRevisions`) | **fails**, nothing written: `Apply failed with 1 conflict: conflict with "maul-status-server" using maul.run/v1alpha1: .spec.limits.maxRevisions` | applies; the values file's setting is back |
+| the same, with the page's value copied into values     | applies; Helm and the page both own the field, and the page's next change of it fails the upgrade again                                           | —                                          |
+| added an entry to a list (approvers, `checks.fix`)     | applies; the entry stays                                                                                                                          | the same                                   |
+| removed an entry the values file lists                 | applies, **with no error or warning, and the entry is back** (last in the list)                                                                   | the same                                   |
+
+The failure names every such field at once, whatever else the upgrade changes; the page's record annotation is never one
+of them. Measured once by hand with kubectl and Helm 4.2.3, not by a test: the real `helm upgrade` reports
+`UPGRADE FAILED: conflict occurred while applying object ...` and records the revision as failed; and client-side apply
+(`helm install --server-side=false`, or `kubectl apply`) writes as an `Update` manager and keeps page changes of fields
+its manifest does not change, but once the manifest changes a list the page also changed, its next apply replaces the
+whole list, and an entry the page added is dropped silently. Not measured: Argo CD, Flux, Helm 3.
+
+So decide per setting where it lives. Leave a setting out of the values file to manage it on the page, or change it in
+the values file and lock its group on the page if approvers should not change it. To keep a change made on the page, the
+page's **Copy as values** produces a `projects` entry to merge into the values file; it lists every setting the Project
+states, so trim it to what the values file should own. And remove an approver in the values file, not only on the page.
+
+### Audit
+
+- Each save stamps the Project's `maul.run/settings-edited` annotation in the same patch: the approver's GitHub id and
+  login, the time and the field ids changed. The page shows it as "Last changed here by".
+- The status server logs `project settings changed` (Info) with the Project, the user, the GitHub id, the approver's
+  login as intent-controller resolved it, the generation decided at and the new one, and each change's field, item, old
+  and new value; and `project settings refused` with the reason and each refused field, plus the API server's causes
+  when the cluster refused it. A save that changes nothing logs nothing.
+- The counter `maul.status.project_settings.writes` counts saves by `result` (`changed`, `unchanged`, each refusal
+  reason, `rate-limited`, `bad-request`, `error`).
+
+A person may save at most ten times a minute.
+
+### The API
+
+`GET /api/projects/<project>/settings` serves the page's view: the settings, each field's bounds, the approvers as
+GitHub resolved them, the other field managers, the facts and the last edit. `POST` to the same path saves:
+`Content-Type: application/json`, at most 16 KiB, unknown fields refused, `{generation, schema, settings, confirm}`, the
+whole editable document with the generation the page was read at. Answers: 200 (saved, or nothing to save), 400, 401,
+403 (with the reason the person may not save, or the cluster's RBAC refused), 404 (a Project the person may not see,
+exactly as one that does not exist), 409 (the Project changed since it was read, the page is out of date, or
+confirmations are needed), 413, 415, 422 (refused, with each field and reason), 429. Both routes exist only with the
+page on, inside the hardened browser envelope of the intents views.
+
+### Rollback
+
+Set `statusServer.projectSettings.enabled: false` and upgrade: the routes, the patch grant and the admission policy go.
+Settings saved from the page stay in the Projects, and so does `maul-status-server` in their `managedFields` for each
+field it set. It follows (not run) that a default `helm upgrade` of maul-config still fails on a page-set field its
+values state until the values say the same or one upgrade is forced, which puts the values back. To undo a page change,
+set the field in the values file and upgrade with `--force-conflicts`.
+
 ## Authentication configuration
 
 `--auth-config` points at a YAML file, conventionally a mounted Secret (`maul-status-auth`, key `config.yaml` — the
@@ -247,5 +457,12 @@ Every spec write the server makes (an action button, the user menu's replay and 
 trigger) is a JSON merge patch of only the field it sets, carrying the resource version it was decided on, so a write
 against stale state is a conflict and is retried on fresh state. The server's field manager therefore owns that one
 field and nothing an operator applied: a later `helm upgrade` of the same resources applies without `--force-conflicts`.
-It sets no manager name of its own, so the API server takes it from the binary's file name, which in the shipped image
-is `controller`.
+These writes set no manager name of their own, so the API server takes it from the binary's file name, which in the
+shipped image is `controller`.
+
+The [Project settings page](#project-settings-page), when on, is the exception. With it the server also holds `patch` on
+`projects`, and each save is a merge patch of the Project fields it changed plus one annotation,
+`maul.run/settings-edited`, sent as field manager `maul-status-server`. Those fields are then the page's: a default
+`helm upgrade` of maul-config that still states one of them fails with a conflict naming `maul-status-server` until the
+values agree, as [set each field from one place](#set-each-field-from-one-place) describes. It writes no status and no
+other kind.

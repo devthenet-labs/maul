@@ -62,6 +62,7 @@ nav = [
     { "Onboarding an application" = "intents/onboarding-app.md" },
     { "Set up previews" = "intents/set-up-previews.md" },
     { "The intents dashboard" = "intents/dashboard.md" },
+    { "Project settings" = "intents/project-settings.md" },
     { "Intent dependencies" = "intents/dependencies.md" },
     { "Acceptance verification" = "intents/acceptance.md" },
     { "The agent evaluator" = "intents/evaluator.md" },

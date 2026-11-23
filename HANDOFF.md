@@ -1283,6 +1283,14 @@ report `read` for everyone, so `read` is never enough).
   Project's approvers, never bots or the App's own `maul-devthenet[bot]`. An edited comment never counts (GraphQL
   `lastEditedAt`/`includesCreatedEdit`, verified live: someone with write access can edit another user's comment while
   REST still shows the original author).
+- The status page's Project settings page (off unless `statusServer.projectSettings.enabled`) applies the same rule: a
+  save counts only from a session whose GitHub numeric id (Dex `federated_claims`) is the id intent-controller resolved
+  through GitHub for a login still on the live `spec.approvers.logins`, with write access, resolved at most 30 minutes
+  ago; never from a login claim. The approver list stays the operator's unless the operator also sets
+  `statusServer.projectSettings.allow.approvers` (chart default off): then an approver may add or remove one other login
+  per save, and an added login gains authority only once GitHub reports its write access. Every page write is held again
+  by an admission policy on the status server's ServiceAccount (the operator's ceilings, floors, switches and locks;
+  every field outside the page's own pinned).
 - Agent text reaching GitHub goes through `internal/templates` renderers; PR title/body/commit messages are defanged as
   **plain text** too (squash merges copy them into commits, where code spans protect nothing).
 - Intent changesets refuse `.github/**`, `.maul/**`, `.devcontainer/**`; builds only run in an accepted

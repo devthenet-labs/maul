@@ -1530,9 +1530,10 @@ statusServer:
     # status server gains one write, patch on projects (no update, no
     # status, no other kind), and an admission policy holds every patch it
     # sends to these bounds again in the API server, pinning every field of
-    # the Project outside the page's own. People's guide and the co-ownership
-    # contract with the maul-config values (set each field from one place):
-    # docs/configuration/status-server.md.
+    # the Project outside the page's own. People's guide:
+    # docs/intents/project-settings.md. The operator's side, and the
+    # co-ownership contract with the maul-config values (set each field from
+    # one place): docs/configuration/status-server.md.
     projectSettings:
         enabled: false
         # The Projects the page may edit, by name (the patch grant's
