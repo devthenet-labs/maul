@@ -20,12 +20,14 @@ extra_javascript = ["javascripts/codecolor.js"]
 
 nav = [
   { "Home" = "index.md" },
+  { "What is maul" = "overview.md" },
   { "Getting started" = [
     { "Overview" = "getting-started/index.md" },
+    { "Quick start" = "getting-started/quick-start.md" },
+    { "Intents and previews" = "getting-started/intents.md" },
     { "Create the GitHub App" = "getting-started/github-app.md" },
     { "Install with Helm" = "getting-started/install.md" },
     { "Verify the pipeline" = "getting-started/verify.md" },
-    { "Enable intents (optional)" = "getting-started/intents.md" },
   ] },
   { "How it works" = "how-it-works.md" },
   { "State machine & labels" = "labels.md" },
