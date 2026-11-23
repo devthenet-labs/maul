@@ -83,7 +83,7 @@ func evaluationFixture(t *testing.T) []client.Object {
 	imgSha := sha256Hex(img)
 
 	objs := intentsFixture(t)
-	in := findIntent(objs, "alpha-7")
+	in := findAlpha7(objs)
 	released := metav1.NewTime(testClock.Add(-time.Minute))
 	in.Status.Verification = &v1alpha1.IntentVerification{
 		Round: 1, Attempt: 1, Ref: &v1alpha1.ObjectReference{Name: evalPV, UID: evalPVUID},
@@ -175,13 +175,15 @@ func evaluationFixture(t *testing.T) []client.Object {
 	return append(objs, run, pv, ledgerCM, evidenceCM)
 }
 
-func findIntent(objs []client.Object, name string) *v1alpha1.Intent {
+// findAlpha7 is the fixture's alpha-7 Intent, the one the evaluation run
+// belongs to.
+func findAlpha7(objs []client.Object) *v1alpha1.Intent {
 	for _, o := range objs {
-		if in, ok := o.(*v1alpha1.Intent); ok && in.Name == name {
+		if in, ok := o.(*v1alpha1.Intent); ok && in.Name == "alpha-7" {
 			return in
 		}
 	}
-	panic("no intent " + name)
+	panic("no intent alpha-7")
 }
 
 func evaluationPath(run string) string { return "/api/intents/alpha-7/runs/" + run + "/evaluation" }
@@ -240,7 +242,7 @@ func TestRunEvaluationUnjudgedRound(t *testing.T) {
 			pv := findPV(objs)
 			pv.Status.Phase, pv.Status.Reason = v1alpha1.VerificationInfra,
 				v1alpha1.VerificationReasonToolsBuildFailed
-			tc.move(findIntent(objs, "alpha-7").Status.Verification, pv)
+			tc.move(findAlpha7(objs).Status.Verification, pv)
 			s, _ := intentsServer(t, nil, objs...)
 			code, body := get(t, as(t, s, viewerAlpha), evaluationPath(evalRun))
 			if code != http.StatusOK {
@@ -406,7 +408,7 @@ func TestRunEvaluationIgnoresARetiredReport(t *testing.T) {
 func TestRunEvaluationShowsTheWithdrawal(t *testing.T) {
 	for _, current := range []bool{true, false} {
 		objs := evaluationFixture(t)
-		in := findIntent(objs, "alpha-7")
+		in := findAlpha7(objs)
 		in.Status.Conditions = append(in.Status.Conditions, metav1.Condition{
 			Type: v1alpha1.ConditionVerificationSuperseded, Status: metav1.ConditionTrue,
 			Reason: "VerificationRulesChanged", LastTransitionTime: metav1.NewTime(testClock)})
@@ -562,7 +564,7 @@ func TestEvidenceImage(t *testing.T) {
 // seen by the evaluator, and the page carries no lead over it.
 func TestRunEvaluationEarlierReleasesRecord(t *testing.T) {
 	objs := evaluationFixture(t)
-	v := findIntent(objs, "alpha-7").Status.Verification
+	v := findAlpha7(objs).Status.Verification
 	v.Judge = ""
 	for i := range v.Outcomes {
 		v.Outcomes[i].Cites = nil

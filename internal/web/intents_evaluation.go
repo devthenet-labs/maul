@@ -159,26 +159,7 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 		out.Handoff = &EvaluationHandoff{Mode: string(h.Mode), Released: h.Released,
 			ReleasedAt: stampPtr(h.ReleasedAt), Reason: string(h.Reason)}
 	}
-	claims := evaluationClaims(run, tier)
-	for _, o := range pv.Spec.Outcomes {
-		eo := EvaluationOutcome{ID: o.ID, Outcome: intentview.Text(o.Outcome, 0),
-			Kind: string(o.EffectiveKind()), Manual: o.Manual}
-		if d, ok := decided[o.ID]; ok {
-			eo.Result, eo.Reason = string(d.Result), intentview.Text(d.Reason, maxEvaluationText)
-			if observed {
-				eo.Words, eo.Cites = templates.ObservedOutcomeWords(string(d.Result), d.Reason), d.Cites
-			}
-		}
-		if claims != nil {
-			// The first verdict of an outcome is the one maul judged.
-			if i := slices.IndexFunc(claims.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == o.ID }); i >= 0 {
-				v := claims.Verdicts[i]
-				eo.Verdict, eo.Cited = string(v.Verdict), v.Ledger
-				eo.Note = intentview.Text(v.Note, maxEvaluationText)
-			}
-		}
-		out.Outcomes = append(out.Outcomes, eo)
-	}
+	out.Outcomes = evaluationOutcomes(pv, decided, observed, evaluationClaims(run, tier))
 	agentsView(&out, pv)
 	if l := pv.Status.Ledger; l != nil {
 		out.Ledger = &EvaluationLedger{Count: l.Count, SHA256: l.SHA256, Entries: []EvaluationLedgerEntry{}}
@@ -197,6 +178,34 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 			out.Capture.Components = append(out.Capture.Components,
 				EvaluationComponentCapture{Name: cc.Name, Bytes: cc.Bytes, Truncated: cc.Truncated})
 		}
+	}
+	return out
+}
+
+// evaluationOutcomes are pv's approved outcomes, each with maul's decided
+// result (worded, with the calls it counted, only for an observed
+// judgement) and, with claims (tier 2), the evaluator's first verdict of
+// it, the one maul judged.
+func evaluationOutcomes(pv *v1alpha1.PreviewVerification, decided map[string]v1alpha1.OutcomeResult, observed bool,
+	claims *report.Evaluation) []EvaluationOutcome {
+	out := make([]EvaluationOutcome, 0, len(pv.Spec.Outcomes))
+	for _, o := range pv.Spec.Outcomes {
+		eo := EvaluationOutcome{ID: o.ID, Outcome: intentview.Text(o.Outcome, 0),
+			Kind: string(o.EffectiveKind()), Manual: o.Manual}
+		if d, ok := decided[o.ID]; ok {
+			eo.Result, eo.Reason = string(d.Result), intentview.Text(d.Reason, maxEvaluationText)
+			if observed {
+				eo.Words, eo.Cites = templates.ObservedOutcomeWords(string(d.Result), d.Reason), d.Cites
+			}
+		}
+		if claims != nil {
+			if i := slices.IndexFunc(claims.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == o.ID }); i >= 0 {
+				v := claims.Verdicts[i]
+				eo.Verdict, eo.Cited = string(v.Verdict), v.Ledger
+				eo.Note = intentview.Text(v.Note, maxEvaluationText)
+			}
+		}
+		out = append(out, eo)
 	}
 	return out
 }
