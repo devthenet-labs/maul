@@ -1,16 +1,18 @@
 // The evidence of an evaluate run's round, under its run panel: each
-// approved outcome with maul's decided result and check line, every check
-// (its steps and, for a browser check, the Playwright spec maul compiled),
-// the ledger index, disputes and anomalies. A transcripts-tier reader also
-// gets the evaluator's own claims (verdict, note, cited entries), each
-// ledger entry's arguments and output and the evidence screenshots. Every
-// string from the agent or the application is shown as plain text.
+// approved outcome with maul's decided result in its words and the calls
+// it counted for it (the verdict's cites in the round's ledger, held to
+// its summary), the anomalies and the ledger index. A transcripts-tier reader also gets
+// each cited call's request, an excerpt of its output, its screenshot and
+// whether it ran the evaluator's own page script or program, the
+// evaluator's own claims (verdict, note, cited entries), and each ledger
+// entry's arguments and output. Every string from the agent or the
+// application is shown as plain text.
 
 import { useEffect, useState } from "preact/hooks";
-import type { EvaluationBuild, EvaluationCheck, EvaluationCheckRun, EvaluationLedgerEntry, EvaluationOutcome, RunEvaluation } from "../types";
+import type { EvaluationBuild, EvaluationLedger, EvaluationLedgerEntry, EvaluationOutcome, RunEvaluation } from "../types";
 import { fetchRunEvaluation } from "../api";
 import { formatDate } from "../format";
-import { evidenceImageURL, handoffLine, resultTone, shortDigest } from "../intents";
+import { type CitedCall, citedCalls, evidenceImageURL, handoffLine, resultTone, shortDigest } from "../intents";
 import { PlainText } from "./PlainText";
 import { Pill } from "./Pills";
 
@@ -35,7 +37,56 @@ function seqs(list?: number[]): string {
   return list && list.length > 0 ? list.map((n) => `#${n}`).join(", ") : "";
 }
 
-function Outcome({ o, transcripts }: { o: EvaluationOutcome; transcripts: boolean }) {
+// CitedCallRow is one call maul counted for an outcome: what it was, and to
+// a transcripts-tier reader what it sent, how its output starts and its
+// screenshot.
+function CitedCallRow({ c }: { c: CitedCall }) {
+  if (!c.indexed) return <li class="py-1 font-mono text-[12px] text-faint">#{c.seq} · not in this round's ledger index</li>;
+  return (
+    <li class="py-1">
+      <p class="m-0 font-mono text-[12px]">
+        #{c.seq} {c.verb}
+        {c.base ? " · at the base" : ""}
+        {c.exit ? ` · exit ${c.exit}` : ""}
+        {c.own ? <span class="font-sans text-muted"> · {c.own}</span> : null}
+      </p>
+      {c.request || c.excerpt || c.outputNotKept || c.images.length > 0 ? (
+        <div class="mt-1.5 flex flex-col gap-2">
+          {c.request ? (
+            <PlainText label={c.own ? `request, ${c.own}` : "request, from the evaluator"} text={c.request} />
+          ) : null}
+          {c.excerpt ? (
+            <PlainText
+              label={`${c.own ? "what it returned" : "output"}, recorded by maul${c.excerptCut ? ` (its start; the whole of it is ledger entry #${c.seq})` : ""}`}
+              text={c.excerpt}
+            />
+          ) : null}
+          {c.outputNotKept ? (
+            <p class="m-0 text-[12px] text-faint">maul did not keep its output whole; only its sha256 is.</p>
+          ) : null}
+          {c.images.map((src) => (
+            <img key={src} src={src} alt={`screenshot of ledger entry ${c.seq}`} class="max-w-full rounded border border-line" />
+          ))}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function Outcome({
+  o,
+  transcripts,
+  ledger,
+  intent,
+  run,
+}: {
+  o: EvaluationOutcome;
+  transcripts: boolean;
+  ledger?: EvaluationLedger;
+  intent: string;
+  run: string;
+}) {
+  const calls = citedCalls(o, ledger, intent, run);
   return (
     <li class="rounded-[11px] border border-line px-3.5 py-3">
       <div class="flex flex-wrap items-center gap-2">
@@ -45,31 +96,30 @@ function Outcome({ o, transcripts }: { o: EvaluationOutcome; transcripts: boolea
         {o.manual ? <span class="ps-chip">manual</span> : null}
       </div>
       <p class="mt-2 mb-0 text-[13px]">{o.outcome}</p>
-      {o.line ? <p class="mt-1.5 mb-0 font-mono text-[12px] text-muted">checked by: {o.line}</p> : null}
-      {o.reason ? <p class="mt-1.5 mb-0 text-[12px] text-muted">{o.reason}</p> : null}
+      {o.words ? <p class="mt-1.5 mb-0 text-[12px] text-muted">{o.words}</p> : null}
+      {calls.length > 0 ? (
+        <>
+          <p class="mt-2 mb-0 text-[12px] text-muted">Calls maul counted for it:</p>
+          <ul class="m-0 list-none p-0">
+            {calls.map((c) => (
+              <CitedCallRow key={c.seq} c={c} />
+            ))}
+          </ul>
+        </>
+      ) : null}
       {transcripts && o.verdict ? (
         <p class="mt-1.5 mb-0 text-[12px] text-faint">
           The evaluator said {o.verdict}
-          {o.cited && o.cited.length > 0 ? `, citing ${seqs(o.cited)}` : ""}.
+          {o.cited && o.cited.length > 0 ? `, citing ${seqs(o.cited)}` : ""}
+          {o.result ? `; maul counted ${o.cites && o.cites.length > 0 ? seqs(o.cites) : "none of them"}` : ""}.
         </p>
       ) : null}
       {transcripts && o.note ? (
         <div class="mt-2">
-          <PlainText label="the evaluator's note" text={o.note} maxHeight={false} />
+          <PlainText label="the evaluator's note, not checked by maul" text={o.note} maxHeight={false} />
         </div>
       ) : null}
     </li>
-  );
-}
-
-// RunPill is one run of a check, with the tree it ran against (an agents
-// round only; a slot round's runs name none).
-function RunPill({ label, r }: { label: string; r: EvaluationCheckRun }) {
-  return (
-    <Pill tone={resultTone(r.result)}>
-      {label} {r.result}
-      {r.tree ? ` · ${r.tree}` : ""}
-    </Pill>
   );
 }
 
@@ -90,45 +140,14 @@ function Builds({ builds }: { builds: EvaluationBuild[] }) {
   );
 }
 
-function Check({ c }: { c: EvaluationCheck }) {
-  const run = c.confirmation ?? c.replay;
-  return (
-    <li class="rounded-[11px] border border-line px-3.5 py-3">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="ps-mono-tag">{c.id}</span>
-        <span class="ps-chip">
-          {c.form} · {c.source} · {shortDigest(c.digest)}
-        </span>
-        {c.replay ? <RunPill label="replay" r={c.replay} /> : null}
-        {c.confirmation ? <RunPill label="confirmation" r={c.confirmation} /> : null}
-        {c.base ? <RunPill label="base" r={c.base} /> : null}
-        {c.disputed ? <Pill tone="amber">disputed</Pill> : null}
-      </div>
-      <p class="mt-1.5 mb-2 text-[12px] text-muted">
-        For outcome <span class="font-mono">{c.outcome}</span>
-        {run ? ` · ledger #${run.seq}${run.dryRunSeq ? ` (dry run #${run.dryRunSeq})` : ""} · token ${run.token}` : ""}
-      </p>
-      <PlainText label="steps, written by the evaluator" text={c.steps} />
-      {c.compiled ? (
-        <details class="mt-2">
-          <summary class="cursor-pointer text-[12px] text-muted">
-            Compiled Playwright spec{c.compiledToken ? ` (run token ${c.compiledToken})` : ""}
-          </summary>
-          <div class="mt-2">
-            <PlainText label="compiled by maul" text={c.compiled} />
-          </div>
-        </details>
-      ) : null}
-    </li>
-  );
-}
-
 function LedgerRow({ e, intent, run }: { e: EvaluationLedgerEntry; intent: string; run: string }) {
   const images = (e.artifacts ?? []).map((a) => (a.image ? evidenceImageURL(intent, run, a.image) : "")).filter(Boolean);
   const detail = e.args || e.output || e.outputDropped || images.length > 0;
   const head = (
     <span class="font-mono text-[12px]">
       #{e.seq} {e.kind} {e.verb}
+      {e.side === "base" ? " · at the base" : ""}
+      {e.own ? (e.verb === "browser" ? " · the evaluator's own page script" : " · the evaluator's own program") : ""}
       {e.refused ? " · refused" : ""}
       {e.exit ? ` · exit ${e.exit}` : ""}
       {e.artifacts && e.artifacts.length > 0 ? ` · ${e.artifacts.length} artifact(s)` : ""}
@@ -164,17 +183,12 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
     <section class="mt-6">
       <h2 class="ps-heading mb-2">Evaluation</h2>
       <p class="mt-0 mb-3 text-[12.5px] text-muted">
-        Round {data.round}, attempt {data.attempt}
-        {data.rung ? ` · ${data.rung}` : ""} · {data.verification}
+        Round {data.round}, attempt {data.attempt} · {data.verification}
         {data.phase ? ` · ${data.phase}` : ""}
         {data.reason ? ` (${data.reason})` : ""}
-        {data.current ? "" : " · a later round has superseded this one's results"}
+        {data.current || data.withdrawn ? "" : " · a later round has superseded this one's results"}
       </p>
-      {data.noBaseComparison ? (
-        <p class="mt-0 mb-3 text-[12.5px] text-muted">
-          No base comparison: the base tree did not build, so no check was compared against it.
-        </p>
-      ) : null}
+      {data.withdrawn ? <p class="mt-0 mb-3 text-[12.5px] text-muted">{data.withdrawn}</p> : null}
       {data.handoff ? (
         <p class="mt-0 mb-3 text-[12.5px]">
           {handoffLine(
@@ -186,9 +200,10 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
       ) : null}
 
       <h3 class="ps-heading mt-4 mb-2">Outcomes</h3>
+      {data.lead ? <p class="mt-0 mb-2 text-[12px] text-muted">{data.lead}</p> : null}
       <ul class="m-0 flex list-none flex-col gap-2 p-0">
         {data.outcomes.map((o) => (
-          <Outcome key={o.id} o={o} transcripts={transcripts} />
+          <Outcome key={o.id} o={o} transcripts={transcripts} ledger={data.ledger} intent={intent} run={run} />
         ))}
       </ul>
 
@@ -208,33 +223,6 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
         </>
       ) : null}
 
-      {data.disputes && data.disputes.length > 0 ? (
-        <>
-          <h3 class="ps-heading mt-4 mb-2">Disputes</h3>
-          <ul class="m-0 flex list-disc flex-col gap-1 pl-5 text-[12.5px]">
-            {data.disputes.map((d) => (
-              <li key={d.checkDigest}>
-                <span class="font-mono">{shortDigest(d.checkDigest)}</span>
-                {d.reason ? `: ${d.reason}` : ""}
-                {d.replacement ? <span class="text-muted"> · replacement {d.replacement}</span> : null}
-                {d.ledger && d.ledger.length > 0 ? <span class="text-faint"> · {seqs(d.ledger)}</span> : null}
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-
-      <h3 class="ps-heading mt-4 mb-2">Checks</h3>
-      {data.checks.length === 0 ? (
-        <p class="m-0 text-[12px] text-faint">No check was replayed or confirmed in this round.</p>
-      ) : (
-        <ul class="m-0 flex list-none flex-col gap-2 p-0">
-          {data.checks.map((c) => (
-            <Check key={c.digest} c={c} />
-          ))}
-        </ul>
-      )}
-
       {data.builds && data.builds.length > 0 ? <Builds builds={data.builds} /> : null}
 
       {data.ledger ? (
@@ -249,7 +237,8 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
           </ul>
           {!transcripts ? (
             <p class="mt-1.5 mb-0 text-[12px] text-faint">
-              Ledger outputs, screenshots and the evaluator's notes need the transcripts tier on this project.
+              What each call sent and returned, screenshots and the evaluator's notes need the transcripts tier on
+              this project.
             </p>
           ) : null}
         </>

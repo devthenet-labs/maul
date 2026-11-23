@@ -765,9 +765,10 @@ export interface StreamNotice {
 
 // RunEvaluation is an evaluate run's evidence view
 // (GET /api/intents/{name}/runs/{run}/evaluation). Every tier gets the
-// outcomes, checks and ledger index; ledger arguments and outputs, evidence
-// images and the evaluator's claims (verdict, note, cited, dispute reasons)
-// only a transcripts-tier reader. Agent and app text is plain text.
+// outcomes, maul's decision on each with the calls it counted (cites), and
+// the ledger index; ledger arguments and outputs, the own-script labels,
+// evidence images and the evaluator's claims (verdict, note, cited) only a
+// transcripts-tier reader. Agent and app text is plain text.
 export interface RunEvaluation {
   intent: string;
   run: string;
@@ -775,23 +776,24 @@ export interface RunEvaluation {
   verification: string;
   round: number;
   attempt: number;
-  rung?: string;
   phase?: string;
   reason?: string;
-  // current: the Intent's latest verification, so results, anomalies,
-  // disputes and the hand-off are this round's.
+  // current: the Intent's latest verification, so results, anomalies and
+  // the hand-off are this round's.
   current?: boolean;
+  // lead: maul's sentence on what it counts and what it leaves to the
+  // reviewers, set while results are shown.
+  lead?: string;
+  // withdrawn: maul's sentence while an earlier result is withdrawn
+  // because the rules for judging outcomes changed.
+  withdrawn?: string;
   // placement: "agents" for a round run in the agents namespace, which has
-  // no preview (so no preview link); unset for a slot round. noBaseComparison:
-  // the base tree did not build, so no check was compared against it.
+  // no preview (so no preview link); unset for a slot round.
   placement?: string;
-  noBaseComparison?: boolean;
   builds?: EvaluationBuild[];
   handoff?: EvaluationHandoff;
   outcomes: EvaluationOutcome[];
-  checks: EvaluationCheck[];
   anomalies?: EvaluationAnomaly[];
-  disputes?: EvaluationDispute[];
   ledger?: EvaluationLedger;
   capture?: EvaluationCapture;
 }
@@ -803,43 +805,22 @@ export interface EvaluationHandoff {
   reason?: string;
 }
 
+// EvaluationOutcome: result, reason, words and cites are maul's decision
+// (current round only); cites are the seqs of the calls it counted. verdict,
+// note and cited are the evaluator's claims (cited: every seq its verdict
+// named, counted or not).
 export interface EvaluationOutcome {
   id: string;
   outcome: string;
   kind: string;
   manual?: boolean;
   result?: string;
-  basis?: string;
-  line?: string;
   reason?: string;
+  words?: string;
+  cites?: number[];
   verdict?: string;
   note?: string;
   cited?: number[];
-}
-
-export interface EvaluationCheck {
-  id: string;
-  outcome: string;
-  form: string;
-  digest: string;
-  source: "saved" | "proposed";
-  steps: string;
-  compiled?: string;
-  compiledToken?: string;
-  replay?: EvaluationCheckRun;
-  base?: EvaluationCheckRun;
-  confirmation?: EvaluationCheckRun;
-  disputed?: boolean;
-}
-
-export interface EvaluationCheckRun {
-  result: string;
-  token: string;
-  seq: number;
-  dryRunSeq?: number;
-  // tree: the tree an agents round's run ran against, "head" or "base";
-  // unset on a slot round's run.
-  tree?: string;
 }
 
 export interface EvaluationBuild {
@@ -858,13 +839,6 @@ export interface EvaluationAnomaly {
   foundInRound?: number;
 }
 
-export interface EvaluationDispute {
-  checkDigest: string;
-  reason?: string;
-  replacement?: string;
-  ledger?: number[];
-}
-
 export interface EvaluationLedger {
   count: number;
   sha256: string;
@@ -873,10 +847,15 @@ export interface EvaluationLedger {
   entries: EvaluationLedgerEntry[];
 }
 
+// EvaluationLedgerEntry: side "base" is a call at an agents round's base
+// tree, which never counts; own marks a call that ran the evaluator's own
+// page script or program (transcripts tier).
 export interface EvaluationLedgerEntry {
   seq: number;
   kind: string;
   verb: string;
+  side?: string;
+  own?: boolean;
   exit?: number;
   refused?: boolean;
   resultSHA256: string;

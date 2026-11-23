@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/projectsettings"
 	"github.com/devthenet-labs/maul/internal/usageview"
 )
@@ -78,8 +79,8 @@ func TestIntentWireTypesMatchTypeScript(t *testing.T) {
 		IntentPR{}, PreviewLink{}, RunningRun{}, AttemptCount{}, IntentDetail{}, IntentInputView{},
 		IntentPlanView{}, IntentApproval{}, IntentRunRow{}, RunGrant{}, IntentRunDetail{}, RunJobClock{},
 		IntentPlanText{}, RunActivity{}, RunOutput{}, StreamNotice{},
-		RunEvaluation{}, EvaluationHandoff{}, EvaluationOutcome{}, EvaluationCheck{}, EvaluationCheckRun{}, EvaluationBuild{},
-		EvaluationAnomaly{}, EvaluationDispute{}, EvaluationLedger{}, EvaluationLedgerEntry{},
+		RunEvaluation{}, EvaluationHandoff{}, EvaluationOutcome{}, EvaluationBuild{},
+		EvaluationAnomaly{}, EvaluationLedger{}, EvaluationLedgerEntry{},
 		EvaluationArtifact{}, EvaluationCapture{}, EvaluationComponentCapture{},
 	} {
 		typ := reflect.TypeOf(v)
@@ -96,6 +97,40 @@ func TestIntentWireTypesMatchTypeScript(t *testing.T) {
 	// that silently matched nothing cannot pass the loop above.
 	if len(ts) < 30 || !slices.Contains(slices.Collect(maps.Keys(ts)), "FindingSummary") {
 		t.Fatalf("parsed %d interfaces from types.ts; the parser is broken", len(ts))
+	}
+	// The saved-check views are retired ("evaluator observed"): the page
+	// shows each outcome's cited calls instead, so their mirrors are gone.
+	for _, retired := range []string{"EvaluationCheck", "EvaluationCheckRun", "EvaluationDispute"} {
+		if _, ok := ts[retired]; ok {
+			t.Errorf("ui/src/types.ts still has the retired interface %s", retired)
+		}
+	}
+}
+
+// TestIntentStagesMatchTypeScript: the SPA's IntentStage names every stage
+// the API does, the retired checkreview included, which an earlier
+// release's runs still carry and their rows still show.
+func TestIntentStagesMatchTypeScript(t *testing.T) {
+	src, err := os.ReadFile("ui/src/types.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`export type IntentStage = ([^;]+);`).FindStringSubmatch(string(src))
+	if m == nil {
+		t.Fatal("ui/src/types.ts has no IntentStage")
+	}
+	stages := regexp.MustCompile(`"([a-z]+)"`).FindAllStringSubmatch(m[1], -1)
+	got := make([]string, 0, len(stages))
+	for _, s := range stages {
+		got = append(got, s[1])
+	}
+	want := []string{string(v1alpha1.IntentStagePlan), string(v1alpha1.IntentStageBuild),
+		string(v1alpha1.IntentStageRevise), string(v1alpha1.IntentStageEvaluate),
+		string(v1alpha1.IntentStageCheckReview)}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("IntentStage %v, want the API's stages %v", got, want)
 	}
 }
 

@@ -17,17 +17,20 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/e2e/fakeoidc"
 	"github.com/devthenet-labs/maul/internal/rbactest"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestIntentEvaluateEvidenceOnStatusPage: the status page's evaluation
 // evidence view (S1-23) over a real round. The scripted evaluator passes
 // both outcomes and reports one look-around anomaly, a note for the
-// reviewer: maul confirms both and hands the link over as ready, the note
-// shown beside them. Served by the shipped status-server behind a real OIDC
-// sign-in and the envtest API server's RBAC: a tier-1 viewer sees maul's
-// decided outcomes, the anomaly, the hand-off and the ledger index, never an
-// output or the evaluator's claims; a tier-2 reader also sees the ledger's
-// outputs and the evaluator's verdicts.
+// reviewer: maul counts both verdicts by the calls they cite and hands the
+// link over as ready, the note shown beside them. Served by the shipped
+// status-server behind a real OIDC sign-in and the envtest API server's
+// RBAC: a tier-1 viewer sees maul's decided outcomes in the comment's words
+// with the calls it counted for each, the anomaly, the hand-off and the
+// ledger index, never an output, a request or the evaluator's claims; a
+// tier-2 reader also sees what each cited call sent and returned and the
+// evaluator's verdicts.
 func TestIntentEvaluateEvidenceOnStatusPage(t *testing.T) {
 	const anomaly = "The version endpoint logs a warning on every request"
 	e := startEvaluate(t, evalOptions{})
@@ -83,15 +86,17 @@ type evidenceView struct {
 		Released bool   `json:"released"`
 		Reason   string `json:"reason"`
 	} `json:"handoff"`
+	Lead     string `json:"lead"`
 	Outcomes []struct {
-		ID      string `json:"id"`
-		Result  string `json:"result"`
-		Line    string `json:"line"`
-		Verdict string `json:"verdict"`
+		ID      string  `json:"id"`
+		Result  string  `json:"result"`
+		Words   string  `json:"words"`
+		Cites   []int32 `json:"cites"`
+		Verdict string  `json:"verdict"`
 	} `json:"outcomes"`
+	// Checks is the retired saved-check view, which is never served.
 	Checks []struct {
-		ID     string `json:"id"`
-		Digest string `json:"digest"`
+		ID string `json:"id"`
 	} `json:"checks"`
 	Anomalies []struct {
 		Summary string `json:"summary"`
@@ -105,14 +110,20 @@ type evidenceView struct {
 
 // evidenceEntry is one ledger entry of the view.
 type evidenceEntry struct {
-	Verb   string `json:"verb"`
-	Output string `json:"output"`
+	Seq     int32  `json:"seq"`
+	Kind    string `json:"kind"`
+	Verb    string `json:"verb"`
+	Refused bool   `json:"refused"`
+	Args    string `json:"args"`
+	Output  string `json:"output"`
+	Own     bool   `json:"own"`
 }
 
 // check holds the view login was served to its tier: the current round,
-// released ready, both outcomes passed, no saved check (the evaluator
-// observes and cites: the status page's cited-call view is W6's), the
-// anomaly, every ledger entry indexed; the evaluator's verdicts and the
+// released ready, both outcomes passed in the comment's words, each with
+// the calls maul counted for it (the evaluator's own unrefused calls of
+// the index), no saved check, the anomaly, every ledger entry indexed; the
+// evaluator's verdicts, what the cited calls sent and returned and the
 // ledger's outputs only with outputs (tier 2).
 func (ev evidenceView) check(t *testing.T, login, tier string, outputs bool, anomaly string) {
 	t.Helper()
@@ -121,16 +132,9 @@ func (ev evidenceView) check(t *testing.T, login, tier string, outputs bool, ano
 		t.Errorf("%s: tier %q current %v handoff %+v; want %s, the current round, released ready",
 			login, ev.Tier, ev.Current, ev.Handoff, tier)
 	}
-	if len(ev.Outcomes) != 2 || len(ev.Checks) != 0 {
-		t.Errorf("%s: outcomes %+v checks %+v, want both outcomes and no check", login, ev.Outcomes, ev.Checks)
-	}
-	for _, o := range ev.Outcomes {
-		if o.Result != "passed" {
-			t.Errorf("%s: outcome %+v, want passed", login, o)
-		}
-		if (o.Verdict != "") != outputs {
-			t.Errorf("%s: outcome %s shows the evaluator's verdict %q at tier %s", login, o.ID, o.Verdict, tier)
-		}
+	if len(ev.Outcomes) != 2 || ev.Checks != nil || ev.Lead != templates.ObservedLead {
+		t.Errorf("%s: outcomes %+v checks %+v lead %q, want both outcomes, no check and the comment's lead",
+			login, ev.Outcomes, ev.Checks, ev.Lead)
 	}
 	if len(ev.Anomalies) != 1 || ev.Anomalies[0].Summary != anomaly {
 		t.Errorf("%s: anomalies %+v, want the evaluator's one", login, ev.Anomalies)
@@ -139,9 +143,51 @@ func (ev evidenceView) check(t *testing.T, login, tier string, outputs bool, ano
 		ev.Ledger.Outputs != outputs {
 		t.Fatalf("%s: ledger %+v, want every entry indexed, outputs %v", login, ev.Ledger, outputs)
 	}
+	ev.checkOutcomes(t, login, tier, outputs)
 	shown := slices.ContainsFunc(ev.Ledger.Entries, func(x evidenceEntry) bool { return x.Output != "" })
 	if shown != outputs {
 		t.Errorf("%s: ledger outputs shown %v, want %v", login, shown, outputs)
+	}
+}
+
+// checkOutcomes holds both outcomes passed in the comment's words, each
+// with the calls maul counted for it, the evaluator's verdict only with
+// outputs (tier 2).
+func (ev evidenceView) checkOutcomes(t *testing.T, login, tier string, outputs bool) {
+	t.Helper()
+	for _, o := range ev.Outcomes {
+		if o.Result != "passed" || o.Words != templates.ObservedOutcomeWords("passed", "seen-to-hold") ||
+			len(o.Cites) == 0 {
+			t.Errorf("%s: outcome %+v, want passed in the comment's words, with the calls maul counted", login, o)
+		}
+		if (o.Verdict != "") != outputs {
+			t.Errorf("%s: outcome %s shows the evaluator's verdict %q at tier %s", login, o.ID, o.Verdict, tier)
+		}
+		ev.checkCited(t, login, tier, outputs, o.ID, o.Cites)
+	}
+}
+
+// checkCited holds the calls maul counted for outcome id: each an
+// unrefused call of the evaluator's in the index, what it sent and returned
+// and its own label shown only with outputs (tier 2).
+func (ev evidenceView) checkCited(t *testing.T, login, tier string, outputs bool, id string, cites []int32) {
+	t.Helper()
+	for _, seq := range cites {
+		i := slices.IndexFunc(ev.Ledger.Entries, func(x evidenceEntry) bool { return x.Seq == seq })
+		if i < 0 {
+			t.Errorf("%s: outcome %s cites %d, which the index does not hold", login, id, seq)
+			continue
+		}
+		c := ev.Ledger.Entries[i]
+		if c.Kind != "agent" || c.Refused {
+			t.Errorf("%s: outcome %s counts call %+v, not an unrefused call of the evaluator's", login, id, c)
+		}
+		if (c.Args != "" && c.Output != "") != outputs {
+			t.Errorf("%s: cited call %+v shows what it sent and returned %v at tier %s", login, c, !outputs, tier)
+		}
+		if c.Own && !outputs {
+			t.Errorf("%s: cited call %+v is labelled at tier %s", login, c, tier)
+		}
 	}
 }
 

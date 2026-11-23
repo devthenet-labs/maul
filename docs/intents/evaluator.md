@@ -754,9 +754,10 @@ before the turns, and lower the turns with a smaller `limits.evaluate.maxCostMic
   immutable ConfigMap `<intent>-checks-<n>` that `status.acceptance.checks` names, and the reviewer's answers are cached
   in `status.acceptance.reviews`.
 - **On the status page.** With the [intents dashboard](dashboard.md#the-evaluation-evidence) on, an evaluate run's panel
-  shows the same round: outcomes with maul's decided result, the checks and their compiled specs, anomalies, the
-  hand-off and the ledger. A reader with the transcripts tier also sees each call's request and output, the evaluator's
-  own verdicts and notes, and the cited screenshots.
+  shows the same round: outcomes with maul's decided result and the calls it counted for each, anomalies, the hand-off
+  and the ledger. A reader with the transcripts tier also sees what each counted call sent and returned, which ones ran
+  the evaluator's own page script or program, each call's request and output, the evaluator's own verdicts and notes,
+  and the cited screenshots.
 - **Trust order.** Read maul's result first (`confirmed`, `failed`, `unsure`, `quarantined`), then **maul's check**
   beside it, which maul rendered itself. The evaluator's verdict and note are claims: they can disagree with the result,
   and an outcome is green only when maul's own checks support it. A ledger output is shown only where it hashes to the

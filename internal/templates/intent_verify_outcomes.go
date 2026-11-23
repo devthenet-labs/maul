@@ -290,6 +290,18 @@ func observedVerdict(o VerifyOutcomeResult, word string) string {
 	return word
 }
 
+// ObservedOutcomeWords is an observed outcome's result as the comment's row
+// words it, without the calls it cites: maul's word for the result
+// (OutcomeResult*) and, for an unsure one, why. The status page shows it
+// beside the cited calls, so the two surfaces word a result alike.
+func ObservedOutcomeWords(result, reason string) string {
+	word, ok := observedResultWords[result]
+	if !ok {
+		word = "unknown"
+	}
+	return observedVerdict(VerifyOutcomeResult{Result: result, Reason: reason}, word)
+}
+
 // citedSeqs names calls by their seqs, as "call 9", "calls 4 and 6" or
 // "calls 1, 2 and 3"; "" for none.
 func citedSeqs(calls []VerifyCitedCall) string {

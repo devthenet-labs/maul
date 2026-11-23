@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // tsRecordKeys are the keys of the exported Record<string, string> named
@@ -52,6 +53,24 @@ func TestHandoffReasonTablesMatchTheAPI(t *testing.T) {
 		slices.Sort(got)
 		if !slices.Equal(got, want) {
 			t.Errorf("%s keys %v, v1alpha1.HandoffReason %v", table, got, want)
+		}
+	}
+}
+
+// TestHandoffReadyWordsAreTheComments (W6): a released ready hand-off is
+// worded on the status page as the issue comment's ready label words it
+// (templates.ReadyLabel), so neither surface says more than the other.
+func TestHandoffReadyWordsAreTheComments(t *testing.T) {
+	src, err := os.ReadFile("ui/src/intents.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSuffix(strings.TrimPrefix(templates.ReadyLabel, "Ready: "), ".")
+	for _, table := range []string{"HANDOFF_REASONS", "AGENTS_HANDOFF_REASONS"} {
+		body := string(src)[strings.Index(string(src), "export const "+table+":"):]
+		body = body[:strings.Index(body, "};")]
+		if !strings.Contains(body, `ready: "`+want+`",`) {
+			t.Errorf("%s's ready words are not the comment's %q:\n%s", table, want, body)
 		}
 	}
 }

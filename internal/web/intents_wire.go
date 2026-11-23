@@ -313,11 +313,13 @@ type StreamNotice struct {
 // RunEvaluation is GET /api/intents/{name}/runs/{run}/evaluation: the
 // evidence of one evaluate run's round, read from its PreviewVerification
 // (pinned by the run's UID) and, when that verification is the Intent's
-// current one, the Intent's decided results. Every tier sees the outcomes,
-// the checks and the ledger index; the ledger's outputs and arguments, the
-// evidence images and the evaluator's claims (its verdicts, notes and
-// dispute reasons) are tier 2 only. Agent and application text is plain
-// text, never markup.
+// current one, the Intent's decided results ("evaluator observed": each
+// outcome's verdict counts only by the calls it cites in the round's
+// verified ledger). Every tier sees the outcomes, maul's decision on each
+// with the calls it counted, and the ledger index; the ledger's outputs and
+// arguments, the own-script labels, the evidence images and the
+// evaluator's claims (its verdicts, notes and cited seqs) are tier 2 only.
+// Agent and application text is plain text, never markup.
 type RunEvaluation struct {
 	Intent string `json:"intent"`
 	Run    string `json:"run"`
@@ -326,27 +328,29 @@ type RunEvaluation struct {
 	Verification string `json:"verification"`
 	Round        int32  `json:"round"`
 	Attempt      int32  `json:"attempt"`
-	Rung         string `json:"rung,omitempty"`
 	// Phase and Reason are the verification's, from fixed vocabularies.
 	Phase  string `json:"phase,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	// Current: the verification is the Intent's latest, so the decided
-	// results, anomalies, disputes and hand-off below are this round's.
+	// results, anomalies and hand-off below are this round's.
 	Current bool `json:"current,omitempty"`
+	// Lead is maul's sentence on what it counts and what it leaves to the
+	// reviewers (templates.ObservedLead), set while results are shown.
+	Lead string `json:"lead,omitempty"`
+	// Withdrawn is maul's sentence while an earlier result of the Intent's
+	// is withdrawn because the rules for judging outcomes changed
+	// (templates.WithdrawnSentence), "" otherwise.
+	Withdrawn string `json:"withdrawn,omitempty"`
 	// Placement is "agents" for a round run in the agents namespace (no
-	// Preview, so no preview link), unset for a slot round. NoBaseComparison
-	// labels an agents round whose base tree did not build; Builds are the
+	// Preview, so no preview link), unset for a slot round. Builds are the
 	// tool pod's tree builds.
-	Placement        string              `json:"placement,omitempty"`
-	NoBaseComparison bool                `json:"noBaseComparison,omitempty"`
-	Builds           []EvaluationBuild   `json:"builds,omitempty"`
-	Handoff          *EvaluationHandoff  `json:"handoff,omitempty"`
-	Outcomes         []EvaluationOutcome `json:"outcomes"`
-	Checks           []EvaluationCheck   `json:"checks"`
-	Anomalies        []EvaluationAnomaly `json:"anomalies,omitempty"`
-	Disputes         []EvaluationDispute `json:"disputes,omitempty"`
-	Ledger           *EvaluationLedger   `json:"ledger,omitempty"`
-	Capture          *EvaluationCapture  `json:"capture,omitempty"`
+	Placement string              `json:"placement,omitempty"`
+	Builds    []EvaluationBuild   `json:"builds,omitempty"`
+	Handoff   *EvaluationHandoff  `json:"handoff,omitempty"`
+	Outcomes  []EvaluationOutcome `json:"outcomes"`
+	Anomalies []EvaluationAnomaly `json:"anomalies,omitempty"`
+	Ledger    *EvaluationLedger   `json:"ledger,omitempty"`
+	Capture   *EvaluationCapture  `json:"capture,omitempty"`
 }
 
 // EvaluationHandoff is the hand-off of the preview link to humans.
@@ -364,45 +368,19 @@ type EvaluationOutcome struct {
 	Outcome string `json:"outcome"`
 	Kind    string `json:"kind"`
 	Manual  bool   `json:"manual,omitempty"`
-	// Result, Basis, Line and Reason are maul's decision (current only).
-	Result string `json:"result,omitempty"`
-	Basis  string `json:"basis,omitempty"`
-	Line   string `json:"line,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	// Verdict, Note and Cited are the evaluator's claims, tier 2 only.
+	// Result, Reason, Words and Cites are maul's decision (current only):
+	// the result and its reason code, both in maul's words as the comment
+	// says them (templates.ObservedOutcomeWords), and the seqs of the calls
+	// it counted for the outcome, the verdict's valid cites in seq order.
+	Result string  `json:"result,omitempty"`
+	Reason string  `json:"reason,omitempty"`
+	Words  string  `json:"words,omitempty"`
+	Cites  []int32 `json:"cites,omitempty"`
+	// Verdict, Note and Cited are the evaluator's claims, tier 2 only:
+	// Cited is every seq its verdict cited, counted or not.
 	Verdict string  `json:"verdict,omitempty"`
 	Note    string  `json:"note,omitempty"`
 	Cited   []int32 `json:"cited,omitempty"`
-}
-
-// EvaluationCheck is one check of the round: a saved check replayed, or a
-// proposed one confirmed. Steps is its canonical body, indented; Compiled
-// the Playwright spec maul compiled from a browser check, with the run
-// token it was compiled with.
-type EvaluationCheck struct {
-	ID            string              `json:"id"`
-	Outcome       string              `json:"outcome"`
-	Form          string              `json:"form"`
-	Digest        string              `json:"digest"`
-	Source        string              `json:"source"`
-	Steps         string              `json:"steps"`
-	Compiled      string              `json:"compiled,omitempty"`
-	CompiledToken string              `json:"compiledToken,omitempty"`
-	Replay        *EvaluationCheckRun `json:"replay,omitempty"`
-	Base          *EvaluationCheckRun `json:"base,omitempty"`
-	Confirmation  *EvaluationCheckRun `json:"confirmation,omitempty"`
-	Disputed      bool                `json:"disputed,omitempty"`
-}
-
-// EvaluationCheckRun is one run of a check as the ledger recorded it.
-type EvaluationCheckRun struct {
-	Result    string `json:"result"`
-	Token     string `json:"token"`
-	Seq       int32  `json:"seq"`
-	DryRunSeq int32  `json:"dryRunSeq,omitempty"`
-	// Tree is the tree an agents round's run ran against, head or base
-	// (unset reads as head); never set on a slot round's run.
-	Tree string `json:"tree,omitempty"`
 }
 
 // EvaluationBuild is one tree's build in an agents tool pod.
@@ -426,15 +404,6 @@ type EvaluationAnomaly struct {
 	FoundInRound int32   `json:"foundInRound,omitempty"`
 }
 
-// EvaluationDispute is a saved check the evaluator disputed. Reason,
-// Replacement and Ledger are the evaluator's, tier 2 only.
-type EvaluationDispute struct {
-	CheckDigest string  `json:"checkDigest"`
-	Reason      string  `json:"reason,omitempty"`
-	Replacement string  `json:"replacement,omitempty"`
-	Ledger      []int32 `json:"ledger,omitempty"`
-}
-
 // EvaluationLedger is the tools container's verified ledger: the index on
 // the verification's status, every entry, and (tier 2, Outputs) each
 // entry's arguments and output read from its ledger ConfigMap.
@@ -445,13 +414,18 @@ type EvaluationLedger struct {
 	Entries []EvaluationLedgerEntry `json:"entries"`
 }
 
-// EvaluationLedgerEntry is one ledger entry. Output is shown only where its
-// sha256 is the index's; OutputDropped marks one that is not (cut to fit
-// the ConfigMap, or missing).
+// EvaluationLedgerEntry is one ledger entry. Side is "base" for a call at
+// an agents round's base tree, which never counts. Args and Output (tier 2)
+// are shown only from the stored line that is the index's call, the output
+// only where its sha256 is the index's; OutputDropped marks one that is not
+// (cut to fit the ConfigMap, or missing). Own (tier 2) marks a call that
+// ran the evaluator's own page script or program (toolledger.OwnCall).
 type EvaluationLedgerEntry struct {
 	Seq           int32                `json:"seq"`
 	Kind          string               `json:"kind"`
 	Verb          string               `json:"verb"`
+	Side          string               `json:"side,omitempty"`
+	Own           bool                 `json:"own,omitempty"`
 	Exit          int32                `json:"exit,omitempty"`
 	Refused       bool                 `json:"refused,omitempty"`
 	ResultSHA256  string               `json:"resultSHA256"`

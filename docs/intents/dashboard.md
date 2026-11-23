@@ -197,21 +197,26 @@ It is read from the round's `PreviewVerification`, which must be the one the run
 this very intent, so a look-alike object is never shown. When that round is the intent's latest, the view also carries
 the decided results; for an older round it shows what was recorded and says it is not the current one.
 
-| Section        | Shows                                                                                                                         | Tier |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---- |
-| Outcomes       | Each approved outcome, maul's decided result (`confirmed`, `failed`, `unsure`, `quarantined`) and its one-line check          | 1    |
-| Checks         | Each check replayed or confirmed this round: its steps, a browser check's compiled spec, and the result of each run           | 1    |
-| Anomalies      | What the evaluator noticed while looking around, as its words, with the ledger entries it cites                               | 1    |
-| Hand-off       | Whether the preview link was released to people, when and why                                                                 | 1    |
-| Ledger         | One row per tool call: kind, verb, exit, refused, and the sha256 of the result                                                | 1    |
-| Ledger detail  | Each call's request and output, shown only where the output hashes to the ledger's index; one that does not is marked dropped | 2    |
-| Evaluator says | The evaluator's verdict and note per outcome, and its reason for a disputed check                                             | 2    |
-| Screenshots    | The images the evaluator cited, served as PNG only when the bytes start with the PNG signature                                | 2    |
+| Section        | Shows                                                                                                          | Tier |
+| -------------- | -------------------------------------------------------------------------------------------------------------- | ---- |
+| Outcomes       | Each approved outcome, maul's result (`passed`, `failed`, `unsure`, `accepted`) in the comment's words         | 1    |
+| Counted calls  | The calls maul counted for each outcome: the ones its verdict cites in the round's ledger                      | 1    |
+| Cited calls    | What each counted call sent, the start of its output, its stored screenshot, and whose script it ran           | 2    |
+| Anomalies      | What the evaluator noticed while looking around, as its words, with the ledger entries it cites                | 1    |
+| Hand-off       | Whether the preview link was released to people, when and why                                                  | 1    |
+| Ledger         | One row per tool call: kind, verb, at the base or not, exit, refused, and the sha256 of the result             | 1    |
+| Ledger detail  | Each call's request and output from the line that is the index's call; an output that does not hash is dropped | 2    |
+| Evaluator says | The evaluator's verdict, the seqs it cited (counted or not) and its note per outcome                           | 2    |
+| Screenshots    | The images the evaluator cited, served as PNG only when the bytes start with the PNG signature                 | 2    |
 
 Tier 1 is `projects/intents`, tier 2 is `projects/transcripts`. Everything written by the evaluator or the application
 is plain text, framed as such and never rendered as markup. Application output is labelled as the application's, the
-evaluator's request as the evaluator's, and a compiled spec as maul's. The evaluator's verdict is a claim; the result
-beside it is maul's decision, and the two can differ. A screenshot is shown as evidence a person can look at. It never
+evaluator's request as the evaluator's, and a call that ran the evaluator's own page script or program says so. maul
+counts a verdict only by the calls it cites; whether a cited call shows what the verdict says is for the reviewers to
+judge, and the page says so above the outcomes. The evaluator's verdict is a claim; the result beside it is maul's
+decision, and the two can differ. A report that still writes a key the evaluator no longer has (`disputes`, `proposed`,
+`retire`, `contrary`) claims nothing, so none of its claims is shown. While an earlier result is withdrawn because the
+rules for judging outcomes changed, the page says so. A screenshot is shown as evidence a person can look at. It never
 decides an outcome on its own: see [the known limits](evaluator.md#known-limits).
 
 The status server reads the verification and its two ConfigMaps (`<verification>-ledger`, `<verification>-evidence`)

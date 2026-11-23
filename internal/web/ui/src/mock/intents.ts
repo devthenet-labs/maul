@@ -233,15 +233,14 @@ export function mockIntentRun(intent: string, run: string): IntentRunDetail | nu
   };
 }
 
-// mockRunEvaluation is the evidence of the demo's one evaluate run: a saved
-// browser check that failed its replay and was disputed, a proposed http
-// check confirmed, and a look-around anomaly. Demo builds have no server, so
-// no evidence image is named.
+// mockRunEvaluation is the evidence of the demo's one evaluate run: one
+// outcome seen to hold on an http call and the evaluator's own page
+// script, one left unsure because its verdict cites only a refused call,
+// and a look-around anomaly. Demo builds have no server, so no evidence
+// image is named.
 export function mockRunEvaluation(intent: string, run: string): RunEvaluation | null {
   const detail = mockIntentRun(intent, run);
   if (!detail || detail.stage !== "evaluate") return null;
-  const browserDigest = "sha256:4b1c9e0a7d3f52e86b1a0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f";
-  const httpDigest = "sha256:7e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d";
   const sha = (c: string) => c.repeat(64);
   return {
     intent,
@@ -250,9 +249,11 @@ export function mockRunEvaluation(intent: string, run: string): RunEvaluation | 
     verification: `${intent}-v1-a1`,
     round: 1,
     attempt: 1,
-    rung: "full",
     phase: "Observed",
     current: true,
+    lead:
+      "maul counts a verdict only when it cites calls the evaluator made in this evaluation through maul's tools; " +
+      "whether a cited call shows what the verdict says is for the reviewers to judge.",
     handoff: { mode: "gated", released: true, releasedAt: ago(939), reason: "unconfirmed" },
     outcomes: [
       {
@@ -260,60 +261,52 @@ export function mockRunEvaluation(intent: string, run: string): RunEvaluation | 
         outcome: "The cart API answers on /api/basket",
         kind: "change",
         result: "passed",
-        basis: httpDigest,
-        line: "GET /api/basket answers 200 with the run's item",
+        reason: "seen-to-hold",
+        words: "seen to hold by maul's evaluator",
+        cites: [2, 3],
         verdict: "pass",
-        cited: [3, 4],
-        note: "Added an item and read it back under the new path.",
+        cited: [2, 3],
+        note: "Added an item and read it back under the new path; the page shows it too.",
       },
       {
         id: "cart-page",
         outcome: "The cart page still lists added items",
         kind: "keep",
         result: "unsure",
-        reason: "the saved check was disputed: it counted rows other runs created",
-        verdict: "unsure",
-        note: "The replay counted shared rows; proposed a check scoped to this run.",
+        reason: "no-valid-evidence",
+        words: "unsure; the evaluator's verdict cites no call of its own in this evaluation that maul counts",
+        verdict: "pass",
+        cited: [4],
+        note: "The page lists the item; the snapshot was refused at the call limit.",
       },
     ],
-    checks: [
-      {
-        id: "cart-page.rows",
-        outcome: "cart-page",
-        form: "browser",
-        digest: browserDigest,
-        source: "saved",
-        steps: '{\n  "steps": [\n    { "goto": "/cart" },\n    { "expect": { "assert": "count", "count": 2 } }\n  ]\n}',
-        compiled: 'test("cart-page.rows", async ({ page }) => {\n  await page.goto("/cart");\n});\n',
-        compiledToken: "v1a1t1-3f9a2c",
-        replay: { result: "fail", token: "v1a1t1-3f9a2c", seq: 1 },
-        disputed: true,
-      },
-      {
-        id: "cart-renamed",
-        outcome: "cart-renamed",
-        form: "http",
-        digest: httpDigest,
-        source: "proposed",
-        steps: '{\n  "target": "web",\n  "steps": [\n    { "request": { "path": "/api/basket" } }\n  ]\n}',
-        confirmation: { result: "pass", token: "v1a1t2-81d0e4", seq: 6, dryRunSeq: 4 },
-      },
-    ],
-    anomalies: [{ summary: "Console error on /cart: TypeError: total is undefined", route: "/cart", ledger: [5] }],
-    disputes: [
-      { checkDigest: browserDigest, reason: "The check counted rows other runs created.", ledger: [1] },
-    ],
+    anomalies: [{ summary: "Console error on /cart: TypeError: total is undefined", route: "/cart", ledger: [3] }],
     ledger: {
-      count: 6,
+      count: 5,
       sha256: sha("c"),
       outputs: true,
       entries: [
-        { seq: 1, kind: "runner", verb: "check-run", exit: 1, resultSHA256: sha("1"), output: "1 failed: expected 2 rows, saw 7" },
-        { seq: 2, kind: "agent", verb: "browser", resultSHA256: sha("2"), args: '{"argv":["open","/cart"]}', output: "- heading \"Cart\"" },
-        { seq: 3, kind: "agent", verb: "http", resultSHA256: sha("3"), args: '{"path":"/api/basket"}', output: "HTTP/1.1 200 OK" },
-        { seq: 4, kind: "agent", verb: "check-run", resultSHA256: sha("4"), output: "1 passed" },
-        { seq: 5, kind: "agent", verb: "browser", resultSHA256: sha("5"), artifacts: [{ sha256: sha("e") }], outputDropped: true },
-        { seq: 6, kind: "relay", verb: "confirm", resultSHA256: sha("6"), output: "1 passed" },
+        { seq: 1, kind: "runner", verb: "session", resultSHA256: sha("1"), output: "browser session open" },
+        {
+          seq: 2,
+          kind: "agent",
+          verb: "http",
+          resultSHA256: sha("2"),
+          args: '{"method":"POST","path":"/api/basket","body":{"sku":"tea"}}',
+          output: 'HTTP/1.1 200 OK\n{"items":[{"sku":"tea"}]}',
+        },
+        {
+          seq: 3,
+          kind: "agent",
+          verb: "browser",
+          own: true,
+          resultSHA256: sha("3"),
+          args: '{"verb":"eval","args":["() => document.querySelectorAll(\'[data-testid=cart-row]\').length"]}',
+          output: "### Result\n1",
+          artifacts: [{ sha256: sha("e") }],
+        },
+        { seq: 4, kind: "agent", verb: "browser", refused: true, resultSHA256: sha("4"), outputDropped: true },
+        { seq: 5, kind: "relay", verb: "finish", resultSHA256: sha("5"), output: "finished" },
       ],
     },
     capture: { components: [{ name: "web", bytes: 18_432 }], events: 3 },

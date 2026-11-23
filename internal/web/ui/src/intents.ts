@@ -4,6 +4,8 @@
 
 import type {
   EvaluationHandoff,
+  EvaluationLedger,
+  EvaluationOutcome,
   IntentCard,
   IntentColumn,
   IntentPhase,
@@ -301,27 +303,28 @@ export function resultTone(result?: string): OutcomeTone {
 }
 
 // HANDOFF_REASONS says, in plain English, why the preview link was handed
-// over (api/v1alpha1 HandoffReason).
+// over (api/v1alpha1 HandoffReason). Its ready words are the comment's
+// ready label (templates.ReadyLabel), held to it by a Go test.
 export const HANDOFF_REASONS: Record<string, string> = {
-  ready: "maul checked the approved outcomes",
-  unconfirmed: "maul could not confirm every outcome",
+  ready: "maul's evaluator saw every approved outcome hold, citing calls maul recorded",
+  unconfirmed: "maul can't call it ready: not every outcome was seen to hold",
   "out-of-time": "the evaluation ran out of time",
   human: "a human acted on the pull request",
   command: "an approver asked for the preview",
   early: "the project hands the preview over before evaluation",
-  "evaluator-unverified": "the project's evaluator is not verified",
+  "evaluator-unverified": "the project's harness has no evaluator maul runs",
 };
 
 // AGENTS_HANDOFF_REASONS is HANDOFF_REASONS for an agents round, which has
 // no preview: the result is what is handed over, never a link.
 export const AGENTS_HANDOFF_REASONS: Record<string, string> = {
-  ready: "maul checked the approved outcomes",
-  unconfirmed: "maul could not confirm every outcome",
+  ready: "maul's evaluator saw every approved outcome hold, citing calls maul recorded",
+  unconfirmed: "maul can't call it ready: not every outcome was seen to hold",
   "out-of-time": "the evaluation ran out of time",
   human: "a human acted on the pull request",
   command: "an approver asked for the result",
   early: "the project hands the result over before evaluation",
-  "evaluator-unverified": "the project's evaluator is not verified",
+  "evaluator-unverified": "the project's harness has no evaluator maul runs",
 };
 
 // handoffLine is the evaluation's hand-off sentence: the preview for a slot
@@ -341,4 +344,76 @@ export function handoffLine(h: EvaluationHandoff, placement: string | undefined,
 export function shortDigest(digest?: string): string {
   if (!digest) return "";
   return digest.replace(/^sha256:/, "").slice(0, 12);
+}
+
+// EXCERPT_LIMIT bounds the excerpt of a cited call's output shown beside
+// its outcome; the whole output (as maul kept it) is its ledger entry's.
+export const EXCERPT_LIMIT = 1200;
+
+// CitedCall is one call an outcome's verdict cites that maul counted, as
+// its row shows it. request, excerpt, own and images come only to a
+// transcripts-tier reader (the ledger's outputs); indexed is false for a
+// seq the ledger index shown does not hold.
+export interface CitedCall {
+  seq: number;
+  verb: string;
+  indexed: boolean;
+  // own names a call that ran the evaluator's own page script or program,
+  // as the comment does; "" otherwise.
+  own: string;
+  base: boolean;
+  exit?: number;
+  request: string;
+  excerpt: string;
+  excerptCut: boolean;
+  outputNotKept: boolean;
+  images: string[];
+}
+
+// outputExcerpt is the start of an output, at most EXCERPT_LIMIT
+// characters, cut at the last line end that keeps at least half of it.
+export function outputExcerpt(text: string): { excerpt: string; cut: boolean } {
+  if (text.length <= EXCERPT_LIMIT) return { excerpt: text, cut: false };
+  let excerpt = text.slice(0, EXCERPT_LIMIT);
+  const nl = excerpt.lastIndexOf("\n");
+  if (nl >= EXCERPT_LIMIT / 2) excerpt = excerpt.slice(0, nl);
+  return { excerpt, cut: true };
+}
+
+// citedCalls are the calls maul counted for outcome o (its cites), joined
+// to the round's ledger entries, in seq order.
+export function citedCalls(
+  o: EvaluationOutcome,
+  ledger: EvaluationLedger | undefined,
+  intent: string,
+  run: string,
+): CitedCall[] {
+  const bySeq = new Map((ledger?.entries ?? []).map((e) => [e.seq, e]));
+  return [...(o.cites ?? [])]
+    .sort((a, b) => a - b)
+    .map((seq) => {
+      const e = bySeq.get(seq);
+      const call: CitedCall = {
+        seq,
+        verb: e?.verb ?? "",
+        indexed: e !== undefined,
+        own: "",
+        base: e?.side === "base",
+        exit: e?.exit,
+        request: "",
+        excerpt: "",
+        excerptCut: false,
+        outputNotKept: false,
+        images: [],
+      };
+      if (!e || !ledger?.outputs) return call;
+      if (e.own) call.own = e.verb === "browser" ? "the evaluator's own page script" : "the evaluator's own program";
+      call.request = e.args ?? "";
+      const { excerpt, cut } = outputExcerpt(e.output ?? "");
+      call.excerpt = excerpt;
+      call.excerptCut = cut;
+      call.outputNotKept = e.outputDropped === true;
+      call.images = (e.artifacts ?? []).map((a) => (a.image ? evidenceImageURL(intent, run, a.image) : "")).filter(Boolean);
+      return call;
+    });
 }
