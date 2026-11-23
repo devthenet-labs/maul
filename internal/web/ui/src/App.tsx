@@ -34,6 +34,7 @@ import { isIntentsRoute, useRoute } from "./router";
 import { IntentsArea } from "./components/IntentsArea";
 import { UsageView } from "./components/UsageView";
 import { AccountView } from "./components/AccountView";
+import { ProjectSettingsPage } from "./components/ProjectSettingsView";
 import { DEFAULT_PERSONA, type Persona } from "./mock/personas";
 import { ConfigView } from "./components/ConfigView";
 import { FilterBar } from "./components/FilterBar";
@@ -106,6 +107,12 @@ export function App() {
     void fetchMe().then(setMe);
   }, []);
   const intentsNav = Boolean(me && me.projects.length > 0);
+  // The Projects whose settings page the server serves, linked from the
+  // intents views' Project chips.
+  const settingsProjects = useMemo(
+    () => (me?.projects ?? []).filter((p) => p.settings).map((p) => p.name),
+    [me],
+  );
 
   // The usage views likewise: /api/usage/access answering at all means they
   // are on; the page itself explains a caller who cannot see their own.
@@ -347,7 +354,7 @@ export function App() {
   if (isIntentsRoute(route)) {
     // The intents views gate themselves, per Project, never on the findings
     // grant.
-    body = <IntentsArea route={route} />;
+    body = <IntentsArea route={route} settingsProjects={settingsProjects} />;
   } else if (route.view === "usage") {
     // The usage views gate themselves too: a person's own usage needs no
     // findings grant.
@@ -360,6 +367,9 @@ export function App() {
       ) : (
         <UsageView all={route.all} access={usageAccess} />
       );
+  } else if (route.view === "projectSettings") {
+    // The settings page gates itself too, per Project, on its own answers.
+    body = <ProjectSettingsPage name={route.name} />;
   } else if (route.view === "account") {
     // The Account page gates itself: a person's own credential needs no
     // findings grant.

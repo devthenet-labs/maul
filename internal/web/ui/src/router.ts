@@ -13,6 +13,8 @@
 //   #/usage/all           everyone's usage (holders of usage/all)
 //   #/account             the signed-in person's own model credentials
 //                         (when the server has the Account page on)
+//   #/projects/{name}/settings  one Project's settings (when the server
+//                         has the settings page on for it)
 
 import { useEffect, useState } from "preact/hooks";
 import type { ScopeType } from "./types";
@@ -30,7 +32,8 @@ export type Route =
   | { view: "intent"; name: string }
   | { view: "intentRun"; name: string; run: string }
   | { view: "usage"; all: boolean }
-  | { view: "account" };
+  | { view: "account" }
+  | { view: "projectSettings"; name: string };
 
 // isIntentsRoute reports a route of the intents views, which gate
 // themselves rather than on the findings grant.
@@ -64,6 +67,9 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "account") {
     return { view: "account" };
   }
+  if (parts[0] === "projects" && parts[1] && parts[2] === "settings") {
+    return { view: "projectSettings", name: parts[1] };
+  }
   if (parts[0] === "intents") {
     if (parts[1] && parts[2] === "runs" && parts[3]) {
       return { view: "intentRun", name: parts[1], run: parts[3] };
@@ -92,6 +98,10 @@ export function hrefForUsage(all = false): string {
 
 export function hrefForAccount(): string {
   return "#/account";
+}
+
+export function hrefForProjectSettings(name: string): string {
+  return `#/projects/${encodeURIComponent(name)}/settings`;
 }
 
 export function hrefForList(): string {

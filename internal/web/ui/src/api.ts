@@ -27,7 +27,11 @@ import type {
   Account,
   AccountCredential,
   CredentialKind,
+  ProjectSettingsRequest,
+  ProjectSettingsResult,
+  ProjectSettingsView,
 } from "./types";
+import type { SaveAnswer } from "./projectSettings";
 import { availableActions, retryTarget } from "./actions";
 import { mockConfig } from "./mock/config";
 import { mockDataset, mockTranscript } from "./mock/findings";
@@ -44,6 +48,7 @@ import {
 import { DEFAULT_PERSONA, type Persona } from "./mock/personas";
 import { mockUsage, mockUsageAccess } from "./mock/usage";
 import { mockAccount, mockDeleteCredential, mockPutCredential } from "./mock/account";
+import { mockProjectSettings, mockSaveProjectSettings } from "./mock/projectSettings";
 
 // AuthRequiredError: the server wants a signed-in user (HTTP 401).
 export class AuthRequiredError extends Error {
@@ -657,4 +662,38 @@ export async function deleteCredential(provider: string): Promise<void> {
   if (res.status === 401) throw new AuthRequiredError();
   if (res.status === 403) throw new ForbiddenError(await errorText(res, path));
   if (!res.ok) throw new Error(await errorText(res, path));
+}
+
+// ---- Project settings page ---------------------------------------------------
+// One Project's settings, served only while the page is on for it: null
+// for a Project that has none or that the caller may not see (both 404).
+// Offline modes answer from the demo Project; a snapshot cannot save.
+
+export async function fetchProjectSettings(name: string): Promise<ProjectSettingsView | null> {
+  if (dataMode() !== "live") return mockProjectSettings(name);
+  return getOrNull<ProjectSettingsView>(`/api/projects/${encodeURIComponent(name)}/settings`);
+}
+
+// saveProjectSettings posts the whole settings document. Every answer past
+// the server's body checks is a ProjectSettingsResult, whatever its status
+// (classifySave reads it); the rest (404, 413, 415, 429) are plain text.
+export async function saveProjectSettings(name: string, req: ProjectSettingsRequest): Promise<SaveAnswer> {
+  const mode = dataMode();
+  if (mode === "snapshot") throw new ForbiddenError("Snapshot is read-only.");
+  if (mode === "demo") {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    return mockSaveProjectSettings(name, structuredClone(req));
+  }
+  const path = `/api/projects/${encodeURIComponent(name)}/settings`;
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+    credentials: "same-origin",
+  });
+  if (res.status === 401) throw new AuthRequiredError();
+  if ((res.headers.get("Content-Type") ?? "").includes("application/json")) {
+    return { status: res.status, result: (await res.json()) as ProjectSettingsResult, message: "" };
+  }
+  return { status: res.status, result: null, message: (await res.text()).trim() };
 }

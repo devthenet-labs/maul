@@ -6,7 +6,7 @@
 import type { BoardProject, IntentBoard, IntentCard } from "../types";
 import { formatAgo, formatMicroUSD } from "../format";
 import { INTENT_COLUMNS, costShare, formatDuration, groupByColumn, secondsSince } from "../intents";
-import { hrefForIntent, hrefForIntentRun } from "../router";
+import { hrefForIntent, hrefForIntentRun, hrefForProjectSettings } from "../router";
 import { Icon } from "./icons";
 import { Pill } from "./Pills";
 
@@ -123,7 +123,16 @@ function Card({ card, project, now }: { card: IntentCard; project?: BoardProject
   );
 }
 
-export function IntentsBoard({ board, now }: { board: IntentBoard; now: number }) {
+export function IntentsBoard({
+  board,
+  now,
+  settingsProjects = [],
+}: {
+  board: IntentBoard;
+  now: number;
+  // Projects whose settings page the server serves: their chips link to it.
+  settingsProjects?: string[];
+}) {
   if (board.projects.length === 0) {
     return (
       <div class="mx-auto my-20 max-w-[460px] rounded-xl border border-line-2 bg-surface p-7 text-center shadow-card">
@@ -141,12 +150,20 @@ export function IntentsBoard({ board, now }: { board: IntentBoard; now: number }
     <>
       <div class="mb-4 flex flex-wrap items-center gap-2">
         <h1 class="m-0 mr-2 text-[19px] tracking-tight">Intents</h1>
-        {board.projects.map((p) => (
-          <span key={p.name} class="ps-chip" title={p.tier === "transcripts" ? "plans and transcripts too" : "board and numbers"}>
-            {p.name} · {p.tier}
-            {p.suspended ? " · suspended" : ""}
-          </span>
-        ))}
+        {board.projects.map((p) =>
+          settingsProjects.includes(p.name) ? (
+            <a key={p.name} class="ps-chip hover:text-fg" href={hrefForProjectSettings(p.name)} title={`${p.name}'s settings`}>
+              <Icon name="sliders" size={11} />
+              {p.name} · {p.tier}
+              {p.suspended ? " · suspended" : ""}
+            </a>
+          ) : (
+            <span key={p.name} class="ps-chip" title={p.tier === "transcripts" ? "plans and transcripts too" : "board and numbers"}>
+              {p.name} · {p.tier}
+              {p.suspended ? " · suspended" : ""}
+            </span>
+          ),
+        )}
       </div>
       <div class="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-x-3 gap-y-6 pb-2">
         {INTENT_COLUMNS.map((col) => (
