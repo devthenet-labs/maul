@@ -161,7 +161,9 @@ A Project a person may not see is invisible: its intents are absent from the boa
 or its plans answers 404, exactly as for an intent that does not exist. A person who may see a Project but not its
 transcripts gets a 403 for plan text and no report, conversation or command output in the run panel. The live
 conversation and command output are stripped on the server for each viewer, so two people watching the same run at
-different tiers share one log follow and still receive different streams.
+different tiers share one log follow and still receive different streams. In the run panel's conversation, a subagent's
+turns are indented under the `Agent` call that started it, each line marked with a bar, beside notices of its start and
+end; a turn whose call is not in the record is shown where it falls, its heading marked "subagent".
 
 !!! warning "Native RBAC bypasses the tiers"
 

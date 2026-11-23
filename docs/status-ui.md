@@ -63,7 +63,10 @@ keep their phase, and the page does not list the `AgentsPaused` condition each h
 
 Each run's investigation and remediation tab carries the agent's turn-by-turn conversation: its messages, its reasoning,
 every tool it called and what came back. While a run is in flight the section streams live; afterwards it replays the
-stored record.
+stored record. No Finding stage is granted subagents, and a run whose CLI starts one is ended there, so the notice of
+that start is the last thing such a conversation shows before the reason. Where a stream does show a subagent's turns,
+they are indented under the `Agent` call that started it, and a turn whose call is not in the record (it was before a
+live view joined, or past the recording limits) is shown where it falls, marked "subagent".
 
 What makes that possible is that the agent pod normalises its own CLI's output — claude's content blocks, codex's items,
 copilot's messages all become the same turn vocabulary — and emits it on stdout under a `MAUL-TURN:` prefix, alongside

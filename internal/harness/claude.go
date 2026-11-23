@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -488,6 +489,7 @@ type claudeModelUsage struct {
 // an array of blocks (see renderToolInput/renderToolResult).
 type claudeBlock struct {
 	Type     string          `json:"type"`
+	ID       string          `json:"id"` // a tool_use block's call id
 	Text     string          `json:"text"`
 	Thinking string          `json:"thinking"`
 	Name     string          `json:"name"`
@@ -506,6 +508,12 @@ func (c *Claude) ScanTurns(line []byte) []transcript.Turn { return scanStreamTur
 // The init event becomes a banner so a transcript opens with the session it
 // belongs to.
 //
+// A tool call's turn carries its call id, and every turn of an event a
+// subagent printed carries the Agent call it runs under (parent_tool_use_id),
+// so the subagent's conversation nests under that call. A subagent's start
+// and the end of delegated work become notices under the call that started
+// them (claudeTaskTurns); a subagent's own subagents print nothing else.
+//
 // Every other event type — including the terminal result, whose text is
 // already the report — yields nothing: the transcript is the conversation, not
 // a second copy of the outcome.
@@ -514,22 +522,101 @@ func scanStreamTurns(line []byte) []transcript.Turn {
 	if json.Unmarshal(line, &ev) != nil {
 		return nil
 	}
+	var turns []transcript.Turn
 	switch ev.Type {
 	case "system":
-		if ev.Subtype != "init" || ev.SessionID == "" {
-			return nil
+		switch ev.Subtype {
+		case "init":
+			if ev.SessionID == "" {
+				return nil
+			}
+			return []transcript.Turn{{
+				Role: transcript.RoleSystem,
+				Kind: transcript.KindNotice,
+				Text: "session " + ev.SessionID + " started",
+			}}
+		case "task_started", "task_notification":
+			return claudeTaskTurns(line)
 		}
-		return []transcript.Turn{{
-			Role: transcript.RoleSystem,
-			Kind: transcript.KindNotice,
-			Text: "session " + ev.SessionID + " started",
-		}}
+		return nil
 	case "assistant":
-		return claudeAssistantTurns(ev.Message.Content)
+		turns = claudeAssistantTurns(ev.Message.Content)
 	case "user":
-		return claudeUserTurns(ev.Message.Content)
+		turns = claudeUserTurns(ev.Message.Content)
 	}
-	return nil
+	for i := range turns {
+		turns[i].Parent = ev.ParentToolUseID
+	}
+	return turns
+}
+
+// claudeTaskTurns is the notice a task event makes, if any: a subagent's
+// start (task_type local_agent) and the end of delegated work, a subagent's
+// or a workflow's, each under the tool call that started it. The end does
+// not name its task type; it is told from a shell command's (a foreground or
+// background command, or a monitor, which make no notice) by the usage it
+// carries, which a subagent's and a workflow's carry alike (claude 2.1.322,
+// measured), so its words fit both. A run without subagents therefore
+// records the turns it did before.
+//
+// The notice is the recorder's voice, so it holds maul's words only: the
+// subagent's type when it is a plain name (claudeAgentType), the status when
+// it is a plain word, the count of tool uses. Never the description, the
+// prompt or the summary: they are the model's, and the description is
+// already in the Agent call's own turn.
+func claudeTaskTurns(line []byte) []transcript.Turn {
+	var ev claudeTaskEvent
+	if json.Unmarshal(line, &ev) != nil {
+		return nil
+	}
+	notice := transcript.Turn{Role: transcript.RoleSystem, Kind: transcript.KindNotice, Parent: ev.ToolUseID}
+	switch {
+	case ev.Subtype == "task_started" && ev.TaskType == taskTypeAgent:
+		notice.Text = "subagent started"
+		if name := claudeAgentType(ev.SubagentType); name != "" {
+			notice.Text = "subagent " + name + " started"
+		}
+	case ev.Subtype == "task_notification" && ev.Usage != nil:
+		var parts []string
+		if claudeTaskStatus.MatchString(ev.Status) {
+			parts = append(parts, ev.Status)
+		}
+		if n := ev.Usage.ToolUses; n != nil && *n >= 0 {
+			parts = append(parts, plural(*n, "tool use"))
+		}
+		notice.Text = "delegated work finished"
+		if len(parts) > 0 {
+			notice.Text += ": " + strings.Join(parts, ", ")
+		}
+	default:
+		return nil
+	}
+	return []transcript.Turn{notice}
+}
+
+// claudeAgentTypeName and claudeTaskStatus are what a subagent's type and a
+// task's status must be for a notice to name them: the CLI's built-in agent
+// types (general-purpose, Explore, Plan, statusline-setup, claude), a plugin's
+// (plugin:name), and its statuses (completed, failed, killed) all are.
+var (
+	claudeAgentTypeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
+	claudeTaskStatus    = regexp.MustCompile(`^[a-z][a-z_]{0,31}$`)
+)
+
+// claudeAgentType is a subagent's type as a notice may name it, or "".
+func claudeAgentType(name string) string {
+	if claudeAgentTypeName.MatchString(name) {
+		return name
+	}
+	return ""
+}
+
+// plural is n and noun, with an s unless n is 1.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
 }
 
 // claudeAssistantTurns maps the model's own content blocks.
@@ -554,7 +641,7 @@ func claudeAssistantTurns(blocks []claudeBlock) []transcript.Turn {
 		case "tool_use":
 			turns = append(turns, transcript.Turn{
 				Role: transcript.RoleAssistant, Kind: transcript.KindToolUse,
-				Tool: b.Name, Text: renderToolInput(b.Input),
+				Tool: b.Name, Text: renderToolInput(b.Input), Call: b.ID,
 			})
 		}
 	}

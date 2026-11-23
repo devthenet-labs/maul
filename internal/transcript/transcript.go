@@ -47,6 +47,13 @@ const (
 // Text carries the message body, the tool invocation's rendered input, or the
 // tool result's excerpt depending on Kind; Truncated reports that the recorder
 // capped it.
+//
+// Call is the id of the tool call a tool_use turn makes, and Parent the id of
+// the call a turn ran under: a subagent's turns, and the notices of its start
+// and end, name the Agent call that started it, so a reader can nest them
+// there. A main-thread turn has no Parent. Both are omitted when empty, so a
+// turn of a run without subagents, and every line written before they
+// existed, is unchanged and Version stays 1. Both are held to CleanRef.
 type Turn struct {
 	V         int    `json:"v"`
 	Seq       int    `json:"seq"`
@@ -56,6 +63,30 @@ type Turn struct {
 	Tool      string `json:"tool,omitempty"`
 	Text      string `json:"text,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+	Call      string `json:"call,omitempty"`
+	Parent    string `json:"parent,omitempty"`
+}
+
+// MaxRefBytes bounds a call or parent id. The ids are the model API's
+// (toolu_ and about 24 more characters on Anthropic's), well under it.
+const MaxRefBytes = 64
+
+// CleanRef is ref when it is a plain id (ASCII letters, digits, '_', '-' and
+// '.', at most MaxRefBytes), and "" otherwise: an id is matched, never shown
+// as text, so one that is anything else is dropped whole rather than cut or
+// escaped, and a turn that loses it is shown where it falls, unnested.
+func CleanRef(ref string) string {
+	if len(ref) > MaxRefBytes {
+		return ""
+	}
+	for i := range len(ref) {
+		switch c := ref[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '_', c == '-', c == '.':
+		default:
+			return ""
+		}
+	}
+	return ref
 }
 
 // Encode renders a turn as its stdout line, without the trailing newline.

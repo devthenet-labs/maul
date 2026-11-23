@@ -33,13 +33,19 @@ const (
 // that line, whichever stage and posture it is, with a token budget or none.
 // The stage is budget_exceeded, as the runner's other kill switch makes it,
 // with no report read and no repair asked; the reason is the envelope's
-// detail and the transcript's last word.
+// detail and the transcript's last word. A subagent's start is recorded
+// before the kill, as the notice of its start under the Agent call, so the
+// transcript shows what was started and then why the run ended; a
+// workflow's start makes no notice.
 func TestStagesEndOnUngrantedDelegation(t *testing.T) {
 	starts := []struct {
 		name, line, reason string
+		started            []transcript.Turn // the notices the start itself records
 	}{
-		{"a subagent", lineSubagentStarted, "this run grants no subagents"},
-		{"a workflow", lineWorkflowStarted, "workflow"},
+		{"a subagent", lineSubagentStarted, "this run grants no subagents", []transcript.Turn{{
+			Kind: transcript.KindNotice, Text: "subagent general-purpose started", Parent: "t_agent",
+		}}},
+		{"a workflow", lineWorkflowStarted, "workflow", nil},
 	}
 	for _, c := range repairCases() {
 		for _, s := range starts {
@@ -68,14 +74,21 @@ func TestStagesEndOnUngrantedDelegation(t *testing.T) {
 					t.Errorf("%d runs, want the first alone: an ended run is not repaired", len(fx.specs))
 				}
 				got := turns(t, out.String())
-				if len(got) != 2 {
-					t.Fatalf("got %d turns, want the turn before the start, then the notice: %+v", len(got), got)
+				if len(got) != 2+len(s.started) {
+					t.Fatalf("got %d turns, want the turn before the start, the start's own notices, then the "+
+						"reason: %+v", len(got), got)
 				}
 				if got[0].Text != "delegating" {
 					t.Errorf("turn 0 = %q, want the turn before the start", got[0].Text)
 				}
-				if got[1].Kind != transcript.KindNotice || got[1].Text != stage.Detail {
-					t.Errorf("turn 1 = %+v, want a notice saying %q", got[1], stage.Detail)
+				for i, w := range s.started {
+					if g := got[1+i]; g.Kind != w.Kind || g.Text != w.Text || g.Parent != w.Parent {
+						t.Errorf("turn %d = %+v, want %+v", 1+i, g, w)
+					}
+				}
+				last := got[len(got)-1]
+				if last.Kind != transcript.KindNotice || last.Text != stage.Detail || last.Parent != "" {
+					t.Errorf("last turn = %+v, want a notice saying %q", last, stage.Detail)
 				}
 			})
 		}

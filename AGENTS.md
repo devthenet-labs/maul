@@ -965,6 +965,14 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   summed, and, for a run that spawned a subagent, the tokens from `model_usage_since_last_result` summed (top-level
   usage is the main thread's; `modelUsage` is cumulative over a resumed session); `AgentResult.SubagentTurns`, distinct
   child message ids, a floor, lands on the envelope's `Stage.SubagentTurns` and counts in a repair's window.
+  `ScanTurns` attributes a subagent's turns: a tool call's turn carries its `call` id, every turn of an event with a
+  `parent_tool_use_id` that id as `parent`, and a `local_agent` start and the end of delegated work (a task
+  notification carrying `usage`, which a subagent's and a workflow's do and a shell command's or monitor's does not)
+  become notices under their call, in maul's words only (a plain agent type, a plain status, the tool-use count; never
+  the description, prompt or summary). `transcript.Turn.Call`/`Parent` are omitempty (Version stays 1), held to
+  `transcript.CleanRef` by the recorder (counted in its byte cap) and again by `web.wireTurn`; the SPA nests by id
+  (`ui/src/transcript.ts`: `nestTurns`, `transcriptLines`), and `TestTranscriptTurnMatchesTypeScript` pins `web.Turn`
+  to `TranscriptTurn`.
   Codex renders the broker as a `maul`
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,

@@ -147,15 +147,26 @@ func (r *Recorder) record(t Turn) {
 	}
 	t.Text = text
 	t.Tool = string(ansi.Strip([]byte(t.Tool)))
+	t.Call, t.Parent = r.ref(t.Call), r.ref(t.Parent)
 	if t.Truncated {
 		r.truncated = true
 	}
 
 	r.seq++
-	r.total += len(text)
+	r.total += len(text) + len(t.Call) + len(t.Parent)
 	t.Seq = r.seq
 	t.At = r.now().UTC().Format(time.RFC3339)
 	r.emit(t)
+}
+
+// ref is a call or parent id as it is recorded: CleanRef's, and dropped
+// whole when a scrub would change it, since part of an id matches nothing.
+func (r *Recorder) ref(id string) string {
+	id = CleanRef(id)
+	if Scrub(id, r.secrets) != id {
+		return ""
+	}
+	return id
 }
 
 // stop emits the closing notice and halts recording. The notice bypasses the

@@ -221,7 +221,9 @@ export type TurnRole = "assistant" | "user" | "system";
 export type TurnKind = "text" | "thinking" | "tool_use" | "tool_result" | "notice";
 
 // TranscriptTurn is one entry of an agent's conversation, normalised across
-// harnesses. Mirrors internal/web.Turn; keep the two in lockstep.
+// harnesses. Mirrors internal/web.Turn; keep the two in lockstep. call is the
+// id of the tool call a tool_use turn makes; parent is the call a subagent's
+// turn ran under (src/transcript.ts nests by them).
 export interface TranscriptTurn {
   seq: number;
   at?: string;
@@ -230,6 +232,8 @@ export interface TranscriptTurn {
   tool?: string;
   text?: string;
   truncated?: boolean;
+  call?: string;
+  parent?: string;
 }
 
 export interface PullRequestStatus {
