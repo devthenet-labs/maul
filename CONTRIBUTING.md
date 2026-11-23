@@ -12,7 +12,7 @@ Before you start, read [AGENTS.md](AGENTS.md), the map of the repository (where 
 The toolchain comes from the `.mise/` submodule: [mise](https://mise.jdx.dev) installs the pinned tools, and the
 `Makefile` only forwards to mise tasks (`make <task>` is `mise run <task>`).
 
-Install mise (https://mise.jdx.dev), then:
+Install mise (<https://mise.jdx.dev>), then:
 
 ```sh
 git clone https://github.com/devthenet-labs/maul.git
