@@ -212,7 +212,7 @@ func TestProjectSettingsNeedsASignIn(t *testing.T) {
 // A Project the caller may not see answers exactly as one that does not
 // exist, and neither is read before visibility is known.
 func TestProjectSettingsInvisibleIsMissing(t *testing.T) {
-	s, _, r := settingsServer(t, ProjectSettingsOptions{Policy: projectsettings.DefaultPolicy()})
+	s, g, r := settingsServer(t, ProjectSettingsOptions{Policy: projectsettings.DefaultPolicy()})
 	type answer struct {
 		code int
 		body string
@@ -221,9 +221,14 @@ func TestProjectSettingsInvisibleIsMissing(t *testing.T) {
 		code, body := get(t, as(t, s, id), path)
 		return answer{code, body}
 	}
+	calls := g.calls
 	missing := ask(approverAlpha, "/api/projects/nosuch/settings")
 	if missing.code != http.StatusNotFound {
 		t.Fatalf("a missing Project = %d %s", missing.code, missing.body)
+	}
+	// A name the caller chose that is no Project costs no access review.
+	if g.calls != calls {
+		t.Errorf("%d access reviews for a Project that does not exist", g.calls-calls)
 	}
 	gets := r.gets
 	for name, got := range map[string]answer{

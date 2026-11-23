@@ -83,13 +83,21 @@ func (s *Server) settingsFor(project string) bool {
 // visibleProject loads the named Project uncached, for a caller who may see
 // its intents and for a Project the page is for. A Project that does not
 // exist, one the caller may not see and one the page is not for all return
-// errNotVisible, and the Project is not read until the first two are told
-// apart from the third by the caller's tier alone.
+// errNotVisible. Existence is asked of the cache first, as every intents
+// route does, so a name the caller made up costs no access review; the
+// uncached read comes only once the caller's tier admits it.
 func (s *Server) visibleProject(r *http.Request, id auth.Identity, name string) (*v1alpha1.Project, error) {
 	if len(validation.IsDNS1123Subdomain(name)) > 0 || !s.settingsFor(name) {
 		return nil, errNotVisible
 	}
 	ctx := r.Context()
+	key := types.NamespacedName{Namespace: s.namespace, Name: name}
+	if err := s.client.Get(ctx, key, &v1alpha1.Project{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errNotVisible
+		}
+		return nil, err
+	}
 	tiers, err := s.intents.projects.Tiers(ctx, id, []string{name})
 	if err != nil {
 		return nil, err
@@ -98,7 +106,7 @@ func (s *Server) visibleProject(r *http.Request, id auth.Identity, name string) 
 		return nil, errNotVisible
 	}
 	var p v1alpha1.Project
-	if err := s.reader.Get(ctx, types.NamespacedName{Namespace: s.namespace, Name: name}, &p); err != nil {
+	if err := s.reader.Get(ctx, key, &p); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, errNotVisible
 		}
