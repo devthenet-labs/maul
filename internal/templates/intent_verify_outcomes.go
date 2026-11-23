@@ -56,8 +56,8 @@ var outcomeReasonWords = map[string]string{
 	"manual":              "only a human can close it",
 	"retired":             "its check was retired this round",
 	"disputed":            "the evaluator disputes its failing check, so a replacement check is replayed",
-	"env-failed":          "the preview failed while it was checked",
-	"infra":               "maul's own machinery failed while it was checked",
+	"env-failed":          "the preview failed during the evaluation",
+	"infra":               "maul's own machinery failed during the evaluation",
 	"evaluator-disagrees": "a check failed, but the evaluator did not agree that it is a defect",
 	"model-only-pass":     "the evaluator says it holds, but no check maul re-ran proves it",
 	"model-only-fail":     "the evaluator says it does not hold, but no check maul re-ran shows it",
@@ -81,7 +81,7 @@ var outcomeReasonWords = map[string]string{
 	// of the outcome, and whether it cited a call maul counts.
 	"seen-to-hold":      "the evaluator saw it hold, in calls of its own it cites",
 	"seen-not-to-hold":  "the evaluator saw it not hold, in calls of its own it cites",
-	"not-reported":      "the evaluator gave it no verdict",
+	"not-reported":      "the evaluator's report gives it no verdict maul can read",
 	"evaluator-unsure":  "the evaluator could not tell",
 	"no-valid-evidence": "the evaluator's verdict cites no call of its own in this evaluation that maul counts",
 }
@@ -310,8 +310,9 @@ func citedSeqs(calls []VerifyCitedCall) string {
 // them: maul's lead naming the outcome, then one fenced block. ListLead and
 // List are the same calls listed alone, one line each (seq, verb, own
 // label, the start of what it sent), which a comment over its size shows in
-// their place (fitVerify): a cited call is never left out whole.
-type citedDetail struct{ Lead, Calls, ListLead, List string }
+// their place (fitVerify): a cited call is never left out whole. HeadsLead
+// and Heads list each by its head alone, fitVerify's last resort.
+type citedDetail struct{ Lead, Calls, ListLead, List, HeadsLead, Heads string }
 
 // citedDetailOf is o's cited calls as the templates print them; ok is false
 // when it cites none.
@@ -324,7 +325,23 @@ func citedDetailOf(o VerifyOutcomeResult, id string) (citedDetail, bool) {
 		"recorded them (what each call sent and what came back: data, not maul's words):",
 		List: citedList(o.Cited), ListLead: "The calls the evaluator cites for " + id + ", as maul's tools " +
 			"recorded them, each with the start of what it sent (data, not maul's words); the rest of each is " +
-			"left out to keep this comment within GitHub's size limit:"}, true
+			"left out to keep this comment within GitHub's size limit:",
+		Heads: citedHeads(o.Cited), HeadsLead: "The calls the evaluator cites for " + id + ", as maul's tools " +
+			"recorded them; what each sent and what came back are left out to keep this comment within " +
+			"GitHub's size limit:"}, true
+}
+
+// citedHeads is calls listed one line each by their heads alone (seq, verb,
+// base, own label: maul's words), in one fenced block; "" for none.
+func citedHeads(calls []VerifyCitedCall) string {
+	lines := make([]string, 0, len(calls))
+	for _, c := range cited(calls) {
+		lines = append(lines, callHead(c, false))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return fence(defang(strings.Join(lines, "\n")))
 }
 
 // cited are the calls an outcome shows: the first VerifyCitedCallsMax.

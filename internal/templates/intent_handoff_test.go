@@ -167,7 +167,7 @@ func TestHandoffDoubtedWords(t *testing.T) {
 		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts},
 			"the evaluator judged some outcomes not to hold, but cited no evidence maul counts."},
 		{PreviewHandoff{Why: HandoffWhyUnsure}, "some outcomes are unsure."},
-		{PreviewHandoff{Why: HandoffWhyEnvironment}, "the preview failed while it was checked."},
+		{PreviewHandoff{Why: HandoffWhyEnvironment}, "the preview failed during the evaluation."},
 		// A reason no longer listed (an anomaly's, from before 2026-11-14)
 		// shows as the generic one.
 		{PreviewHandoff{Why: "anomaly"}, "some outcomes are unsure."},

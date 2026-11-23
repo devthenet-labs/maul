@@ -18,7 +18,8 @@ import (
 // @playwright/cli 0.1.22 (playwright-core 1.64.1): a throwing or rejecting
 // eval, a script that is not JavaScript, a click, fill or eval on a ref
 // the snapshot does not hold and an unreachable goto each exit 1 under
-// "### Error". TestLiveBrowserFailedCallsExitNonZero holds a renovate bump
+// "### Error", and any command on a session that is not open exits 1
+// saying so. TestLiveBrowserFailedCallsExitNonZero holds a renovate bump
 // to it; TestBrowserFailedCallRecordsItsExit holds the relay to recording
 // that exit as the call's.
 
@@ -82,6 +83,12 @@ func TestLiveBrowserFailedCallsExitNonZero(t *testing.T) {
 			t.Fatalf("%v: %v", args, err)
 		}
 		return out
+	}
+	gone := e.cli(t, "maul-exit-never-opened")
+	if out, err := gone.Run(ctx, []string{"eval", "() => 1"}); err != nil || out.Exit == 0 ||
+		!strings.Contains(out.Output, lostSession) {
+		t.Errorf("a session that is not open: exit %d (%v), want non-zero saying %q:\n%s", out.Exit, err,
+			lostSession, out.Output)
 	}
 	if out := run("open", "--config="+e.cliConfig(t)); out.Exit != 0 {
 		t.Fatalf("open: %s", out.Output)

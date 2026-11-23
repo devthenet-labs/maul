@@ -502,8 +502,11 @@ type verifyView struct {
 	reproduction string
 	reproNote    int
 	// shortened: each outcome's statement is cut to
-	// verifyStatementShortBytes (fitVerify's last resort).
+	// verifyStatementShortBytes (fitVerify's second resort).
 	shortened bool
+	// headsOnly: a cited section left out lists its calls' heads alone,
+	// without the start of what each sent (fitVerify's last resort).
+	headsOnly bool
 }
 
 // verifySectionMaxBytes is the most a pull request's preview comment gives
@@ -645,6 +648,9 @@ func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 	w.Cited = make([]citedDetail, len(v.Cited))
 	for i, c := range v.Cited {
 		w.Cited[i] = citedDetail{Lead: c.ListLead, Calls: c.List}
+		if v.headsOnly {
+			w.Cited[i] = citedDetail{Lead: c.HeadsLead, Calls: c.Heads}
+		}
 	}
 	var left [pieceLog + 1]int
 	for i, p := range ps {
@@ -712,20 +718,24 @@ func cutNote(left [pieceLog + 1]int, shortened bool) string {
 // fitVerify renders s within limit bytes however much evidence it carries.
 // Whole when it fits; otherwise its evidence shares what is left of the
 // comment once maul's own words are rendered (every outcome's verdict
-// line, the progress line and the notes), kept most important first
-// (pieces), each whole while it still fits (a large one left out does not
-// stop a smaller one after it), and the comment names what it left out. Only
-// when even that cannot fit is each outcome's statement shortened, the
-// verdict lines kept whole. Deterministic: the same section always keeps
-// the same evidence.
+// line, the progress line, the notes and every cited call's listing: its
+// head and the start of what it sent), kept most important first (pieces),
+// each whole while it still fits (a large one left out does not stop a
+// smaller one after it), and the comment names what it left out. Only when
+// even that cannot fit is each outcome's statement shortened, the verdict
+// lines kept whole, and only then is each cited call listed by its head
+// alone (seq, verb, base, own label: maul's own words, bounded), so a
+// comment is never refused for what the evaluator sent. Deterministic: the
+// same section always keeps the same evidence.
 func fitVerify(s VerifySection, limit int, render func(verifyView) (string, error)) (string, error) {
 	whole := buildVerifyView(s, false)
 	out, err := render(whole)
 	if err != nil || len(out) <= limit {
 		return out, err
 	}
-	for _, short := range []bool{false, true} {
-		v := buildVerifyView(s, short)
+	for _, tier := range []struct{ short, heads bool }{{false, false}, {true, false}, {true, true}} {
+		v := buildVerifyView(s, tier.short)
+		v.headsOnly = tier.heads
 		out, ok, err := budgetEvidence(v, limit, render)
 		if err != nil || ok {
 			return out, err

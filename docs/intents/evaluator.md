@@ -640,7 +640,7 @@ are at the heads maul judged: after a push it reads as still being checked until
 | it ran out of time                                                             | `handoffMax` passed                                                                     |
 | its sandbox was not enforced                                                   | the evaluator's strict probe found DNS, the API server, metadata or the internet open   |
 | it suspects a defect in `<id>`, which a person should confirm                  | a check saved red fails at these heads; maul waits for an approver's `/maul verify fix` |
-| the preview failed while it was checked                                        | a component crashed, was evicted or ran out of memory during the round                  |
+| the preview failed during the evaluation                                       | a component crashed, was evicted or ran out of memory during the round                  |
 | its own evaluation environment failed during the evaluation                    | maul's tools or the cluster failed during the round, not the change                     |
 | it could not re-run every check it saved                                       | a replay round ended before every saved check ran                                       |
 | it could not run its checks                                                    | maul's own machinery failed every attempt                                               |
@@ -648,7 +648,7 @@ are at the heads maul judged: after a push it reads as still being checked until
 A suspected defect leads, then the outcomes in doubt. A look-around anomaly is never a reason: it is a note in the
 comment. When every outcome was confirmed or accepted and only a failing environment kept the round unconfirmed, the
 commit status and the progress line name that cause instead of reading as all confirmed, for example "maul can't call
-this ready: 3/3 outcomes seen to hold, but the preview failed while it was checked".
+this ready: 3/3 outcomes seen to hold, but the preview failed during the evaluation".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
 not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.

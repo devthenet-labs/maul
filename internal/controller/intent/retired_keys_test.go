@@ -16,7 +16,7 @@ import (
 
 // TestRetiredReportKeysNeverPass: a report carrying any key the observed
 // evaluator retired (a verdict's contrary seqs, disputes, proposed checks,
-// retirements) claims nothing, as the strict decoder that refuses such a
+// retirements), even as an empty list, claims nothing, as the strict decoder that refuses such a
 // report will (W7): a pass in it, however validly it cites, is never
 // passed, the round is never ready and nothing is handed to a fixer. The
 // same report without the key passes, so the rule is not vacuous. The test
@@ -34,6 +34,10 @@ func TestRetiredReportKeysNeverPass(t *testing.T) {
 		{name: "proposed", extra: "proposed:\n  - id: c-version\n    outcome: " + oVersion + "\n    digest: \"" +
 			digest + "\"\n"},
 		{name: "retire", extra: "retire:\n  - check_digest: \"" + digest + "\"\n    reason: \"obsolete\"\n"},
+		{name: "empty contrary", verdictExtra: "    contrary: []\n"},
+		{name: "empty disputes", extra: "disputes: []\n"},
+		{name: "empty proposed", extra: "proposed: []\n"},
+		{name: "empty retire", extra: "retire: []\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			text := "---\n" + verdict + tt.verdictExtra + tt.extra + "---\nbody\n"

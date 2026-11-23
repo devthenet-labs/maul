@@ -17,13 +17,13 @@ import (
 // calls, never at whether a call shows what the verdict says, so nothing it
 // shows may read as proof, or as maul checking the outcomes itself: no
 // form of "confirm" (confirmed, couldn't confirm, confirmation), and no
-// "maul checked", "maul checks", "maul is still checking" or "it has
-// checked" (FA 3). The negated label "not checked by maul" (owner decision
-// 5) is the one use of "checked by maul" allowed, and is taken out first;
-// "nothing is checked" and "checks" as a noun (a pull request's CI checks)
-// claim nothing.
+// "maul checked", "maul checks", "maul is still checking", "it has
+// checked" or "it was checked" (FA 3). The negated label "not checked by
+// maul" (owner decision 5) is the one use of "checked by maul" allowed, and
+// is taken out first; "nothing is checked" and "checks" as a noun (a pull
+// request's CI checks) claim nothing.
 var overstating = regexp.MustCompile(`(?i)\b(confirm\w*|verified|verifies|proves?|proven|proof|re-ran|reran|` +
-	`rerun|re-run)\b|checked by maul|\b(maul|it) (is still |is |has |had )?check(s|ed|ing)\b`)
+	`rerun|re-run)\b|checked by maul|\b(maul|it) (is still |is |has |had |was )?check(s|ed|ing)\b`)
 
 // overstates is the overstating words s uses, the negated label aside.
 func overstates(s string) []string {

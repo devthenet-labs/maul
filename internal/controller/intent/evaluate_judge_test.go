@@ -152,10 +152,10 @@ func TestJudgementRoutes(t *testing.T) {
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul can't call this ready: 3/3 outcomes seen to hold, but the preview failed while it was " +
-				"checked",
-			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul can't call this ready: the preview failed while it " +
-				"was checked; 0 of 2 automatic fixes used."},
+			description: "maul can't call this ready: 3/3 outcomes seen to hold, but the preview failed during the " +
+				"evaluation",
+			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul can't call this ready: the preview failed during " +
+				"the evaluation; 0 of 2 automatic fixes used."},
 		// Review H3: maul's own machinery failing is never called the
 		// preview failing.
 		{name: "every outcome passed on failing machinery", version: pass(oVersion), healthy: pass(oHealthy),
@@ -596,9 +596,9 @@ func TestEvaluationFailureStartsAFix(t *testing.T) {
 }
 
 // liveShapedFailingReport is failingReport as the live evaluators wrote
-// reports on 0.13.7 (S1 bug 5): each verdict names its outcome as outcome,
-// and the retired lists are written empty. (Its proposal naming a file is
-// gone: a report writing a retired key now claims nothing,
+// reports on 0.13.7 (S1 bug 5): each verdict names its outcome as outcome.
+// (Its disputes, proposal naming a file and retire lists are gone: a report
+// writing a retired key, even as an empty list, now claims nothing,
 // TestRetiredReportKeysNeverPass.)
 const liveShapedFailingReport = `---
 verdicts:
@@ -609,9 +609,6 @@ verdicts:
   - outcome: "still-healthy"
     verdict: pass
     ledger: [3]
-disputes: []
-proposed: []
-retire: []
 anomalies: []
 ---
 The version endpoint answers with the wrong note.

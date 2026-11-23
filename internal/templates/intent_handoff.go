@@ -90,7 +90,7 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyBudget:      "it spent its evaluation budget",
 	HandoffWhyTime:        "it ran out of time",
 	HandoffWhySandbox:     "its sandbox was not enforced",
-	HandoffWhyEnvironment: "the preview failed while it was checked",
+	HandoffWhyEnvironment: "the preview failed during the evaluation",
 	HandoffWhyInfra:       "its own evaluation environment failed during the evaluation",
 	HandoffWhyUnavailable: "it could not run its checks",
 	// Gate D-B6; the words without a count, which doubtedWords gives.
