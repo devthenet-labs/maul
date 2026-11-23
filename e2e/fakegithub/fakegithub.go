@@ -186,6 +186,8 @@ type Server struct {
 	// are logins with no GitHub account. Everyone else reads as "read".
 	roles   map[string]string
 	missing map[string]bool
+	// users are the accounts SetUserID registered, by lower-cased login.
+	users map[string]Actor
 	// tokens are the installation-token requests answered, in order;
 	// minted maps each token handed out to the scope it is held to.
 	tokens []TokenRequest
@@ -237,6 +239,7 @@ func newState() (*Server, *http.ServeMux) {
 		reactions:      make(map[int64][]reaction),
 		roles:          make(map[string]string),
 		missing:        make(map[string]bool),
+		users:          make(map[string]Actor),
 		minted:         make(map[string]TokenRequest),
 		denied:         make(map[string]bool),
 		repoLabels:     make(map[string][]RepoLabel),

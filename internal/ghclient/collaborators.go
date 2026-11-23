@@ -26,6 +26,16 @@ const (
 	PermissionNone     = "none"
 )
 
+// Collaborator is what GitHub's collaborator-permission endpoint answers
+// for a login on a repository: the account the login resolved to (its
+// canonical login and numeric id, both empty when the answer names no
+// account) and its permission there.
+type Collaborator struct {
+	Login      string
+	ID         int64
+	Permission string
+}
+
 // CollaboratorPermission returns login's permission on repo (GET
 // /repos/{owner}/{repo}/collaborators/{login}/permission, which works with
 // an installation token's metadata read): PermissionAdmin, PermissionWrite,
@@ -34,19 +44,30 @@ const (
 // ErrNoSuchUser. Pass the result to CanWrite; never treat "any permission"
 // as authority.
 func (c *Client) CollaboratorPermission(ctx context.Context, repo Repo, login string) (string, error) {
+	got, err := c.CollaboratorAccess(ctx, repo, login)
+	return got.Permission, err
+}
+
+// CollaboratorAccess is CollaboratorPermission with the account GitHub
+// resolved login to: the same one request, whose answer carries the user
+// for every existing account, collaborator or not, under its canonical
+// login (the lookup is case-insensitive). An answer without a user, or with
+// a negative id, has ID zero, which is no account. A 404 is ErrNoSuchUser.
+func (c *Client) CollaboratorAccess(ctx context.Context, repo Repo, login string) (Collaborator, error) {
 	if login == "" {
-		return "", fmt.Errorf("ghclient: permission on %s: empty login: %w", repo, ErrNoSuchUser)
+		return Collaborator{}, fmt.Errorf("ghclient: permission on %s: empty login: %w", repo, ErrNoSuchUser)
 	}
 	// go-github formats the login into the path unescaped; escaping it
 	// keeps a "/" (or a bot's brackets) from reshaping the request.
 	lvl, _, err := c.gh.Repositories.GetPermissionLevel(ctx, repo.Owner, repo.Name, url.PathEscape(login))
 	if err != nil {
 		if IsNotFound(err) {
-			return "", fmt.Errorf("ghclient: permission of %s on %s: %w: %w", login, repo, ErrNoSuchUser, err)
+			return Collaborator{}, fmt.Errorf("ghclient: permission of %s on %s: %w: %w", login, repo, ErrNoSuchUser, err)
 		}
-		return "", fmt.Errorf("ghclient: permission of %s on %s: %w", login, repo, err)
+		return Collaborator{}, fmt.Errorf("ghclient: permission of %s on %s: %w", login, repo, err)
 	}
-	return lvl.GetPermission(), nil
+	u := lvl.GetUser()
+	return Collaborator{Login: u.GetLogin(), ID: max(u.GetID(), 0), Permission: lvl.GetPermission()}, nil
 }
 
 // CanWrite reports whether permission grants write access or more: admin,

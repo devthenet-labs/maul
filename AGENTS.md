@@ -199,7 +199,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Forge Secrets. Its agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including
   model keys, image-pull credentials and other Jobs' handoffs. It uses a GitHub token per operation
   (`forge.Store.TokenWith`), has no ClusterRole and no inbound surface. Only
-  writer of Project status, Intent and IntentRun. Its own flags carry an `intent-` prefix (`MAUL_INTENT_*`); it runs
+  writer of Project status, Intent and IntentRun. For the project settings page it publishes on every Project
+  `status.approvers` (each approver login's GitHub id and write access on the intent repository, re-asked on a list
+  change and every 10 minutes, kept on a failure with `ApproversResolved` False; `approvers_resolve.go`) and
+  `status.admits` (models, default models, stage ceilings, cost bounds and floors, the evaluator switch, the resource
+  classes; `admits.go`, pinned to the Settings methods by a seeded test).
+  Its own flags carry an `intent-` prefix (`MAUL_INTENT_*`); it runs
   on brokered claude (or the fake harness in dev), and with `--intent-codex` (default off; chart
   `intentController.codex.enabled`, which needs the broker's openai route) also on brokered codex for a Project with
   `spec.harness: codex` (`--intent-codex-plan-model`/`--intent-codex-build-model`; the codex runner injects agent-runner

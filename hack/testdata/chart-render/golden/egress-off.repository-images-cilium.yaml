@@ -1405,7 +1405,8 @@ data:
 # Verb by verb what internal/controller/intent uses, and nothing more:
 #
 #   projects        get/list/watch; status update (Ready, IntentNameConflict,
-#                   activeIntents, lastPolledAt). A Project is operator
+#                   ApproversResolved, activeIntents, lastPolledAt,
+#                   approvers, admits). A Project is operator
 #                   config written through maul-config; this identity
 #                   never writes its spec.
 #   intents         create (discovery), get/list/watch, delete (the TTL, in

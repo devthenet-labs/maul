@@ -31,6 +31,10 @@ type GitHub interface {
 	BotLogin(ctx context.Context, repoURL string) (string, error)
 	// Permission is login's permission on repoURL (ghclient.CollaboratorPermission).
 	Permission(ctx context.Context, repoURL, login string) (string, error)
+	// Collaborator is Permission with the account GitHub resolved login to
+	// (ghclient.CollaboratorAccess): what status.approvers records of each
+	// approver, on the intent repository only.
+	Collaborator(ctx context.Context, repoURL, login string) (ghclient.Collaborator, error)
 	// RateRemaining is the core requests left to the credential repoURL is
 	// read with.
 	RateRemaining(ctx context.Context, repoURL string) (int, error)
@@ -388,6 +392,14 @@ func (g *forgeGitHub) Permission(ctx context.Context, repoURL, login string) (st
 		return "", err
 	}
 	return c.CollaboratorPermission(ctx, repo, login)
+}
+
+func (g *forgeGitHub) Collaborator(ctx context.Context, repoURL, login string) (ghclient.Collaborator, error) {
+	c, repo, err := g.client(ctx, repoURL, issuesRead)
+	if err != nil {
+		return ghclient.Collaborator{}, err
+	}
+	return c.CollaboratorAccess(ctx, repo, login)
 }
 
 func (g *forgeGitHub) RateRemaining(ctx context.Context, repoURL string) (int, error) {

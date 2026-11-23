@@ -185,8 +185,11 @@ type fakeGitHub struct {
 	nextID  int64
 	version int
 
-	bot       string
-	perms     map[string]string // lower-cased login → permission; "404" answers ErrNoSuchUser
+	bot   string
+	perms map[string]string // lower-cased login → permission; "404" answers ErrNoSuchUser
+	// ids are the numeric account ids Collaborator answers, by lower-cased
+	// login; a login with none answers actorOf's, the id its events carry.
+	ids       map[string]int64
 	remaining int
 	// appRemaining, when set, is the rate budget of the app repository's
 	// installation, a different one from the intent repository's.
@@ -276,6 +279,7 @@ func newFakeGitHub(clock *fakeClock) *fakeGitHub {
 	return &fakeGitHub{
 		clock: clock, nextID: 1000, bot: testBot,
 		perms:              map[string]string{approver: ghclient.PermissionAdmin},
+		ids:                map[string]int64{},
 		remaining:          5000,
 		labels:             map[string]bool{},
 		issues:             map[int64]*fakeIssue{},
@@ -603,6 +607,33 @@ func (f *fakeGitHub) Permission(_ context.Context, _, login string) (string, err
 		return "", fmt.Errorf("permission: %w", ghclient.ErrNoSuchUser)
 	}
 	return perm, nil
+}
+
+// Collaborator answers as Permission does, with the account: the canonical
+// (lower-cased) login and its id. Its own call name, so tests counting or
+// failing Permission keep their meaning.
+func (f *fakeGitHub) Collaborator(_ context.Context, repoURL, login string) (ghclient.Collaborator, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("Collaborator"); err != nil {
+		return ghclient.Collaborator{}, err
+	}
+	if err := f.repoErr("Collaborator", repoURL); err != nil {
+		return ghclient.Collaborator{}, err
+	}
+	key := strings.ToLower(login)
+	perm, ok := f.perms[key]
+	switch {
+	case !ok:
+		perm = ghclient.PermissionRead
+	case perm == "404":
+		return ghclient.Collaborator{}, fmt.Errorf("permission: %w", ghclient.ErrNoSuchUser)
+	}
+	id, ok := f.ids[key]
+	if !ok {
+		id = actorOf(key).ID
+	}
+	return ghclient.Collaborator{Login: key, ID: id, Permission: perm}, nil
 }
 
 func (f *fakeGitHub) RateRemaining(_ context.Context, repoURL string) (int, error) {

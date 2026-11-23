@@ -288,3 +288,34 @@ func TestIntentviewPreviewURLPinned(t *testing.T) {
 		t.Error("the plain preview URL is not linked")
 	}
 }
+
+// TestIntentviewProjectConditionWording: every reason the project
+// reconciler sets on the conditions the settings page shows has its own
+// fixed public wording in intentview, never the fallback, so the page never
+// needs a condition's message.
+func TestIntentviewProjectConditionWording(t *testing.T) {
+	reasons := map[string][]string{
+		v1alpha1.ConditionReady: {ReasonValidated, ReasonUnsupportedRepositories, ReasonHarnessNotEnabled,
+			ReasonModelNotAllowed, ReasonRunBudgetOverHourlyLimit, ReasonRunBudgetUnderRequestReserve,
+			ReasonForgeSecretUnreadable, v1alpha1.ReasonForgeUnresolved, v1alpha1.ReasonAppNotInstalled,
+			v1alpha1.ReasonAmbiguousIntentRepository},
+		ConditionVerificationOff: {ReasonEvaluatorOff, ReasonPreviewsDisabled,
+			v1alpha1.ReasonSurfaceCombinationUnsupported, v1alpha1.ReasonAgentsToolPodNotEnabled},
+		v1alpha1.ConditionApproversResolved: {ReasonApproversResolved, ReasonApproversUnreadable},
+	}
+	if got := intentview.ProjectConditions; !slices.Equal(got, []string{v1alpha1.ConditionReady,
+		ConditionVerificationOff, v1alpha1.ConditionApproversResolved}) {
+		t.Errorf("intentview.ProjectConditions = %v", got)
+	}
+	for typ, rs := range reasons {
+		fallback := intentview.ProjectConditionText(typ, "NoSuchReason")
+		if fallback == "" {
+			t.Errorf("%s has no fallback wording", typ)
+		}
+		for _, r := range rs {
+			if got := intentview.ProjectConditionText(typ, r); got == "" || got == fallback {
+				t.Errorf("%s reason %s has no wording of its own (%q)", typ, r, got)
+			}
+		}
+	}
+}

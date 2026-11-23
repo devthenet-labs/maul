@@ -558,6 +558,24 @@ Project with `spec.verification.enabled` proves it after `Ready` into its `Accep
 (reason `StatusesNotGranted`, naming the repository) when the App lacks it, in which case its intents are verified and
 reported in comments but no status is posted; False once proven. A Project that does not verify never asks for it.
 
+For the status page's project settings, intent-controller also publishes two facts on every Project, Ready or not, and
+neither is ever part of `Ready`:
+
+- `status.approvers`: each login of `spec.approvers.logins` as the list spells it, with the numeric GitHub account id it
+  resolves to and whether that account has write access to the intent repository (GitHub's collaborator-permission
+  answer, read with the intent repository's issues-read token, the one `/maul` commands are authorised with). A login
+  GitHub knows no account for is id 0, which matches nobody. It is asked again whenever the list changes and every ten
+  minutes; the `ApproversResolved` condition is True (reason `Resolved`) once GitHub answered for every login. When
+  GitHub cannot be read the identities and `resolvedAt` are kept as they were and age, the condition is False (reason
+  `GitHubUnreadable`), and the resolution is retried once per poll interval; the page refuses edits once the identities
+  are 30 minutes old. Intents never wait on it.
+- `status.admits`: what this controller, as configured, admits for the Project, from the same settings that judge its
+  runs: the models `spec.models` may name for its harness and the stage flags' models, each stage's ceilings (zero for
+  the evaluator's stages while it does not run for the harness), the evaluation-cost and tool-call ceilings, whether the
+  broker counts cost and then half its hourly limit and, per admitted claude model, the least evaluator run budget
+  (`runBudgetFloors`), whether the evaluator is on, and the resource classes `--intent-resource-classes` defines with
+  their sizes. It changes only when the Project's harness or the controller's flags do.
+
 It creates the trigger and approve labels when they are missing. An issue whose Intent name is held by another
 repository's issue is reported as `IntentNameConflict`, never skipped silently.
 
@@ -937,6 +955,9 @@ reads: the intent repository and an app repository may be covered by two install
 one the Finding flow shares, so its pull request and a blocked build's default branch wait on its floor, the issue on
 the intent repository's. The headers GitHub reports are not consistent from one response to the next, so the floor is a
 coarse guard, not an exact budget.
+
+Each Project also reads one collaborator permission per approver login every ten minutes, and at once when the list
+changes: at most 20 requests per Project per ten minutes, never subject to the floor.
 
 With [intent dependencies](#intent-dependencies) on, an intent's first decision also lists its issue's blockers (one
 request), and a waiting intent polls every five poll intervals: its issue, its events, its comments and a conditional

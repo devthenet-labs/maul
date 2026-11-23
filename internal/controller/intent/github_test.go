@@ -124,6 +124,8 @@ var tokenUses = map[string][]string{
 	// authorize (the intent issue's commands) and authorizeIn (a pull
 	// request's reviews and comments).
 	"Permission": {onIntentRepository, onAppRepository},
+	// resolveApprovers: who each approver is, on the intent repository.
+	"Collaborator": {onIntentRepository},
 	// discover and the intent issue's poll; rateOK before an application
 	// repository's pull requests or default branch are read.
 	"RateRemaining": {onIntentRepository, onAppRepository},

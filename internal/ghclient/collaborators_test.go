@@ -110,3 +110,58 @@ func TestCanWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestCollaboratorAccess: the one permission call also carries the account
+// GitHub resolved the login to (SPIKE (a): user.id on a 200, collaborator or
+// not, and the canonical login, the lookup being case-insensitive). A 404 is
+// ErrNoSuchUser; an answer without a user object, or with a negative id, is
+// id 0, which matches nobody.
+func TestCollaboratorAccess(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		payload    string
+		want       Collaborator
+		wantErr    bool
+		wantNoUser bool
+	}{
+		{name: "admin", status: http.StatusOK,
+			payload: `{"permission":"admin","role_name":"admin","user":{"login":"brvtl","id":225740}}`,
+			want:    Collaborator{Login: "brvtl", ID: 225740, Permission: PermissionAdmin}},
+		{name: "no access still names the account", status: http.StatusOK,
+			payload: `{"permission":"none","role_name":"","user":{"login":"octocat","id":583231}}`,
+			want:    Collaborator{Login: "octocat", ID: 583231, Permission: PermissionNone}},
+		{name: "no user object", status: http.StatusOK, payload: `{"permission":"write"}`,
+			want: Collaborator{Permission: PermissionWrite}},
+		{name: "negative id", status: http.StatusOK,
+			payload: `{"permission":"write","user":{"login":"x","id":-5}}`,
+			want:    Collaborator{Login: "x", Permission: PermissionWrite}},
+		{name: "unknown login", status: http.StatusNotFound,
+			payload: `{"message":"zz is not a user","status":"404"}`, wantErr: true, wantNoUser: true},
+		{name: "server error", status: http.StatusInternalServerError, payload: `{"message":"boom"}`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux, c := newFakeClient(t)
+			mux.HandleFunc("GET /repos/o/r/collaborators/{login}/permission", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.payload))
+			})
+			got, err := c.CollaboratorAccess(context.Background(), testRepo, "BRVTL")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("CollaboratorAccess() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if errors.Is(err, ErrNoSuchUser) != tt.wantNoUser {
+				t.Errorf("errors.Is(%v, ErrNoSuchUser) = %v, want %v", err, !tt.wantNoUser, tt.wantNoUser)
+			}
+			if got != tt.want {
+				t.Errorf("CollaboratorAccess() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+	_, c := newFakeClient(t)
+	if _, err := c.CollaboratorAccess(context.Background(), testRepo, ""); !errors.Is(err, ErrNoSuchUser) {
+		t.Errorf("CollaboratorAccess(\"\") error = %v, want ErrNoSuchUser", err)
+	}
+}
