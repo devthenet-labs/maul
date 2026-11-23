@@ -255,9 +255,11 @@ func (s *settingsPage) addsAnApprover(t *testing.T) {
 }
 
 // removesAnApprover: the approver removes carol, and her next save is
-// refused at once.
+// refused at once: from the live list, while intent-controller (down again,
+// so nothing races the save) still has her resolved as a writer.
 func (s *settingsPage) removesAnApprover(t *testing.T) {
 	t.Helper()
+	s.e.stopIntents()
 	s.confirmedSave(t, "remove carol", projectsettings.ConfirmApproverRemove, func(d *projectsettings.ProjectSettings) {
 		d.Approvers = slices.DeleteFunc(d.Approvers, func(l string) bool { return l == carol.Login })
 	})
@@ -268,6 +270,11 @@ func (s *settingsPage) removesAnApprover(t *testing.T) {
 	if got := s.e.project(t).Spec.Limits.MaxActiveIntents; got != 3 {
 		t.Errorf("maxActiveIntents = %d after carol's refused save, want 3", got)
 	}
+	if st := s.e.project(t).Status.Approvers; st == nil || !slices.Contains(st.Identities,
+		v1alpha1.ProjectApproverIdentity{Login: carol.Login, ID: carol.ID, Write: true}) {
+		t.Errorf("status.approvers = %+v, want carol still resolved: the refusal must come from the live list", st)
+	}
+	s.e.restartIntents(t)
 }
 
 // confirmedSave saves the approver's edit as the page does a weakening one:
