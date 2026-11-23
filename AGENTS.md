@@ -952,19 +952,22 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   shell run and one result event, against two controls without the denies (a child's shell runs; a monitor wakes the
   session). Bash `run_in_background` is kept, and its wake (which restarts `--max-turns`) is accepted.
   `DelegationScanner` (claude, `delegation.go`) is the observed check that it held: agentrun ends any run, in any
-  posture, whose stream shows a `task_started` of a workflow, or of a subagent the run was not granted (none is yet;
-  a grant would admit depth 1, no parent task, foreground only), as `budget_exceeded` with the reason, maul's own words
-  only, in the detail and the transcript; what a repair or cover ask that delegates wrote is not read.
-  `PromptRequest.Subagents` is that grant (agentrun sets it only from an unexported build config no Job sets yet, and
-  clears it on repairs and cover asks). claude renders it in the workspace-write posture alone (`claudeSubagentsDeny`:
-  `Agent`/`Task` off the deny list, nothing else; `claudeSubagentsSettings`: one `--settings` env block with background
-  tasks and workflows off, spawn depth 1, the child model forced to the run's, at most `claudeSubagentConcurrency` (4)
-  at once, a call past that refused). It is argv because a settings source's env block outranks the process env and the
+  posture, whose stream shows a `task_started` of a workflow, or of a subagent the run was not granted (a grant admits
+  depth 1, no parent task, foreground only), as `budget_exceeded` with the reason, maul's own words only, in the
+  detail and the transcript; what a repair or cover ask that delegates wrote is not read.
+  `PromptRequest.Subagents` is that grant (agentrun sets it on an intent build's or revise round's first run from
+  `Config.BuildSubagents`, `MAUL_BUILD_SUBAGENTS`, and clears it on repairs and cover asks). claude renders it in the
+  workspace-write posture alone (`claudeSubagentsDeny`: `Agent`/`Task` off the deny list, nothing else;
+  `claudeSubagentsSettings`: one `--settings` env block with background tasks and workflows off, spawn depth 1, the
+  child model forced to the run's, at most `ClaudeSubagentConcurrency` (4, which the build prompt states) at once, a
+  call past that refused). It is argv because a settings source's env block outranks the process env and the
   run can rewrite the HOME user settings, which the CLI reloads mid-session; it also outranks a contrary process env (an
   image's `ENV`), probed. The probe (`claude_probe_subagents_test.go`)
   pins every child's request tools to a subset of the run's for each built-in type and a HOME-planted agent, the
   refusals (the run's own web calls included), the depth, the model, the cap and the repair's resume without `Agent`,
-  beside controls that undo each lever (a grandchild then runs, still offered no denied tool).
+  beside controls that undo each lever (a grandchild then runs, still offered no denied tool), and where an Agent call's
+  `isolation: "worktree"` (an argument, which no deny reaches) leaves its worktree: `<tree>/.claude/worktrees/agent-<id>`
+  on a branch `worktree-agent-<id>`, untracked in the tree.
   A granted run also gets agentrun's turn watcher
   over `CallScanner` (claude, `calls.go`: a top-level assistant event's message id, and whether it carries a
   `parent_tool_use_id`), which ends it `budget_exceeded` once parent plus subagent calls, each id once, pass its
@@ -1000,7 +1003,14 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   others at v4); `agentresult` converts envelope results onto CR status (`FromPlan` re-derives a plan from its
   report). A missing or refused report is first repaired in the agent's own session (`repair.go`: the optional
   `harness.Resumer`, claude and fake only; at most 2 bounded rounds; one transcript per stage; a writable stage's
-  clone fingerprinted so a repair may change only the report and commit.sh). In the intent stages, a running
+  clone fingerprinted so a repair may change only the report and commit.sh). An intent build or revise round on
+  claude may be granted subagents (`MAUL_BUILD_SUBAGENTS`, "true" or unset, `Config.BuildSubagents`; `FromEnv` refuses
+  it on any other phase or build harness): its first run gets `PromptRequest.Subagents` and the build prompt's
+  subagents section (`templates.BuildPrompt.SubagentsAtOnce`: foreground only, at most four at once, one level, the
+  run's model, the same tree, no `isolation`, their calls counted in the turn grant, cost as the real bound, the
+  report and commit.sh the parent's), its repairs none, and before its report is read every worktree under the tree's
+  `.claude/worktrees` is removed with a transcript notice (`worktrees.go`), else it would fail commit.sh's clean-tree
+  check. In the intent stages, a running
   foreground command's output is printed live as `MAUL-OUTPUT:` chunks (`output.go`: read from the file the CLI
   keeps it in, via the optional `harness.TaskWatcher`; bounded per command and per process by constants; never
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every
@@ -1028,7 +1038,9 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   gate and is stripped by the broker (codex's is set per stage by agent-runner, `MAUL_CODEX_PLACEHOLDER_KEY`, so a
   codex pod's env carries only `MAUL_CODEX_BASE_URL` and the token file) — while the non-brokered copilot runner
   keeps the one SecretKeyRef; a codex evaluation Job is refused (`ErrCodexEvaluation`: evolve cannot be brokered
-  yet); the init container fetches the digest-verified artifact tarball, identity-free.
+  yet); the init container fetches the digest-verified artifact tarball, identity-free. `Spec.BuildSubagents` puts
+  `MAUL_BUILD_SUBAGENTS=true` on an intent build on claude and is refused on any other Job (`ErrSubagentsRefused`,
+  `subagents.go`); no controller sets it yet.
   `reservedEnv` covers every credential channel plus the provider gateway names; `Runner.Env` is the per-runner
   gateway env (wins over `Config.Env`, can never name a credential). `eval.go` is the evaluation Job flavour
   (same posture; `evolve exec-unit` instead of `agent-runner` — wrapped in a capture-once token export when

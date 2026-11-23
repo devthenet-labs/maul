@@ -178,11 +178,13 @@ type Config struct {
 	// build's report is refused for claiming it.
 	AcceptanceFix bool
 
-	// buildSubagents grants an intent build Job's first run subagents
-	// (harness.PromptRequest.Subagents), which its turn grant then covers
-	// with the parent's calls. Nothing sets it outside tests yet: no Job
-	// carries a grant, so no run is granted subagents.
-	buildSubagents bool
+	// BuildSubagents grants an intent build Job's first run subagents
+	// (MAUL_BUILD_SUBAGENTS, "true" or unset; harness.PromptRequest.Subagents),
+	// which its turn grant then covers with the parent's calls, on a first
+	// build and every revise round alike. Its report repairs are granted
+	// none (repairRound). FromEnv refuses it on any phase but build and on a
+	// build harness but claude, the one that renders the posture.
+	BuildSubagents bool
 
 	// NetworkProfile names the operator network profile the pod carries (a
 	// Go module route through the egress proxy), which the remediate and
@@ -335,6 +337,31 @@ func acceptanceFixFromEnv(raw string, errs []string) (bool, []string) {
 	return false, append(errs, fmt.Sprintf("MAUL_ACCEPTANCE_FIX=%q is not \"true\" or unset", raw))
 }
 
+// buildSubagentsFromEnv reads MAUL_BUILD_SUBAGENTS: "true" or unset, any
+// other value added to errs, never read as either. A grant is refused, by
+// name, on a phase other than build (no other stage may delegate) and on a
+// build harness other than claude: codex and copilot ignore the posture and
+// the fake harness runs no agent, so a grant there would be one that is
+// silently not what it says.
+func buildSubagentsFromEnv(raw string, phase Phase, harnessID string, errs []string) (bool, []string) {
+	switch raw {
+	case "":
+		return false, errs
+	case "true":
+	default:
+		return false, append(errs, fmt.Sprintf("MAUL_BUILD_SUBAGENTS=%q is not \"true\" or unset", raw))
+	}
+	if phase != PhaseBuild {
+		return false, append(errs, fmt.Sprintf("MAUL_BUILD_SUBAGENTS is set on phase %q: only an intent build "+
+			"may be granted subagents", phase))
+	}
+	if harnessID != claudeHarness {
+		return false, append(errs, fmt.Sprintf("MAUL_BUILD_SUBAGENTS is set on a build on harness %q: only claude "+
+			"renders the subagents posture", harnessID))
+	}
+	return true, errs
+}
+
 // negativeIdleTimeouts reports each stage idle limit set below zero: zero is
 // how the watchdog is disabled, so a negative one is a mistake, not a
 // stricter limit.
@@ -454,6 +481,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	cfg.BuildProfiles, errs = buildProfilesFromEnv(get("BUILD_NETWORK_PROFILES", ""), errs)
 	cfg.PlanVerification, errs = planVerificationFromEnv(get("PLAN_VERIFICATION", ""), errs)
 	cfg.AcceptanceFix, errs = acceptanceFixFromEnv(get("ACCEPTANCE_FIX", ""), errs)
+	cfg.BuildSubagents, errs = buildSubagentsFromEnv(get("BUILD_SUBAGENTS", ""), cfg.Phase, cfg.RemediateHarness, errs)
 	// Approving a fix must never buy less than leaving it alone would: a
 	// manual budget below the automated one inverts the whole model.
 	if cfg.RemediateManualMaxTurns < cfg.RemediateAutoMaxTurns {

@@ -115,6 +115,33 @@ Its committed change exceeded the size limit. Keep the change to what the plan n
 {{- end}}
 - Report success only when the plan is built, every test you ran passes, and `commit.sh` commits the tests you wrote
   with the code.
+{{- with .SubagentsAtOnce}}
+
+## Subagents
+
+This run may delegate parts of the build to subagents with the Agent tool. You stay responsible for the whole build: a
+subagent does what you ask of it, and you check what it did.
+
+- A subagent runs in the foreground: its Agent call returns when it is done, with its final answer as the call's
+  result, which is all you see of its session besides the files it changed. Nothing runs in the background in this
+  run: an Agent call asking for `run_in_background` runs in the foreground, and a Bash command cannot ask for it.
+- At most {{.}} subagents run at once. A call made while {{.}} are running is refused: do not retry it, and start the
+  next one only when one has finished.
+- Subagents work in this same working tree, so give two that run at once no file in common. Never pass `isolation` to
+  an Agent call: maul removes every worktree left under `.claude/worktrees` before it reads your report, and work left
+  only there is lost.
+- A subagent cannot start subagents of its own, and runs on this run's model whatever model you ask for. It has your
+  tools and no more, under the same rules: no network but what this prompt describes, and nothing under `.github/`,
+  `.maul/` or `.devcontainer/`.
+- Every model call a subagent makes counts against this run's {{$.Limits.MaxTurns}} turns beside your own, and its
+  output tokens against the token limit. As soon as the turns you and your subagents have taken together pass the
+  limit, the run ends with nothing built and no chance to write your report.
+- What really bounds this run is its cost. maul's egress broker charges every model call you and your subagents make
+  to one budget for this run, and refuses calls once it is spent, which also ends the run with nothing built. A
+  subagent costs what its work costs: delegate work worth a session of its own, not a single search or edit, and leave
+  enough of the budget to finish.
+- Write the report and `{{$.CommitScriptPath}}` yourself: no subagent writes them.
+{{- end}}
 
 ## Your outputs
 

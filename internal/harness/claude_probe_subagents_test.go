@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -52,6 +53,10 @@ func probeSubagents(t *testing.T, cli string) {
 		},
 		{"control: the levers in the environment alone yield to a settings file the run writes", probeSubagentsControlEnv},
 		{"workspace-write with subagents: the report repair resumes the session without Agent", probeSubagentsRepair},
+		{
+			"workspace-write with subagents: an isolated child's worktree lands under the tree's .claude/worktrees",
+			probeSubagentsWorktree,
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) { c.run(t, cli) })
 	}
@@ -92,16 +97,16 @@ func probeSubagentsHeld(t *testing.T, cli string) {
 	}
 }
 
-// probeSubagentsConcurrency: claudeSubagentConcurrency children run at once, and one more is refused.
+// probeSubagentsConcurrency: ClaudeSubagentConcurrency children run at once, and one more is refused.
 func probeSubagentsConcurrency(t *testing.T, cli string) {
 	p := newPostureProbe(t, cli)
 	req := p.subagentsRequest()
-	script := parallelScript(5, claudeSubagentConcurrency)
+	script := parallelScript(5, ClaudeSubagentConcurrency)
 	got := p.run(t, NewClaude().PromptSpec(p.tree, req), script)
 	got.assertPinned(t, script)
-	got.assertSubagentsHeld(t, req.Model, claudeSubagentConcurrency)
+	got.assertSubagentsHeld(t, req.Model, ClaudeSubagentConcurrency)
 	if !got.met {
-		t.Errorf("%d children did not run at once", claudeSubagentConcurrency)
+		t.Errorf("%d children did not run at once", ClaudeSubagentConcurrency)
 	}
 	refused := 0
 	for id, res := range got.results {
@@ -234,6 +239,62 @@ func probeSubagentsRepair(t *testing.T, cli string) {
 	if got.resultEvents != 1 {
 		t.Errorf("%d result events in the repair, want exactly one", got.resultEvents)
 	}
+}
+
+// probeSubagentsWorktree: an Agent call's isolation "worktree" is an
+// argument, not a tool, so the posture cannot deny it. It pins where the
+// child's worktree is left, for agentrun's removal of it before a granted
+// build is packaged (removeSubagentWorktrees): a linked worktree under the
+// tree's .claude/worktrees, which the tree's status shows untracked.
+func probeSubagentsWorktree(t *testing.T, cli string) {
+	p := newPostureProbe(t, cli)
+	req := p.subagentsRequest()
+	pwd := filepath.Join(p.marks, "worktree-pwd")
+	call := subagentCall("toolu_sa_wt", "general-purpose", sa("wt"), "", false)
+	call.Input["isolation"] = "worktree"
+	script := probeScript{
+		steps:  [][]toolCall{{call}},
+		expect: map[string]bool{"toolu_sa_wt": true, "toolu_wt_bash": true},
+		children: []*childScript{{marker: sa("wt"), steps: [][]toolCall{{
+			{"toolu_wt_bash", "Bash", map[string]any{"command": "pwd > " + pwd + " && echo work > child-work.txt"}},
+		}}}},
+	}
+	got := p.run(t, NewClaude().PromptSpec(p.tree, req), script)
+	got.assertPinned(t, script)
+	got.assertSubagentsHeld(t, req.Model, 1)
+	root := filepath.Join(p.tree, ".claude", "worktrees") + string(filepath.Separator)
+	where, err := os.ReadFile(pwd)
+	if err != nil {
+		t.Fatalf("the isolated child's shell left no marker (%v)", err)
+	}
+	dir := strings.TrimSpace(string(where))
+	if !strings.HasPrefix(dir, root) {
+		t.Errorf("the isolated child ran in %s, want a worktree under %s", dir, root)
+	}
+	list := probeGit(t, p, "worktree", "list", "--porcelain")
+	if !strings.Contains(list, "worktree "+dir+"\n") {
+		t.Errorf("git worktree list:\n%s\nwant the child's %s linked", list, dir)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "child-work.txt")); err != nil {
+		t.Errorf("the child's work is not in its worktree: %v", err)
+	}
+	if status := probeGit(t, p, "status", "--porcelain"); !strings.Contains(status, "?? .claude/") {
+		t.Errorf("git status --porcelain:\n%s\nwant the worktree untracked under .claude/", status)
+	}
+	t.Logf("isolated child's worktree: %s\ngit worktree list --porcelain:\n%s", dir, list)
+}
+
+// probeGit runs git in the probe's tree and returns its output.
+func probeGit(t *testing.T, p *postureProbe, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = p.tree
+	cmd.Env = []string{"HOME=" + p.ws, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_NOSYSTEM=1"}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
 }
 
 // Each planted agent definition's body: the HOME one is a child's system

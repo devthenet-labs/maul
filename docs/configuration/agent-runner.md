@@ -109,14 +109,14 @@ corrected rather than hidden.
 - The output-token kill switch and the idle watchdog apply to a repair run as they do to the first. The broker token is
   read afresh for it and registered with the transcript scrubber.
 - So does the delegation kill switch: a claude run whose CLI starts a workflow, or a subagent the run was not granted,
-  is ended at that line as `budget_exceeded`, with the reason in the stage's detail and its transcript. No run is
-  granted subagents. A repair run ended this way ends the rounds, and the report it wrote is not read.
-- A run granted subagents (none is yet; only a build's or a revise round's first run could be) is held to its turn grant
-  by its own and its subagents' model calls together, counted as distinct message ids on the stream. The CLI's
-  `--max-turns`, which it is still given, counts the main thread alone and restarts on each wake of the session. The run
-  whose calls pass the grant is ended at that line as `budget_exceeded`, with
-  `turn grant exceeded (P parent + C subagent turns > N)` in the stage's detail and its transcript, no report read and
-  no repair asked. The count is a floor: a foreground subagent's closing text-only call is not streamed, and the
+  is ended at that line as `budget_exceeded`, with the reason in the stage's detail and its transcript. Only a build's
+  or a revise round's first run is ever granted subagents (`MAUL_BUILD_SUBAGENTS`, below). A repair run ended this way
+  ends the rounds, and the report it wrote is not read.
+- A run granted subagents is held to its turn grant by its own and its subagents' model calls together, counted as
+  distinct message ids on the stream. The CLI's `--max-turns`, which it is still given, counts the main thread alone and
+  restarts on each wake of the session. The run whose calls pass the grant is ended at that line as `budget_exceeded`,
+  with `turn grant exceeded (P parent + C subagent turns > N)` in the stage's detail and its transcript, no report read
+  and no repair asked. The count is a floor: a foreground subagent's closing text-only call is not streamed, and the
   delegation kill switch ends a run whose subagent starts its own. A repair round and an evaluator's ask for checks are
   never granted subagents.
 - All the runs of a stage write one transcript: a repair's turns follow the first run's, after a notice saying why it
@@ -190,6 +190,15 @@ section so the agent does not repeat the failure. The outcome is one the control
 the repository or its image, such as the `git status` behind a `commit_failed` — so the prompt caps it (4 KiB), drops
 control characters, and quotes it in a fence no line of it can close, stated to be data, not instructions. Absent on a
 first attempt, and the prompt then omits the section.
+
+`MAUL_BUILD_SUBAGENTS` is a per-Job switch, `true` or unset (any other value is refused at startup): it grants an intent
+build's or revise round's first run subagents, under the posture `docs/deployment/isolation.md` describes, and adds a
+section to its prompt saying what they are held to. Their model calls count against the run's turn grant beside its own,
+and the egress broker's cost budget for the run, which every call of the pod is charged to, is what really bounds it.
+Its report repairs are never granted them. agent-runner refuses the switch on any phase but `build` and on a build
+harness but `claude`. Before the report is read, it removes every worktree left under the tree's `.claude/worktrees` (an
+Agent call's `isolation: "worktree"`), with a transcript notice. A repository-image Job that does not set it blanks it,
+so an image's `ENV` cannot grant it. No controller sets it yet.
 
 `MAUL_OPEN_PULL_REQUESTS` is the last per-Job variable, set only on an intent's plan Job, and only when other intents of
 its Project have pull requests open in the Project's repositories: a JSON list of at most 5 of them, each with its

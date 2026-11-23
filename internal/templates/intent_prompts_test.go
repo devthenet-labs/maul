@@ -96,6 +96,13 @@ func TestIntentPromptGoldens(t *testing.T) {
 				CommitScriptPath: "/workspace/commit.sh", Limits: testBuildLimits, AcceptanceFix: true,
 			})
 		}},
+		// A build or revise round granted subagents.
+		{"prompt_build_subagents.md", func() (string, error) {
+			return RenderBuildPrompt(BuildPrompt{
+				PlanPath: "/workspace/input/investigation.md", ReportPath: "/workspace/reports/build.md",
+				CommitScriptPath: "/workspace/commit.sh", Limits: testBuildLimits, SubagentsAtOnce: 4,
+			})
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -96,9 +96,10 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
   limit and the stage's wall clock bound the run. The posture does not run with `--restricted`, which would take its
   shell and refuse writes to tool-configuration files and CI definitions that a fix may need to change.
 
-A build granted subagents (no setting grants one yet) runs the same posture with `Agent` and `Task` taken off the deny
-list and nothing else, so every other tool above stays denied for the run and for every subagent it starts. One
-`--settings` value on the command line holds the CLI's own switches:
+A build granted subagents (an intent build or revise round on claude whose Job carries `MAUL_BUILD_SUBAGENTS=true`; no
+controller sets it yet) runs the same posture with `Agent` and `Task` taken off the deny list and nothing else, so every
+other tool above stays denied for the run and for every subagent it starts. One `--settings` value on the command line
+holds the CLI's own switches:
 
 - Every subagent runs in the foreground at depth 1, with no `Agent` tool of its own, and background work is off for the
   whole run, so the shell's `run_in_background` is refused and the session never wakes after its turn.
@@ -112,6 +113,12 @@ pinned CLI: with the switches in the environment alone, such a file written by t
 contradicting every switch). Only a managed settings file, which only a repository image can carry, outranks it. Agents
 defined in the tree's `.claude` are not found. One defined under HOME is, but it is held to the same tools and refusals.
 A report repair of such a build resumes its session without the grant, `Agent` denied.
+
+An Agent call's `isolation: "worktree"` is an argument, not a tool, so no deny reaches it: the child runs in a git
+worktree the CLI adds at `.claude/worktrees/agent-<id>` in the tree, on a branch of its own (measured on the pinned CLI
+with the posture above). Before a granted build's report is read, the agent runner removes every worktree under the
+tree's `.claude/worktrees` and says so in the transcript. Work left only there is not part of the change, and the build
+prompt says so; left in place, the worktree would fail `commit.sh`'s clean-tree check.
 
 The deny list is not only trusted: the agent runner reads every line the CLI prints, and a run in any posture whose CLI
 reports starting a workflow, or a subagent the run was not granted, is ended at that line as `budget_exceeded`, with the

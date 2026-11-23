@@ -311,6 +311,13 @@ type BuildPrompt struct {
 	// report's no_defect). False omits the section and the field, and the
 	// prompt is exactly the prompt without them.
 	AcceptanceFix bool
+	// SubagentsAtOnce is, on a build or revise round granted subagents, how
+	// many may run at once (harness.ClaudeSubagentConcurrency): the prompt
+	// then says what delegation is held to, and that its subagents' model
+	// calls come out of this run's turn grant and its cost. Zero, as on
+	// every build not granted them, omits the section, and the prompt is
+	// exactly the prompt without it.
+	SubagentsAtOnce int
 }
 
 // RenderBuildPrompt renders the build-stage prompt.

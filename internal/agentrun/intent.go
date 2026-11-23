@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
@@ -500,6 +501,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		NetworkProfile:  a.cfg.NetworkProfile,
 		NetworkRoutes:   a.cfg.NetworkRoutes,
 		AcceptanceFix:   a.cfg.AcceptanceFix,
+		SubagentsAtOnce: subagentsAtOnce(a.cfg.BuildSubagents),
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
@@ -519,7 +521,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
 		Gateway:   gateway,
-		Subagents: a.cfg.buildSubagents,
+		Subagents: a.cfg.BuildSubagents,
 	}, a.cfg.RemediateTimeout, a.cfg.RemediateIdleTimeout, params.budget)
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)
@@ -536,6 +538,14 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 	if outcome, detail := stageOutcome(h, res, runErr, credentialValues(h, a.scrub...)); outcome != envelope.OutcomeOK {
 		ev.Outcome, ev.Detail = outcome, detail
 		return ev
+	}
+	// Before the report is read, so a repair's guard fingerprints the tree
+	// as it will be packaged: a repair is granted no subagents and adds none.
+	if a.cfg.BuildSubagents {
+		if detail := a.removeSubagentWorktrees(ctx, sr); detail != "" {
+			ev.Outcome, ev.Detail = envelope.OutcomeCommitFailed, detail
+			return ev
+		}
 	}
 
 	b, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.buildPath(), readReport, a.parseBuild)
@@ -563,6 +573,34 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 	}
 	ev.Success = true
 	return ev
+}
+
+// subagentsAtOnce is the build prompt's SubagentsAtOnce for a build granted
+// subagents or not: the posture's own bound, or zero, which omits the
+// prompt's section.
+func subagentsAtOnce(granted bool) int {
+	if !granted {
+		return 0
+	}
+	return harness.ClaudeSubagentConcurrency
+}
+
+// removeSubagentWorktrees removes the worktrees the build's subagents left
+// in the tree (removeSubagentWorktrees), noting each in the stage's
+// transcript, and returns why it could not, or "".
+func (a *Agent) removeSubagentWorktrees(ctx context.Context, sr *stageRun) string {
+	removed, err := removeSubagentWorktrees(ctx, a.cfg.repoDir())
+	if len(removed) > 0 {
+		a.cfg.Log.Info("removed the worktrees a build's subagents left in the tree", "paths", removed)
+		if sr.rec != nil {
+			sr.rec.Notice("maul removed the worktree(s) left under %s before reading the report: %s; work left "+
+				"only there is not part of the change", subagentWorktreeDir, strings.Join(removed, ", "))
+		}
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // parseBuild parses a build report (report.ParseBuild) and refuses one

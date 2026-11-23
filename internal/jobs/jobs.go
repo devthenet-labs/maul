@@ -397,6 +397,13 @@ type Spec struct {
 	// round (MAUL_ACCEPTANCE_FIX=true): its prompt may conclude that the
 	// code has no defect. False, as on every other Job, sets nothing.
 	AcceptanceFix bool
+	// BuildSubagents grants an intent build Job on claude subagents
+	// (MAUL_BUILD_SUBAGENTS=true), which the launching controller sets only
+	// when the run recorded the grant and its own flag is still on. On any
+	// other Job Create refuses it (ErrSubagentsRefused). False, as on every
+	// other Job, sets nothing; a repository-image Job then blanks the name,
+	// so the image's ENV cannot grant it.
+	BuildSubagents bool
 	// RunnerImage is the digest-pinned repository-declared image from the
 	// Repository's status (name@sha256:...), copied by the launching
 	// controller; empty runs the harness's runner image. It is honoured only
@@ -794,6 +801,9 @@ func (c *Client) refusal(spec Spec) error {
 	if err := profileRefusal(spec); err != nil {
 		return err
 	}
+	if err := subagentsRefusal(spec); err != nil {
+		return err
+	}
 	return treesRefusal(spec)
 }
 
@@ -1115,6 +1125,7 @@ var perJobEnv = map[string]bool{
 	"MAUL_OPEN_PULL_REQUESTS":   true,
 	"MAUL_PLAN_VERIFICATION":    true,
 	"MAUL_ACCEPTANCE_FIX":       true,
+	"MAUL_BUILD_SUBAGENTS":      true,
 	ToolsURLEnv:                 true,
 	agentrun.BinDirEnv:          true,
 	// Set only on a Job that carries a network profile (profileEnv), and
@@ -1361,6 +1372,9 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	}
 	if spec.AcceptanceFix {
 		env = append(env, corev1.EnvVar{Name: "MAUL_ACCEPTANCE_FIX", Value: "true"})
+	}
+	if spec.BuildSubagents {
+		env = append(env, corev1.EnvVar{Name: "MAUL_BUILD_SUBAGENTS", Value: "true"})
 	}
 	if spec.ToolHost != nil {
 		env = append(env, corev1.EnvVar{Name: ToolsURLEnv, Value: toolsURL(spec.ToolHost)})

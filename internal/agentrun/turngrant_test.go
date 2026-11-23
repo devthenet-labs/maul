@@ -74,7 +74,7 @@ func buildGranted(t *testing.T, out *bytes.Buffer, turns int) (Config, string, r
 	c := repairCases()[i]
 	cfg, ws := c.setup(t, out)
 	cfg.GrantedMaxTurns = turns
-	cfg.buildSubagents = true
+	cfg.BuildSubagents = true
 	return cfg, ws, c
 }
 

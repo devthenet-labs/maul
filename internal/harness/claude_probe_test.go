@@ -85,7 +85,7 @@ const claudeProbeOutEnv = "MAUL_CLAUDE_PROBE_OUT"
 // probed with children of every built-in type and two planted ones
 // (probeSubagents): each child is offered only the run's tools, none of the
 // denied ones at any depth, runs in the foreground at depth 1 on the run's
-// model, at most claudeSubagentConcurrency at once, even after the run itself
+// model, at most ClaudeSubagentConcurrency at once, even after the run itself
 // writes user settings that try to undo all of that; and a report repair's
 // resume of such a session has no Agent tool at all.
 func TestClaudePostureProbe(t *testing.T) {
