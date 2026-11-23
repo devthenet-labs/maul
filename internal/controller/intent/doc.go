@@ -168,8 +168,9 @@
 // approved plan's outcomes recorded once per approved revision from the plan
 // bytes re-read under the approval's digest (slice 1's criteria, judged
 // from preview-controller's observations, no longer run since S4), and the
-// evaluation of the combined change judged by acceptance.Decide, never the
-// evaluator's verdict alone. A failed verification may start an
+// evaluation of the combined change judged by acceptance.Judge: the
+// evaluator's verdict counts only on calls of the round's verified ledger it
+// cites. A failed verification may start an
 // acceptance-fix round (verify_round.go), and an approver's pending feedback
 // always goes first (human_pending.go): to cancel a fix not yet launched the
 // IntentReconciler writes status.verification.cancelRun, which the

@@ -11,8 +11,8 @@ import (
 )
 
 // The tool host port (SPEC-S2 section 1): one evaluation flow, two hosts.
-// The round (gate, PreviewVerification, tool pod, evaluator, confirm,
-// review, collect, Decide, hand-off) is the same whichever host runs the
+// The round (gate, PreviewVerification, tool pod, evaluator, collect,
+// Judge, hand-off) is the same whichever host runs the
 // evaluator's hands; only where they run differs, and that is all a host
 // says:
 //

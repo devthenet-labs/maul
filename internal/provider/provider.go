@@ -36,23 +36,23 @@ const LimitMessagePrefix = "egress broker: per-pod limit"
 // BrokerTokenHeader, so the writer and the reader share one name and grammar.
 const BudgetAnnotation = "maul.run/budget-micro-usd"
 
-// The output bound of the intent stage that runs on a small cost budget
-// (harness.PromptRequest.MaxOutputTokens). The egress broker reserves each
-// request's whole output bound at the model's output price before it
-// forwards it, and refuses a request whose reservation would carry the pod
-// past its budget, so a pod can spend at most its budget less one
-// reservation. At the CLI's default bound (64000 tokens, $0.96 at the $15
-// per million output claude-sonnet-5 was then priced at) a $1 pod of the
-// retired check reviewer was refused after four calls having spent $0.044
-// (S1 bug 6). agent-runner passes it to the CLI, and intent-controller
-// refuses a Project whose stage budget cannot hold two of them
-// (ReasonRunBudgetUnderRequestReserve).
+// EvaluateMaxOutputTokens is the output bound of the intent stage that
+// runs on a small cost budget (harness.PromptRequest.MaxOutputTokens). The
+// egress broker reserves each request's whole output bound at the model's
+// output price before it forwards it, and refuses a request whose
+// reservation would carry the pod past its budget, so a pod can spend at
+// most its budget less one reservation. At the CLI's default bound (64000
+// tokens, $0.96 at the $15 per million output claude-sonnet-5 was then
+// priced at) a $1 pod of the retired check reviewer was refused after four
+// calls having spent $0.044 (S1 bug 6). agent-runner passes it to the CLI,
+// and intent-controller refuses a Project whose stage budget cannot hold two
+// of them (ReasonRunBudgetUnderRequestReserve).
 //
-// EvaluateMaxOutputTokens: the evaluator's largest single response is a
-// Write of its report (report.ReportMaxBytes, 56 KiB) or of a program of
-// its own, about 16000-22000 tokens at three to four bytes a token, plus its
-// thinking: 32000 tokens, a quarter of the CLI's default on the 5.5 models,
-// $0.32 reserved on claude-sonnet-5-5.
+// The evaluator's largest single response is a Write of its report
+// (report.ReportMaxBytes, 56 KiB) or of a program of its own, about
+// 16000-22000 tokens at three to four bytes a token, plus its thinking:
+// 32000 tokens, a quarter of the CLI's default on the 5.5 models, $0.32
+// reserved on claude-sonnet-5-5.
 const EvaluateMaxOutputTokens = 32000
 
 // maxBudgetDigits bounds a budget value: sixteen digits is ten billion

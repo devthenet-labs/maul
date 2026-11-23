@@ -50,8 +50,9 @@ var observedResultWords = map[string]string{
 	OutcomeResultAccepted: outcomeResultWords[OutcomeResultAccepted],
 }
 
-// outcomeReasonWords are acceptance.Decide's and acceptance.Judge's reasons
-// in maul's words; one not listed adds nothing.
+// outcomeReasonWords are acceptance.Judge's reasons in maul's words, beside
+// the ones an earlier release's records may carry; one not listed adds
+// nothing.
 var outcomeReasonWords = map[string]string{
 	"manual":              "only a human can close it",
 	"retired":             "its check was retired this round",
@@ -108,7 +109,7 @@ type VerifyOutcomeResult struct {
 	ID, Statement string
 	// Kind is the outcome's kind, change or keep; unset is change.
 	Kind string
-	// Result is one of the OutcomeResult constants, Reason Decide's
+	// Result is one of the OutcomeResult constants, Reason Judge's
 	// reason for it.
 	Result, Reason string
 	// Check is maul's one-line description of the check the result rests
