@@ -209,16 +209,24 @@ func ownedSpecFields(t *testing.T, obj metav1.Object, manager string) []string {
 
 // ---- The Project settings page's saves against an operator's manifest ----
 
-// ownershipManifest is a Project as Helm renders it from an operator's
-// values (charts/maul-config renders spec verbatim): only what the values
-// state. limits.maxActiveIntents is not rendered (the schema defaults it
-// to 2); limits.build.timeout is, in the operator's own spelling, which a
-// re-serialising write would take from Helm.
+// ownershipManifest is a Project as Helm applies it from an operator's
+// values: charts/maul-config renders spec verbatim, so only what the values
+// state, with the chart's labels, and Helm adds its managed-by label and
+// release annotations to every object it installs. limits.maxActiveIntents
+// is not rendered (the schema defaults it to 2); limits.build.timeout is,
+// in the operator's own spelling, which a re-serialising write would take
+// from Helm.
 func ownershipManifest(name string, maxRevisions int64) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": v1alpha1.GroupVersion.String(),
 		"kind":       "Project",
-		"metadata":   map[string]any{"name": name, "namespace": "maul"},
+		"metadata": map[string]any{
+			"name": name, "namespace": "maul",
+			"labels": map[string]any{"app": "intent-controller", "app.kubernetes.io/managed-by": "Helm",
+				"app.kubernetes.io/part-of": "maul"},
+			"annotations": map[string]any{"meta.helm.sh/release-name": "maul-config",
+				"meta.helm.sh/release-namespace": "maul"},
+		},
 		"spec": map[string]any{
 			"intentRepository": "https://github.com/acme/intents",
 			"approvers":        map[string]any{"logins": []any{"octo", "bob"}},
@@ -371,6 +379,11 @@ func operations(obj metav1.Object, manager string) []metav1.ManagedFieldsOperati
 
 // helmLeaves are the leaves helm's apply of ownershipManifest owns.
 var helmLeaves = []string{
+	`metadata.annotations.meta.helm.sh/release-name`,
+	`metadata.annotations.meta.helm.sh/release-namespace`,
+	`metadata.labels.app`,
+	`metadata.labels.app.kubernetes.io/managed-by`,
+	`metadata.labels.app.kubernetes.io/part-of`,
 	`spec.approvers.logins.v:"bob"`,
 	`spec.approvers.logins.v:"octo"`,
 	`spec.checks.fix.v:"lint"`,
@@ -392,10 +405,8 @@ func without(leaves []string, drop ...string) []string {
 	return slices.DeleteFunc(slices.Clone(leaves), func(l string) bool { return slices.Contains(drop, l) })
 }
 
-// edited are the record's leaves: its annotation, and the annotations map
-// itself, which the manifest does not render, so the first save creates it
-// (an entry of the map's own, which conflicts with no other key's owner).
-var edited = []string{"metadata.annotations", "metadata.annotations." + projectsettings.EditedAnnotation}
+// edited is the save's record: its one annotation, beside Helm's own.
+var edited = []string{"metadata.annotations." + projectsettings.EditedAnnotation}
 
 // owns fails the test unless manager owns exactly want on the Project now.
 func (c *ownershipCase) owns(manager string, want []string, when string) {
