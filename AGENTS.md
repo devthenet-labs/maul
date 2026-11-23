@@ -955,8 +955,17 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   posture, whose stream shows a `task_started` of a workflow, or of a subagent the run was not granted (none is yet;
   a grant would admit depth 1, no parent task, foreground only), as `budget_exceeded` with the reason, maul's own words
   only, in the detail and the transcript; what a repair or cover ask that delegates wrote is not read.
-  `PromptRequest.Subagents` is that grant (not rendered by any harness yet; agentrun sets it only from an unexported
-  build config no Job sets, and clears it on repairs and cover asks); a granted run also gets agentrun's turn watcher
+  `PromptRequest.Subagents` is that grant (agentrun sets it only from an unexported build config no Job sets yet, and
+  clears it on repairs and cover asks). claude renders it in the workspace-write posture alone (`claudeSubagentsDeny`:
+  `Agent`/`Task` off the deny list, nothing else; `claudeSubagentsSettings`: one `--settings` env block with background
+  tasks and workflows off, spawn depth 1, the child model forced to the run's, at most `claudeSubagentConcurrency` (4)
+  at once, a call past that refused). It is argv because a settings source's env block outranks the process env and the
+  run can rewrite the HOME user settings, which the CLI reloads mid-session; it also outranks a contrary process env (an
+  image's `ENV`), probed. The probe (`claude_probe_subagents_test.go`)
+  pins every child's request tools to a subset of the run's for each built-in type and a HOME-planted agent, the
+  refusals (the run's own web calls included), the depth, the model, the cap and the repair's resume without `Agent`,
+  beside controls that undo each lever (a grandchild then runs, still offered no denied tool).
+  A granted run also gets agentrun's turn watcher
   over `CallScanner` (claude, `calls.go`: a top-level assistant event's message id, and whether it carries a
   `parent_tool_use_id`), which ends it `budget_exceeded` once parent plus subagent calls, each id once, pass its
   `MaxTurns`, a wake resetting nothing.

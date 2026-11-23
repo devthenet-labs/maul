@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -32,6 +33,11 @@ import (
 // version Dockerfile.claude-agent-runner pins, verifies it against the
 // release manifest and sets it, and CI does the same when that pin changes.
 const claudeProbeCLIEnv = "MAUL_CLAUDE_PROBE_CLI"
+
+// claudeProbeOutEnv, when set, names a directory each probe run's stream is
+// kept in, one file per subtest (a subtest of several runs appends each), as
+// evidence of what the pinned CLI did.
+const claudeProbeOutEnv = "MAUL_CLAUDE_PROBE_OUT"
 
 // TestClaudePostureProbe runs the REAL claude CLI with the argv PromptSpec
 // renders for each posture, against a scratch tree that tries every way a
@@ -74,6 +80,14 @@ const claudeProbeCLIEnv = "MAUL_CLAUDE_PROBE_CLI"
 // result event. Its two controls take those denies back out: a subagent's
 // shell then runs and every denied tool is offered, and a monitor starts and
 // its end wakes the session after its turn, a second result event.
+//
+// The workspace-write posture granted subagents (PromptRequest.Subagents) is
+// probed with children of every built-in type and two planted ones
+// (probeSubagents): each child is offered only the run's tools, none of the
+// denied ones at any depth, runs in the foreground at depth 1 on the run's
+// model, at most claudeSubagentConcurrency at once, even after the run itself
+// writes user settings that try to undo all of that; and a report repair's
+// resume of such a session has no Agent tool at all.
 func TestClaudePostureProbe(t *testing.T) {
 	cli := os.Getenv(claudeProbeCLIEnv)
 	if cli == "" {
@@ -121,6 +135,7 @@ func TestClaudePostureProbe(t *testing.T) {
 
 	probeEvaluate(t, cli)
 	probeDelegation(t, cli)
+	probeSubagents(t, cli)
 
 	for _, sandbox := range []Sandbox{SandboxReadOnly, SandboxWorkspaceWrite} {
 		name := map[Sandbox]string{SandboxReadOnly: "read-only", SandboxWorkspaceWrite: "workspace-write"}[sandbox]
@@ -296,9 +311,9 @@ func probeChild(p *postureProbe) *childScript {
 // delegationControlScript spawns one subagent, which must succeed.
 func delegationControlScript(p *postureProbe) probeScript {
 	return probeScript{
-		steps:  [][]toolCall{{agentCall("toolu_agent", "Agent")}},
-		expect: map[string]bool{"toolu_agent": true},
-		child:  probeChild(p),
+		steps:    [][]toolCall{{agentCall("toolu_agent", "Agent")}},
+		expect:   map[string]bool{"toolu_agent": true},
+		children: []*childScript{probeChild(p)},
 	}
 }
 
@@ -322,7 +337,7 @@ func delegationScript(p *postureProbe) probeScript {
 			"toolu_wakeup": false, "toolu_cron": false, "toolu_worktree": false,
 			"toolu_monitor": false,
 		},
-		child: probeChild(p),
+		children: []*childScript{probeChild(p)},
 	}
 }
 
@@ -619,6 +634,7 @@ type probeOutcome struct {
 	init     struct {
 		PermissionMode string            `json:"permissionMode"`
 		Tools          []string          `json:"tools"`
+		Agents         []string          `json:"agents"`
 		MCPServers     []json.RawMessage `json:"mcp_servers"`
 	}
 	results map[string]toolResult
@@ -630,6 +646,12 @@ type probeOutcome struct {
 	// resultEvents counts the result events the run printed: one per time
 	// the session went idle, so more than one means something woke it.
 	resultEvents int
+	// requests are the conversations' requests (fakeUpstream.requests), and
+	// met whether a rendezvous's children all ran at once.
+	requests []probeRequest
+	met      bool
+	// stdout is the run's stream.
+	stdout []byte
 }
 
 type toolResult struct {
@@ -674,6 +696,17 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 			t.Logf("argv: %q\nexit: %v\nstdout:\n%s\nstderr:\n%s", argv, err, stdout.String(), stderr.String())
 		}
 	})
+	if dir := os.Getenv(claudeProbeOutEnv); dir != "" {
+		name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name()) + ".jsonl"
+		f, werr := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if werr == nil {
+			_, werr = f.Write(stdout.Bytes())
+			werr = errors.Join(werr, f.Close())
+		}
+		if werr != nil {
+			t.Errorf("keeping the stream: %v", werr)
+		}
+	}
 	// The MCP server (when one is started) and hooks write their markers
 	// asynchronously; give a straggler a moment before reading them.
 	time.Sleep(500 * time.Millisecond)
@@ -681,6 +714,7 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 	out := probeOutcome{results: map[string]toolResult{}}
 	out.headerSeen, out.guidance, out.leaked = p.upstream.seen()
 	out.maxTokens = p.upstream.maxTokensSeen()
+	out.requests, out.met, out.stdout = p.upstream.requestsSeen(), p.upstream.metSeen(), slices.Clone(stdout.Bytes())
 	if !p.upstream.promptSeen() {
 		t.Errorf("the prompt (%d bytes, on the CLI's standard input) did not reach the model intact", len(spec.Stdin))
 	}
@@ -757,10 +791,25 @@ type probeScript struct {
 	expect  map[string]bool
 	resumed bool // a resume: the first-request guidance is not judged
 	noTree  bool // no tree, so no CLAUDE.md to reach the model (evaluate)
-	// child is the script a subagent's own conversation gets, when the run
-	// may spawn one.
-	child *childScript
+	// children are the scripts subagents' own conversations get, when the run
+	// may spawn them: the first whose marker a request carries is that
+	// request's, so a child's marker goes before the marker of any
+	// grandchild its own Agent call names.
+	children []*childScript
+	// rendezvous, when set, holds each child's first request until that many
+	// children have sent theirs, or rendezvousWait passes; the outcome's met
+	// says whether they all met, that is, ran at once.
+	rendezvous int
+	// canaries are strings no request to the model may carry, beside the
+	// probe's own (probeEnvCanary, probeTokenCanary); one that does is in the
+	// outcome's leaked.
+	canaries []string
 }
+
+// rendezvousWait is how long a child's first request waits for its siblings'
+// under a rendezvous: children that run at once arrive within moments of each
+// other.
+const rendezvousWait = 10 * time.Second
 
 // childScript is a subagent's side of a run: a request whose body carries
 // marker, and not the run's own prompt (which every request of the main
@@ -769,6 +818,15 @@ type probeScript struct {
 type childScript struct {
 	marker string
 	steps  [][]toolCall
+}
+
+// probeRequest is one Messages request of a run's conversations, side
+// queries (which offer no tools) left out: the child marker whose script
+// answered it ("" for the main conversation), the model it asked for, and
+// the names of the tools it offered.
+type probeRequest struct {
+	child, model string
+	tools        []string
 }
 
 type toolCall struct {
@@ -883,9 +941,20 @@ type fakeUpstream struct {
 	maxTokens []int
 	// prompt is the run's prompt as a Messages request body carries it (a
 	// JSON string's content); carried, that a request carried it whole.
-	prompt  string
-	carried bool
-	child   *childScript
+	prompt   string
+	carried  bool
+	children []*childScript
+	// requests are the conversations' requests, in order of arrival.
+	requests []probeRequest
+	// messages numbers the replies, so every message has an id of its own.
+	messages int
+	// rendezvous, arrived and met: see probeScript.rendezvous. arrived
+	// closes once that many children have sent their first request.
+	rendezvous int
+	arrived    chan struct{}
+	first      map[string]bool
+	met        bool
+	canaries   []string
 }
 
 // probeSecretEnv is a variable every probe run carries, holding
@@ -914,8 +983,84 @@ func (f *fakeUpstream) reset(script probeScript, prompt string) {
 	_ = enc.Encode(prompt)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.steps, f.child, f.header, f.guidance, f.leaked, f.maxTokens = script.steps, script.child, false, false, nil, nil
+	f.steps, f.children = script.steps, script.children
+	f.header, f.guidance, f.leaked, f.maxTokens = false, false, nil, nil
 	f.prompt, f.carried = strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(b.String(), `"`), "\n"), `"`), false
+	f.requests, f.rendezvous, f.first, f.met = nil, script.rendezvous, map[string]bool{}, false
+	f.arrived = make(chan struct{})
+	f.canaries = append([]string{probeEnvCanary, probeTokenCanary}, script.canaries...)
+}
+
+// requestsSeen reports the conversations' requests.
+func (f *fakeUpstream) requestsSeen() []probeRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.requests)
+}
+
+// metSeen reports whether every child of a rendezvous sent its first request
+// while the others were waiting.
+func (f *fakeUpstream) metSeen() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.met
+}
+
+// childFor is the child script a request with this body belongs to, or nil
+// for the main conversation's. Called with f.mu held.
+func (f *fakeUpstream) childFor(body []byte) *childScript {
+	if bytes.Contains(body, []byte(f.prompt)) {
+		return nil
+	}
+	for _, c := range f.children {
+		if bytes.Contains(body, []byte(c.marker)) {
+			return c
+		}
+	}
+	return nil
+}
+
+// meet is a rendezvous child's first request: it waits until the rendezvous's
+// count of children have sent their first, or rendezvousWait passes.
+func (f *fakeUpstream) meet(marker string) {
+	f.mu.Lock()
+	if f.rendezvous == 0 || f.first[marker] {
+		f.mu.Unlock()
+		return
+	}
+	f.first[marker] = true
+	if len(f.first) == f.rendezvous {
+		f.met = true
+		close(f.arrived)
+	}
+	arrived := f.arrived
+	f.mu.Unlock()
+	select {
+	case <-arrived:
+	case <-time.After(rendezvousWait):
+	}
+}
+
+// nextMessageID is a fresh message id: the CLI and maul's stream readers
+// tell one model call from another by it.
+func (f *fakeUpstream) nextMessageID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.messages++
+	return fmt.Sprintf("msg_probe_%d", f.messages)
+}
+
+// toolNames is the names of a request's tools.
+func toolNames(raw []json.RawMessage) []string {
+	names := make([]string, 0, len(raw))
+	for _, r := range raw {
+		var tool struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(r, &tool)
+		names = append(names, tool.Name)
+	}
+	return names
 }
 
 // promptSeen reports whether a request of the run carried its whole prompt.
@@ -962,7 +1107,7 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	if bytes.Contains(body, []byte(f.prompt)) {
 		f.carried = true
 	}
-	for _, canary := range []string{probeEnvCanary, probeTokenCanary} {
+	for _, canary := range f.canaries {
 		if bytes.Contains(body, []byte(canary)) && !slices.Contains(f.leaked, canary) {
 			f.leaked = append(f.leaked, canary)
 		}
@@ -970,6 +1115,7 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	var req struct {
 		Stream    bool              `json:"stream"`
+		Model     string            `json:"model"`
 		Tools     []json.RawMessage `json:"tools"`
 		MaxTokens int               `json:"max_tokens"`
 	}
@@ -991,10 +1137,11 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	var calls []toolCall
 	if len(req.Tools) > 0 {
 		f.mu.Lock()
-		steps := f.steps
-		if f.child != nil && bytes.Contains(body, []byte(f.child.marker)) && !bytes.Contains(body, []byte(f.prompt)) {
-			steps = f.child.steps
+		steps, marker := f.steps, ""
+		if c := f.childFor(body); c != nil {
+			steps, marker = c.steps, c.marker
 		}
+		f.requests = append(f.requests, probeRequest{child: marker, model: req.Model, tools: toolNames(req.Tools)})
 		for _, step := range steps {
 			if !bytes.Contains(body, []byte(`"`+step[0].ID+`"`)) {
 				calls = step
@@ -1002,12 +1149,16 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		f.mu.Unlock()
+		if marker != "" {
+			f.meet(marker)
+		}
 	}
+	id := f.nextMessageID()
 	if !req.Stream {
-		writeMessage(w, calls)
+		writeMessage(w, id, calls)
 		return
 	}
-	writeStream(w, calls)
+	writeStream(w, id, calls)
 }
 
 func messageContent(calls []toolCall) ([]map[string]any, string) {
@@ -1021,17 +1172,17 @@ func messageContent(calls []toolCall) ([]map[string]any, string) {
 	return content, "tool_use"
 }
 
-func writeMessage(w http.ResponseWriter, calls []toolCall) {
+func writeMessage(w http.ResponseWriter, id string, calls []toolCall) {
 	content, stop := messageContent(calls)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"id": "msg_probe", "type": "message", "role": "assistant", "model": "claude-probe",
+		"id": id, "type": "message", "role": "assistant", "model": "claude-probe",
 		"content": content, "stop_reason": stop,
 		"usage": map[string]int{"input_tokens": 1, "output_tokens": 1},
 	})
 }
 
-func writeStream(w http.ResponseWriter, calls []toolCall) {
+func writeStream(w http.ResponseWriter, id string, calls []toolCall) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	event := func(name string, data map[string]any) {
 		b, _ := json.Marshal(data)
@@ -1039,7 +1190,7 @@ func writeStream(w http.ResponseWriter, calls []toolCall) {
 	}
 	content, stop := messageContent(calls)
 	event("message_start", map[string]any{"type": "message_start", "message": map[string]any{
-		"id": "msg_probe", "type": "message", "role": "assistant", "model": "claude-probe",
+		"id": id, "type": "message", "role": "assistant", "model": "claude-probe",
 		"content": []any{}, "stop_reason": nil,
 		"usage": map[string]int{"input_tokens": 1, "output_tokens": 1},
 	}})

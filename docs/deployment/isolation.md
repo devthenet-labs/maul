@@ -96,6 +96,23 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
   limit and the stage's wall clock bound the run. The posture does not run with `--restricted`, which would take its
   shell and refuse writes to tool-configuration files and CI definitions that a fix may need to change.
 
+A build granted subagents (no setting grants one yet) runs the same posture with `Agent` and `Task` taken off the deny
+list and nothing else, so every other tool above stays denied for the run and for every subagent it starts. One
+`--settings` value on the command line holds the CLI's own switches:
+
+- Every subagent runs in the foreground at depth 1, with no `Agent` tool of its own, and background work is off for the
+  whole run, so the shell's `run_in_background` is refused and the session never wakes after its turn.
+- Every subagent runs on the run's own model, whatever its call or agent definition asks for.
+- At most four run at once; a fifth call is refused, not queued, and the run carries on without it.
+
+These go on the command line, not in the environment, because a settings file's `env` block outranks the process
+environment, and the run can write the user settings under HOME, which the CLI reloads mid-session. Measured on the
+pinned CLI: with the switches in the environment alone, such a file written by the run's own shell undid all of them.
+`--settings` also outranks the process environment, such as a repository image's `ENV` (measured against one
+contradicting every switch). Only a managed settings file, which only a repository image can carry, outranks it. Agents
+defined in the tree's `.claude` are not found. One defined under HOME is, but it is held to the same tools and refusals.
+A report repair of such a build resumes its session without the grant, `Agent` denied.
+
 The deny list is not only trusted: the agent runner reads every line the CLI prints, and a run in any posture whose CLI
 reports starting a workflow, or a subagent the run was not granted, is ended at that line as `budget_exceeded`, with the
 reason in the stage's detail and the transcript. It is a check after the fact: the CLI reports a start once it has made
@@ -105,9 +122,11 @@ These flags are checked against the real CLI, not only as rendered argv: a probe
 image pins with each posture's argv against a scratch repository whose hooks, `env` block, settings, untracked
 `settings.local.json` and `.mcp.json` must all stay inert, and asserts the read-only posture's file grammar on the first
 run and on a report repair's resume, and that the workspace-write posture refuses a subagent, a workflow, a wake-up, a
-cron job, a worktree and a monitor (no subagent's command runs, and the run ends with a single result), with a scripted
-model on loopback and no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture
-changes).
+cron job, a worktree and a monitor (no subagent's command runs, and the run ends with a single result). Granted
+subagents, every subagent of every built-in type and of a definition planted under HOME may be offered only the tools
+the run is offered, is refused the denied ones, and runs in the foreground at depth 1 on the run's model, at most four
+at once, even after the run writes user settings that try to undo that. The probe uses a scripted model on loopback and
+no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture changes).
 
 codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary. The
 intent stages run on brokered claude, or on brokered codex for a Project that chooses it under `--intent-codex`. An

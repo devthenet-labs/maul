@@ -93,7 +93,8 @@ func NewClaude() *Claude {
 // monitor of a read-only command (sleep, echo) without asking, so dontAsk
 // refuses only one that writes. A deny binds a subagent at every depth as
 // well as the session ("disabled for this session, in subagents as well as
-// here"), so these stay off for any child a later posture may allow.
+// here"), so these stay off for the children a request granted Subagents may
+// start (claudeSubagentsDeny).
 //
 // The shell's own run_in_background is kept: a fix may build or serve
 // something in the background, and turning it off is an environment switch
@@ -155,6 +156,99 @@ var claudeTools = map[Sandbox]struct {
 		restricted:  true,
 		scratchOnly: true,
 	},
+}
+
+// claudeSubagentsDeny is the workspace-write deny list for a request granted
+// Subagents: the posture's own (deny) with the subagent tool, under both its
+// names, taken out and every other entry kept in order, so workflows,
+// wake-ups, cron, worktrees, monitors and the web tools stay denied for the
+// run and for every subagent it starts. It never changes deny, which is the
+// shared posture table's.
+//
+// What the pinned CLI (2.1.322) does under it, with claudeSubagentsSettings
+// (probed by TestClaudePostureProbe against the real CLI):
+//   - A child's tools are a subset of the run's: every tool each built-in
+//     agent type (general-purpose, Explore, Plan, statusline-setup, claude)
+//     and an agent defined under HOME asks the model with is one the run
+//     itself is offered or can load, and a definition's own tools line and
+//     permissionMode (bypassPermissions) gain it nothing: the deny list,
+//     dontAsk and the allow list bind every depth.
+//   - The web tools, Workflow, ScheduleWakeup, CronCreate, EnterWorktree and
+//     Monitor (a read-only monitor included, which the mode would let start)
+//     are refused to a child, as they are to the run.
+//   - Agents defined in the tree's .claude are not found: the run reads only
+//     the user settings source (claudeSettingSources). One defined under HOME,
+//     the workspace root, is found; it is held to the same tools.
+//   - Every child runs in the foreground at depth 1 (it has no Agent tool),
+//     a call asking for the background included, and the run prints one
+//     result event; Bash's own run_in_background is refused ("unexpected
+//     parameter"), which OFF keeps.
+//   - Every child asks for the run's own model, an explicit model argument
+//     ("opus", "haiku") and statusline-setup's default (sonnet) included.
+//   - At most claudeSubagentConcurrency children run at once; a call past
+//     that is refused ("Concurrent subagent limit reached ... Do not retry"),
+//     not queued, and the run carries on without it.
+func claudeSubagentsDeny(deny []string) []string {
+	return slices.DeleteFunc(slices.Clone(deny), func(tool string) bool { return tool == "Agent" || tool == "Task" })
+}
+
+// claudeSubagentConcurrency is how many subagents a run granted Subagents
+// may have running at once (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS). Spend is
+// bounded by the egress broker's per-pod cost cap, which sees every child,
+// not by this; it bounds the burst: how many conversations the pod's budget
+// is spent on in parallel, and how many requests at once the broker sees
+// from the pod (the children's plus the run's own side queries). Unset, the
+// pinned CLI ran five parallel children at once; a call past the bound is
+// refused rather than queued, so a bound of one would refuse every parallel
+// fan-out a build might reasonably make.
+const claudeSubagentConcurrency = 4
+
+// claudeSubagentsSettings is the --settings JSON a request granted Subagents
+// runs under: an env block of the CLI's own levers, each probed on 2.1.322.
+//   - CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: every child (and every command)
+//     runs in the foreground, so its turns are the run's stream's and the
+//     session never wakes after its turn.
+//   - CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1: a child has no Agent tool, so
+//     every model call of the run is a parent's or a depth-1 child's, both of
+//     which the stream shows (the default is 3, whose deeper agents it does
+//     not).
+//   - CLAUDE_CODE_DISABLE_WORKFLOWS: Workflow is gone from the tool set as
+//     well as denied.
+//   - CLAUDE_CODE_SUBAGENT_MODEL with CLAUDE_CODE_SUBAGENT_MODEL_FORCE: every
+//     child runs on model, whatever its call or its agent definition asks
+//     for. Without FORCE an explicit model argument wins. They are left out
+//     when model is empty.
+//   - CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: claudeSubagentConcurrency.
+//
+// They go on the command line, not in the run's environment: a settings
+// source's env block outranks the process environment, and the user source
+// is the settings under HOME, which a writable run can write and the CLI
+// reloads mid-session. Measured: with these in the environment only, a
+// settings file the run's own Bash wrote under HOME took effect at once (the
+// next child ran in the background at depth 2 on the file's model, and the
+// session woke after its turn); as --settings they held, against that file
+// written mid-run and present from the start alike. --settings outranks
+// every settings source but a managed file, which only a repository image
+// can carry and which is that image's residue already (claudePermissionMode),
+// and the process environment too (probed against an environment, such as a
+// repository image's ENV, contradicting every lever).
+// The run's own stream is checked as well: a child the CLI started deeper or
+// in the background ends the run (DelegationScanner).
+func claudeSubagentsSettings(model string) string {
+	env := map[string]string{
+		"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+		"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
+		"CLAUDE_CODE_DISABLE_WORKFLOWS":        "1",
+		"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": strconv.Itoa(claudeSubagentConcurrency),
+	}
+	if model != "" {
+		env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+		env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] = "1"
+	}
+	// A map of strings always encodes, with its keys sorted, so the argv is
+	// stable.
+	b, _ := json.Marshal(map[string]map[string]string{"env": env})
+	return string(b)
 }
 
 // claudeRestricted documents why only the read-only and evaluate postures
@@ -294,13 +388,21 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		if len(t.tools) > 0 {
 			argv = append(argv, "--tools", strings.Join(t.tools, ","))
 		}
+		subagents := req.Subagents && req.Sandbox == SandboxWorkspaceWrite
+		deny := t.deny
+		if subagents {
+			deny = claudeSubagentsDeny(deny)
+		}
 		argv = append(argv, "--allowedTools", strings.Join(claudeAllow(ws, req, t.allow), " "))
-		argv = append(argv, "--disallowedTools", strings.Join(t.deny, " "))
+		argv = append(argv, "--disallowedTools", strings.Join(deny, " "))
 		if t.restricted {
 			argv = append(argv, claudeRestricted)
 		}
 		argv = append(argv, "--setting-sources", claudeSettingSources, "--permission-mode", claudePermissionMode,
 			"--strict-mcp-config")
+		if subagents {
+			argv = append(argv, "--settings", claudeSubagentsSettings(req.Model))
+		}
 		env = slices.Clip(req.Env)
 		if !t.scratchOnly {
 			argv = append(argv, "--add-dir", ws)

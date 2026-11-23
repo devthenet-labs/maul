@@ -114,11 +114,14 @@ type PromptRequest struct {
 	Gateway *Gateway
 	// Subagents grants a SandboxWorkspaceWrite run foreground subagents the
 	// run itself starts (depth 1), held to its turn and token limits with
-	// its own calls. The caller's kill switches read it: the delegation
-	// check admits such a subagent's start (DelegationScanner), and a turn
-	// grant counts its calls (CallScanner). No harness renders it yet, so
-	// the writable posture still denies the subagent tool whatever it says;
-	// false, every request renders and is held exactly as before.
+	// its own calls. claude renders it in that posture alone: the subagent
+	// tool leaves the deny list, and the CLI is held to foreground children
+	// at depth 1 on the run's model (claudeSubagentsDeny,
+	// claudeSubagentsSettings); every other posture, and every other
+	// harness, ignores it. The caller's kill switches read it too: the
+	// delegation check admits such a subagent's start (DelegationScanner),
+	// and a turn grant counts its calls (CallScanner). False, every request
+	// renders and is held exactly as before.
 	Subagents bool
 }
 
