@@ -9,11 +9,23 @@ import (
 )
 
 // The gated hand-off (agent evaluator, DESIGN 7.1, 7.2): how a live
-// preview's link is shown while maul checks the approved outcomes. Held, the
-// link is not shown at all; once released it is labelled: ready when maul
-// confirmed every outcome, "maul couldn't confirm this" (with maul's reason)
-// when it gave up, and "still checking" when a human asked for it first. The
-// early hand-off passes no PreviewHandoff, and its text is slice 1's.
+// preview's link is shown while maul's evaluator looks at the approved
+// outcomes. Held, the link is not shown at all; once released it is
+// labelled: ready when the evaluator saw every outcome hold, citing calls
+// maul recorded, "maul can't call this ready" (NotReadyLead, with maul's
+// reason) when it gave up, and "still looking" when a human asked for it
+// first. None of it says maul checked or confirmed an outcome: maul checks
+// only that a verdict cites calls it recorded (FA 3). The early hand-off
+// passes no PreviewHandoff, and its text is slice 1's.
+
+// NotReadyLead opens every hand-off label and commit status of a round maul
+// gave up on, before its reason: the one spelling, which the controller's
+// maul/acceptance descriptions use too.
+const NotReadyLead = "maul can't call this ready: "
+
+// EvaluatingLead opens the pending maul/acceptance description of a round
+// under way.
+const EvaluatingLead = "maul is evaluating this: "
 
 // Hand-off states.
 const (
@@ -79,7 +91,7 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyTime:        "it ran out of time",
 	HandoffWhySandbox:     "its sandbox was not enforced",
 	HandoffWhyEnvironment: "the preview failed while it was checked",
-	HandoffWhyInfra:       "its own checking environment failed while it checked",
+	HandoffWhyInfra:       "its own evaluation environment failed during the evaluation",
 	HandoffWhyUnavailable: "it could not run its checks",
 	// Gate D-B6; the words without a count, which doubtedWords gives.
 	HandoffWhyEvaluatorDoubts: "the evaluator judged some outcomes not to hold, but cited no evidence maul counts",
@@ -96,8 +108,8 @@ var handoffWhyWords = map[string]string{
 // workspaceWhyWords are the reasons whose words differ on a Project with
 // no preview: what fails there is maul's own tool pod, never a preview.
 var workspaceWhyWords = map[string]string{
-	HandoffWhyEnvironment: "its own checking tools failed while it checked",
-	HandoffWhyInfra:       "its own checking tools failed while it checked",
+	HandoffWhyEnvironment: "its own tools failed during the evaluation",
+	HandoffWhyInfra:       "its own tools failed during the evaluation",
 }
 
 // whyWords are why's words, on a Project with no preview when workspace;
@@ -182,6 +194,11 @@ func suspectedWhy(outcomes []string) string {
 	return "it suspects a defect in " + strings.Join(ids, ", ") + ", which a person should confirm"
 }
 
+// ReadyLabel is the label of a link released ready: what is true of it
+// (the evaluator saw the outcomes hold, citing calls maul recorded), never
+// that maul checked them.
+const ReadyLabel = "Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded."
+
 // handoffLabel is the label a released link carries, ending in a full
 // stop; "" for a held one.
 func handoffLabel(h PreviewHandoff) string { return labelIn(h, false) }
@@ -190,11 +207,11 @@ func handoffLabel(h PreviewHandoff) string { return labelIn(h, false) }
 func labelIn(h PreviewHandoff, workspace bool) string {
 	switch h.State {
 	case HandoffReady:
-		return "Ready: maul checked the approved outcomes."
+		return ReadyLabel
 	case HandoffUnconfirmed:
-		return "maul couldn't confirm this: " + handoffWhy(h, workspace) + "."
+		return NotReadyLead + handoffWhy(h, workspace) + "."
 	case HandoffChecking:
-		return "Shown while maul is still checking the approved outcomes."
+		return "Shown while maul's evaluator is still looking at the approved outcomes."
 	}
 	return ""
 }
@@ -204,7 +221,8 @@ func labelIn(h PreviewHandoff, workspace bool) string {
 // (haltHuman, releaseForPush, and /maul preview): an approver's round on a
 // pull request, not any comment and not /maul verify.
 func handoffHeld(subject string) string {
-	return subject + " is live, and maul holds its link until it has checked the approved outcomes. An approver's " +
+	return subject + " is live, and maul holds its link until its evaluator has looked at the approved outcomes. " +
+		"An approver's " +
 		"review asking for changes or " + slashCommand("revise") + " on a pull request, a push maul did not make " +
 		"or " + slashCommand("preview") + " shows it now."
 }
@@ -250,7 +268,8 @@ func workspaceRelease() string {
 // (workspaceWhyWords); "" for a held one.
 func workspaceLabel(h PreviewHandoff) string {
 	if h.State == HandoffChecking {
-		return "Handed to its reviewers while maul is still checking the approved outcomes " + workspaceBuild + "."
+		return "Handed to its reviewers while maul's evaluator is still looking at the approved outcomes " +
+			workspaceBuild + "."
 	}
 	return labelIn(h, true)
 }
@@ -259,13 +278,13 @@ func workspaceLabel(h PreviewHandoff) string {
 // under h; nil (the early hand-off) says only what maul does.
 func workspaceStatusSentence(h *PreviewHandoff) string {
 	if h == nil {
-		return "maul checks the approved outcomes " + workspaceBuild + "."
+		return "maul's evaluator looks at the approved outcomes " + workspaceBuild + "."
 	}
 	if label := workspaceLabel(*h); label != "" {
 		return label
 	}
-	return "maul is checking the approved outcomes " + workspaceBuild + ", and holds its hand-off to the " +
-		"reviewers until it has. " + workspaceRelease()
+	return "maul's evaluator is looking at the approved outcomes " + workspaceBuild + ", and maul holds its " +
+		"hand-off to the reviewers until it has. " + workspaceRelease()
 }
 
 // workspaceCommentSentence is a pull request's evaluation sentence under h:
@@ -277,6 +296,6 @@ func workspaceCommentSentence(h *PreviewHandoff, rev string) string {
 	if label := workspaceLabel(*h); label != "" {
 		return label + " This pull request's head is " + rev + "."
 	}
-	return "This pull request's head, " + rev + ", is being checked: maul holds its hand-off to the reviewers " +
-		"until it has checked the approved outcomes " + workspaceBuild + ". " + workspaceRelease()
+	return "This pull request's head, " + rev + ", is being evaluated: maul holds its hand-off to the reviewers " +
+		"until its evaluator has looked at the approved outcomes " + workspaceBuild + ". " + workspaceRelease()
 }

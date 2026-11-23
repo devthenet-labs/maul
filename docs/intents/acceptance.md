@@ -176,10 +176,10 @@ The [evaluator's page](evaluator.md) has the whole round. In short:
    own record: the outcome, the failing check's steps and expectations, what was observed, and the component's redacted
    log lines from that moment. A failing check the evaluator **disputes** never starts a fix: the outcome is unsure, and
    a model-free replay of a confirmed replacement check can pass it.
-5. **The hand-off.** Under `gated` (the default) the preview link is held until every outcome is confirmed ("Ready: maul
-   checked the approved outcomes.") or maul gives up ("maul couldn't confirm this", with the reason), at most
-   `handoffMax` (60 minutes) from CI first going green. A human's review, command or push, or `/maul preview`, releases
-   it at once.
+5. **The hand-off.** Under `gated` (the default) the preview link is held until every outcome is confirmed ("Ready:
+   maul's evaluator saw every approved outcome hold, citing calls maul recorded.") or maul gives up ("maul can't call
+   this ready", with the reason), at most `handoffMax` (60 minutes) from CI first going green. A human's review, command
+   or push, or `/maul preview`, releases it at once.
 
 A later round that still fails at the heads a fix round that found no defect judged ends automatic fixing as
 `Exhausted`: maul and the fix agent disagree, and a human decides. An approver's `/maul verify fix` made after that
@@ -242,8 +242,8 @@ after it ended, is not counted.
 | Spacing                   | While auto-fix is halted, an automatic re-verification waits five minutes; one `/maul verify` per five minutes.                                                                                                                                                                                                                                          |
 | Infrastructure            | A tool pod that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.                                                                                                                                                                                                                                                   |
 | Preview wait              | A due verification waits at most an hour for the preview to be live at the heads, then reports `Unavailable`.                                                                                                                                                                                                                                            |
-| Evaluation ceiling        | With the evaluator: what the intent's evaluate and checkreview runs may spend together (`limits.maxEvaluateCostMicroUSD`, default \$6), counted apart from the cost ceiling above. Past it no evaluation runs, and a gated hand-off is released as "maul couldn't confirm this".                                                                         |
-| Hand-off wait             | With the evaluator and a gated hand-off: `verification.handoffMax` (default 60 minutes) from CI first going green. Past it the link is released as "maul couldn't confirm this: it ran out of time"; verification itself goes on.                                                                                                                        |
+| Evaluation ceiling        | With the evaluator: what the intent's evaluate and checkreview runs may spend together (`limits.maxEvaluateCostMicroUSD`, default \$6), counted apart from the cost ceiling above. Past it no evaluation runs, and a gated hand-off is released as "maul can't call this ready".                                                                         |
+| Hand-off wait             | With the evaluator and a gated hand-off: `verification.handoffMax` (default 60 minutes) from CI first going green. Past it the link is released as "maul can't call this ready: it ran out of time"; verification itself goes on.                                                                                                                        |
 
 ### What halts automatic fixing
 
@@ -343,7 +343,7 @@ status, so a plan with `manual` outcomes or no outcomes needs an approver's `/ma
   look-around anomaly is marked as the evaluator's words. Log tails appear on a pull request only with `postLogs`. See
   [Reading the evidence](evaluator.md#reading-the-evidence).
 - After a push, from the pass that sees it until a verification is about the new heads, the status comment and the
-  sticky comments say maul is checking the new commits and show no result; the last verification comment is left as it
+  sticky comments say maul is evaluating the new commits and show no result; the last verification comment is left as it
   stood, about the heads it checked.
 - Notices: auto-fix halted (with the reason), "automatic fix cancelled for your review", infrastructure unavailable and
   `NeedsReplan`.
@@ -384,7 +384,7 @@ command is applied once: if maul's reply to it is deleted, maul answers it again
 | `error`, "maul could not run the checks"                            | Three tool pod attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline, a component disrupted by the cluster: `component-disrupted`, or a component Service without a ClusterIP: `service-no-cluster-ip`). Not a verdict on the change                                                                                                                        |
 | `error`, "the approved acceptance criteria cannot be read"          | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; the plan cannot change in review, so `/maul cancel` and open a new issue                                                                           |
 | No preview link, "maul holds its link"                              | The evaluator is checking under a gated hand-off. It is released when the evaluation decides, after `handoffMax`, or at once on your comment, push or `/maul preview`                                                                                                                                                                                                                     |
-| "maul couldn't confirm this"                                        | maul gave up without confirming every outcome, for the reason it names. Read each outcome's line, then accept, `/maul verify` or merge: it never blocks. [The reasons](evaluator.md#the-hand-off)                                                                                                                                                                                         |
+| "maul can't call this ready"                                        | maul gave up without confirming every outcome, for the reason it names. Read each outcome's line, then accept, `/maul verify` or merge: it never blocks. [The reasons](evaluator.md#the-hand-off)                                                                                                                                                                                         |
 | An outcome "unsure", "the evaluator disputes its failing check"     | A saved check failed, and the evaluator judged that it shows no defect. No fix runs; a confirmed replacement check is replayed. [Disputes](evaluator.md#disputes)                                                                                                                                                                                                                         |
 | Nothing verified, a notice about acceptance criteria                | The evaluator is on and this intent's approved plan states criteria. Review it as it is, or `/maul cancel` and open a new issue                                                                                                                                                                                                                                                           |
 | A codex Project's link shown at once, `EvaluatorUnverified`         | Its intents are not evaluated: the codex evaluator is off (`--intent-evaluate-codex`). [codex](evaluator.md#codex-built-not-verified)                                                                                                                                                                                                                                                     |

@@ -227,11 +227,12 @@ func ownNoticeText(n VerifyCommandNotice, cmd, actor string) (string, bool) {
 func workspaceNoticeText(n VerifyCommandNotice, cmd string) (string, bool) {
 	switch n.Outcome {
 	case VerifyPreviewNone:
-		return cmd + " does nothing: this project has no preview, so there is no link to show. maul checks the " +
-			"approved outcomes " + workspaceBuild + ", and hands the result to the reviewers once it has.", true
+		return cmd + " does nothing: this project has no preview, so there is no link to show. maul's evaluator " +
+			"looks at the approved outcomes " + workspaceBuild + ", and maul hands the result to the reviewers once " +
+			"it has.", true
 	case VerifyAcceptNotChecked:
-		return fmt.Sprintf("%s does nothing: maul was not checking %s, the commits it verifies, when you "+
-			"commented, so it cannot tell which commits you checked. Accept again once maul checks them.", cmd,
+		return fmt.Sprintf("%s does nothing: maul was not evaluating %s, the commits it evaluates, when you "+
+			"commented, so it cannot tell which commits you checked. Accept again once maul evaluates them.", cmd,
 			joinCode(n.Heads)), true
 	case VerifyResetTooSoon:
 		if !n.Workspace {
@@ -326,7 +327,8 @@ func verifyCommandText(n VerifyCommandNotice) string {
 func requestedText(n VerifyCommandNotice, actor string) string {
 	cmd := verifyCommandText(n)
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s from %s is recorded: maul checks the combined change against the approved outcomes ",
+	fmt.Fprintf(&b, "%s from %s is recorded: maul runs its evaluator on the combined change against the approved "+
+		"outcomes ",
 		cmd, actor)
 	switch {
 	case n.AfterRound:

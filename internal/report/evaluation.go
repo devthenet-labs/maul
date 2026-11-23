@@ -212,6 +212,18 @@ func ParseEvaluation(data []byte) (*Evaluation, error) {
 	return &e, nil
 }
 
+// CarriesRetiredKeys reports a report writing any key the observed
+// evaluator retired: a verdict's contrary seqs, disputes, proposed checks or
+// retirements. Such a report claims nothing ("evaluator observed"): the
+// controller judges it as no report, as the strict decoder that refuses it
+// will (W7 deletes this with the fields).
+func (e *Evaluation) CarriesRetiredKeys() bool {
+	if len(e.Disputes) > 0 || len(e.Proposed) > 0 || len(e.Retire) > 0 {
+		return true
+	}
+	return slices.ContainsFunc(e.Verdicts, func(v OutcomeVerdict) bool { return len(v.Contrary) > 0 })
+}
+
 // LedgerRefs returns every ledger seq the report cites, sorted, each once.
 func (e *Evaluation) LedgerRefs() []int32 {
 	var refs []int32

@@ -4,6 +4,7 @@
 package templates
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,12 +13,17 @@ import (
 )
 
 // overstating are the words no surface of the observed evaluator may use of
-// a result: maul checks only that a verdict cites the evaluator's own calls,
-// never that a call shows what the verdict says, so nothing it shows may
-// read as proof. The negated label "not checked by maul" (owner decision 5)
-// is the one use of "checked by maul" allowed, and is taken out first.
-var overstating = regexp.MustCompile(`(?i)\b(confirmed|verified|verifies|proves?|proven|proof|re-ran|reran|` +
-	`rerun|re-run)\b|checked by maul`)
+// a result: maul looks only at whether a verdict cites the evaluator's own
+// calls, never at whether a call shows what the verdict says, so nothing it
+// shows may read as proof, or as maul checking the outcomes itself: no
+// form of "confirm" (confirmed, couldn't confirm, confirmation), and no
+// "maul checked", "maul checks", "maul is still checking" or "it has
+// checked" (FA 3). The negated label "not checked by maul" (owner decision
+// 5) is the one use of "checked by maul" allowed, and is taken out first;
+// "nothing is checked" and "checks" as a noun (a pull request's CI checks)
+// claim nothing.
+var overstating = regexp.MustCompile(`(?i)\b(confirm\w*|verified|verifies|proves?|proven|proof|re-ran|reran|` +
+	`rerun|re-run)\b|checked by maul|\b(maul|it) (is still |is |has |had )?check(s|ed|ing)\b`)
 
 // overstates is the overstating words s uses, the negated label aside.
 func overstates(s string) []string {
@@ -37,6 +43,49 @@ var retiredWhys = map[string]bool{HandoffWhyReplay: true, HandoffWhySuspected: t
 // retiredCauses are the settle causes only the saved-check machinery
 // recorded.
 var retiredCauses = map[v1alpha1.SettleCause]bool{v1alpha1.SettleReplayIncomplete: true}
+
+// evaluationSentences are maul's sentences about an evaluation under way,
+// by what they are: the held link, the workspace status and comment, and
+// the replies to /maul verify.
+func evaluationSentences() map[string]string {
+	held := &PreviewHandoff{State: HandoffHeld}
+	return map[string]string{
+		"held link":                handoffHeld("The preview"),
+		"workspace status, early":  workspaceStatusSentence(nil),
+		"workspace status, held":   workspaceStatusSentence(held),
+		"workspace comment, held":  workspaceCommentSentence(held, "`abc1234`"),
+		"verify requested":         requestedText(VerifyCommandNotice{Verb: "verify"}, "@alice"),
+		"verify requested, ws":     requestedText(VerifyCommandNotice{Verb: "verify", Workspace: true}, "@alice"),
+		"verify requested, after":  requestedText(VerifyCommandNotice{Verb: "verify", AfterRound: true}, "@alice"),
+		"preview, no preview":      noticeOrEmpty(VerifyCommandNotice{Verb: "preview", Outcome: VerifyPreviewNone}),
+		"accept, not being judged": noticeOrEmpty(VerifyCommandNotice{Verb: "accept", Outcome: VerifyAcceptNotChecked}),
+	}
+}
+
+// settleSentences are the words of every settle cause the observed
+// evaluator records, short and why, with and without a preview.
+func settleSentences() map[string]string {
+	out := map[string]string{}
+	for c := range settleWords {
+		if retiredCauses[c] {
+			continue
+		}
+		for _, ws := range []bool{false, true} {
+			w := CauseWords(c, ws)
+			out[fmt.Sprintf("settle %s short (workspace %v)", c, ws)] = w.Short
+			if w.Why != "" {
+				out[fmt.Sprintf("settle %s why (workspace %v)", c, ws)], _ = whyWords(w.Why, ws)
+			}
+		}
+	}
+	return out
+}
+
+// noticeOrEmpty is a Project with no preview's reply to n.
+func noticeOrEmpty(n VerifyCommandNotice) string {
+	text, _ := workspaceNoticeText(n, "`/maul "+n.Verb+"`")
+	return text
+}
 
 // TestVerdictWordsNeverOverstate: every string the observed evaluator's
 // surfaces build (its reasons, the outcome count, every hand-off label and
@@ -76,22 +125,11 @@ func TestVerdictWordsNeverOverstate(t *testing.T) {
 			}
 		}
 	}
-	check("held link", handoffHeld("The preview"))
-	check("workspace status, early", workspaceStatusSentence(nil))
-	check("workspace status, held", workspaceStatusSentence(&PreviewHandoff{State: HandoffHeld}))
-	check("workspace comment, held", workspaceCommentSentence(&PreviewHandoff{State: HandoffHeld}, "`abc1234`"))
-	for c := range settleWords {
-		if retiredCauses[c] {
-			continue
-		}
-		for _, ws := range []bool{false, true} {
-			w := CauseWords(c, ws)
-			check("settle "+string(c)+" short", w.Short)
-			if w.Why != "" {
-				words, _ := whyWords(w.Why, ws)
-				check("settle "+string(c)+" why", words)
-			}
-		}
+	for what, s := range evaluationSentences() {
+		check(what, s)
+	}
+	for what, s := range settleSentences() {
+		check(what, s)
 	}
 	for _, state := range []string{VerifyWaiting, VerifyRunning, VerifyPassed, VerifyFailing, VerifyExhausted,
 		VerifyUnavailable, VerifyPreviewNotLive, VerifyWaitingForCI, VerifyNeedsReplan, VerifyNotDeclared,
@@ -138,9 +176,10 @@ func TestObservedStatusFitsGitHub(t *testing.T) {
 			}
 		}
 	}
-	descriptions := make([]string, 0, 3+2*len(settleWords))
-	descriptions = append(descriptions, count, "maul couldn't confirm this: "+count+", but "+longestCause,
-		count+"; some accepted by hand by "+strings.Repeat("l", 39)+" and 19 others")
+	descriptions := make([]string, 0, 4+2*len(settleWords))
+	descriptions = append(descriptions, count, NotReadyLead+count+", but "+longestCause,
+		count+"; some accepted by hand by "+strings.Repeat("l", 39)+" and 19 others",
+		EvaluatingLead+"evaluation 9999, 20 outcomes, 99 of 99 automatic fixes used")
 	for c := range settleWords {
 		for _, ws := range []bool{false, true} {
 			descriptions = append(descriptions, CauseWords(c, ws).Short)

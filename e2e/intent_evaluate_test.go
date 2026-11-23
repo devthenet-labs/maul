@@ -57,7 +57,9 @@ const (
 	// linked once the preview is handed over.
 	previewHostSuffix = ".preview.maul.example.com"
 	// heldLink is what a held hand-off says in place of the link.
-	heldLink = "maul holds its link until it has checked the approved outcomes"
+	heldLink = "maul holds its link until its evaluator has looked at the approved outcomes"
+	// readyLabel is the label of a link released ready.
+	readyLabel = "Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded."
 )
 
 // versionOutcomes is the plan's two approved outcomes under the evaluator,
@@ -399,7 +401,7 @@ func (e *evalEnv) evaluatorJobs() []agentRun {
 // counts each pass on its cited call in the verified ledger (no check is
 // written, confirmed, reviewed or stored) and judges both outcomes seen to
 // hold. The hand-off is gated: while maul checks, maul/acceptance is pending
-// ("maul is checking this") and neither comment links the preview; once it
+// ("maul is evaluating this") and neither comment links the preview; once it
 // passes, both link it as ready, each outcome's row naming the call it
 // cites, and maul/acceptance is success.
 func TestIntentEvaluatePasses(t *testing.T) {
@@ -420,7 +422,7 @@ func TestIntentEvaluatePasses(t *testing.T) {
 		err := e.cl.client.Get(context.Background(), client.ObjectKeyFromObject(&pv), &cur)
 		return err == nil && cur.Status.Tools == nil && len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)) == 0
 	})
-	e.waitStatus(t, pr.HeadSHA, "pending", "maul is checking this")
+	e.waitStatus(t, pr.HeadSHA, "pending", "maul is evaluating this")
 	e.waitLinkHeld(t, name, number, pr.Number)
 	release()
 
@@ -447,11 +449,11 @@ func TestIntentEvaluatePasses(t *testing.T) {
 	host := name + previewHostSuffix
 	eventually(t, "the preview comment to link the preview as ready", func() bool {
 		body := e.previewComment(name, pr.Number)
-		return strings.Contains(body, "Ready: maul checked the approved outcomes.") && strings.Contains(body, host) &&
+		return strings.Contains(body, readyLabel) && strings.Contains(body, host) &&
 			strings.Count(body, "seen to hold by maul's evaluator; it cites call ") == 2
 	})
 	e.waitStatusComment(t, name, number, "the status comment to link the preview as ready", func(body string) bool {
-		return strings.Contains(body, "Ready: maul checked the approved outcomes.") && strings.Contains(body, host)
+		return strings.Contains(body, readyLabel) && strings.Contains(body, host)
 	})
 	eventually(t, "the settled tool Job deleted", func() bool {
 		var cur batchv1.Job
@@ -764,7 +766,7 @@ func TestIntentEvaluateEnvFailed(t *testing.T) {
 	if pv := e.round(t, name, 1); pv.Status.Phase != v1alpha1.VerificationEnvFailed {
 		t.Errorf("round 1 = %s, want EnvFailed", pv.Status.Phase)
 	}
-	e.waitStatus(t, pr.HeadSHA, "error", "maul couldn't confirm this")
+	e.waitStatus(t, pr.HeadSHA, "error", "maul can't call this ready")
 	consistently(t, "no fix round on the application's crash", func() bool {
 		return len(e.verifyRuns(t, name)) == 0
 	})
@@ -816,7 +818,7 @@ func TestIntentEvaluateUnverifiedLedger(t *testing.T) {
 // count (its own read of a log, and a seq the round's ledger does not
 // hold) passes nothing: every outcome is unsure on no valid evidence, the
 // verification Unconfirmed, no round follows by itself, the hand-off is
-// released as "maul couldn't confirm this", maul/acceptance an error, and
+// released as "maul can't call this ready", maul/acceptance an error, and
 // the comment shows the evaluator's note labelled as its words.
 func TestIntentEvaluateNoValidCitation(t *testing.T) {
 	e := startEvaluate(t, evalOptions{mode: "cite-logs"})
@@ -834,7 +836,7 @@ func TestIntentEvaluateNoValidCitation(t *testing.T) {
 	if v.Handoff == nil || !v.Handoff.Released || v.Handoff.Reason != v1alpha1.HandoffReasonUnconfirmed {
 		t.Errorf("handoff %+v, want released unconfirmed", v.Handoff)
 	}
-	e.waitStatus(t, pr.HeadSHA, "error", "maul couldn't confirm this")
+	e.waitStatus(t, pr.HeadSHA, "error", "maul can't call this ready")
 	eventually(t, "the verification comment to show the note as the evaluator's words", func() bool {
 		body := strings.Join(e.gh.Comments(number), "")
 		return strings.Contains(body, "cites no call of its own in this evaluation that maul counts") &&
@@ -956,7 +958,7 @@ func TestIntentEvaluateCeiling(t *testing.T) {
 		t.Errorf("phase %s, verify fixes %d, auto fix %+v; want in review, no fix spent, fixes armed",
 			in.Status.Phase, in.Status.VerifyFixes, v.AutoFix)
 	}
-	e.waitStatus(t, pr.HeadSHA, "error", "maul couldn't confirm this")
+	e.waitStatus(t, pr.HeadSHA, "error", "maul can't call this ready")
 	eventually(t, "the preview linked, out of budget", func() bool {
 		body := e.previewComment(name, pr.Number)
 		return strings.Contains(body, "it spent its evaluation budget") && strings.Contains(body, name+previewHostSuffix)

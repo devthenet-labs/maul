@@ -152,9 +152,9 @@ func TestJudgementRoutes(t *testing.T) {
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes seen to hold, but the preview failed while it was " +
+			description: "maul can't call this ready: 3/3 outcomes seen to hold, but the preview failed while it was " +
 				"checked",
-			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul couldn't confirm this: the preview failed while it " +
+			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul can't call this ready: the preview failed while it " +
 				"was checked; 0 of 2 automatic fixes used."},
 		// Review H3: maul's own machinery failing is never called the
 		// preview failing.
@@ -163,10 +163,10 @@ func TestJudgementRoutes(t *testing.T) {
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyInfra, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes seen to hold, but its own checking environment " +
-				"failed while it checked",
-			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul couldn't confirm this: its own checking environment " +
-				"failed while it checked; 0 of 2 automatic fixes used."},
+			description: "maul can't call this ready: 3/3 outcomes seen to hold, but its own evaluation environment " +
+				"failed during the evaluation",
+			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul can't call this ready: its own evaluation " +
+				"environment failed during the evaluation; 0 of 2 automatic fixes used."},
 		{name: "quarantined",
 			version: judged(oVersion, acceptance.ResultQuarantined, acceptance.ReasonQuarantined, ""),
 			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
@@ -320,12 +320,12 @@ func checkRouteViews(t *testing.T, p *pass, tc judgeRoute) {
 	// due) and once it could not confirm an outcome (final, never pending).
 	switch {
 	case tc.state == v1alpha1.VerificationUnconfirmed && tc.held == templates.HandoffHeld:
-		if !strings.HasPrefix(st.description, "maul is checking this") {
-			t.Errorf("maul/acceptance description %q, want maul is checking this", st.description)
+		if !strings.HasPrefix(st.description, templates.EvaluatingLead) {
+			t.Errorf("maul/acceptance description %q, want %q", st.description, templates.EvaluatingLead)
 		}
 	case tc.state == v1alpha1.VerificationUnconfirmed:
-		if !strings.HasPrefix(st.description, "maul couldn't confirm this") {
-			t.Errorf("maul/acceptance description %q, want maul couldn't confirm this", st.description)
+		if !strings.HasPrefix(st.description, templates.NotReadyLead) {
+			t.Errorf("maul/acceptance description %q, want %q", st.description, templates.NotReadyLead)
 		}
 	}
 	checkRouteHandoff(t, p, tc)
@@ -472,7 +472,7 @@ func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 		}
 	}
 	e.reviewUntil(name, func() bool { return strings.Contains(e.statusBody(), "**Preview:** Ready") })
-	if body := e.statusBody(); !strings.Contains(body, "Ready: maul checked the approved outcomes.") ||
+	if body := e.statusBody(); !strings.Contains(body, templates.ReadyLabel) ||
 		!strings.Contains(body, previewHostOf(name)) {
 		t.Errorf("status comment does not hand over the link labelled ready:\n%s", body)
 	}
@@ -597,7 +597,9 @@ func TestEvaluationFailureStartsAFix(t *testing.T) {
 
 // liveShapedFailingReport is failingReport as the live evaluators wrote
 // reports on 0.13.7 (S1 bug 5): each verdict names its outcome as outcome,
-// and the proposal names the file it ran as file, with no digest.
+// and the retired lists are written empty. (Its proposal naming a file is
+// gone: a report writing a retired key now claims nothing,
+// TestRetiredReportKeysNeverPass.)
 const liveShapedFailingReport = `---
 verdicts:
   - outcome: "version-shown"
@@ -608,10 +610,7 @@ verdicts:
     verdict: pass
     ledger: [3]
 disputes: []
-proposed:
-  - id: "still-healthy.again"
-    outcome: "still-healthy"
-    file: "/work/scratch/checks/still-healthy-again.json"
+proposed: []
 retire: []
 anomalies: []
 ---

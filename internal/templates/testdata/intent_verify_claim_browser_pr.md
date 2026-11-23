@@ -1,11 +1,11 @@
 <!-- maul:notice maul/marigold-3 preview -->
 ### maul: preview
 
-maul couldn't confirm this: the evaluator judged 1 outcome not to hold, but cited no evidence maul counts. This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com), under `/api`.
+maul can't call this ready: the evaluator judged 1 outcome not to hold, but cited no evidence maul counts. This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com), under `/api`.
 
 #### maul: acceptance checks
 
-Evaluation 2: maul couldn't confirm every outcome: 4/5 outcomes seen to hold, 0 of 2 automatic fixes used.
+Evaluation 2: maul can't call this ready: 4/5 outcomes seen to hold, 0 of 2 automatic fixes used.
 
 - `saved-line-readable` (`change`): unsure: maul couldn't confirm it; the evaluator says it does not hold, but no check maul re-ran shows it. The Saved line is readable on the panel.
 

@@ -164,8 +164,8 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 // in a state that counts outcomes: success only once every approved outcome
 // is confirmed or an approver accepted it at the current heads, naming who
 // accepted; pending while maul evaluates, or a dispute's replay round or the
-// head set's escalation is due ("maul is checking this"); error once maul could not confirm an
-// outcome ("maul couldn't confirm this"), final until an approver accepts
+// head set's escalation is due (templates.EvaluatingLead); error once maul gave up on an
+// outcome (templates.NotReadyLead), final until an approver accepts
 // it or the heads move; failure while an outcome fails, until an approver
 // accepts every outcome maul did not confirm there (outcomesReady, as the
 // hand-off reads it: code review 2026-11-18, rounds 11). ok is false in
@@ -190,7 +190,7 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 		if evaluable(acc.Outcomes) {
 			// Nothing to evaluate is never what an outcome maul evaluates
 			// says (CX-1): no success without its evaluation.
-			return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed}, true
+			return acceptanceState{statusError, templates.NotReadyLead + confirmed}, true
 		}
 		// Counted now, never from counts a pass may not have made.
 		n := *v
@@ -212,7 +212,7 @@ func (p *pass) evaluationStatus() (acceptanceState, bool) {
 		}
 		// Final until an approver accepts what maul could not confirm, or
 		// the heads move: never a pending status that waits for nothing.
-		return acceptanceState{statusError, "maul couldn't confirm this: " + confirmed + p.unconfirmedCause()}, true
+		return acceptanceState{statusError, templates.NotReadyLead + confirmed + p.unconfirmedCause()}, true
 	case v1alpha1.VerificationFailing:
 		switch {
 		case v.AutoFix.State == v1alpha1.AutoFixHalted:
@@ -251,7 +251,7 @@ func (p *pass) unconfirmedCause() string {
 
 // checkingStatus is the pending status of an evaluation round under way.
 func checkingStatus(round, outcomes, used, most int32) acceptanceState {
-	return acceptanceState{statusPending, fmt.Sprintf("maul is checking this: evaluation %d, %d %s, %d of %d "+
+	return acceptanceState{statusPending, fmt.Sprintf(templates.EvaluatingLead+"evaluation %d, %d %s, %d of %d "+
 		"automatic %s used", round, outcomes, plural(outcomes, "outcome", "outcomes"), used, most,
 		plural(most, "fix", "fixes"))}
 }

@@ -192,25 +192,17 @@ func callText(c VerifyCitedCall, workspace bool) string {
 
 // callTextWithin is callText with its output cut to outMax bytes.
 func callTextWithin(c VerifyCitedCall, workspace bool, outMax int) string {
-	what, ok := verbWords[c.Verb]
-	if !ok {
-		what = shown(c.Verb)
-	}
-	if w, ok := checkRunWords[c.Mode]; ok && c.Verb == "check-run" {
-		what = w
-	}
-	head := fmt.Sprintf("Call %d, %s", c.Seq, what)
-	if c.Base {
-		head += " at the base"
-	}
-	if c.Own {
-		head += ownWords(c.Verb)
-	}
-	lines := []string{head + ":"}
+	return callTextIn(c, workspace, verifyClaimInputMaxBytes, outMax)
+}
+
+// callTextIn is callText with what it sent cut to inMax bytes and its
+// output to outMax.
+func callTextIn(c VerifyCitedCall, workspace bool, inMax, outMax int) string {
+	lines := []string{callHead(c, true) + ":"}
 	if c.Verb == "check-run" {
 		return strings.Join(append(lines, checkCallLines(c, workspace)...), "\n")
 	}
-	lines = append(lines, sentLines(c.Input)...)
+	lines = append(lines, sentLinesWithin(c.Input, inMax)...)
 	switch c.Verb {
 	case "exec", "run", "browser":
 		lines = append(lines, fmt.Sprintf("Exit status: %d", c.Exit))
@@ -228,18 +220,43 @@ func callTextWithin(c VerifyCitedCall, workspace bool, outMax int) string {
 	return strings.Join(lines, "\n")
 }
 
-// ownWords label a call that ran the evaluator's own page script or program
-// (owner decision 1): it counts, and the reviewers are told whose it is.
-func ownWords(verb string) string {
-	if verb == "browser" {
-		return ", the evaluator's own page script, and what it returned"
+// callHead is how a comment names call c: its seq, what kind of call it
+// was, at the base where it was, and the evaluator's own where it ran a
+// page script or program of its own (owner decision 1: it counts, and the
+// reviewers are told whose it is); returned adds that what it returned
+// follows.
+func callHead(c VerifyCitedCall, returned bool) string {
+	what, ok := verbWords[c.Verb]
+	if !ok {
+		what = shown(c.Verb)
 	}
-	return ", the evaluator's own program, and what it returned"
+	if w, ok := checkRunWords[c.Mode]; ok && c.Verb == "check-run" {
+		what = w
+	}
+	head := fmt.Sprintf("Call %d, %s", c.Seq, what)
+	if c.Base {
+		head += " at the base"
+	}
+	if !c.Own {
+		return head
+	}
+	if c.Verb == "browser" {
+		head += ", the evaluator's own page script"
+	} else {
+		head += ", the evaluator's own program"
+	}
+	if returned {
+		head += ", and what it returned"
+	}
+	return head
 }
 
 // sentLines are a call's request as sent, bounded; none when empty.
-func sentLines(input string) []string {
-	if in := strings.TrimSpace(cutRunes(visibleText(input), verifyClaimInputMaxBytes)); in != "" {
+func sentLines(input string) []string { return sentLinesWithin(input, verifyClaimInputMaxBytes) }
+
+// sentLinesWithin are sentLines cut to inMax bytes.
+func sentLinesWithin(input string, inMax int) []string {
+	if in := strings.TrimSpace(cutRunes(visibleText(input), inMax)); in != "" {
 		return []string{"Sent: " + in}
 	}
 	return nil

@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Preview:** Ready: maul checked the approved outcomes. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 1 passed: 3/3 outcomes seen to hold.
+**Preview:** Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 1 passed: 3/3 outcomes seen to hold.
 
 **Commands now:** `/maul cancel`
 

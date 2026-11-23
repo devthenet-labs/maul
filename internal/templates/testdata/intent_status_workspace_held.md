@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul is checking the approved outcomes in its own build of the pull request, and holds its hand-off to the reviewers until it has. An approver's review asking for changes or `/maul revise` on a pull request, or a push maul did not make, hands it over now. Evaluation 1 running: 0 of 2 automatic fixes used.
+**Evaluation:** maul's evaluator is looking at the approved outcomes in its own build of the pull request, and maul holds its hand-off to the reviewers until it has. An approver's review asking for changes or `/maul revise` on a pull request, or a push maul did not make, hands it over now. Evaluation 1 running: 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

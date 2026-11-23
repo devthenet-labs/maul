@@ -1,7 +1,7 @@
 <!-- maul:notice maul/bbcount-96 verify-r2 -->
 ### maul: verification 2, attempt 1
 
-Evaluation 2: maul couldn't confirm every outcome: 0/1 outcomes seen to hold, 0 of 0 automatic fixes used.
+Evaluation 2: maul can't call this ready: 0/1 outcomes seen to hold, 0 of 0 automatic fixes used.
 
 | Check | Kind | Outcome |
 | --- | --- | --- |

@@ -175,7 +175,7 @@ func TestHandoffDoubtedWords(t *testing.T) {
 	} {
 		tt.h.State = HandoffUnconfirmed
 		got := handoffLabel(tt.h)
-		if want := "maul couldn't confirm this: " + tt.want; got != want {
+		if want := "maul can't call this ready: " + tt.want; got != want {
 			t.Errorf("%+v = %q, want %q", tt.h, got, want)
 		}
 		for _, claim := range []string{"fail", "defect"} {
@@ -201,8 +201,8 @@ func TestUnconfirmedCause(t *testing.T) {
 		{HandoffWhyEnvironment, false, handoffWhyWords[HandoffWhyEnvironment]},
 		{HandoffWhyEnvironment, true, workspaceWhyWords[HandoffWhyEnvironment]},
 		// Review H3: maul's own environment failing is never the preview.
-		{HandoffWhyInfra, false, "its own checking environment failed while it checked"},
-		{HandoffWhyInfra, true, "its own checking tools failed while it checked"},
+		{HandoffWhyInfra, false, "its own evaluation environment failed during the evaluation"},
+		{HandoffWhyInfra, true, "its own tools failed during the evaluation"},
 		{HandoffWhySuspected, false, ""},
 		{HandoffWhyUnsure, false, ""},
 		{HandoffWhyBudget, false, ""},
@@ -224,7 +224,7 @@ func TestUnconfirmedCause(t *testing.T) {
 // the one table, and an anomaly beside it is named after it as on a
 // previewed Project (the special case it replaces dropped it).
 func TestWorkspaceEnvironmentLabel(t *testing.T) {
-	const tools = "maul couldn't confirm this: its own checking tools failed while it checked"
+	const tools = "maul can't call this ready: its own tools failed during the evaluation"
 	for _, tt := range []struct {
 		h    PreviewHandoff
 		want string
@@ -261,7 +261,7 @@ func TestHandoffSuspectedLeads(t *testing.T) {
 		tt.h.State = HandoffUnconfirmed
 		for _, workspace := range []bool{false, true} {
 			got := labelIn(tt.h, workspace)
-			if want := "maul couldn't confirm this: " + tt.want; got != want {
+			if want := "maul can't call this ready: " + tt.want; got != want {
 				t.Errorf("%+v (workspace %v) = %q, want %q", tt.h, workspace, got, want)
 			}
 		}

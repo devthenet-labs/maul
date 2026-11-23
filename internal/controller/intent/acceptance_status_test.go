@@ -75,7 +75,7 @@ func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
 	e, name, head, version, health := evaluatingIntent(t)
 	e.review(name, 1)
 	if s := e.latestAcceptance(head); s.State != statusPending || !strings.HasPrefix(s.Description,
-		"maul is checking this") {
+		templates.EvaluatingLead) {
 		t.Fatalf("while evaluating: %+v", s)
 	}
 	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)

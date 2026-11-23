@@ -428,14 +428,18 @@ func defectConfirmed(v *v1alpha1.IntentVerification) bool {
 }
 
 // evaluationClaims is run's evaluator report, nil for none (a replay round)
-// or one that does not parse: an unreadable report claims nothing.
+// or one that does not parse: an unreadable report claims nothing, and so
+// does one writing a key the observed evaluator retired.
 func evaluationClaims(run *v1alpha1.IntentRun) *report.Evaluation {
 	if run == nil || run.Status.Phase != v1alpha1.RunComplete || run.Status.Report == "" ||
 		len(run.Status.Report) > maxEvaluationReports {
 		return nil
 	}
 	ev, err := report.ParseEvaluation([]byte(run.Status.Report))
-	if err != nil {
+	if err != nil || ev.CarriesRetiredKeys() {
+		// A report writing a retired key (contrary, disputes, proposed,
+		// retire) claims nothing, as one the decoder refuses: a pass beside
+		// the evaluator's own contrary seqs is never judged passed.
 		return nil
 	}
 	return ev

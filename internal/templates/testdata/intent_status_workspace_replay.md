@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul couldn't confirm this: it could not re-run every check it saved.
+**Evaluation:** maul can't call this ready: it could not re-run every check it saved.
 
 **Commands now:** `/maul cancel`
 

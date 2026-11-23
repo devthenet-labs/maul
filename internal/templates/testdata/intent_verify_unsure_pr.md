@@ -1,11 +1,11 @@
 <!-- maul:notice maul/marigold-3 preview -->
 ### maul: preview
 
-maul couldn't confirm this: some outcomes are unsure. This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com), under `/api`.
+maul can't call this ready: some outcomes are unsure. This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com), under `/api`.
 
 #### maul: acceptance checks
 
-Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes seen to hold, 0 of 2 automatic fixes used.
+Evaluation 1: maul can't call this ready: 1/2 outcomes seen to hold, 0 of 2 automatic fixes used.
 
 - `light-sets-swing` (`change`): confirmed; maul's check: `browser: goto /, click button Light; 1 expectation`. Light sets the Swing slider to 20.
 - `presets-visible-clickable` (`change`): unsure: maul couldn't confirm it; no check maul re-ran covers it. The presets sit right after the Swing slider, visible and clickable.

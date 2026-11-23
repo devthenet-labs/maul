@@ -203,7 +203,7 @@ func TestHandoffWhyOfVerification(t *testing.T) {
 func TestOutcomeReasonWordsS2(t *testing.T) {
 	for reason, want := range map[string]string{
 		acceptance.ReasonNotAsserted: "the program failed without asserting anything about the change",
-		acceptance.ReasonBuildFailed: "couldn't confirm: the build did not finish",
+		acceptance.ReasonBuildFailed: "the build did not finish, so nothing was seen",
 		// S2-20: a check that passed, withheld by its base runs alone.
 		acceptance.ReasonNoBaseEvidence: "its check passed, but its runs at the base do not tell the change " +
 			"from its absence",

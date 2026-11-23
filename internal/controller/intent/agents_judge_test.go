@@ -177,7 +177,7 @@ func TestAgentsReasonsRendered(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"the program failed without asserting anything about the change",
-		"couldn't confirm: the build did not finish"} {
+		"the build did not finish, so nothing was seen"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the verification comment does not say %q:\n%s", want, body)
 		}

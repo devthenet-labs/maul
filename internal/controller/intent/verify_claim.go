@@ -14,6 +14,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -100,11 +101,15 @@ type roundCalls struct {
 	index  []v1alpha1.LedgerIndexEntry
 	lines  map[int64]toolwire.LedgerEntry
 	agents bool
+	binary string
 }
 
 // roundCalls are pv's calls as maul shows them.
 func (p *pass) roundCalls(ctx context.Context, pv *v1alpha1.PreviewVerification) roundCalls {
 	rc := roundCalls{lines: map[int64]toolwire.LedgerEntry{}, agents: pv.Spec.IsAgents()}
+	if ws := pv.Spec.Workspace; ws != nil && ws.Surface.CLI != nil {
+		rc.binary = ws.Surface.CLI.Binary
+	}
 	if pv.Status.Ledger != nil {
 		rc.index = pv.Status.Ledger.Entries
 	}
@@ -145,14 +150,18 @@ func (rc roundCalls) call(seq int32) templates.VerifyCitedCall {
 func (rc roundCalls) sent(seq int32) (templates.VerifyCitedCall, toolwire.LedgerEntry, bool) {
 	c := templates.VerifyCitedCall{Seq: int64(seq)}
 	ix, indexed := rc.indexed(seq)
-	if indexed {
-		c.Verb, c.Base, c.Exit = string(ix.Verb), ix.Side == v1alpha1.TreeBase, int(ix.Exit)
-	}
-	e, ok := rc.lines[int64(seq)]
-	if !indexed || !ok || e.OutputSHA256 != ix.ResultSHA256 || string(e.Verb) != c.Verb {
+	if !indexed {
 		return c, toolwire.LedgerEntry{}, false
 	}
-	c.Input, c.Own = string(e.Args), ownCall(e, rc.agents)
+	c.Verb, c.Base, c.Exit = string(ix.Verb), ix.Side == v1alpha1.TreeBase, int(ix.Exit)
+	e, ok := rc.lines[int64(seq)]
+	if !ok || e.OutputSHA256 != ix.ResultSHA256 || string(e.Verb) != c.Verb {
+		// The label rests on the verified index, and on a line only where
+		// the verb needs one (toolledger.OwnCall).
+		c.Own = toolledger.OwnCall(ix.Verb, nil, rc.agents, rc.binary)
+		return c, toolwire.LedgerEntry{}, false
+	}
+	c.Input, c.Own = string(e.Args), toolledger.OwnCall(ix.Verb, e.Args, rc.agents, rc.binary)
 	return c, e, true
 }
 
@@ -172,23 +181,4 @@ func (rc roundCalls) sentBefore(seq int32) []templates.VerifyCitedCall {
 		}
 	}
 	return out
-}
-
-// ownCall reports a call that ran a script or program the evaluator wrote,
-// which the comments label as its own (owner decision 1): a browser eval,
-// a Go program (run), and on a slot round any exec (the toolbox sandbox
-// runs only what the evaluator sends it). On an agents round an exec runs
-// maul's build of the commit, or anything else on the image, which is not
-// the evaluator's own program.
-func ownCall(e toolwire.LedgerEntry, agents bool) bool {
-	switch e.Verb {
-	case toolwire.VerbRun:
-		return true
-	case toolwire.VerbExec:
-		return !agents
-	case toolwire.VerbBrowser:
-		var req toolwire.BrowserRequest
-		return json.Unmarshal(e.Args, &req) == nil && req.Verb == "eval"
-	}
-	return false
 }

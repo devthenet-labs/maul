@@ -13,7 +13,7 @@ import (
 )
 
 // heldText is what a held link says in its place.
-const heldText = "maul holds its link until it has checked the approved outcomes"
+const heldText = "maul holds its link until its evaluator has looked at the approved outcomes"
 
 // TestHandoffMaxReleasesOutOfTime: a gated hand-off holds the link while
 // the evaluation runs, its clock started when the first evaluation was
@@ -159,7 +159,7 @@ func TestEarlyHandoffKeepsSliceOne(t *testing.T) {
 	}
 	link := "[`" + previewHostOf(name) + "`](https://" + previewHostOf(name) + ")"
 	e.reviewUntil(name, func() bool { return strings.Contains(e.statusBody(), "**Preview:** "+link) })
-	for _, label := range []string{heldText, "Ready:", "couldn't confirm", "still checking"} {
+	for _, label := range []string{heldText, "Ready:", "can't call this ready", "still looking"} {
 		if strings.Contains(e.statusBody(), label) {
 			t.Errorf("an early hand-off's status comment says %q", label)
 		}

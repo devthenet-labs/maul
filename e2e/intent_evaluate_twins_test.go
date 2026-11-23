@@ -119,7 +119,7 @@ func TestIntentEvaluateHumanPushAndAccept(t *testing.T) {
 		func(v *v1alpha1.IntentVerification) bool {
 			return v.Passed == 2 && v.ManualOpen == 1 && v.Handoff != nil && v.Handoff.Released
 		})
-	e.waitStatus(t, pr.HeadSHA, "error", "maul couldn't confirm this")
+	e.waitStatus(t, pr.HeadSHA, "error", "maul can't call this ready")
 	consistently(t, "nothing green before the manual outcome is accepted", func() bool {
 		st, _ := e.gh.LatestStatus(pr.HeadSHA, acceptanceStatus)
 		return st.State != "success"

@@ -169,7 +169,7 @@ func TestVerifyObservedBoundsTheCalls(t *testing.T) {
 			t.Errorf("row o-%d is not shown whole", i)
 		}
 	}
-	if !strings.Contains(big, evidenceCutLead) || !strings.Contains(big, "cited calls") {
-		t.Errorf("the section does not say it left cited calls out:\n%.400s", big[len(big)-400:])
+	if !strings.Contains(big, evidenceCutLead) || !strings.Contains(big, "cited call bodies") {
+		t.Errorf("the section does not say it left cited call bodies out:\n%.400s", big[len(big)-400:])
 	}
 }

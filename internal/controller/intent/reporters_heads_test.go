@@ -169,7 +169,7 @@ func TestReportersRefuseAJudgementAtOtherHeads(t *testing.T) {
 // movedHeadsChecks: with the pull request's head moved past the judged
 // heads (recorded on the pull request alone), no comment presents the old
 // round's result as current: the status comment's progress and every
-// verification section read "checking the new commits" and carry no
+// verification section read "evaluating the new commits" and carry no
 // result, and the issue's verification comment is neither posted nor
 // edited while the heads differ (review SM-1). judged is the word the old
 // result is shown by.
@@ -198,7 +198,7 @@ func (e *env) movedHeadsChecks(name, judged string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(body, judged) || !strings.Contains(body, "checking the new commits") {
+		if strings.Contains(body, judged) || !strings.Contains(body, "evaluating the new commits") {
 			t.Errorf("section with the head moved shows the old judgement:\n%s", body)
 		}
 	}

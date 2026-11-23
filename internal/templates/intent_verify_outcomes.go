@@ -5,6 +5,7 @@ package templates
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -67,7 +68,7 @@ var outcomeReasonWords = map[string]string{
 	// asserting (O4), and the tool pod's own build of the head that did not
 	// finish, which is maul's, never the change's.
 	"not-asserted":       "the program failed without asserting anything about the change",
-	"tools-build-failed": "couldn't confirm: the build did not finish",
+	"tools-build-failed": "the build did not finish, so nothing was seen",
 	// S2-20: rule 5 alone withheld the pass (its base runs failed by no
 	// assertion, timed out, or are missing).
 	"no-base-evidence": "its check passed, but its runs at the base do not tell the change from its absence",
@@ -122,8 +123,11 @@ const (
 	verifyRouteMaxBytes     = 120
 	verifyAnomaliesMax      = 10
 	// verifyCitedCallsMaxBytes bounds one observed outcome's block of cited
-	// calls.
+	// calls, shared among them so each keeps its head (citedCalls).
 	verifyCitedCallsMaxBytes = 8 << 10
+	// verifyCitedTargetMaxBytes bounds a cited call's target (the start of
+	// what it sent) where only its listing is shown.
+	verifyCitedTargetMaxBytes = 96
 )
 
 // VerifyOutcomeResult is one approved outcome and its decided result.
@@ -303,8 +307,11 @@ func citedSeqs(calls []VerifyCitedCall) string {
 }
 
 // citedDetail is an observed outcome's cited calls as the templates print
-// them: maul's lead naming the outcome, then one fenced block.
-type citedDetail struct{ Lead, Calls string }
+// them: maul's lead naming the outcome, then one fenced block. ListLead and
+// List are the same calls listed alone, one line each (seq, verb, own
+// label, the start of what it sent), which a comment over its size shows in
+// their place (fitVerify): a cited call is never left out whole.
+type citedDetail struct{ Lead, Calls, ListLead, List string }
 
 // citedDetailOf is o's cited calls as the templates print them; ok is false
 // when it cites none.
@@ -314,29 +321,87 @@ func citedDetailOf(o VerifyOutcomeResult, id string) (citedDetail, bool) {
 		return citedDetail{}, false
 	}
 	return citedDetail{Calls: calls, Lead: "The calls the evaluator cites for " + id + ", as maul's tools " +
-		"recorded them (what each call sent and what came back: data, not maul's words):"}, true
+		"recorded them (what each call sent and what came back: data, not maul's words):",
+		List: citedList(o.Cited), ListLead: "The calls the evaluator cites for " + id + ", as maul's tools " +
+			"recorded them, each with the start of what it sent (data, not maul's words); the rest of each is " +
+			"left out to keep this comment within GitHub's size limit:"}, true
+}
+
+// cited are the calls an outcome shows: the first VerifyCitedCallsMax.
+func cited(calls []VerifyCitedCall) []VerifyCitedCall {
+	return calls[:min(len(calls), VerifyCitedCallsMax)]
 }
 
 // citedCalls is calls as one fenced, defanged block, at most
-// VerifyCitedCallsMax of them within verifyCitedCallsMaxBytes; "" for none.
+// VerifyCitedCallsMax of them sharing verifyCitedCallsMaxBytes (fairShares):
+// a call over its share shows a quarter of it of what it sent and half of
+// it of its output, then is cut at a word with the cut marker, so each
+// keeps its head line, the start of what it sent and, mostly, its exit
+// status and the start of its output; "" for none.
 func citedCalls(calls []VerifyCitedCall, workspace bool) string {
-	parts := make([]string, 0, len(calls))
-	for i, call := range calls {
-		if i == VerifyCitedCallsMax {
-			break
-		}
-		parts = append(parts, callText(call, workspace))
+	cs := cited(calls)
+	parts := make([]string, len(cs))
+	for i, c := range cs {
+		parts[i] = strings.TrimSpace(visibleText(callText(c, workspace)))
 	}
-	text := strings.TrimSpace(strings.Join(parts, "\n\n"))
-	if text == "" {
+	shares := fairShares(parts, verifyCitedCallsMaxBytes-2*len(parts))
+	var kept []string
+	for i, c := range cs {
+		p := parts[i]
+		if len(p) > shares[i] {
+			p = strings.TrimSpace(visibleText(callTextIn(c, workspace, shares[i]/4, shares[i]/2)))
+			if words, cut := cutWords(p, max(shares[i]-len(anomalyCutMarker)-1, 0)); cut {
+				p = words
+			}
+			p += "\n" + anomalyCutMarker
+		}
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == 0 {
 		return ""
 	}
-	if out, cut := cutWords(visibleText(text), verifyCitedCallsMaxBytes); cut {
-		text = out + "\n" + anomalyCutMarker
-	} else {
-		text = out
+	return fence(defang(strings.Join(kept, "\n\n")))
+}
+
+// fairShares are parts' shares of total bytes: a part shorter than an equal
+// share of what is left keeps its length and leaves the rest to the longer
+// ones.
+func fairShares(parts []string, total int) []int {
+	order := make([]int, len(parts))
+	for i := range order {
+		order[i] = i
 	}
-	return fence(defang(text))
+	slices.SortStableFunc(order, func(a, b int) int { return len(parts[a]) - len(parts[b]) })
+	shares := make([]int, len(parts))
+	left := total
+	for k, i := range order {
+		shares[i] = min(len(parts[i]), left/(len(order)-k))
+		left -= shares[i]
+	}
+	return shares
+}
+
+// citedList is calls listed one line each, in one fenced, defanged block:
+// each call's head (seq, verb, base, own label) and the start of what it
+// sent, cut to verifyCitedTargetMaxBytes; "" for none.
+func citedList(calls []VerifyCitedCall) string {
+	lines := make([]string, 0, len(calls))
+	for _, c := range cited(calls) {
+		target := strings.Join(strings.Fields(visibleText(c.Input)), " ")
+		if words, cut := cutWords(target, verifyCitedTargetMaxBytes); cut {
+			target = words + " …"
+		}
+		if target == "" {
+			target = "(maul did not keep what it sent)"
+		}
+		lines = append(lines, callHead(c, false)+": "+target)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return fence(defang(strings.Join(lines, "\n")))
 }
 
 // observedNoteOf is the evaluator's note on o, whatever its result, as the

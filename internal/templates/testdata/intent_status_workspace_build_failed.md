@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul couldn't confirm this: its own build of the pull request did not finish. Evaluation 1: maul couldn't confirm every outcome: 0/2 outcomes seen to hold, 0 of 2 automatic fixes used.
+**Evaluation:** maul can't call this ready: its own build of the pull request did not finish. Evaluation 1: maul can't call this ready: 0/2 outcomes seen to hold, 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

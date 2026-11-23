@@ -257,7 +257,7 @@ func TestIntentAgentsCLIPasses(t *testing.T) {
 	})
 	release := e.kubelet.holdToolsReady(t)
 	number, name, pr := e.agentsToEvaluating(t)
-	e.waitStatus(t, pr.HeadSHA, "pending", "maul is checking this")
+	e.waitStatus(t, pr.HeadSHA, "pending", "maul is evaluating this")
 	pv := e.checkHeldToolPod(t, name)
 	release()
 
@@ -278,7 +278,7 @@ func TestIntentAgentsCLIPasses(t *testing.T) {
 	checkSeenAtHead(t, e.agentsVerification(t, name), in.Status.Verification, pr.HeadSHA)
 	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	e.waitStatusComment(t, name, number, "the status comment to say ready with no link", func(body string) bool {
-		return strings.Contains(body, "Ready: maul checked the approved outcomes.") &&
+		return strings.Contains(body, readyLabel) &&
 			!strings.Contains(body, previewHostSuffix)
 	})
 	e.checkNoPreview(t)
@@ -665,7 +665,7 @@ func TestIntentAgentsBaseCiteNeverCounts(t *testing.T) {
 	}) {
 		t.Errorf("index %+v, want the evaluator's base run recorded at the base", pv.Status.Ledger.Entries)
 	}
-	e.waitStatus(t, pr.HeadSHA, "error", "maul couldn't confirm this: 0/1 outcomes seen to hold")
+	e.waitStatus(t, pr.HeadSHA, "error", "maul can't call this ready: 0/1 outcomes seen to hold")
 	if len(e.verifyRuns(t, name)) != 0 {
 		t.Errorf("a fix round started on an unsure outcome: %s", e.describeRuns(t, name))
 	}

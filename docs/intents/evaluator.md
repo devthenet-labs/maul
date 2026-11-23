@@ -179,7 +179,7 @@ the evaluator's run (`[maul-tool time left]`).
 10. **Judge.** maul decides each outcome by the rules below, then routes the round: all confirmed and a clean preview:
     **ready**, whatever look-around anomalies the evaluator noted. A failure the evaluator agrees with: a verify-fix
     round. A dispute: one more round at the same heads, a replay when it can pass every outcome. An unsure replay round:
-    one full round at the same heads. Anything else: **maul couldn't confirm this**. A failing environment keeps the
+    one full round at the same heads. Anything else: **maul can't call this ready**. A failing environment keeps the
     round from ready even when every outcome passed, and no later acceptance by an approver changes that at the same
     heads. A replay round whose `tools` finished before its replay's end (its wall clock, or its container told to stop)
     is maul's trouble (`Infra`, `replay-incomplete`), never judged.
@@ -515,7 +515,7 @@ way, a dispute, a fix, an objection from the evaluator (a fail verdict or a cont
 environment. Those stay as they are, for a person or a fix round. The recheck spends the head set's one escalation, so a
 later unsure round at the same heads asks for nothing by itself. On a Project with no preview, a recheck (or any
 automatic follow-up round) that can no longer run at those heads, because the accepted image is gone, settles as "maul
-couldn't confirm this" instead of waiting.
+can't call this ready" instead of waiting.
 
 | Round                                            | Model spend          |
 | ------------------------------------------------ | -------------------- |
@@ -614,21 +614,21 @@ what is shown proves nothing, and to judge every outcome the fix may touch with 
 
 The hand-off is when people get the preview link and hear that the change is ready.
 
-| Mode              | The link                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gated` (default) | Held until the evaluation decides. The status comment says "The preview is live, and maul holds its link until it has checked the approved outcomes." It is then released as "Ready: maul checked the approved outcomes." once every outcome is confirmed (or accepted by an approver), whatever notes the evaluator made, or as "maul couldn't confirm this: ..." with the reason |
-| `early`           | Posted as soon as the preview runs the heads, labelled as still being checked: slice 1's behaviour                                                                                                                                                                                                                                                                                 |
+| Mode              | The link                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gated` (default) | Held until the evaluation decides. The status comment says "The preview is live, and maul holds its link until its evaluator has looked at the approved outcomes." It is then released as "Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded." once every outcome is confirmed (or accepted by an approver), whatever notes the evaluator made, or as "maul can't call this ready: ..." with the reason |
+| `early`           | Posted as soon as the preview runs the heads, labelled as still being checked: slice 1's behaviour                                                                                                                                                                                                                                                                                                                                        |
 
 `gated` holds the link at most `handoffMax` (default 60 minutes, 10 minutes to 4 hours), counted from when CI first went
-green at the first pull request heads; past it the link is released as "maul couldn't confirm this: it ran out of time".
+green at the first pull request heads; past it the link is released as "maul can't call this ready: it ran out of time".
 **A human always wins:** an approver's changes-requested review or `/maul revise` or `/maul retry` on a pull request, a
-push maul did not make, or `/maul preview` releases the link at once ("Shown while maul is still checking the approved
-outcomes."), even before the first evaluation has started, and maul goes on checking. A plain comment, `/maul verify`
-and `/maul verify fix` do not release it. The pull requests open as usual, not as drafts, so GitHub still notifies their
-watchers; maul only holds its own words. A released link is labelled "Ready" only while the pull requests are at the
-heads maul judged: after a push it reads as still being checked until a round is about the new heads.
+push maul did not make, or `/maul preview` releases the link at once ("Shown while maul's evaluator is still looking at
+the approved outcomes."), even before the first evaluation has started, and maul goes on checking. A plain comment,
+`/maul verify` and `/maul verify fix` do not release it. The pull requests open as usual, not as drafts, so GitHub still
+notifies their watchers; maul only holds its own words. A released link is labelled "Ready" only while the pull requests
+are at the heads maul judged: after a push it reads as still being checked until a round is about the new heads.
 
-"maul couldn't confirm this" names one reason:
+"maul can't call this ready" names one reason:
 
 | Reason                                                                         | Meaning                                                                                 |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -641,14 +641,14 @@ heads maul judged: after a push it reads as still being checked until a round is
 | its sandbox was not enforced                                                   | the evaluator's strict probe found DNS, the API server, metadata or the internet open   |
 | it suspects a defect in `<id>`, which a person should confirm                  | a check saved red fails at these heads; maul waits for an approver's `/maul verify fix` |
 | the preview failed while it was checked                                        | a component crashed, was evicted or ran out of memory during the round                  |
-| its own checking environment failed while it checked                           | maul's tools or the cluster failed during the round, not the change                     |
+| its own evaluation environment failed during the evaluation                    | maul's tools or the cluster failed during the round, not the change                     |
 | it could not re-run every check it saved                                       | a replay round ended before every saved check ran                                       |
 | it could not run its checks                                                    | maul's own machinery failed every attempt                                               |
 
 A suspected defect leads, then the outcomes in doubt. A look-around anomaly is never a reason: it is a note in the
 comment. When every outcome was confirmed or accepted and only a failing environment kept the round unconfirmed, the
-commit status and the progress line name that cause instead of reading as all confirmed, for example "maul couldn't
-confirm this: 3/3 outcomes confirmed, but the preview failed while it was checked".
+commit status and the progress line name that cause instead of reading as all confirmed, for example "maul can't call
+this ready: 3/3 outcomes seen to hold, but the preview failed while it was checked".
 
 "Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
 not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.
@@ -744,7 +744,7 @@ before the turns, and lower the turns with a smaller `limits.evaluate.maxCostMic
   for the round that decided them, at the heads it checked: a round that settles without a judgement (its attempts all
   failed, or maul's own build of the head did not finish) lists every outcome as `unsure`, with no earlier round's
   results, and a push clears them until the new heads are judged: from the pass that sees the push, the status comment
-  and the sticky comments read "maul is checking the new commits" with no result, and the last round's verification
+  and the sticky comments read "maul is evaluating the new commits" with no result, and the last round's verification
   comment is left as it stood, about the heads it checked.
 - **In the cluster.** Each round is a `PreviewVerification` in the release namespace
   (`kubectl get previewverifications -l maul.run/intent=<intent>`; maul keeps the newest three per intent). Its
@@ -780,7 +780,7 @@ tells the change from its absence.
 It is off by default: chart `intentController.verification.agents.enabled` (intent-controller
 `--intent-evaluator-agents`), beside the evaluator, with repository images on; previews need not be. Off, such a Project
 carries `VerificationOff` (reason `AgentsToolPodNotEnabled`) and its plans are not asked for outcomes; switched off
-under open intents, their views stay link-less and say "maul couldn't confirm this", never offering a preview. The
+under open intents, their views stay link-less and say "maul can't call this ready", never offering a preview. The
 operator's side (the pod, its privileges, capacity and rollback) is in
 [the agents tool pod](../configuration/intent-controller.md#the-agents-tool-pod).
 
@@ -810,8 +810,8 @@ spec:
   directory. A library's build is `go build ./...`. `maul check project` checks the surface, the build and the profile
   before anything runs (checks `surface`, `surface-build`, `surface-profile`).
 - **The image.** Both sandboxes run the image the repository's latest build ran in (its accepted pin), never one the
-  pull request declares. A repository with no accepted image is never evaluated: the round settles "maul couldn't
-  confirm this: the repository has no accepted runner image to build the pull request in", never a block, and while
+  pull request declares. A repository with no accepted image is never evaluated: the round settles "maul can't call this
+  ready: the repository has no accepted runner image to build the pull request in", never a block, and while
   `--repository-images` is off the Project shows `RepositoryImageRequired` from the start. An approver's `/maul verify`
   at commits an earlier round already judged changes nothing when the round cannot run (no accepted image, a tree that
   cannot be fetched, the evaluation budget spent): that round's result stands, on every surface, and the reply says the
@@ -930,8 +930,8 @@ on).
   `SandboxImageUnavailable` beside the state `Unconfirmed`. A round whose every attempt ended with its tool pod's
   sandbox open, its tool pod lost (evicted, past its deadline, or unable to keep its build) or its replay cut short is
   `Unavailable` and records `SandboxUnenforced`, `ToolsLost` or `ReplayIncomplete`, which the hand-off and the
-  `maul/acceptance` status name. A failing environment there reads "its own checking tools failed while it checked",
-  never a preview.
+  `maul/acceptance` status name. A failing environment there reads "its own tools failed during the evaluation", never a
+  preview.
 - **A suspected defect's note** names the held hand-off, not a preview link, and only while it is held; its known limits
   are those of the exec and run checks a workspace runs.
 - **In the cluster.** The round is a `PreviewVerification` with `spec.placement: agents` and its `spec.workspace` (the

@@ -12,13 +12,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestAcceptanceStatusWhileEvaluating (S1-29): an intent the evaluator
 // verifies has its maul/acceptance posted through the digest-deduped path
-// while it is Evaluating, pending in maul's words ("maul is checking this"),
+// while it is Evaluating, pending in maul's words (templates.EvaluatingLead),
 // and once its evaluations spent their ceiling with nothing confirmed
-// (Unconfirmed), a final error ("maul couldn't confirm this"), never a
+// (Unconfirmed), a final error (templates.NotReadyLead), never a
 // pending status that waits for nothing.
 func TestAcceptanceStatusWhileEvaluating(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
@@ -29,9 +30,9 @@ func TestAcceptanceStatusWhileEvaluating(t *testing.T) {
 	head := e.get(name).Status.PullRequests[0].HeadSHA
 	e.review(name, 1)
 	st := e.latestAcceptance(head)
-	if st.State != statusPending || !strings.HasPrefix(st.Description, "maul is checking this") ||
+	if st.State != statusPending || !strings.HasPrefix(st.Description, templates.EvaluatingLead) ||
 		len(st.Description) > 140 {
-		t.Fatalf("maul/acceptance while evaluating = %+v, want pending, maul is checking this", st)
+		t.Fatalf("maul/acceptance while evaluating = %+v, want pending, %q", st, templates.EvaluatingLead)
 	}
 	n := len(e.acceptanceStatuses(head))
 	e.review(name, 2)
@@ -67,8 +68,8 @@ func TestAcceptanceStatusWhileEvaluating(t *testing.T) {
 		t.Fatalf("verification = %+v, want Unconfirmed past the ceiling", v)
 	}
 	st = e.latestAcceptance(head)
-	if st.State != statusError || !strings.HasPrefix(st.Description, "maul couldn't confirm this") ||
+	if st.State != statusError || !strings.HasPrefix(st.Description, templates.NotReadyLead) ||
 		len(st.Description) > 140 {
-		t.Errorf("maul/acceptance once unconfirmed = %+v, want a final error, maul couldn't confirm this", st)
+		t.Errorf("maul/acceptance once unconfirmed = %+v, want a final error, %q", st, templates.NotReadyLead)
 	}
 }

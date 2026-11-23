@@ -166,7 +166,7 @@ func verifyRestingLine(state string) (line string, whole bool) {
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
 	case VerifyHeadsMoved:
-		return "The pull requests moved to new commits: maul is checking the new commits, and the last result, " +
+		return "The pull requests moved to new commits: maul is evaluating the new commits, and the last result, " +
 			"about earlier commits, is not shown.", true
 	case VerifyPreviewNotLive:
 		return "Verification unavailable: the preview did not become live at the pull requests' heads in time, so " +
@@ -240,11 +240,11 @@ func verifyLine(p VerifyProgress) string {
 	case VerifyRunning, VerifyEvaluating:
 		head = which + " running: " + join(counts, fixes)
 	case VerifyUnconfirmed:
-		head = which + ": maul couldn't confirm every outcome: " + join(counts, fixes)
+		head = which + ": " + NotReadyLead + join(counts, fixes)
 		if cause := UnconfirmedCause(p.Why, p.Workspace); cause != "" && p.Total > 0 && p.Passing == p.Total {
 			// Every outcome confirmed: the cause, not the counts, is why
 			// maul could not confirm the round (review H2).
-			head = which + ": " + counts + ", but maul couldn't confirm this: " + cause + "; " + fixes
+			head = which + ": " + counts + ", but " + NotReadyLead + cause + "; " + fixes
 		}
 	case VerifyPassed:
 		head = passed
@@ -639,7 +639,13 @@ func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 	w := v
 	w.Notes = slices.Clone(v.Notes)
 	w.Outcomes, w.Claims, w.UnsureNotes, w.Anomalies, w.Logs = nil, nil, nil, nil, nil
-	w.Cited, w.EvaluatorNotes = nil, nil
+	w.EvaluatorNotes = nil
+	// A cited section left out is still listed: each call's head and the
+	// start of what it sent, maul's own words' share (FA 4).
+	w.Cited = make([]citedDetail, len(v.Cited))
+	for i, c := range v.Cited {
+		w.Cited[i] = citedDetail{Lead: c.ListLead, Calls: c.List}
+	}
 	var left [pieceLog + 1]int
 	for i, p := range ps {
 		if !keep[i] {
@@ -650,7 +656,7 @@ func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 		case pieceAppOutput:
 			w.Outcomes = append(w.Outcomes, v.Outcomes[p.index])
 		case pieceCited:
-			w.Cited = append(w.Cited, v.Cited[p.index])
+			w.Cited[p.index] = v.Cited[p.index]
 		case pieceEvaluatorNote:
 			w.EvaluatorNotes = append(w.EvaluatorNotes, v.EvaluatorNotes[p.index])
 		case pieceClaim:
@@ -678,7 +684,8 @@ func cutNote(left [pieceLog + 1]int, shortened bool) string {
 		one, many string
 	}{
 		{pieceAppOutput, "app output", "app outputs"},
-		{pieceCited, "outcome's cited calls", "outcomes' cited calls"},
+		{pieceCited, "outcome's cited call bodies (each call is still listed)",
+			"outcomes' cited call bodies (each call is still listed)"},
 		{pieceEvaluatorNote, "evaluator's note", "evaluator's notes"},
 		{pieceClaim, "evaluator's claim maul could not confirm", "evaluator's claims maul could not confirm"},
 		{pieceUnsureNote, "evaluator's note on an outcome it was unsure of",

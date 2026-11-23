@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The agent evaluator's switches, commands, conditions and grants are stated
@@ -24,7 +25,7 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			"maul-tool http", "maul-tool browser", "maul-tool exec", "maul-tool logs", "maul-tool events",
 			"maul-tool check run", "{{run}}", "proves", "dispute", "Look-around",
 			string(v1alpha1.HandoffGated), string(v1alpha1.HandoffEarly), "handoffMax", "/maul preview",
-			"maul couldn't confirm this", "Ready: maul checked the approved outcomes",
+			strings.TrimSuffix(templates.NotReadyLead, ": "), templates.ReadyLabel,
 			v1alpha1.ConditionEvaluatorUnverified, "--intent-evaluate-codex", "unverified",
 			"maxEvaluateCostMicroUSD", "maxToolCalls", "limits.evaluate", "limits.checkReview",
 			"-ledger", "-evidence", "-checks-", "status.ledger",

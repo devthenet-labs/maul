@@ -1,7 +1,7 @@
 <!-- maul:notice maul/marigold-3 preview -->
 ### maul: preview
 
-Ready: maul checked the approved outcomes. This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com).
+Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded. This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com).
 
 #### maul: acceptance checks
 

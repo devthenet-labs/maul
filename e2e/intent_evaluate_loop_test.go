@@ -495,7 +495,7 @@ func TestIntentEvaluateWithoutStatusesWrite(t *testing.T) {
 	}
 	eventually(t, "the preview comment to link the preview as ready", func() bool {
 		body := e.previewComment(name, pr.Number)
-		return strings.Contains(body, "Ready: maul checked the approved outcomes.") &&
+		return strings.Contains(body, readyLabel) &&
 			strings.Contains(body, name+previewHostSuffix)
 	})
 	consistently(t, "no maul/acceptance on the head", func() bool {

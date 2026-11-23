@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul couldn't confirm this: it could not fetch the source of the pull request or of its base.
+**Evaluation:** maul can't call this ready: it could not fetch the source of the pull request or of its base.
 
 **Commands now:** `/maul cancel`
 
