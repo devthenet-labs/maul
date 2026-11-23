@@ -117,7 +117,12 @@ A report repair of such a build resumes its session without the grant, `Agent` d
 A build granted workflows as well (its Job also carries `MAUL_BUILD_WORKFLOWS=true`, under intent-controller's
 `--intent-build-workflows`, which needs `--intent-build-subagents`) also takes `Workflow` off the deny list and allows
 it, since the permission mode refuses a workflow no rule allows. The `--settings` value then leaves workflows on and
-holds a workflow's agents to at most four at once, the rest waiting their turn. Measured on the pinned CLI:
+holds a workflow's agents to at most four at once, the rest waiting their turn. Workflows are off by default, and an
+operator allows them or not. Two limits come with allowing them, both the CLI's and not closable by maul today, and both
+accepted rather than fixed: a workflow script can run another script from any file the run can read, one the run wrote
+in the tree or under HOME included (a direct `Workflow` call with a script path is ended by the stream check only after
+it starts), and a workflow always runs in the background, so its end wakes the session for another round, bounded by the
+cost budget and the wall clock. Subagents have neither limit. Measured on the pinned CLI:
 
 - A workflow runs in the background whatever the switches say: the call returns at once, and the workflow's end wakes
   the session, a second result event.

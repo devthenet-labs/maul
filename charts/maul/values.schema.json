@@ -2110,7 +2110,7 @@
                         },
                         "workflows": {
                             "type": "boolean",
-                            "description": "Also let them run inline and built-in workflows (MAUL_INTENT_BUILD_WORKFLOWS); does nothing unless enabled"
+                            "description": "Off by default. Also let them run inline and built-in workflows (MAUL_INTENT_BUILD_WORKFLOWS); does nothing unless enabled. Accepted limits of the claude CLI that subagents do not have: a workflow script can run another script from a file the run wrote (a direct script-path call is ended only after it starts), and a workflow always runs in the background, so its end wakes the build again until the cost budget or the wall clock stops it"
                         }
                     }
                 },

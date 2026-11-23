@@ -31,12 +31,14 @@ import (
 // Workflow tool or from a script's own workflow(): the CLI's built-in ones
 // alone, since the tree's .claude is not read and HOME, read once at the
 // start, holds none; a workflow the run's shell writes under HOME, one
-// shadowing a built-in name included, is not found. It also pins the hole
-// the CLI leaves, which nothing on this pin closes: a script path reads any
-// file the run may read, the tree's included, whether the Workflow call
+// shadowing a built-in name included, is not found. It also pins accepted
+// limit (a), the hole the CLI leaves, which nothing on this pin closes and
+// the owner accepted on 2026-11-23 rather than fixed: a script path reads
+// any file the run may read, the tree's included, whether the Workflow call
 // names it or an inline script's own workflow() does. The run's delegation
 // check ends a run whose call names one, after the fact; a nested one it
-// does not see.
+// does not see. The ship gate pins accepted limit (b): a workflow runs in
+// the background and its end wakes the session for a second result.
 //
 // The concurrency case and its control show the bound queues a workflow's
 // agents at ClaudeWorkflowConcurrency, and that without the levers five run
@@ -56,8 +58,8 @@ func probeWorkflows(t *testing.T, cli string) {
 			probeWorkflowsHeld,
 		},
 		{
-			"workspace-write with workflows: only built-in workflows are found by name; a script path, direct or " +
-				"nested, still runs",
+			"workspace-write with workflows: only built-in workflows are found by name; accepted limit: a script " +
+				"path, direct or nested, still runs",
 			probeWorkflowsSources,
 		},
 		{"workspace-write with workflows: four agents run at once and the fifth waits", probeWorkflowsConcurrency},
@@ -121,6 +123,8 @@ func probeWorkflowsHeld(t *testing.T, cli string) {
 			t.Errorf("%s: result %s, want the web tool unavailable", id, text)
 		}
 	}
+	// Accepted limit (b): a workflow runs in the background whatever the
+	// switches say, and its end wakes the session for another round.
 	if got.resultEvents != 2 {
 		t.Errorf("%d result events, want two: the run's turn, then the wake the workflow's end makes",
 			got.resultEvents)
@@ -206,11 +210,12 @@ func probeWorkflowsSources(t *testing.T, cli string) {
 			}
 		}
 	}
-	// The hole: the CLI runs a tree's script by its path, named by the call
-	// or by an inline script's own workflow(). The run's delegation check
-	// refuses the call that names one, as it refuses every call for a
-	// workflow by a name not built in, and passes the rest, the nested path
-	// among them: it cannot be told from any inline script.
+	// Accepted limit (a), not a property maul holds: the CLI runs a tree's
+	// script by its path, named by the call or by an inline script's own
+	// workflow(). The run's delegation check refuses the call that names one,
+	// as it refuses every call for a workflow by a name not built in, and
+	// passes the rest, the nested path among them: it cannot be told from any
+	// inline script.
 	if !got.childAsked(wf("repo")) {
 		t.Error("the tree's workflow did not run by its path: the CLI now refuses it, and the probe needs updating")
 	}

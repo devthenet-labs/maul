@@ -190,6 +190,22 @@ unchanged. What the posture allows and refuses, as measured on the pinned CLI, i
 [Isolation](../deployment/isolation.md#agent-tool-postures): the build's own tools and no web at every depth, subagents
 in the foreground at depth 1 on the run's model, and no workflow found by name but a built-in one.
 
+Workflows are a setting you allow or not. Off by default, a build may not start a workflow at all, and a run that tries
+is ended. Turned on, a build may start an inline workflow (a script it writes in the call) or one of the CLI's built-in
+workflows, whose agents get the run's tools and model and no web. Two limits come with it. Both are the claude CLI's,
+and maul cannot close them today; they are accepted, not fixed:
+
+- **A workflow can run a script from a file.** A workflow script that calls `workflow({ scriptPath })` runs that file,
+  including one the run itself wrote in the repository or under HOME, and maul cannot see it happen. A `Workflow` call
+  that names a script path itself also runs: agent-runner ends the run when the call shows on the stream, but only after
+  the CLI has started it. A workflow is never found by name in the repository or under HOME, and a file-loaded
+  workflow's agents are held to the same tools, model, web refusal and cost budget as any other.
+- **A workflow always runs in the background.** Its end wakes the build for another round after the build's turn has
+  ended, so the build keeps going until the cost budget or the wall clock stops it.
+
+Subagents have neither limit: they run in the foreground, so their end wakes nothing, and a subagent is never loaded
+from a file the run wrote, in the repository or under HOME.
+
 Both need the egress broker to count cost (`--broker-limit-unit cost`; Helm: `egressBroker.limits.unit: cost` with a
 `costPerPod`). Without it the controller refuses to start and the chart refuses to render. Workflows also need
 subagents. The reason is that, with delegation on, the run's cost budget (`spec.grant.budgetMicroUSD`) is the one limit

@@ -227,7 +227,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   lease is adopted whatever its record (`sameRound`); `jobs.ErrSubagentsRefused` settles `launch_refused`.
   `--intent-build-workflows` (default off; refused without `--intent-build-subagents`) records `spec.grant.workflows`
   beside subagents (CEL: only with them) and launches `jobs.Spec.BuildWorkflows` only while both flags are on
-  (`RunReconciler.buildWorkflows`), narrowed and adopted the same way. Chart `intentController.buildSubagents.enabled`
+  (`RunReconciler.buildWorkflows`), narrowed and adopted the same way. Workflows are an operator's choice with two
+  ACCEPTED limits of the claude CLI (owner, 2026-11-23), which subagents do not have: a workflow script's
+  `workflow({scriptPath})` runs that file, one the run wrote in the tree or HOME included (a direct `Workflow{scriptPath}`
+  call is ended by the stream check only after it starts; lookup by name of tree/HOME workflows is closed), and a
+  workflow always runs in the background, its end waking the session for another round (bounded by the cost budget and
+  the wall clock). Chart `intentController.buildSubagents.enabled`
   and `.workflows` (off, no key renders; `enabled` fails the render without `egressBroker.limits.unit: cost`, and off
   it turns both off). What each limit means with them on (the cost budget and the wall clock hold; turns and the live
   token count are floors; a workflow's agents are not counted) is in

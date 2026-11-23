@@ -1286,14 +1286,20 @@ intentController:
     # egressBroker.limits.concurrentPerPod set, keep it at least 5 (four
     # subagents and the run's own calls), more with workflows.
     #
-    # workflows (needs enabled) also lets those runs start the CLI's
-    # workflows, inline and built-in ones. Their limits are weaker: a
-    # workflow's agents count against neither the turn grant nor the token
-    # limit, their tokens are recorded only when the run ends, and the
-    # transcript shows only that a workflow started and finished, so the cost
-    # budget and the stage's wall clock are the only live bounds. A workflow
-    # read from a file is not refused on the pinned CLI
-    # (docs/deployment/isolation.md).
+    # workflows (off by default; needs enabled) also lets those runs start
+    # the CLI's workflows, inline and built-in ones, whose agents get the
+    # run's tools and model and no web. Allow it knowing two limits of the
+    # claude CLI that maul cannot close today, accepted rather than fixed:
+    # (a) a workflow script that calls workflow({scriptPath}) runs that
+    # file, even one the run wrote in the repository or under HOME, and a
+    # Workflow call naming a script path is ended only after it starts;
+    # (b) a workflow always runs in the background, so its end wakes the
+    # build for another round, until the cost budget or the wall clock
+    # stops it. Subagents have neither limit. A workflow's agents also count
+    # against neither the turn grant nor the token limit, their tokens are
+    # recorded only when the run ends, and the transcript shows only that a
+    # workflow started and finished, so the cost budget and the stage's wall
+    # clock are the only live bounds (docs/deployment/isolation.md).
     #
     # Each run records its grant at creation and launches with it only while
     # the switch is still on, so turning enabled (or workflows) off narrows
