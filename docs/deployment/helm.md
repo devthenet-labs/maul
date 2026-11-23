@@ -144,10 +144,12 @@ annotations `meta.helm.sh/release-name=<release>` and `meta.helm.sh/release-name
 | `preview.nodeIsolation.ephemeralStorage`                 | `20Gi`, 3000 IOPS, 125 MiB/s | Each node's ephemeral storage                                                                                                                                                                                                                                                |
 
 `previewController.config.targetHealth` defaults to `true`: a Preview turns `Ready` only once the load balancer reports
-each component's target healthy, because the slot namespaces opt into Auto Mode's readiness-gate injection. Previews
-require Auto Mode, which was seen injecting the gate on a live preview, and without the gate the host answers 404 or
-nothing for several seconds after an ungated `Ready`. Set it to `false` only if Auto Mode stops injecting the gate
-(every rollout then times out, naming the missing gate).
+each component's target healthy, because the slot namespaces opt into Auto Mode's readiness-gate injection. The preview
+ALB path (`preview.legacyIngress: true`, the default) requires Auto Mode, which was seen injecting the gate on a live
+preview, and without the gate the host answers 404 or nothing for several seconds after an ungated `Ready`. With
+`preview.legacyIngress: false` previews are served by the [preview gateway](../configuration/preview-gateway.md) on any
+cluster, and `targetHealth` is ignored. Set it to `false` only if Auto Mode stops injecting the gate (every rollout then
+times out, naming the missing gate).
 
 **Upgrading from 0.12.15 or earlier**, where the default was `false`: an install with previews on that never set
 `targetHealth` turns it on. The slot namespaces gain the gate-injection label and the preview-controller restarts with

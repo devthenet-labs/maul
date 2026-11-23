@@ -151,8 +151,7 @@ but the publisher role, or an SCP.
 
 With the platform module ([Deploying, step 4](deploying.md#4-terraform-phase-1)), add an `apps` entry keyed by the slug.
 Where the platform half is managed elsewhere, use the app module on its own. `init app` prints this block, pinned to its
-release, with the values only GitHub knows left as placeholders beside the `gh` command that reads each (0.12.16's
-`init app` prints no block, and a `gh variable set` command per variable):
+release, with the values only GitHub knows left as placeholders beside the `gh` command that reads each:
 
 ```hcl
 module "maul_app_shop_web" {

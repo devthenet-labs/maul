@@ -1,9 +1,9 @@
 # status-server
 
 The status page backend: the embedded web dashboard over the `Finding` state machine and the `FindingRollup` statistics,
-the sign-in surface, and the three human actions (approve, suspend, resume). It is a server, not a controller — it runs
-no reconcilers and takes no leases; a controller-runtime cache gives it live watches, and an SSE stream tells open
-browsers to refetch when anything changes.
+the sign-in surface, and the five human actions on a finding (approve, retry, expedite, suspend, resume). It is a
+server, not a controller — it runs no reconcilers and takes no leases; a controller-runtime cache gives it live watches,
+and an SSE stream tells open browsers to refetch when anything changes.
 
 ```sh
 status-server serve --namespace maul --auth-config /etc/maul/auth/config.yaml
@@ -231,17 +231,17 @@ Per-user grants are ordinary Kubernetes RBAC, resolved server-side with `Subject
 (users need no kubeconfig and never talk to the API server):
 
 - native `get` on `findings` gates **viewing** the findings surface;
-- the **custom verbs** `approve`, `suspend`, `resume` on `findings.maul.run` gate the action buttons, one verb per
-  button.
+- the **custom verbs** `approve`, `retry`, `expedite`, `suspend`, `resume` on `findings.maul.run` gate the action
+  buttons, one verb per button.
 
 Grants are namespace-scoped and stamped into the payload as each finding's `userActions`; the client intersects them
 with the finding's own state machine, and every `POST` is re-checked server-side. See
 `deploy/kustomize/base/rbac.users.example.yaml` for ready-made viewer / approver / operator tiers.
 
 The server's own ServiceAccount is deliberately narrow: `findings` read + **spec** write (approve records
-`spec.approval`; suspend/resume toggle `spec.suspend` — it never writes `findings/status` and never moves a phase; the
-owning controllers react to the spec change), `findingrollups` read, and cluster-scoped `subjectaccessreviews create`
-for the reviews.
+`spec.approval`, retry `spec.retry` and expedite `spec.expedite`; suspend/resume toggle `spec.suspend` — it never writes
+`findings/status` and never moves a phase; the owning controllers react to the spec change), `findingrollups` read, and
+cluster-scoped `subjectaccessreviews create` for the reviews.
 
 Every spec write the server makes (an action button, the user menu's replay and reset, and the Config view's backfill
 trigger) is a JSON merge patch of only the field it sets, carrying the resource version it was decided on, so a write

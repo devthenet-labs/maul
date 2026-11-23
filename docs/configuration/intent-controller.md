@@ -10,7 +10,7 @@ design, its security posture and the roadmap are in [Intent-driven development](
 
 ```sh
 intent-controller serve --namespace maul \
-  --claude-agent-image ghcr.io/devthenet-labs/maul/claude-agent-runner:v0.12.0 \
+  --claude-agent-image ghcr.io/devthenet-labs/maul/claude-agent-runner:vX.Y.Z \
   --broker-url http://maul-egress-broker.maul.svc.cluster.local:8080
 ```
 

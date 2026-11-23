@@ -43,8 +43,9 @@ agent builds it and opens the pull request, and a human merges it. Kubernetes cu
 | `status-server`            | The human-facing status page: findings, intents and usage views, OIDC sign-in, the RBAC-gated actions                                      |
 | `maul`                     | The workstation CLI: list, review and act on findings and intents over your own kubeconfig — never through a controller                    |
 
-Optional extras — `egress-proxy` (dependency access for agents), `preview-auth` (preview sign-in) and
-`evaluation-controller` (remote skill evaluation) — are described in [AGENTS.md](AGENTS.md).
+Optional extras: [`egress-proxy`](docs/configuration/egress-proxy.md) (dependency access for agents),
+[`preview-auth`](docs/configuration/preview-auth.md) (preview sign-in and the preview gateway) and
+[`evaluation-controller`](docs/configuration/evaluation-controller.md) (remote skill evaluation).
 
 See [DESIGN.md](DESIGN.md) for the full requirements and the state machine, and [AGENTS.md](AGENTS.md) for a map of the
 repository. Full documentation — getting started, configuration and deployment references — lives at
@@ -72,23 +73,27 @@ make e2e     # envtest + the real binaries, driven by recorded webhooks against 
 
 ## Deploying
 
-Container images and kustomize manifests live in [`deploy/`](deploy/); `deploy/README.md` covers the GitHub App setup,
-the secrets and custom resources to create, and how the agent's isolation actually works.
-
-```sh
-kubectl apply -k deploy/kustomize/overlays/dev
-```
-
-Helm charts rendering the same stack are published to OCI on every release — [`charts/maul`](charts/maul/README.md) is
-the stack; [`charts/maul-config`](charts/maul-config/README.md) carries the Integration/Forge custom resources,
+Helm is the supported path. The charts are published to OCI on every release: [`charts/maul`](charts/maul/README.md) is
+the stack, and [`charts/maul-config`](charts/maul-config/README.md) carries the Integration/Forge custom resources,
 installed as a second release once the CRDs exist:
 
 ```sh
 helm install maul oci://ghcr.io/devthenet-labs/maul/charts/maul --namespace maul --create-namespace
 ```
 
-Once maul runs, connecting a GitHub organization and adding its Projects is five commands, each printing the next:
+The [quick start](docs/getting-started/quick-start.md) chains the whole install for a new organization with intents, and
+[Install with Helm](docs/getting-started/install.md) is the chart install step by step. Once maul runs, connecting a
+GitHub organization and adding its Projects is five commands, each printing the next:
 [Add a GitHub organization or a Project](docs/intents/add-an-organization.md).
+
+Kustomize manifests render the same stack from [`deploy/`](deploy/); `deploy/README.md` covers the GitHub App setup, the
+secrets and custom resources to create, and how the agent's isolation actually works. Its `dev` overlay is a local
+cluster with the fake harness and throwaway credentials, for development only
+([Kustomize](docs/deployment/kustomize.md)):
+
+```sh
+kubectl apply -k deploy/kustomize/overlays/dev
+```
 
 ## The CLI
 
@@ -109,5 +114,6 @@ command reference.
 
 ## Status
 
-All components are implemented and tested end to end. The context enhancer is a deliberate placeholder — the plugin seam
-(`pkg/enhance`) and a YAML-backed static enhancer ship, and a real CMDB integration implements the same interface.
+All components are implemented and tested end to end. The context enhancers look up Google Cloud labels and AWS and
+Azure resource tags, call any number of generic HTTP enhancers, and read a static YAML file that maps repositories to
+owners; a CMDB integration plugs in through the same `pkg/enhance` seam or the generic HTTP contract.

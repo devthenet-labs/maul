@@ -1,7 +1,9 @@
 # The maul CLI
 
-`maul` works with the pipeline's custom resources from a terminal: list findings, read what an agent concluded, and
-approve or suspend work.
+`maul` works with maul's custom resources from a terminal. It reads intents, their runs and Projects; lists findings,
+shows what an agent concluded and acts on them (approve, retry, expedite, suspend, resume); and reports usage. It also
+sets an install up and checks it: it creates the GitHub App, writes Projects, scaffolds an application repository's
+agent image, sets up previews, and checks images, Projects and the preview install.
 
 It talks to the Kubernetes API with **your** kubeconfig — never through a controller, and never through the status
 server. There is no maul-specific auth, no separate endpoint to expose, and no service account acting on your behalf:
@@ -15,11 +17,11 @@ This page is the tour. For every command, flag and default, generated from the b
 The supported install is the `maul-cli` archive attached to each release of
 [`devthenet-labs/maul`](https://github.com/devthenet-labs/maul/releases), for linux, macOS and windows on amd64 and
 arm64. Install the CLI of the release your cluster runs: `init app` and `check image --run` pin images to the CLI's own
-release, and `init app` the terraform module too. [Deploying intents and previews](intents/deploying.md) needs 0.12.16
+release, and `init app` the terraform module too. [Deploying intents and previews](intents/deploying.md) needs 0.14.13
 or later; the newest release is `gh release view --repo devthenet-labs/maul --json tagName --jq .tagName`.
 
 ```sh
-version=X.Y.Z        # the release you deploy, without the v: 0.12.16 or later
+version=X.Y.Z        # the release you deploy, without the v: 0.14.13 or later
 os=darwin arch=arm64 # linux | darwin, amd64 | arm64 (windows: see below)
 gh release download "v$version" --repo devthenet-labs/maul \
   --pattern "maul-cli_${version}_${os}_${arch}.tar.gz" \
@@ -53,7 +55,7 @@ maul --version
 The identity is the reusable release workflow in `bitwise-media-group/github-workflows`, which signs on behalf of the
 repository it runs for; `--certificate-github-workflow-repository` and `--certificate-github-workflow-sha` pin that to
 `devthenet-labs/maul` at the release's commit. Each prints `Verified OK`, and `maul --version` then names the release
-(`maul version 0.12.16 (...)`).
+(`maul version 0.14.15 (...)`).
 
 On Windows (`os=windows`, in a POSIX shell such as Git Bash) the archive is the same `.tar.gz`, but the binaries in it
 are `maul.exe` and `kubectl-maul.exe`: the bundles keep their names (`maul_windows_amd64.sigstore.json`), so pass
@@ -786,8 +788,6 @@ terraform output -raw maul_app_hello_web_variables | gh variable set -f - --repo
 terraform output -json github_variables_dotenv | jq -r '."hello-web"' | gh variable set -f - --repo acme/Hello.Web
 gh variable set AGENT_PUBLISH_ENABLED --repo acme/Hello.Web --body true
 ```
-
-(0.12.16's `init app` prints no module block, and a `gh variable set` command per variable instead.)
 
 Set them on the repository, never on the organization: an organization variable reaches every repository that has these
 workflows, a template repository and each copy of it included. [Onboarding an application](intents/onboarding-app.md) is

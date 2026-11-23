@@ -7,7 +7,7 @@ in severity order, parses the `MAUL-EVENT:` stream, stamps the results, and rout
 
 ```sh
 investigation-controller serve --namespace maul \
-  --claude-agent-image ghcr.io/devthenet-labs/maul/claude-agent-runner:v0.9.0 # match your installed release
+  --claude-agent-image ghcr.io/devthenet-labs/maul/claude-agent-runner:vX.Y.Z # your installed release
 ```
 
 ## Pipeline flags
