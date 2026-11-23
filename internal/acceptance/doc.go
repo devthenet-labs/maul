@@ -16,7 +16,11 @@
 // tools ledger's runs, the check reviewer's answers and the evaluator's
 // claims go in, a result per outcome, at most one fix request and the
 // hand-off come out (DESIGN 4.3's pass rules; base_comparison.go is rule
-// 5's reading of an agents round's base runs). EvaluationFingerprint
+// 5's reading of an agents round's base runs). Judge (judge.go) is the
+// observed evaluator's rule that is to replace it, not yet called: an
+// outcome passes or fails on the evaluator's verdict only when that verdict
+// cites an entry ValidCite admits from the round's verified ledger, and
+// OutcomeFingerprint names its failures. EvaluationFingerprint
 // (fingerprint.go) names a round's failure for RepeatedFailure detection,
 // from ids, digests and the environment's failing parts only, never a value
 // an application chose to print; httpstep.ClassifyEnvironment sorts an
