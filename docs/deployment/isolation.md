@@ -114,6 +114,35 @@ contradicting every switch). Only a managed settings file, which only a reposito
 defined in the tree's `.claude` are not found. One defined under HOME is, but it is held to the same tools and refusals.
 A report repair of such a build resumes its session without the grant, `Agent` denied.
 
+A build granted workflows as well (its Job also carries `MAUL_BUILD_WORKFLOWS=true`, under intent-controller's
+`--intent-build-workflows`, which needs `--intent-build-subagents`) also takes `Workflow` off the deny list and allows
+it, since the permission mode refuses a workflow no rule allows. The `--settings` value then leaves workflows on and
+holds a workflow's agents to at most four at once, the rest waiting their turn. Measured on the pinned CLI:
+
+- A workflow runs in the background whatever the switches say: the call returns at once, and the workflow's end wakes
+  the session, a second result event.
+- Its agents have a subset of the run's tools, never `Agent` or `Workflow`. The one exception is `StructuredOutput`, the
+  tool a built-in workflow's agent returns its result with. They are refused every denied tool, the web tools included,
+  and run on the run's own model, an explicit model option included.
+- A name, from the call or from a script's own `workflow()`, finds only the CLI's built-in workflows (`deep-research`)
+  and those under HOME, which the CLI reads once, when the run starts and HOME holds none. The tree's
+  `.claude/workflows` is not read, and a workflow the run's own shell writes under HOME is not found, even one named
+  like a built-in.
+- A `scriptPath` reads a script from any file the run may read, the tree's and HOME's included, whether the call names
+  it or an inline script's own `workflow({ scriptPath })` does. No permission rule of the CLI's refuses that without
+  refusing reads, so only lookup by name is closed: a workflow read from a file is not, on this CLI. The agent runner's
+  stream check ends a run whose call asks for a workflow by a script path, a resumed run, a run operation or a name that
+  is not a built-in one, at that line, `budget_exceeded`, after the fact (the CLI may already be starting it, but
+  nothing the run did is packaged). It cannot see a script loading another from a file. Such a script reads nothing the
+  run's own `Read` could not, and its agents are held to the same posture and budget.
+
+Its limits are weaker than a subagent's, and that is accepted: a workflow's agents print no turns on the stream, so the
+turn grant does not count them, the live token budget does not see them, and the transcript shows only that a workflow
+started and finished. Their tokens reach the stage's record only from the result at the end. While they run, the egress
+broker's per-run cost budget (which the flag's `--broker-limit-unit cost` requires) and the stage's wall clock are what
+bound them. A workflow's progress counts as progress for the idle watchdog, so a run waiting on a working one is not
+ended for silence. A report repair runs without workflows, `Workflow` denied.
+
 An Agent call's `isolation: "worktree"` is an argument, not a tool, so no deny reaches it: the child runs in a git
 worktree the CLI adds at `.claude/worktrees/agent-<id>` in the tree, on a branch of its own (measured on the pinned CLI
 with the posture above). Before a granted build's report is read, the agent runner removes every worktree under the
@@ -132,8 +161,11 @@ run and on a report repair's resume, and that the workspace-write posture refuse
 cron job, a worktree and a monitor (no subagent's command runs, and the run ends with a single result). Granted
 subagents, every subagent of every built-in type and of a definition planted under HOME may be offered only the tools
 the run is offered, is refused the denied ones, and runs in the foreground at depth 1 on the run's model, at most four
-at once, even after the run writes user settings that try to undo that. The probe uses a scripted model on loopback and
-no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture changes).
+at once, even after the run writes user settings that try to undo that. Granted workflows, an inline workflow's agents
+are held to the run's tools and model and refused the web, at most four run at once, a name finds only a built-in
+workflow, and a script path, which the stream check refuses only when the call names it, still runs a tree's file. The
+probe uses a scripted model on loopback and no credential (`mise run claude-posture-probe`; CI runs it whenever the CLI
+pin or the posture changes).
 
 codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary. The
 intent stages run on brokered claude, or on brokered codex for a Project that chooses it under `--intent-codex`. An

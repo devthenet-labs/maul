@@ -1195,13 +1195,15 @@ func (p *pass) leaseReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReques
 }
 
 // sameRound reports whether an existing revise run's spec is the round a
-// pass would lease, attribution and the subagents record aside: the
-// existing stamp and record stand, so a lease a pass created just before
-// --attribution-mode or --intent-build-subagents changed is still adopted
-// rather than refused as another's (the launch never grants subagents
-// wider than the flag now allows: RunReconciler.buildSubagents).
+// pass would lease, attribution and the subagents and workflows records
+// aside: the existing stamp and records stand, so a lease a pass created
+// just before --attribution-mode, --intent-build-subagents or
+// --intent-build-workflows changed is still adopted rather than refused as
+// another's (the launch never grants either wider than the flags now allow:
+// RunReconciler.buildSubagents, RunReconciler.buildWorkflows).
 func sameRound(existing, want v1alpha1.IntentRunSpec) bool {
 	existing.AttributedTo, want.AttributedTo = nil, nil
 	existing.Grant.Subagents, want.Grant.Subagents = false, false
+	existing.Grant.Workflows, want.Grant.Workflows = false, false
 	return reflect.DeepEqual(existing, want)
 }

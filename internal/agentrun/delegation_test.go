@@ -35,8 +35,8 @@ const (
 // with no report read and no repair asked; the reason is the envelope's
 // detail and the transcript's last word. A subagent's start is recorded
 // before the kill, as the notice of its start under the Agent call, so the
-// transcript shows what was started and then why the run ended; a
-// workflow's start makes no notice.
+// transcript shows what was started and then why the run ended; so is a
+// workflow's, under the Workflow call.
 func TestStagesEndOnUngrantedDelegation(t *testing.T) {
 	starts := []struct {
 		name, line, reason string
@@ -45,7 +45,9 @@ func TestStagesEndOnUngrantedDelegation(t *testing.T) {
 		{"a subagent", lineSubagentStarted, "this run grants no subagents", []transcript.Turn{{
 			Kind: transcript.KindNotice, Text: "subagent general-purpose started", Parent: "t_agent",
 		}}},
-		{"a workflow", lineWorkflowStarted, "workflow", nil},
+		{"a workflow", lineWorkflowStarted, "workflow", []transcript.Turn{{
+			Kind: transcript.KindNotice, Text: "workflow started", Parent: "p_wf",
+		}}},
 	}
 	for _, c := range repairCases() {
 		for _, s := range starts {

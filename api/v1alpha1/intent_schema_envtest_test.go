@@ -1144,6 +1144,7 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 		{"image source", func(s *maulv1.IntentRunSpec) { s.ImageFrom.Name = "target-1-rev1-shop-a1-src" }},
 		{"grant", func(s *maulv1.IntentRunSpec) { s.Grant.MaxTurns = 1000 }},
 		{"grant's subagents", func(s *maulv1.IntentRunSpec) { s.Grant.Subagents = true }},
+		{"grant's workflows", func(s *maulv1.IntentRunSpec) { s.Grant.Subagents, s.Grant.Workflows = true, true }},
 		{"harness", func(s *maulv1.IntentRunSpec) { s.Harness = maulv1.ProjectHarnessCodex }},
 		{"model", func(s *maulv1.IntentRunSpec) { s.Model = "anthropic/claude-opus-5" }},
 		{"previous attempt added", func(s *maulv1.IntentRunSpec) {
@@ -1351,6 +1352,19 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 		}, true},
 		{"a codex revise run granted subagents", maulv1.IntentStageRevise, func(s *maulv1.IntentRunSpec) {
 			s.Grant.Subagents, s.Harness = true, maulv1.ProjectHarnessCodex
+		}, true},
+		// Workflows are recorded only beside subagents, which hold them to
+		// a build or revise run on claude.
+		{"a build run granted workflows", maulv1.IntentStageBuild, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents, s.Grant.Workflows = true, true
+		}, false},
+		{"a revise run granted workflows", maulv1.IntentStageRevise, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Subagents, s.Grant.Workflows = true, true
+		}, false},
+		{"a build run granted workflows without subagents", maulv1.IntentStageBuild,
+			func(s *maulv1.IntentRunSpec) { s.Grant.Workflows = true }, true},
+		{"a plan run granted workflows", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
+			s.Grant.Workflows = true
 		}, true},
 	} {
 		t.Run("create with "+tt.name, func(t *testing.T) {

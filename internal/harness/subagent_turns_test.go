@@ -103,8 +103,8 @@ func TestClaudeScanTurnsNestsDeeperSubagents(t *testing.T) {
 	}
 }
 
-// TestClaudeScanTurnsTaskNotices: only a subagent's start and the end of
-// delegated work become notices. A shell command's start and end (a
+// TestClaudeScanTurnsTaskNotices: only a subagent's start, a workflow's and
+// the end of delegated work become notices. A shell command's start and end (a
 // foreground or background command, a monitor) yield nothing, so a run with
 // no subagent records exactly the turns it did before. What the notice says
 // is maul's words: the subagent's type only when it is a plain name, the
@@ -154,9 +154,11 @@ func TestClaudeScanTurnsTaskNotices(t *testing.T) {
 				Text: "delegated work finished: 2 tool uses", Parent: "t_agent"}},
 		},
 		{
-			name: "workflow start is not a subagent's",
+			name: "workflow start is a notice of its own, without its name",
 			line: `{"type":"system","subtype":"task_started","task_id":"w1","tool_use_id":"p_wf",` +
 				`"description":"inline","task_type":"local_workflow","workflow_name":"wf","session_id":"s"}`,
+			want: []transcript.Turn{{Role: transcript.RoleSystem, Kind: transcript.KindNotice,
+				Text: "workflow started", Parent: "p_wf"}},
 		},
 	}
 	for _, tt := range tests {

@@ -100,3 +100,69 @@ func TestCreateRefusesSubagentsOffTheBuild(t *testing.T) {
 		})
 	}
 }
+
+// grantWorkflows makes s an intent build granted subagents and workflows
+// when v is set, and leaves it as it is otherwise.
+func grantWorkflows(s *Spec, v string) {
+	if v == "" {
+		return
+	}
+	grantSubagents(s, v)
+	s.BuildWorkflows = true
+}
+
+// TestCreateCarriesBuildWorkflows: an intent build granted workflows
+// carries MAUL_BUILD_WORKFLOWS=true beside MAUL_BUILD_SUBAGENTS=true; a Job
+// without the grant has no such entry on the default image, and on a
+// repository image an explicit empty one, so the image's ENV can never
+// grant it.
+func TestCreateCarriesBuildWorkflows(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		cfg     func() Config
+		spec    func() Spec
+		granted bool
+		want    *string
+	}{
+		{"granted", testConfig, testSpec, true, new("true")},
+		{"subagents alone", testConfig, testSpec, false, nil},
+		{"granted on a repository image", injectedConfig, injectedSpec, true, new("true")},
+		{"subagents alone on a repository image", injectedConfig, injectedSpec, false, new("")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := tt.spec()
+			spec.Phase, spec.Kind = "build", "intent"
+			spec.BuildSubagents, spec.BuildWorkflows = true, tt.granted
+			job := createJob(t, tt.cfg(), spec)
+			var got *corev1.EnvVar
+			for i, e := range job.Spec.Template.Spec.Containers[0].Env {
+				if e.Name == "MAUL_BUILD_WORKFLOWS" {
+					got = &job.Spec.Template.Spec.Containers[0].Env[i]
+				}
+			}
+			switch {
+			case tt.want == nil && got != nil:
+				t.Errorf("MAUL_BUILD_WORKFLOWS = %+v, want absent", got)
+			case tt.want != nil && (got == nil || got.Value != *tt.want || got.ValueFrom != nil):
+				t.Errorf("MAUL_BUILD_WORKFLOWS = %+v, want the literal %q", got, *tt.want)
+			}
+		})
+	}
+}
+
+// TestCreateRefusesWorkflowsWithoutSubagents: workflows ride only on a Job
+// granted subagents, and so only on an intent build on claude; without the
+// subagents grant they are refused before anything is created.
+func TestCreateRefusesWorkflowsWithoutSubagents(t *testing.T) {
+	spec := testSpec()
+	spec.Phase, spec.Kind, spec.BuildWorkflows = "build", "intent", true
+	cs := fake.NewClientset()
+	if _, _, err := New(cs, testConfig(), nil).Create(context.Background(), spec); !errors.Is(err,
+		ErrSubagentsRefused) {
+		t.Fatalf("Create = %v, want ErrSubagentsRefused", err)
+	}
+	jobs, err := cs.BatchV1().Jobs("maul-agents").List(context.Background(), metav1.ListOptions{})
+	if err != nil || len(jobs.Items) != 0 {
+		t.Errorf("Jobs listed %v (%v), want none created", jobs, err)
+	}
+}

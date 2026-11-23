@@ -130,7 +130,7 @@ func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage
 	}
 	req := sr.req
 	req.Prompt, req.Env, req.Gateway = prompt, env, gateway
-	req.Subagents = false // as a repair's: see repairRound
+	req.Subagents, req.Workflows = false, false // as a repair's: see repairRound
 	if left := sr.turns - sr.used; sr.turns > 0 {
 		// Every turn left, but a later ask's minimum while that leaves this
 		// one its own.

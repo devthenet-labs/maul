@@ -321,6 +321,45 @@ func TestBuildSubagentsSettings(t *testing.T) {
 	}
 }
 
+// TestBuildWorkflowsSettings: --intent-build-workflows reaches the settings
+// only beside --intent-build-subagents, which already needs the cost unit
+// (owner decision 7): a workflow's agents print no turns, so the run's cost
+// budget is the one bound they meet. Without either it stops startup,
+// naming what it needs. Off is the default.
+func TestBuildWorkflowsSettings(t *testing.T) {
+	load := func(t *testing.T, args ...string) (intent.Settings, error) {
+		t.Helper()
+		opts, root, _ := command(t, args...)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return settings(opts, "maul", "maul-agents")
+	}
+	s, err := load(t, "--intent-build-subagents", "--broker-limit-unit", "cost")
+	if err != nil || s.BuildWorkflows {
+		t.Fatalf("subagents alone = workflows %v, %v; want off", s.BuildWorkflows, err)
+	}
+	s, err = load(t, "--intent-build-workflows", "--intent-build-subagents", "--broker-limit-unit", "cost")
+	if err != nil || !s.BuildWorkflows || !s.BuildSubagents {
+		t.Fatalf("workflows with subagents = workflows %v, subagents %v, %v; want both", s.BuildWorkflows,
+			s.BuildSubagents, err)
+	}
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--intent-build-workflows", "--broker-limit-unit", "cost"},
+			"--intent-build-workflows needs --intent-build-subagents"},
+		{[]string{"--intent-build-workflows"}, "--intent-build-workflows needs --intent-build-subagents"},
+		{[]string{"--intent-build-workflows", "--intent-build-subagents"}, "needs --broker-limit-unit cost"},
+	} {
+		_, err := load(t, tt.args...)
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("settings(%v) = %v, want the startup refusal %q", tt.args, err, tt.want)
+		}
+	}
+}
+
 // The intent controller cannot reach the broker under its NetworkPolicy.
 // Agent pods can, so its startup must validate configuration without making
 // even an advisory controller-side broker request.

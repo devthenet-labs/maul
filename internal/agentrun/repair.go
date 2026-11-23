@@ -353,7 +353,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	// A repair fixes the report in a few turns of its own: it is granted no
 	// subagents, so the delegation switch refuses one and its --max-turns
 	// covers every call it makes.
-	req.Subagents = false
+	req.Subagents, req.Workflows = false, false
 	req.MaxTurns = repairMaxTurns
 	if sr.turns > 0 {
 		req.MaxTurns = repairTurns(sr.turns-sr.used, round)

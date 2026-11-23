@@ -255,6 +255,14 @@ spec:
                     maximum: 100000000
                     minimum: 0
                     type: integer
+                  workflows:
+                    description: |-
+                      Workflows records that the run may also run workflows (inline and
+                      built-in ones): stamped at creation beside Subagents while
+                      intent-controller runs with --intent-build-workflows, and never
+                      without Subagents (CEL-enforced). The run's Job is granted them only
+                      while both flags are still on when it launches.
+                    type: boolean
                 type: object
               harness:
                 description: |-
@@ -649,6 +657,9 @@ spec:
               rule: '!has(self.grant) || !has(self.grant.subagents) || !self.grant.subagents
                 || (self.stage in [''build'', ''revise''] && (!has(self.harness) ||
                 self.harness == ''claude''))'
+            - message: spec.grant.workflows is recorded only beside spec.grant.subagents
+              rule: '!has(self.grant) || !has(self.grant.workflows) || !self.grant.workflows
+                || (has(self.grant.subagents) && self.grant.subagents)'
             - message: every tree is a different repository from the others and from
                 spec.repository (compared case-insensitively, ignoring a .git suffix)
               rule: '!has(self.trees) || self.trees.all(t, (t.url.endsWith(''.git'')

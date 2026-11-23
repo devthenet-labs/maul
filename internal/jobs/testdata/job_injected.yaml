@@ -105,6 +105,7 @@ spec:
         - name: MAUL_BROKER_TOKEN
         - name: MAUL_BUILD_NETWORK_PROFILES
         - name: MAUL_BUILD_SUBAGENTS
+        - name: MAUL_BUILD_WORKFLOWS
         - name: MAUL_CALIBRATION
         - name: MAUL_CHANGESET_MAX_BYTES
         - name: MAUL_CODEX_BASE_URL

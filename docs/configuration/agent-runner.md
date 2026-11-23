@@ -110,15 +110,17 @@ corrected rather than hidden.
   read afresh for it and registered with the transcript scrubber.
 - So does the delegation kill switch: a claude run whose CLI starts a workflow, or a subagent the run was not granted,
   is ended at that line as `budget_exceeded`, with the reason in the stage's detail and its transcript. Only a build's
-  or a revise round's first run is ever granted subagents (`MAUL_BUILD_SUBAGENTS`, below). A repair run ended this way
-  ends the rounds, and the report it wrote is not read.
+  or a revise round's first run is ever granted subagents (`MAUL_BUILD_SUBAGENTS`, below), or workflows
+  (`MAUL_BUILD_WORKFLOWS`). A run granted workflows is also ended when its Workflow call asks for one other than a
+  script written inline or a built-in one by name; a script that loads another from a file is not seen. A repair run
+  ended this way ends the rounds, and the report it wrote is not read.
 - A run granted subagents is held to its turn grant by its own and its subagents' model calls together, counted as
   distinct message ids on the stream. The CLI's `--max-turns`, which it is still given, counts the main thread alone and
   restarts on each wake of the session. The run whose calls pass the grant is ended at that line as `budget_exceeded`,
   with `turn grant exceeded (P parent + C subagent turns > N)` in the stage's detail and its transcript, no report read
   and no repair asked. The count is a floor: a foreground subagent's closing text-only call is not streamed, and the
-  delegation kill switch ends a run whose subagent starts its own. A repair round and an evaluator's ask for checks are
-  never granted subagents.
+  delegation kill switch ends a run whose subagent starts its own. A workflow's agents are not counted at all: they
+  print no turns. A repair round and an evaluator's ask for checks are never granted subagents or workflows.
 - All the runs of a stage write one transcript: a repair's turns follow the first run's, after a notice saying why it
   was asked for.
 - A repair's spend is added to the stage's. Its tokens, turns and time are summed, since a resumed claude run reports
@@ -135,7 +137,9 @@ corrected rather than hidden.
   printed (a session a notification woke prints one per wake), and the answer is the last result's that took a turn or
   reported an error, never an empty one after it. The subagents' turns are recorded beside it as `subagent_turns`:
   distinct message ids among the events streamed for them, a floor, since a foreground child's closing call and a
-  child's own children print no event. A repair's window counts both against the stage's turns.
+  child's own children print no event. A repair's window counts both against the stage's turns. A run that started a
+  workflow is recorded by its per-model figures the same way, though the CLI counts no subagent for it: its agents'
+  tokens are in them alone.
 - On `remediate` and `build`, which write the working tree, a repair may change only the report and `commit.sh`. The
   clone is fingerprinted around each round (`HEAD`, what is staged, and every working file that is not ignored), and a
   repair that changed any of it is refused whole: the stage ends with its original outcome (`report_missing` or
@@ -201,6 +205,15 @@ Agent call's `isolation: "worktree"`), with a transcript notice. A repository-im
 so an image's `ENV` cannot grant it. intent-controller sets it only on a build or revise run that recorded subagents at
 creation (`spec.grant.subagents`, under `--intent-build-subagents`), and only while that flag is still on when the run
 launches.
+
+`MAUL_BUILD_WORKFLOWS` is a per-Job switch beside it, `true` or unset, refused at startup without
+`MAUL_BUILD_SUBAGENTS`: it grants the same run workflows, inline and built-in ones, and adds a section to its prompt. A
+workflow's agents count against neither the turn grant nor the token budget, since they print no turns; only the
+broker's cost budget for the run and the stage's wall clock bound them, and their tokens are recorded only when the run
+ends. A workflow's progress keeps the idle watchdog from ending a run that waits on it. Its report repairs are never
+granted them. A repository-image Job that does not set it blanks it. intent-controller sets it only beside
+`MAUL_BUILD_SUBAGENTS`, on a run that recorded workflows at creation (`spec.grant.workflows`, under
+`--intent-build-workflows`), and only while both flags are still on when the run launches.
 
 `MAUL_OPEN_PULL_REQUESTS` is the last per-Job variable, set only on an intent's plan Job, and only when other intents of
 its Project have pull requests open in the Project's repositories: a JSON list of at most 5 of them, each with its

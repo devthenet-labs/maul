@@ -210,6 +210,14 @@ type Settings struct {
 	// whole pod, is what bounds the run and its subagents together. Off
 	// (the default), no run records it and no Job carries it.
 	BuildSubagents bool
+	// BuildWorkflows is --intent-build-workflows: a run recorded with
+	// subagents also records that it may run workflows
+	// (IntentRunGrant.Workflows), and launches with them only while this and
+	// BuildSubagents are both still on. serve refuses it without
+	// BuildSubagents. A workflow's agents print no turns, so the run's cost
+	// budget and wall clock are their only live bounds. Off (the default),
+	// no run records it and no Job carries it.
+	BuildWorkflows bool
 	// BrokerCostPerHour is the broker's hourly cost limit in micro-USD
 	// (--broker-cost-per-hour), zero when it has none or counts tokens. A
 	// Project whose run budget is more than half of it is not Ready
@@ -508,7 +516,8 @@ func (s Settings) withDefaults() Settings {
 // stage clamped by the controller's ceiling (a zero limit takes the
 // ceiling), and the ceiling's wall clock; under the cost unit its cost
 // budget, and under --intent-build-subagents, on a build or revise run of a
-// Project not on codex, subagents.
+// Project not on codex, subagents, with workflows beside them under
+// --intent-build-workflows.
 func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.IntentRunGrant {
 	ceiling, limits := s.ceiling(stage), stageLimits(p, stage)
 	turns := ceiling.MaxTurns
@@ -532,6 +541,7 @@ func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha
 		g.BudgetMicroUSD = s.stageBudget(p, stage)
 	}
 	g.Subagents = s.BuildSubagents && subagentStage(stage) && !p.Spec.Harness.IsCodex()
+	g.Workflows = g.Subagents && s.BuildWorkflows
 	return g
 }
 

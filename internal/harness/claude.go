@@ -188,9 +188,63 @@ var claudeTools = map[Sandbox]struct {
 //   - At most ClaudeSubagentConcurrency children run at once; a call past
 //     that is refused ("Concurrent subagent limit reached ... Do not retry"),
 //     not queued, and the run carries on without it.
-func claudeSubagentsDeny(deny []string) []string {
-	return slices.DeleteFunc(slices.Clone(deny), func(tool string) bool { return tool == "Agent" || tool == "Task" })
+//
+// A request granted Workflows as well takes Workflow out too
+// (claudeWorkflowsAllow allows it).
+func claudeSubagentsDeny(deny []string, workflows bool) []string {
+	return slices.DeleteFunc(slices.Clone(deny), func(tool string) bool {
+		return tool == "Agent" || tool == "Task" || workflows && tool == claudeWorkflowTool
+	})
 }
+
+// claudeWorkflowTool is the CLI's workflow tool.
+const claudeWorkflowTool = "Workflow"
+
+// claudeWorkflowsAllow is the workspace-write allow list for a request
+// granted Workflows: the posture's own (allow) with Workflow after it, never
+// changing allow, which is the shared posture table's. A workflow needs no
+// permission rule to be offered, but dontAsk refuses one no rule allows
+// ("Permission to use Workflow has been denied because Claude Code is
+// running in don't ask mode", probed on 2.1.322).
+//
+// What the pinned CLI (2.1.322) does under it, with claudeSubagentsSettings
+// (probed by TestClaudePostureProbe against the real CLI):
+//   - A workflow runs in the background, whatever the background lever says:
+//     the call returns at once, the run's turn ends, and the workflow's end
+//     wakes the session for a second result event.
+//   - Its agents print no turns and no tool calls on the stream, only the
+//     workflow's start, progress and end; their tokens are in the result's
+//     per-model figures alone (resultUsage).
+//   - Each agent is offered a subset of the run's tools (StructuredOutput
+//     aside, the tool a built-in workflow's agent returns its result with),
+//     never Agent or Workflow, and is refused every tool the posture denies:
+//     the web tools, wake-ups, cron, worktrees, monitors.
+//   - Every agent asks for the run's model, an explicit model option
+//     included, and at most ClaudeWorkflowConcurrency run at once; the rest
+//     wait their turn.
+//   - A workflow is found by name, from the call or from a script's own
+//     workflow(), only among the CLI's built-in ones (deep-research) and the
+//     user source's, read once at the run's start from HOME, where nothing is
+//     then: the tree's .claude is not read, and a workflow planted under HOME
+//     during the run, one shadowing a built-in name included, is not found.
+//   - A script path is read from any file the run may read, the tree's
+//     included, whether the call names it or an inline script's own
+//     workflow({scriptPath}) does, and no rule of the CLI's can refuse that
+//     without refusing reads. The delegation check ends a run whose call
+//     names one (claudeWorkflowCall), after the fact; a script's own it
+//     cannot tell from any other inline script. Neither reads more than the
+//     run's own Read could, but a workflow from a file is not closed.
+func claudeWorkflowsAllow(allow []string) []string {
+	return append(slices.Clip(allow), claudeWorkflowTool)
+}
+
+// ClaudeWorkflowConcurrency is how many of a workflow's agents a run granted
+// Workflows may have running at once (CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS).
+// Unlike the subagents' bound, a workflow queues the agents past it rather
+// than refusing them (probed on 2.1.322). Like that bound, it bounds the
+// burst, not the spend, which the egress broker's per-pod cost cap bounds. It
+// is exported for the build prompt, which states it to the agent.
+const ClaudeWorkflowConcurrency = 4
 
 // ClaudeSubagentConcurrency is how many subagents a run granted Subagents
 // may have running at once (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS). Spend is
@@ -221,6 +275,13 @@ const ClaudeSubagentConcurrency = 4
 //     when model is empty.
 //   - CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: ClaudeSubagentConcurrency.
 //
+// With workflows granted as well, CLAUDE_CODE_DISABLE_WORKFLOWS is left out
+// and CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS (ClaudeWorkflowConcurrency)
+// joins. The subagent model and its FORCE hold every workflow agent to the
+// run's model too, an explicit model option included, and against a
+// CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL a settings file the run writes sets
+// (probed), so that lever is not set.
+//
 // They go on the command line, not in the run's environment: a settings
 // source's env block outranks the process environment, and the user source
 // is the settings under HOME, which a writable run can write and the CLI
@@ -235,12 +296,16 @@ const ClaudeSubagentConcurrency = 4
 // repository image's ENV, contradicting every lever).
 // The run's own stream is checked as well: a child the CLI started deeper or
 // in the background ends the run (DelegationScanner).
-func claudeSubagentsSettings(model string) string {
+func claudeSubagentsSettings(model string, workflows bool) string {
 	env := map[string]string{
 		"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
 		"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
 		"CLAUDE_CODE_DISABLE_WORKFLOWS":        "1",
 		"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": strconv.Itoa(ClaudeSubagentConcurrency),
+	}
+	if workflows {
+		delete(env, "CLAUDE_CODE_DISABLE_WORKFLOWS")
+		env["CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS"] = strconv.Itoa(ClaudeWorkflowConcurrency)
 	}
 	if model != "" {
 		env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
@@ -390,11 +455,15 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 			argv = append(argv, "--tools", strings.Join(t.tools, ","))
 		}
 		subagents := req.Subagents && req.Sandbox == SandboxWorkspaceWrite
-		deny := t.deny
+		workflows := subagents && req.Workflows
+		deny, allow := t.deny, claudeAllow(ws, req, t.allow)
 		if subagents {
-			deny = claudeSubagentsDeny(deny)
+			deny = claudeSubagentsDeny(deny, workflows)
 		}
-		argv = append(argv, "--allowedTools", strings.Join(claudeAllow(ws, req, t.allow), " "))
+		if workflows {
+			allow = claudeWorkflowsAllow(allow)
+		}
+		argv = append(argv, "--allowedTools", strings.Join(allow, " "))
 		argv = append(argv, "--disallowedTools", strings.Join(deny, " "))
 		if t.restricted {
 			argv = append(argv, claudeRestricted)
@@ -402,7 +471,7 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		argv = append(argv, "--setting-sources", claudeSettingSources, "--permission-mode", claudePermissionMode,
 			"--strict-mcp-config")
 		if subagents {
-			argv = append(argv, "--settings", claudeSubagentsSettings(req.Model))
+			argv = append(argv, "--settings", claudeSubagentsSettings(req.Model, workflows))
 		}
 		env = slices.Clip(req.Env)
 		if !t.scratchOnly {
@@ -654,8 +723,9 @@ func scanStreamTurns(line []byte) []transcript.Turn {
 }
 
 // claudeTaskTurns is the notice a task event makes, if any: a subagent's
-// start (task_type local_agent) and the end of delegated work, a subagent's
-// or a workflow's, each under the tool call that started it. The end does
+// start (task_type local_agent), a workflow's (local_workflow) and the end of
+// delegated work, a subagent's or a workflow's, each under the tool call that
+// started it. The end does
 // not name its task type; it is told from a shell command's (a foreground or
 // background command, or a monitor, which make no notice) by the usage it
 // carries, which a subagent's and a workflow's carry alike (claude 2.1.322,
@@ -679,6 +749,10 @@ func claudeTaskTurns(line []byte) []transcript.Turn {
 		if name := claudeAgentType(ev.SubagentType); name != "" {
 			notice.Text = "subagent " + name + " started"
 		}
+	case ev.Subtype == "task_started" && ev.TaskType == taskTypeWorkflow:
+		// Its name and script are the model's or the repository's, and its
+		// agents print nothing more: the call's own turn shows what it asked.
+		notice.Text = "workflow started"
 	case ev.Subtype == "task_notification" && ev.Usage != nil:
 		var parts []string
 		if claudeTaskStatus.MatchString(ev.Status) {
@@ -777,12 +851,13 @@ func claudeUserTurns(blocks []claudeBlock) []transcript.Turn {
 // streamRuntimeError, Exhausted and TerminalError all read this one event,
 // so they never disagree about how a run ended.
 func scanEvents(stdout []byte) (result claudeEvent, found bool) {
-	results, _ := scanStream(stdout)
+	results, _, _ := scanStream(stdout)
 	return terminalResult(results)
 }
 
 // scanStream walks stream-json output once and returns every result event
-// in order, and the subagent turns the stream shows.
+// in order, the subagent turns the stream shows, and whether it shows a
+// workflow starting.
 //
 // A subagent turn is a distinct message id among the assistant events that
 // carry a parent_tool_use_id. It is a floor of what the subagents called,
@@ -796,11 +871,16 @@ func scanEvents(stdout []byte) (result claudeEvent, found bool) {
 // after its first answer: a background agent's or shell's notification, a
 // scheduled wake-up. Each reports that wake's own turns and main-thread
 // usage, and the cumulative cost.
-func scanStream(stdout []byte) (results []claudeEvent, subagentTurns int) {
+func scanStream(stdout []byte) (results []claudeEvent, subagentTurns int, workflow bool) {
 	children := map[string]bool{}
 	for line := range bytes.SplitSeq(stdout, []byte{'\n'}) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
+		}
+		if !workflow && bytes.Contains(line, markTaskStarted) {
+			var task claudeTaskEvent
+			workflow = json.Unmarshal(line, &task) == nil && task.Type == "system" &&
+				task.Subtype == "task_started" && task.TaskType == taskTypeWorkflow
 		}
 		var ev claudeEvent
 		if json.Unmarshal(line, &ev) != nil {
@@ -820,7 +900,7 @@ func scanStream(stdout []byte) (results []claudeEvent, subagentTurns int) {
 			subagentTurns++
 		}
 	}
-	return results, subagentTurns
+	return results, subagentTurns, workflow
 }
 
 // terminalResult is the result event a run ended on: the last one that took
@@ -848,7 +928,7 @@ func terminalResult(results []claudeEvent) (claudeEvent, bool) {
 // event (plain text, crash) returns the raw stdout as FinalText with
 // ok=false. See resultUsage for the usage.
 func parseStreamResult(stdout []byte) (AgentResult, bool) {
-	results, subagents := scanStream(stdout)
+	results, subagents, workflow := scanStream(stdout)
 	ev, found := terminalResult(results)
 	if !found {
 		return AgentResult{FinalText: string(stdout)}, false
@@ -857,7 +937,7 @@ func parseStreamResult(stdout []byte) (AgentResult, bool) {
 		FinalText:     ev.Result,
 		SessionID:     ev.SessionID,
 		SubagentTurns: subagents,
-		Usage:         resultUsage(results),
+		Usage:         resultUsage(results, workflow),
 		IsError:       ev.IsError,
 		Subtype:       ev.Subtype,
 		Errors:        ev.Errors,
@@ -880,18 +960,20 @@ func parseStreamResult(stdout []byte) (AgentResult, bool) {
 // the figures are exactly those it reported; its modelUsage may count more
 // (the CLI's own helper calls), which a stage has never been charged.
 //
-// A run that spawned one spent more than its main thread: the 2.1.322 pin
-// reported 300 output tokens at the top level for a run whose child spent
-// 35,000. Its tokens are then its per-model figures, summed over models and
+// A run that spawned one, or started a workflow (workflow), spent more than
+// its main thread: the 2.1.322 pin reported 300 output tokens at the top
+// level for a run whose child spent 35,000, and a workflow's agents count as
+// no subagent there (subagent_stats.spawned 0). Its tokens are then its
+// per-model figures, summed over models and
 // over each result's delta since the one before
 // (model_usage_since_last_result). That delta, unlike modelUsage, counts
 // this invocation alone: a resumed session's modelUsage includes the runs it
 // resumed, and a report repair's accounting is added to theirs. A CLI that
 // reports no delta has only modelUsage, taken from the last result. Nil when
 // no result reports usage of either kind.
-func resultUsage(results []claudeEvent) *Usage {
+func resultUsage(results []claudeEvent, workflow bool) *Usage {
 	var cost *float64
-	spawned := false
+	spawned := workflow
 	for _, r := range results {
 		if r.TotalCostUSD != nil {
 			cost = r.TotalCostUSD

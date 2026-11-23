@@ -185,6 +185,15 @@ func (r *RunReconciler) buildSubagents(run *v1alpha1.IntentRun) bool {
 		r.runHarness(run).ID == model.HarnessClaude
 }
 
+// buildWorkflows reports whether run's Job is granted workflows: only when
+// it is granted subagents (buildSubagents), recorded workflows at creation
+// (spec.grant.workflows) and --intent-build-workflows is still on. As for
+// subagents, the launch is never wider than the record, and turning either
+// flag off narrows every run recorded with workflows at once.
+func (r *RunReconciler) buildWorkflows(run *v1alpha1.IntentRun) bool {
+	return run.Spec.Grant.Workflows && r.Settings.BuildWorkflows && r.buildSubagents(run)
+}
+
 // runModel is the canonical model run launches on: the one it recorded at
 // creation (spec.model, its Project's choice), else, when it recorded none
 // (its Project chose none, or it was created before Projects chose), its
@@ -740,8 +749,10 @@ func (r *RunReconciler) launchTree(ctx context.Context, run *v1alpha1.IntentRun,
 		// deadline that follows its stage timeout.
 		BudgetMicroUSD: r.Settings.runBudgetFor(run, proj),
 		Deadline:       r.Settings.jobDeadline(r.Settings.runTimeout(run)),
-		// Subagents as the run recorded them, narrowed by the flag now.
+		// Subagents and workflows as the run recorded them, narrowed by
+		// the flags now.
 		BuildSubagents: r.buildSubagents(run),
+		BuildWorkflows: r.buildWorkflows(run),
 	}
 	if len(run.Spec.Trees) > 0 {
 		ready, refusal, err := r.treesSpec(ctx, run, proj, &spec)

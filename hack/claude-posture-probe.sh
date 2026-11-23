@@ -11,7 +11,10 @@
 # writable posture with subagents granted (children of every agent type held
 # to the run's tools, depth, model and concurrency, and the run's own
 # delegation check agreeing with the stream, hence delegation.go and
-# tasks.go). No model credential and no egress beyond the download.
+# tasks.go), and with workflows granted besides (a workflow's agents held to
+# the run's tools and model, the web refused them, only built-in workflows
+# found by name, and the delegation check ending a run that asks for a
+# script path). No model credential and no egress beyond the download.
 # MAUL_CLAUDE_PROBE_OUT=<dir> keeps each run's stream there.
 #
 # The binary is fetched, verified and cached by hack/claude-cli.sh.
@@ -29,6 +32,7 @@ watched=(
   internal/harness/claude.go
   internal/harness/claude_probe_test.go
   internal/harness/claude_probe_subagents_test.go
+  internal/harness/claude_probe_workflows_test.go
   internal/harness/delegation.go
   internal/harness/tasks.go
   hack/claude-posture-probe.sh

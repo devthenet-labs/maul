@@ -158,6 +158,10 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"model); each run records it at creation and launches with it only while this is still on, so turning "+
 			"it off narrows every run at once. Needs --broker-limit-unit cost (the run's budget bounds the run and "+
 			"its subagents together) and brokered claude")
+	f.Bool("intent-build-workflows", false,
+		"let a build or revise run granted subagents also run workflows (inline and built-in only), recorded and "+
+			"narrowed as subagents are; a workflow's agents count against neither the turn grant nor the token "+
+			"limit, so only the run's cost budget and wall clock bound them. Needs --intent-build-subagents")
 	f.Int("broker-cost-per-hour", 0,
 		"the egress broker's --cost-per-hour in micro-USD (cost unit only; 0: none): a Project whose run budget "+
 			"is more than half of it is not Ready")
@@ -293,6 +297,9 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		return intent.Settings{}, err
 	}
 	if err := buildSubagents(opts, &s); err != nil {
+		return intent.Settings{}, err
+	}
+	if err := buildWorkflows(opts, &s); err != nil {
 		return intent.Settings{}, err
 	}
 	mode, err := runnercfg.Attribution(opts)
@@ -610,6 +617,24 @@ func buildSubagents(opts *cli.Options, s *intent.Settings) error {
 			"the egress broker enforces on every model call of its pod, is what bounds the run and its subagents")
 	}
 	s.BuildSubagents = true
+	return nil
+}
+
+// buildWorkflows reads --intent-build-workflows, refused unless
+// --intent-build-subagents is on (owner decision 7), and so the cost unit
+// too (buildSubagents): a workflow's agents print no turns and their tokens
+// reach the run's result only at its end, so the run's cost budget, which
+// the broker enforces on every model call of the pod, is the one live bound
+// on them besides the wall clock. It runs after buildSubagents.
+func buildWorkflows(opts *cli.Options, s *intent.Settings) error {
+	if !opts.Bool("intent-build-workflows") {
+		return nil
+	}
+	if !opts.Bool("intent-build-subagents") {
+		return errors.New("--intent-build-workflows needs --intent-build-subagents: a workflow runs in a build " +
+			"granted subagents, under its posture and its cost budget")
+	}
+	s.BuildWorkflows = true
 	return nil
 }
 
@@ -1003,6 +1028,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Bool("evaluate_codex", set.EvaluateCodex),
 		slog.Bool("evaluator_agents", set.EvaluatorAgents),
 		slog.Bool("build_subagents", set.BuildSubagents),
+		slog.Bool("build_workflows", set.BuildWorkflows),
 		slog.Int("max_tool_pods", set.MaxToolPods),
 		slog.String("attribution_mode", string(set.Attribution)),
 		slog.String("user_credentials", string(set.UserCredentials)),

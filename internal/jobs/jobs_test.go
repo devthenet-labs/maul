@@ -364,6 +364,8 @@ func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
 		{"no acceptance fix", "MAUL_ACCEPTANCE_FIX", "", func(s *Spec, v string) { s.AcceptanceFix = v != "" }},
 		{"build subagents", "MAUL_BUILD_SUBAGENTS", "true", grantSubagents},
 		{"no build subagents", "MAUL_BUILD_SUBAGENTS", "", grantSubagents},
+		{"build workflows", "MAUL_BUILD_WORKFLOWS", "true", grantWorkflows},
+		{"no build workflows", "MAUL_BUILD_WORKFLOWS", "", grantWorkflows},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := fake.NewClientset()
@@ -417,6 +419,7 @@ func TestOperatorEnvCannotShadowPerJobHandoff(t *testing.T) {
 		{"MAUL_PLAN_VERIFICATION", func(s *Spec, v string) { s.PlanVerification = v }, ""},
 		{"MAUL_ACCEPTANCE_FIX", func(s *Spec, v string) { s.AcceptanceFix = v != "" }, "true"},
 		{"MAUL_BUILD_SUBAGENTS", grantSubagents, "true"},
+		{"MAUL_BUILD_WORKFLOWS", grantWorkflows, "true"},
 	}
 	sources := []struct {
 		name string

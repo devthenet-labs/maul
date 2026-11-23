@@ -360,6 +360,8 @@ var probeContraryEnv = []string{
 	"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=99",
 	"CLAUDE_CODE_SUBAGENT_MODEL=claude-probe-image-env",
 	"CLAUDE_CODE_SUBAGENT_MODEL_FORCE=0",
+	"CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=99",
+	"CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL=claude-probe-image-env",
 }
 
 // plantOverrideCall has the run's own shell overwrite the user settings
@@ -375,6 +377,9 @@ func plantOverrideCall(p *postureProbe) toolCall {
 			"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "99",
 			"CLAUDE_CODE_SUBAGENT_MODEL":           probeOverrideModel,
 			"CLAUDE_CODE_SUBAGENT_MODEL_FORCE":     "0",
+			// What a run granted workflows holds besides.
+			"CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS": "99",
+			"CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL":        probeOverrideModel,
 		},
 	})
 	path := filepath.Join(p.ws, ".claude", "settings.json")
@@ -537,7 +542,7 @@ func (o probeOutcome) assertSubagentsHeld(t *testing.T, model string, agents int
 		}
 	}
 	for line := range bytes.Lines(o.stdout) {
-		if forbidden, why := NewClaude().ScanDelegation(line, true); forbidden {
+		if forbidden, why := NewClaude().ScanDelegation(line, Delegation{Subagents: true}); forbidden {
 			t.Errorf("the run's delegation check would end it: %s", why)
 		}
 	}

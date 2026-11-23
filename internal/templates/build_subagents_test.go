@@ -64,3 +64,66 @@ func TestBuildPromptSubagents(t *testing.T) {
 // foldSpace folds a rendered prompt's line breaks to spaces, so a phrase
 // wrapped at the template's column limit still matches.
 func foldSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// TestBuildPromptWorkflows: a build granted workflows is given the opt-in
+// the Workflow tool's own description asks for, and told what the posture
+// holds a workflow to, each a measured fact of the pinned CLI: a script
+// inline or a built-in workflow by name, and nothing else, on pain of the
+// run ending; a workflow in the background, ending in a notification to wait
+// for; at most four agents at once, the rest waiting; agents with its tools,
+// on its model, starting neither subagents nor workflows. It is told the
+// degraded limits: a workflow's agents count against neither its turns nor
+// its live token limit, only the cost budget and the time limit bind them,
+// and their conversations are not in its transcript. Without the grant the
+// prompt is exactly the subagents prompt.
+func TestBuildPromptWorkflows(t *testing.T) {
+	render := func(atOnce int) string {
+		t.Helper()
+		got, err := RenderBuildPrompt(BuildPrompt{
+			PlanPath: "/workspace/input/investigation.md", ReportPath: "/workspace/reports/build.md",
+			CommitScriptPath: "/workspace/commit.sh", Limits: testBuildLimits, SubagentsAtOnce: 4,
+			WorkflowsAtOnce: atOnce, BuiltinWorkflows: []string{"deep-research"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	on := foldSpace(render(4))
+	for _, want := range []string{
+		"## Workflows",
+		"Workflow tool",
+		"`script`",
+		"`deep-research`",
+		"`scriptPath`",
+		"`resumeFromRunId`",
+		"the run ends",
+		"notification",
+		"At most 4 of a workflow's agents run at once",
+		"wait",
+		"this run's model",
+		"neither subagents nor workflows",
+		"neither this run's 120 turns nor its token limit",
+		"cost",
+		"time limit",
+		"transcript",
+		"the one thing that runs in the background in this run",
+	} {
+		if !strings.Contains(on, want) {
+			t.Errorf("granted build prompt lacks %q:\n%s", want, on)
+		}
+	}
+	off := render(0)
+	for _, unwanted := range []string{"## Workflows", "Workflow tool", "scriptPath"} {
+		if strings.Contains(off, unwanted) {
+			t.Errorf("a build granted no workflows is told %q", unwanted)
+		}
+	}
+	plain, err := RenderBuildPrompt(BuildPrompt{
+		PlanPath: "/workspace/input/investigation.md", ReportPath: "/workspace/reports/build.md",
+		CommitScriptPath: "/workspace/commit.sh", Limits: testBuildLimits, SubagentsAtOnce: 4,
+	})
+	if err != nil || plain != off {
+		t.Errorf("a build granted no workflows is not the subagents prompt (err %v)", err)
+	}
+}

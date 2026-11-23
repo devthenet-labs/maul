@@ -404,6 +404,13 @@ type Spec struct {
 	// other Job, sets nothing; a repository-image Job then blanks the name,
 	// so the image's ENV cannot grant it.
 	BuildSubagents bool
+	// BuildWorkflows grants such a build workflows besides
+	// (MAUL_BUILD_WORKFLOWS=true), which the launching controller sets only
+	// beside BuildSubagents, when the run recorded both and both its flags
+	// are still on. Without BuildSubagents Create refuses it
+	// (ErrSubagentsRefused). False, as on every other Job, sets nothing; a
+	// repository-image Job then blanks the name.
+	BuildWorkflows bool
 	// RunnerImage is the digest-pinned repository-declared image from the
 	// Repository's status (name@sha256:...), copied by the launching
 	// controller; empty runs the harness's runner image. It is honoured only
@@ -1126,6 +1133,7 @@ var perJobEnv = map[string]bool{
 	"MAUL_PLAN_VERIFICATION":    true,
 	"MAUL_ACCEPTANCE_FIX":       true,
 	"MAUL_BUILD_SUBAGENTS":      true,
+	"MAUL_BUILD_WORKFLOWS":      true,
 	ToolsURLEnv:                 true,
 	agentrun.BinDirEnv:          true,
 	// Set only on a Job that carries a network profile (profileEnv), and
@@ -1375,6 +1383,9 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	}
 	if spec.BuildSubagents {
 		env = append(env, corev1.EnvVar{Name: "MAUL_BUILD_SUBAGENTS", Value: "true"})
+	}
+	if spec.BuildWorkflows {
+		env = append(env, corev1.EnvVar{Name: "MAUL_BUILD_WORKFLOWS", Value: "true"})
 	}
 	if spec.ToolHost != nil {
 		env = append(env, corev1.EnvVar{Name: ToolsURLEnv, Value: toolsURL(spec.ToolHost)})

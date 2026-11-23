@@ -495,13 +495,15 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		Limits: templates.StageLimits{
 			MaxTurns: params.maxTurns, TokenBudget: params.budget, Timeout: a.cfg.RemediateTimeout,
 		},
-		PreviousAttempt: a.cfg.PreviousAttempt,
-		ThisRepository:  scope.this,
-		Siblings:        scope.siblings,
-		NetworkProfile:  a.cfg.NetworkProfile,
-		NetworkRoutes:   a.cfg.NetworkRoutes,
-		AcceptanceFix:   a.cfg.AcceptanceFix,
-		SubagentsAtOnce: subagentsAtOnce(a.cfg.BuildSubagents),
+		PreviousAttempt:  a.cfg.PreviousAttempt,
+		ThisRepository:   scope.this,
+		Siblings:         scope.siblings,
+		NetworkProfile:   a.cfg.NetworkProfile,
+		NetworkRoutes:    a.cfg.NetworkRoutes,
+		AcceptanceFix:    a.cfg.AcceptanceFix,
+		SubagentsAtOnce:  subagentsAtOnce(a.cfg.BuildSubagents),
+		WorkflowsAtOnce:  workflowsAtOnce(a.cfg.BuildWorkflows),
+		BuiltinWorkflows: builtinWorkflows(a.cfg.BuildWorkflows),
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
@@ -522,6 +524,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		Env:       env,
 		Gateway:   gateway,
 		Subagents: a.cfg.BuildSubagents,
+		Workflows: a.cfg.BuildWorkflows,
 	}, a.cfg.RemediateTimeout, a.cfg.RemediateIdleTimeout, params.budget)
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)
@@ -573,6 +576,25 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 	}
 	ev.Success = true
 	return ev
+}
+
+// workflowsAtOnce is the build prompt's WorkflowsAtOnce for a build granted
+// workflows or not: the posture's own bound, or zero, which omits the
+// section.
+func workflowsAtOnce(granted bool) int {
+	if !granted {
+		return 0
+	}
+	return harness.ClaudeWorkflowConcurrency
+}
+
+// builtinWorkflows is the build prompt's BuiltinWorkflows for a build
+// granted workflows or not: the ones the delegation check admits by name.
+func builtinWorkflows(granted bool) []string {
+	if !granted {
+		return nil
+	}
+	return harness.ClaudeBuiltinWorkflows()
 }
 
 // subagentsAtOnce is the build prompt's SubagentsAtOnce for a build granted

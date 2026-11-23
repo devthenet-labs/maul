@@ -14,6 +14,7 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -136,6 +137,7 @@ func TestClaudePostureProbe(t *testing.T) {
 	probeEvaluate(t, cli)
 	probeDelegation(t, cli)
 	probeSubagents(t, cli)
+	probeWorkflows(t, cli)
 
 	for _, sandbox := range []Sandbox{SandboxReadOnly, SandboxWorkspaceWrite} {
 		name := map[Sandbox]string{SandboxReadOnly: "read-only", SandboxWorkspaceWrite: "workspace-write"}[sandbox]
@@ -650,6 +652,10 @@ type probeOutcome struct {
 	// met whether a rendezvous's children all ran at once.
 	requests []probeRequest
 	met      bool
+	// peak is the most children that ran at once, and upstreamResults the
+	// tool results the model was sent, by call id (fakeUpstream.results).
+	peak            int
+	upstreamResults map[string]toolResult
 	// stdout is the run's stream.
 	stdout []byte
 }
@@ -715,6 +721,7 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 	out.headerSeen, out.guidance, out.leaked = p.upstream.seen()
 	out.maxTokens = p.upstream.maxTokensSeen()
 	out.requests, out.met, out.stdout = p.upstream.requestsSeen(), p.upstream.metSeen(), slices.Clone(stdout.Bytes())
+	out.peak, out.upstreamResults = p.upstream.peakSeen()
 	if !p.upstream.promptSeen() {
 		t.Errorf("the prompt (%d bytes, on the CLI's standard input) did not reach the model intact", len(spec.Stdin))
 	}
@@ -954,7 +961,19 @@ type fakeUpstream struct {
 	arrived    chan struct{}
 	first      map[string]bool
 	met        bool
-	canaries   []string
+	// late: a child's first request stopped waiting for its siblings before
+	// they all came, so they did not all run at once.
+	late     bool
+	canaries []string
+	// active are the children whose conversation has started and not yet
+	// been given its final answer, and peak the most there ever were: how
+	// many of them ran at once.
+	active map[string]bool
+	peak   int
+	// results are the tool results the conversations' requests carried, by
+	// call id: the only record of a call by an agent that prints nothing on
+	// the stream (a workflow's).
+	results map[string]toolResult
 }
 
 // probeSecretEnv is a variable every probe run carries, holding
@@ -986,7 +1005,8 @@ func (f *fakeUpstream) reset(script probeScript, prompt string) {
 	f.steps, f.children = script.steps, script.children
 	f.header, f.guidance, f.leaked, f.maxTokens = false, false, nil, nil
 	f.prompt, f.carried = strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(b.String(), `"`), "\n"), `"`), false
-	f.requests, f.rendezvous, f.first, f.met = nil, script.rendezvous, map[string]bool{}, false
+	f.requests, f.rendezvous, f.first, f.met, f.late = nil, script.rendezvous, map[string]bool{}, false, false
+	f.active, f.peak, f.results = map[string]bool{}, 0, map[string]toolResult{}
 	f.arrived = make(chan struct{})
 	f.canaries = append([]string{probeEnvCanary, probeTokenCanary}, script.canaries...)
 }
@@ -1004,6 +1024,44 @@ func (f *fakeUpstream) metSeen() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.met
+}
+
+// peakSeen reports the most children that ran at once, and the tool results
+// the requests carried.
+func (f *fakeUpstream) peakSeen() (int, map[string]toolResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.peak, maps.Clone(f.results)
+}
+
+// recordResults keeps the tool results a request's body carries. Called with
+// f.mu held.
+func (f *fakeUpstream) recordResults(body []byte) {
+	var req struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(body, &req) != nil {
+		return
+	}
+	for _, m := range req.Messages {
+		var blocks []struct {
+			Type      string          `json:"type"`
+			ToolUseID string          `json:"tool_use_id"`
+			IsError   bool            `json:"is_error"`
+			Content   json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(m.Content, &blocks) != nil {
+			continue
+		}
+		for _, b := range blocks {
+			if b.Type == "tool_result" && b.ToolUseID != "" {
+				f.results[b.ToolUseID] = toolResult{IsError: b.IsError, Text: string(b.Content),
+					Kinds: contentKinds(b.Content)}
+			}
+		}
+	}
 }
 
 // childFor is the child script a request with this body belongs to, or nil
@@ -1030,7 +1088,7 @@ func (f *fakeUpstream) meet(marker string) {
 	}
 	f.first[marker] = true
 	if len(f.first) == f.rendezvous {
-		f.met = true
+		f.met = !f.late
 		close(f.arrived)
 	}
 	arrived := f.arrived
@@ -1038,6 +1096,9 @@ func (f *fakeUpstream) meet(marker string) {
 	select {
 	case <-arrived:
 	case <-time.After(rendezvousWait):
+		f.mu.Lock()
+		f.late = true
+		f.mu.Unlock()
 	}
 }
 
@@ -1107,6 +1168,7 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	if bytes.Contains(body, []byte(f.prompt)) {
 		f.carried = true
 	}
+	f.recordResults(body)
 	for _, canary := range f.canaries {
 		if bytes.Contains(body, []byte(canary)) && !slices.Contains(f.leaked, canary) {
 			f.leaked = append(f.leaked, canary)
@@ -1148,9 +1210,20 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+		if marker != "" {
+			f.active[marker] = true
+			f.peak = max(f.peak, len(f.active))
+		}
 		f.mu.Unlock()
 		if marker != "" {
 			f.meet(marker)
+			if len(calls) == 0 {
+				defer func() {
+					f.mu.Lock()
+					delete(f.active, marker)
+					f.mu.Unlock()
+				}()
+			}
 		}
 	}
 	id := f.nextMessageID()

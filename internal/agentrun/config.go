@@ -186,6 +186,15 @@ type Config struct {
 	// build harness but claude, the one that renders the posture.
 	BuildSubagents bool
 
+	// BuildWorkflows grants a build granted subagents workflows besides
+	// (MAUL_BUILD_WORKFLOWS, "true" or unset; harness.PromptRequest.Workflows):
+	// inline and built-in ones, whose agents neither its turn grant nor its
+	// token budget sees, so only the broker's cost cap and the stage's wall
+	// clock bound them, and whose progress keeps the idle watchdog from
+	// ending the run. Its report repairs are granted none. FromEnv refuses it
+	// without BuildSubagents, which holds it to an intent build on claude.
+	BuildWorkflows bool
+
 	// NetworkProfile names the operator network profile the pod carries (a
 	// Go module route through the egress proxy), which the remediate and
 	// build prompts then describe instead of saying the run is offline.
@@ -362,6 +371,26 @@ func buildSubagentsFromEnv(raw string, phase Phase, harnessID string, errs []str
 	return true, errs
 }
 
+// buildWorkflowsFromEnv reads MAUL_BUILD_WORKFLOWS: "true" or unset, any
+// other value added to errs, never read as either. A grant is refused, by
+// name, on a Job not granted subagents (subagents, already read): the
+// workflows posture is the subagents posture with workflows allowed, and
+// the subagents grant is what holds both to an intent build on claude.
+func buildWorkflowsFromEnv(raw string, subagents bool, errs []string) (bool, []string) {
+	switch raw {
+	case "":
+		return false, errs
+	case "true":
+	default:
+		return false, append(errs, fmt.Sprintf("MAUL_BUILD_WORKFLOWS=%q is not \"true\" or unset", raw))
+	}
+	if !subagents {
+		return false, append(errs, "MAUL_BUILD_WORKFLOWS is set without MAUL_BUILD_SUBAGENTS: only a build granted "+
+			"subagents may be granted workflows")
+	}
+	return true, errs
+}
+
 // negativeIdleTimeouts reports each stage idle limit set below zero: zero is
 // how the watchdog is disabled, so a negative one is a mistake, not a
 // stricter limit.
@@ -482,6 +511,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	cfg.PlanVerification, errs = planVerificationFromEnv(get("PLAN_VERIFICATION", ""), errs)
 	cfg.AcceptanceFix, errs = acceptanceFixFromEnv(get("ACCEPTANCE_FIX", ""), errs)
 	cfg.BuildSubagents, errs = buildSubagentsFromEnv(get("BUILD_SUBAGENTS", ""), cfg.Phase, cfg.RemediateHarness, errs)
+	cfg.BuildWorkflows, errs = buildWorkflowsFromEnv(get("BUILD_WORKFLOWS", ""), cfg.BuildSubagents, errs)
 	// Approving a fix must never buy less than leaving it alone would: a
 	// manual budget below the automated one inverts the whole model.
 	if cfg.RemediateManualMaxTurns < cfg.RemediateAutoMaxTurns {

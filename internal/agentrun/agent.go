@@ -295,8 +295,9 @@ func (a *Agent) run(ctx context.Context, sr *stageRun, req harness.PromptRequest
 	ctx, watch := newIdleWatch(ctx, sr.idle)
 	secrets := credentialValues(sr.h, a.scrub...)
 	output := a.followOutput(ctx, sr.h, spec, secrets)
-	delegation := newDelegationWatch(sr.h, req.Subagents)
-	onLine := a.observe(sr.h, sr.rec, budget, watch, output, delegation, newTurnWatch(sr.h, req))
+	delegation := newDelegationWatch(sr.h, harness.Delegation{Subagents: req.Subagents, Workflows: req.Workflows})
+	onLine := a.observe(sr.h, sr.rec, budget, watch.counting(sr.h, req.Workflows), output, delegation,
+		newTurnWatch(sr.h, req))
 	res, runErr = a.exec.Run(ctx, spec, timeout, onLine)
 	sr.delegated = delegation.refused()
 	output.end()
@@ -339,6 +340,7 @@ func (a *Agent) observe(h harness.Harness, rec *transcript.Recorder, budget int,
 				rec.RecordAll(scanned)
 			}
 			idle.progress(scanned)
+			idle.scan(line)
 		} else {
 			idle.alive()
 		}
@@ -498,19 +500,19 @@ func budgetWatcher(h harness.Harness, budget int) func([]byte) (bool, string) {
 // delegation is checked whatever the run's limits. A nil one, for a harness
 // that cannot delegate, ends nothing.
 type delegationWatch struct {
-	scanner   harness.DelegationScanner
-	subagents bool
-	reason    string
+	scanner harness.DelegationScanner
+	grant   harness.Delegation
+	reason  string
 }
 
-// newDelegationWatch builds the kill switch for a run of h granted
-// subagents or not, or nil when h cannot delegate.
-func newDelegationWatch(h harness.Harness, subagents bool) *delegationWatch {
+// newDelegationWatch builds the kill switch for a run of h granted what
+// grant says, or nil when h cannot delegate.
+func newDelegationWatch(h harness.Harness, grant harness.Delegation) *delegationWatch {
 	scanner, ok := h.(harness.DelegationScanner)
 	if !ok {
 		return nil
 	}
-	return &delegationWatch{scanner: scanner, subagents: subagents}
+	return &delegationWatch{scanner: scanner, grant: grant}
 }
 
 // scan judges one stream line, keeping the reason of the first it ends the
@@ -519,7 +521,7 @@ func (d *delegationWatch) scan(line []byte) (bool, string) {
 	if d == nil || d.reason != "" {
 		return false, ""
 	}
-	forbidden, reason := d.scanner.ScanDelegation(line, d.subagents)
+	forbidden, reason := d.scanner.ScanDelegation(line, d.grant)
 	if forbidden {
 		d.reason = reason
 	}

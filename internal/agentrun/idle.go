@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/devthenet-labs/maul/internal/harness"
 	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
@@ -47,6 +48,10 @@ type idleWatch struct {
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 	timer  *time.Timer
+
+	// delegated, when set, sees progress the stream shows beside turns: a
+	// workflow's, for a run granted workflows (counting).
+	delegated harness.ProgressScanner
 
 	mu      sync.Mutex
 	since   time.Time     // the last progress
@@ -113,6 +118,31 @@ func (w *idleWatch) progress(turns []transcript.Turn) {
 			}
 		}
 	}
+}
+
+// counting has w also count, as progress, the delegated work a run of h
+// granted workflows shows on its stream without turns of its own: a
+// workflow's agents print none, only the workflow's progress events
+// (harness.ProgressScanner), and a run waiting on a working one must not be
+// ended for silence. A run not granted workflows counts what it did before.
+// It returns w, nil for a nil one.
+func (w *idleWatch) counting(h harness.Harness, workflows bool) *idleWatch {
+	if w == nil || !workflows {
+		return w
+	}
+	if scanner, ok := h.(harness.ProgressScanner); ok {
+		w.delegated = scanner
+	}
+	return w
+}
+
+// scan records the progress of delegated work one stream line shows; see
+// counting.
+func (w *idleWatch) scan(line []byte) {
+	if w == nil || w.delegated == nil || !w.delegated.ScanProgress(line) {
+		return
+	}
+	w.alive()
 }
 
 // alive records progress for a stream the harness cannot project onto turns:
