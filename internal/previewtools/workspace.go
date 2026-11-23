@@ -61,9 +61,7 @@ const (
 	// agents verification's 75m.
 	MaxWorkspaceTimeoutSeconds = int(maulv1.MaxAgentsVerificationTimeout / time.Second)
 	// MaxBaseRuns bounds the check runs the relay makes at the base (its
-	// replays and confirmations): status.base.runs keeps at most as many.
-	// Past it a check gets no base run, which Decide reads as rule 5 not
-	// met (unsure), never a pass.
+	// confirmations). Past it a check gets no base run.
 	MaxBaseRuns = maulv1.MaxBaseRuns
 	// maxBuilds is the builds the relay records: one of each tree.
 	maxBuilds = 2
@@ -143,8 +141,6 @@ func (c Config) validateWorkspace() error {
 		return fmt.Errorf("maxToolCalls must be %d to %d", maulv1.MinToolCalls, maulv1.MaxToolCallsLimit)
 	case c.TimeoutSeconds < 1 || c.TimeoutSeconds > MaxWorkspaceTimeoutSeconds:
 		return fmt.Errorf("timeoutSeconds must be 1 to %d", MaxWorkspaceTimeoutSeconds)
-	case c.ReplayOnly && len(c.Checks) == 0:
-		return errors.New("a replay round needs at least one check")
 	}
 	if err := c.Workspace.validate(); err != nil {
 		return err
@@ -451,8 +447,8 @@ func (r *Relay) places() places {
 	return places{bin: r.cfg.Workspace.Binary, tree: r.workTree}
 }
 
-// substitute is the placeholder pass of every check path (replay,
-// confirmation, a dry run, a red dry run; SPEC S2-04) for an argument or an
+// substitute is the placeholder pass of every check path (confirmation, a
+// dry run, a red dry run; SPEC S2-04) for an argument or an
 // expectation: {{bin}}, then {{tree}}, each where p has it, then {{run}}
 // through httpstep.Substitute, which refuses any other placeholder, those p
 // lacks and {{marker}} included. A program file's content takes
@@ -836,7 +832,7 @@ func baseUnbuiltRun(c checks.Check, mode toolwire.CheckRunMode, unbuildable bool
 		Result: toolwire.DeriveResult([]toolwire.Attempt{a}), Attempts: []toolwire.Attempt{a}}
 }
 
-// baseRun runs c at the base for a replay or a confirmation: alone, under
+// baseRun runs c at the base for a confirmation: alone, under
 // fresh tokens, when the base built; an unbuilt run when it did not; none
 // once MaxBaseRuns are spent (ok false).
 func (r *Relay) baseRun(ctx context.Context, c checks.Check, mode toolwire.CheckRunMode) (toolwire.CheckRunRecord,

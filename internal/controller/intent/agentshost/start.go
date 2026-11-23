@@ -303,7 +303,8 @@ func (r *Reconciler) refused(ctx context.Context, pv *v1alpha1.PreviewVerificati
 const refusalLogMax = 1024
 
 // relayData is the relay's data: its workspace config (validated as the
-// relay validates it) and the outcomes under evaluation.
+// relay validates it) and the outcomes under evaluation. It carries no saved
+// check and no replay, whatever pv's retired checks and rung say.
 func (r *Reconciler) relayData(pv *v1alpha1.PreviewVerification, spec jobs.ToolPodSpec,
 	env []toolexec.EnvVar) (map[string]string, error) {
 	ws := pv.Spec.Workspace
@@ -317,12 +318,7 @@ func (r *Reconciler) relayData(pv *v1alpha1.PreviewVerification, spec jobs.ToolP
 		w.Language = string(ws.Surface.Library.Language)
 	}
 	cfg := previewtools.Config{Mode: previewtools.ModeWorkspace, Workspace: w,
-		MaxToolCalls: int(pv.Spec.Tools.MaxToolCalls), TimeoutSeconds: int(wall / time.Second),
-		ReplayOnly: pv.Spec.Rung == v1alpha1.RungReplay}
-	for _, c := range pv.Spec.Checks {
-		cfg.Checks = append(cfg.Checks, previewtools.StoredCheck{ID: c.ID, Digest: c.Digest, Body: c.Body,
-			Expect: string(c.Expect)})
-	}
+		MaxToolCalls: int(pv.Spec.Tools.MaxToolCalls), TimeoutSeconds: int(wall / time.Second)}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}

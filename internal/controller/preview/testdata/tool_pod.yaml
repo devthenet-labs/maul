@@ -225,7 +225,7 @@ type: Opaque
 data:
   outcomes.json: '[{"id":"items","outcome":"the items list shows new items","kind":"change"},{"id":"feel","outcome":"it
     feels right","kind":"change","manual":true,"reason":"taste"}]'
-  tools.json: '{"components":[{"key":"web","path":"/","addr":"10.96.0.10:80"},{"key":"api","path":"/api","addr":"10.96.0.11:80"}],"host":"shop-1.preview.maul.example.com","viewer":"maul-evaluator","checks":[{"id":"items.body","digest":"sha256:f2d5617ba007c3f2c3887a5e5d1c8f7f984f8b9cc8dea959a965e767b0223880","body":"{\"id\":\"items.body\",\"outcome\":\"items\",\"form\":\"http\",\"http\":{\"target\":\"api\",\"steps\":[{\"request\":{\"method\":\"POST\",\"path\":\"/api/echo\",\"json\":{\"n\":\"{{run}}\"}},\"expect\":{\"status\":[200],\"bodyContains\":\"{{run}}\"}}]}}"}],"maxToolCalls":120,"timeoutSeconds":1200,"browser":true,"sandbox":true}'
+  tools.json: '{"components":[{"key":"web","path":"/","addr":"10.96.0.10:80"},{"key":"api","path":"/api","addr":"10.96.0.11:80"}],"host":"shop-1.preview.maul.example.com","viewer":"maul-evaluator","maxToolCalls":120,"timeoutSeconds":1200,"browser":true,"sandbox":true}'
 metadata:
   labels:
     app.kubernetes.io/managed-by: maul-preview-controller

@@ -70,16 +70,24 @@ func finishReason(t *testing.T, e toolwire.LedgerEntry) string {
 	return args.Reason
 }
 
-func TestRunReplaysAloneThenFinishesAReplayRound(t *testing.T) {
-	api := fakeAPI(t, func(n int) int { return []int{5, 99, 5}[n] })
+// TestRunNeverReplaysSavedChecks: a config that still carries saved checks
+// (an earlier host's) runs none of them: the readiness wait, then the
+// relay serves the agent until its wall clock, and no request reaches a
+// component but the agent's.
+func TestRunNeverReplaysSavedChecks(t *testing.T) {
+	api := fakeAPI(t, func(int) int { return 5 })
 	web := newFakeComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusCreated)
 	})
 	cfg := baseConfig()
-	cfg.ReplayOnly = true
 	cfg.Checks = []StoredCheck{storedCheck(t, scoreCheck), storedCheck(t, scoreCheckB), storedCheck(t, webCheck)}
 	l := newLifecycle(t, cfg, routes{"10.0.0.1:80": api.srv.Listener.Addr().String(),
 		"10.0.0.2:80": web.srv.Listener.Addr().String()})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.o.Listener, l.o.Timeout = ln, 300*time.Millisecond
 
 	sum, err := Run(context.Background(), l.o)
 	if err != nil {
@@ -98,30 +106,14 @@ func TestRunReplaysAloneThenFinishesAReplayRound(t *testing.T) {
 	if err := json.Unmarshal([]byte(ready.Output), &waits); err != nil || len(waits) != 2 || !waits[0].Reached() {
 		t.Errorf("readiness output %q: %v", ready.Output, err)
 	}
-	want := []struct {
-		id     string
-		result toolwire.RunResult
-	}{{"score.shows", toolwire.RunPass}, {"score.again", toolwire.RunQuarantined}, {"home.items", toolwire.RunFail}}
-	tokens := map[string]bool{}
-	for i, w := range want {
-		e := led.Entries[1+i]
-		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbCheckRun || e.CheckRun == nil ||
-			e.CheckRun.Mode != toolwire.ModeReplay || e.CheckRun.CheckID != w.id || e.CheckRun.Result != w.result {
-			t.Errorf("entry %d %+v, want a replay of %s: %s", 1+i, e, w.id, w.result)
-			continue
-		}
-		for _, a := range e.CheckRun.Attempts {
-			if tokens[a.Run] {
-				t.Errorf("token %q reused", a.Run)
-			}
-			tokens[a.Run] = true
-		}
+	if len(led.Entries) != 2 {
+		t.Errorf("%d entries %+v, want the readiness wait and finish", len(led.Entries), led.Entries)
 	}
-	if r := finishReason(t, led.Entries[len(led.Entries)-1]); r != FinishReplayOnly {
-		t.Errorf("finish reason %q", r)
+	if r := finishReason(t, led.Entries[len(led.Entries)-1]); r != FinishDeadline {
+		t.Errorf("finish reason %q, want %q", r, FinishDeadline)
 	}
-	if len(led.Entries) != 5 {
-		t.Errorf("%d entries, want readiness, three replays and finish", len(led.Entries))
+	if n := len(api.requests()) + len(web.requests()); n != 0 {
+		t.Errorf("%d requests reached the components; a saved check ran", n)
 	}
 }
 
@@ -145,37 +137,6 @@ func TestRunFinishesAtItsDeadline(t *testing.T) {
 	led := l.verify(t)
 	if r := finishReason(t, led.Entries[len(led.Entries)-1]); r != FinishDeadline {
 		t.Errorf("finish reason %q", r)
-	}
-	if ReplayFinished(led.Entries) {
-		t.Error("ReplayFinished = true for a relay finished at its deadline")
-	}
-}
-
-// TestReplayFinished (review VC-3): only the relay's own finish at the end
-// of a replay round's replay says every saved check had its turn; a finish
-// at the wall clock, on a stop, the runner's, none at all, or one whose
-// reason does not read, does not.
-func TestReplayFinished(t *testing.T) {
-	relay := func(args string) toolwire.LedgerEntry {
-		return toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbFinish, Args: json.RawMessage(args)}
-	}
-	run := toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`)}
-	for _, tc := range []struct {
-		name    string
-		entries []toolwire.LedgerEntry
-		want    bool
-	}{
-		{"replay-only", []toolwire.LedgerEntry{run, relay(`{"reason":"replay-only"}`)}, true},
-		{"deadline", []toolwire.LedgerEntry{run, relay(`{"reason":"deadline"}`)}, false},
-		{"stopped", []toolwire.LedgerEntry{run, relay(`{"reason":"stopped"}`)}, false},
-		{"no finish entry", []toolwire.LedgerEntry{run}, false},
-		{"the runner's finish", []toolwire.LedgerEntry{run, {Kind: toolwire.KindRunner, Verb: toolwire.VerbFinish,
-			Args: json.RawMessage(`{"reason":"replay-only"}`)}}, false},
-		{"unreadable", []toolwire.LedgerEntry{run, relay(`"replay-only"`)}, false},
-	} {
-		if got := ReplayFinished(tc.entries); got != tc.want {
-			t.Errorf("%s: ReplayFinished = %v, want %v", tc.name, got, tc.want)
-		}
 	}
 }
 
@@ -266,22 +227,24 @@ func waitReady(t *testing.T, base string) {
 	t.Fatal("tools never ready")
 }
 
-func TestRunFinishReasonWhenTheReplayIsCutShort(t *testing.T) {
-	slow := newFakeComponent(t, func(_ http.ResponseWriter, r *http.Request, _ int) {
-		<-r.Context().Done() // never answers in time
-	})
-	addr := slow.srv.Listener.Addr().String()
+// TestRunFinishReasonWhenCutShort: a relay serving the agent finishes at
+// its wall clock (deadline) or when its container is told to stop
+// (stopped), never as a round that ran.
+func TestRunFinishReasonWhenCutShort(t *testing.T) {
+	api := fakeAPI(t, func(int) int { return 5 })
+	addr := api.srv.Listener.Addr().String()
 	for _, tc := range []struct {
 		name   string
 		cancel bool
 		want   string
 	}{{"wall clock", false, FinishDeadline}, {"told to stop", true, FinishStopped}} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := baseConfig()
-			cfg.ReplayOnly = true
-			cfg.Checks = []StoredCheck{storedCheck(t, scoreCheck)}
-			l := newLifecycle(t, cfg, routes{"10.0.0.1:80": addr, "10.0.0.2:80": addr})
-			l.o.Timeout = 400 * time.Millisecond
+			l := newLifecycle(t, baseConfig(), routes{"10.0.0.1:80": addr, "10.0.0.2:80": addr})
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			l.o.Listener, l.o.Timeout = ln, 400*time.Millisecond
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if tc.cancel {

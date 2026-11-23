@@ -14,22 +14,32 @@ import (
 )
 
 // overCap is an agents verification settled in phase for reason whose
-// status is over maxObject even once its log tails go: its confirmed
-// checks alone pass it.
+// status is over maxObject even once its log tails go: a full ledger
+// index passes it, padded by an annotation that fits alone.
 func overCap(phase v1alpha1.PreviewVerificationPhase,
 	reason v1alpha1.PreviewVerificationReason) *v1alpha1.PreviewVerification {
-	pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: "cli-1-v1-a1"},
+	pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: "cli-1-v1-a1",
+		Annotations: map[string]string{"pad": strings.Repeat("p", maxObject-(200<<10))}},
 		Spec: v1alpha1.PreviewVerificationSpec{Placement: v1alpha1.PlacementAgents}}
 	pv.Status = v1alpha1.PreviewVerificationStatus{Phase: phase, Reason: reason,
-		Ledger: &v1alpha1.LedgerSummary{Count: 1, SHA256: strings.Repeat("a", 64)},
-		Base:   &v1alpha1.BaseStatus{Required: true},
+		Ledger: &v1alpha1.LedgerSummary{Count: 512, SHA256: strings.Repeat("a", 64), Entries: fullIndex()},
 		Environment: []v1alpha1.PartFact{{Name: "build", Role: v1alpha1.PreviewRoleBuild,
 			LogTail: strings.Repeat("x", 400<<10)}}}
-	body := strings.Repeat("b", 4<<10)
-	for i := range 400 {
-		pv.Status.Confirmed = append(pv.Status.Confirmed, v1alpha1.SavedCheck{ID: fmt.Sprintf("c%d", i), Body: body})
-	}
 	return pv
+}
+
+// fullIndex is a ledger index at its bounds: 512 entries of 8 artifacts.
+func fullIndex() []v1alpha1.LedgerIndexEntry {
+	shas := make([]string, 8)
+	for i := range shas {
+		shas[i] = fmt.Sprintf("%064x", i)
+	}
+	out := make([]v1alpha1.LedgerIndexEntry, 512)
+	for i := range out {
+		out[i] = v1alpha1.LedgerIndexEntry{Seq: int32(i + 1), Kind: v1alpha1.LedgerKindAgent,
+			Verb: v1alpha1.LedgerVerbExec, ResultSHA256: strings.Repeat("b", 64), Artifacts: shas}
+	}
+	return out
 }
 
 // TestFitStatusKeepsASettledPhase: an agents verification over its cap
@@ -62,7 +72,7 @@ func TestFitStatusKeepsASettledPhase(t *testing.T) {
 			if pv.Status.Phase != tc.wantPhase || pv.Status.Reason != tc.wantReason {
 				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.wantPhase, tc.wantReason)
 			}
-			if pv.Status.Ledger != nil || pv.Status.Confirmed != nil || pv.Status.Base != nil {
+			if pv.Status.Ledger != nil {
 				t.Error("the ledger fields were kept over the cap")
 			}
 			if n := jsonSize(pv); n > maxObject {
@@ -73,14 +83,13 @@ func TestFitStatusKeepsASettledPhase(t *testing.T) {
 	// Under the cap once tails go, from the last part back, nothing else
 	// is dropped.
 	pv := overCap(v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK)
-	pv.Status.Confirmed = pv.Status.Confirmed[:1]
+	pv.Annotations = nil
 	tail := strings.Repeat("x", 400<<10)
 	pv.Status.Environment = []v1alpha1.PartFact{{Name: "build", LogTail: tail}, {Name: "tools", LogTail: tail},
 		{Name: "sandbox-head", LogTail: tail}, {Name: "sandbox-base", LogTail: tail}}
 	fitStatus(pv)
-	if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Ledger == nil || pv.Status.Base == nil ||
+	if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Ledger == nil ||
 		pv.Status.Environment[0].LogTail == "" || pv.Status.Environment[3].LogTail != "" {
-		t.Errorf("phase %s, ledger %v, base %v: want the last tails dropped alone", pv.Status.Phase,
-			pv.Status.Ledger, pv.Status.Base)
+		t.Errorf("phase %s, ledger %v: want the last tails dropped alone", pv.Status.Phase, pv.Status.Ledger)
 	}
 }

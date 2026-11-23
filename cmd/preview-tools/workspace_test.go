@@ -68,7 +68,8 @@ func serveShim(t *testing.T, sock, output string) *fakeShim {
 	return f
 }
 
-// workspaceSeams writes a workspace replay round's config and key, two
+// workspaceSeams writes a workspace round's config (one saved check, an
+// earlier host's, never run; a two-second wall clock) and key, two
 // pristine trees and two shims, and returns the seams that read them.
 func workspaceSeams(t *testing.T, key string) (previewtools.Seams, *fakeShim, *fakeShim) {
 	t.Helper()
@@ -81,7 +82,7 @@ func workspaceSeams(t *testing.T, key string) (previewtools.Seams, *fakeShim, *f
 		Workspace: &previewtools.Workspace{Build: []string{"go", "build", "-o", "/work/bin/bb", "."},
 			Binary: "/work/bin/bb", BuildTimeoutSeconds: 60, SearchPath: "/usr/bin"},
 		Checks:       []previewtools.StoredCheck{{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}},
-		MaxToolCalls: 50, TimeoutSeconds: 60, ReplayOnly: true,
+		MaxToolCalls: 50, TimeoutSeconds: 2,
 	}
 	dir := t.TempDir()
 	raw, err := json.Marshal(cfg)
@@ -117,9 +118,9 @@ func workspaceSeams(t *testing.T, key string) (previewtools.Seams, *fakeShim, *f
 		shims["head"], shims["base"]
 }
 
-// TestRunWorkspaceRound: a workspace's replay round builds both trees,
-// replays the check at each, each over its own socket, and closes the
-// ledger. Its side clients read the shims' peer credentials, which only
+// TestRunWorkspaceRound: a workspace's round builds both trees, each over
+// its own socket, runs no saved check, serves until its wall clock and
+// closes the ledger. Its side clients read the shims' peer credentials, which only
 // linux gives (toolexec.NewSideClient refuses every dial elsewhere).
 func TestRunWorkspaceRound(t *testing.T) {
 	if runtime.GOOS != "linux" {
@@ -138,13 +139,13 @@ func TestRunWorkspaceRound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v\n%s", err, stdout.String())
 	}
-	if len(l.Entries) != 5 || l.Entries[0].Verb != toolwire.VerbBuild || l.Entries[1].Side != toolwire.SideBase ||
-		l.Entries[2].CheckRun.Result != toolwire.RunPass || l.Entries[3].Side != toolwire.SideBase ||
-		l.Entries[3].CheckRun.Result != toolwire.RunFail {
-		t.Fatalf("ledger %+v, want two builds, a head and a base replay, and finish", l.Entries)
+	if len(l.Entries) != 3 || l.Entries[0].Verb != toolwire.VerbBuild || l.Entries[0].Side != "" ||
+		l.Entries[1].Verb != toolwire.VerbBuild || l.Entries[1].Side != toolwire.SideBase ||
+		l.Entries[2].Verb != toolwire.VerbFinish {
+		t.Fatalf("ledger %+v, want two builds and finish", l.Entries)
 	}
-	if len(head.reqs) != 2 || len(base.reqs) != 3 {
-		t.Fatalf("head ran %d, base %d requests", len(head.reqs), len(base.reqs))
+	if len(head.reqs) != 1 || len(base.reqs) != 1 {
+		t.Fatalf("head ran %d, base %d requests, want each its build", len(head.reqs), len(base.reqs))
 	}
 }
 

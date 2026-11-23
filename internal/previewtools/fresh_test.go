@@ -22,15 +22,11 @@ const patchedCheck = `{"id":"bb.patched","outcome":"bb","form":"run","run":{"lan
  "expect":{"exit":0,"stdoutContains":"true"}}}`
 
 // TestCheckRunRequestsAreFresh (review VC-2): every check run's program
-// starts from the build at its own side, a dry run, a replay and a
-// confirmation alike; an exploratory exec or run keeps what earlier calls
-// left.
+// starts from the build at its own side, a dry run and a confirmation
+// alike; an exploratory exec or run keeps what earlier calls left.
 func TestCheckRunRequestsAreFresh(t *testing.T) {
 	head, base := &fakeSandbox{do: printing("count=3", 0)}, &fakeSandbox{do: printing("count=3", 0)}
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
 	_, dry := h.dryRunKeyed(cliExecCheck, "")
 	if dry.Observed == nil || dry.Observed.CheckRun == nil {
 		t.Fatalf("dry run: %+v", dry)
@@ -51,18 +47,18 @@ func TestCheckRunRequestsAreFresh(t *testing.T) {
 		}
 		return len(reqs)
 	}
-	// Replay, dry run and confirmation at the head; the replay's,
-	// the dry run's and the confirmation's base runs at the base.
-	if n := checkRuns(head); n != 3 {
-		t.Errorf("%d check runs at the head, want 3", n)
+	// Dry run and confirmation at the head; the dry run's and the
+	// confirmation's base runs at the base.
+	if n := checkRuns(head); n != 2 {
+		t.Errorf("%d check runs at the head, want 2", n)
 	}
-	if n := checkRuns(base); n != 3 {
-		t.Errorf("%d check runs at the base, want 3", n)
+	if n := checkRuns(base); n != 2 {
+		t.Errorf("%d check runs at the base, want 2", n)
 	}
 	h.callKeyed(toolwire.VerbExec, `{"argv":["ls"]}`)
 	h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go",
 		Files: []toolwire.File{{Name: "main.go", Content: []byte("package main\nfunc main() {}\n")}}}))
-	reqs := head.nonBuilds()[3:]
+	reqs := head.nonBuilds()[2:]
 	if len(reqs) != 4 {
 		t.Fatalf("%d exploratory requests, want an exec, an init, a compile and a run", len(reqs))
 	}

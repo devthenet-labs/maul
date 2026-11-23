@@ -45,7 +45,6 @@ func TestParseConfig(t *testing.T) {
 		{"a check that does not parse", func(c *Config) { c.Checks[0].Body = "{" }, "", false},
 		{"a check over 8 KiB", func(c *Config) { c.Checks[0].Body = strings.Repeat(" ", 8193) }, "", false},
 		{"a check named twice", func(c *Config) { c.Checks = append(c.Checks, c.Checks[0]) }, "", false},
-		{"a replay round with no checks", func(c *Config) { c.Checks, c.ReplayOnly = nil, true }, "", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

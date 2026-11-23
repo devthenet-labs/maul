@@ -441,35 +441,10 @@ func redConfirm(t *testing.T, digest string, red bool) string {
 	return string(b)
 }
 
-// TestConfirmAgainstTheReplay (review finding 3): a saved check this
-// round's replay saw green is never confirmed red, nor one it saw red
-// confirmed green; and a red check must act on data of its own run.
-func TestConfirmAgainstTheReplay(t *testing.T) {
-	digest := bareDigest(t, scoreCheck)
+// TestRedConfirmNeedsItsOwnData: a red check must act on data of its own
+// run.
+func TestRedConfirmNeedsItsOwnData(t *testing.T) {
 	confirm := func(d string, red bool) string { return redConfirm(t, d, red) }
-	t.Run("replayed green this round", func(t *testing.T) {
-		api := fakeAPI(t, func(int) int { return 99 })
-		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
-		h.relay.replays = []toolwire.CheckRunRecord{{Digest: digest, Mode: toolwire.ModeReplay,
-			Result: toolwire.RunPass, Attempts: []toolwire.Attempt{{Run: "tok0", Result: toolwire.ResultPass}}}}
-		h.call(toolwire.VerbCheckRun, `{"check":`+scoreCheck+`}`)
-		if _, resp := h.call(toolwire.VerbConfirm, confirm(digest, true)); resp.Refused != toolwire.RefusedNoRedDryRun {
-			t.Errorf("a check replayed green was confirmed as showing a defect: %+v", resp)
-		}
-		h.finish()
-	})
-	t.Run("replayed red this round, confirmed green", func(t *testing.T) {
-		api := fakeAPI(t, func(int) int { return 5 })
-		h := newHarness(t, baseConfig(), routes{"10.0.0.1:80": api.srv.Listener.Addr().String()}, nil)
-		h.relay.replays = []toolwire.CheckRunRecord{{Digest: digest, Mode: toolwire.ModeReplay,
-			Result: toolwire.RunFail, Attempts: []toolwire.Attempt{{Run: "tok0", Result: toolwire.ResultFail},
-				{Run: "tok00", Result: toolwire.ResultFail}}}}
-		h.call(toolwire.VerbCheckRun, `{"check":`+scoreCheck+`}`)
-		if _, resp := h.call(toolwire.VerbConfirm, confirm(digest, false)); resp.Refused != toolwire.RefusedNoDryRun {
-			t.Errorf("a check replayed red was confirmed green: %+v", resp)
-		}
-		h.finish()
-	})
 	t.Run("a red check that creates no data of its own", func(t *testing.T) {
 		const static = `{"id":"score.static","outcome":"score","form":"http","http":{"target":"api","steps":[
 		 {"request":{"path":"/api/players/1"},"expect":{"json":{"/score":{"$range":[0,10]}}}}]}}`

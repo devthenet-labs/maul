@@ -82,7 +82,7 @@ func checkRelayConfig(t *testing.T, spec jobs.ToolPodSpec) {
 	}
 	ws := cfg.Workspace
 	if !cfg.IsWorkspace() || ws == nil || ws.Binary != "/work/bin/bb" || ws.BuildTimeoutSeconds != 600 ||
-		ws.SearchPath != searchPath || cfg.MaxToolCalls != 80 || cfg.ReplayOnly {
+		ws.SearchPath != searchPath || cfg.MaxToolCalls != 80 || len(cfg.Checks) != 0 {
 		t.Fatalf("config = %+v / %+v", cfg, ws)
 	}
 	want := []toolexec.EnvVar{{Name: "GOPROXY", Value: "off"}, {Name: "GOMODCACHE", Value: "/opt/go/pkg/mod"}}
@@ -91,6 +91,59 @@ func checkRelayConfig(t *testing.T, spec jobs.ToolPodSpec) {
 	}
 	if spec.Data[toolpod.OutcomesKey] == "" {
 		t.Error("no outcomes in the relay's data")
+	}
+}
+
+// TestStartIgnoresSavedChecks: saved checks are no part of what an agents
+// verification is held to, and the relay replays none. One with none, on an
+// Intent whose check store an earlier release wrote (what intent-controller
+// writes for every such Intent), starts; so does one still carrying checks
+// of another store, forged, or for a replay round; and each relay config
+// carries no checks and no replay.
+func TestStartIgnoresSavedChecks(t *testing.T) {
+	c, err := checks.Parse([]byte(checkBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := v1alpha1.SavedCheck{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form),
+		Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}
+	store := "sha256:" + strings.Repeat("c", 64)
+	for _, tc := range []struct {
+		name string
+		mut  func(*v1alpha1.PreviewVerification)
+	}{
+		{"no checks beside the Intent's store", func(*v1alpha1.PreviewVerification) {}},
+		{"another check store", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Checks, pv.Spec.ChecksDigest = []v1alpha1.SavedCheck{saved}, "sha256:"+strings.Repeat("d", 64)
+		}},
+		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
+			forged := saved
+			forged.Digest = "sha256:" + strings.Repeat("0", 64)
+			pv.Spec.Checks, pv.Spec.ChecksDigest = []v1alpha1.SavedCheck{forged}, store
+		}},
+		{"a replay round", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Rung, pv.Spec.Checks, pv.Spec.ChecksDigest = v1alpha1.RungReplay,
+				[]v1alpha1.SavedCheck{saved}, store
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			w.intent.Status.Acceptance.Checks = &v1alpha1.CheckStoreRef{ConfigMap: intentName + "-checks-1",
+				Digest: store, Count: 1}
+			tc.mut(w.pv)
+			h := newHarness(t, w)
+			h.reconcile(t)
+			if pv := h.pv(t); len(h.tools.created) != 1 || pv.Status.Phase != v1alpha1.VerificationRunning {
+				t.Fatalf("created %d, status %s %s; want the tool pod started", len(h.tools.created),
+					pv.Status.Phase, pv.Status.Reason)
+			}
+			raw := h.tools.created[0].Data[previewtools.ConfigFile]
+			for _, key := range []string{`"checks"`, `"replayOnly"`} {
+				if strings.Contains(raw, key) {
+					t.Errorf("the relay config carries %s: %s", key, raw)
+				}
+			}
+		})
 	}
 }
 
@@ -311,8 +364,8 @@ func TestCollect(t *testing.T) {
 	}
 }
 
-// checkCollected: pv's status holds the ledger's builds, the head's replay,
-// the base's run tagged base with base required, and the head build part.
+// checkCollected: pv's status holds the ledger's builds and the head build
+// part, and nothing of the replays the ledger still holds.
 func checkCollected(t *testing.T, pv *v1alpha1.PreviewVerification) {
 	t.Helper()
 	checkLedgerBuilds(t, pv.Status.Ledger)
@@ -329,17 +382,15 @@ func checkLedgerBuilds(t *testing.T, l *v1alpha1.LedgerSummary) {
 	}
 }
 
-// checkRuns: the head's replay, the base's run, the head build part.
+// checkRuns: no replay, confirmation or base status (the ledger's replays
+// at head and base are an old relay's, read by nothing), the head build
+// part.
 func checkRuns(t *testing.T, pv *v1alpha1.PreviewVerification) {
 	t.Helper()
-	if len(pv.Status.Replay) != 1 || pv.Status.Replay[0].Side() != v1alpha1.TreeHead ||
-		pv.Status.Replay[0].Result != v1alpha1.CheckRunPass {
-		t.Errorf("replay = %+v, want the head's one pass", pv.Status.Replay)
-	}
-	b := pv.Status.Base
-	if b == nil || !b.Required || b.Unbuildable || len(b.Runs) != 1 || b.Runs[0].Tree != v1alpha1.TreeBase ||
-		!b.Runs[0].RedByAssertion() {
-		t.Errorf("base = %+v, want the base run red by assertion, base required", b)
+	if pv.Status.Replay != nil || pv.Status.Confirmations != nil || pv.Status.Confirmed != nil ||
+		pv.Status.Base != nil {
+		t.Errorf("replay %+v, confirmations %+v, confirmed %+v, base %+v; want none", pv.Status.Replay,
+			pv.Status.Confirmations, pv.Status.Confirmed, pv.Status.Base)
 	}
 	env := pv.Status.Environment
 	if len(env) != 1 || env[0].Role != v1alpha1.PreviewPartRole("build") || env[0].LastTermination == nil ||
@@ -367,35 +418,33 @@ func checkLedgerConfigMap(t *testing.T, h *harness) {
 }
 
 // TestCollectBuilds: a head that did not build is Infra tools-build-failed
-// (never a fail); a base whose build failed is unbuildable, one maul could
-// not build, that timed out or that was killed (a "failed" entry whose exit
-// is not a normal one) is not, and its runs carry no cause (a base run is
-// then unsure, never n/a: review VC-1).
+// (never a fail); a base that did not build, however, gates nothing: the
+// round is Observed, the base's build is on the ledger's builds as it ran,
+// and no base status is written (the base is exploration only).
 func TestCollectBuilds(t *testing.T) {
 	signal, shellSignal := -1, 139
 	for _, tc := range []struct {
-		head, base  v1alpha1.BuildResult
-		baseExit    *int
-		phase       v1alpha1.PreviewVerificationPhase
-		reason      v1alpha1.PreviewVerificationReason
-		unbuildable bool
+		head, base v1alpha1.BuildResult
+		baseExit   *int
+		phase      v1alpha1.PreviewVerificationPhase
+		reason     v1alpha1.PreviewVerificationReason
 	}{
 		{v1alpha1.BuildFailed, v1alpha1.BuildBuilt, nil, v1alpha1.VerificationInfra,
-			v1alpha1.VerificationReasonToolsBuildFailed, false},
+			v1alpha1.VerificationReasonToolsBuildFailed},
 		{v1alpha1.BuildTimeout, v1alpha1.BuildBuilt, nil, v1alpha1.VerificationInfra,
-			v1alpha1.VerificationReasonToolsBuildFailed, false},
+			v1alpha1.VerificationReasonToolsBuildFailed},
 		{v1alpha1.BuildError, v1alpha1.BuildBuilt, nil, v1alpha1.VerificationInfra,
-			v1alpha1.VerificationReasonToolsBuildFailed, false},
+			v1alpha1.VerificationReasonToolsBuildFailed},
 		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, nil, v1alpha1.VerificationObserved,
-			v1alpha1.VerificationReasonOK, true},
+			v1alpha1.VerificationReasonOK},
 		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, &signal, v1alpha1.VerificationObserved,
-			v1alpha1.VerificationReasonOK, false},
+			v1alpha1.VerificationReasonOK},
 		{v1alpha1.BuildBuilt, v1alpha1.BuildFailed, &shellSignal, v1alpha1.VerificationObserved,
-			v1alpha1.VerificationReasonOK, false},
+			v1alpha1.VerificationReasonOK},
 		{v1alpha1.BuildBuilt, v1alpha1.BuildTimeout, nil, v1alpha1.VerificationObserved,
-			v1alpha1.VerificationReasonOK, false},
+			v1alpha1.VerificationReasonOK},
 		{v1alpha1.BuildBuilt, v1alpha1.BuildError, nil, v1alpha1.VerificationObserved,
-			v1alpha1.VerificationReasonOK, false},
+			v1alpha1.VerificationReasonOK},
 	} {
 		name := string(tc.head) + "-" + string(tc.base)
 		if tc.baseExit != nil {
@@ -411,13 +460,12 @@ func TestCollectBuilds(t *testing.T) {
 			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
 				t.Fatalf("status = %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
 			}
-			if pv.Status.Base == nil || pv.Status.Base.Unbuildable != tc.unbuildable {
-				t.Errorf("base = %+v, want unbuildable %v", pv.Status.Base, tc.unbuildable)
+			if pv.Status.Base != nil {
+				t.Errorf("base = %+v, want none", pv.Status.Base)
 			}
-			// The relay's run on a base that did not build has no run
-			// token, so it is no base run: n/a only through Unbuildable.
-			if b := pv.Status.Base; b != nil && tc.base != v1alpha1.BuildBuilt && len(b.Runs) != 0 {
-				t.Errorf("base runs = %+v, want none on a base that did not build", b.Runs)
+			if l := pv.Status.Ledger; l == nil || len(l.Builds) != 2 || l.Builds[1].Side != v1alpha1.TreeBase ||
+				l.Builds[1].Result != tc.base {
+				t.Errorf("ledger builds = %+v, want the base's %s", l, tc.base)
 			}
 			if tc.head != v1alpha1.BuildBuilt {
 				f := pv.Status.Environment
@@ -522,19 +570,19 @@ func TestCollectGuardsTheImageID(t *testing.T) {
 	}
 }
 
-// TestCollectReplayCutShort (review VC-3): a replay round's relay that
-// finished at the end of its replay is Observed; one it finished at its
-// wall clock, or because its container was told to stop, may have left
-// saved checks unreplayed, so it is Infra replay-incomplete, never judged.
-func TestCollectReplayCutShort(t *testing.T) {
+// TestCollectReplayRoundIsGuarded: a verification written for a replay
+// round, its relay finished on its own account (at the end of a replay, at
+// its wall clock, or told to stop) with no evaluator call, is Infra
+// evaluator-not-run like any round, never Observed.
+func TestCollectReplayRoundIsGuarded(t *testing.T) {
 	for _, tc := range []struct {
 		finish string
 		phase  v1alpha1.PreviewVerificationPhase
 		reason v1alpha1.PreviewVerificationReason
 	}{
-		{previewtools.FinishReplayOnly, v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK},
-		{previewtools.FinishDeadline, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete},
-		{previewtools.FinishStopped, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonReplayIncomplete},
+		{"replay-only", v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun},
+		{previewtools.FinishDeadline, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun},
+		{previewtools.FinishStopped, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonEvaluatorNotRun},
 	} {
 		t.Run(tc.finish, func(t *testing.T) {
 			w := newWorld(t)

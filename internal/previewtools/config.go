@@ -63,17 +63,15 @@ type Config struct {
 	// Viewer is the pairwise X-Maul-Viewer value the gateway would send for
 	// the evaluator.
 	Viewer string `json:"viewer"`
-	// Checks are the saved checks this evaluation replays first (SPEC Q1:
-	// inline in the PreviewVerification, copied here).
+	// Checks are retired: no host writes them and the relay never runs
+	// them (nothing is replayed). Still parsed and validated until the
+	// check runner goes.
 	Checks []StoredCheck `json:"checks,omitempty"`
 	// MaxToolCalls bounds the agent's calls.
 	MaxToolCalls int `json:"maxToolCalls"`
 	// TimeoutSeconds is the evaluation's wall clock from the container's
 	// start: at it the relay finishes on its own.
 	TimeoutSeconds int `json:"timeoutSeconds"`
-	// ReplayOnly is a replay round (rung replay, SPEC Q17): no model, the
-	// relay finishes once the replay is recorded.
-	ReplayOnly bool `json:"replayOnly,omitempty"`
 	// Browser and Sandbox say which sidecars the pod runs.
 	Browser bool `json:"browser,omitempty"`
 	Sandbox bool `json:"sandbox,omitempty"`
@@ -180,8 +178,6 @@ func (c Config) Validate() error {
 		return fmt.Errorf("maxToolCalls must be %d to %d", maulv1.MinToolCalls, maulv1.MaxToolCallsLimit)
 	case c.TimeoutSeconds < 1 || c.TimeoutSeconds > 3600:
 		return errors.New("timeoutSeconds must be 1 to 3600")
-	case c.ReplayOnly && len(c.Checks) == 0:
-		return errors.New("a replay round needs at least one check")
 	}
 	return validateChecks(c.Checks)
 }

@@ -1321,9 +1321,9 @@ func TestFitToolStatus(t *testing.T) {
 
 // TestFitToolStatusNeverHidesAnAppFailure: a settled phase other than
 // Observed rests on no ledger detail, so a status still over its cap once
-// the log tails go loses the ledger, replays and confirmations, never its
-// phase: an EnvFailed round stays the application's, with the facts that
-// say so; an Infra or Stale one keeps its own reason.
+// the log tails go loses the ledger, never its phase: an EnvFailed round
+// stays the application's, with the facts that say so; an Infra or Stale
+// one keeps its own reason.
 func TestFitToolStatusNeverHidesAnAppFailure(t *testing.T) {
 	for _, tc := range []struct {
 		phase  v1alpha1.PreviewVerificationPhase
@@ -1334,21 +1334,19 @@ func TestFitToolStatusNeverHidesAnAppFailure(t *testing.T) {
 		{v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview},
 	} {
 		t.Run(string(tc.phase), func(t *testing.T) {
-			body := strings.Repeat("b", 4<<10)
-			pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: "shop-1-v1-a1"}}
+			// A full ledger index over an annotation that fits alone.
+			pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: "shop-1-v1-a1",
+				Annotations: map[string]string{"pad": strings.Repeat("p", maxToolVerificationObject-(200<<10))}}}
 			pv.Status = v1alpha1.PreviewVerificationStatus{Phase: tc.phase, Reason: tc.reason,
-				Ledger: &v1alpha1.LedgerSummary{Count: 1, SHA256: strings.Repeat("a", 64)},
+				Ledger: &v1alpha1.LedgerSummary{Count: 512, SHA256: strings.Repeat("a", 64),
+					Entries: fullLedgerIndex()},
 				Environment: []v1alpha1.PartFact{{Name: "api", Role: v1alpha1.PreviewRoleComponent,
 					CrashedDuring: true, Restarts: 1, LogTail: strings.Repeat("x", 400<<10)}}}
-			for i := range 400 {
-				pv.Status.Confirmed = append(pv.Status.Confirmed, v1alpha1.SavedCheck{ID: fmt.Sprintf("c%d", i),
-					Body: body})
-			}
 			fitToolStatus(pv)
 			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
 				t.Fatalf("phase %s %s, want %s %s kept", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
 			}
-			if pv.Status.Ledger != nil || pv.Status.Confirmed != nil {
+			if pv.Status.Ledger != nil {
 				t.Error("the ledger detail was kept over the cap")
 			}
 			if n := jsonSize(pv); n > maxToolVerificationObject {
@@ -1362,4 +1360,19 @@ func TestFitToolStatusNeverHidesAnAppFailure(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fullLedgerIndex is a ledger index at its bounds: 512 entries of 8
+// artifacts.
+func fullLedgerIndex() []v1alpha1.LedgerIndexEntry {
+	shas := make([]string, 8)
+	for i := range shas {
+		shas[i] = fmt.Sprintf("%064x", i)
+	}
+	out := make([]v1alpha1.LedgerIndexEntry, 512)
+	for i := range out {
+		out[i] = v1alpha1.LedgerIndexEntry{Seq: int32(i + 1), Kind: v1alpha1.LedgerKindAgent,
+			Verb: v1alpha1.LedgerVerbBrowser, ResultSHA256: strings.Repeat("b", 64), Artifacts: shas}
+	}
+	return out
 }

@@ -4,7 +4,6 @@
 package previewtools
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -44,10 +43,10 @@ func TestWorkspaceBuildOutputFitsTheLedger(t *testing.T) {
 	}
 }
 
-// TestWorkspaceLedgerHeadReaders: the ledger readers that fill a round's
-// replay, confirmations and confirmed checks read the head's runs only. A
-// check whose head confirmation failed is not confirmed by its base run
-// passing, and no base replay or confirmation is read as the head's.
+// TestWorkspaceLedgerHeadReaders: the ledger readers of confirmations and
+// confirmed checks read the head's runs only. A check whose head
+// confirmation failed is not confirmed by its base run passing, and no base
+// confirmation is read as the head's; nothing is replayed.
 func TestWorkspaceLedgerHeadReaders(t *testing.T) {
 	headCalls := 0
 	head := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
@@ -55,16 +54,13 @@ func TestWorkspaceLedgerHeadReaders(t *testing.T) {
 			return toolexec.Result{}, nil
 		}
 		headCalls++
-		if headCalls <= 2 { // the replay and the dry run pass; the confirmation does not
+		if headCalls <= 1 { // the dry run passes; the confirmation does not
 			return toolexec.Result{Output: "count=3"}, nil
 		}
 		return toolexec.Result{Output: "count=2"}, nil
 	}}
 	base := &fakeSandbox{do: printing("count=3", 0)}
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
 	_, resp := h.dryRunKeyed(cliExecCheck, "")
 	if resp.Refused != "" || resp.Observed.CheckRun.Result != toolwire.RunPass {
 		t.Fatalf("dry run: %+v", resp)
@@ -81,11 +77,10 @@ func TestWorkspaceLedgerHeadReaders(t *testing.T) {
 	if got := toolledger.ConfirmationRuns(l.Entries); len(got) != 1 || got[0].Result != maulv1.CheckRunFail {
 		t.Fatalf("confirmation runs = %+v, want the head's one failed run", got)
 	}
-	if got := toolledger.ReplayRuns(l.Entries); len(got) != 1 || got[0].Result != maulv1.CheckRunPass {
-		t.Fatalf("replay runs = %+v, want the head's one", got)
+	if got := toolledger.ReplayRuns(l.Entries); len(got) != 0 {
+		t.Fatalf("replay runs = %+v, want none", got)
 	}
-	if got := toolledger.BaseRuns(l.Entries); len(got) != 2 ||
-		got[0].Tree != maulv1.TreeBase || got[1].Tree != maulv1.TreeBase {
-		t.Fatalf("base runs = %+v, want the base replay and confirmation", got)
+	if got := toolledger.BaseRuns(l.Entries); len(got) != 1 || got[0].Tree != maulv1.TreeBase {
+		t.Fatalf("base runs = %+v, want the base confirmation", got)
 	}
 }

@@ -359,7 +359,7 @@ func TestToolConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Host != "shop-1.preview.maul.example.com" || cfg.MaxToolCalls != 120 || cfg.TimeoutSeconds != 1200 ||
-		cfg.ReplayOnly || !cfg.Browser || !cfg.Sandbox || len(cfg.Checks) != 1 || cfg.Checks[0].ID != "items.body" {
+		!cfg.Browser || !cfg.Sandbox {
 		t.Errorf("config %+v", cfg)
 	}
 	if len(cfg.Components) != 2 || cfg.Components[0] != (previewtools.Component{Key: "web", Path: "/",
@@ -378,13 +378,51 @@ func TestToolConfig(t *testing.T) {
 	if err := json.Unmarshal([]byte(data[toolpod.OutcomesKey]), &outcomes); err != nil || len(outcomes) != 2 {
 		t.Errorf("outcomes %s: %v", data[toolpod.OutcomesKey], err)
 	}
-	pv.Spec.Rung = v1alpha1.RungReplay
-	if cfg, err := s.toolConfig(p, pv, targets, time.Minute); err != nil || !cfg.ReplayOnly {
-		t.Errorf("replay rung: %+v, %v", cfg, err)
-	}
-	pv.Spec.Checks[0].Digest = "sha256:" + strings.Repeat("0", 64)
-	if _, err := s.toolConfig(p, pv, targets, time.Minute); err == nil {
-		t.Error("a check whose digest is not its body's was configured")
+}
+
+// TestToolConfigCarriesNoChecks: the relay replays nothing, so a
+// verification that still carries saved checks (written before the
+// evaluator stopped saving them), a replay rung among them, renders a
+// relay config with no checks and no replay; one whose check is forged
+// is configured all the same, since nothing runs it.
+func TestToolConfigCarriesNoChecks(t *testing.T) {
+	_, p := verifyPreview(t, time.Now())
+	s := verifySettings()
+	targets := map[string]string{"web": "10.96.0.10:80", "api": "10.96.0.11:80"}
+	for _, tc := range []struct {
+		name string
+		mut  func(*v1alpha1.PreviewVerification)
+	}{
+		{"a full round with a saved check", func(*v1alpha1.PreviewVerification) {}},
+		{"a replay round", func(pv *v1alpha1.PreviewVerification) { pv.Spec.Rung = v1alpha1.RungReplay }},
+		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Checks[0].Digest = "sha256:" + strings.Repeat("0", 64)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := toolVerification(t, p)
+			if len(pv.Spec.Checks) == 0 {
+				t.Fatal("the fixture carries no saved check")
+			}
+			tc.mut(pv)
+			cfg, err := s.toolConfig(p, pv, targets, 20*time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := toolpod.ConfigData(cfg, pv.Spec.Outcomes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(data[previewtools.ConfigFile]), &raw); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"checks", "replayOnly"} {
+				if _, ok := raw[key]; ok {
+					t.Errorf("the relay config carries %q: %s", key, data[previewtools.ConfigFile])
+				}
+			}
+		})
 	}
 }
 

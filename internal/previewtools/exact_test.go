@@ -4,7 +4,6 @@
 package previewtools
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -47,27 +46,5 @@ func TestProposedNamesRunExact(t *testing.T) {
 				t.Errorf("spec lacks %s:\n%s", want, spec)
 			}
 		}
-	}
-}
-
-// TestSavedChecksReplayAsSaved: a check saved before exact matching
-// replays as it was proven, every label and role name a part of the name.
-func TestSavedChecksReplayAsSaved(t *testing.T) {
-	cfg := baseConfig()
-	cfg.Browser = true
-	c := parseCheck(t, labelledCheck)
-	cfg.Checks = []StoredCheck{{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}}
-	run := &fakeRunner{reports: func(int, string) string { return report("passed", nil, "", 0) }}
-	h := newHarness(t, cfg, routes{}, func(o *Options) {
-		o.Browser = &BrowserOptions{CLI: &fakeCLI{dir: t.TempDir(), script: defaultScript}, Runner: run,
-			Dir: t.TempDir(), Base: frontBase}
-	})
-	h.relay.replay(context.Background())
-	h.finish()
-	if len(run.specs) == 0 {
-		t.Fatal("no replay")
-	}
-	if strings.Contains(run.specs[0], "exact") || !strings.Contains(run.specs[0], `getByLabel("Beat name")`) {
-		t.Errorf("the saved check did not replay as saved:\n%s", run.specs[0])
 	}
 }

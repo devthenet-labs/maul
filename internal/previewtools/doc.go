@@ -11,8 +11,8 @@
 // controller mounts at DefaultConfigDir: ConfigFile holds the components
 // (key, path prefix on the preview host, "<ClusterIP>:<port>"; the pod
 // resolves no name), the preview host and the pairwise viewer the gateway
-// would send, the saved checks to replay, maxToolCalls, the wall clock, and
-// whether this is a replay round; "logs.<component>" and EventsFile hold the
+// would send, maxToolCalls and the wall clock (a config's saved checks are
+// retired: parsed, never run); "logs.<component>" and EventsFile hold the
 // captured log tails and pod events (capture.go), re-read on every call.
 //
 // The Relay (server.go) serves POST /v1/<verb> on Port, one endpoint per
@@ -33,7 +33,7 @@
 //   - exec: argv run in the sandbox through the exec shim (exec.go);
 //   - logs, events: the captured files;
 //   - check run: internal/checks validates the check, then a dry run;
-//     check results: the replay and each dry-run check's latest run;
+//     check results: each dry-run check's latest run;
 //   - confirm (agent-runner's): every named digest needs a green dry run
 //     in this evaluation, else nothing runs; each check then runs again,
 //     a relay entry each;
@@ -63,9 +63,9 @@
 // GuardListener refuses connections from loopback and from the pod's own
 // addresses, so page JS and sandbox code cannot call the relay.
 //
-// Run (lifecycle.go) is the container's life: readiness wait, replay, a
-// replay round's finish, else serve until the runner's finish, the wall
-// clock or a stop; every way out closes the ledger.
+// Run (lifecycle.go) is the container's life: readiness wait (or the
+// workspace's builds), then serve until the runner's finish, the wall clock
+// or a stop; nothing is replayed; every way out closes the ledger.
 //
 // A workspace (Config.Mode ModeWorkspace; SPEC-S2 S2-08, workspace.go,
 // files.go, run.go) is the relay of an agents-namespace tool pod with no
@@ -81,11 +81,10 @@
 // evaluator is launched for it (S2-B5), as does a tree that built but
 // whose sandbox could not keep it for its check runs
 // (FinishKeptCopyFailed); a
-// base that did not build is never run (its replays and confirmations
-// recorded as errors, base-unbuildable). Each saved check replays, and each
-// confirmed check is confirmed, at the head and then at the base, each
-// alone under fresh tokens, the base run's entry (or, on a confirm, its
-// args) and steps naming the base, at most MaxBaseRuns. files reads the
+// base that did not build is never run (its confirmations recorded as
+// errors, base-unbuildable). Each confirmed check is confirmed at the head
+// and then at the base, each alone under fresh tokens, the confirm entry's
+// args and steps naming the base, at most MaxBaseRuns. files reads the
 // pristine trees through an os.Root; run compiles a Go consumer against the
 // side's writable tree (maul's go.mod, go work init, offline, read-only
 // module files) and runs it; one substitute pass serves every check path

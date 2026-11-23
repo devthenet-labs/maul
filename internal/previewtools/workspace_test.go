@@ -358,8 +358,6 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 			Output: "listen tcp 127.0.0.1:8080: bind: address already in use\nmake: *** Error 1\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			cfg := wsConfig()
-			cfg.Checks = []StoredCheck{storedExecCheck(t)}
 			head := &fakeSandbox{do: printing("count=3", 0)}
 			base := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
 				if req.Kind == toolexec.KindBuild {
@@ -367,8 +365,7 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 				}
 				return toolexec.Result{}, nil
 			}}
-			h := newWorkspaceHarness(t, cfg, head, base)
-			h.relay.replay(context.Background())
+			h := newWorkspaceHarness(t, wsConfig(), head, base)
 			_, resp := h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"],"side":"base"}`)
 			if resp.Refused != toolwire.RefusedUnavailable || strings.HasPrefix(resp.Reason, ReasonBaseUnbuildable) {
 				t.Errorf("a base exec on a base that did not build: %+v", resp)
@@ -376,8 +373,7 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 			if _, resp = h.dryRunKeyed(cliExecCheck, ""); resp.Refused != "" {
 				t.Fatalf("head dry run: %+v", resp)
 			}
-			_, resp = h.callKeyed(toolwire.VerbConfirm,
-				`{"digests":["`+strings.TrimPrefix(cfg.Checks[0].Digest, "sha256:")+`"]}`)
+			_, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+resp.Observed.CheckRun.Digest+`"]}`)
 			if resp.Refused != "" {
 				t.Fatalf("confirm: %+v", resp)
 			}
@@ -392,8 +388,8 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 						e.CheckRun.Result, e.CheckRun.Cause())
 				}
 			}
-			if baseRuns != 2 {
-				t.Errorf("%d base runs, want the replay's and the confirmation's", baseRuns)
+			if baseRuns != 1 {
+				t.Errorf("%d base runs, want the confirmation's", baseRuns)
 			}
 			if len(base.nonBuilds()) != 0 {
 				t.Errorf("the base that did not build ran %+v", base.nonBuilds())
@@ -428,14 +424,12 @@ func TestBuildPart(t *testing.T) {
 }
 
 // TestHeadBuildFailedRefusesRuns: a head that did not build runs nothing:
-// no replay, and every exec, run, check run and confirm is refused
-// build-failed; files still reads the pristine tree.
+// every exec, run, check run and confirm is refused build-failed; files
+// still reads the pristine tree.
 func TestHeadBuildFailedRefusesRuns(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
 	head, base := &fakeSandbox{do: buildsFail}, &fakeSandbox{}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
+	digest := strings.TrimPrefix(storedExecCheck(t).Digest, "sha256:")
 	run := mustJSON(t, toolwire.RunRequest{Language: "go", Files: []toolwire.File{{Name: "main.go",
 		Content: []byte("package main\nfunc main(){}\n")}}})
 	for _, c := range []struct {
@@ -446,7 +440,7 @@ func TestHeadBuildFailedRefusesRuns(t *testing.T) {
 		{toolwire.VerbExec, `{"argv":["ls"],"side":"base"}`},
 		{toolwire.VerbRun, run},
 		{toolwire.VerbCheckRun, mustJSON(t, map[string]json.RawMessage{"check": json.RawMessage(cliExecCheck)})},
-		{toolwire.VerbConfirm, `{"digests":["` + strings.TrimPrefix(cfg.Checks[0].Digest, "sha256:") + `"]}`},
+		{toolwire.VerbConfirm, `{"digests":["` + digest + `"]}`},
 	} {
 		_, resp := h.callKeyed(c.verb, c.body)
 		if resp.Refused != toolwire.RefusedUnavailable || !strings.HasPrefix(resp.Reason, ReasonBuildFailed) {
@@ -483,66 +477,22 @@ func sideOf(rec *toolwire.CheckRunRecord) toolwire.Side {
 	return side
 }
 
-// TestWorkspaceReplayBothSides: each stored check replays alone at the
-// head, then at the base, each with its own fresh run token, the base
-// run's entry and steps naming the base.
-func TestWorkspaceReplayBothSides(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
-	head := &fakeSandbox{do: printing("count=3", 0)}
-	base := &fakeSandbox{do: printing("count=2", 0)}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
-	l := h.finishKeyed()
-	var runs []toolwire.LedgerEntry
-	for _, e := range l.Entries {
-		if e.CheckRun != nil {
-			runs = append(runs, e)
-		}
-	}
-	if len(runs) != 2 {
-		t.Fatalf("%d replay entries, want head and base", len(runs))
-	}
-	if runs[0].Side != "" || sideOf(runs[0].CheckRun) != "" || runs[0].CheckRun.Result != toolwire.RunPass {
-		t.Errorf("head replay: %+v", runs[0])
-	}
-	b := runs[1]
-	if b.Side != toolwire.SideBase || sideOf(b.CheckRun) != toolwire.SideBase || b.CheckRun.Result != toolwire.RunFail {
-		t.Errorf("base replay: %+v", b)
-	}
-	if step, ok := b.CheckRun.AssertionStep(); !ok || step != 0 || b.CheckRun.FailedAssertionID() != "stdout" {
-		t.Errorf("a stdout miss after the expected exit is not a stdout assertion: %+v", b.CheckRun)
-	}
-	hr, br := head.nonBuilds(), base.nonBuilds()
-	if len(hr) != 1 || len(br) != 2 {
-		t.Fatalf("head ran %d, base %d programs", len(hr), len(br))
-	}
-	tokens := map[string]bool{hr[0].Run: true, br[0].Run: true, br[1].Run: true}
-	if len(tokens) != 3 || hr[0].Run == "" {
-		t.Errorf("runs share a token: %q %q %q", hr[0].Run, br[0].Run, br[1].Run)
-	}
-	if !slices.Equal(hr[0].Argv, []string{"/work/bin/bb", "--count", "/work/tree/x"}) {
-		t.Errorf("head argv %q", hr[0].Argv)
-	}
-}
-
 // TestBaseRunsBounded: the relay makes at most MaxBaseRuns base runs for
-// replays and confirmations, what status.base.runs keeps; past it a check
-// gets none (Decide: rule 5 not met). The agent's base dry runs spend none.
+// confirmations; past it a check gets none. The agent's base dry runs spend
+// none.
 func TestBaseRunsBounded(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
 	base := &fakeSandbox{do: printing("count=2", 0)}
-	h := newWorkspaceHarness(t, cfg, &fakeSandbox{do: printing("count=3", 0)}, base)
+	h := newWorkspaceHarness(t, wsConfig(), &fakeSandbox{do: printing("count=3", 0)}, base)
 	h.relay.baseRuns = MaxBaseRuns - 1
 	for range 3 {
 		h.dryRunKeyed(cliExecCheck, toolwire.SideBase)
 	}
-	h.relay.replay(context.Background())
 	_, resp := h.dryRunKeyed(cliExecCheck, "")
-	_, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+resp.Observed.CheckRun.Digest+`"]}`)
-	if resp.Refused != "" {
-		t.Fatalf("confirm: %+v", resp)
+	d := resp.Observed.CheckRun.Digest
+	for range 2 {
+		if _, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+d+`"]}`); resp.Refused != "" {
+			t.Fatalf("confirm: %+v", resp)
+		}
 	}
 	l := h.finishKeyed()
 	byMode := map[toolwire.CheckRunMode]int{}
@@ -551,21 +501,18 @@ func TestBaseRunsBounded(t *testing.T) {
 			byMode[e.CheckRun.Mode]++
 		}
 	}
-	if byMode[toolwire.ModeDryRun] != 3 || byMode[toolwire.ModeReplay] != 1 || byMode[toolwire.ModeConfirm] != 0 {
-		t.Fatalf("base runs by mode %v, want 3 dry runs, the last replay the bound allows and no confirmation", byMode)
+	if byMode[toolwire.ModeDryRun] != 3 || byMode[toolwire.ModeReplay] != 0 || byMode[toolwire.ModeConfirm] != 1 {
+		t.Fatalf("base runs by mode %v, want 3 dry runs and the one confirmation the bound allows", byMode)
 	}
 }
 
 // TestBaseUnbuildable: a base that did not build is never run: its
-// replays and confirmations are recorded as errors (n/a), and the agent's
-// base calls are refused; the head runs as ever.
+// confirmations are recorded as errors (n/a), and the agent's base calls
+// are refused; the head runs as ever.
 func TestBaseUnbuildable(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
 	head := &fakeSandbox{do: printing("count=3", 0)}
 	base := &fakeSandbox{do: buildsFail}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
 	for _, body := range []string{`{"argv":["{{bin}}"],"side":"base"}`} {
 		_, resp := h.callKeyed(toolwire.VerbExec, body)
 		if resp.Refused != toolwire.RefusedUnavailable || !strings.HasPrefix(resp.Reason, ReasonBaseUnbuildable) {
@@ -580,7 +527,8 @@ func TestBaseUnbuildable(t *testing.T) {
 	if resp.Refused != toolwire.RefusedUnavailable {
 		t.Fatalf("base dry run on an unbuildable base: %+v", resp)
 	}
-	_, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+strings.TrimPrefix(cfg.Checks[0].Digest, "sha256:")+`"]}`)
+	_, resp = h.callKeyed(toolwire.VerbConfirm,
+		`{"digests":["`+strings.TrimPrefix(storedExecCheck(t).Digest, "sha256:")+`"]}`)
 	if resp.Refused != "" {
 		t.Fatalf("confirm: %+v", resp)
 	}
@@ -595,8 +543,8 @@ func TestBaseUnbuildable(t *testing.T) {
 			t.Errorf("entry %d: a base run on an unbuildable base is %s, not an error", e.Seq, e.CheckRun.Result)
 		}
 	}
-	if baseRuns != 2 {
-		t.Errorf("%d base runs, want the replay's and the confirmation's", baseRuns)
+	if baseRuns != 1 {
+		t.Errorf("%d base runs, want the confirmation's", baseRuns)
 	}
 	if len(base.nonBuilds()) != 0 {
 		t.Errorf("the unbuildable base ran %+v", base.nonBuilds())
@@ -651,14 +599,12 @@ func TestHeadShimCannotForgeBase(t *testing.T) {
 	forge := `{"side":"base","exit":0,"output":"count=3"}` + "\nside=base\n"
 	head := &fakeSandbox{do: printing(forge+"count=3", 0)}
 	base := &fakeSandbox{do: printing("count=3", 0)}
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
 	for range 3 {
 		h.dryRunKeyed(cliExecCheck, "")
 		h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"]}`)
 	}
+	h.dryRunKeyed(cliExecCheck, toolwire.SideBase)
 	l := h.finishKeyed()
 	baseAttempts := 0
 	for _, e := range l.Entries {
@@ -669,7 +615,7 @@ func TestHeadShimCannotForgeBase(t *testing.T) {
 			baseAttempts += len(e.CheckRun.Attempts)
 		}
 	}
-	if baseAttempts != len(base.nonBuilds()) {
+	if baseAttempts == 0 || baseAttempts != len(base.nonBuilds()) {
 		t.Fatalf("%d base-tagged attempts, the base shim ran %d", baseAttempts, len(base.nonBuilds()))
 	}
 }
