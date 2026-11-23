@@ -236,3 +236,5 @@ Comments that start with `/maul`, such as `/maul approve` or `/maul revise`, are
 command is read only on the first non-blank line of a comment. Which commands exist depends on where you comment: a
 finding's tracking issue, an intent's issue or an intent's pull request. On an intent, only an approver's commands are
 acted on.
+
+[Commands on issues and pull requests](commands.md) lists them all.
