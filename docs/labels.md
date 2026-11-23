@@ -1,5 +1,8 @@
 # State machine & labels
 
+maul has two state machines, one per flow. A `Finding` carries the phase of one security finding, and an `Intent`
+carries the phase of one requested change. This page covers Findings first, then [Intents](#intent-phases).
+
 The `Finding` custom resource is the authoritative state machine for one security finding. `api/v1alpha1` owns the phase
 taxonomy and the legal transition table (`transitions.go`), every phase edge has exactly one writer component, and
 `SetPhase` refuses illegal moves — a controller cannot accidentally invent a transition. Labels on the tracking issue
@@ -149,3 +152,166 @@ foreign or malformed `security-*` labels, and does not manage label colors or de
 
 That is the whole list — the projection is deliberately small. Labels exist for issue searches and human triage; the CR
 is the state, so no machine or usage labels exist on issues anymore.
+
+## Intent phases
+
+An `Intent` is one change requested in an issue ([Concepts](concepts.md#intent) defines the words used here). Its phase
+is in `Intent.status.phase`. The happy path is `Pending → Planning → AwaitingApproval → Building → InReview → Merged`.
+
+The intent-controller is the only writer of every Intent phase. The table of legal moves is separate from the Finding's
+(`intentTransitions` in `api/v1alpha1/intent_types.go`), and `SetIntentPhase` refuses any move that is not in it.
+
+| Phase              | Meaning                                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `Pending`          | The issue was found with the trigger label. maul has not yet decided whether the person who applied it may start it.          |
+| `Planning`         | A plan run is waiting, running, or having its plan posted on the issue.                                                       |
+| `AwaitingApproval` | The plan is posted on the issue. maul waits for an approver to approve it or ask for a new plan.                              |
+| `Building`         | The approved plan is being built, pushed and opened as pull requests.                                                         |
+| `InReview`         | Every pull request is open. maul waits for reviews, checks and a merge.                                                       |
+| `Revising`         | A round is running on the pull request: a revision, a CI fix, or a fix after a failed verification.                           |
+| `Blocked`          | A limit or a missing precondition stops progress. The conditions say which. **Not terminal**: it resumes.                     |
+| `Merged`           | Every pull request merged, and maul closed the issue as completed. **Terminal**                                               |
+| `Closed`           | A person closed the issue or ran `/maul cancel`, a pull request was closed unmerged, or the trigger was refused. **Terminal** |
+| `Failed`           | The plan or the build ran out of attempts, or the plan was invalid twice. **Terminal**, revivable                             |
+
+Some things to know about these phases:
+
+- **`Pending` can last.** An intent whose issue is [blocked by other issues](intents/dependencies.md) waits in `Pending`
+  until they are closed as completed. That wait is the `WaitingOnDependencies` condition, not a phase.
+- **A failed round does not fail the intent.** When a revision or CI-fix round fails, the intent goes back to
+  `InReview`, a condition is set and a notice is posted.
+- **`Blocked` remembers where it came from.** When the block no longer holds, the intent returns to the phase it was
+  blocked from. maul checks again whenever the Project changes, so raising a limit resumes the intent.
+- **`Failed` can be revived.** On entry to `Failed`, maul removes the trigger label from the issue. An approver applying
+  it again starts a new plan, which needs a new approval.
+- **A person can end an intent from any phase.** Closing the issue, or `/maul cancel`, moves any non-terminal phase to
+  `Closed`. Merging every pull request moves `InReview`, `Revising` or `Blocked` to `Merged`.
+
+Entering a terminal phase sets `status.completedAt`, which starts the intent's time to live (14 days by default,
+`--intent-ttl` on the [intent-controller](configuration/intent-controller.md)). A revival clears it. A `Blocked` intent
+never expires while it waits.
+
+## Intent transitions
+
+Self-transitions are legal no-ops, as for Findings.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : issue found with the trigger label
+    Pending --> Planning : an approver applied the trigger
+    Pending --> Closed : trigger refused
+    Planning --> AwaitingApproval : plan posted
+    Planning --> Failed : plan attempts exhausted
+    AwaitingApproval --> Building : approved
+    AwaitingApproval --> Planning : replan
+    Building --> InReview : pull requests open
+    Building --> Failed : build attempts exhausted
+    InReview --> Revising : a round starts
+    Revising --> InReview : the round pushed, or failed
+    InReview --> Merged : merged
+    Revising --> Merged : merged during a round
+    Failed --> Planning : trigger label applied again
+    Merged --> [*]
+    Closed --> [*]
+```
+
+Two sets of edges are left out of the diagram to keep it readable:
+
+- every non-terminal phase has an edge to `Blocked`, and `Blocked` has an edge back to each of them, and to `Merged`;
+- every non-terminal phase, `Blocked` included, has an edge to `Closed`.
+
+| Edge                                           | Trigger                                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| _(none)_ → `Pending`                           | The intent-controller found an issue carrying the trigger label                        |
+| `Pending` → `Planning`                         | The trigger label was applied by an approver                                           |
+| `Pending` → `Closed`                           | The trigger was not an approver's, or was a bot's; one notice is posted                |
+| `Planning` → `AwaitingApproval`                | A valid plan was posted on the issue                                                   |
+| `Planning` → `Failed`                          | Plan attempts exhausted, or the plan was invalid twice                                 |
+| `AwaitingApproval` → `Building`                | An approval was accepted (the approve label or `/maul approve`)                        |
+| `AwaitingApproval` → `Planning`                | An approver asked for a replan (the trigger label again, or `/maul replan`)            |
+| `Building` → `InReview`                        | Every pull request is open                                                             |
+| `Building` → `Failed`                          | Build attempts exhausted                                                               |
+| `InReview` → `Revising`                        | A revision, CI-fix or verify-fix round started                                         |
+| `Revising` → `InReview`                        | The round pushed, or failed                                                            |
+| `InReview` / `Revising` / `Blocked` → `Merged` | Every pull request merged                                                              |
+| any non-terminal → `Blocked`                   | A limit or a precondition stopped it                                                   |
+| `Blocked` → the phase it was blocked from      | The Project changed and the block no longer holds                                      |
+| any non-terminal → `Closed`                    | A person closed the issue or ran `/maul cancel`, or a pull request was closed unmerged |
+| `Failed` → `Planning`                          | Revival: an approver applied the trigger label again                                   |
+
+## Why an intent is Blocked
+
+A `Blocked` intent carries one or more conditions that say why. The [intents dashboard](intents/dashboard.md) shows each
+one in a fixed public wording, given below. The wording never includes a condition's own message or a person's name; the
+intent's issue and `kubectl describe intent <name>` can say more.
+
+| Condition                 | Reason                     | Shown as                                                                     |
+| ------------------------- | -------------------------- | ---------------------------------------------------------------------------- |
+| `BudgetExhausted`         |                            | spent `$X` of the `$Y` cost ceiling                                          |
+| `RevisionLimitReached`    |                            | the revision limit is reached (`N` of `M`)                                   |
+| `ChecksFailing`           | `MaxCheckFixes`            | the check-fix limit is reached (`N` of `M`)                                  |
+| `ChecksFailing`           | `RepeatedFailure`          | the same check failure came back after a fix round                           |
+| `ImageRequired`           | `NoRepositoryImage`        | the repository declares no agent image, and builds need one                  |
+| `ImageRequired`           | `RepositoryImageRejected`  | the repository's agent image was rejected                                    |
+| `ImageRequired`           | `RepositoryImagesDisabled` | repository agent images are turned off on this cluster                       |
+| `ImageRequired`           | `SandboxBreakerTripped`    | the sandbox breaker tripped: an agent image failed the sandbox probe         |
+| `ImageRequired`           | `DefaultImageRan`          | the build ran on the default image instead of the repository's               |
+| `BranchConflict`          | `BranchExists`             | the intent branch exists at a commit maul did not push                       |
+| `BranchConflict`          | `ForeignPullRequest`       | a pull request maul did not open holds the intent branch                     |
+| `BranchConflict`          | `BranchMissing`            | the intent branch vanished before its pull request opened                    |
+| `BranchConflict`          | `BranchChanged`            | the intent branch moved away from the build's commit                         |
+| `BranchConflict`          | `PullRequestRefused`       | GitHub refused to open the pull request                                      |
+| `BranchConflict`          | `StaleRoundBranch`         | the intent branch holds an earlier round's commit                            |
+| `UnsupportedRepositories` | `MultiRepositoryOff`       | the project lists several repositories, and multi-repository intents are off |
+| `UnsupportedRepositories` | `RepositoryKeyChanged`     | the project's repository keys changed during a build                         |
+| `ResourcesUnavailable`    | `UnknownResourceClass`     | the repository asks for a resource class the cluster does not define         |
+| `ResourcesUnavailable`    | `Unschedulable`            | no node in the cluster could fit the agent                                   |
+| `CredentialRequired`      | `CredentialMissing`        | the person the next run is for has no model credential stored                |
+| `CredentialRequired`      | `CredentialRejected`       | the model credential of the person the next run is for was rejected          |
+| `CredentialRequired`      | `CredentialUnverified`     | the model credential of the person the next run is for is not verified yet   |
+| `ModelNotAllowed`         |                            | the project chooses a model the cluster does not run its intents on          |
+
+What clears the most common ones:
+
+- **`BudgetExhausted`**: the intent's spend reached the Project's `limits.maxCostMicroUSD` (\$10 by default). Raise the
+  limit on the Project.
+- **`RevisionLimitReached`**: the intent used the Project's `limits.maxRevisions` revision rounds (3 by default). Raise
+  the limit. Merging the pull request also ends the block: the intent becomes `Merged`.
+- **`ChecksFailing`**: CI-fix rounds did not fix a failing check, either because the same failure came back or because
+  `limits.maxCheckFixes` (2 by default) is used up. It holds the intent for a person, and is looked at again when the
+  Project changes.
+- **`ImageRequired`**: the build has no accepted agent image to run in. Declare or fix the repository's image; see
+  [Bring your own agent image](integrations/agent-images.md).
+- **`BranchConflict`**: the branch `maul-intent/<intent>` is not in a state maul will build on. Nothing is forced; for
+  `BranchExists`, `ForeignPullRequest` and `StaleRoundBranch` the block lifts once the branch, or that pull request, is
+  gone.
+- **`CredentialRequired`**: only where the operator requires each person's own model credential. It lifts once that
+  person's credential is valid; see [Your model credential](account.md).
+
+Two conditions look like blocks and are not:
+
+- **`WaitingOnDependencies`** holds an intent in `Pending` while its issue is blocked by other issues. The dashboard
+  shows it as a waiting badge, for example "waiting for the issues it is blocked by".
+- **`VerifyFailing`** marks an intent whose [acceptance verification](intents/acceptance.md) fails and will not be fixed
+  automatically. The intent stays in review, and the `maul/acceptance` status reports the failure.
+
+## Watching intents
+
+```sh
+kubectl get intents -n maul -w                   # project, issue, phase, pull requests, revisions, cost
+kubectl get intentruns -n maul                   # per-attempt agent runs (short name: irun)
+kubectl describe intent <name> -n maul           # conditions and phase times
+```
+
+## Intent labels
+
+Intents do not use the `security-` labels above. An intent's issue is driven by two labels that people apply, both named
+on the Project:
+
+| Label             | Default          | Meaning                                                                                            |
+| ----------------- | ---------------- | -------------------------------------------------------------------------------------------------- |
+| The trigger label | `maul:<project>` | Starts an intent from the issue. Applied again, it asks for a replan or revives a `Failed` intent. |
+| The approve label | `maul:approved`  | Approves the posted plan. The comment `/maul approve` does the same.                               |
+
+Both count only when an approver applied them. maul removes the trigger label when an intent fails or when the trigger
+was refused, and removes an approve label it refused.

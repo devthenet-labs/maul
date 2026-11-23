@@ -30,6 +30,7 @@ nav = [
     { "Verify the pipeline" = "getting-started/verify.md" },
   ] },
   { "How it works" = "how-it-works.md" },
+  { "Concepts" = "concepts.md" },
   { "State machine & labels" = "labels.md" },
   { "Integrations" = [
     { "Overview" = "integrations/index.md" },
