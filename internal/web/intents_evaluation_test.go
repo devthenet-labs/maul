@@ -555,3 +555,25 @@ func TestEvidenceImage(t *testing.T) {
 		}
 	}
 }
+
+// TestRunEvaluationEarlierReleasesRecord: a judgement an earlier release
+// wrote (no judge marker; W5 leaves it until its Project can run again) is
+// not worded as the observed rules word one: its result is shown, never as
+// seen by the evaluator, and the page carries no lead over it.
+func TestRunEvaluationEarlierReleasesRecord(t *testing.T) {
+	objs := evaluationFixture(t)
+	v := findIntent(objs, "alpha-7").Status.Verification
+	v.Judge = ""
+	for i := range v.Outcomes {
+		v.Outcomes[i].Cites = nil
+	}
+	s, _ := intentsServer(t, nil, objs...)
+	code, body := get(t, as(t, s, viewerAlpha), evaluationPath(evalRun))
+	if code != http.StatusOK {
+		t.Fatalf("GET evaluation = %d %s", code, body)
+	}
+	ev := decode[RunEvaluation](t, body)
+	if ev.Lead != "" || ev.Outcomes[0].Result != "passed" || ev.Outcomes[0].Words != "" {
+		t.Errorf("lead %q, outcome %+v; want the result alone", ev.Lead, ev.Outcomes[0])
+	}
+}

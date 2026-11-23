@@ -143,10 +143,14 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 	// judgement wrote them: a current round that settled unjudged shows
 	// none of an earlier round's (S2-B3).
 	judged := out.Current && ver.OutcomesJudgedAt(pv.Spec.Round, pv.Spec.HeadSetDigest)
+	// Only a judgement under the observed rules is worded as one: an
+	// earlier release's, which the upgrade has not yet withdrawn, shows its
+	// results alone.
+	observed := judged && ver.Judge == v1alpha1.JudgeObserved
 	decided := map[string]v1alpha1.OutcomeResult{}
 	if judged {
 		decided, out.Anomalies = judgedRound(ver)
-		if len(decided) > 0 {
+		if observed && len(decided) > 0 {
 			out.Lead = templates.ObservedLead
 		}
 	}
@@ -161,8 +165,9 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 			Kind: string(o.EffectiveKind()), Manual: o.Manual}
 		if d, ok := decided[o.ID]; ok {
 			eo.Result, eo.Reason = string(d.Result), intentview.Text(d.Reason, maxEvaluationText)
-			eo.Words = templates.ObservedOutcomeWords(string(d.Result), d.Reason)
-			eo.Cites = d.Cites
+			if observed {
+				eo.Words, eo.Cites = templates.ObservedOutcomeWords(string(d.Result), d.Reason), d.Cites
+			}
 		}
 		if claims != nil {
 			// The first verdict of an outcome is the one maul judged.

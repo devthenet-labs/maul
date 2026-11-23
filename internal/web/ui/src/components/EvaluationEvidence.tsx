@@ -237,8 +237,8 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
           </ul>
           {!transcripts ? (
             <p class="mt-1.5 mb-0 text-[12px] text-faint">
-              What each call sent and returned, screenshots and the evaluator's notes need the transcripts tier on
-              this project.
+              What each call sent and returned, which calls ran the evaluator's own page script or program,
+              screenshots and the evaluator's notes need the transcripts tier on this project.
             </p>
           ) : null}
         </>

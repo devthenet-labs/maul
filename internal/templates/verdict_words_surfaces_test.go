@@ -9,40 +9,49 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// The status page's evaluation surfaces: every file that renders an intent
-// (ui/src/intents.ts's INTENTS_VIEW_FILES), the module they share, their
-// wire types and the demo data they are built against.
-var statusPageSurfaces = []string{
-	"src/intents.ts",
-	"src/types.ts",
-	"src/mock/intents.ts",
-	"src/components/IntentsBoard.tsx",
-	"src/components/IntentTimeline.tsx",
-	"src/components/RunPanel.tsx",
-	"src/components/LiveOutput.tsx",
-	"src/components/PlainText.tsx",
-	"src/components/IntentsArea.tsx",
-	"src/components/EvaluationEvidence.tsx",
+// statusPageModules are the status page's evaluation surfaces beside its
+// intents views: the module they share, their wire types and the demo data
+// they are built against.
+var statusPageModules = []string{"src/intents.ts", "src/types.ts", "src/mock/intents.ts"}
+
+// intentsViewFiles are ui/src/intents.ts's INTENTS_VIEW_FILES: every
+// component that renders an intent.
+func intentsViewFiles(t *testing.T, src string) []string {
+	t.Helper()
+	start := strings.Index(src, "export const INTENTS_VIEW_FILES = [")
+	if start < 0 {
+		t.Fatal("ui/src/intents.ts has no INTENTS_VIEW_FILES")
+	}
+	body := src[start : start+strings.Index(src[start:], "];")]
+	files := regexp.MustCompile(`"(src/[^"]+)"`).FindAllStringSubmatch(body, -1)
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, f[1])
+	}
+	if !slices.Contains(out, "src/components/EvaluationEvidence.tsx") {
+		t.Fatalf("INTENTS_VIEW_FILES read as %v: the parser is broken", out)
+	}
+	return out
 }
 
 // TestStatusPageNeverOverstates (W6): the status page words an evaluation
-// as the comment does, so none of its sources, comments included, uses a
-// word overstating says maul looked at an outcome itself.
+// as the comment does, so none of its intents views (every file of
+// INTENTS_VIEW_FILES) or the modules beside them, comments included, uses
+// a word overstating says maul looked at an outcome itself.
 func TestStatusPageNeverOverstates(t *testing.T) {
 	ui := filepath.Join("..", "web", "ui")
 	views, err := os.ReadFile(filepath.Join(ui, "src", "intents.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range statusPageSurfaces {
-		if strings.HasSuffix(f, ".tsx") && !strings.Contains(string(views), `"`+f+`"`) {
-			t.Errorf("%s is not in INTENTS_VIEW_FILES: keep this list to it", f)
-		}
+	for _, f := range append(intentsViewFiles(t, string(views)), statusPageModules...) {
 		src, err := os.ReadFile(filepath.Join(ui, f))
 		if err != nil {
 			t.Fatal(err)
