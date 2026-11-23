@@ -235,8 +235,9 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (`RunReconciler.buildSubagents`): turning it off narrows every recorded run at once, never refuses it, and a revise
   lease is adopted whatever its record (`sameRound`); `jobs.ErrSubagentsRefused` settles `launch_refused`.
   `--intent-build-workflows` (default off; refused without `--intent-build-subagents`) records `spec.grant.workflows`
-  beside subagents for a Project opted in to both (CEL: only with them) and launches `jobs.Spec.BuildWorkflows` only while both flags are on
-  (`RunReconciler.buildWorkflows`), narrowed and adopted the same way. Workflows are an operator's choice with two
+  beside subagents for a Project opted in to both (CEL: only with them) and launches `jobs.Spec.BuildWorkflows` only
+  while both flags are on (`RunReconciler.buildWorkflows`), narrowed and adopted the same way. Workflows are an
+  operator's choice with two
   ACCEPTED limits of the claude CLI (owner, 2026-11-23), which subagents do not have: a workflow script's
   `workflow({scriptPath})` runs that file, one the run wrote in the tree or HOME included (a direct `Workflow{scriptPath}`
   call is ended by the stream check only after it starts; lookup by name of tree/HOME workflows is closed), and a
