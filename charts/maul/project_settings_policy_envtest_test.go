@@ -822,11 +822,15 @@ var policyReasons = []string{projectsettings.RefusedLocked, projectsettings.Refu
 	projectsettings.RefusedBelowFloor, projectsettings.RefusedAboveCeiling, projectsettings.RefusedModelNotAdmitted,
 	projectsettings.RefusedClassNotAdmitted, projectsettings.RefusedChecksEmptyNotAllowed}
 
+// settingsSeed keeps the property deterministic in the gate, as the
+// repository's other seeded properties are; MAUL_SETTINGS_SEED explores.
+const settingsSeed uint64 = 20261123
+
 // checkProperty: random edits of every field the policy judges, from random
 // starting values an admin wrote, are refused by the policy exactly when
 // Check refuses them for a reason the policy mirrors.
 func (e *settingsEnv) checkProperty(t *testing.T, phase uint64) {
-	seed := uint64(time.Now().UnixNano())
+	seed := settingsSeed
 	if s, err := strconv.ParseUint(os.Getenv("MAUL_SETTINGS_SEED"), 10, 64); err == nil {
 		seed = s
 	}
