@@ -21,22 +21,26 @@ import (
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
-// The fix-round reproduction (DESIGN 2.2, 2.9 use 2, 4.4, 7.7; SPEC S1-21).
-// An evaluation's verify-fix round is handed, per failure the judgement
-// asks it to fix, a bug report maul renders from its own records: the
-// approved outcome, the failing check's steps (templates, in maul's words)
-// with what each expects, what the check runner observed on the failing
-// run (that run's tools ledger entry), and at most 40 log lines from the
-// run's window. Nothing else of the round reaches it: never the evaluate
-// prompt, the evaluator's notes, report or transcript, another check, a
-// check's digest or the check store (TestBuildHandoffNeverReferencesEvaluator).
+// The fix-round reproduction ("evaluator observed": the cited-call
+// reproduction; DESIGN 2.9 use 2, 4.4). An evaluation's verify-fix round is
+// handed, per failure the judgement asks it to fix, a bug report maul
+// renders from its own records (templates.RenderCitedReproduction): the
+// approved outcome; the calls the evaluator's verdict cites that maul
+// counts (acceptance.ValidCite), each with what it sent and what came back,
+// from the round's verified ledger; the evaluator's own calls before them,
+// what each sent alone (the path that led there); at most 40 log lines
+// from the window of the first cited call; and the evaluator's one-line
+// note on the outcome, labelled as its reading, not checked by maul (owner
+// decision 5). Nothing else of the round reaches it: never the evaluate
+// prompt, the report's body, another outcome's note, the anomalies, the
+// transcript or a run's name (TestBuildHandoffCarriesOnlyCitedEvidence).
 //
 // The log lines come from the ledger too: preview-controller's capture
 // reaches the release namespace only as the outputs of the evaluator's
 // `maul-tool logs` calls, each the component's redacted log since the
-// verification started. A failing run's window is what the component
-// logged between the evaluator's last read before the run and its first
-// read after it; without a read after the run there is no excerpt.
+// verification started. A failing call's window is what the component
+// logged between the evaluator's last read before the call and its first
+// read after it; without a read after the call there is no excerpt.
 
 // maxReproLogLines bounds a component's excerpt (the template bounds a
 // failure's to the same over all its components).
@@ -47,11 +51,12 @@ const maxReproLogLines = 40
 var errorLine = regexp.MustCompile(`(?i)\b(panic|fatal|error|exception|traceback)\b`)
 
 // reproduction renders the failures fix asks a verify-fix round for, of pv
-// against the approved outcomes, with cs the checks the round was judged
-// on.
+// against the approved outcomes, as j judged them: each failure's valid
+// cites (Judge's), the calls before the first of them, its log window and
+// the evaluator's note on it.
 func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerification, acc *v1alpha1.IntentAcceptance,
-	fix *acceptance.FixRequest, cs []v1alpha1.SavedCheck) (string, error) {
-	r := templates.VerifyReproduction{Verification: pv.Name, Round: pv.Spec.Round, Attempt: pv.Spec.Attempt,
+	fix *acceptance.FixRequest, j roundJudgement) (string, error) {
+	r := templates.CitedReproduction{Verification: pv.Name, Round: pv.Spec.Round, Attempt: pv.Spec.Attempt,
 		Workspace: pv.Spec.IsAgents()}
 	var components []string
 	for _, h := range pv.Spec.Heads {
@@ -60,34 +65,27 @@ func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 			components = append(components, h.Component)
 		}
 	}
+	calls := p.roundCalls(ctx, pv)
 	entries := ledgerEntries(p.ledgerOf(ctx, pv))
 	for _, f := range fix.Failures {
 		i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == f.Outcome })
-		if i < 0 {
+		d, ok := j.decision(f.Outcome)
+		if i < 0 || !ok || len(d.Cites) == 0 {
 			continue
 		}
-		rf := templates.ReproductionFailure{Outcome: f.Outcome, Statement: acc.Outcomes[i].Outcome}
-		logged := components
-		if k := slices.IndexFunc(cs, func(c v1alpha1.SavedCheck) bool { return c.Digest == f.CheckDigest }); k >= 0 {
-			if parsed, err := checks.Parse([]byte(cs[k].Body)); err == nil {
-				rf.Check = &parsed
-				if parsed.HTTP != nil {
-					logged = []string{parsed.HTTP.Target}
-				}
+		cf := templates.CitedFailure{Outcome: f.Outcome, Statement: acc.Outcomes[i].Outcome, Note: j.note(f.Outcome)}
+		for _, seq := range d.Cites {
+			cf.Cited = append(cf.Cited, calls.call(seq))
+		}
+		cf.Before = calls.sentBefore(d.Cites[0])
+		for _, c := range components {
+			if lines := logWindow(entries, int64(d.Cites[0]), c); len(lines) > 0 {
+				cf.Logs = append(cf.Logs, templates.ReproductionLog{Component: c, Lines: lines})
 			}
 		}
-		seq := failingSeq(pv, f.CheckDigest)
-		if run := checkRunAt(entries, seq, f.CheckDigest); run != nil {
-			rf.Observed = observations(run)
-		}
-		for _, c := range logged {
-			if lines := logWindow(entries, int64(logAnchor(pv, f.CheckDigest, seq)), c); len(lines) > 0 {
-				rf.Logs = append(rf.Logs, templates.ReproductionLog{Component: c, Lines: lines})
-			}
-		}
-		r.Failures = append(r.Failures, rf)
+		r.Failures = append(r.Failures, cf)
 	}
-	out, err := templates.RenderVerifyReproduction(r)
+	out, err := templates.RenderCitedReproduction(r)
 	if err != nil {
 		return "", fmt.Errorf("render the reproduction of verification %s: %w", pv.Name, err)
 	}

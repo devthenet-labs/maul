@@ -113,8 +113,8 @@ func TestNarrowedCheckNeverPassesItsOutcomeLater(t *testing.T) {
 	in := r.intent()
 	now := time.Now()
 
-	j := judgeRound(in.Status.Acceptance, r.full, r.stored, r.ev)
-	applyJudgement(in, j, now)
+	j := judgeChecksRound(in.Status.Acceptance, r.full, r.stored, r.ev)
+	applyChecksJudgement(in, j, now)
 	v := in.Status.Verification
 	if v.State != v1alpha1.VerificationUnconfirmed || !slices.Equal(v.Disputed, []string{r.old.Digest}) {
 		t.Fatalf("full round: state %s, disputed %v; want Unconfirmed with a replay due for %s", v.State,
@@ -126,8 +126,8 @@ func TestNarrowedCheckNeverPassesItsOutcomeLater(t *testing.T) {
 	}
 
 	stored := []v1alpha1.SavedCheck{r.narrow, r.repl}
-	j = judgeRound(in.Status.Acceptance, r.replayOf("x-pv-2"), stored, nil)
-	applyJudgement(in, j, now)
+	j = judgeChecksRound(in.Status.Acceptance, r.replayOf("x-pv-2"), stored, nil)
+	applyChecksJudgement(in, j, now)
 	checkNarrowedOutcomes(t, "replay round", in)
 
 	later := r.replayOf("x-pv-3")
@@ -137,8 +137,8 @@ func TestNarrowedCheckNeverPassesItsOutcomeLater(t *testing.T) {
 		{ID: r.outcomeX.ID, Verdict: report.VerdictPass, Ledger: []int32{1}},
 		{ID: r.outcomeY.ID, Verdict: report.VerdictPass, Ledger: []int32{2}},
 	}}
-	j = judgeRound(in.Status.Acceptance, later, stored, ev)
-	applyJudgement(in, j, now)
+	j = judgeChecksRound(in.Status.Acceptance, later, stored, ev)
+	applyChecksJudgement(in, j, now)
 	checkNarrowedOutcomes(t, "later round", in)
 }
 

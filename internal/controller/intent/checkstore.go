@@ -77,28 +77,6 @@ type storeCandidate struct {
 // defect, and not a stored one asked the green question.
 func (c storeCandidate) red() bool { return c.check.Expect == v1alpha1.CheckExpectFail && !c.green }
 
-// regreenCandidates are the stored checks saved red whose replays in pv all
-// passed with a run token, and that have no cached review of the green
-// question for their outcome's text (third review, F5): a check saved red
-// passes its outcome only once that question is answered proves too.
-func regreenCandidates(pv *v1alpha1.PreviewVerification, outcomes []v1alpha1.AcceptanceOutcome,
-	stored []v1alpha1.SavedCheck, reviews []v1alpha1.CheckReviewRecord) []storeCandidate {
-	answers := reviewsByKey(reviews)
-	var out []storeCandidate
-	for _, d := range clearedRed(stored, pv.Status.Replay) {
-		i := slices.IndexFunc(stored, func(c v1alpha1.SavedCheck) bool { return c.Digest == d })
-		o := slices.IndexFunc(outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == stored[i].Outcome })
-		if o < 0 || outcomes[o].Manual {
-			continue
-		}
-		c := storeCandidate{check: stored[i], outcome: outcomes[o], green: true}
-		if _, ok := answers[c.reviewKey()]; !ok {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 // reviewKey is a candidate's review cache key.
 func (c storeCandidate) reviewKey() reviewKey {
 	k := reviewKey{check: c.check.Digest, outcome: outcomeDigest(c.outcome)}
@@ -127,8 +105,8 @@ type reviewKey struct {
 // outcome and form whose digest it is, valid under the saved-check grammar
 // against the preview, its confirmation a clean pass with a run token (for
 // a check proposed to show a defect: red by assertion, confirmedRed), and
-// not already stored. surface is the round's (checkContext): its preview,
-// or an agents round's workspace. Each refusal is reported with its reason.
+// not already stored. surface is the round's: its preview, or an agents
+// round's workspace. Each refusal is reported with its reason.
 //
 // The run-data rule (mayShowDefect) is the slot's alone, as the tool pod
 // holds it (SPEC-S2 S2-04; G3-B-CLI-1): it guards a preview's shared,
@@ -303,43 +281,6 @@ func confirmedClean(runs []v1alpha1.CheckRun, d string) bool {
 	return pass
 }
 
-// checkContext is the surface pv's checks are held to, as its tool pod
-// validates them: an agents round's workspace (its cli binary or its
-// library's language), else the slot's preview (checkPreview). Every caller
-// names its surface: checks.Validate refuses every check on none.
-func (p *pass) checkContext(pv *v1alpha1.PreviewVerification) checks.Context {
-	if !pv.Spec.IsAgents() {
-		preview := p.checkPreview(pv)
-		return checks.Context{Preview: &preview}
-	}
-	var ws checks.Workspace
-	if w := pv.Spec.Workspace; w != nil {
-		switch {
-		case w.Surface.CLI != nil:
-			ws.Binary = w.Surface.CLI.Binary
-		case w.Surface.Library != nil:
-			ws.Language = string(w.Surface.Library.Language)
-		}
-	}
-	return checks.Context{Workspace: &ws}
-}
-
-// checkPreview is what pv's checks may reach: its components' keys and
-// path prefixes, as the slot tool pod validates them.
-func (p *pass) checkPreview(pv *v1alpha1.PreviewVerification) checks.Preview {
-	var out checks.Preview
-	previews := v1alpha1.EffectivePreviews(p.proj)
-	for _, head := range pv.Spec.Heads {
-		if i := slices.IndexFunc(previews, func(rp v1alpha1.RepositoryPreview) bool {
-			return rp.Name == head.Component
-		}); i >= 0 {
-			out.Components = append(out.Components, head.Component)
-			out.Paths = append(out.Paths, previews[i].Path)
-		}
-	}
-	return out
-}
-
 // reviewsByKey indexes cached reviews by key, the latest winning.
 func reviewsByKey(rs []v1alpha1.CheckReviewRecord) map[reviewKey]v1alpha1.ReviewAnswer {
 	out := make(map[reviewKey]v1alpha1.ReviewAnswer, len(rs))
@@ -349,18 +290,6 @@ func reviewsByKey(rs []v1alpha1.CheckReviewRecord) map[reviewKey]v1alpha1.Review
 			k.red, k.step, k.assertion = true, r.FailedStep, r.FailedAssertion
 		}
 		out[k] = r.Answer
-	}
-	return out
-}
-
-// proven are the candidates reviewed proves for their outcome's text.
-func proven(cands []storeCandidate, reviews []v1alpha1.CheckReviewRecord) []v1alpha1.SavedCheck {
-	answers := reviewsByKey(reviews)
-	var out []v1alpha1.SavedCheck
-	for _, c := range cands {
-		if answers[c.reviewKey()] == v1alpha1.ReviewProves {
-			out = append(out, c.check)
-		}
 	}
 	return out
 }
@@ -412,7 +341,7 @@ func (p *pass) retireChecks(ctx context.Context, retire []string, disputes []rep
 	if p.in.Status.Acceptance == nil || len(retire) == 0 {
 		return false, nil
 	}
-	stored, _, err := p.storedChecks(ctx)
+	stored, err := p.storedChecks(ctx)
 	if err != nil {
 		return false, err
 	}

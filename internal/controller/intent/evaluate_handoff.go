@@ -123,14 +123,14 @@ func (p *pass) evaluateHandoff(ctx context.Context, pv *v1alpha1.PreviewVerifica
 // new check that proves it: without that the prompt's rule against a new
 // check for an outcome whose saved check replayed green would leave a
 // refused check's outcome unsure in every round. A store that cannot be
-// read hands over none (the round is judged without it, as reviewChecks
-// does).
+// read hands over none. Retired with saved checks: agent-runner reads none
+// of it, and nothing in the store is ever judged.
 func (p *pass) notYetProof(ctx context.Context) []agentrun.NotYetProof {
 	acc := p.in.Status.Acceptance
 	if acc == nil {
 		return nil
 	}
-	stored, _, err := p.storedChecks(ctx)
+	stored, err := p.storedChecks(ctx)
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the intent's check store; no saved red check is named to the "+
 			"evaluator", slog.String("intent", p.in.Name), slog.Any("error", err))

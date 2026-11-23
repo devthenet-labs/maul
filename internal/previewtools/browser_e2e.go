@@ -196,9 +196,33 @@ func (c *scriptedCLI) Run(ctx context.Context, args []string) (CLIResult, error)
 	case "requests":
 		return CLIResult{Output: "### Result\n" + strings.Join(c.requests, "\n") + "\n"}, nil
 	case "eval":
-		return CLIResult{Output: "### Error\nError: the scripted browser evaluates no script\n", Exit: 1}, nil
+		return c.eval(arg(rest, 0)), nil
 	}
 	return CLIResult{Output: "### Error\nError: unknown command " + strconv.Quote(verb) + "\n", Exit: 1}, nil
+}
+
+// boxScript is the one page script the scripted browser evaluates: an
+// element's bounding box, found by its test id.
+var boxScript = regexp.MustCompile(`querySelector\(\s*['"]\[data-testid=["']?([\w-]+)["']?\]['"]\s*\)` +
+	`\s*\.getBoundingClientRect\(\)`)
+
+// eval answers a page script: the box of the element a boxScript names, as
+// {"width","height"}; any other script, or an element the page lacks, is
+// the CLI's error.
+func (c *scriptedCLI) eval(script string) CLIResult {
+	m := boxScript.FindStringSubmatch(script)
+	if m == nil {
+		return CLIResult{Output: "### Error\nError: the scripted browser evaluates no such script\n", Exit: 1}
+	}
+	for _, el := range c.page.Elements {
+		if el.TestID != m[1] || el.Hidden {
+			continue
+		}
+		return CLIResult{Output: fmt.Sprintf("### Result\n{\"width\":%s,\"height\":%s}\n", px(el.Width),
+			px(el.Height)) + code("await page.evaluate("+jsString(script)+");")}
+	}
+	return CLIResult{Output: "### Error\nError: TypeError: Cannot read properties of null " +
+		"(reading 'getBoundingClientRect')\n", Exit: 1}
 }
 
 func arg(args []string, i int) string {

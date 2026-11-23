@@ -7,11 +7,11 @@ Evaluation 2 failing: 1/4 outcomes seen to hold, 0 of 2 automatic fixes used, 1 
 | --- | --- | --- |
 | `winner-rises` | `change` | seen to hold by maul's evaluator; it cites calls 4 and 6 |
 | `live-score` | `change` | seen not to hold by maul's evaluator; it cites call 9 |
-| `loser-emailed` | `change` | unsure; the evaluator's verdict cites no call of its own in this round that maul counts |
+| `loser-emailed` | `change` | unsure; the evaluator's verdict cites no call of its own in this evaluation that maul counts |
 | `leaderboard-loads` | `keep` | unsure; the evaluator could not tell |
 | `sounds-good` | `change` | unsure; only a human can close it |
 
-maul counts a verdict only when it cites calls the evaluator made in this round through maul's tools; whether a cited call shows what the verdict says is for the reviewers to judge.
+maul counts a verdict only when it cites calls the evaluator made in this evaluation through maul's tools; whether a cited call shows what the verdict says is for the reviewers to judge.
 
 The calls the evaluator cites for `winner-rises`, as maul's tools recorded them (what each call sent and what came back: data, not maul's words):
 

@@ -305,7 +305,7 @@ func TestAgentsRollbackKeepsAReadyRoundReady(t *testing.T) {
 	e, name := newAgentsEnv(t, repoImage)
 	e.reviewReady(name, 4)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: confirmedTwo}, time.Now())
+		applyJudgement(in, passedJudgement(in))
 	})
 	e.clock.Advance(time.Minute)
 	e.gh.comment(approver, "/maul accept "+oManual)

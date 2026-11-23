@@ -136,7 +136,7 @@ func TestReportersRefuseAJudgementAtOtherHeads(t *testing.T) {
 	p := e.prVerifyPass(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		routeRecords(in, tc, e.clock.Now())
-		applyJudgement(in, routeJudgement(tc, check), time.Now())
+		applyChecksJudgement(in, routeJudgement(tc, check), time.Now())
 		p.releaseIfDue(in)
 	})
 	p = e.prVerifyPass(name)
@@ -228,7 +228,7 @@ func TestCommentsRefuseAPassAtOtherHeads(t *testing.T) {
 	p := e.prVerifyPass(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		routeRecords(in, tc, e.clock.Now())
-		applyJudgement(in, routeJudgement(tc, check), time.Now())
+		applyChecksJudgement(in, routeJudgement(tc, check), time.Now())
 		p.releaseIfDue(in)
 	})
 	if prog := e.prVerifyPass(name).verifyProgress(); prog == nil || prog.State != templates.VerifyPassed {

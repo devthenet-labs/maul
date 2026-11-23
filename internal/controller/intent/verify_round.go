@@ -460,7 +460,7 @@ func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (f
 		return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable,
 			ref.Name)
 	}
-	feedback, err = p.reproduction(ctx, pv, acc, fix, j.checks)
+	feedback, err = p.reproduction(ctx, pv, acc, fix, j)
 	if err != nil {
 		return "", verifyFailure{}, err
 	}

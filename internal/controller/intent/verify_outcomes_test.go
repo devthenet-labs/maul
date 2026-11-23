@@ -92,7 +92,7 @@ func failingEvaluation(t *testing.T) (*env, string, string) {
 // TestOutcomeFixRoundStartsAndPushes is TestVerifyFixRoundStartsAndPushes
 // on outcomes: a reproduced failure at maul's own heads starts one
 // acceptance-fix round on the app's repository, consuming the round by
-// UID; its handoff records the evaluation's fingerprint; it pushes and is
+// UID; its handoff records the outcome fingerprint (v2); it pushes and is
 // counted as a verify fix, not a revision.
 func TestOutcomeFixRoundStartsAndPushes(t *testing.T) {
 	e, name, pvName := failingEvaluation(t)
@@ -121,8 +121,12 @@ func TestOutcomeFixRoundStartsAndPushes(t *testing.T) {
 		t.Fatalf("verify run = %s %s %q", run.Status.Phase, run.Status.Outcome, run.Status.Detail)
 	}
 	cm := e.runInput(run)
-	if sig := cm.Data[keyVerifySignature]; !strings.HasPrefix(sig, acceptance.EvaluationFingerprintVersion+":") {
-		t.Errorf("signature = %q, want the evaluation's fingerprint", sig)
+	if sig := cm.Data[keyVerifySignature]; !strings.HasPrefix(sig, acceptance.OutcomeFingerprintVersion+":") {
+		t.Errorf("signature = %q, want the evaluation's outcome fingerprint", sig)
+	}
+	if pieces := cm.Data[keyVerifySignatures]; !strings.HasPrefix(pieces, acceptance.OutcomePiecePrefix+oVersion+" ") ||
+		strings.Contains(pieces, "\n") {
+		t.Errorf("pieces = %q, want the failing outcome's alone", pieces)
 	}
 	if cm.Data[keyCheckSignature] != "" {
 		t.Errorf("a verify round recorded a check signature %q", cm.Data[keyCheckSignature])

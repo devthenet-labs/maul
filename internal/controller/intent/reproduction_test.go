@@ -36,10 +36,11 @@ func logsEntry(seq int64, component, output string) toolwire.LedgerEntry {
 }
 
 // checkRunEntry is a replay ledger entry at seq of check digest, failing
-// on step step with detail. The record carries the digest as the tools
+// on its second step with detail. The record carries the digest as the tools
 // container writes it, bare hex (toolwire.CheckRunRecord, which refuses
 // the "sha256:" form the PreviewVerification's status carries).
-func checkRunEntry(seq int64, digest, id string, step int, detail string) toolwire.LedgerEntry {
+func checkRunEntry(seq int64, digest, id, detail string) toolwire.LedgerEntry {
+	const step = 1
 	return toolwire.LedgerEntry{Seq: seq, TS: time.Unix(seq, 0).UTC(), Kind: toolwire.KindRelay,
 		Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{
 			Digest: strings.TrimPrefix(digest, "sha256:"), CheckID: id, Mode: toolwire.ModeReplay,
@@ -55,7 +56,7 @@ func checkRunEntry(seq int64, digest, id string, step int, detail string) toolwi
 // an entry the tools container could have written, so the reproduction is
 // tested on the digests it really reads.
 func TestCheckRunEntryIsWire(t *testing.T) {
-	e := checkRunEntry(2, savedCheck(t, versionCheck).Digest, "version-shown", 1, "detail")
+	e := checkRunEntry(2, savedCheck(t, versionCheck).Digest, "version-shown", "detail")
 	e.OutputSHA256 = hex.EncodeToString(func() []byte { s := sha256.Sum256(nil); return s[:] }())
 	if err := e.Check(); err != nil {
 		t.Errorf("checkRunEntry is no ledger entry the tools container writes: %v", err)
@@ -164,7 +165,9 @@ func TestLogAnchorOfARedConfirmation(t *testing.T) {
 }
 
 // ledgerOfEntries plays preview-controller writing pv's full ledger
-// (<pv>-ledger, owned by pv) of entries.
+// (<pv>-ledger, owned by pv) of entries, and its verified index in status
+// (toolledger.Index's fields): a seq no entry has is the relay's own call,
+// which never counts.
 func (e *env) ledgerOfEntries(pvName string, entries ...toolwire.LedgerEntry) {
 	e.t.Helper()
 	pv := e.pvNamed(pvName)
@@ -189,10 +192,38 @@ func (e *env) ledgerOfEntries(pvName string, entries ...toolwire.LedgerEntry) {
 		count = max(count, en.Seq)
 	}
 	pv.Status.Ledger = &v1alpha1.LedgerSummary{Count: int32(count), SHA256: strings.Repeat("a", 64),
-		ConfigMap: cm.Name}
+		ConfigMap: cm.Name, Entries: indexOf(count, entries)}
 	if err := e.c.Update(context.Background(), pv); err != nil {
 		e.t.Fatal(err)
 	}
+}
+
+// indexOf is the verified index of a ledger of count entries holding
+// entries, as toolledger.Index writes it; a seq no entry has is a relay
+// http call.
+func indexOf(count int64, entries []toolwire.LedgerEntry) []v1alpha1.LedgerIndexEntry {
+	out := make([]v1alpha1.LedgerIndexEntry, 0, count)
+	for seq := int64(1); seq <= count; seq++ {
+		ix := v1alpha1.LedgerIndexEntry{Seq: int32(seq), Kind: v1alpha1.LedgerKindRelay, Verb: v1alpha1.LedgerVerbHTTP,
+			ResultSHA256: strings.Repeat("c", 64)}
+		if i := slices.IndexFunc(entries, func(en toolwire.LedgerEntry) bool { return en.Seq == seq }); i >= 0 {
+			en := entries[i]
+			ix = v1alpha1.LedgerIndexEntry{Seq: int32(seq), Kind: v1alpha1.LedgerKind(en.Kind),
+				Verb: v1alpha1.LedgerVerb(en.Verb), Exit: int32(en.Exit), ResultSHA256: en.OutputSHA256,
+				Refused: en.Refused != "", Side: v1alpha1.TreeSide(en.Side.Recorded())}
+		}
+		out = append(out, ix)
+	}
+	return out
+}
+
+// httpEntry is the evaluator's `maul-tool http` call at seq, sending
+// method and path and getting output.
+func httpEntry(seq int64, method, path, output string) toolwire.LedgerEntry {
+	args, _ := json.Marshal(toolwire.HTTPRequest{Method: method, Path: path})
+	sum := sha256.Sum256([]byte(output))
+	return toolwire.LedgerEntry{Seq: seq, TS: time.Unix(seq, 0).UTC(), Kind: toolwire.KindAgent,
+		Verb: toolwire.VerbHTTP, Args: args, Output: output, OutputSHA256: hex.EncodeToString(sum[:])}
 }
 
 // fixInput waits for name's first revise run's input and returns its data
@@ -230,24 +261,21 @@ func joinedData(data map[string]string) string {
 	return b.String()
 }
 
-// failRound drives name's first evaluation round to a reproduced failure of
-// the version outcome: the stored version check fails its replay at seq 2
-// (step 2, with detail), the evaluator reports fail citing it with note,
-// and the ledger holds entries.
-func (e *env) failRound(name, report string, entries func(versionDigest string) []toolwire.LedgerEntry) {
+// failRound drives name's first evaluation round to an observed failure
+// of the version outcome: the evaluator reports it, citing the ledger's
+// entries (the evaluator's own calls), and the round's ledger holds
+// entries and the index they verify to.
+func (e *env) failRound(name, report string, entries []toolwire.LedgerEntry) {
 	e.t.Helper()
 	e.evaluateReporting(report)
-	version, health := savedCheck(e.t, versionCheck), savedCheck(e.t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
 	e.runRuns()
 	e.runRuns()
-	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: version.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
-		Seq: 2}, v1alpha1.CheckRun{CheckDigest: health.Digest, Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 3})
-	e.ledgerOfEntries(pv.Name, entries(version.Digest)...)
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
+	e.ledgerOfEntries(pv.Name, entries...)
 	e.settleReviews(name)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
 		e.t.Fatalf("verification = %s %+v, want Failing", v.State, v.Outcomes)
@@ -255,29 +283,27 @@ func (e *env) failRound(name, report string, entries func(versionDigest string) 
 }
 
 // TestFixRoundGetsTheReproduction: an evaluation's verify-fix round is
-// handed maul's reproduction of the failure: the approved outcome, the
-// failing check's steps in maul's words with what each expects, the check
-// runner's observation of the failing run from the tools ledger, and the
-// log lines of the component the check targets from that run's window;
-// never the check's body or digest, the store, the other check, or the
-// evaluator's words.
+// handed maul's reproduction of the failure: the approved outcome, the call
+// the evaluator's fail cites (what it sent and what came back, from the
+// round's ledger), the evaluator's own calls before it (what each sent),
+// and the log lines of the round's component from that call's window;
+// never the report's body, another outcome's calls, or a run's or the
+// check store's name.
 func TestFixRoundGetsTheReproduction(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	e.failRound(name, failingReport, func(version string) []toolwire.LedgerEntry {
-		return []toolwire.LedgerEntry{
-			logsEntry(1, "app", "boot ok\n"),
-			checkRunEntry(2, version, "version-shown", 1, `/note: expected "t1-v", got "dev"`),
-			checkRunEntry(3, savedCheck(t, healthCheck).Digest, "still-healthy", 0, "never shown"),
-			logsEntry(4, "app", "boot ok\nPOST /notes 201\nerror: note not stored\n"),
-		}
+	e.failRound(name, failingReport, []toolwire.LedgerEntry{
+		logsEntry(1, "app", "boot ok\n"),
+		httpEntry(2, "GET", "/version", `{"commit":"dev","note":"dev"}`),
+		httpEntry(3, "GET", "/healthz", "never shown"),
+		logsEntry(4, "app", "boot ok\nPOST /notes 201\nerror: note not stored\n"),
 	})
 	all := e.fixInput(name)
 	for _, want := range []string{
 		"GET /version answers with the commit it runs",
 		"#### Outcome `version-shown`",
-		"1. Send `POST /notes` with JSON body `{\"name\":\"{{run}}-v\"}`. Expected: status `201`.",
-		"2. Send `GET /version?q={{run}}`. Expected: status `200`; JSON body at `/note`: `\"{{run}}-v\"`.",
-		"attempt 1, step 2: failed: `/note: expected \"t1-v\", got \"dev\"`",
+		"Call 2, an http request:",
+		`{"commit":"dev","note":"dev"}`,
+		"Call 1, ",
 		"Log lines of component `app`",
 		"error: note not stored",
 	} {
@@ -285,84 +311,82 @@ func TestFixRoundGetsTheReproduction(t *testing.T) {
 			t.Errorf("the fix round's input lacks %q:\n%s", want, all)
 		}
 	}
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	for _, f := range []string{version.Digest, health.Digest, "-checks-", "-ev-", "-cr-", version.Body,
-		"wrong note", "never shown", "/healthz", "boot ok"} {
+	for _, f := range []string{"-checks-", "-ev-", "-cr-", "wrong note", "never shown", "/healthz", "boot ok"} {
 		if strings.Contains(all, f) {
 			t.Errorf("the fix round's input carries %q", f)
 		}
 	}
 }
 
-// TestFixRoundSeesWhatTheElementShowed (gate D-B10): what a failing step's
-// element showed reaches both the fix round's reproduction and the
-// person's verification comment, each attempt's run token written back as
-// the placeholder, never the raw token; before, both said only that the
-// expectation was not met.
-func TestFixRoundSeesWhatTheElementShowed(t *testing.T) {
+// TestFixRoundSeesTheEvaluatorsReading (owner decision 5): the evaluator's
+// one-line note on the failing outcome reaches the fix round labelled as
+// its reading, not checked by maul, fenced; the cited call's output reaches
+// both the fix round and the person's verification comment, which says its
+// rows were seen by maul's evaluator and names the call cited.
+func TestFixRoundSeesTheEvaluatorsReading(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	e.failRound(name, failingReport, func(version string) []toolwire.LedgerEntry {
-		run := checkRunEntry(2, version, "version-shown", 1, "the text expectation was not met")
-		for i := range run.CheckRun.Attempts {
-			a := &run.CheckRun.Attempts[i]
-			s := &a.Steps[len(a.Steps)-1]
-			s.Assertion, s.AssertionID, s.Received = true, "expect", a.Run+"-v 120 bpm · swing 0%"
-		}
-		return []toolwire.LedgerEntry{logsEntry(1, "app", "boot ok\n"), run}
+	const note = "The version endpoint names the dev build, not the commit."
+	e.failRound(name, strings.Replace(failingReport, "    ledger: [2]\n",
+		"    ledger: [2]\n    note: \""+note+"\"\n", 1), []toolwire.LedgerEntry{
+		httpEntry(1, "GET", "/", "home"),
+		httpEntry(2, "GET", "/version", `{"commit":"dev-build-7"}`),
+		httpEntry(3, "GET", "/healthz", "ok"),
 	})
-	const shown = checks.RunPlaceholder + "-v 120 bpm · swing 0%"
 	all := e.fixInput(name)
+	label := "The evaluator's reading, not checked by maul:\n\n```text\n" + note + "\n```"
+	if !strings.Contains(all, label) || !strings.Contains(all, "dev-build-7") {
+		t.Errorf("the fix round's input lacks the labelled note or the cited output:\n%s", all)
+	}
 	comments := e.verifyComments(name, 1)
 	if len(comments) == 0 {
 		t.Fatal("no verification comment")
 	}
-	if body := comments[len(comments)-1].Body; !strings.Contains(body, "the element showed: "+shown) ||
-		strings.Contains(body, "r1-v") {
-		t.Errorf("the verification comment does not show what the element showed:\n%s", body)
-	}
-	for _, want := range []string{
-		"attempt 1, step 2: failed: `the text expectation was not met`; the element showed `" + shown + "`",
-		"attempt 2, step 2: failed: `the text expectation was not met`; the element showed `" + shown + "`",
-	} {
-		if !strings.Contains(all, want) {
-			t.Errorf("the fix round's input lacks %q:\n%s", want, all)
+	body := comments[len(comments)-1].Body
+	for _, want := range []string{"seen not to hold by maul's evaluator", "it cites call 2", "dev-build-7",
+		templates.ObservedLead} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the verification comment lacks %q:\n%s", want, body)
 		}
-	}
-	if strings.Contains(all, "r1-v") || strings.Contains(all, "r2-v") {
-		t.Errorf("the fix round's input carries a run's raw token:\n%s", all)
 	}
 }
 
-// TestBuildHandoffNeverReferencesEvaluator: over random rounds (the
-// evaluator's verdict notes, report body and a cited anomaly, the
-// failing step's detail and the log lines), no build or revise handoff of
-// the intent names the check store (-checks-), an evaluate (-ev-) or check
-// review (-cr-) run, a check digest, a line of the evaluate or the check
-// review prompt, or anything the evaluator wrote; the reproduction's own
-// application data is the only round data a fix round sees.
-func TestBuildHandoffNeverReferencesEvaluator(t *testing.T) {
+// TestBuildHandoffCarriesOnlyCitedEvidence (restating
+// TestBuildHandoffNeverReferencesEvaluator for the observed round): over
+// random rounds, the fix round's input holds the cited call's args and
+// output, the evaluator's call before it, the log line of its window and
+// the failing outcome's note labelled as the evaluator's reading inside a
+// fence; and no build or revise handoff of the intent holds the report's
+// body, another outcome's note, an anomaly, a call no failure cites after
+// the cited one, a line of the evaluate or the check review prompt, or the
+// name of an evaluate (-ev-) or check review (-cr-) run or a check store
+// (-checks-).
+func TestBuildHandoffCarriesOnlyCitedEvidence(t *testing.T) {
 	prompt := promptMarkers(t)
 	for seed := range uint64(8) {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
 			rng := rand.New(rand.NewPCG(seed, 21))
-			note, body := randomWords(rng, "note"), randomWords(rng, "body")
-			anomaly := randomWords(rng, "anomaly")
+			note, other, body := randomWords(rng, "note"), randomWords(rng, "other"), randomWords(rng, "body")
+			anomaly, sent, got := randomWords(rng, "anomaly"), randomWords(rng, "sent"), randomWords(rng, "got")
+			before, after, logLine := randomWords(rng, "before"), randomWords(rng, "after"), randomWords(rng, "log")
 			report := fmt.Sprintf("---\nverdicts:\n  - id: version-shown\n    verdict: fail\n    ledger: [2]\n"+
-				"    note: %q\n  - id: still-healthy\n    verdict: pass\n    ledger: [3]\nanomalies:\n"+
-				"  - summary: %q\n    route: /version\n    ledger: [4]\n---\n%s\n", note, anomaly, body)
-			detail, logLine := randomWords(rng, "detail"), randomWords(rng, "log")
+				"    note: %q\n  - id: still-healthy\n    verdict: pass\n    ledger: [3]\n    note: %q\n"+
+				"anomalies:\n  - summary: %q\n    route: /version\n    ledger: [3]\n---\n%s\n", note, other, anomaly, body)
 			e, name := newEvaluatorEnv(t, 0.4)
-			e.failRound(name, report, func(version string) []toolwire.LedgerEntry {
-				return []toolwire.LedgerEntry{
-					checkRunEntry(2, version, "version-shown", 1, detail),
-					logsEntry(rng.Int64N(3)+4, "app", "error: "+logLine+"\n"),
-				}
+			e.failRound(name, report, []toolwire.LedgerEntry{
+				httpEntry(1, "POST", "/"+before, "home"),
+				httpEntry(2, "GET", "/"+sent, got),
+				httpEntry(3, "GET", "/"+after, "fine"),
+				logsEntry(rng.Int64N(3)+4, "app", "error: "+logLine+"\n"),
 			})
-			// The fix round may or may not run: an anomaly releases the
-			// hand-off but a reproduced failure still asks for a fix.
 			all := e.fixInput(name)
-			if !strings.Contains(all, detail) || !strings.Contains(all, logLine) {
-				t.Errorf("the reproduction lacks the observed detail or the log line:\n%s", all)
+			for _, want := range []string{sent, got, before, logLine} {
+				if !strings.Contains(all, want) {
+					t.Errorf("the reproduction lacks %q:\n%s", want, all)
+				}
+			}
+			if label := "The evaluator's reading, not checked by maul:\n\n```text\n" + note + "\n```"; !strings.Contains(
+				all, label) {
+				t.Errorf("the reproduction lacks the note fenced under its label:\n%s", all)
 			}
 			for _, run := range e.runsOf(name, v1alpha1.IntentStageBuild) {
 				var cm corev1.ConfigMap
@@ -371,8 +395,7 @@ func TestBuildHandoffNeverReferencesEvaluator(t *testing.T) {
 					all += joinedData(cm.Data)
 				}
 			}
-			forbidden := append([]string{"-checks-", "-ev-", "-cr-", note, body, anomaly,
-				savedCheck(t, versionCheck).Digest, savedCheck(t, healthCheck).Digest}, prompt...)
+			forbidden := append([]string{"-checks-", "-ev-", "-cr-", other, body, anomaly, after}, prompt...)
 			for _, f := range forbidden {
 				if strings.Contains(all, f) {
 					t.Errorf("a build or revise handoff carries %q", f)

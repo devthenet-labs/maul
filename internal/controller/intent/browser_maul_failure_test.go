@@ -66,7 +66,7 @@ func TestBrowserCheckErrorNeverFailsItsOutcome(t *testing.T) {
 				Status: v1alpha1.PreviewVerificationStatus{Replay: []v1alpha1.CheckRun{run},
 					Ledger: &v1alpha1.LedgerSummary{Count: 5}},
 			}
-			j := judgeRound(acc, pv, stored, tc.ev)
+			j := judgeChecksRound(acc, pv, stored, tc.ev)
 			d := j.decision
 			if got := d.PerOutcome[0]; got.Result != tc.result {
 				t.Fatalf("outcome = %+v, want %s", got, tc.result)
@@ -135,7 +135,7 @@ func TestBrowserCheckErrorBesideAPassingCheck(t *testing.T) {
 					{CheckDigest: passed.Digest, Token: "t2", Seq: 4, Result: v1alpha1.CheckRunPass},
 				}, Ledger: &v1alpha1.LedgerSummary{Count: 6}},
 			}
-			d := judgeRound(acc, pv, stored, &report.Evaluation{Verdicts: []report.OutcomeVerdict{tc.verdict}}).decision
+			d := judgeChecksRound(acc, pv, stored, &report.Evaluation{Verdicts: []report.OutcomeVerdict{tc.verdict}}).decision
 			if got := d.PerOutcome[0]; got.Result != tc.result || got.Reason != tc.reason {
 				t.Fatalf("outcome = %+v, want %s %s", got, tc.result, tc.reason)
 			}

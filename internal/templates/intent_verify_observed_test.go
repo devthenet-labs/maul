@@ -75,7 +75,7 @@ func TestVerifyObservedShowsTheCitedCalls(t *testing.T) {
 	for _, want := range []string{
 		"`winner-rises` (`change`): seen to hold by maul's evaluator; it cites calls 4 and 6.",
 		"`live-score` (`change`): seen not to hold by maul's evaluator; it cites call 9.",
-		"`loser-emailed` (`change`): unsure; the evaluator's verdict cites no call of its own in this round " +
+		"`loser-emailed` (`change`): unsure; the evaluator's verdict cites no call of its own in this evaluation " +
 			"that maul counts.",
 		"`leaderboard-loads` (`keep`): unsure; the evaluator could not tell.",
 		"`sounds-good` (`change`): unsure; only a human can close it.",
@@ -86,7 +86,7 @@ func TestVerifyObservedShowsTheCitedCalls(t *testing.T) {
 		"Its output was not kept by maul.",
 		"The evaluator's note on `winner-rises` (its words, not checked by maul): Two players I made",
 		"The evaluator's note on `loser-emailed` (its words, not checked by maul): I read it in the log.",
-		"maul counts a verdict only when it cites calls the evaluator made in this round through maul's tools; " +
+		"maul counts a verdict only when it cites calls the evaluator made in this evaluation through maul's tools; " +
 			"whether a cited call shows what the verdict says is for the reviewers to judge.",
 	} {
 		if !strings.Contains(got, want) {

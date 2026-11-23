@@ -13,7 +13,6 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/checks"
-	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -39,59 +38,6 @@ var claimVerbs = []toolwire.Verb{toolwire.VerbCheckRun, toolwire.VerbExec, toolw
 // v's heads, as the hand-off counts it (doubtedOutcomes).
 func doubted(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification, r v1alpha1.OutcomeResult) bool {
 	return r.Reason == acceptance.ReasonModelOnlyFail && effectiveResult(acc, v, r) == v1alpha1.OutcomeUnsure
-}
-
-// evaluatorClaim is the evaluator's claim on outcome id in pv's evaluate
-// run, with the calls it cites that pv's ledger holds; nil when the run's
-// report does not judge id to fail (a replay round has none).
-func (p *pass) evaluatorClaim(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	id string) *templates.VerifyEvaluatorClaim {
-	ev := evaluationClaims(p.evaluateRun(pv))
-	if ev == nil {
-		return nil
-	}
-	i := slices.IndexFunc(ev.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == id })
-	if i < 0 || ev.Verdicts[i].Verdict != report.VerdictFail {
-		return nil
-	}
-	v := ev.Verdicts[i]
-	c := &templates.VerifyEvaluatorClaim{Note: v.Note, Workspace: pv.Spec.IsAgents()}
-	entries := ledgerEntries(p.ledgerOf(ctx, pv))
-	// Where it saw the outcome fail first, then the rest of its evidence.
-	for _, seq := range slices.Concat(v.Contrary, v.Ledger) {
-		if len(c.Calls) == templates.VerifyClaimCallsMax {
-			break
-		}
-		if slices.ContainsFunc(c.Calls, func(x templates.VerifyCitedCall) bool { return x.Seq == int64(seq) }) {
-			continue
-		}
-		k := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Seq == int64(seq) })
-		if k < 0 {
-			continue
-		}
-		if call, ok := citedCall(pv, entries, entries[k]); ok {
-			c.Calls = append(c.Calls, call)
-		}
-	}
-	return c
-}
-
-// evaluatorUnsureNote is the evaluator's note on outcome id in pv's
-// evaluate run when it judged id unsure itself (gate 5 G5-B-BR-1: often a
-// question for a person, which the comments otherwise never showed); ""
-// for any other verdict, no note, or no evaluate run (a replay round).
-// Display only, as a claim is: it is read at render time from the report,
-// never written to status, and reaches no Decide input and no agent.
-func (p *pass) evaluatorUnsureNote(pv *v1alpha1.PreviewVerification, id string) string {
-	ev := evaluationClaims(p.evaluateRun(pv))
-	if ev == nil {
-		return ""
-	}
-	i := slices.IndexFunc(ev.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == id })
-	if i < 0 || ev.Verdicts[i].Verdict != report.VerdictUnsure {
-		return ""
-	}
-	return ev.Verdicts[i].Note
 }
 
 // citedCall is entry e of pv's ledger as a claim shows it; ok is false for
@@ -141,4 +87,108 @@ func citedCall(pv *v1alpha1.PreviewVerification, entries []toolwire.LedgerEntry,
 	}
 	call.Observed = observations(run)
 	return call, true
+}
+
+// roundCalls are a round's calls as maul shows them ("evaluator observed"):
+// what counts comes from pv's verified index in status (the judgement's
+// facts), what each call sent and what came back from pv's full ledger,
+// <pv>-ledger, read once a pass. A cited call is always shown by its seq,
+// verb and exit status; one whose ledger line is gone, is another call's
+// (its output digest is not the index's), or whose output was dropped to fit
+// is shown as an output maul did not keep: it still counts.
+type roundCalls struct {
+	index  []v1alpha1.LedgerIndexEntry
+	lines  map[int64]toolwire.LedgerEntry
+	agents bool
+}
+
+// roundCalls are pv's calls as maul shows them.
+func (p *pass) roundCalls(ctx context.Context, pv *v1alpha1.PreviewVerification) roundCalls {
+	rc := roundCalls{lines: map[int64]toolwire.LedgerEntry{}, agents: pv.Spec.IsAgents()}
+	if pv.Status.Ledger != nil {
+		rc.index = pv.Status.Ledger.Entries
+	}
+	for _, e := range ledgerEntries(p.ledgerOf(ctx, pv)) {
+		if _, dup := rc.lines[e.Seq]; !dup {
+			rc.lines[e.Seq] = e
+		}
+	}
+	return rc
+}
+
+// indexed is the index entry numbered seq, ok false for none.
+func (rc roundCalls) indexed(seq int32) (v1alpha1.LedgerIndexEntry, bool) {
+	if seq < 1 || int(seq) > len(rc.index) || rc.index[seq-1].Seq != seq {
+		return v1alpha1.LedgerIndexEntry{}, false
+	}
+	return rc.index[seq-1], true
+}
+
+// call is the call numbered seq, with what it sent and what came back.
+func (rc roundCalls) call(seq int32) templates.VerifyCitedCall {
+	c, e, ok := rc.sent(seq)
+	if !ok {
+		c.OutputNotKept = true
+		return c
+	}
+	sum := sha256.Sum256([]byte(e.Output))
+	if hex.EncodeToString(sum[:]) != e.OutputSHA256 {
+		c.OutputNotKept = true
+		return c
+	}
+	c.Output = e.Output
+	return c
+}
+
+// sent is the call numbered seq with what it sent alone, and its ledger
+// line; ok is false when the line is not the index's call.
+func (rc roundCalls) sent(seq int32) (templates.VerifyCitedCall, toolwire.LedgerEntry, bool) {
+	c := templates.VerifyCitedCall{Seq: int64(seq)}
+	ix, indexed := rc.indexed(seq)
+	if indexed {
+		c.Verb, c.Base, c.Exit = string(ix.Verb), ix.Side == v1alpha1.TreeBase, int(ix.Exit)
+	}
+	e, ok := rc.lines[int64(seq)]
+	if !indexed || !ok || e.OutputSHA256 != ix.ResultSHA256 || string(e.Verb) != c.Verb {
+		return c, toolwire.LedgerEntry{}, false
+	}
+	c.Input, c.Own = string(e.Args), ownCall(e, rc.agents)
+	return c, e, true
+}
+
+// sentBefore are the evaluator's own unrefused calls at the head before
+// seq, in seq order, each with what it sent alone: the path that led to the
+// first cited call. Its own reads (files, logs, events) are part of that
+// path; a call at an agents round's base is exploration of other code, and
+// never is.
+func (rc roundCalls) sentBefore(seq int32) []templates.VerifyCitedCall {
+	var out []templates.VerifyCitedCall
+	for _, ix := range rc.index {
+		if ix.Seq >= seq || ix.Kind != v1alpha1.LedgerKindAgent || ix.Refused || ix.Side == v1alpha1.TreeBase {
+			continue
+		}
+		if c, _, ok := rc.sent(ix.Seq); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// ownCall reports a call that ran a script or program the evaluator wrote,
+// which the comments label as its own (owner decision 1): a browser eval,
+// a Go program (run), and on a slot round any exec (the toolbox sandbox
+// runs only what the evaluator sends it). On an agents round an exec runs
+// maul's build of the commit, or anything else on the image, which is not
+// the evaluator's own program.
+func ownCall(e toolwire.LedgerEntry, agents bool) bool {
+	switch e.Verb {
+	case toolwire.VerbRun:
+		return true
+	case toolwire.VerbExec:
+		return !agents
+	case toolwire.VerbBrowser:
+		var req toolwire.BrowserRequest
+		return json.Unmarshal(e.Args, &req) == nil && req.Verb == "eval"
+	}
+	return false
 }

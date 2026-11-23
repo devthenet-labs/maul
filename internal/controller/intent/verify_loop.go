@@ -592,9 +592,6 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 	if kind == verifyRetry {
 		round, attempt = v.Round, v.Attempt+1
 	}
-	// An automatic round at the heads of a round on record is a follow-up
-	// of it: a dispute's, or an escalation (recordRound).
-	followUp, prevRound := kind == verifyAutomatic && v.Ref != nil && v.HeadSetDigest == hs.digest, v.Round
 	if round > v1alpha1.MaxIntentRound || attempt > v1alpha1.MaxVerificationAttempts {
 		return p.update(ctx, func(cur *v1alpha1.Intent) error {
 			nv := cur.Status.Verification
@@ -643,12 +640,8 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 		nv.State, nv.Cause = state, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref, nv.RetryOwed = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}, false
-		recordRound(nv, pv.Spec.Rung, followUp, prevRound, hs.digest)
-		if e := nv.Escalation; kind == verifyRequest && e != nil && e.Round == prevRound {
-			// An approver's request spends the round's recheck: the round
-			// is theirs, not maul's own.
-			e.Recheck = false
-		}
+		// The retired cost ladder's records (status.verification.rung,
+		// modelRound, escalation) are never written: every round is full.
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if kind != verifyRetry {

@@ -37,7 +37,7 @@ func TestCitedCallShowsTheFormTheRelayRan(t *testing.T) {
 		{"exact relay", checks.Digest(proposed), true},
 		{"pre-change relay", checks.Digest(plain), false},
 	} {
-		e := checkRunEntry(4, tc.digest, "name-ui", 1, "dry run")
+		e := checkRunEntry(4, tc.digest, "name-ui", "dry run")
 		e.Kind, e.CheckRun.Mode = toolwire.KindAgent, toolwire.ModeDryRun
 		e.Args = json.RawMessage(`{"check":` + spec + `}`)
 		call, ok := citedCall(&v1alpha1.PreviewVerification{}, []toolwire.LedgerEntry{e}, e)

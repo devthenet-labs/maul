@@ -135,7 +135,7 @@ func TestAgentsJudgementTable(t *testing.T) {
 			pv := agentsPV(check.Digest, tt.base)
 			pv.Spec.Checks = []v1alpha1.SavedCheck{check}
 			pv.Status.Environment = tt.env
-			j := judgeRound(acc, pv, nil, pass)
+			j := judgeChecksRound(acc, pv, nil, pass)
 			got := j.decision.PerOutcome[0]
 			if got.Result != tt.result || got.Reason != tt.reason {
 				t.Fatalf("got %+v, want %s (%s)", got, tt.result, tt.reason)
@@ -143,7 +143,7 @@ func TestAgentsJudgementTable(t *testing.T) {
 			if j.decision.Fix != nil || j.decision.Suspected != nil {
 				t.Errorf("a fix from an agents pass: %+v", j.decision)
 			}
-			results := outcomeResults(acc, "", j)
+			results := checksOutcomeResults(acc, "", j)
 			if r := results[0]; string(r.Result) != string(tt.result) || r.Reason != tt.reason ||
 				(tt.result == acceptance.ResultPassed && r.Line == "") {
 				t.Errorf("recorded %+v", r)
@@ -167,7 +167,7 @@ func TestAgentsReasonsRendered(t *testing.T) {
 		{ID: oVersion, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonNotAsserted},
 		{ID: oHealthy, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonBuildFailed},
 		{ID: oManual, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonManual}}}
-	e.setStatus(name, func(in *v1alpha1.Intent) { applyJudgement(in, roundJudgement{decision: d}, time.Now()) })
+	e.setStatus(name, func(in *v1alpha1.Intent) { applyChecksJudgement(in, checksJudgement{decision: d}, time.Now()) })
 	p := e.prVerifyPass(name)
 	v := p.in.Status.Verification
 	section := p.verifySection(context.Background(), nil)

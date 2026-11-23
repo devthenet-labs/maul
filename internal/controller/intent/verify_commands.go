@@ -207,6 +207,11 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 			n.Outcome = templates.VerifyUsage
 			return n, nil
 		}
+		// explore is retired with the cost ladder: every round is a model
+		// round, so /maul verify explore is a plain /maul verify, recorded
+		// and answered as one (status.verification.requested.explore is
+		// never set).
+		args.Explore = false
 		if args.Stop {
 			return p.stopAutoFix(ctx, c, n)
 		}
@@ -301,8 +306,8 @@ func (p *pass) previewHeld() (v1alpha1.HandoffMode, bool) {
 // --reset also bumps the reset generation, which the Preview copies, unless
 // the last reset was under verifyResetInterval before it; fix also re-arms
 // automatic fixes from the current round (a human round after it, or a
-// human push, halts them again); explore makes the round full, never a
-// replay (rungFor). Once the approved plan revision has used the Project's
+// human push, halts them again); explore is a plain request (retired with
+// the cost ladder). Once the approved plan revision has used the Project's
 // maxVerifications nothing is recorded and the reply says so. One made while
 // verification is off is answered before this (applyVerifyCommand).
 func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args command.VerifyArgs,

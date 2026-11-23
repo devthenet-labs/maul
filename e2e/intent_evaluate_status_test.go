@@ -110,9 +110,10 @@ type evidenceEntry struct {
 }
 
 // check holds the view login was served to its tier: the current round,
-// released ready, both outcomes passed with maul's check line, both
-// checks, the anomaly, every ledger entry indexed; the evaluator's verdicts
-// and the ledger's outputs only with outputs (tier 2).
+// released ready, both outcomes passed, no saved check (the evaluator
+// observes and cites: the status page's cited-call view is W6's), the
+// anomaly, every ledger entry indexed; the evaluator's verdicts and the
+// ledger's outputs only with outputs (tier 2).
 func (ev evidenceView) check(t *testing.T, login, tier string, outputs bool, anomaly string) {
 	t.Helper()
 	if ev.Tier != tier || !ev.Current || ev.Handoff == nil || !ev.Handoff.Released ||
@@ -120,12 +121,12 @@ func (ev evidenceView) check(t *testing.T, login, tier string, outputs bool, ano
 		t.Errorf("%s: tier %q current %v handoff %+v; want %s, the current round, released ready",
 			login, ev.Tier, ev.Current, ev.Handoff, tier)
 	}
-	if len(ev.Outcomes) != 2 || len(ev.Checks) != 2 {
-		t.Errorf("%s: outcomes %+v checks %+v, want both of each", login, ev.Outcomes, ev.Checks)
+	if len(ev.Outcomes) != 2 || len(ev.Checks) != 0 {
+		t.Errorf("%s: outcomes %+v checks %+v, want both outcomes and no check", login, ev.Outcomes, ev.Checks)
 	}
 	for _, o := range ev.Outcomes {
-		if o.Result != "passed" || !strings.Contains(o.Line, "GET /version") {
-			t.Errorf("%s: outcome %+v, want passed with maul's check line", login, o)
+		if o.Result != "passed" {
+			t.Errorf("%s: outcome %+v, want passed", login, o)
 		}
 		if (o.Verdict != "") != outputs {
 			t.Errorf("%s: outcome %s shows the evaluator's verdict %q at tier %s", login, o.ID, o.Verdict, tier)

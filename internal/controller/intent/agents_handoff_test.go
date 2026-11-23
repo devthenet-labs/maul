@@ -5,6 +5,9 @@ package intent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -16,13 +19,8 @@ import (
 	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
-
-// agentsVersionRun is a cli run check of outcomesPlan's version outcome: a
-// program that runs the built binary and asserts on what it prints.
-const agentsVersionRun = `{"id":"version-shown.run","outcome":"version-shown","form":"run","run":{"language":"go",
- "files":[{"path":"main.go","content":"package main\n// runs {{bin}} on {{tree}}; {{marker}}\nfunc main() {}\n"}],
- "args":["{{run}}"],"expect":{"exit":0,"stdoutContains":"ok"}}}`
 
 // toolsKey is the agents tool pod's key in these tests.
 var toolsKey = strings.Repeat("ab", 32)
@@ -132,28 +130,6 @@ func TestSlotEvaluateHandoffHasNoKey(t *testing.T) {
 	}
 }
 
-// agentsConfirm plays the agents host collecting pv: confirmed checks each
-// confirmed at head by run (green unless red), and at base by baseRun (nil
-// for none), the base unbuildable or not.
-func (e *env) agentsConfirm(pvName string, unbuildable bool, head func(c v1alpha1.SavedCheck) v1alpha1.CheckRun,
-	base func(c v1alpha1.SavedCheck) *v1alpha1.CheckRun, confirmed ...v1alpha1.SavedCheck) {
-	e.t.Helper()
-	e.playTools(pvName, v1alpha1.VerificationObserved, toolPodIP, true)
-	pv := e.pvNamed(pvName)
-	pv.Status.Confirmed = confirmed
-	pv.Status.Confirmations = nil
-	pv.Status.Base = &v1alpha1.BaseStatus{Required: true, Unbuildable: unbuildable}
-	for _, c := range confirmed {
-		pv.Status.Confirmations = append(pv.Status.Confirmations, head(c))
-		if b := base(c); b != nil {
-			pv.Status.Base.Runs = append(pv.Status.Base.Runs, *b)
-		}
-	}
-	if err := e.c.Update(context.Background(), pv); err != nil {
-		e.t.Fatal(err)
-	}
-}
-
 // agentsEvaluated drives an agents intent's first round to its evaluator's
 // completion.
 func (e *env) agentsEvaluated(name string) v1alpha1.PreviewVerification {
@@ -166,114 +142,6 @@ func (e *env) agentsEvaluated(name string) v1alpha1.PreviewVerification {
 	e.runRuns()
 	e.runRuns()
 	return pv
-}
-
-// greenAtHead is a check's clean head confirmation.
-func greenAtHead(c v1alpha1.SavedCheck) v1alpha1.CheckRun {
-	return v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunPass, Token: "cf-tok", Seq: 10,
-		DryRunSeq: 1}
-}
-
-// TestAgentsCheckReviewHandoff (S2-20, from S2-16): an agents round's new
-// run check is validated for its workspace (a slot's rules would refuse
-// it), reviewed with the workspace and each side's run (the head's pass,
-// the base's fail by its assertion), and stored once proven.
-func TestAgentsCheckReviewHandoff(t *testing.T) {
-	e, name := newAgentsEnv(t, repoImage)
-	check := savedCheck(t, agentsVersionRun)
-	r := &fakeReviewer{}
-	e.reviewChecksWith(r)
-	pv := e.agentsEvaluated(name)
-	e.agentsConfirm(pv.Name, false, greenAtHead, func(c v1alpha1.SavedCheck) *v1alpha1.CheckRun {
-		return &v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunFail, Token: "b-tok", Seq: 11,
-			AssertionStep: 1, AssertionID: "marker version", Tree: v1alpha1.TreeBase}
-	}, check)
-	e.settleReviews(name)
-	if len(r.handoffs) != 1 {
-		t.Fatalf("check reviews = %d, want one", len(r.handoffs))
-	}
-	h := r.handoffs[0]
-	if w := h.Workspace; w == nil || w.Surface != "cli" || w.Binary != "/work/bin/app" || w.BaseUnbuildable ||
-		len(h.Components) != 0 {
-		t.Fatalf("review workspace = %+v, components %+v", h.Workspace, h.Components)
-	}
-	it := h.Reviews[0]
-	if it.Head == nil || it.Head.Result != "pass" || it.Head.Assertion != "" || it.Base == nil ||
-		it.Base.Result != "fail" || it.Base.Assertion != "marker version" {
-		t.Fatalf("review runs = head %+v, base %+v", it.Head, it.Base)
-	}
-	if _, stored := e.checkStore(name); len(stored) != 1 || stored[0].Digest != check.Digest {
-		t.Fatalf("store = %+v, want the proven run check", stored)
-	}
-}
-
-// TestAgentsCheckReviewBaseCause (S2-20b): the reviewer is told why a
-// base run errored when maul recorded a cause for it.
-func TestAgentsCheckReviewBaseCause(t *testing.T) {
-	e, name := newAgentsEnv(t, repoImage)
-	check := savedCheck(t, agentsVersionRun)
-	r := &fakeReviewer{}
-	e.reviewChecksWith(r)
-	pv := e.agentsEvaluated(name)
-	e.agentsConfirm(pv.Name, false, greenAtHead, func(c v1alpha1.SavedCheck) *v1alpha1.CheckRun {
-		return &v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunError, Token: "b-tok", Seq: 11,
-			Tree: v1alpha1.TreeBase, Cause: v1alpha1.CheckRunCauseCompile}
-	}, check)
-	e.settleReviews(name)
-	if len(r.handoffs) != 1 {
-		t.Fatalf("check reviews = %d, want one", len(r.handoffs))
-	}
-	if b := r.handoffs[0].Reviews[0].Base; b == nil || b.Result != "error" || b.Cause != "compile" {
-		t.Fatalf("base run = %+v, want an error with cause compile", b)
-	}
-}
-
-// TestAgentsCheckReviewUnbuildableBase: with a base that did not build the
-// reviewer is told so, and no base run is handed over.
-func TestAgentsCheckReviewUnbuildableBase(t *testing.T) {
-	e, name := newAgentsEnv(t, repoImage)
-	check := savedCheck(t, agentsVersionRun)
-	r := &fakeReviewer{}
-	e.reviewChecksWith(r)
-	pv := e.agentsEvaluated(name)
-	e.agentsConfirm(pv.Name, true, greenAtHead, func(v1alpha1.SavedCheck) *v1alpha1.CheckRun { return nil }, check)
-	e.settleReviews(name)
-	if len(r.handoffs) != 1 || r.handoffs[0].Workspace == nil || !r.handoffs[0].Workspace.BaseUnbuildable ||
-		r.handoffs[0].Reviews[0].Base != nil {
-		t.Fatalf("review handoffs = %+v", r.handoffs)
-	}
-}
-
-// TestAgentsRedReviewNeedsItsAssertion: a check confirmed red is handed
-// to the reviewer only with the assertion its runs failed; one confirmed
-// red with none is never sent (a bare exit code never counts, SPEC-S2).
-func TestAgentsRedReviewNeedsItsAssertion(t *testing.T) {
-	for _, assertion := range []string{"marker version", ""} {
-		t.Run("assertion "+assertion, func(t *testing.T) {
-			e, name := newAgentsEnv(t, repoImage)
-			check := savedCheck(t, agentsVersionRun)
-			check.Expect, check.FailedStep, check.FailedAssertion = v1alpha1.CheckExpectFail, 1, assertion
-			r := &fakeReviewer{}
-			e.reviewChecksWith(r)
-			pv := e.agentsEvaluated(name)
-			red := func(c v1alpha1.SavedCheck) v1alpha1.CheckRun {
-				return v1alpha1.CheckRun{CheckDigest: c.Digest, Result: v1alpha1.CheckRunFail, Token: "cf-tok", Seq: 10,
-					DryRunSeq: 1, Expect: v1alpha1.CheckExpectFail, AssertionStep: 1, AssertionID: assertion}
-			}
-			e.agentsConfirm(pv.Name, false, red, func(v1alpha1.SavedCheck) *v1alpha1.CheckRun { return nil }, check)
-			e.settleReviews(name)
-			sent := len(r.handoffs) == 1 && len(r.handoffs[0].Reviews) == 1
-			if sent != (assertion != "") {
-				t.Fatalf("assertion %q: review handoffs %+v", assertion, r.handoffs)
-			}
-			if sent {
-				it := r.handoffs[0].Reviews[0]
-				if it.FailedAssertion != assertion || it.Head == nil || it.Head.Assertion != assertion {
-					t.Errorf("red review = %+v head %+v", it, it.Head)
-				}
-			}
-		})
-	}
 }
 
 // settleTools plays the agents host settling pv with phase and reason.
@@ -349,35 +217,34 @@ func TestAgentsUnconfirmedReasonsAreRecorded(t *testing.T) {
 }
 
 // TestAgentsBuildHandoffNeverReferencesTheToolPod extends
-// TestBuildHandoffNeverReferencesEvaluator to an agents round (S2-20): a
-// reproduced failure of a run check starts a verify-fix round, and neither
-// its revise handoff nor any build's names the tool pod (its -tools Job
-// or Secret), carries its key, or shows a base run.
+// TestBuildHandoffCarriesOnlyCitedEvidence to an agents round (S2-20): a
+// head run the evaluator's fail cites starts a verify-fix round, and
+// neither its revise handoff nor any build's names the tool pod (its -tools
+// Job or Secret), carries its key, or shows a call at the base: the base is
+// exploration only, and never part of the path a fixer is shown.
 func TestAgentsBuildHandoffNeverReferencesTheToolPod(t *testing.T) {
 	e, name := newAgentsEnv(t, repoImage)
 	e.evaluateReporting(failingReport)
-	check := savedCheck(t, agentsVersionRun)
-	e.storeChecks(name, check)
 	pv := e.agentsEvaluated(name)
-	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: check.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
-		Seq: 2, AssertionStep: 1, AssertionID: "marker version"})
-	cur := e.pvNamed(pv.Name)
-	cur.Status.Base = &v1alpha1.BaseStatus{Required: true, Runs: []v1alpha1.CheckRun{{CheckDigest: check.Digest,
-		Result: v1alpha1.CheckRunFail, Token: "base-sentinel-tok", Seq: 4, AssertionStep: 1,
-		AssertionID: "marker base-sentinel", Tree: v1alpha1.TreeBase}}}
-	if err := e.c.Update(context.Background(), cur); err != nil {
-		t.Fatal(err)
+	program := func(seq int64, side toolwire.Side, output string) toolwire.LedgerEntry {
+		args, _ := json.Marshal(toolwire.RunRequest{Side: side, Language: "go",
+			Files: []toolwire.File{{Name: "main.go", Content: []byte("package main")}},
+			Args:  []string{string(side) + "-sentinel"}})
+		sum := sha256.Sum256([]byte(output))
+		return toolwire.LedgerEntry{Seq: seq, Kind: toolwire.KindAgent, Verb: toolwire.VerbRun, Side: side,
+			Args: args, Exit: 1, Output: output, OutputSHA256: hex.EncodeToString(sum[:])}
 	}
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
+	e.ledgerOfEntries(pv.Name, program(1, toolwire.SideBase, "base-sentinel output"),
+		program(2, "", "version: dev"), program(3, "", "healthy"))
 	e.settleReviews(name)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
-		t.Fatalf("verification = %s %+v, want Failing on the run check's assertion", v.State, v.Outcomes)
+		t.Fatalf("verification = %s %+v, want Failing on the cited head run", v.State, v.Outcomes)
 	}
 	all := e.fixInput(name)
-	// The reproduction is in the workspace's words and shows the run
-	// check's steps (S2-20b).
-	for _, want := range []string{"against maul's builds of these commits", "against the pull request's build",
-		"Steps to reproduce (a Go program",
-		"Write the file `main.go`", "Expected: exit status `0`"} {
+	// The reproduction is in the workspace's words and shows the cited run.
+	for _, want := range []string{"against maul's builds of these commits", "Call 2, a Go program run",
+		"version: dev"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("the reproduction lacks %q:\n%s", want, all)
 		}
@@ -395,7 +262,7 @@ func TestAgentsBuildHandoffNeverReferencesTheToolPod(t *testing.T) {
 		}
 	}
 	for _, f := range []string{jobs.ToolsSecretSuffix + "\"", agentshost.JobName(&pv) + jobs.ToolsSecretSuffix,
-		toolsKey, "base-sentinel", "base-sentinel-tok", check.Digest} {
+		toolsKey, "base-sentinel"} {
 		if strings.Contains(all, f) {
 			t.Errorf("a build or revise handoff carries %q", f)
 		}

@@ -241,7 +241,7 @@ func checkJudgeRoute(t *testing.T, tc judgeRoute, check v1alpha1.SavedCheck) {
 	p := e.prVerifyPass(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		routeRecords(in, tc, e.clock.Now())
-		applyJudgement(in, j, time.Now())
+		applyChecksJudgement(in, j, time.Now())
 		p.releaseIfDue(in)
 	})
 	v := e.verification(name)
@@ -259,7 +259,7 @@ func checkJudgeRoute(t *testing.T, tc judgeRoute, check v1alpha1.SavedCheck) {
 }
 
 // routeJudgement is the judgement tc's decision makes.
-func routeJudgement(tc judgeRoute, check v1alpha1.SavedCheck) roundJudgement {
+func routeJudgement(tc judgeRoute, check v1alpha1.SavedCheck) checksJudgement {
 	d := acceptance.Decision{PerOutcome: []acceptance.OutcomeResult{tc.version, tc.healthy,
 		judged(oManual, acceptance.ResultUnsure, acceptance.ReasonManual, "")}, Env: httpstep.EnvOK}
 	if tc.env != "" {
@@ -272,7 +272,7 @@ func routeJudgement(tc judgeRoute, check v1alpha1.SavedCheck) roundJudgement {
 	if tc.replay {
 		d.ReplayRound, d.Retire = true, []string{check.Digest}
 	}
-	j := roundJudgement{decision: d, checks: []v1alpha1.SavedCheck{check}}
+	j := checksJudgement{decision: d, checks: []v1alpha1.SavedCheck{check}}
 	if tc.anomaly {
 		j.anomalies = []v1alpha1.AnomalyRecord{{Summary: "a console error on /", Ledger: []int32{4}}}
 	}
@@ -432,19 +432,18 @@ func (e *env) replayed(pvName string, runs ...v1alpha1.CheckRun) {
 	}
 }
 
-// TestEvaluationConfirmsAndHandsOver: a full round whose stored checks
-// replay clean, reviewed proves, with the evaluator's cited passes, and
-// the manual outcome accepted by an approver, is judged ready: Passed, every
-// outcome resting on its check with maul's line, the link released ready in
-// the judgement's own write, and the status comment shows it labelled.
+// TestEvaluationConfirmsAndHandsOver: a round whose evaluator sees every
+// outcome hold, each verdict citing a call of its own maul counts, with the
+// manual outcome accepted by an approver, is judged ready: Passed, every
+// outcome seen to hold with the call it cites recorded, the link released
+// ready in the judgement's own write, and the status comment shows it
+// labelled.
 func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
-	if len(pv.Spec.Checks) != 2 || pv.Spec.Rung != v1alpha1.RungFull {
-		t.Fatalf("verification checks = %+v, want the stored two on a full round", pv.Spec.Checks)
+	if len(pv.Spec.Checks) != 0 || pv.Spec.ChecksDigest != "" || pv.Spec.Rung != v1alpha1.RungFull {
+		t.Fatalf("verification checks = %+v, rung %s; want none, full", pv.Spec.Checks, pv.Spec.Rung)
 	}
 	if body := e.statusBody(); strings.Contains(body, previewHostOf(name)) {
 		t.Errorf("the link is shown while held:\n%s", body)
@@ -458,8 +457,7 @@ func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 	e.review(name, 1)
 	e.runRuns()
 	e.runRuns()
-	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: version.Digest, Result: v1alpha1.CheckRunPass, Token: "t1",
-		Seq: 1}, v1alpha1.CheckRun{CheckDigest: health.Digest, Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 2})
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
 	e.settleReviews(name)
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationPassed || v.Passed != 2 {
@@ -468,9 +466,9 @@ func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 	if v.Handoff == nil || !v.Handoff.Released || v.Handoff.Reason != v1alpha1.HandoffReasonReady {
 		t.Errorf("hand-off = %+v, want released ready with the judgement", v.Handoff)
 	}
-	for _, r := range v.Outcomes[:2] {
-		if r.Basis == "" || r.Line == "" {
-			t.Errorf("outcome %+v rests on no check", r)
+	for i, r := range v.Outcomes[:2] {
+		if r.Reason != acceptance.ReasonSeenToHold || !slices.Equal(r.Cites, []int32{int32(i + 3)}) {
+			t.Errorf("outcome %+v, want seen to hold on the call it cites", r)
 		}
 	}
 	e.reviewUntil(name, func() bool { return strings.Contains(e.statusBody(), "**Preview:** Ready") })
@@ -497,9 +495,9 @@ func (e *env) reviewUntil(name string, done func() bool) {
 // TestEvaluationEnvFailedWithoutLedgerDetail: preview-controller drops an
 // EnvFailed round's ledger, replays and confirmations when its status is
 // over the size cap, keeping the phase and the facts. Judged so, with the
-// evaluator reporting every outcome holds, no outcome passes (no check
-// maul re-ran shows it, and the preview failed) and none fails (no check
-// failed): unconfirmed, never a pass or a defect.
+// evaluator reporting every outcome holds, no outcome passes or fails: each
+// is unsure on the application's failure (env-failed, never maul's infra,
+// though no index verified), and the hand-off says the environment failed.
 func TestEvaluationEnvFailedWithoutLedgerDetail(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
@@ -527,6 +525,12 @@ func TestEvaluationEnvFailedWithoutLedgerDetail(t *testing.T) {
 		if r.Result == v1alpha1.OutcomePassed || r.Result == v1alpha1.OutcomeFailed {
 			t.Errorf("outcome %s is %s with no ledger detail in a failing environment", r.ID, r.Result)
 		}
+		if r.ID != oManual && r.Reason != acceptance.ReasonEnvFailed {
+			t.Errorf("outcome %+v, want env-failed", r)
+		}
+	}
+	if got := environmentWhy(v); got != templates.HandoffWhyEnvironment {
+		t.Errorf("hand-off why = %q, want the environment's", got)
 	}
 }
 
@@ -753,7 +757,7 @@ func TestJudgeRoundNeedsEveryReplay(t *testing.T) {
 					Checks: []v1alpha1.SavedCheck{version, regression}},
 				Status: v1alpha1.PreviewVerificationStatus{Replay: tc.replay},
 			}
-			j := judgeRound(acc, pv, []v1alpha1.SavedCheck{version, regression}, nil)
+			j := judgeChecksRound(acc, pv, []v1alpha1.SavedCheck{version, regression}, nil)
 			got := j.decision.PerOutcome[0]
 			if got.Result != tc.result || got.Reason != tc.reason {
 				t.Fatalf("outcome = %+v, want %s %s", got, tc.result, tc.reason)

@@ -141,7 +141,7 @@ func anyEvaluation(r *rand.Rand, acc *v1alpha1.IntentAcceptance, stored []v1alph
 }
 
 // TestReplayRoundJudgedAsAFullRoundWithTheSameEvidence is the replay
-// rung's safety, through the controller's own judgement (judgeRound,
+// rung's safety, through the controller's own judgement (judgeChecksRound,
 // decideInput) on generated rounds that StartRung would replay (a clear
 // model round at the same heads and outcomes, every outcome covered):
 //
@@ -184,9 +184,9 @@ func checkLadderRound(r *rand.Rand, acc *v1alpha1.IntentAcceptance, stored []v1a
 	pv v1alpha1.PreviewVerification, tally *ladderTally) error {
 	replayPV, fullPV := pv, pv
 	replayPV.Spec.Rung, fullPV.Spec.Rung = v1alpha1.RungReplay, v1alpha1.RungFull
-	replay := judgeRound(acc, &replayPV, stored, nil)
-	quiet := judgeRound(acc, &fullPV, stored, quietEvaluation(r, acc))
-	anyClaims := judgeRound(acc, &fullPV, stored, anyEvaluation(r, acc, stored))
+	replay := judgeChecksRound(acc, &replayPV, stored, nil)
+	quiet := judgeChecksRound(acc, &fullPV, stored, quietEvaluation(r, acc))
+	anyClaims := judgeChecksRound(acc, &fullPV, stored, anyEvaluation(r, acc, stored))
 	d := replay.decision
 	if d.Fix != nil || d.Suspected != nil || d.ReplayRound || len(d.Retire) > 0 || len(d.Narrowed) > 0 {
 		return fmt.Errorf("a replay round decided %+v", d)
@@ -211,7 +211,7 @@ func checkLadderRound(r *rand.Rand, acc *v1alpha1.IntentAcceptance, stored []v1a
 	in.Status.Acceptance = acc.DeepCopy()
 	in.Status.Verification = &v1alpha1.IntentVerification{Round: 2,
 		HeadSetDigest: "sha256:" + fmt.Sprintf("%064x", 7), Rung: v1alpha1.RungReplay}
-	applyJudgement(in, replay, pv.CreationTimestamp.Time)
+	applyChecksJudgement(in, replay, pv.CreationTimestamp.Time)
 	if s := in.Status.Verification.State; s != v1alpha1.VerificationPassed && s != v1alpha1.VerificationUnconfirmed {
 		return fmt.Errorf("a replay round routed to %s", s)
 	}

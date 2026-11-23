@@ -4,7 +4,6 @@
 package intent
 
 import (
-	"context"
 	"slices"
 	"testing"
 
@@ -107,85 +106,6 @@ func TestEvaluateHandoffNamesRedChecksNotYetProof(t *testing.T) {
 			}
 			if !slices.Equal(h.NotYetProof, want) {
 				t.Errorf("not yet proof = %+v, want %+v", h.NotYetProof, want)
-			}
-		})
-	}
-}
-
-// versionStrongCheck is a stronger check of version-shown than versionCheck:
-// the one a later round proposes once the check saved red is refused as
-// proof of the pass.
-const versionStrongCheck = `{"id":"version-shown-strong","outcome":"version-shown","form":"http","http":{
- "target":"app","steps":[
- {"request":{"method":"POST","path":"/notes","json":{"name":"{{run}}-s"}},"expect":{"status":201}},
- {"request":{"path":"/version?q={{run}}"},"expect":{"json":{"/note":"{{run}}-s","/commit":{"$present":true}}}}]}}`
-
-// TestRedCheckWeakAsGreenRePassesOnANewCheck (gate D-B9): a check saved red
-// that replays green after the fix, and is refused as proof of the pass
-// (the green question answered does_not_prove), leaves its outcome to a new
-// check proposed the same round. That outcome passes only on the new check,
-// confirmed clean and reviewed proves; refused or absent, it stays unsure.
-func TestRedCheckWeakAsGreenRePassesOnANewCheck(t *testing.T) {
-	cases := []struct {
-		name    string
-		propose bool
-		strong  v1alpha1.ReviewAnswer
-		passed  bool
-	}{
-		{name: "a new check reviewed proves passes it", propose: true, strong: v1alpha1.ReviewProves, passed: true},
-		{name: "a new check refused leaves it unsure", propose: true, strong: v1alpha1.ReviewDoesNotProve},
-		{name: "no new check leaves it unsure"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			e, name := newEvaluatorEnv(t, 0.4)
-			red, strong := redCheck(t), savedCheck(t, versionStrongCheck)
-			e.storeChecks(name, red)
-			e.setStatus(name, func(in *v1alpha1.Intent) {
-				rv := in.Status.Acceptance.Reviews
-				for i := range rv {
-					rv[i].Expect, rv[i].FailedStep, rv[i].FailedAssertion = v1alpha1.CheckExpectFail,
-						red.FailedStep, red.FailedAssertion
-				}
-			})
-			e.reviewChecksWith(&fakeReviewer{answers: map[string]v1alpha1.ReviewAnswer{
-				red.Digest: v1alpha1.ReviewDoesNotProve, strong.Digest: tc.strong}})
-			e.evaluateReporting(`---
-verdicts:
-  - outcome: version-shown
-    verdict: pass
-    ledger: [1, 10]
-  - outcome: still-healthy
-    verdict: unsure
-    ledger: []
----
-Fixed.
-`)
-			e.review(name, 3)
-			pv := e.onlyVerification(name)
-			e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
-			e.review(name, 1)
-			e.runRuns()
-			e.runRuns()
-			e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: red.Digest, Result: v1alpha1.CheckRunPass,
-				Token: "t1", Seq: 1})
-			if tc.propose {
-				cur := e.pvNamed(pv.Name)
-				cur.Status.Confirmed = []v1alpha1.SavedCheck{strong}
-				cur.Status.Confirmations = []v1alpha1.CheckRun{{CheckDigest: strong.Digest,
-					Result: v1alpha1.CheckRunPass, Token: "cf-tok", Seq: 10, DryRunSeq: 4}}
-				if err := e.c.Update(context.Background(), cur); err != nil {
-					t.Fatal(err)
-				}
-			}
-			e.settleReviews(name)
-			v := e.verification(name)
-			got := v.Outcomes[0]
-			switch {
-			case tc.passed && (got.Result != v1alpha1.OutcomePassed || got.Basis != strong.Digest):
-				t.Errorf("verification %s %+v, want version-shown passed on the new check", v.State, v.Outcomes)
-			case !tc.passed && got.Result == v1alpha1.OutcomePassed:
-				t.Errorf("verification %s %+v, want version-shown not passed", v.State, v.Outcomes)
 			}
 		})
 	}

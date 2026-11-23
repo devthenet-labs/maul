@@ -112,12 +112,25 @@ func (e *env) playTools(name string, phase v1alpha1.PreviewVerificationPhase, ip
 		pv.Status.Tools = &v1alpha1.ToolsStatus{PodIP: ip, Port: jobs.ToolsPort, Ready: ready}
 	}
 	if phase == v1alpha1.VerificationObserved {
-		pv.Status.Ledger = &v1alpha1.LedgerSummary{Count: 5, SHA256: strings.Repeat("a", 64)}
+		pv.Status.Ledger = observedLedger(5)
 	}
 	// PreviewVerification carries no status subresource in the fake client.
 	if err := e.c.Update(context.Background(), pv); err != nil {
 		e.t.Fatal(err)
 	}
+}
+
+// observedLedger is a verified ledger's summary in status as a tool host
+// writes it: n entries, each the evaluator's own unrefused http call at the
+// head (acceptance.ValidCite admits every one), so a verdict citing any of
+// 1..n counts.
+func observedLedger(n int32) *v1alpha1.LedgerSummary {
+	l := &v1alpha1.LedgerSummary{Count: n, SHA256: strings.Repeat("a", 64)}
+	for seq := int32(1); seq <= n; seq++ {
+		l.Entries = append(l.Entries, v1alpha1.LedgerIndexEntry{Seq: seq, Kind: v1alpha1.LedgerKindAgent,
+			Verb: v1alpha1.LedgerVerbHTTP, ResultSHA256: strings.Repeat("b", 64)})
+	}
+	return l
 }
 
 // TestEvaluatorCreatedAfterToolsStatus: the evaluation round creates its
@@ -240,10 +253,10 @@ func checkEvaluateHandoff(t *testing.T, raw string, pv *v1alpha1.PreviewVerifica
 
 // TestEvaluationRoundCollects: the evaluator's report is kept on its run,
 // and once preview-controller settles the verification the round is judged,
-// both in hand: until maul judges the facts every outcome is unsure and the
-// verification Unconfirmed. With no check proven for the outcomes its
-// evaluator passed, the round asks for its heads' one recheck (recheckable),
-// a full round started by itself, and nothing more.
+// both in hand: until then the verification stays Evaluating. Judged, the
+// outcomes the evaluator saw hold, citing its own calls, pass, the manual
+// one waits for a person (Unconfirmed), and nothing more runs by itself:
+// no saved check, no follow-up round.
 func TestEvaluationRoundCollects(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
@@ -267,35 +280,34 @@ func TestEvaluationRoundCollects(t *testing.T) {
 	if v.State != v1alpha1.VerificationUnconfirmed || len(v.Outcomes) != 3 {
 		t.Fatalf("verification = %+v, want Unconfirmed with every outcome", v)
 	}
+	want := map[string]v1alpha1.OutcomeResultValue{oVersion: v1alpha1.OutcomePassed,
+		oHealthy: v1alpha1.OutcomePassed, oManual: v1alpha1.OutcomeUnsure}
 	for _, o := range v.Outcomes {
-		if o.Result != v1alpha1.OutcomeUnsure {
-			t.Errorf("outcome %s = %s, never passed before maul judges it", o.ID, o.Result)
+		if o.Result != want[o.ID] {
+			t.Errorf("outcome %s = %s, want %s", o.ID, o.Result, want[o.ID])
 		}
 	}
 	if v.EvaluationCostMicroUSD != 400000 {
 		t.Errorf("evaluation cost = %d, want the evaluate run's 400000", v.EvaluationCostMicroUSD)
 	}
-	if esc := v.Escalation; esc == nil || esc.Round != 1 || esc.HeadSetDigest != v.HeadSetDigest {
-		t.Errorf("escalation %+v, want round 1's recheck at its heads", esc)
+	if v.Escalation != nil || v.ModelRound != nil || v.Rung != "" {
+		t.Errorf("escalation %+v, model round %+v, rung %q: the retired ladder written", v.Escalation,
+			v.ModelRound, v.Rung)
 	}
-	recheck := e.roundOf(name, 2)
-	if recheck.Spec.Rung != v1alpha1.RungFull || recheck.Spec.HeadSetDigest != pv.Spec.HeadSetDigest ||
-		recheck.Annotations[annotationVerificationTrigger] != verificationByAutomatic {
-		t.Errorf("round 2 = %s at %s by %q, want the full recheck at round 1's heads, automatic",
-			recheck.Spec.Rung, recheck.Spec.HeadSetDigest, recheck.Annotations[annotationVerificationTrigger])
+	if n := len(e.runsOf(name, v1alpha1.IntentStageCheckReview)); n != 0 {
+		t.Errorf("%d check review runs, want none", n)
 	}
 	e.review(name, 3)
-	if n := len(e.verifications(name)); n != 2 {
-		t.Errorf("verifications = %d, want the round and its one recheck", n)
+	if n := len(e.verifications(name)); n != 1 {
+		t.Errorf("verifications = %d, want the round alone", n)
 	}
 }
 
 // TestEvaluationCeilingSparesTheFixBudget: the evaluation's spend counts
 // against its own ceiling only. An evaluation dearer than the Project's
 // shared ceiling neither blocks the intent nor stops a revise round's lease;
-// once the evaluation ceiling is spent, neither the recheck round 1 asks for
-// nor a requested round starts (Unconfirmed, the request consumed) and the
-// intent is still not blocked.
+// once the evaluation ceiling is spent, a requested round does not start
+// (Unconfirmed, the request consumed) and the intent is still not blocked.
 func TestEvaluationCeilingSparesTheFixBudget(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 2.0, func(p *v1alpha1.Project) {
 		p.Spec.Limits.MaxCostMicroUSD = 1000000
@@ -321,9 +333,8 @@ func TestEvaluationCeilingSparesTheFixBudget(t *testing.T) {
 	if p.atCeiling() || p.evaluationSpend() != 2000000 || p.sharedSpend() >= 1000000 {
 		t.Fatalf("shared %d at ceiling %v, evaluation %d", p.sharedSpend(), p.atCeiling(), p.evaluationSpend())
 	}
-	if v := in.Status.Verification; v.Escalation == nil || len(e.verifications(name)) != 1 {
-		t.Fatalf("escalation %+v, %d verifications; want the recheck asked for and held at the ceiling",
-			v.Escalation, len(e.verifications(name)))
+	if n := len(e.verifications(name)); n != 1 {
+		t.Fatalf("%d verifications; want the round alone", n)
 	}
 
 	// The evaluation ceiling, lowered under what was spent: a request

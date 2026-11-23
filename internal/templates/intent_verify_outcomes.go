@@ -82,7 +82,7 @@ var outcomeReasonWords = map[string]string{
 	"seen-not-to-hold":  "the evaluator saw it not hold, in calls of its own it cites",
 	"not-reported":      "the evaluator gave it no verdict",
 	"evaluator-unsure":  "the evaluator could not tell",
-	"no-valid-evidence": "the evaluator's verdict cites no call of its own in this round that maul counts",
+	"no-valid-evidence": "the evaluator's verdict cites no call of its own in this evaluation that maul counts",
 }
 
 // Why maul did not keep a check proposed to show an outcome failing
@@ -269,7 +269,7 @@ func outcomeVerdict(o VerifyOutcomeResult, word string) string {
 
 // ObservedLead is what an observed round's comment says of its rows, once:
 // what maul counts, and what it leaves to the reviewers.
-const ObservedLead = "maul counts a verdict only when it cites calls the evaluator made in this round through " +
+const ObservedLead = "maul counts a verdict only when it cites calls the evaluator made in this evaluation through " +
 	"maul's tools; whether a cited call shows what the verdict says is for the reviewers to judge."
 
 // observedVerdict is an observed outcome's result as its row says it:

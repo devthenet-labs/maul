@@ -111,9 +111,6 @@ func TestIntentEvaluateNotDeclared(t *testing.T) {
 // automatic fix.
 func TestIntentEvaluateHumanPushAndAccept(t *testing.T) {
 	e := startEvaluate(t, evalOptions{outcomes: versionOutcomes + manualOutcome})
-	// The checks write their run's own record, so a regression of them is
-	// a defect maul confirms itself, which would start an automatic fix.
-	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CHECK_WRITES", "1")
 	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
 	// The evaluated two confirmed, the manual one open: what maul could not
@@ -154,8 +151,8 @@ func TestIntentEvaluateHumanPushAndAccept(t *testing.T) {
 	// The approver asks; the application now fails: reported, not fixed.
 	e.plantDefect()
 	e.gh.CommentAs(number, "/maul verify", approver)
-	// The saved checks' replay fails: a regression maul confirms itself,
-	// reported failing, and halted fixes keep it from being fixed.
+	// The evaluator sees it fail, citing its call: reported failing, and
+	// halted fixes keep it from being fixed.
 	e.waitEval(t, name, "the requested round to fail at the pushed head", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationFailing && v.Heads[0].Revision == pushed
 	})

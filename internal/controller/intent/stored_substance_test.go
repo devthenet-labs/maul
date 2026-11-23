@@ -62,7 +62,7 @@ func TestStoredCheckTheSubstanceRulesRefuseSupportsNothing(t *testing.T) {
 				Status: v1alpha1.PreviewVerificationStatus{Replay: []v1alpha1.CheckRun{run},
 					Ledger: &v1alpha1.LedgerSummary{Count: 5}},
 			}
-			d := judgeRound(acc, pv, stored, tc.ev).decision
+			d := judgeChecksRound(acc, pv, stored, tc.ev).decision
 			if got := d.PerOutcome[0]; got.Result != acceptance.ResultUnsure {
 				t.Fatalf("outcome = %+v, want unsure", got)
 			}
@@ -118,7 +118,7 @@ func TestRefusedStoredCheckBesideAValidOne(t *testing.T) {
 				Status: v1alpha1.PreviewVerificationStatus{Replay: replay,
 					Ledger: &v1alpha1.LedgerSummary{Count: 5}},
 			}
-			d := judgeRound(acc, pv, stored, tc.ev).decision
+			d := judgeChecksRound(acc, pv, stored, tc.ev).decision
 			if got := d.PerOutcome[0]; got.Result != tc.result || tc.basis != "" && got.Basis != tc.basis {
 				t.Fatalf("outcome = %+v, want %s on %s", got, tc.result, tc.basis)
 			}
@@ -176,8 +176,8 @@ func refusedDecideNothing(r *rand.Rand, acc *v1alpha1.IntentAcceptance, stored [
 	replayPV, fullPV := pv, pv
 	replayPV.Spec.Rung, fullPV.Spec.Rung = v1alpha1.RungReplay, v1alpha1.RungFull
 	for name, d := range map[string]acceptance.Decision{
-		"replay": judgeRound(acc, &replayPV, stored, nil).decision,
-		"full":   judgeRound(acc, &fullPV, stored, anyEvaluation(r, acc, stored)).decision,
+		"replay": judgeChecksRound(acc, &replayPV, stored, nil).decision,
+		"full":   judgeChecksRound(acc, &fullPV, stored, anyEvaluation(r, acc, stored)).decision,
 	} {
 		for _, got := range d.PerOutcome {
 			decided := got.Result == acceptance.ResultPassed || got.Result == acceptance.ResultFailed

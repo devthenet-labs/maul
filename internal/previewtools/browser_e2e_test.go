@@ -55,8 +55,6 @@ func votePage(width float64, mut func(*ScriptedElement)) ScriptedPage {
 		{Role: "heading", Name: "Battle", Text: "Battle", X: 10, Y: 10, Width: 300, Height: 40}, el}}
 }
 
-func ptr[T any](v T) *T { return &v }
-
 // measuredCheck is the check the e2e evaluator saves: the vote button is
 // visible, 32 px square and clickable.
 func measuredCheck() checks.BrowserCheck {
@@ -64,7 +62,7 @@ func measuredCheck() checks.BrowserCheck {
 	return checks.BrowserCheck{Steps: []checks.BrowserStep{
 		{Goto: "/battles"},
 		{Expect: &checks.Assertion{Assert: checks.AssertVisible, Locator: vote}},
-		{Expect: &checks.Assertion{Assert: checks.AssertSize, Locator: vote, Width: ptr(32.0), Height: ptr(32.0)}},
+		{Expect: &checks.Assertion{Assert: checks.AssertSize, Locator: vote, Width: new(32.0), Height: new(32.0)}},
 		{Expect: &checks.Assertion{Assert: checks.AssertClickable, Locator: vote}},
 		{Expect: &checks.Assertion{Assert: checks.AssertText, Locator: &checks.Locator{Role: "heading"},
 			Text: &checks.TextMatch{Contains: "Battle"}}},
@@ -180,6 +178,36 @@ func TestScriptedCLI(t *testing.T) {
 	}
 	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
 		t.Errorf("screenshot is no PNG: %v", err)
+	}
+}
+
+// TestScriptedEvalMeasuresABox: the scripted browser evaluates one shape
+// of page script, an element's bounding box by its test id, answering its
+// width and height as the CLI prints a result; any other script is the
+// CLI's error, never a made-up value.
+func TestScriptedEvalMeasuresABox(t *testing.T) {
+	br := scriptedFixture(t, votePage(30, nil))
+	ctx := context.Background()
+	run := func(args ...string) CLIResult {
+		t.Helper()
+		out, err := br.CLI.Run(ctx, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	run("open", "--config="+br.ConfigFile)
+	run("goto", br.Base+"/battles")
+	out := run("eval", `() => { const r = document.querySelector('[data-testid="vote"]').getBoundingClientRect(); `+
+		`return { width: r.width, height: r.height }; }`)
+	if out.Exit != 0 || !strings.HasPrefix(out.Output, "### Result\n{\"width\":30,\"height\":32}\n") {
+		t.Errorf("eval of the vote box = %+v, want its width and height", out)
+	}
+	for _, script := range []string{"() => document.title",
+		`() => document.querySelector('[data-testid="nope"]').getBoundingClientRect()`} {
+		if out := run("eval", script); out.Exit == 0 {
+			t.Errorf("eval %q = %+v, want the CLI's error", script, out)
+		}
 	}
 }
 

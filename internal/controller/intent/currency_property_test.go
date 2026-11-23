@@ -284,7 +284,7 @@ func readyJudgement(e *env, name string) {
 	}
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		routeRecords(in, judgeRoute{acceptManual: true}, e.clock.Now())
-		applyJudgement(in, roundJudgement{decision: confirmedTwo}, e.clock.Now())
+		applyJudgement(in, passedJudgement(in))
 		p.releaseIfDue(in)
 	})
 }

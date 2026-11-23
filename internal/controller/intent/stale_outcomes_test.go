@@ -69,7 +69,7 @@ func TestUnjudgedRoundAtMovedHeadsShowsNoEarlierResults(t *testing.T) {
 	e, name := newAgentsEnv(t, repoImage)
 	e.reviewReady(name, 4)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: confirmedTwo}, time.Now())
+		applyJudgement(in, passedJudgement(in))
 	})
 	if p := e.prVerifyPass(name); confirmedCount(p.in.Status.Acceptance, p.in.Status.Verification) != 2 {
 		t.Fatalf("verification = %+v, want two confirmed", p.in.Status.Verification)
@@ -100,7 +100,7 @@ func TestUnjudgedRoundAtTheSameHeadsShowsNoEarlierResults(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: confirmedTwo}, time.Now())
+		applyJudgement(in, passedJudgement(in))
 	})
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
@@ -128,7 +128,7 @@ func TestUnjudgedReplayRoundIsNotStillChecking(t *testing.T) {
 	disputed := confirmedTwo
 	disputed.Retire, disputed.ReplayRound = []string{"sha256:" + strings.Repeat("d", 64)}, true
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: disputed}, time.Now())
+		applyChecksJudgement(in, checksJudgement{decision: disputed}, time.Now())
 	})
 	if p := e.prVerifyPass(name); !p.replayDue(p.in.Status.Verification) {
 		t.Fatalf("verification = %+v, want its replay round due", p.in.Status.Verification)

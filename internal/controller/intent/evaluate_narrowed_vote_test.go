@@ -62,7 +62,7 @@ func TestNarrowedCheckIsNotAVoteNextRound(t *testing.T) {
 	confirm.Expect = v1alpha1.CheckExpectFail
 	round2.Status.Confirmations = []v1alpha1.CheckRun{confirm}
 	stored := []v1alpha1.SavedCheck{green, red}
-	applyJudgement(in, judgeRound(acc, round2, stored, ev), now)
+	applyChecksJudgement(in, judgeChecksRound(acc, round2, stored, ev), now)
 	v := in.Status.Verification
 	if o := v.Outcomes[0]; o.Result != v1alpha1.OutcomeUnsure || o.Reason != acceptance.ReasonChecksDisagree {
 		t.Fatalf("round 2: %+v, want unsure, %s", o, acceptance.ReasonChecksDisagree)
@@ -81,7 +81,7 @@ func TestNarrowedCheckIsNotAVoteNextRound(t *testing.T) {
 			Replay: []v1alpha1.CheckRun{greenRun, redRun}},
 	}
 	round3.Name = "x-v3-a1"
-	applyJudgement(in, judgeRound(acc, round3, stored, ev), now)
+	applyChecksJudgement(in, judgeChecksRound(acc, round3, stored, ev), now)
 	v = in.Status.Verification
 	if o := v.Outcomes[0]; o.Result != v1alpha1.OutcomeUnsure || o.Reason != acceptance.ReasonSuspectedDefect {
 		t.Fatalf("round 3: %+v, want unsure, %s", o, acceptance.ReasonSuspectedDefect)
