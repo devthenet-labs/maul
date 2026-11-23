@@ -66,6 +66,14 @@ const claudeProbeCLIEnv = "MAUL_CLAUDE_PROBE_CLI"
 // keep its choices justified: with a Write rule in place of its Edit rule
 // Write is refused (a CLI that starts honouring Write rules is noticed), and
 // run in /work rather than scratch the parent's handoff is readable.
+//
+// The workspace-write posture is also asked for a subagent (as Agent and as
+// Task), a workflow, a wake-up, a cron job, a worktree and a monitor
+// (probeDelegation): each must be unavailable, no subagent's shell may run,
+// the init event must offer none of them, and the run must print exactly one
+// result event. Its two controls take those denies back out: a subagent's
+// shell then runs and every denied tool is offered, and a monitor starts and
+// its end wakes the session after its turn, a second result event.
 func TestClaudePostureProbe(t *testing.T) {
 	cli := os.Getenv(claudeProbeCLIEnv)
 	if cli == "" {
@@ -112,6 +120,7 @@ func TestClaudePostureProbe(t *testing.T) {
 	})
 
 	probeEvaluate(t, cli)
+	probeDelegation(t, cli)
 
 	for _, sandbox := range []Sandbox{SandboxReadOnly, SandboxWorkspaceWrite} {
 		name := map[Sandbox]string{SandboxReadOnly: "read-only", SandboxWorkspaceWrite: "workspace-write"}[sandbox]
@@ -147,6 +156,191 @@ func TestClaudePostureProbe(t *testing.T) {
 			}
 		})
 	}
+}
+
+// probeDelegationTools are the tools the workspace-write posture denies
+// beside the web tools: a subagent (Agent; the init event still names it
+// Task), a workflow, a scheduled wake-up, cron jobs, worktrees and a monitor.
+// Each starts work off the run's main thread or wakes the session after its
+// turn, which neither the allow list nor the mode stops on the pinned CLI.
+var probeDelegationTools = []string{
+	"Agent", "Task", "Workflow", "ScheduleWakeup", "CronCreate", "CronDelete", "CronList",
+	"EnterWorktree", "ExitWorktree", "Monitor",
+}
+
+// probeDelegation is TestClaudePostureProbe's workspace-write delegation case
+// and its control. The control renders the posture with the delegation denies
+// taken out and asserts a foreground subagent runs and its shell writes a
+// marker, and that every denied tool is in the init event's tools there, so
+// the postured run's refusals and missing tools are the denies' doing. The
+// second control asserts that without them a monitor starts and its end
+// wakes the session after its turn, so the postured run's single result
+// event is the Monitor deny's doing.
+func probeDelegation(t *testing.T, cli string) {
+	t.Run("control: a subagent runs without the writable posture's delegation denies", func(t *testing.T) {
+		p := newPostureProbe(t, cli)
+		spec := NewClaude().PromptSpec(p.tree, p.delegationRequest())
+		spec.Argv = withoutDelegationDenies(t, spec.Argv)
+		script := delegationControlScript(p)
+		got := p.run(t, spec, script)
+		got.assertPinned(t, script)
+		if _, err := os.Stat(p.childMarker()); err != nil {
+			t.Errorf("the subagent's shell left no marker (%v)", err)
+		}
+		for _, tool := range probeDelegationTools {
+			if tool != "Agent" && !slices.Contains(got.init.Tools, tool) {
+				t.Errorf("init tools %v lack %s", got.init.Tools, tool)
+			}
+		}
+		if t.Failed() {
+			t.Log("without the denies the pinned CLI no longer runs a subagent or offers these tools; update the probe")
+		}
+	})
+
+	t.Run("control: a monitor wakes the session without the writable posture's delegation denies", func(t *testing.T) {
+		p := newPostureProbe(t, cli)
+		spec := NewClaude().PromptSpec(p.tree, p.delegationRequest())
+		spec.Argv = withoutDelegationDenies(t, spec.Argv)
+		script := monitorControlScript()
+		got := p.run(t, spec, script)
+		got.assertPinned(t, script)
+		if text := got.results["toolu_monitor"].Text; !strings.Contains(text, "Monitor started") {
+			t.Errorf("toolu_monitor: result %s, want the monitor started", text)
+		}
+		if got.resultEvents < 2 {
+			t.Errorf("%d result events, want the monitor's end to wake the session after its turn", got.resultEvents)
+		}
+		if t.Failed() {
+			t.Log("without the denies the pinned CLI no longer runs a monitor or wakes on its end; update the probe")
+		}
+	})
+
+	t.Run("workspace-write: delegation, wake-ups, cron, worktrees and monitors are refused", func(t *testing.T) {
+		p := newPostureProbe(t, cli)
+		script := delegationScript(p)
+		got := p.run(t, NewClaude().PromptSpec(p.tree, p.delegationRequest()), script)
+		got.assertPinned(t, script)
+		for id := range script.expect {
+			if text := got.results[id].Text; !strings.Contains(text, "No such tool available") {
+				t.Errorf("%s: result %s, want the tool unavailable", id, text)
+			}
+		}
+		if _, err := os.Stat(p.childMarker()); err == nil {
+			t.Error("a subagent's shell ran: the child marker exists")
+		}
+		for _, tool := range probeDelegationTools {
+			if slices.Contains(got.init.Tools, tool) {
+				t.Errorf("init tools %v offer %s", got.init.Tools, tool)
+			}
+		}
+		if got.resultEvents != 1 {
+			t.Errorf("%d result events, want exactly one: something woke the session after its turn", got.resultEvents)
+		}
+	})
+}
+
+// delegationRequest is the workspace-write request with a prompt no
+// subagent's own conversation carries, so the fake upstream can tell the two
+// apart.
+func (p *postureProbe) delegationRequest() PromptRequest {
+	req := p.request(SandboxWorkspaceWrite)
+	req.Prompt = "probe: DELEGATION-PARENT-7c1e"
+	return req
+}
+
+// childMarker is the file a subagent's shell writes.
+func (p *postureProbe) childMarker() string { return filepath.Join(p.marks, "child-ran") }
+
+// monitorCall asks for a monitor whose command ends shortly after, which on
+// the pinned CLI wakes the session again once its turn is over (measured: a
+// second model call and a second result event). The command is read-only on
+// purpose: the CLI runs a monitor of one without asking, as it does the
+// shell's built-in read-only commands, so neither the allow list (whose Bash
+// rule does not cover Monitor) nor dontAsk refuses it, while a command that
+// writes is refused by the mode.
+func monitorCall() toolCall {
+	return toolCall{"toolu_monitor", "Monitor", map[string]any{
+		"command":     "sleep 2; echo PROBE-MONITOR-FIRED",
+		"description": "probe monitor",
+	}}
+}
+
+// monitorControlScript starts one monitor, which must succeed.
+func monitorControlScript() probeScript {
+	return probeScript{
+		steps:  [][]toolCall{{monitorCall()}},
+		expect: map[string]bool{"toolu_monitor": true},
+	}
+}
+
+// probeChildMark is in every subagent prompt the delegation scripts send; a
+// request carrying it, and not the run's own prompt, is the subagent's.
+const probeChildMark = "PROBE-CHILD-3b9d"
+
+// agentCall asks for a general-purpose subagent in the foreground, so the
+// call's result waits for it.
+func agentCall(id, tool string) toolCall {
+	return toolCall{id, tool, map[string]any{
+		"description": "probe child", "prompt": probeChildMark + " run the command",
+		"subagent_type": "general-purpose", "run_in_background": false,
+	}}
+}
+
+// probeChild is the subagent's side: one command that leaves a marker.
+func probeChild(p *postureProbe) *childScript {
+	return &childScript{marker: probeChildMark, steps: [][]toolCall{{
+		{"toolu_child_bash", "Bash", map[string]any{"command": "touch " + p.childMarker()}},
+	}}}
+}
+
+// delegationControlScript spawns one subagent, which must succeed.
+func delegationControlScript(p *postureProbe) probeScript {
+	return probeScript{
+		steps:  [][]toolCall{{agentCall("toolu_agent", "Agent")}},
+		expect: map[string]bool{"toolu_agent": true},
+		child:  probeChild(p),
+	}
+}
+
+// delegationScript calls each way to start work off the main thread or wake
+// the session later; every one must be refused as unavailable.
+func delegationScript(p *postureProbe) probeScript {
+	return probeScript{
+		steps: [][]toolCall{{
+			agentCall("toolu_agent", "Agent"),
+			agentCall("toolu_task", "Task"),
+			{"toolu_workflow", "Workflow", map[string]any{
+				"script": "export const meta = {name: 'probe', description: 'probe'}\nreturn 1",
+			}},
+			{"toolu_wakeup", "ScheduleWakeup", map[string]any{"delaySeconds": 60, "reason": "probe", "prompt": "wake"}},
+			{"toolu_cron", "CronCreate", map[string]any{"cron": "* * * * *", "prompt": "probe"}},
+			{"toolu_worktree", "EnterWorktree", map[string]any{"name": "probe"}},
+			monitorCall(),
+		}},
+		expect: map[string]bool{
+			"toolu_agent": false, "toolu_task": false, "toolu_workflow": false,
+			"toolu_wakeup": false, "toolu_cron": false, "toolu_worktree": false,
+			"toolu_monitor": false,
+		},
+		child: probeChild(p),
+	}
+}
+
+// withoutDelegationDenies is argv with probeDelegationTools taken out of the
+// deny list and every other pin kept, so a run of it shows what those denies
+// alone refuse.
+func withoutDelegationDenies(t *testing.T, argv []string) []string {
+	t.Helper()
+	out := slices.Clone(argv)
+	i := slices.Index(out, "--disallowedTools")
+	if i < 0 || i+1 >= len(out) {
+		t.Fatalf("argv %q has no --disallowedTools", argv)
+	}
+	deny := slices.DeleteFunc(strings.Fields(out[i+1]), func(tool string) bool {
+		return slices.Contains(probeDelegationTools, tool)
+	})
+	out[i+1] = strings.Join(deny, " ")
+	return out
 }
 
 // probeEvaluate is TestClaudePostureProbe's evaluate posture and its two
@@ -433,6 +627,9 @@ type probeOutcome struct {
 	leaked []string
 	// maxTokens is each Messages request's max_tokens, in order.
 	maxTokens []int
+	// resultEvents counts the result events the run printed: one per time
+	// the session went idle, so more than one means something woke it.
+	resultEvents int
 }
 
 type toolResult struct {
@@ -448,7 +645,7 @@ func (o probeOutcome) marker(line string) bool { return slices.Contains(o.marker
 // and the script as the model's replies.
 func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeScript) probeOutcome {
 	t.Helper()
-	p.upstream.reset(script.steps, spec.Stdin)
+	p.upstream.reset(script, spec.Stdin)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	argv := slices.Clone(spec.Argv)
@@ -513,6 +710,8 @@ func (p *postureProbe) run(t *testing.T, spec runner.CommandSpec, script probeSc
 			continue
 		}
 		switch {
+		case ev.Type == "result":
+			out.resultEvents++
 		case ev.Type == "system" && ev.Subtype == "init":
 			if err := json.Unmarshal(line, &out.init); err != nil {
 				t.Fatalf("init event: %v", err)
@@ -558,6 +757,18 @@ type probeScript struct {
 	expect  map[string]bool
 	resumed bool // a resume: the first-request guidance is not judged
 	noTree  bool // no tree, so no CLAUDE.md to reach the model (evaluate)
+	// child is the script a subagent's own conversation gets, when the run
+	// may spawn one.
+	child *childScript
+}
+
+// childScript is a subagent's side of a run: a request whose body carries
+// marker, and not the run's own prompt (which every request of the main
+// conversation carries, the Agent call that names the marker included), gets
+// these steps.
+type childScript struct {
+	marker string
+	steps  [][]toolCall
 }
 
 type toolCall struct {
@@ -674,6 +885,7 @@ type fakeUpstream struct {
 	// JSON string's content); carried, that a request carried it whole.
 	prompt  string
 	carried bool
+	child   *childScript
 }
 
 // probeSecretEnv is a variable every probe run carries, holding
@@ -694,15 +906,15 @@ func newFakeUpstream(t *testing.T) *fakeUpstream {
 
 func (f *fakeUpstream) url() string { return f.srv.URL }
 
-// reset arms the upstream for one run whose prompt is prompt.
-func (f *fakeUpstream) reset(steps [][]toolCall, prompt string) {
+// reset arms the upstream for one run of script whose prompt is prompt.
+func (f *fakeUpstream) reset(script probeScript, prompt string) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(prompt)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.steps, f.header, f.guidance, f.leaked, f.maxTokens = steps, false, false, nil, nil
+	f.steps, f.child, f.header, f.guidance, f.leaked, f.maxTokens = script.steps, script.child, false, false, nil, nil
 	f.prompt, f.carried = strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(b.String(), `"`), "\n"), `"`), false
 }
 
@@ -779,7 +991,11 @@ func (f *fakeUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	var calls []toolCall
 	if len(req.Tools) > 0 {
 		f.mu.Lock()
-		for _, step := range f.steps {
+		steps := f.steps
+		if f.child != nil && bytes.Contains(body, []byte(f.child.marker)) && !bytes.Contains(body, []byte(f.prompt)) {
+			steps = f.child.steps
+		}
+		for _, step := range steps {
 			if !bytes.Contains(body, []byte(`"`+step[0].ID+`"`)) {
 				calls = step
 				break

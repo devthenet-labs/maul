@@ -63,7 +63,8 @@ func TestClaudePromptSpecAllFlags(t *testing.T) {
 		"--verbose",
 		"--max-turns", "30",
 		"--allowedTools", "Read Glob Grep Edit Write NotebookEdit Bash",
-		"--disallowedTools", "WebFetch WebSearch",
+		"--disallowedTools", "WebFetch WebSearch Agent Task Workflow ScheduleWakeup CronCreate CronDelete CronList " +
+			"EnterWorktree ExitWorktree Monitor",
 		"--setting-sources", "user", "--permission-mode", "dontAsk",
 		"--strict-mcp-config",
 		"--add-dir", "/work/ws",
@@ -151,6 +152,51 @@ func TestClaudeReadOnlyDeniesTheOtherEditTools(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestClaudeWritableDeniesDelegation: the workspace-write posture denies by
+// name every tool that starts work outside the run's own main thread or
+// wakes the session again after its turn ends: a subagent (Agent, which the
+// CLI's init event still calls Task), a workflow, a scheduled wake-up, a cron
+// job, a worktree to move into, and a monitor, whose end wakes the session. On the pinned CLI a subagent needs no
+// permission and runs in the background by default, and every wake resets
+// --max-turns, so the allow list and the mode alone do not hold the run to
+// its grant. A deny binds every depth ("disabled for this session, in
+// subagents as well as here"). The first run and a report repair's resume
+// render the same list, and the web tools stay denied beside it.
+func TestClaudeWritableDeniesDelegation(t *testing.T) {
+	req := PromptRequest{Prompt: "p", Model: "m", Sandbox: SandboxWorkspaceWrite, AddDirs: []string{"/workspace"}}
+	want := []string{
+		"WebFetch", "WebSearch",
+		"Agent", "Task", "Workflow", "ScheduleWakeup", "CronCreate", "CronDelete", "CronList",
+		"EnterWorktree", "ExitWorktree", "Monitor",
+	}
+	for name, argv := range map[string][]string{
+		"first run": NewClaude().PromptSpec("/workspace/repo", req).Argv,
+		"resume":    NewClaude().ResumeSpec("/workspace/repo", claudeSessionID, req).Argv,
+	} {
+		if got := strings.Fields(argvValue(t, argv, "--disallowedTools")); !slices.Equal(got, want) {
+			t.Errorf("%s: --disallowedTools = %q, want %q", name, got, want)
+		}
+		// The shell stays: a fix builds and tests.
+		if allow := strings.Fields(argvValue(t, argv, "--allowedTools")); !slices.Contains(allow, "Bash") {
+			t.Errorf("%s: --allowedTools = %q, want Bash allowed", name, allow)
+		}
+		if slices.Contains(argv, "--tools") {
+			t.Errorf("%s: argv %q renders --tools; the writable posture keeps the CLI's built-in set", name, argv)
+		}
+	}
+}
+
+// argvValue is the value following flag in argv, failing the test when the
+// flag is absent or has none.
+func argvValue(t *testing.T, argv []string, flag string) string {
+	t.Helper()
+	i := slices.Index(argv, flag)
+	if i < 0 || i+1 >= len(argv) {
+		t.Fatalf("argv lacks %s: %q", flag, argv)
+	}
+	return argv[i+1]
 }
 
 // TestClaudeRestrictedPostures: the read-only and evaluate postures run with
