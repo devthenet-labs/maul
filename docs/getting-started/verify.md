@@ -96,7 +96,7 @@ no tokens are spent; on [Colima](../deployment/colima.md) the whole loop is `mak
 | Symptom                                    | Likely cause                                                                                                                         |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Webhook deliveries show `401`              | Webhook secret mismatch between the App and `maul-github`, or no Integration exists                                                  |
-| Agent pods `CreateContainerConfigError`    | A non-brokered runner's credential Secret missing in `maul-agents` (`maul-openai` / `maul-copilot`)                                  |
+| Agent pods `CreateContainerConfigError`    | The copilot runner's credential Secret (`maul-copilot`) is missing in `maul-agents`; claude and codex pods mount none                |
 | Claude runs failing with broker errors     | The egress broker is not ready — check its `/readyz` (missing `maul-anthropic` in the release namespace, or unusable cloud identity) |
 | `egress broker not reachable yet` warning  | Logged once at investigation/remediation-controller startup when the broker was not up yet; harmless if claude Jobs then succeed     |
 | Findings stall at `Enhanced`               | Accumulation window or `--finding-min-age` not elapsed — check `kubectl describe finding` timestamps                                 |

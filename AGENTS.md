@@ -472,7 +472,7 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (PASS/FAIL/SKIP lines, plus WARN and INFO, which never fail a run and only `check previews` reports; `-o json|yaml`,
   inert reasons). Builds for windows too, and ships a `kubectl-maul` alias.
   Ships no container image: it is distributed as its own `maul-cli` release archive (separate from the cluster
-  binaries' `maul` archive) and as a Homebrew cask in bitwise-media-group/homebrew-tap.
+  binaries' `maul` archive) only, with no Homebrew cask (`.goreleaser.yaml`: this fork has no tap).
 
 ## Layout
 
@@ -577,9 +577,8 @@ docs/ overrides/    Zensical docs site (zensical.toml at the root; maul-branded 
                     (pyproject.toml / uv.lock). docs/cli/ is GENERATED (docgen, above) — edit
                     the commands' Short/Long/Example, not the markdown; docs/cli.md beside it
                     is the hand-written tour.
-completions/        GENERATED shell completions, committed so the Homebrew cask installs them
-                    as static files (executing a freshly-downloaded binary at install time
-                    trips Gatekeeper). `mise run docs` writes both this and docs/cli/.
+completions/        GENERATED shell completions, committed and shipped in the maul-cli
+                    archive. `mise run docs` writes both this and docs/cli/.
                     kubectl_complete-maul is the exception — hand-written, and the reason
                     `kubectl maul` completes: kubectl ignores a plugin's completion script
                     and instead runs kubectl_complete-<plugin> from PATH.

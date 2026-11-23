@@ -1194,7 +1194,7 @@ its round-1 notice on maul-target PR #46 received 403 and was discarded. The exi
 replay. The owner has authorised a permission audit, scope correction, durable notice recovery, full gates/review,
 merge/release/fresh-Finding gate, then re-enablement and exactly-one-notice verification before a new human review.
 
-See [the permission audit](docs/design/intent-github-permissions.md) for non-writing live probe results. The fix adds
+See [the permission audit](internal-notes/intent-github-permissions.md) for non-writing live probe results. The fix adds
 `roundNoticesThrough` to Intent status; it recovers old missing notices without launching work or charging revisions.
 Keep intents disabled until that fix is released and gated. Before enabling, record both Helm rollback revisions.
 

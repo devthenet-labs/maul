@@ -6,13 +6,16 @@ will it stop. It is read-only. Approval stays a GitHub fact (the approve label o
 bound to the plan's digest), and nothing on the dashboard can approve, cancel or replan an intent.
 
 It is off by default. Turning it on adds per-Project access, mandatory identity hardening and a stricter browser
-envelope for the whole status page; read this page before you do.
+envelope for the whole status page; read this page before you do. [Turning it on](#turning-it-on) has the settings.
+
+The screenshots on this page show sample data from the status page's demo build.
 
 ## What it shows
 
 **The board** has a column per stage: planning, awaiting approval, building, in review (revise and check-fix rounds
 included), done (merged, closed, failed, until the intent expires). A Blocked intent stays in the column of the phase it
-was blocked from, with a badge and the reason. An intent waiting on the issues it is blocked by
+was blocked from, with a badge and the reason; the **blocked** column holds only a Blocked intent whose earlier phase is
+no longer in its recorded phase history. An intent waiting on the issues it is blocked by
 ([intent dependencies](dependencies.md)) sits in planning with a **waiting** badge, the reason in fixed words ("waiting
 for the issues it is blocked by", "a blocker was closed without being completed", "a blocker cannot be read",
 "dependency cycle", "checking dependencies", "waiting for an active slot"), the intent repository's blockers as `#N`,
@@ -24,12 +27,22 @@ limits (every round started counts, a failed one too, as it does for the limit),
 ceiling, its age and time in phase, and its pull request and preview links. A suspended intent is badged: it is not
 reconciled while suspended, so its status may be stale.
 
+![The intents board: one intent awaiting approval, one building, one in review and Blocked at its revision limit, and
+one merged](../assets/images/screens/intents-board.jpg)
+
+In the board above, `storefront-7` sits in the in-review column with a **blocked** badge, because it was blocked from
+review when it reached its revision limit (3 of 3). Each card's bar is its recorded spend against the Project's
+per-intent cost ceiling (\$10 by default).
+
 **The timeline** of one intent lists its phase changes; the plan revision and digest, with a link to the plan comment;
 the accepted approval with who approved, how (label or command), the plan revision and both digests it is bound to; the
 pull requests; the preview; and every run with its stage, round, attempt, outcome, duration, recorded cost and image
 (source and digest). Each run row links to that run's panel twice: its underlined name and a trailing "View conversation
 →" link ("Open run →" when the panel will show no conversation: for a reader without the transcripts tier, a run still
 waiting for a run slot, or a finished run that recorded none).
+
+![An intent's timeline: the issue, requester, recorded spend, plan revision and approval, its phase changes, and its
+two runs, a finished plan and a running build](../assets/images/screens/intent-detail.jpg)
 
 **The run panel** shows how long the run has taken against its stage time limit, the Job's deadline and the idle
 watchdog's limit (20 minutes without a model turn or tool result, by default), which tool the agent called last and has
@@ -39,6 +52,14 @@ ceiling is checked only before the next launch, so a running run can pass it; th
 a run slot can be opened too: its panel follows it live from the moment its agent starts. The activity comes from the
 run's transcript, which stops recording at its cap (500 entries or 512 KiB) while the agent goes on; past the cap the
 panel says the activity is not known rather than show the last tool and time frozen there.
+
+![A running build's panel: elapsed time against its limits, the command it is waiting on, what stops it, and its live
+output](../assets/images/screens/intent-run.jpg)
+
+In the panel above, the build has run 23 minutes of its one-hour stage limit and has been waiting 9 minutes on one
+`Bash` command, the test suite whose output streams below. "What stops it" lists each limit in plain words: the stage
+time limit, the Job's deadline, the idle watchdog, the turn limit, the output-token kill switch, the attempt count and
+the cost ceiling.
 
 **Live output.** While a run is live, a reader with the transcripts tier also sees what the command the agent is waiting
 on prints (a test suite, a build), as it prints it. It is one command at a time, the latest: when the agent starts
@@ -54,8 +75,30 @@ Command output is not activity: the turn count, the last activity and the idle w
 results only, so a command printing steadily does not make a stuck agent look busy. A reader with only the intents tier
 receives none of it.
 
+**The conversation.** A reader with the transcripts tier sees the agent's conversation turn by turn: its messages, every
+tool it called and what came back. While the run is live it streams from the agent pod's log, which the status server
+reads through the Kubernetes API (the chart's `statusServer.liveTranscripts`, on by default). When the run ends, its
+controller stores the conversation in a ConfigMap owned by the run, and the panel replays that from then on. A
+[report repair](../configuration/agent-runner.md#report-repair) continues the same conversation, after a notice saying
+why.
+
+What is stored is bounded and scrubbed:
+
+- Each turn's text is capped (2 KiB by default), and a run at 500 turns or 512 KiB in all
+  ([agent-runner](../configuration/agent-runner.md)). A conversation cut short ends with a turn naming the cap it
+  reached, while the agent itself goes on.
+- Any value matching a credential in the pod's environment, the broker token included, is replaced before it leaves the
+  pod.
+- The activity count is of transcript entries, and a tool call and its result are separate entries, so not every entry
+  is a model turn.
+- The live command output is never stored: a finished run's panel shows the conversation, which keeps each command's
+  result, but no live output.
+
+A stored conversation is deleted with its run when the intent expires.
+
 Spend on the dashboard is recorded spend only: the cost each run reported when it was collected. A run's spend appears
-when it ends. There are no live token or dollar figures yet.
+when it ends. There are no live token or dollar figures yet. For spend over time, per person and per Project, see
+[Costs and usage](../usage.md).
 
 ### What it never shows
 

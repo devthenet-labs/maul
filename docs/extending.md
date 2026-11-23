@@ -1,9 +1,10 @@
 # Extending
 
-Maul ships GHAS/CodeQL, Google Cloud Security Command Center and Wiz support plus a placeholder context enhancer, but
-both ends of the pipeline are plugin seams. The public interfaces live under `pkg/` — the only packages whose signatures
-are stable for external reuse — and the built-in implementations under `internal/ghas`, `internal/scc`, `internal/wiz`
-and `internal/enhancers` are reference implementations of the same interfaces.
+Maul ships GHAS/CodeQL, Google Cloud Security Command Center and Wiz sources, and context enhancers for Google Cloud
+labels, AWS and Azure resource tags and a static context file, but both ends of the pipeline are plugin seams. The
+public interfaces live under `pkg/` — the only packages whose signatures are stable for external reuse — and the
+built-in implementations under `internal/ghas`, `internal/scc`, `internal/wiz` and `internal/enhancers` are reference
+implementations of the same interfaces.
 
 There are two ways in. An **in-tree plugin** implements the Go interfaces below and is compiled into the controllers. An
 **external process** implements the [generic HTTP contract](integrations/sources/generic.md) instead — the same source,

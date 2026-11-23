@@ -1,5 +1,12 @@
 # Deploying intents and previews
 
+!!! info "The AWS/EKS reference path"
+
+    This guide is the reference path on AWS: EKS Auto Mode, ECR, ACM, Route53 and the reference terraform module.
+    Intents run on any cluster the chart supports, and previews too, behind the
+    [preview gateway](../configuration/preview-gateway.md). For a shorter path on another cluster, start with the
+    [quick start](../getting-started/quick-start.md) and [Set up previews](set-up-previews.md).
+
 Intent-driven development turns a GitHub issue into a reviewed pull request: an approver labels an issue in an intent
 repository, maul plans the change in a read-only agent Job and posts the plan, the approver approves it, and maul builds
 exactly that plan in the application's own toolchain image and opens the pull request. With previews on, every such pull
@@ -20,22 +27,19 @@ your own values:
 | maul's own edge        | `maul.acme.dev` (GitHub webhook) and `status.maul.acme.dev`      |
 | Preview hosts          | `*.preview.acme-apps.dev`, in a registrable domain of their own  |
 | Who may open previews  | `203.0.113.10/32`                                                |
-| maul release           | `X.Y.Z`, **0.12.16 or later**: the chart, the CLI and the module |
+| maul release           | `X.Y.Z`, **0.14.13 or later**: the chart, the CLI and the module |
 
 `X.Y.Z` stands for one release of `devthenet-labs/maul` throughout: the chart, the CLI and the terraform module all come
-from it. Use the newest, and at least 0.12.16, the first release whose chart has the values this guide sets
-(`clusterDNSCIDR`, `edgeIngressClass`, `preview.nodeIsolation.create`) and the first with
-[multi-repository intents](#several-repositories-in-one-project). 0.12.15 and older lack those keys, and their values
-schema refuses them. Find the newest release, and once the CLI is installed (step 1), check it:
+from it. Use the newest, and at least 0.14.13, the first release whose `maul setup github-app` checks that you are an
+Owner and writes the Forge and its Secret-reader Role, and whose CLI has `maul setup project` (steps 2 and 9). The chart
+values this guide sets (`clusterDNSCIDR`, `edgeIngressClass`, `preview.nodeIsolation.create`) and
+[multi-repository intents](#several-repositories-in-one-project) are older, from 0.12.16. Find the newest release, and
+once the CLI is installed (step 1), check it:
 
 ```sh
-gh release view --repo devthenet-labs/maul --json tagName --jq .tagName   # v0.12.16, say: X.Y.Z is 0.12.16
-maul --version                                                            # maul version 0.12.16 (...)
+gh release view --repo devthenet-labs/maul --json tagName --jq .tagName   # v0.14.15, say: X.Y.Z is 0.14.15
+maul --version                                                            # maul version 0.14.15 (...)
 ```
-
-0.12.16's `maul init app` prints an older form of its next steps, a `gh variable set` command per variable instead of
-the terraform module block and its one-command dotenv, and its READMEs say the same; the workflows, scripts and
-toolchain files it writes are those these pages describe. Follow these pages rather than that output.
 
 The maul chart and the reference terraform module are the supported path, and this guide follows it. Onboarding each
 application repository has a page of its own, [Onboarding an application](onboarding-app.md), and the module's inputs

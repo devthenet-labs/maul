@@ -1,0 +1,11 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+
+blank_issues_enabled: true
+contact_links:
+    - name: Report a security vulnerability
+      url: https://github.com/devthenet-labs/maul/security/advisories/new
+      about: Report vulnerabilities privately through a GitHub Security Advisory, never in a public issue.
+    - name: Documentation
+      url: https://devthenet-labs.github.io/maul/
+      about: Installation, configuration and troubleshooting guides.

@@ -20,15 +20,22 @@ extra_javascript = ["javascripts/codecolor.js"]
 
 nav = [
   { "Home" = "index.md" },
+  { "What is maul" = "overview.md" },
   { "Getting started" = [
     { "Overview" = "getting-started/index.md" },
+    { "Quick start" = "getting-started/quick-start.md" },
+    { "Intents and previews" = "getting-started/intents.md" },
     { "Create the GitHub App" = "getting-started/github-app.md" },
     { "Install with Helm" = "getting-started/install.md" },
     { "Verify the pipeline" = "getting-started/verify.md" },
-    { "Enable intents (optional)" = "getting-started/intents.md" },
   ] },
   { "How it works" = "how-it-works.md" },
+  { "Concepts" = "concepts.md" },
+  { "Commands on issues and PRs" = "commands.md" },
   { "State machine & labels" = "labels.md" },
+  { "Costs and usage" = "usage.md" },
+  { "Security model" = "security.md" },
+  { "Troubleshooting and FAQ" = "troubleshooting.md" },
   { "Integrations" = [
     { "Overview" = "integrations/index.md" },
     { "Finding sources" = [
@@ -50,17 +57,18 @@ nav = [
     { "Agent images" = "integrations/agent-images.md" },
   ] },
   { "Intents & previews" = [
-    { "Deploying intents and previews" = "intents/deploying.md" },
+    { "The intent lifecycle" = "intents/lifecycle.md" },
     { "Add a GitHub organization or a Project" = "intents/add-an-organization.md" },
+    { "Onboarding an application" = "intents/onboarding-app.md" },
     { "Set up previews" = "intents/set-up-previews.md" },
+    { "The intents dashboard" = "intents/dashboard.md" },
+    { "Intent dependencies" = "intents/dependencies.md" },
     { "Acceptance verification" = "intents/acceptance.md" },
     { "The agent evaluator" = "intents/evaluator.md" },
-    { "Intent dependencies" = "intents/dependencies.md" },
     { "Sizing limits for large features" = "intents/sizing.md" },
-    { "Onboarding an application" = "intents/onboarding-app.md" },
-    { "The Terraform module" = "intents/terraform-module.md" },
-    { "The intents dashboard" = "intents/dashboard.md" },
     { "Preview sign-in" = "intents/preview-sign-in.md" },
+    { "Deploying on AWS EKS (reference path)" = "intents/deploying.md" },
+    { "The Terraform module" = "intents/terraform-module.md" },
   ] },
   { "Configuration" = [
     { "Overview" = "configuration/index.md" },

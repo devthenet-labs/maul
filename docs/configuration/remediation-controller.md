@@ -1,12 +1,12 @@
 # remediation-controller
 
 Queue admission (approvals and revivals), the priority scheduler (bounded concurrency, aging against starvation),
-remediation agent Jobs, the changeset push + pull request — the only place a forge **write** credential is exercised —
-and the rollup/TTL loop, which makes it the one deleter of expired Findings.
+remediation agent Jobs, the changeset push + pull request — the finding flow's only use of a forge **write** credential
+— and the rollup/TTL loop, which makes it the one deleter of expired Findings.
 
 ```sh
 remediation-controller serve --namespace maul \
-  --claude-agent-image ghcr.io/devthenet-labs/maul/claude-agent-runner:v0.9.0 # match your installed release
+  --claude-agent-image ghcr.io/devthenet-labs/maul/claude-agent-runner:vX.Y.Z # your installed release
 ```
 
 ## Pipeline flags
