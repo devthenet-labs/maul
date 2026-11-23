@@ -319,12 +319,19 @@ save:
 | added an entry to a list (approvers, `checks.fix`)     | applies; the entry stays                                                                                                                          | the same                                   |
 | removed an entry the values file lists                 | applies, **with no error or warning, and the entry is back** (last in the list)                                                                   | the same                                   |
 
-The failure names every such field at once, whatever else the upgrade changes; the page's record annotation is never one
-of them. Measured once by hand with kubectl and Helm 4.2.3, not by a test: the real `helm upgrade` reports
-`UPGRADE FAILED: conflict occurred while applying object ...` and records the revision as failed; and client-side apply
-(`helm install --server-side=false`, or `kubectl apply`) writes as an `Update` manager and keeps page changes of fields
-its manifest does not change, but once the manifest changes a list the page also changed, its next apply replaces the
-whole list, and an entry the page added is dropped silently. Not measured: Argo CD, Flux, Helm 3.
+The failure names every such field at once; the page's record annotation is never one of them. Measured once by hand
+with kubectl and Helm 4.2.3, not by a test: the upgrade fails the same way whatever else it changes; the real
+`helm upgrade` reports `UPGRADE FAILED: conflict occurred while applying object ...` and records the revision as failed;
+and client-side apply (`helm install --server-side=false`, or `kubectl apply`) writes as an `Update` manager and keeps
+page changes of fields its manifest does not change, but once the manifest changes a list the page also changed, its
+next apply replaces the whole list, and an entry the page added is dropped silently. Not measured: Argo CD, Flux,
+Helm 3.
+
+!!! warning "An approver removed on the page comes back"
+
+    A login an approver removed on the page while your values file still lists it is restored by the next
+    `helm upgrade` of maul-config, forced or not, with no conflict and no warning, and counts as an approver again. The
+    same holds for a CI check removed from `checks.fix`. Remove it from the values file too.
 
 So decide per setting where it lives. Leave a setting out of the values file to manage it on the page, or change it in
 the values file and lock its group on the page if approvers should not change it. To keep a change made on the page, the

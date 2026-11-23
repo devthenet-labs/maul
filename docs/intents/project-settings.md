@@ -68,10 +68,10 @@ intent-controller's own ceiling for that stage (see [stage limits](../configurat
 | Machine size           | Each repository's agent size                                             | `repositories[].agentResourceClass`              | one of the sizes the operator defines, or unset                            | runs started after the save           |
 
 Money is in dollars on the page and in micro-USD in the Project ($10 is `10000000`). A stage's cost limit counts only
-while the egress broker counts cost; it can never be more than the intent's own limit. Raising a round limit or the
-intent's cost limit lifts the block on an intent stopped by it, and an intent waiting on `/maul revise` then runs its
-round. A change to a model, a stage limit or a machine size never changes a run already started: each run keeps what it
-was granted at its start.
+while the egress broker counts cost; it can never be more than the intent's own limit. Raising the revision limit, the
+CI-fix limit or the intent's cost limit past what an intent has used lifts the block that stopped it, and an intent that
+was blocked on a `/maul revise` then runs that round. A change to a model, a stage limit or a machine size never changes
+a run already started: each run keeps what it was granted at its start.
 
 The evaluator's settings are described with the evaluator itself, in [the hand-off](evaluator.md#the-hand-off) and
 [its limits](evaluator.md#limits). Turning verification on is refused while one of the Project's repositories is named

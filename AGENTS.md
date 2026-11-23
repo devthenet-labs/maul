@@ -370,7 +370,7 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   changes the Project's limits, models (plan, build, evaluate), evaluator, hand-off, CI checks, each repository's
   `agentResourceClass` and, under `allow.approvers`, one approver per save, within the operator's policy
   (`--project-settings-policy`: `allow`, `locked`, `ceilings`, `floors`; `--project-settings-projects`) and what
-  `status.admits` publishes. Its one write besides the Account page's: a JSON merge patch on `projects` (Role
+  `status.admits` publishes. The page's one write: a JSON merge patch on `projects` (Role
   `<release>-status-server-project-settings`, `patch` only) of the changed spec leaves plus the
   `maul.run/settings-edited` annotation, with the resourceVersion as an optimistic lock and field manager
   `maul-status-server` (`projectsettings.FieldManager`), so a default server-side `helm upgrade` of maul-config that
