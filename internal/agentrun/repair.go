@@ -92,6 +92,12 @@ func countedTurns(reported, granted int) int {
 	return reported
 }
 
+// spentTurns is the turns a run's accounting reports it spent: its main
+// thread's and its subagents', which a stage's cap covers together.
+func spentTurns(st envelope.Stage) int {
+	return st.NumTurns + st.SubagentTurns
+}
+
 // turnCapped reports whether a run ended because it reached its turn cap
 // (claude's error_max_turns), not on the runner's or the broker's budget,
 // the wall clock, the idle watchdog or a crash. Only such a run's session
@@ -211,7 +217,7 @@ func settleReport[T any](ctx context.Context, a *Agent, sr *stageRun, st *envelo
 	if outcome == envelope.OutcomeOK {
 		return v, raw, outcome, ""
 	}
-	sr.used = countedTurns(st.NumTurns, sr.req.MaxTurns)
+	sr.used = countedTurns(spentTurns(*st), sr.req.MaxTurns)
 	resumer, ok := sr.h.(harness.Resumer)
 	if !ok {
 		a.cfg.Log.Info("the report was refused, and this harness cannot continue a session, so it is not repaired",
@@ -371,7 +377,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	var spent envelope.Stage
 	a.fillStage(&spent, sr.h, res)
 	addRepair(st, spent)
-	sr.used += countedTurns(spent.NumTurns, req.MaxTurns)
+	sr.used += countedTurns(spentTurns(spent), req.MaxTurns)
 
 	r := repairResult{ran: true, failure: a.repairFailure(sr.h, res, idle, runErr)}
 	if ctx.Err() != nil {
@@ -433,6 +439,7 @@ func (a *Agent) repairFailure(h harness.Harness, res runner.Result, idle string,
 func addRepair(st *envelope.Stage, run envelope.Stage) {
 	st.ElapsedSeconds += run.ElapsedSeconds
 	st.NumTurns += run.NumTurns
+	st.SubagentTurns += run.SubagentTurns
 	st.Usage.InputTokens += run.Usage.InputTokens
 	st.Usage.OutputTokens += run.Usage.OutputTokens
 	st.Usage.CacheReadTokens += run.Usage.CacheReadTokens

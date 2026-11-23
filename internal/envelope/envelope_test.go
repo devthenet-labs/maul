@@ -220,6 +220,42 @@ func TestFirstEditTurnWire(t *testing.T) {
 	}
 }
 
+// TestSubagentTurnsWire pins the subagents' turns as an additive v4 field
+// beside num_turns, which keeps meaning the main thread's: present under
+// its own wire name when set, absent when zero, so a stage that delegated
+// nothing (or an older pod) sends exactly what it always did.
+func TestSubagentTurnsWire(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		turns   int
+		wantKey bool
+	}{
+		{"set", 9, true},
+		{"zero", 0, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			want := Event{Type: TypeRemediation, Repo: "acme/shop", Finding: "irun-1", Remediation: &Remediation{
+				Stage: Stage{Outcome: OutcomeOK, Harness: "claude", Model: "m", NumTurns: 12, SubagentTurns: tt.turns},
+			}}
+			line, err := want.Encode()
+			if err != nil {
+				t.Fatalf("Encode() error = %v", err)
+			}
+			if got := strings.Contains(line, `"subagent_turns":`); got != tt.wantKey {
+				t.Errorf("line %q carries subagent_turns = %v, want %v", line, got, tt.wantKey)
+			}
+			got, ok := Decode([]byte(line))
+			if !ok {
+				t.Fatal("Decode() ok = false")
+			}
+			if got.Remediation.SubagentTurns != tt.turns || got.Remediation.NumTurns != 12 {
+				t.Errorf("decoded turns = (%d, %d subagent), want (12, %d)", got.Remediation.NumTurns,
+					got.Remediation.SubagentTurns, tt.turns)
+			}
+		})
+	}
+}
+
 // TestReproductionWire pins the reproduction as an additive v4 field: it
 // round-trips under its own wire name, an explicit "not reproduced" survives
 // (reproduced: false is on the wire, not dropped as a zero), and an event

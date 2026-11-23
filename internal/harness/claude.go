@@ -460,6 +460,26 @@ type claudeEvent struct {
 	Errors          []string     `json:"errors"`
 	Usage           *claudeUsage `json:"usage"`
 	TotalCostUSD    *float64     `json:"total_cost_usd"`
+	// ModelUsage is a result event's per-model total over the whole
+	// session, subagents included and, on a resumed session, the earlier
+	// invocations too. ModelUsageSince is the same since the result before
+	// it in this invocation (the first result's is this invocation's own),
+	// so its sum over an invocation's results is what that invocation
+	// spent. Nil when the CLI reports none.
+	ModelUsage      map[string]claudeModelUsage `json:"modelUsage"`
+	ModelUsageSince map[string]claudeModelUsage `json:"model_usage_since_last_result"`
+	// SubagentStats.Spawned is how many subagents this invocation started.
+	SubagentStats *struct {
+		Spawned int `json:"spawned"`
+	} `json:"subagent_stats"`
+}
+
+// claudeModelUsage is one model's tokens on a result event's modelUsage.
+type claudeModelUsage struct {
+	InputTokens              int `json:"inputTokens"`
+	OutputTokens             int `json:"outputTokens"`
+	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
 }
 
 // claudeBlock is one content block of an assistant or user message. Only the
@@ -561,10 +581,33 @@ func claudeUserTurns(blocks []claudeBlock) []transcript.Turn {
 	return turns
 }
 
-// scanEvents walks stream-json output once and returns the terminal result
-// event; found is false when the output carried none (plain text, or a crash
-// mid-stream). parseStreamResult and streamRuntimeError each project from it.
+// scanEvents walks stream-json output once and returns the result event the
+// run ended on (see terminalResult); found is false when the output carried
+// none (plain text, or a crash mid-stream). parseStreamResult,
+// streamRuntimeError, Exhausted and TerminalError all read this one event,
+// so they never disagree about how a run ended.
 func scanEvents(stdout []byte) (result claudeEvent, found bool) {
+	results, _ := scanStream(stdout)
+	return terminalResult(results)
+}
+
+// scanStream walks stream-json output once and returns every result event
+// in order, and the subagent turns the stream shows.
+//
+// A subagent turn is a distinct message id among the assistant events that
+// carry a parent_tool_use_id. It is a floor of what the subagents called,
+// as measured on the 2.1.322 pin: a foreground child's closing text-only
+// call is streamed only with --forward-subagent-text, which maul does not
+// pass (a child of 5 calls shows 4); a child's own children (depth 2 and
+// deeper) and a workflow's agents print no assistant events at all. Their
+// tokens are in the result's per-model figures all the same (resultUsage).
+//
+// A run prints more than one result event when something woke the session
+// after its first answer: a background agent's or shell's notification, a
+// scheduled wake-up. Each reports that wake's own turns and main-thread
+// usage, and the cumulative cost.
+func scanStream(stdout []byte) (results []claudeEvent, subagentTurns int) {
+	children := map[string]bool{}
 	for line := range bytes.SplitSeq(stdout, []byte{'\n'}) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
@@ -573,47 +616,167 @@ func scanEvents(stdout []byte) (result claudeEvent, found bool) {
 		if json.Unmarshal(line, &ev) != nil {
 			continue
 		}
-		if ev.Type == "result" {
-			result, found = ev, true
+		switch {
+		case ev.Type == "result":
+			results = append(results, ev)
+		case ev.Type == "assistant" && ev.ParentToolUseID != "":
+			if ev.Message.ID == "" {
+				subagentTurns++ // nothing to merge on: its own message
+			} else if !children[ev.Message.ID] {
+				children[ev.Message.ID] = true
+				subagentTurns++
+			}
 		}
 	}
-	return result, found
+	return results, subagentTurns
 }
 
-// parseStreamResult reads the final answer, session id, turn count, and usage
-// from the terminal result event of stream-json output. Cache writes and
-// reads are reported on their own fields rather than folded into input: a
-// multi-turn cached session re-reads the same base context every turn, so
-// lumping cache reads into "input" inflates it many-fold over the (cheaply
-// cached) reality. total_cost_usd still reflects everything the session
-// consumed. Output with no result event (plain text, crash) returns the raw
-// stdout as FinalText with ok=false.
+// terminalResult is the result event a run ended on: the last one that took
+// a turn or reported an error. A notification that woke the session without
+// a model call prints an empty result (no turns, no text, zero usage), which
+// must never blank the answer or hide the error before it. The last result
+// of all when none qualifies; found is false when there are none.
+func terminalResult(results []claudeEvent) (claudeEvent, bool) {
+	for i := len(results) - 1; i >= 0; i-- {
+		if results[i].NumTurns > 0 || results[i].IsError {
+			return results[i], true
+		}
+	}
+	if len(results) == 0 {
+		return claudeEvent{}, false
+	}
+	return results[len(results)-1], true
+}
+
+// parseStreamResult reads the final answer, session id, turn counts, and
+// usage from stream-json output. The answer, session and error envelope are
+// the terminal result's (terminalResult); the main thread's turns are summed
+// over every result event, each wake reporting its own; the subagents'
+// turns are counted off the stream (scanStream). Output with no result
+// event (plain text, crash) returns the raw stdout as FinalText with
+// ok=false. See resultUsage for the usage.
 func parseStreamResult(stdout []byte) (AgentResult, bool) {
-	ev, found := scanEvents(stdout)
+	results, subagents := scanStream(stdout)
+	ev, found := terminalResult(results)
 	if !found {
 		return AgentResult{FinalText: string(stdout)}, false
 	}
 	res := AgentResult{
-		FinalText: ev.Result,
-		SessionID: ev.SessionID,
-		NumTurns:  ev.NumTurns,
-		IsError:   ev.IsError,
-		Subtype:   ev.Subtype,
-		Errors:    ev.Errors,
+		FinalText:     ev.Result,
+		SessionID:     ev.SessionID,
+		SubagentTurns: subagents,
+		Usage:         resultUsage(results),
+		IsError:       ev.IsError,
+		Subtype:       ev.Subtype,
+		Errors:        ev.Errors,
 	}
-	if ev.Usage != nil {
-		in := ev.Usage.InputTokens
-		cacheRead := ev.Usage.CacheReadInputTokens
-		cacheCreation := ev.Usage.CacheCreationInputTokens
-		res.Usage = &Usage{
-			InputTokens:         &in,
-			CacheReadTokens:     &cacheRead,
-			CacheCreationTokens: &cacheCreation,
-			OutputTokens:        ev.Usage.OutputTokens,
-			CostUSD:             ev.TotalCostUSD,
-		}
+	for _, r := range results {
+		res.NumTurns += r.NumTurns
 	}
 	return res, true
+}
+
+// resultUsage is what one invocation spent, by its result events. Cache
+// writes and reads are reported on their own fields rather than folded into
+// input: a multi-turn cached session re-reads the same base context every
+// turn, so lumping cache reads into "input" inflates it many-fold over the
+// (cheaply cached) reality. The cost is total_cost_usd, cumulative over the
+// session and its subagents, from the last result that reports it.
+//
+// A result's top-level usage covers the main thread alone. For a run that
+// spawned no subagent that is all it spent, summed over its results, and
+// the figures are exactly those it reported; its modelUsage may count more
+// (the CLI's own helper calls), which a stage has never been charged.
+//
+// A run that spawned one spent more than its main thread: the 2.1.322 pin
+// reported 300 output tokens at the top level for a run whose child spent
+// 35,000. Its tokens are then its per-model figures, summed over models and
+// over each result's delta since the one before
+// (model_usage_since_last_result). That delta, unlike modelUsage, counts
+// this invocation alone: a resumed session's modelUsage includes the runs it
+// resumed, and a report repair's accounting is added to theirs. A CLI that
+// reports no delta has only modelUsage, taken from the last result. Nil when
+// no result reports usage of either kind.
+func resultUsage(results []claudeEvent) *Usage {
+	var cost *float64
+	spawned := false
+	for _, r := range results {
+		if r.TotalCostUSD != nil {
+			cost = r.TotalCostUSD
+		}
+		if r.SubagentStats != nil && r.SubagentStats.Spawned > 0 {
+			spawned = true
+		}
+	}
+	if spawned {
+		if u := modelUsageTotal(results); u != nil {
+			u.CostUSD = cost
+			return u
+		}
+	}
+	return mainThreadUsage(results, cost)
+}
+
+// mainThreadUsage sums the results' top-level usage; nil when none has any.
+// Output stays nil unless a result reported it.
+func mainThreadUsage(results []claudeEvent, cost *float64) *Usage {
+	var u *Usage
+	var in, read, write, out int
+	outReported := false
+	for _, r := range results {
+		if r.Usage == nil {
+			continue
+		}
+		u = &Usage{}
+		in += r.Usage.InputTokens
+		read += r.Usage.CacheReadInputTokens
+		write += r.Usage.CacheCreationInputTokens
+		if r.Usage.OutputTokens != nil {
+			out += *r.Usage.OutputTokens
+			outReported = true
+		}
+	}
+	if u == nil {
+		return nil
+	}
+	u.InputTokens, u.CacheReadTokens, u.CacheCreationTokens, u.CostUSD = &in, &read, &write, cost
+	if outReported {
+		u.OutputTokens = &out
+	}
+	return u
+}
+
+// modelUsageTotal sums per-model usage: every result's delta when any
+// result carries one, else the last result's modelUsage; nil when neither
+// is reported.
+func modelUsageTotal(results []claudeEvent) *Usage {
+	var models []map[string]claudeModelUsage
+	for _, r := range results {
+		if r.ModelUsageSince != nil {
+			models = append(models, r.ModelUsageSince)
+		}
+	}
+	if models == nil {
+		for i := len(results) - 1; i >= 0; i-- {
+			if results[i].ModelUsage != nil {
+				models = append(models, results[i].ModelUsage)
+				break
+			}
+		}
+	}
+	if models == nil {
+		return nil
+	}
+	var in, read, write, out int
+	for _, byModel := range models {
+		for _, m := range byModel {
+			in += m.InputTokens
+			read += m.CacheReadInputTokens
+			write += m.CacheCreationInputTokens
+			out += m.OutputTokens
+		}
+	}
+	return &Usage{InputTokens: &in, CacheReadTokens: &read, CacheCreationTokens: &write, OutputTokens: &out}
 }
 
 // streamRuntimeError detects a run that produced no usable answer (auth
@@ -710,12 +873,17 @@ func (c *Claude) StreamUsage(stdout []byte) *Usage { return streamUsage(stdout) 
 // by its id, taking each field's largest value across its events; an event
 // with no id has nothing to merge on and counts as its own message.
 //
+// Every assistant event counts, a subagent's (one carrying a
+// parent_tool_use_id) as much as the main thread's, since both were billed.
+// A child's own children and a workflow's agents print none, so they are not
+// in the tally (see scanStream).
+//
 // The input side (fresh input, cache reads, cache writes) is what the API
-// reported for each call, so it is exact. The output side is a floor: the CLI
-// stamps a message's usage as its content blocks complete, before the API's
-// final output count arrives, so a stream reports a few output tokens a call
-// where the result event reports the true total. Nil when no assistant event
-// carried usage.
+// reported for each call the stream shows, so it is exact for those. The
+// output side is a floor: the CLI stamps a message's usage as its content
+// blocks complete, before the API's final output count arrives, so a stream
+// reports a few output tokens a call where the result event reports the true
+// total. Nil when no assistant event carried usage.
 func streamUsage(stdout []byte) *Usage {
 	type counts struct{ in, read, write, out int }
 	byMessage := map[string]counts{}

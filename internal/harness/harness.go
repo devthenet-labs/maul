@@ -134,11 +134,19 @@ type Gateway struct {
 type AgentResult struct {
 	FinalText string
 	SessionID string // the session id the CLI reports on its result event
-	NumTurns  int
-	Usage     *Usage // includes CostUSD from total_cost_usd; nil when unreported
-	IsError   bool
-	Subtype   string
-	Errors    []string
+	// NumTurns is the main thread's turns, summed over every result event
+	// the run printed (a session a notification woke reports each wake's
+	// turns on its own result).
+	NumTurns int
+	// SubagentTurns is the model calls of the run's subagents that its
+	// stream shows, counted by message id; 0 for a run that delegated
+	// nothing and for a harness that cannot tell. A floor, not a measure:
+	// for claude, see scanStream.
+	SubagentTurns int
+	Usage         *Usage // includes CostUSD from total_cost_usd; nil when unreported
+	IsError       bool
+	Subtype       string
+	Errors        []string
 }
 
 // Harness is the required surface every agent CLI implements. A harness

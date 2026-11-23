@@ -93,7 +93,13 @@ type Stage struct {
 	// first used a file-editing tool, 0 when it edited nothing or the
 	// harness cannot tell. Unlike NumTurns, report-repair rounds never add
 	// to it. Additive within version 4: an older reader ignores it.
-	FirstEditTurn  int     `json:"first_edit_turn,omitempty"`
+	FirstEditTurn int `json:"first_edit_turn,omitempty"`
+	// SubagentTurns is the model calls the stage's subagents made, as far
+	// as the harness's stream shows them (a floor), summed over its runs as
+	// NumTurns is. NumTurns stays the main thread's: the two together are
+	// what the stage spent of its turn cap. Additive within version 4: an
+	// older reader ignores it, and a stage that delegated nothing omits it.
+	SubagentTurns  int     `json:"subagent_turns,omitempty"`
 	Usage          Usage   `json:"usage"`
 	ElapsedSeconds float64 `json:"elapsed_seconds"`
 	// Detail explains a non-ok outcome for humans.

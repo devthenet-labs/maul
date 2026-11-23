@@ -54,7 +54,7 @@ func (a *Agent) coverChecks(ctx context.Context, sr *stageRun, st *envelope.Stag
 	}
 	if sr.used == 0 {
 		// No repair ran, which would have counted the first run's turns.
-		sr.used = countedTurns(st.NumTurns, sr.req.MaxTurns)
+		sr.used = countedTurns(spentTurns(*st), sr.req.MaxTurns)
 	}
 	refused := ""
 	for round := 1; round <= coverRounds; round++ {
@@ -156,7 +156,7 @@ func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage
 	var spent envelope.Stage
 	a.fillStage(&spent, sr.h, res)
 	addRepair(st, spent)
-	sr.used += countedTurns(spent.NumTurns, req.MaxTurns)
+	sr.used += countedTurns(spentTurns(spent), req.MaxTurns)
 	if sr.delegated != "" {
 		// The report it rewrote is not read; the one before stands.
 		a.cfg.Log.Warn("an ask for checks delegated what the stage was not granted; keeping the report before",

@@ -807,6 +807,7 @@ func (a *Agent) fillStage(st *envelope.Stage, h harness.Harness, res runner.Resu
 	if ok {
 		st.SessionID = ar.SessionID
 		st.NumTurns = ar.NumTurns
+		st.SubagentTurns = ar.SubagentTurns
 	}
 	if r, edits := h.(harness.FirstEditReporter); edits {
 		st.FirstEditTurn = r.FirstEditTurn(res.Stdout)

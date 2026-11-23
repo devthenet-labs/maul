@@ -119,6 +119,15 @@ corrected rather than hidden.
   (`first_edit_turn`: the agent turn on which the first run first called Edit, Write, MultiEdit or NotebookEdit, read
   off its stream; 0 when it edited nothing) is the first run's alone: a repair never moves it. The intent controller
   records both counts on the IntentRun as `status.numTurns` and `status.firstEditTurn`.
+- A claude run that spawned a subagent is recorded by everything it spent, not by its main thread alone. The result
+  event's top-level usage counts only the main thread, so the stage's tokens are then the per-model figures, summed over
+  each result event's `model_usage_since_last_result`: unlike `modelUsage`, which a resumed session reports
+  cumulatively, that counts the run itself, so a repair's tokens are never counted twice. A run that spawned none keeps
+  the top-level figures it always did. `num_turns` stays the main thread's, summed over every result event the run
+  printed (a session a notification woke prints one per wake), and the answer is the last result's that took a turn or
+  reported an error, never an empty one after it. The subagents' turns are recorded beside it as `subagent_turns`:
+  distinct message ids among the events streamed for them, a floor, since a foreground child's closing call and a
+  child's own children print no event. A repair's window counts both against the stage's turns.
 - On `remediate` and `build`, which write the working tree, a repair may change only the report and `commit.sh`. The
   clone is fingerprinted around each round (`HEAD`, what is staged, and every working file that is not ignored), and a
   repair that changed any of it is refused whole: the stage ends with its original outcome (`report_missing` or

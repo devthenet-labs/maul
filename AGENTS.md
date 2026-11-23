@@ -955,6 +955,11 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   posture, whose stream shows a `task_started` of a workflow, or of a subagent the run was not granted (none is yet;
   a grant would admit depth 1, no parent task, foreground only), as `budget_exceeded` with the reason, maul's own words
   only, in the detail and the transcript; what a repair or cover ask that delegates wrote is not read.
+  `parseStreamResult` reads every result event (a woken session prints several): the answer and error from the last
+  that took a turn or erred (`terminalResult`, which `RuntimeError`, `Exhausted` and `TerminalError` share), `num_turns`
+  summed, and, for a run that spawned a subagent, the tokens from `model_usage_since_last_result` summed (top-level
+  usage is the main thread's; `modelUsage` is cumulative over a resumed session); `AgentResult.SubagentTurns`, distinct
+  child message ids, a floor, lands on the envelope's `Stage.SubagentTurns` and counts in a repair's window.
   Codex renders the broker as a `maul`
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
