@@ -233,11 +233,11 @@ spec:
                     description: |-
                       Subagents records that the run may delegate to subagents: stamped at
                       creation on a build or revise run on claude while intent-controller
-                      runs with --intent-build-subagents, and on no other run
-                      (CEL-enforced). The run's Job is granted them only while the flag is
-                      still on when it launches, so turning the flag off narrows every run
-                      recorded with it, and a run recorded without it is never launched
-                      with it.
+                      runs with --intent-build-subagents and the Project opts in
+                      (spec.delegation.subagents), and on no other run (CEL-enforced). The
+                      run's Job is granted them only while the flag is still on when it
+                      launches, so turning the flag off narrows every run recorded with it,
+                      and a run recorded without it is never launched with it.
                     type: boolean
                   timeoutMilliseconds:
                     description: |-
@@ -259,9 +259,10 @@ spec:
                     description: |-
                       Workflows records that the run may also run workflows (inline and
                       built-in ones): stamped at creation beside Subagents while
-                      intent-controller runs with --intent-build-workflows, and never
-                      without Subagents (CEL-enforced). The run's Job is granted them only
-                      while both flags are still on when it launches.
+                      intent-controller runs with --intent-build-workflows and the Project
+                      opts in (spec.delegation.workflows), and never without Subagents
+                      (CEL-enforced). The run's Job is granted them only while both flags
+                      are still on when it launches.
                     type: boolean
                 type: object
               harness:

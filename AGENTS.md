@@ -202,8 +202,8 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   writer of Project status, Intent and IntentRun. For the project settings page it publishes on every Project
   `status.approvers` (each approver login's GitHub id and write access on the intent repository, re-asked on a list
   change and every 10 minutes, kept on a failure with `ApproversResolved` False; `approvers_resolve.go`) and
-  `status.admits` (models, default models, stage ceilings, cost bounds and floors, the evaluator switch, the resource
-  classes; `admits.go`, pinned to the Settings methods by a seeded test).
+  `status.admits` (models, default models, stage ceilings, cost bounds and floors, the evaluator switch, the delegation
+  it allows, the resource classes; `admits.go`, pinned to the Settings methods by a seeded test).
   Its own flags carry an `intent-` prefix (`MAUL_INTENT_*`); it runs
   on brokered claude (or the fake harness in dev), and with `--intent-codex` (default off; chart
   `intentController.codex.enabled`, which needs the broker's openai route) also on brokered codex for a Project with
@@ -224,14 +224,18 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   budget (`limits.<stage>.maxCostMicroUSD`, else the per-intent ceiling) stamped on its Job and pod as
   `provider.BudgetAnnotation`, the chart's `budget-policy.yaml` letting only intent-controller set it; with
   `--broker-cost-per-hour` a Project whose run budget exceeds half of it is not Ready (`RunBudgetOverHourlyLimit`).
-  With `--intent-build-subagents` (default off; refused at startup without `--broker-limit-unit cost`, whose per-run
-  budget the broker enforces on parent and subagents together, and on any harness but brokered claude) a claude
-  Project's build and revise runs record `spec.grant.subagents` at creation (`Settings.grant`; CEL: build or revise on
-  claude only) and launch with `jobs.Spec.BuildSubagents` only while the flag is still on
+  `--intent-build-subagents` (default off; refused at startup without `--broker-limit-unit cost`, whose per-run
+  budget the broker enforces on parent and subagents together, and on any harness but brokered claude) ALLOWS
+  subagents in this install; a claude Project opts in itself (`spec.delegation.subagents`, `.workflows` beside it, both
+  off when unset, CEL: workflows only with subagents; `SubagentsEnabled`, `WorkflowsEnabled`), published as
+  `status.admits.subagents`/`.workflows` (`Settings.subagentsAllowed`/`workflowsAllowed`, the one decision `grant` and
+  `admits` share). Such a Project's build and revise runs record `spec.grant.subagents` at creation (`Settings.grant`:
+  flag AND opt-in then; CEL: build or revise on claude only) and launch with `jobs.Spec.BuildSubagents` only while the
+  flag is still on, never re-reading the Project
   (`RunReconciler.buildSubagents`): turning it off narrows every recorded run at once, never refuses it, and a revise
   lease is adopted whatever its record (`sameRound`); `jobs.ErrSubagentsRefused` settles `launch_refused`.
   `--intent-build-workflows` (default off; refused without `--intent-build-subagents`) records `spec.grant.workflows`
-  beside subagents (CEL: only with them) and launches `jobs.Spec.BuildWorkflows` only while both flags are on
+  beside subagents for a Project opted in to both (CEL: only with them) and launches `jobs.Spec.BuildWorkflows` only while both flags are on
   (`RunReconciler.buildWorkflows`), narrowed and adopted the same way. Workflows are an operator's choice with two
   ACCEPTED limits of the claude CLI (owner, 2026-11-23), which subagents do not have: a workflow script's
   `workflow({scriptPath})` runs that file, one the run wrote in the tree or HOME included (a direct `Workflow{scriptPath}`
@@ -367,7 +371,9 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `GET`/`POST /api/projects/{name}/settings` (`internal/web/project_settings*.go` over the pure
   `internal/projectsettings`): an approver, matched by GitHub numeric id to intent-controller's `status.approvers`
   (write access, login still in the live `spec.approvers.logins`, resolved at most 30 minutes ago; never a login claim),
-  changes the Project's limits, models (plan, build, evaluate), evaluator, hand-off, CI checks, each repository's
+  changes the Project's limits, models (plan, build, evaluate), evaluator, hand-off, delegation switches (turned on only
+  where `status.admits` allows; an on switch the controller no longer allows stays editable so it can be turned off),
+  CI checks, each repository's
   `agentResourceClass` and, under `allow.approvers`, one approver per save, within the operator's policy
   (`--project-settings-policy`: `allow`, `locked`, `ceilings`, `floors`; `--project-settings-projects`) and what
   `status.admits` publishes. The page's one write: a JSON merge patch on `projects` (Role
@@ -819,7 +825,8 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the check
   reviewer's model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
   `ApproversMaxAge`), `Apply`, `Check` (locks, switches, ceilings, floors, `status.admits`: models, classes, the
-  controller's ceilings, run-budget bounds; only changed fields, a cleared one by its landing value), `Confirmations`,
+  controller's ceilings, run-budget bounds, the delegation switches; only changed fields, a cleared one by its landing
+  value), `Confirmations`,
   and `Decide`, which runs them in order and hands back the Project to patch only when all agree; `View` (bounds, the
   approvers' GitHub state, the other field managers with their operation, the last edit), the `Policy` the chart renders
   once for the server and the admission policy (`DefaultPolicy` pinned to the chart's defaults), the

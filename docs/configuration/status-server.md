@@ -157,9 +157,9 @@ With `statusServer.host` set, every notice that a run waits for someone's creden
 
 ## Project settings page
 
-The Project settings page lets a Project's approvers change its limits, models, evaluator, hand-off, CI checks and each
-repository's machine size from the status page, within bounds the operator sets. What it shows and how people use it is
-in [Project settings](../intents/project-settings.md); this section is the operator's side. Helm:
+The Project settings page lets a Project's approvers change its limits, models, evaluator, hand-off, build delegation,
+CI checks and each repository's machine size from the status page, within bounds the operator sets. What it shows and
+how people use it is in [Project settings](../intents/project-settings.md); this section is the operator's side. Helm:
 `statusServer.projectSettings.enabled: true` (default `false`). Chart only: there is no kustomize component.
 
 ```yaml
@@ -175,7 +175,7 @@ statusServer:
       approvers: false # approvers may add or remove one approver per save
       disableEvaluator: false # verification off, early hand-off, an evaluator limit under its floor
       emptyChecks: false # an empty checks.fix
-    locked: [] # groups shown read-only: approvers, evaluator, handoff, models, cost, rounds, activeIntents, stages, checks, resources
+    locked: [] # groups shown read-only: approvers, evaluator, handoff, models, cost, rounds, activeIntents, stages, delegation, checks, resources
     ceilings:
       maxCostMicroUSD: 25000000 # $25
       maxRevisions: 10
@@ -261,7 +261,8 @@ read, so the two cannot disagree. What each bound means to the people using the 
 - `locked` takes the lock groups: `approvers`, `evaluator` (`verification.enabled`, `verification.maxToolCalls`),
   `handoff` (`verification.handoff`, `verification.handoffMax`), `models`, `cost` (`limits.maxCostMicroUSD`,
   `limits.maxEvaluateCostMicroUSD`), `rounds` (`maxRevisions`, `maxCheckFixes`, `maxVerifyFixes`, `maxVerifications`),
-  `activeIntents`, `stages` (`limits.<stage>.*`), `checks` and `resources` (`agentResourceClass`).
+  `activeIntents`, `stages` (`limits.<stage>.*`), `delegation` (`delegation.subagents`, `delegation.workflows`),
+  `checks` and `resources` (`agentResourceClass`).
 - `ceilings` bound the six limits intent-controller does not clamp. A change is admitted when the new value is at most
   the ceiling, or at most the old one: a higher value you set yourself can be kept or lowered from the page, never
   raised. A cleared field is judged by the default it lands on. Money is in micro-USD.
@@ -272,9 +273,12 @@ read, so the two cannot disagree. What each bound means to the people using the 
 
 Beyond your bounds, the page takes only what intent-controller admits, from the facts it publishes on each Project
 (`status.admits`, see [Projects](intent-controller.md#projects)): models it admits for the Project's harness, the
-resource classes it defines (none defined: the machine size is read-only), and nothing above its own stage, evaluation
-cost and tool-call ceilings. Until `status.admits` is published, no model or class can be chosen and nothing
-intent-controller bounds can be raised.
+resource classes it defines (none defined: the machine size is read-only), nothing above its own stage, evaluation cost
+and tool-call ceilings, and a delegation switch turned on only where it allows that switch (`status.admits.subagents`,
+`.workflows`: `intentController.buildSubagents`, see
+[Subagents and workflows in builds](intent-controller.md#subagents-and-workflows-in-builds)). Keeping a switch on, or
+turning it off, is always admitted. Until `status.admits` is published, no model or class can be chosen, no delegation
+switch turned on and nothing intent-controller bounds can be raised.
 
 ### What the chart renders
 
@@ -289,9 +293,9 @@ intent-controller bounds can be raised.
   references, and every annotation but `maul.run/settings-edited` (at most 1 KiB); the record of which writer manages
   which field (`managedFields`, which the page never writes but any patch could replace): no other writer's entry added,
   dropped (but one a save emptied of the page's own fields) or re-dated, and none gaining or losing a field outside the
-  page's own; the locks, switches, ceilings and floors; models and classes against `status.admits`; and
-  intent-controller's own ceilings. A denial reaches the page as a refusal of the whole save ("The cluster refused the
-  save as invalid"); its message starts `project settings:`, and the status server logs it.
+  page's own; the locks, switches, ceilings and floors; models, classes and delegation switches turned on against
+  `status.admits`; and intent-controller's own ceilings. A denial reaches the page as a refusal of the whole save ("The
+  cluster refused the save as invalid"); its message starts `project settings:`, and the status server logs it.
 - The ConfigMap keys of the three flags.
 
 People need no new grant: whoever may see a Project's intents (`get` on `projects/intents`) can open its page, and an

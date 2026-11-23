@@ -12,8 +12,8 @@
 // spec, each with its lock group, its kind, the schema's own range and when
 // a change takes effect. A field not in the table cannot be changed here,
 // whatever a save holds. The table covers limits, models, checks, the
-// evaluator's settings, the approver list and, per repository, the one
-// field agentResourceClass. Where agents are pointed is not in it: the
+// evaluator's settings, the build's delegation switches, the approver list
+// and, per repository, the one field agentResourceClass. Where agents are pointed is not in it: the
 // intent repository, the labels, a repository's name, url or preview, the
 // harness and the surfaces.
 //
@@ -32,10 +32,11 @@
 //   - Check: judge what changed against the operator's Policy (locks,
 //     switches, ceilings, floors) and what intent-controller admits
 //     (status.admits: models, resource classes, its own ceilings and run
-//     budget bounds). Only what changed is judged, a cleared field by the
+//     budget bounds, the delegation it allows). Only what changed is judged, a cleared field by the
 //     value it lands on; a value already out of bounds may be kept or moved
 //     back, never further; with nothing published, no model or class is
-//     chosen and nothing the controller bounds is raised.
+//     chosen, no delegation switch turned on and nothing the controller
+//     bounds is raised.
 //   - Confirmations: the weakening changes a person must confirm, each
 //     under a key that names the change and its value.
 //

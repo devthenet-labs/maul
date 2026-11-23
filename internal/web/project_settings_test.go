@@ -804,6 +804,38 @@ func TestProjectSettingsSaveRefused(t *testing.T) {
 	}
 }
 
+// A delegation switch is turned on only where intent-controller allows it:
+// refused with no write while status.admits says no, saved once it says
+// yes.
+func TestProjectSettingsSaveDelegation(t *testing.T) {
+	f := newSaveFixture(t, ProjectSettingsOptions{Policy: savePolicy()})
+	req := f.request()
+	req.Settings.Delegation.Subagents = true
+	code, res := f.save(approverAlpha, req)
+	want := []projectsettings.ProjectSettingsRefusal{{Field: projectsettings.FieldSubagents,
+		Reason: projectsettings.RefusedDelegationNotAdmitted}}
+	if code != http.StatusUnprocessableEntity || res.Reason != projectsettings.ResultRefused ||
+		!equalJSON(t, res.Refusals, want) {
+		t.Errorf("subagents on, not allowed = %d %+v, want 422 %+v", code, res, want)
+	}
+	if len(f.patches) != 0 {
+		t.Fatalf("%d patches for a refused save", len(f.patches))
+	}
+	p := f.project()
+	p.Status.Admits.Subagents = true
+	if err := f.c.Status().Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	req = f.request()
+	req.Settings.Delegation.Subagents = true
+	if code, res = f.save(approverAlpha, req); code != http.StatusOK || res.Reason != "" {
+		t.Fatalf("subagents on, allowed = %d %+v, want 200", code, res)
+	}
+	if got := f.project(); !got.Spec.SubagentsEnabled() || got.Spec.WorkflowsEnabled() {
+		t.Errorf("stored delegation = %+v, want subagents alone", got.Spec.Delegation)
+	}
+}
+
 // A weakening change is answered with the confirmations it needs; posted
 // again with them it is saved, and the answer carries the generation the
 // page waits for.

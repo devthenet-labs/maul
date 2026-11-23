@@ -101,8 +101,8 @@ spec:
               chart's statusServer.projectSettings, off by default), the status server
               patches a bounded part of the spec for an approver who has write access to
               the intent repository: limits, models, checks, the evaluator's settings,
-              an existing repository's agentResourceClass and, behind its own switch,
-              the approver list. Where agents are pointed is never part of it: the
+              the build's delegation switches, an existing repository's
+              agentResourceClass and, behind its own switch, the approver list. Where agents are pointed is never part of it: the
               intent repository, the labels, a repository's name, url or preview, the
               harness and the surfaces. An admission policy on the status server's
               ServiceAccount holds every such write to that part, to the operator's
@@ -186,6 +186,27 @@ spec:
                 - message: 'checks.fix cannot name maul/acceptance: maul never fixes
                     its own status'
                   rule: '!has(self.fix) || !self.fix.exists(c, c.lowerAscii() == ''maul/acceptance'')'
+              delegation:
+                description: |-
+                  Delegation lets the Project's build and revise runs delegate
+                  (ProjectDelegation). Unset means neither.
+                properties:
+                  subagents:
+                    description: |-
+                      Subagents lets a build or revise run delegate to subagents, each
+                      spending from the run's own cost budget.
+                    type: boolean
+                  workflows:
+                    description: |-
+                      Workflows lets such a run also run workflows. It needs Subagents: a
+                      workflow runs in a build granted subagents, under its posture and its
+                      cost budget.
+                    type: boolean
+                type: object
+                x-kubernetes-validations:
+                - message: delegation.workflows needs delegation.subagents
+                  rule: '!has(self.workflows) || !self.workflows || (has(self.subagents)
+                    && self.subagents)'
               harness:
                 description: |-
                   Harness is the coding agent the Project's plan, build, revise and
@@ -1324,6 +1345,19 @@ spec:
                             type: integer
                         type: object
                     type: object
+                  subagents:
+                    description: |-
+                      Subagents reports that intent-controller lets this Project's build
+                      and revise runs delegate to subagents (--intent-build-subagents, on a
+                      Project not on codex), so spec.delegation.subagents takes effect.
+                      False (omitted): it grants nothing.
+                    type: boolean
+                  workflows:
+                    description: |-
+                      Workflows reports the same for spec.delegation.workflows
+                      (--intent-build-workflows beside Subagents). Never true without
+                      Subagents.
+                    type: boolean
                 type: object
               approvers:
                 description: |-

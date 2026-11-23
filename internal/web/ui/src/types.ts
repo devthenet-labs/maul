@@ -1033,6 +1033,7 @@ export type ProjectSettingsGroup =
   | "rounds"
   | "activeIntents"
   | "stages"
+  | "delegation"
   | "checks"
   | "resources";
 
@@ -1049,8 +1050,15 @@ export type ProjectSettingsKind =
 
 export type ProjectSettingsEffect = "live" | "new-runs" | "new-intents" | "next-round";
 
-// why a field cannot be changed at all; "" when it can.
-export type ProjectSettingsLocked = "" | "locked" | "not-allowed" | "admits-unpublished" | "no-classes";
+// why a field cannot be changed at all; "" when it can. "not-admitted": a
+// delegation switch, off, that intent-controller does not allow.
+export type ProjectSettingsLocked =
+  | ""
+  | "locked"
+  | "not-allowed"
+  | "admits-unpublished"
+  | "no-classes"
+  | "not-admitted";
 
 export type ProjectSettingsApproverState = "ok" | "no-write-access" | "no-account" | "unresolved";
 
@@ -1079,6 +1087,7 @@ export interface ProjectSettings {
   models: ProjectSettingsModels;
   limits: ProjectSettingsLimits;
   stages: ProjectSettingsStages;
+  delegation: ProjectSettingsDelegation;
   checks: ProjectSettingsChecks;
   repositories: ProjectSettingsRepository[];
 }
@@ -1121,6 +1130,14 @@ export interface ProjectSettingsStage {
   tokenBudget: number;
   maxCostMicroUSD: number;
   timeoutSeconds: number;
+}
+
+// spec.delegation: the Project's opt-in, which takes effect only where
+// options.subagents / options.workflows say the controller allows it.
+// workflows needs subagents.
+export interface ProjectSettingsDelegation {
+  subagents: boolean;
+  workflows: boolean;
 }
 
 export interface ProjectSettingsChecks {
@@ -1188,6 +1205,9 @@ export interface ProjectSettingsOptions {
   resourceClasses: ProjectSettingsClass[];
   evaluator: boolean;
   costBudgets: boolean;
+  // intent-controller lets the Project's delegation switches take effect.
+  subagents: boolean;
+  workflows: boolean;
 }
 
 export interface ProjectSettingsClass {

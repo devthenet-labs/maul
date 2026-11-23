@@ -27,6 +27,8 @@ export type SettingValue = number | null | boolean | string | string[];
 export const CLASS_FIELD = "repositories.agentResourceClass";
 export const APPROVERS_FIELD = "approvers.logins";
 export const CHECKS_FIELD = "checks.fix";
+export const SUBAGENTS_FIELD = "delegation.subagents";
+export const WORKFLOWS_FIELD = "delegation.workflows";
 
 // SCHEMA_DEFAULTED are the fields the Project schema defaults: the stored
 // value is never unset, and a cleared input means the default
@@ -97,6 +99,15 @@ export function withFieldValue(doc: ProjectSettings, id: string, value: SettingV
   const next = structuredClone(doc);
   const s = slot(next, id, item);
   if (s) s.holder[s.key] = Array.isArray(value) ? [...value] : value;
+  return next;
+}
+
+// withDraftValue is withFieldValue as the form edits a draft: turning
+// subagents off turns workflows off with it, since workflows need
+// subagents and a save leaving them on alone is refused.
+export function withDraftValue(doc: ProjectSettings, id: string, value: SettingValue, item = ""): ProjectSettings {
+  const next = withFieldValue(doc, id, value, item);
+  if (id === SUBAGENTS_FIELD && value === false) next.delegation.workflows = false;
   return next;
 }
 
@@ -474,6 +485,8 @@ const FIELD_LABELS: Record<string, string> = {
   "checks.fix": "Checks maul fixes",
   "checks.timeout": "Longest wait for checks",
   "checks.rerunFailed": "Rerun failed checks",
+  "delegation.subagents": "Subagents in builds",
+  "delegation.workflows": "Workflows in builds",
   "repositories.agentResourceClass": "Machine size",
 };
 
@@ -500,7 +513,34 @@ export const LOCKS: Record<string, string> = {
   "not-allowed": "The operator does not let this page change it.",
   "admits-unpublished": "intent-controller has not yet published the choices for this Project.",
   "no-classes": "The operator defines no machine sizes to choose from.",
+  "not-admitted": "intent-controller does not allow this in this install.",
 };
+
+// lockText is why a field is locked, in words for the Project's harness.
+export function lockText(locked: string, harness: string): string {
+  if (locked === "not-admitted" && harness === "codex") return "codex runs never delegate.";
+  return LOCKS[locked] ?? locked;
+}
+
+// delegationNote is what the page says beside a delegation switch, given
+// the draft: a switch that is on where intent-controller does not allow it
+// grants nothing (and can be turned off), and workflows need subagents.
+// null for any other field, or nothing to say.
+export function delegationNote(
+  view: Pick<ProjectSettingsView, "settings" | "options" | "facts">,
+  draft: ProjectSettings,
+  id: string,
+): string | null {
+  if (id !== SUBAGENTS_FIELD && id !== WORKFLOWS_FIELD) return null;
+  const on = fieldValue(draft, id) === true;
+  const allowed = view.options.published && (id === SUBAGENTS_FIELD ? view.options.subagents : view.options.workflows);
+  if (on && !allowed) {
+    const why = view.facts.harness === "codex" ? "codex runs never delegate" : "not allowed in this install";
+    return `On, but ${why}: it grants nothing. You can turn it off.`;
+  }
+  if (id === WORKFLOWS_FIELD && !draft.delegation.subagents) return "Needs subagents on.";
+  return null;
+}
 
 // GATE says why the viewer may not save.
 export const GATE: Record<string, string> = {
@@ -563,6 +603,10 @@ export function refusalText(r: ProjectSettingsRefusal, f?: ProjectSettingsField)
       return `${r.value} is not a machine size the operator defines.`;
     case "checks-empty-not-allowed":
       return "The operator does not let this page empty the list.";
+    case "delegation-not-admitted":
+      return "intent-controller does not allow this for this Project, so it cannot be turned on.";
+    case "workflows-need-subagents":
+      return "Workflows need subagents on.";
     case "run-budget-over-hourly":
       return `A run's budget would pass half the hourly spend limit (${limit}).`;
     case "run-budget-under-reserve":
@@ -724,6 +768,10 @@ export function valuesYAML(project: string, s: ProjectSettings): string {
     ...num(8, "maxVerifications", l.maxVerifications),
     ...num(8, "maxActiveIntents", l.maxActiveIntents),
     ...stages,
+  ]);
+  block(6, "delegation", [
+    `${pad(8)}subagents: ${s.delegation.subagents}`,
+    `${pad(8)}workflows: ${s.delegation.workflows}`,
   ]);
   block(6, "checks", [
     ...(s.checks.fix.length ? [`${pad(8)}fix: ${list(s.checks.fix)}`] : []),

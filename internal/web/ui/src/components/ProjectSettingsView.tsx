@@ -29,9 +29,12 @@ import {
   type DraftChange,
   type Moved,
   type Routed,
+  WORKFLOWS_FIELD,
   approverProblem,
   classifySave,
   confirmationText,
+  delegationNote,
+  lockText,
   draftChanges,
   fieldKey,
   fieldLabel,
@@ -50,6 +53,7 @@ import {
   valueText,
   valueWords,
   valuesYAML,
+  withDraftValue,
   withFieldValue,
 } from "../projectSettings";
 import { hrefForIntents } from "../router";
@@ -166,7 +170,9 @@ function FieldInput({ f, item = "", label, view, draft, texts, errors, editable,
   const name = label ?? full;
   const loaded = fieldValue(view.settings, f.id, item);
   const changed = JSON.stringify(loaded) !== JSON.stringify(value);
-  const disabled = !editable || f.locked !== "";
+  // Workflows need subagents: the switch waits for subagents in the draft.
+  const disabled = !editable || f.locked !== "" || (f.id === WORKFLOWS_FIELD && !draft.delegation.subagents);
+  const note = delegationNote(view, draft, f.id);
 
   let control: ComponentChildren;
   switch (f.kind) {
@@ -253,7 +259,8 @@ function FieldInput({ f, item = "", label, view, draft, texts, errors, editable,
         {bounds ? `${bounds} · ` : ""}
         {EFFECTS[f.effect] ?? f.effect}
       </span>
-      {f.locked ? <span class="text-[11.5px] text-muted">{LOCKS[f.locked] ?? f.locked}</span> : null}
+      {f.locked ? <span class="text-[11.5px] text-muted">{lockText(f.locked, view.facts.harness)}</span> : null}
+      {note && !f.locked ? <span class="text-[11.5px] text-muted">{note}</span> : null}
       <Warnings lines={managerNotes(item ? classManagers(view, item) : f.managers, false)} />
       <Errors lines={errors} />
     </div>
@@ -683,7 +690,7 @@ export function ProjectSettingsPage({ name }: { name: string }) {
     edited();
   };
   const onValue = (f: ProjectSettingsField, value: string | boolean, item: string) => {
-    setDraft((d) => (d ? withFieldValue(d, f.id, value, item) : d));
+    setDraft((d) => (d ? withDraftValue(d, f.id, value, item) : d));
     edited();
   };
   const props = { view, draft, texts, editable, onText, onValue };
@@ -940,6 +947,16 @@ export function ProjectSettingsPage({ name }: { name: string }) {
             </div>
           </div>
         ))}
+      </Card>
+
+      <Card
+        title="Delegation"
+        note="Lets new build and revise runs hand work to subagents and, beside them, workflows. Each subagent spends from the run's own cost budget."
+      >
+        <div class="grid gap-4 sm:grid-cols-2">
+          {input("delegation.subagents")}
+          {input("delegation.workflows")}
+        </div>
       </Card>
 
       <Card title="CI checks">

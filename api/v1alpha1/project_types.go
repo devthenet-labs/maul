@@ -153,6 +153,20 @@ func (s *ProjectSpec) VerificationEnabled() bool {
 	return s.Verification != nil && s.Verification.Enabled
 }
 
+// SubagentsEnabled reports whether the Project opts its build and revise
+// runs into subagents (spec.delegation.subagents). Whether a run is granted
+// them is intent-controller's to decide, at the run's creation.
+func (s *ProjectSpec) SubagentsEnabled() bool {
+	return s.Delegation != nil && s.Delegation.Subagents
+}
+
+// WorkflowsEnabled reports whether the Project opts its build and revise
+// runs into workflows (spec.delegation.workflows), which count only beside
+// subagents (SubagentsEnabled).
+func (s *ProjectSpec) WorkflowsEnabled() bool {
+	return s.SubagentsEnabled() && s.Delegation.Workflows
+}
+
 // VerificationTimeout is spec.verification.timeout, or its default when
 // unset. intent-controller clamps it to --intent-verify-timeout-max.
 func (s *ProjectSpec) VerificationTimeout() time.Duration {
@@ -694,8 +708,8 @@ const MaxPreviewComponents = 4
 // chart's statusServer.projectSettings, off by default), the status server
 // patches a bounded part of the spec for an approver who has write access to
 // the intent repository: limits, models, checks, the evaluator's settings,
-// an existing repository's agentResourceClass and, behind its own switch,
-// the approver list. Where agents are pointed is never part of it: the
+// the build's delegation switches, an existing repository's
+// agentResourceClass and, behind its own switch, the approver list. Where agents are pointed is never part of it: the
 // intent repository, the labels, a repository's name, url or preview, the
 // harness and the surfaces. An admission policy on the status server's
 // ServiceAccount holds every such write to that part, to the operator's
@@ -809,6 +823,31 @@ type ProjectSpec struct {
 	// (ProjectSurfaces). Unset means http only.
 	// +optional
 	Surfaces *ProjectSurfaces `json:"surfaces,omitempty"`
+	// Delegation lets the Project's build and revise runs delegate
+	// (ProjectDelegation). Unset means neither.
+	// +optional
+	Delegation *ProjectDelegation `json:"delegation,omitempty"`
+}
+
+// ProjectDelegation opts a Project's build and revise runs (check-fix and
+// verify-fix rounds included) into delegation, where intent-controller
+// allows it (--intent-build-subagents, --intent-build-workflows; published
+// as status.admits.subagents and status.admits.workflows). A switch the
+// controller does not allow grants nothing. Each run records its grant at
+// creation (IntentRun spec.grant), so a change applies to new runs only.
+// Plans, the evaluator, the check reviewer and codex Projects never
+// delegate.
+// +kubebuilder:validation:XValidation:rule="!has(self.workflows) || !self.workflows || (has(self.subagents) && self.subagents)",message="delegation.workflows needs delegation.subagents"
+type ProjectDelegation struct {
+	// Subagents lets a build or revise run delegate to subagents, each
+	// spending from the run's own cost budget.
+	// +optional
+	Subagents bool `json:"subagents,omitempty"`
+	// Workflows lets such a run also run workflows. It needs Subagents: a
+	// workflow runs in a build granted subagents, under its posture and its
+	// cost budget.
+	// +optional
+	Workflows bool `json:"workflows,omitempty"`
 }
 
 // ProjectModels names, per stage, the canonical model (provider/name, as
@@ -1100,6 +1139,17 @@ type ProjectAdmits struct {
 	// (VerificationOff, EvaluatorOff).
 	// +optional
 	Evaluator bool `json:"evaluator,omitempty"`
+	// Subagents reports that intent-controller lets this Project's build
+	// and revise runs delegate to subagents (--intent-build-subagents, on a
+	// Project not on codex), so spec.delegation.subagents takes effect.
+	// False (omitted): it grants nothing.
+	// +optional
+	Subagents bool `json:"subagents,omitempty"`
+	// Workflows reports the same for spec.delegation.workflows
+	// (--intent-build-workflows beside Subagents). Never true without
+	// Subagents.
+	// +optional
+	Workflows bool `json:"workflows,omitempty"`
 	// ResourceClasses are the resource classes the operator defines
 	// (--intent-resource-classes), by name: what a repository's
 	// agentResourceClass may be. Empty: none is defined, and a repository's

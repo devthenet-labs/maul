@@ -1289,8 +1289,8 @@ report `read` for everyone, so `read` is never enough).
   ago; never from a login claim. The approver list stays the operator's unless the operator also sets
   `statusServer.projectSettings.allow.approvers` (chart default off): then an approver may add or remove one other login
   per save, and an added login gains authority only once GitHub reports its write access. Every page write is held again
-  by an admission policy on the status server's ServiceAccount (the operator's ceilings, floors, switches and locks;
-  every field outside the page's own pinned).
+  by an admission policy on the status server's ServiceAccount (the operator's ceilings, floors, switches and locks; a
+  delegation switch turned on only where `status.admits` allows it; every field outside the page's own pinned).
 - Agent text reaching GitHub goes through `internal/templates` renderers; PR title/body/commit messages are defanged as
   **plain text** too (squash merges copy them into commits, where code spans protect nothing).
 - Intent changesets refuse `.github/**`, `.maul/**`, `.devcontainer/**`; builds only run in an accepted

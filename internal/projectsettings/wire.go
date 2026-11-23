@@ -7,7 +7,7 @@ package projectsettings
 // echoes the schema its page was served with, so a page cached from before a
 // field was added can never clear a field it does not know: a save whose
 // schema is not this one is refused, and the page reloads.
-const Schema = 1
+const Schema = 2
 
 // ProjectSettings is the editable document: every setting of a Project the
 // status page may change, and nothing else. The page is served it (Read)
@@ -28,6 +28,8 @@ type ProjectSettings struct {
 	Limits ProjectSettingsLimits `json:"limits"`
 	// Stages are the per-stage limits of spec.limits.
 	Stages ProjectSettingsStages `json:"stages"`
+	// Delegation is spec.delegation.
+	Delegation ProjectSettingsDelegation `json:"delegation"`
 	// Checks are spec.checks.
 	Checks ProjectSettingsChecks `json:"checks"`
 	// Repositories are the Project's repositories by name, each with the
@@ -95,6 +97,16 @@ type ProjectSettingsStage struct {
 	TokenBudget     int64 `json:"tokenBudget"`
 	MaxCostMicroUSD int64 `json:"maxCostMicroUSD"`
 	TimeoutSeconds  int64 `json:"timeoutSeconds"`
+}
+
+// ProjectSettingsDelegation is spec.delegation: the Project's opt-in to
+// delegation in its build and revise runs. A switch takes effect only where
+// intent-controller allows it (ProjectSettingsOptions).
+type ProjectSettingsDelegation struct {
+	// Subagents is delegation.subagents.
+	Subagents bool `json:"subagents"`
+	// Workflows is delegation.workflows; it needs Subagents.
+	Workflows bool `json:"workflows"`
 }
 
 // ProjectSettingsChecks are spec.checks.
@@ -226,6 +238,11 @@ type ProjectSettingsOptions struct {
 	// CostBudgets that the stages' cost budgets are enforced.
 	Evaluator   bool `json:"evaluator"`
 	CostBudgets bool `json:"costBudgets"`
+	// Subagents and Workflows report that the controller lets the
+	// Project's delegation switches take effect: a switch it does not
+	// allow can be turned off, never on.
+	Subagents bool `json:"subagents"`
+	Workflows bool `json:"workflows"`
 }
 
 // ProjectSettingsClass is one resource class with its size, as the operator
@@ -382,7 +399,8 @@ type ProjectSettingsConfirmation struct {
 func WireTypes() []any {
 	return []any{
 		ProjectSettings{}, ProjectSettingsVerification{}, ProjectSettingsModels{}, ProjectSettingsLimits{},
-		ProjectSettingsStages{}, ProjectSettingsStage{}, ProjectSettingsChecks{}, ProjectSettingsRepository{},
+		ProjectSettingsStages{}, ProjectSettingsStage{}, ProjectSettingsDelegation{}, ProjectSettingsChecks{},
+		ProjectSettingsRepository{},
 		ProjectSettingsView{}, ProjectSettingsField{}, ProjectSettingsManager{}, ProjectSettingsApprover{},
 		ProjectSettingsOptions{},
 		ProjectSettingsClass{}, ProjectSettingsAllow{}, ProjectSettingsFacts{}, ProjectSettingsRepositoryFact{},

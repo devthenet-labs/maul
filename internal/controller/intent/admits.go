@@ -17,7 +17,8 @@ import (
 // each): the models modelRefusal admits, the stage flags' models, the
 // ceilings grant clamps to, the hourly bound budgetOverHourly holds a run
 // budget under, the floors budgetUnderReserve holds an evaluator stage's
-// budget over, and the operator's resource classes. It depends on the spec
+// budget over, the delegation grant records for a Project that opts in,
+// and the operator's resource classes. It depends on the spec
 // and the settings only, so an unchanged Project is never written again,
 // and what does not fit the status schema's bounds is dropped, never
 // failed: a refused status write would lose Ready with it.
@@ -39,6 +40,8 @@ func (s Settings) admits(p *v1alpha1.Project, classes resourceclass.Set) *v1alph
 		MaxToolCalls:            max(s.MaxToolCalls, 0),
 		CostBudgets:             s.CostBudgets,
 		Evaluator:               s.Evaluator,
+		Subagents:               s.subagentsAllowed(h),
+		Workflows:               s.workflowsAllowed(h),
 		ResourceClasses:         publishClasses(classes),
 	}
 	if evaluator {

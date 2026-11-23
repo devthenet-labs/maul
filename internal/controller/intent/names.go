@@ -201,17 +201,20 @@ type Settings struct {
 	// provider.BudgetAnnotation. Off (the token unit, the default), no run
 	// records a budget and no Job carries one.
 	CostBudgets bool
-	// BuildSubagents is --intent-build-subagents: a build or revise run of
-	// a claude Project records at creation that it may delegate to
-	// subagents (IntentRunGrant.Subagents, grant), and a run that recorded
+	// BuildSubagents is --intent-build-subagents: it allows a claude
+	// Project that opts in (spec.delegation.subagents) to delegate, so a
+	// build or revise run of such a Project records at creation that it
+	// may delegate to subagents (IntentRunGrant.Subagents, grant; published
+	// as status.admits.subagents), and a run that recorded
 	// it launches with them only while this is still on (launch narrows,
 	// never widens: RunReconciler.buildSubagents). serve refuses it without
 	// CostBudgets: the run's cost budget, which the broker enforces on the
 	// whole pod, is what bounds the run and its subagents together. Off
 	// (the default), no run records it and no Job carries it.
 	BuildSubagents bool
-	// BuildWorkflows is --intent-build-workflows: a run recorded with
-	// subagents also records that it may run workflows
+	// BuildWorkflows is --intent-build-workflows: it allows a Project that
+	// also opts in to workflows (spec.delegation.workflows), so a run
+	// recorded with subagents also records that it may run workflows
 	// (IntentRunGrant.Workflows), and launches with them only while this and
 	// BuildSubagents are both still on. serve refuses it without
 	// BuildSubagents. A workflow's agents print no turns, so the run's cost
@@ -515,9 +518,12 @@ func (s Settings) withDefaults() Settings {
 // grant is what one run of stage is granted: the Project's limit for the
 // stage clamped by the controller's ceiling (a zero limit takes the
 // ceiling), and the ceiling's wall clock; under the cost unit its cost
-// budget, and under --intent-build-subagents, on a build or revise run of a
-// Project not on codex, subagents, with workflows beside them under
-// --intent-build-workflows.
+// budget; and, on a build or revise run of a Project not on codex that opts
+// in (spec.delegation.subagents), subagents where --intent-build-subagents
+// allows them, with workflows beside them where the Project also opts in to
+// those (spec.delegation.workflows) and --intent-build-workflows allows
+// them. A Project that does not opt in is granted neither, whatever the
+// flags say.
 func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.IntentRunGrant {
 	ceiling, limits := s.ceiling(stage), stageLimits(p, stage)
 	turns := ceiling.MaxTurns
@@ -540,9 +546,24 @@ func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha
 	if s.CostBudgets {
 		g.BudgetMicroUSD = s.stageBudget(p, stage)
 	}
-	g.Subagents = s.BuildSubagents && subagentStage(stage) && !p.Spec.Harness.IsCodex()
-	g.Workflows = g.Subagents && s.BuildWorkflows
+	g.Subagents = subagentStage(stage) && s.subagentsAllowed(p.Spec.Harness) && p.Spec.SubagentsEnabled()
+	g.Workflows = g.Subagents && s.workflowsAllowed(p.Spec.Harness) && p.Spec.WorkflowsEnabled()
 	return g
+}
+
+// subagentsAllowed reports whether s lets a Project on harness h opt its
+// build and revise runs into subagents (spec.delegation.subagents):
+// --intent-build-subagents is on and the Project is not on codex, which
+// renders no subagents posture. grant and the published status.admits both
+// read it, so the page offers exactly what a run is granted.
+func (s Settings) subagentsAllowed(h v1alpha1.ProjectHarness) bool {
+	return s.BuildSubagents && !h.IsCodex()
+}
+
+// workflowsAllowed reports the same for spec.delegation.workflows:
+// --intent-build-workflows beside subagentsAllowed.
+func (s Settings) workflowsAllowed(h v1alpha1.ProjectHarness) bool {
+	return s.subagentsAllowed(h) && s.BuildWorkflows
 }
 
 // subagentStage reports whether stage's runs may be granted subagents: the

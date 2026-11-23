@@ -62,6 +62,8 @@ intent-controller's own ceiling for that stage (see [stage limits](../configurat
 |                        | Automatic verifications                                                  | `limits.maxVerifications`                        | 1 to 100, default 20                                                       | at once                               |
 |                        | Intents running at once                                                  | `limits.maxActiveIntents`                        | 1 to 20, default 2                                                         | at once                               |
 | Stage limits           | Turns, tokens, cost and time per run of plan, build, revise and evaluate | `limits.<stage>.*`                               | turns 0 to 1000, tokens up to 100M, cost up to the intent's, time 1m to 4h | runs started after the save           |
+| Delegation             | Subagents in build and revise runs                                       | `delegation.subagents`                           | on or off, where intent-controller allows it                               | runs started after the save           |
+|                        | Workflows in build and revise runs                                       | `delegation.workflows`                           | on or off, where allowed; needs subagents                                  | runs started after the save           |
 | CI checks              | Checks maul waits for and fixes                                          | `checks.fix`                                     | up to 32 check names                                                       | at once                               |
 |                        | Longest wait for the checks                                              | `checks.timeout`                                 | 1m to 6h, default 30m                                                      | at once                               |
 |                        | Re-run a failed check once before a CI-fix round                         | `checks.rerunFailed`                             | on or off                                                                  | at once                               |
@@ -84,6 +86,27 @@ number and order of repositories, the harness, previews, surfaces, `suspend`, `r
 limits (`models.checkReview`, `limits.checkReview`) are not on it either. The "Set by the operator" card shows the ones
 a person may need to know.
 
+## Delegation
+
+The Delegation card holds the Project's opt-in to delegation in its builds. With **Subagents in builds** on, each new
+build and revise run (CI-fix and verify-fix rounds included) may hand parts of its work to the claude CLI's subagents,
+in the foreground, on the run's own model, under the build's own tools. With **Workflows in builds** on as well, it may
+also run the CLI's inline and built-in workflows. Workflows need subagents: turning subagents off turns workflows off
+with it, and the page refuses workflows alone. Plans, the evaluator and the check reviewer never delegate.
+
+Every subagent and workflow agent spends from the run's own cost budget, which is what bounds the run and everything it
+starts together; a workflow's agents count against neither the turn limit nor the token limit. Size the build and revise
+cost limits for what one run may spend with its subagents, not on its main thread alone. The operator's guide has the
+details and the two accepted limits of workflows:
+[Subagents and workflows in builds](../configuration/intent-controller.md#subagents-and-workflows-in-builds).
+
+Each run records what it was granted when it starts, so a change applies to runs started after the save, never to one
+already running.
+
+A switch is locked, with the reason beside it, while intent-controller does not allow it: the operator has not turned it
+on for this install, or the Project runs on codex, whose runs never delegate. A switch that is on is never locked by
+that, so you can always turn it off; while it is not allowed it grants nothing, and the page says so.
+
 ## What the operator allows
 
 The operator sets bounds the page cannot pass. The page shows each one beside its setting, and refuses a save that
@@ -104,8 +127,10 @@ crosses one; the cluster refuses it again, so no change to the page can get past
   - turning the evaluator off, handing previews over early (or going from gated to the install's default, which may be
     early), or lowering an evaluator limit under its floor;
   - emptying the CI checks, so maul waits for and fixes none.
+- **intent-controller's switches.** A delegation switch can be turned on only where intent-controller allows it (see
+  [Delegation](#delegation)).
 - **Locks.** The operator can lock any group of settings (approvers, evaluator, hand-off, models, spend, rounds, intents
-  running at once, stage limits, CI checks, machine size). A locked group is read-only.
+  running at once, stage limits, delegation, CI checks, machine size). A locked group is read-only.
 
 The chart's defaults, which your operator may have changed (the page shows the ones in force):
 

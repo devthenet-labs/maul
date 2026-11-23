@@ -198,10 +198,27 @@ func (s *settingsPage) refusesStaleAndUnadmitted(t *testing.T, before projectset
 		}) {
 		t.Errorf("an unadmitted model = %d %+v, want 422 refusing models.build as not admitted", code, res)
 	}
+	// This stack runs intent-controller without --intent-build-subagents,
+	// so the Project's admits allow no delegation: the switch is locked
+	// while off, and a save turning it on anyway is refused.
+	view := settingsOf(t, s.octo, s.page)
+	if i := slices.IndexFunc(view.Fields, func(f projectsettings.ProjectSettingsField) bool {
+		return f.ID == projectsettings.FieldSubagents
+	}); i < 0 || view.Fields[i].Locked != projectsettings.LockedNotAdmitted || view.Options.Subagents {
+		t.Errorf("the subagents switch = %+v, options %+v; want it locked as not admitted", view.Fields, view.Options)
+	}
+	code, res = saveSettings(t, s.octo, s.page, view, nil,
+		func(d *projectsettings.ProjectSettings) { d.Delegation.Subagents = true })
+	if code != http.StatusUnprocessableEntity || res.Reason != projectsettings.ResultRefused ||
+		!slices.ContainsFunc(res.Refusals, func(r projectsettings.ProjectSettingsRefusal) bool {
+			return r.Field == projectsettings.FieldSubagents && r.Reason == projectsettings.RefusedDelegationNotAdmitted
+		}) {
+		t.Errorf("subagents turned on = %d %+v, want 422 refusing delegation.subagents as not admitted", code, res)
+	}
 	consistently(t, "the project to stay Ready and unwritten after the refused saves", func() bool {
 		p := s.e.project(t)
 		return p.Generation == saved && p.Spec.Limits.Plan.MaxTurns == 0 &&
-			(p.Spec.Models == nil || p.Spec.Models.Build == "") &&
+			(p.Spec.Models == nil || p.Spec.Models.Build == "") && p.Spec.Delegation == nil &&
 			meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha1.ConditionReady)
 	})
 }

@@ -5,6 +5,7 @@ package v1alpha1
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,8 @@ func publishedProjectStatus() ProjectStatus {
 				{Model: "anthropic/claude-sonnet-5", EvaluateMicroUSD: 960000},
 			},
 			Evaluator: true,
+			Subagents: true,
+			Workflows: true,
 			ResourceClasses: []ProjectResourceClass{{
 				Name:     "large",
 				Requests: ProjectResourceQuantities{CPU: "4", Memory: "8Gi"},
@@ -86,10 +89,41 @@ func TestProjectStatusWirePaths(t *testing.T) {
 		`"runBudgetFloors":[` +
 		`{"model":"anthropic/claude-opus-5","evaluateMicroUSD":1600000,"checkReviewMicroUSD":409600},` +
 		`{"model":"anthropic/claude-sonnet-5","evaluateMicroUSD":960000}],` +
-		`"evaluator":true,` +
+		`"evaluator":true,"subagents":true,"workflows":true,` +
 		`"resourceClasses":[{"name":"large","requests":{"cpu":"4","memory":"8Gi"},"limits":{"memory":"10Gi"}}]}}`
 	if string(got) != want {
 		t.Errorf("status marshals as\n  %s\nwant\n  %s", got, want)
+	}
+}
+
+// TestProjectDelegation pins spec.delegation's JSON, which the admission
+// policy's CEL reads (object.spec.?delegation.?subagents) without the types,
+// and its accessors: unset is neither, and workflows count only beside
+// subagents, so no caller re-derives that rule.
+func TestProjectDelegation(t *testing.T) {
+	got, err := json.Marshal(ProjectSpec{Delegation: &ProjectDelegation{Subagents: true, Workflows: true}})
+	if err != nil {
+		t.Fatalf("Marshal(spec) = %v", err)
+	}
+	if want := `"delegation":{"subagents":true,"workflows":true}`; !strings.Contains(string(got), want) {
+		t.Errorf("spec marshals as %s, want it to hold %s", got, want)
+	}
+	for _, tt := range []struct {
+		name                 string
+		d                    *ProjectDelegation
+		subagents, workflows bool
+	}{
+		{"unset", nil, false, false},
+		{"empty", &ProjectDelegation{}, false, false},
+		{"subagents", &ProjectDelegation{Subagents: true}, true, false},
+		{"both", &ProjectDelegation{Subagents: true, Workflows: true}, true, true},
+		{"workflows alone, which the schema refuses", &ProjectDelegation{Workflows: true}, false, false},
+	} {
+		s := &ProjectSpec{Delegation: tt.d}
+		if s.SubagentsEnabled() != tt.subagents || s.WorkflowsEnabled() != tt.workflows {
+			t.Errorf("%s: SubagentsEnabled, WorkflowsEnabled = %v, %v; want %v, %v", tt.name, s.SubagentsEnabled(),
+				s.WorkflowsEnabled(), tt.subagents, tt.workflows)
+		}
 	}
 }
 

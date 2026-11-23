@@ -59,6 +59,8 @@ func TestViewOfAnApprover(t *testing.T) {
 			{Name: "large", RequestCPU: "4", RequestMemory: "8Gi", LimitMemory: "16Gi"},
 		},
 		Evaluator: true,
+		Subagents: true,
+		Workflows: true,
 	}
 	if !reflect.DeepEqual(v.Options, wantOptions) {
 		t.Errorf("options = %+v, want %+v", v.Options, wantOptions)
@@ -128,6 +130,8 @@ func TestViewBounds(t *testing.T) {
 		{ID: FieldRepositoryClass, Group: "resources", Kind: "class", Effect: "new-runs"},
 		{ID: FieldVerificationEnabled, Group: "evaluator", Kind: "bool", Effect: "live"},
 		{ID: FieldHandoff, Group: "handoff", Kind: "handoff", Effect: "new-intents"},
+		{ID: FieldSubagents, Group: "delegation", Kind: "bool", Effect: "new-runs"},
+		{ID: FieldWorkflows, Group: "delegation", Kind: "bool", Effect: "new-runs"},
 	} {
 		tc.Managers = none
 		if got := fieldOf(t, v, tc.ID); !reflect.DeepEqual(got, tc) {
@@ -159,7 +163,8 @@ func TestViewLocks(t *testing.T) {
 	}
 	unpublished := baseProject(func(p *v1alpha1.Project) { p.Status.Admits = nil })
 	want = map[string]string{"models.plan": LockedUnpublished, "models.build": LockedUnpublished,
-		"models.evaluate": LockedUnpublished, FieldRepositoryClass: LockedUnpublished}
+		"models.evaluate": LockedUnpublished, FieldRepositoryClass: LockedUnpublished,
+		FieldSubagents: LockedUnpublished, FieldWorkflows: LockedUnpublished}
 	v := View(unpublished, open, 1, testNow)
 	if got := locked(v); !reflect.DeepEqual(got, want) {
 		t.Errorf("with nothing published: locked = %v, want %v", got, want)
@@ -174,6 +179,48 @@ func TestViewLocks(t *testing.T) {
 	if got, want := locked(View(noClasses, open, 1, testNow)), map[string]string{
 		FieldRepositoryClass: LockedNoClasses}; !reflect.DeepEqual(got, want) {
 		t.Errorf("with no classes defined: locked = %v, want %v", got, want)
+	}
+	pol = openPolicy()
+	pol.Locked = []Group{GroupDelegation}
+	if got, want := locked(View(baseProject(), pol, 1, testNow)), map[string]string{
+		FieldSubagents: LockedByOperator, FieldWorkflows: LockedByOperator}; !reflect.DeepEqual(got, want) {
+		t.Errorf("with delegation locked: locked = %v, want %v", got, want)
+	}
+}
+
+// A delegation switch the controller does not allow is locked while it is
+// off, so it cannot be turned on; one that is on is never locked, so an
+// approver can always turn it off, allowed or not and published or not.
+func TestViewLocksDelegation(t *testing.T) {
+	notAdmitted := func(p *v1alpha1.Project) { p.Status.Admits.Subagents, p.Status.Admits.Workflows = false, false }
+	workflowsOnly := func(p *v1alpha1.Project) { p.Status.Admits.Workflows = false }
+	on := func(p *v1alpha1.Project) {
+		p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true, Workflows: true}
+	}
+	unpublished := func(p *v1alpha1.Project) { p.Status.Admits = nil }
+	for _, tt := range []struct {
+		name                 string
+		muts                 []func(*v1alpha1.Project)
+		subagents, workflows string
+	}{
+		{"allowed and off", nil, "", ""},
+		{"not allowed and off", []func(*v1alpha1.Project){notAdmitted}, LockedNotAdmitted, LockedNotAdmitted},
+		{"workflows not allowed", []func(*v1alpha1.Project){workflowsOnly}, "", LockedNotAdmitted},
+		{"not allowed and on", []func(*v1alpha1.Project){notAdmitted, on}, "", ""},
+		{"unpublished and on", []func(*v1alpha1.Project){unpublished, on}, "", ""},
+		{"unpublished and off", []func(*v1alpha1.Project){unpublished}, LockedUnpublished, LockedUnpublished},
+	} {
+		v := View(baseProject(tt.muts...), openPolicy(), 1, testNow)
+		if got := fieldOf(t, v, FieldSubagents).Locked; got != tt.subagents {
+			t.Errorf("%s: subagents locked %q, want %q", tt.name, got, tt.subagents)
+		}
+		if got := fieldOf(t, v, FieldWorkflows).Locked; got != tt.workflows {
+			t.Errorf("%s: workflows locked %q, want %q", tt.name, got, tt.workflows)
+		}
+	}
+	v := View(baseProject(workflowsOnly), openPolicy(), 1, testNow)
+	if !v.Options.Subagents || v.Options.Workflows {
+		t.Errorf("options = %+v, want subagents and not workflows, as published", v.Options)
 	}
 }
 

@@ -41,12 +41,24 @@ var (
 const delegatingCall = "toolu_delegate"
 
 // startDelegatingBuild runs the intent stack with intent-controller's extra
-// flags, the real agent-runner for builds and the scripted claude told to
-// delegate, files an intent, approves its plan and waits for the first build
-// attempt to be collected.
-func startDelegatingBuild(t *testing.T, extra ...string) (*intentEnv, string, agentRun, *v1alpha1.IntentRun) {
+// flags and a Project that opts in to subagents (spec.delegation) or not,
+// the real agent-runner for builds and the scripted claude told to delegate,
+// files an intent, approves its plan and waits for the first build attempt
+// to be collected.
+func startDelegatingBuild(t *testing.T, optIn bool, extra ...string) (*intentEnv, string, agentRun,
+	*v1alpha1.IntentRun) {
 	t.Helper()
-	e := startIntents(t, extra...)
+	cl, gh, registry := startSourceStack(t, appRepo)
+	spec := v1alpha1.ProjectSpec{
+		IntentRepository: intentRepoURL,
+		Approvers:        v1alpha1.ProjectApprovers{Logins: []string{approver.Login, reader.Login}},
+		Repositories:     []v1alpha1.ProjectRepository{{Name: appRepo, URL: appRepoURL}},
+	}
+	if optIn {
+		spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true}
+	}
+	e := withIntentsFor(t, cl, gh, spec, extra...)
+	e.registry = registry
 	e.kubelet.useAgentRunner(t, "build")
 	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_DELEGATE", "1")
 	number, name := e.fileIntent(t)
@@ -177,7 +189,8 @@ func (e *intentEnv) checkNestedTranscript(t *testing.T, run *v1alpha1.IntentRun)
 }
 
 // TestIntentBuildDelegates: with --intent-build-subagents (and the broker's
-// cost unit it needs), the build run records the grant, its Job carries it,
+// cost unit it needs) allowing it, and the Project opting in, the Project's
+// status.admits says subagents are allowed, the build run records the grant, its Job carries it,
 // agent-runner renders the granted posture and the prompt's Subagents
 // section, and the scripted CLI's child runs. The run then records what the
 // child spent (the per-model figures, not the parent's top-level usage
@@ -186,7 +199,10 @@ func (e *intentEnv) checkNestedTranscript(t *testing.T, run *v1alpha1.IntentRun)
 // the delegation notices under the Agent call. The build is pushed as any
 // other.
 func TestIntentBuildDelegates(t *testing.T) {
-	e, name, job, run := startDelegatingBuild(t, "--broker-limit-unit", "cost", "--intent-build-subagents")
+	e, name, job, run := startDelegatingBuild(t, true, "--broker-limit-unit", "cost", "--intent-build-subagents")
+	if a := e.project(t).Status.Admits; a == nil || !a.Subagents || a.Workflows {
+		t.Errorf("status.admits = %+v, want subagents allowed and workflows not", a)
+	}
 	checkGranted(t, job, run)
 
 	want := sumUsage(delegatingParent, delegatingChild)
@@ -210,13 +226,36 @@ func TestIntentBuildDelegates(t *testing.T) {
 	}
 }
 
-// TestIntentBuildDelegationRefusedWithoutTheFlag: the same scripted build
-// with the flag off. Nothing records or carries a grant, the prompt says
-// nothing of subagents, and the CLI refuses the Agent call from the deny
-// list agent-runner gives it, so the run spends and records the parent's
-// calls alone and its transcript shows the refusal and nothing nested.
+// TestIntentBuildDelegationRefusedWithoutTheFlag: the same scripted build of
+// a Project that opts in, with the flag off: the opt-in alone grants
+// nothing, and status.admits says so.
 func TestIntentBuildDelegationRefusedWithoutTheFlag(t *testing.T) {
-	e, name, job, run := startDelegatingBuild(t)
+	e, name, job, run := startDelegatingBuild(t, true)
+	if a := e.project(t).Status.Admits; a == nil || a.Subagents {
+		t.Errorf("status.admits = %+v, want subagents not allowed", a)
+	}
+	e.checkUngranted(t, name, job, run)
+}
+
+// TestIntentBuildDelegationRefusedWithoutTheOptIn: the same scripted build
+// with the flag on and the cost unit, of a Project that does not opt in:
+// the flag only allows subagents, so nothing is granted either, though
+// status.admits says they are allowed.
+func TestIntentBuildDelegationRefusedWithoutTheOptIn(t *testing.T) {
+	e, name, job, run := startDelegatingBuild(t, false, "--broker-limit-unit", "cost", "--intent-build-subagents")
+	if a := e.project(t).Status.Admits; a == nil || !a.Subagents {
+		t.Errorf("status.admits = %+v, want subagents allowed", a)
+	}
+	e.checkUngranted(t, name, job, run)
+}
+
+// checkUngranted checks a build granted no subagents end to end: nothing
+// records or carries a grant, the prompt says nothing of subagents, and the
+// CLI refuses the Agent call from the deny list agent-runner gives it, so
+// the run spends and records the parent's calls alone and its transcript
+// shows the refusal and nothing nested.
+func (e *intentEnv) checkUngranted(t *testing.T, name string, job agentRun, run *v1alpha1.IntentRun) {
+	t.Helper()
 
 	if run.Spec.Grant.Subagents {
 		t.Errorf("build run grant = %+v, want no subagents recorded", run.Spec.Grant)

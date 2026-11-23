@@ -261,7 +261,7 @@ func TestFieldTable(t *testing.T) {
 		t.Errorf("fields are in %d groups, of %d", len(groups), len(Groups()))
 	}
 	want := []Group{"approvers", "evaluator", "handoff", "models", "cost", "rounds", "activeIntents", "stages",
-		"checks", "resources"}
+		"delegation", "checks", "resources"}
 	if !reflect.DeepEqual(Groups(), want) {
 		t.Errorf("Groups = %v, want %v", Groups(), want)
 	}
@@ -275,7 +275,13 @@ func TestFieldTable(t *testing.T) {
 			t.Errorf("limits.%s: a stage in the schema %v, in StageNames %v", name, stage, !stage)
 		}
 	}
-	if len(Fields()) != 35 {
+	for _, id := range []string{FieldSubagents, FieldWorkflows} {
+		r, ok := rowByID(id)
+		if !ok || r.Group != GroupDelegation || r.Kind != KindBool || r.Effect != EffectNewRuns || r.HasDefault {
+			t.Errorf("%s: row %+v (in the table %v), want a delegation bool for new runs", id, r.Field, ok)
+		}
+	}
+	if len(Fields()) != 37 {
 		t.Errorf("%d editable fields; a field added or dropped changes the document (Schema) and the page", len(Fields()))
 	}
 }

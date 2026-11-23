@@ -102,8 +102,10 @@ data:
     # MAUL_INTENT_CODEX: "true"
     # MAUL_INTENT_CODEX_PLAN_MODEL: openai/gpt-5.3-codex
     # MAUL_INTENT_CODEX_BUILD_MODEL: openai/gpt-5.3-codex
-    # Subagents in a claude Project's build and revise runs are off. To turn
-    # them on, the egress broker must count cost (MAUL_BROKER_LIMIT_UNIT:
+    # Subagents in a claude Project's build and revise runs are not allowed.
+    # Allowed, each Project still opts in (spec.delegation.subagents, and
+    # .workflows beside it). To allow them, the egress broker must count cost
+    # (MAUL_BROKER_LIMIT_UNIT:
     # "cost" here, MAUL_LIMIT_UNIT and MAUL_COST_PER_POD on the broker), or
     # the controller refuses to start; workflows need subagents. Their limits
     # are in docs/configuration/intent-controller.md:

@@ -203,8 +203,8 @@ Its report repairs are never granted them. agent-runner refuses the switch on an
 harness but `claude`. Before the report is read, it removes every worktree left under the tree's `.claude/worktrees` (an
 Agent call's `isolation: "worktree"`), with a transcript notice. A repository-image Job that does not set it blanks it,
 so an image's `ENV` cannot grant it. intent-controller sets it only on a build or revise run that recorded subagents at
-creation (`spec.grant.subagents`, under `--intent-build-subagents`), and only while that flag is still on when the run
-launches.
+creation (`spec.grant.subagents`, recorded under `--intent-build-subagents` for a Project that opts in with
+`spec.delegation.subagents`), and only while that flag is still on when the run launches.
 
 `MAUL_BUILD_WORKFLOWS` is a per-Job switch beside it, `true` or unset, refused at startup without
 `MAUL_BUILD_SUBAGENTS`: it grants the same run workflows, inline and built-in ones, and adds a section to its prompt. A
@@ -213,7 +213,8 @@ broker's cost budget for the run and the stage's wall clock bound them, and thei
 ends. A workflow's progress keeps the idle watchdog from ending a run that waits on it. Its report repairs are never
 granted them. A repository-image Job that does not set it blanks it. intent-controller sets it only beside
 `MAUL_BUILD_SUBAGENTS`, on a run that recorded workflows at creation (`spec.grant.workflows`, under
-`--intent-build-workflows`), and only while both flags are still on when the run launches.
+`--intent-build-workflows` for a Project that opts in with `spec.delegation.workflows`), and only while both flags are
+still on when the run launches.
 
 `MAUL_OPEN_PULL_REQUESTS` is the last per-Job variable, set only on an intent's plan Job, and only when other intents of
 its Project have pull requests open in the Project's repositories: a JSON list of at most 5 of them, each with its

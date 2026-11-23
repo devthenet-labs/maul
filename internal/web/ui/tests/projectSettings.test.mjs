@@ -8,6 +8,11 @@ import {
   approverProblem,
   classifySave,
   confirmationText,
+  delegationNote,
+  fieldLabel,
+  lockText,
+  refusalText,
+  withDraftValue,
   dollarsToMicro,
   draftChanges,
   fieldKey,
@@ -66,6 +71,8 @@ const FIELDS = [
   field("limits.plan.maxTurns", "count", { group: "stages", max: 1000, default: 40, effect: "new-runs" }),
   field("limits.plan.timeout", "seconds", { group: "stages", min: 60, max: 14400, default: 1200, effect: "new-runs" }),
   field("limits.evaluate.maxCostMicroUSD", "microUSD", { group: "stages", max: 1e9, effect: "new-runs" }),
+  field("delegation.subagents", "bool", { group: "delegation", effect: "new-runs" }),
+  field("delegation.workflows", "bool", { group: "delegation", effect: "new-runs" }),
   field("checks.fix", "checks", { group: "checks", max: 32 }),
   field("checks.timeout", "seconds", { group: "checks", min: 60, max: 21600, default: 1800 }),
   field("checks.rerunFailed", "bool", { group: "checks" }),
@@ -90,6 +97,7 @@ function settings() {
       maxActiveIntents: 2,
     },
     stages: { plan: stage(), build: stage(), revise: stage(), evaluate: stage() },
+    delegation: { subagents: false, workflows: false },
     checks: { fix: ["test", "lint"], timeoutSeconds: 1800, rerunFailed: false },
     repositories: [
       { name: "web", agentResourceClass: "small" },
@@ -229,6 +237,44 @@ test("fieldValue and withFieldValue reach every document slot by field id", () =
   assert.equal(doc.verification.handoffMaxSeconds, 0);
   assert.equal(withFieldValue(doc, "limits.build.tokenBudget", 5).stages.build.tokenBudget, 5);
   assert.throws(() => fieldValue(doc, "suspend"));
+});
+
+// ---- delegation --------------------------------------------------------------------
+
+test("turning subagents off in the draft turns workflows off with it", () => {
+  let doc = withDraftValue(settings(), "delegation.subagents", true);
+  doc = withDraftValue(doc, "delegation.workflows", true);
+  assert.deepEqual(doc.delegation, { subagents: true, workflows: true });
+  const off = withDraftValue(doc, "delegation.subagents", false);
+  assert.deepEqual(off.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(doc.delegation, { subagents: true, workflows: true }, "the draft it was made from is left alone");
+  assert.equal(withDraftValue(doc, "delegation.workflows", false).delegation.subagents, true);
+  assert.equal(withDraftValue(settings(), "limits.maxRevisions", 4).limits.maxRevisions, 4);
+  assert.equal(fieldLabel("delegation.subagents"), "Subagents in builds");
+  assert.equal(fieldLabel("delegation.workflows"), "Workflows in builds");
+});
+
+test("a delegation switch says why it is locked, and what an on switch the controller refuses does", () => {
+  assert.match(lockText("not-admitted", "claude"), /does not allow/);
+  assert.match(lockText("not-admitted", "codex"), /codex/);
+  assert.match(lockText("locked", "codex"), /operator locked/);
+  const options = { published: true, subagents: false, workflows: false };
+  const on = withDraftValue(withDraftValue(settings(), "delegation.subagents", true), "delegation.workflows", true);
+  const view = { settings: on, options, facts: { harness: "claude" } };
+  assert.match(delegationNote(view, on, "delegation.subagents"), /grants nothing.*turn it off/);
+  assert.match(delegationNote({ ...view, facts: { harness: "codex" } }, on, "delegation.subagents"), /codex/);
+  const allowed = { ...view, options: { published: true, subagents: true, workflows: true } };
+  assert.equal(delegationNote(allowed, on, "delegation.subagents"), null);
+  assert.equal(delegationNote(allowed, on, "delegation.workflows"), null);
+  const noSubagents = withDraftValue(on, "delegation.subagents", false);
+  assert.match(delegationNote(allowed, noSubagents, "delegation.workflows"), /needs subagents/i);
+  assert.equal(delegationNote(allowed, on, "limits.maxRevisions"), null);
+});
+
+test("the delegation refusals are worded", () => {
+  const r = (reason) => ({ field: "delegation.subagents", item: "", reason, limit: 0, value: "" });
+  assert.match(refusalText(r("delegation-not-admitted")), /does not allow/);
+  assert.match(refusalText(r("workflows-need-subagents")), /subagents/);
 });
 
 // ---- after a 409 ------------------------------------------------------------------
@@ -472,6 +518,11 @@ test("valuesYAML states what the Project holds, for the maul-config values file"
   assert.match(yaml, /\n {8}plan: "anthropic\/claude-x"\n/);
   assert.match(yaml, /\n {10}agentResourceClass: "small"\n/);
   assert.doesNotMatch(yaml, /maxVerifyFixes|maxToolCalls|handoff: ""|build: ""/, "unset settings are left out");
+  // The switches are always stated, so a values file that turned one on
+  // does not put it back once the page turned it off.
+  assert.match(yaml, /\n {6}delegation:\n {8}subagents: false\n {8}workflows: false\n/);
+  const on = withDraftValue(doc, "delegation.subagents", true);
+  assert.match(valuesYAML("storefront", on), /\n {8}subagents: true\n {8}workflows: false\n/);
   // Strings are quoted, so nothing a login or check holds is read as YAML.
   const odd = set(settings(), "checks.fix", ["a: b", 'q"x', "#c"]);
   assert.match(valuesYAML("p", odd), /fix: \["a: b", "q\\"x", "#c"\]/);
@@ -506,6 +557,18 @@ test("the demo save asks for confirmation, refuses, and saves", () => {
   const refused = mockSaveProjectSettings("storefront", req(high));
   assert.equal(refused.status, 422);
   assert.deepEqual(refused.result.refusals.map((r) => [r.field, r.reason]), [["limits.maxRevisions", "above-ceiling"]]);
+
+  // The demo controller allows subagents and not workflows: workflows
+  // are locked while off, and refused when posted on.
+  assert.equal(view.fields.find((f) => f.id === "delegation.workflows").locked, "not-admitted");
+  const wfs = set(set(view.settings, "delegation.subagents", true), "delegation.workflows", true);
+  const notAdmitted = mockSaveProjectSettings("storefront", req(wfs));
+  assert.equal(notAdmitted.status, 422);
+  assert.deepEqual(notAdmitted.result.refusals.map((r) => [r.field, r.reason]), [
+    ["delegation.workflows", "delegation-not-admitted"],
+  ]);
+  const alone = mockSaveProjectSettings("storefront", req(set(view.settings, "delegation.workflows", true)));
+  assert.deepEqual(alone.result.refusals.map((r) => r.reason), ["delegation-not-admitted", "workflows-need-subagents"]);
 
   const saved = mockSaveProjectSettings("storefront", req(off, ["evaluator-off"]));
   assert.equal(saved.status, 200);

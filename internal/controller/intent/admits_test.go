@@ -59,6 +59,41 @@ func TestProjectAdmitsPublished(t *testing.T) {
 	}
 }
 
+// TestProjectAdmitsDelegation: status.admits says whether a Project's
+// spec.delegation switches take effect: subagents while
+// --intent-build-subagents is on and the Project is not on codex, workflows
+// only beside them under --intent-build-workflows. The published pass
+// carries them, so the settings page can lock a switch the controller does
+// not allow.
+func TestProjectAdmitsDelegation(t *testing.T) {
+	for _, tt := range []struct {
+		name                 string
+		harness              v1alpha1.ProjectHarness
+		subagents, workflows bool // the flags
+		want                 [2]bool
+	}{
+		{"both flags off", "", false, false, [2]bool{}},
+		{"subagents on", "", true, false, [2]bool{true, false}},
+		{"both on", v1alpha1.ProjectHarnessClaude, true, true, [2]bool{true, true}},
+		{"workflows on alone, which serve refuses", "", false, true, [2]bool{}},
+		{"both on, on codex", v1alpha1.ProjectHarnessCodex, true, true, [2]bool{}},
+	} {
+		s := testSettings()
+		s.BuildSubagents, s.BuildWorkflows = tt.subagents, tt.workflows
+		p := testProject()
+		p.Spec.Harness = tt.harness
+		if a := s.admits(p, nil); [2]bool{a.Subagents, a.Workflows} != tt.want {
+			t.Errorf("%s: admits subagents, workflows = %v, %v; want %v", tt.name, a.Subagents, a.Workflows, tt.want)
+		}
+	}
+	e := newEnv(t, testProject())
+	e.project.Settings.BuildSubagents, e.project.Settings.BuildWorkflows = true, true
+	e.reconcileProject()
+	if a := e.getProject().Status.Admits; a == nil || !a.Subagents || !a.Workflows {
+		t.Errorf("published status.admits = %+v, want subagents and workflows", a)
+	}
+}
+
 // TestProjectAdmitsIsWhatTheControllerAdmits pins status.admits to the
 // Settings methods that judge a Project's runs, so the settings page and
 // its admission policy, which judge a change by it, cannot drift from the
@@ -74,12 +109,15 @@ func TestProjectAdmitsPublished(t *testing.T) {
 //   - maxRunCostMicroUSD: the largest budget budgetOverHourly lets through;
 //   - runBudgetFloors: the least budget budgetUnderReserve lets through,
 //     per admitted model it judges;
+//   - subagents and workflows: what grant records on a build and a revise
+//     run of the Project opted in to both;
 //   - the rest copied from Settings.
 //
 // Seeded, so the gate is deterministic.
 func TestProjectAdmitsIsWhatTheControllerAdmits(t *testing.T) {
 	g := admitsGen{rng: rand.New(rand.NewSource(0xad3175))}
 	var floorsJudged, overJudged, codexOn, evaluated int
+	var delegation [2][2]int // [subagents, workflows][admitted]
 	for i := range 400 {
 		s, p := g.settings(), g.project()
 		h := p.Spec.Harness
@@ -102,11 +140,46 @@ func TestProjectAdmitsIsWhatTheControllerAdmits(t *testing.T) {
 			overJudged++
 		}
 		floorsJudged += checkFloors(t, ctx, s, p, a)
+		checkDelegation(t, ctx, s, p, a)
+		delegation[0][b2i(a.Subagents)]++
+		delegation[1][b2i(a.Workflows)]++
 	}
 	if floorsJudged < 100 || overJudged < 100 || codexOn < 50 || evaluated < 100 {
 		t.Fatalf("floors judged %d, hourly bounds %d, codex on %d, evaluated %d: the pin exercised too little",
 			floorsJudged, overJudged, codexOn, evaluated)
 	}
+	for i, n := range delegation {
+		if n[0] < 50 || n[1] < 50 {
+			t.Fatalf("delegation switch %d admitted %d times, refused %d: the pin exercised too little", i, n[1], n[0])
+		}
+	}
+}
+
+// checkDelegation holds a's subagents and workflows to what grant records
+// on a build and a revise run of p opted in to both: the switch is
+// admitted exactly where an opt-in takes effect.
+func checkDelegation(t *testing.T, ctx string, s Settings, p *v1alpha1.Project, a *v1alpha1.ProjectAdmits) {
+	t.Helper()
+	optedIn := p.DeepCopy()
+	optedIn.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true, Workflows: true}
+	for _, stage := range []v1alpha1.IntentStage{v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise} {
+		g := s.grant(optedIn, stage)
+		if a.Subagents != g.Subagents || a.Workflows != g.Workflows {
+			t.Fatalf("%s: admits subagents %v, workflows %v; a %s run of a Project opted in records %v, %v", ctx,
+				a.Subagents, a.Workflows, stage, g.Subagents, g.Workflows)
+		}
+	}
+	if a.Workflows && !a.Subagents {
+		t.Fatalf("%s: workflows admitted without subagents", ctx)
+	}
+}
+
+// b2i is 1 for true.
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // The models the generated settings choose among: claude ones the registry
@@ -157,6 +230,9 @@ func (g admitsGen) settings() Settings {
 	if g.rng.Intn(2) == 0 {
 		s.MaxToolCalls = int32(1 + g.rng.Intn(500))
 	}
+	// Workflows only beside subagents, as serve refuses them otherwise.
+	s.BuildSubagents = g.rng.Intn(2) == 0
+	s.BuildWorkflows = s.BuildSubagents && g.rng.Intn(2) == 0
 	return s
 }
 
