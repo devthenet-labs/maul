@@ -47,8 +47,9 @@ func (e *env) checkNothingConfirmed(name string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(body, "confirmed") && !strings.Contains(body, "0/3 outcomes confirmed") ||
-		strings.Contains(body, "2/3") {
+	// A passed row says "confirmed"; the count no longer does (it says "seen
+	// to hold"), so any "confirmed" is an earlier round's row.
+	if strings.Contains(body, "confirmed") || strings.Contains(body, "2/3") {
 		t.Errorf("the verification comment presents an earlier round's results:\n%s", body)
 	}
 	if st, _, ok := p.acceptanceStatus(); ok && (st.state == statusSuccess || strings.Contains(st.description, "2/3")) {

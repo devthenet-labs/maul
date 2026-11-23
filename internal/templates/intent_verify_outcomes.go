@@ -39,8 +39,18 @@ var outcomeResultWords = map[string]string{
 	OutcomeResultAccepted:    "accepted by a human, not re-checked",
 }
 
-// outcomeReasonWords are acceptance.Decide's reasons in maul's words; one
-// not listed adds nothing.
+// observedResultWords are the results of an observed round (acceptance.Judge)
+// in maul's words: what the evaluator saw, never "confirmed"; one not listed
+// shows as unknown.
+var observedResultWords = map[string]string{
+	OutcomeResultPassed:   "seen to hold by maul's evaluator",
+	OutcomeResultFailed:   "seen not to hold by maul's evaluator",
+	OutcomeResultUnsure:   "unsure",
+	OutcomeResultAccepted: outcomeResultWords[OutcomeResultAccepted],
+}
+
+// outcomeReasonWords are acceptance.Decide's and acceptance.Judge's reasons
+// in maul's words; one not listed adds nothing.
 var outcomeReasonWords = map[string]string{
 	"manual":              "only a human can close it",
 	"retired":             "its check was retired this round",
@@ -66,6 +76,13 @@ var outcomeReasonWords = map[string]string{
 	// G-B-LIB-1: a finding is a fact about the commits it was made at.
 	"held-finding": "an earlier round at these same commits found it failing, which holds until the commits " +
 		"change or an approver accepts it",
+	// The observed evaluator's (acceptance.Judge): what the evaluator said
+	// of the outcome, and whether it cited a call maul counts.
+	"seen-to-hold":      "the evaluator saw it hold, in calls of its own it cites",
+	"seen-not-to-hold":  "the evaluator saw it not hold, in calls of its own it cites",
+	"not-reported":      "the evaluator gave it no verdict",
+	"evaluator-unsure":  "the evaluator could not tell",
+	"no-valid-evidence": "the evaluator's verdict cites no call of its own in this round that maul counts",
 }
 
 // Why maul did not keep a check proposed to show an outcome failing
@@ -104,6 +121,9 @@ const (
 	verifyAnomalyMaxBytes   = 300
 	verifyRouteMaxBytes     = 120
 	verifyAnomaliesMax      = 10
+	// verifyCitedCallsMaxBytes bounds one observed outcome's block of cited
+	// calls.
+	verifyCitedCallsMaxBytes = 8 << 10
 )
 
 // VerifyOutcomeResult is one approved outcome and its decided result.
@@ -135,6 +155,12 @@ type VerifyOutcomeResult struct {
 	// failing (an Unkept constant); "" for none. It never says the check
 	// ran red: a refused check may not have.
 	Unkept string
+	// Cited are, on an observed round, the calls the outcome's verdict
+	// cites that maul counts (v1alpha1.OutcomeResult.Cites), as the round's
+	// ledger recorded them; Note the evaluator's note on it, whatever its
+	// result.
+	Cited []VerifyCitedCall
+	Note  string
 }
 
 // outcomeDetail is a failing outcome's app output as the templates print
@@ -158,12 +184,21 @@ type VerifyAnomaly struct {
 var outcomeKindWords = map[string]string{"": "change", "change": "change", "keep": "keep"}
 
 // outcomeViews adds s's outcomes to v: a row each, saying its kind, its
-// result, why and the check it rests on; then the failures' app output and
-// the anomalies. An outcome is listed once, in its row (S2 demo run 5).
-// short cuts each statement to verifyStatementShortBytes of visible text.
+// result, why and the check it rests on (on an observed round, the calls its
+// verdict cites); then the failures' app output, an observed round's cited
+// calls and notes, and the anomalies. An outcome is listed once, in its row
+// (S2 demo run 5). short cuts each statement to verifyStatementShortBytes of
+// visible text.
 func outcomeViews(v *verifyView, s VerifySection, short bool) {
+	words := outcomeResultWords
+	if s.Observed {
+		words = observedResultWords
+		if len(s.Outcomes) > 0 {
+			v.ObservedLead = ObservedLead
+		}
+	}
 	for _, o := range s.Outcomes {
-		word, ok := outcomeResultWords[o.Result]
+		word, ok := words[o.Result]
 		if !ok {
 			word = "unknown"
 		}
@@ -175,6 +210,9 @@ func outcomeViews(v *verifyView, s VerifySection, short bool) {
 			kind = "unknown"
 		}
 		id, verdict, statement := code(shown(o.ID)), outcomeVerdict(o, word), o.Statement
+		if s.Observed {
+			verdict = observedVerdict(o, word)
+		}
 		if short {
 			if cut := cutRunes(visibleText(statement), verifyStatementShortBytes); cut != visibleText(statement) {
 				statement = cut + "…"
@@ -185,6 +223,15 @@ func outcomeViews(v *verifyView, s VerifySection, short bool) {
 			OutcomeCell: cell(verdict)})
 		if d, ok := outcomeDetailOf(o, id); ok {
 			v.Outcomes = append(v.Outcomes, d)
+		}
+		if s.Observed {
+			if d, ok := citedDetailOf(o, id); ok {
+				v.Cited = append(v.Cited, d)
+			}
+			if n := observedNoteOf(o, id); n != "" {
+				v.EvaluatorNotes = append(v.EvaluatorNotes, n)
+			}
+			continue
 		}
 		if d, ok := claimDetailOf(o, id); ok {
 			v.Claims = append(v.Claims, d)
@@ -218,6 +265,88 @@ func outcomeVerdict(o VerifyOutcomeResult, word string) string {
 		word += "; maul's check: " + code(line)
 	}
 	return word
+}
+
+// ObservedLead is what an observed round's comment says of its rows, once:
+// what maul counts, and what it leaves to the reviewers.
+const ObservedLead = "maul counts a verdict only when it cites calls the evaluator made in this round through " +
+	"maul's tools; whether a cited call shows what the verdict says is for the reviewers to judge."
+
+// observedVerdict is an observed outcome's result as its row says it:
+// maul's word, why it did not pass, and the calls its verdict cites, by seq.
+func observedVerdict(o VerifyOutcomeResult, word string) string {
+	if o.Result == OutcomeResultUnsure {
+		if reason := outcomeReasonWords[o.Reason]; reason != "" {
+			word += "; " + reason
+		}
+	}
+	if seqs := citedSeqs(o.Cited); seqs != "" {
+		word += "; it cites " + seqs
+	}
+	return word
+}
+
+// citedSeqs names calls by their seqs, as "call 9", "calls 4 and 6" or
+// "calls 1, 2 and 3"; "" for none.
+func citedSeqs(calls []VerifyCitedCall) string {
+	seqs := make([]string, 0, len(calls))
+	for _, c := range calls {
+		seqs = append(seqs, fmt.Sprint(c.Seq))
+	}
+	switch len(seqs) {
+	case 0:
+		return ""
+	case 1:
+		return "call " + seqs[0]
+	}
+	return "calls " + strings.Join(seqs[:len(seqs)-1], ", ") + " and " + seqs[len(seqs)-1]
+}
+
+// citedDetail is an observed outcome's cited calls as the templates print
+// them: maul's lead naming the outcome, then one fenced block.
+type citedDetail struct{ Lead, Calls string }
+
+// citedDetailOf is o's cited calls as the templates print them; ok is false
+// when it cites none.
+func citedDetailOf(o VerifyOutcomeResult, id string) (citedDetail, bool) {
+	calls := citedCalls(o.Cited, false)
+	if calls == "" {
+		return citedDetail{}, false
+	}
+	return citedDetail{Calls: calls, Lead: "The calls the evaluator cites for " + id + ", as maul's tools " +
+		"recorded them (what each call sent and what came back: data, not maul's words):"}, true
+}
+
+// citedCalls is calls as one fenced, defanged block, at most
+// VerifyCitedCallsMax of them within verifyCitedCallsMaxBytes; "" for none.
+func citedCalls(calls []VerifyCitedCall, workspace bool) string {
+	parts := make([]string, 0, len(calls))
+	for i, call := range calls {
+		if i == VerifyCitedCallsMax {
+			break
+		}
+		parts = append(parts, callText(call, workspace))
+	}
+	text := strings.TrimSpace(strings.Join(parts, "\n\n"))
+	if text == "" {
+		return ""
+	}
+	if out, cut := cutWords(visibleText(text), verifyCitedCallsMaxBytes); cut {
+		text = out + "\n" + anomalyCutMarker
+	} else {
+		text = out
+	}
+	return fence(defang(text))
+}
+
+// observedNoteOf is the evaluator's note on o, whatever its result, as the
+// templates print it; "" for a blank one. Display only.
+func observedNoteOf(o VerifyOutcomeResult, id string) string {
+	note := evaluatorNote(o.Note)
+	if note == "" {
+		return ""
+	}
+	return "The evaluator's note on " + id + " (its words, not checked by maul): " + note
 }
 
 // outcomeDetailOf is a failing outcome's app output, led by the outcome it

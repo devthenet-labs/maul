@@ -434,12 +434,15 @@ if [ "$MAUL_PHASE" = evaluate ]; then
     pass)
       # The report as the live evaluators write it (S1 bug 5): each verdict
       # names its outcome as outcome, each proposal the file it ran green.
-      # The live evaluator amends the refused check maul shows beside its
-      # refusal (G5R-B-CLI-1): with none of this outcome's shown, it writes
-      # its first check again, which the reviewer's cached answer refuses.
-      refused=$(printf '%s\n' "$prompt" | sed -n '/^### Checks the reviewer refused/,/^##/p')
+      # The live evaluator amends the refused check maul hands it beside
+      # its refusal (G5R-B-CLI-1): with none of this outcome's handed over,
+      # it writes its first check again, which the reviewer's cached answer
+      # refuses. The observed evaluator's prompt shows no refused check, so
+      # it is read from the handoff's prior_refused (a check's body there is
+      # a JSON string: its quotes escaped), until the switch retires it.
+      refused=$(cat "$workspace/input/issue.md" 2>/dev/null || true)
       case "$refused" in
-      *"\"id\": \"$o\","*)
+      *'\"id\":\"'"$o"'\",'*)
         cid="$o.again"
         printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"GET","path":"%s","headers":{"X-Maul-Stronger":"1"}},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
           "$cid" "$o" "$key" "$path" "$text" >"checks/$cid.json"
@@ -597,9 +600,9 @@ if [ "$MAUL_PHASE" = evaluate ]; then
       # As in "pass": shown its refused check, it amends it as
       # "<outcome>.again", one more argument X-Maul-Stronger.
       cid=$o
-      refused=$(printf '%s\n' "$prompt" | sed -n '/^### Checks the reviewer refused/,/^##/p')
+      refused=$(cat "$workspace/input/issue.md" 2>/dev/null || true)
       case "$refused" in
-      *"\"id\": \"$o\","*)
+      *'\"id\":\"'"$o"'\",'*)
         cid="$o.again"
         (
           MAUL_FAKE_CLAUDE_CLI_ARGS="${MAUL_FAKE_CLAUDE_CLI_ARGS:---help} X-Maul-Stronger"

@@ -130,7 +130,7 @@ func TestEvaluatePromptProbesCarriedOverValues(t *testing.T) {
 				"A break you saw while judging another outcome counts here too: another outcome stating the same " +
 					"rule is no reason to pass this one.",
 				"Report such an outcome `pass` only once you have tried that rule beyond the example and it held, " +
-					"its ledger citing those calls",
+					"citing those calls",
 			} {
 				if !strings.Contains(flat(got), want) {
 					t.Errorf("prompt lacks %q", want)

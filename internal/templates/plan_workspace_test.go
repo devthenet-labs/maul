@@ -45,17 +45,20 @@ func TestPlanPromptWorkspaceGoldens(t *testing.T) {
 }
 
 // TestPlanPromptWorkspaceNamesItsSurface: the workspace section names the
-// surface and the base rule, and none of a preview's.
+// surface, and none of a preview's; it states no base rule, which the
+// observed evaluator does not judge by.
 func TestPlanPromptWorkspaceNamesItsSurface(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
 		w         *PlanWorkspace
 		want, not []string
 	}{
-		{"cli", testPlanCLI, []string{"runs the command-line program the build writes, `/work/bin/bbrender`,",
+		{"cli", testPlanCLI, []string{"runs the command-line program each pull request's build writes, " +
+			"`/work/bin/bbrender`, the way a person using it would",
 			"The evaluator builds `https://github.com/devthenet-labs/bbcount`", ExamplePlanOutcomesCLI},
 			[]string{ExamplePlanOutcomesLibrary, "exported function"}},
-		{"library", testPlanLibrary, []string{"calls the Go library from programs of its own",
+		{"library", testPlanLibrary, []string{"calls the Go library each pull request changes from programs of its " +
+			"own, the way a program using it would",
 			"The evaluator calls only the library's exported API", ExamplePlanOutcomesLibrary},
 			[]string{ExamplePlanOutcomesCLI, "The evaluator builds"}},
 	} {
@@ -65,13 +68,13 @@ func TestPlanPromptWorkspaceNamesItsSurface(t *testing.T) {
 				t.Fatal(err)
 			}
 			flat := strings.Join(strings.Fields(got), " ")
-			for _, want := range append(tt.want, "counts a `change` outcome only if it does not hold there") {
+			for _, want := range append(tt.want, "A `change` outcome states what the change makes newly true") {
 				if !strings.Contains(flat, strings.Join(strings.Fields(want), " ")) {
 					t.Errorf("the prompt does not say %q", want)
 				}
 			}
 			for _, gone := range append(tt.not, "live preview", "browser", "previewed components",
-				ExamplePlanOutcomes, "### Acceptance criteria") {
+				ExamplePlanOutcomes, "### Acceptance criteria", "does not hold there", "saving the checks") {
 				if strings.Contains(got, gone) {
 					t.Errorf("the prompt says %q", gone)
 				}

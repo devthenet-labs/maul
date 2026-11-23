@@ -1,7 +1,7 @@
 <!-- maul:notice maul/beatbattle-92 verify-r2 -->
 ### maul: verification 2, attempt 1
 
-Evaluation 2: maul couldn't confirm every outcome: 4/5 outcomes confirmed, 0 of 2 automatic fixes used.
+Evaluation 2: maul couldn't confirm every outcome: 4/5 outcomes seen to hold, 0 of 2 automatic fixes used.
 
 | Check | Kind | Outcome |
 | --- | --- | --- |

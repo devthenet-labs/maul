@@ -442,7 +442,7 @@ func TestIntentEvaluatePasses(t *testing.T) {
 	}
 
 	// The hand-off: ready, linked, one check line per outcome.
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	host := name + previewHostSuffix
 	eventually(t, "the preview comment to link the preview as ready", func() bool {
 		body := e.previewComment(name, pr.Number)
@@ -490,7 +490,7 @@ func TestIntentEvaluateTurnCap(t *testing.T) {
 		t.Errorf("scripted calls = %+v; want the capped run on 34 turns, then its session resumed on 3 of the 6 kept",
 			calls)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 }
 
 // checkConfirmedReady holds a passed first round: both outcomes confirmed
@@ -583,7 +583,7 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 	e.waitEval(t, name, "round 1 to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 
 	// The planted defect.
 	e.app.set(http.StatusInternalServerError, "")
@@ -643,7 +643,7 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 		t.Errorf("verification %+v, verify fixes %d, fix rounds %d; want round 4 passed after one fix", v,
 			in.Status.VerifyFixes, len(e.verifyRuns(t, name)))
 	}
-	e.waitStatus(t, head, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, head, "success", "2/2 outcomes seen to hold")
 
 	// The round after the fix is handed the round before it.
 	evals = e.evaluatorJobs()
@@ -773,7 +773,7 @@ func TestIntentEvaluateRound1Defect(t *testing.T) {
 	if !replayed {
 		t.Errorf("round 2 did not replay the red check green")
 	}
-	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, head, "success", "1/1 outcomes seen to hold")
 }
 
 // checkReproduction holds a fix round's handoff to the reproduction maul
@@ -869,7 +869,7 @@ func TestIntentEvaluateDispute(t *testing.T) {
 	if acc := in.Status.Acceptance; acc.Checks == nil || acc.Checks.Count != 1 {
 		t.Errorf("check store %+v, want the replacement alone", acc.Checks)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 }
 
 // TestIntentEvaluateCanary (case 4): an injected page's ask, a vacuous
@@ -998,7 +998,7 @@ func TestIntentEvaluateRecheckPasses(t *testing.T) {
 		t.Errorf("%d refused, %d proven; want both of round 1's refused and both stronger ones proven", refused,
 			proven)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	eventually(t, "round 2's comment to say maul checked once more", func() bool {
 		return strings.Contains(strings.Join(e.gh.Comments(number), ""), "### maul: verification 2, attempt 1 "+
 			"(maul checked once more by itself: a check was not accepted)")
@@ -1034,7 +1034,7 @@ func TestIntentEvaluateEarlyHandoff(t *testing.T) {
 	e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 }
 
 // TestIntentEvaluateHandoffMax (case 6): a gated hand-off whose evaluator
@@ -1346,7 +1346,7 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 	}) {
 		t.Errorf("no browser entry recorded the clicked element's locator")
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	eventually(t, "the preview comment to show the browser check line", func() bool {
 		body := e.previewComment(name, pr.Number)
 		return strings.Contains(body, "Ready: maul checked the approved outcomes.") &&
@@ -1467,7 +1467,7 @@ func TestIntentEvaluateBrowserFixRound(t *testing.T) {
 		t.Errorf("replay %+v, verify fixes %d; want the saved browser check green after one fix", pv.Status.Replay,
 			in.Status.VerifyFixes)
 	}
-	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, head, "success", "1/1 outcomes seen to hold")
 }
 
 // TestIntentEvaluateBrowserScreenshotOnly (browser case c, DESIGN 7.5,

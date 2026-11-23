@@ -152,9 +152,9 @@ func TestJudgementRoutes(t *testing.T) {
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but the preview failed while it was " +
+			description: "maul couldn't confirm this: 3/3 outcomes seen to hold, but the preview failed while it was " +
 				"checked",
-			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: the preview failed while it " +
+			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul couldn't confirm this: the preview failed while it " +
 				"was checked; 0 of 2 automatic fixes used."},
 		// Review H3: maul's own machinery failing is never called the
 		// preview failing.
@@ -163,9 +163,9 @@ func TestJudgementRoutes(t *testing.T) {
 			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
 			why: templates.HandoffWhyInfra, versionResult: v1alpha1.OutcomePassed,
 			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but its own checking environment " +
+			description: "maul couldn't confirm this: 3/3 outcomes seen to hold, but its own checking environment " +
 				"failed while it checked",
-			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: its own checking environment " +
+			line: "Evaluation 1: 3/3 outcomes seen to hold, but maul couldn't confirm this: its own checking environment " +
 				"failed while it checked; 0 of 2 automatic fixes used."},
 		{name: "quarantined",
 			version: judged(oVersion, acceptance.ResultQuarantined, acceptance.ReasonQuarantined, ""),

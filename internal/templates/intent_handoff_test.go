@@ -161,11 +161,11 @@ func TestHandoffDoubtedWords(t *testing.T) {
 		want string
 	}{
 		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 1},
-			"the evaluator judged 1 outcome not to hold, but no check maul re-ran shows it."},
+			"the evaluator judged 1 outcome not to hold, but cited no evidence maul counts."},
 		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 2},
-			"the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it."},
+			"the evaluator judged 2 outcomes not to hold, but cited no evidence maul counts."},
 		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts},
-			"the evaluator judged some outcomes not to hold, but no check maul re-ran shows it."},
+			"the evaluator judged some outcomes not to hold, but cited no evidence maul counts."},
 		{PreviewHandoff{Why: HandoffWhyUnsure}, "some outcomes are unsure."},
 		{PreviewHandoff{Why: HandoffWhyEnvironment}, "the preview failed while it was checked."},
 		// A reason no longer listed (an anomaly's, from before 2026-11-14)
@@ -252,7 +252,7 @@ func TestHandoffSuspectedLeads(t *testing.T) {
 			"it suspects a defect in `swing-shown-nonzero`, which a person should confirm."},
 		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"a", "b"}, Doubted: 1},
 			"it suspects a defect in `a`, `b`, which a person should confirm, and the evaluator judged 1 " +
-				"outcome not to hold, but no check maul re-ran shows it."},
+				"outcome not to hold, but cited no evidence maul counts."},
 		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"", " "}},
 			"it suspects a defect, which a person should confirm."},
 		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"x` @octocat #3"}},

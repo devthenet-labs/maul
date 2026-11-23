@@ -159,9 +159,9 @@ func verifyRestingLine(state string) (line string, whole bool) {
 		return "No acceptance outcomes were declared.", true
 	case VerifyUnreadable:
 		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
-			"verified. " + startOver(), true
+			"checked. " + startOver(), true
 	case VerifyCriteriaReplan:
-		return "Nothing is verified: the approved plan states acceptance criteria, which maul's evaluator does " +
+		return "Nothing is checked: the approved plan states acceptance criteria, which maul's evaluator does " +
 			"not run. " + startOver(), true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
@@ -188,7 +188,7 @@ func startOver() string {
 }
 
 // verifyNames are the progress clause's words: which verification (or
-// evaluation) it is, its counts (checks passing, or outcomes confirmed;
+// evaluation) it is, its counts (checks passing, or outcomes seen to hold;
 // "" with none), and its passed head.
 func verifyNames(p VerifyProgress) (which, counts, passed string) {
 	which = "Verification"
@@ -208,10 +208,12 @@ func verifyNames(p VerifyProgress) (which, counts, passed string) {
 	return which, counts, passed
 }
 
-// OutcomeCount is n of total approved outcomes confirmed (or accepted), as
-// every surface counts them: the comments' progress line and the commit
-// status build it here alone (review L2).
-func OutcomeCount(n, total int32) string { return fmt.Sprintf("%d/%d outcomes confirmed", n, total) }
+// OutcomeCount is n of total approved outcomes seen to hold (or accepted),
+// as every surface counts them: the comments' progress line and the commit
+// status build it here alone (review L2). The observed evaluator's words:
+// maul counts a pass that cites the evaluator's own calls, and never claims
+// to have confirmed it.
+func OutcomeCount(n, total int32) string { return fmt.Sprintf("%d/%d outcomes seen to hold", n, total) }
 
 // verifyLine is the progress as one sentence; "" for none.
 func verifyLine(p VerifyProgress) string {
@@ -324,6 +326,10 @@ type VerifySection struct {
 	// Suspected is the defect maul suspects and waits for a person to
 	// confirm (a defect found in round 1); nil for none.
 	Suspected *VerifySuspected
+	// Observed: the round was judged by the observed evaluator
+	// (v1alpha1.JudgeObserved): its rows say what the evaluator saw and the
+	// calls it cites, never "confirmed".
+	Observed bool
 }
 
 // VerifySuspected is a suspected defect as a comment shows it: the
@@ -442,9 +448,8 @@ func noDefectNote(n *VerifyNoDefect) string {
 	}
 	b.WriteString(" This is the agent's verdict and may be wrong, so maul stopped fixing on its own. " +
 		slashCommand("verify") + " checks again (a failure caused by the preview rather than the code may pass), " +
-		slashCommand("verify fix") + " also lets maul fix failures again, and an outcome that then passes only " +
-		"on retry can be accepted with " + slashCommand("accept <id>") + ". Otherwise review the change and " +
-		"decide.")
+		slashCommand("verify fix") + " also lets maul fix failures again, and an outcome a person judges to hold " +
+		"can be accepted with " + slashCommand("accept <id>") + ". Otherwise review the change and decide.")
 	return b.String()
 }
 
@@ -482,11 +487,16 @@ type verifyView struct {
 	Cut string
 	// Outcomes are the outcomes' details, Claims the evaluator's
 	// unconfirmed claims, UnsureNotes its notes on outcomes it was unsure
-	// of, Anomalies the look-around's.
-	Outcomes    []outcomeDetail
-	Claims      []claimDetail
-	UnsureNotes []string
-	Anomalies   []string
+	// of, Anomalies the look-around's. On an observed round, ObservedLead is
+	// maul's sentence on what it counts, Cited each outcome's cited calls
+	// and EvaluatorNotes the evaluator's notes, whatever the result.
+	Outcomes       []outcomeDetail
+	ObservedLead   string
+	Cited          []citedDetail
+	EvaluatorNotes []string
+	Claims         []claimDetail
+	UnsureNotes    []string
+	Anomalies      []string
 	// reproduction is the suspected defect's reproduction, which ends the
 	// note at Notes[reproNote] when it is shown (withEvidence).
 	reproduction string
@@ -576,6 +586,8 @@ const verifyStatementShortBytes = 160
 const (
 	pieceReproduction = iota
 	pieceAppOutput
+	pieceCited
+	pieceEvaluatorNote
 	pieceClaim
 	pieceUnsureNote
 	pieceAnomaly
@@ -600,6 +612,12 @@ func (v verifyView) pieces() []evidencePiece {
 	for i, o := range v.Outcomes {
 		ps = append(ps, evidencePiece{pieceAppOutput, i, len(o.Lead) + len(o.AppOutput) + overhead})
 	}
+	for i, c := range v.Cited {
+		ps = append(ps, evidencePiece{pieceCited, i, len(c.Lead) + len(c.Calls) + overhead})
+	}
+	for i, n := range v.EvaluatorNotes {
+		ps = append(ps, evidencePiece{pieceEvaluatorNote, i, len(n) + overhead})
+	}
 	for i, c := range v.Claims {
 		ps = append(ps, evidencePiece{pieceClaim, i, len(c.Lead) + len(c.Calls) + overhead})
 	}
@@ -621,6 +639,7 @@ func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 	w := v
 	w.Notes = slices.Clone(v.Notes)
 	w.Outcomes, w.Claims, w.UnsureNotes, w.Anomalies, w.Logs = nil, nil, nil, nil, nil
+	w.Cited, w.EvaluatorNotes = nil, nil
 	var left [pieceLog + 1]int
 	for i, p := range ps {
 		if !keep[i] {
@@ -630,6 +649,10 @@ func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 		switch p.kind {
 		case pieceAppOutput:
 			w.Outcomes = append(w.Outcomes, v.Outcomes[p.index])
+		case pieceCited:
+			w.Cited = append(w.Cited, v.Cited[p.index])
+		case pieceEvaluatorNote:
+			w.EvaluatorNotes = append(w.EvaluatorNotes, v.EvaluatorNotes[p.index])
 		case pieceClaim:
 			w.Claims = append(w.Claims, v.Claims[p.index])
 		case pieceUnsureNote:
@@ -655,6 +678,8 @@ func cutNote(left [pieceLog + 1]int, shortened bool) string {
 		one, many string
 	}{
 		{pieceAppOutput, "app output", "app outputs"},
+		{pieceCited, "outcome's cited calls", "outcomes' cited calls"},
+		{pieceEvaluatorNote, "evaluator's note", "evaluator's notes"},
 		{pieceClaim, "evaluator's claim maul could not confirm", "evaluator's claims maul could not confirm"},
 		{pieceUnsureNote, "evaluator's note on an outcome it was unsure of",
 			"evaluator's notes on outcomes it was unsure of"},

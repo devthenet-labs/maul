@@ -16,7 +16,7 @@ import (
 // TestEvaluatePromptAnomaliesAreNotes: both evaluate prompts say anomalies
 // are notes that decide nothing, that a defect in what an outcome states is
 // that outcome's fail, and a break of the rule its line of the request
-// states its contrary: only what neither covers is an anomaly.
+// states leaves that outcome unsure: only what neither covers is an anomaly.
 func TestEvaluatePromptAnomaliesAreNotes(t *testing.T) {
 	for name, p := range map[string]EvaluatePrompt{
 		"slot": testEvaluatePrompt(), "cli": testWorkspacePrompt(testCLIWorkspace),
@@ -29,11 +29,11 @@ func TestEvaluatePromptAnomaliesAreNotes(t *testing.T) {
 			}
 			flat := strings.Join(strings.Fields(got), " ")
 			for _, want := range []string{
-				"maul judges the change on the outcomes alone, so an anomaly never fails, holds or confirms anything",
+				"maul judges the change on the outcomes alone, so an anomaly never fails or holds anything",
 				"So a defect in what an outcome states, on any input, is never an anomaly: report it as that " +
 					"outcome's `fail`",
-				"Nor is a break of the rule an outcome's line of the request states beyond its example: list it " +
-					"in that outcome's `contrary`",
+				"Nor is a break of the rule an outcome's line of the request states beyond its example: report " +
+					"that outcome `unsure`",
 				"An anomaly is what neither covers",
 			} {
 				if !strings.Contains(flat, want) {

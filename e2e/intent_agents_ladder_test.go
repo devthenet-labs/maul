@@ -77,7 +77,7 @@ func TestIntentAgentsReplayPasses(t *testing.T) {
 		return strings.Contains(strings.Join(e.gh.Comments(number), ""),
 			"### maul: verification 2, attempt 1 (replayed saved checks, no model)")
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 }
 
 // TestIntentAgentsExploreIsFull: /maul verify explore at the same heads

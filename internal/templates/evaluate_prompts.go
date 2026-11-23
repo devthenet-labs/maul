@@ -50,10 +50,8 @@ const (
 	// evaluateComponentsMax bounds the previewed components named: a
 	// Preview's.
 	evaluateComponentsMax = 4
-	// priorReplaysMax bounds the previous round's replays shown: an
-	// intent's saved checks (v1alpha1.MaxSavedChecks); priorReasonMaxBytes
-	// one prior verdict's reason (the Intent's schema bound).
-	priorReplaysMax     = 40
+	// priorReasonMaxBytes bounds one prior verdict's reason (the Intent's
+	// schema bound).
 	priorReasonMaxBytes = 600
 )
 
@@ -127,9 +125,8 @@ const ToleranceRule = "A tolerance lets its assertion pass on a layout that miss
 	"for, such as an offset between two things it says only sit beside or right after one another."
 
 // GreenRubric, LayoutReadRule and ToleranceRule, wrapped as the templates
-// are, for them.
-func (evaluateView) GreenRubric() string       { return wrap(GreenRubric, "", "") }
-func (evaluateView) LayoutReadRule() string    { return wrap(LayoutReadRule, "", "") }
+// are, for the check reviewer's prompt (retired with saved checks; the
+// evaluate prompt states none of them).
 func (checkReviewView) GreenRubric() string    { return wrap(GreenRubric, "", "") }
 func (checkReviewView) LayoutReadRule() string { return wrap(LayoutReadRule, "", "") }
 func (checkReviewView) ToleranceRule() string  { return wrap(ToleranceRule, "", "") }
@@ -138,36 +135,40 @@ func (checkReviewView) ToleranceRule() string  { return wrap(ToleranceRule, "", 
 // as maul's own, outside any fence, so nothing but this can pass.
 var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 
-// EvaluatePrompt is the data for an intent's evaluate-stage prompt: judge
-// the approved outcomes against the running preview with maul-tool, save
-// checks for them, look around what the change touched, and report.
+// EvaluatePrompt is the data for an intent's evaluate-stage prompt: use the
+// running preview (or maul's builds of the pull request) as a reviewer would,
+// judge each approved outcome pass, fail or unsure citing the evaluator's own
+// calls in the round's ledger, look around what the change touched, and
+// report (the observed evaluator: no check is written, saved or replayed).
 //
-// Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files, PriorVerdicts, PriorReplay,
-// PriorRefused and NotYetProof are UNTRUSTED (DESIGN 4.4):
-// the issue anyone may have written, the plan's
-// outcome text, paths and diff text from the pull request, and a previous
-// round's results, whose reasons may quote its evaluator. RenderEvaluatePrompt shows each only
-// inside a fenced block it labels as data, made legible by
-// untrusted.Visible. Everything else is maul's own and is stated as fact.
+// Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files and
+// PriorVerdicts are UNTRUSTED (DESIGN 4.4): the issue anyone may have
+// written, the plan's outcome text, paths and diff text from the pull
+// request, and a previous round's results, whose reasons may quote its
+// evaluator. RenderEvaluatePrompt shows each only inside a fenced block it
+// labels as data, made legible by untrusted.Visible. Everything else is
+// maul's own and is stated as fact.
+//
+// ChecksDir, PriorReplay, PriorRefused and NotYetProof are retired with
+// saved checks: the prompt shows none of them, whatever they hold, and they
+// go once nothing sets them.
 type EvaluatePrompt struct {
 	// ReportPath is where the agent writes its report, under its
 	// working directory (/work/scratch).
 	ReportPath string
-	// ChecksDir is where the agent writes check files with its Write tool
-	// (/work/scratch/checks); ShotsDir is where maul-tool writes
-	// screenshots (/work/scratch/shots).
+	// ChecksDir is retired (where check files were written); ShotsDir is
+	// where maul-tool writes screenshots (/work/scratch/shots).
 	ChecksDir string
 	ShotsDir  string
 	// Limits are the run's own.
 	Limits StageLimits
 	// Round is the verification round, 1-based.
 	Round int
-	// RunToken is the text the agent names the data it creates while
-	// exploring with; a saved check writes {{run}} instead, which maul
-	// replaces with a fresh token on every run. It must match runToken.
+	// RunToken is the text the agent names the data it creates with. It
+	// must match runToken.
 	RunToken string
-	// Components are the previewed components: the key an http check's
-	// target names, and the path it is served under.
+	// Components are the previewed components: each key, and the path it
+	// is served under.
 	Components []EvaluateComponent
 	// Tools are what the round's tool pod offers.
 	Tools EvaluateTools
@@ -192,20 +193,15 @@ type EvaluatePrompt struct {
 	// fact beside the quoted diff; the zero value: FixDiff is the whole fix.
 	FixDiffCut FixDiffCut
 	// PriorRound is the last judged round before this one, and
-	// PriorVerdicts and PriorReplay its results (SPEC Q15): maul's result
-	// per outcome, and how each saved check replayed at its start. Zero, or
-	// neither, omits the section.
+	// PriorVerdicts its results (SPEC Q15): maul's result per outcome. Zero,
+	// or none, omits the section.
 	PriorRound    int
 	PriorVerdicts []PriorVerdict
-	PriorReplay   []PriorReplay
-	// PriorRefused are the checks the reviewer refused in earlier rounds,
-	// with its reasons (coverage design C3); none omits the section.
+	// PriorReplay, PriorRefused and NotYetProof are retired with saved
+	// checks: never shown.
+	PriorReplay  []PriorReplay
 	PriorRefused []PriorRefusal
-	// NotYetProof are the saved checks saved to show a defect that no
-	// review has yet accepted as proof their outcome holds (gate D-B9): the
-	// prompt asks for a new check of each one's outcome even when it
-	// replays green. None omits the section.
-	NotYetProof []NotYetProof
+	NotYetProof  []NotYetProof
 
 	// shed is what RenderEvaluatePrompt left out to keep the prompt within
 	// its bound, which the prompt says.
@@ -221,52 +217,38 @@ type EvaluatePrompt struct {
 // bound, fits within it with room to spare (TestEvaluatePromptHeadroom).
 const EvaluatePromptMaxBytes = 256 << 10
 
-// evaluateShed counts what a prompt over its bound left out:
-// changed paths and the oldest refusals.
+// evaluateShed counts what a prompt over its bound left out: changed
+// paths.
 type evaluateShed struct {
-	paths, refusals int
+	paths int
 }
 
 // shedOne leaves out the next part of p in the order a prompt over its
 // bound gives them up, and reports false when nothing is left to leave out:
-// a refused check's body, the oldest first; then half the changed paths;
-// then the older half of the refusals. The request, the fix diff (the
-// guard against a fix that special-cases a check), the outcomes and a
+// half the changed paths. The request, the fix diff (the guard against a
+// fix that special-cases the calls a failure cited), the outcomes and a
 // previous round's results always stay: an evaluator is never asked to
-// judge without them. Each is left out whole and the prompt says so, never
-// cut.
+// judge without them. What is left out is counted and the prompt says so,
+// never cut.
 func (p *EvaluatePrompt) shedOne() bool {
-	switch {
-	case slices.ContainsFunc(p.PriorRefused, func(r PriorRefusal) bool { return r.Body != "" }):
-		p.PriorRefused[slices.IndexFunc(p.PriorRefused, func(r PriorRefusal) bool { return r.Body != "" })].Body = ""
-	case len(p.ChangedPaths) > 0:
-		keep := len(p.ChangedPaths) / 2
-		p.shed.paths += len(p.ChangedPaths) - keep
-		p.ChangedPaths = p.ChangedPaths[:keep]
-	case len(p.PriorRefused) > 0:
-		// The newest refusals are the last: keep them.
-		drop := len(p.PriorRefused)/2 + len(p.PriorRefused)%2
-		p.shed.refusals += drop
-		p.PriorRefused = p.PriorRefused[drop:]
-	default:
+	if len(p.ChangedPaths) == 0 {
 		return false
 	}
+	keep := len(p.ChangedPaths) / 2
+	p.shed.paths += len(p.ChangedPaths) - keep
+	p.ChangedPaths = p.ChangedPaths[:keep]
 	return true
 }
 
 // NotYetProof is one saved check that is not yet proof of a pass, by its
-// id and outcome: saved red, or (Refused) one the saved-check substance
-// rules have come to refuse, which counts for nothing however it replays.
+// id and outcome (retired with saved checks: never shown).
 type NotYetProof struct {
 	Check, Outcome string
 	Refused        bool
 }
 
-// PriorRefusal is one check the reviewer refused in an earlier round, by
-// its id and outcome, with the reviewer's reason and, when maul still holds
-// it, the refused check's canonical JSON as maul confirmed it (Body,
-// G5R-B-CLI-1): the previous evaluator's text, quoted as data for this one
-// to amend.
+// PriorRefusal is one check the reviewer refused in an earlier round
+// (retired with saved checks: never shown).
 type PriorRefusal struct {
 	Check, Outcome, Reason, Body string
 }
@@ -278,7 +260,7 @@ type PriorVerdict struct {
 }
 
 // PriorReplay is how one saved check, bound to Outcome, replayed in a
-// previous round.
+// previous round (retired with saved checks: never shown).
 type PriorReplay struct {
 	Check, Outcome, Result string
 }
@@ -293,12 +275,12 @@ type EvaluateComponent struct {
 // EvaluateTools are what a round's tool pod offers beside http, logs and
 // events (v1alpha1.ToolsSpec).
 type EvaluateTools struct {
-	// Browser offers maul-tool browser and browser checks.
+	// Browser offers maul-tool browser.
 	Browser bool
 	// BrowserEntry is the path the browser opens first; "" leaves it to the
 	// evaluator. Else it must be v1alpha1.ValidBrowserEntry.
 	BrowserEntry string
-	// Sandbox offers maul-tool exec and exec checks.
+	// Sandbox offers maul-tool exec.
 	Sandbox bool
 	// MaxToolCalls is the run's tool-call bound.
 	MaxToolCalls int
@@ -355,10 +337,10 @@ type workspaceView struct {
 // buildSpan is a cli's build argv as one code span, every character shown.
 func buildSpan(argv []string) string { return code(shown(strings.Join(argv, " "))) }
 
-// The workspace placeholders (SPEC-S2 Q23), for the templates.
+// The workspace placeholders an exploratory call is given (SPEC-S2 Q23),
+// for the templates; the check reviewer's for its own.
 func (evaluateView) BinPlaceholder() string     { return checks.BinPlaceholder }
 func (evaluateView) TreePlaceholder() string    { return checks.TreePlaceholder }
-func (evaluateView) RunPlaceholder() string     { return checks.RunPlaceholder }
 func (checkReviewView) BinPlaceholder() string  { return checks.BinPlaceholder }
 func (checkReviewView) TreePlaceholder() string { return checks.TreePlaceholder }
 
@@ -384,9 +366,18 @@ type evaluateView struct {
 	FixDiffNote       string
 	FixDiffFilesBlock string
 	PriorBlock        string
-	RefusedBlock      string
-	NotYetBlock       string
 	Examples          evaluateExamples
+	// ExercisingCalls names, as one phrase, the maul-tool calls that use the
+	// application on a slot round (acceptance.ValidCite's verbs the round
+	// offers): only they count as a pass's or a fail's evidence.
+	ExercisingCalls string
+	// OwnScripts names, as one phrase, the slot round's calls that run a
+	// script or program the evaluator wrote (a page script, an exec
+	// program); "" when the round offers none.
+	OwnScripts string
+	// MaxCites is acceptance.MaxCites, the most calls of a verdict maul
+	// keeps.
+	MaxCites int
 	// WS is the workspace, on a round with no preview.
 	WS workspaceView
 	// LookAroundCalls is LookAroundToolCalls, for the template.
@@ -395,61 +386,27 @@ type evaluateView struct {
 	// (reportBy).
 	ReportBy int
 	// OutcomeTurns is the turns the prompt budgets for each outcome a person
-	// does not judge and no saved check covers (outcomeTurns).
+	// does not judge (outcomeTurns).
 	OutcomeTurns int
 }
 
 // outcomeTurns shares the turns before the report, less the two that start
-// a round, among the outcomes a person does not judge and no saved check
-// covers (replayedGreen), an outcome with a saved check that is not yet
-// proof of a pass counted uncovered (gate D-B9): at least 1 each. It is
-// advice only, so an outcome whose check fails this round after all is
-// still judged.
-func outcomeTurns(reportBy int, os []acceptance.PlanOutcome, replays []PriorReplay, notYet []NotYetProof) int {
-	green := replayedGreen(replays)
-	for _, c := range notYet {
-		delete(green, c.Outcome)
-	}
+// a round, among the outcomes a person does not judge: at least 1 each. It
+// is advice only.
+func outcomeTurns(reportBy int, os []acceptance.PlanOutcome) int {
 	n := 0
 	for _, o := range os {
-		if !o.Manual && !green[o.ID] {
+		if !o.Manual {
 			n++
 		}
 	}
 	return max(1, (reportBy-2)/max(n, 1))
 }
 
-// replayedGreen is the outcomes whose saved checks all replayed, at least
-// one, and every one passed.
-func replayedGreen(replays []PriorReplay) map[string]bool {
-	green := map[string]bool{}
-	for _, r := range replays {
-		pass := r.Result == string(v1alpha1.CheckRunPass)
-		if seen, ok := green[r.Outcome]; ok {
-			pass = pass && seen
-		}
-		green[r.Outcome] = pass
-	}
-	return green
-}
-
-// ExecMarker is checks.ExecMarkerPlaceholder, for the templates: a line of an
-// exec check's output that starts with what it stands for fails the check
-// (checks.ExecMarked); found only elsewhere in a line, it errs the run
-// (checks.ExecMarkerUnplaced).
-func (evaluateView) ExecMarker() string    { return checks.ExecMarkerPlaceholder }
+// ExecMarker is checks.ExecMarkerPlaceholder, for the check reviewer's
+// template: a line of an exec check's output that starts with what it
+// stands for fails the check (checks.ExecMarked).
 func (checkReviewView) ExecMarker() string { return checks.ExecMarkerPlaceholder }
-
-// ExecAssertionIDMax is checks.MaxExecAssertionIDLen, for the templates:
-// a marker naming a longer id is no assertion (gate D-B2).
-func (evaluateView) ExecAssertionIDMax() int { return checks.MaxExecAssertionIDLen }
-
-// ExecTimeoutMax is checks.MaxExecTimeout, for the templates, as a check
-// would write it ("1m"): the most time a check may claim, the exec shim's
-// own bound on one program.
-func (evaluateView) ExecTimeoutMax() string {
-	return strings.TrimSuffix(strings.TrimSuffix(checks.MaxExecTimeout.String(), "0s"), "0m")
-}
 
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
 // have written its report: a tenth of its turns, at least 2, kept back for
@@ -469,12 +426,10 @@ func (v evaluateView) ReportByTime() string {
 	return StageLimits{Timeout: max(2*time.Minute, (v.Limits.Timeout / 8).Truncate(time.Minute))}.WallClock()
 }
 
-// evaluateExamples are the check and report examples the prompt shows,
-// which the package's tests hold to the grammar and the report parser.
+// evaluateExamples are the examples the prompt shows: its report's, which
+// the package's tests hold to the report parser.
 type evaluateExamples struct {
-	HTTP, Browser, Exec, Report string
-	// Run is a workspace's run check example.
-	Run string
+	Report string
 }
 
 // RenderEvaluatePrompt renders the evaluate-stage prompt.
@@ -488,7 +443,7 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 
 // renderEvaluateWithin is RenderEvaluatePrompt held to maxBytes.
 func renderEvaluateWithin(p EvaluatePrompt, maxBytes int) (string, error) {
-	p.PriorRefused, p.shed = slices.Clone(p.PriorRefused), evaluateShed{}
+	p.shed = evaluateShed{}
 	for {
 		s, err := renderEvaluate(p)
 		if err != nil || len(s) <= maxBytes {
@@ -519,15 +474,48 @@ func renderEvaluate(p EvaluatePrompt) (string, error) {
 	p.Components = boundEvaluateComponents(p.Components)
 	p.Tools.LookAroundRoutes = min(max(p.Tools.LookAroundRoutes, 0), 8)
 	v := newEvaluateView(p)
-	v.Examples = evaluateExamples{HTTP: ExampleHTTPCheck, Browser: ExampleBrowserCheck, Exec: ExampleExecCheck,
-		Report: ExampleEvaluationReport}
+	v.Examples = evaluateExamples{Report: ExampleEvaluationReport}
+	v.ExercisingCalls, v.OwnScripts = slotCalls(p.Tools)
 	return render("prompt_evaluate.md.tmpl", v)
+}
+
+// slotCalls are the phrases naming a slot round's calls that use the
+// application (every one acceptance.ValidCite admits that the round offers)
+// and those that run a script or program of the evaluator's own (a page
+// script, an exec program); own is "" when the round offers neither.
+func slotCalls(t EvaluateTools) (exercising, own string) {
+	verbs := []string{"`maul-tool http`"}
+	var scripts []string
+	if t.Browser {
+		verbs = append(verbs, "`maul-tool browser`")
+		scripts = append(scripts, "A page script you run with `eval`")
+	}
+	if t.Sandbox {
+		verbs = append(verbs, "`maul-tool exec`")
+		scripts = append(scripts, "a program you run with `maul-tool exec`")
+	}
+	if len(scripts) > 0 {
+		own = strings.ToUpper(scripts[0][:1]) + scripts[0][1:]
+		if len(scripts) == 2 {
+			own += ", or " + scripts[1] + ","
+		}
+	}
+	return orList(verbs), own
+}
+
+// orList joins items as "a", "a or b", "a, b or c".
+func orList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
 // renderEvaluateWorkspace renders the evaluate prompt of a round on a
 // Project with no preview (SPEC-S2): the two builds, files, exec and run,
-// the placeholders and the head-and-base rule; no component, browser or
-// look-around, which such a round never has.
+// the placeholders, and that only what the evaluator saw at the head
+// counts; no component, browser or look-around, which such a round never
+// has.
 func renderEvaluateWorkspace(p EvaluatePrompt) (string, error) {
 	w := *p.Workspace
 	if err := w.validate(); err != nil {
@@ -541,10 +529,9 @@ func renderEvaluateWorkspace(p EvaluatePrompt) (string, error) {
 	v.WS = workspaceView{CLI: w.Surface == SurfaceCLI, Binary: w.Binary}
 	if v.WS.CLI {
 		v.WS.Build = buildSpan(w.Build)
-		v.Examples = evaluateExamples{Exec: ExampleCLIExecCheck, Run: ExampleCLIRunCheck,
-			Report: ExampleCLIEvaluationReport}
+		v.Examples = evaluateExamples{Report: ExampleCLIEvaluationReport}
 	} else {
-		v.Examples = evaluateExamples{Run: ExampleLibraryRunCheck, Report: ExampleLibraryEvaluationReport}
+		v.Examples = evaluateExamples{Report: ExampleLibraryEvaluationReport}
 	}
 	return render("prompt_evaluate_workspace.md.tmpl", v)
 }
@@ -560,105 +547,20 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 		ChangedBlock:    changedBlock(p.ChangedPaths, p.shed.paths),
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
+		MaxCites:        acceptance.MaxCites,
 	}
-	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay, p.NotYetProof)
+	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes)
 	v.FixDiffBlock, v.FixDiffNote, v.FixDiffFilesBlock = fixDiffView(p.FixDiff, p.FixDiffCut)
 	if p.PriorRound > 0 {
-		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
+		v.PriorBlock = priorBlock(p.PriorVerdicts)
 	}
-	v.RefusedBlock = refusedBlock(p.PriorRefused, p.shed.refusals)
-	v.NotYetBlock = notYetBlock(p.NotYetProof)
 	return v
-}
-
-// notYetBlock lists the saved checks that are not yet proof of a pass, each
-// by its id and outcome, at most NotYetProofMax; "" for none.
-func notYetBlock(cs []NotYetProof) string {
-	var b strings.Builder
-	for i, c := range cs {
-		if i == NotYetProofMax {
-			break
-		}
-		fmt.Fprintf(&b, "- check %s, of outcome %s", quotedLine(c.Check, 72), quotedLine(c.Outcome, 64))
-		if c.Refused {
-			b.WriteString(": asserts nothing that is there")
-		}
-		b.WriteString("\n")
-	}
-	return strings.TrimSuffix(b.String(), "\n")
-}
-
-// refusedBlock lists the checks the reviewer refused, as priorBlock lists a
-// round's results: each by its id and outcome with the reviewer's reason,
-// at most PriorRefusedMax, then the refused check itself where it is shown
-// (refusedBodies), after a line counting the earlier ones left out (shed);
-// "" for none.
-func refusedBlock(rs []PriorRefusal, shed int) string {
-	rs = rs[:min(len(rs), PriorRefusedMax)]
-	bodies := refusedBodies(rs)
-	var b strings.Builder
-	if shed > 0 {
-		fmt.Fprintf(&b, "- %d earlier refused checks are not shown, to keep this prompt within its size bound.\n", shed)
-	}
-	for i, r := range rs {
-		fmt.Fprintf(&b, "- check %s, of outcome %s, was refused.", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64))
-		if r.Reason != "" {
-			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
-		}
-		if bodies[i] == "" {
-			b.WriteString("\n    Its body is not shown.\n")
-			continue
-		}
-		b.WriteString("\n    The refused check, as the previous evaluator proposed it and maul confirmed it:\n")
-		for line := range strings.SplitSeq(bodies[i], "\n") {
-			b.WriteString("      " + line + "\n")
-		}
-	}
-	return strings.TrimSuffix(b.String(), "\n")
-}
-
-// refusedBodyShownMaxBytes bounds one refused check as the evaluate prompt
-// shows it, indented and made visible: twice the largest a check may be,
-// room for an ordinary check's indentation, while a few hundred bytes of
-// nested JSON that indent to tens of KiB are not shown.
-const refusedBodyShownMaxBytes = 2 * v1alpha1.MaxSavedCheckBytes
-
-// refusedBodies are rs's bodies as the prompt shows them, by index (G5R-B-
-// CLI-1): each that is a check of maul's grammar, at most
-// v1alpha1.MaxSavedCheckBytes, indented as JSON and made visible; the
-// newest refusals' first, within RefusedBodiesMaxBytes in all as shown (the
-// prompt is held to its bound). A body that is no
-// check, or whose shown form is past refusedBodyShownMaxBytes or the bound
-// left, is "": never shown cut, since a cut check is another check.
-func refusedBodies(rs []PriorRefusal) []string {
-	out := make([]string, len(rs))
-	total := 0
-	for i := len(rs) - 1; i >= 0; i-- {
-		body := rs[i].Body
-		if body == "" || len(body) > v1alpha1.MaxSavedCheckBytes {
-			continue
-		}
-		if _, err := checks.Parse([]byte(body)); err != nil {
-			continue
-		}
-		var buf bytes.Buffer
-		if err := json.Indent(&buf, []byte(body), "", "  "); err != nil {
-			continue
-		}
-		shown := untrusted.Escape(buf.String())
-		if len(shown) > refusedBodyShownMaxBytes || total+len(shown) > RefusedBodiesMaxBytes {
-			continue
-		}
-		out[i], total = shown, total+len(shown)
-	}
-	return out
 }
 
 // priorBlock lists a previous round's results as the prompt quotes them, in
 // prose as the outcomes are (outcomesBlock): maul's result per outcome with
-// its reason, then each saved check's replay, each list bounded; "" for
-// neither.
-func priorBlock(verdicts []PriorVerdict, replays []PriorReplay) string {
+// its reason, bounded; "" for none.
+func priorBlock(verdicts []PriorVerdict) string {
 	var b strings.Builder
 	for i, r := range verdicts {
 		if i == acceptance.MaxOutcomes {
@@ -672,16 +574,6 @@ func priorBlock(verdicts []PriorVerdict, replays []PriorReplay) string {
 			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
 		}
 		b.WriteString("\n")
-	}
-	for i, r := range replays {
-		if i == priorReplaysMax {
-			break
-		}
-		if i == 0 {
-			b.WriteString("Replayed at the start of that round:\n")
-		}
-		fmt.Fprintf(&b, "- check %s, of outcome %s, replayed %s\n", quotedLine(r.Check, 72),
-			quotedLine(r.Outcome, 64), quotedLine(r.Result, 16))
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -1236,11 +1128,11 @@ verdicts:
   - outcome: "rating-moves"
     verdict: pass
     ledger: [14, 15, 22]
-    note: "Both players start at 1000; after the battle the winner is at 1016 and the loser at 984."
+    note: "Two players I created both start at 1000; after their battle the winner shows 1016 and the loser 984."
   - outcome: "live-score"
     verdict: fail
     ledger: [31, 33]
-    note: "The score socket closes before the first update; see the screenshot in 33."
+    note: "The score stays 0-0 after I scored twice: seq 31 is the page after 10 s, and seq 33 the same on a reload."
   - outcome: "sounds-good"
     verdict: unsure
     ledger: []
@@ -1249,25 +1141,6 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "The clause 'emails the loser' could not be exercised: the preview sends no mail and no tool reads one."
-  - outcome: "profile-round-trip"
-    verdict: unsure
-    ledger: []
-    contrary: [41]
-    note: "Posting back the exact profile GET returned is a 400 (seq 41), on a field this change did not touch."
-disputes:
-  - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."
-    replacement: "rating-moves-api"
-    ledger: [3]
-proposed:
-  - id: "rating-moves-api"
-    outcome: "rating-moves"
-    file: "/work/scratch/checks/rating-moves-api.json"
-  - id: "live-score-socket"
-    outcome: "live-score"
-    file: "/work/scratch/checks/live-score-socket.json"
-    expect: fail
-retire: []
 anomalies:
   - summary: "The Back to battles link is dark blue on a dark background and barely readable."
     route: "/battles"

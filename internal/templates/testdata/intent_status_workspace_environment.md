@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul couldn't confirm this: its own checking tools failed while it checked. Evaluation 1: 2/2 outcomes confirmed, but maul couldn't confirm this: its own checking tools failed while it checked; 0 of 2 automatic fixes used.
+**Evaluation:** maul couldn't confirm this: its own checking tools failed while it checked. Evaluation 1: 2/2 outcomes seen to hold, but maul couldn't confirm this: its own checking tools failed while it checked; 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

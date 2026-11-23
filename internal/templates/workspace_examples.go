@@ -51,7 +51,7 @@ verdicts:
   - outcome: "onsets-500ms"
     verdict: pass
     ledger: [7, 9]
-    note: "At 120 BPM the kick onsets are 500 ms apart at the head; at the base they are 250 ms apart."
+    note: "At 120 BPM my program read the WAV the head wrote: kick onsets 500 ms apart, 4 of them; seq 9 is a rerun."
   - outcome: "describe-bpm"
     verdict: fail
     ledger: [12, 13]
@@ -60,16 +60,6 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "Only a person can judge this."
-disputes: []
-proposed:
-  - id: "onsets-500ms-wav"
-    outcome: "onsets-500ms"
-    file: "/work/scratch/checks/onsets-500ms-wav.json"
-  - id: "describe-bpm-json"
-    outcome: "describe-bpm"
-    file: "/work/scratch/checks/describe-bpm-json.json"
-    expect: fail
-retire: []
 anomalies: []
 ---
 
@@ -80,17 +70,11 @@ verdicts:
   - outcome: "parse-too-long"
     verdict: pass
     ledger: [6, 8]
-    note: "64 steps parse and 65 return ErrTooLong; the base has no ErrTooLong, so there is no base comparison."
+    note: "My program parsed 64 steps with no error and 65 steps returned an error matching ErrTooLong."
   - outcome: "parse-keeps-names"
     verdict: unsure
     ledger: []
     note: "The clause 'from any file' could not be exercised: the library reads no file."
-disputes: []
-proposed:
-  - id: "parse-too-long-errors"
-    outcome: "parse-too-long"
-    file: "/work/scratch/checks/parse-too-long-errors.json"
-retire: []
 anomalies: []
 ---
 

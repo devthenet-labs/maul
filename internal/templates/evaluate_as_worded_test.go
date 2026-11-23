@@ -15,9 +15,10 @@ import (
 // called it pre-existing, saved a check that left the failing field out and
 // reported pass. The prompt now says an outcome is judged as worded, that a
 // failure from before the change is still a failure, that nothing the
-// outcome names is dropped for a green run, and that the seqs where it
-// failed go in the verdict's contrary, which withholds a pass; a dispute is
-// never for a failure the change did not cause.
+// outcome names is dropped to see it hold, and that any call showing it not
+// hold makes its verdict fail or unsure, never pass (the observed
+// evaluator has no contrary list: the rule is the evaluator's, and the
+// cited calls are shown to the reviewers).
 func TestEvaluatePromptJudgesAsWorded(t *testing.T) {
 	got, err := RenderEvaluatePrompt(testEvaluatePrompt())
 	if err != nil {
@@ -28,15 +29,10 @@ func TestEvaluatePromptJudgesAsWorded(t *testing.T) {
 		"it does not hold, whether or not this change caused it",
 		"a failure that was there before the change is still a failure of the outcome",
 		"for a keep outcome it is exactly what the outcome is there to catch",
-		"Such an outcome is never `pass`, and is never re-checked on a narrower claim",
-		"report it `fail` with a check that shows the defect if one meets the rules under **A check that shows a " +
-			"defect**, else `unsure`, and say in its note what failed",
 		"Never drop, replace or default an input, a field, a step or a value the outcome names",
 		"A call that failed by your own mistake",
-		"List in the verdict's `contrary` the ledger seqs where you saw the outcome as worded not hold",
-		"maul passes no outcome whose verdict lists any",
-		"`contrary`, the seqs where you saw the outcome as worded not hold",
-		"A failure that was there before this change is still a defect: never dispute a check for that.",
+		"If any call you made showed the outcome as worded not hold, its verdict is `fail`, citing that call, or " +
+			"`unsure`: never `pass`, whatever your other calls showed and whatever you believe caused it.",
 	} {
 		if !strings.Contains(flat(got), want) {
 			t.Errorf("prompt lacks %q", want)
@@ -45,23 +41,9 @@ func TestEvaluatePromptJudgesAsWorded(t *testing.T) {
 	if strings.Contains(flat(got), "not a defect of the change") {
 		t.Error("the prompt still lets a dispute call a failure not a defect of the change")
 	}
-	e, err := report.ParseEvaluation([]byte(reportExampleOf(t, got)))
-	if err != nil {
+	if _, err := report.ParseEvaluation([]byte(reportExampleOf(t, got))); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(report.FrontmatterKeyPaths([]byte(ExampleEvaluationReport)), " "),
-		"verdicts[].contrary") || !hasContrary(e) {
-		t.Errorf("the report example shows no contrary seqs:\n%s", ExampleEvaluationReport)
-	}
-}
-
-func hasContrary(e *report.Evaluation) bool {
-	for _, v := range e.Verdicts {
-		if len(v.Contrary) > 0 && v.Verdict != report.VerdictPass {
-			return true
-		}
-	}
-	return false
 }
 
 // TestGreenRubricRefusesANarrowedCheck (S1 demo bug 13): the reviewer

@@ -5,7 +5,7 @@ maul couldn't confirm this: some outcomes are unsure. This pull request's head, 
 
 #### maul: acceptance checks
 
-Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes confirmed, 0 of 2 automatic fixes used.
+Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes seen to hold, 0 of 2 automatic fixes used.
 
 - `light-sets-swing` (`change`): confirmed; maul's check: `browser: goto /, click button Light; 1 expectation`. Light sets the Swing slider to 20.
 - `presets-visible-clickable` (`change`): unsure: maul couldn't confirm it; no check maul re-ran covers it. The presets sit right after the Swing slider, visible and clickable.

@@ -81,7 +81,7 @@ func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
 	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
 	e.review(name, 3)
 	s := e.latestAcceptance(head)
-	if s.State == statusSuccess || !strings.Contains(s.Description, "2/3 outcomes confirmed") {
+	if s.State == statusSuccess || !strings.Contains(s.Description, "2/3 outcomes seen to hold") {
 		t.Fatalf("once passed with the manual outcome open: %+v", s)
 	}
 	pr := e.get(name).Status.PullRequests[0]
@@ -280,7 +280,7 @@ func TestAcceptanceStatusSwitchedOffStaysOff(t *testing.T) {
 				t.Fatalf("once switched off: %+v", s)
 			}
 			e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: statusSuccess,
-				Description: "1/1 outcomes confirmed", Creator: creator})
+				Description: "1/1 outcomes seen to hold", Creator: creator})
 			e.review(name, 2)
 			s := e.latestAcceptance(head)
 			if s.Creator != testBot || s.State != statusError || s.Description != switchedOff.description {

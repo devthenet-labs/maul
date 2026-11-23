@@ -48,14 +48,14 @@ func TestEvaluatePromptReportExampleDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the prompt's report example is refused: %v", err)
 	}
-	if len(e.Verdicts) == 0 || len(e.Proposed) == 0 || e.Proposed[0].File == "" {
-		t.Errorf("example = %+v, want verdicts and a proposal by its file", e)
+	if len(e.Verdicts) == 0 || len(e.Anomalies) == 0 {
+		t.Errorf("example = %+v, want verdicts and an anomaly", e)
 	}
 	if regexp.MustCompile(`(?m)^\s*-?\s*id:\s*"` + e.Verdicts[0].ID + `"`).MatchString(example) {
 		t.Errorf("the example names a verdict's outcome as id, not outcome:\n%s", example)
 	}
 	for _, key := range []string{"verdicts[].outcome", "verdicts[].verdict", "verdicts[].ledger",
-		"proposed[].outcome", "proposed[].file"} {
+		"verdicts[].note", "anomalies[].summary", "anomalies[].route", "anomalies[].ledger"} {
 		if !strings.Contains(strings.Join(report.FrontmatterKeyPaths([]byte(example)), " "), key) {
 			t.Errorf("the example lacks %s", key)
 		}
@@ -151,8 +151,7 @@ func TestEvaluatePromptDataIsNotReportSyntax(t *testing.T) {
 		"From the request, quoted: ratings should update after every battle",
 		"2. leaderboard-still-loads (a keep)", "3. sounds-good (a change, judged by a person)",
 		"Why a person judges it, quoted: only a person can judge how it sounds",
-		"- winner-rises was judged failed. Why, quoted: the order did not change",
-		"- check winner-rises.api, of outcome winner-rises, replayed fail"} {
+		"- winner-rises was judged failed. Why, quoted: the order did not change"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q", want)
 		}

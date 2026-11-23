@@ -290,7 +290,7 @@ func TestIntentAgentsCLIPasses(t *testing.T) {
 		t.Errorf("acceptance checks %+v reviews %+v; want the check stored and reviewed", acc.Checks, acc.Reviews)
 	}
 	checkConfirmedAtBoth(t, e.agentsVerification(t, name), pr.HeadSHA)
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	e.waitStatusComment(t, name, number, "the status comment to say ready with no link", func(body string) bool {
 		return strings.Contains(body, "Ready: maul checked the approved outcomes.") &&
 			!strings.Contains(body, previewHostSuffix)
@@ -414,7 +414,7 @@ func TestIntentAgentsRecheckPasses(t *testing.T) {
 		t.Errorf("%d refused, %d proven; want round 1's refused and the amended one proven", refused, proven)
 	}
 	checkConfirmedAtBoth(t, recheck, pr.HeadSHA)
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	eventually(t, "round 2's comment to say maul checked once more", func() bool {
 		return strings.Contains(strings.Join(e.gh.Comments(number), ""), "### maul: verification 2, attempt 1 "+
 			"(maul checked once more by itself: a check was not accepted)")
@@ -510,7 +510,7 @@ func TestIntentAgentsFixRound(t *testing.T) {
 	if in.Status.VerifyFixes != 1 || len(e.verifyRuns(t, name)) != 1 {
 		t.Errorf("verify fixes %d, fix rounds %d; want one fix", in.Status.VerifyFixes, len(e.verifyRuns(t, name)))
 	}
-	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, head, "success", "1/1 outcomes seen to hold")
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) < 2 {
 		t.Fatalf("%d agents tool pods ran, want one per round", len(runs))
@@ -577,7 +577,7 @@ func TestIntentAgentsRedCheckWithoutRunData(t *testing.T) {
 	e.waitEval(t, name, "the round at the fix's head to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == head
 	})
-	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, head, "success", "1/1 outcomes seen to hold")
 }
 
 // checkLingering asserts a settled round's finished tool Job lingers (wave
@@ -682,7 +682,7 @@ func TestIntentAgentsLibraryNewSymbol(t *testing.T) {
 			t.Errorf("base run %+v, want an error with the compile cause", r)
 		}
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) != 1 {
 		t.Fatalf("%d agents tool pods ran, want one", len(runs))
@@ -858,7 +858,7 @@ func (e *evalEnv) waitUnsureNoBaseEvidence(t *testing.T, name, head string) v1al
 	if v := in.Status.Verification; v.Passed != 0 || v.Failed != 0 {
 		t.Errorf("verification %+v, want nothing passed or failed", v)
 	}
-	e.waitStatus(t, head, "error", "maul couldn't confirm this: 0/1 outcomes confirmed")
+	e.waitStatus(t, head, "error", "maul couldn't confirm this: 0/1 outcomes seen to hold")
 	if len(e.verifyRuns(t, name)) != 0 {
 		t.Errorf("a fix round started on an unsure outcome: %s", e.describeRuns(t, name))
 	}
@@ -922,7 +922,7 @@ func TestIntentAgentsBaseUnbuildable(t *testing.T) {
 	if b := pv.Status.Base; b == nil || !b.Unbuildable {
 		t.Errorf("base %+v, want it unbuildable", b)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) != 1 {
 		t.Fatalf("%d agents tool pods ran, want one", len(runs))

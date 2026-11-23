@@ -5,6 +5,7 @@ package templates
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,8 +18,8 @@ import (
 // checked only by what it kept (#59), a "same array" checked on three items
 // (#58), an exec program that printed the marker and went on to exit 0
 // (#57), a level checked on an empty beat that reads "sparse" by default
-// (#60). The shared green rule names each, so the evaluator writes to it and
-// the reviewer judges by it.
+// (#60). The green rule names each, and the reviewer judges by it; the
+// observed evaluator writes no check, so its prompt states no green rule.
 func TestGreenRubricRefusesACheckThatCannotGoRed(t *testing.T) {
 	wants := []string{
 		"Answer `does_not_prove` too for a check that a plausible wrong build would still pass",
@@ -33,72 +34,48 @@ func TestGreenRubricRefusesACheckThatCannotGoRed(t *testing.T) {
 			t.Errorf("the green rule lacks %q", want)
 		}
 	}
-	ev, err := RenderEvaluatePrompt(testEvaluatePrompt())
-	if err != nil {
-		t.Fatal(err)
-	}
 	cr, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleExecCheck)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, got := range map[string]string{"evaluate": ev, "checkreview": cr} {
-		if !strings.Contains(flat(got), wants[0]) {
-			t.Errorf("the %s prompt is not shown the rule", name)
-		}
+	if !strings.Contains(flat(cr), wants[0]) {
+		t.Error("the checkreview prompt is not shown the rule")
 	}
 }
 
-// TestEvaluatePromptAsksForChecksThatCanGoRed (S1 demo #57-#60): the
-// evaluator's list says how to make each kind of check able to fail: the
-// left-out item created and asserted absent beside a kept one, a whole
-// compared whole, a value input away from its default, both sides of a
-// bound, and last the wrong builds named and each matched to an assertion.
-func TestEvaluatePromptAsksForChecksThatCanGoRed(t *testing.T) {
-	got, err := RenderEvaluatePrompt(testEvaluatePrompt())
-	if err != nil {
-		t.Fatal(err)
+// TestEvaluatePromptLooksWhereAWrongBuildDiffers (S1 demo #57-#60, as the
+// observed evaluator states it): every evaluate prompt asks the evaluator
+// to try an outcome where a careless build would answer otherwise: a
+// left-out item created and looked for beside a kept one, both sides of a
+// rule and of a bound, inputs other than the defaults, and the wrong builds
+// named.
+func TestEvaluatePromptLooksWhereAWrongBuildDiffers(t *testing.T) {
+	shared := []string{
+		"Try the outcome where a careless build would get it wrong: inputs other than the defaults, both sides of " +
+			"a rule",
+		"each side of a bound",
+		"The wrong builds to look for: the value fixed or left at its default",
+		"the rule right only on the example, the bound off by one",
 	}
-	for _, want := range []string{
-		"create the item that must be left out yourself and assert that it is not there, after an assertion of " +
-			"an item that is there in the same answer (the same step's `json`), so an empty answer does not pass",
-		"assert that the index after the last is `{\"$absent\": true}`",
-		"assert a `count` of 0 for a locator naming the left-out item's `{{run}}` text",
-		"compare all of it, not a sample",
-		"the value the outcome expects is not the one a new, empty item shows",
-		"create an item on each side of the bound and assert both",
-		"name the wrong builds a careless change could ship",
-		"find the assertion of your check that would go red on it",
-		"where no check you can write would go red, say so in the verdict's note instead of proposing a weaker one",
+	for name, tt := range map[string]struct {
+		p    EvaluatePrompt
+		want []string
+	}{
+		"slot": {testEvaluatePrompt(), []string{"create the item that must be left out and look for it beside one " +
+			"that is there, so an empty answer does not pass", "for a change, the state before and after it"}},
+		"cli": {testWorkspacePrompt(testCLIWorkspace), []string{"the input that must be left out beside one that " +
+			"is kept"}},
+		"library": {testWorkspacePrompt(testLibraryWorkspace), []string{"the input that must be left out beside " +
+			"one that is kept"}},
 	} {
-		if !strings.Contains(flat(got), want) {
-			t.Errorf("prompt lacks %q", want)
-		}
-	}
-	p := testEvaluatePrompt()
-	p.Tools.Browser = false
-	noBrowser, err := RenderEvaluatePrompt(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(noBrowser, "a `count` of 0") {
-		t.Error("a preview with no browser is told to write a browser count")
-	}
-}
-
-// TestExecAssertionIDRuleIsStated (gate D-B2): both evaluate prompts state
-// the marker id's whole grammar, its bound checks.MaxExecAssertionIDLen
-// included, so an evaluator never names an assertion maul cannot count.
-func TestExecAssertionIDRuleIsStated(t *testing.T) {
-	want := fmt.Sprintf("the id naming that assertion (lowercase letters, digits and hyphens, starting with a "+
-		"letter, at most %d characters)", checks.MaxExecAssertionIDLen)
-	for name, p := range map[string]EvaluatePrompt{"slot": testEvaluatePrompt(),
-		"cli": testWorkspacePrompt(testCLIWorkspace), "library": testWorkspacePrompt(testLibraryWorkspace)} {
-		got, err := RenderEvaluatePrompt(p)
+		got, err := RenderEvaluatePrompt(tt.p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(flat(got), want) {
-			t.Errorf("%s evaluate prompt lacks %q", name, want)
+		for _, want := range slices.Concat(shared, tt.want) {
+			if !strings.Contains(flat(got), want) {
+				t.Errorf("%s: prompt lacks %q", name, want)
+			}
 		}
 	}
 }
@@ -109,28 +86,10 @@ func TestExecAssertionIDRuleIsStated(t *testing.T) {
 // code, and never passes an output cut at its bound. The evaluator is told
 // to print it only for an assertion's final judgement, never inside a retry
 // or poll or on an error, and to assert on what the program observed; the
-// reviewer of an exec check is told how maul runs it.
+// reviewer of an exec check is told how maul runs it. The observed
+// evaluator writes no check, so its prompt names no marker
+// (TestEvaluatePromptHasNoCheckSections).
 func TestExecMarkerFailsTheCheckIsStated(t *testing.T) {
-	ev, err := RenderEvaluatePrompt(testEvaluatePrompt())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"maul fails an exec check whose output has a line that starts with what `" +
-			checks.ExecMarkerPlaceholder + "` in its program files stands for (a secret maul draws for every run), " +
-			"whatever its exit code and its `expect`",
-		"when its final judgement of an assertion finds the outcome does not hold, never inside a retry or poll, " +
-			"on a connection error, a status code or an exception",
-		"never only on a line it prints whatever happened (`DONE`)",
-		"A run whose output is too long to keep whole (over 64 KiB) never passes",
-	} {
-		if !strings.Contains(flat(ev), want) {
-			t.Errorf("evaluate prompt lacks %q", want)
-		}
-	}
-	if strings.Contains(ev, "MAUL-ASSERTION-FAILED") {
-		t.Error("the evaluate prompt names a marker the program could print without {{marker}}")
-	}
 	cr, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleExecCheck)))
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +118,8 @@ func TestExecMarkerFailsTheCheckIsStated(t *testing.T) {
 // further step keeping every named parameter, with a kept item of the run
 // and a control showing the narrowing alone lists the left-out item. The
 // green rule still refuses a check that drops or changes a named parameter
-// or narrows the left-out item away.
+// or narrows the left-out item away. (The observed evaluator writes no
+// check; only the reviewer's half stays, until the reviewer goes.)
 func TestExcludesOnASharedListSendsTheNamedRequest(t *testing.T) {
 	rubric := []string{
 		"A step adding to a request the outcome names only a narrowing to the check's own run (`{{run}}` text), " +
@@ -179,18 +139,12 @@ func TestExcludesOnASharedListSendsTheNamedRequest(t *testing.T) {
 			t.Errorf("the green rule lacks %q", want)
 		}
 	}
-	ev, err := RenderEvaluatePrompt(testEvaluatePrompt())
-	if err != nil {
-		t.Fatal(err)
-	}
 	cr, err := RenderCheckReviewPrompt(testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, got := range map[string]string{"evaluate": ev, "checkreview": cr} {
-		if !strings.Contains(flat(got), rubric[0]) {
-			t.Errorf("the %s prompt is not shown the narrowing rule", name)
-		}
+	if !strings.Contains(flat(cr), rubric[0]) {
+		t.Error("the checkreview prompt is not shown the narrowing rule")
 	}
 	// The reviewer of an http check is also told what the unchanged step
 	// must hold: reads of rows it did not create only for what holds of any
@@ -212,18 +166,6 @@ func TestExcludesOnASharedListSendsTheNamedRequest(t *testing.T) {
 		}
 		if strings.Contains(got, "For such a narrowing") {
 			t.Errorf("a %s check's review is told of a request narrowing", name)
-		}
-	}
-	for _, want := range []string{
-		"On a list other runs share, narrow to your run's data as the rule above admits",
-		"in the narrowed answer assert your kept items by index and assert that the index after the last is " +
-			"`{\"$absent\": true}`, so the list ends there",
-		"on the unchanged request assert only what holds of any data, its status and the first item " +
-			"meeting the outcome's rule (`{\"$range\": [lo, hi]}` at its field), never your items' places",
-		"on a newest-first list create the left-out item last",
-	} {
-		if !strings.Contains(flat(ev), want) {
-			t.Errorf("evaluate prompt lacks %q", want)
 		}
 	}
 }

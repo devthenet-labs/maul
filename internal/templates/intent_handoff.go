@@ -82,7 +82,7 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyInfra:       "its own checking environment failed while it checked",
 	HandoffWhyUnavailable: "it could not run its checks",
 	// Gate D-B6; the words without a count, which doubtedWords gives.
-	HandoffWhyEvaluatorDoubts: "the evaluator judged some outcomes not to hold, but no check maul re-ran shows it",
+	HandoffWhyEvaluatorDoubts: "the evaluator judged some outcomes not to hold, but cited no evidence maul counts",
 	// Gate D-B11; the words without the outcomes, which suspectedWhy gives.
 	HandoffWhySuspected: "it suspects a defect, which a person should confirm",
 	// The agents-namespace tool pod's (SPEC-S2).
@@ -159,9 +159,11 @@ func handoffWhy(h PreviewHandoff, workspace bool) string {
 }
 
 // doubtedWords are HandoffWhyEvaluatorDoubts' words for n outcomes: the
-// evaluator's judgement, counted, and that maul did not prove it.
+// evaluator's judgement, counted, and that maul did not count its evidence
+// (no saved check showed it, or, on an observed round, no cited call maul
+// counts).
 func doubtedWords(n int32) string {
-	return fmt.Sprintf("the evaluator judged %d %s not to hold, but no check maul re-ran shows it", n,
+	return fmt.Sprintf("the evaluator judged %d %s not to hold, but cited no evidence maul counts", n,
 		plural(n, "outcome", "outcomes"))
 }
 

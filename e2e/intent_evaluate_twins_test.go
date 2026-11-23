@@ -73,7 +73,7 @@ func TestIntentEvaluateAgentPlansOutcomes(t *testing.T) {
 	e.waitEval(t, name, "the planned outcomes to be confirmed", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	e.checkNoTester(t, name)
 }
 

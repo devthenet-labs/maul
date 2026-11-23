@@ -335,8 +335,8 @@ func TestVerifyLineStates(t *testing.T) {
 		{VerifyProgress{State: VerifyNotDeclared}, "No acceptance outcomes were declared."},
 		{VerifyProgress{State: VerifyNotChecked, ManualOpen: 2}, "Nothing is checked automatically, 2 for a human."},
 		{VerifyProgress{State: VerifyUnreadable}, "Verification stopped: maul cannot read the approved plan's " +
-			"acceptance criteria, so nothing is verified. " + startOverText},
-		{VerifyProgress{State: VerifyCriteriaReplan}, "Nothing is verified: the approved plan states acceptance " +
+			"acceptance criteria, so nothing is checked. " + startOverText},
+		{VerifyProgress{State: VerifyCriteriaReplan}, "Nothing is checked: the approved plan states acceptance " +
 			"criteria, which maul's evaluator does not run. " + startOverText},
 		{VerifyProgress{State: VerifyPreviewNotLive, Verification: 1, FixesUsed: 0, MaxFixes: 3, ManualOpen: 1},
 			"Verification unavailable: the preview did not become live at the pull requests' heads in time, so the " +
@@ -345,25 +345,25 @@ func TestVerifyLineStates(t *testing.T) {
 		{VerifyProgress{State: VerifyHeadsMoved, Outcomes: true}, "The pull requests moved to new commits: maul " +
 			"is checking the new commits, and the last result, about earlier commits, is not shown."},
 		{VerifyProgress{State: VerifyExhausted, Verification: 3, FixesUsed: 2, MaxFixes: 2, Passing: 1, Total: 3,
-			Outcomes: true}, "Evaluation 3 failing: 1/3 outcomes confirmed, no automatic fix left."},
+			Outcomes: true}, "Evaluation 3 failing: 1/3 outcomes seen to hold, no automatic fix left."},
 		{VerifyProgress{State: VerifyUnavailable, Verification: 2, MaxFixes: 2, Outcomes: true},
 			"Verification unavailable: maul could not run the checks."},
 		{VerifyProgress{State: VerifyFailing, Verification: 1, MaxFixes: 2, Passing: 1, Total: 3, Outcomes: true,
 			DefectConfirmed: true, AutoFix: FixQueued},
-			"Evaluation 1: a person confirmed the defect maul found: 1/3 outcomes confirmed; a fix is queued."},
+			"Evaluation 1: a person confirmed the defect maul found: 1/3 outcomes seen to hold; a fix is queued."},
 		// Gate 5 G5-B-CLI-1: the round maul starts by itself once more says
 		// why, asked for and running; Recheck names nothing in any other
 		// state.
 		{VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2, Passing: 6, Total: 7, Outcomes: true,
-			Recheck: true}, "Evaluation 1: maul couldn't confirm every outcome: 6/7 outcomes confirmed, 0 of 2 " +
+			Recheck: true}, "Evaluation 1: maul couldn't confirm every outcome: 6/7 outcomes seen to hold, 0 of 2 " +
 			"automatic fixes used. A check of an outcome the evaluator says holds was not accepted, so maul is " +
 			"checking once more by itself at the same commits."},
 		{VerifyProgress{State: VerifyEvaluating, Verification: 2, MaxFixes: 2, Total: 7, Outcomes: true,
-			Recheck: true}, "Evaluation 2 running: 0/7 outcomes confirmed, 0 of 2 automatic fixes used. A check of " +
+			Recheck: true}, "Evaluation 2 running: 0/7 outcomes seen to hold, 0 of 2 automatic fixes used. A check of " +
 			"an outcome the evaluator says holds was not accepted, so maul is checking once more by itself at the " +
 			"same commits."},
 		{VerifyProgress{State: VerifyPassed, Verification: 2, Passing: 7, Total: 7, Outcomes: true, Recheck: true},
-			"Evaluation 2 passed: 7/7 outcomes confirmed."},
+			"Evaluation 2 passed: 7/7 outcomes seen to hold."},
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)

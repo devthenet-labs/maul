@@ -1,11 +1,11 @@
 <!-- maul:notice maul/marigold-3 preview -->
 ### maul: evaluation
 
-maul couldn't confirm this: the evaluator judged 1 outcome not to hold, but no check maul re-ran shows it. This pull request's head is `9f1c0e5d2a7b`.
+maul couldn't confirm this: the evaluator judged 1 outcome not to hold, but cited no evidence maul counts. This pull request's head is `9f1c0e5d2a7b`.
 
 #### maul: acceptance checks
 
-Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes confirmed, 0 of 2 automatic fixes used.
+Evaluation 1: maul couldn't confirm every outcome: 1/2 outcomes seen to hold, 0 of 2 automatic fixes used.
 
 - `offbeat-plain-example` (`change`): confirmed; maul's check: `exec: {{bin}} -offbeat pattern.json; 2 expectations`. The README example prints its off-beat lines.
 - `offbeat-rule` (`change`): unsure: maul couldn't confirm it; the evaluator says it does not hold, but no check maul re-ran shows it. Each track's off-beat count is its own steps' count.

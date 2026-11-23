@@ -15,33 +15,32 @@ import (
 // fields as `string(q.ID) != string(p.ID)`, which reads a nil and an empty
 // json.RawMessage alike, so gate 3's planted copy (an absent ID turned into
 // an empty one, whose encoding fails) still passed it. Every evaluate
-// prompt now asks a check of a carried-over promise to compare in the
-// values' own types, never through text that collapses nil, absent and
-// empty, and to name that wrong build. Against a false fail, it keeps
-// #414's rule: a nil against an empty value no use tells apart is no
-// failure, so the check never asserts one by `== nil` or DeepEqual alone.
+// prompt now asks the evaluator to compare a carried-over promise in the
+// values' own types (a program of its own in a workspace, the JSON type of
+// an answer in a preview), never through text that collapses nil, absent
+// and empty, and to look for that wrong build. Against a false fail, it
+// keeps #414's rule: a nil against an empty value no use tells apart is no
+// failure, so it is never judged by `== nil` or DeepEqual alone.
 func TestEvaluatePromptCarriedCheckComparesByType(t *testing.T) {
 	shared := []string{
 		"a kept value turned from nil, zero or absent into empty, or the reverse",
 	}
 	workspace := []string{
-		"For a claim that something is carried over (a copy, fields kept, the rest as it was), compare what using " +
-			"the result gives, in its own types:",
+		"When a program of yours compares a copy with its original, compare what using the result gives, in its " +
+			"own types:",
 		"its encoding against the original's, as it is written out, once what the outcome says changes is set alike " +
 			"in both (for a Go value of a type with JSON tags, `json.Marshal` of each: the same bytes, and an error " +
 			"from both or neither), beside each field's value",
 		"Never compare only through text or a comparison that shows a nil, an absent and an empty value alike " +
 			"(`string(x)`, `bytes.Equal`, `fmt.Sprint`, `%v`): a copy that turns one into the other passes it.",
 		"Give it originals with those fields set, zero, empty and absent",
-		"print both after the marker with `%#v`",
+		"print both with `%#v` where they differ",
 		"A nil against an empty value that no use tells apart is no failure (**Judge what is carried over**), so " +
-			"never assert one by `== nil` or `reflect.DeepEqual` alone.",
+			"never judge one by `== nil` or `reflect.DeepEqual` alone.",
 	}
 	slot := []string{
-		"For a claim that a field is carried over (a copy, fields kept, the rest as it was), assert it at its JSON " +
-			"pointer as the value the original reads as, in its own JSON type: `null`, `\"\"`, `0` or `[]` as the " +
-			"original holds it, and `{\"$absent\": true}` where the original leaves the key out;",
-		"never `{\"$present\": true}` or `$contains` alone, which read null, empty and a value alike.",
+		"For a field the outcome says is carried over, compare it with the original in its own JSON type: " +
+			"`null`, `\"\"`, `0`, `[]` and a missing key are different answers.",
 	}
 	for name, tt := range map[string]struct {
 		p    EvaluatePrompt
@@ -68,30 +67,6 @@ func TestEvaluatePromptCarriedCheckComparesByType(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestEvaluatePromptACheckCountsForItsOwnOutcome (gate 4, G4-B-LIB-1): the
-// evaluators of G6 rested seven and eight passes on one check bound to
-// another outcome ("the same run produced the evidence for the other
-// passing outcomes"). Every evaluate prompt says a check counts only for
-// the outcome it is bound to.
-func TestEvaluatePromptACheckCountsForItsOwnOutcome(t *testing.T) {
-	want := "A check counts only for the outcome it is bound to: one run that shows several outcomes is evidence " +
-		"for that one alone, so give each outcome its own check (a copy of another check's program, bound to it, " +
-		"is fine)."
-	for name, p := range map[string]EvaluatePrompt{
-		"preview": testEvaluatePrompt(),
-		"cli":     testWorkspacePrompt(testCLIWorkspace),
-		"library": testWorkspacePrompt(testLibraryWorkspace),
-	} {
-		got, err := RenderEvaluatePrompt(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(flat(got), want) {
-			t.Errorf("%s prompt lacks %q", name, want)
-		}
 	}
 }
 

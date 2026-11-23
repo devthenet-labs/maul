@@ -56,7 +56,7 @@ func TestIntentEvaluateCodex(t *testing.T) {
 				t.Errorf("the upstream saw a caller token: %+v", r)
 			}
 		}
-		e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+		e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	})
 
 	t.Run("unverified without it", func(t *testing.T) {

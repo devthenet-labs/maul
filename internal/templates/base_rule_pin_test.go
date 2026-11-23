@@ -67,39 +67,27 @@ func decideBase(c baseRuleCase) bool {
 	return acceptance.Decide(in).PerOutcome[0].Result == acceptance.ResultPassed
 }
 
-// TestBaseRulePinnedToDecide (S2-20, from S2-15): the check reviewer's and
-// the evaluator's prompts state Decide's base rule in words; each clause
-// they state is pinned to what Decide does on it, so a rule change cannot
-// drift from the words, nor the words from the rule.
+// TestBaseRulePinnedToDecide (S2-20, from S2-15): the check reviewer's
+// prompt states Decide's base rule in words; each clause it states is pinned
+// to what Decide does on it, so a rule change cannot drift from the words,
+// nor the words from the rule. The observed evaluator's prompt states no
+// base rule: maul counts only what it saw at the head
+// (TestEvaluatePromptTeachesTheCitedEvidence).
 func TestBaseRulePinnedToDecide(t *testing.T) {
 	review, err := RenderCheckReviewPrompt(testWorkspaceReview(t, ExampleCLIRunCheck, testReviewCLI))
 	if err != nil {
 		t.Fatal(err)
 	}
-	evaluate, err := RenderEvaluatePrompt(testWorkspacePrompt(testCLIWorkspace))
-	if err != nil {
-		t.Fatal(err)
-	}
-	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
-	review, evaluate = flat(review), flat(evaluate)
+	review = strings.Join(strings.Fields(review), " ")
 	for _, c := range baseRuleCases() {
 		if got := decideBase(c); got != c.counts {
 			t.Errorf("%q (keep %v): Decide passes %v, the words say %v", c.clause, c.keep, got, c.counts)
 		}
 		if c.clause == "a check that passes at the base" {
-			continue // the evaluator's words only
+			continue // the check-era evaluator's words only
 		}
 		if !strings.Contains(review, c.clause) {
 			t.Errorf("the check reviewer's prompt does not state %q", c.clause)
-		}
-	}
-	// The evaluator is told the same clauses, as what its checks must do.
-	for _, clause := range []string{"fail at the base by an assertion", "a check that passes at the base",
-		"whose program does not compile against the base tree", "whose base tree cannot be built or built against",
-		"Any other error at the base (a timeout, processes left running, output too long to keep, a bind or " +
-			"connection error) is no base evidence"} {
-		if !strings.Contains(evaluate, clause) {
-			t.Errorf("the evaluator's prompt does not state %q", clause)
 		}
 	}
 }

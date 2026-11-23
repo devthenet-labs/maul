@@ -5,7 +5,7 @@ Ready: maul checked the approved outcomes. This pull request's head, `9f1c0e5d2a
 
 #### maul: acceptance checks
 
-Evaluation 2 failing: 2/4 outcomes confirmed, 1 of 2 automatic fixes used; automatic fix queued.
+Evaluation 2 failing: 2/4 outcomes seen to hold, 1 of 2 automatic fixes used; automatic fix queued.
 
 - `winner-rises` (`change`): confirmed; maul's check: `http to api: POST /api/players, POST /api/battles, GET /api/leaderboard; 3 expectations`. Rating a battle moves the winner above the loser.
 - `upset-gains-more` (`change`): failed; maul's check: `http to api: POST /api/battles, GET /api/players/{{run}}-a; 2 expectations`. Beating a higher-rated player gains more points.

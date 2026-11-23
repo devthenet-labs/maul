@@ -28,7 +28,7 @@ func TestIntentAgentsStopAndReset(t *testing.T) {
 	e.waitEval(t, name, "round 1 to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 
 	e.gh.CommentAs(number, "/maul verify stop", approver)
 	e.waitVerification(t, name, "automatic fixes stopped", func(v *v1alpha1.IntentVerification) bool {
@@ -61,6 +61,6 @@ func TestIntentAgentsStopAndReset(t *testing.T) {
 	if n := len(e.verifyRuns(t, name)); n != 0 {
 		t.Errorf("verify-fix rounds = %d while stopped, want 0", n)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	e.checkNoPreview(t)
 }

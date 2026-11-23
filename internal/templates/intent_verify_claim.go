@@ -27,6 +27,9 @@ const (
 	verifyClaimNoteMaxBytes = 600
 	// VerifyClaimCallsMax bounds the cited calls one claim shows.
 	VerifyClaimCallsMax = 3
+	// VerifyCitedCallsMax bounds the cited calls an observed outcome
+	// shows: the most its verdict keeps (v1alpha1.MaxOutcomeCites).
+	VerifyCitedCallsMax = 8
 	// verifyClaimInputMaxBytes bounds one call's request as shown,
 	// verifyClaimOutputMaxBytes its output.
 	verifyClaimInputMaxBytes  = 1536
@@ -69,6 +72,13 @@ type VerifyCitedCall struct {
 	// shown.
 	Output         string
 	OutputNotWhole bool
+	// OutputNotKept marks, on an observed round, a call whose output maul's
+	// ledger did not keep (dropped to fit): it still counts, and is said
+	// not kept.
+	OutputNotKept bool
+	// Own marks a call that ran a script or program the evaluator wrote (a
+	// browser eval, an exec or run program), labelled as its own.
+	Own bool
 	// RunSeq is the ledger seq of the check run Observed is of: maul's own
 	// run of the cited check when one failed, else the cited call's own.
 	// Result is that run's result (pass, fail, error), Observed its steps
@@ -175,8 +185,13 @@ func claimCalls(c *VerifyEvaluatorClaim) string {
 }
 
 // callText is one cited call as plain text: what it is, what it sent and
-// what maul's tools observed.
+// what maul's tools observed, its output cut to verifyClaimOutputMaxBytes.
 func callText(c VerifyCitedCall, workspace bool) string {
+	return callTextWithin(c, workspace, verifyClaimOutputMaxBytes)
+}
+
+// callTextWithin is callText with its output cut to outMax bytes.
+func callTextWithin(c VerifyCitedCall, workspace bool, outMax int) string {
 	what, ok := verbWords[c.Verb]
 	if !ok {
 		what = shown(c.Verb)
@@ -188,6 +203,9 @@ func callText(c VerifyCitedCall, workspace bool) string {
 	if c.Base {
 		head += " at the base"
 	}
+	if c.Own {
+		head += ownWords(c.Verb)
+	}
 	lines := []string{head + ":"}
 	if c.Verb == "check-run" {
 		return strings.Join(append(lines, checkCallLines(c, workspace)...), "\n")
@@ -197,7 +215,9 @@ func callText(c VerifyCitedCall, workspace bool) string {
 	case "exec", "run", "browser":
 		lines = append(lines, fmt.Sprintf("Exit status: %d", c.Exit))
 	}
-	switch out := strings.TrimSpace(cutRunes(visibleText(c.Output), verifyClaimOutputMaxBytes)); {
+	switch out := strings.TrimSpace(cutRunes(visibleText(c.Output), outMax)); {
+	case c.OutputNotKept:
+		lines = append(lines, "Its output was not kept by maul.")
 	case c.OutputNotWhole:
 		lines = append(lines, "Its output is not shown: maul's copy of it is not whole.")
 	case out == "":
@@ -206,6 +226,15 @@ func callText(c VerifyCitedCall, workspace bool) string {
 		lines = append(lines, "Output:", out)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// ownWords label a call that ran the evaluator's own page script or program
+// (owner decision 1): it counts, and the reviewers are told whose it is.
+func ownWords(verb string) string {
+	if verb == "browser" {
+		return ", the evaluator's own page script, and what it returned"
+	}
+	return ", the evaluator's own program, and what it returned"
 }
 
 // sentLines are a call's request as sent, bounded; none when empty.

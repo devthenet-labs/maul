@@ -312,7 +312,6 @@ func checkEvaluateCommand(t *testing.T, spec runner.CommandSpec, ws string) {
 		"You are maul's evaluator.",
 		"This is round 1 of this change's evaluation.",
 		filepath.Join(ws, "scratch", "report.md"),
-		filepath.Join(ws, "scratch", "checks"),
 		filepath.Join(ws, "scratch", "shots"),
 		"r1a1x7-alice",
 		"Rating a battle moves the winner's rating up.",
@@ -788,8 +787,8 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 
 // TestEvaluateHandoffCarriesRefusedChecks (coverage design C3,
 // G5R-B-CLI-1): the checks the reviewer refused in earlier rounds decode
-// strictly and reach the prompt by outcome, check id, the reviewer's reason
-// and the refused check itself, shown as data.
+// strictly into the prompt's data; the observed evaluator's prompt, which
+// writes no check, shows none of them.
 func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 	c, err := checks.Parse([]byte(templates.ExampleHTTPCheck))
 	if err != nil {
@@ -820,10 +819,7 @@ func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, "It never reads the loser's rating.") {
-		t.Error("the reviewer's reason does not reach the prompt")
-	}
-	if !strings.Contains(prompt, "        \"id\": \""+c.ID+"\",") {
-		t.Error("the refused check does not reach the prompt")
+	if strings.Contains(prompt, "It never reads the loser's rating.") || strings.Contains(prompt, c.ID) {
+		t.Error("a refused check, retired with saved checks, reaches the prompt")
 	}
 }

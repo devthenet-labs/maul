@@ -68,7 +68,7 @@ func startRegression(t *testing.T) (*evalEnv, int, string, v1alpha1.IntentPullRe
 	e.waitEval(t, name, "round 1 to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	return e, number, name, pr
 }
 
@@ -202,7 +202,7 @@ func TestIntentEvaluateFixFindsNoDefect(t *testing.T) {
 	e.waitEval(t, name, "the requested round to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == pr.HeadSHA && v.Round == 2
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	e.checkNoTester(t, name)
 }
 
@@ -476,7 +476,7 @@ func TestIntentEvaluateReset(t *testing.T) {
 	if n, tools := len(e.verifications(t, name)), len(e.kubelet.ToolRuns()); n != 2 || tools != 2 {
 		t.Errorf("verifications %d, tool pods %d; want 2 and 2", n, tools)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	e.checkNoTester(t, name)
 }
 

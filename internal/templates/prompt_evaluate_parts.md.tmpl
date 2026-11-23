@@ -7,7 +7,7 @@ the workspace's (prompt_evaluate_workspace), each over an evaluateView. */ -}}
 Each outcome is listed by its id, then whether it is a change (a thing the change must make true) or a keep (a thing
 it must leave true), then the outcome in plain words, and the line of the request it answers, where it names one.
 Judge every outcome, naming it by its id. An outcome judged by a person is for a person to accept: give it a verdict
-from what you saw, usually unsure, and propose no check for it.
+from what you saw, usually unsure.
 
 ### The request
 
@@ -28,10 +28,10 @@ The files the pull requests change, with the lines added and deleted in each:
 ### The fix since the last round
 
 The code changed since the heads the last round evaluated: most often an agent fixed a failure that round found,
-sometimes a person pushed. This is the diff since those heads. A fix agent sees how a failing check reproduced the
-failure, so read the diff for special-casing: code that recognises a check's requests or data instead of fixing the
-behaviour. Where you find any, judge the outcome it touches with data of your own the fix could not have foreseen,
-and say what you found in its note.
+sometimes a person pushed. This is the diff since those heads. A fix agent is shown the calls the last round's
+evaluator cited for each failure, so read the diff for special-casing: code that recognises those calls' requests or
+data instead of fixing the behaviour. Where you find any, judge the outcome it touches with data of your own the fix
+could not have foreseen, and say what you found in its note.
 {{- with .FixDiffNote}}
 
 {{.}}
@@ -49,8 +49,8 @@ The files not shown in full, as the diff names them:
 ### The fix since the last round
 
 The code changed since the heads the last round evaluated: most often an agent fixed a failure that round found,
-sometimes a person pushed. A fix agent sees how a failing check reproduced the failure, and may special-case it: code
-that recognises a check's requests or data instead of fixing the behaviour.
+sometimes a person pushed. A fix agent is shown the calls the last round's evaluator cited for each failure, and may
+special-case them: code that recognises those calls' requests or data instead of fixing the behaviour.
 
 {{.FixDiffNote}}
 {{- end}}
@@ -59,53 +59,11 @@ that recognises a check's requests or data instead of fixing the behaviour.
 ### The previous round
 
 maul judged round {{$.PriorRound}} of this evaluation as below: each result is maul's own decision from that round's
-ledger, and its reason may quote that round's evaluator; then how each saved check ran at the start of that round.
-Use it to decide where to look first: every outcome that did not pass, and every outcome the change since then
-touches. It is no evidence for this round: every verdict you give cites this round's ledger, and the saved checks
-replay again this round (`maul-tool check results`).
+ledger, and its reason may quote that round's evaluator. Use it to decide where to look first: every outcome that did
+not pass, and every outcome the change since then touches. It is no evidence for this round: every verdict you give
+cites calls you make in this run.
 
 {{fence . | chomp}}
-{{- end}}
-{{- with .RefusedBlock}}
-
-### Checks the reviewer refused
-
-The check reviewer refused these checks of earlier rounds, each named by its id and its outcome, with the reviewer's
-reason, quoted, and below it the refused check itself, as the previous evaluator proposed it and maul confirmed it.
-maul shows the newest refusals' checks first, up to a bound in all; a check past it, or one maul no longer holds, is
-marked as not shown.
-
-{{fence . | chomp}}
-
-A refused check is the previous evaluator's work, not maul's and no evidence: it may be wrong, and it is never replayed
-or counted for its outcome. A check refused in one form is never reviewed again in that form: maul keeps each review by
-the check's digest, so the same check proposed again is refused again. Where the check is shown, amend that check
-rather than write an unrelated one or rewrite it from scratch. Start from its body as shown and change only what the
-reason faults, and keep everything it already tests that the reason does not fault: every other step, case and
-assertion, each input sent to the same control or call as before, with every example value the outcome names and
-every value stated in the line of the request the outcome quotes. The refused check may be wrong, so judge every
-expected value it states against the outcome as worded, as you would your own. Before you confirm the amended check,
-compare it with the refused one case by case; if you drop or change a case the reason does not fault, say in that
-outcome's verdict note which case and why, never silently. Write the amended check as a new file, run it, and propose
-it like any new check: maul confirms it and the reviewer judges it afresh.
-Where it is not shown, strengthen the check to answer the reason, run it, and propose the new form.
-{{- end}}
-{{- with .NotYetBlock}}
-
-### Saved checks that are not yet proof
-
-A green replay of these saved checks is no evidence that their outcome holds, each named by its id and its outcome:
-
-{{fence . | chomp}}
-
-One listed as asserting nothing that is there asserts only what holds of an empty or error answer too (an absence, a
-header's bare presence, a count of 0 before the page shows anything): maul counts it for nothing, however it replays.
-Every other one was saved to show a defect of its outcome, and shows only that the build it failed on was wrong. When it
-replays green, that is not yet evidence that its outcome holds: a reviewer judges it again as proof of the pass, and a
-check written to catch one wrong value rarely pins every clause of the outcome. So for each of these outcomes whose
-saved checks replay green this round, write a new check that shows the outcome holds, held to **What a check must
-cover** like any other, run it green, propose it, and cite its run in the verdict. Leave the saved check as it is: do
-not dispute or retire it.
 {{- end}}{{end}}
 {{define "evaluate-rule"}}**Judge the rule, not only its example.** An outcome often states a rule (what holds for any input of a kind, a bound, a
 "never" or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule
@@ -114,25 +72,23 @@ where a wrong build would answer differently from a right one, and try the rule 
 other values, the positions and combinations where the two would differ (both ends, an uneven or one-sided input where
 the example is even or symmetric), the same input given a second time, where the outcome says what a call with it
 returns, and the ends of every range or bound the outcome states, its far side only where the outcome says what must
-happen there. Choose those inputs yourself, and work out what the rule says each must give before you run it. Where
-the rule does not hold on one, the outcome does not hold as worded: report it `fail` with a check of your own data that
-shows it, held to **A check that shows a defect**, its expected value the one the rule's words give.
+happen there. Choose those inputs yourself, and work out what the rule says each must give before you try it. Where
+the rule does not hold on one, the outcome does not hold as worded: report it `fail`, citing the calls that show it.
 
 **Stay within what the outcome promises.** An input the rule does not cover, a value its words do not decide, and
 behaviour the request leaves unsaid (an error's wording, an order, an input outside the stated range) are never a
 failure, and where the outcome states no range, a value far from its example (zero, a negative, a size far past any it
 names) is one its words do not decide: where you cannot tell from the outcome's words what the rule says an input must
-give, that run is no evidence either way, and you do not fail the outcome on it. A zero, empty or absent value of
+give, that call is no evidence either way, and you do not fail the outcome on it. A zero, empty or absent value of
 what an outcome promises to carry over is one its words decide: it must come through as it was, as using it shows.
-Where an outcome names
-only an example, and its line of the request states the rule it is an instance of (a line may state several rules, each
-answered by its own outcome: take only the one about this outcome's subject; the rule that decides the example's values
-is always about it), try that rule beyond the example too, in calls of your own, never in a check you propose for it:
-its checks assert only what it states. Report such an outcome `pass` only once you have tried that rule beyond the
-example and it held, its ledger citing those calls. Where it breaks, never report the outcome `pass`: list the seqs
-where it broke in its `contrary`, report it `unsure`, and say in its note which input broke the rule and what it gave.
-A break you saw while judging another outcome counts here too: another outcome stating the same rule is no reason to
-pass this one. A fail and the fix it starts are only ever for what the outcome itself states.
+Where an outcome names only an example, and its line of the request states the rule it is an instance of (a line may
+state several rules, each answered by its own outcome: take only the one about this outcome's subject; the rule that
+decides the example's values is always about it), try that rule beyond the example too. Report such an outcome `pass`
+only once you have tried that rule beyond the example and it held, citing those calls. Where it breaks, never report
+the outcome `pass`: report it `unsure`, citing the calls where it broke, and say in its note which input broke the
+rule and what it gave. A break you saw while judging another outcome counts here too: another outcome stating the
+same rule is no reason to pass this one. A fail and the fix it starts are only ever for what the outcome itself
+states.
 
 **Judge what is carried over.** Where an outcome promises that something is carried over or left as it was (a copy,
 fields kept, the rest unchanged, the same as before, a value that round-trips through save and load), that promise is
@@ -154,27 +110,21 @@ exactly these fields, for example:
 ```
 
 - `verdicts`: one entry for every outcome: `outcome`, the outcome's id; `verdict` pass, fail or unsure; `ledger`, the
-  seqs it rests on (`[]` only for unsure); `contrary`, the seqs where you saw the outcome as worded not hold
-  (leave it out when there are none); and an optional one-line `note` for the human reviewers. No other key.
-- `disputes`: each saved check you dispute, by the digest `maul-tool check results` printed: the `reason`, the
-  `ledger` seqs of its failure, and the `replacement`, the id of a check under `proposed`, if you saved one.
-- `proposed`: each check you want saved: its `id`, its `outcome` id, and the `file` you ran with
-  `maul-tool check run`, as you passed it (you may give the `digest` that run printed instead); and `expect: fail`
-  for a check that shows a defect of an outcome you report `fail` (leave it out for a check that ran green).
-- `retire`: each saved check to retire, by its digest, with a `reason`.
+  seqs of the calls it rests on (`[]` only for unsure); and an optional one-line `note` for the human reviewers,
+  saying what you did and what you saw. No other key.
 - `anomalies`: notes for the human reviewers, each with a one-line `summary`, the `route` or surface it is on, and
-  its `ledger` seqs. maul judges the change on the outcomes alone, so an anomaly never fails, holds or confirms
-  anything; it is shown to the reviewers beside the outcomes. So a defect in what an outcome states, on any input, is
-  never an anomaly: report it as that outcome's `fail`. Nor is a break of the rule an outcome's line of the request
-  states beyond its example: list it in that outcome's `contrary`, as **Stay within what the outcome promises** says.
-  An anomaly is what neither covers: trouble the change shows elsewhere, or a part of the request no outcome answers
-  (name its line).
+  its `ledger` seqs. maul judges the change on the outcomes alone, so an anomaly never fails or holds anything; it is
+  shown to the reviewers beside the outcomes. So a defect in what an outcome states, on any input, is never an
+  anomaly: report it as that outcome's `fail`. Nor is a break of the rule an outcome's line of the request states
+  beyond its example: report that outcome `unsure`, as **Stay within what the outcome promises** says. An anomaly is
+  what neither covers: trouble the change shows elsewhere, or a part of the request no outcome answers (name its
+  line).
 
 Write `[]` for an empty list. Put every string in double quotes, and escape a double quote inside one as `\"`: an
-unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes, reasons and summaries are
-one line each, at most 600 characters. After the frontmatter, add a short account in markdown of what you checked,
-in plain visible text: no emoji and no invisible characters.
+unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes and summaries are one line
+each, at most 600 characters. After the frontmatter, add a short account in markdown of what you checked, in plain
+visible text: no emoji and no invisible characters.
 
-Your report is your claim. maul believes only its own ledger: it reruns every check you propose with a fresh token,
-and a verdict citing seqs that do not show what you say counts for nothing. Write the report (rewrite it only to add
-what you found after it or to swap in a strengthened check), then end your turn.{{end}}
+Your report is your claim, and the calls you cite are its evidence. maul reads every cite against its own ledger of
+this run, and a verdict whose cites it does not count is reported unsure. Write the report (rewrite it only to add
+what you found after it), then end your turn.{{end}}

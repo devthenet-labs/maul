@@ -114,7 +114,7 @@ func TestOutcomeVerifyStatusLine(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
 	e.review(name, 8)
 	if body := e.statusBody(); !strings.Contains(body,
-		"Evaluation 1 failing: 1/3 outcomes confirmed, 1 of 2 automatic fixes used, 1 for a human") {
+		"Evaluation 1 failing: 1/3 outcomes seen to hold, 1 of 2 automatic fixes used, 1 for a human") {
 		t.Fatalf("status comment:\n%s", body)
 	}
 }
