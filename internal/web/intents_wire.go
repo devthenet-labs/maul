@@ -24,6 +24,10 @@ type ProjectAccess struct {
 	// Tier is "intents" (the board, timeline and run numbers) or
 	// "transcripts" (plans, reports and transcripts too).
 	Tier string `json:"tier"`
+	// Settings reports that the Project settings page is served for this
+	// Project: it is on, and the Project is one it is for. Not whether the
+	// caller may save there; the page itself says that (canEdit).
+	Settings bool `json:"settings"`
 }
 
 // IntentBoard is GET /api/intents: the granted Projects and their intents.

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devthenet-labs/maul/internal/projectsettings"
 	"github.com/devthenet-labs/maul/internal/usageview"
 )
 
@@ -132,6 +133,32 @@ func TestAccountWireTypesMatchTypeScript(t *testing.T) {
 	}
 	ts := tsInterfaces(t, string(src))
 	for _, v := range []any{Account{}, AccountCredential{}} {
+		typ := reflect.TypeOf(v)
+		want, ok := ts[typ.Name()]
+		if !ok {
+			t.Errorf("ui/src/types.ts has no interface %s", typ.Name())
+			continue
+		}
+		if got := jsonFields(typ); !slices.Equal(got, want) {
+			t.Errorf("%s: Go fields %v, TypeScript fields %v", typ.Name(), got, want)
+		}
+	}
+}
+
+// TestProjectSettingsWireTypesMatchTypeScript pins every wire type of the
+// Project settings page (internal/projectsettings.WireTypes, so the list
+// cannot drift from the package) to its ui/src/types.ts mirror.
+func TestProjectSettingsWireTypesMatchTypeScript(t *testing.T) {
+	src, err := os.ReadFile("ui/src/types.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := tsInterfaces(t, string(src))
+	types := projectsettings.WireTypes()
+	if len(types) < 20 {
+		t.Fatalf("projectsettings lists %d wire types; the pin would check too little", len(types))
+	}
+	for _, v := range types {
 		typ := reflect.TypeOf(v)
 		want, ok := ts[typ.Name()]
 		if !ok {

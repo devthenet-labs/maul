@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-// The hardened browser envelope, on whenever the intents or usage views are. Preview
+// The hardened browser envelope, on whenever the intents or usage views, the
+// Account page or the Project settings page are. Preview
 // apps run pull request code on a host that is same-site with the status
 // host, and same-site requests carry the session's SameSite=Lax cookies, so
 // a preview page could otherwise open the intents streams with the viewer's
@@ -96,7 +97,9 @@ func inlineScripts(html string) []string {
 }
 
 // hardened reports whether the hardened envelope is on.
-func (s *Server) hardened() bool { return s.intents != nil || s.usage != nil || s.account != nil }
+func (s *Server) hardened() bool {
+	return s.intents != nil || s.usage != nil || s.account != nil || s.settings != nil
+}
 
 // hardenedRequest applies the hardened envelope's request checks and
 // headers, answering a refused request itself; ok is false when it did.

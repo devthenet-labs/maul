@@ -21,6 +21,13 @@
 // (credstore is its Kubernetes adapter), which can write a credential
 // Secret but never read one. No route returns a stored credential.
 //
+// With the Project settings page on (project_settings.go, beside the
+// intents views) a Project's settings are served to whoever may see its
+// intents, as internal/projectsettings views them on an uncached read, and
+// only an approver GitHub gives write access, matched by the numeric GitHub
+// id the session carries, may save them. Its wire types are that package's,
+// mirrored in ui/src/types.ts like the rest.
+//
 // The wire types in data.go mirror the status page's TypeScript contract
 // (ui/src/types.ts) field for field; keep the two in lockstep.
 package web
