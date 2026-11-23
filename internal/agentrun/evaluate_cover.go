@@ -157,6 +157,12 @@ func (a *Agent) coverRound(ctx context.Context, sr *stageRun, st *envelope.Stage
 	a.fillStage(&spent, sr.h, res)
 	addRepair(st, spent)
 	sr.used += countedTurns(spent.NumTurns, req.MaxTurns)
+	if sr.delegated != "" {
+		// The report it rewrote is not read; the one before stands.
+		a.cfg.Log.Warn("an ask for checks delegated what the stage was not granted; keeping the report before",
+			"phase", a.cfg.Phase, "round", round, "reason", sr.delegated)
+		return false
+	}
 	return ctx.Err() == nil
 }
 

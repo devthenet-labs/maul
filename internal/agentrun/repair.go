@@ -143,6 +143,10 @@ type stageRun struct {
 	// example is the report example the stage's prompt showed, which each
 	// repair restates (RepairPrompt.Example); empty for none.
 	example string
+	// delegated is why the delegation kill switch ended the stage's last
+	// run, or "" when it did not: a run that delegated what it was not
+	// granted is not one whose report or work maul takes.
+	delegated string
 }
 
 // newStage sets up a stage's session. The recorder is built here, once,
@@ -372,6 +376,12 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	r := repairResult{ran: true, failure: a.repairFailure(sr.h, res, idle, runErr)}
 	if ctx.Err() != nil {
 		r.why = fmt.Sprintf("the stage was cancelled during repair round %d", round)
+		return r
+	}
+	if sr.delegated != "" {
+		// Its report is not read: a run that ends on the budget may still
+		// have fixed it, one that delegated is not trusted to have.
+		r.why = fmt.Sprintf("repair round %d delegated what the stage was not granted", round)
 		return r
 	}
 	if sr.writable() {

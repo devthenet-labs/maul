@@ -293,8 +293,10 @@ func (a *Agent) run(ctx context.Context, sr *stageRun, spec runner.CommandSpec, 
 	ctx, watch := newIdleWatch(ctx, sr.idle)
 	secrets := credentialValues(sr.h, a.scrub...)
 	output := a.followOutput(ctx, sr.h, spec, secrets)
-	onLine := a.observe(sr.h, sr.rec, budget, watch, output)
+	delegation := newDelegationWatch(sr.h, grantedSubagents)
+	onLine := a.observe(sr.h, sr.rec, budget, watch, output, delegation)
 	res, runErr = a.exec.Run(ctx, spec, timeout, onLine)
+	sr.delegated = delegation.refused()
 	output.end()
 	if idle = watch.end(runErr, secrets); idle != "" {
 		a.cfg.Log.Warn("the idle watchdog ended the run", "phase", a.cfg.Phase, "detail", idle)
@@ -305,22 +307,27 @@ func (a *Agent) run(ctx context.Context, sr *stageRun, spec runner.CommandSpec, 
 	return res, idle, runErr
 }
 
+// grantedSubagents is whether a run is granted subagents: no stage's run is
+// yet, so the delegation kill switch ends any run whose CLI starts one.
+const grantedSubagents = false
+
 // observe builds the runner's per-line observer: the transcript recorder, the
-// idle watchdog's progress, the output-token budget kill switch and the live
-// command output's events, over the one pass the runner makes. Each may be
-// absent — a harness that cannot report usage, a budget of zero, a harness
-// that cannot transcribe (rec nil), a disabled watchdog, a harness that
-// cannot follow commands (output nil) — and when all are, the observer is
-// nil and the runner does no per-line work at all.
+// idle watchdog's progress, the delegation and output-token budget kill
+// switches and the live command output's events, over the one pass the
+// runner makes. Each may be absent — a harness that cannot report usage, a
+// budget of zero, a harness that cannot transcribe (rec nil), a disabled
+// watchdog, a harness that cannot follow commands (output nil), one that
+// cannot delegate (delegation nil) — and when all are, the observer is nil
+// and the runner does no per-line work at all.
 //
-// Recording happens before the budget check so the turn that tripped the limit
+// Recording happens before the kill switches so the turn that tripped one
 // is in the transcript that explains why the run stopped. A command's output
 // is printed by its own goroutine, never this one, and is neither a turn nor
 // progress.
 func (a *Agent) observe(h harness.Harness, rec *transcript.Recorder, budget int,
-	idle *idleWatch, output *outputFollower) func([]byte) (bool, string) {
+	idle *idleWatch, output *outputFollower, delegation *delegationWatch) func([]byte) (bool, string) {
 	watch := budgetWatcher(h, budget)
-	if rec == nil && watch == nil && idle == nil && output == nil {
+	if rec == nil && watch == nil && delegation == nil && idle == nil && output == nil {
 		return nil
 	}
 
@@ -336,10 +343,10 @@ func (a *Agent) observe(h harness.Harness, rec *transcript.Recorder, budget int,
 		} else {
 			idle.alive()
 		}
-		if watch == nil {
-			return false, ""
+		abort, reason := delegation.scan(line)
+		if !abort && watch != nil {
+			abort, reason = watch(line)
 		}
-		abort, reason := watch(line)
 		if abort && rec != nil {
 			rec.Notice("%s", reason)
 		}
@@ -481,6 +488,48 @@ func budgetWatcher(h harness.Harness, budget int) func([]byte) (bool, string) {
 		}
 		return false, ""
 	}
+}
+
+// delegationWatch is the kill switch ending a run whose CLI starts
+// delegated work the run was not granted (harness.DelegationScanner), and
+// what it ended the run for. It needs no budget: a posture that denies
+// delegation is checked whatever the run's limits. A nil one, for a harness
+// that cannot delegate, ends nothing.
+type delegationWatch struct {
+	scanner   harness.DelegationScanner
+	subagents bool
+	reason    string
+}
+
+// newDelegationWatch builds the kill switch for a run of h granted
+// subagents or not, or nil when h cannot delegate.
+func newDelegationWatch(h harness.Harness, subagents bool) *delegationWatch {
+	scanner, ok := h.(harness.DelegationScanner)
+	if !ok {
+		return nil
+	}
+	return &delegationWatch{scanner: scanner, subagents: subagents}
+}
+
+// scan judges one stream line, keeping the reason of the first it ends the
+// run on: the runner stops reading lines once one has.
+func (d *delegationWatch) scan(line []byte) (bool, string) {
+	if d == nil || d.reason != "" {
+		return false, ""
+	}
+	forbidden, reason := d.scanner.ScanDelegation(line, d.subagents)
+	if forbidden {
+		d.reason = reason
+	}
+	return forbidden, reason
+}
+
+// refused is why the switch ended the run, or "" when it did not.
+func (d *delegationWatch) refused() string {
+	if d == nil {
+		return ""
+	}
+	return d.reason
 }
 
 // investigate runs the analysis stage and folds everything into the event

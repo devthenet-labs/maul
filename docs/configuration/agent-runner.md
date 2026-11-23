@@ -108,6 +108,9 @@ corrected rather than hidden.
   constants: no configuration key exists for them.
 - The output-token kill switch and the idle watchdog apply to a repair run as they do to the first. The broker token is
   read afresh for it and registered with the transcript scrubber.
+- So does the delegation kill switch: a claude run whose CLI starts a workflow, or a subagent the run was not granted,
+  is ended at that line as `budget_exceeded`, with the reason in the stage's detail and its transcript. No run is
+  granted subagents. A repair run ended this way ends the rounds, and the report it wrote is not read.
 - All the runs of a stage write one transcript: a repair's turns follow the first run's, after a notice saying why it
   was asked for.
 - A repair's spend is added to the stage's. Its tokens, turns and time are summed, since a resumed claude run reports

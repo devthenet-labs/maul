@@ -40,7 +40,12 @@ type claudeTaskEvent struct {
 	ToolUseID      string `json:"tool_use_id"`
 	TaskType       string `json:"task_type"`
 	IsBackgrounded bool   `json:"is_backgrounded"`
-	Message        struct {
+	// SpawnDepth and ParentTaskID place an agent: 1 and none for one the
+	// run itself started, 2 and its starter's task for one a subagent
+	// started (claude 2.1.322, probed). SpawnDepth is 0 when absent.
+	SpawnDepth   int    `json:"spawn_depth"`
+	ParentTaskID string `json:"parent_task_id"`
+	Message      struct {
 		Content []struct {
 			Type      string `json:"type"`
 			ToolUseID string `json:"tool_use_id"`

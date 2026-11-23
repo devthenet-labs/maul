@@ -264,6 +264,24 @@ type TaskWatcher interface {
 	TaskOutputGlob(env []string, uid int, session, task string) string
 }
 
+// DelegationScanner is the optional capability of seeing, on the stream, the
+// CLI start work maul did not grant the run: a subagent, a subagent's own
+// subagent, one in the background, a workflow. The posture's deny list is
+// what keeps a run from delegating; this is the check that it held,
+// observed rather than trusted, since a CLI's settings or a later release
+// could undo what the posture asks. It sees a start only once the CLI has
+// made it, so it ends a run after the fact, never before.
+type DelegationScanner interface {
+	// ScanDelegation reports whether one stream line shows the CLI starting
+	// delegated work the run was not granted, and why, in maul's own words:
+	// the reason quotes nothing the model or the repository wrote. subagents
+	// says whether the run is granted subagents, which admits a foreground
+	// one started by the run itself and nothing else. A shell command is
+	// never delegation, and neither is a task of a type never measured. The
+	// caller runs this on every line of the stream.
+	ScanDelegation(line []byte, subagents bool) (forbidden bool, reason string)
+}
+
 // TaskEventKind says what a TaskEvent reports.
 type TaskEventKind int
 

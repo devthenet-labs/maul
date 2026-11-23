@@ -166,7 +166,7 @@ func TestObserveWithoutEitherCapabilityIsNil(t *testing.T) {
 	a := New(newConfig(t, ws, &out), &fakeExec{})
 	rec := a.recorder(bareHarness{})
 	output := a.followOutput(context.Background(), bareHarness{}, runner.CommandSpec{}, nil)
-	onLine := a.observe(bareHarness{}, rec, 0, nil, output)
+	onLine := a.observe(bareHarness{}, rec, 0, nil, output, newDelegationWatch(bareHarness{}, false))
 	if onLine != nil || rec != nil || output != nil {
 		t.Errorf("observe(bare) = (%v, %v, %v), want (nil, nil, nil)", onLine != nil, rec != nil, output != nil)
 	}

@@ -951,6 +951,10 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   read-only monitor starts without asking and its end wakes the session); the probe asserts each refused, no child's
   shell run and one result event, against two controls without the denies (a child's shell runs; a monitor wakes the
   session). Bash `run_in_background` is kept, and its wake (which restarts `--max-turns`) is accepted.
+  `DelegationScanner` (claude, `delegation.go`) is the observed check that it held: agentrun ends any run, in any
+  posture, whose stream shows a `task_started` of a workflow, or of a subagent the run was not granted (none is yet;
+  a grant would admit depth 1, no parent task, foreground only), as `budget_exceeded` with the reason, maul's own words
+  only, in the detail and the transcript; what a repair or cover ask that delegates wrote is not read.
   Codex renders the broker as a `maul`
   Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,

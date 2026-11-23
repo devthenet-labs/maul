@@ -96,6 +96,11 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
   limit and the stage's wall clock bound the run. The posture does not run with `--restricted`, which would take its
   shell and refuse writes to tool-configuration files and CI definitions that a fix may need to change.
 
+The deny list is not only trusted: the agent runner reads every line the CLI prints, and a run in any posture whose CLI
+reports starting a workflow, or a subagent the run was not granted, is ended at that line as `budget_exceeded`, with the
+reason in the stage's detail and the transcript. It is a check after the fact: the CLI reports a start once it has made
+it. A report repair or a request for missing checks that delegates is ended the same way, and what it wrote is not read.
+
 These flags are checked against the real CLI, not only as rendered argv: a probe runs the claude version the runner
 image pins with each posture's argv against a scratch repository whose hooks, `env` block, settings, untracked
 `settings.local.json` and `.mcp.json` must all stay inert, and asserts the read-only posture's file grammar on the first
