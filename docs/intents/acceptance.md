@@ -1,9 +1,11 @@
 # Acceptance verification
 
-Before maul hands an intent's pull requests to a human, it can run the combined change and check that it does what the
-approved plan said, fixing what it can within a few bounded rounds. Approving the plan approves what is checked, byte
-for byte, and maul checks it in the cluster, against the intent's own [preview](../configuration/preview-controller.md),
-at exactly the pull request heads under review.
+Before maul hands an intent's pull requests to a human, it can have an agent evaluator use the combined change and
+report, per approved outcome, whether it saw the change do what the plan said, fixing what it can within a few bounded
+rounds. Approving the plan fixes the outcomes the evaluator is asked about, byte for byte, and it uses the change in the
+cluster, against the intent's own [preview](../configuration/preview-controller.md), at exactly the pull request heads
+under review. maul counts a verdict only when it cites calls maul recorded itself; whether those calls show what the
+verdict says is the evaluator's reading, and the reviewers' to judge.
 
 What the plan states depends on one chart switch, `intentController.verification.evaluator`:
 

@@ -130,6 +130,33 @@ func TestEvaluatorDocsDropTheSavedCheckMachinery(t *testing.T) {
 	}
 }
 
+// TestAcceptanceLeadSaysWhoLooks (FC 5): the acceptance page's lead, the
+// first thing a reader takes from it, says that an agent evaluator uses the
+// change and reports what it saw, and that what a cited call shows is the
+// reviewers' to judge: never that maul checks the work, nor any form of
+// check, confirm, verify or prove as what maul does to it.
+func TestAcceptanceLeadSaysWhoLooks(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(docsRoot, "docs/intents/acceptance.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, after, _ := strings.Cut(string(data), "# Acceptance verification\n")
+	lead, _, _ := strings.Cut(strings.TrimLeft(after, "\n"), "\n\n")
+	if lead == "" {
+		t.Fatal("docs/intents/acceptance.md has no lead paragraph")
+	}
+	if m := regexp.MustCompile(`(?i)\b(check\w*|confirm\w*|verif(y|ies|ied)|proves?|proof)\b`).FindString(
+		lead); m != "" {
+		t.Errorf("the acceptance page's lead says %q: %s", m, lead)
+	}
+	flat := strings.Join(strings.Fields(lead), " ")
+	for _, want := range []string{"agent evaluator", "reviewers"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the acceptance page's lead does not say %q: %s", want, lead)
+		}
+	}
+}
+
 // Every link into the evaluator's and the acceptance page, from the docs,
 // the chart (its fail-render messages included), the controllers' startup
 // messages and the pages themselves, lands on a heading those pages have:

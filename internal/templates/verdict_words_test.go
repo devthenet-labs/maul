@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // overstating are the words no surface of the observed evaluator may use of
@@ -90,8 +92,9 @@ func noticeOrEmpty(n VerifyCommandNotice) string {
 // TestVerdictWordsNeverOverstate: every string the observed evaluator's
 // surfaces build (its reasons, the outcome count, every hand-off label and
 // sentence, every settle cause's words, every progress line, an outcome row
-// of every result and the comment's own sentences) is free of the words
-// that would read as proof.
+// of every result, the comment's own sentences and every reply to /maul
+// verify, accept and preview) is free of the words that would read as
+// proof.
 func TestVerdictWordsNeverOverstate(t *testing.T) {
 	check := func(what, s string) {
 		t.Helper()
@@ -161,6 +164,40 @@ func TestVerdictWordsNeverOverstate(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("cited reproduction", repro)
+	for what, s := range commandReplies() {
+		check(what, s)
+	}
+}
+
+// verifyOutcomes are every reply a /maul verify, accept or preview gets.
+var verifyOutcomes = []VerifyOutcome{VerifyRequested, VerifyResetTooSoon, VerifyAccepted, VerifyAcceptUnknown,
+	VerifyAcceptAutomatic, VerifyAcceptNotYet, VerifyAcceptMoved, VerifyAcceptNotChecked, VerifyApplied, VerifyUsage,
+	VerifyCapReached, VerifyStopped, VerifyPreviewReleased, VerifyPreviewNotHeld, VerifyPreviewAlready,
+	VerifyPreviewNone, VerifyNotRun}
+
+// commandReplies are maul's replies to the verify commands on a plan that
+// declares outcomes (the evaluator's), by outcome, verb, accept target and
+// placement, and a /maul verify that did not run, for every reason.
+func commandReplies() map[string]string {
+	out := map[string]string{}
+	for _, o := range verifyOutcomes {
+		for _, verb := range []string{action.VerbVerify, action.VerbAccept, action.VerbPreview} {
+			for _, target := range []string{"", "render", command.AcceptAll} {
+				for _, ws := range []bool{false, true} {
+					n := VerifyCommandNotice{Verb: verb, Outcome: o, Criterion: target, Workspace: ws, Outcomes: true,
+						Actor: "alice", Heads: []string{"abc1234"}, Acceptable: []string{"deep-link"}}
+					if text, _, err := verifyNoticeText(n, command.IntentIssue); err == nil {
+						out[fmt.Sprintf("reply %s to %s %q (workspace %v)", o, verb, target, ws)] = text
+					}
+				}
+			}
+		}
+	}
+	for why := range verifyNotRunWords {
+		n := VerifyCommandNotice{Verb: action.VerbVerify, Outcome: VerifyNotRun, NotRunWhy: why, Actor: "alice"}
+		out["not run "+why] = notRunText(n, "`alice`")
+	}
+	return out
 }
 
 // TestObservedStatusFitsGitHub: every commit status description the

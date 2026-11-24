@@ -83,7 +83,8 @@ const (
 	// NotRunHarnessUnverified: the Project's harness has no evaluator maul
 	// verified.
 	NotRunHarnessUnverified = "harness-unverified"
-	// NotRunNothingToCheck: the approved plan has nothing maul checks.
+	// NotRunNothingToCheck: the approved plan has nothing for maul's evaluator
+	// to look at.
 	NotRunNothingToCheck = "nothing-to-check"
 	// NotRunSandboxImage, NotRunTree: an agents round cannot run: no
 	// accepted runner image, or a tree that cannot be fetched.
@@ -107,10 +108,10 @@ var verifyNotRunWords = map[string]string{
 	NotRunNotEnabled: "verification is not enabled for this project",
 	NotRunToolPodOff: "the tool pod that checks a project with no preview is not enabled in this installation",
 	NotRunSurfaceCombination: "this project sets a preview beside its cli or library surface, and maul " +
-		"verifies only one of them",
+		"evaluates only one of them",
 	NotRunPreviewsOff:       "previews are not enabled in this installation, and this project is checked in its preview",
 	NotRunHarnessUnverified: "maul does not evaluate intents built on this project's harness",
-	NotRunNothingToCheck:    "the approved plan has nothing maul checks",
+	NotRunNothingToCheck:    "the approved plan has nothing for maul's evaluator to look at",
 	NotRunSandboxImage:      handoffWhyWords[HandoffWhySandboxImage],
 	NotRunTree:              handoffWhyWords[HandoffWhyTree],
 	NotRunBudget:            "this intent's evaluations spent their budget",
@@ -281,10 +282,10 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"does not run yet is accepted by hand." +
 			acceptable("criterion", n.Acceptable), "", nil
 	case VerifyAcceptNotYet:
-		return cmd + " must wait: maul has not yet recorded the commits it verifies, and an acceptance holds only " +
+		return cmd + " must wait: maul has not yet recorded the commits it evaluates, and an acceptance holds only " +
 			"at those. Try again once verification has started.", "", nil
 	case VerifyAcceptMoved:
-		return fmt.Sprintf("%s does nothing: the preview was not running %s, the commits maul verifies, when you "+
+		return fmt.Sprintf("%s does nothing: the preview was not running %s, the commits maul evaluates, when you "+
 			"commented, so maul cannot tell which commits you checked. Check the preview once it runs them and "+
 			"accept again.", cmd, joinCode(n.Heads)), "", nil
 	case VerifyStopped:
@@ -389,7 +390,7 @@ func outcomeAcceptText(n VerifyCommandNotice, cmd, actor string) (string, bool) 
 	if !n.Outcomes || n.Verb != action.VerbAccept {
 		return "", false
 	}
-	const byHand = "only a manual outcome, or one maul could not confirm or found failing, is accepted by hand."
+	const byHand = "only a manual outcome, or one that is unsure or failing, is accepted by hand."
 	switch n.Outcome {
 	case VerifyAccepted:
 		if n.Criterion == command.AcceptAll {
