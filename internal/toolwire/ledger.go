@@ -244,16 +244,24 @@ func (e LedgerEntry) Check() error {
 	if err := e.checkParts(); err != nil {
 		return err
 	}
+	return e.checkOutcome()
+}
+
+// checkOutcome holds what an entry says of how its call ended: a refusal
+// is a code and ran nothing, and only a run that was not refused records
+// that its program never ran.
+func (e LedgerEntry) checkOutcome() error {
 	if e.NotRun && (e.Verb != VerbRun || e.Refused != "") {
 		return errors.New("only a run that was not refused records that its program never ran")
 	}
-	if e.Refused != "" {
-		if !refusalCode.MatchString(e.Refused) {
-			return errors.New("refusal is not a code")
-		}
-		if e.Exit != 0 || len(e.Artifacts) > 0 || len(e.Locators) > 0 {
-			return errors.New("a refused call ran nothing")
-		}
+	if e.Refused == "" {
+		return nil
+	}
+	if !refusalCode.MatchString(e.Refused) {
+		return errors.New("refusal is not a code")
+	}
+	if e.Exit != 0 || len(e.Artifacts) > 0 || len(e.Locators) > 0 {
+		return errors.New("a refused call ran nothing")
 	}
 	return nil
 }
