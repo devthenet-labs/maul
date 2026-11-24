@@ -877,17 +877,17 @@ const (
 	// pod or its evaluate run, a confirmation or a check review is in
 	// flight).
 	VerificationEvaluating IntentVerificationState = "Evaluating"
-	// VerificationUnconfirmed: the evaluation settled without confirming
-	// every outcome (unsure, disputed, or out of rounds, budget or time):
-	// the hand-off is released as "maul couldn't confirm this",
-	// never a block.
+	// VerificationUnconfirmed: the evaluation settled without every
+	// outcome seen to hold (unsure, or out of rounds, budget or time): the
+	// hand-off is released with maul's reason, never a block.
 	VerificationUnconfirmed IntentVerificationState = "Unconfirmed"
 )
 
 // OutcomeResultValue is the decided result of one approved outcome
-// (acceptance.Decide): passed only on a confirmed, reviewed, deterministic
-// check the evaluator agrees with; failed only on a failing confirmed check
-// the evaluator also fails; accepted by an approver's /maul accept.
+// (acceptance.Judge): passed only on the evaluator's pass citing a call of
+// its own that maul counts, seen to hold; failed only on its fail citing
+// one, seen not to hold; accepted by an approver's /maul accept;
+// quarantined is a retired spelling an earlier release wrote.
 // +kubebuilder:validation:Enum=passed;failed;unsure;quarantined;accepted
 type OutcomeResultValue string
 

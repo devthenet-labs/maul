@@ -36,6 +36,9 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			acceptance.ReasonSeenToHold, acceptance.ReasonSeenNotToHold, acceptance.ReasonNotReported,
 			acceptance.ReasonEvaluatorUnsure, acceptance.ReasonNoValidEvidence, acceptance.ReasonHeldFinding,
 			acceptance.ReasonContraryNote, "anomalies[].outcome",
+			// The two residuals a reviewer is told to look at (design.json
+			// residual_risks): relevance and a misread.
+			"A cited call can be about something else.", "A correct answer can be misread.",
 			"the evaluator's own page script", "the evaluator's own program", "Its output was not kept by maul.",
 			"The evaluator's reading, not checked by maul",
 			v1alpha1.ConditionEvaluatorUnverified, "--intent-evaluate-codex", "unverified",

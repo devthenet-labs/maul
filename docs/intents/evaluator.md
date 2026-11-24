@@ -124,7 +124,7 @@ citation **counts** only when all of these hold:
    browser session, the finish);
 4. maul did not refuse it (a malformed call, a missing key, a call past `maxToolCalls`);
 5. it used the application: `maul-tool http`, `browser`, `exec` or `run`. A `logs`, `events` or `files` call may be
-   cited and is shown, but never counts on its own;
+   cited, but never counts on its own;
 6. it ran at the head: on a Project with no preview, a call with `--base` never counts;
 7. a `browser` command exited 0 (a failed command showed nothing). An `exec` or `run` counts whatever its exit status: a
    program may exit non-zero by design;
@@ -349,23 +349,25 @@ as the session grows, so 100 turns fit the default \$6 run budget and the 20 min
   a verdict only when it cites calls the evaluator made in this evaluation through maul's tools; whether a cited call
   shows what the verdict says is for the reviewers to judge." Then they list every outcome once, with its kind (`change`
   or `keep`) and its result: "seen to hold by maul's evaluator", "seen not to hold by maul's evaluator", "unsure" with
-  why (the reasons above, in words), or "accepted by a human, not re-checked", and the calls it cites ("it cites calls 4
-  and 6"). Under the outcome each cited call that counts is shown in one fenced, defanged block, as maul's tools
-  recorded it: "Call 9, an http request:", what it sent, the exit status of a browser command or a program, and up to 1
-  KiB of its output, marked as the application's; a page script or program of the evaluator's own is headed "the
+  why (the reasons above, in words), or "accepted by a human, not re-checked", and the calls it cites that count ("it
+  cites calls 4 and 6"). Under the outcome each cited call that counts is shown in one fenced, defanged block, as maul's
+  tools recorded it: "Call 9, an http request:", what it sent, the exit status of a browser command or a program, and up
+  to 1 KiB of its output, marked as the application's; a page script or program of the evaluator's own is headed "the
   evaluator's own page script" or "the evaluator's own program", "and what it returned", and a call whose output maul
-  did not keep says "Its output was not kept by maul." The evaluator's note on an outcome, of any result, is shown as
-  "The evaluator's note on `<id>` (its words, not checked by maul)", and a look-around anomaly as "Look-around: maul's
-  evaluator noticed (its words, not checked by maul)". A comment always fits GitHub's size limit: when the evidence
-  would not, maul keeps it most important first (the cited calls in plan order, then the evaluator's notes, then the
-  anomalies, then the component log tails), each piece whole while it still fits (a large one left out does not stop a
-  smaller one after it), and the comment names what it left out. Every outcome's line and maul's own notes are always
-  shown whole; only a plan whose statements alone leave no room has them shortened, and the comment says so. Results are
-  shown only for the round that decided them, at the heads it evaluated: a round that settles without a judgement (its
-  attempts all failed, or maul's own build of the head did not finish) lists every outcome as `unsure`, with no earlier
-  round's results, and a push clears them until the new heads are judged: from the pass that sees the push, the status
-  comment and the sticky comments read "maul is evaluating the new commits" with no result, and the last round's
-  verification comment is left as it stood, about the heads it evaluated.
+  did not keep says "Its output was not kept by maul." A cited call that does not count (a `logs`, `events` or `files`
+  read, a call at the base, a refused one, one of maul's own) is not listed in the comment at all; the status page shows
+  every seq the evaluator cited to a reader with the transcripts tier. The evaluator's note on an outcome, of any
+  result, is shown as "The evaluator's note on `<id>` (its words, not checked by maul)", and a look-around anomaly as
+  "Look-around: maul's evaluator noticed (its words, not checked by maul)". A comment always fits GitHub's size limit:
+  when the evidence would not, maul keeps it most important first (the cited calls in plan order, then the evaluator's
+  notes, then the anomalies, then the component log tails), each piece whole while it still fits (a large one left out
+  does not stop a smaller one after it), and the comment names what it left out. Every outcome's line and maul's own
+  notes are always shown whole; only a plan whose statements alone leave no room has them shortened, and the comment
+  says so. Results are shown only for the round that decided them, at the heads it evaluated: a round that settles
+  without a judgement (its attempts all failed, or maul's own build of the head did not finish) lists every outcome as
+  `unsure`, with no earlier round's results, and a push clears them until the new heads are judged: from the pass that
+  sees the push, the status comment and the sticky comments read "maul is evaluating the new commits" with no result,
+  and the last round's verification comment is left as it stood, about the heads it evaluated.
 - **In the cluster.** Each round is a `PreviewVerification` in the release namespace
   (`kubectl get previewverifications -l maul.run/intent=<intent>`; maul keeps the newest three per intent). Its
   `status.ledger` indexes every tool call (its seq, kind, verb, exit, whether it was refused and, at an agents round's
@@ -489,8 +491,8 @@ maul's calls refused, never answered by the other side. Then:
 - **A base that does not build** (or whose build did not end in a failure maul can tell is the tree's) changes nothing
   but the base: every `exec --base` and `run --base` is then refused, and recorded; `files --base` still reads the
   base's source as fetched.
-- **The base never decides a result.** Every call at the base is recorded with `side: base` in the round's ledger index
-  and shown as "at the base" where it is cited, as context a reviewer can read beside the head's calls.
+- **The base never decides a result.** Every call at the base is recorded with `side: base` in the round's ledger index,
+  as context a reviewer can read beside the head's calls in the round's ledger.
 
 ### What changes for people
 
@@ -548,8 +550,14 @@ as long as its evaluate run, plus one tree's build, plus five minutes, at most 7
 ## Known limits
 
 - **maul does not judge relevance.** It holds a citation to the round's own verified ledger, never to what the verdict
-  claims: a call that counts may show something other than the outcome, or the evaluator may misread it. This is the
-  cost of letting the evaluator's observations count, and the reason every counted call is shown and a human merges.
+  claims. This is the cost of letting the evaluator's observations count, and the reason every counted call is shown and
+  a human merges. It leaves two things for the person reviewing to look at on every outcome:
+  - **A cited call can be about something else.** A call counts when it is the evaluator's own call that used the
+    application, whatever it used: a pass can cite a request to an unrelated route, a page the outcome is not about, or
+    a run of another command. Read each counted call's request and ask whether it reaches what the outcome names.
+  - **A correct answer can be misread.** The evaluator can read an output that shows the outcome holding as a failure
+    (which starts a fix round), or one that shows it failing as a pass. Read each counted call's output against the
+    outcome's own words, not against the evaluator's note.
 - **A model reading a screenshot can make an outcome seen to hold.** The evaluate model of an earlier calibration
   (`claude-sonnet-5`), judging screenshots of known defects, called 5 of 15 defect runs a pass, with confident evidence
   it invented, and failed 3 of 18 correct builds. It was right on gross structure (steps 14.8 px against 32 px, rows

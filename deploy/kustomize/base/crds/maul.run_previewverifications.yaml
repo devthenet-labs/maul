@@ -101,10 +101,10 @@ spec:
                   removed in the next release.
                 items:
                   description: |-
-                    SavedCheck is one confirmed, reviewed check of an approved outcome: its
-                    canonical JSON (internal/checks.Canonical) and digest. The body is the
-                    agent's, validated by internal/checks before it was ever run, and is
-                    untrusted text: it is shown only as quoted data.
+                    SavedCheck is one confirmed, reviewed check of an approved outcome an
+                    earlier release saved: its canonical JSON and digest. Retired with saved
+                    checks: the observed evaluator neither writes nor reads one. The body is
+                    the agent's, and is untrusted text.
                   properties:
                     body:
                       description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
@@ -114,8 +114,9 @@ spec:
                       type: string
                     digest:
                       description: |-
-                        Digest is internal/checks.Digest of the body: what every dry run,
-                        confirmation, replay and review is recorded against.
+                        Digest is the body's digest, as the earlier release computed it:
+                        what its dry runs, confirmations, replays and reviews were recorded
+                        against.
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
                     expect:
@@ -614,17 +615,18 @@ spec:
                       properties:
                         assertionID:
                           description: |-
-                            AssertionID names which assertion of that step failed
-                            (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
-                            "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                            AssertionID names which assertion of that step failed, as that check
+                            runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                            "marker <id>" or "expect". Set with AssertionStep.
                           maxLength: 512
                           type: string
                         assertionStep:
                           description: |-
                             AssertionStep is, for a failed run red by assertion, the step (1-based)
                             at which both attempts failed, an assertion of a check that otherwise
-                            ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
-                            timeout or a locator that resolved to nothing. Unset otherwise.
+                            ran, as an earlier release's check runner recorded it: never a check
+                            error, a timeout or a locator that resolved to nothing. Unset
+                            otherwise.
                           format: int32
                           maximum: 64
                           minimum: 1
@@ -768,17 +770,18 @@ spec:
                   properties:
                     assertionID:
                       description: |-
-                        AssertionID names which assertion of that step failed
-                        (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
-                        "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                        AssertionID names which assertion of that step failed, as that check
+                        runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                        "marker <id>" or "expect". Set with AssertionStep.
                       maxLength: 512
                       type: string
                     assertionStep:
                       description: |-
                         AssertionStep is, for a failed run red by assertion, the step (1-based)
                         at which both attempts failed, an assertion of a check that otherwise
-                        ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
-                        timeout or a locator that resolved to nothing. Unset otherwise.
+                        ran, as an earlier release's check runner recorded it: never a check
+                        error, a timeout or a locator that resolved to nothing. Unset
+                        otherwise.
                       format: int32
                       maximum: 64
                       minimum: 1
@@ -863,10 +866,10 @@ spec:
                   Retired with saved checks, as Replay is.
                 items:
                   description: |-
-                    SavedCheck is one confirmed, reviewed check of an approved outcome: its
-                    canonical JSON (internal/checks.Canonical) and digest. The body is the
-                    agent's, validated by internal/checks before it was ever run, and is
-                    untrusted text: it is shown only as quoted data.
+                    SavedCheck is one confirmed, reviewed check of an approved outcome an
+                    earlier release saved: its canonical JSON and digest. Retired with saved
+                    checks: the observed evaluator neither writes nor reads one. The body is
+                    the agent's, and is untrusted text.
                   properties:
                     body:
                       description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
@@ -876,8 +879,9 @@ spec:
                       type: string
                     digest:
                       description: |-
-                        Digest is internal/checks.Digest of the body: what every dry run,
-                        confirmation, replay and review is recorded against.
+                        Digest is the body's digest, as the earlier release computed it:
+                        what its dry runs, confirmations, replays and reviews were recorded
+                        against.
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
                     expect:
@@ -1327,17 +1331,18 @@ spec:
                   properties:
                     assertionID:
                       description: |-
-                        AssertionID names which assertion of that step failed
-                        (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
-                        "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                        AssertionID names which assertion of that step failed, as that check
+                        runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                        "marker <id>" or "expect". Set with AssertionStep.
                       maxLength: 512
                       type: string
                     assertionStep:
                       description: |-
                         AssertionStep is, for a failed run red by assertion, the step (1-based)
                         at which both attempts failed, an assertion of a check that otherwise
-                        ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
-                        timeout or a locator that resolved to nothing. Unset otherwise.
+                        ran, as an earlier release's check runner recorded it: never a check
+                        error, a timeout or a locator that resolved to nothing. Unset
+                        otherwise.
                       format: int32
                       maximum: 64
                       minimum: 1

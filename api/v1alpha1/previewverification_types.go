@@ -25,7 +25,7 @@ const MaxVerificationAttempts = 3
 
 // PreviewVerificationPhase is the local state of one verification attempt.
 // It is an observation, never a verdict: intent-controller decides what the
-// tool pod's ledger shows (acceptance.Decide).
+// tool pod's ledger shows (acceptance.Judge).
 // +kubebuilder:validation:Enum=Pending;Running;Observed;EnvFailed;Infra;Stale
 type PreviewVerificationPhase string
 
@@ -240,8 +240,8 @@ const (
 // saved checks replayed, then the evaluator) or replay (the saved checks
 // only, no model: a round at the heads of a model round that raised
 // nothing, every outcome bound to a proven saved check; the round after a
-// dispute among them, SPEC Q17). intent-controller picks it
-// (acceptance.StartRung). Retired with the cost ladder: the observed
+// dispute among them, SPEC Q17), as an earlier release's intent-controller
+// picked it. Retired with the cost ladder: the observed
 // evaluator writes full only, and replay is a retired spelling. Removed in
 // the next release.
 // +kubebuilder:validation:Enum=full;replay
@@ -904,7 +904,7 @@ const (
 // disturbed (SPEC-S2 S2-20): only these base errors leave a check with no
 // base comparison. A timeout, processes left behind, output cut, a bind or
 // connection error or a sandbox that refused or did not answer carries
-// none (toolwire.StepCause, httpstep.RunCause).
+// none (httpstep.RunCause). Retired with saved checks, as CheckRun is.
 // +kubebuilder:validation:Enum=compile;vendored-tree;replace-outside-tree;no-module;base-unbuildable
 type CheckRunCause string
 
@@ -952,15 +952,16 @@ type CheckRun struct {
 	Expect CheckExpectation `json:"expect,omitempty"`
 	// AssertionStep is, for a failed run red by assertion, the step (1-based)
 	// at which both attempts failed, an assertion of a check that otherwise
-	// ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
-	// timeout or a locator that resolved to nothing. Unset otherwise.
+	// ran, as an earlier release's check runner recorded it: never a check
+	// error, a timeout or a locator that resolved to nothing. Unset
+	// otherwise.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=64
 	AssertionStep int32 `json:"assertionStep,omitempty"`
-	// AssertionID names which assertion of that step failed
-	// (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
-	// "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+	// AssertionID names which assertion of that step failed, as that check
+	// runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+	// "marker <id>" or "expect". Set with AssertionStep.
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
 	AssertionID string `json:"assertionID,omitempty"`

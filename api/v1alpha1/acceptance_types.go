@@ -30,12 +30,12 @@ type VerificationHead struct {
 
 // The evaluator's acceptance (DESIGN revision 3, SPEC S1-01): an approved
 // plan declares outcomes, plain statements of what must hold, instead of
-// criteria; the evaluator judges them against the live preview and saves
-// deterministic checks that a later round replays. AcceptanceOutcome is
-// held field for field to the plan grammar's outcome
-// (internal/acceptance/crdconv's pin test); a SavedCheck carries a check of
-// internal/checks as its canonical JSON, which the schema stores opaque and
-// bounded: the grammar, its validation and its digest live in internal/.
+// criteria; the evaluator uses the change and reports, per outcome, what it
+// saw, citing calls of the round's ledger ("evaluator observed").
+// AcceptanceOutcome is held field for field to the plan grammar's outcome
+// (internal/acceptance/crdconv's pin test). A SavedCheck is retired with
+// saved checks: a check an earlier release saved, stored opaque and bounded
+// as its canonical JSON, which nothing writes or reads any more.
 
 // OutcomeKind says whether an outcome is new behaviour the change must
 // introduce (change) or behaviour it must keep (keep).
@@ -89,7 +89,8 @@ func (o AcceptanceOutcome) EffectiveKind() OutcomeKind {
 	return o.Kind
 }
 
-// CheckForm is how a saved check runs (internal/checks.Form).
+// CheckForm is how an earlier release's saved check ran. Retired with saved
+// checks.
 // +kubebuilder:validation:Enum=http;browser;exec;run
 type CheckForm string
 
@@ -98,29 +99,25 @@ const (
 	CheckFormHTTP    CheckForm = "http"
 	CheckFormBrowser CheckForm = "browser"
 	CheckFormExec    CheckForm = "exec"
-	// CheckFormRun is a program maul compiles against the tree and runs
-	// (slice S2); internal/acceptance.CheckFormRun is its twin.
+	// CheckFormRun was a program compiled against the tree and run (slice
+	// S2).
 	CheckFormRun CheckForm = "run"
 )
 
 // MaxSavedCheckBytes bounds a saved check's canonical JSON, in bytes, for
-// every form. internal/checks admits an exec check whose program files reach
-// 64 KiB, but a saved check travels inline in a PreviewVerification (up to
-// MaxSavedChecks of them, beside their confirmed copies on its status) and in
-// the Intent's check store, a ConfigMap of at most 1 MiB, and neither could
-// hold 40 such checks: an exec check over this bound is not saved
-// (intent-controller refuses the proposal), so saved programs stay small.
-// The schema markers repeat it as a literal; keep them in lockstep.
+// every form: an earlier release saved no check over it, so the schema
+// still admits every check it stored. Retired with saved checks. The schema
+// markers repeat it as a literal; keep them in lockstep.
 const MaxSavedCheckBytes = 8 << 10
 
 // MaxSavedChecks bounds the saved checks of one Intent, and so of one
 // PreviewVerification. The schema markers repeat it as a literal.
 const MaxSavedChecks = 40
 
-// SavedCheck is one confirmed, reviewed check of an approved outcome: its
-// canonical JSON (internal/checks.Canonical) and digest. The body is the
-// agent's, validated by internal/checks before it was ever run, and is
-// untrusted text: it is shown only as quoted data.
+// SavedCheck is one confirmed, reviewed check of an approved outcome an
+// earlier release saved: its canonical JSON and digest. Retired with saved
+// checks: the observed evaluator neither writes nor reads one. The body is
+// the agent's, and is untrusted text.
 // +kubebuilder:validation:XValidation:rule="size(bytes(self.body)) <= 8192",message="a saved check's body is at most 8 KiB (MaxSavedCheckBytes)"
 type SavedCheck struct {
 	// ID names the check: its outcome's id with an optional .<name>.
@@ -135,8 +132,9 @@ type SavedCheck struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=8192
 	Body string `json:"body"`
-	// Digest is internal/checks.Digest of the body: what every dry run,
-	// confirmation, replay and review is recorded against.
+	// Digest is the body's digest, as the earlier release computed it:
+	// what its dry runs, confirmations, replays and reviews were recorded
+	// against.
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	Digest string `json:"digest"`
 	// Expect is fail for a check saved to show a defect: proposed for a fail
