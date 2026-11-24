@@ -25,17 +25,17 @@ import (
 	"github.com/devthenet-labs/maul/internal/kube"
 )
 
-// observedOldCRDs are the CRDs of 0.14.15, the last release that saved,
-// reviewed and replayed checks (tag v0.14.15, deploy/kustomize/base/crds),
+// observedOldCRDs are the CRDs of 0.14.16, the last release that saved,
+// reviewed and replayed checks (tag v0.14.16, deploy/kustomize/base/crds),
 // frozen for the "evaluator observed" upgrade test. Each later release reads
 // them from here, never from the tag.
-const observedOldCRDs = "../../hack/testdata/crd-upgrade/0.14.15/"
+const observedOldCRDs = "../../hack/testdata/crd-upgrade/0.14.16/"
 
 // observedKinds are the CRDs the upgrade swaps, both ways.
 var observedKinds = []string{"maul.run_intents.yaml", "maul.run_previewverifications.yaml",
 	"maul.run_intentruns.yaml", "maul.run_projects.yaml"}
 
-// The objects 0.14.15 leaves: one Project, one open Intent mid-replay, its
+// The objects 0.14.16 leaves: one Project, one open Intent mid-replay, its
 // two verifications (the full round it judged, the replay round running),
 // and round 1's evaluate and checkreview runs.
 const (
@@ -49,7 +49,7 @@ const (
 	obFreshEval = "beatbattle-48-ev-r3-a1"
 )
 
-// observedUpgrade is one API server moved from 0.14.15's CRDs to this
+// observedUpgrade is one API server moved from 0.14.16's CRDs to this
 // release's and back.
 type observedUpgrade struct {
 	t     *testing.T
@@ -59,14 +59,17 @@ type observedUpgrade struct {
 }
 
 // TestObservedUpgradeAgainstAPIServer ("evaluator observed", W11): release N
-// only adds optional fields (status.verification.judge, an outcome's cites,
-// a ledger entry's side) and changes no rule, so what 0.14.15 left stays
-// valid, and what N writes stays valid under 0.14.15's CRDs after a helm
-// rollback. Against a real API server it installs 0.14.15's CRDs with what
-// that release leaves (a Project choosing a checkReview model and limit, an
-// Intent mid-replay with saved checks, reviews and the cost ladder, a replay
-// and an agents full verification with saved checks, confirmations and a
-// base side, evaluate and checkreview runs) and holds:
+// adds optional fields (status.verification.judge, an outcome's cites, a
+// ledger entry's side), drops only the check reviewer's status.admits
+// entries, which intent-controller alone writes, and changes no rule, so
+// what 0.14.16 left stays valid, and what N writes stays valid under
+// 0.14.16's CRDs after a helm rollback. Against a real API server it
+// installs 0.14.16's CRDs with what that release leaves (a Project choosing
+// a checkReview model and limit, its status.admits publishing the check
+// reviewer's model, ceiling and floor, an Intent mid-replay with saved
+// checks, reviews and the cost ladder, a replay and an agents full
+// verification with saved checks, confirmations and a base side, evaluate
+// and checkreview runs) and holds:
 //
 //   - forward, under N's CRDs: every object is admitted whole (a renamed
 //     copy created and its status written, so no rule is ratcheted), takes
@@ -74,16 +77,19 @@ type observedUpgrade struct {
 //     round, the retired run settled Aborted, the replay round deleted, a
 //     settled evaluate run, the Project's Ready), and keeps every retired
 //     field the rollback reads (status.acceptance.checks above all);
-//   - back, under 0.14.15's CRDs again: what N created (an observed
+//   - back, under 0.14.16's CRDs again: what N created (an observed
 //     judgement with cites, an agents verification whose ledger names a
 //     side, a fresh evaluate run) reads back with N's fields pruned, is
-//     admitted whole, and takes 0.14.15's own writes;
+//     admitted whole, and takes 0.14.16's own writes;
+//   - the check reviewer's status.admits entries are stored under 0.14.16's
+//     CRDs and pruned on read under N's, the evaluate stage's beside them
+//     kept;
 //   - the Project stays valid and keeps Ready both ways (that its retired
 //     checkReview fields never block Ready is
 //     TestRetiredCheckReviewSpecNeverBlocksReady's);
-//   - rolling forward again, the marker stays absent on an Intent 0.14.15
+//   - rolling forward again, the marker stays absent on an Intent 0.14.16
 //     rewrote while rolled back (it stored the object pruned), so the
-//     supersede runs once more, as designed. An Intent 0.14.15 never
+//     supersede runs once more, as designed. An Intent 0.14.16 never
 //     rewrote keeps its marker in etcd and is not superseded again, which
 //     is harmless: nothing check-era was written to it.
 func TestObservedUpgradeAgainstAPIServer(t *testing.T) {
@@ -92,6 +98,7 @@ func TestObservedUpgradeAgainstAPIServer(t *testing.T) {
 	}
 	u := startObservedUpgrade(t)
 	u.leaveCheckEraBehind()
+	u.retiredAdmits(true)
 
 	u.applyCRDs(newCRDs)
 	u.waitServed(true)
@@ -159,7 +166,7 @@ var (
 		Outcome: "bbcount prints the number of beats.", From: "print the beat count"}}
 )
 
-// obProjectObject is a verifying Project as 0.14.15 left it: a checkReview
+// obProjectObject is a verifying Project as 0.14.16 left it: a checkReview
 // model and limit chosen, Ready.
 func obProjectObject(name string) *v1alpha1.Project {
 	p := &v1alpha1.Project{
@@ -184,19 +191,19 @@ func obReady(generation int64) []metav1.Condition {
 		Message: "the Project is ready", LastTransitionTime: obNow, ObservedGeneration: generation}}
 }
 
-// obSavedCheck is one saved check as 0.14.15 stored it.
+// obSavedCheck is one saved check as 0.14.16 stored it.
 func obSavedCheck() v1alpha1.SavedCheck {
 	return v1alpha1.SavedCheck{ID: "counts-1", Outcome: "counts", Form: v1alpha1.CheckFormRun,
 		Body: `{"files":{"main.go":"package main"}}`, Digest: obDigestC}
 }
 
-// obCheckRun is one check run of a 0.14.15 replay, confirmation or base.
+// obCheckRun is one check run of a 0.14.16 replay, confirmation or base.
 func obCheckRun(tree v1alpha1.TreeSide, seq int32) v1alpha1.CheckRun {
 	return v1alpha1.CheckRun{CheckDigest: obDigestC, Result: v1alpha1.CheckRunPass, Token: "t0k3n", Seq: seq,
 		Tree: tree}
 }
 
-// obFullVerification is round 1, an agents full round 0.14.15 settled
+// obFullVerification is round 1, an agents full round 0.14.16 settled
 // Observed with saved checks, confirmations and a base side.
 func obFullVerification(name string) *v1alpha1.PreviewVerification {
 	v := agentsVerification(name)
@@ -217,7 +224,7 @@ func obFullVerification(name string) *v1alpha1.PreviewVerification {
 	return v
 }
 
-// obReplayVerification is round 2, the replay round 0.14.15 started at the
+// obReplayVerification is round 2, the replay round 0.14.16 started at the
 // same heads, running.
 func obReplayVerification(name string) *v1alpha1.PreviewVerification {
 	v := obFullVerification(name)
@@ -241,7 +248,7 @@ func obRun(name string, stage v1alpha1.IntentStage, round int32, pv string) *v1a
 	return run
 }
 
-// obIntentObject is the open Intent as 0.14.15 left it, mid-replay: its
+// obIntentObject is the open Intent as 0.14.16 left it, mid-replay: its
 // acceptance with a check store, reviews, a red clearance and a narrowed
 // check, and its verification on round 2's replay rung with the ladder's
 // records, a dispute, a suspected defect and a quarantined outcome.
@@ -290,8 +297,8 @@ func obIntentObject(name string) *v1alpha1.Intent {
 	return in
 }
 
-// leaveCheckEraBehind creates what 0.14.15 leaves, each object's status
-// written under 0.14.15's CRDs.
+// leaveCheckEraBehind creates what 0.14.16 leaves, each object's status
+// written under 0.14.16's CRDs.
 func (u *observedUpgrade) leaveCheckEraBehind() {
 	project := obProjectObject(obProject)
 	project.Status.Conditions = obReady(1)
@@ -307,11 +314,69 @@ func (u *observedUpgrade) leaveCheckEraBehind() {
 	review.Status = v1alpha1.IntentRunStatus{Phase: v1alpha1.RunRunning, StartedAt: &obNow,
 		JobRef: &v1alpha1.JobReference{Name: obReview}}
 	u.createWithStatus(review)
+	u.publishOldAdmits()
 }
 
-// forward holds what 0.14.15 left to N's CRDs and N's writes.
+// obOldAdmits are the status.admits paths the previous release publishes
+// for its check reviewer, which N's CRDs no longer have.
+var obOldAdmits = [][]string{
+	{"status", "admits", "defaultModels", "checkReview"},
+	{"status", "admits", "stages", "checkReview", "maxTurns"},
+	{"status", "admits", "runBudgetFloors", "checkReviewMicroUSD"},
+}
+
+// publishOldAdmits writes the Project's status.admits as the previous
+// release's intent-controller publishes it, its check reviewer's model,
+// ceiling and floor included. N's Go types hold none of the three, so the
+// write is unstructured.
+func (u *observedUpgrade) publishOldAdmits() {
+	t := u.t
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("Project"))
+	if err := u.admin.Get(t.Context(), client.ObjectKey{Namespace: egressRelease, Name: obProject}, obj); err != nil {
+		t.Fatalf("get Project %s: %v", obProject, err)
+	}
+	admits := map[string]any{
+		"models": []any{"anthropic/claude-opus-5-5"},
+		"defaultModels": map[string]any{"plan": "anthropic/claude-opus-5-5", "evaluate": "anthropic/claude-opus-5-5",
+			"checkReview": "anthropic/claude-opus-5-5"},
+		"stages": map[string]any{"evaluate": map[string]any{"maxTurns": int64(100)},
+			"checkReview": map[string]any{"maxTurns": int64(6)}},
+		"runBudgetFloors": []any{map[string]any{"model": "anthropic/claude-opus-5-5",
+			"evaluateMicroUSD": int64(1600000), "checkReviewMicroUSD": int64(409600)}},
+		"evaluator": true,
+	}
+	if err := unstructured.SetNestedField(obj.Object, admits, "status", "admits"); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.admin.Status().Update(t.Context(), obj); err != nil {
+		t.Fatalf("the previous release's status.admits refused: %v", err)
+	}
+}
+
+// retiredAdmits: the previous release's check reviewer admits are stored
+// under its own CRDs (old), and under N's they are pruned on read while the
+// evaluate stage's beside them stay. They are optional fields only
+// intent-controller writes, so the removal needs no retired spelling.
+func (u *observedUpgrade) retiredAdmits(old bool) {
+	t := u.t
+	for _, path := range obOldAdmits {
+		if got := u.has("Project", obProject, path...); got != old {
+			t.Errorf("Project %s holds %s: %v, want %v", obProject, strings.Join(path, "."), got, old)
+		}
+	}
+	for _, path := range [][]string{{"status", "admits", "defaultModels", "evaluate"},
+		{"status", "admits", "stages", "evaluate", "maxTurns"}, {"status", "admits", "runBudgetFloors", "evaluateMicroUSD"}} {
+		if !u.has("Project", obProject, path...) {
+			t.Errorf("Project %s lost %s", obProject, strings.Join(path, "."))
+		}
+	}
+}
+
+// forward holds what 0.14.16 left to N's CRDs and N's writes.
 func (u *observedUpgrade) forward() {
 	u.retiredFieldsRead()
+	u.retiredAdmits(false)
 	u.rebornUnderN()
 	u.supersede()
 	u.settleLeftRuns()
@@ -343,7 +408,7 @@ func (u *observedUpgrade) retiredFieldsRead() {
 	}
 }
 
-// rebornUnderN: each of 0.14.15's objects is admitted whole by N's CRDs, a
+// rebornUnderN: each of 0.14.16's objects is admitted whole by N's CRDs, a
 // renamed copy created and its status written fresh.
 func (u *observedUpgrade) rebornUnderN() {
 	project := obProjectObject("beatbattle-copy")
@@ -379,7 +444,7 @@ func (u *observedUpgrade) supersede() {
 	u.statusUpdate(&in, "N's supersede withdrawal")
 	u.getTyped(obIntent, &in)
 	if c := in.Status.Acceptance.Checks; c == nil || c.ConfigMap != obIntent+"-checks-1" || c.Count != 1 {
-		t.Errorf("after the withdrawal status.acceptance.checks = %+v; want the 0.14.15 store kept for a "+
+		t.Errorf("after the withdrawal status.acceptance.checks = %+v; want the 0.14.16 store kept for a "+
 			"rollback", c)
 	}
 	if a := in.Status.Acceptance; len(a.Reviews) != 1 || len(a.RedCleared) != 1 || len(a.Narrowed) != 1 {
@@ -488,7 +553,7 @@ func obJudge(in *v1alpha1.Intent) {
 	meta.RemoveStatusCondition(&in.Status.Conditions, v1alpha1.ConditionVerificationSuperseded)
 }
 
-// back holds what N created to 0.14.15's CRDs and 0.14.15's writes.
+// back holds what N created to 0.14.16's CRDs and 0.14.16's writes.
 func (u *observedUpgrade) back() {
 	t := u.t
 	// N's fields are pruned; everything else reads back.
@@ -501,7 +566,7 @@ func (u *observedUpgrade) back() {
 		{"PreviewVerification", obFreshPV, []string{"status", "ledger", "entries", "side"}},
 	} {
 		if u.has(f.kind, f.name, f.path...) {
-			t.Errorf("under 0.14.15's CRDs %s %s still reads %s; want it pruned", f.kind, f.name,
+			t.Errorf("under 0.14.16's CRDs %s %s still reads %s; want it pruned", f.kind, f.name,
 				strings.Join(f.path, "."))
 		}
 	}
@@ -514,7 +579,7 @@ func (u *observedUpgrade) back() {
 		t.Errorf("rolled back, the judgement reads %+v; want N's result, its cites pruned", v.Outcomes)
 	}
 
-	// What N created is admitted whole under 0.14.15's rules: CEL :303 (an
+	// What N created is admitted whole under 0.14.16's rules: CEL :303 (an
 	// outcome verification names its rung and tools) and the evaluate run's
 	// required spec.evaluation.rung.
 	u.reborn(obFreshVerification("beatbattle-48-v3-a9"))
@@ -528,29 +593,29 @@ func (u *observedUpgrade) back() {
 	project.Status.Conditions = obReady(1)
 	u.reborn(project)
 
-	// 0.14.15's own writes: its controller picks a full round with no
+	// 0.14.16's own writes: its controller picks a full round with no
 	// modelRound, records the ladder, and its hosts write their status.
 	u.getTyped(obIntent, &in)
 	v := in.Status.Verification
 	v.Rung = v1alpha1.RungFull
 	v.ModelRound = &v1alpha1.VerificationModelRound{Round: 3, HeadSetDigest: obDigestA, OutcomesDigest: obDigestB,
 		Clear: true}
-	u.statusUpdate(&in, "0.14.15 recording a full round")
+	u.statusUpdate(&in, "0.14.16 recording a full round")
 	var pv v1alpha1.PreviewVerification
 	u.getTyped(obFreshPV, &pv)
 	pv.Status.Base = &v1alpha1.BaseStatus{Required: true, Runs: []v1alpha1.CheckRun{obCheckRun(v1alpha1.TreeBase, 3)}}
 	pv.Status.Confirmations = []v1alpha1.CheckRun{obCheckRun("", 2)}
-	u.statusUpdate(&pv, "0.14.15's agents host on N's verification")
+	u.statusUpdate(&pv, "0.14.16's agents host on N's verification")
 	var run v1alpha1.IntentRun
 	u.getTyped(obFreshEval, &run)
 	run.Status.Report = "evaluated under N"
-	u.statusUpdate(&run, "0.14.15 on N's evaluate run")
+	u.statusUpdate(&run, "0.14.16 on N's evaluate run")
 	u.touch(&run)
 
 	var p v1alpha1.Project
 	u.getTyped(obProject, &p)
 	p.Status.Conditions = obReady(p.Generation)
-	u.statusUpdate(&p, "0.14.15's Project Ready")
+	u.statusUpdate(&p, "0.14.16's Project Ready")
 }
 
 // createWithStatus creates obj and writes the status it carries.
@@ -703,7 +768,7 @@ func (u *observedUpgrade) applyCRDs(dir string) {
 
 // waitServed waits until the API server serves the CRDs just applied: N's
 // (nKept) keeps an Intent's judge and a ledger entry's side on a dry-run
-// status write, 0.14.15's prunes both. Without it either leg could run
+// status write, 0.14.16's prunes both. Without it either leg could run
 // against the other's schema and pass vacuously.
 func (u *observedUpgrade) waitServed(nKept bool) {
 	t, ctx := u.t, u.t.Context()

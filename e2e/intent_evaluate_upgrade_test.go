@@ -18,7 +18,7 @@ import (
 )
 
 // TestIntentEvaluateSupersededAtUpgrade (evaluator observed, W5): an intent
-// whose evaluation passed is left as 0.14.15 leaves one, its record
+// whose evaluation passed is left as 0.14.16 leaves one, its record
 // without the judge marker and carrying the cost ladder's records, a
 // dispute, maxVerifications spent and an approver's /maul verify stop, and
 // a checkreview run still running. intent-controller is restarted over it,
@@ -76,7 +76,7 @@ func TestIntentEvaluateSupersededAtUpgrade(t *testing.T) {
 	consistently(t, "no further round", func() bool { return len(e.verifications(t, name)) == 2 })
 }
 
-// oldCheckReviewRun creates the checkreview run 0.14.15 left for round of
+// oldCheckReviewRun creates the checkreview run 0.14.16 left for round of
 // intent name, running with a Job that is no longer there to read.
 func (e *evalEnv) oldCheckReviewRun(t *testing.T, name string, round int32) *v1alpha1.IntentRun {
 	t.Helper()
@@ -98,7 +98,7 @@ func (e *evalEnv) oldCheckReviewRun(t *testing.T, name string, round int32) *v1a
 	return review
 }
 
-// rewriteAsOldRelease rewrites intent name's verification as 0.14.15
+// rewriteAsOldRelease rewrites intent name's verification as 0.14.16
 // writes it: no judge marker, the cost ladder's model round and rung, a
 // disputed check, maxVerifications spent, an approver's stop. It returns
 // the record written.
@@ -121,7 +121,7 @@ func (e *evalEnv) rewriteAsOldRelease(t *testing.T, name string) v1alpha1.Intent
 		old = *v.DeepCopy()
 		return e.cl.client.Status().Update(context.Background(), cur)
 	}); err != nil {
-		t.Fatalf("rewrite the record as 0.14.15 leaves it: %v", err)
+		t.Fatalf("rewrite the record as 0.14.16 leaves it: %v", err)
 	}
 	return old
 }
