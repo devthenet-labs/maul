@@ -126,16 +126,16 @@ repository the pull request is in, and not be a bot.
 because an intent has one combined change and one preview. They are for approvers only and work while the intent is
 `InReview` or `Revising`.
 
-| Command                | Effect                                                                                                                                                          |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maul verify`         | Starts a new evaluation round, once the current round has ended                                                                                                 |
-| `/maul verify fix`     | As `/maul verify`, and lets maul fix failures on its own again after it had stopped                                                                             |
-| `/maul verify stop`    | Stops maul fixing failures on its own. It verifies nothing and starts nothing                                                                                   |
-| `/maul verify --reset` | Restarts the preview's pods first, which drops their data, then verifies                                                                                        |
-| `/maul verify explore` | As `/maul verify`, but the evaluator looks again even where maul's saved checks alone could settle the round                                                    |
-| `/maul accept <id>`    | Accepts one outcome: a manual one, one maul could not confirm, one it found failing, or one that passed only on retry. `<id>` is the outcome's id from the plan |
-| `/maul accept all`     | Accepts every outcome that can be accepted now                                                                                                                  |
-| `/maul preview`        | Shows a held preview link now. Nothing else changes                                                                                                             |
+| Command                | Effect                                                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `/maul verify`         | Starts a new evaluation round, once the current round has ended                                                                       |
+| `/maul verify fix`     | As `/maul verify`, and lets maul fix failures on its own again after it had stopped                                                   |
+| `/maul verify stop`    | Stops maul fixing failures on its own. It verifies nothing and starts nothing                                                         |
+| `/maul verify --reset` | Restarts the preview's pods first, which drops their data, then verifies                                                              |
+| `/maul verify explore` | The same as `/maul verify`, kept for older comments: every round is a full evaluation                                                 |
+| `/maul accept <id>`    | Accepts one outcome: a manual one, or one maul's evaluator did not see hold or saw not hold. `<id>` is the outcome's id from the plan |
+| `/maul accept all`     | Accepts every outcome that can be accepted now                                                                                        |
+| `/maul preview`        | Shows a held preview link now. Nothing else changes                                                                                   |
 
 A note for `/maul accept` goes on the lines below the command, and is recorded with the acceptance. An acceptance is for
 the commits the pull requests are at when you comment; after a push you accept again.

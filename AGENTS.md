@@ -828,12 +828,12 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   approver's save) and `components/ProjectSettingsView.tsx`.
 - `projectsettings` — the Project settings page's pure core (stdlib and `api/v1alpha1` only, a test pins that): one
   table of the editable spec fields (`Fields`: id, lock group, kind, the CRD's range, default, when a change takes
-  effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the check
-  reviewer's model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
+  effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the
+  retired `checkReview` model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
   `ApproversMaxAge`), `Apply`, `Check` (locks, switches, ceilings, floors, `status.admits`: models, classes, the
   controller's ceilings, run-budget bounds, the delegation switches; only changed fields, a cleared one by its landing
   value), `Confirmations`,
-  and `Decide`, which runs them in order and hands back the Project to patch only when all agree; `View` (bounds, the
+  and `projectsettings.Decide`, which runs them in order and hands back the Project to patch only when all agree; `View` (bounds, the
   approvers' GitHub state, the other field managers with their operation, the last edit), the `Policy` the chart renders
   once for the server and the admission policy (`DefaultPolicy` pinned to the chart's defaults), the
   `maul.run/settings-edited` record (`NewEdit`, `ParseEdit`), and `CheckApprovers`, which `maul setup project` shares.

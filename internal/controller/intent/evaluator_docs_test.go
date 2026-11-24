@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -112,15 +113,38 @@ func TestEvaluatorDocsDropTheSavedCheckMachinery(t *testing.T) {
 		`ConfirmedChecks`, `ConfirmationRuns`, `report\.CheckReview`, `maul-tool check`, `check results`,
 		`evaluate_cover`, `checkreview\.go`, `the check reviewer`, `saved checks? (replay|is|are)`,
 	}
+	// The pages a newcomer reads first (main's #465 and #467 added most of
+	// them) describe the evaluator in brief; held to the machinery's names
+	// and its claims, though not to every word the two pages above give up
+	// ("replay" and "confirm" have other meanings there).
+	newcomer := []string{
+		`\bcheck ?review`, `saved check`, `\brung\b`, `cost ladder`, `\bdisput`, `proves? (it|its|the) outcome`,
+		`quarantin`, `escalat`, `\breplay(s|ed)? (the |its |every )?(saved )?checks`, `writes checks`,
+		`runs each check`, `second model`, `couldn.t confirm`, `could not confirm`, `outcomes? (is |are )?confirmed`,
+		`passed only on retry`,
+	}
 	for path, terms := range map[string][]string{
-		"docs/intents/evaluator.md":  retired,
-		"docs/intents/acceptance.md": retired,
-		"AGENTS.md":                  agents,
+		"docs/intents/evaluator.md":        retired,
+		"docs/intents/acceptance.md":       retired,
+		"AGENTS.md":                        agents,
+		"docs/concepts.md":                 newcomer,
+		"docs/how-it-works.md":             newcomer,
+		"docs/commands.md":                 newcomer,
+		"docs/troubleshooting.md":          newcomer,
+		"docs/security.md":                 newcomer,
+		"docs/usage.md":                    newcomer,
+		"docs/intents/lifecycle.md":        newcomer,
+		"docs/intents/project-settings.md": newcomer,
 	} {
 		t.Run(path, func(t *testing.T) {
 			prose := docsProse(t, path)
 			if path == "docs/intents/evaluator.md" {
 				prose = withoutSection(t, prose, "## Migrating from saved checks")
+			}
+			// On a newcomer page, a sentence that calls a thing retired names
+			// it to say so.
+			if slices.Equal(terms, newcomer) {
+				prose = retiredSentence.ReplaceAllString(prose, "")
 			}
 			// A link to the migration section names what it is about.
 			prose = strings.ReplaceAll(prose, "[Migrating from saved checks]", "[the migration]")
@@ -132,6 +156,11 @@ func TestEvaluatorDocsDropTheSavedCheckMachinery(t *testing.T) {
 		})
 	}
 }
+
+// retiredSentence is one sentence of prose that says what it names is
+// retired. A dot inside a word (limits.checkReview, evaluator.md) does not
+// end a sentence.
+var retiredSentence = regexp.MustCompile(`(?:[^.]|\.\S)*\bretired\b(?:[^.]|\.\S)*\.(?:\s|$)`)
 
 // TestAcceptanceLeadSaysWhoLooks (FC 5): the acceptance page's lead, the
 // first thing a reader takes from it, says that an agent evaluator uses the

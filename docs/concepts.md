@@ -53,13 +53,12 @@ The phases are listed in [State machine & labels](labels.md#intent-phases).
 An `IntentRun` is one attempt of one agent stage for an intent. A run that launches is one Kubernetes Job. The stages
 are:
 
-| Stage         | What the agent does                                                                     |
-| ------------- | --------------------------------------------------------------------------------------- |
-| `plan`        | Reads the code, changes nothing, and writes the plan.                                   |
-| `build`       | Builds the approved plan in the repository's own image.                                 |
-| `revise`      | Works on the open pull request: a revision round, a CI-fix round or a verify-fix round. |
-| `evaluate`    | The evaluator: tests the change against the plan's outcomes.                            |
-| `checkreview` | The check reviewer: judges whether each new check proves its outcome.                   |
+| Stage      | What the agent does                                                                     |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `plan`     | Reads the code, changes nothing, and writes the plan.                                   |
+| `build`    | Builds the approved plan in the repository's own image.                                 |
+| `revise`   | Works on the open pull request: a revision round, a CI-fix round or a verify-fix round. |
+| `evaluate` | The evaluator: uses the change and reports, per outcome, what it saw.                   |
 
 A run is `Pending`, `Running`, `Complete` or `Failed`, and a finished run records an outcome, such as `ok` or `timeout`.
 When an attempt fails, the next attempt is a new `IntentRun`.
@@ -103,16 +102,17 @@ Previews are optional. See [Set up previews](intents/set-up-previews.md) and
 An outcome is one plain sentence in the plan that says what the change must make true, or must leave true. Example: "A
 player you add on the players page is listed there by the name you gave." A plan may state up to 20.
 
-Outcomes are what the evaluator checks. An outcome marked `manual` is one only a person can judge ("the new drum kit
+Outcomes are what the evaluator looks at. An outcome marked `manual` is one only a person can judge ("the new drum kit
 sounds good"); an approver closes it with `/maul accept`. Outcomes exist only when the agent evaluator is on. See
 [What a plan declares](intents/acceptance.md#what-a-plan-declares-outcomes).
 
 ### Evaluator
 
-The agent evaluator is an optional agent that tests an intent's change the way a careful tester would. It explores the
-running preview, writes checks for the outcomes, and reports what it found. maul does not take its word: an outcome is
-**confirmed** only on a check that maul ran again itself and that a second model, the **check reviewer**, said proves
-the outcome.
+The agent evaluator is an optional agent that uses an intent's change the way a careful reviewer would. It works with
+the running preview through maul's tools and reports, for each outcome, whether it saw it hold, saw it not hold, or
+could not tell, citing the calls that showed it. maul counts a verdict only when it cites a call maul recorded that used
+the application: such an outcome is **seen to hold**. Whether the call shows what the verdict says is for the reviewers,
+who see every cited call.
 
 A Project with no preview can be evaluated too, if it builds a command-line program or a Go library. See
 [The agent evaluator](intents/evaluator.md).
@@ -120,27 +120,9 @@ A Project with no preview can be evaluated too, if it builds a command-line prog
 ### Tool pod
 
 The pod the evaluator works through. The evaluator itself can reach only the model and its tool pod; the tool pod sends
-the requests, drives the browser and runs the checks. It keeps a **ledger**: a record of every call and its result,
-which is what maul trusts.
-
-### Saved check
-
-A saved check is a check the evaluator wrote that maul keeps for the intent, after maul re-ran it and the check reviewer
-accepted it. A check is bound to one outcome. It is a list of HTTP requests with expected answers, a list of browser
-steps with assertions, or a program whose output is asserted on.
-
-Saved checks are replayed at the start of every later round, without a model.
-
-### Rung
-
-The rung is how much of an evaluation one evaluator round runs. There are two:
-
-- `full`: the saved checks are replayed, then the evaluator explores and may write new checks;
-- `replay`: only the saved checks are replayed. No model runs, so the round costs nothing in model spend.
-
-maul picks `replay` only when the commits and outcomes are those of the last full round, that round's evaluator raised
-nothing, and every outcome that is not manual already has a proven saved check. See
-[The cost ladder](intents/evaluator.md#the-cost-ladder-replay-rounds).
+the requests, drives the browser and runs the evaluator's programs. It keeps a **ledger**: a record of every call and
+its result, which is what the evaluator's verdicts must cite. See
+[What makes a pass](intents/evaluator.md#what-makes-a-pass).
 
 ### PreviewVerification
 
@@ -150,15 +132,15 @@ passed. maul decides pass or fail from the ledger afterwards.
 
 ### `maul/acceptance`
 
-The commit status maul posts on an evaluated pull request. It is green only when every outcome is confirmed, or an
+The commit status maul posts on an evaluated pull request. It is green only when every outcome is seen to hold, or an
 approver accepted it, at the pull request's current commits. See
 [The `maul/acceptance` commit status](intents/acceptance.md#the-maulacceptance-commit-status).
 
 ### Hand-off
 
 The hand-off is the moment maul gives people the preview link and says whether the change is ready. With the evaluator
-on, the default is a `gated` hand-off: the link is held until the outcomes are confirmed or maul gives up and says why.
-An `early` hand-off posts the link as soon as the preview is live. See
+on, the default is a `gated` hand-off: the link is held until every outcome is seen to hold or maul gives up and says
+why. An `early` hand-off posts the link as soon as the preview is live. See
 [The hand-off](intents/evaluator.md#the-hand-off).
 
 ## Findings

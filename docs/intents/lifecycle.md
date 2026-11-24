@@ -185,19 +185,20 @@ repository is handed those notes, so it does not have to find everything again.
 
 ## 7. The evaluator and the hand-off
 
-With the optional [agent evaluator](evaluator.md) on, maul checks the change before it tells people the change is ready.
-Once the pull request's checks are green, an evaluator agent tests the running change against the plan's outcomes and
-writes checks for them. maul runs each check again itself, and a second model says whether each check proves its
-outcome. Only then is an outcome confirmed. A failure maul can reproduce starts a **verify-fix round**, within its own
-limit (`limits.maxVerifyFixes`, 2 by default). The result is posted as the `maul/acceptance` commit status and in
-comments. Verification never blocks the intent: a person's review, command or push always wins.
-[Acceptance verification](acceptance.md) covers turning it on and the `/maul verify` and `/maul accept` commands.
+With the optional [agent evaluator](evaluator.md) on, an agent uses the change before maul tells people it is ready.
+Once the pull request's checks are green, an evaluator agent uses the running change through maul's tools and reports,
+for each of the plan's outcomes, whether it saw it hold, citing the calls that showed it. maul counts a verdict only
+when it cites a call maul recorded that used the application; what the call shows is for the reviewers, who see each
+one. A `fail` that cites such a call starts a **verify-fix round**, within its own limit (`limits.maxVerifyFixes`, 2 by
+default). The result is posted as the `maul/acceptance` commit status and in comments. Verification never blocks the
+intent: a person's review, command or push always wins. [Acceptance verification](acceptance.md) covers turning it on
+and the `/maul verify` and `/maul accept` commands.
 
 The **hand-off** is the moment maul gives people the preview link and says whether the change is ready. A
 [preview](set-up-previews.md) is the pull request's application running in the cluster at its own address. Without the
 evaluator, the link is posted as soon as the preview is live. With it, the default is to hold the link until every
-outcome is confirmed or accepted by an approver, or until maul gives up and says why ("maul couldn't confirm this: …");
-it waits at most 60 minutes by default. An approver's `/maul preview`, changes-requested review or `/maul revise`
+outcome is seen to hold or accepted by an approver, or until maul gives up and says why ("maul can't call this ready:
+…"); it waits at most 60 minutes by default. An approver's `/maul preview`, changes-requested review or `/maul revise`
 releases the link at once. See [The hand-off](evaluator.md#the-hand-off).
 
 ## 8. Merge or close
