@@ -107,9 +107,9 @@ round (nothing resets it between verifications, so the evaluator creates its own
 unique per evaluation, and judges by that), so the planner is asked to word each outcome so that the evaluator can show
 it with data of its own:
 
-- about an item the person checking creates in that check, never about data already there: no "every", "each", "all",
-  "other" or "existing", and no global rank, count, or first or last row. A request line that says "each X" gets an
-  outcome about an X the check creates, two of them where the outcome compares items;
+- about an item the person checking creates, never about data already there: no "every", "each", "all", "other",
+  "existing" or "saved before", and no global rank, count, or first or last row. A request line that says "each X" gets
+  an outcome about an X the person creates, two of them where the outcome compares items;
 - one claim per outcome: "X and Y", "on the page and in the API" and "before and after" are separate outcomes, which may
   share one `from` line;
 - concrete values, other than the defaults, and what a person then sees ("a beat you save at 90 BPM shows 90 bpm");
@@ -129,14 +129,14 @@ it with data of its own:
 - a layout outcome (a size, an alignment, no sideways scroll) needs no data: it names one element of the fixed page and
   states the numbers, an exact size or position with a tolerance ("48 by 48 px, within 1 px") or the bound the request
   gives ("at least 48 by 48 px"), at the browser's fixed 1280x800 window;
-- no colour: an outcome states a visible state a check can read, or is manual;
-- an outcome only data a check cannot create can show (rows the application seeds) is manual;
-- a list the application cuts to its first rows (a top 10, the newest 20) holds every check's items, so a check's own
-  item need not be in it: an outcome about such a list, `keep` ones too, is stated through what a check sees of its own
-  item (its own page or API path, a filter or search narrowed to it, what an action on it changes). One about the list
-  itself (its order, its cut, which items it holds) that no such filter narrows to a check's own items, and one the
-  request promises nothing a check can see that way, is manual. A check of the cut list alone could pass on a wrong
-  list, and one of its own item there would fail whenever other checks' items crowd it out;
+- no colour: an outcome states a visible state a person can read, or is manual;
+- an outcome only data the person checking cannot create can show (rows the application seeds) is manual;
+- a list the application cuts to its first rows (a top 10, the newest 20) holds every round's items, so the person's own
+  item need not be in it: an outcome about such a list, `keep` ones too, is stated through what the person sees of their
+  own item (its own page or API path, a filter or search narrowed to it, what an action on it changes). One about the
+  list itself (its order, its cut, which items it holds) that no such filter narrows to the person's own items, and one
+  the request promises nothing a person can see that way, is manual. Read alone, the cut list could look right on a
+  wrong build, and the person's own item there would go missing whenever other rounds' items crowd it out;
 - where a person sees it, a page's route or an API path, in the application's own words, with the API's name in brackets
   where it differs ("a beat (a pattern, /api/patterns)").
 
@@ -193,21 +193,22 @@ be wrong: `/maul verify` checks again. The conclusion is shown whatever else hal
 requests stay at the heads it judged, and until the next fix round. A round that changes nothing without that explicit
 conclusion is still a failed round, retried like any other.
 
-### Before the first check: the tool pod waits for the slot network
+### Before the first call: the tool pod waits for the slot network
 
 The tool pod is a new Pod on every round, and the slot's NetworkPolicy admits it only once the cluster's policy
 controller has programmed the policy for that Pod. On k3s and k3d, kube-router does that about a second after the Pod
 starts and rejects its connections until then, which looks exactly like an application that is not listening. So before
-its first check the tool pod's relay waits for every component's Service to accept a TCP connection (it sends nothing),
-at the Service's ClusterIP, which preview-controller reads and hands it: the relay resolves no name, so cluster DNS,
-which every Pod on the node shares, cannot keep it from a component. It retries from 100 ms backing off to 1 s, for at
-most a minute and never more than a quarter of the round's wall clock, and records the wait per component.
+it serves its first call the tool pod's relay waits for every component's Service to accept a TCP connection (it sends
+nothing), at the Service's ClusterIP, which preview-controller reads and hands it: the relay resolves no name, so
+cluster DNS, which every Pod on the node shares, cannot keep it from a component. It retries from 100 ms backing off to
+1 s, for at most a minute and never more than a quarter of the round's wall clock, and records the wait per component.
 
-Once every component is reached, the checks run, and a connection error during a check is the application's failure. The
-window absorbs the policy being programmed; a component still unreachable at its end is the change's failure too, reason
-`component-unreachable`. Readiness alone does not prove the tool pod can connect: an application can pass the kubelet's
-probe while refusing every other source, so maul never reports such a round as "could not run the checks". A component
-Service with no ClusterIP is maul's render error, `service-no-cluster-ip`, before any tool pod starts.
+Once every component is reached, the evaluator's calls are served, and a connection error during one is the
+application's failure. The window absorbs the policy being programmed; a component still unreachable at its end is the
+change's failure too, reason `component-unreachable`. Readiness alone does not prove the tool pod can connect: an
+application can pass the kubelet's probe while refusing every other source, so maul never reports such a round as "could
+not run the checks". A component Service with no ClusterIP is maul's render error, `service-no-cluster-ip`, before any
+tool pod starts.
 
 What happens to a component while the tool pod runs is attributed by its cause. Only Pods of the component's current
 revision count (a previous revision's Pods are ignored), and only events between the tool pod's start (less two seconds

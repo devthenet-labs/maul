@@ -72,8 +72,8 @@ verdict cites. Output separates what maul measured (`[observed]`) from the bytes
      call it made showed the outcome not hold, the verdict is `fail`, citing that call, or `unsure`: never `pass`,
      whatever its other calls showed. A failure that was there before the change is still a failure of the outcome.
    - It reproduces a failure before reporting it, and cites both calls.
-   - It creates the data an outcome speaks of itself, named with the round's run token, and judges by that data: the
-     preview's data persists between rounds and is shared.
+   - It creates the data an outcome speaks of itself, named with a token maul makes unique per evaluation, and judges by
+     that data: the preview's data persists between rounds and is shared.
    - It judges the rule an outcome states, not only its example, on inputs of its own beyond the example, and stays
      within what the outcome promises: an input the rule does not cover, or a value its words do not decide, is never a
      failure. A break of the rule an outcome's line of the request states beyond its example makes that outcome
@@ -447,8 +447,10 @@ refused and recorded.
 | `maul-tool run <dir> [--base] [-- args]`        | Compiles the Go program in `<dir>` (at most 8 `.go` files at its top, no subdirectories) against the side's tree, then runs it: how a library is used, or a checker that reads what the binary wrote           |
 
 At the head an `exec` or a `run` counts whatever its exit status. An `exec` of the built binary alone (its first
-argument `{{bin}}` or the binary's path, no files passed) runs maul's build of the commit and is shown as such; any
-other `exec`, and every `run`, is shown as the evaluator's own program.
+argument `{{bin}}` or the binary's path, no files passed) is not labelled as the evaluator's own; any other `exec`, and
+every `run`, is shown as the evaluator's own program. The label says who wrote the code that ran, not what it ran
+against: an earlier call at the same side can have changed the tree, `HOME` or the build output (see
+[Known limits](#known-limits)).
 
 A `run` program is compiled offline against the tree's own module graph: maul writes a minimal `go.mod` (module
 `maulcheck`, the tree's `go` line) beside the program and makes a `go work` workspace of it and the tree, then builds
@@ -471,7 +473,9 @@ maul's calls refused, never answered by the other side. Then:
 - **A head that does not build** runs nothing more: the pod finishes there, before it is ready, so no evaluator is
   launched and none is paid for. CI built that head green, so it is maul's trouble, never the change's: every outcome is
   unsure ("its own build of the pull request did not finish"), and no fix round starts.
-- **A base that does not build** changes nothing but the base: every `--base` call is then refused, and recorded.
+- **A base that does not build** (or whose build did not end in a failure maul can tell is the tree's) changes nothing
+  but the base: every `exec --base` and `run --base` is then refused, and recorded; `files --base` still reads the
+  base's source as fetched.
 - **The base never decides a result.** Every call at the base is recorded with `side: base` in the round's ledger index
   and shown as "at the base" where it is cited, as context a reviewer can read beside the head's calls.
 
@@ -686,8 +690,11 @@ fresh evaluation:
   Project without `--intent-evaluate-codex`): it stays as it is until the Project can.
 
 The gauge `maul.intent.verification_superseded` counts the intents superseded since intent-controller started. The
-upgrade spends one evaluation per open verifying intent, unasked: if when that spend lands matters, set `agent.paused`
-for the upgrade. This runbook has not yet been run against a live install.
+upgrade spends one evaluation per open verifying intent, unasked, each as soon as its intent's gate opens, within its
+evaluation ceiling. Do not pause agents (`agent.paused`) to hold it back: the pause holds the evaluate run's Job, not
+the round, so the round's tool pod runs with no evaluator, its attempts end as maul's own failure, and the intent is
+left "maul can't call this ready" until an approver comments `/maul verify`. This runbook has not yet been run against a
+live install.
 
 **The leftover check stores.** Each intent's saved checks are in immutable ConfigMaps `<intent>-checks-<n>` it owns.
 Nothing reads them now, and intent-controller cannot delete them: they go with their Intent. Leave them until the next

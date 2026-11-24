@@ -483,7 +483,8 @@ preview-controller never touches such a request, and with the agents tool pod on
   that holds the round's key, is `Infra` (`ledger-mismatch`); a head that did not build is `Infra`
   (`tools-build-failed`), never a fail: its relay finishes after the two builds without ever becoming ready, so
   `status.tools` is never written and no evaluate run is launched. A base that did not build, or whose build erred,
-  refuses every call at the base, and changes nothing else: the base is exploration only, and its calls never count.
+  refuses every exec and run at the base (its source can still be read), and changes nothing else: the base is
+  exploration only, and its calls never count.
 - **Teardown.** Once the round settles, its Job and Secret are deleted: at once for a pod still running, after 10
   minutes for a finished one, so the isolation probe can still read its ledger. A finished Job holds no
   `--intent-max-tool-pods` place while it lingers. A tool Secret left without its Job (written before a crash, say) goes
@@ -525,8 +526,8 @@ proxy is on ([repository-declared images](#repository-declared-images)), or inte
 
 While the agents host is off, a Project with a cli or library surface still has no preview, and its intents' views say
 so: the issue's status comment keeps its **Evaluation** line and each pull request keeps its evaluation comment, both
-link-less, saying "maul can't call this ready" (it could not run its checks) unless every outcome was confirmed at the
-pull request's current head, and nothing offers `/maul preview`. Nothing checks those intents then, so the status
+link-less, saying "maul can't call this ready" (it could not run its checks) unless every outcome was seen to hold at
+the pull request's current head, and nothing offers `/maul preview`. Nothing checks those intents then, so the status
 comment does not offer `/maul verify` or `/maul accept` either; a `/maul verify` sent all the same is answered that it
 did not run, and why.
 

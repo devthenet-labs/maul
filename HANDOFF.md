@@ -20,11 +20,11 @@ to S2-22, S2-20b; spec `.claude/plans/agent-evaluator/SPEC-S2.md`), off by defau
 [docs/intents/evaluator.md](docs/intents/evaluator.md#without-a-preview-a-cli-or-a-library), operator's
 [docs/configuration/intent-controller.md](docs/configuration/intent-controller.md#the-agents-tool-pod). Still to come:
 the release candidate with the S1 regression check (S2-25) and the live gate (S2-26: the isolation probe's agents rows,
-the bar of 80% of outcomes seen to hold on correct CLI and library builds, the `bbcount` fixture's owner AWS step).
-Rollback: the flag off; the always-on sweep deletes every tool Job. Calibration D12 failed for `claude-sonnet-5`, so a
-model-judged screenshot was never support while saved checks decided; with saved checks retired, a cited screenshot
-counts like any other call (see the evaluator page's [known limits](docs/intents/evaluator.md#known-limits)). Replan
-from InReview and codex verification are open.
+the confirm-rate bar of 80% on correct CLI and library builds, the `bbcount` fixture's owner AWS step). Rollback: the
+flag off; the always-on sweep deletes every tool Job. Calibration D12 failed for `claude-sonnet-5`, so a model-judged
+screenshot was never support while saved checks decided; with saved checks retired, a cited screenshot counts like any
+other call (see the evaluator page's [known limits](docs/intents/evaluator.md#known-limits)). Replan from InReview and
+codex verification are open.
 
 ## Current checkpoint — 2026-10-18: 0.12.40 on the desktop, EKS down
 
