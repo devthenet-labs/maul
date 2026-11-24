@@ -140,7 +140,7 @@ func judgeInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification
 		in.Ledger = make([]acceptance.LedgerFact, 0, len(l.Entries))
 		for _, e := range l.Entries {
 			in.Ledger = append(in.Ledger, acceptance.LedgerFact{Seq: e.Seq, Kind: string(e.Kind), Verb: string(e.Verb),
-				Side: string(e.Side), Exit: e.Exit, Refused: e.Refused})
+				Side: string(e.Side), Exit: e.Exit, Refused: e.Refused, NoAnswer: e.NoAnswer})
 		}
 	case httpstep.ClassifyEnvironment(in.Env) == httpstep.EnvAppFailure:
 		in.Verified = true

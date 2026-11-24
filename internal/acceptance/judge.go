@@ -76,6 +76,10 @@ type LedgerFact struct {
 	Side    string
 	Exit    int32
 	Refused bool
+	// NoAnswer is the index's noAnswer: the call ran but got nothing back
+	// from what it exercised (an http request with no response, a run
+	// whose program did not compile), so it showed nothing.
+	NoAnswer bool
 }
 
 // JudgeInput is everything Judge judges one round on.
@@ -123,15 +127,17 @@ type Judgement struct {
 // ValidCite reports that seq is evidence a claim can rest on: the round's
 // ledger is verified (its summary held and its index as long as its
 // count), seq is an entry of its index numbered seq, and that entry is the
-// evaluator's own unrefused call exercising the application at the head (a
-// browser call only when its command exited 0). Every kind and verb not
-// named is refused, so a retired or unknown one never counts.
+// evaluator's own unrefused call exercising the application at the head
+// that got its answer (no http request without a response, no run whose
+// program did not compile; a browser call only when its command exited 0).
+// Every kind and verb not named is refused, so a retired or unknown one
+// never counts.
 func ValidCite(in JudgeInput, seq int32) bool {
 	if !verified(in) || seq < 1 || int64(seq) > int64(len(in.Ledger)) {
 		return false
 	}
 	f := in.Ledger[seq-1]
-	if f.Seq != seq || f.Kind != LedgerKindAgent || f.Refused || f.Side == LedgerSideBase {
+	if f.Seq != seq || f.Kind != LedgerKindAgent || f.Refused || f.Side == LedgerSideBase || f.NoAnswer {
 		return false
 	}
 	switch f.Verb {

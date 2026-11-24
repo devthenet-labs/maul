@@ -256,10 +256,11 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `status.tools` names the slot tool pod, an `evaluate` IntentRun (`<intent>-ev-…`, launched only while that round is
   still current); the round is judged by `acceptance.Judge` (`evaluate_judge.go`: each verdict counts only when it
   cites an entry of the PV's verified `status.ledger` that `acceptance.ValidCite` admits, the evaluator's own unrefused
-  head-side http, browser (exit 0), exec or run call; `heldOutcomes` keeps an outcome seen not to hold at the same
-  heads from passing; outcome-only fingerprints, `acceptance.OutcomeFingerprint`, for the repeated-failure stop), a
-  failure gets a maul-rendered cited-call reproduction (`reproduction.go`, `templates.RenderCitedReproduction`), and
-  the gated hand-off holds the preview link (`handoff.go`; `--intent-default-handoff`, `--intent-handoff-max`,
+  head-side http, browser (exit 0), exec or run call that got its answer (`noAnswer` unset); `heldOutcomes` keeps an
+  outcome seen not to hold at the same heads from passing; outcome-only fingerprints, `acceptance.OutcomeFingerprint`,
+  for the repeated-failure stop), a failure gets a maul-rendered cited-call reproduction (`reproduction.go`,
+  `templates.RenderCitedReproduction`), and the gated hand-off holds the preview link (`handoff.go`;
+  `--intent-default-handoff`, `--intent-handoff-max`,
   `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
   `limits.maxEvaluateCostMicroUSD`); a codex Project is evaluated only with `--intent-evaluate-codex`, else its hand-off
   is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes. Every round is
@@ -892,8 +893,9 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and the observed judge
   (`judge.go`, "evaluator observed"): `Judge(JudgeInput) Judgement` takes each outcome's first verdict at its word
   only when it cites an entry `ValidCite` admits (the round's ledger verified and its index whole; the evaluator's own
-  `agent` call, unrefused, not at the base, verb `http`, `browser` with exit 0, `exec` or `run`; logs, events, files
-  and the retired check verbs never count), first rule wins: unverified `infra`, head not built `tools-build-failed`,
+  `agent` call, unrefused, not at the base, verb `http`, `browser` with exit 0, `exec` or `run`, and not `noAnswer`:
+  an http request with no response, a run whose program did not compile; logs, events, files and the retired check
+  verbs never count), first rule wins: unverified `infra`, head not built `tools-build-failed`,
   `manual`, a failing environment `env-failed`/`infra`, `not-reported`, `evaluator-unsure`, `no-valid-evidence`, a
   cited fail `seen-not-to-hold` (failed, a fix), a cited pass on a held outcome `held-finding`, else `seen-to-hold`;
   at most `MaxCites` (8) valid cites kept, the lowest; it never reads a note, the anomalies or another outcome's
@@ -911,7 +913,8 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   Consumers: `acceptance`, `previewtools`, `toolledger`, the controllers, `templates`.
 - `toolwire` — the evaluator's tool wire and ledger v2, stdlib only: one endpoint per verb (`POST /v1/<verb>`), typed
   requests held to their bounds, one `Response` keeping the application's bytes (`Untrusted`) apart from maul's
-  measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`), evidence lines and the `Summary` (count and sha256)
+  measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`; `notRun` on a run whose program did not compile,
+  `HTTPAnswered` an http output holding an answered exchange), evidence lines and the `Summary` (count and sha256)
   that is also the termination message; `Verify` holds a log to it. The contract between `maul-tool`, agent-runner,
   `preview-tools` and the controllers, and the capture's shared key names. S2 adds `files` (ls, literal grep, read;
   pristine tree, capped) and `run`, the relay-internal `VerbBuild` (no endpoint), `Side` (`""` head, the only recorded
@@ -957,14 +960,14 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
   `api/v1alpha1` and `httpstep`): `Parse` (the `tools` log held to its termination summary), `Index` (the status
-  index, a base call's entry `side: base`), `Readiness`, `ConfigMapData` (oldest outputs dropped first) and `Key`;
-  `ApplyStatus` (the one ledger-to-status write both hosts make: the index and the summary the host names its
-  ConfigMaps on; never the retired replay, confirmation, confirmed or base fields), `OwnCall` (which calls the
-  comments and the status page label as the evaluator's own page script or program: a browser `eval`, every `run`,
-  and an `exec` other than an agents round's bare run of the built binary), `ReadStored` (a `<pv>-ledger` line, shown
-  only where it is the index's call and its output re-hashes), `EvaluatorCalled` and `RoundReason` (a round with no
-  evaluator call: `evaluator-not-run`, or `tools-not-ready` with no `status.tools`). Its trust root: a log that does
-  not hold is Infra `ledger-mismatch`, never a verdict.
+  index, a base call's entry `side: base`, an evaluator call that got no answer `noAnswer`), `Readiness`,
+  `ConfigMapData` (oldest outputs dropped first) and `Key`; `ApplyStatus` (the one ledger-to-status write both hosts
+  make: the index and the summary the host names its ConfigMaps on; never the retired replay, confirmation, confirmed or
+  base fields), `OwnCall` (which calls the comments and the status page label as the evaluator's own page script or
+  program: a browser `eval`, every `run`, and an `exec` other than an agents round's bare run of the built binary),
+  `ReadStored` (a `<pv>-ledger` line, shown only where it is the index's call and its output re-hashes),
+  `EvaluatorCalled` and `RoundReason` (a round with no evaluator call: `evaluator-not-run`, or `tools-not-ready` with no
+  `status.tools`). Its trust root: a log that does not hold is Infra `ledger-mismatch`, never a verdict.
 - `toolpod` — what both hosts render alike, values only (pin: stdlib, core/v1, `api/v1alpha1`, `previewtools`):
   `Security(uid)`, `Deadlines` (Job, pod and relay wall clock), `NewKey`, `ConfigData`. `toolpod/podstate` (pin:
   stdlib, core/v1) is how both hosts read a tool pod: `TerminationMessage`, `ImageID` (empty past the status field's

@@ -169,6 +169,10 @@ type LedgerEntry struct {
 	// 9: a reader can tell which rule refused).
 	Refused string `json:"refused,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+	// NotRun reports a run whose program never ran: it did not compile, or
+	// its compile was refused part way, unclean or cut. Exit and Output are
+	// then the compile's. Only a run that was not refused says it.
+	NotRun bool `json:"notRun,omitempty"`
 	// Output is the full output (valid UTF-8, at most MaxOutputBytes),
 	// OutputSHA256 its sha256.
 	Output       string `json:"output"`
@@ -179,6 +183,14 @@ type LedgerEntry struct {
 	// Locators holds generate-locator's result for each ref acted on.
 	Locators []string `json:"locators,omitempty"`
 }
+
+// HTTPExchangePrefix opens every http entry's output that holds an
+// answered exchange: maul's status line, "HTTP <status>", then the headers
+// and the body. A request that got no response records no output.
+const HTTPExchangePrefix = "HTTP "
+
+// HTTPAnswered reports an http entry's output as an answered exchange.
+func HTTPAnswered(output string) bool { return strings.HasPrefix(output, HTTPExchangePrefix) }
 
 // Artifact is a file a call produced (a screenshot, a snapshot file),
 // recorded by digest; its bytes leave the tools container only as
@@ -231,6 +243,9 @@ func (e LedgerEntry) Check() error {
 	}
 	if err := e.checkParts(); err != nil {
 		return err
+	}
+	if e.NotRun && (e.Verb != VerbRun || e.Refused != "") {
+		return errors.New("only a run that was not refused records that its program never ran")
 	}
 	if e.Refused != "" {
 		if !refusalCode.MatchString(e.Refused) {

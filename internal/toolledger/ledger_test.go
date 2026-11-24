@@ -114,6 +114,47 @@ func TestIndexRecordsSide(t *testing.T) {
 	}
 }
 
+// TestIndexRecordsNoAnswer: the index marks the evaluator's call that got
+// nothing back from what it exercised (noAnswer), which no claim can rest
+// on (acceptance.ValidCite): an http request whose entry holds no answered
+// exchange (no response: DNS, refused, timeout, TLS, reset), and a run
+// whose program never ran (notRun). An answered exchange of any status, an
+// exec or a run of any exit, a refused call and the relay's own readiness
+// wait are not marked.
+func TestIndexRecordsNoAnswer(t *testing.T) {
+	sha := strings.Repeat("c", 64)
+	entry := func(kind toolwire.Kind, verb toolwire.Verb, output string) toolwire.LedgerEntry {
+		return toolwire.LedgerEntry{Kind: kind, Verb: verb, Output: output, OutputSHA256: sha}
+	}
+	notRun := entry(toolwire.KindAgent, toolwire.VerbRun, "# maulcheck\n./main.go:1: undefined: x\n")
+	notRun.NotRun, notRun.Exit = true, 1
+	ran := entry(toolwire.KindAgent, toolwire.VerbRun, "boom\n")
+	ran.Exit = 1
+	refused := entry(toolwire.KindAgent, toolwire.VerbHTTP, "")
+	refused.Refused = "navigation"
+	for _, tt := range []struct {
+		name  string
+		entry toolwire.LedgerEntry
+		want  bool
+	}{
+		{"http with no response", entry(toolwire.KindAgent, toolwire.VerbHTTP, ""), true},
+		{"http whose output is not an exchange", entry(toolwire.KindAgent, toolwire.VerbHTTP, "HTTP/1.1 200"), true},
+		{"http answered 200", entry(toolwire.KindAgent, toolwire.VerbHTTP, "HTTP 200\n\nok"), false},
+		{"http answered 503", entry(toolwire.KindAgent, toolwire.VerbHTTP, "HTTP 503\n\n"), false},
+		{"refused http", refused, false},
+		{"the relay's readiness wait", entry(toolwire.KindRelay, toolwire.VerbHTTP, `[]`), false},
+		{"a run whose program did not compile", notRun, true},
+		{"a run that ran and exited 1", ran, false},
+		{"an exec with no output", entry(toolwire.KindAgent, toolwire.VerbExec, ""), false},
+		{"a browser call", entry(toolwire.KindAgent, toolwire.VerbBrowser, ""), false},
+	} {
+		tt.entry.Seq = 1
+		if got := Index([]toolwire.LedgerEntry{tt.entry})[0].NoAnswer; got != tt.want {
+			t.Errorf("%s: noAnswer %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 // boundedLedger is a verified ledger of n http entries, each output full.
 func boundedLedger(t *testing.T, n int) toolwire.Ledger {
 	t.Helper()

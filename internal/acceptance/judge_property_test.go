@@ -20,11 +20,12 @@ const judgeSeed = 20261123
 // judgeRounds is how many random rounds each property sees.
 const judgeRounds = 3000
 
-// oracleValid is the citation rule restated from its seven conditions,
+// oracleValid is the citation rule restated from its eight conditions,
 // independently of ValidCite: a verified ledger (its summary held and its
 // index as long as its count), an entry at that seq numbered seq, the
 // evaluator's own call, not refused, one of the four verbs that exercise
-// the application, not on the base side, and a browser call only when it
+// the application, not on the base side, one that got its answer (an http
+// response, a run's program that compiled), and a browser call only when it
 // exited 0.
 func oracleValid(in JudgeInput, seq int32) bool {
 	if !in.Verified || int64(len(in.Ledger)) != int64(in.Count) {
@@ -41,7 +42,7 @@ func oracleValid(in JudgeInput, seq int32) bool {
 	}
 	exercising := map[string]bool{"http": true, "browser": true, "exec": true, "run": true}
 	switch {
-	case entry.Kind != "agent", entry.Refused, !exercising[entry.Verb], entry.Side == "base":
+	case entry.Kind != "agent", entry.Refused, !exercising[entry.Verb], entry.Side == "base", entry.NoAnswer:
 		return false
 	case entry.Verb == "browser" && entry.Exit != 0:
 		return false
@@ -68,7 +69,7 @@ func genFact(r *rand.Rand, valid bool) LedgerFact {
 		return f
 	}
 	return LedgerFact{Kind: pick(r, allKinds), Verb: pick(r, allVerbs), Side: pick(r, allSides),
-		Exit: int32(r.Intn(3)), Refused: r.Intn(3) == 0}
+		Exit: int32(r.Intn(3)), Refused: r.Intn(3) == 0, NoAnswer: r.Intn(4) == 0}
 }
 
 // genEnv is a round's environment: mostly clean, else an application

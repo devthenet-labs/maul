@@ -98,19 +98,36 @@ func ClampInt32[T int | int64](n T) int32 {
 }
 
 // Index indexes every entry, in order: its facts without its output, its
-// side as the ledger records it (base, or none for the head).
+// side as the ledger records it (base, or none for the head), and whether
+// it is one of the evaluator's calls that got no answer (noAnswer).
 func Index(entries []toolwire.LedgerEntry) []v1alpha1.LedgerIndexEntry {
 	out := make([]v1alpha1.LedgerIndexEntry, 0, len(entries))
 	for _, e := range entries {
 		ie := v1alpha1.LedgerIndexEntry{Seq: ClampInt32(e.Seq), Kind: v1alpha1.LedgerKind(e.Kind),
 			Verb: v1alpha1.LedgerVerb(e.Verb), Exit: ClampInt32(e.Exit), ResultSHA256: e.OutputSHA256,
-			Refused: e.Refused != "", Side: v1alpha1.TreeSide(e.Side.Recorded())}
+			Refused: e.Refused != "", Side: v1alpha1.TreeSide(e.Side.Recorded()), NoAnswer: noAnswer(e)}
 		for _, a := range e.Artifacts {
 			ie.Artifacts = append(ie.Artifacts, a.SHA256)
 		}
 		out = append(out, ie)
 	}
 	return out
+}
+
+// noAnswer reports one of the evaluator's unrefused calls that got nothing
+// back from what it exercised: an http request whose output holds no
+// answered exchange (it got no response), or a run whose program never ran.
+func noAnswer(e toolwire.LedgerEntry) bool {
+	if e.Kind != toolwire.KindAgent || e.Refused != "" {
+		return false
+	}
+	switch e.Verb {
+	case toolwire.VerbHTTP:
+		return !toolwire.HTTPAnswered(e.Output)
+	case toolwire.VerbRun:
+		return e.NotRun
+	}
+	return false
 }
 
 // Readiness is the relay's readiness wait, its first entry: a relay http

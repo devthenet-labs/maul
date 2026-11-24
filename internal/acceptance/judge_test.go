@@ -79,6 +79,8 @@ var tableLedger = judgeLedger(
 	LedgerFact{Kind: LedgerKindAgent, Verb: "build"},                          // 21
 	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbRun, Side: "base"},      // 22
 	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbBrowser, Refused: true}, // 23
+	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbHTTP, NoAnswer: true},   // 24
+	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbRun, NoAnswer: true},    // 25
 )
 
 func tableInput() JudgeInput {
@@ -88,7 +90,7 @@ func tableInput() JudgeInput {
 	}
 }
 
-// TestValidCite: the seven conditions of a valid citation, one entry each.
+// TestValidCite: the eight conditions of a valid citation, one entry each.
 func TestValidCite(t *testing.T) {
 	in := tableInput()
 	valid := map[int32]bool{2: true, 3: true, 10: true, 11: true, 16: true, 18: true}
@@ -173,7 +175,11 @@ func TestJudgeRules(t *testing.T) {
 			want{ResultUnsure, ReasonNoValidEvidence, nil}},
 		{"R6 an empty or unknown verb or kind", nil, []Verdict{verdict(ClaimPass, 19, 20, 21)},
 			want{ResultUnsure, ReasonNoValidEvidence, nil}},
-		{"R6 out of range", nil, []Verdict{verdict(ClaimFail, 0, -1, 24, 512)},
+		{"R6 an http call that got no response", nil, []Verdict{verdict(ClaimPass, 24)},
+			want{ResultUnsure, ReasonNoValidEvidence, nil}},
+		{"R6 a run whose program did not compile", nil, []Verdict{verdict(ClaimFail, 25)},
+			want{ResultUnsure, ReasonNoValidEvidence, nil}},
+		{"R6 out of range", nil, []Verdict{verdict(ClaimFail, 0, -1, 26, 512)},
 			want{ResultUnsure, ReasonNoValidEvidence, nil}},
 		{"R6 no cite", nil, []Verdict{verdict(ClaimPass)}, want{ResultUnsure, ReasonNoValidEvidence, nil}},
 		{"R6 a misnumbered entry", func(in *JudgeInput) {

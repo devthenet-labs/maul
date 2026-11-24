@@ -232,7 +232,8 @@ func (r *Relay) runProgram(ctx context.Context, side toolwire.Side, run string, 
 // runVerb answers `maul-tool run`: the agent's program compiled and run at
 // the side asked for, in a fresh scratch directory; {{bin}} and {{tree}}
 // substituted as in an exec. A program that does not compile answers the
-// compiler's output and exit, its reason saying so.
+// compiler's output and exit, its reason saying so, and its entry records
+// that it never ran (notRun), so the call is never evidence.
 func (r *Relay) runVerb(ctx context.Context, req *toolwire.RunRequest) result {
 	side := req.Side.Recorded()
 	if !r.cfg.IsWorkspace() {
@@ -263,6 +264,7 @@ func (r *Relay) runVerb(ctx context.Context, req *toolwire.RunRequest) result {
 		res := programResult(c.res, c.err, "the sandbox refused the compile")
 		if res.refused == "" {
 			res.reason = strings.TrimSuffix("the program did not compile; "+res.reason, "; ")
+			res.notRun = true
 		}
 		return withSide(side, res)
 	}

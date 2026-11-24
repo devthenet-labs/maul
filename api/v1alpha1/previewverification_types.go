@@ -874,6 +874,14 @@ type LedgerIndexEntry struct {
 	// context, never evidence for an outcome.
 	// +optional
 	Side TreeSide `json:"side,omitempty"`
+	// NoAnswer reports one of the evaluator's calls that got nothing back
+	// from what it exercised: an http request that got no response (DNS,
+	// refused, timeout, TLS, reset), or a run whose program did not compile
+	// and so never ran. It showed nothing, so it is never evidence for an
+	// outcome. Unset on every other entry, and on an index written before
+	// the field.
+	// +optional
+	NoAnswer bool `json:"noAnswer,omitempty"`
 }
 
 // CheckRunResult is what one deterministic run of a saved or proposed

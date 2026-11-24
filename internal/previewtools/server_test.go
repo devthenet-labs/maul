@@ -177,6 +177,13 @@ func TestHTTPVerb(t *testing.T) {
 		!strings.Contains(e.Output, "200") {
 		t.Errorf("entry %+v does not hold the full exchange", e)
 	}
+	// An answered exchange always opens with maul's status line, which is
+	// how the index tells it from a request that got no response.
+	for _, e := range l.Entries[:2] {
+		if !toolwire.HTTPAnswered(e.Output) {
+			t.Errorf("entry %d: an answered exchange %.40q is not one HTTPAnswered reads", e.Seq, e.Output)
+		}
+	}
 }
 
 // assertGatewayHeaders: the request carries the gateway's header set, as
@@ -197,7 +204,10 @@ func TestHTTPVerbNoResponse(t *testing.T) {
 		!strings.Contains(resp.Reason, "no response") {
 		t.Fatalf("got %+v, want status 0 and maul's no-response reason", resp)
 	}
-	h.finish()
+	l := h.finish()
+	if e := l.Entries[0]; e.Verb != toolwire.VerbHTTP || e.Refused != "" || toolwire.HTTPAnswered(e.Output) {
+		t.Errorf("a request with no response is recorded %+v, which HTTPAnswered reads as answered", e)
+	}
 }
 
 func TestLogsAndEventsAreReadEachCall(t *testing.T) {

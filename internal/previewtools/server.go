@@ -172,6 +172,8 @@ type result struct {
 	artifacts       []toolwire.Artifact
 	// side is the side a workspace call ran at, as recorded: "" or base.
 	side toolwire.Side
+	// notRun is a run whose program never ran (toolwire.LedgerEntry.NotRun).
+	notRun bool
 }
 
 func refusal(code, reason string) result { return result{refused: code, reason: reason} }
@@ -331,7 +333,7 @@ func (r *Relay) recordResult(kind toolwire.Kind, verb toolwire.Verb, args any, r
 		raw = b
 	}
 	e := toolwire.LedgerEntry{Kind: kind, Verb: verb, Side: res.side, Args: raw, Exit: res.exit, Refused: res.refused,
-		Reason: refusedReason(res),
+		Reason: refusedReason(res), NotRun: res.notRun && res.refused == "",
 		Output: res.output, Inline: res.inline, Artifacts: res.artifacts, Locators: res.locators}
 	seq, err := r.record(e)
 	if err != nil {
@@ -419,7 +421,7 @@ func (r *Relay) http(ctx context.Context, req *toolwire.HTTPRequest) result {
 // the headers in order, a blank line and the body.
 func exchange(rep reply) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "HTTP %d\n", rep.Status)
+	fmt.Fprintf(&b, "%s%d\n", toolwire.HTTPExchangePrefix, rep.Status)
 	names := make([]string, 0, len(rep.Header))
 	for k := range rep.Header {
 		names = append(names, k)

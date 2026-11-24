@@ -121,8 +121,21 @@ func TestEntryCheckRefuses(t *testing.T) {
 				e.Locators[i] = "x"
 			}
 		},
+		// notRun is a run's fact alone, and a refused call ran nothing to
+		// say it of.
+		"notRun on a browser call": func(e *LedgerEntry) { e.NotRun = true },
+		"notRun on an exec":        func(e *LedgerEntry) { e.Verb, e.Artifacts, e.NotRun = VerbExec, nil, true },
+		"notRun on a refused run": func(e *LedgerEntry) {
+			e.Verb, e.Artifacts, e.Locators, e.Refused, e.NotRun = VerbRun, nil, nil, "unavailable", true
+		},
 		"refused with artifacts": func(e *LedgerEntry) { e.Refused = "verb-not-allowed" },
 		"refusal not a code":     func(e *LedgerEntry) { e.Refused = "Not Allowed!"; e.Artifacts = nil },
+	}
+	run := browserEntry()
+	run.Seq, run.Verb, run.Artifacts, run.Locators, run.NotRun = 1, VerbRun, nil, nil, true
+	run.OutputSHA256 = sum([]byte(run.Output))
+	if err := run.Check(); err != nil {
+		t.Errorf("a run whose program did not compile is refused: %v", err)
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {

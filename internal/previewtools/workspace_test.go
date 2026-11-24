@@ -591,6 +591,67 @@ func TestRunRefusesSubdirectoryFiles(t *testing.T) {
 	}
 }
 
+// TestRunRecordsAProgramThatNeverRan: a run whose program did not compile
+// (the compiler refused it, or its compile was unclean or cut, even at exit
+// 0) is recorded notRun, with the compile's exit and output; a program that
+// compiled and ran is not, whatever its exit, nor is a refused run.
+func TestRunRecordsAProgramThatNeverRan(t *testing.T) {
+	compile := func(res toolexec.Result) func(*toolexec.Request, int) (toolexec.Result, error) {
+		return func(req *toolexec.Request, _ int) (toolexec.Result, error) {
+			switch {
+			case req.Kind == toolexec.KindBuild:
+				return toolexec.Result{}, nil
+			case len(req.Argv) > 1 && req.Argv[0] == "go" && req.Argv[1] == "build":
+				return res, nil
+			case len(req.Argv) > 0 && req.Argv[0] == "go":
+				return toolexec.Result{}, nil
+			}
+			return toolexec.Result{Output: "ran", Exit: 1}, nil
+		}
+	}
+	for _, tt := range []struct {
+		name    string
+		compile toolexec.Result
+		notRun  bool
+	}{
+		{"does not compile", toolexec.Result{Exit: 1, Output: "# maulcheck\n./main.go:1: undefined: x\n"}, true},
+		{"an unclean compile at exit 0", toolexec.Result{Unclean: true}, true},
+		{"a compile cut at its time limit", toolexec.Result{TimedOut: true}, true},
+		{"compiles and exits 1", toolexec.Result{}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newWorkspaceHarness(t, wsConfig(), &fakeSandbox{do: compile(tt.compile)}, &fakeSandbox{})
+			_, resp := h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go",
+				Files: []toolwire.File{{Name: "main.go", Content: []byte("package main\nfunc main() {}\n")}}}))
+			if resp.Refused != "" {
+				t.Fatalf("run refused: %+v", resp)
+			}
+			l := h.finishKeyed()
+			var run *toolwire.LedgerEntry
+			for i := range l.Entries {
+				if l.Entries[i].Verb == toolwire.VerbRun {
+					run = &l.Entries[i]
+				}
+			}
+			if run == nil || run.NotRun != tt.notRun {
+				t.Fatalf("run entry %+v, want notRun %v", run, tt.notRun)
+			}
+		})
+	}
+	h := newWorkspaceHarness(t, wsConfig(), &fakeSandbox{do: compile(toolexec.Result{Refused: "busy"})},
+		&fakeSandbox{})
+	_, resp := h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go",
+		Files: []toolwire.File{{Name: "main.go", Content: []byte("package main\nfunc main() {}\n")}}}))
+	if resp.Refused == "" {
+		t.Fatalf("a compile the sandbox refused is not refused: %+v", resp)
+	}
+	for _, e := range h.finishKeyed().Entries {
+		if e.NotRun {
+			t.Errorf("a refused run is recorded notRun: %+v", e)
+		}
+	}
+}
+
 // TestRunRequests: a run compiles, then runs, its program in one scratch
 // directory of its own: maul's go.mod beside the agent's files, the
 // workspace made by go work init, {{bin}} and {{tree}} substituted, the

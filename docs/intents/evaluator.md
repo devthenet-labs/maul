@@ -127,7 +127,9 @@ citation **counts** only when all of these hold:
    cited and is shown, but never counts on its own;
 6. it ran at the head: on a Project with no preview, a call with `--base` never counts;
 7. a `browser` command exited 0 (a failed command showed nothing). An `exec` or `run` counts whatever its exit status: a
-   program may exit non-zero by design.
+   program may exit non-zero by design;
+8. it got its answer: an `http` request that got no response (DNS, refused, a timeout, TLS, a reset) never counts, nor
+   does a `run` whose program did not compile and so never ran. The round's ledger index marks both `noAnswer`.
 
 Whether a screenshot of the call was kept, and whether its output still fits the full ledger, does not matter: a cited
 call whose output was dropped to fit still counts, and is shown as "Its output was not kept by maul." A page script run

@@ -66,8 +66,10 @@ func oneOutcome() *v1alpha1.IntentAcceptance {
 // round's verified index that is the evaluator's own unrefused call
 // exercising the application at the head: a pass or fail citing a relay's
 // or runner's entry, a refused call, a call at the base, a files, logs or
-// events read, a retired check-run, a seq the index does not hold, or a
-// browser command that exited non-zero is unsure (no-valid-evidence); one
+// events read, a retired check-run, a seq the index does not hold, a
+// browser command that exited non-zero, an http request that got no
+// response or a run whose program did not compile is unsure
+// (no-valid-evidence); one
 // citing a head http, browser (exit 0), exec or run call passes or fails.
 func TestJudgeRoundCitationTable(t *testing.T) {
 	agent := func(verb v1alpha1.LedgerVerb) v1alpha1.LedgerIndexEntry {
@@ -96,6 +98,10 @@ func TestJudgeRoundCitationTable(t *testing.T) {
 		{"out of range", nil, 6, acceptance.ResultUnsure},
 		{"seq 0", nil, 0, acceptance.ResultUnsure},
 		{"browser exit 1", &failed, 3, acceptance.ResultUnsure},
+		{"http with no response", &v1alpha1.LedgerIndexEntry{Kind: v1alpha1.LedgerKindAgent,
+			Verb: v1alpha1.LedgerVerbHTTP, NoAnswer: true}, 3, acceptance.ResultUnsure},
+		{"run that did not compile", &v1alpha1.LedgerIndexEntry{Kind: v1alpha1.LedgerKindAgent,
+			Verb: v1alpha1.LedgerVerbRun, Exit: 1, NoAnswer: true}, 3, acceptance.ResultUnsure},
 		{"head http", nil, 3, acceptance.ResultPassed},
 		{"head browser", new(agent(v1alpha1.LedgerVerbBrowser)), 3, acceptance.ResultPassed},
 		{"head exec", new(agent(v1alpha1.LedgerVerbExec)), 3, acceptance.ResultPassed},
