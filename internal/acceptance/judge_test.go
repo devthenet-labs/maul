@@ -195,6 +195,16 @@ func TestJudgeRules(t *testing.T) {
 			want{ResultUnsure, ReasonHeldFinding, []int32{2}}},
 		{"R9 a hold on another outcome", func(in *JudgeInput) { in.Held = []string{"o2"} },
 			[]Verdict{verdict(ClaimPass, 2)}, want{ResultPassed, ReasonSeenToHold, []int32{2}}},
+		// R9: the evaluator's own anomaly naming the outcome.
+		{"R9 a pass an anomaly names", func(in *JudgeInput) { in.Contrary = []string{"o1"} },
+			[]Verdict{verdict(ClaimPass, 2)}, want{ResultUnsure, ReasonContraryNote, []int32{2}}},
+		{"R7 a fail an anomaly names still fails", func(in *JudgeInput) { in.Contrary = []string{"o1"} },
+			[]Verdict{verdict(ClaimFail, 2)}, want{ResultFailed, ReasonSeenNotToHold, []int32{2}}},
+		{"R10 an anomaly naming another outcome", func(in *JudgeInput) { in.Contrary = []string{"o2"} },
+			[]Verdict{verdict(ClaimPass, 2)}, want{ResultPassed, ReasonSeenToHold, []int32{2}}},
+		{"R8 named and held", func(in *JudgeInput) {
+			in.Contrary, in.Held = []string{"o1"}, []string{"o1"}
+		}, []Verdict{verdict(ClaimPass, 2)}, want{ResultUnsure, ReasonHeldFinding, []int32{2}}},
 		// R5, R4.
 		{"R5 unsure keeps its valid cites", nil, []Verdict{verdict(ClaimUnsure, 2, 1)},
 			want{ResultUnsure, ReasonEvaluatorUnsure, []int32{2}}},

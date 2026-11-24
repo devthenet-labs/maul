@@ -33,7 +33,7 @@ func overstates(s string) []string {
 // observedReasons are the reasons acceptance.Judge decides with (W1): the
 // five new ones and the ones it reuses.
 var observedReasons = []string{"seen-to-hold", "seen-not-to-hold", "not-reported", "evaluator-unsure",
-	"no-valid-evidence", "manual", "env-failed", "infra", "tools-build-failed", "held-finding"}
+	"no-valid-evidence", "contrary-note", "manual", "env-failed", "infra", "tools-build-failed", "held-finding"}
 
 // retiredWhys are the hand-off reasons only the saved-check machinery gave
 // (a replay round cut short): the observed evaluator never settles a round

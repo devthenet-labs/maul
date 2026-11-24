@@ -85,6 +85,10 @@ var outcomeReasonWords = map[string]string{
 	"not-reported":      "the evaluator's report gives it no verdict maul can read",
 	"evaluator-unsure":  "the evaluator could not tell",
 	"no-valid-evidence": "the evaluator's verdict cites no call of its own in this evaluation that maul counts",
+	// An anomaly of the same report names the outcome: the evaluator's
+	// own note against its pass.
+	"contrary-note": "the evaluator's own look-around note on this evaluation names it, so it is not taken as " +
+		"seen to hold",
 }
 
 // Bounds on what an outcome's detail shows.

@@ -891,19 +891,20 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `acceptance` also holds the plan's outcome grammar (`PlanOutcome`, `ValidateOutcomes`, at most 20, kinds `change` and
   `keep`, `manual`; `report.(*Plan).CheckEvaluator` refuses a criteria plan with `ErrSliceOneCriteria`),
   `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and the observed judge
-  (`judge.go`, "evaluator observed"): `Judge(JudgeInput) Judgement` takes each outcome's first verdict at its word
-  only when it cites an entry `ValidCite` admits (the round's ledger verified and its index whole; the evaluator's own
-  `agent` call, unrefused, not at the base, verb `http`, `browser` with exit 0, `exec` or `run`, and not `noAnswer`:
-  an http request with no response, a run whose program did not compile; logs, events, files and the retired check
-  verbs never count), first rule wins: unverified `infra`, head not built `tools-build-failed`,
-  `manual`, a failing environment `env-failed`/`infra`, `not-reported`, `evaluator-unsure`, `no-valid-evidence`, a
-  cited fail `seen-not-to-hold` (failed, a fix), a cited pass on a held outcome `held-finding`, else `seen-to-hold`;
-  at most `MaxCites` (8) valid cites kept, the lowest; it never reads a note, the anomalies or another outcome's
-  verdict. Seeded properties P1-P9 (`judge_property_test.go`, seed 20261123, with an independent oracle of
-  `ValidCite`). `result.go` holds the types it shares (`OutcomeRef`, `Claim*`, `Result*`, `FixRequest`, `Handoff*`);
-  `fingerprint.go` the repeated-failure fingerprint over the failing outcomes alone (`OutcomeFingerprint`,
-  `OutcomeFingerprintPiece`, `maul-evaluation-fingerprint/2`), never anything the evaluator chose.
-  `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`).
+  (`judge.go`, "evaluator observed"): `Judge(JudgeInput) Judgement` takes each outcome's first verdict at its word only
+  when it cites an entry `ValidCite` admits (the round's ledger verified and its index whole; the evaluator's own
+  `agent` call, unrefused, not at the base, verb `http`, `browser` with exit 0, `exec` or `run`, and not `noAnswer`: an
+  http request with no response, a run whose program did not compile; logs, events, files and the retired check verbs
+  never count), first rule wins: unverified `infra`, head not built `tools-build-failed`, `manual`, a failing
+  environment `env-failed`/`infra`, `not-reported`, `evaluator-unsure`, `no-valid-evidence`, a cited fail
+  `seen-not-to-hold` (failed, a fix), a cited pass on a held outcome `held-finding`, a cited pass on an outcome an
+  anomaly of the same report names (`Contrary`, from `anomalies[].outcome`) `contrary-note`, else `seen-to-hold`; at
+  most `MaxCites` (8) valid cites kept, the lowest; it never reads a note or another outcome's verdict, and of the
+  anomalies only the outcomes they name. Seeded properties P1-P10 (`judge_property_test.go`, seed 20261123, with an
+  independent oracle of `ValidCite`). `result.go` holds the types it shares (`OutcomeRef`, `Claim*`, `Result*`,
+  `FixRequest`, `Handoff*`); `fingerprint.go` the repeated-failure fingerprint over the failing outcomes alone
+  (`OutcomeFingerprint`, `OutcomeFingerprintPiece`, `maul-evaluation-fingerprint/2`), never anything the evaluator
+  chose. `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`).
 - `httpstep` — one HTTP step's grammar and the tool facts, PURE (stdlib only, import pin), moved out of `acceptance`
   for the evaluator: `Step`/`Request`/`Expect`, `Value`, `StatusList`, `NormalizeSteps` (method GET, status [200]),
   `ValidateStep` and its parts (`CheckPath`, `CheckPointer`, `ValidateMatcher`, `ValidateHeaderMatcher`), `{{run}}` and

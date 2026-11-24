@@ -55,6 +55,10 @@ const (
 	ReasonSeenNotToHold = "seen-not-to-hold"
 	// ReasonSeenToHold: a pass citing a valid entry (passed).
 	ReasonSeenToHold = "seen-to-hold"
+	// ReasonContraryNote: a pass citing a valid entry, on an outcome an
+	// anomaly of the same report names: the evaluator's own note says it
+	// may not hold.
+	ReasonContraryNote = "contrary-note"
 )
 
 // Verdict is the evaluator's verdict on one outcome: its claim and the
@@ -99,6 +103,10 @@ type JudgeInput struct {
 	// Held are the outcome ids an earlier evidenced fail at these heads
 	// still holds (the controller's heldOutcomes).
 	Held []string
+	// Contrary are the outcome ids an anomaly of the same report names
+	// (report.Anomaly.Outcome): the evaluator's own note that the outcome
+	// does not hold, or may not, whatever its verdict says.
+	Contrary []string
 }
 
 // OutcomeDecision is one outcome's result, its reason and the valid
@@ -167,11 +175,15 @@ func verified(in JudgeInput) bool { return in.Verified && int64(len(in.Ledger)) 
 //	R7 a fail with a valid cite: failed, seen-not-to-hold, whatever holds
 //	   it.
 //	R8 a pass with a valid cite on a held outcome: unsure, held-finding.
-//	R9 a pass with a valid cite: passed, seen-to-hold.
+//	R9 a pass with a valid cite on an outcome an anomaly of the same report
+//	   names (Contrary): unsure, contrary-note.
+//	R10 a pass with a valid cite: passed, seen-to-hold.
 //
 // The fix asks for every failed outcome; the hand-off is ready only when
 // the environment is clean and every outcome passed. Judge never reads a
-// verdict's note, nor one outcome's verdict for another.
+// verdict's note, nor one outcome's verdict for another; of the anomalies
+// it reads only which outcomes they name, and only to keep those from
+// passing.
 func Judge(in JudgeInput) Judgement {
 	out := Judgement{Env: httpstep.ClassifyEnvironment(in.Env), Handoff: HandoffUnconfirmed,
 		PerOutcome: make([]OutcomeDecision, 0, len(in.Outcomes))}
@@ -201,7 +213,7 @@ func Judge(in JudgeInput) Judgement {
 	return out
 }
 
-// judgeOutcome is R0-R9 for one outcome and its first verdict, if any.
+// judgeOutcome is R0-R10 for one outcome and its first verdict, if any.
 func judgeOutcome(in JudgeInput, env httpstep.EnvClass, o OutcomeRef, v Verdict, reported bool) OutcomeDecision {
 	d := OutcomeDecision{ID: o.ID, Result: ResultUnsure}
 	if reported {
@@ -228,6 +240,8 @@ func judgeOutcome(in JudgeInput, env httpstep.EnvClass, o OutcomeRef, v Verdict,
 		d.Result, d.Reason = ResultFailed, ReasonSeenNotToHold
 	case slices.Contains(in.Held, o.ID):
 		d.Reason = ReasonHeldFinding
+	case slices.Contains(in.Contrary, o.ID):
+		d.Reason = ReasonContraryNote
 	default:
 		d.Result, d.Reason = ResultPassed, ReasonSeenToHold
 	}

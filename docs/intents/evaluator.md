@@ -150,12 +150,14 @@ Then, per outcome, the first rule that matches decides:
 | A `pass` or `fail` that cites no call that counts                             | unsure                                              | `no-valid-evidence`  |
 | A `fail` that cites a call that counts                                        | **failed**: a verify-fix round                      | `seen-not-to-hold`   |
 | A `pass` that cites a call that counts, on an outcome a finding holds         | unsure                                              | `held-finding`       |
+| A `pass` that cites a call that counts, on an outcome an anomaly names        | unsure                                              | `contrary-note`      |
 | A `pass` that cites a call that counts                                        | **passed**                                          | `seen-to-hold`       |
 
 The calls kept for an outcome are the ones that count, in seq order, each once, at most 8 (the lowest seqs), recorded on
 the Intent as `status.verification.outcomes[].cites` whatever the result. A round is ready only when every outcome
 passed (or an approver accepted it at these heads) in a clean environment. maul never reads a verdict's note, the
-report's body, the anomalies, or one outcome's verdict for another.
+report's body, or one outcome's verdict for another. Of the anomalies it reads only which outcome each names, if any
+(`anomalies[].outcome`), and only to keep that outcome from passing ([Look-around](#look-around)).
 
 **What maul does not check** is whether a cited call shows what the verdict says. A call that counts can still be about
 something else, or read wrong: that is the evaluator's reading, and every surface that shows a result says so and shows
@@ -175,6 +177,12 @@ description, marked as its words, beside the outcomes. It never holds a round, n
 keeps `maul/acceptance` from success and never starts a fix. The evaluator answers one question, whether the work is
 correct, and the approved outcomes alone answer it: a round whose outcomes were all seen to hold is Passed with its
 notes shown.
+
+The one way an anomaly bears on a result is about an outcome, not the round: an anomaly that names an approved outcome
+(its optional `anomalies[].outcome`, which the evaluator is told to add when what it noticed bears on one) is the
+evaluator's own word against that outcome, so the outcome is not passed on that report, whatever its verdict says. It is
+unsure (`contrary-note`), even when the anomaly cites nothing that counts; a `fail` that cites a call that counts still
+fails. maul does not look for an outcome's id in an anomaly's words.
 
 A defect in what an outcome promises is not an anomaly. The evaluator is told to report a defect in what an outcome
 states, on any input, as that outcome's `fail`, and a break of the rule an outcome's line of the request states beyond
@@ -711,9 +719,13 @@ kubectl -n <namespace> get configmaps -l maul.run/intent \
 ```
 
 **Rolling back.** `helm rollback` to the previous release re-applies its CRDs, so the fields this release added
-(`judge`, `cites`, `side`) are pruned, and every object this release wrote still meets the previous schema. The previous
-controller then starts its rounds with the model (a round with no model needs a record this release never writes), reads
-this release's evaluator reports (they hold a subset of its keys), and numbers its next check store after the ones it
-left. Its comments, though, count the results this release judged as "outcomes confirmed": after a rollback, have an
-approver comment `/maul verify` on each open verifying intent, which judges it again under that release's rules. Rolling
-forward again withdraws those results once more (the marker was pruned), at the cost of one more evaluation each.
+(`judge`, `cites`, `side`, `noAnswer`) are pruned, and every object this release wrote still meets the previous schema.
+A round under way at the rollback whose ledger records a `run` whose program did not compile (`notRun`) does not verify
+under the previous release, which settles that round as maul's own trouble (`ledger-mismatch`). The previous controller
+then starts its rounds with the model (a round with no model needs a record this release never writes), reads this
+release's evaluator reports (they hold a subset of its keys, except an anomaly's `outcome`: a report naming an outcome
+in an anomaly is refused whole by the previous controller and claims nothing), and numbers its next check store after
+the ones it left. Its comments, though, count the results this release judged as "outcomes confirmed": after a rollback,
+have an approver comment `/maul verify` on each open verifying intent, which judges it again under that release's rules.
+Rolling forward again withdraws those results once more (the marker was pruned), at the cost of one more evaluation
+each.

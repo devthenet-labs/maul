@@ -13,7 +13,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/httpstep"
 )
 
-// judgeSeed is the seed of Judge's properties (P1-P9 of the observed
+// judgeSeed is the seed of Judge's properties (P1-P10 of the observed
 // evaluator's design), apart from the older properties' seed.
 const judgeSeed = 20261123
 
@@ -106,6 +106,12 @@ func genJudgeInput(r *rand.Rand) JudgeInput {
 		if r.Intn(5) == 0 && (!good || r.Intn(2) != 0) {
 			in.Held = append(in.Held, o.ID)
 		}
+		if r.Intn(6) == 0 && (!good || r.Intn(2) != 0) {
+			in.Contrary = append(in.Contrary, o.ID)
+		}
+	}
+	if r.Intn(8) == 0 {
+		in.Contrary = append(in.Contrary, "stranger")
 	}
 	return in
 }
@@ -197,6 +203,7 @@ func cloneJudgeInput(in JudgeInput) JudgeInput {
 	out.Ledger = slices.Clone(in.Ledger)
 	out.Env = slices.Clone(in.Env)
 	out.Held = slices.Clone(in.Held)
+	out.Contrary = slices.Clone(in.Contrary)
 	out.Verdicts = make([]Verdict, len(in.Verdicts))
 	for i, v := range in.Verdicts {
 		v.Cites = slices.Clone(v.Cites)
@@ -257,8 +264,8 @@ func TestJudgeGeneratorCoverage(t *testing.T) {
 		}
 	})
 	for _, k := range []string{"R0", ReasonBuildFailed, ReasonManual, ReasonEnvFailed, ReasonInfra, ReasonNotReported,
-		ReasonEvaluatorUnsure, ReasonNoValidEvidence, ReasonSeenNotToHold, ReasonHeldFinding, ReasonSeenToHold,
-		"fix", "ready", "capped"} {
+		ReasonEvaluatorUnsure, ReasonNoValidEvidence, ReasonSeenNotToHold, ReasonContraryNote, ReasonHeldFinding,
+		ReasonSeenToHold, "fix", "ready", "capped"} {
 		if seen[k] < 10 {
 			t.Errorf("%s occurs %d times in %d rounds", k, seen[k], judgeRounds)
 		}
@@ -370,8 +377,9 @@ func TestJudgeP4InvalidCitesAreInert(t *testing.T) {
 }
 
 // TestJudgeP5Locality: an outcome's decision depends only on its own first
-// verdict, the facts it cites, the environment and its own hold: judged
-// alone, beside a ledger whose other entries are rewritten, it is the same.
+// verdict, the facts it cites, the environment, its own hold and whether an
+// anomaly names it: judged alone, beside a ledger whose other entries are
+// rewritten, it is the same.
 func TestJudgeP5Locality(t *testing.T) {
 	forJudgeRounds(t, func(t *testing.T, r *rand.Rand, in JudgeInput, got Judgement) {
 		for i, o := range in.Outcomes {
@@ -382,9 +390,12 @@ func TestJudgeP5Locality(t *testing.T) {
 			if ok {
 				alone.Verdicts = []Verdict{v}
 			}
-			alone.Held = nil
+			alone.Held, alone.Contrary = nil, nil
 			if slices.Contains(in.Held, o.ID) {
 				alone.Held = []string{o.ID}
+			}
+			if slices.Contains(in.Contrary, o.ID) {
+				alone.Contrary = []string{o.ID}
 			}
 			for j := range alone.Ledger {
 				if !slices.Contains(v.Cites, int32(j+1)) {
@@ -497,6 +508,28 @@ func TestJudgeP9Monotonic(t *testing.T) {
 				if ready(j) {
 					t.Errorf("%s %s left the round ready", name, d.ID)
 				}
+			}
+		}
+	})
+}
+
+// TestJudgeP10ANamedOutcomeNeverPasses: an outcome an anomaly of the same
+// report names never passes, whatever it cites; one it does not name is
+// judged as though no anomaly named anything (removing the names of other
+// outcomes changes nothing for it).
+func TestJudgeP10ANamedOutcomeNeverPasses(t *testing.T) {
+	forJudgeRounds(t, func(t *testing.T, _ *rand.Rand, in JudgeInput, got Judgement) {
+		unnamed := cloneJudgeInput(in)
+		unnamed.Contrary = nil
+		free := Judge(unnamed)
+		for i, d := range got.PerOutcome {
+			named := slices.Contains(in.Contrary, d.ID)
+			if named && d.Result == ResultPassed {
+				t.Errorf("%s is named by an anomaly and passed", d.ID)
+			}
+			if !named && !reflect.DeepEqual(d, free.PerOutcome[i]) {
+				t.Errorf("%s, named by no anomaly, is %+v, and %+v with no anomaly naming anything", d.ID, d,
+					free.PerOutcome[i])
 			}
 		}
 	})

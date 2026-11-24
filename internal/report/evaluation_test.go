@@ -96,6 +96,24 @@ func TestParseEvaluationPreExisting(t *testing.T) {
 	}
 }
 
+// An anomaly may name the approved outcome it shows not holding, or casts
+// doubt on (outcome); absent, it names none. The name is an outcome id.
+func TestParseEvaluationAnomalyOutcome(t *testing.T) {
+	doc := strings.Replace(evaluationReport, "    ledger: [20]\n",
+		"    ledger: [20]\n    outcome: \"rate-battle\"\n  - summary: \"new\"\n    route: /\n    ledger: [22]\n", 1)
+	e, err := ParseEvaluation([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseEvaluation() error = %v", err)
+	}
+	if len(e.Anomalies) != 2 || e.Anomalies[0].Outcome != "rate-battle" || e.Anomalies[1].Outcome != "" {
+		t.Errorf("Anomalies = %+v, want the first naming rate-battle alone", e.Anomalies)
+	}
+	bad := strings.Replace(evaluationReport, "    ledger: [20]\n", "    ledger: [20]\n    outcome: \"Rate Battle\"\n", 1)
+	if _, err := ParseEvaluation([]byte(bad)); err == nil || !strings.Contains(err.Error(), "anomalies[0].outcome") {
+		t.Errorf("ParseEvaluation(an anomaly naming no outcome id) error = %v, want refused naming its outcome", err)
+	}
+}
+
 func TestParseEvaluationRefusals(t *testing.T) {
 	verdict := func(body string) string { return "---\nverdicts:\n" + body + "---\n" }
 	withVerdict := func(rest string) string {

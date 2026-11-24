@@ -50,7 +50,10 @@ import (
 // approved outcomes alone answer it: a look-around anomaly (the evaluator's
 // side finding) is a note for the human reviewer, recorded, carried through
 // later rounds at the same heads (carriedAnomalies) and shown, but it never
-// holds a round or downgrades the hand-off.
+// holds a round or downgrades the hand-off. The one exception is about an
+// outcome, not the round: an anomaly naming an approved outcome is the
+// evaluator's own word against it, so that outcome does not pass on that
+// report (acceptance.ReasonContraryNote).
 
 // Bounds of what a judgement records from the evaluator (the schema's).
 const (
@@ -86,7 +89,7 @@ func (p *pass) decideRound(_ context.Context, pv *v1alpha1.PreviewVerification,
 // its evaluator's claims (nil when its report does not parse: it claims
 // nothing), and v, the verification on record, whose findings at pv's heads
 // hold outcomes (heldOutcomes). Its anomalies are recorded as notes, and go
-// to Judge as nothing.
+// to Judge only as the outcomes they name, which none of them passes.
 func judgeRound(v *v1alpha1.IntentVerification, acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification,
 	ev *report.Evaluation) roundJudgement {
 	in := judgeInput(acc, pv, ev)
@@ -119,8 +122,9 @@ func outcomeDigest(o v1alpha1.AcceptanceOutcome) string {
 
 // judgeInput is Judge's input for pv: the approved outcomes (each with the
 // digest a fix is fingerprinted on), the evaluator's verdicts as written
-// (Judge keeps the first per outcome and checks every cite), pv's verified
-// ledger index and its environment. The index is in status only once the
+// (Judge keeps the first per outcome and checks every cite), the outcomes
+// its anomalies name (Contrary), pv's verified ledger index and its
+// environment. The index is in status only once the
 // tools log was held to its summary (toolledger.Parse; a log that does not
 // hold is Infra ledger-mismatch, and an over-cap status that loses it is
 // Infra too), so its presence is what Verified means. One exception: an
@@ -151,6 +155,14 @@ func judgeInput(acc *v1alpha1.IntentAcceptance, pv *v1alpha1.PreviewVerification
 	for _, v := range ev.Verdicts {
 		in.Verdicts = append(in.Verdicts, acceptance.Verdict{Outcome: v.ID, Claim: acceptance.Claim(v.Verdict),
 			Cites: slices.Clone(v.Ledger), Note: v.Note})
+	}
+	// Every anomaly naming an outcome keeps it from passing, whatever the
+	// anomaly cites: a note the evaluator wrote against its own pass needs
+	// no evidence to withhold it (anomalyRecords keeps only those with).
+	for _, a := range ev.Anomalies {
+		if a.Outcome != "" && !slices.Contains(in.Contrary, a.Outcome) {
+			in.Contrary = append(in.Contrary, a.Outcome)
+		}
 	}
 	return in
 }

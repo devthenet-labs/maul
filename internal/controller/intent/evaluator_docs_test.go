@@ -35,6 +35,7 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			templates.WithdrawnSentence, templates.OutcomeCount(3, 3),
 			acceptance.ReasonSeenToHold, acceptance.ReasonSeenNotToHold, acceptance.ReasonNotReported,
 			acceptance.ReasonEvaluatorUnsure, acceptance.ReasonNoValidEvidence, acceptance.ReasonHeldFinding,
+			acceptance.ReasonContraryNote, "anomalies[].outcome",
 			"the evaluator's own page script", "the evaluator's own program", "Its output was not kept by maul.",
 			"The evaluator's reading, not checked by maul",
 			v1alpha1.ConditionEvaluatorUnverified, "--intent-evaluate-codex", "unverified",

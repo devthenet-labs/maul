@@ -134,6 +134,48 @@ func TestJudgeRoundCitationTable(t *testing.T) {
 	}
 }
 
+// TestJudgeRoundAnomalyNamingAnOutcome: an anomaly of the report that
+// names an outcome keeps it from passing (unsure, contrary-note), whatever
+// the anomaly cites, even nothing maul counts; a fail it names still
+// fails; one naming another outcome, or none, changes nothing. The
+// anomaly is recorded as a note only when it cites a call that counts.
+func TestJudgeRoundAnomalyNamingAnOutcome(t *testing.T) {
+	pv := &v1alpha1.PreviewVerification{Spec: v1alpha1.PreviewVerificationSpec{Round: 1},
+		Status: v1alpha1.PreviewVerificationStatus{Ledger: citedIndex(5, nil)}}
+	for _, tt := range []struct {
+		name      string
+		claim     report.Verdict
+		anomaly   report.Anomaly
+		result    acceptance.Result
+		reason    string
+		anomalies int
+	}{
+		{"a pass it names", report.VerdictPass, report.Anomaly{Summary: "it does not hold on a reload", Route: "/",
+			Ledger: []int32{3}, Outcome: oVersion}, acceptance.ResultUnsure, acceptance.ReasonContraryNote, 1},
+		{"a pass it names citing nothing that counts", report.VerdictPass, report.Anomaly{Summary: "wrong", Route: "/",
+			Ledger: []int32{99}, Outcome: oVersion}, acceptance.ResultUnsure, acceptance.ReasonContraryNote, 0},
+		{"a fail it names", report.VerdictFail, report.Anomaly{Summary: "wrong", Route: "/", Ledger: []int32{3},
+			Outcome: oVersion}, acceptance.ResultFailed, acceptance.ReasonSeenNotToHold, 1},
+		{"a pass beside an anomaly naming another outcome", report.VerdictPass, report.Anomaly{Summary: "wrong",
+			Route: "/", Ledger: []int32{3}, Outcome: "other"}, acceptance.ResultPassed, acceptance.ReasonSeenToHold, 1},
+		{"a pass beside an anomaly naming none", report.VerdictPass, report.Anomaly{Summary: "a console error",
+			Route: "/", Ledger: []int32{3}}, acceptance.ResultPassed, acceptance.ReasonSeenToHold, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := &report.Evaluation{Verdicts: []report.OutcomeVerdict{{ID: oVersion, Verdict: tt.claim,
+				Ledger: []int32{3}}}, Anomalies: []report.Anomaly{tt.anomaly}}
+			j := judgeRound(nil, oneOutcome(), pv, ev)
+			d := j.judgement.PerOutcome[0]
+			if d.Result != tt.result || d.Reason != tt.reason {
+				t.Errorf("%s (%s), want %s (%s)", d.Result, d.Reason, tt.result, tt.reason)
+			}
+			if len(j.anomalies) != tt.anomalies {
+				t.Errorf("%d anomalies recorded, want %d", len(j.anomalies), tt.anomalies)
+			}
+		})
+	}
+}
+
 // TestJudgeRoundUnverifiedLedger: a round with no verified index in status
 // (the tools log did not hold to its summary, or the index was dropped)
 // passes and fails nothing, whatever its evaluator cites; one whose

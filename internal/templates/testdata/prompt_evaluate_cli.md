@@ -250,7 +250,7 @@ What I checked, in a few lines.
   anomaly: report it as that outcome's `fail`. Nor is a break of the rule an outcome's line of the request states
   beyond its example: report that outcome `unsure`, as **Stay within what the outcome promises** says. An anomaly is
   what neither covers: trouble the change shows elsewhere, or a part of the request no outcome answers (name its
-  line).
+  line). If one bears on an outcome all the same, add `outcome`, that outcome's id: maul then never passes it.
 
 Write `[]` for an empty list. Put every string in double quotes, and escape a double quote inside one as `\"`: an
 unquoted colon is invalid YAML, and maul refuses the whole report, with no repair. Notes and summaries are one line
