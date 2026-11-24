@@ -419,7 +419,7 @@ type EvaluationLedger struct {
 // are shown only from the stored line that is the index's call, the output
 // only where its sha256 is the index's; OutputDropped marks one that is not
 // (cut to fit the ConfigMap, or missing). Own (tier 2) marks a call that
-// ran the evaluator's own page script or program (toolledger.OwnCall).
+// ran the evaluator's own page script or program (toolledger.OwnCalls).
 type EvaluationLedgerEntry struct {
 	Seq           int32                `json:"seq"`
 	Kind          string               `json:"kind"`

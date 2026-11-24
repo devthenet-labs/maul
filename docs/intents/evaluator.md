@@ -134,7 +134,9 @@ citation **counts** only when all of these hold:
 Whether a screenshot of the call was kept, and whether its output still fits the full ledger, does not matter: a cited
 call whose output was dropped to fit still counts, and is shown as "Its output was not kept by maul." A page script run
 with `browser eval`, a program the evaluator wrote and ran with `exec`, and every `run` count like any other call, and
-the comments label them "the evaluator's own page script" or "the evaluator's own program".
+the comments label them "the evaluator's own page script" or "the evaluator's own program". The label fails closed: a
+`browser` call whose ledger line maul did not keep, or kept with its arguments dropped to fit, is labelled a page
+script, since nothing shows it was not one.
 
 Then, per outcome, the first rule that matches decides:
 
@@ -457,10 +459,11 @@ refused and recorded.
 | `maul-tool run <dir> [--base] [-- args]`        | Compiles the Go program in `<dir>` (at most 8 `.go` files at its top, no subdirectories) against the side's tree, then runs it: how a library is used, or a checker that reads what the binary wrote           |
 
 At the head an `exec` or a `run` counts whatever its exit status. An `exec` of the built binary alone (its first
-argument `{{bin}}` or the binary's path, no files passed) is not labelled as the evaluator's own; any other `exec`, and
-every `run`, is shown as the evaluator's own program. The label says who wrote the code that ran, not what it ran
-against: an earlier call at the same side can have changed the tree, `HOME` or the build output (see
-[Known limits](#known-limits)).
+argument `{{bin}}` or the binary's path, no files passed) is not labelled as the evaluator's own while nothing of the
+evaluator's has run at that side; any other `exec`, and every `run`, is shown as the evaluator's own program. `/work` is
+writable, so once an earlier `exec` labelled as its own, or a `run`, ran at a side (or an `exec` whose line maul did not
+keep), every later `exec` of the built binary there is labelled the evaluator's own too: what it ran may be what that
+call left (see [Known limits](#known-limits)). A call maul refused ran nothing and changes no label.
 
 A `run` program is compiled offline against the tree's own module graph: maul writes a minimal `go.mod` (module
 `maulcheck`, the tree's `go` line) beside the program and makes a `go work` workspace of it and the tree, then builds
@@ -581,7 +584,7 @@ as long as its evaluate run, plus one tree's build, plus five minutes, at most 7
 - **A program can lie about its own output.** It runs as its sandbox's user, as the shim does; it cannot write the
   `tools` container's log, the ledger, or the other side's files, but what it prints is its own. The built binary is the
   change's code, and an earlier `exec` can rewrite the tree, `HOME` or the build output that later calls at that side
-  read.
+  read: after one, a later run of the built binary at that side is labelled as the evaluator's own program.
 - **The evaluation ceiling counts toward the hourly limit.** With the evaluator on, the default \$6 ceiling counts
   toward `RunBudgetOverHourlyLimit`: a broker `costPerHour` below \$12 keeps such a Project from Ready.
 

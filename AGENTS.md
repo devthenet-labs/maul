@@ -964,8 +964,10 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   index, a base call's entry `side: base`, an evaluator call that got no answer `noAnswer`), `Readiness`,
   `ConfigMapData` (oldest outputs dropped first) and `Key`; `ApplyStatus` (the one ledger-to-status write both hosts
   make: the index and the summary the host names its ConfigMaps on; never the retired replay, confirmation, confirmed or
-  base fields), `OwnCall` (which calls the comments and the status page label as the evaluator's own page script or
-  program: a browser `eval`, every `run`, and an `exec` other than an agents round's bare run of the built binary),
+  base fields), `OwnCalls` (which calls the comments and the status page label as the evaluator's own page script or
+  program, failing closed: a browser call unless its kept line shows a verb other than `eval`, every `run`, and an
+  `exec` other than an agents round's bare run of the built binary after nothing of the evaluator's ran at that side,
+  since `/work` is writable),
   `ReadStored` (a `<pv>-ledger` line, shown only where it is the index's call and its output re-hashes),
   `EvaluatorCalled` and `RoundReason` (a round with no evaluator call: `evaluator-not-run`, or `tools-not-ready` with no
   `status.tools`). Its trust root: a log that does not hold is Infra `ledger-mismatch`, never a verdict.

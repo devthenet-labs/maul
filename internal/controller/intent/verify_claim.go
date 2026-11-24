@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -26,6 +27,9 @@ type roundCalls struct {
 	lines  map[int64]toolwire.LedgerEntry
 	agents bool
 	binary string
+	// own are the index's own-call labels (toolledger.OwnCalls), nil until
+	// labelled: ownAt labels them then.
+	own []bool
 }
 
 // roundCalls are pv's calls as maul shows them.
@@ -42,7 +46,22 @@ func (p *pass) roundCalls(ctx context.Context, pv *v1alpha1.PreviewVerification)
 			rc.lines[e.Seq] = e
 		}
 	}
+	rc.own = rc.labels()
 	return rc
+}
+
+// labels are the index's own-call labels.
+func (rc roundCalls) labels() []bool {
+	return toolledger.OwnCalls(rc.index, rc.args, rc.agents, rc.binary)
+}
+
+// ownAt is the own-call label of the index's entry at seq (an indexed seq).
+func (rc roundCalls) ownAt(seq int32) bool {
+	own := rc.own
+	if len(own) != len(rc.index) {
+		own = rc.labels()
+	}
+	return own[seq-1]
 }
 
 // indexed is the index entry numbered seq, ok false for none.
@@ -78,15 +97,39 @@ func (rc roundCalls) sent(seq int32) (templates.VerifyCitedCall, toolwire.Ledger
 		return c, toolwire.LedgerEntry{}, false
 	}
 	c.Verb, c.Base, c.Exit = string(ix.Verb), ix.Side == v1alpha1.TreeBase, int(ix.Exit)
-	e, ok := rc.lines[int64(seq)]
-	if !ok || e.OutputSHA256 != ix.ResultSHA256 || string(e.Verb) != c.Verb {
-		// The label rests on the verified index, and on a line only where
-		// the verb needs one (toolledger.OwnCall).
-		c.Own = toolledger.OwnCall(ix.Verb, nil, rc.agents, rc.binary)
+	// The label rests on the verified index, and on the lines only where a
+	// verb needs one (toolledger.OwnCalls), the calls before seq included.
+	c.Own = rc.ownAt(seq)
+	e, ok := rc.line(ix)
+	if !ok {
 		return c, toolwire.LedgerEntry{}, false
 	}
-	c.Input, c.Own = string(e.Args), toolledger.OwnCall(ix.Verb, e.Args, rc.agents, rc.binary)
+	c.Input = string(e.Args)
 	return c, e, true
+}
+
+// line is the kept ledger line of index entry ix, ok false when none kept
+// is the index's call (its output digest and verb).
+func (rc roundCalls) line(ix v1alpha1.LedgerIndexEntry) (toolwire.LedgerEntry, bool) {
+	e, ok := rc.lines[int64(ix.Seq)]
+	if !ok || e.OutputSHA256 != ix.ResultSHA256 || e.Verb != toolwire.Verb(ix.Verb) {
+		return toolwire.LedgerEntry{}, false
+	}
+	return e, true
+}
+
+// args is the request entry seq's kept line recorded, nil when none kept is
+// the index's call.
+func (rc roundCalls) args(seq int32) json.RawMessage {
+	ix, ok := rc.indexed(seq)
+	if !ok {
+		return nil
+	}
+	e, ok := rc.line(ix)
+	if !ok {
+		return nil
+	}
+	return e.Args
 }
 
 // sentBefore are the evaluator's own unrefused calls at the head before

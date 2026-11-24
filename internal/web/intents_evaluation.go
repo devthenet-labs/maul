@@ -6,6 +6,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -264,7 +265,8 @@ func judgedRound(ver *v1alpha1.IntentVerification) (map[string]v1alpha1.OutcomeR
 
 // addLedgerOutputs fills each ledger entry's arguments and output from the
 // verification's <pv>-ledger, labels the calls that ran the evaluator's own
-// page script or program, and names each artifact's stored image from its
+// page script or program (toolledger.OwnCalls, as the comment labels a
+// cited call), and names each artifact's stored image from its
 // <pv>-evidence: tier 2 only. A line is shown only as the call the index
 // records, and its output only when it hashes to the index's sha256; a
 // ConfigMap that is missing or not the verification's own leaves the index
@@ -275,19 +277,32 @@ func (s *Server) addLedgerOutputs(ctx context.Context, in *v1alpha1.Intent, pv *
 	if l == nil || sum == nil {
 		return
 	}
+	var lines map[int64]toolledger.StoredLine
 	if sum.ConfigMap != "" {
 		if cm, err := s.guardedConfigMap(ctx, sum.ConfigMap, in.Name, pv.UID); err == nil {
-			lines := toolledger.ReadStored(cm.Data[toolledger.Key])
+			lines = toolledger.ReadStored(cm.Data[toolledger.Key])
 			l.Outputs = true
-			agents, binary := pv.Spec.IsAgents(), cliBinary(pv)
 			for i := range l.Entries {
 				if i < len(sum.Entries) {
-					fillLedgerEntry(&l.Entries[i], sum.Entries[i], lines, agents, binary)
+					fillLedgerEntry(&l.Entries[i], sum.Entries[i], lines)
 				}
 			}
 		} else if !errors.Is(err, errNotVisible) {
 			s.log.LogAttrs(ctx, slog.LevelError, "read ledger", slog.String("verification", pv.Name),
 				slog.Any("error", err))
+		}
+	}
+	// The labels fail closed: with no ledger read, every call whose label
+	// needs its line is labelled the evaluator's own.
+	own := toolledger.OwnCalls(sum.Entries, func(seq int32) json.RawMessage {
+		if line, ok := lines[int64(seq)]; ok && int(seq) <= len(sum.Entries) && line.Of(sum.Entries[seq-1]) {
+			return line.Args
+		}
+		return nil
+	}, pv.Spec.IsAgents(), cliBinary(pv))
+	for i := range l.Entries {
+		if i < len(own) {
+			l.Entries[i].Own = own[i]
 		}
 	}
 	if sum.Evidence != "" {
@@ -319,18 +334,13 @@ func cliBinary(pv *v1alpha1.PreviewVerification) string {
 
 // fillLedgerEntry shows entry e (index entry ix) from its stored line: what
 // it sent when the line is the index's call, and its output only when that
-// hashes to the index's sha256. Own is toolledger.OwnCall over the index's
-// verb and, where it is the call, the line's request, as the comment labels
-// a cited call.
-func fillLedgerEntry(e *EvaluationLedgerEntry, ix v1alpha1.LedgerIndexEntry, lines map[int64]toolledger.StoredLine,
-	agents bool, binary string) {
+// hashes to the index's sha256.
+func fillLedgerEntry(e *EvaluationLedgerEntry, ix v1alpha1.LedgerIndexEntry, lines map[int64]toolledger.StoredLine) {
 	line, ok := lines[int64(e.Seq)]
 	if !ok || !line.Of(ix) {
 		e.OutputDropped = true
-		e.Own = toolledger.OwnCall(ix.Verb, nil, agents, binary)
 		return
 	}
-	e.Own = toolledger.OwnCall(ix.Verb, line.Args, agents, binary)
 	if len(line.Args) > 0 {
 		e.Args = intentview.Text(string(line.Args), maxLedgerShown)
 	}

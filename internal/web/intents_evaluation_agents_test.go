@@ -76,8 +76,9 @@ func TestRunEvaluationSlotHasNoAgentsFields(t *testing.T) {
 
 // TestRunEvaluationAgentsOwnLabel: at the transcripts tier an agents
 // round's exec is the evaluator's own program unless it ran exactly the
-// built binary, and a run always is (toolledger.OwnCall, the comment's
-// rule); a slot round's exec always is.
+// built binary after nothing of the evaluator's ran at that side, and a run
+// always is (toolledger.OwnCalls, the comment's rule); a slot round's exec
+// always is.
 func TestRunEvaluationAgentsOwnLabel(t *testing.T) {
 	calls := []struct {
 		verb toolwire.Verb
@@ -88,14 +89,16 @@ func TestRunEvaluationAgentsOwnLabel(t *testing.T) {
 		{toolwire.VerbExec, `{"argv":["sh","-c","battle list"]}`},
 		{toolwire.VerbExec, `{"argv":["{{bin}}"],"files":[{"path":"in.txt","content":"x"}]}`},
 		{toolwire.VerbRun, `{"files":[{"path":"main.go","content":"package main"}]}`},
+		// After the shell at 3, /work may hold what it left (FC 3).
+		{toolwire.VerbExec, `{"argv":["{{bin}}","list"]}`},
 	}
 	for _, tc := range []struct {
 		name   string
 		agents bool
 		want   []bool
 	}{
-		{"agents", true, []bool{false, false, true, true, true}},
-		{"slot", false, []bool{true, true, true, true, true}},
+		{"agents", true, []bool{false, false, true, true, true, true}},
+		{"slot", false, []bool{true, true, true, true, true, true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			objs := evaluationFixture(t)

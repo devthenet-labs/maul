@@ -426,6 +426,27 @@ func TestRunEvaluationShowsTheWithdrawal(t *testing.T) {
 	}
 }
 
+// TestRunEvaluationOwnLabelWithoutTheLedger (FC 4): with no ledger
+// ConfigMap of the verification's own to read, a browser call is still
+// labelled the evaluator's own page script at the transcripts tier, since
+// nothing shows it was not one; an http call is not.
+func TestRunEvaluationOwnLabelWithoutTheLedger(t *testing.T) {
+	objs := evaluationFixture(t)
+	findConfigMap(objs, evalPV+"-ledger").OwnerReferences = []metav1.OwnerReference{
+		ctrlRef("PreviewVerification", "other", "uid-other")}
+	s, _ := intentsServer(t, nil, objs...)
+	code, body := get(t, as(t, s, readerAlpha), evaluationPath(evalRun))
+	if code != http.StatusOK {
+		t.Fatalf("GET evaluation = %d %s", code, body)
+	}
+	l := decode[RunEvaluation](t, body).Ledger
+	for i, want := range []bool{false, true, false, true, false} {
+		if got := l.Entries[i].Own; got != want {
+			t.Errorf("entry %d (%s): own %v, want %v", i+1, l.Entries[i].Verb, got, want)
+		}
+	}
+}
+
 // TestRunEvaluationRefusesForeignConfigMaps: a ledger or evidence ConfigMap
 // of the right name controlled by anything but the run's own verification
 // is never read into the view nor served.
