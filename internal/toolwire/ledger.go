@@ -195,6 +195,21 @@ const HTTPExchangePrefix = "HTTP "
 // HTTPAnswered reports an http entry's output as an answered exchange.
 func HTTPAnswered(output string) bool { return strings.HasPrefix(output, HTTPExchangePrefix) }
 
+// NotStartedPrefix opens maul's own words for a program the exec shim could
+// not start, "[maul: could not start <argv[0]>: <error>]": the whole of
+// that call's output, at exit 127 (not found) or 126 (any other failure to
+// start).
+const NotStartedPrefix = "[maul: could not start "
+
+// NotStarted reports an exec or run entry whose program never started: its
+// output is maul's marker alone, at the exit the shim gives it. A program
+// that ran and printed exactly that marker at that exit is read the same
+// way, which only keeps its call from counting.
+func NotStarted(exit int, output string) bool {
+	return (exit == 126 || exit == 127) && strings.HasPrefix(output, NotStartedPrefix) &&
+		strings.HasSuffix(output, "]")
+}
+
 // Artifact is a file a call produced (a screenshot, a snapshot file),
 // recorded by digest; its bytes leave the tools container only as
 // evidence.

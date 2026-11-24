@@ -229,7 +229,7 @@ func (s *Server) execute(ctx context.Context, argv []string, dir string, env []s
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			exit = 127
 		}
-		res := Result{Exit: exit, Output: fmt.Sprintf("[maul: could not start %s: %v]", argv[0], err),
+		res := Result{Exit: exit, Output: fmt.Sprintf("%s%s: %v]", toolwire.NotStartedPrefix, argv[0], err),
 			DurationMs: time.Since(start).Milliseconds()}
 		if apart {
 			// maul's words, as the program's stderr: it printed nothing.

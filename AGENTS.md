@@ -894,7 +894,8 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   (`judge.go`, "evaluator observed"): `Judge(JudgeInput) Judgement` takes each outcome's first verdict at its word only
   when it cites an entry `ValidCite` admits (the round's ledger verified and its index whole; the evaluator's own
   `agent` call, unrefused, not at the base, verb `http`, `browser` with exit 0, `exec` or `run`, and not `noAnswer`: an
-  http request with no response, a run whose program did not compile; logs, events, files and the retired check verbs
+  http request with no response, a run whose program did not compile, an exec or run whose program the sandbox could
+  not start, its output only maul's marker, `toolwire.NotStarted`; logs, events, files and the retired check verbs
   never count), first rule wins: unverified `infra`, head not built `tools-build-failed`, `manual`, a failing
   environment `env-failed`/`infra`, `not-reported`, `evaluator-unsure`, `no-valid-evidence`, a cited fail
   `seen-not-to-hold` (failed, a fix), a cited pass on a held outcome `held-finding`, a cited pass on an outcome an

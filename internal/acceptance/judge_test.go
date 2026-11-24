@@ -81,6 +81,8 @@ var tableLedger = judgeLedger(
 	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbBrowser, Refused: true}, // 23
 	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbHTTP, NoAnswer: true},   // 24
 	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbRun, NoAnswer: true},    // 25
+	// 26: an exec whose program the shim could not start (FD 2).
+	LedgerFact{Kind: LedgerKindAgent, Verb: LedgerVerbExec, Exit: 127, NoAnswer: true},
 )
 
 func tableInput() JudgeInput {

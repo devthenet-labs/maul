@@ -886,8 +886,10 @@ type LedgerIndexEntry struct {
 	Side TreeSide `json:"side,omitempty"`
 	// NoAnswer reports one of the evaluator's calls that got nothing back
 	// from what it exercised: an http request that got no response (DNS,
-	// refused, timeout, TLS, reset), or a run whose program did not compile
-	// and so never ran. It showed nothing, so it is never evidence for an
+	// refused, timeout, TLS, reset), a run whose program did not compile
+	// and so never ran, or an exec or run whose program the sandbox could
+	// not start (its output is maul's "[maul: could not start ...]" alone,
+	// at exit 127 or 126). It showed nothing, so it is never evidence for an
 	// outcome. Unset on every other entry, and on an index written before
 	// the field.
 	// +optional

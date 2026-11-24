@@ -102,6 +102,10 @@ func TestJudgeRoundCitationTable(t *testing.T) {
 			Verb: v1alpha1.LedgerVerbHTTP, NoAnswer: true}, 3, acceptance.ResultUnsure},
 		{"run that did not compile", &v1alpha1.LedgerIndexEntry{Kind: v1alpha1.LedgerKindAgent,
 			Verb: v1alpha1.LedgerVerbRun, Exit: 1, NoAnswer: true}, 3, acceptance.ResultUnsure},
+		// FD 2: the shim could not start the program, so it showed nothing,
+		// for a pass or a fail.
+		{"exec that could not start", &v1alpha1.LedgerIndexEntry{Kind: v1alpha1.LedgerKindAgent,
+			Verb: v1alpha1.LedgerVerbExec, Exit: 127, NoAnswer: true}, 3, acceptance.ResultUnsure},
 		{"head http", nil, 3, acceptance.ResultPassed},
 		{"head browser", new(agent(v1alpha1.LedgerVerbBrowser)), 3, acceptance.ResultPassed},
 		{"head exec", new(agent(v1alpha1.LedgerVerbExec)), 3, acceptance.ResultPassed},

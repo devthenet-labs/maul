@@ -118,7 +118,10 @@ func Index(entries []toolwire.LedgerEntry) []v1alpha1.LedgerIndexEntry {
 
 // noAnswer reports one of the evaluator's unrefused calls that got nothing
 // back from what it exercised: an http request whose output holds no
-// answered exchange (it got no response), or a run whose program never ran.
+// answered exchange (it got no response), a run whose program never ran
+// (it did not compile), or an exec or run whose program the shim could not
+// start (its output is maul's marker alone, toolwire.NotStarted). Each is
+// read from the verified log, so it holds whatever tools image wrote it.
 func noAnswer(e toolwire.LedgerEntry) bool {
 	if e.Kind != toolwire.KindAgent || e.Refused != "" {
 		return false
@@ -126,8 +129,10 @@ func noAnswer(e toolwire.LedgerEntry) bool {
 	switch e.Verb {
 	case toolwire.VerbHTTP:
 		return !toolwire.HTTPAnswered(e.Output)
+	case toolwire.VerbExec:
+		return toolwire.NotStarted(e.Exit, e.Output)
 	case toolwire.VerbRun:
-		return e.NotRun
+		return e.NotRun || toolwire.NotStarted(e.Exit, e.Output)
 	}
 	return false
 }

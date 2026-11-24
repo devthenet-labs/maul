@@ -126,10 +126,12 @@ citation **counts** only when all of these hold:
 5. it used the application: `maul-tool http`, `browser`, `exec` or `run`. A `logs`, `events` or `files` call may be
    cited, but never counts on its own;
 6. it ran at the head: on a Project with no preview, a call with `--base` never counts;
-7. a `browser` command exited 0 (a failed command showed nothing). An `exec` or `run` counts whatever its exit status: a
-   program may exit non-zero by design;
+7. a `browser` command exited 0 (a failed command showed nothing). An `exec` or `run` whose program ran counts whatever
+   its exit status: a program may exit non-zero by design;
 8. it got its answer: an `http` request that got no response (DNS, refused, a timeout, TLS, a reset) never counts, nor
-   does a `run` whose program did not compile and so never ran. The round's ledger index marks both `noAnswer`.
+   does a `run` whose program did not compile and so never ran, nor an `exec` or `run` whose program the sandbox could
+   not start (exit 127 or 126, its output only maul's `[maul: could not start ...]`). The round's ledger index marks
+   each `noAnswer`.
 
 Whether a screenshot of the call was kept, and whether its output still fits the full ledger, does not matter: a cited
 call whose output was dropped to fit still counts, and is shown as "Its output was not kept by maul." A page script run
@@ -460,15 +462,15 @@ refused and recorded.
 | `maul-tool files ls`, `grep`, `read` `[--base]` | Looks at the tree as fetched, never as a build rewrote it: a listing, a literal-substring search (at most 200 hits) or the first 64 KiB of one file. Nothing reaches outside the tree. Never counts on its own |
 | `maul-tool run <dir> [--base] [-- args]`        | Compiles the Go program in `<dir>` (at most 8 `.go` files at its top, no subdirectories) against the side's tree, then runs it: how a library is used, or a checker that reads what the binary wrote           |
 
-At the head an `exec` or a `run` counts whatever its exit status. An `exec` of the built binary alone (its first
-argument `{{bin}}` or the binary's path, no files passed) is not labelled as the evaluator's own while nothing of the
-evaluator's has run at that side; any other `exec`, and every `run`, is shown as the evaluator's own program. `/work` is
-writable, so once an earlier `exec` labelled as its own, or a `run`, ran at a side (or an `exec` whose line maul did not
-keep), every later `exec` of the built binary there is labelled the evaluator's own too: what it ran may be what that
-call left (see [Known limits](#known-limits)). A refused `exec` or `run` counts here as one that ran, since a refusal
-can come after the call was sent (the sandbox did not answer, or refused it part way). The exceptions are a call without
-the per-evaluation key and one past `maxToolCalls`: the relay refuses those before sending them anywhere (`ranNothing`
-in the ledger index), so they change no label.
+At the head an `exec` or a `run` whose program ran counts whatever its exit status. An `exec` of the built binary alone
+(its first argument `{{bin}}` or the binary's path, no files passed) is not labelled as the evaluator's own while
+nothing of the evaluator's has run at that side; any other `exec`, and every `run`, is shown as the evaluator's own
+program. `/work` is writable, so once an earlier `exec` labelled as its own, or a `run`, ran at a side (or an `exec`
+whose line maul did not keep), every later `exec` of the built binary there is labelled the evaluator's own too: what it
+ran may be what that call left (see [Known limits](#known-limits)). A refused `exec` or `run` counts here as one that
+ran, since a refusal can come after the call was sent (the sandbox did not answer, or refused it part way). The
+exceptions are a call without the per-evaluation key and one past `maxToolCalls`: the relay refuses those before sending
+them anywhere (`ranNothing` in the ledger index), so they change no label.
 
 A `run` program is compiled offline against the tree's own module graph: maul writes a minimal `go.mod` (module
 `maulcheck`, the tree's `go` line) beside the program and makes a `go work` workspace of it and the tree, then builds

@@ -132,6 +132,11 @@ func TestIndexRecordsNoAnswer(t *testing.T) {
 	ran.Exit = 1
 	refused := entry(toolwire.KindAgent, toolwire.VerbHTTP, "")
 	refused.Refused = "navigation"
+	notStarted := func(verb toolwire.Verb, exit int, output string) toolwire.LedgerEntry {
+		e := entry(toolwire.KindAgent, verb, output)
+		e.Exit = exit
+		return e
+	}
 	for _, tt := range []struct {
 		name  string
 		entry toolwire.LedgerEntry
@@ -146,6 +151,27 @@ func TestIndexRecordsNoAnswer(t *testing.T) {
 		{"a run whose program did not compile", notRun, true},
 		{"a run that ran and exited 1", ran, false},
 		{"an exec with no output", entry(toolwire.KindAgent, toolwire.VerbExec, ""), false},
+		// FD 2: a program the shim could not start ran nothing; its output
+		// is maul's own marker alone, at exit 127 (not found) or 126.
+		{"an exec whose program was not found", notStarted(toolwire.VerbExec, 127,
+			`[maul: could not start make: exec: "make": executable file not found in $PATH]`), true},
+		{"an exec whose program could not start", notStarted(toolwire.VerbExec, 126,
+			"[maul: could not start ./tool: fork/exec ./tool: permission denied]"), true},
+		{"a run whose compiled program could not start", notStarted(toolwire.VerbRun, 126,
+			"[maul: could not start ./maulcheck: fork/exec ./maulcheck: exec format error]"), true},
+		{"the marker at another exit", notStarted(toolwire.VerbExec, 1,
+			"[maul: could not start make: exec: \"make\": executable file not found in $PATH]"), false},
+		{"the marker with output after it", notStarted(toolwire.VerbExec, 127,
+			"[maul: could not start x: no]\nmore"), false},
+		{"the marker after output", notStarted(toolwire.VerbExec, 127,
+			"out\n[maul: could not start x: no]"), false},
+		{"a shell that ran and found no program", notStarted(toolwire.VerbExec, 127,
+			"sh: 1: make: not found\n"), false},
+		{"a refused exec", func() toolwire.LedgerEntry {
+			e := notStarted(toolwire.VerbExec, 0, "")
+			e.Refused = toolwire.RefusedUnavailable
+			return e
+		}(), false},
 		{"a browser call", entry(toolwire.KindAgent, toolwire.VerbBrowser, ""), false},
 	} {
 		tt.entry.Seq = 1
