@@ -220,12 +220,15 @@ separate ALB and the wildcard DNS record are staged with the infrastructure, in 
 ## Agent evaluator (opt-in, off by default)
 
 `intentController.verification.evaluator: true` is acceptance verification's one switch: plans state outcomes in plain
-words, and an agent run explores each intent's live preview through a slot tool pod, writes its own checks, and holds
-the preview link until it has confirmed them (see [The agent evaluator](../../docs/intents/evaluator.md)). Off, nothing
-of it renders and no intent is verified: a Project that asks for verification says it is Off, and each preview is handed
-over at once. Slice 1's criteria no longer run: the former `preview.verification.enabled` is removed, and set, whatever
-its value, it fails the render naming this key
-([migrating from slice 1](../../docs/intents/evaluator.md#migrating-from-slice-1)). On, the chart renders:
+words, and an agent run explores each intent's live preview through a slot tool pod and holds the preview link until its
+verdicts, each citing the round's own verified tool calls, say every outcome holds (see
+[The agent evaluator](../../docs/intents/evaluator.md)). Off, nothing of it renders and no intent is verified: a Project
+that asks for verification says it is Off, and each preview is handed over at once. Slice 1's criteria no longer run:
+the former `preview.verification.enabled` is removed, and set, whatever its value, it fails the render naming this key
+([migrating from slice 1](../../docs/intents/evaluator.md#migrating-from-slice-1)). The check reviewer is retired with
+saved checks: `intentController.verification.checkReviewModel` and `checkReviewMaxTurns` are removed, and either one
+set, whatever its value, fails the render naming it
+([migrating from saved checks](../../docs/intents/evaluator.md#migrating-from-saved-checks)). On, the chart renders:
 
 - the `maul-evaluator-labels` admission policies: `maul.run/role` (`evaluator`, `checkreview`) and
   `maul.run/preview-verification` on an agents-namespace Job only from intent-controller, role `tools` on a preview-slot
@@ -245,10 +248,8 @@ its value, it fails the render naming this key
 | `intentController.verification.handoffMax`               | `60m`                         | The most a gated hand-off waits, from CI green at the first pull request heads (10m to 4h)                                                                                                                                                                                                                                           |
 | `intentController.verification.codexEvaluator`           | `false`                       | Evaluate codex Projects on brokered codex (not yet verified live). Off, such a Project gets the early hand-off and the condition `EvaluatorUnverified`                                                                                                                                                                               |
 | `intentController.verification.evaluateModel`            | `anthropic/claude-sonnet-5-5` | The evaluator's model (claude Projects)                                                                                                                                                                                                                                                                                              |
-| `intentController.verification.checkReviewModel`         | `anthropic/claude-sonnet-5-5` | The check reviewer's model (claude Projects)                                                                                                                                                                                                                                                                                         |
 | `intentController.verification.evaluateTimeout`          | `20m`                         | One evaluate run's wall clock. Must be shorter than `preview.verification.deadlineMaxSeconds`, since the round's tool Job runs for it plus five minutes                                                                                                                                                                              |
 | `intentController.verification.evaluateMaxTurns`         | `100`                         | The most agent turns one evaluate run may take, 1 to 1000 (a Project's `limits.evaluate.maxTurns` may lower it). Every tool call is a turn; the run's last few are kept for its report, so a run that reaches the cap still reports. Keep it the limit that binds first: the cost budget and the wall clock end a run with no report |
-| `intentController.verification.checkReviewMaxTurns`      | `6`                           | The most agent turns each check-review session may take, 1 to 1000; a session keeps its last turns (3 of the default 6) for one repair of its report                                                                                                                                                                                 |
 | `intentController.verification.maxEvaluateCostUSD`       | `6`                           | The most one intent's evaluation runs may spend, in USD (rendered in micro-USD); caps every Project's `limits.maxEvaluateCostMicroUSD`                                                                                                                                                                                               |
 | `intentController.verification.maxToolCalls`             | `300`                         | The evaluator's tool calls per round, 50 to 300; caps every Project's `verification.maxToolCalls`                                                                                                                                                                                                                                    |
 | `preview.verification.tools.image`                       | stamped                       | The digest-pinned `preview-tools` image (the tool pod's relay)                                                                                                                                                                                                                                                                       |

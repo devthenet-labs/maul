@@ -1,0 +1,19 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+{{- /*
+The check reviewer is retired with saved checks ("evaluator observed"): the
+evaluator's verdicts count when they cite calls of the round's own verified
+ledger, and nothing reviews or replays a check. Its two settings are removed,
+and either one set fails the render, whatever its value and whatever else is
+set (the evaluator on or off, intent-controller on or off), naming the key and
+the migration section, as preview.verification.testerImage did. The keys stay
+in values.schema.json for one release only so the render can say so.
+intent-controller still accepts and ignores the flags they rendered
+(MAUL_INTENT_CHECKREVIEW_*), with a startup warning. Renders nothing.
+*/}}
+{{- $ev := .Values.intentController.verification | default dict }}
+{{- range $key := list "checkReviewModel" "checkReviewMaxTurns" }}
+{{- if hasKey $ev $key }}
+{{- fail (printf "intentController.verification.%s is removed: the check reviewer is retired with saved checks, and the evaluator's verdicts count when they cite the round's own verified tool calls. Drop the key; see docs/intents/evaluator.md#migrating-from-saved-checks" $key) }}
+{{- end }}
+{{- end }}

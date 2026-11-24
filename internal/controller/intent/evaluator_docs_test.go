@@ -53,7 +53,8 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 		},
 		"charts/maul/README.md": {
 			"intentController.verification.evaluator", "defaultHandoff", "handoffMax", "codexEvaluator",
-			"evaluateModel", "checkReviewModel", "evaluateTimeout", "maxEvaluateCostUSD", "maxToolCalls",
+			"evaluateModel", "evaluateTimeout", "maxEvaluateCostUSD", "maxToolCalls",
+			"checkReviewModel", "checkReviewMaxTurns", "docs/intents/evaluator.md#migrating-from-saved-checks",
 			"preview.verification.tools", "maul-evaluator-labels", "agent.networkPolicy.create",
 			"docs/intents/evaluator.md",
 		},

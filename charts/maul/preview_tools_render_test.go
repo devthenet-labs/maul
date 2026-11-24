@@ -50,9 +50,9 @@ var toolConfigKeys = map[string][]string{
 	"maul-preview-controller-config": {"MAUL_PREVIEW_EVALUATOR", "MAUL_PREVIEW_TOOLS_IMAGE",
 		"MAUL_PREVIEW_BROWSER_IMAGE", "MAUL_PREVIEW_TOOLBOX_IMAGE", "MAUL_PREVIEW_AGENTS_NAMESPACE"},
 	"maul-intent-controller-config": {"MAUL_INTENT_EVALUATOR", "MAUL_INTENT_EVALUATE_MODEL",
-		"MAUL_INTENT_CHECKREVIEW_MODEL", "MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF",
-		"MAUL_INTENT_HANDOFF_MAX", "MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX",
-		"MAUL_INTENT_MAX_TOOL_CALLS", "MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS"},
+		"MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF", "MAUL_INTENT_HANDOFF_MAX",
+		"MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX", "MAUL_INTENT_MAX_TOOL_CALLS",
+		"MAUL_INTENT_EVALUATE_MAX_TURNS"},
 }
 
 // TestPreviewToolsOffRendersNothing: previews without the evaluator, and the
@@ -232,12 +232,11 @@ func checkToolConfig(t *testing.T, cms map[string]map[string]string) {
 			"MAUL_PREVIEW_BROWSER_IMAGE": browserImage, "MAUL_PREVIEW_TOOLBOX_IMAGE": toolboxImage,
 			"MAUL_PREVIEW_AGENTS_NAMESPACE": "maul-agents"},
 		"maul-intent-controller-config": {"MAUL_INTENT_EVALUATOR": "true",
-			"MAUL_INTENT_EVALUATE_MODEL":    "anthropic/claude-sonnet-5-5",
-			"MAUL_INTENT_CHECKREVIEW_MODEL": "anthropic/claude-sonnet-5-5",
-			"MAUL_INTENT_EVALUATE_TIMEOUT":  "20m", "MAUL_INTENT_DEFAULT_HANDOFF": "gated",
+			"MAUL_INTENT_EVALUATE_MODEL":   "anthropic/claude-sonnet-5-5",
+			"MAUL_INTENT_EVALUATE_TIMEOUT": "20m", "MAUL_INTENT_DEFAULT_HANDOFF": "gated",
 			"MAUL_INTENT_HANDOFF_MAX": "60m", "MAUL_INTENT_EVALUATE_CODEX": "false",
 			"MAUL_INTENT_EVALUATION_COST_MAX": "6000000", "MAUL_INTENT_MAX_TOOL_CALLS": "300",
-			"MAUL_INTENT_EVALUATE_MAX_TURNS": "100", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS": "6"},
+			"MAUL_INTENT_EVALUATE_MAX_TURNS": "100"},
 	}
 	for cm, kv := range want {
 		for k, v := range kv {
@@ -274,8 +273,9 @@ func TestPreviewToolsRenderRefusals(t *testing.T) {
 			"evaluateMaxTurns"},
 		refusal{"too many evaluate turns", with("--set", "intentController.verification.evaluateMaxTurns=1001"),
 			"evaluateMaxTurns"},
-		refusal{"no check-review turns", with("--set", "intentController.verification.checkReviewMaxTurns=0"),
-			"checkReviewMaxTurns"},
+		refusal{"the removed check-review turns", with("--set",
+			"intentController.verification.checkReviewMaxTurns=0"),
+			"intentController.verification.checkReviewMaxTurns is removed"},
 		refusal{"an unknown hand-off", with("--set", "intentController.verification.defaultHandoff=never"),
 			"defaultHandoff"},
 		refusal{"no evaluation budget", with("--set", "intentController.verification.maxEvaluateCostUSD=0"),
