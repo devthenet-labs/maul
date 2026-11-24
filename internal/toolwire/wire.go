@@ -379,6 +379,8 @@ const (
 	RefusedToolCalls   = "tool-calls-exhausted"
 	RefusedFinished    = "finished"
 	RefusedUnavailable = "unavailable"
+	// RefusedKey is a call without the per-evaluation key (SPEC O7).
+	RefusedKey = "key-refused"
 )
 
 // Response is every endpoint's answer. Untrusted holds bytes the

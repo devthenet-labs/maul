@@ -28,9 +28,12 @@ import (
 //     built binary (toolwire.BinPlaceholder or binary, as argv[0]) with no
 //     files, and no earlier call at the same side ran anything of the
 //     evaluator's there: /work is writable, so an earlier exec or run of its
-//     own could have replaced the binary or planted what it reads. An
-//     earlier call that maul refused ran nothing; one with no readable line
-//     is taken as its own.
+//     own could have replaced the binary or planted what it reads. One with
+//     no readable line is taken as its own. A refused one is passed over
+//     only when the index shows it ran nothing (RanNothing: no key, or past
+//     maxToolCalls); any other refusal may have come after the call was
+//     sent (the sandbox did not answer, or refused it part way) and is taken
+//     as having run.
 //   - A browser call is a page script unless its line shows a verb other
 //     than eval: with no line, or its args dropped to fit, nothing shows it
 //     was not one.
@@ -48,7 +51,7 @@ func OwnCalls(index []v1alpha1.LedgerIndexEntry, args func(seq int32) json.RawMe
 		case v1alpha1.LedgerVerbBrowser:
 			out[i] = !browserNotEval(a)
 		}
-		if agents && out[i] && ix.Kind == v1alpha1.LedgerKindAgent && !ix.Refused &&
+		if agents && out[i] && ix.Kind == v1alpha1.LedgerKindAgent && !ix.RanNothing &&
 			(ix.Verb == v1alpha1.LedgerVerbExec || ix.Verb == v1alpha1.LedgerVerbRun) {
 			tainted[ix.Side] = true
 		}

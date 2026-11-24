@@ -1139,9 +1139,19 @@ spec:
                             outcome. Unset on every other entry, and on an index written before
                             the field.
                           type: boolean
+                        ranNothing:
+                          description: |-
+                            RanNothing reports a refusal the relay made before the call reached
+                            anything that runs: a call without the per-evaluation key, or one past
+                            maxToolCalls. Nothing ran. Unset on every other entry, and on an index
+                            written before the field: a refusal that may have run something.
+                          type: boolean
                         refused:
-                          description: 'Refused reports that nothing ran: the call
-                            was refused.'
+                          description: |-
+                            Refused reports that the call was refused: what it asked for did not
+                            run as asked, and it is never evidence. A refusal may still come after
+                            the call was sent (the sandbox did not answer, or refused it part
+                            way), so it does not show that nothing ran; RanNothing does.
                           type: boolean
                         resultSHA256:
                           description: ResultSHA256 is the hex sha256 of its full

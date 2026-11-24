@@ -112,7 +112,10 @@ type ownEntry struct {
 	verb    v1alpha1.LedgerVerb
 	side    v1alpha1.TreeSide
 	refused bool
-	args    json.RawMessage
+	// ranNothing: the index shows the refusal ran nothing (no key, past
+	// maxToolCalls).
+	ranNothing bool
+	args       json.RawMessage
 }
 
 // TestOwnCallsAfterTheEvaluatorsOwn (FC 3): /work is writable, so once an
@@ -120,8 +123,10 @@ type ownEntry struct {
 // labelled its own, files of its own, any run, or an exec maul kept no
 // readable line of), a later bare exec of the built binary at that side may
 // run what that call left (a replaced binary, a planted file) and is
-// labelled the evaluator's own too. A refused call ran nothing, maul's own
-// build is the binary, and the other side's sandbox is another volume.
+// labelled the evaluator's own too. A refused call taints as one that ran
+// unless the index shows it ran nothing (FD 1: a refusal may come after the
+// call was sent), maul's own build is the binary, and the other side's
+// sandbox is another volume.
 func TestOwnCallsAfterTheEvaluatorsOwn(t *testing.T) {
 	bin := ownExec(t, []string{"{{bin}}", "--version"}, 0)
 	agent := func(verb v1alpha1.LedgerVerb, side v1alpha1.TreeSide, args json.RawMessage) ownEntry {
@@ -130,6 +135,19 @@ func TestOwnCallsAfterTheEvaluatorsOwn(t *testing.T) {
 	build := ownEntry{kind: v1alpha1.LedgerKindRelay, verb: v1alpha1.LedgerVerbBuild}
 	refusedShell := agent(v1alpha1.LedgerVerbExec, "", ownExec(t, []string{"sh", "-c", "cp x /work/bin/tool"}, 0))
 	refusedShell.refused = true
+	refusedRun := agent(v1alpha1.LedgerVerbRun, "", nil)
+	refusedRun.refused = true
+	refusedBin := agent(v1alpha1.LedgerVerbExec, "", bin)
+	refusedBin.refused = true
+	// A keyless call is recorded with args {}, so it is labelled its own;
+	// it reached no sandbox, so it taints nothing. Nor does one past
+	// maxToolCalls, whatever it asked.
+	keyless := agent(v1alpha1.LedgerVerbExec, "", json.RawMessage(`{}`))
+	keyless.refused, keyless.ranNothing = true, true
+	keylessRun := agent(v1alpha1.LedgerVerbRun, "", json.RawMessage(`{}`))
+	keylessRun.refused, keylessRun.ranNothing = true, true
+	overLimit := agent(v1alpha1.LedgerVerbExec, "", ownExec(t, []string{"sh", "-c", "cp x /work/bin/tool"}, 0))
+	overLimit.refused, overLimit.ranNothing = true, true
 	for _, tt := range []struct {
 		name    string
 		earlier []ownEntry
@@ -150,7 +168,15 @@ func TestOwnCallsAfterTheEvaluatorsOwn(t *testing.T) {
 			json.RawMessage(droppedArgs))}, true},
 		{"after a tainted bare run", []ownEntry{agent(v1alpha1.LedgerVerbRun, "", nil),
 			agent(v1alpha1.LedgerVerbExec, "", bin)}, true},
-		{"after a refused shell exec", []ownEntry{refusedShell}, false},
+		// A refusal may come after the call was sent (the sandbox did not
+		// answer, or refused it part way): it may have run, so it taints.
+		{"after a refused shell exec", []ownEntry{refusedShell}, true},
+		{"after a refused run", []ownEntry{refusedRun}, true},
+		// A refused bare run of the binary ran at most the binary.
+		{"after a refused bare run of the binary", []ownEntry{refusedBin}, false},
+		{"after a keyless exec", []ownEntry{keyless}, false},
+		{"after a keyless run", []ownEntry{keylessRun}, false},
+		{"after a shell exec past maxToolCalls", []ownEntry{overLimit}, false},
 		{"after a shell exec at the base", []ownEntry{agent(v1alpha1.LedgerVerbExec, v1alpha1.TreeBase,
 			ownExec(t, []string{"sh", "-c", "true"}, 0))}, false},
 		{"after a run at the base", []ownEntry{agent(v1alpha1.LedgerVerbRun, v1alpha1.TreeBase, nil)}, false},
@@ -188,7 +214,7 @@ func ownLabels(entries []ownEntry, agents bool, binary string) []bool {
 	for i, e := range entries {
 		seq := int32(i + 1)
 		ix[i] = v1alpha1.LedgerIndexEntry{Seq: seq, Kind: e.kind, Verb: e.verb, Side: e.side, Refused: e.refused,
-			ResultSHA256: fmt.Sprintf("%064d", i)}
+			RanNothing: e.ranNothing, ResultSHA256: fmt.Sprintf("%064d", i)}
 		args[seq] = e.args
 	}
 	return OwnCalls(ix, func(seq int32) json.RawMessage { return args[seq] }, agents, binary)

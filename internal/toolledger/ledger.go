@@ -98,14 +98,16 @@ func ClampInt32[T int | int64](n T) int32 {
 }
 
 // Index indexes every entry, in order: its facts without its output, its
-// side as the ledger records it (base, or none for the head), and whether
-// it is one of the evaluator's calls that got no answer (noAnswer).
+// side as the ledger records it (base, or none for the head), whether it is
+// one of the evaluator's calls that got no answer (noAnswer), and whether
+// it is a refusal that provably ran nothing (ranNothing).
 func Index(entries []toolwire.LedgerEntry) []v1alpha1.LedgerIndexEntry {
 	out := make([]v1alpha1.LedgerIndexEntry, 0, len(entries))
 	for _, e := range entries {
 		ie := v1alpha1.LedgerIndexEntry{Seq: ClampInt32(e.Seq), Kind: v1alpha1.LedgerKind(e.Kind),
 			Verb: v1alpha1.LedgerVerb(e.Verb), Exit: ClampInt32(e.Exit), ResultSHA256: e.OutputSHA256,
-			Refused: e.Refused != "", Side: v1alpha1.TreeSide(e.Side.Recorded()), NoAnswer: noAnswer(e)}
+			Refused: e.Refused != "", Side: v1alpha1.TreeSide(e.Side.Recorded()), NoAnswer: noAnswer(e),
+			RanNothing: ranNothing(e)}
 		for _, a := range e.Artifacts {
 			ie.Artifacts = append(ie.Artifacts, a.SHA256)
 		}
@@ -128,6 +130,16 @@ func noAnswer(e toolwire.LedgerEntry) bool {
 		return e.NotRun
 	}
 	return false
+}
+
+// ranNothing reports a refusal whose code only the relay's own gate writes,
+// before it dispatches the call: no key, or past maxToolCalls (a sandbox's
+// refusal is never recorded under either, previewtools' sandboxRefused).
+// Every other code may be written after the call was sent: unavailable is
+// also "the sandbox did not answer", and a sandbox's own refusal is passed
+// on under its code, so it proves nothing.
+func ranNothing(e toolwire.LedgerEntry) bool {
+	return e.Refused == toolwire.RefusedKey || e.Refused == toolwire.RefusedToolCalls
 }
 
 // Readiness is the relay's readiness wait, its first entry: a relay http

@@ -465,7 +465,10 @@ argument `{{bin}}` or the binary's path, no files passed) is not labelled as the
 evaluator's has run at that side; any other `exec`, and every `run`, is shown as the evaluator's own program. `/work` is
 writable, so once an earlier `exec` labelled as its own, or a `run`, ran at a side (or an `exec` whose line maul did not
 keep), every later `exec` of the built binary there is labelled the evaluator's own too: what it ran may be what that
-call left (see [Known limits](#known-limits)). A call maul refused ran nothing and changes no label.
+call left (see [Known limits](#known-limits)). A refused `exec` or `run` counts here as one that ran, since a refusal
+can come after the call was sent (the sandbox did not answer, or refused it part way). The exceptions are a call without
+the per-evaluation key and one past `maxToolCalls`: the relay refuses those before sending them anywhere (`ranNothing`
+in the ledger index), so they change no label.
 
 A `run` program is compiled offline against the tree's own module graph: maul writes a minimal `go.mod` (module
 `maulcheck`, the tree's `go` line) beside the program and makes a `go work` workspace of it and the tree, then builds
@@ -732,13 +735,13 @@ kubectl -n <namespace> get configmaps -l maul.run/intent \
 ```
 
 **Rolling back.** `helm rollback` to the previous release re-applies its CRDs, so the fields this release added
-(`judge`, `cites`, `side`, `noAnswer`) are pruned, and every object this release wrote still meets the previous schema;
-the previous controller publishes the check reviewer's `status.admits` entries again. A round under way at the rollback
-whose ledger records a `run` whose program did not compile (`notRun`) does not verify under the previous release, which
-settles that round as maul's own trouble (`ledger-mismatch`). The previous controller then starts its rounds with the
-model (a round with no model needs a record this release never writes), reads this release's evaluator reports (they
-hold a subset of its keys, except an anomaly's `outcome`: a report naming an outcome in an anomaly is refused whole by
-the previous controller and claims nothing), and numbers its next check store after the ones it left. Its comments,
-though, count the results this release judged as "outcomes confirmed": after a rollback, have an approver comment
-`/maul verify` on each open verifying intent, which judges it again under that release's rules. Rolling forward again
-withdraws those results once more (the marker was pruned), at the cost of one more evaluation each.
+(`judge`, `cites`, `side`, `noAnswer`, `ranNothing`) are pruned, and every object this release wrote still meets the
+previous schema; the previous controller publishes the check reviewer's `status.admits` entries again. A round under way
+at the rollback whose ledger records a `run` whose program did not compile (`notRun`) does not verify under the previous
+release, which settles that round as maul's own trouble (`ledger-mismatch`). The previous controller then starts its
+rounds with the model (a round with no model needs a record this release never writes), reads this release's evaluator
+reports (they hold a subset of its keys, except an anomaly's `outcome`: a report naming an outcome in an anomaly is
+refused whole by the previous controller and claims nothing), and numbers its next check store after the ones it left.
+Its comments, though, count the results this release judged as "outcomes confirmed": after a rollback, have an approver
+comment `/maul verify` on each open verifying intent, which judges it again under that release's rules. Rolling forward
+again withdraws those results once more (the marker was pruned), at the cost of one more evaluation each.

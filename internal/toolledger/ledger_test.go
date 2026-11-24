@@ -155,6 +155,31 @@ func TestIndexRecordsNoAnswer(t *testing.T) {
 	}
 }
 
+// TestIndexRecordsRanNothing (FD 1): only a refusal under a code the
+// relay's gate alone writes, before it sends a call anywhere (no key, past
+// maxToolCalls), shows that nothing ran. Every other refusal may have come
+// after the call was sent, and an unrefused call ran.
+func TestIndexRecordsRanNothing(t *testing.T) {
+	for _, tt := range []struct {
+		refused string
+		want    bool
+	}{
+		{toolwire.RefusedKey, true},
+		{toolwire.RefusedToolCalls, true},
+		{toolwire.RefusedUnavailable, false},
+		{toolwire.RefusedInvalid, false},
+		{toolwire.RefusedVerb, false},
+		{"", false},
+	} {
+		for _, verb := range []toolwire.Verb{toolwire.VerbExec, toolwire.VerbRun} {
+			e := toolwire.LedgerEntry{Seq: 1, Kind: toolwire.KindAgent, Verb: verb, Refused: tt.refused}
+			if got := Index([]toolwire.LedgerEntry{e})[0].RanNothing; got != tt.want {
+				t.Errorf("%s refused %q: ranNothing %v, want %v", verb, tt.refused, got, tt.want)
+			}
+		}
+	}
+}
+
 // boundedLedger is a verified ledger of n http entries, each output full.
 func boundedLedger(t *testing.T, n int) toolwire.Ledger {
 	t.Helper()

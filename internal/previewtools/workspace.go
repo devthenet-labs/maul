@@ -70,7 +70,7 @@ const (
 // reason so a reader can tell them apart.
 const (
 	// RefusedKey is a call without the per-evaluation key (SPEC O7).
-	RefusedKey = "key-refused"
+	RefusedKey = toolwire.RefusedKey
 	// ReasonBuildFailed: the head did not build, so nothing runs (the
 	// round can neither fail nor pass, httpstep.RoleBuild).
 	ReasonBuildFailed = "build-failed"
@@ -474,7 +474,7 @@ func programResult(res toolexec.Result, err error, refused string) result {
 	case err != nil:
 		return refusal(toolwire.RefusedUnavailable, "the sandbox did not answer")
 	case res.Refused != "":
-		return refusal(res.Refused, refused)
+		return refusal(sandboxRefused(res.Refused), refused)
 	}
 	exit := res.Exit
 	out := result{output: res.Output, inline: res.Output, exit: exit, observed: &toolwire.Observed{Exit: &exit}}
@@ -490,6 +490,18 @@ func programResult(res toolexec.Result, err error, refused string) result {
 	}
 	out.reason = strings.Join(notes, "; ")
 	return out
+}
+
+// sandboxRefused is a sandbox's refusal code as the ledger records it: as
+// given, except a code only the relay's gate writes (no key, past
+// maxToolCalls), which the index reads as "nothing ran" (toolledger's
+// ranNothing). A sandbox has sent nothing under either; one that does is
+// not maul's shim, and its refusal is recorded unavailable.
+func sandboxRefused(code string) string {
+	if code == toolwire.RefusedKey || code == toolwire.RefusedToolCalls {
+		return toolwire.RefusedUnavailable
+	}
+	return code
 }
 
 func sideRefusal(side toolwire.Side, code, reason string) result {

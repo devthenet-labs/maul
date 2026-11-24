@@ -164,9 +164,12 @@ type LedgerEntry struct {
 	// Exit is the exit code of the process the verb ran (the Playwright
 	// CLI, an exec argv); 0 for a verb that runs none.
 	Exit int `json:"exit"`
-	// Refused is the refusal code when nothing ran, empty otherwise;
-	// Reason is maul's words for it, as the caller was told (S1 demo bug
-	// 9: a reader can tell which rule refused).
+	// Refused is the refusal code when the call did not run as asked,
+	// empty otherwise; Reason is maul's words for it, as the caller was
+	// told (S1 demo bug 9: a reader can tell which rule refused). A
+	// refusal records no exit, artifact or locator, but only the relay
+	// gate's codes (RefusedKey, RefusedToolCalls) show that nothing ran: a
+	// sandbox that did not answer may have run the program.
 	Refused string `json:"refused,omitempty"`
 	Reason  string `json:"reason,omitempty"`
 	// NotRun reports a run whose program never ran: it did not compile, or
@@ -218,7 +221,7 @@ func sha256Hex(b []byte) string {
 
 // Check holds an entry to the bounds and consistency the tools container
 // keeps: known kind and verb, bounded fields, an output matching its
-// digest, and a refusal that ran nothing.
+// digest, and a refusal that records nothing run.
 func (e LedgerEntry) Check() error {
 	switch {
 	case e.Seq < 1:
@@ -248,8 +251,8 @@ func (e LedgerEntry) Check() error {
 }
 
 // checkOutcome holds what an entry says of how its call ended: a refusal
-// is a code and ran nothing, and only a run that was not refused records
-// that its program never ran.
+// is a code and records no exit, artifact or locator, and only a run that
+// was not refused records that its program never ran.
 func (e LedgerEntry) checkOutcome() error {
 	if e.NotRun && (e.Verb != VerbRun || e.Refused != "") {
 		return errors.New("only a run that was not refused records that its program never ran")

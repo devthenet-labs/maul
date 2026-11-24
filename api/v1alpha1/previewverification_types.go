@@ -866,9 +866,18 @@ type LedgerIndexEntry struct {
 	// +listType=atomic
 	// +kubebuilder:validation:items:Pattern=`^[0-9a-f]{64}$`
 	Artifacts []string `json:"artifacts,omitempty"`
-	// Refused reports that nothing ran: the call was refused.
+	// Refused reports that the call was refused: what it asked for did not
+	// run as asked, and it is never evidence. A refusal may still come after
+	// the call was sent (the sandbox did not answer, or refused it part
+	// way), so it does not show that nothing ran; RanNothing does.
 	// +optional
 	Refused bool `json:"refused,omitempty"`
+	// RanNothing reports a refusal the relay made before the call reached
+	// anything that runs: a call without the per-evaluation key, or one past
+	// maxToolCalls. Nothing ran. Unset on every other entry, and on an index
+	// written before the field: a refusal that may have run something.
+	// +optional
+	RanNothing bool `json:"ranNothing,omitempty"`
 	// Side is the tree an agents tool pod ran the call against: base for
 	// the merge base, unset for the head (and for every slot entry), the
 	// ledger's own encoding (toolwire.Side.Recorded). A base-side entry is

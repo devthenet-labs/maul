@@ -961,13 +961,14 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
   `api/v1alpha1` and `httpstep`): `Parse` (the `tools` log held to its termination summary), `Index` (the status
-  index, a base call's entry `side: base`, an evaluator call that got no answer `noAnswer`), `Readiness`,
+  index, a base call's entry `side: base`, an evaluator call that got no answer `noAnswer`, a refusal the relay's gate
+  made before sending the call anywhere, no key or past `maxToolCalls`, `ranNothing`), `Readiness`,
   `ConfigMapData` (oldest outputs dropped first) and `Key`; `ApplyStatus` (the one ledger-to-status write both hosts
   make: the index and the summary the host names its ConfigMaps on; never the retired replay, confirmation, confirmed or
   base fields), `OwnCalls` (which calls the comments and the status page label as the evaluator's own page script or
   program, failing closed: a browser call unless its kept line shows a verb other than `eval`, every `run`, and an
   `exec` other than an agents round's bare run of the built binary after nothing of the evaluator's ran at that side,
-  since `/work` is writable),
+  since `/work` is writable; a refused exec or run there counts as having run unless `ranNothing`),
   `ReadStored` (a `<pv>-ledger` line, shown only where it is the index's call and its output re-hashes),
   `EvaluatorCalled` and `RoundReason` (a round with no evaluator call: `evaluator-not-run`, or `tools-not-ready` with no
   `status.tools`). Its trust root: a log that does not hold is Infra `ledger-mismatch`, never a verdict.

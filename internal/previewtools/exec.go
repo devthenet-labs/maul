@@ -36,7 +36,7 @@ func (r *Relay) exec(ctx context.Context, req *toolwire.ExecRequest) result {
 		return refusal(toolwire.RefusedUnavailable, "the sandbox did not answer")
 	}
 	if res.Refused != "" {
-		return refusal(res.Refused, "the sandbox refused the exec")
+		return refusal(sandboxRefused(res.Refused), "the sandbox refused the exec")
 	}
 	exit := res.Exit
 	return result{output: res.Output, inline: res.Output, exit: exit, observed: &toolwire.Observed{Exit: &exit}}
