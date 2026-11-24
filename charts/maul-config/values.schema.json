@@ -874,7 +874,7 @@
                             "type": "integer"
                         },
                         "maxEvaluateCostMicroUSD": {
-                            "description": "MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in\nmicro-USD: what the intent's evaluate and checkreview runs may spend\ntogether, apart from the build ceiling (maxCostMicroUSD). Past it the\nevaluation ends and the hand-off is released as unconfirmed, never a\nblock. Nil means DefaultMaxEvaluateCostMicroUSD\n(MaxEvaluateCostLimit).",
+                            "description": "MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in\nmicro-USD: what the intent's evaluate runs may spend together, apart\nfrom the build ceiling (maxCostMicroUSD). Past it the evaluation ends\nand the hand-off is released as unconfirmed, never a block. Nil means DefaultMaxEvaluateCostMicroUSD\n(MaxEvaluateCostLimit).",
                             "format": "int64",
                             "maximum": 1000000000,
                             "minimum": 1,
@@ -1203,7 +1203,7 @@
                             "type": "string"
                         },
                         "handoffMax": {
-                            "description": "HandoffMax bounds a gated hand-off's wait, counted from CI green at\nthe first PR heads, between 10m and 4h; DefaultHandoffMax when unset.\nPast it the hand-off is released as \"couldn't confirm: out of time\".",
+                            "description": "HandoffMax bounds a gated hand-off's wait, counted from CI green at\nthe first PR heads, between 10m and 4h; DefaultHandoffMax when unset.\nPast it the hand-off is released as \"maul can't call this ready: it ran\nout of time\".",
                             "type": "string"
                         },
                         "manualGatesStatus": {

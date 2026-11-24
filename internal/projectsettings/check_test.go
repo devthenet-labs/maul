@@ -508,8 +508,8 @@ func TestCheckRunBudgets(t *testing.T) {
 		a := p.Status.Admits
 		a.CostBudgets, a.MaxRunCostMicroUSD = true, 12_000_000
 		a.RunBudgetFloors = []v1alpha1.ProjectRunBudgetFloor{
-			{Model: "anthropic/claude-b", EvaluateMicroUSD: 1_600_000, CheckReviewMicroUSD: 400_000},
-			{Model: "anthropic/claude-dear", EvaluateMicroUSD: 4_800_000, CheckReviewMicroUSD: 1_200_000},
+			{Model: "anthropic/claude-b", EvaluateMicroUSD: 1_600_000},
+			{Model: "anthropic/claude-dear", EvaluateMicroUSD: 4_800_000},
 		}
 	}
 	and := func(muts ...func(*v1alpha1.Project)) func(*v1alpha1.Project) {
@@ -585,16 +585,21 @@ func TestCheckRunBudgets(t *testing.T) {
 			project: cost, edit: func(d *ProjectSettings) { d.Limits.MaxEvaluateCostMicroUSD = 1_000_000 },
 			want: []ProjectSettingsRefusal{{Field: FieldMaxEvaluateCost, Reason: RefusedRunBudgetUnderReserve,
 				Limit: 1_600_000, Value: "anthropic/claude-b"}}},
-		// The page offers no check reviewer setting, but the operator's own
-		// budget for it still counts once the Project is verified.
-		{name: "reserve: the check reviewer has a floor of its own",
+		// The check reviewer is retired: no run of it is created, so the
+		// budget its retired limits name, however short, is never judged,
+		// as the controller no longer judges it.
+		{name: "reserve: the retired check reviewer's budget is not judged",
 			project: and(cost, func(p *v1alpha1.Project) {
-				p.Spec.Limits.CheckReview.MaxCostMicroUSD = 300_000
+				p.Spec.Limits.CheckReview.MaxCostMicroUSD = 1
 				p.Spec.Verification.Enabled = false
 			}),
-			edit: func(d *ProjectSettings) { d.Verification.Enabled = true },
-			want: []ProjectSettingsRefusal{{Field: FieldVerificationEnabled,
-				Reason: RefusedRunBudgetUnderReserve, Limit: 400_000, Value: "anthropic/claude-b"}}},
+			edit: func(d *ProjectSettings) { d.Verification.Enabled = true }},
+		{name: "hourly: the retired check reviewer's budget is not judged",
+			project: and(cost, func(p *v1alpha1.Project) {
+				p.Status.Admits.MaxRunCostMicroUSD = 5_000_000
+				p.Spec.Limits.Evaluate.MaxCostMicroUSD = 2_000_000
+			}),
+			edit: func(d *ProjectSettings) { d.Limits.MaxEvaluateCostMicroUSD = 7_000_000 }},
 		{name: "reserve: a model with no entry has no floor",
 			project: and(cost, func(p *v1alpha1.Project) { p.Spec.Limits.Evaluate.MaxCostMicroUSD = 1_000_000 }),
 			edit:    func(d *ProjectSettings) { d.Models.Evaluate = "anthropic/claude-a" }},
@@ -618,7 +623,7 @@ func TestCheckRunBudgets(t *testing.T) {
 // A run's budget is the stage's own, or the ceiling it is spent against
 // when it has none or states more: the per-intent cost for plan, build and
 // revise, the evaluation cost (held to the controller's own maximum) for
-// the evaluator's two.
+// the evaluate stage.
 func TestRunBudget(t *testing.T) {
 	spec := func(perIntent, evaluation, own int64) *v1alpha1.ProjectSpec {
 		s := &v1alpha1.ProjectSpec{}
@@ -651,8 +656,8 @@ func TestRunBudget(t *testing.T) {
 			"evaluate", 3_000_000},
 		{"evaluate: a maximum above the evaluation cost changes nothing", spec(20_000_000, 5_000_000, 0),
 			admits(9_000_000), "evaluate", 5_000_000},
-		{"the check reviewer follows the evaluation cost", spec(20_000_000, 5_000_000, 4_000_000), admits(0),
-			"checkReview", 5_000_000},
+		{"the retired check reviewer is no stage", spec(20_000_000, 5_000_000, 4_000_000), admits(0),
+			"checkReview", 0},
 		{"no such stage", spec(20_000_000, 0, 0), nil, "deploy", 0},
 	} {
 		if got := RunBudget(tc.spec, tc.admits, tc.stage); got != tc.want {

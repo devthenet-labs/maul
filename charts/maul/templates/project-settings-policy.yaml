@@ -87,8 +87,8 @@ the page's part; $nonePinned: %[1]s owns none. */}}
 {{- /*
 The editable keys at each level of the spec, from the page's table
 (projectsettings.Fields): the coverage test holds them to it. models and
-limits leave out the check reviewer (owner decision 8), so its model and
-limits are pinned.
+limits leave out the retired check reviewer, so its model and limits are
+pinned until the next release removes the fields.
 */}}
 {{- $models := list "plan" "build" "evaluate" }}
 {{- $stages := list "plan" "build" "revise" "evaluate" }}

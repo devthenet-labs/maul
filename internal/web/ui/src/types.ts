@@ -1001,7 +1001,7 @@ export interface Account {
 // ---- Project settings page (internal/projectsettings, served by -----------
 // internal/web/project_settings.go). Durations are whole seconds and money
 // micro-USD, both integers; 0 is unset where the Project's own field says so.
-// The check reviewer's model and limits are not on the page.
+// The retired check reviewer's model and limits are not on the page.
 
 export type ProjectSettingsGroup =
   | "approvers"

@@ -61,8 +61,8 @@ const SCHEMA_DEFAULTED = new Set([
 const NULLABLE = new Set(["limits.maxRevisions", "limits.maxCheckFixes", "limits.maxVerifyFixes"]);
 
 // RETIRED_STAGES are stages whose limits and model the page never offers
-// (the check reviewer, being retired: owner decision 8), whatever a server
-// sends.
+// (the retired check reviewer), whatever a server sends: an older server
+// during an upgrade still might.
 const RETIRED_STAGES = new Set(["checkReview"]);
 
 // ---- document slots -----------------------------------------------------------

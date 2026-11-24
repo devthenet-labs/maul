@@ -272,8 +272,8 @@ func (j *judge) number(r row, was, is value) {
 // in micro-USD, as intent-controller reckons it: the stage's own
 // maxCostMicroUSD, or the ceiling it is spent against when that is unset,
 // and never more than that ceiling. The ceiling is the per-intent cost for
-// plan, build and revise, and for the evaluator's two stages the evaluation
-// cost, itself held to the controller's own maximum where it publishes one.
+// plan, build and revise, and for the evaluate stage the evaluation cost,
+// itself held to the controller's own maximum where it publishes one.
 // Zero for a stage there is none of.
 //
 // It is the controller's Settings.stageBudget written from published data;
@@ -302,8 +302,8 @@ func (st stage) budget(spec *v1alpha1.ProjectSpec, admits *v1alpha1.ProjectAdmit
 }
 
 // counted reports whether the controller judges the stage's run budget for
-// this spec: always for plan, build and revise, and for the evaluator's
-// stages while the evaluator is on and the Project asks to be verified.
+// this spec: always for plan, build and revise, and for the evaluate stage
+// while the evaluator is on and the Project asks to be verified.
 // (The controller has further reasons not to verify a Project, which are
 // not published; counting a stage it would not is the cautious side.)
 func (st stage) counted(spec *v1alpha1.ProjectSpec, admits *v1alpha1.ProjectAdmits) bool {
@@ -313,42 +313,26 @@ func (st stage) counted(spec *v1alpha1.ProjectSpec, admits *v1alpha1.ProjectAdmi
 // model is the model the evaluator stage runs for this spec: the Project's
 // choice, or the controller's own.
 func (st stage) model(spec *v1alpha1.ProjectSpec, admits *v1alpha1.ProjectAdmits) string {
-	chosen, def := "", admits.DefaultModels.Evaluate
-	if spec.Models != nil {
-		chosen = spec.Models.Evaluate
+	if spec.Models != nil && spec.Models.Evaluate != "" {
+		return spec.Models.Evaluate
 	}
-	if st.name == stageCheckReview {
-		def = admits.DefaultModels.CheckReview
-		if spec.Models != nil {
-			chosen = spec.Models.CheckReview
-		}
-	}
-	if chosen != "" {
-		return chosen
-	}
-	return def
+	return admits.DefaultModels.Evaluate
 }
 
 // reserve is the least budget a run of the evaluator stage may have on a
 // model: zero when the controller publishes none for it.
 func (st stage) reserve(admits *v1alpha1.ProjectAdmits, model string) int64 {
 	for _, f := range admits.RunBudgetFloors {
-		if f.Model != model {
-			continue
+		if f.Model == model {
+			return f.EvaluateMicroUSD
 		}
-		if st.name == stageCheckReview {
-			return f.CheckReviewMicroUSD
-		}
-		return f.EvaluateMicroUSD
 	}
 	return 0
 }
 
-const stageCheckReview = "checkReview"
-
 // budgets judges what the save does to each stage's run budget. Under the
 // broker's cost unit intent-controller takes a whole Project not Ready when
-// a run's budget is over half the hourly limit or, for an evaluator stage,
+// a run's budget is over half the hourly limit or, for the evaluate stage,
 // under what its model's requests reserve; every open intent then waits.
 // A budget moves with more than its own field (a stage with none follows
 // the per-intent cost; the reserve follows the model), so it is judged

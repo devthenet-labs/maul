@@ -24,7 +24,7 @@ import (
 func TestProjectSettingsRunBudgetIsStageBudget(t *testing.T) {
 	stages := map[string]v1alpha1.IntentStage{
 		"plan": v1alpha1.IntentStagePlan, "build": v1alpha1.IntentStageBuild, "revise": v1alpha1.IntentStageRevise,
-		"evaluate": v1alpha1.IntentStageEvaluate, "checkReview": v1alpha1.IntentStageCheckReview,
+		"evaluate": v1alpha1.IntentStageEvaluate,
 	}
 	if got := projectsettings.StageNames(); len(got) != len(stages) {
 		t.Fatalf("projectsettings has stages %v, this pin knows %d", got, len(stages))

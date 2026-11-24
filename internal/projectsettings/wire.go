@@ -52,9 +52,10 @@ type ProjectSettingsVerification struct {
 }
 
 // ProjectSettingsModels are spec.models: one canonical model per stage, ""
-// for the install's. The check reviewer's (models.checkReview) is not one of
-// them: that stage is being retired, so the page neither shows nor changes
-// it (the owner's decision 8).
+// for the install's. The retired check reviewer's (models.checkReview) is
+// not one of them: no run of it is created, so the page neither shows nor
+// changes it, and the admission policy pins it until the next release
+// removes the field.
 type ProjectSettingsModels struct {
 	Plan     string `json:"plan"`
 	Build    string `json:"build"`
@@ -80,8 +81,8 @@ type ProjectSettingsLimits struct {
 }
 
 // ProjectSettingsStages are the per-stage limits, in spec.limits' spelling
-// of the stages. The check reviewer's (limits.checkReview) are not on the
-// page, as its model is not.
+// of the stages. The retired check reviewer's (limits.checkReview) are not
+// on the page, as its model is not.
 type ProjectSettingsStages struct {
 	Plan     ProjectSettingsStage `json:"plan"`
 	Build    ProjectSettingsStage `json:"build"`

@@ -257,9 +257,10 @@ const (
 // keep them in lockstep.
 const (
 	// MinToolCalls and MaxToolCallsLimit bound maxToolCalls, on a Project
-	// and on a PreviewVerification. The upper bound is what the tools
-	// ledger has room for beside its replay, confirmation and relay entries
-	// (internal/toolwire.MaxEntries).
+	// and on a PreviewVerification. The upper bound leaves the tools ledger
+	// (internal/toolwire.MaxEntries) room for its relay entries beside the
+	// evaluator's calls; it was sized when replays and confirmations shared
+	// the ledger too, and is kept so no Project's value moves.
 	MinToolCalls      = 50
 	MaxToolCallsLimit = 300
 	// MaxLookAroundRoutes bounds the routes the look-around visits.

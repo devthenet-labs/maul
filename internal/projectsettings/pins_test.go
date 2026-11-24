@@ -265,13 +265,22 @@ func TestFieldTable(t *testing.T) {
 	if !reflect.DeepEqual(Groups(), want) {
 		t.Errorf("Groups = %v, want %v", Groups(), want)
 	}
-	stageNames := []string{"plan", "build", "revise", "evaluate", "checkReview"}
+	stageNames := []string{"plan", "build", "revise", "evaluate"}
 	if got := StageNames(); !reflect.DeepEqual(got, stageNames) {
 		t.Errorf("StageNames = %v, want %v", got, stageNames)
 	}
 	limits := child(t, spec, "limits")["properties"].(crdNode)
 	for name, node := range limits {
-		if _, stage := node.(crdNode)["properties"]; stage != slices.Contains(StageNames(), name) {
+		_, stage := node.(crdNode)["properties"]
+		if name == retiredStage {
+			// Kept in the schema for one release, nothing reads it.
+			if !stage || slices.Contains(StageNames(), name) {
+				t.Errorf("limits.%s: a stage in the schema %v, in StageNames %v; want the schema's alone", name,
+					stage, slices.Contains(StageNames(), name))
+			}
+			continue
+		}
+		if stage != slices.Contains(StageNames(), name) {
 			t.Errorf("limits.%s: a stage in the schema %v, in StageNames %v", name, stage, !stage)
 		}
 	}
@@ -285,6 +294,11 @@ func TestFieldTable(t *testing.T) {
 		t.Errorf("%d editable fields; a field added or dropped changes the document (Schema) and the page", len(Fields()))
 	}
 }
+
+// retiredStage is the check reviewer's limits, retired with the stage:
+// still in the CRD schema, so the admission policy pins it, and never a
+// stage of the page's.
+const retiredStage = "checkReview"
 
 // Every wire type is listed once for the TypeScript pin, under a name that
 // starts with ProjectSettings (the page's interfaces share one namespace),

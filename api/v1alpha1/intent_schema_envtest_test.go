@@ -706,21 +706,20 @@ func schemaProjectAdmits() *maulv1.ProjectAdmits {
 		Models: []string{"anthropic/claude-opus-5", "anthropic/claude-sonnet-5"},
 		DefaultModels: maulv1.ProjectStageModels{
 			Plan: "anthropic/claude-opus-5", Build: "anthropic/claude-sonnet-5",
-			Evaluate: "anthropic/claude-sonnet-5", CheckReview: "anthropic/claude-haiku-5",
+			Evaluate: "anthropic/claude-sonnet-5",
 		},
 		Stages: maulv1.ProjectStageCeilings{
-			Plan:        stage(40, 200000, 20*time.Minute),
-			Build:       stage(150, 800000, time.Hour),
-			Revise:      stage(80, 400000, 45*time.Minute),
-			Evaluate:    stage(100, 400000, 20*time.Minute),
-			CheckReview: stage(6, 100000, 15*time.Minute),
+			Plan:     stage(40, 200000, 20*time.Minute),
+			Build:    stage(150, 800000, time.Hour),
+			Revise:   stage(80, 400000, 45*time.Minute),
+			Evaluate: stage(100, 400000, 20*time.Minute),
 		},
 		MaxEvaluateCostMicroUSD: 6000000,
 		MaxToolCalls:            300,
 		CostBudgets:             true,
 		MaxRunCostMicroUSD:      25000000,
 		RunBudgetFloors: []maulv1.ProjectRunBudgetFloor{
-			{Model: "anthropic/claude-opus-5", EvaluateMicroUSD: 1600000, CheckReviewMicroUSD: 409600},
+			{Model: "anthropic/claude-opus-5", EvaluateMicroUSD: 1600000},
 			{Model: "anthropic/claude-sonnet-5", EvaluateMicroUSD: 960000},
 		},
 		Evaluator: true,
@@ -795,7 +794,7 @@ func testProjectSettingsStatus(ctx context.Context, t *testing.T, c client.Clien
 		}},
 		{"a model with no floor of its own, and one listed twice", func(s *maulv1.ProjectStatus) {
 			s.Admits.RunBudgetFloors = []maulv1.ProjectRunBudgetFloor{
-				{Model: "Fake Model"}, {Model: "Fake Model", CheckReviewMicroUSD: 1 << 40},
+				{Model: "Fake Model"}, {Model: "Fake Model", EvaluateMicroUSD: 1 << 40},
 			}
 		}},
 		{"an identity for every login the spec may hold", func(s *maulv1.ProjectStatus) {
@@ -882,11 +881,6 @@ func testProjectSettingsStatus(ctx context.Context, t *testing.T, c client.Clien
 		}},
 		{"a negative budget floor", func(s *maulv1.ProjectStatus) {
 			s.Admits.RunBudgetFloors = []maulv1.ProjectRunBudgetFloor{{Model: "anthropic/claude-opus-5", EvaluateMicroUSD: -1}}
-		}},
-		{"a negative check review floor", func(s *maulv1.ProjectStatus) {
-			s.Admits.RunBudgetFloors = []maulv1.ProjectRunBudgetFloor{
-				{Model: "anthropic/claude-opus-5", CheckReviewMicroUSD: -1},
-			}
 		}},
 		{"a negative stage ceiling", func(s *maulv1.ProjectStatus) { s.Admits.Stages.Plan.MaxTurns = -1 }},
 		{"a negative token ceiling", func(s *maulv1.ProjectStatus) { s.Admits.Stages.Evaluate.TokenBudget = -1 }},

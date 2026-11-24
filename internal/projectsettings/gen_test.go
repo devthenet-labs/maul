@@ -94,13 +94,12 @@ func baseAdmits() *v1alpha1.ProjectAdmits {
 	return &v1alpha1.ProjectAdmits{
 		Models: []string{"anthropic/claude-a", "anthropic/claude-b", "anthropic/claude-dear"},
 		DefaultModels: v1alpha1.ProjectStageModels{Plan: "anthropic/claude-a", Build: "anthropic/claude-a",
-			Evaluate: "anthropic/claude-b", CheckReview: "anthropic/claude-b"},
+			Evaluate: "anthropic/claude-b"},
 		Stages: v1alpha1.ProjectStageCeilings{
-			Plan:        ceiling(40, 200_000, 20*time.Minute),
-			Build:       ceiling(150, 800_000, 60*time.Minute),
-			Revise:      ceiling(80, 400_000, 45*time.Minute),
-			Evaluate:    ceiling(100, 400_000, 20*time.Minute),
-			CheckReview: ceiling(6, 100_000, 15*time.Minute),
+			Plan:     ceiling(40, 200_000, 20*time.Minute),
+			Build:    ceiling(150, 800_000, 60*time.Minute),
+			Revise:   ceiling(80, 400_000, 45*time.Minute),
+			Evaluate: ceiling(100, 400_000, 20*time.Minute),
 		},
 		MaxEvaluateCostMicroUSD: 8_000_000,
 		MaxToolCalls:            250,
@@ -369,8 +368,8 @@ func genStatus(r *rand.Rand, p *v1alpha1.Project) {
 		a.Workflows = a.Subagents && r.Intn(2) == 0
 		if a.CostBudgets && r.Intn(2) == 0 {
 			a.RunBudgetFloors = []v1alpha1.ProjectRunBudgetFloor{
-				{Model: "anthropic/claude-b", EvaluateMicroUSD: 1_600_000, CheckReviewMicroUSD: 400_000},
-				{Model: "anthropic/claude-dear", EvaluateMicroUSD: 4_800_000, CheckReviewMicroUSD: 1_200_000},
+				{Model: "anthropic/claude-b", EvaluateMicroUSD: 1_600_000},
+				{Model: "anthropic/claude-dear", EvaluateMicroUSD: 4_800_000},
 			}
 		}
 		p.Status.Admits = a

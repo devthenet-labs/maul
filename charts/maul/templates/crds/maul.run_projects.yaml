@@ -459,10 +459,9 @@ spec:
                   maxEvaluateCostMicroUSD:
                     description: |-
                       MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
-                      micro-USD: what the intent's evaluate and checkreview runs may spend
-                      together, apart from the build ceiling (maxCostMicroUSD). Past it the
-                      evaluation ends and the hand-off is released as unconfirmed, never a
-                      block. Nil means DefaultMaxEvaluateCostMicroUSD
+                      micro-USD: what the intent's evaluate runs may spend together, apart
+                      from the build ceiling (maxCostMicroUSD). Past it the evaluation ends
+                      and the hand-off is released as unconfirmed, never a block. Nil means DefaultMaxEvaluateCostMicroUSD
                       (MaxEvaluateCostLimit).
                     format: int64
                     maximum: 1000000000
@@ -964,7 +963,8 @@ spec:
                     description: |-
                       HandoffMax bounds a gated hand-off's wait, counted from CI green at
                       the first PR heads, between 10m and 4h; DefaultHandoffMax when unset.
-                      Past it the hand-off is released as "couldn't confirm: out of time".
+                      Past it the hand-off is released as "maul can't call this ready: it ran
+                      out of time".
                     type: string
                     x-kubernetes-validations:
                     - message: verification.handoffMax must be between 10m and 4h
@@ -1080,11 +1080,6 @@ spec:
                           run's.
                         maxLength: 256
                         type: string
-                      checkReview:
-                        description: CheckReview is the check reviewer's model; empty
-                          as Evaluate is.
-                        maxLength: 256
-                        type: string
                       evaluate:
                         description: |-
                           Evaluate is the agent evaluator's model; empty while this controller
@@ -1197,26 +1192,19 @@ spec:
                   runBudgetFloors:
                     description: |-
                       RunBudgetFloors are, per model, the least cost budget one evaluate
-                      run and one checkreview run on that model may have while CostBudgets
-                      is true: twice what the egress broker reserves for each of the run's
-                      requests. A stage whose run budget is under its model's floor makes
-                      the Project not Ready (RunBudgetUnderRequestReserve), so the floor
-                      moves with the model a stage is given as much as with its budget. A
-                      model with no entry has no floor. Empty while the broker counts
+                      run on that model may have while CostBudgets is true: twice what the
+                      egress broker reserves for each of the run's requests. An evaluate
+                      run budget under its model's floor makes the Project not Ready
+                      (RunBudgetUnderRequestReserve), so the floor moves with the model the
+                      stage is given as much as with its budget. A model with no entry has
+                      no floor. Empty while the broker counts
                       tokens, the evaluator is off, or the Project's harness is one whose
                       runs are not judged (codex).
                     items:
                       description: |-
-                        ProjectRunBudgetFloor is the least cost budget a run of each evaluator
-                        stage may have on one model, in micro-USD.
+                        ProjectRunBudgetFloor is the least cost budget an evaluate run may have
+                        on one model, in micro-USD.
                       properties:
-                        checkReviewMicroUSD:
-                          description: |-
-                            CheckReviewMicroUSD is the least budget of a checkreview run on
-                            Model. Zero (omitted): no floor.
-                          format: int64
-                          minimum: 0
-                          type: integer
                         evaluateMicroUSD:
                           description: |-
                             EvaluateMicroUSD is the least budget of an evaluate run on Model.
@@ -1244,27 +1232,6 @@ spec:
                     properties:
                       build:
                         description: Build is the build stage's ceiling.
-                        properties:
-                          maxTurns:
-                            description: MaxTurns is the most turns one run of the
-                              stage is granted.
-                            format: int32
-                            minimum: 0
-                            type: integer
-                          timeout:
-                            description: Timeout is the longest wall clock one run
-                              of the stage is granted.
-                            type: string
-                          tokenBudget:
-                            description: |-
-                              TokenBudget is the largest output-token budget one run of the stage
-                              is granted.
-                            format: int64
-                            minimum: 0
-                            type: integer
-                        type: object
-                      checkReview:
-                        description: CheckReview is the check reviewer's ceiling.
                         properties:
                           maxTurns:
                             description: MaxTurns is the most turns one run of the
