@@ -292,9 +292,9 @@ See [Acceptance verification](../intents/acceptance.md) for what people see. The
   `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800), the bound the slot Job admission policy
   enforces, and renders the same value as intent-controller's `--intent-verify-timeout-max`.
 - **Re-checks before anything runs.** The request must name this Preview's UID and generation, which must be Ready at
-  exactly the requested heads with its rollout settled (no pod of the Preview still on an older image); the outcomes and
-  saved checks must be the Intent's approved ones, by digest; and the Preview's `environment` must re-derive from the
-  Project. Otherwise the verification is `Stale` and nothing renders.
+  exactly the requested heads with its rollout settled (no pod of the Preview still on an older image); the outcomes
+  must be the Intent's approved ones, by digest; and the Preview's `environment` must re-derive from the Project.
+  Otherwise the verification is `Stale` and nothing renders.
 - **Per-part NetworkPolicies.** A Preview created with `spec.environment` (set once, immutable) gets one NetworkPolicy
   per part, `preview-<project>-<issue>-np-<part>`, admitting only the edges derived from the Project beside the chart's
   `preview-isolation`, which it never touches. In this release the one edge is the tool pod's part (`tester`, slice 1's
@@ -355,16 +355,16 @@ evaluator, which itself runs in the agents namespace with no route to the applic
   tool pod admits its evaluator from. `--preview-max-evaluations` (`MAUL_PREVIEW_MAX_EVALUATIONS`, default `0`, meaning
   the slot count) bounds the tool pods running at once; a verification waiting past its own timeout for room is `Infra`
   (`tools-not-ready`).
-- **Re-checks.** Those above, plus: the outcomes must equal the Intent's approved outcomes under their digest, and the
-  saved checks the check store's, each valid and bound to an approved outcome.
+- **Re-checks.** Those above, plus: the outcomes must equal the Intent's approved outcomes under their digest. A request
+  an earlier release wrote naming saved checks still renders: the checks are ignored, and nothing replays.
 - **The pod.** A Job named `preview-<…>-vt-<hash>`, as slice 1's tester Jobs were (so the cleanup and the sweep cover
   it), whose main container `tools` runs the relay, with `browser` (only when the Project declares `surfaces.browser`)
   and `sandbox` as native sidecars. Each container runs as its own user, read-only, with no capability, no
-  service-account token and no host namespace. Only `tools` mounts the tool ConfigMap (its configuration, the outcomes
-  and saved checks, the captured logs and events); only `tools` and `browser` mount the per-verification CDP key Secret;
-  `tools` and `sandbox` share only the exec shim's socket. The Secret and ConfigMap are owned by the Job and never read
-  back. Requests equal limits: 500m/384Mi for `tools` and `sandbox`, 1500m/1280Mi for `browser`, about **2.5 CPU and 2
-  GiB** in all.
+  service-account token and no host namespace. Only `tools` mounts the tool ConfigMap (its configuration, the outcomes,
+  the captured logs and events); only `tools` and `browser` mount the per-verification CDP key Secret; `tools` and
+  `sandbox` share only the exec shim's socket. The Secret and ConfigMap are owned by the Job and never read back.
+  Requests equal limits: 500m/384Mi for `tools` and `sandbox`, 1500m/1280Mi for `browser`, about **2.5 CPU and 2 GiB**
+  in all.
 - **Network.** The pod is the slot's `tester` part (slice 1's name for it) with role `tools` (`maul.run/preview-role`),
   so the Preview's edge policies give it exactly that part's edges to the components. The chart's
   `preview-tools-isolation` (kept, Helm's) isolates role `tools` both ways with no rule of its own, and
@@ -382,21 +382,19 @@ evaluator, which itself runs in the agents namespace with no route to the applic
   is no longer refreshed: the last one written stands, and the key is never captured unredacted.
 - **The result.** Once the Job finishes, the controller reads the `tools` container's log (that container only) and its
   termination message, holds the ledger to the count and sha256 both carry, and writes an index of every entry to
-  `status.ledger`, with the replay and confirmation runs and the confirmed checks' bodies taken from the ledger's own
-  dry-run records, never from the evaluator's report. The full ledger goes to the ConfigMap `<verification>-ledger` and
-  the cited screenshots (kept only on a sha256 match with their ledger entry, checked as PNG and re-encoded, at most
-  1280 pixels wide) to `<verification>-evidence`, both in the release namespace and owned by the request. A ledger that
-  does not hold is `Infra` (`ledger-mismatch`), never a verdict. So is a full round whose ledger holds no call from the
-  evaluator (no agent entry, no agent-runner finish), as when the Job ran to its deadline with no evaluator:
-  `tools-not-ready` when `status.tools` was never written, else `evaluator-not-run`. A replay round whose relay finished
-  before its replay's end (its wall clock, or its container told to stop) is `Infra` too (`replay-incomplete`): a saved
-  check may never have run. A pod that is never created, scheduled or pulled is `Infra` past its bound
-  (`tools-not-ready`, `tools-unscheduled`, `tools-image-pull`; a quota refusal `quota-refused`). So is one whose
-  container, a browser or sandbox sidecar above all, keeps exiting in error (`CrashLoopBackOff`, or three restarts with
-  the last exit non-zero): `tools-crashloop`, settled past the same bound rather than at the Job's deadline, its
-  `status.environment` fact naming the container, its last termination and, as its `logTail`, the redacted termination
-  message (also logged as `preview tool pod container crash-looping`). Settling deletes the Job, its Secret and
-  ConfigMap, and the ingress policy.
+  `status.ledger` (each entry's seq, kind, verb, exit and refusal, the facts intent-controller judges each citation by),
+  never from the evaluator's report. The full ledger goes to the ConfigMap `<verification>-ledger` and the cited
+  screenshots (kept only on a sha256 match with their ledger entry, checked as PNG and re-encoded, at most 1280 pixels
+  wide) to `<verification>-evidence`, both in the release namespace and owned by the request. A ledger that does not
+  hold is `Infra` (`ledger-mismatch`), never a verdict. So is a round whose ledger holds no call from the evaluator (no
+  agent entry, no agent-runner finish), as when the Job ran to its deadline with no evaluator: `tools-not-ready` when
+  `status.tools` was never written, else `evaluator-not-run`. A pod that is never created, scheduled or pulled is
+  `Infra` past its bound (`tools-not-ready`, `tools-unscheduled`, `tools-image-pull`; a quota refusal `quota-refused`).
+  So is one whose container, a browser or sandbox sidecar above all, keeps exiting in error (`CrashLoopBackOff`, or
+  three restarts with the last exit non-zero): `tools-crashloop`, settled past the same bound rather than at the Job's
+  deadline, its `status.environment` fact naming the container, its last termination and, as its `logTail`, the redacted
+  termination message (also logged as `preview tool pod container crash-looping`). Settling deletes the Job, its Secret
+  and ConfigMap, and the ingress policy.
 - **Timing.** A round's request asks for the evaluate timeout plus five minutes. The chart refuses
   `intentController.verification.evaluateTimeout` unless it is shorter than `preview.verification.deadlineMaxSeconds`,
   so the slot Job policy never refuses the tool pod.

@@ -8,9 +8,9 @@ at exactly the pull request heads under review.
 What the plan states depends on one chart switch, `intentController.verification.evaluator`:
 
 - **With the agent evaluator** (on): the plan states **acceptance outcomes** in plain words, and nothing about how to
-  check them. An [agent evaluator](evaluator.md) explores the live preview and writes its own checks, and maul trusts an
-  outcome only once a check it re-ran itself, and a reviewer confirmed, proves it. By default the preview link reaches
-  people only once the outcomes are confirmed, or once maul gives up and says so.
+  check them. An [agent evaluator](evaluator.md) uses the live preview through maul's tools and reports, per outcome,
+  what it saw, and maul counts a verdict only when it cites calls of the round that maul recorded itself. By default the
+  preview link reaches people only once every outcome is seen to hold, or once maul gives up and says so.
 - **Without it** (off, the default): nothing is verified. A Project that asks for verification carries `VerificationOff`
   (reason `EvaluatorOff`), and each intent's status comment says so and links its preview at once. Slice 1's
   **acceptance criteria**, HTTP steps a tester Job ran against the preview, are gone with the tester: see
@@ -22,8 +22,8 @@ Verification is off by default, and it never blocks anything. A failure is a red
 !!! note "What a passing status is worth"
 
     `maul/acceptance` is behavioural evidence, not an attestation. The pull request's author controls the code under
-    test, and maul checks only what the approved plan states. Treat it as "the change did what the plan said, on the
-    checks shown", and review the code as you always did.
+    test, and maul evaluates only what the approved plan states. Treat it as "maul's evaluator saw the change do what
+    the plan said, in the calls shown", and review the code as you always did.
 
 ## Turning it on
 
@@ -65,9 +65,9 @@ spec:
 ```
 
 The evaluator's other Project settings (`surfaces.browser`, `verification.handoffMax`, `verification.maxToolCalls`,
-`limits.evaluate`, `limits.checkReview`, `limits.maxEvaluateCostMicroUSD`) are on [its page](evaluator.md#the-hand-off).
-While verification is enabled, no repository of the Project may be named `tester` or `tools`: those name the
-verification's parts of the preview slot.
+`limits.evaluate`, `limits.maxEvaluateCostMicroUSD`) are on [its page](evaluator.md#the-hand-off). While verification is
+enabled, no repository of the Project may be named `tester` or `tools`: those name the verification's parts of the
+preview slot.
 
 The App needs **Commit statuses: Read & write** on each application repository to post `maul/acceptance`: see
 [Create the GitHub App](../getting-started/github-app.md#intents). An App made by `maul setup github-app --intents` has
@@ -102,10 +102,10 @@ acceptance:
     reason: "only a person can judge how it sounds"
 ```
 
-The evaluator checks every outcome again in each later round, on a preview whose data persists and is shared by every
-check (nothing resets it between verifications, so each check creates its own data, named with `{{run}}`, a token maul
-makes unique per run, and asserts only on that), so the planner is asked to word each outcome so that one check can show
-it:
+The evaluator tries every outcome again in each later round, on a preview whose data persists and is shared by every
+round (nothing resets it between verifications, so the evaluator creates its own data, named with a token maul makes
+unique per evaluation, and judges by that), so the planner is asked to word each outcome so that the evaluator can show
+it with data of its own:
 
 - about an item the person checking creates in that check, never about data already there: no "every", "each", "all",
   "other" or "existing", and no global rank, count, or first or last row. A request line that says "each X" gets an
@@ -145,14 +145,9 @@ outcome quotes in `from` (ignoring case, whitespace, trailing punctuation and in
 and link targets; a quote shortened with "..." or "…" counts when its pieces, each at least 4 letters or digits and 12
 together, appear in the line in order): "No outcome answers these lines of the issue, so nothing checks them." That not
 covered list is the approver's prompt to ask for a new plan before approving, if one of those lines should be checked.
-Under "Before you approve" it also flags each outcome that says "every", "each", "others", "existing" or "still works"
-("still work" too), as one the evaluator may not be able to show, and, under a lead of its own, each that answers an
-"each", "every" or "all" line while speaking of fewer items, as the planner is asked to: approve it if that is enough.
-For a Project with no preview, whose checks run in a workspace built for the round with no other run's data and whose
-planner is asked to state each line's rule, it flags only "still works". A name is not read as one of these words: text
-in a code span, or a capitalised word inside a sentence, such as a field named `Every` ("with Every at 4"); a sentence
-that starts with "Every" or "Each", or one in capitals, is still flagged. Both are advice for the approver only, which
-never refuses a plan and never decides a result.
+It is advice for the approver only, which never refuses a plan and never decides a result. An outcome worded about rows
+the evaluator cannot create ("every existing beat") is one it reports unsure, saying in its note that the outcome needs
+wording about data of its own: read the outcomes for that before approving.
 
 A plan that states slice 1's acceptance criteria instead is refused while the evaluator is on, and the planner's retry
 is told why. An intent whose approved plan still carries criteria when the evaluator is switched on is no longer
@@ -188,14 +183,15 @@ conclusion is such a decision: the round it runs, if it still fails, starts a fi
 ### A fix that finds no defect
 
 A verification can fail for a reason outside the code: the preview was not ready, its network was not open yet, or data
-from an earlier check got in the way. The verify-fix agent is told to replay each failing check against the code first.
-If it concludes, with evidence, that the code already does what the outcomes ask, it changes nothing and says so
-explicitly in its report (`no_defect: true`, with a one-line reason). The round then completes as `no_defect`: nothing
-is pushed, it is not retried, it still counts toward `maxVerifyFixes`, and automatic fixing halts with reason
-`FixFoundNoDefect`. The verification comment shows the agent's reason and says the verdict may be wrong: `/maul verify`
-checks again. The conclusion is shown whatever else halted automatic fixing, while the pull requests stay at the heads
-it judged, and until the next fix round. A round that changes nothing without that explicit conclusion is still a failed
-round, retried like any other.
+from an earlier round got in the way, or the evaluator misread what a call showed. The verify-fix agent is told to
+reproduce each failing outcome against the code first: read what the cited calls exercise, run the tests that cover it
+and reproduce its requests where it can. If it concludes, with evidence, that the code already does what the outcomes
+ask, it changes nothing and says so explicitly in its report (`no_defect: true`, with a one-line reason). The round then
+completes as `no_defect`: nothing is pushed, it is not retried, it still counts toward `maxVerifyFixes`, and automatic
+fixing halts with reason `FixFoundNoDefect`. The verification comment shows the agent's reason and says the verdict may
+be wrong: `/maul verify` checks again. The conclusion is shown whatever else halted automatic fixing, while the pull
+requests stay at the heads it judged, and until the next fix round. A round that changes nothing without that explicit
+conclusion is still a failed round, retried like any other.
 
 ### Before the first check: the tool pod waits for the slot network
 
@@ -233,17 +229,17 @@ after it ended, is not counted.
 
 ### Bounds
 
-| Bound                     | Rule                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `limits.maxVerifyFixes`   | Automatic fix rounds per approved plan revision (default 2). Then auto-fix halts, reason `MaxVerifyFixes`. A round counts once an agent ran in it, whatever its later attempts did, an agent that crashed or ran out of time included; only a round no agent could have run in (cancelled before its Job, refused, no image or node to run on) does not. |
-| `limits.maxVerifications` | Automatic verifications per plan revision (default 20). `/maul verify` bypasses the interval, not this cap.                                                                                                                                                                                                                                              |
-| Repeated failure          | A verification in which everything the last fix round was for still fails exactly as it did halts auto-fix: `RepeatedFailure`. That round is the latest one an agent ran in, whether it pushed, found no defect or failed; rounds at or before a `/maul verify fix` are never compared.                                                                  |
-| Cost ceiling              | At the intent's cost ceiling auto-fix, retries included, halts: `CostCeiling`. It never blocks the intent.                                                                                                                                                                                                                                               |
-| Spacing                   | While auto-fix is halted, an automatic re-verification waits five minutes; one `/maul verify` per five minutes.                                                                                                                                                                                                                                          |
-| Infrastructure            | A tool pod that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.                                                                                                                                                                                                                                                   |
-| Preview wait              | A due verification waits at most an hour for the preview to be live at the heads, then reports `Unavailable`.                                                                                                                                                                                                                                            |
-| Evaluation ceiling        | With the evaluator: what the intent's evaluate and checkreview runs may spend together (`limits.maxEvaluateCostMicroUSD`, default \$6), counted apart from the cost ceiling above. Past it no evaluation runs, and a gated hand-off is released as "maul can't call this ready".                                                                         |
-| Hand-off wait             | With the evaluator and a gated hand-off: `verification.handoffMax` (default 60 minutes) from CI first going green. Past it the link is released as "maul can't call this ready: it ran out of time"; verification itself goes on.                                                                                                                        |
+| Bound                     | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `limits.maxVerifyFixes`   | Automatic fix rounds per approved plan revision (default 2). Then auto-fix halts, reason `MaxVerifyFixes`. A round counts once an agent ran in it, whatever its later attempts did, an agent that crashed or ran out of time included; only a round no agent could have run in (cancelled before its Job, refused, no image or node to run on) does not.                                                                                                                             |
+| `limits.maxVerifications` | Automatic verifications per plan revision (default 20). `/maul verify` bypasses the interval, not this cap.                                                                                                                                                                                                                                                                                                                                                                          |
+| Repeated failure          | A verification in which everything the last fix round was for still fails exactly as it did halts auto-fix: `RepeatedFailure`. That round is the latest one an agent ran in, whether it pushed, found no defect or failed; rounds at or before a `/maul verify fix` are never compared. With the evaluator maul compares the failing outcomes alone (each outcome as approved, never the calls the evaluator chose to cite), so the same outcomes failing again after a fix halt it. |
+| Cost ceiling              | At the intent's cost ceiling auto-fix, retries included, halts: `CostCeiling`. It never blocks the intent.                                                                                                                                                                                                                                                                                                                                                                           |
+| Spacing                   | While auto-fix is halted, an automatic re-verification waits five minutes; one `/maul verify` per five minutes.                                                                                                                                                                                                                                                                                                                                                                      |
+| Infrastructure            | A tool pod that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.                                                                                                                                                                                                                                                                                                                                                                               |
+| Preview wait              | A due verification waits at most an hour for the preview to be live at the heads, then reports `Unavailable`.                                                                                                                                                                                                                                                                                                                                                                        |
+| Evaluation ceiling        | With the evaluator: what the intent's evaluate runs may spend together (`limits.maxEvaluateCostMicroUSD`, default \$6), counted apart from the cost ceiling above. Past it no evaluation runs, and a gated hand-off is released as "maul can't call this ready".                                                                                                                                                                                                                     |
+| Hand-off wait             | With the evaluator and a gated hand-off: `verification.handoffMax` (default 60 minutes) from CI first going green. Past it the link is released as "maul can't call this ready: it ran out of time"; verification itself goes on.                                                                                                                                                                                                                                                    |
 
 ### What halts automatic fixing
 
@@ -281,11 +277,7 @@ Auto-fix halts the moment a human acts:
   `/maul verify fix`: maul notices a push only at its next poll, a minute or more later, and a re-arm posted after
   GitHub recorded the push (by GitHub's own clock, the comment's time against the push's in the repository's activity)
   keeps auto-fix armed for it, and a fix round may then build on top of your commit. A push GitHub recorded after the
-  re-arm, in the same second, or at a time GitHub will not show, still halts it. With the evaluator, while maul holds a
-  suspected defect at the current commits (see [A defect found in round 1](evaluator.md#a-defect-found-in-round-1)),
-  `/maul verify fix` written after maul recorded it confirms it instead: the fix round starts at once, handed maul's
-  reproduction and any other failure the round found, and no new evaluation runs first. One written before keeps the
-  meaning above.
+  re-arm, in the same second, or at a time GitHub will not show, still halts it.
 - **The preview link.** With the evaluator and a gated hand-off, an approver's changes-requested review or
   `/maul revise` or `/maul retry` on a pull request, a push maul did not make, or `/maul preview` releases a held
   preview link at once, labelled as still being checked, even before the first evaluation has started. A plain comment,

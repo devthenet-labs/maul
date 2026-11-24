@@ -78,7 +78,7 @@ func TestPreviewVerificationDocsStateTheGrantsAndCommands(t *testing.T) {
 			"previewverifications", "maul/acceptance"},
 		"docs/intents/acceptance.md": {"maul/acceptance", "/maul verify", "/maul verify fix", "/maul verify --reset",
 			"/maul accept", "maxVerifyFixes", "maxVerifications", "manualGatesStatus", "not an attestation",
-			"cancelled for your review", "Commit statuses", "{{run}}"},
+			"cancelled for your review", "Commit statuses", "a token maul makes unique per evaluation"},
 		"docs/intents/set-up-previews.md": {"evaluator.md", "intentController.verification.evaluator"},
 		"docs/intents/evaluator.md": {"## Migrating from slice 1", "--intent-verification", "preview.verification.enabled",
 			"--preview-tester-image", "maul.intent.slice1_records"},

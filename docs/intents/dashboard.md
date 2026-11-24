@@ -216,8 +216,10 @@ counts a verdict only by the calls it cites; whether a cited call shows what the
 judge, and the page says so above the outcomes. The evaluator's verdict is a claim; the result beside it is maul's
 decision, and the two can differ. A report that still writes a key the evaluator no longer has (`disputes`, `proposed`,
 `retire`, `contrary`) claims nothing, so none of its claims is shown. While an earlier result is withdrawn because the
-rules for judging outcomes changed, the page says so. A screenshot is shown as evidence a person can look at. It never
-decides an outcome on its own: see [the known limits](evaluator.md#known-limits).
+rules for judging outcomes changed, the page says so. A screenshot is shown as evidence a person can look at. Whether
+one was kept never changes a result, but a `browser screenshot` call counts like any other browser command, so the
+evaluator's reading of a screenshot alone can make an outcome seen to hold: see
+[the known limits](evaluator.md#known-limits).
 
 The status server reads the verification and its two ConfigMaps (`<verification>-ledger`, `<verification>-evidence`)
 with `get` only, uncached, and a ConfigMap another object controls is never served.

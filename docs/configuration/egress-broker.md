@@ -222,11 +222,11 @@ input token, so a token cap sized for a short run cuts a long one early. `--limi
   price is that a pod can spend at most its cap less one reservation. The claude CLI asks for 128000 output tokens by
   default on the 5.5 models (\$1.28 on claude-sonnet-5-5) and 64000 on the other 5-series, which would leave a small
   budget almost nothing, so agent-runner bounds the output of the stages that run on one
-  (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`: 32000 for evaluate, 8192 for checkreview), and intent-controller refuses a Project
-  whose evaluate or checkreview budget is under twice that reservation
-  ([`RunBudgetUnderRequestReserve`](intent-controller.md#stage-limits)). The reservation is held until the request
-  settles, not released as the stream reports usage: output keeps arriving after each usage event, and only the final
-  usage, or the bound, says how much, so releasing it early would let parallel requests carry the pod past its cap.
+  (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`: 32000 for evaluate), and intent-controller refuses a Project whose evaluate budget
+  is under twice that reservation ([`RunBudgetUnderRequestReserve`](intent-controller.md#stage-limits)). The reservation
+  is held until the request settles, not released as the stream reports usage: output keeps arriving after each usage
+  event, and only the final usage, or the bound, says how much, so releasing it early would let parallel requests carry
+  the pod past its cap.
 - A pod's cap is the smaller of `--cost-per-pod` and the pod's own `maul.run/budget-micro-usd` annotation (one to
   sixteen digits). The broker reads it with one `get` of the caller's pod in `--agent-namespace` when it reviews the
   token, checks the pod UID against the TokenReview, and caches it with the verdict (`--verdict-ttl`). A missing,
