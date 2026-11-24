@@ -60,7 +60,7 @@ var (
 //	  - summary: "<one line>"          # required
 //	    route: "<route or surface>"    # required, at most 300 characters
 //	    ledger: [<seq>, ...]           # required: the evidence
-//	    outcome: "<outcome id>"        # optional: the outcome it bears on
+//	    outcome: "<outcome id>"        # optional: an outcome it shows not holding
 //	---
 //
 // followed by the agent's notes in markdown, of at most BodyMaxBytes, in a
@@ -101,9 +101,9 @@ type Anomaly struct {
 	Summary string  `yaml:"summary"`
 	Route   string  `yaml:"route"`
 	Ledger  []int32 `yaml:"ledger"`
-	// Outcome is the approved outcome the anomaly shows not holding, or
-	// casts doubt on, when it bears on one: maul then never passes that
-	// outcome on this report (acceptance.ReasonContraryNote). Optional.
+	// Outcome is the approved outcome the anomaly shows not holding, when
+	// it shows one: maul then never passes that outcome on this report
+	// (acceptance.ReasonContraryNote). Optional.
 	Outcome string `yaml:"outcome,omitempty"`
 	// PreExisting is the evaluator's claim that the anomaly was there
 	// before the change, which an earlier prompt asked for. An anomaly is a

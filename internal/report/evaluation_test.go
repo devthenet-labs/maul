@@ -96,8 +96,8 @@ func TestParseEvaluationPreExisting(t *testing.T) {
 	}
 }
 
-// An anomaly may name the approved outcome it shows not holding, or casts
-// doubt on (outcome); absent, it names none. The name is an outcome id.
+// An anomaly may name the approved outcome it shows not holding (outcome);
+// absent, it names none. The name is an outcome id.
 func TestParseEvaluationAnomalyOutcome(t *testing.T) {
 	doc := strings.Replace(evaluationReport, "    ledger: [20]\n",
 		"    ledger: [20]\n    outcome: \"rate-battle\"\n  - summary: \"new\"\n    route: /\n    ledger: [22]\n", 1)

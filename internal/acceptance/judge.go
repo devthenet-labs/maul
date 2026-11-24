@@ -105,7 +105,7 @@ type JudgeInput struct {
 	Held []string
 	// Contrary are the outcome ids an anomaly of the same report names
 	// (report.Anomaly.Outcome): the evaluator's own note that the outcome
-	// does not hold, or may not, whatever its verdict says.
+	// does not hold, whatever its verdict says.
 	Contrary []string
 }
 

@@ -176,6 +176,26 @@ func TestJudgeRoundAnomalyNamingAnOutcome(t *testing.T) {
 	}
 }
 
+// TestJudgeRoundAnomalyOutcomeFromTheReport: the outcome an anomaly names
+// reaches Judge from the report as the evaluator wrote it (the run's
+// status.report, through evaluationClaims), so a pass beside it is unsure.
+func TestJudgeRoundAnomalyOutcomeFromTheReport(t *testing.T) {
+	pv := &v1alpha1.PreviewVerification{Spec: v1alpha1.PreviewVerificationSpec{Round: 1},
+		Status: v1alpha1.PreviewVerificationStatus{Ledger: citedIndex(5, nil)}}
+	doc := "---\nverdicts:\n  - outcome: \"" + oVersion + "\"\n    verdict: pass\n    ledger: [3]\n" +
+		"anomalies:\n  - summary: \"the version is stale after a reload\"\n    route: \"/version\"\n" +
+		"    ledger: [3]\n    outcome: \"" + oVersion + "\"\n---\n\nWhat I looked at.\n"
+	run := &v1alpha1.IntentRun{Status: v1alpha1.IntentRunStatus{Phase: v1alpha1.RunComplete, Report: doc}}
+	ev := evaluationClaims(run)
+	if ev == nil {
+		t.Fatal("the report does not parse")
+	}
+	if d := judgeRound(nil, oneOutcome(), pv, ev).judgement.PerOutcome[0]; d.Result != acceptance.ResultUnsure ||
+		d.Reason != acceptance.ReasonContraryNote {
+		t.Errorf("%s (%s), want unsure (contrary-note)", d.Result, d.Reason)
+	}
+}
+
 // TestJudgeRoundUnverifiedLedger: a round with no verified index in status
 // (the tools log did not hold to its summary, or the index was dropped)
 // passes and fails nothing, whatever its evaluator cites; one whose

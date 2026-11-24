@@ -181,10 +181,10 @@ correct, and the approved outcomes alone answer it: a round whose outcomes were 
 notes shown.
 
 The one way an anomaly bears on a result is about an outcome, not the round: an anomaly that names an approved outcome
-(its optional `anomalies[].outcome`, which the evaluator is told to add when what it noticed bears on one) is the
-evaluator's own word against that outcome, so the outcome is not passed on that report, whatever its verdict says. It is
-unsure (`contrary-note`), even when the anomaly cites nothing that counts; a `fail` that cites a call that counts still
-fails. maul does not look for an outcome's id in an anomaly's words.
+(its optional `anomalies[].outcome`, which the evaluator is told to add when what it noticed shows one not holding) is
+the evaluator's own word against that outcome, so the outcome is not passed on that report, whatever its verdict says.
+It is unsure (`contrary-note`), even when the anomaly cites nothing that counts; a `fail` that cites a call that counts
+still fails. maul does not look for an outcome's id in an anomaly's words.
 
 A defect in what an outcome promises is not an anomaly. The evaluator is told to report a defect in what an outcome
 states, on any input, as that outcome's `fail`, and a break of the rule an outcome's line of the request states beyond

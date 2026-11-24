@@ -17,8 +17,8 @@ import (
 // are notes that decide nothing, that a defect in what an outcome states is
 // that outcome's fail, and a break of the rule its line of the request
 // states leaves that outcome unsure: only what neither covers is an anomaly;
-// and that one bearing on an outcome all the same names it, which keeps that
-// outcome from passing.
+// and that one showing an outcome not holding all the same names it, which
+// keeps that outcome from passing.
 func TestEvaluatePromptAnomaliesAreNotes(t *testing.T) {
 	for name, p := range map[string]EvaluatePrompt{
 		"slot": testEvaluatePrompt(), "cli": testWorkspacePrompt(testCLIWorkspace),
@@ -39,7 +39,7 @@ func TestEvaluatePromptAnomaliesAreNotes(t *testing.T) {
 				"An anomaly is what neither covers",
 				// The one way an anomaly bears on a result: naming an outcome
 				// keeps it from passing (acceptance.ReasonContraryNote).
-				"If one bears on an outcome all the same, add `outcome`, that outcome's id: maul then never " +
+				"If one shows an outcome not holding all the same, add `outcome`, that outcome's id: maul then never " +
 					"passes it",
 			} {
 				if !strings.Contains(flat, want) {
