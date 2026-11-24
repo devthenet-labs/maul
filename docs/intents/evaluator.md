@@ -682,9 +682,11 @@ check: each verdict counts when it cites calls of the round's own verified ledge
   a plain `/maul verify`: every round is a full evaluation.
 - The schema keeps every field the saved checks wrote for one release, marked retired and never read, so a rollback
   finds them as it left them: an Intent's `status.acceptance.checks`, `reviews`, `redCleared` and `narrowed`, and a
-  `PreviewVerification`'s `spec.checks` and `spec.rung` (always written as `full`). This release only adds fields: a
-  round's verdicts are judged under the marker `status.verification.judge: observed/1`, each outcome's counted calls are
-  in `status.verification.outcomes[].cites`, and an agents ledger entry at the base carries `side: base`.
+  `PreviewVerification`'s `spec.checks` and `spec.rung` (always written as `full`). Beside them this release adds
+  fields, and drops only the check reviewer's entries of a Project's `status.admits` (`defaultModels.checkReview`,
+  `stages.checkReview`, `runBudgetFloors[].checkReviewMicroUSD`), which intent-controller alone writes: a round's
+  verdicts are judged under the marker `status.verification.judge: observed/1`, each outcome's counted calls are in
+  `status.verification.outcomes[].cites`, and an agents ledger entry at the base carries `side: base`.
 - The tool images and agent-runner come from the same chart release as the controllers. Mixed during a roll, they fail
   safe: an older tools image's ledger does not hold (`Infra`, retried), and an older evaluator's report carrying the
   retired keys (`disputes`, `proposed`, `retire`, `contrary`) is refused and claims nothing. Neither ever passes an
@@ -730,13 +732,13 @@ kubectl -n <namespace> get configmaps -l maul.run/intent \
 ```
 
 **Rolling back.** `helm rollback` to the previous release re-applies its CRDs, so the fields this release added
-(`judge`, `cites`, `side`, `noAnswer`) are pruned, and every object this release wrote still meets the previous schema.
-A round under way at the rollback whose ledger records a `run` whose program did not compile (`notRun`) does not verify
-under the previous release, which settles that round as maul's own trouble (`ledger-mismatch`). The previous controller
-then starts its rounds with the model (a round with no model needs a record this release never writes), reads this
-release's evaluator reports (they hold a subset of its keys, except an anomaly's `outcome`: a report naming an outcome
-in an anomaly is refused whole by the previous controller and claims nothing), and numbers its next check store after
-the ones it left. Its comments, though, count the results this release judged as "outcomes confirmed": after a rollback,
-have an approver comment `/maul verify` on each open verifying intent, which judges it again under that release's rules.
-Rolling forward again withdraws those results once more (the marker was pruned), at the cost of one more evaluation
-each.
+(`judge`, `cites`, `side`, `noAnswer`) are pruned, and every object this release wrote still meets the previous schema;
+the previous controller publishes the check reviewer's `status.admits` entries again. A round under way at the rollback
+whose ledger records a `run` whose program did not compile (`notRun`) does not verify under the previous release, which
+settles that round as maul's own trouble (`ledger-mismatch`). The previous controller then starts its rounds with the
+model (a round with no model needs a record this release never writes), reads this release's evaluator reports (they
+hold a subset of its keys, except an anomaly's `outcome`: a report naming an outcome in an anomaly is refused whole by
+the previous controller and claims nothing), and numbers its next check store after the ones it left. Its comments,
+though, count the results this release judged as "outcomes confirmed": after a rollback, have an approver comment
+`/maul verify` on each open verifying intent, which judges it again under that release's rules. Rolling forward again
+withdraws those results once more (the marker was pruned), at the cost of one more evaluation each.
