@@ -304,7 +304,8 @@ func (p *evalReportProbe) run(t *testing.T, spec runner.CommandSpec) probeRun {
 		"DISABLE_AUTOUPDATER=1",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	}, spec.Env...)
-	cmd.Stdin = strings.NewReader("")
+	// The prompt is the CLI's standard input (harness.Claude.PromptSpec), never an argument.
+	cmd.Stdin = strings.NewReader(spec.Stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
