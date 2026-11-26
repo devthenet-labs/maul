@@ -118,7 +118,7 @@ func TestProjectAdmitsIsWhatTheControllerAdmits(t *testing.T) {
 	g := admitsGen{rng: rand.New(rand.NewSource(0xad3175))}
 	var floorsJudged, overJudged, codexOn, evaluated int
 	var delegation [2][2]int // [subagents, workflows][admitted]
-	for i := range 400 {
+	for i := range 600 {
 		s, p := g.settings(), g.project()
 		h := p.Spec.Harness
 		if h.IsCodex() && s.Codex.ID != "" {

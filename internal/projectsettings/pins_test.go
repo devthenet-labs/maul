@@ -269,7 +269,23 @@ func TestFieldTable(t *testing.T) {
 	if got := StageNames(); !reflect.DeepEqual(got, stageNames) {
 		t.Errorf("StageNames = %v, want %v", got, stageNames)
 	}
-	limits := child(t, spec, "limits")["properties"].(crdNode)
+	checkStageLimits(t, child(t, spec, "limits")["properties"].(crdNode))
+	for _, id := range []string{FieldSubagents, FieldWorkflows} {
+		r, ok := rowByID(id)
+		if !ok || r.Group != GroupDelegation || r.Kind != KindBool || r.Effect != EffectNewRuns || r.HasDefault {
+			t.Errorf("%s: row %+v (in the table %v), want a delegation bool for new runs", id, r.Field, ok)
+		}
+	}
+	if len(Fields()) != 37 {
+		t.Errorf("%d editable fields; a field added or dropped changes the document (Schema) and the page", len(Fields()))
+	}
+}
+
+// checkStageLimits holds the CRD's limits to StageNames: each stage's
+// limits are an object, every other limit is not; the retired stage stays
+// in the schema alone.
+func checkStageLimits(t *testing.T, limits crdNode) {
+	t.Helper()
 	for name, node := range limits {
 		_, stage := node.(crdNode)["properties"]
 		if name == retiredStage {
@@ -283,15 +299,6 @@ func TestFieldTable(t *testing.T) {
 		if stage != slices.Contains(StageNames(), name) {
 			t.Errorf("limits.%s: a stage in the schema %v, in StageNames %v", name, stage, !stage)
 		}
-	}
-	for _, id := range []string{FieldSubagents, FieldWorkflows} {
-		r, ok := rowByID(id)
-		if !ok || r.Group != GroupDelegation || r.Kind != KindBool || r.Effect != EffectNewRuns || r.HasDefault {
-			t.Errorf("%s: row %+v (in the table %v), want a delegation bool for new runs", id, r.Field, ok)
-		}
-	}
-	if len(Fields()) != 37 {
-		t.Errorf("%d editable fields; a field added or dropped changes the document (Schema) and the page", len(Fields()))
 	}
 }
 

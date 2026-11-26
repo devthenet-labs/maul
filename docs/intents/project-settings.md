@@ -99,7 +99,7 @@ The Delegation card holds the Project's opt-in to delegation in its builds. With
 build and revise run (CI-fix and verify-fix rounds included) may hand parts of its work to the claude CLI's subagents,
 in the foreground, on the run's own model, under the build's own tools. With **Workflows in builds** on as well, it may
 also run the CLI's inline and built-in workflows. Workflows need subagents: turning subagents off turns workflows off
-with it, and the page refuses workflows alone. Plans, the evaluator and the check reviewer never delegate.
+with it, and the page refuses workflows alone. Plans and the evaluator never delegate.
 
 Every subagent and workflow agent spends from the run's own cost budget, which is what bounds the run and everything it
 starts together; a workflow's agents count against neither the turn limit nor the token limit. Size the build and revise
