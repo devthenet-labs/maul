@@ -51,6 +51,10 @@ deliberately suspended, hence the `suspended` pill on each row.
   everyone's, per person and per Project. The unmetered worst case and pod-reported figures are shown apart, never in a
   total, and a subscription's cost is shown as an equivalent API cost, not money spent.
 
+- **Projects** — only when the server has the [Project settings page](intents/project-settings.md) on for at least one
+  Project you may see: each such Project with how much of it you may read, and a **Settings** button to its settings
+  page. Approvers can change the settings there; everyone else reads them.
+
 - **Account** — only when the server has the [Account page](configuration/status-server.md#account-page) on: your own
   model credential, which pays for the runs attributed to you under
   [per-user model credentials](configuration/user-credentials.md). Store, replace or delete an Anthropic API key or a

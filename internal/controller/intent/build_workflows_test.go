@@ -23,25 +23,30 @@ func (e *env) buildWorkflows(record, launch bool) {
 	e.runs.Settings.BuildWorkflows = launch
 }
 
-// TestGrantRecordsWorkflows: --intent-build-workflows records workflows on
-// the grant of exactly the runs --intent-build-subagents records subagents
-// on, and only beside them: never without the subagents flag, never on a
-// plan, evaluate or checkreview run, never on a codex Project's.
+// TestGrantRecordsWorkflows: workflows are recorded on the grant of exactly
+// the runs recorded with subagents, and only when --intent-build-workflows
+// allows them AND the Project opts in to them (spec.delegation.workflows):
+// never without subagents, never on a plan, evaluate or checkreview run,
+// never on a codex Project's, never for a Project that opts in to subagents
+// alone, and never on the Project's opt-in with the workflows flag off.
 func TestGrantRecordsWorkflows(t *testing.T) {
 	for _, harness := range []v1alpha1.ProjectHarness{"", v1alpha1.ProjectHarnessClaude, v1alpha1.ProjectHarnessCodex} {
-		p := testProject()
-		p.Spec.Harness = harness
-		for _, stage := range v1alpha1.IntentStages() {
-			for _, flags := range [][2]bool{{false, false}, {false, true}, {true, false}, {true, true}} {
-				s := testSettings()
-				s.BuildSubagents, s.BuildWorkflows = flags[0], flags[1]
-				g := s.grant(p, stage)
-				if want := g.Subagents && flags[1]; g.Workflows != want {
-					t.Errorf("harness %q, stage %s, flags %v: grant.workflows = %v, want %v", harness, stage, flags,
-						g.Workflows, want)
-				}
-				if g.Workflows && !g.Subagents {
-					t.Errorf("harness %q, stage %s: workflows recorded without subagents", harness, stage)
+		for _, optIn := range []*v1alpha1.ProjectDelegation{nil, {Subagents: true},
+			{Subagents: true, Workflows: true}} {
+			p := testProject()
+			p.Spec.Harness, p.Spec.Delegation = harness, optIn
+			for _, stage := range v1alpha1.IntentStages() {
+				for _, flags := range [][2]bool{{false, false}, {false, true}, {true, false}, {true, true}} {
+					s := testSettings()
+					s.BuildSubagents, s.BuildWorkflows = flags[0], flags[1]
+					g := s.grant(p, stage)
+					if want := g.Subagents && flags[1] && p.Spec.WorkflowsEnabled(); g.Workflows != want {
+						t.Errorf("harness %q, delegation %+v, stage %s, flags %v: grant.workflows = %v, want %v",
+							harness, optIn, stage, flags, g.Workflows, want)
+					}
+					if g.Workflows && !g.Subagents {
+						t.Errorf("harness %q, stage %s: workflows recorded without subagents", harness, stage)
+					}
 				}
 			}
 		}
@@ -56,17 +61,20 @@ func TestGrantRecordsWorkflows(t *testing.T) {
 func TestBuildWorkflowsLaunchAsGranted(t *testing.T) {
 	for _, tt := range []struct {
 		name                       string
+		optInWfs                   bool // the Project opts in to workflows, beside subagents
 		record                     bool // both flags at creation
 		launchSubagents, launchWfs bool // the flags at launch
+		wantRecorded               bool
 		wantSubagents, wantWfs     bool
 	}{
-		{"both flags on throughout", true, true, true, true, true},
-		{"workflows turned off before the launch", true, true, false, true, false},
-		{"subagents turned off before the launch", true, false, true, false, false},
-		{"recorded without, both on at the launch", false, true, true, false, false},
+		{"both flags on throughout", true, true, true, true, true, true, true},
+		{"workflows turned off before the launch", true, true, true, false, true, true, false},
+		{"subagents turned off before the launch", true, true, false, true, true, false, false},
+		{"recorded without, both on at the launch", true, false, true, true, false, false, false},
+		{"both flags on, the Project opted in to subagents alone", false, true, true, true, false, true, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newEnv(t, testProject())
+			e := newEnv(t, delegating(tt.optInWfs))
 			e.buildSubagents(tt.record, tt.launchSubagents)
 			e.buildWorkflows(tt.record, tt.launchWfs)
 			name := e.approvedBuild()
@@ -88,8 +96,8 @@ func TestBuildWorkflowsLaunchAsGranted(t *testing.T) {
 				if len(runs) != 1 {
 					t.Fatalf("%s runs = %d, want one", stage, len(runs))
 				}
-				if got := runs[0].Spec.Grant.Workflows; got != tt.record {
-					t.Errorf("%s run grant.workflows = %v, want %v", stage, got, tt.record)
+				if got := runs[0].Spec.Grant.Workflows; got != tt.wantRecorded {
+					t.Errorf("%s run grant.workflows = %v, want %v", stage, got, tt.wantRecorded)
 				}
 				job := e.jobOf(runs[0])
 				if job.BuildSubagents != tt.wantSubagents || job.BuildWorkflows != tt.wantWfs {
@@ -115,7 +123,7 @@ func TestReviseLeaseAdoptedWhateverItsWorkflows(t *testing.T) {
 		{"leased with the flag off, found with it on", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newEnv(t, testProject())
+			e := newEnv(t, delegating(true))
 			e.buildSubagents(true, true)
 			e.buildWorkflows(tc.flag, tc.flag)
 			name := e.approvedBuild()

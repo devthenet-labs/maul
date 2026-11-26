@@ -1270,13 +1270,18 @@ intentController:
         planModel: openai/gpt-5.3-codex
         buildModel: openai/gpt-5.3-codex
     # Subagents, and optionally workflows, in builds. Off by default; off,
-    # neither key renders and every build runs as before. On, a claude
-    # Project's build and revise runs (check-fix and verify-fix rounds
-    # included) may delegate to the CLI's subagents, under the build's own
+    # neither key renders and every build runs as before. On, it allows
+    # them in this install: a claude Project that opts in
+    # (spec.delegation.subagents, which its approvers can also set from the
+    # Project settings page) has its build and revise runs (check-fix and
+    # verify-fix rounds included) delegate to the CLI's subagents, under the
+    # build's own
     # posture: the same tools, no web, depth 1, foreground only (so the
     # build's own background shell commands are refused too), the run's
-    # model, at most four at once. Plans, the evaluator and the check
-    # reviewer never delegate, and codex Projects are unaffected.
+    # model, at most four at once. A Project that does not opt in gets
+    # none. Plans, the evaluator and the check reviewer never delegate, and
+    # codex Projects are unaffected. intent-controller publishes what it
+    # allows on each Project (status.admits.subagents, .workflows).
     #
     # It requires egressBroker.limits.unit: cost (the render fails
     # otherwise): the run's cost budget, which the broker enforces on every
@@ -1286,8 +1291,10 @@ intentController:
     # egressBroker.limits.concurrentPerPod set, keep it at least 5 (four
     # subagents and the run's own calls), more with workflows.
     #
-    # workflows (off by default; needs enabled) also lets those runs start
-    # the CLI's workflows, inline and built-in ones, whose agents get the
+    # workflows (off by default; needs enabled) also allows those runs, of a
+    # Project that also opts in to workflows (spec.delegation.workflows,
+    # which needs spec.delegation.subagents), to start the CLI's workflows,
+    # inline and built-in ones, whose agents get the
     # run's tools and model and no web. Allow it knowing two limits of the
     # claude CLI that maul cannot close today, accepted rather than fixed:
     # (a) a workflow script that calls workflow({scriptPath}) runs that
@@ -1301,9 +1308,11 @@ intentController:
     # workflow started and finished, so the cost budget and the stage's wall
     # clock are the only live bounds (docs/deployment/isolation.md).
     #
-    # Each run records its grant at creation and launches with it only while
-    # the switch is still on, so turning enabled (or workflows) off narrows
-    # every run at once; with enabled off, workflows does nothing.
+    # Each run records its grant at creation (from these switches and its
+    # Project's opt-in then) and launches with it only while the switch is
+    # still on, so turning enabled (or workflows) off narrows every run at
+    # once; with enabled off, workflows does nothing. A Project's opt-in
+    # changed later applies to new runs only.
     # docs/configuration/intent-controller.md#subagents-and-workflows-in-builds.
     buildSubagents:
         enabled: false
@@ -1522,8 +1531,9 @@ statusServer:
         enabled: false
     # The Project settings page: an approver of a Project (a login in its
     # spec.approvers that GitHub says has write access, matched by GitHub id)
-    # changes its limits, models, evaluator, hand-off, CI checks and each
-    # repository's resource class from the status page, within the bounds
+    # changes its limits, models, evaluator, hand-off, build delegation, CI
+    # checks and each repository's resource class from the status page,
+    # within the bounds
     # below. It needs the intents views, the usage views' auth posture
     # (mode oidc with both claim prefixes and the federated:id and profile
     # scopes) and
@@ -1551,7 +1561,9 @@ statusServer:
             emptyChecks: false
         # Groups the page shows read-only and the policy refuses changes to:
         # approvers, evaluator, handoff, models, cost, rounds, activeIntents,
-        # stages, checks, resources.
+        # stages, delegation, checks, resources. A delegation switch is also
+        # turned on only where intent-controller allows it
+        # (intentController.buildSubagents), whatever is locked.
         locked: []
         # The most the page may raise each limit intent-controller does not
         # clamp itself. A higher value set elsewhere may be kept or lowered

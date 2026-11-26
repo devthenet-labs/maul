@@ -8,6 +8,8 @@
 // guard, only an early answer.
 
 import type {
+  Me,
+  ProjectAccess,
   ProjectSettings,
   ProjectSettingsConfirmation,
   ProjectSettingsFacts,
@@ -18,6 +20,19 @@ import type {
   ProjectSettingsView,
 } from "./types";
 
+// settingsProjectsOf is the Projects /api/me says the settings page is
+// served for, in the server's order; me is undefined while loading and null
+// when the server has no /api/me.
+export function settingsProjectsOf(me: Me | null | undefined): ProjectAccess[] {
+  return (me?.projects ?? []).filter((p) => p.settings);
+}
+
+// projectsNav reports whether the top bar shows its Projects entry: only
+// when at least one Project's settings page is served to this person.
+export function projectsNav(me: Me | null | undefined): boolean {
+  return settingsProjectsOf(me).length > 0;
+}
+
 // SettingValue is one field's value in the document's own terms: a number
 // (micro-USD, whole seconds, a count; null for an unset round limit), a
 // bool, a string, or a set of strings.
@@ -27,6 +42,8 @@ export type SettingValue = number | null | boolean | string | string[];
 export const CLASS_FIELD = "repositories.agentResourceClass";
 export const APPROVERS_FIELD = "approvers.logins";
 export const CHECKS_FIELD = "checks.fix";
+export const SUBAGENTS_FIELD = "delegation.subagents";
+export const WORKFLOWS_FIELD = "delegation.workflows";
 
 // SCHEMA_DEFAULTED are the fields the Project schema defaults: the stored
 // value is never unset, and a cleared input means the default
@@ -97,6 +114,15 @@ export function withFieldValue(doc: ProjectSettings, id: string, value: SettingV
   const next = structuredClone(doc);
   const s = slot(next, id, item);
   if (s) s.holder[s.key] = Array.isArray(value) ? [...value] : value;
+  return next;
+}
+
+// withDraftValue is withFieldValue as the form edits a draft: turning
+// subagents off turns workflows off with it, since workflows need
+// subagents and a save leaving them on alone is refused.
+export function withDraftValue(doc: ProjectSettings, id: string, value: SettingValue, item = ""): ProjectSettings {
+  const next = withFieldValue(doc, id, value, item);
+  if (id === SUBAGENTS_FIELD && value === false) next.delegation.workflows = false;
   return next;
 }
 
@@ -287,7 +313,8 @@ export interface Moved {
 // save was refused as stale. A set takes the entries they added and loses
 // the ones they removed; any other setting takes their value, and when
 // someone else changed it too it is listed as moved, for the person to
-// review. An edit to a repository now gone is dropped.
+// review. An edit to a repository now gone is dropped, as is one turning
+// workflows on once subagents are off (droppedText says which).
 export function rebaseDraft(
   old: ProjectSettings,
   draft: ProjectSettings,
@@ -312,9 +339,21 @@ export function rebaseDraft(
     if (!same(f, current, c.from) && !same(f, current, c.to)) {
       moved.push({ key: c.key, field: c.field, item: c.item, was: c.from, now: current, yours: c.to });
     }
-    next = withFieldValue(next, c.field, c.to, c.item);
+    next = withDraftValue(next, c.field, c.to, c.item);
+  }
+  // Workflows need subagents: an edit turning workflows on cannot stand
+  // once someone else turned subagents off.
+  if (next.delegation.workflows && !next.delegation.subagents) {
+    next = withFieldValue(next, WORKFLOWS_FIELD, false);
+    dropped.push(WORKFLOWS_FIELD);
   }
   return { draft: next, moved, dropped };
+}
+
+// droppedText says why rebaseDraft dropped the edit at key.
+export function droppedText(key: string): string {
+  if (key === WORKFLOWS_FIELD) return `${key}: subagents are now off and workflows need them, so the edit was dropped.`;
+  return `${key}: that repository is gone, so the edit was dropped.`;
 }
 
 // followView decides what a re-read of the Project (fresh) does to the
@@ -450,7 +489,8 @@ export function modelRows(fields: ProjectSettingsField[]): string[] {
 const STAGE_LABELS: Record<string, string> = { plan: "Plan", build: "Build", revise: "Revise", evaluate: "Evaluate" };
 const LEAF_LABELS: Record<string, string> = {
   maxTurns: "turns",
-  tokenBudget: "tokens",
+  // The runner counts output tokens only (agentrun's budgetWatcher); context re-read is not counted.
+  tokenBudget: "output tokens",
   maxCostMicroUSD: "cost",
   timeout: "time limit",
 };
@@ -474,6 +514,8 @@ const FIELD_LABELS: Record<string, string> = {
   "checks.fix": "Checks maul fixes",
   "checks.timeout": "Longest wait for checks",
   "checks.rerunFailed": "Rerun failed checks",
+  "delegation.subagents": "Subagents in builds",
+  "delegation.workflows": "Workflows in builds",
   "repositories.agentResourceClass": "Machine size",
 };
 
@@ -500,7 +542,34 @@ export const LOCKS: Record<string, string> = {
   "not-allowed": "The operator does not let this page change it.",
   "admits-unpublished": "intent-controller has not yet published the choices for this Project.",
   "no-classes": "The operator defines no machine sizes to choose from.",
+  "not-admitted": "intent-controller does not allow this in this install.",
 };
+
+// lockText is why a field is locked, in words for the Project's harness.
+export function lockText(locked: string, harness: string): string {
+  if (locked === "not-admitted" && harness === "codex") return "codex runs never delegate.";
+  return LOCKS[locked] ?? locked;
+}
+
+// delegationNote is what the page says beside a delegation switch, given
+// the draft: a switch that is on where intent-controller does not allow it
+// grants nothing (and can be turned off), and workflows need subagents.
+// null for any other field, or nothing to say.
+export function delegationNote(
+  view: Pick<ProjectSettingsView, "settings" | "options" | "facts">,
+  draft: ProjectSettings,
+  id: string,
+): string | null {
+  if (id !== SUBAGENTS_FIELD && id !== WORKFLOWS_FIELD) return null;
+  const on = fieldValue(draft, id) === true;
+  const allowed = view.options.published && (id === SUBAGENTS_FIELD ? view.options.subagents : view.options.workflows);
+  if (on && !allowed) {
+    const why = view.facts.harness === "codex" ? "codex runs never delegate" : "not allowed in this install";
+    return `On, but ${why}: it grants nothing. You can turn it off.`;
+  }
+  if (id === WORKFLOWS_FIELD && !draft.delegation.subagents) return "Needs subagents on.";
+  return null;
+}
 
 // GATE says why the viewer may not save.
 export const GATE: Record<string, string> = {
@@ -563,6 +632,10 @@ export function refusalText(r: ProjectSettingsRefusal, f?: ProjectSettingsField)
       return `${r.value} is not a machine size the operator defines.`;
     case "checks-empty-not-allowed":
       return "The operator does not let this page empty the list.";
+    case "delegation-not-admitted":
+      return "intent-controller does not allow this for this Project, so it cannot be turned on.";
+    case "workflows-need-subagents":
+      return "Workflows need subagents on.";
     case "run-budget-over-hourly":
       return `A run's budget would pass half the hourly spend limit (${limit}).`;
     case "run-budget-under-reserve":
@@ -724,6 +797,10 @@ export function valuesYAML(project: string, s: ProjectSettings): string {
     ...num(8, "maxVerifications", l.maxVerifications),
     ...num(8, "maxActiveIntents", l.maxActiveIntents),
     ...stages,
+  ]);
+  block(6, "delegation", [
+    `${pad(8)}subagents: ${s.delegation.subagents}`,
+    `${pad(8)}workflows: ${s.delegation.workflows}`,
   ]);
   block(6, "checks", [
     ...(s.checks.fix.length ? [`${pad(8)}fix: ${list(s.checks.fix)}`] : []),

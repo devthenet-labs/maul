@@ -19,6 +19,8 @@ import {
   APPROVERS_FIELD,
   CHECKS_FIELD,
   CLASS_FIELD,
+  SUBAGENTS_FIELD,
+  WORKFLOWS_FIELD,
   type SaveAnswer,
   draftChanges,
   storedValue,
@@ -138,6 +140,10 @@ function fields(): ProjectSettingsField[] {
     );
   }
   out.push(
+    field(SUBAGENTS_FIELD, "delegation", "bool", { effect: "new-runs" }),
+    // The demo controller allows subagents and not workflows, so the
+    // workflows switch shows locked.
+    field(WORKFLOWS_FIELD, "delegation", "bool", { effect: "new-runs", locked: "not-admitted" }),
     field(CHECKS_FIELD, "checks", "checks", { max: 32, managers: [KUBECTL] }),
     field("checks.timeout", "checks", "seconds", { min: 60, max: 21_600, default: 1800 }),
     field("checks.rerunFailed", "checks", "bool"),
@@ -152,7 +158,7 @@ function initial(): ProjectSettingsView {
     project: "storefront",
     generation: 7,
     observedGeneration: 7,
-    schema: 1,
+    schema: 2,
     canEdit: true,
     reason: "",
     settings: {
@@ -169,6 +175,7 @@ function initial(): ProjectSettingsView {
         maxActiveIntents: 2,
       },
       stages: { plan: stage(), build: { ...stage(), maxTurns: 120 }, revise: stage(), evaluate: stage() },
+      delegation: { subagents: false, workflows: false },
       checks: { fix: ["test", "lint"], timeoutSeconds: 1800, rerunFailed: false },
       repositories: [
         { name: "web", agentResourceClass: "small" },
@@ -197,6 +204,8 @@ function initial(): ProjectSettingsView {
       ],
       evaluator: true,
       costBudgets: false,
+      subagents: true,
+      workflows: false,
     },
     allow: { approvers: true, disableEvaluator: true, emptyChecks: false },
     facts: {
@@ -294,7 +303,13 @@ export function mockSaveProjectSettings(name: string, req: ProjectSettingsReques
 
   for (const c of changes) {
     const f = v.fields.find((x) => x.id === c.field)!;
-    if (f.locked) refuse(c, f.locked === "locked" ? "locked" : "admits-unpublished");
+    const delegation = c.field === SUBAGENTS_FIELD || c.field === WORKFLOWS_FIELD;
+    if (delegation) {
+      // Only turning a switch on is judged, against what is allowed.
+      const allowed = c.field === SUBAGENTS_FIELD ? v.options.subagents : v.options.workflows;
+      if (f.locked === "locked") refuse(c, "locked");
+      else if (c.to === true && !allowed) refuse(c, "delegation-not-admitted");
+    } else if (f.locked) refuse(c, f.locked === "locked" ? "locked" : "admits-unpublished");
     else if (c.field === APPROVERS_FIELD) {
       if (c.added.length + c.removed.length > 1) refuse(c, "approvers-one-at-a-time");
       else if (c.removed.includes(you)) refuse(c, "approvers-self-removal", 0, you);
@@ -310,6 +325,10 @@ export function mockSaveProjectSettings(name: string, req: ProjectSettingsReques
     } else if (typeof c.to === "number" && f.ceiling > 0 && c.to > f.ceiling && c.to > ((c.from as number) ?? 0)) {
       refuse(c, "above-ceiling", f.ceiling, String(c.to));
     }
+  }
+  const moved = changes.some((c) => c.field === SUBAGENTS_FIELD || c.field === WORKFLOWS_FIELD);
+  if (moved && req.settings.delegation.workflows && !req.settings.delegation.subagents) {
+    refusals.push({ field: WORKFLOWS_FIELD, item: "", reason: "workflows-need-subagents", limit: 0, value: "" });
   }
   if (refusals.length) return answer(422, { reason: "refused", refusals }, v.generation);
   const missing = confirm.filter((c) => !req.confirm.includes(c.key));

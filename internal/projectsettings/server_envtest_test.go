@@ -180,7 +180,8 @@ func (s served) saveLandsWhatItPosted() *v1alpha1.Project {
 		TimeoutSeconds: 900}
 	doc.Checks.Fix, doc.Checks.TimeoutSeconds, doc.Checks.RerunFailed = []string{"test", "e2e"}, 600, true
 	doc.Repositories[1].AgentResourceClass = "large"
-	const changed = 19
+	doc.Delegation = ProjectSettingsDelegation{Subagents: true, Workflows: true}
+	const changed = 21
 	if d := s.decide(base, doc); d.Result.Reason != ResultConfirmRequired || len(d.Result.Confirm) != 1 {
 		t.Fatalf("save without its confirmation: %+v", d.Result)
 	}
@@ -263,6 +264,7 @@ func (s served) clearingLandsOnTheDefaults(base *v1alpha1.Project) {
 	doc.Checks.TimeoutSeconds, doc.Checks.Fix = 0, nil
 	doc.Models.Plan = ""
 	doc.Repositories[1].AgentResourceClass = ""
+	doc.Delegation = ProjectSettingsDelegation{}
 	d := s.decide(base, doc, "checks-empty")
 	if d.Patched == nil {
 		t.Fatalf("clearing: %+v", d.Result)
@@ -278,6 +280,9 @@ func (s served) clearingLandsOnTheDefaults(base *v1alpha1.Project) {
 	if l.MaxVerifyFixes != nil || l.MaxVerifications != nil || l.MaxEvaluateCostMicroUSD != nil ||
 		l.Evaluate.Timeout != nil || len(cleared.Spec.Checks.Fix) != 0 {
 		t.Errorf("not unset: limits %+v, checks %+v", l, cleared.Spec.Checks)
+	}
+	if cleared.Spec.SubagentsEnabled() || cleared.Spec.Delegation != nil && cleared.Spec.Delegation.Workflows {
+		t.Errorf("delegation not turned off: %+v", cleared.Spec.Delegation)
 	}
 	if got := cleared.Spec.Checks.Timeout; got == nil || got.Seconds() != 1800 {
 		t.Errorf("cleared checks.timeout = %v, want the schema's 30m", got)

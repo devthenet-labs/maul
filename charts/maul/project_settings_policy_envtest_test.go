@@ -50,6 +50,8 @@ const (
 	psHandoff        = "may not move the hand-off earlier"
 	psChecksEmpty    = "may not empty checks.fix"
 	psModel          = "a model intent-controller does not admit"
+	psSubagents      = "delegation.subagents turned on, which intent-controller does not allow"
+	psWorkflows      = "delegation.workflows turned on, which intent-controller does not allow"
 	psLockedPrefix   = "the operator locked "
 	psCeilingSuffix  = " above the operator's ceiling"
 	psFloorSuffix    = " below the operator's floor"
@@ -148,6 +150,18 @@ func TestProjectSettingsPolicyAgainstAPIServer(t *testing.T) {
 		p.Spec.Verification, p.Spec.Models = nil, nil
 	})
 	e.project("save", withStatus)
+	// Delegation: settingsAdmits allows subagents and not workflows;
+	// dropped's controller has since stopped allowing either, after the
+	// admin opted it in to both.
+	e.project("delegating", withStatus, func(p *v1alpha1.Project) {
+		p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true}
+	})
+	e.project("dropped", withStatus, func(p *v1alpha1.Project) {
+		p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true, Workflows: true}
+	})
+	e.patchAdmits("dropped", func(a *v1alpha1.ProjectAdmits) { a.Subagents, a.Workflows = false, false })
+	e.project("refusing", withStatus)
+	e.patchAdmits("refusing", func(a *v1alpha1.ProjectAdmits) { a.Subagents = false })
 	e.project("owned", withStatus)
 	e.coManage("owned")
 	// uncapped: intent-controller publishes no ceiling for the evaluation
@@ -210,7 +224,8 @@ const settingsPhaseC = `
 statusServer:
     projectSettings:
         allow: {approvers: true, disableEvaluator: true, emptyChecks: true}
-        locked: [approvers, evaluator, handoff, models, cost, rounds, activeIntents, stages, checks, resources]
+        locked: [approvers, evaluator, handoff, models, cost, rounds, activeIntents, stages, delegation, checks,
+            resources]
 `
 
 // checkLocks: a change to each group is refused naming that group, and
@@ -236,6 +251,9 @@ func (e *settingsEnv) checkLocks(t *testing.T) {
 			psLockedPrefix + "activeIntents", checkSame},
 		{"stages", "alpha", limits(func(l *v1alpha1.ProjectLimits) { l.Revise.TokenBudget = 100_000 }),
 			psLockedPrefix + "stages", checkSame},
+		{"delegation", "alpha", func(p *v1alpha1.Project) {
+			p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true}
+		}, psLockedPrefix + "delegation", checkSame},
 		{"checks", "alpha", func(p *v1alpha1.Project) { p.Spec.Checks.Fix = []string{"test", "lint", "e2e"} },
 			psLockedPrefix + "checks", checkSame},
 		{"resources", "alpha", func(p *v1alpha1.Project) { p.Spec.Repositories[1].AgentResourceClass = "large" },
@@ -287,6 +305,7 @@ func settingsAdmits() *v1alpha1.ProjectAdmits {
 		MaxEvaluateCostMicroUSD: 8_000_000,
 		MaxToolCalls:            250,
 		Evaluator:               true,
+		Subagents:               true,
 		ResourceClasses: []v1alpha1.ProjectResourceClass{
 			{Name: "small", Requests: v1alpha1.ProjectResourceQuantities{CPU: "1", Memory: "2Gi"}},
 			{Name: "large", Requests: v1alpha1.ProjectResourceQuantities{CPU: "4", Memory: "8Gi"}},
@@ -516,6 +535,7 @@ func (e *settingsEnv) checkSaves(t *testing.T) {
 				Evaluate: stage(50, 200_000, 2_000_000, 15)}
 			d.Checks = projectsettings.ProjectSettingsChecks{Fix: []string{"test", "lint", "e2e"}, TimeoutSeconds: 45 * 60,
 				RerunFailed: true}
+			d.Delegation.Subagents = true
 			d.Repositories = []projectsettings.ProjectSettingsRepository{{Name: "app", AgentResourceClass: "large"},
 				{Name: "lib", AgentResourceClass: "small"}}
 		})
@@ -789,7 +809,22 @@ func (e *settingsEnv) checkRules(t *testing.T) {
 	ver := func(f func(*v1alpha1.ProjectVerification)) func(*v1alpha1.Project) {
 		return func(p *v1alpha1.Project) { f(verifyOf(p)) }
 	}
+	delegate := func(workflows bool) func(*v1alpha1.Project) {
+		return func(p *v1alpha1.Project) {
+			p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true, Workflows: workflows}
+		}
+	}
 	e.run(t, []settingsCase{
+		{"subagents turned on where allowed", "alpha", delegate(false), "", checkSame},
+		{"subagents turned on where not allowed", "refusing", delegate(false), psSubagents, checkSame},
+		{"workflows turned on beside subagents, not allowed", "delegating", delegate(true), psWorkflows,
+			checkSame},
+		{"both turned on, workflows not allowed", "alpha", delegate(true), psWorkflows, checkSame},
+		{"kept on after the controller stopped allowing them", "dropped",
+			func(p *v1alpha1.Project) { p.Spec.Limits.MaxRevisions = new(int32(2)) }, "", checkSame},
+		{"workflows turned off where no longer allowed", "dropped", delegate(false), "", checkSame},
+		{"both turned off where no longer allowed", "dropped", func(p *v1alpha1.Project) { p.Spec.Delegation = nil },
+			"", checkSame},
 		{"a locked group", "alpha", limits(func(l *v1alpha1.ProjectLimits) { l.MaxActiveIntents = 3 }),
 			psLockedPrefix + "activeIntents", checkSame},
 		{"past a ceiling", "alpha", limits(func(l *v1alpha1.ProjectLimits) { l.MaxCostMicroUSD = 30_000_000 }),
@@ -941,6 +976,9 @@ func (e *settingsEnv) checkWithoutStatus(t *testing.T) {
 		{"an unrelated edit", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.MaxRevisions = new(int32(4)) }, "",
 			checkSame},
 		{"a model cleared", "bare", func(p *v1alpha1.Project) { modelsOf(p).Plan = "" }, "", checkSame},
+		{"subagents turned on", "bare", func(p *v1alpha1.Project) {
+			p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true}
+		}, psSubagents, checkSame},
 		{"a stage limit raised", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.Build.MaxTurns = 101 },
 			projectsettings.StageField("build", "maxTurns") + psAdmitsSuffix, checkSame},
 		{"a stage limit stated", "bare", func(p *v1alpha1.Project) { p.Spec.Limits.Plan.TokenBudget = 1_000 },
@@ -1066,8 +1104,8 @@ func (e *settingsEnv) checkSwitches(t *testing.T) {
 }
 
 // policyReasons are Check's refusals the admission policy mirrors; the
-// rest (the schema's ranges, the run budgets, self-removal) are the status
-// server's alone. (The policy also refuses a raise of a limit the
+// rest (the schema's ranges and its workflows-need-subagents rule, the run
+// budgets, self-removal) are the status server's alone. (The policy also refuses a raise of a limit the
 // controller bounds while it has published nothing, as Check does with
 // RefusedAdmitsUnpublished; the property's Projects all have status.)
 var policyReasons = []string{projectsettings.RefusedLocked, projectsettings.RefusedApproversNotAllowed,
@@ -1075,7 +1113,7 @@ var policyReasons = []string{projectsettings.RefusedLocked, projectsettings.Refu
 	projectsettings.RefusedEvaluatorOffNotAllowed, projectsettings.RefusedHandoffNotAllowed,
 	projectsettings.RefusedBelowFloor, projectsettings.RefusedAboveCeiling, projectsettings.RefusedModelNotAdmitted,
 	projectsettings.RefusedClassNotAdmitted, projectsettings.RefusedChecksEmptyNotAllowed,
-	projectsettings.RefusedAboveControllerCeiling}
+	projectsettings.RefusedAboveControllerCeiling, projectsettings.RefusedDelegationNotAdmitted}
 
 // settingsSeed keeps the property deterministic in the gate, as the
 // repository's other seeded properties are; MAUL_SETTINGS_SEED explores.
@@ -1194,6 +1232,13 @@ func randomSettings(rng *rand.Rand, p *v1alpha1.Project) {
 		},
 		func() {
 			p.Spec.Repositories[rng.IntN(2)].AgentResourceClass = []string{"", "small", "large", "huge"}[rng.IntN(4)]
+		},
+		// Only what the schema admits, so the admin's starting patch
+		// stands: settingsAdmits allows subagents and not workflows, so
+		// both verdicts occur.
+		func() {
+			p.Spec.Delegation = []*v1alpha1.ProjectDelegation{nil, {}, {Subagents: true},
+				{Subagents: true, Workflows: true}}[rng.IntN(4)]
 		},
 	}
 	for range 1 + rng.IntN(4) {

@@ -134,9 +134,14 @@ export function IntentTimeline({
         </Pill>
         {d.suspended ? <Pill tone="amber">suspended</Pill> : null}
         {settingsProjects.includes(d.project) ? (
-          <a class="ps-chip hover:text-fg" href={hrefForProjectSettings(d.project)} title={`${d.project}'s settings`}>
+          <a
+            class="ps-chip hover:border-turf hover:text-fg"
+            href={hrefForProjectSettings(d.project)}
+            title={`${d.project}'s settings`}
+          >
             <Icon name="sliders" size={11} />
             {d.project} · {d.tier}
+            <span class="ml-0.5 border-l border-line-2 pl-1.5 font-semibold text-ink">Settings</span>
           </a>
         ) : (
           <span class="ps-chip">

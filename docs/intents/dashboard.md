@@ -5,7 +5,8 @@ for each agent run that answers the three questions a running intent raises: is 
 will it stop. It is read-only. Approval stays a GitHub fact (the approve label or `/maul approve` on the intent issue,
 bound to the plan's digest), and nothing on the dashboard can approve, cancel or replan an intent. The one page that
 writes, [Project settings](project-settings.md), is a separate switch, off unless the operator turns it on; it changes a
-Project's settings, never an intent.
+Project's settings, never an intent. With it on, the top bar's **Projects** entry lists the Projects whose settings you
+can open, and the board's Project chips say **Settings** and link to them.
 
 It is off by default. Turning it on adds per-Project access, mandatory identity hardening and a stricter browser
 envelope for the whole status page; read this page before you do. [Turning it on](#turning-it-on) has the settings.

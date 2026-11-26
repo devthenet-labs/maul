@@ -28,23 +28,38 @@ func (e *env) buildSubagents(record, launch bool) {
 	e.runs.Settings.BuildSubagents = launch
 }
 
-// TestGrantRecordsSubagents: --intent-build-subagents records subagents on
-// the grant of a build and a revise run (every check-fix and verify-fix
-// round is a revise run) of a claude Project, and on no other: never a plan,
-// evaluate or checkreview run, never a codex Project's, and nothing at all
-// with the flag off.
+// delegating is testProject opted in to subagents and, with workflows, to
+// workflows too (spec.delegation). testProject itself opts in to neither, so
+// every other test keeps holding that an unset Project gets neither.
+func delegating(workflows bool) *v1alpha1.Project {
+	p := testProject()
+	p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true, Workflows: workflows}
+	return p
+}
+
+// TestGrantRecordsSubagents: a build and a revise run (every check-fix and
+// verify-fix round is a revise run) of a claude Project record subagents on
+// their grant only when --intent-build-subagents allows them AND the
+// Project opts in (spec.delegation.subagents), and no other run ever does:
+// never a plan, evaluate or checkreview run, never a codex Project's,
+// nothing with the flag off, and nothing for a Project that does not opt
+// in, whatever the flag says.
 func TestGrantRecordsSubagents(t *testing.T) {
 	for _, harness := range []v1alpha1.ProjectHarness{"", v1alpha1.ProjectHarnessClaude, v1alpha1.ProjectHarnessCodex} {
-		p := testProject()
-		p.Spec.Harness = harness
-		for _, stage := range v1alpha1.IntentStages() {
-			for _, on := range []bool{false, true} {
-				s := testSettings()
-				s.BuildSubagents = on
-				want := on && !harness.IsCodex() &&
-					(stage == v1alpha1.IntentStageBuild || stage == v1alpha1.IntentStageRevise)
-				if got := s.grant(p, stage).Subagents; got != want {
-					t.Errorf("harness %q, stage %s, flag %v: grant.subagents = %v, want %v", harness, stage, on, got, want)
+		for _, optIn := range []*v1alpha1.ProjectDelegation{nil, {}, {Subagents: true},
+			{Subagents: true, Workflows: true}} {
+			p := testProject()
+			p.Spec.Harness, p.Spec.Delegation = harness, optIn
+			for _, stage := range v1alpha1.IntentStages() {
+				for _, on := range []bool{false, true} {
+					s := testSettings()
+					s.BuildSubagents = on
+					want := on && p.Spec.SubagentsEnabled() && !harness.IsCodex() &&
+						(stage == v1alpha1.IntentStageBuild || stage == v1alpha1.IntentStageRevise)
+					if got := s.grant(p, stage).Subagents; got != want {
+						t.Errorf("harness %q, delegation %+v, stage %s, flag %v: grant.subagents = %v, want %v",
+							harness, optIn, stage, on, got, want)
+					}
 				}
 			}
 		}
@@ -83,17 +98,23 @@ func (e *env) jobOf(run v1alpha1.IntentRun) jobs.Spec {
 func TestBuildSubagentsLaunchAsGranted(t *testing.T) {
 	for _, tt := range []struct {
 		name           string
+		optIn          bool // the Project's spec.delegation.subagents
 		record, launch bool
 		wantRecorded   bool
 		wantLaunched   bool
 	}{
-		{"flag on throughout", true, true, true, true},
-		{"flag turned off before the launch", true, false, true, false},
-		{"flag turned on before the launch", false, true, false, false},
-		{"flag off throughout", false, false, false, false},
+		{"flag on throughout", true, true, true, true, true},
+		{"flag turned off before the launch", true, true, false, true, false},
+		{"flag turned on before the launch", true, false, true, false, false},
+		{"flag off throughout", true, false, false, false, false},
+		{"flag on throughout, the Project not opted in", false, true, true, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newEnv(t, testProject())
+			p := testProject()
+			if tt.optIn {
+				p = delegating(false)
+			}
+			e := newEnv(t, p)
 			e.buildSubagents(tt.record, tt.launch)
 			name := e.approvedBuild()
 			in := e.get(name)
@@ -125,11 +146,62 @@ func TestBuildSubagentsLaunchAsGranted(t *testing.T) {
 	}
 }
 
+// TestProjectOptOutAppliesToNewRunsOnly: a run records its grant when it is
+// created, so a Project that stops opting in after its build run recorded
+// subagents still launches that run with them (the launch re-checks the
+// flag, never the Project), and only the runs created after, here the
+// revise round, record none.
+func TestProjectOptOutAppliesToNewRunsOnly(t *testing.T) {
+	e := newEnv(t, delegating(false))
+	e.buildSubagents(true, true)
+	name := e.awaiting()
+	wc, ok := e.c.(client.WithWatch)
+	if !ok {
+		t.Fatal("the env's client does not watch")
+	}
+	optedOut := false
+	e.intent.Client = interceptor.NewClient(wc, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if err := c.Create(ctx, obj, opts...); err != nil {
+				return err
+			}
+			run, ok := obj.(*v1alpha1.IntentRun)
+			if !ok || run.Spec.Stage != v1alpha1.IntentStageBuild || optedOut {
+				return nil
+			}
+			optedOut = true
+			var p v1alpha1.Project
+			if err := c.Get(ctx, client.ObjectKey{Namespace: testNS, Name: testProject().Name}, &p); err != nil {
+				return err
+			}
+			p.Spec.Delegation = nil
+			return c.Update(ctx, &p)
+		},
+	})
+	e.gh.label(1, "maul:approved", approver)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	if !optedOut {
+		t.Fatal("no build run was created")
+	}
+	build := e.runsOf(name, v1alpha1.IntentStageBuild)
+	if len(build) != 1 || !build[0].Spec.Grant.Subagents || !e.jobOf(build[0]).BuildSubagents {
+		t.Fatalf("build runs %+v: want the one run recorded and launched with subagents", build)
+	}
+	in := e.get(name)
+	e.requestChanges(in.Status.PullRequests[0].Number, 878, "Please add a regression test.")
+	e.drive(name, v1alpha1.IntentRevising, repoImage)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	revise := e.runsOf(name, v1alpha1.IntentStageRevise)
+	if len(revise) != 1 || revise[0].Spec.Grant.Subagents || e.jobOf(revise[0]).BuildSubagents {
+		t.Errorf("revise runs %+v: want the one run, created after the opt-out, without subagents", revise)
+	}
+}
+
 // TestCodexRunsNeverRecordSubagents: a codex Project's build is never
-// recorded with subagents, flag on or not: codex renders no subagents
-// posture (and the schema refuses the record).
+// recorded with subagents, flag on and opted in or not: codex renders no
+// subagents posture (and the schema refuses the record).
 func TestCodexRunsNeverRecordSubagents(t *testing.T) {
-	p := testProject()
+	p := delegating(true)
 	p.Spec.Harness = v1alpha1.ProjectHarnessCodex
 	s := testSettings()
 	s.BuildSubagents = true
@@ -145,7 +217,7 @@ func TestCodexRunsNeverRecordSubagents(t *testing.T) {
 // attempt, instead of holding its slot retrying a launch that cannot
 // succeed.
 func TestRefusedSubagentsSettleTheLaunch(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newEnv(t, delegating(false))
 	e.buildSubagents(true, true)
 	name := e.awaiting()
 	e.jobs.mu.Lock()
@@ -178,7 +250,7 @@ func TestReviseLeaseAdoptedWhateverItsSubagents(t *testing.T) {
 		{"leased with the flag off, found with it on", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newEnv(t, testProject())
+			e := newEnv(t, delegating(false))
 			e.buildSubagents(tc.flag, tc.flag)
 			name := e.approvedBuild()
 			in := e.get(name)

@@ -50,6 +50,9 @@ const (
 	LockedUnpublished = "admits-unpublished"
 	// LockedNoClasses: the operator defines no resource class to choose.
 	LockedNoClasses = "no-classes"
+	// LockedNotAdmitted: a delegation switch, off, that intent-controller
+	// does not allow for the Project (in this install, or on its harness).
+	LockedNotAdmitted = "not-admitted"
 )
 
 // View is what the settings page shows of p to the GitHub account githubID
@@ -94,7 +97,7 @@ func fieldViews(p *v1alpha1.Project, pol Policy, own managers) []ProjectSettings
 	out := make([]ProjectSettingsField, 0, len(table)+1)
 	for _, f := range Fields() {
 		v := ProjectSettingsField{ID: f.ID, Group: string(f.Group), Kind: string(f.Kind), Min: f.Min, Max: f.Max,
-			Default: f.Default, Effect: string(f.Effect), Locked: locked(f, pol, admits),
+			Default: f.Default, Effect: string(f.Effect), Locked: locked(f, pol, &p.Spec, admits),
 			Managers: own.of(own.fields, f.ID)}
 		// Unset, a limit the controller clamps takes effect at its
 		// ceiling, or at the field's own default where that is lower.
@@ -115,12 +118,23 @@ func fieldViews(p *v1alpha1.Project, pol Policy, own managers) []ProjectSettings
 	return out
 }
 
-// locked is why a field cannot be changed at all, "" when it can.
-func locked(f Field, pol Policy, admits *v1alpha1.ProjectAdmits) string {
+// locked is why a field cannot be changed at all, "" when it can. A
+// delegation switch that is on is never locked but by the operator, so it
+// can always be turned off; one that is off is locked where it could not be
+// turned on.
+func locked(f Field, pol Policy, spec *v1alpha1.ProjectSpec, admits *v1alpha1.ProjectAdmits) string {
 	choice := f.Kind == KindModel || f.Kind == KindClass
+	delegating := f.Group == GroupDelegation
+	r, _ := rowByID(f.ID)
 	switch {
 	case pol.Locks(f.Group):
 		return LockedByOperator
+	case delegating && r.read(spec).n != 0:
+		return ""
+	case delegating && admits == nil:
+		return LockedUnpublished
+	case delegating && !delegationAdmitted(admits, f.ID):
+		return LockedNotAdmitted
 	case f.ID == FieldApprovers && !pol.Allow.Approvers:
 		return LockedNotAllowed
 	case choice && admits == nil:
@@ -157,6 +171,7 @@ func options(a *v1alpha1.ProjectAdmits) ProjectSettingsOptions {
 		return o
 	}
 	o.Published, o.Evaluator, o.CostBudgets = true, a.Evaluator, a.CostBudgets
+	o.Subagents, o.Workflows = a.Subagents, a.Workflows
 	o.Models = append(o.Models, a.Models...)
 	o.DefaultModels = ProjectSettingsModels{Plan: a.DefaultModels.Plan, Build: a.DefaultModels.Build,
 		Evaluate: a.DefaultModels.Evaluate}

@@ -2515,7 +2515,7 @@
                             "uniqueItems": true,
                             "items": {
                                 "type": "string",
-                                "enum": ["approvers", "evaluator", "handoff", "models", "cost", "rounds", "activeIntents", "stages", "checks", "resources"]
+                                "enum": ["approvers", "evaluator", "handoff", "models", "cost", "rounds", "activeIntents", "stages", "delegation", "checks", "resources"]
                             }
                         },
                         "ceilings": {

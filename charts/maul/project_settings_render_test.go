@@ -377,6 +377,32 @@ func checkBoundsSpelled(t *testing.T, text, raw string, pol projectsettings.Poli
 	}
 }
 
+// TestProjectSettingsPolicyDelegation: the delegation switches are judged
+// against status.admits in every render, because the bound is
+// intent-controller's flags, not a switch of the page; locking the group
+// renders its lock, and the status server reads the same lock.
+func TestProjectSettingsPolicyDelegation(t *testing.T) {
+	needHelm(t)
+	text := settingsPolicyText(t, renderObjects(t, projectSettingsArgs))
+	for _, leaf := range []string{"subagents", "workflows"} {
+		if want := "delegation." + leaf + " turned on, which intent-controller does not allow"; !strings.Contains(text,
+			want) {
+			t.Errorf("the default render has no rule %q", want)
+		}
+	}
+	if strings.Contains(text, "the operator locked delegation") {
+		t.Error("delegation is locked by default")
+	}
+	objs := renderObjects(t, append(slices.Clone(projectSettingsArgs),
+		"--set", "statusServer.projectSettings.locked={delegation}"))
+	if !strings.Contains(settingsPolicyText(t, objs), "the operator locked delegation") {
+		t.Error("locked={delegation} renders no lock")
+	}
+	if pol := renderedPolicy(t, objs); !pol.Locks(projectsettings.GroupDelegation) {
+		t.Errorf("locked={delegation}: the server reads %+v", pol.Locked)
+	}
+}
+
 // checkSetRendersTheSame: customPolicyValues through --set (integers to
 // helm, where a values file's are floats) render the same policy and flag.
 func checkSetRendersTheSame(t *testing.T, text, raw string) {

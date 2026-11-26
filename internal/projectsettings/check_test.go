@@ -83,6 +83,7 @@ func TestCheckLocks(t *testing.T) {
 		GroupRounds:        {FieldMaxRevisions, func(d *ProjectSettings) { d.Limits.MaxRevisions = i32(1) }},
 		GroupActiveIntents: {FieldMaxActiveIntents, func(d *ProjectSettings) { d.Limits.MaxActiveIntents = 1 }},
 		GroupStages:        {"limits.plan.maxTurns", func(d *ProjectSettings) { d.Stages.Plan.MaxTurns = 10 }},
+		GroupDelegation:    {FieldSubagents, func(d *ProjectSettings) { d.Delegation.Subagents = true }},
 		GroupChecks:        {FieldChecksRerunFailed, func(d *ProjectSettings) { d.Checks.RerunFailed = true }},
 		GroupResources: {FieldRepositoryClass, func(d *ProjectSettings) {
 			d.Repositories[1].AgentResourceClass = "large"
@@ -193,6 +194,53 @@ func TestCheckSwitches(t *testing.T) {
 			edit:   func(d *ProjectSettings) { d.Checks.Fix = []string{} }},
 		{name: "checks: down to one", edit: func(d *ProjectSettings) { d.Checks.Fix = []string{"test"} }},
 		{name: "checks: more of them", edit: func(d *ProjectSettings) { d.Checks.Fix = append(d.Checks.Fix, "e2e") }},
+	})
+}
+
+// A delegation switch may be turned on only where status.admits allows
+// it; keeping it on or turning it off always passes, the usual "moved the
+// wrong way" rule. Workflows never stay on without subagents.
+func TestCheckDelegation(t *testing.T) {
+	notAdmitted := func(p *v1alpha1.Project) { p.Status.Admits.Subagents, p.Status.Admits.Workflows = false, false }
+	noWorkflows := func(p *v1alpha1.Project) { p.Status.Admits.Workflows = false }
+	unpublished := func(p *v1alpha1.Project) { p.Status.Admits = nil }
+	on := func(p *v1alpha1.Project) { p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true} }
+	both := func(p *v1alpha1.Project) {
+		p.Spec.Delegation = &v1alpha1.ProjectDelegation{Subagents: true, Workflows: true}
+	}
+	both0 := func(p *v1alpha1.Project) { both(p); notAdmitted(p) }
+	subagentsOn := func(d *ProjectSettings) { d.Delegation.Subagents = true }
+	runChecks(t, []checkCase{
+		{name: "subagents on, allowed", edit: subagentsOn},
+		{name: "subagents on, not allowed", project: notAdmitted, edit: subagentsOn,
+			want: []ProjectSettingsRefusal{refused(FieldSubagents, RefusedDelegationNotAdmitted)}},
+		{name: "subagents on, nothing published", project: unpublished, edit: subagentsOn,
+			want: []ProjectSettingsRefusal{refused(FieldSubagents, RefusedAdmitsUnpublished)}},
+		{name: "both on together, allowed",
+			edit: func(d *ProjectSettings) { d.Delegation = ProjectSettingsDelegation{Subagents: true, Workflows: true} }},
+		{name: "workflows on beside subagents, workflows not allowed", project: func(p *v1alpha1.Project) {
+			on(p)
+			noWorkflows(p)
+		}, edit: func(d *ProjectSettings) { d.Delegation.Workflows = true },
+			want: []ProjectSettingsRefusal{refused(FieldWorkflows, RefusedDelegationNotAdmitted)}},
+		{name: "workflows on without subagents",
+			edit: func(d *ProjectSettings) { d.Delegation.Workflows = true },
+			want: []ProjectSettingsRefusal{refused(FieldWorkflows, RefusedWorkflowsNeedSubagents)}},
+		{name: "subagents off with workflows left on", project: both,
+			edit: func(d *ProjectSettings) { d.Delegation.Subagents = false },
+			want: []ProjectSettingsRefusal{refused(FieldWorkflows, RefusedWorkflowsNeedSubagents)}},
+		{name: "kept on while not allowed: another field changed", project: both0,
+			edit: func(d *ProjectSettings) { d.Limits.MaxRevisions = i32(1) }},
+		{name: "workflows off while not allowed", project: both0,
+			edit: func(d *ProjectSettings) { d.Delegation.Workflows = false }},
+		{name: "both off while not allowed", project: both0,
+			edit: func(d *ProjectSettings) { d.Delegation = ProjectSettingsDelegation{} }},
+		{name: "both off while nothing is published", project: func(p *v1alpha1.Project) { both(p); unpublished(p) },
+			edit: func(d *ProjectSettings) { d.Delegation = ProjectSettingsDelegation{} }},
+		{name: "locked", policy: func(p *Policy) { p.Locked = []Group{GroupDelegation} }, project: both,
+			edit: func(d *ProjectSettings) { d.Delegation = ProjectSettingsDelegation{} },
+			want: []ProjectSettingsRefusal{refused(FieldSubagents, RefusedLocked),
+				refused(FieldWorkflows, RefusedLocked)}},
 	})
 }
 
@@ -730,7 +778,7 @@ func TestNoSavePassesTheOperatorsBounds(t *testing.T) {
 				return false
 			}
 		}
-		return switchesHold(t, p, out, pol, editor) && admitsHold(t, p, out, was, is)
+		return switchesHold(t, p, out, pol, editor) && admitsHold(t, p, out, was, is) && delegationHolds(t, p, out)
 	}
 	cfg := quickConfig(20000, func(args []reflect.Value, r *rand.Rand) {
 		args[0] = reflect.ValueOf(genProject(r))
@@ -747,6 +795,31 @@ func TestNoSavePassesTheOperatorsBounds(t *testing.T) {
 			refusedSaves)
 	}
 	t.Logf("%d let through, %d refused", passed, refusedSaves)
+}
+
+// delegationHolds: no switch the controller does not admit was turned on,
+// and workflows are never left on without subagents.
+func delegationHolds(t *testing.T, p, out *v1alpha1.Project) bool {
+	t.Helper()
+	a, was, is := p.Status.Admits, p.Spec.Delegation, out.Spec.Delegation
+	leaf := func(d *v1alpha1.ProjectDelegation) [2]bool {
+		if d == nil {
+			return [2]bool{}
+		}
+		return [2]bool{d.Subagents, d.Workflows}
+	}
+	before, after := leaf(was), leaf(is)
+	for i, admitted := range [2]bool{a != nil && a.Subagents, a != nil && a.Workflows} {
+		if after[i] && !before[i] && !admitted {
+			t.Logf("delegation switch %d turned on, admits %+v", i, a)
+			return false
+		}
+	}
+	if after[1] && !after[0] {
+		t.Log("workflows left on without subagents")
+		return false
+	}
+	return true
 }
 
 func switchesHold(t *testing.T, p, out *v1alpha1.Project, pol Policy, editor string) bool {
@@ -850,7 +923,8 @@ func TestRefusalsNameAFieldAndAFixedReason(t *testing.T) {
 		RefusedApproversInvalid, RefusedApproversOneAtATime, RefusedApproversSelfRemoval,
 		RefusedEvaluatorOffNotAllowed, RefusedHandoffNotAllowed, RefusedBelowFloor, RefusedAboveCeiling,
 		RefusedAboveControllerCeiling, RefusedAdmitsUnpublished, RefusedModelNotAdmitted, RefusedClassNotAdmitted,
-		RefusedChecksEmptyNotAllowed, RefusedRunBudgetOverHourly, RefusedRunBudgetUnderReserve}
+		RefusedChecksEmptyNotAllowed, RefusedRunBudgetOverHourly, RefusedRunBudgetUnderReserve,
+		RefusedDelegationNotAdmitted, RefusedWorkflowsNeedSubagents}
 	for _, r := range reasons {
 		if r == "" || strings.ToLower(r) != r || strings.ContainsAny(r, " _") {
 			t.Errorf("reason %q is not a lower-case key", r)
@@ -894,7 +968,8 @@ func TestRefusalsNameAFieldAndAFixedReason(t *testing.T) {
 	for _, r := range []string{RefusedLocked, RefusedOutOfRange, RefusedApproversNotAllowed,
 		RefusedApproversOneAtATime, RefusedApproversSelfRemoval, RefusedEvaluatorOffNotAllowed,
 		RefusedHandoffNotAllowed, RefusedBelowFloor, RefusedAboveCeiling, RefusedAboveControllerCeiling,
-		RefusedAdmitsUnpublished, RefusedModelNotAdmitted, RefusedClassNotAdmitted, RefusedChecksEmptyNotAllowed} {
+		RefusedAdmitsUnpublished, RefusedModelNotAdmitted, RefusedClassNotAdmitted, RefusedChecksEmptyNotAllowed,
+		RefusedDelegationNotAdmitted, RefusedWorkflowsNeedSubagents} {
 		if !seen[r] {
 			t.Errorf("no generated save was refused as %s", r)
 		}

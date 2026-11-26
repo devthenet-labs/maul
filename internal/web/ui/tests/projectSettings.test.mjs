@@ -8,13 +8,21 @@ import {
   approverProblem,
   classifySave,
   confirmationText,
+  delegationNote,
+  fieldLabel,
+  lockText,
+  refusalText,
+  withDraftValue,
   dollarsToMicro,
   draftChanges,
+  droppedText,
   fieldKey,
   fieldValue,
   followView,
   loginManagerNote,
   managerNotes,
+  projectsNav,
+  settingsProjectsOf,
   microToDollars,
   modelRows,
   parseFieldText,
@@ -31,7 +39,8 @@ import {
 } from "../src/projectSettings.ts";
 import { INTENTS_VIEW_FILES } from "../src/intents.ts";
 import { mockProjectSettings, mockSaveProjectSettings } from "../src/mock/projectSettings.ts";
-import { hrefForProjectSettings, isIntentsRoute, parseRoute } from "../src/router.ts";
+import { hrefForProjectSettings, hrefForProjects, isIntentsRoute, isProjectsRoute, parseRoute } from "../src/router.ts";
+import { mockMe } from "../src/mock/intents.ts";
 
 // ---- fixtures ---------------------------------------------------------------
 
@@ -66,6 +75,8 @@ const FIELDS = [
   field("limits.plan.maxTurns", "count", { group: "stages", max: 1000, default: 40, effect: "new-runs" }),
   field("limits.plan.timeout", "seconds", { group: "stages", min: 60, max: 14400, default: 1200, effect: "new-runs" }),
   field("limits.evaluate.maxCostMicroUSD", "microUSD", { group: "stages", max: 1e9, effect: "new-runs" }),
+  field("delegation.subagents", "bool", { group: "delegation", effect: "new-runs" }),
+  field("delegation.workflows", "bool", { group: "delegation", effect: "new-runs" }),
   field("checks.fix", "checks", { group: "checks", max: 32 }),
   field("checks.timeout", "seconds", { group: "checks", min: 60, max: 21600, default: 1800 }),
   field("checks.rerunFailed", "bool", { group: "checks" }),
@@ -90,6 +101,7 @@ function settings() {
       maxActiveIntents: 2,
     },
     stages: { plan: stage(), build: stage(), revise: stage(), evaluate: stage() },
+    delegation: { subagents: false, workflows: false },
     checks: { fix: ["test", "lint"], timeoutSeconds: 1800, rerunFailed: false },
     repositories: [
       { name: "web", agentResourceClass: "small" },
@@ -109,9 +121,44 @@ test("the project settings route round-trips", () => {
   }
   assert.equal(hrefForProjectSettings("storefront"), "#/projects/storefront/settings");
   assert.deepEqual(parseRoute("#/projects/storefront"), { view: "list" });
-  assert.deepEqual(parseRoute("#/projects"), { view: "list" });
   // It gates itself, outside the intents area's own routes.
   assert.equal(isIntentsRoute(parseRoute(hrefForProjectSettings("p"))), false);
+});
+
+test("the projects route lists the settings pages, and is the Projects tab's", () => {
+  assert.equal(hrefForProjects(), "#/projects");
+  assert.deepEqual(parseRoute(hrefForProjects()), { view: "projects" });
+  assert.deepEqual(parseRoute("#/projects"), { view: "projects" });
+  assert.deepEqual(parseRoute("#/projects/"), { view: "projects" });
+  assert.equal(isIntentsRoute(parseRoute("#/projects")), false);
+  // The Projects tab is lit on the list and on every settings page.
+  assert.equal(isProjectsRoute(parseRoute("#/projects")), true);
+  assert.equal(isProjectsRoute(parseRoute(hrefForProjectSettings("storefront"))), true);
+  assert.equal(isProjectsRoute(parseRoute("#/intents")), false);
+  assert.equal(isProjectsRoute(parseRoute("#/account")), false);
+  // The existing routes are unchanged.
+  assert.deepEqual(parseRoute("#/account"), { view: "account" });
+  assert.deepEqual(parseRoute("#/intents"), { view: "intents" });
+  assert.deepEqual(parseRoute("#/"), { view: "list" });
+});
+
+test("the Projects tab shows only when /api/me lists a Project with its settings page", () => {
+  const p = (name, settings, tier = "intents") => ({ name, tier, settings });
+  assert.equal(projectsNav(null), false, "no /api/me answer: no tab");
+  assert.equal(projectsNav(undefined), false, "still loading: no tab");
+  assert.equal(projectsNav({ name: "a", loggedIn: true, projects: [] }), false);
+  assert.equal(projectsNav({ name: "a", loggedIn: true, projects: [p("x", false)] }), false);
+  assert.equal(projectsNav({ name: "a", loggedIn: true, projects: [p("x", false), p("y", true)] }), true);
+  assert.deepEqual(
+    settingsProjectsOf({ name: "a", loggedIn: true, projects: [p("x", false), p("y", true, "transcripts"), p("z", true)] }),
+    [p("y", true, "transcripts"), p("z", true)],
+    "only the Projects whose page is served, in the server's order",
+  );
+  assert.deepEqual(settingsProjectsOf(null), []);
+});
+
+test("mock mode lists a Project with its settings page, so the tab shows there", () => {
+  assert.equal(projectsNav(mockMe()), true);
 });
 
 // ---- dollars and durations ------------------------------------------------------
@@ -231,6 +278,44 @@ test("fieldValue and withFieldValue reach every document slot by field id", () =
   assert.throws(() => fieldValue(doc, "suspend"));
 });
 
+// ---- delegation --------------------------------------------------------------------
+
+test("turning subagents off in the draft turns workflows off with it", () => {
+  let doc = withDraftValue(settings(), "delegation.subagents", true);
+  doc = withDraftValue(doc, "delegation.workflows", true);
+  assert.deepEqual(doc.delegation, { subagents: true, workflows: true });
+  const off = withDraftValue(doc, "delegation.subagents", false);
+  assert.deepEqual(off.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(doc.delegation, { subagents: true, workflows: true }, "the draft it was made from is left alone");
+  assert.equal(withDraftValue(doc, "delegation.workflows", false).delegation.subagents, true);
+  assert.equal(withDraftValue(settings(), "limits.maxRevisions", 4).limits.maxRevisions, 4);
+  assert.equal(fieldLabel("delegation.subagents"), "Subagents in builds");
+  assert.equal(fieldLabel("delegation.workflows"), "Workflows in builds");
+});
+
+test("a delegation switch says why it is locked, and what an on switch the controller refuses does", () => {
+  assert.match(lockText("not-admitted", "claude"), /does not allow/);
+  assert.match(lockText("not-admitted", "codex"), /codex/);
+  assert.match(lockText("locked", "codex"), /operator locked/);
+  const options = { published: true, subagents: false, workflows: false };
+  const on = withDraftValue(withDraftValue(settings(), "delegation.subagents", true), "delegation.workflows", true);
+  const view = { settings: on, options, facts: { harness: "claude" } };
+  assert.match(delegationNote(view, on, "delegation.subagents"), /grants nothing.*turn it off/);
+  assert.match(delegationNote({ ...view, facts: { harness: "codex" } }, on, "delegation.subagents"), /codex/);
+  const allowed = { ...view, options: { published: true, subagents: true, workflows: true } };
+  assert.equal(delegationNote(allowed, on, "delegation.subagents"), null);
+  assert.equal(delegationNote(allowed, on, "delegation.workflows"), null);
+  const noSubagents = withDraftValue(on, "delegation.subagents", false);
+  assert.match(delegationNote(allowed, noSubagents, "delegation.workflows"), /needs subagents/i);
+  assert.equal(delegationNote(allowed, on, "limits.maxRevisions"), null);
+});
+
+test("the delegation refusals are worded", () => {
+  const r = (reason) => ({ field: "delegation.subagents", item: "", reason, limit: 0, value: "" });
+  assert.match(refusalText(r("delegation-not-admitted")), /does not allow/);
+  assert.match(refusalText(r("workflows-need-subagents")), /subagents/);
+});
+
 // ---- after a 409 ------------------------------------------------------------------
 
 test("rebaseDraft re-applies the person's edits onto the Project as it now is", () => {
@@ -273,6 +358,42 @@ test("rebaseDraft re-applies the person's edits onto the Project as it now is", 
   // The same edit made by both is no conflict.
   const same = rebaseDraft(old, draft, set(now, "limits.maxActiveIntents", 4), FIELDS);
   assert.deepEqual(same.moved, []);
+});
+
+// Workflows need subagents, so a rebase must never leave workflows on with
+// subagents off: the page disables the workflows switch while subagents are
+// off, so the person could not turn it off, and every save is refused.
+test("rebaseDraft never leaves workflows on with subagents off", () => {
+  const old = withDraftValue(settings(), "delegation.subagents", true);
+  const off = withDraftValue(old, "delegation.subagents", false);
+
+  // The person turned workflows on; someone else turned subagents off.
+  const theirs = rebaseDraft(old, withDraftValue(old, "delegation.workflows", true), off, FIELDS);
+  assert.deepEqual(theirs.draft.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(theirs.dropped, ["delegation.workflows"], "the workflows edit is dropped, and said so");
+  assert.match(droppedText(theirs.dropped[0]), /subagents/);
+  assert.deepEqual(draftChanges(off, theirs.draft, FIELDS), []);
+
+  // The person turned subagents off; someone else turned workflows on.
+  const both = withDraftValue(old, "delegation.workflows", true);
+  const mine = rebaseDraft(old, off, both, FIELDS);
+  assert.deepEqual(mine.draft.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(
+    draftChanges(both, mine.draft, FIELDS).map((c) => [c.key, c.from, c.to]),
+    [
+      ["delegation.subagents", true, false],
+      ["delegation.workflows", true, false],
+    ],
+  );
+
+  // followView rebases the same way.
+  const view = (generation, doc) => ({ generation, settings: doc, fields: FIELDS });
+  const f = followView(view(8, old), withDraftValue(old, "delegation.workflows", true), view(9, off));
+  assert.deepEqual(f.draft.delegation, { subagents: false, workflows: false });
+  assert.deepEqual(f.dropped, ["delegation.workflows"]);
+
+  // A repository gone is still worded as before.
+  assert.match(droppedText("repositories.agentResourceClass[api]"), /repository is gone/);
 });
 
 // After a save the page re-reads the Project until intent-controller has
@@ -472,6 +593,11 @@ test("valuesYAML states what the Project holds, for the maul-config values file"
   assert.match(yaml, /\n {8}plan: "anthropic\/claude-x"\n/);
   assert.match(yaml, /\n {10}agentResourceClass: "small"\n/);
   assert.doesNotMatch(yaml, /maxVerifyFixes|maxToolCalls|handoff: ""|build: ""/, "unset settings are left out");
+  // The switches are always stated, so a values file that turned one on
+  // does not put it back once the page turned it off.
+  assert.match(yaml, /\n {6}delegation:\n {8}subagents: false\n {8}workflows: false\n/);
+  const on = withDraftValue(doc, "delegation.subagents", true);
+  assert.match(valuesYAML("storefront", on), /\n {8}subagents: true\n {8}workflows: false\n/);
   // Strings are quoted, so nothing a login or check holds is read as YAML.
   const odd = set(settings(), "checks.fix", ["a: b", 'q"x', "#c"]);
   assert.match(valuesYAML("p", odd), /fix: \["a: b", "q\\"x", "#c"\]/);
@@ -506,6 +632,18 @@ test("the demo save asks for confirmation, refuses, and saves", () => {
   const refused = mockSaveProjectSettings("storefront", req(high));
   assert.equal(refused.status, 422);
   assert.deepEqual(refused.result.refusals.map((r) => [r.field, r.reason]), [["limits.maxRevisions", "above-ceiling"]]);
+
+  // The demo controller allows subagents and not workflows: workflows
+  // are locked while off, and refused when posted on.
+  assert.equal(view.fields.find((f) => f.id === "delegation.workflows").locked, "not-admitted");
+  const wfs = set(set(view.settings, "delegation.subagents", true), "delegation.workflows", true);
+  const notAdmitted = mockSaveProjectSettings("storefront", req(wfs));
+  assert.equal(notAdmitted.status, 422);
+  assert.deepEqual(notAdmitted.result.refusals.map((r) => [r.field, r.reason]), [
+    ["delegation.workflows", "delegation-not-admitted"],
+  ]);
+  const alone = mockSaveProjectSettings("storefront", req(set(view.settings, "delegation.workflows", true)));
+  assert.deepEqual(alone.result.refusals.map((r) => r.reason), ["delegation-not-admitted", "workflows-need-subagents"]);
 
   const saved = mockSaveProjectSettings("storefront", req(off, ["evaluator-off"]));
   assert.equal(saved.status, 200);

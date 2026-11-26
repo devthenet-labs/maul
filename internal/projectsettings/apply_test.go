@@ -103,6 +103,56 @@ func TestApplyWritesOnlyWhatDiffers(t *testing.T) {
 	}
 }
 
+// The delegation switches are written leaf by leaf: turning one on makes
+// the block, turning it off sends a null for that leaf alone (the bools are
+// omitempty, so false and absent are one value), and a Project that never
+// opted in keeps no block.
+func TestApplyDelegation(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		from    *v1alpha1.ProjectDelegation
+		edit    func(*ProjectSettings)
+		changes []ProjectSettingsChange
+		patch   string
+	}{
+		{"subagents on", nil, func(d *ProjectSettings) { d.Delegation.Subagents = true },
+			[]ProjectSettingsChange{changeOf(FieldSubagents, "", "delegation", "false", "true", "new-runs")},
+			`{"spec":{"delegation":{"subagents":true}}}`},
+		{"both on", nil, func(d *ProjectSettings) {
+			d.Delegation = ProjectSettingsDelegation{Subagents: true, Workflows: true}
+		},
+			[]ProjectSettingsChange{changeOf(FieldSubagents, "", "delegation", "false", "true", "new-runs"),
+				changeOf(FieldWorkflows, "", "delegation", "false", "true", "new-runs")},
+			`{"spec":{"delegation":{"subagents":true,"workflows":true}}}`},
+		{"workflows off", &v1alpha1.ProjectDelegation{Subagents: true, Workflows: true},
+			func(d *ProjectSettings) { d.Delegation.Workflows = false },
+			[]ProjectSettingsChange{changeOf(FieldWorkflows, "", "delegation", "true", "false", "new-runs")},
+			`{"spec":{"delegation":{"workflows":null}}}`},
+		{"both off", &v1alpha1.ProjectDelegation{Subagents: true, Workflows: true},
+			func(d *ProjectSettings) { d.Delegation = ProjectSettingsDelegation{} },
+			[]ProjectSettingsChange{changeOf(FieldSubagents, "", "delegation", "true", "false", "new-runs"),
+				changeOf(FieldWorkflows, "", "delegation", "true", "false", "new-runs")},
+			`{"spec":{"delegation":{"subagents":null,"workflows":null}}}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := baseProject(func(p *v1alpha1.Project) { p.Spec.Delegation = tt.from })
+			out, changes := save(t, p, tt.edit)
+			if !reflect.DeepEqual(changes, tt.changes) {
+				t.Errorf("changes =\n%+v\nwant\n%+v", changes, tt.changes)
+			}
+			if got := mergePatch(t, p, out); got != tt.patch {
+				t.Errorf("merge patch = %s\nwant         %s", got, tt.patch)
+			}
+		})
+	}
+	p := baseProject()
+	out, changes := save(t, p, func(d *ProjectSettings) { d.Limits.MaxRevisions = i32(7) })
+	if len(changes) != 1 || out.Spec.Delegation != nil {
+		t.Errorf("a save leaving the switches alone: changes %+v, delegation %+v; want no block made",
+			changes, out.Spec.Delegation)
+	}
+}
+
 // Changing one repository's class sends the whole list, every entry
 // complete and in order: a JSON merge patch can only replace a list.
 func TestApplyClassSendsEveryRepositoryWhole(t *testing.T) {
@@ -546,11 +596,12 @@ func TestDocumentWireShape(t *testing.T) {
 		`"limits":{"maxCostMicroUSD":0,"maxEvaluateCostMicroUSD":0,"maxRevisions":null,"maxCheckFixes":null,` +
 		`"maxVerifyFixes":null,"maxVerifications":0,"maxActiveIntents":0},` +
 		`"stages":{"plan":` + stage + `,"build":` + stage + `,"revise":` + stage + `,"evaluate":` + stage + `},` +
+		`"delegation":{"subagents":false,"workflows":false},` +
 		`"checks":{"fix":null,"timeoutSeconds":0,"rerunFailed":false},"repositories":null}`
 	if string(raw) != want {
 		t.Errorf("document =\n%s\nwant\n%s\n(a changed document needs a new Schema)", raw, want)
 	}
-	if Schema != 1 {
+	if Schema != 2 {
 		t.Errorf("Schema = %d: update the document shape above with it", Schema)
 	}
 }

@@ -57,6 +57,12 @@ const (
 	// RefusedRunBudgetOverHourly: a run's cost budget would pass half the
 	// broker's hourly limit (Limit), which makes the Project not Ready.
 	RefusedRunBudgetOverHourly = "run-budget-over-hourly"
+	// RefusedDelegationNotAdmitted: a delegation switch turned on that
+	// intent-controller does not allow for the Project (status.admits).
+	RefusedDelegationNotAdmitted = "delegation-not-admitted"
+	// RefusedWorkflowsNeedSubagents: workflows left on without subagents,
+	// which the Project schema refuses.
+	RefusedWorkflowsNeedSubagents = "workflows-need-subagents"
 	// RefusedRunBudgetUnderReserve: an evaluator stage's cost budget would
 	// be under what the broker reserves for its model's requests (Limit,
 	// Value the model), which makes the Project not Ready.
@@ -82,6 +88,7 @@ func Check(old, updated *v1alpha1.Project, pol Policy, editor string) []ProjectS
 		j.changed = append(j.changed, c.Field)
 		j.change(c)
 	}
+	j.delegation()
 	j.budgets()
 	return j.out
 }
@@ -135,6 +142,8 @@ func (j *judge) change(c ProjectSettingsChange) {
 		if len(is.list) == 0 && !j.pol.Allow.EmptyChecks {
 			j.refuse(ProjectSettingsRefusal{Field: r.ID, Reason: RefusedChecksEmptyNotAllowed})
 		}
+	case r.Group == GroupDelegation:
+		j.switchedOn(r.ID, is)
 	case r.Kind == KindModel:
 		j.admitted(r.ID, "", is.s, RefusedModelNotAdmitted, func(a *v1alpha1.ProjectAdmits) []string { return a.Models })
 	case r.Kind.numeric():
@@ -187,6 +196,38 @@ func (j *judge) class(c ProjectSettingsChange) {
 		}
 		return names
 	})
+}
+
+// switchedOn judges a changed delegation switch. Only turning one on is
+// judged, against what intent-controller allows: turning it off is always
+// a move the right way, so an opt-in the controller no longer honours can
+// still be withdrawn.
+func (j *judge) switchedOn(field string, is value) {
+	switch {
+	case is.n == 0:
+	case j.admits == nil:
+		j.refuse(ProjectSettingsRefusal{Field: field, Reason: RefusedAdmitsUnpublished})
+	case !delegationAdmitted(j.admits, field):
+		j.refuse(ProjectSettingsRefusal{Field: field, Reason: RefusedDelegationNotAdmitted})
+	}
+}
+
+// delegationAdmitted reports whether admits lets the delegation switch
+// field take effect.
+func delegationAdmitted(admits *v1alpha1.ProjectAdmits, field string) bool {
+	if field == FieldWorkflows {
+		return admits.Workflows
+	}
+	return admits.Subagents
+}
+
+// delegation refuses a save that leaves workflows on without subagents, as
+// the schema would: Apply never clears the one the person did not post.
+func (j *judge) delegation() {
+	moved := slices.Contains(j.changed, FieldSubagents) || slices.Contains(j.changed, FieldWorkflows)
+	if moved && j.new.Delegation != nil && j.new.Delegation.Workflows && !j.new.Delegation.Subagents {
+		j.refuse(ProjectSettingsRefusal{Field: FieldWorkflows, Reason: RefusedWorkflowsNeedSubagents})
+	}
 }
 
 // admitted judges a new choice against what intent-controller publishes.

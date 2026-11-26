@@ -26,6 +26,7 @@ const (
 	GroupRounds        Group = "rounds"
 	GroupActiveIntents Group = "activeIntents"
 	GroupStages        Group = "stages"
+	GroupDelegation    Group = "delegation"
 	GroupChecks        Group = "checks"
 	GroupResources     Group = "resources"
 )
@@ -33,7 +34,7 @@ const (
 // Groups are the lock groups, in the page's order.
 func Groups() []Group {
 	return []Group{GroupApprovers, GroupEvaluator, GroupHandoff, GroupModels, GroupCost, GroupRounds,
-		GroupActiveIntents, GroupStages, GroupChecks, GroupResources}
+		GroupActiveIntents, GroupStages, GroupDelegation, GroupChecks, GroupResources}
 }
 
 // Kind is how a field's value is written.
@@ -90,6 +91,8 @@ const (
 	FieldMaxVerifyFixes      = "limits.maxVerifyFixes"
 	FieldMaxVerifications    = "limits.maxVerifications"
 	FieldMaxActiveIntents    = "limits.maxActiveIntents"
+	FieldSubagents           = "delegation.subagents"
+	FieldWorkflows           = "delegation.workflows"
 	FieldChecksFix           = "checks.fix"
 	FieldChecksTimeout       = "checks.timeout"
 	FieldChecksRerunFailed   = "checks.rerunFailed"
@@ -345,6 +348,13 @@ func models(s *v1alpha1.ProjectSpec) *v1alpha1.ProjectModels {
 	return s.Models
 }
 
+func delegation(s *v1alpha1.ProjectSpec) *v1alpha1.ProjectDelegation {
+	if s.Delegation == nil {
+		s.Delegation = &v1alpha1.ProjectDelegation{}
+	}
+	return s.Delegation
+}
+
 // stage is one stage that has limits, a model of its own or not.
 type stage struct {
 	name string
@@ -395,6 +405,7 @@ func buildTable() []row {
 			rows = append(rows, stageRows(s)...)
 		}
 	}
+	rows = append(rows, delegationRows()...)
 	return append(rows, checkRows()...)
 }
 
@@ -680,6 +691,32 @@ func stageRows(st stage) []row {
 				l.Timeout = &d
 			},
 		},
+	}
+}
+
+// delegationRows are the build's two delegation switches. Each reads its
+// own leaf as stored, so the document shows exactly what the Project says
+// (whether a switch takes effect is the controller's: status.admits).
+func delegationRows() []row {
+	leaf := func(id string, doc func(*ProjectSettingsDelegation) *bool,
+		spec func(*v1alpha1.ProjectDelegation) *bool) row {
+		return row{
+			Field: Field{ID: id, Group: GroupDelegation, Kind: KindBool, Effect: EffectNewRuns},
+			slot:  func(d *ProjectSettings) any { return doc(&d.Delegation) },
+			read: func(s *v1alpha1.ProjectSpec) value {
+				if s.Delegation != nil && *spec(s.Delegation) {
+					return value{n: 1}
+				}
+				return value{}
+			},
+			write: func(s *v1alpha1.ProjectSpec, v value) { *spec(delegation(s)) = v.n != 0 },
+		}
+	}
+	return []row{
+		leaf(FieldSubagents, func(d *ProjectSettingsDelegation) *bool { return &d.Subagents },
+			func(d *v1alpha1.ProjectDelegation) *bool { return &d.Subagents }),
+		leaf(FieldWorkflows, func(d *ProjectSettingsDelegation) *bool { return &d.Workflows },
+			func(d *v1alpha1.ProjectDelegation) *bool { return &d.Workflows }),
 	}
 }
 

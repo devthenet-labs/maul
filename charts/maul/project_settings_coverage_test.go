@@ -42,6 +42,7 @@ var settingsLevels = map[string]string{
 	"limits":       "editableLimits",
 	"limits.stage": "editableStage",
 	"checks":       "editableChecks",
+	"delegation":   "editableDelegation",
 	"repositories": "editableRepository",
 }
 

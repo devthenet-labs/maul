@@ -35,6 +35,8 @@ import { IntentsArea } from "./components/IntentsArea";
 import { UsageView } from "./components/UsageView";
 import { AccountView } from "./components/AccountView";
 import { ProjectSettingsPage } from "./components/ProjectSettingsView";
+import { ProjectsView } from "./components/ProjectsView";
+import { projectsNav, settingsProjectsOf } from "./projectSettings";
 import { DEFAULT_PERSONA, type Persona } from "./mock/personas";
 import { ConfigView } from "./components/ConfigView";
 import { FilterBar } from "./components/FilterBar";
@@ -102,17 +104,16 @@ export function App() {
   // The intents views exist only when the server has them on; /api/me
   // answering is how the SPA knows, and which Projects it lists decides
   // whether the nav link shows.
-  const [me, setMe] = useState<Me | null>(null);
+  // undefined while /api/me is in flight; null when it did not answer.
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
   useEffect(() => {
     void fetchMe().then(setMe);
   }, []);
   const intentsNav = Boolean(me && me.projects.length > 0);
-  // The Projects whose settings page the server serves, linked from the
-  // intents views' Project chips.
-  const settingsProjects = useMemo(
-    () => (me?.projects ?? []).filter((p) => p.settings).map((p) => p.name),
-    [me],
-  );
+  // The Projects whose settings page the server serves: listed on the
+  // Projects page and linked from the intents views' Project chips.
+  const settingsAccess = useMemo(() => settingsProjectsOf(me), [me]);
+  const settingsProjects = useMemo(() => settingsAccess.map((p) => p.name), [settingsAccess]);
 
   // The usage views likewise: /api/usage/access answering at all means they
   // are on; the page itself explains a caller who cannot see their own.
@@ -367,6 +368,10 @@ export function App() {
       ) : (
         <UsageView all={route.all} access={usageAccess} />
       );
+  } else if (route.view === "projects") {
+    // The list of settings pages gates on /api/me alone, never on the
+    // findings grant; each page gates itself.
+    body = <ProjectsView projects={me === undefined ? null : settingsAccess} />;
   } else if (route.view === "projectSettings") {
     // The settings page gates itself too, per Project, on its own answers.
     body = <ProjectSettingsPage name={route.name} />;
@@ -431,6 +436,7 @@ export function App() {
         intentsNav={intentsNav}
         usageNav={usageAccess !== null}
         accountNav={account !== null}
+        projectsNav={projectsNav(me)}
         themeMode={themeMode}
         onToggleTheme={toggleTheme}
         persona={persona}

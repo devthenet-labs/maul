@@ -16,8 +16,8 @@
 #
 # With the maul chart's statusServer.projectSettings on, a Project's
 # approvers may also change some of its spec from the status page (limits,
-# models, evaluator, hand-off, checks, each repository's
-# agentResourceClass), as field manager maul-status-server. Set each field
+# models, evaluator, hand-off, delegation switches, checks, each
+# repository's agentResourceClass), as field manager maul-status-server. Set each field
 # from one place: a field the page changed that these values also state
 # makes the next default (server-side) helm upgrade fail with a conflict
 # until the values agree or the upgrade is forced, which puts the values'

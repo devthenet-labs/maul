@@ -251,8 +251,9 @@ these keys renders and the ConfigMap is as it was.
 {{- $bs := $root.Values.intentController.buildSubagents | default dict }}
 {{- if $bs.enabled }}
 {{/*
-intentController.buildSubagents: a claude Project's build and revise runs
-may delegate to subagents, and with workflows also run workflows. It needs
+intentController.buildSubagents: allows a claude Project that opts in
+(spec.delegation) to have its build and revise runs delegate to subagents,
+and with workflows also run workflows. It needs
 the broker's cost unit, as intent-controller does at startup: the run's cost
 budget is the one bound on a run and its subagents together. Off, no key
 renders (workflows does nothing without enabled) and the ConfigMap is as it

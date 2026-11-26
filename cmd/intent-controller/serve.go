@@ -154,12 +154,14 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"limits.<stage>.maxCostMicroUSD, else the Project's limits.maxCostMicroUSD) stamped on its agent Job "+
 			"and pod as maul.run/budget-micro-usd; under tokens (the default) none is")
 	f.Bool("intent-build-subagents", false,
-		"let a claude Project's build and revise runs delegate to subagents (foreground, one level, on the run's "+
-			"model); each run records it at creation and launches with it only while this is still on, so turning "+
+		"allow a claude Project that opts in (spec.delegation.subagents) to let its build and revise runs "+
+			"delegate to subagents (foreground, one level, on the run's model); a Project that does not opt in "+
+			"gets none. Each run records it at creation and launches with it only while this is still on, so turning "+
 			"it off narrows every run at once. Needs --broker-limit-unit cost (the run's budget bounds the run and "+
 			"its subagents together) and brokered claude")
 	f.Bool("intent-build-workflows", false,
-		"let a build or revise run granted subagents also run workflows (inline and built-in only), recorded and "+
+		"allow a Project that also opts in to workflows (spec.delegation.workflows) to let a build or revise run "+
+			"granted subagents run workflows (inline and built-in only), recorded and "+
 			"narrowed as subagents are; a workflow's agents count against neither the turn grant nor the token "+
 			"limit, so only the run's cost budget and wall clock bound them. Needs --intent-build-subagents")
 	f.Int("broker-cost-per-hour", 0,

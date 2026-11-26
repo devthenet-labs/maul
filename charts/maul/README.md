@@ -471,11 +471,12 @@ The genuinely shared settings stay global:
   `egressBroker.userCredentials.mode` on and the usage views' auth posture; with `statusServer.host` set, every
   credential notice links it.
 - `statusServer.projectSettings.*` — the Project settings page (default off): a Project's approvers change its limits,
-  models, evaluator, hand-off, CI checks and each repository's machine size from the status page, within `allow` (three
-  switches, each off), `locked` (groups shown read-only), `ceilings` and `floors`, for the Projects in `projects`
-  (empty: all). Needs `statusServer.intents.enabled`, the usage views' auth posture and `admissionPolicy.enabled`. On,
-  it renders the status server's one Project write (`patch` on `projects`) and an admission policy holding each patch to
-  the same bounds. A page-edited field that the maul-config values also state makes the next default `helm upgrade` of
+  models, evaluator, hand-off, build delegation, CI checks and each repository's machine size from the status page (a
+  delegation switch turned on only where `intentController.buildSubagents` allows it), within `allow` (three switches,
+  each off), `locked` (groups shown read-only), `ceilings` and `floors`, for the Projects in `projects` (empty: all).
+  Needs `statusServer.intents.enabled`, the usage views' auth posture and `admissionPolicy.enabled`. On, it renders the
+  status server's one Project write (`patch` on `projects`) and an admission policy holding each patch to the same
+  bounds. A page-edited field that the maul-config values also state makes the next default `helm upgrade` of
   maul-config fail with a conflict: set each field from one place. See
   [Project settings](../../docs/configuration/status-server.md#project-settings-page).
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:

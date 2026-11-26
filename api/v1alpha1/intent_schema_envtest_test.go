@@ -556,6 +556,20 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 		{"re-running failed checks", func(p *maulv1.Project) {
 			p.Spec.Checks.Fix, p.Spec.Checks.RerunFailed = []string{"test"}, true
 		}, false},
+		// Delegation: each switch is the Project's opt-in; workflows run
+		// only in a build granted subagents, so they need that switch too.
+		{"an empty delegation block", func(p *maulv1.Project) {
+			p.Spec.Delegation = &maulv1.ProjectDelegation{}
+		}, false},
+		{"subagents", func(p *maulv1.Project) {
+			p.Spec.Delegation = &maulv1.ProjectDelegation{Subagents: true}
+		}, false},
+		{"subagents and workflows", func(p *maulv1.Project) {
+			p.Spec.Delegation = &maulv1.ProjectDelegation{Subagents: true, Workflows: true}
+		}, false},
+		{"workflows without subagents", func(p *maulv1.Project) {
+			p.Spec.Delegation = &maulv1.ProjectDelegation{Workflows: true}
+		}, true},
 		// A repository's resource class names one of the operator's
 		// classes: a DNS label, as resourceclass.ValidName holds it.
 		{"a resource class", func(p *maulv1.Project) { p.Spec.Repositories[0].AgentResourceClass = "large" }, false},
@@ -602,6 +616,30 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 			t.Fatal(err)
 		}
 		sameJSON(t, "repositories", got.Spec.Repositories, p.Spec.Repositories)
+	})
+	t.Run("workflows without subagents are refused by name", func(t *testing.T) {
+		p := schemaProject("proj-delegation-workflows")
+		p.Spec.Delegation = &maulv1.ProjectDelegation{Workflows: true}
+		err := c.Create(ctx, p)
+		if err == nil || !strings.Contains(err.Error(), "delegation.workflows needs delegation.subagents") {
+			t.Errorf("Create(workflows without subagents) = %v, want the delegation rule's message", err)
+		}
+	})
+	t.Run("delegation round-trips", func(t *testing.T) {
+		p := schemaProject("proj-delegation")
+		p.Spec.Delegation = &maulv1.ProjectDelegation{Subagents: true, Workflows: true}
+		if err := c.Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		var got maulv1.Project
+		if err := c.Get(ctx, client.ObjectKeyFromObject(p), &got); err != nil {
+			t.Fatal(err)
+		}
+		sameJSON(t, "delegation", got.Spec.Delegation, p.Spec.Delegation)
+		if !got.Spec.SubagentsEnabled() || !got.Spec.WorkflowsEnabled() {
+			t.Errorf("SubagentsEnabled, WorkflowsEnabled = %v, %v; want both", got.Spec.SubagentsEnabled(),
+				got.Spec.WorkflowsEnabled())
+		}
 	})
 }
 
@@ -686,6 +724,8 @@ func schemaProjectAdmits() *maulv1.ProjectAdmits {
 			{Model: "anthropic/claude-sonnet-5", EvaluateMicroUSD: 960000},
 		},
 		Evaluator: true,
+		Subagents: true,
+		Workflows: true,
 		ResourceClasses: []maulv1.ProjectResourceClass{
 			{
 				Name:     "large",

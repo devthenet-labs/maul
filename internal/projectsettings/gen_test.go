@@ -105,6 +105,8 @@ func baseAdmits() *v1alpha1.ProjectAdmits {
 		MaxEvaluateCostMicroUSD: 8_000_000,
 		MaxToolCalls:            250,
 		Evaluator:               true,
+		Subagents:               true,
+		Workflows:               true,
 		ResourceClasses: []v1alpha1.ProjectResourceClass{
 			{Name: "small", Requests: v1alpha1.ProjectResourceQuantities{CPU: "1", Memory: "2Gi"},
 				Limits: v1alpha1.ProjectResourceQuantities{Memory: "4Gi"}},
@@ -325,6 +327,9 @@ func genProject(r *rand.Rand) *v1alpha1.Project {
 	if r.Intn(4) == 0 {
 		s.Harness = v1alpha1.ProjectHarnessCodex
 	}
+	// Only what the schema admits: workflows never without subagents.
+	s.Delegation = pick(r, []*v1alpha1.ProjectDelegation{nil, {}, {Subagents: true},
+		{Subagents: true, Workflows: true}})
 	genStatus(r, p)
 	return p
 }
@@ -359,6 +364,9 @@ func genStatus(r *rand.Rand, p *v1alpha1.Project) {
 		if r.Intn(3) == 0 {
 			a.MaxEvaluateCostMicroUSD = 0
 		}
+		// The controller admits workflows only beside subagents.
+		a.Subagents = r.Intn(2) == 0
+		a.Workflows = a.Subagents && r.Intn(2) == 0
 		if a.CostBudgets && r.Intn(2) == 0 {
 			a.RunBudgetFloors = []v1alpha1.ProjectRunBudgetFloor{
 				{Model: "anthropic/claude-b", EvaluateMicroUSD: 1_600_000, CheckReviewMicroUSD: 400_000},
@@ -418,6 +426,9 @@ func genEdit(r *rand.Rand, doc *ProjectSettings) {
 		func() { doc.Checks.Fix = subset(r, checkPool, 0) },
 		func() { doc.Checks.TimeoutSeconds = num() % 30000 },
 		func() { doc.Checks.RerunFailed = !doc.Checks.RerunFailed },
+		// May leave workflows on without subagents, which Check refuses.
+		func() { doc.Delegation.Subagents = !doc.Delegation.Subagents },
+		func() { doc.Delegation.Workflows = !doc.Delegation.Workflows },
 		func() {
 			if n := len(doc.Repositories); n > 0 {
 				doc.Repositories[r.Intn(n)].AgentResourceClass = pick(r, classPool)

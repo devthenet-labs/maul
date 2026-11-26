@@ -651,7 +651,7 @@
             "additionalProperties": false
         },
         "projectSpec": {
-            "description": "ProjectSpec is operator configuration: where intents are filed, who may\nauthorise them, which repositories they build in, and what they may spend.\nThe operator writes it (through the maul-config chart); intent-controller\nonly reads it. For people, writing projects is admin-only in RBAC, because\na Project is the power to point agents at repositories. The one other\nwriter is opt-in: with the status page's project settings on (the maul\nchart's statusServer.projectSettings, off by default), the status server\npatches a bounded part of the spec for an approver who has write access to\nthe intent repository: limits, models, checks, the evaluator's settings,\nan existing repository's agentResourceClass and, behind its own switch,\nthe approver list. Where agents are pointed is never part of it: the\nintent repository, the labels, a repository's name, url or preview, the\nharness and the surfaces. An admission policy on the status server's\nServiceAccount holds every such write to that part, to the operator's\nceilings, floors and switches, and to what status.admits publishes.\n\nPreviews are configured per repository (repositories[].preview) or, for a\none-repository Project, by the spec.preview shorthand, never both. The\nrules below hold the per-repository form to at most MaxPreviewComponents\npreviewed repositories at distinct paths. An omitted path means \"/\" (the\nfield's default), and the rules read it that way too.",
+            "description": "ProjectSpec is operator configuration: where intents are filed, who may\nauthorise them, which repositories they build in, and what they may spend.\nThe operator writes it (through the maul-config chart); intent-controller\nonly reads it. For people, writing projects is admin-only in RBAC, because\na Project is the power to point agents at repositories. The one other\nwriter is opt-in: with the status page's project settings on (the maul\nchart's statusServer.projectSettings, off by default), the status server\npatches a bounded part of the spec for an approver who has write access to\nthe intent repository: limits, models, checks, the evaluator's settings,\nthe build's delegation switches, an existing repository's\nagentResourceClass and, behind its own switch, the approver list. Where agents are pointed is never part of it: the\nintent repository, the labels, a repository's name, url or preview, the\nharness and the surfaces. An admission policy on the status server's\nServiceAccount holds every such write to that part, to the operator's\nceilings, floors and switches, and to what status.admits publishes.\n\nPreviews are configured per repository (repositories[].preview) or, for a\none-repository Project, by the spec.preview shorthand, never both. The\nrules below hold the per-repository form to at most MaxPreviewComponents\npreviewed repositories at distinct paths. An omitted path means \"/\" (the\nfield's default), and the rules read it that way too.",
             "properties": {
                 "approvers": {
                     "description": "Approvers is the allowlist whose actions count.",
@@ -696,6 +696,21 @@
                             "default": "30m",
                             "description": "Timeout is how long after a push the controller waits for the named\nchecks to settle before it stops watching them, between 1m and 6h. A\npointer so that an unset value is omitted and the schema default\napplies (a zero metav1.Duration would serialize as \"0s\").",
                             "type": "string"
+                        }
+                    },
+                    "type": "object",
+                    "additionalProperties": false
+                },
+                "delegation": {
+                    "description": "Delegation lets the Project's build and revise runs delegate\n(ProjectDelegation). Unset means neither.",
+                    "properties": {
+                        "subagents": {
+                            "description": "Subagents lets a build or revise run delegate to subagents, each\nspending from the run's own cost budget.",
+                            "type": "boolean"
+                        },
+                        "workflows": {
+                            "description": "Workflows lets such a run also run workflows. It needs Subagents: a\nworkflow runs in a build granted subagents, under its posture and its\ncost budget.",
+                            "type": "boolean"
                         }
                     },
                     "type": "object",

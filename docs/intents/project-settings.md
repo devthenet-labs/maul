@@ -11,10 +11,13 @@ The page is off by default. The operator turns it on and sets how far approvers 
 
 ## Opening the page
 
-With the page on, the board's and the timeline's Project chips link to it (`#/projects/<project>/settings`) for every
-Project the page serves. Anyone who may see a Project on the [intents dashboard](dashboard.md) (`get` on
-`projects/intents`) can open its page and read every setting, the approvers and their GitHub state, and the facts the
-operator set. A Project you may not see answers "not found", as on the dashboard.
+With the page on, the status page's top bar shows **Projects** whenever at least one Project's settings page is served
+to you. It opens `#/projects`, which lists each such Project with how much of it you may read and a **Settings** button
+to its page (`#/projects/<project>/settings`). A Project the page is not on for is not listed there; it still shows on
+the [intents dashboard](dashboard.md). The Project chips on the intents board and on an intent's timeline link to the
+same page, and say **Settings** when they do. Anyone who may see a Project on the [intents dashboard](dashboard.md)
+(`get` on `projects/intents`) can open its page and read every setting, the approvers and their GitHub state, and the
+facts the operator set. A Project you may not see answers "not found", as on the dashboard.
 
 ## Who can save
 
@@ -46,26 +49,31 @@ approver's state: matched with write access, without write access, no such GitHu
 Each setting says when a change takes effect. A field you clear goes back to its default; for a stage limit, unset means
 intent-controller's own ceiling for that stage (see [stage limits](../configuration/intent-controller.md#stage-limits)).
 
-| Card                   | Setting                                                                  | Project field                                    | Range                                                                      | Takes effect                          |
-| ---------------------- | ------------------------------------------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------- | ------------------------------------- |
-| Approvers              | Who may approve plans and save this page                                 | `approvers.logins`                               | 1 to 20 GitHub logins                                                      | at once                               |
-| Evaluator and hand-off | Verify each intent with the agent evaluator                              | `verification.enabled`                           | on or off                                                                  | at once, open intents included        |
-|                        | Hand-off                                                                 | `verification.handoff`                           | gated, early, or unset (the install's default)                             | intents whose hand-off is not decided |
-|                        | Longest wait for the evaluation                                          | `verification.handoffMax`                        | 10m to 4h, default 60m                                                     | at once                               |
-|                        | Tool calls per evaluation round                                          | `verification.maxToolCalls`                      | 50 to 300, default 300                                                     | from the next round                   |
-| Models                 | Plan, build (revise rounds too), evaluate                                | `models.plan`, `models.build`, `models.evaluate` | a model intent-controller admits, or unset                                 | runs started after the save           |
-| Spend                  | Most one intent may cost                                                 | `limits.maxCostMicroUSD`                         | up to $1000, default $10                                                   | at once                               |
-|                        | Most one intent's evaluations may cost                                   | `limits.maxEvaluateCostMicroUSD`                 | up to $1000, default $6                                                    | at once                               |
-| Rounds                 | Revision rounds                                                          | `limits.maxRevisions`                            | 0 to 20, default 3                                                         | at once                               |
-|                        | CI-fix rounds                                                            | `limits.maxCheckFixes`                           | 0 to 20, default 2                                                         | at once                               |
-|                        | Automatic verify-fix rounds                                              | `limits.maxVerifyFixes`                          | 0 to 10, default 2                                                         | at once                               |
-|                        | Automatic verifications                                                  | `limits.maxVerifications`                        | 1 to 100, default 20                                                       | at once                               |
-|                        | Intents running at once                                                  | `limits.maxActiveIntents`                        | 1 to 20, default 2                                                         | at once                               |
-| Stage limits           | Turns, tokens, cost and time per run of plan, build, revise and evaluate | `limits.<stage>.*`                               | turns 0 to 1000, tokens up to 100M, cost up to the intent's, time 1m to 4h | runs started after the save           |
-| CI checks              | Checks maul waits for and fixes                                          | `checks.fix`                                     | up to 32 check names                                                       | at once                               |
-|                        | Longest wait for the checks                                              | `checks.timeout`                                 | 1m to 6h, default 30m                                                      | at once                               |
-|                        | Re-run a failed check once before a CI-fix round                         | `checks.rerunFailed`                             | on or off                                                                  | at once                               |
-| Machine size           | Each repository's agent size                                             | `repositories[].agentResourceClass`              | one of the sizes the operator defines, or unset                            | runs started after the save           |
+| Card                   | Setting                                                                         | Project field                                    | Range                                                                      | Takes effect                          |
+| ---------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------- | ------------------------------------- |
+| Approvers              | Who may approve plans and save this page                                        | `approvers.logins`                               | 1 to 20 GitHub logins                                                      | at once                               |
+| Evaluator and hand-off | Verify each intent with the agent evaluator                                     | `verification.enabled`                           | on or off                                                                  | at once, open intents included        |
+|                        | Hand-off                                                                        | `verification.handoff`                           | gated, early, or unset (the install's default)                             | intents whose hand-off is not decided |
+|                        | Longest wait for the evaluation                                                 | `verification.handoffMax`                        | 10m to 4h, default 60m                                                     | at once                               |
+|                        | Tool calls per evaluation round                                                 | `verification.maxToolCalls`                      | 50 to 300, default 300                                                     | from the next round                   |
+| Models                 | Plan, build (revise rounds too), evaluate                                       | `models.plan`, `models.build`, `models.evaluate` | a model intent-controller admits, or unset                                 | runs started after the save           |
+| Spend                  | Most one intent may cost                                                        | `limits.maxCostMicroUSD`                         | up to $1000, default $10                                                   | at once                               |
+|                        | Most one intent's evaluations may cost                                          | `limits.maxEvaluateCostMicroUSD`                 | up to $1000, default $6                                                    | at once                               |
+| Rounds                 | Revision rounds                                                                 | `limits.maxRevisions`                            | 0 to 20, default 3                                                         | at once                               |
+|                        | CI-fix rounds                                                                   | `limits.maxCheckFixes`                           | 0 to 20, default 2                                                         | at once                               |
+|                        | Automatic verify-fix rounds                                                     | `limits.maxVerifyFixes`                          | 0 to 10, default 2                                                         | at once                               |
+|                        | Automatic verifications                                                         | `limits.maxVerifications`                        | 1 to 100, default 20                                                       | at once                               |
+|                        | Intents running at once                                                         | `limits.maxActiveIntents`                        | 1 to 20, default 2                                                         | at once                               |
+| Stage limits           | Turns, output tokens, cost and time per run of plan, build, revise and evaluate | `limits.<stage>.*`                               | turns 0 to 1000, tokens up to 100M, cost up to the intent's, time 1m to 4h | runs started after the save           |
+| Delegation             | Subagents in build and revise runs                                              | `delegation.subagents`                           | on or off, where intent-controller allows it                               | runs started after the save           |
+|                        | Workflows in build and revise runs                                              | `delegation.workflows`                           | on or off, where allowed; needs subagents                                  | runs started after the save           |
+| CI checks              | Checks maul waits for and fixes                                                 | `checks.fix`                                     | up to 32 check names                                                       | at once                               |
+|                        | Longest wait for the checks                                                     | `checks.timeout`                                 | 1m to 6h, default 30m                                                      | at once                               |
+|                        | Re-run a failed check once before a CI-fix round                                | `checks.rerunFailed`                             | on or off                                                                  | at once                               |
+| Machine size           | Each repository's agent size                                                    | `repositories[].agentResourceClass`              | one of the sizes the operator defines, or unset                            | runs started after the save           |
+
+A stage's token limit counts the **output** tokens the model writes, not the context it re-reads, so it is usually far
+below a run's total tokens. Cost is the limit that bounds a run.
 
 Money is in dollars on the page and in micro-USD in the Project ($10 is `10000000`). A stage's cost limit counts only
 while the egress broker counts cost; it can never be more than the intent's own limit. Raising the revision limit, the
@@ -83,6 +91,28 @@ number and order of repositories, the harness, previews, surfaces, `suspend`, `r
 `verification.manualGatesStatus`, `verification.postLogs` and `verification.timeout`. The check reviewer's model and
 limits (`models.checkReview`, `limits.checkReview`) are not on it either. The "Set by the operator" card shows the ones
 a person may need to know.
+
+## Delegation
+
+The Delegation card holds the Project's opt-in to delegation in its builds. With **Subagents in builds** on, each new
+build and revise run (CI-fix and verify-fix rounds included) may hand parts of its work to the claude CLI's subagents,
+in the foreground, on the run's own model, under the build's own tools. With **Workflows in builds** on as well, it may
+also run the CLI's inline and built-in workflows. Workflows need subagents: turning subagents off turns workflows off
+with it, and the page refuses workflows alone. Plans, the evaluator and the check reviewer never delegate.
+
+Every subagent and workflow agent spends from the run's own cost budget, which is what bounds the run and everything it
+starts together; a workflow's agents count against neither the turn limit nor the token limit. Size the build and revise
+cost limits for what one run may spend with its subagents, not on its main thread alone. The operator's guide has the
+details and the two accepted limits of workflows:
+[Subagents and workflows in builds](../configuration/intent-controller.md#subagents-and-workflows-in-builds).
+
+Each run records what it was granted when it is created, so a change applies only to runs created after the save. A run
+created before it keeps what it recorded, even one still waiting to launch (for a free slot, its repository or a
+credential): turning a switch off does not reach it, and neither does turning one on.
+
+A switch is locked, with the reason beside it, while intent-controller does not allow it: the operator has not turned it
+on for this install, or the Project runs on codex, whose runs never delegate. A switch that is on is never locked by
+that, so you can always turn it off; while it is not allowed it grants nothing, and the page says so.
 
 ## What the operator allows
 
@@ -104,8 +134,10 @@ crosses one; the cluster refuses it again, so no change to the page can get past
   - turning the evaluator off, handing previews over early (or going from gated to the install's default, which may be
     early), or lowering an evaluator limit under its floor;
   - emptying the CI checks, so maul waits for and fixes none.
+- **intent-controller's switches.** A delegation switch can be turned on only where intent-controller allows it (see
+  [Delegation](#delegation)).
 - **Locks.** The operator can lock any group of settings (approvers, evaluator, hand-off, models, spend, rounds, intents
-  running at once, stage limits, CI checks, machine size). A locked group is read-only.
+  running at once, stage limits, delegation, CI checks, machine size). A locked group is read-only.
 
 The chart's defaults, which your operator may have changed (the page shows the ones in force):
 

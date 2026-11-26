@@ -17,8 +17,9 @@
 # every bound. This policy holds every patch the server sends, in the API
 # server, to what the page may do: only the page's own fields change, within
 # the operator's locks, ceilings, floors and switches, to models and
-# resource classes intent-controller admits, beside one bounded annotation
-# of the page's own. It cannot know which person a write is for (admission
+# resource classes intent-controller admits, to delegation switches turned on
+# only where it allows them, beside one bounded annotation of the page's
+# own. It cannot know which person a write is for (admission
 # sees the ServiceAccount), so the approver gate and "no self-removal" stay
 # the server's. Nor can it tell the field ownership (managedFields) a save
 # takes from ownership a forged list moves within the page's own fields, so
@@ -41,8 +42,8 @@
 #   default), the way the server reads it.
 # - oldObject.status is never read bare: a Project intent-controller has not
 #   written status on yet has none, and every access is optional; with no
-#   status nothing is admitted, so a model or class choice is refused and
-#   an unrelated edit is not.
+#   status nothing is admitted, so a model or class choice, or a delegation
+#   switch turned on, is refused and an unrelated edit is not.
 # - The bounds come from the same object as the server's
 #   MAUL_PROJECT_SETTINGS_POLICY (maul.projectSettingsPolicy), except
 #   intent-controller's own ceilings on the limits it clamps, which come
@@ -92,12 +93,13 @@ limits are pinned.
 {{- $models := list "plan" "build" "evaluate" }}
 {{- $stages := list "plan" "build" "revise" "evaluate" }}
 {{- $editable := list
-    (dict "var" "editableSpec" "keys" (list "approvers" "verification" "models" "limits" "checks" "repositories"))
+    (dict "var" "editableSpec" "keys" (list "approvers" "verification" "models" "limits" "delegation" "checks" "repositories"))
     (dict "var" "editableApprovers" "keys" (list "logins"))
     (dict "var" "editableVerification" "keys" (list "enabled" "handoff" "handoffMax" "maxToolCalls"))
     (dict "var" "editableModels" "keys" $models)
     (dict "var" "editableLimits" "keys" (concat (list "maxCostMicroUSD" "maxEvaluateCostMicroUSD" "maxRevisions" "maxCheckFixes" "maxVerifyFixes" "maxVerifications" "maxActiveIntents") $stages))
     (dict "var" "editableStage" "keys" (list "maxTurns" "tokenBudget" "maxCostMicroUSD" "timeout"))
+    (dict "var" "editableDelegation" "keys" (list "subagents" "workflows"))
     (dict "var" "editableChecks" "keys" (list "fix" "timeout" "rerunFailed"))
     (dict "var" "editableRepository" "keys" (list "agentResourceClass"))
 }}
@@ -109,6 +111,7 @@ the old and new block, and the list of its editable keys. */}}
     (dict "name" "spec.verification" "old" "oldVerification" "new" "newVerification" "keys" "editableVerification" "path" ".?verification")
     (dict "name" "spec.models" "old" "oldModels" "new" "newModels" "keys" "editableModels" "path" ".?models")
     (dict "name" "spec.limits" "old" "oldLimits" "new" "newLimits" "keys" "editableLimits" "path" ".?limits")
+    (dict "name" "spec.delegation" "old" "oldDelegation" "new" "newDelegation" "keys" "editableDelegation" "path" ".?delegation")
     (dict "name" "spec.checks" "old" "oldChecks" "new" "newChecks" "keys" "editableChecks" "path" ".?checks")
 }}
 {{- range $s := $stages }}
@@ -125,6 +128,7 @@ the old and new block, and the list of its editable keys. */}}
     "rounds" "object.spec.?limits.?maxRevisions == oldObject.spec.?limits.?maxRevisions && object.spec.?limits.?maxCheckFixes == oldObject.spec.?limits.?maxCheckFixes && object.spec.?limits.?maxVerifyFixes == oldObject.spec.?limits.?maxVerifyFixes && object.spec.?limits.?maxVerifications == oldObject.spec.?limits.?maxVerifications"
     "activeIntents" "object.spec.?limits.?maxActiveIntents == oldObject.spec.?limits.?maxActiveIntents"
     "stages" "object.spec.?limits.?plan == oldObject.spec.?limits.?plan && object.spec.?limits.?build == oldObject.spec.?limits.?build && object.spec.?limits.?revise == oldObject.spec.?limits.?revise && object.spec.?limits.?evaluate == oldObject.spec.?limits.?evaluate"
+    "delegation" "object.spec.?delegation.?subagents.orValue(false) == oldObject.spec.?delegation.?subagents.orValue(false) && object.spec.?delegation.?workflows.orValue(false) == oldObject.spec.?delegation.?workflows.orValue(false)"
     "checks" (printf "%s && object.spec.?checks.?timeout == oldObject.spec.?checks.?timeout && object.spec.?checks.?rerunFailed == oldObject.spec.?checks.?rerunFailed" (printf $sameSet "variables.newFix" "variables.oldFix" "variables.oldFix" "variables.newFix"))
     "resources" "object.spec.repositories.map(r, r.?agentResourceClass.orValue('')) == oldObject.spec.repositories.map(r, r.?agentResourceClass.orValue(''))"
 }}
@@ -298,6 +302,18 @@ spec:
               || object.spec.?models.?{{ $m }}.orValue('') == ''
               || object.spec.?models.?{{ $m }}.orValue('') in variables.admittedModels
           message: "project settings: models.{{ $m }} is a model intent-controller does not admit for this Project (status.admits.models)"
+        {{- end }}
+        # The delegation switches: turned on only where intent-controller
+        # allows it for the Project (status.admits), and with nothing
+        # published not at all. Kept on, or turned off, always passes, so an
+        # opt-in the controller no longer allows can still be withdrawn.
+        # That workflows need subagents is the Project schema's own rule.
+        {{- range $leaf := list "subagents" "workflows" }}
+        - expression: >-
+              !object.spec.?delegation.?{{ $leaf }}.orValue(false)
+              || oldObject.spec.?delegation.?{{ $leaf }}.orValue(false)
+              || oldObject.?status.?admits.?{{ $leaf }}.orValue(false)
+          message: "project settings: delegation.{{ $leaf }} turned on, which intent-controller does not allow for this Project (status.admits.{{ $leaf }})"
         {{- end }}
         {{- range $g := $pol.locked }}
         - expression: >-
