@@ -88,8 +88,21 @@ func (p *pass) linkHeld() bool {
 // nil when it changes nothing (no evaluator, an early hand-off); held while
 // held; once released, ready while every outcome is confirmed, "couldn't
 // confirm" (and why) once the evaluation gave up or ran out of time, and
-// "still checking" otherwise.
+// "still checking" otherwise. A judgement an earlier release's rules
+// reached (no judge marker: an intent that ended before this release, or
+// one the supersede has not reached) is marked Earlier, so it keeps that
+// release's words, which are true of it: an upgrade then edits no ended
+// intent's comment for wording alone (W13).
 func (p *pass) handoffView() *templates.PreviewHandoff {
+	h := p.handoffState()
+	if v := p.in.Status.Verification; h != nil && v != nil {
+		h.Earlier = v.Judge != v1alpha1.JudgeObserved
+	}
+	return h
+}
+
+// handoffState is handoffView before it is marked Earlier.
+func (p *pass) handoffState() *templates.PreviewHandoff {
 	if p.set.agentsHostOff(p.proj) {
 		return p.hostOffHandoffView()
 	}

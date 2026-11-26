@@ -243,3 +243,45 @@ func TestAppOutputInert(t *testing.T) {
 		t.Errorf("app output not bounded: %d bytes of it", strings.Count(out, "x"))
 	}
 }
+
+// TestEarlierJudgementLabels (W13): a judgement an earlier release's rules
+// reached (PreviewHandoff.Earlier) is labelled in that release's words,
+// which are true of it (maul checked the outcomes then) and byte for byte
+// what that release wrote, so an upgrade edits no comment of it; a
+// judgement of these rules, and a hand-off still being looked at, read as
+// this release says them.
+func TestEarlierJudgementLabels(t *testing.T) {
+	for _, tt := range []struct {
+		h         PreviewHandoff
+		workspace bool
+		want      string
+	}{
+		{PreviewHandoff{State: HandoffReady, Earlier: true}, false, "Ready: maul checked the approved outcomes."},
+		{PreviewHandoff{State: HandoffReady, Earlier: true}, true, "Ready: maul checked the approved outcomes."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyUnsure, Earlier: true}, false,
+			"maul couldn't confirm this: some outcomes are unsure."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyUnsure, Earlier: true}, true,
+			"maul couldn't confirm this: some outcomes are unsure."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyEnvironment, Earlier: true}, false,
+			"maul couldn't confirm this: the preview failed while it was checked."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyInfra, Earlier: true}, false,
+			"maul couldn't confirm this: its own checking environment failed while it checked."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyEnvironment, Earlier: true}, true,
+			"maul couldn't confirm this: its own checking tools failed while it checked."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyBudget, Earlier: true}, false,
+			"maul couldn't confirm this: it spent its evaluation budget."},
+		{PreviewHandoff{State: HandoffReady}, false, ReadyLabel},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyUnsure}, true,
+			NotReadyLead + "some outcomes are unsure."},
+		{PreviewHandoff{State: HandoffChecking, Earlier: true}, false,
+			"Shown while maul's evaluator is still looking at the approved outcomes."},
+	} {
+		got := handoffLabel(tt.h)
+		if tt.workspace {
+			got = workspaceLabel(tt.h)
+		}
+		if got != tt.want {
+			t.Errorf("%+v (workspace %v) = %q, want %q", tt.h, tt.workspace, got, tt.want)
+		}
+	}
+}

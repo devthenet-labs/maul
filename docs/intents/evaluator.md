@@ -717,6 +717,10 @@ fresh evaluation:
 - an old result is not withdrawn while its Project cannot run an evaluation (no outcome maul evaluates, or a codex
   Project without `--intent-evaluate-codex`): it stays as it is until the Project can.
 
+An intent that had already ended (merged, closed, cancelled) is never superseded: its result stands as the earlier rules
+reached it, and its comments keep that release's words for it ("Ready: maul checked the approved outcomes.", "maul
+couldn't confirm this: …"), which are true of it, so the upgrade edits none of them for wording alone.
+
 The gauge `maul.intent.verification_superseded` counts the intents superseded since intent-controller started. The
 upgrade spends one evaluation per open verifying intent, unasked, each as soon as its intent's gate opens, within its
 evaluation ceiling. Do not pause agents (`agent.paused`) to hold it back: the pause holds the evaluate run's Job, not

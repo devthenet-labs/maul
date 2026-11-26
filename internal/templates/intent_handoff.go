@@ -10,8 +10,10 @@ package templates
 // maul recorded, "maul can't call this ready" (NotReadyLead, with maul's
 // reason) when it gave up, and "still looking" when a human asked for it
 // first. None of it says maul checked or confirmed an outcome: maul checks
-// only that a verdict cites calls it recorded (FA 3). The early hand-off
-// passes no PreviewHandoff, and its text is slice 1's.
+// only that a verdict cites calls it recorded (FA 3), save a judgement an
+// earlier release's rules reached (PreviewHandoff.Earlier), which keeps
+// that release's words. The early hand-off passes no PreviewHandoff, and
+// its text is slice 1's.
 
 // NotReadyLead opens every hand-off label and commit status of a round maul
 // gave up on, before its reason: the one spelling, which the controller's
@@ -124,11 +126,43 @@ func UnconfirmedCause(why string, workspace bool) string {
 // for HandoffUnconfirmed one of the HandoffWhy constants.
 type PreviewHandoff struct {
 	State, Why string
+	// Earlier marks a judgement an earlier release's rules reached (no
+	// IntentVerification.Judge marker): an intent that ended before this
+	// release keeps it, since the supersede runs only on open ones. Its
+	// ready and unconfirmed labels keep that release's words, which are
+	// true of it (that release checked the outcomes with saved checks)
+	// where this release's are not, and are what that release wrote, so an
+	// upgrade edits no comment of it for wording alone.
+	Earlier bool
+}
+
+// EarlierReadyLabel is ReadyLabel of a judgement an earlier release's rules
+// reached (PreviewHandoff.Earlier): that release's words.
+const EarlierReadyLabel = "Ready: maul checked the approved outcomes."
+
+// earlierNotReadyLead is NotReadyLead of an Earlier judgement.
+const earlierNotReadyLead = "maul couldn't confirm this: "
+
+// earlierWhyWords are the reasons an earlier release worded otherwise, by
+// whether the Project has no preview; every other reason's words are
+// unchanged.
+var earlierWhyWords = map[bool]map[string]string{
+	false: {
+		HandoffWhyEnvironment: "the preview failed while it was checked",
+		HandoffWhyInfra:       "its own checking environment failed while it checked",
+	},
+	true: {
+		HandoffWhyEnvironment: "its own checking tools failed while it checked",
+		HandoffWhyInfra:       "its own checking tools failed while it checked",
+	},
 }
 
 // handoffWhy is why maul could not confirm, in its words (on a Project
 // with no preview when workspace); a reason not listed is the generic one.
 func handoffWhy(h PreviewHandoff, workspace bool) string {
+	if w, ok := earlierWhyWords[workspace][h.Why]; ok && h.Earlier {
+		return w
+	}
 	if w, ok := whyWords(h.Why, workspace); ok {
 		return w
 	}
@@ -148,8 +182,14 @@ func handoffLabel(h PreviewHandoff) string { return labelIn(h, false) }
 func labelIn(h PreviewHandoff, workspace bool) string {
 	switch h.State {
 	case HandoffReady:
+		if h.Earlier {
+			return EarlierReadyLabel
+		}
 		return ReadyLabel
 	case HandoffUnconfirmed:
+		if h.Earlier {
+			return earlierNotReadyLead + handoffWhy(h, workspace) + "."
+		}
 		return NotReadyLead + handoffWhy(h, workspace) + "."
 	case HandoffChecking:
 		return "Shown while maul's evaluator is still looking at the approved outcomes."
