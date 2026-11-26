@@ -832,10 +832,10 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   retired `checkReview` model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
   `ApproversMaxAge`), `Apply`, `Check` (locks, switches, ceilings, floors, `status.admits`: models, classes, the
   controller's ceilings, run-budget bounds, the delegation switches; only changed fields, a cleared one by its landing
-  value), `Confirmations`,
-  and `projectsettings.Decide`, which runs them in order and hands back the Project to patch only when all agree; `View` (bounds, the
-  approvers' GitHub state, the other field managers with their operation, the last edit), the `Policy` the chart renders
-  once for the server and the admission policy (`DefaultPolicy` pinned to the chart's defaults), the
+  value), `Confirmations`, and `projectsettings.Decide`, which runs them in order and hands back the Project to patch
+  only when all agree; `View` (bounds, the approvers' GitHub state, the other field managers with their operation, the
+  last edit), the `Policy` the chart renders once for the server and the admission policy (`DefaultPolicy` pinned to
+  the chart's defaults), the
   `maul.run/settings-edited` record (`NewEdit`, `ParseEdit`), and `CheckApprovers`, which `maul setup project` shares.
   `RunBudget` is pinned to the controller's `stageBudget`; the admission policy is held to `Check` by a seeded property
   against a real API server (chart envtest).
