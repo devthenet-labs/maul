@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.17](https://github.com/devthenet-labs/maul/compare/v0.14.16...v0.14.17) (2026-11-26)
+
+
+### Features
+
+* per-Project subagents and workflows switches on the settings page ([#470](https://github.com/devthenet-labs/maul/issues/470)) ([0b3dadb](https://github.com/devthenet-labs/maul/commit/0b3dadb3bb9dc7aa2a01bede0e4a30972455a899))
+
+
+### Bug Fixes
+
+* **deps:** update OpenTelemetry to 1.47.0 for GO-2026-6974 ([#471](https://github.com/devthenet-labs/maul/issues/471)) ([33c2de5](https://github.com/devthenet-labs/maul/commit/33c2de532c05487124d895d5488db8882cee792e))
+
 ## [0.14.16](https://github.com/devthenet-labs/maul/compare/v0.14.15...v0.14.16) (2026-11-23)
 
 
