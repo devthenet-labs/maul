@@ -49,6 +49,10 @@ type VerifyCitedCall struct {
 	// Own marks a call that ran a script or program the evaluator wrote (a
 	// browser eval, an exec or run program), labelled as its own.
 	Own bool
+	// Navigates marks a browser goto: a call that put the page where the
+	// calls after it act. A fix round's reproduction keeps the last one
+	// before the cited calls however far back it is.
+	Navigates bool
 }
 
 // verbWords are the ledger verbs a call can be, in maul's words; one not

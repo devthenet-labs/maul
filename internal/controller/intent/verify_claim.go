@@ -105,7 +105,15 @@ func (rc roundCalls) sent(seq int32) (templates.VerifyCitedCall, toolwire.Ledger
 		return c, toolwire.LedgerEntry{}, false
 	}
 	c.Input = string(e.Args)
+	c.Navigates = navigates(e)
 	return c, e, true
+}
+
+// navigates reports e a browser goto: the call that put the page where the
+// calls after it act.
+func navigates(e toolwire.LedgerEntry) bool {
+	var req toolwire.BrowserRequest
+	return e.Verb == toolwire.VerbBrowser && json.Unmarshal(e.Args, &req) == nil && req.Verb == "goto"
 }
 
 // line is the kept ledger line of index entry ix, ok false when none kept
@@ -136,16 +144,24 @@ func (rc roundCalls) args(seq int32) json.RawMessage {
 // seq, in seq order, each with what it sent alone: the path that led to the
 // first cited call. Its own reads (files, logs, events) are part of that
 // path; a call at an agents round's base is exploration of other code, and
-// never is.
-func (rc roundCalls) sentBefore(seq int32) []templates.VerifyCitedCall {
-	var out []templates.VerifyCitedCall
+// never is. refused are the path's calls maul refused, unkept those whose
+// request maul did not keep, by seq: never shown, so the reproduction says
+// them by number.
+func (rc roundCalls) sentBefore(seq int32) (out []templates.VerifyCitedCall, refused, unkept []int64) {
 	for _, ix := range rc.index {
-		if ix.Seq >= seq || ix.Kind != v1alpha1.LedgerKindAgent || ix.Refused || ix.Side == v1alpha1.TreeBase {
+		if ix.Seq >= seq || ix.Kind != v1alpha1.LedgerKindAgent || ix.Side == v1alpha1.TreeBase {
 			continue
 		}
-		if c, _, ok := rc.sent(ix.Seq); ok {
-			out = append(out, c)
+		if ix.Refused {
+			refused = append(refused, int64(ix.Seq))
+			continue
 		}
+		c, _, ok := rc.sent(ix.Seq)
+		if !ok {
+			unkept = append(unkept, int64(ix.Seq))
+			continue
+		}
+		out = append(out, c)
 	}
-	return out
+	return out, refused, unkept
 }

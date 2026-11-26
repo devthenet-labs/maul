@@ -360,3 +360,73 @@ func outcomesOf(t *testing.T) []acceptance.PlanOutcome {
 	t.Helper()
 	return []acceptance.PlanOutcome{{ID: "o", Outcome: "the page loads"}}
 }
+
+// browserEntry is the evaluator's `maul-tool browser verb args...` call at
+// seq, getting output.
+func browserEntry(seq int64, verb, output string, args ...string) toolwire.LedgerEntry {
+	raw, _ := json.Marshal(toolwire.BrowserRequest{Verb: verb, Args: args})
+	sum := sha256.Sum256([]byte(output))
+	return toolwire.LedgerEntry{Seq: seq, TS: time.Unix(seq, 0).UTC(), Kind: toolwire.KindAgent,
+		Verb: toolwire.VerbBrowser, Args: raw, Output: output, OutputSHA256: hex.EncodeToString(sum[:])}
+}
+
+// TestFixRoundReproductionSaysWhatItLeavesOut (W13): the path to the cited
+// call is never cut silently. In W13 the bound on it kept only the last
+// eight calls and dropped call 3, the goto the reproduction starts from,
+// saying nothing. Now the fix round is handed the last page the evaluator
+// went to however far back it is, is told how many earlier calls were
+// left out and which, which calls maul refused and whose request it did
+// not keep, and the evaluator's own page scripts on the path are labelled
+// so.
+func TestFixRoundReproductionSaysWhatItLeavesOut(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	entries := []toolwire.LedgerEntry{browserEntry(1, "goto", "ok", "/app/"), httpEntry(2, "GET", "/", "home")}
+	for seq := int64(3); seq <= 11; seq++ {
+		entries = append(entries, browserEntry(seq, "eval", "1", fmt.Sprintf("window.step%d()", seq)))
+	}
+	refused := httpEntry(12, "GET", "/admin", "")
+	refused.Refused = toolwire.RefusedInvalid
+	entries = append(entries, refused, httpEntry(13, "GET", "/unkept", "x"),
+		httpEntry(14, "GET", "/version", `{"commit":"dev"}`), httpEntry(15, "GET", "/healthz", "ok"))
+	report := strings.NewReplacer("ledger: [2]", "ledger: [14]", "ledger: [3]", "ledger: [15]").Replace(failingReport)
+	e.evaluateReporting(report)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
+	e.review(name, 1)
+	e.runRuns()
+	e.runRuns()
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
+	e.ledgerOfEntries(pv.Name, entries...)
+	// Call 13's kept line is not the index's call: maul did not keep what
+	// it sent.
+	got := e.pvNamed(pv.Name)
+	got.Status.Ledger.Entries[12].ResultSHA256 = strings.Repeat("d", 64)
+	if err := e.c.Update(context.Background(), got); err != nil {
+		t.Fatal(err)
+	}
+	e.settleReviews(name)
+	if v := e.verification(name); v.State != v1alpha1.VerificationFailing {
+		t.Fatalf("verification = %s %+v, want Failing", v.State, v.Outcomes)
+	}
+	all := e.fixInput(name)
+	flatAll := strings.Join(strings.Fields(all), " ")
+	for _, want := range []string{
+		`Call 1, a browser command: {"verb":"goto","args":["/app/"]}`,
+		"Call 4, a browser command, the evaluator's own page script: ",
+		"maul left out 2 of the evaluator's earlier calls here to keep this short: calls 2 and 3. Call 1 is " +
+			"kept: it is the last page the evaluator went to before the cited calls.",
+		"maul refused 1 of the evaluator's calls before the ones it cites, not shown: call 12.",
+		"maul did not keep what 1 of the evaluator's calls before the ones it cites sent, not shown: call 13.",
+		"Call 14, an http request:",
+	} {
+		if !strings.Contains(flatAll, want) {
+			t.Errorf("the fix round's input lacks %q:\n%s", want, all)
+		}
+	}
+	for _, gone := range []string{"window.step3()", "/admin", "/unkept"} {
+		if strings.Contains(all, gone) {
+			t.Errorf("the fix round's input shows %q, which it says it left out:\n%s", gone, all)
+		}
+	}
+}

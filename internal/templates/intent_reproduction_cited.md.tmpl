@@ -32,10 +32,18 @@ The calls it made before the ones it cites, in order (what each sent; their outp
 
 {{ . }}
 {{- end }}
+{{- with .BeforeNote }}
+
+{{ . }}
+{{- end }}
 
 The calls it cites (what each sent and what came back):
 
 {{ .Cited }}
+{{- with .CitedNote }}
+
+{{ . }}
+{{- end }}
 {{- range .Logs }}
 
 Log lines of component {{ .Component }} from the round's window (the application's own output, redacted):

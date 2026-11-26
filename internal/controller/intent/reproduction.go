@@ -76,7 +76,7 @@ func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 		for _, seq := range d.Cites {
 			cf.Cited = append(cf.Cited, calls.call(seq))
 		}
-		cf.Before = calls.sentBefore(d.Cites[0])
+		cf.Before, cf.Refused, cf.Unkept = calls.sentBefore(d.Cites[0])
 		for _, c := range components {
 			if lines := logWindow(entries, int64(d.Cites[0]), c); len(lines) > 0 {
 				cf.Logs = append(cf.Logs, templates.ReproductionLog{Component: c, Lines: lines})
