@@ -212,8 +212,8 @@ func TestRunEvaluationTierOne(t *testing.T) {
 	if !ev.Current || ev.Verification != evalPV || ev.Round != 1 || ev.Phase != "Observed" || ev.Tier != "intents" {
 		t.Fatalf("header = %+v", ev)
 	}
-	if ev.Lead != templates.ObservedLead || ev.Withdrawn != "" {
-		t.Errorf("lead %q, withdrawn %q; want the comment's lead and no withdrawal", ev.Lead, ev.Withdrawn)
+	if ev.Lead != templates.ObservedLead {
+		t.Errorf("lead %q; want the comment's lead", ev.Lead)
 	}
 	checkTierOneOutcomes(t, ev)
 	checkTierOneLedger(t, ev)
@@ -398,30 +398,6 @@ func TestRunEvaluationIgnoresARetiredReport(t *testing.T) {
 				t.Errorf("maul's decision is shown whatever the report: %+v", ev.Outcomes[0])
 			}
 		})
-	}
-}
-
-// TestRunEvaluationShowsTheWithdrawal: while an earlier result is withdrawn
-// (the upgrade's supersede, W5), the page says so in the comment's words,
-// on the fresh round's run and on the earlier one's.
-func TestRunEvaluationShowsTheWithdrawal(t *testing.T) {
-	for _, current := range []bool{true, false} {
-		objs := evaluationFixture(t)
-		in := findAlpha7(objs)
-		in.Status.Conditions = append(in.Status.Conditions, metav1.Condition{
-			Type: v1alpha1.ConditionVerificationSuperseded, Status: metav1.ConditionTrue,
-			Reason: "VerificationRulesChanged", LastTransitionTime: metav1.NewTime(testClock)})
-		if !current {
-			in.Status.Verification.Ref = nil
-		}
-		s, _ := intentsServer(t, nil, objs...)
-		code, body := get(t, as(t, s, viewerAlpha), evaluationPath(evalRun))
-		if code != http.StatusOK {
-			t.Fatalf("GET evaluation = %d %s", code, body)
-		}
-		if ev := decode[RunEvaluation](t, body); ev.Withdrawn != templates.WithdrawnSentence || ev.Current != current {
-			t.Errorf("current=%v: withdrawn %q, current %v", current, ev.Withdrawn, ev.Current)
-		}
 	}
 }
 

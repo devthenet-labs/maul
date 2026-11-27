@@ -337,10 +337,6 @@ type RunEvaluation struct {
 	// Lead is maul's sentence on what it counts and what it leaves to the
 	// reviewers (templates.ObservedLead), set while results are shown.
 	Lead string `json:"lead,omitempty"`
-	// Withdrawn is maul's sentence while an earlier result of the Intent's
-	// is withdrawn because the rules for judging outcomes changed
-	// (templates.WithdrawnSentence), "" otherwise.
-	Withdrawn string `json:"withdrawn,omitempty"`
 	// Placement is "agents" for a round run in the agents namespace (no
 	// Preview, so no preview link), unset for a slot round. Builds are the
 	// tool pod's tree builds.

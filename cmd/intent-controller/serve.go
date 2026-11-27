@@ -444,38 +444,6 @@ func slice1Census(ctx context.Context, log *slog.Logger, r client.Reader, set in
 	return nil
 }
 
-// censuses takes the startup censuses in turn, the slice-1 one first
-// (slice1Census, checkEraCensus): intent-controller does not start while
-// either finds a record it would misread.
-func censuses(ctx context.Context, log *slog.Logger, r client.Reader, set intent.Settings) error {
-	if err := slice1Census(ctx, log, r, set); err != nil {
-		return err
-	}
-	return checkEraCensus(ctx, log, r, set.Namespace)
-}
-
-// checkEraCensus takes the check-era census (intent.TakeCheckEraCensus)
-// through r, which can only read, reports it as the
-// maul.intent.check_era_records gauge, logs it, and refuses to start while
-// it found any record: each by name, with what clears it
-// (CheckEraCensus.Err). A census that cannot list refuses too: what it could
-// not see may be a verification this release would misread.
-func checkEraCensus(ctx context.Context, log *slog.Logger, r client.Reader, namespace string) error {
-	census, err := intent.TakeCheckEraCensus(ctx, r, namespace)
-	if err != nil {
-		return fmt.Errorf("the check-era census could not run, so intent-controller does not start: %w", err)
-	}
-	census.Report()
-	if err := census.Err(); err != nil {
-		return fmt.Errorf("check-era census: %w; saved checks and the check reviewer are removed, and an install "+
-			"must pass through 0.14.18, which settles these records, so intent-controller does not start until "+
-			"they are gone, see %s", err, savedChecksMigration)
-	}
-	log.LogAttrs(ctx, slog.LevelInfo, "check-era census: no open intent holds a verification an earlier release "+
-		"judged with saved checks, and no check review is unfinished", slog.Int("count", census.Count()))
-	return nil
-}
-
 // agents reads the agents-namespace tool pod's settings when
 // --intent-evaluator-agents is on, each held to its bounds; off, none of
 // them reaches the settings.
@@ -1032,7 +1000,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	logVerificationOff(ctx, log, set)
 	// Read-only, uncached, before the manager starts: the API reader.
-	if err := censuses(ctx, log, mgr.GetAPIReader(), set); err != nil {
+	if err := slice1Census(ctx, log, mgr.GetAPIReader(), set); err != nil {
 		return err
 	}
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
@@ -1063,7 +1031,3 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	return nil
 }
-
-// savedChecksMigration is where an operator upgrading past saved checks
-// reads what an install must pass through.
-const savedChecksMigration = "docs/intents/evaluator.md#migrating-from-saved-checks"

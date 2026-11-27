@@ -41,7 +41,7 @@ func TestIntentNames(t *testing.T) {
 		{"revise run", IntentRunName("target-1", IntentStageRevise, 3, "shop", 2), "target-1-rev3-shop-a2"},
 		{"evaluate run", IntentRunName("target-1", IntentStageEvaluate, 2, "ignored", 1), "target-1-ev-r2-a1"},
 		{"unknown stage", IntentRunName("target-1", "deploy", 1, "shop", 1), ""},
-		{"retired check review stage", IntentRunName("target-1", "checkreview", 4, "ignored", 3), ""},
+		{"an unknown stage", IntentRunName("target-1", "checkreview", 4, "ignored", 3), ""},
 	}
 	for _, c := range cases {
 		if c.got != c.want {

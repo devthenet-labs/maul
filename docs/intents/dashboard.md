@@ -215,10 +215,9 @@ evaluator's request as the evaluator's, and a call that ran the evaluator's own 
 counts a verdict only by the calls it cites; whether a cited call shows what the verdict says is for the reviewers to
 judge, and the page says so above the outcomes. The evaluator's verdict is a claim; the result beside it is maul's
 decision, and the two can differ. A report that still writes a key the evaluator no longer has (`disputes`, `proposed`,
-`retire`, `contrary`) claims nothing, so none of its claims is shown. While an earlier result is withdrawn because the
-rules for judging outcomes changed, the page says so. A screenshot is shown as evidence a person can look at. Whether
-one was kept never changes a result, but a `browser screenshot` call counts like any other browser command, so the
-evaluator's reading of a screenshot alone can make an outcome seen to hold: see
+`retire`, `contrary`) claims nothing, so none of its claims is shown. A screenshot is shown as evidence a person can
+look at. Whether one was kept never changes a result, but a `browser screenshot` call counts like any other browser
+command, so the evaluator's reading of a screenshot alone can make an outcome seen to hold: see
 [the known limits](evaluator.md#known-limits).
 
 The status server reads the verification and its two ConfigMaps (`<verification>-ledger`, `<verification>-evidence`)

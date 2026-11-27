@@ -15,7 +15,6 @@ import (
 	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -137,9 +136,6 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 	}
 	ver := in.Status.Verification
 	out.Current = ver != nil && ver.Ref != nil && ver.Ref.UID == pv.UID
-	if meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionVerificationSuperseded) {
-		out.Withdrawn = templates.WithdrawnSentence
-	}
 	// The Intent's results and anomalies are this round's only when its
 	// judgement wrote them: a current round that settled unjudged shows
 	// none of an earlier round's (S2-B3).

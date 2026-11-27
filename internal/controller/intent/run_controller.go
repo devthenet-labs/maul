@@ -77,8 +77,7 @@ var errUnknownStage = errors.New("the stage is unknown to this controller")
 
 // launchEnabled reports whether this controller knows how to create and
 // launch runs of stage: nil for every stage of v1alpha1.IntentStages,
-// errUnknownStage for any other (a retired spelling the schema keeps for
-// stored runs, v1alpha1.RetiredIntentStages, included). Whether it
+// errUnknownStage for any other. Whether it
 // does so as configured is Settings.stageEnabled.
 func launchEnabled(stage v1alpha1.IntentStage) error {
 	switch stage {

@@ -286,9 +286,6 @@ func TestEvaluationRoundCollects(t *testing.T) {
 	if v.EvaluationCostMicroUSD != 400000 {
 		t.Errorf("evaluation cost = %d, want the evaluate run's 400000", v.EvaluationCostMicroUSD)
 	}
-	if n := len(e.runsOf(name, retiredStageCheckReview)); n != 0 {
-		t.Errorf("%d check review runs, want none", n)
-	}
 	e.review(name, 3)
 	if n := len(e.verifications(name)); n != 1 {
 		t.Errorf("verifications = %d, want the round alone", n)

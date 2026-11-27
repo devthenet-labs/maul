@@ -186,9 +186,8 @@ export function EvaluationEvidence({ intent, run }: { intent: string; run: strin
         Round {data.round}, attempt {data.attempt} · {data.verification}
         {data.phase ? ` · ${data.phase}` : ""}
         {data.reason ? ` (${data.reason})` : ""}
-        {data.current || data.withdrawn ? "" : " · a later round has superseded this one's results"}
+        {data.current ? "" : " · a later round has superseded this one's results"}
       </p>
-      {data.withdrawn ? <p class="mt-0 mb-3 text-[12.5px] text-muted">{data.withdrawn}</p> : null}
       {data.handoff ? (
         <p class="mt-0 mb-3 text-[12.5px]">
           {handoffLine(

@@ -33,7 +33,7 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			"maul-tool files", "maul-tool run", "--base", "Look-around",
 			string(v1alpha1.HandoffGated), string(v1alpha1.HandoffEarly), "handoffMax", "/maul preview",
 			strings.TrimSuffix(templates.NotReadyLead, ": "), templates.ReadyLabel, templates.ObservedLead,
-			templates.WithdrawnSentence, templates.OutcomeCount(3, 3),
+			templates.OutcomeCount(3, 3),
 			acceptance.ReasonSeenToHold, acceptance.ReasonSeenNotToHold, acceptance.ReasonNotReported,
 			acceptance.ReasonEvaluatorUnsure, acceptance.ReasonNoValidEvidence, acceptance.ReasonHeldFinding,
 			acceptance.ReasonContraryNote, "anomalies[].outcome",
@@ -44,20 +44,18 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			"The evaluator's reading, not checked by maul",
 			v1alpha1.ConditionEvaluatorUnverified, "--intent-evaluate-codex", "unverified",
 			"maxEvaluateCostMicroUSD", "maxToolCalls", "limits.evaluate", "limits.checkReview",
-			"-ledger", "-evidence", "status.ledger", "/maul verify explore",
-			// Migrating from saved checks: passing through 0.14.18, the
-			// guard and the census, the removed settings, the leftover
-			// stores and the rollback.
-			"0.14.18", "status.verification.judge", string(v1alpha1.JudgeObserved),
-			v1alpha1.ConditionVerificationSuperseded, "maul.intent.check_era_records", "--intent-checkreview-model",
-			"--intent-checkreview-max-turns", "checkReviewModel", "checkReviewMaxTurns", "spec.models.checkReview",
-			"-checks-", v1alpha1.LabelIntent, "helm rollback",
+			"-ledger", "-evidence", "status.ledger",
+			// Migrating from saved checks: the removed settings and the
+			// leftover stores.
+			"--intent-checkreview-model", "--intent-checkreview-max-turns", "checkReviewModel", "checkReviewMaxTurns",
+			"spec.models.checkReview",
+			"-checks-", v1alpha1.LabelIntent,
 		},
 		"docs/intents/acceptance.md": {
 			"evaluator.md", "outcomes", "from:", "kind: keep", "manual: true", "not covered",
 			"/maul replan", "/maul preview", "/maul accept all", "intentController.verification.evaluator",
 			"maul/acceptance", "/maul verify", "/maul verify fix", "/maul verify --reset", "/maul accept",
-			"maxVerifyFixes", "maxVerifications", "manualGatesStatus", "not an attestation", "/maul verify explore",
+			"maxVerifyFixes", "maxVerifications", "manualGatesStatus", "not an attestation",
 			"cancelled for your review", "Commit statuses", templates.OutcomeCount(3, 3),
 		},
 		"docs/configuration/preview-controller.md": {
@@ -82,7 +80,7 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			"cmd/preview-tools", "cmd/maul-tool", "cmd/cdp-shim", "cmd/tool-exec", "`toolwire`", "`toolexec`",
 			"`cdpshim`", "`maultool`", "`previewtools`",
 			"--intent-evaluator", "docs/intents/evaluator.md", "acceptance.Judge", "acceptance.ValidCite",
-			"verify_migrate.go", "/maul verify explore",
+			"newVerification",
 		},
 		"zensical.toml": {"intents/evaluator.md"},
 	} {

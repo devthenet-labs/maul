@@ -46,13 +46,6 @@ func IntentRunName(intent string, stage IntentStage, round int32, repoKey string
 	}
 }
 
-// RetiredIntentStages are the stage spellings the schema keeps only for
-// stored runs (IntentStage): no switch handles them, and nothing creates a
-// run of one.
-func RetiredIntentStages() []IntentStage {
-	return []IntentStage{"checkreview"}
-}
-
 // IntentStages returns every IntentStage, in declaration order, as a fresh
 // slice. Every switch over a stage is tested against it, so a stage added
 // here cannot fall through to a default branch unnoticed.
@@ -65,14 +58,8 @@ func IntentStages() []IntentStage {
 	}
 }
 
-// IntentStage is the agent stage one IntentRun executes. checkreview is a
-// retired spelling (RetiredIntentStages): the check reviewer's, retired with
-// saved checks in 0.14.18. Nothing creates a run of it, but a settled one an
-// earlier release left is still stored (its spend counts towards its
-// Intent's evaluation ceiling) and must keep validating on its next write
-// (its usage settled, its finalizer released), so the schema keeps the
-// spelling; intent-controller's startup census refuses an unfinished one.
-// +kubebuilder:validation:Enum=plan;build;revise;evaluate;checkreview
+// IntentStage is the agent stage one IntentRun executes.
+// +kubebuilder:validation:Enum=plan;build;revise;evaluate
 type IntentStage string
 
 // Intent stages.

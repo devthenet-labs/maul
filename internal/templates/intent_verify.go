@@ -130,17 +130,7 @@ type VerifyProgress struct {
 	// (UnconfirmedCause, review H2). Workspace is a Project with no preview.
 	Why       string
 	Workspace bool
-	// Withdrawn: an earlier release's result for this intent was withdrawn
-	// when maul's rules for judging the outcomes changed, and no round
-	// judged under the new rules has recorded its own yet: the line says
-	// so (WithdrawnSentence).
-	Withdrawn bool
 }
-
-// WithdrawnSentence is what the line adds while an earlier release's
-// result is withdrawn and no new one is recorded.
-const WithdrawnSentence = "An earlier result was withdrawn because maul's rules for judging the approved outcomes " +
-	"changed; it is not shown."
 
 // verifyRestingLine is the sentence of a state nothing is checked in:
 // whole for one that never carries counts, else its head; "" for any other
@@ -211,19 +201,8 @@ func verifyNames(p VerifyProgress) (which, counts, passed string) {
 // to have confirmed it.
 func OutcomeCount(n, total int32) string { return fmt.Sprintf("%d/%d outcomes seen to hold", n, total) }
 
-// verifyLine is the progress as one sentence, followed by the withdrawal
-// (WithdrawnSentence) while an earlier release's result is withdrawn; ""
-// for none.
+// verifyLine is the progress as one sentence; "" for none.
 func verifyLine(p VerifyProgress) string {
-	line := progressLine(p)
-	if p.Withdrawn && line != "" {
-		return line + " " + WithdrawnSentence
-	}
-	return line
-}
-
-// progressLine is verifyLine without the withdrawal.
-func progressLine(p VerifyProgress) string {
 	head, whole := verifyRestingLine(p.State)
 	if whole {
 		return head

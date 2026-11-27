@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/action"
 	"github.com/devthenet-labs/maul/internal/command"
 )
@@ -37,15 +36,6 @@ func overstates(s string) []string {
 var observedReasons = []string{"seen-to-hold", "seen-not-to-hold", "not-reported", "evaluator-unsure",
 	"no-valid-evidence", "contrary-note", "manual", "env-failed", "infra", "tools-build-failed", "held-finding"}
 
-// retiredWhys are the hand-off reasons only the saved-check machinery gave
-// (a replay round cut short): the observed evaluator never settles a round
-// with them.
-var retiredWhys = map[string]bool{HandoffWhyReplay: true}
-
-// retiredCauses are the settle causes only the saved-check machinery
-// recorded.
-var retiredCauses = map[v1alpha1.SettleCause]bool{v1alpha1.SettleReplayIncomplete: true}
-
 // evaluationSentences are maul's sentences about an evaluation under way,
 // by what they are: the held link, the workspace status and comment, and
 // the replies to /maul verify.
@@ -69,9 +59,6 @@ func evaluationSentences() map[string]string {
 func settleSentences() map[string]string {
 	out := map[string]string{}
 	for c := range settleWords {
-		if retiredCauses[c] {
-			continue
-		}
 		for _, ws := range []bool{false, true} {
 			w := CauseWords(c, ws)
 			out[fmt.Sprintf("settle %s short (workspace %v)", c, ws)] = w.Short
@@ -110,11 +97,10 @@ func TestVerdictWordsNeverOverstate(t *testing.T) {
 		check("reason "+r, outcomeReasonWords[r])
 	}
 	check("OutcomeCount", OutcomeCount(2, 3))
-	whys := []string{""}
+	whys := make([]string, 0, 1+len(handoffWhyWords))
+	whys = append(whys, "")
 	for why := range handoffWhyWords {
-		if !retiredWhys[why] {
-			whys = append(whys, why)
-		}
+		whys = append(whys, why)
 	}
 	for _, why := range whys {
 		for _, ws := range []bool{false, true} {
@@ -142,8 +128,6 @@ func TestVerdictWordsNeverOverstate(t *testing.T) {
 			p := VerifyProgress{State: state, Verification: 2, FixesUsed: 1, MaxFixes: 2, Passing: 3, Total: 3,
 				ManualOpen: 1, AutoFix: FixRunning, Outcomes: true, Why: why}
 			check("progress "+state+"/"+why, verifyLine(p))
-			p.Withdrawn = true
-			check("progress withdrawn "+state+"/"+why, verifyLine(p))
 		}
 	}
 	for _, result := range []string{OutcomeResultPassed, OutcomeResultFailed, OutcomeResultUnsure,

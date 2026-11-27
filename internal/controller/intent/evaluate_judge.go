@@ -364,15 +364,12 @@ func applyJudgement(cur *v1alpha1.Intent, j roundJudgement) {
 			nv.Passed++
 		case v1alpha1.OutcomeFailed:
 			nv.Failed++
-		case v1alpha1.OutcomeQuarantined, v1alpha1.OutcomeUnsure, v1alpha1.OutcomeAccepted:
+		case v1alpha1.OutcomeUnsure, v1alpha1.OutcomeAccepted:
 		}
 	}
 	nv.Anomalies = carryAnomalies(carried, j.anomalies, nv.Round)
 	nv.State = judgedState(nv, j, nv.Outcomes, pendingFix(acc, nv.HeadSetDigest, j))
 	countManual(nv, acc)
-	// A result judged under these rules is on record: an earlier release's
-	// withdrawn one is no longer what the comments speak of.
-	clearSuperseded(cur)
 }
 
 // judgeEvaluation settles a collected round on its judgement (Judge), its

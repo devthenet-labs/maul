@@ -885,12 +885,10 @@ spec:
                 - stale-preview
                 - stale-workspace
                 - stale-approval
-                - stale-criteria
                 - rollout-unsettled
                 - quota-refused
                 - deadline-no-summary
                 - tools-output-invalid
-                - tester-output-invalid
                 - component-crashloop
                 - component-not-ready
                 - component-evicted
@@ -917,8 +915,6 @@ spec:
                 - tools-evicted
                 - tools-deadline
                 - tools-refused
-                - replay-incomplete
-                - kept-copy-failed
                 type: string
               startedAt:
                 description: |-

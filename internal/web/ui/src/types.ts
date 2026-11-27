@@ -524,7 +524,7 @@ export type IntentColumn = "planning" | "approval" | "building" | "review" | "bl
 // IntentTier is how much of a Project the caller may read.
 export type IntentTier = "intents" | "transcripts";
 
-export type IntentStage = "plan" | "build" | "revise" | "evaluate" | "checkreview";
+export type IntentStage = "plan" | "build" | "revise" | "evaluate";
 
 export interface Me {
   name: string;
@@ -784,9 +784,6 @@ export interface RunEvaluation {
   // lead: maul's sentence on what it counts and what it leaves to the
   // reviewers, set while results are shown.
   lead?: string;
-  // withdrawn: maul's sentence while an earlier result is withdrawn
-  // because the rules for judging outcomes changed.
-  withdrawn?: string;
   // placement: "agents" for a round run in the agents namespace, which has
   // no preview (so no preview link); unset for a slot round.
   placement?: string;

@@ -5,7 +5,6 @@ package intent
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,11 +23,7 @@ import (
 // schema admits, and none of them reaches its default branch for one: a
 // stage added to v1alpha1.IntentStages fails here until every site decides
 // what it means, so no site silently treats it as a plan or a build. The
-// default branch itself fails closed, which an unknown stage pins. A
-// retired spelling the schema keeps for stored runs
-// (v1alpha1.RetiredIntentStages, the check reviewer's) has no row: every
-// site answers it as it answers an unknown stage, so none of its runs is
-// created or launched.
+// default branch itself fails closed, which an unknown stage pins.
 
 const (
 	sPlan     = v1alpha1.IntentStagePlan
@@ -174,30 +169,19 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 				t.Errorf("%s(%q) = %#v, want %#v", site.name, s, got, want)
 			}
 		}
-		for _, s := range v1alpha1.RetiredIntentStages() {
-			def := site.def
-			if site.name == "resources stageNoun" {
-				def = fmt.Sprintf("%q run", s)
-			}
-			if got := site.got(s); !reflect.DeepEqual(got, def) {
-				t.Errorf("%s(%q) = %#v, want the default branch's %#v: a retired stage is unknown", site.name, s,
-					got, def)
-			}
-		}
 	}
 }
 
 // No evaluate run is created while the agent evaluator is off, nor ever a
-// run of a retired stage: createRun refuses it before it reads or writes
+// run of an unknown stage: createRun refuses it before it reads or writes
 // anything.
 func TestCreateRunRefusesStagesNotEnabled(t *testing.T) {
-	sRetired := v1alpha1.RetiredIntentStages()[0]
-	for _, s := range []v1alpha1.IntentStage{sEvaluate, sRetired, sUnknown} {
+	for _, s := range []v1alpha1.IntentStage{sEvaluate, sUnknown} {
 		run, err := (&pass{}).createRun(t.Context(), s, v1alpha1.ProjectRepository{Name: "app"}, 1, 1, nil)
 		if run != nil || err == nil {
 			t.Fatalf("createRun(%q) = %v, %v; want a refusal", s, run, err)
 		}
-		if want := map[v1alpha1.IntentStage]string{sEvaluate: "not enabled", sRetired: "unknown",
+		if want := map[v1alpha1.IntentStage]string{sEvaluate: "not enabled",
 			sUnknown: "unknown"}[s]; errClass(err) != want {
 			t.Errorf("createRun(%q) error %v is %q, want %q", s, err, errClass(err), want)
 		}
@@ -206,8 +190,7 @@ func TestCreateRunRefusesStagesNotEnabled(t *testing.T) {
 
 // A granted run of a stage not enabled (one made by hand, or left from
 // before the evaluator was switched off) launches no Job: it ends
-// launch_refused, saying why. (A run of a retired stage is refused as an
-// unknown one: TestStageSwitchesExhaustive's stageSpec row.)
+// launch_refused, saying why.
 func TestLaunchRefusesStagesNotEnabled(t *testing.T) {
 	for _, s := range []v1alpha1.IntentStage{sEvaluate} {
 		t.Run(string(s), func(t *testing.T) {

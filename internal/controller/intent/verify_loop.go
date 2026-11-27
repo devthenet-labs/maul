@@ -64,6 +64,13 @@ const reasonCriteriaUnreadable = "CriteriaUnreadable"
 // approved (DESIGN 7.6).
 const reasonCriteriaReplan = "CriteriaReplan"
 
+// newVerification is a verification record as intent-controller starts
+// one: marked as judged under the observed evaluator's rules
+// (v1alpha1.JudgeObserved) from the start.
+func newVerification() *v1alpha1.IntentVerification {
+	return &v1alpha1.IntentVerification{Judge: v1alpha1.JudgeObserved}
+}
+
 // syncVerification is the per-pass part of the loop: steps 1 to 5 above.
 // It reports whether it wrote the Intent's status, which ends the pass.
 // Failures to read what it judges from are logged and verify nothing this
@@ -122,9 +129,6 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 			meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionVerifyFailing)
 		}
 		cur.Status.Acceptance = rec
-		// A new revision starts afresh: nothing of an earlier result is
-		// withdrawn from it.
-		clearSuperseded(cur)
 		next := newVerification()
 		if prev := cur.Status.Verification; prev != nil {
 			next.Round, next.Reset, next.Requested, next.CancelRun = prev.Round, prev.Reset, prev.Requested,
@@ -586,7 +590,7 @@ func previewNotLive(v *v1alpha1.IntentVerification) bool {
 // records it in state (Evaluating, for the evaluator's outcomes): a retry is
 // its round's next attempt, anything else a new round's first; only the
 // loop's automatic round counts against maxVerifications. Every round
-// writes the judge marker (verify_migrate.go). fill completes the spec with where it runs (the
+// writes the judge marker (newVerification). fill completes the spec with where it runs (the
 // Preview it pins, or an agents workspace), what it runs and its timeout;
 // an error from it creates nothing. One that already exists under the name
 // (a status write lost after its create) is adopted when it is this

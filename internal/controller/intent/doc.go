@@ -182,9 +182,9 @@
 // writers: the IntentReconciler creates the outcome PreviewVerification and,
 // only once preview-controller's status names the slot tool pod's address,
 // the evaluate IntentRun pinning it (createRoleRun, the lease, under the
-// evaluation ceiling, which only evaluate spend, and the checkreview runs
-// an earlier release left, counts against); the RunReconciler launches it only while that verification is
-// still the Intent's at its heads (evaluationCurrent, read uncached), stops
+// evaluation ceiling, which only evaluate spend counts against); the
+// RunReconciler launches it only while that verification is still the
+// Intent's at its heads (evaluationCurrent, read uncached), stops
 // it once the Intent no longer has it in flight (evaluationEnded) and
 // keeps its report, the evaluator's claims, on run status; the
 // IntentReconciler collects the round from the run's status and the
@@ -192,14 +192,10 @@
 // acceptance.Judge: a verdict counts when it cites valid entries of the
 // verified ledger), routing it through the kept machinery: an evidenced
 // failure is a verify-fix round. No check is saved, reviewed or replayed,
-// and no checkreview run is created or launched (an unfinished one an
-// earlier release left refuses startup: census_checks.go). No role run owns
-// a Repository or reads a tree, and none pushes. A verification an earlier
-// release judged with saved checks refuses startup too until 0.14.18 has
-// superseded it (verify_migrate.go). The IntentReconciler alone
-// writes the gated
-// hand-off (handoff.go, status.verification.handoff and firstGreenAt): the
-// mode and clock as the first evaluation is created, the release with a
+// and no checkreview run is created or launched. No role run owns a
+// Repository or reads a tree, and none pushes. The IntentReconciler alone
+// writes the gated hand-off (handoff.go, status.verification.handoff and
+// firstGreenAt): the mode and clock as the first evaluation is created, the release with a
 // judgement that makes it due, on handoffMax, or in the halt a human's
 // feedback or push causes.
 //

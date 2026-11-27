@@ -264,21 +264,14 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
   `limits.maxEvaluateCostMicroUSD`); a codex Project is evaluated only with `--intent-evaluate-codex`, else its hand-off
   is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes. Every round is
-  a full evaluation, and `/maul verify explore` is parsed as a plain `/maul verify`. 0.14.19 removed the check-era
-  fields (saved checks, the rung, the cost ladder's records, `checkReview` models and limits) and the supersede
-  0.14.18 ran, so an install must pass through 0.14.18: before its manager starts intent-controller takes a second
-  read-only census (`census_checks.go`, `TakeCheckEraCensus`: an open Intent whose verification has no judge marker,
-  `v1alpha1.JudgeObserved`, and still holds a judgement or round in flight, or was withdrawn and waits for its fresh
-  round, condition `VerificationSuperseded`; an unfinished IntentRun of the retired stage `checkreview`), reported as
-  `maul.intent.check_era_records`, and REFUSES to start while it finds any (the chart's
-  `templates/check-era-guard.yaml` fails a cluster-reaching render on the same records). The stage spelling
-  `checkreview` stays in the IntentRun enum (`v1alpha1.RetiredIntentStages`; a settled run still counts toward the
-  evaluation ceiling, `retiredStageCheckReview`), as do the outcome result `quarantined` and the retired PV reasons and
-  part role, so stored objects keep validating. What is left of the supersede (`verify_migrate.go`): every record
-  carries the marker (`newVerification`, `markVerification` for an unmarked record with nothing judged), and the
-  condition with the comment's `templates.WithdrawnSentence` holds until a round judged under these rules clears it
-  (`clearSuperseded`). Guide `docs/intents/evaluator.md#migrating-from-saved-checks`; the upgrade test
-  `charts/maul/check_era_upgrade_envtest_test.go` runs on the frozen 0.14.18 CRDs (`hack/testdata/crd-upgrade/0.14.18`).
+  a full evaluation (`/maul verify explore` is no longer understood). 0.14.19 removed the check-era fields and
+  spellings (saved checks, the rung, the cost ladder's records, `checkReview` models and limits, the stage
+  `checkreview`, the outcome result `quarantined`, the PV reasons `replay-incomplete`, `kept-copy-failed`,
+  `stale-criteria`, `tester-output-invalid` and the settle cause `ReplayIncomplete`) and the supersede, with no
+  migration. Every verification record carries the judge marker `v1alpha1.JudgeObserved` from its first round
+  (`newVerification`, verify_loop.go); one without it is an ended intent's earlier judgement, which keeps that release's
+  words (`handoffView`, `templates.PreviewHandoff.Earlier`). Guide
+  `docs/intents/evaluator.md#migrating-from-saved-checks`.
   A round runs on a host behind the `toolHost` port (`toolhost.go`: `placement`, `verifies`, `heads`, `gate`, whose
   `place` fills the host's spec fields): `slotHost` (`toolhost_slot.go`, S1, preview-controller's slot tool pod) or,
   with `--intent-evaluator-agents` (slice S2, default off; chart `intentController.verification.agents.enabled`, which
@@ -984,8 +977,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `deadlineMaxSeconds` drives both controllers' deadline flags (`--intent-verify-timeout-max`, slice 1's tester wall
   clock, has had no effect since S4 PR 6); slice 1's CRD fields are removed (S4 PR 10: PreviewVerification
   `spec.criteria`/`criteriaDigest`, its observations, summary and wire version, Intent `status.acceptance.criteria`
-  and `status.verification.failing`; `stale-criteria` and `tester-output-invalid` kept in the reason enum only as
-  retired spellings, as is the part role `tester`; `PreviewPartToolPod` keeps the wire value `tester`, which stored
+  and `status.verification.failing`; `PreviewPartToolPod` keeps slice 1's wire value `tester`, which stored
   Previews' immutable environments and the slot policies select by), so before its manager starts intent-controller
   takes a read-only census of slice-1 records through the API reader (`census.go`: open Intents of a Project the
   evaluator verifies recording a criteria digest with no outcomes digest, and PreviewVerifications with no outcomes),

@@ -96,8 +96,6 @@ func TestUnjudgedRoundRecordsItsCause(t *testing.T) {
 		{v1alpha1.VerificationReasonSandboxUnenforced, v1alpha1.SettleSandboxUnenforced, templates.HandoffWhySandbox},
 		{v1alpha1.VerificationReasonToolsEvicted, v1alpha1.SettleToolsLost, templates.HandoffWhyUnavailable},
 		{v1alpha1.VerificationReasonToolsDeadline, v1alpha1.SettleToolsLost, templates.HandoffWhyUnavailable},
-		{v1alpha1.VerificationReasonKeptCopyFailed, v1alpha1.SettleToolsLost, templates.HandoffWhyUnavailable},
-		{v1alpha1.VerificationReasonReplayIncomplete, v1alpha1.SettleReplayIncomplete, templates.HandoffWhyReplay},
 		{v1alpha1.VerificationReasonLedgerMismatch, v1alpha1.SettleNone, templates.HandoffWhyUnavailable},
 	} {
 		t.Run(string(tc.reason), func(t *testing.T) {

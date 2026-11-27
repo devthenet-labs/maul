@@ -156,7 +156,7 @@ func TestVerifyModeSeeded(t *testing.T) {
 		v1alpha1.VerificationExhausted, v1alpha1.VerificationNeedsReplan, v1alpha1.VerificationUnavailable,
 		v1alpha1.VerificationEvaluating, v1alpha1.VerificationUnconfirmed}
 	results := []v1alpha1.OutcomeResultValue{v1alpha1.OutcomePassed, v1alpha1.OutcomeFailed, v1alpha1.OutcomeUnsure,
-		v1alpha1.OutcomeQuarantined, v1alpha1.OutcomeAccepted}
+		v1alpha1.OutcomeAccepted}
 	for seed := range int64(8) {
 		rng := rand.New(rand.NewSource(seed))
 		for _, verifies := range []bool{true, false} {

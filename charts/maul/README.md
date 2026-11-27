@@ -227,8 +227,7 @@ that asks for verification says it is Off, and each preview is handed over at on
 the former `preview.verification.enabled` is removed, and set, whatever its value, it fails the render naming this key
 ([migrating from slice 1](../../docs/intents/evaluator.md#migrating-from-slice-1)). The check reviewer's
 `intentController.verification.checkReviewModel` and `checkReviewMaxTurns` were removed in 0.14.19 and are not in the
-values schema, so either one set fails the render; an install must pass through 0.14.18 first, and the chart's check-era
-guard fails a render that reaches a cluster while records only 0.14.18 settles remain
+values schema, so either one set fails the render
 ([migrating from saved checks](../../docs/intents/evaluator.md#migrating-from-saved-checks)). On, the chart renders:
 
 - the `maul-evaluator-labels` admission policies: `maul.run/role` (`evaluator`) and `maul.run/preview-verification` on

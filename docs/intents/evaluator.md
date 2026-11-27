@@ -670,53 +670,25 @@ no preview a check counted only if it also told the head from the base. All of t
 check: each verdict counts when it cites calls of the round's own verified ledger
 ([What makes a pass](#what-makes-a-pass)), and the base is for exploration only.
 
-**An install must pass through 0.14.18.** 0.14.18 retired saved checks and settled what they had left: on its first pass
-over each open intent whose verification an earlier release had judged (no `status.verification.judge`), it withdrew
-that result once and started one fresh evaluation, and it stopped every checkreview run still running, its Job deleted.
-0.14.19 removes the retired fields and that withdrawal with them, so it cannot read such a record. Coming from a release
-before 0.14.18, upgrade to 0.14.18 first, let intent-controller run until it has settled every open intent, then upgrade
-to 0.14.19.
+**What is removed.**
 
-**The guard and the census.** A `helm upgrade` (or `helm template --dry-run=server`) of 0.14.19 fails before any CRD
-changes, and intent-controller refuses to start (reporting `maul.intent.check_era_records`), while any of these is left,
-each named with its fix:
-
-- an open Intent whose verification has no judge marker (`status.verification.judge: observed/1`, which every
-  verification 0.14.18 or later writes carries) and still holds what an earlier release judged (a round in flight,
-  outcome results, a pass or fail count, anomalies). Run 0.14.18 until it withdraws it. 0.14.18 does so only while the
-  evaluator verifies the intent's Project and the plan has an outcome maul evaluates; where it cannot, `/maul cancel`
-  the intent under 0.14.18, or delete it.
-- an open Intent 0.14.18 withdrew whose fresh evaluation has not started yet (the `VerificationSuperseded` condition, no
-  judge marker; its status comment adds "An earlier result was withdrawn because maul's rules for judging the approved
-  outcomes changed; it is not shown."). Run 0.14.18 until that round starts, or cancel or delete the intent.
-- an unfinished checkreview IntentRun. Run 0.14.18, which stops it, or delete it.
-
-Neither counts an intent that has ended (its result stands as the earlier rules reached it, and its comments keep that
-release's words), an intent 0.14.18 superseded (marked, even while its fresh round runs and its comments still say the
-earlier result was withdrawn), or a finished checkreview run (its spend still counts toward its intent's evaluation
-ceiling). A fresh install has nothing to count. A render without a cluster (`helm template`, Argo CD, Flux) sees
-nothing, and the census refuses to start instead.
-
-**What 0.14.19 removes.**
-
-- The CRD fields the saved checks wrote, which nothing has read since 0.14.18: an Intent's `status.acceptance.checks`,
-  `reviews`, `redCleared` and `narrowed`; its `status.verification.quarantined`, `quarantinedIDs`, `suspected`,
-  `disputed`, `rung`, `modelRound` and `escalation`, an outcome result's `basis`, `line` and `objected`, and a request's
-  `explore`; a `PreviewVerification`'s `spec.checks`, `spec.checksDigest`, `spec.rung` and `status.replay`,
-  `confirmations`, `confirmed` and `base`; an IntentRun's `spec.evaluation.rung`; a Project's `spec.models.checkReview`
-  and `spec.limits.checkReview`. The API server prunes them from every stored object.
-- The spellings a stored object may still carry stay in the schema, so it keeps validating on its next write: the stage
-  `checkreview` (no run of it is created), the outcome result `quarantined`, the verification reasons
-  `replay-incomplete`, `kept-copy-failed`, `stale-criteria` and `tester-output-invalid`, and the part role `tester`.
+- The CRD fields the saved checks wrote: an Intent's `status.acceptance.checks`, `reviews`, `redCleared` and `narrowed`;
+  its `status.verification.quarantined`, `quarantinedIDs`, `suspected`, `disputed`, `rung`, `modelRound` and
+  `escalation`, an outcome result's `basis`, `line` and `objected`, and a request's `explore`; a `PreviewVerification`'s
+  `spec.checks`, `spec.checksDigest`, `spec.rung` and `status.replay`, `confirmations`, `confirmed` and `base`; an
+  IntentRun's `spec.evaluation.rung`; a Project's `spec.models.checkReview` and `spec.limits.checkReview`. The API
+  server prunes them from every stored object.
+- The spellings only they wrote: the IntentRun stage `checkreview`, the outcome result `quarantined`, the verification
+  reasons `replay-incomplete`, `kept-copy-failed`, `stale-criteria` and `tester-output-invalid`, and the settle cause
+  `ReplayIncomplete`. The schema no longer admits them: delete any object that still holds one.
 - intent-controller's `--intent-checkreview-model` and `--intent-checkreview-max-turns` are no longer flags: drop them.
   The chart's `intentController.verification.checkReviewModel` and `checkReviewMaxTurns` are no longer in its values
   schema, so either one set fails the render; an upgrade with `helm upgrade --reuse-values` from a release that still
   had them fails too: upgrade with your values files, or with `--reset-then-reuse-values`.
 - A Project manifest, or a maul-config values file, that still states `spec.models.checkReview` or
   `spec.limits.checkReview`: maul-config's schema refuses it, and the API server prunes the field with a warning, or
-  refuses it under strict field validation (`kubectl apply --validate=strict`, a server-side apply). Remove both before
-  the upgrade.
-- `/maul verify explore` stays a plain `/maul verify`.
+  refuses it under strict field validation (`kubectl apply --validate=strict`, a server-side apply). Remove both.
+- `/maul verify explore` is no longer understood: maul answers it with the commands' help.
 
 **The leftover check stores.** Each intent's saved checks are in immutable ConfigMaps `<intent>-checks-<n>` it owns.
 Nothing reads them, and intent-controller cannot delete them: they go with their Intent. To remove them sooner, match
@@ -728,8 +700,3 @@ kubectl -n <namespace> get configmaps -l maul.run/intent \
   | awk '$1 ~ ("^" $2 "-checks-[0-9]+$") {print "configmap/" $1}' \
   | xargs -r kubectl -n <namespace> delete
 ```
-
-**Rolling back.** `helm rollback` to 0.14.18 re-applies its CRDs. Every object 0.14.19 wrote still takes 0.14.18's
-writes: a verification or evaluate run it created names no rung, which 0.14.18's schema requires, but its spec is
-immutable and unchanged, so the API server's validation ratcheting (Kubernetes 1.30 and later) admits it. The pruned
-fields do not come back; 0.14.18 reads none of them.

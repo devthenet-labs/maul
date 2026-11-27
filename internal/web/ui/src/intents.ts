@@ -281,8 +281,7 @@ export function evidenceImageURL(intent: string, run: string, image: string): st
 export type OutcomeTone = "green" | "red" | "amber" | "neutral";
 
 // resultTone colours a decided outcome result (passed, failed, unsure,
-// quarantined, accepted) or a check run result (pass, fail, quarantined,
-// error, refused). Anything unknown is neutral.
+// accepted) or a check run result (pass, fail, error, refused). Anything unknown is neutral.
 export function resultTone(result?: string): OutcomeTone {
   switch (result) {
     case "passed":
@@ -294,7 +293,6 @@ export function resultTone(result?: string): OutcomeTone {
     case "refused":
       return "red";
     case "unsure":
-    case "quarantined":
     case "error":
       return "amber";
     default:

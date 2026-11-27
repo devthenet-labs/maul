@@ -57,13 +57,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-//
-// Two values are retired spellings that nothing writes any more, kept in
-// the schema only because settled PreviewVerifications may still hold them
-// and a status write must not fail on a value it leaves unchanged:
-// stale-criteria (now stale-approval) and tester-output-invalid (now
-// tools-output-invalid).
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-workspace;stale-approval;stale-criteria;rollout-unsettled;quota-refused;deadline-no-summary;tools-output-invalid;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete;kept-copy-failed
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-workspace;stale-approval;rollout-unsettled;quota-refused;deadline-no-summary;tools-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -178,18 +172,6 @@ const (
 	// existed. Its message is in intent-controller's
 	// log. Infra, never a verdict.
 	VerificationReasonToolsRefused PreviewVerificationReason = "tools-refused"
-	// VerificationReasonReplayIncomplete: retired spelling: an earlier
-	// release's replay round whose tool pod finished before the end of its
-	// replay (review VC-3). Nothing writes it since replay rounds were
-	// retired; kept in the enum because stored records carry it.
-	VerificationReasonReplayIncomplete PreviewVerificationReason = "replay-incomplete"
-	// VerificationReasonKeptCopyFailed: retired spelling (evaluator
-	// observed, W9): an earlier release's agents tool pod whose sandbox
-	// could not keep the copy of its built tree every check run started
-	// from. Nothing writes it since the sandbox keeps no copy; an earlier
-	// release's relay finishing so is collected Infra evaluator-not-run or
-	// tools-not-ready. Kept in the enum because stored records carry it.
-	VerificationReasonKeptCopyFailed PreviewVerificationReason = "kept-copy-failed"
 )
 
 // VerificationPlacement is where an outcome verification's tool pod runs:

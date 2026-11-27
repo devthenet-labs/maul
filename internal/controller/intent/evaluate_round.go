@@ -59,8 +59,7 @@ import (
 // (SPEC Q16): its hand-off is early, and the Project says why
 // (ConditionEvaluatorUnverified).
 
-// evaluationCeiling is the most one intent's evaluate runs (and an earlier
-// release's checkreview runs) may spend, in micro-USD: the Project's
+// evaluationCeiling is the most one intent's evaluate runs may spend, in micro-USD: the Project's
 // limits.maxEvaluateCostMicroUSD (or its default), never more than
 // --intent-evaluation-cost-max.
 func (s Settings) evaluationCeiling(p *v1alpha1.Project) int64 {
@@ -95,18 +94,13 @@ func evaluable(os []v1alpha1.AcceptanceOutcome) bool {
 	return slices.ContainsFunc(os, func(o v1alpha1.AcceptanceOutcome) bool { return !o.Manual })
 }
 
-// syncEvaluation is syncVerification's evaluator shape: first the judge
-// marker on a record an earlier release left with nothing judged
-// (markVerification, verify_migrate.go), then
-// NotDeclared for a plan with nothing to evaluate (the head set still tracked, for an
+// syncEvaluation is syncVerification's evaluator shape: NotDeclared for a
+// plan with nothing to evaluate (the head set still tracked, for an
 // approver's acceptance), Off for a Project with no verified evaluator,
 // the human-round halt and the head set as slice 1 keeps them, then the
 // round in flight (settleEvaluation).
 func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	acc := p.in.Status.Acceptance
-	if changed, err := p.markVerification(ctx); changed || err != nil {
-		return changed, err
-	}
 	hs, ok := p.headsNow()
 	if !evaluable(acc.Outcomes) {
 		if ok {

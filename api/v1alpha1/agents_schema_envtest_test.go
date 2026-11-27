@@ -277,7 +277,7 @@ func testAgentsStatusSchema(ctx context.Context, t *testing.T, c client.Client) 
 			maulv1.VerificationReasonToolsBuildFailed, maulv1.VerificationReasonSandboxUnenforced,
 			maulv1.VerificationReasonSandboxImageUnavailable, maulv1.VerificationReasonTreeUnavailable,
 			maulv1.VerificationReasonToolPodsSaturated, maulv1.VerificationReasonToolsEvicted,
-			maulv1.VerificationReasonToolsDeadline, maulv1.VerificationReasonKeptCopyFailed,
+			maulv1.VerificationReasonToolsDeadline,
 			maulv1.VerificationReasonStaleWorkspace,
 		} {
 			v := &maulv1.PreviewVerification{}

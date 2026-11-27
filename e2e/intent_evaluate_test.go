@@ -132,8 +132,7 @@ type evalOptions struct {
 	intentArgs, previewArgs []string
 	// mutate edits the Project spec before it is created.
 	mutate func(*v1alpha1.ProjectSpec)
-	// agentRunner are phases beside evaluate and checkreview the real
-	// agent-runner runs.
+	// agentRunner are phases beside evaluate the real agent-runner runs.
 	agentRunner []string
 	// beforeIntents runs once the cluster is up, before intent-controller
 	// starts, and returns more flags for it (a broker started first).
@@ -431,9 +430,6 @@ func TestIntentEvaluatePasses(t *testing.T) {
 	tool := e.checkEvaluatorPinned(t, name, &pv)
 	if pv.Status.Ledger == nil || pv.Status.Ledger.ConfigMap == "" {
 		t.Errorf("ledger %+v; want the ledger stored", pv.Status.Ledger)
-	}
-	if n := len(e.stageRuns(t, name, "checkreview")); n != 0 {
-		t.Errorf("%d checkreview runs; want none", n)
 	}
 
 	// The hand-off: ready, linked, each row naming the call it cites.
@@ -1156,9 +1152,8 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 		return v.State == v1alpha1.VerificationPassed && v.Round == 2
 	})
 	e.round(t, name, 2)
-	if len(e.evaluatorJobs()) != 2 || len(e.stageRuns(t, name, "checkreview")) != 0 {
-		t.Errorf("%d evaluate Jobs; want a model round's two evaluators and no checkreview run",
-			len(e.evaluatorJobs()))
+	if len(e.evaluatorJobs()) != 2 {
+		t.Errorf("%d evaluate Jobs; want a model round's two evaluators", len(e.evaluatorJobs()))
 	}
 }
 

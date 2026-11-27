@@ -54,10 +54,6 @@ var settleWords = map[v1alpha1.SettleCause][2]SettleWords{
 		{Why: HandoffWhyUnavailable, Short: toolsLostShort},
 		{Why: HandoffWhyUnavailable, Short: toolsLostShort},
 	},
-	v1alpha1.SettleReplayIncomplete: {
-		{Why: HandoffWhyReplay, Short: replayShort},
-		{Why: HandoffWhyReplay, Short: replayShort},
-	},
 }
 
 // The causes' commit status words that read alike in both placements.
@@ -68,7 +64,6 @@ const (
 	buildFailedShort = "maul's own build of the pull request did not finish, so the checks could not run"
 	sandboxShort     = "maul's sandbox was not enforced, so the checks could not run"
 	toolsLostShort   = "maul's own checking tools stopped before the checks finished"
-	replayShort      = "maul could not re-run every check it saved"
 )
 
 // CauseWords are c's words, on a Project with no preview when workspace;

@@ -738,8 +738,8 @@ type IntentAcceptance struct {
 	Accepted []AcceptanceRecord `json:"accepted,omitempty"`
 }
 
-// AcceptanceRecord is one approver's /maul accept of a manual, command or
-// quarantined criterion. It holds only at the combined change it was given
+// AcceptanceRecord is one approver's /maul accept of a manual or command
+// criterion. It holds only at the combined change it was given
 // at: once the heads move it is shown as not re-checked.
 type AcceptanceRecord struct {
 	// ID of the accepted criterion.
@@ -798,7 +798,7 @@ const (
 	// VerificationVerifying: a PreviewVerification is in flight.
 	VerificationVerifying IntentVerificationState = "Verifying"
 	// VerificationPassed: every automatable criterion passed at the current
-	// heads (some perhaps only on retry: quarantined).
+	// heads.
 	VerificationPassed IntentVerificationState = "Passed"
 	// VerificationFailing: a criterion failed and no fix round runs.
 	VerificationFailing IntentVerificationState = "Failing"
@@ -825,18 +825,16 @@ const (
 // OutcomeResultValue is the decided result of one approved outcome
 // (acceptance.Judge): passed only on the evaluator's pass citing a call of
 // its own that maul counts, seen to hold; failed only on its fail citing
-// one, seen not to hold; accepted by an approver's /maul accept;
-// quarantined is a retired spelling an earlier release wrote.
-// +kubebuilder:validation:Enum=passed;failed;unsure;quarantined;accepted
+// one, seen not to hold; accepted by an approver's /maul accept.
+// +kubebuilder:validation:Enum=passed;failed;unsure;accepted
 type OutcomeResultValue string
 
 // Outcome results.
 const (
-	OutcomePassed      OutcomeResultValue = "passed"
-	OutcomeFailed      OutcomeResultValue = "failed"
-	OutcomeUnsure      OutcomeResultValue = "unsure"
-	OutcomeQuarantined OutcomeResultValue = "quarantined"
-	OutcomeAccepted    OutcomeResultValue = "accepted"
+	OutcomePassed   OutcomeResultValue = "passed"
+	OutcomeFailed   OutcomeResultValue = "failed"
+	OutcomeUnsure   OutcomeResultValue = "unsure"
+	OutcomeAccepted OutcomeResultValue = "accepted"
 )
 
 // OutcomeResult is the decided result of one approved outcome.
@@ -975,7 +973,7 @@ type HandoffState struct {
 // name before the cause had more than the Unavailable state's reasons;
 // the four first values keep their spellings, so a record written before
 // reads as the same cause.
-// +kubebuilder:validation:Enum=PreviewNotLive;SandboxImageUnavailable;TreeUnavailable;ToolsBuildFailed;SandboxUnenforced;ToolsLost;ReplayIncomplete
+// +kubebuilder:validation:Enum=PreviewNotLive;SandboxImageUnavailable;TreeUnavailable;ToolsBuildFailed;SandboxUnenforced;ToolsLost
 type SettleCause string
 
 // Settle causes.
@@ -1001,20 +999,14 @@ const (
 	// sandbox's network open (sandbox-unenforced).
 	SettleSandboxUnenforced SettleCause = "SandboxUnenforced"
 	// SettleToolsLost: the last attempt's tool pod was taken away or
-	// reached its deadline (tools-evicted, tools-deadline; and the retired
-	// kept-copy-failed of an earlier release's record).
+	// reached its deadline (tools-evicted, tools-deadline).
 	SettleToolsLost SettleCause = "ToolsLost"
-	// SettleReplayIncomplete: retired spelling: an earlier release's replay
-	// attempt that finished before the end of its replay (replay-incomplete,
-	// review VC-3). Nothing writes it now; kept because stored records carry
-	// it.
-	SettleReplayIncomplete SettleCause = "ReplayIncomplete"
 )
 
 // SettleCauses are every cause, SettleNone first, in a slice of its own.
 func SettleCauses() []SettleCause {
 	return []SettleCause{SettleNone, SettlePreviewNotLive, SettleSandboxImage, SettleTree,
-		SettleToolsBuildFailed, SettleSandboxUnenforced, SettleToolsLost, SettleReplayIncomplete}
+		SettleToolsBuildFailed, SettleSandboxUnenforced, SettleToolsLost}
 }
 
 // CauseOf is the cause a round whose last attempt settled for reason
@@ -1031,10 +1023,8 @@ func CauseOf(reason PreviewVerificationReason) SettleCause {
 		return SettleToolsBuildFailed
 	case VerificationReasonSandboxUnenforced:
 		return SettleSandboxUnenforced
-	case VerificationReasonToolsEvicted, VerificationReasonToolsDeadline, VerificationReasonKeptCopyFailed:
+	case VerificationReasonToolsEvicted, VerificationReasonToolsDeadline:
 		return SettleToolsLost
-	case VerificationReasonReplayIncomplete:
-		return SettleReplayIncomplete
 	}
 	return SettleNone
 }
@@ -1397,8 +1387,8 @@ type IntentVerification struct {
 	// start of the handoffMax clock.
 	// +optional
 	FirstGreenAt *metav1.Time `json:"firstGreenAt,omitempty"`
-	// EvaluationCostMicroUSD is what the intent's evaluate and checkreview
-	// runs have spent, against the Project's maxEvaluateCostMicroUSD.
+	// EvaluationCostMicroUSD is what the intent's evaluate runs have
+	// spent, against the Project's maxEvaluateCostMicroUSD.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=1000000000000

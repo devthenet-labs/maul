@@ -21,9 +21,6 @@ const (
 	// verify, never a verb: action.VerbReset is the integration-scoped
 	// delete-everything, which no intent surface offers.
 	VerifyReset = "--reset"
-	// VerifyExplore asks for the full rung: the evaluator looks again even
-	// where the saved checks alone (a replay round) could settle it.
-	VerifyExplore = "explore"
 )
 
 // maxCriterionIDBytes bounds a criterion id, as the plan grammar does.
@@ -37,8 +34,6 @@ type VerifyArgs struct {
 	Stop bool
 	// Reset: "/maul verify --reset".
 	Reset bool
-	// Explore: "/maul verify explore".
-	Explore bool
 }
 
 // Args returns the arguments of the command body carries: the
@@ -58,7 +53,7 @@ func Args(body string) (args []string, ok bool) {
 }
 
 // ParseVerify reads body as /maul verify: no argument, VerifyFix,
-// VerifyStop, VerifyReset or VerifyExplore, at most one of them, matched
+// VerifyStop or VerifyReset, at most one of them, matched
 // without regard to ASCII case. ok is false for any other verb and for any
 // other argument, which asks for the help instead: nothing is ever guessed
 // from a verify command a human mistyped.
@@ -79,8 +74,6 @@ func ParseVerify(body string) (VerifyArgs, bool) {
 		return VerifyArgs{Stop: true}, true
 	case strings.EqualFold(args[0], VerifyReset):
 		return VerifyArgs{Reset: true}, true
-	case strings.EqualFold(args[0], VerifyExplore):
-		return VerifyArgs{Explore: true}, true
 	}
 	return VerifyArgs{}, false
 }

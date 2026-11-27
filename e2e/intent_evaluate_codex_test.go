@@ -18,7 +18,8 @@ import (
 // request goes through the shipped egress broker to a fake OpenAI upstream
 // (TokenReview of a caller token bound to the Job's pod), and which drives
 // the real maul-tool against the tool pod as the claude script does, citing
-// its calls; the round passes, and no checkreview run is ever created. maul has verified no codex evaluator live (SPEC Q16), so
+// its calls; the round passes. maul has verified no codex evaluator live
+// (SPEC Q16), so
 // without the flag the Project says so (EvaluatorUnverified) and its
 // intents are not evaluated: their hand-off is early, at once, and no tool
 // pod or evaluator runs.
@@ -39,9 +40,6 @@ func TestIntentEvaluateCodex(t *testing.T) {
 		if runs := e.stageRuns(t, name, v1alpha1.IntentStageEvaluate); len(runs) != 1 ||
 			runs[0].Spec.Harness != v1alpha1.ProjectHarnessCodex {
 			t.Errorf("evaluate runs %d, harness %v; want one, on codex", len(runs), runs)
-		}
-		if runs := e.stageRuns(t, name, "checkreview"); len(runs) != 0 {
-			t.Errorf("checkreview runs %d, want none", len(runs))
 		}
 		job := e.kubelet.waitRun(t, "the evaluator's Job", phaseIs("evaluate"))
 		if job.Job.Spec.Template.Labels[v1alpha1.LabelHarness] != "codex" || job.ExitCode != 0 {

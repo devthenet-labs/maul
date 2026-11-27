@@ -519,7 +519,6 @@ spec:
                 - build
                 - revise
                 - evaluate
-                - checkreview
                 type: string
               trees:
                 description: |-

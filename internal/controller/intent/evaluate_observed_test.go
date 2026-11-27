@@ -432,28 +432,6 @@ func TestJudgeRoundNeverStrongerThanIndex(t *testing.T) {
 // property (design: seed 20261123, as acceptance's own).
 const acceptanceJudgeSeed = 20261123
 
-// TestVerifyExploreIsAPlainVerify: /maul verify explore, retired with the
-// cost ladder, is recorded and answered as a plain /maul verify, on the
-// issue and on a pull request: the request never says explore, and starts
-// the next round as any request does.
-func TestVerifyExploreIsAPlainVerify(t *testing.T) {
-	for _, surface := range []string{"issue", "pull request"} {
-		t.Run(surface, func(t *testing.T) {
-			e, name := newEvaluatorEnv(t, 0.4)
-			e.evaluateReporting(anomalyReport)
-			e.acceptManual(name)
-			e.observedRound(name, 1)
-			replies := e.request(name, surface, "/maul verify explore")
-			if len(replies) != 1 || strings.Contains(replies[0], "explore") {
-				t.Errorf("replies %q, want one, a plain request's", replies)
-			}
-			if pv := e.roundOf(name, 2); pv.Annotations[annotationVerificationTrigger] != verificationByRequest {
-				t.Errorf("round 2 started by %q, want the request", pv.Annotations[annotationVerificationTrigger])
-			}
-		})
-	}
-}
-
 // TestHeldFindingThroughARequestedRound (G-B-LIB-1 on the live path): an
 // outcome round 1 saw not to hold at the heads stays held when an approver
 // asks for another round at the same heads, automatic fixes stopped, and
@@ -465,9 +443,9 @@ func TestHeldFindingThroughARequestedRound(t *testing.T) {
 		httpEntry(2, "GET", "/version", `{"commit":"dev"}`),
 		httpEntry(3, "GET", "/healthz", "ok"),
 	})
-	e.request(name, "issue", "/maul verify stop")
+	e.request(name, "/maul verify stop")
 	e.evaluateReporting(evaluationReport)
-	e.request(name, "issue", "/maul verify")
+	e.request(name, "/maul verify")
 	e.observedRound(name, 2)
 	v := e.verification(name)
 	if v.Round != 2 || v.OutcomesRound != 2 || v.State != v1alpha1.VerificationUnconfirmed {

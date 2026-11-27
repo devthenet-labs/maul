@@ -42,11 +42,10 @@ type usage struct {
 // any of its surfaces names them.
 var (
 	verifyUsage = usage{verb: action.VerbVerify,
-		args: "[" + VerifyFix + "|" + VerifyStop + "|" + VerifyReset + "|" + VerifyExplore + "]",
+		args: "[" + VerifyFix + "|" + VerifyStop + "|" + VerifyReset + "]",
 		summary: "check the change against the plan's acceptance criteria now; `" + VerifyFix +
 			"` also lets maul fix failures again, `" + VerifyStop + "` only stops maul fixing failures on its own, `" +
-			VerifyReset + "` first restarts the preview with fresh data, `" + VerifyExplore +
-			"` is a plain verify (kept for older comments)"}
+			VerifyReset + "` first restarts the preview with fresh data"}
 	acceptUsage = usage{verb: action.VerbAccept, args: "<id>|" + AcceptAll,
 		summary: "accept, at the current commits, a manual outcome or criterion, or one maul's evaluator did not " +
 			"see hold; `" + AcceptAll + "` accepts every one of them, and a note may follow on the lines below"}

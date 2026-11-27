@@ -110,7 +110,7 @@ func TestNoteDoesNotHoldAnAcceptance(t *testing.T) {
 	if v := e.judgeAt(name, 1, heads, ev); v.State != v1alpha1.VerificationUnconfirmed {
 		t.Fatalf("round 1 = %s, want Unconfirmed (the case's premise)", v.State)
 	}
-	replies := e.request(name, "issue", "/maul accept "+oVersion)
+	replies := e.request(name, "/maul accept "+oVersion)
 	if len(replies) != 1 || !strings.Contains(replies[0], "is done") {
 		t.Fatalf("accept replies %q, want it accepted", replies)
 	}
@@ -280,12 +280,12 @@ func TestNoteRoundPasses(t *testing.T) {
 		t.Errorf("maul/acceptance %+v (posted %v), want success beside the note", st, ok)
 	}
 
-	replies := e.request(name, "issue", "/maul verify fix")
+	replies := e.request(name, "/maul verify fix")
 	if len(replies) != 1 || strings.Contains(replies[0], "anomal") {
 		t.Errorf("verify fix replies %q, want no word of anomalies", replies)
 	}
 	accepted := len(e.get(name).Status.Acceptance.Accepted)
-	replies = e.request(name, "issue", "/maul accept anomalies")
+	replies = e.request(name, "/maul accept anomalies")
 	if len(replies) != 1 || !strings.Contains(replies[0], "names no outcome of the approved plan") {
 		t.Errorf("accept anomalies replies %q, want the unknown-outcome reply", replies)
 	}
