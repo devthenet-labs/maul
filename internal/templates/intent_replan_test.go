@@ -31,6 +31,14 @@ func TestReplanInReviewGoldens(t *testing.T) {
 				PlanRevision: 2, Closed: merged[1:], Merged: merged[:1],
 			})
 		}},
+		{"intent_notice_replan_review_left_open.md", func() (string, error) {
+			prs := testMultiPRs()
+			prs[0].State, prs[1].State = "closed", "open"
+			return RenderReplanInReviewNotice(ReplanInReviewNotice{
+				Namespace: "maul", Intent: "marigold-3", Key: "comment-41", Actor: "alice", Verb: "replan",
+				PlanRevision: 2, Closed: prs[:1], LeftOpen: prs[1:],
+			})
+		}},
 		{"intent_replan_closed_pr_label.md", func() (string, error) {
 			return RenderReplanClosedComment(ReplanClosedComment{
 				Namespace: "maul", Intent: "marigold-3", Key: ReplanClosedKey("event-7"), Actor: "alice",

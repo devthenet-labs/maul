@@ -4,6 +4,7 @@
 package intent
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -481,5 +482,73 @@ func TestReplanInReviewSurvivesLostStatusWrites(t *testing.T) {
 	if got := e.latestAcceptance(e.gh.prs[1].pr.HeadSHA); got.State != "error" ||
 		got.Description != "superseded by a replan" {
 		t.Errorf("latest maul/acceptance = %+v, want the final error", got)
+	}
+}
+
+// TestReplanInReviewSurvivesRefusals: a refusal GitHub repeats however often
+// it is asked (a missing permission, a locked conversation, a rule) never
+// holds the replan, which skips that thing, says what it could not do, and
+// plans again: a pull request maul could not close is named in the reply
+// as left open for a person to close.
+func TestReplanInReviewSurvivesRefusals(t *testing.T) {
+	refused := ghError(http.StatusForbidden, "Resource not accessible by integration")
+	cases := []struct {
+		name     string
+		refuse   func(e *env)
+		leftOpen bool
+	}{
+		{"maul/acceptance refused", func(e *env) {
+			for range 50 {
+				e.gh.failNext("CreateCommitStatus", refused)
+			}
+		}, false},
+		{"the comment refused (locked)", func(e *env) {
+			e.gh.mu.Lock()
+			e.gh.lockedPRs[1] = true
+			e.gh.mu.Unlock()
+		}, false},
+		{"the close refused", func(e *env) {
+			e.gh.mu.Lock()
+			e.gh.repoErrs["ClosePullRequest acme/app"] = refused
+			e.gh.mu.Unlock()
+		}, true},
+		{"the pull request unreadable", func(e *env) {
+			e.gh.mu.Lock()
+			e.gh.repoErrs["GetPullRequest acme/app"] = refused
+			e.gh.mu.Unlock()
+		}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := replanEnv(t, testProject())
+			name := e.reviewing()
+			e.setStatus(name, func(in *v1alpha1.Intent) {
+				in.Status.PullRequests[0].AcceptanceStatusID = 77
+				in.Status.PullRequests[0].AcceptanceHead = in.Status.PullRequests[0].HeadSHA
+			})
+			tc.refuse(e)
+			e.clock.Advance(time.Minute)
+			id := e.gh.comment(approver, "/maul replan")
+			for range 10 {
+				_ = e.reconcileIntent(name)
+				e.runRuns()
+				e.clock.Advance(time.Minute)
+			}
+			in := e.get(name)
+			if in.Status.Replan != nil || in.Status.Input.Revision != 2 {
+				t.Fatalf("phase %s, replan %+v, input r%d: the refusal held the replan", in.Status.Phase,
+					in.Status.Replan, in.Status.Input.Revision)
+			}
+			reply := e.notices(name, "comment-"+itoa(id))
+			if len(reply) != 1 {
+				t.Fatalf("replies = %q, want one", reply)
+			}
+			if got := strings.Contains(reply[0], "Left open"); got != tc.leftOpen {
+				t.Errorf("reply names a pull request left open: %v, want %v:\n%s", got, tc.leftOpen, reply[0])
+			}
+			if e.gh.state() != "open" {
+				t.Error("the issue was closed")
+			}
+		})
 	}
 }

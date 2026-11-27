@@ -121,8 +121,10 @@ func (p *pass) replanRefusal(ctx context.Context) (*templates.ReplanRefusedNotic
 		if !isMerged {
 			live, err := p.r.GitHub.GetPullRequest(ctx, pr.Repository, pr.Number)
 			switch {
-			case err != nil && p.leftProject(pr.Repository):
-				// Out of reach: its record decides.
+			case err != nil && (p.leftProject(pr.Repository) || ghclient.IsRefused(err)):
+				// Out of reach, or GitHub refuses the read (as it would
+				// again): its record decides. A pull request maul cannot
+				// read it cannot close either; the reply will say so.
 			case err != nil:
 				return nil, fmt.Errorf("read pull request %s#%d: %w", repoSlug(pr.Repository), pr.Number, err)
 			default:
@@ -149,10 +151,11 @@ func (p *pass) continueReplan(ctx context.Context) (ctrl.Result, error) {
 	if changed, err := p.withdrawAcceptance(ctx); changed || err != nil {
 		return ctrl.Result{}, err
 	}
-	if changed, err := p.closeForReplan(ctx); changed || err != nil {
+	changed, leftOpen, err := p.closeForReplan(ctx)
+	if changed || err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, p.planAfterReplan(ctx)
+	return ctrl.Result{}, p.planAfterReplan(ctx, leftOpen)
 }
 
 // oldPlanRunning reports a run of the replaced plan (any but a plan run)
@@ -184,6 +187,14 @@ func (p *pass) withdrawAcceptance(ctx context.Context) (bool, error) {
 		}
 		id, err := p.r.GitHub.CreateCommitStatus(ctx, pr.Repository, pr.AcceptanceHead, supersededByReplan.state,
 			acceptanceContext, supersededByReplan.description, p.verifyTargetURL())
+		if ghclient.IsRefused(err) {
+			// Asked again it is refused again: the replan never waits on
+			// it. The pull request is closed next, which no status outlives.
+			p.r.log().LogAttrs(ctx, slog.LevelWarn, "GitHub refused to withdraw maul/acceptance for a replan",
+				slog.String("intent", p.in.Name), slog.String("repository", pr.Repository),
+				slog.Int64("number", pr.Number), slog.Any("error", err))
+			continue
+		}
 		if err != nil {
 			return false, fmt.Errorf("withdraw maul/acceptance on %s#%d: %w", repoSlug(pr.Repository), pr.Number, err)
 		}
@@ -202,43 +213,68 @@ func (p *pass) withdrawAcceptance(ctx context.Context) (bool, error) {
 // closeForReplan reads every pull request still recorded open, live: an
 // open one gets the replan's one comment and is closed; a merged one (a
 // human merged it after the replan was recorded) stays merged. Each one's
-// state is recorded. A pull request in a repository that left the Project
-// is left as it is. changed reports the status write.
-func (p *pass) closeForReplan(ctx context.Context) (bool, error) {
+// state is recorded, and changed reports that status write. One GitHub
+// refuses to read or close, as it would refuse it again, is left open and
+// returned in leftOpen for the reply to name; so is one in a repository
+// that left the Project. Neither holds the replan.
+func (p *pass) closeForReplan(ctx context.Context) (changed bool, leftOpen []v1alpha1.IntentPullRequest,
+	err error) {
 	rp := p.in.Status.Replan
 	prs := slices.Clone(p.in.Status.PullRequests)
-	changed := false
 	for i := range prs {
 		pr := &prs[i]
-		if pr.State != prOpen || p.leftProject(pr.Repository) {
+		if pr.State != prOpen {
 			continue
 		}
-		live, err := p.r.GitHub.GetPullRequest(ctx, pr.Repository, pr.Number)
-		switch {
-		case ghclient.IsNotFound(err):
-			pr.State = prClosed
-		case err != nil:
-			return false, fmt.Errorf("read pull request %s#%d: %w", repoSlug(pr.Repository), pr.Number, err)
-		case live.Merged:
-			at := metav1.NewTime(live.MergedAt)
-			pr.State, pr.MergedAt = prMerged, &at
-		case live.State == prOpen:
-			if err := p.closeOne(ctx, *pr, rp); err != nil {
-				return false, err
-			}
-			pr.State = prClosed
-		default:
-			pr.State = prClosed
+		if p.leftProject(pr.Repository) {
+			leftOpen = append(leftOpen, *pr)
+			continue
 		}
-		changed = true
+		closed, err := p.closeLive(ctx, pr, rp)
+		switch {
+		case ghclient.IsRefused(err):
+			p.r.log().LogAttrs(ctx, slog.LevelWarn, "GitHub refused to close a pull request for a replan; it is left open",
+				slog.String("intent", p.in.Name), slog.String("repository", pr.Repository),
+				slog.Int64("number", pr.Number), slog.Any("error", err))
+			leftOpen = append(leftOpen, *pr)
+			continue
+		case err != nil:
+			return false, nil, err
+		}
+		changed = changed || closed
 	}
 	if !changed {
-		return false, nil
+		return false, leftOpen, nil
 	}
-	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+	return true, nil, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		cur.Status.PullRequests = prs
 		return nil
 	})
+}
+
+// closeLive reads pr live and settles it for the replan: closed (after its
+// one comment) when open, recorded merged or closed as GitHub has it.
+// settled reports that pr's state changed.
+func (p *pass) closeLive(ctx context.Context, pr *v1alpha1.IntentPullRequest, rp *v1alpha1.IntentReplan) (
+	settled bool, err error) {
+	live, err := p.r.GitHub.GetPullRequest(ctx, pr.Repository, pr.Number)
+	switch {
+	case ghclient.IsNotFound(err):
+		pr.State = prClosed
+	case err != nil:
+		return false, fmt.Errorf("read pull request %s#%d: %w", repoSlug(pr.Repository), pr.Number, err)
+	case live.Merged:
+		at := metav1.NewTime(live.MergedAt)
+		pr.State, pr.MergedAt = prMerged, &at
+	case live.State == prOpen:
+		if err := p.closeOne(ctx, *pr, rp); err != nil {
+			return false, err
+		}
+		pr.State = prClosed
+	default:
+		pr.State = prClosed
+	}
+	return true, nil
 }
 
 // closeOne posts the replan's comment on pr, once, and closes it.
@@ -255,7 +291,14 @@ func (p *pass) closeOne(ctx context.Context, pr v1alpha1.IntentPullRequest, rp *
 	if err != nil {
 		return err
 	}
-	if err := p.postOnceOnPullRequest(ctx, pr, key, body); err != nil {
+	switch err := p.postOnceOnPullRequest(ctx, pr, key, body); {
+	case ghclient.IsRefused(err):
+		// A locked conversation, a missing permission: the close is what
+		// matters, and the reply on the issue says why it was closed.
+		p.r.log().LogAttrs(ctx, slog.LevelWarn, "GitHub refused the replan's comment on a pull request",
+			slog.String("intent", p.in.Name), slog.String("repository", pr.Repository),
+			slog.Int64("number", pr.Number), slog.Any("error", err))
+	case err != nil:
 		return fmt.Errorf("comment on %s#%d before closing it: %w", repoSlug(pr.Repository), pr.Number, err)
 	}
 	if err := p.r.GitHub.ClosePullRequest(ctx, pr.Repository, pr.Number); err != nil {
@@ -264,10 +307,11 @@ func (p *pass) closeOne(ctx context.Context, pr v1alpha1.IntentPullRequest, rp *
 	return nil
 }
 
-// planAfterReplan posts the replan's reply on the issue, once, and plans
-// again: the replan is the new input revision's trigger, and the Planning
-// write clears the replan and what review left on the intent.
-func (p *pass) planAfterReplan(ctx context.Context) error {
+// planAfterReplan posts the replan's reply on the issue, once, naming the
+// pull requests leftOpen, and plans again: the replan is the new input
+// revision's trigger, and the Planning write clears the replan and what
+// review left on the intent.
+func (p *pass) planAfterReplan(ctx context.Context, leftOpen []v1alpha1.IntentPullRequest) error {
 	rp := p.in.Status.Replan
 	key := actionKey(rp.Trigger)
 	n := templates.ReplanInReviewNotice{Namespace: p.in.Namespace, Intent: p.in.Name, Key: key,
@@ -286,6 +330,10 @@ func (p *pass) planAfterReplan(ctx context.Context) error {
 		case prClosed:
 			n.Closed = append(n.Closed, t)
 		}
+	}
+	for _, pr := range leftOpen {
+		n.LeftOpen = append(n.LeftOpen, templates.IntentPullRequest{Repository: repoSlug(pr.Repository),
+			Number: pr.Number, URL: pr.URL, State: pr.State})
 	}
 	body, err := templates.RenderReplanInReviewNotice(n)
 	if err := p.notice(ctx, key, rp.Trigger.At.Time, body, err); err != nil {

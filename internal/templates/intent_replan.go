@@ -32,6 +32,10 @@ type ReplanInReviewNotice struct {
 	// merged before maul could close them, which stay merged.
 	Closed []IntentPullRequest
 	Merged []IntentPullRequest
+	// LeftOpen are those GitHub would not let maul close (or read), and
+	// those in a repository the Project no longer lists: a person closes
+	// them.
+	LeftOpen []IntentPullRequest
 }
 
 // RenderReplanInReviewNotice renders a ReplanInReviewNotice.
@@ -43,6 +47,7 @@ func RenderReplanInReviewNotice(n ReplanInReviewNotice) (string, error) {
 		PlanRevision int32
 		Closed       []statusPR
 		Merged       []statusPR
+		LeftOpen     []statusPR
 	}{
 		Marker:       NoticeMarker(n.Namespace, n.Intent, n.Key),
 		Asked:        askedBy(n.Verb, n.Label),
@@ -50,6 +55,7 @@ func RenderReplanInReviewNotice(n ReplanInReviewNotice) (string, error) {
 		PlanRevision: n.PlanRevision,
 		Closed:       linkedPRs(n.Closed),
 		Merged:       linkedPRs(n.Merged),
+		LeftOpen:     linkedPRs(n.LeftOpen),
 	})
 }
 

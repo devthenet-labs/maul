@@ -21,3 +21,10 @@ as a hard break. */ -}}
 - [{{ .Ref }}]({{ .URL }})
 {{- end }}
 {{- end }}
+{{- with .LeftOpen }}
+
+**Left open, since maul could not close it: close it yourself, as it is no longer part of this intent:**
+{{ range . }}
+- [{{ .Ref }}]({{ .URL }})
+{{- end }}
+{{- end }}
